@@ -72,7 +72,7 @@ docker compose logs -f <container>   # watch for startup errors
 ```
 modules/provider-service      OneBot/NapCat 入站、LLM provider 执行、消息模拟、embeddings、queue 写入
 modules/agent-service         主 agent loop runtime，消费 queue batch、执行 single-turn life action 决策、写 run/trace/delivery state，并运行 presence 后台循环和 life event 投影
-modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、image lab、codex pool、traffic replay、runtime status
+modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、image lab、traffic replay、runtime status
 modules/admin-panel/frontend  React + Vite 管理端 UI，只走 admin-backend，不直连 provider-service
 modules/embedding-server      内部 embedding 服务，对外由 provider-service /v1/* 暴露，不直接对外
 modules/http-traffic-monitor  HTTP 流量查看与回放工具链

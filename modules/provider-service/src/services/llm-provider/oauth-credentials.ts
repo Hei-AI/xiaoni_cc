@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+const CODEX_AUTH_FALLBACK_EXPIRY_MS = 60 * 60 * 1000;
+
 export type OAuthCredentialSource =
   | {
       path: string;
@@ -88,6 +90,10 @@ export async function loadOAuthCredential(
 
       if (raw?.tokens && typeof raw.tokens === 'object') {
         const credential = normalizeCredentialRecord(raw.tokens);
+        if (!credential.expires && credential.access) {
+          credential.expires = decodeJwtExpiryMs(credential.access)
+            || await resolveCodexAuthFallbackExpiryMs(candidate);
+        }
         if (credential.access || credential.refresh) {
           return {
             credential,
@@ -135,6 +141,9 @@ export async function persistOAuthCredential(
   if (!source) {
     return;
   }
+  if (source.format === 'codex-auth') {
+    return;
+  }
 
   await fs.mkdir(path.dirname(source.path), { recursive: true });
 
@@ -158,18 +167,6 @@ export async function persistOAuthCredential(
       ...(credential.email ? { email: credential.email } : {}),
       ...(credential.idToken ? { idToken: credential.idToken } : {})
     };
-  } else if (source.format === 'codex-auth') {
-    payload.tokens = {
-      ...(payload.tokens && typeof payload.tokens === 'object' ? payload.tokens : {}),
-      ...(credential.access ? { access_token: credential.access } : {}),
-      ...(credential.refresh ? { refresh_token: credential.refresh } : {}),
-      ...(credential.expires ? { expires_at: credential.expires } : {}),
-      ...(credential.accountId ? { account_id: credential.accountId } : {}),
-      ...(credential.idToken ? { id_token: credential.idToken } : {})
-    };
-    payload.auth_mode = 'chatgpt';
-    payload.OPENAI_API_KEY = null;
-    payload.last_refresh = new Date().toISOString();
   } else if (source.format === 'gemini-cli-native') {
     payload = {
       ...(payload && typeof payload === 'object' ? payload : {}),
@@ -243,4 +240,39 @@ function normalizeExpiry(...values: any[]): number | undefined {
   }
 
   return undefined;
+}
+
+function decodeJwtExpiryMs(token: string): number | undefined {
+  const parts = token.split('.');
+  if (parts.length < 2 || !parts[1]) {
+    return undefined;
+  }
+
+  try {
+    const payloadRaw = Buffer.from(parts[1], 'base64url').toString('utf8');
+    const payload = JSON.parse(payloadRaw) as { exp?: unknown };
+    if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp) || payload.exp <= 0) {
+      return undefined;
+    }
+    const expires = Math.trunc(payload.exp * 1000);
+    return Number.isSafeInteger(expires) && expires > 0 ? expires : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveCodexAuthFallbackExpiryMs(candidate: string): Promise<number | undefined> {
+  let baseMs: number;
+  try {
+    const stat = await fs.stat(candidate);
+    baseMs = stat.mtimeMs;
+  } catch {
+    baseMs = Date.now();
+  }
+
+  const normalizedBaseMs = Math.floor(baseMs);
+  if (!Number.isFinite(normalizedBaseMs) || normalizedBaseMs <= 0) {
+    return undefined;
+  }
+  return normalizedBaseMs + CODEX_AUTH_FALLBACK_EXPIRY_MS;
 }

@@ -9,7 +9,7 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, codexAccountRefreshConfig, mediaInspectorConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, mediaInspectorConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -31,8 +31,6 @@ import TopicProjectionService from './services/topic-projection-service';
 import TopicProjectionExecutorService from './services/topic-projection-executor-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
-import { codexAccountManager } from './services/codex-account-manager';
-import { CodexAccountRefreshSweeper } from './services/codex-account-refresh-sweeper';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import { inspectMediaImage } from './services/media-inspector-service';
 import {
@@ -64,12 +62,6 @@ const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
 const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
-const codexAccountRefreshSweeper = new CodexAccountRefreshSweeper({
-  manager: codexAccountManager,
-  enabled: codexAccountRefreshConfig.enabled,
-  intervalMs: codexAccountRefreshConfig.intervalMs,
-  refreshThresholdMs: codexAccountRefreshConfig.refreshThresholdMs
-});
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
 const relationshipLedgerService = new RelationshipLedgerService({
@@ -1363,177 +1355,6 @@ app.post('/api/internal/config-cache/clear', (_req, res) => {
   });
 });
 
-app.get('/api/internal/codex-accounts/status', async (_req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.getStatus(),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to load Codex accounts status',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/api/internal/codex-accounts', async (_req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.listAccounts(),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to list Codex accounts',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/login-session', async (req, res) => {
-  try {
-    const redirectUri = typeof req.body?.redirectUri === 'string' ? req.body.redirectUri.trim() : undefined;
-    const replaceAccountId = typeof req.body?.replaceAccountId === 'string' ? req.body.replaceAccountId.trim() : undefined;
-    res.json({
-      success: true,
-      data: await codexAccountManager.createLoginSession({ redirectUri, replaceAccountId }),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to create Codex login session',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/complete-login', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.completeLogin({
-        callbackUrl: typeof req.body?.callbackUrl === 'string' ? req.body.callbackUrl : undefined,
-        code: typeof req.body?.code === 'string' ? req.body.code : undefined,
-        state: typeof req.body?.state === 'string' ? req.body.state : undefined
-      }),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to complete Codex login',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/import', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.importAccount({
-        rawInput: typeof req.body?.rawInput === 'string' ? req.body.rawInput : '',
-        refreshToken: typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined,
-        replaceAccountId: typeof req.body?.replaceAccountId === 'string' ? req.body.replaceAccountId : undefined,
-        refreshEnabled: req.body?.refreshEnabled === true
-      }),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to import Codex account',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/:accountId/activate', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.activateAccount(req.params.accountId),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to activate Codex account',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/:accountId/refresh', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.refreshAccount(req.params.accountId),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to refresh Codex account',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.get('/api/internal/codex-accounts/:accountId/auth-export', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.exportAccountAuth(req.params.accountId),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to export Codex account auth payload',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/codex-accounts/:accountId/enabled', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.setAccountEnabled(req.params.accountId, req.body?.enabled !== false),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to update Codex account status',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.delete('/api/internal/codex-accounts/:accountId', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      data: await codexAccountManager.removeAccount(req.params.accountId),
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to remove Codex account',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
 app.post('/api/internal/chat-policies/check-incoming', async (req, res) => {
   try {
     const messageType = req.body?.message_type === 'group' ? 'group' : 'private';
@@ -1981,7 +1802,6 @@ async function startServer() {
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();
   await runtimeStoreService.initialize();
-  codexAccountRefreshSweeper.start();
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Provider service started', {
@@ -1993,11 +1813,6 @@ async function startServer() {
 
 async function shutdown(signal: string) {
   moduleLogger.info('Shutting down provider service', { signal });
-  await codexAccountRefreshSweeper.stop().catch((error) => {
-    moduleLogger.warn('Failed to stop Codex account refresh sweeper cleanly', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-  });
   await inboxService.close().catch((error) => {
     moduleLogger.warn('Failed to close inbox service cleanly', {
       error: error instanceof Error ? error.message : String(error)

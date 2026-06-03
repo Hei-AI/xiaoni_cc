@@ -86,6 +86,13 @@ const TOOL_DEFINITIONS: OpenResponseToolDefinition[] = [
   }
 ];
 
+function createJwtWithExp(expSeconds: number): string {
+  const encode = (value: Record<string, unknown>) => Buffer
+    .from(JSON.stringify(value), 'utf8')
+    .toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode({ exp: expSeconds })}.signature`;
+}
+
 function createCanonicalRequest(): OpenResponseCreateRequest {
   return {
     model: 'gpt-5.4-mini',
@@ -191,7 +198,8 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.tools[0]?.strict, true);
   assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason', 'note']);
   assert.deepEqual(payload.tools[0]?.parameters?.properties?.note?.type, ['string', 'null']);
-  assert.deepEqual(payload.reasoning, { summary: 'auto' });
+  assert.deepEqual(payload.text, { verbosity: 'low' });
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning'), false);
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
 });
 
@@ -318,12 +326,14 @@ test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route',
 test('Codex local provider uses Codex auth.json against the direct Codex backend', async () => {
   const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-local-auth-'));
   const authPath = path.join(authDir, 'auth.json');
+  const authProfilesPath = path.join(authDir, 'auth-profiles.json');
+  const accessToken = createJwtWithExp(Math.floor(Date.now() / 1000) + 300);
   fs.writeFileSync(authPath, JSON.stringify({
     auth_mode: 'chatgpt',
     tokens: {
-      access_token: 'local-access-token',
+      access_token: accessToken,
       refresh_token: 'local-refresh-token',
-      expires_at: Date.now() + 300_000
+      expires_at: null
     }
   }), 'utf8');
 
@@ -331,6 +341,7 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
     CODEX_LOCAL_BASE_URL: process.env.CODEX_LOCAL_BASE_URL,
     CODEX_LOCAL_RESPONSES_PATH: process.env.CODEX_LOCAL_RESPONSES_PATH,
     CODEX_LOCAL_OAUTH_ACCESS_TOKEN: process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN,
+    CODEX_LOCAL_AUTH_PROFILES_PATH: process.env.CODEX_LOCAL_AUTH_PROFILES_PATH,
     CODEX_OAUTH_ACCESS_TOKEN: process.env.CODEX_OAUTH_ACCESS_TOKEN,
     CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
   };
@@ -339,6 +350,7 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
     delete process.env.CODEX_LOCAL_BASE_URL;
     delete process.env.CODEX_LOCAL_RESPONSES_PATH;
     delete process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN;
+    process.env.CODEX_LOCAL_AUTH_PROFILES_PATH = authProfilesPath;
     delete process.env.CODEX_OAUTH_ACCESS_TOKEN;
     process.env.CODEX_PROXY_API_KEY = 'proxy-key-ignored-by-local-provider';
 
@@ -354,7 +366,14 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
       baseUrl: 'https://chatgpt.com/backend-api',
       responsesPath: '/codex/responses'
     });
-    assert.equal(await provider.resolveApiKeyForTest(), 'local-access-token');
+    assert.equal(await provider.resolveApiKeyForTest(), accessToken);
+
+    const authProfiles = JSON.parse(fs.readFileSync(authProfilesPath, 'utf8'));
+    assert.equal(authProfiles.version, 1);
+    assert.equal(authProfiles.profiles['openai:default'].type, 'oauth');
+    assert.equal(authProfiles.profiles['openai:default'].provider, 'openai');
+    assert.equal(authProfiles.profiles['openai:default'].access, accessToken);
+    assert.equal(authProfiles.profiles['openai:default'].refresh, 'local-refresh-token');
 
     const payload = provider.buildPayload({
       model: 'gpt-5.4-mini',
@@ -366,10 +385,255 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
     assert.equal(payload.model, 'gpt-5.4-mini');
     assert.equal(payload.instructions, 'Be concise.');
     assert.equal(payload.stream, true);
-    assert.deepEqual(payload.reasoning, { summary: 'auto' });
+    assert.deepEqual(payload.text, { verbosity: 'low' });
+    assert.equal(payload.tool_choice, 'auto');
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning'), false);
     assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
     assert.deepEqual(payload.input, [{ type: 'message', role: 'user', content: 'ping' }]);
   } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test('Codex local provider prefers auth-profiles over the Codex CLI auth bootstrap', async () => {
+  const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-local-auth-profiles-'));
+  const authPath = path.join(authDir, 'auth.json');
+  const authProfilesPath = path.join(authDir, 'auth-profiles.json');
+  fs.writeFileSync(authPath, JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: 'cli-bootstrap-access-token',
+      refresh_token: 'cli-bootstrap-refresh-token',
+      expires_at: Date.now() + 300_000
+    }
+  }), 'utf8');
+  fs.writeFileSync(authProfilesPath, JSON.stringify({
+    version: 1,
+    profiles: {
+      'openai:default': {
+        type: 'oauth',
+        provider: 'openai',
+        access: 'profile-access-token',
+        refresh: 'profile-refresh-token',
+        expires: Date.now() + 300_000
+      }
+    }
+  }), 'utf8');
+
+  const previousEnv = {
+    CODEX_LOCAL_OAUTH_ACCESS_TOKEN: process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN,
+    CODEX_LOCAL_AUTH_PROFILES_PATH: process.env.CODEX_LOCAL_AUTH_PROFILES_PATH,
+    CODEX_OAUTH_ACCESS_TOKEN: process.env.CODEX_OAUTH_ACCESS_TOKEN,
+    CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
+  };
+
+  try {
+    delete process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN;
+    process.env.CODEX_LOCAL_AUTH_PROFILES_PATH = authProfilesPath;
+    delete process.env.CODEX_OAUTH_ACCESS_TOKEN;
+    process.env.CODEX_PROXY_API_KEY = 'proxy-key-ignored-by-local-provider';
+
+    const provider = new TestCodexLocalProvider({
+      codex_oauth_path: authPath,
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    assert.equal(await provider.resolveApiKeyForTest(), 'profile-access-token');
+  } finally {
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test('Codex local provider derives auth.json expiry from JWT and writes refresh results to auth-profiles only', async () => {
+  const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-local-jwt-expiry-auth-'));
+  const authPath = path.join(authDir, 'auth.json');
+  const authProfilesPath = path.join(authDir, 'auth-profiles.json');
+  const expiredAccessToken = createJwtWithExp(Math.floor(Date.now() / 1000) - 300);
+  fs.writeFileSync(authPath, JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: expiredAccessToken,
+      refresh_token: 'local-refresh-token',
+      expires_at: null
+    }
+  }), 'utf8');
+
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_LOCAL_OAUTH_ACCESS_TOKEN: process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN,
+    CODEX_LOCAL_OAUTH_REFRESH_TOKEN: process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN,
+    CODEX_LOCAL_OAUTH_EXPIRES_AT: process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT,
+    CODEX_LOCAL_AUTH_PROFILES_PATH: process.env.CODEX_LOCAL_AUTH_PROFILES_PATH,
+    CODEX_OAUTH_ACCESS_TOKEN: process.env.CODEX_OAUTH_ACCESS_TOKEN,
+    CODEX_OAUTH_REFRESH_TOKEN: process.env.CODEX_OAUTH_REFRESH_TOKEN,
+    CODEX_OAUTH_EXPIRES_AT: process.env.CODEX_OAUTH_EXPIRES_AT,
+    CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
+  };
+  let refreshCalls = 0;
+
+  try {
+    delete process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN;
+    delete process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN;
+    delete process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT;
+    process.env.CODEX_LOCAL_AUTH_PROFILES_PATH = authProfilesPath;
+    delete process.env.CODEX_OAUTH_ACCESS_TOKEN;
+    delete process.env.CODEX_OAUTH_REFRESH_TOKEN;
+    delete process.env.CODEX_OAUTH_EXPIRES_AT;
+    process.env.CODEX_PROXY_API_KEY = 'proxy-key-ignored-by-local-provider';
+
+    (globalThis as any).fetch = async () => {
+      refreshCalls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'refreshed-from-jwt-expiry',
+          refresh_token: 'refreshed-refresh-token',
+          expires_in: 3600
+        }),
+        text: async () => ''
+      };
+    };
+
+    const provider = new TestCodexLocalProvider({
+      codex_oauth_path: authPath,
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    assert.equal(await provider.resolveApiKeyForTest(), 'refreshed-from-jwt-expiry');
+    assert.equal(refreshCalls, 1);
+
+    const persisted = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    assert.equal(persisted.tokens.access_token, expiredAccessToken);
+    assert.equal(persisted.tokens.refresh_token, 'local-refresh-token');
+    assert.equal(persisted.tokens.expires_at, null);
+    assert.equal(Object.prototype.hasOwnProperty.call(persisted, 'last_refresh'), false);
+
+    const authProfiles = JSON.parse(fs.readFileSync(authProfilesPath, 'utf8'));
+    assert.equal(authProfiles.profiles['openai:default'].access, 'refreshed-from-jwt-expiry');
+    assert.equal(authProfiles.profiles['openai:default'].refresh, 'refreshed-refresh-token');
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    fs.rmSync(authDir, { recursive: true, force: true });
+  }
+});
+
+test('Codex local provider does not persist refreshed OAuth credentials to auth.json', async () => {
+  const authDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-local-refresh-auth-'));
+  const authPath = path.join(authDir, 'auth.json');
+  const authProfilesPath = path.join(authDir, 'auth-profiles.json');
+  const expiresAt = Date.now() - 300_000;
+  fs.writeFileSync(authPath, JSON.stringify({
+    auth_mode: 'chatgpt',
+    tokens: {
+      access_token: 'expired-local-access-token',
+      refresh_token: 'local-refresh-token',
+      expires_at: expiresAt
+    }
+  }), 'utf8');
+
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_LOCAL_BASE_URL: process.env.CODEX_LOCAL_BASE_URL,
+    CODEX_LOCAL_RESPONSES_PATH: process.env.CODEX_LOCAL_RESPONSES_PATH,
+    CODEX_LOCAL_OAUTH_ACCESS_TOKEN: process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN,
+    CODEX_LOCAL_OAUTH_REFRESH_TOKEN: process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN,
+    CODEX_LOCAL_OAUTH_EXPIRES_AT: process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT,
+    CODEX_LOCAL_AUTH_PROFILES_PATH: process.env.CODEX_LOCAL_AUTH_PROFILES_PATH,
+    CODEX_OAUTH_ACCESS_TOKEN: process.env.CODEX_OAUTH_ACCESS_TOKEN,
+    CODEX_OAUTH_REFRESH_TOKEN: process.env.CODEX_OAUTH_REFRESH_TOKEN,
+    CODEX_OAUTH_EXPIRES_AT: process.env.CODEX_OAUTH_EXPIRES_AT,
+    CODEX_PROXY_API_KEY: process.env.CODEX_PROXY_API_KEY
+  };
+  let refreshCalls = 0;
+
+  try {
+    delete process.env.CODEX_LOCAL_BASE_URL;
+    delete process.env.CODEX_LOCAL_RESPONSES_PATH;
+    delete process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN;
+    delete process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN;
+    delete process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT;
+    process.env.CODEX_LOCAL_AUTH_PROFILES_PATH = authProfilesPath;
+    delete process.env.CODEX_OAUTH_ACCESS_TOKEN;
+    delete process.env.CODEX_OAUTH_REFRESH_TOKEN;
+    delete process.env.CODEX_OAUTH_EXPIRES_AT;
+    process.env.CODEX_PROXY_API_KEY = 'proxy-key-ignored-by-local-provider';
+
+    (globalThis as any).fetch = async (url: string, init: any) => {
+      refreshCalls += 1;
+      assert.equal(url, 'https://auth.openai.com/oauth/token');
+      assert.equal(init?.method, 'POST');
+      assert.equal(init?.body?.get('grant_type'), 'refresh_token');
+      assert.equal(init?.body?.get('refresh_token'), 'local-refresh-token');
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'refreshed-local-access-token',
+          refresh_token: 'refreshed-local-refresh-token',
+          expires_in: 3600
+        }),
+        text: async () => ''
+      };
+    };
+
+    const provider = new TestCodexLocalProvider({
+      codex_oauth_path: authPath,
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    assert.equal(await provider.resolveApiKeyForTest(), 'refreshed-local-access-token');
+    assert.equal(refreshCalls, 1);
+
+    const persisted = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    assert.equal(persisted.tokens.access_token, 'expired-local-access-token');
+    assert.equal(persisted.tokens.refresh_token, 'local-refresh-token');
+    assert.equal(persisted.tokens.expires_at, expiresAt);
+    assert.equal(Object.prototype.hasOwnProperty.call(persisted, 'last_refresh'), false);
+
+    const authProfiles = JSON.parse(fs.readFileSync(authProfilesPath, 'utf8'));
+    assert.equal(authProfiles.profiles['openai:default'].access, 'refreshed-local-access-token');
+    assert.equal(authProfiles.profiles['openai:default'].refresh, 'refreshed-local-refresh-token');
+
+    const nextProvider = new TestCodexLocalProvider({
+      codex_oauth_path: authPath,
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+    assert.equal(await nextProvider.resolveApiKeyForTest(), 'refreshed-local-access-token');
+    assert.equal(refreshCalls, 1);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
         delete process.env[key];
@@ -424,11 +688,13 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.url, 'http://proxy.test/backend-api/codex/responses');
     assert.equal(calls[0]?.init?.headers?.Authorization, 'Bearer proxy-key');
-    assert.equal(calls[0]?.init?.headers?.Accept, 'text/event-stream');
-    assert.equal(calls[0]?.init?.headers?.['Content-Type'], 'application/json');
+    assert.equal(calls[0]?.init?.headers?.accept, 'text/event-stream');
+    assert.equal(calls[0]?.init?.headers?.['content-type'], 'application/json');
     assert.equal(calls[0]?.init?.headers?.session_id, 'qq:group:101');
-    assert.equal(calls[0]?.init?.headers?.['Chatgpt-Account-Id'], undefined);
-    assert.equal(calls[0]?.init?.headers?.Originator, 'codex_cli_rs');
+    assert.equal(calls[0]?.init?.headers?.['x-client-request-id'], 'qq:group:101');
+    assert.equal(calls[0]?.init?.headers?.['chatgpt-account-id'], undefined);
+    assert.equal(calls[0]?.init?.headers?.originator, 'openclaw');
+    assert.match(calls[0]?.init?.headers?.['User-Agent'], /^openclaw \(/);
     assert.equal(JSON.parse(calls[0]?.init?.body).stream, true);
     assert.equal(response.output_text, 'hello');
     assert.equal(response.usage.total_tokens, 4);

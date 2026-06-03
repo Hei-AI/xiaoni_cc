@@ -12,13 +12,16 @@ import {
   type NormalizedOAuthCredential,
   type OAuthCredentialSource
 } from './oauth-credentials';
+import {
+  loadCodexAuthProfileCredential,
+  resolveCodexAuthProfilesPath,
+  saveCodexAuthProfileCredential
+} from './codex-auth-profiles';
 import { OpenAIProvider } from './openai-provider';
-import { codexAccountManager } from '../codex-account-manager';
 
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
-const ACTIVE_CODEX_AUTH_PATH = path.join(os.homedir(), '.codex', 'auth.json');
 const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
 
@@ -28,6 +31,7 @@ type CodexProviderRuntimeOptions = {
   baseUrl?: string;
   responsesPath?: string;
   localOAuth?: boolean;
+  persistRefreshedCredential?: boolean;
 };
 
 function resolveCodexProxyApiKey(aiConfig: AIConfig, options?: Pick<CodexProviderRuntimeOptions, 'disableProxy'>): string | undefined {
@@ -55,6 +59,18 @@ function resolveCodexBaseUrl(aiConfig: AIConfig, options?: Pick<CodexProviderRun
   return DIRECT_CODEX_BASE_URL;
 }
 
+function resolveCodexCliAuthPath(): string {
+  const codexHome = process.env.CODEX_HOME && process.env.CODEX_HOME.trim().length > 0
+    ? process.env.CODEX_HOME.trim()
+    : path.join(os.homedir(), '.codex');
+  const resolvedHome = codexHome === '~'
+    ? os.homedir()
+    : codexHome.startsWith('~/')
+      ? path.join(os.homedir(), codexHome.slice(2))
+      : codexHome;
+  return path.join(resolvedHome, 'auth.json');
+}
+
 export class CodexProvider extends OpenAIProvider {
   readonly id: 'codex' | 'codex-local';
   protected readonly codexLogger = logger.createModuleLogger('llm-provider-codex');
@@ -67,12 +83,7 @@ export class CodexProvider extends OpenAIProvider {
       apiKey: aiConfig.codex_access_token || (runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN : undefined) || process.env.CODEX_OAUTH_ACCESS_TOKEN || '',
       baseUrl: resolveCodexBaseUrl(aiConfig, runtimeOptions),
       responsesPath: runtimeOptions.responsesPath || aiConfig.codex_responses_path || process.env.CODEX_RESPONSES_PATH || '/codex/responses',
-      defaultHeaders: {
-        Origin: 'https://chatgpt.com',
-        Referer: 'https://chatgpt.com/',
-        Originator: 'codex_cli_rs',
-        'OpenAI-Beta': 'responses=experimental'
-      }
+      defaultHeaders: {}
     });
     this.id = runtimeOptions.id || 'codex';
     this.aiConfig = aiConfig;
@@ -104,11 +115,12 @@ export class CodexProvider extends OpenAIProvider {
       model: resolvedModel,
       store: request.store ?? false,
       stream: true,
-      instructions: instructions || '',
+      instructions: instructions || 'You are a helpful assistant.',
       input: this.buildCodexInput(request),
       text: {
         verbosity: this.resolveTextVerbosity(request, providerConfig)
       },
+      tool_choice: this.serializeToolChoice(request.tool_choice || 'auto'),
       parallel_tool_calls: typeof request.parallel_tool_calls === 'boolean'
         ? request.parallel_tool_calls
         : true
@@ -124,20 +136,27 @@ export class CodexProvider extends OpenAIProvider {
 
     if (Array.isArray(request.tools) && request.tools.length > 0) {
       payload.tools = request.tools.map((tool: any) => this.serializeToolDefinition(tool));
-      payload.tool_choice = this.serializeToolChoice(request.tool_choice || 'auto');
     }
 
     const providerSpecific = providerConfig?.model?.providerSpecific || {};
+    const explicitReasoning = request?.reasoning && typeof request.reasoning === 'object'
+      ? request.reasoning
+      : undefined;
     const reasoningEffort =
       providerSpecific.reasoningEffort ||
-      request?.reasoning?.effort;
-    const reasoningSummary = providerSpecific.reasoningSummary || request?.reasoning?.summary || 'auto';
-    if (typeof reasoningEffort === 'string' || typeof reasoningSummary === 'string') {
+      explicitReasoning?.effort;
+    const reasoningSummary = providerSpecific.reasoningSummary || explicitReasoning?.summary;
+    if (typeof reasoningEffort === 'string' || typeof reasoningSummary === 'string' || explicitReasoning) {
       payload.reasoning = {
+        ...(explicitReasoning || {}),
         ...(typeof reasoningEffort === 'string'
           ? { effort: this.normalizeReasoningEffort(resolvedModel, reasoningEffort) }
           : {}),
-        summary: reasoningSummary
+        ...(typeof reasoningSummary === 'string'
+          ? { summary: reasoningSummary }
+          : typeof reasoningEffort === 'string'
+            ? { summary: 'auto' }
+            : {})
       };
     }
     const include = new Set(Array.isArray(request.include) ? request.include.filter((item: unknown) => typeof item === 'string') : []);
@@ -182,40 +201,12 @@ export class CodexProvider extends OpenAIProvider {
       );
     } catch (error: any) {
       const status = error?.response?.status || error?.status;
-      const message = this.extractErrorMessage(error);
-      if (this.isQuotaExceededError(status, message)) {
-        const switched = await codexAccountManager.handleQuotaExceeded(accountId, message).catch(() => null);
-        if (switched?.switched) {
-          const nextResolved = await this.resolveCredential(false);
-          if (nextResolved.credential?.access && nextResolved.credential.access !== apiKey) {
-            this.codexLogger.warn('Retrying Codex request after active auth file switched to a backup account', {
-              previousAccountId: accountId,
-              nextAccountId: switched.nextAccountId
-            });
-            return await this.fetchAndAssembleCodexResponse(
-              baseUrl,
-              responsesPath,
-              payload,
-              nextResolved.credential.access,
-              this.extractAccountId(nextResolved.credential.access),
-              timeoutMs,
-              traceHeaders
-            );
-          }
-        }
-      }
       if (status !== 401 && status !== 403) {
-        if (accountId) {
-          await codexAccountManager.recordProviderEvent(accountId, 'error', message).catch(() => undefined);
-        }
         throw error;
       }
 
       const { credential } = await this.resolveCredential(true);
       if (!credential?.access || credential.access === apiKey) {
-        if (accountId) {
-          await codexAccountManager.recordProviderEvent(accountId, 'auth_error', message).catch(() => undefined);
-        }
         throw error;
       }
 
@@ -248,6 +239,11 @@ export class CodexProvider extends OpenAIProvider {
     const normalizedPath = responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs || 30000);
+    const sessionId = traceHeaders.session_id;
+    const codexTraceHeaders = {
+      ...(sessionId && !traceHeaders['x-client-request-id'] ? { 'x-client-request-id': sessionId } : {}),
+      ...traceHeaders
+    };
 
     try {
       const response = await fetch(`${normalizedBaseUrl}${normalizedPath}`, {
@@ -256,21 +252,19 @@ export class CodexProvider extends OpenAIProvider {
         body: JSON.stringify(payload),
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
+          ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
+          originator: 'openclaw',
           'User-Agent': this.buildUserAgent(),
-          ...(accountId ? { 'Chatgpt-Account-Id': accountId } : {}),
+          'OpenAI-Beta': 'responses=experimental',
+          accept: 'text/event-stream',
+          'content-type': 'application/json',
           ...this.defaultHeaders,
-          ...traceHeaders
+          ...codexTraceHeaders
         }
       });
 
       if (!response.ok) {
         const errorData = await response.text().catch(() => '');
-        if (accountId) {
-          const eventKind = this.isQuotaExceededError(response.status, errorData) ? 'quota_exceeded' : 'error';
-          await codexAccountManager.recordProviderEvent(accountId, eventKind, errorData).catch(() => undefined);
-        }
         const error = new Error(
           `Codex API error (${response.status} ${response.statusText}): ${errorData}`
         ) as Error & {
@@ -290,9 +284,6 @@ export class CodexProvider extends OpenAIProvider {
 
       const bodyText = await response.text();
       const parsed = this.parseCodexSsePayload(bodyText);
-      if (accountId) {
-        await codexAccountManager.recordProviderEvent(accountId, 'success').catch(() => undefined);
-      }
       return parsed;
     } finally {
       clearTimeout(timeoutId);
@@ -397,12 +388,12 @@ export class CodexProvider extends OpenAIProvider {
   }
 
   private buildUserAgent(): string {
-    return `codex_cli_rs/0.117.0 (${os.platform()} ${os.release()}; ${os.arch()}) xterm-256color (codex-tui; 0.117.0)`;
+    return `openclaw (${os.platform()} ${os.release()}; ${os.arch()})`;
   }
 
   private resolveTextVerbosity(request?: Record<string, any>, providerConfig?: UnifiedLLMConfig): 'low' | 'medium' | 'high' {
     const verbosity = providerConfig?.model?.providerSpecific?.textVerbosity || request?.text?.verbosity;
-    return verbosity === 'low' || verbosity === 'high' ? verbosity : 'medium';
+    return verbosity === 'medium' || verbosity === 'high' ? verbosity : 'low';
   }
 
   private resolvePromptCacheKey(providerConfig?: UnifiedLLMConfig): string | undefined {
@@ -556,24 +547,88 @@ export class CodexProvider extends OpenAIProvider {
     credential: NormalizedOAuthCredential | null;
     source?: OAuthCredentialSource;
   }> {
+    if (this.runtimeOptions.localOAuth) {
+      return await this.resolveLocalOAuthCredential(forceRefresh);
+    }
+
     const resolved = await loadOAuthCredential({
-      envAccessToken: this.aiConfig.codex_access_token || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN : undefined) || process.env.CODEX_OAUTH_ACCESS_TOKEN,
-      envRefreshToken: this.aiConfig.codex_refresh_token || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN : undefined) || process.env.CODEX_OAUTH_REFRESH_TOKEN,
-      envExpiresAt: this.aiConfig.codex_expires_at || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT : undefined) || process.env.CODEX_OAUTH_EXPIRES_AT,
-      envAccountId: this.aiConfig.codex_account_id || (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_ACCOUNT_ID : undefined) || process.env.CODEX_ACCOUNT_ID,
-      explicitPath: (this.runtimeOptions.localOAuth ? process.env.CODEX_LOCAL_OAUTH_PATH : undefined) || this.aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
-      fallbackPaths: this.runtimeOptions.localOAuth
-        ? [
-            path.join(os.homedir(), '.codex', 'auth.json'),
-            path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json')
-          ]
-        : [
-            path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json'),
-            path.join(os.homedir(), '.codex', 'auth.json')
-          ],
+      envAccessToken: this.aiConfig.codex_access_token || process.env.CODEX_OAUTH_ACCESS_TOKEN,
+      envRefreshToken: this.aiConfig.codex_refresh_token || process.env.CODEX_OAUTH_REFRESH_TOKEN,
+      envExpiresAt: this.aiConfig.codex_expires_at || process.env.CODEX_OAUTH_EXPIRES_AT,
+      envAccountId: this.aiConfig.codex_account_id || process.env.CODEX_ACCOUNT_ID,
+      explicitPath: this.aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
+      fallbackPaths: [
+        resolveCodexCliAuthPath(),
+        path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json')
+      ],
       providerKey: 'openai-codex'
     });
 
+    return await this.resolveCredentialRefresh(resolved, forceRefresh, resolved.source);
+  }
+
+  private async resolveLocalOAuthCredential(forceRefresh = false): Promise<{
+    credential: NormalizedOAuthCredential | null;
+    source?: OAuthCredentialSource;
+  }> {
+    const envResolved = await loadOAuthCredential({
+      envAccessToken: this.aiConfig.codex_access_token || process.env.CODEX_LOCAL_OAUTH_ACCESS_TOKEN || process.env.CODEX_OAUTH_ACCESS_TOKEN,
+      envRefreshToken: this.aiConfig.codex_refresh_token || process.env.CODEX_LOCAL_OAUTH_REFRESH_TOKEN || process.env.CODEX_OAUTH_REFRESH_TOKEN,
+      envExpiresAt: this.aiConfig.codex_expires_at || process.env.CODEX_LOCAL_OAUTH_EXPIRES_AT || process.env.CODEX_OAUTH_EXPIRES_AT,
+      envAccountId: this.aiConfig.codex_account_id || process.env.CODEX_LOCAL_ACCOUNT_ID || process.env.CODEX_ACCOUNT_ID,
+      providerKey: 'openai-codex'
+    });
+    if (envResolved.credential) {
+      return await this.resolveCredentialRefresh(envResolved, forceRefresh, undefined);
+    }
+
+    const authProfilesPath = resolveCodexAuthProfilesPath();
+    const profileCredential = await loadCodexAuthProfileCredential(authProfilesPath);
+    if (profileCredential?.access || profileCredential?.refresh) {
+      const resolved = await this.resolveCredentialRefresh(
+        { credential: profileCredential },
+        forceRefresh,
+        undefined
+      );
+      if (resolved.credential && resolved.credential !== profileCredential) {
+        await saveCodexAuthProfileCredential(resolved.credential, authProfilesPath);
+      }
+      return resolved;
+    }
+
+    const bootstrapResolved = await loadOAuthCredential({
+      explicitPath: process.env.CODEX_LOCAL_OAUTH_PATH || this.aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
+      fallbackPaths: [
+        resolveCodexCliAuthPath()
+      ],
+      providerKey: 'openai-codex'
+    });
+    if (!bootstrapResolved.credential) {
+      return bootstrapResolved;
+    }
+
+    this.enrichCredentialAccountId(bootstrapResolved.credential);
+    await saveCodexAuthProfileCredential(bootstrapResolved.credential, authProfilesPath);
+    return await this.resolveCredentialRefresh(
+      { credential: bootstrapResolved.credential },
+      forceRefresh,
+      undefined,
+      async (credential) => saveCodexAuthProfileCredential(credential, authProfilesPath)
+    );
+  }
+
+  private async resolveCredentialRefresh(
+    resolved: {
+      credential: NormalizedOAuthCredential | null;
+      source?: OAuthCredentialSource;
+    },
+    forceRefresh: boolean,
+    refreshSource?: OAuthCredentialSource,
+    afterRefresh?: (credential: NormalizedOAuthCredential) => Promise<void>
+  ): Promise<{
+    credential: NormalizedOAuthCredential | null;
+    source?: OAuthCredentialSource;
+  }> {
     const credential = resolved.credential;
     if (!credential) {
       return resolved;
@@ -581,21 +636,22 @@ export class CodexProvider extends OpenAIProvider {
 
     const needsRefresh = forceRefresh || !credential.access || isOAuthCredentialExpired(credential);
     if (needsRefresh && credential.refresh) {
-      const refreshed = await this.refreshCredential(credential, resolved.source);
-      await this.syncManagedActiveCredential(refreshed, resolved.source);
+      const refreshed = await this.refreshCredential(credential, refreshSource);
+      await afterRefresh?.(refreshed);
       return {
         credential: refreshed,
         source: resolved.source
       };
     }
 
+    this.enrichCredentialAccountId(credential);
+    return resolved;
+  }
+
+  private enrichCredentialAccountId(credential: NormalizedOAuthCredential): void {
     if (!credential.accountId && credential.access) {
       credential.accountId = this.extractAccountId(credential.access) || undefined;
     }
-
-    await this.syncManagedActiveCredential(credential, resolved.source);
-
-    return resolved;
   }
 
   private async refreshCredential(
@@ -638,26 +694,12 @@ export class CodexProvider extends OpenAIProvider {
       refresh: payload.refresh_token || credential.refresh,
       expires: Date.now() + (payload.expires_in * 1000),
       accountId: this.extractAccountId(payload.access_token) || credential.accountId,
-      email: credential.email
+      email: credential.email,
+      idToken: credential.idToken
     };
 
     await persistOAuthCredential(source, refreshed);
     return refreshed;
-  }
-
-  private async syncManagedActiveCredential(
-    credential: NormalizedOAuthCredential,
-    source?: OAuthCredentialSource
-  ) {
-    if (!source || source.format !== 'codex-auth' || source.path !== ACTIVE_CODEX_AUTH_PATH) {
-      return;
-    }
-
-    await codexAccountManager.syncActiveCredential(credential).catch((error) => {
-      this.codexLogger.warn('Failed to sync refreshed Codex credential back to managed account store', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    });
   }
 
   private extractAccountId(accessToken: string): string | null {
@@ -691,23 +733,4 @@ export class CodexProvider extends OpenAIProvider {
     }
   }
 
-  private isQuotaExceededError(status?: number, message?: string | null) {
-    if (status === 429) {
-      return true;
-    }
-    return /usage_limit_reached|too many requests|quota/i.test(message || '');
-  }
-
-  private extractErrorMessage(error: any) {
-    if (typeof error?.message === 'string' && error.message.trim()) {
-      return error.message;
-    }
-    if (typeof error?.response?.data?.error?.message === 'string') {
-      return error.response.data.error.message;
-    }
-    if (typeof error?.response?.data === 'string') {
-      return error.response.data;
-    }
-    return 'Codex request failed';
-  }
 }

@@ -6,7 +6,7 @@
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
 - `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence 后台循环和 life event 投影
-- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、Codex 账号池、流量查看/回放、runtime status
+- `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻活动”看她当前在做什么
 - `postgres`: 数据存储
 - `docker-compose.napcat.yml`: NapCat 独立部署入口
@@ -99,7 +99,8 @@ docker compose ps
 - 空闲生活事件排障时，看 `presence_tick` / `proactive_im_open` 队列项、agent run trace、`agent_life_events`、`conversation_items` 和 Traffic 里的 `llm_call_id`；不要再把 `agent_digital_actions` 当成新自主行动主链路。
 - Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
 - Image Lab 生成 / 编辑 / prompt assistant
-- Codex OAuth 账号池状态、导入、刷新与 active auth 投影
+- Codex local provider 使用 `/root/.qqbot-local/codex-auth-profiles/auth-profiles.json` 作为运行态 OAuth profile store；只在 profile 缺失时从只读 `/root/.codex/auth.json` bootstrap，刷新只写 auth-profiles，不改写 auth.json
+- Traffic 只记录 Codex 限额信号，不做账号切换，也不改写 auth.json
 - HTTP 流量查看与回放
 
 ## 常用命令

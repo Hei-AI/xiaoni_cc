@@ -15,6 +15,18 @@ export const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const CODEX_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
 export const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 
+function resolveCodexCliAuthPath(): string {
+  const codexHome = process.env.CODEX_HOME && process.env.CODEX_HOME.trim().length > 0
+    ? process.env.CODEX_HOME.trim()
+    : path.join(os.homedir(), '.codex');
+  const resolvedHome = codexHome === '~'
+    ? os.homedir()
+    : codexHome.startsWith('~/')
+      ? path.join(os.homedir(), codexHome.slice(2))
+      : codexHome;
+  return path.join(resolvedHome, 'auth.json');
+}
+
 export async function resolveCodexOAuthCredential(
   aiConfig: AIConfig,
   forceRefresh = false
@@ -29,8 +41,8 @@ export async function resolveCodexOAuthCredential(
     envAccountId: aiConfig.codex_account_id || process.env.CODEX_ACCOUNT_ID,
     explicitPath: aiConfig.codex_oauth_path || process.env.CODEX_OAUTH_PATH,
     fallbackPaths: [
-      path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json'),
-      path.join(os.homedir(), '.codex', 'auth.json')
+      resolveCodexCliAuthPath(),
+      path.join(os.homedir(), '.openclaw', 'credentials', 'oauth.json')
     ],
     providerKey: 'openai-codex'
   });
@@ -160,7 +172,7 @@ export function extractCodexAccountId(accessToken: string): string | null {
 }
 
 export function buildCodexUserAgent(): string {
-  return `codex_cli_rs/0.117.0 (${process.platform}; ${process.arch}) qqbot-image-provider`;
+  return `openclaw (${os.platform()} ${os.release()}; ${os.arch()})`;
 }
 
 function decodeJwtPayload(token: string): Record<string, any> | null {

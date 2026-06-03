@@ -99,8 +99,8 @@ services:
       - SELF_EVOLUTION_TIMEOUT_MS=90000
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
-      - CODEX_ACCOUNT_STORE_DIR=/root/.qqbot-local/codex-accounts
       - CODEX_BASE_URL=${CODEX_BASE_URL:-}
+      - CODEX_LOCAL_AUTH_PROFILES_PATH=/root/.qqbot-local/codex-auth-profiles/auth-profiles.json
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
       - EMBEDDING_ENABLED=true
       - EMBEDDING_BASE_URL=http://qqbot-embedding-server:8080
@@ -122,8 +122,8 @@ services:
     volumes:
       - ./logs/provider-service:/app/logs
       - ./resource/napcat_qq_data:/app/napcat-qq-data:ro
-      - ${HOME}/.codex:/root/.codex
-      - ${HOME}/.qqbot-local/codex-accounts:/root/.qqbot-local/codex-accounts
+      - ${HOME}/.codex:/root/.codex:ro
+      - ${HOME}/.qqbot-local/codex-auth-profiles:/root/.qqbot-local/codex-auth-profiles
       - ${HOME}/.gemini:/root/.gemini
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
     networks:

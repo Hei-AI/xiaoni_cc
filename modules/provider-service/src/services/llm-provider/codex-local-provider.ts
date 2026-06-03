@@ -22,7 +22,8 @@ export class CodexLocalProvider extends CodexProvider {
       disableProxy: true,
       localOAuth: true,
       baseUrl: resolveCodexLocalBaseUrl(),
-      responsesPath: resolveCodexLocalResponsesPath()
+      responsesPath: resolveCodexLocalResponsesPath(),
+      persistRefreshedCredential: false
     });
   }
 }

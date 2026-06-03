@@ -84,9 +84,3 @@ export const topicProjectionConfig = {
   minNewTurns: Math.max(1, Number.parseInt(process.env.TOPIC_PROJECTION_MIN_NEW_TURNS || '6', 10)),
   minNewLedgerEvents: Math.max(1, Number.parseInt(process.env.TOPIC_PROJECTION_MIN_NEW_LEDGER_EVENTS || '2', 10))
 };
-
-export const codexAccountRefreshConfig = {
-  enabled: process.env.CODEX_ACCOUNT_BACKGROUND_REFRESH_ENABLED !== 'false',
-  intervalMs: Math.max(60_000, Number.parseInt(process.env.CODEX_ACCOUNT_BACKGROUND_REFRESH_INTERVAL_MS || `${15 * 60 * 1000}`, 10)),
-  refreshThresholdMs: Math.max(60_000, Number.parseInt(process.env.CODEX_ACCOUNT_BACKGROUND_REFRESH_THRESHOLD_MS || `${30 * 60 * 1000}`, 10))
-};

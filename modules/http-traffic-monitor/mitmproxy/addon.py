@@ -26,7 +26,7 @@ import ujson  # 更快的JSON处理
 from loguru import logger
 import threading
 from pathlib import Path
-from codex_pool import build_failover_manager_from_env, classify_codex_429, classify_codex_websocket_message
+from codex_limit import classify_codex_429, classify_codex_websocket_message
 
 
 class HTTPTrafficLogger:
@@ -71,8 +71,6 @@ class HTTPTrafficLogger:
         self.current_log_file = None
         self.current_date = None
         self.file_lock = threading.Lock()
-        self.failover_lock = threading.Lock()
-        self.codex_pool = build_failover_manager_from_env()
 
         # 确保日志目录存在
         Path(self.config['log_dir']).mkdir(parents=True, exist_ok=True)
@@ -289,7 +287,7 @@ class HTTPTrafficLogger:
             return
 
         try:
-            self._maybe_handle_codex_pool_failover(flow)
+            self._maybe_classify_codex_limit(flow)
             self._persist_flow_log(flow, reason='response')
 
         except Exception as e:
@@ -547,8 +545,7 @@ class HTTPTrafficLogger:
             'error_code': None,
             'is_truncated': len(request_body or '') > self.config['max_body_size'] if request_body else False,
             'is_binary_data': self._is_binary_data(flow.request.content),
-            'codex_pool_429_classification': flow.metadata.get('codex_pool_429_classification'),
-            'codex_pool_failover': flow.metadata.get('codex_pool_failover'),
+            'codex_limit_classification': flow.metadata.get('codex_limit_classification'),
         }
 
         # 处理错误情况
@@ -570,14 +567,7 @@ class HTTPTrafficLogger:
         path = (flow.request.path or '').lower()
         return host == 'chatgpt.com' and path.startswith('/backend-api/codex/')
 
-    def _extract_bearer_token(self, flow: http.HTTPFlow) -> Optional[str]:
-        authorization = flow.request.headers.get('authorization') or ''
-        if not authorization.lower().startswith('bearer '):
-            return None
-        token = authorization[7:].strip()
-        return token or None
-
-    def _maybe_handle_codex_pool_failover(self, flow: http.HTTPFlow) -> None:
+    def _maybe_classify_codex_limit(self, flow: http.HTTPFlow) -> None:
         if not flow.response or not self._is_codex_response_flow(flow):
             return
 
@@ -586,7 +576,7 @@ class HTTPTrafficLogger:
             response_headers=dict(flow.response.headers),
             response_body=flow.response.content if flow.response.content is not None else b'',
         )
-        flow.metadata['codex_pool_429_classification'] = classification
+        flow.metadata['codex_limit_classification'] = classification
 
         if not classification.get('matched'):
             return
@@ -603,24 +593,6 @@ class HTTPTrafficLogger:
 
         if not classification.get('accountScoped'):
             return
-
-        request_access_token = self._extract_bearer_token(flow)
-        with self.failover_lock:
-            result = self.codex_pool.handle_account_scoped_limit(
-                provider_account_id=provider_account_id,
-                request_access_token=request_access_token,
-                reason=classification.get('errorCode') or classification.get('reason') or 'usage_limit_reached',
-                cooldown_seconds=classification.get('cooldownSeconds'),
-            )
-
-        flow.metadata['codex_pool_failover'] = result
-        logger.warning(
-            "Codex pool failover result: "
-            f"switched={result.get('switched')} "
-            f"reason={result.get('reason')} "
-            f"previous={result.get('previousAccountId')} "
-            f"next={result.get('nextAccountId')}"
-        )
 
     def websocket_message(self, flow: http.HTTPFlow) -> None:
         if not self.config['enable_logging']:
@@ -642,27 +614,16 @@ class HTTPTrafficLogger:
         classification = classify_codex_websocket_message(message_text)
         if not classification.get('matched'):
             return
-        if flow.metadata.get('codex_pool_failover'):
-            return
 
-        flow.metadata['codex_pool_429_classification'] = classification
+        flow.metadata['codex_limit_classification'] = classification
         provider_account_id = flow.request.headers.get('chatgpt-account-id')
-        request_access_token = self._extract_bearer_token(flow)
-        with self.failover_lock:
-            result = self.codex_pool.handle_account_scoped_limit(
-                provider_account_id=provider_account_id,
-                request_access_token=request_access_token,
-                reason=classification.get('errorCode') or classification.get('reason') or 'usage_limit_reached',
-                cooldown_seconds=classification.get('cooldownSeconds'),
-            )
-
-        flow.metadata['codex_pool_failover'] = result
         logger.warning(
-            "Codex websocket limit result: "
-            f"switched={result.get('switched')} "
-            f"reason={result.get('reason')} "
-            f"previous={result.get('previousAccountId')} "
-            f"next={result.get('nextAccountId')}"
+            "Codex websocket limit classified: "
+            f"path={flow.request.path} "
+            f"account_id={provider_account_id or '<missing>'} "
+            f"reason={classification.get('reason')} "
+            f"account_scoped={classification.get('accountScoped')} "
+            f"error_code={classification.get('errorCode')}"
         )
         self._queue_log_record({
             'event_type': 'codex_websocket_limit',
@@ -679,8 +640,7 @@ class HTTPTrafficLogger:
             'is_ai_request': True,
             'container_name': self._get_container_name_from_client_ip(flow),
             'service_name': os.getenv('SERVICE_NAME', 'http-traffic-monitor'),
-            'codex_pool_429_classification': classification,
-            'codex_pool_failover': result,
+            'codex_limit_classification': classification,
             'websocket_message_excerpt': message_text[:1000],
             'error_message': classification.get('errorCode') or classification.get('reason'),
         })

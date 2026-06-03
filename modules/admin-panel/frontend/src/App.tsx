@@ -18,7 +18,6 @@ import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
 import { ProviderRequestDesignPreviewPage } from './pages/ProviderRequestDesignPreviewPage';
 import { PlaygroundPage } from './pages/PlaygroundPage';
 import { ImageLabPage } from './pages/ImageLabPage';
-import { CodexPoolPage } from './pages/CodexPoolPage';
 import './globals.css';
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,7 +87,6 @@ function App() {
               <Route path="/design/provider-request-preview" element={<ProviderRequestDesignPreviewPage />} />
               <Route path="/playground" element={<PlaygroundPage />} />
               <Route path="/image-lab" element={<ImageLabPage />} />
-              <Route path="/operations/codex-pool" element={<CodexPoolPage />} />
             </Routes>
           </Suspense>
         </Layout>

@@ -273,8 +273,6 @@ class MitmproxyManager:
             "FAKE_IP_RANGE": self.config.get("fake_ip_range", "198.18.0.0/15"),
             "HTTP_PROXY": upstream_proxy,
             "HTTPS_PROXY": upstream_proxy,
-            "CODEX_POOL_STORE_DIR": str(runtime_home / ".qqbot-local" / "codex-accounts"),
-            "CODEX_ACTIVE_AUTH_PATH": str(runtime_home / ".codex" / "auth.json"),
         })
 
         # 添加解析后的代理地址（给addon.py使用）

@@ -38,7 +38,7 @@ Internet
 http-traffic-monitor/
 ├── mitmproxy/              # mitmproxy插件
 │   ├── addon.py           # 流量拦截和日志记录
-│   ├── codex_pool.py      # Codex 账号池请求辅助
+│   ├── codex_limit.py     # Codex 限额信号分类
 │   └── config.yaml        # mitmproxy配置
 ├── transparent-proxy/      # 透明代理工具
 │   ├── mitmproxy_manager.py # 推荐入口：启动、停止、状态、iptables 管理
