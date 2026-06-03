@@ -13,8 +13,10 @@ const INSPECT_IMAGE_TOOL = 'inspect_image_placeholder';
 const IMAGE_TASK_TOOL = 'request_image_task';
 const SILENT_FINISH_TOOL = 'stay_silent';
 const WEB_SEARCH_TOOL = 'web_search';
+const EXEC_COMMAND_TOOL = 'exec_command';
 const GROUP_LOOP_TOOLS = [
   LIFE_ACTION_TOOL,
+  EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -280,6 +282,10 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
 
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(String(request.instructions), /Runtime contract:/);
+  assert.match(String(request.instructions), /<skills_instructions>/);
+  assert.match(String(request.instructions), /skill-creator/);
+  assert.match(String(request.instructions), /r0\/skill-creator\/SKILL\.md/);
+  assert.match(String(request.instructions), /SKILL\.md 正文只在需要这个 skill 时再读取/);
   assert.match(String(request.instructions), /<INPUT_MESSAGE>/);
   assert.match(String(request.instructions), /<OUTPUT_MESSAGE>/);
   assert.doesNotMatch(String(request.instructions), /Pre-reply memory gate:/);
@@ -287,7 +293,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(request.input[0]?.type, 'message');
   assert.equal(request.input[0]?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LIFE_ACTION_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
   assert.equal(request.parallel_tool_calls, false);
   assert.deepEqual(
     (request.tools ?? []).map((tool) => getToolName(tool)),
@@ -295,7 +301,16 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   );
   const planFunction = getFunctionTool((request.tools ?? [])[0]);
   assert.equal(planFunction?.name, LIFE_ACTION_TOOL);
+  const execTool = (request.tools ?? []).find((tool: any) => tool.function?.name === EXEC_COMMAND_TOOL) as any;
+  assert.ok(execTool, 'exec_command tool must exist');
+  assert.equal(execTool.strict, false);
+  assert.equal(execTool.function?.description, 'Runs a command in a PTY, returning output or a session ID for ongoing interaction.');
+  assert.deepEqual(execTool.function?.parameters?.required, ['cmd']);
+  assert.ok(execTool.function?.parameters?.properties?.cmd);
+  assert.ok(execTool.function?.parameters?.properties?.workdir);
+  assert.ok(execTool.function?.parameters?.properties?.yield_time_ms);
   assert.match(String(request.instructions), /我在 QQ 里生活/);
+  assert.match(String(request.instructions), /exec_command 只用于加载 skill/);
   assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.match(String(request.instructions), /具体可说点/);
@@ -305,6 +320,29 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(planFunction?.description), /一次性完成小腻本轮生活动作决策/);
   assert.doesNotMatch(String(planFunction?.description), /先搞清楚/);
   assert.deepEqual(planFunction?.parameters?.required, ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os']);
+});
+
+test('exec_command executes inside the agent runtime and returns structured output', async () => {
+  const service = new AgentLoopService({} as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-exec',
+    name: EXEC_COMMAND_TOOL,
+    args: {
+      cmd: 'printf skill-loaded',
+      login: false,
+      yield_time_ms: 1000,
+      max_output_tokens: 100
+    },
+    rawArguments: '{}'
+  }, createQueuePayload());
+
+  assert.equal(result.exit_code, 0);
+  assert.equal(result.stdout, 'skill-loaded');
+  assert.equal(result.stderr, '');
+  assert.equal(result.timed_out, false);
 });
 
 test('buildInitialInput places xiaoni digest before retained history as the cache chain head', () => {
@@ -367,7 +405,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
     (request.tools ?? []).map((tool: any) => getToolName(tool)),
     GROUP_LOOP_TOOLS
   );
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LIFE_ACTION_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
   assert.match(String(request.instructions), /本次运行默认只有一次决策请求/);
   assert.match(String(request.instructions), /submit_life_action/);
   assert.doesNotMatch(String(request.instructions), /recall_long_term_learning/);
@@ -389,7 +427,7 @@ test('buildCanonicalAgentTurnRequest only unlocks life action proposal after unr
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [LIFE_ACTION_TOOL]);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest only allows stay_silent after life action prefers silence', () => {
@@ -1263,6 +1301,8 @@ test('buildInitialInput does not append transcript summary to the system prompt 
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
   assert.match(String(loopInput[0]?.content), /小腻的OS/);
+  assert.match(String(loopInput[0]?.content), /<skills_instructions>/);
+  assert.match(String(loopInput[0]?.content), /skill-creator/);
   assert.match(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.match(String(loopInput[0]?.content), /行为校准信号/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
@@ -1277,6 +1317,8 @@ test('buildInitialInput appends the thin runtime contract for group chats', () =
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.match(String(loopInput[0]?.content), /Runtime contract:/);
+  assert.match(String(loopInput[0]?.content), /<skills_instructions>/);
+  assert.match(String(loopInput[0]?.content), /r0\/skill-creator\/SKILL\.md/);
   assert.match(String(loopInput[0]?.content), /<INPUT_MESSAGE>/);
   assert.match(String(loopInput[0]?.content), /<system_reminder>/);
   assert.match(String(loopInput[0]?.content), /直接给小腻反馈、纠偏、批评或称赞/);

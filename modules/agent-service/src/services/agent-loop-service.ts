@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
@@ -76,15 +77,20 @@ type OpenResponseInputContentPart =
 
 type OpenResponseToolDefinition = {
   type: 'function';
+  name?: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
   function: {
     name: string;
     description: string;
     parameters: {
       type: 'object';
       properties: Record<string, unknown>;
+      required?: readonly string[];
       additionalProperties: false;
     };
   };
+  strict?: boolean;
 } | {
   type: 'web_search';
   search_context_size?: 'low' | 'medium' | 'high';
@@ -414,6 +420,7 @@ const CONTEXT_SUMMARY_SUBAGENT_TYPE = 'context_summary_writer';
 const GLOBAL_LIFE_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
+const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
@@ -422,6 +429,7 @@ const TOOL_NAMES = {
   imageTask: 'request_image_task',
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
+  execCommand: 'exec_command',
   privateReply: 'reply_in_private',
   groupReply: 'speak_in_group',
   silentFinish: 'stay_silent'
@@ -431,6 +439,67 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   type: 'web_search',
   search_context_size: agentConfig.webSearchContextSize,
   external_web_access: agentConfig.webSearchExternalAccess
+};
+
+const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  name: TOOL_NAMES.execCommand,
+  description: 'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+  strict: false,
+  function: {
+    name: TOOL_NAMES.execCommand,
+    description: 'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+    parameters: {
+      type: 'object',
+      properties: {
+        cmd: {
+          type: 'string',
+          description: 'Shell command to execute.'
+        },
+        justification: {
+          type: 'string',
+          description: 'Only set if sandbox_permissions is "require_escalated". Request approval from the user to run this command outside the sandbox. Phrased as a simple question that summarizes the purpose of the command as it relates to the task at hand.'
+        },
+        login: {
+          type: 'boolean',
+          description: 'Whether to run the shell with -l/-i semantics. Defaults to true.'
+        },
+        max_output_tokens: {
+          type: 'number',
+          description: 'Maximum number of tokens to return. Excess output will be truncated.'
+        },
+        prefix_rule: {
+          type: 'array',
+          description: 'Only specify when sandbox_permissions is `require_escalated`. Suggest a prefix command pattern that will allow you to fulfill similar requests from the user in the future.',
+          items: {
+            type: 'string'
+          }
+        },
+        sandbox_permissions: {
+          type: 'string',
+          description: 'Sandbox permissions for the command. Set to "require_escalated" to request running without sandbox restrictions; defaults to "use_default".'
+        },
+        shell: {
+          type: 'string',
+          description: "Shell binary to launch. Defaults to the user's default shell."
+        },
+        tty: {
+          type: 'boolean',
+          description: 'Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY and access TTY process.'
+        },
+        workdir: {
+          type: 'string',
+          description: 'Optional working directory to run the command in; defaults to the turn cwd.'
+        },
+        yield_time_ms: {
+          type: 'number',
+          description: 'How long to wait (in milliseconds) for output before yielding.'
+        }
+      },
+      required: ['cmd'],
+      additionalProperties: false
+    }
+  }
 };
 
 const LEGACY_TOOL_ALIASES = {
@@ -1204,11 +1273,13 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
   '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
   '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
+  '如果本轮需要先加载 skill，可以先用 exec_command 读取对应 SKILL.md；读完之后仍要用 submit_life_action、说话工具或 stay_silent 收口。',
   '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；可以 submit_life_action、web_search 或 stay_silent，但不要给任何 QQ 对象发消息。',
   '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就休息，不要编造兴趣或装作读过材料。',
   '',
   '工具阶段：',
-  'commentary 工具只补充必要外部上下文：inspect_image_placeholder、web_search。submit_life_action 是本轮决策入口；普通场景也是最终收口。',
+  'commentary 工具只补充必要外部上下文：exec_command、inspect_image_placeholder、web_search。exec_command 只用于加载 skill、读取本地 skill 资源或执行 skill 明确要求的本地命令；它不是 QQ 对外动作。',
+  'submit_life_action 是本轮决策入口；普通场景也是最终收口。',
   'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
   '',
   'submit_life_action.action_type 的含义：',
@@ -1223,6 +1294,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。',
   '',
   '阿花当前只允许你使用这些对外能力：在当前群聊或私聊里发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记后台图片任务。',
+  'exec_command 是运行时加载 skill 和本地上下文的能力，不是对聊天对象展示或承诺的能力。',
   '别人要求你做能力范围外的事时，可以不回复；如果需要回应，就自然说我还没学会怎么做。',
   '不要主动说你现在会哪些能力。',
   '',
@@ -1230,6 +1302,27 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。',
   '如果使用 web_search，搜索后仍要用 submit_life_action 或 stay_silent 收口；不要只给自然语言分析。',
   '群友在说当前窗口外的内部上下文时不要猜；当前上下文和摘要里没有就承认不知道，必要时问一句“这是你们在哪聊的”。'
+].join('\n');
+
+const SKILLS_INSTRUCTIONS = [
+  '<skills_instructions>',
+  '## Skills',
+  'Skill 是存放在本地 SKILL.md 文件里的按需说明，用来补充某类任务的流程、领域知识、脚本或引用资料。',
+  '',
+  '### Skill roots',
+  `- r0 = ${XIAONI_SKILL_ROOT}`,
+  '',
+  '### Available skills',
+  '- skill-creator: Guide for creating effective skills. Use when 小腻 needs to create a new skill or update an existing skill that extends local behavior, workflows, knowledge, or tool use. (file: r0/skill-creator/SKILL.md)',
+  '',
+  '### How to use skills',
+  '- Discovery: 上面的 name、description 和 file 路径是常驻上下文；SKILL.md 正文只在需要这个 skill 时再读取。',
+  '- Trigger rules: 如果用户点名 `$skill-name`、直接说 skill 名，或当前任务明显匹配 description，就在本轮使用该 skill。',
+  '- 使用 skill 时，先展开 r0 路径，再用 exec_command 读取对应 SKILL.md；只读完成当前任务必需的内容。',
+  '- 如果 SKILL.md 引用 scripts/、references/ 或 assets/，按需读取或执行具体文件；路径相对该 skill 目录解析，不要整包加载。',
+  '- Skill 只提供本地说明和资源。真实对外动作仍然落到对应 tool：QQ 发言、沉默、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
+  '- 读取 skill 后仍要按本轮工具契约收口：submit_life_action、说话工具或 stay_silent。',
+  '</skills_instructions>'
 ].join('\n');
 
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
@@ -1479,7 +1572,9 @@ function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: stri
 
 function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: string): OpenResponseToolDefinition[] {
   void modelName;
-  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
+  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
+    ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
+    : [EXEC_COMMAND_TOOL];
 
   if (chatType === 'group') {
     return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL];
@@ -1506,12 +1601,15 @@ function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
 }
 
 function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
-  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled ? [WEB_SEARCH_TOOL] : [];
+  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
+    ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
+    : [EXEC_COMMAND_TOOL];
   return [LIFE_ACTION_TOOL, ...tools, FINISH_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+    { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.lifeAction },
     { type: 'function', name: TOOL_NAMES.silentFinish }
   ];
@@ -1532,6 +1630,7 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   const turnControl = deriveTurnControlState(loopInput);
   if (turnControl.expectedNext === TOOL_NAMES.lifeAction) {
     return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.execCommand },
       { type: 'function', name: TOOL_NAMES.lifeAction }
     ]);
   }
@@ -1906,6 +2005,34 @@ function isRetryableCompactMemoryFailure(status: number, error: string | null | 
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+    ? Number(value)
+    : NaN;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function appendCappedOutput(current: string, chunk: Buffer, maxChars: number) {
+  if (current.length >= maxChars) {
+    return current;
+  }
+  const next = current + chunk.toString('utf8');
+  return next.length > maxChars ? next.slice(0, maxChars) : next;
+}
+
+function resolveExecShellArgs(shell: string, cmd: string, login: boolean) {
+  const shellName = shell.split(/[\\/]/).pop() || shell;
+  if (login && (shellName === 'bash' || shellName === 'zsh')) {
+    return ['-lc', cmd];
+  }
+  return ['-c', cmd];
 }
 
 function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
@@ -2490,6 +2617,7 @@ function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.unreadMeaning,
   TOOL_NAMES.lifeAction,
+  TOOL_NAMES.execCommand,
   TOOL_NAMES.inspectImage,
   'web_search'
 ]);
@@ -2974,6 +3102,12 @@ function composeSystemPrompt(
   let composed = systemPrompt.trim();
 
   void chatType;
+
+  composed = appendRuntimePromptSection(
+    composed,
+    'Skills:',
+    SKILLS_INSTRUCTIONS
+  );
 
   composed = appendRuntimePromptSection(
     composed,
@@ -6164,6 +6298,9 @@ export class AgentLoopService {
       case TOOL_NAMES.lifeAction: {
         return this.commitLifeAction(toolCall, queueMessage);
       }
+      case TOOL_NAMES.execCommand: {
+        return this.executeCommand(toolCall.args);
+      }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage);
       }
@@ -6186,6 +6323,83 @@ export class AgentLoopService {
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }
+  }
+
+  private async executeCommand(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const cmd = typeof args.cmd === 'string' && args.cmd.trim()
+      ? args.cmd
+      : '';
+    if (!cmd) {
+      throw new Error(`${TOOL_NAMES.execCommand} requires cmd`);
+    }
+
+    const shell = typeof args.shell === 'string' && args.shell.trim()
+      ? args.shell.trim()
+      : process.env.SHELL || '/bin/bash';
+    const workdir = typeof args.workdir === 'string' && args.workdir.trim()
+      ? args.workdir.trim()
+      : process.cwd();
+    const login = args.login !== false;
+    const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 1, 200_000);
+    const maxOutputChars = Math.max(1, maxOutputTokens * 4);
+    const timeoutMs = clampNumber(args.yield_time_ms, 10_000, 250, 30_000);
+    const startedAt = Date.now();
+
+    return await new Promise<Record<string, unknown>>((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      let settled = false;
+      const child = spawn(shell, resolveExecShellArgs(shell, cmd, login), {
+        cwd: workdir,
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        child.kill('SIGTERM');
+        setTimeout(() => {
+          if (!settled) {
+            child.kill('SIGKILL');
+          }
+        }, 1_000).unref();
+      }, timeoutMs);
+      timeout.unref();
+
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout = appendCappedOutput(stdout, chunk, maxOutputChars);
+      });
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr = appendCappedOutput(stderr, chunk, maxOutputChars);
+      });
+      child.on('error', (error) => {
+        settled = true;
+        clearTimeout(timeout);
+        reject(error);
+      });
+      child.on('close', (code, signal) => {
+        settled = true;
+        clearTimeout(timeout);
+        resolve({
+          cmd,
+          workdir,
+          shell,
+          login,
+          tty: Boolean(args.tty),
+          sandbox_permissions: typeof args.sandbox_permissions === 'string'
+            ? args.sandbox_permissions
+            : 'use_default',
+          exit_code: typeof code === 'number' ? code : null,
+          signal: signal || null,
+          timed_out: timedOut,
+          duration_ms: Date.now() - startedAt,
+          stdout,
+          stderr,
+          truncated: stdout.length >= maxOutputChars || stderr.length >= maxOutputChars
+        });
+      });
+    });
   }
 
   private async commitLifeAction(

@@ -76,6 +76,7 @@ with urllib.request.urlopen(url, context=context) as response, open(cache_path, 
 PY
 COPY modules/agent-service/package.json ./
 COPY modules/agent-service/scripts ./scripts
+COPY modules/agent-service/skills ./skills
 COPY --from=prod-deps /app/packages/persistence /app/packages/persistence
 COPY --from=prod-deps /app/modules/agent-service/node_modules ./node_modules
 COPY --from=build /app/modules/agent-service/dist ./dist
