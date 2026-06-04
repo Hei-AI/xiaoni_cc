@@ -33,6 +33,14 @@
 - 这些表由 `context_compression_memory_writer` 在旧 turn 移出窗口时异步写入；不要在路由、临时脚本或主聊天工具里绕过 persistence 直接写表。
 - 旧 `agent_feedback_reflections` / `agent_feedback_learning_states` 仍在 schema 中用于历史兼容和旧评测，但不是新三层长期记忆的主写入路径。
 
+## Xiaoni Continuity Data Map
+
+- `<小腻近况>` 当前仍在 `agent_session_context_windows.context_summary`，由 `context_summary_writer` 在上下文压缩时写入。
+- `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；普通群/私聊 run 用当前 `session_key`，presence-originated run 用 `xiaoni:global`。
+- `agent_life_events` 是 homeostasis / presence projection 的事件真相源；当前不要把它误读成 `<小腻近况>` 或三层长期记忆的唯一 runtime recall 源。
+- `listAgentLifeEventsForPrompt()` 已存在，但返回的是 life-event rows，不是 prompt-safe memory digest。把它接进主 prompt 前必须先明确 visibility / redaction / boundary policy。
+- 三层长期记忆表已经写入数据，但 typed recall projection 仍是后续工作；当前主 loop 不会自动按问题类型召回这些 rows。
+
 ## Agent Runtime Contracts
 - loop agent 每一轮必须保持同一份 instructions 和同一份 tools 定义；不要为了表达“这一轮做什么”逐轮改 prompt 或改 tools 列表。
 - 分阶段约束用 Provider 的 `tool_choice.allowed_tools` 或业务侧状态机表达；这可以缩小当前可调用工具集合，同时不改变 tools 定义本身。

@@ -17,7 +17,7 @@
 - 当前仓库优先使用 stateless manual replay：本地保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。
 - 手动 replay 时必须保留 assistant item 的 `phase`。中间状态用 `commentary`，最终输出用 `final_answer`。
 - reasoning / compaction item 是 opaque continuation state，只能回传，不能把内部结构当业务数据解析。
-- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它从压缩前整段 in-context 生成，包括上一轮 `<小腻近况>`，不等同于 OpenAI Responses compaction。
+- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它从压缩前整段 in-context 生成，包括上一轮 `<小腻近况>`，不等同于 OpenAI Responses compaction。当前实现仍把它写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。
 
 ## Compaction
 
@@ -51,7 +51,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `presence_tick` append 到同一事件流；presence 起源的场景读取全局最近事件流和 `xiaoni:global` 连续性。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时可以选择内部 `submit_life_action`、hosted `web_search` 或 `stay_silent`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` / `<小腻的OS>` 供后续上下文或压缩摘要延续。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `presence_tick` append 到同一事件流；presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时可以选择内部 `submit_life_action`、hosted `web_search` 或 `stay_silent`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` / `<小腻的OS>` 供后续上下文或压缩摘要延续。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Official References
 

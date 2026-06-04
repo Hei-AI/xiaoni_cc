@@ -20,9 +20,12 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 - IM unread is persisted in `agent_inbound_messages`; each session uses its
   last-read message as the cursor, and opening IM materializes unread messages
   after that cursor so stale backlog is not treated as the current scene.
-- Presence-originated ticks read the global recent append stream, compressed
-  `<小腻近况>`, and `<小腻的OS>`, even when unread IM materializes the current
-  run into `proactive_im_open`. Life-only `presence_tick` can use
+- Presence-originated ticks read the global conversation append stream and use
+  `xiaoni:global` as the context summary / read-cutoff compatibility key, even
+  when unread IM materializes the current run into `proactive_im_open`. The
+  compressed `<小腻近况>` is still stored in
+  `agent_session_context_windows.context_summary`; it is not yet an event-backed
+  `agent_life_events` digest. Life-only `presence_tick` can use
   `submit_life_action`, `web_search`, or `stay_silent`, not a private planner
   context. If it produces a "想回头分享" residue, that residue is appended into
   `<小腻的OS>` so it stays in normal context and later compression.
@@ -33,8 +36,9 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 ## Locked Decisions
 
 1. `agent_life_events` is the canonical append-only event stream for Xiaoni's
-   inner life, QQ presence, visible actions, silence decisions, and later
-   digital-life actions.
+   homeostasis / presence state, QQ-visible actions, silence decisions, and
+   later digital-life actions. It is not yet the canonical source for
+   `<小腻近况>` or typed long-term memory recall.
 2. `agent_session_life_states` and group state tables are projections/caches
    derived from that stream. They may speed scheduling, but they are not allowed
    to become the truth source.
@@ -109,6 +113,10 @@ Append events for facts that happened, not inferred personality:
   action cost, which directly restores energy.
 - future digital events: real or explicitly constructed digital actions, each
   carrying source honesty, action cost, and source evidence.
+- historical retired self-action rows such as `self_action_started` /
+  `self_action_completed` may exist in production data and admin activity views.
+  Reconcile the bounded event-kind contract before reusing those kinds in new
+  writes.
 
 Reducer output may include scores, but scores must be traceable to the events
 that produced them. If a score cannot explain which events moved it, it should

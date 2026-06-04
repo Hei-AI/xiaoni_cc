@@ -1,5 +1,20 @@
 # Memory Replay Eval
 
+Status: archived offline reference as of 2026-06-04.
+
+This file describes an older replay/ablation scaffold under `scripts/replay/`.
+It is not the current runtime memory contract. Current runtime facts:
+
+- The main chat loop no longer exposes `recall_long_term_learning`.
+- Three-layer compact memory writes `agent_memory_observations`,
+  `agent_memory_assertions`, and `agent_memory_reflections` during context
+  compression, but typed runtime recall projection is still future work.
+- `<小腻近况>` is still a context-window summary in
+  `agent_session_context_windows.context_summary`, not an event-backed
+  identity-root projection.
+- `agent_life_events` is the source of truth for homeostasis / presence
+  projection, not yet for all memory continuity.
+
 这份文档定义 `scripts/replay/` 下离线 memory 行为评测脚手架的最小约定。
 
 ## Goal

@@ -14,6 +14,7 @@
 - 继续清理残留的旧文案和脚本假设，避免误导运行与排障
 - 稳定 admin playground、queue management、traffic replay、agent run workspace、runtime status 等保留调试面
 - 完成 transcript snapshot compact/materialize 闭环，让 fixed-anchor replay 不再只靠“从会话开头重放”
+- 完成 Xiaoni identity-root continuity 的只读审计、event kind contract 校准和 prompt-safe projection 设计；在切 prompt 前先用 shadow trace 验证 `life_events` 与 session-window summary 的差异
 - 收尾 Xiaoni Identity Lineage Phase 1：连续性试验、trace 证据完整性、legacy migration 验证和 compose 级验证
 - 为新的业务流程重建预留清晰边界：业务编排在新服务中实现，外部能力接入继续放在 `provider-service`
 

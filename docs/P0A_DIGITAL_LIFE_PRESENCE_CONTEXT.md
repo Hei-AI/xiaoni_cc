@@ -6,14 +6,17 @@ implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
 context and made hardcoded interests look like Xiaoni's own life. The current
 shape appends idle/presence life events into the same main loop. A
-presence-originated event reads the global recent append stream and
-`xiaoni:global` continuity. If an IM has unread messages after that session's
-last-read cursor, the run can materialize that target as `proactive_im_open`;
-otherwise it stays life-only and can submit an internal life action, run
-grounded hosted `web_search`, or `stay_silent`. It still cannot send QQ without
-a concrete IM target. "想回头分享" material is current-context residue: it is
-appended into `<小腻的OS>` and later `<小腻近况>`, not routed through a separate
-share-pool queue. This is still not the full browser-backed digital-life system.
+presence-originated event reads the global conversation append stream and uses
+`xiaoni:global` as the context summary / read-cutoff compatibility key. That key
+is still backed by `agent_session_context_windows`; event-backed identity-root
+`<小腻近况>` is not implemented yet. If an IM has unread messages after that
+session's last-read cursor, the run can materialize that target as
+`proactive_im_open`; otherwise it stays life-only and can submit an internal
+life action, run grounded hosted `web_search`, or `stay_silent`. It still cannot
+send QQ without a concrete IM target. "想回头分享" material is current-context
+residue: it is appended into `<小腻的OS>` and later session-window
+`<小腻近况>`, not routed through a separate share-pool queue. This is still not
+the full browser-backed digital-life system.
 
 2026-05-31 runtime correction: prompt-facing state is current energy plus recent
 action cost/recovery context only. Earlier design language about boredom,
@@ -24,9 +27,11 @@ meters must not be used as hard prompt-facing action gates.
 This document is the system of record for browser-backed digital life,
 `presence_context`, current idle life events, and the next browser-backed runner
 shape. `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` is the source of record for the
-event-stream reducer rule: `agent_life_events` is truth, while
-`agent_session_life_states` is projection/cache. `TODOS.md` keeps only the
-execution summary.
+event-stream reducer rule: `agent_life_events` is truth for homeostasis /
+presence projection, while `agent_session_life_states` is projection/cache.
+Memory continuity and `<小腻近况>` are currently still session-window based unless
+a later section explicitly says event-backed projection has landed. `TODOS.md`
+keeps only the execution summary.
 
 **Core framing:**
 
@@ -238,13 +243,16 @@ Current implemented slices:
   from agent-service runtime. The old `AgentDigitalAction` write helpers are
   also removed from `@qq-bot/persistence`; the table remains historical
   compatibility data for admin replay only.
-- 2026-05-31: presence-originated `presence_tick` now stays inside the main loop
-  context. It reads the global recent append stream, compressed `<小腻近况>`,
-  and `<小腻的OS>` even if unread IM materializes the run into
-  `proactive_im_open`; without a concrete IM target it cannot send QQ directly.
-  It can still use `submit_life_action`, `web_search`, or `stay_silent`; any
-  "想回头分享" residue is appended to `<小腻的OS>` and therefore survives normal
-  context replay or later summary compression.
+- 2026-05-31 / corrected 2026-06-04: presence-originated `presence_tick` now
+  stays inside the main loop context. It reads the global conversation append
+  stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
+  even if unread IM materializes the run into `proactive_im_open`; without a
+  concrete IM target it cannot send QQ directly. It can still use
+  `submit_life_action`, `web_search`, or `stay_silent`; any "想回头分享" residue
+  is appended to `<小腻的OS>` and therefore survives normal context replay or
+  later summary compression. The compressed `<小腻近况>` here is still
+  `agent_session_context_windows.context_summary`, not an event-backed
+  `agent_life_events` digest.
 - 2026-05-31: presence enqueue no longer uses cooldown/boredom/sharing desire or
   startup grace as hard gates. It still blocks proactive IM opening when fatigue
   is too high, recording `rest_period` or `sleep_period` instead. Prompt-facing

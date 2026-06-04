@@ -47,7 +47,7 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 - assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - assistant commentary：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
 
-`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。
+`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。当前实现仍把它存在 `agent_session_context_windows.context_summary`，按 context/session key 分桶：普通群/私聊 run 用当前 `payload.sessionKey`，presence-originated run 用 `xiaoni:global`。它还不是 `agent_life_events` 的 identity-root projection，也不会自动从某个群 summary fallback。
 
 `<小腻的OS>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。
 
@@ -80,7 +80,7 @@ web_search, if enabled
 stay_silent
 ```
 
-presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局最近事件流和 `xiaoni:global` 连续性，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。
+presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff key，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。注意：这里的 `xiaoni:global` 是 session-window 兼容 key，不代表 event-backed 全局 `<小腻近况>` 已经落地。
 
 group chat 第一轮：
 
@@ -228,6 +228,8 @@ no_reply = true
   -> 生成新的纯文本 <小腻近况>
 ```
 
+当前压缩阈值是 count-based：retained history 超过 `HISTORY_COMPACT_AT=200` 时触发，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。token hard budget 仍会作为兜底重算 read cutoff。
+
 per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调用 provider 写入长期学习；结束原因是 `disabled_feedback_episode_tool_removed`。
 
 ## 代码地图
@@ -251,4 +253,4 @@ per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调
 | 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
 | 发了两次 | delivery commit / duplicate outbound fingerprint |
 | life-only tick 想分享但没发出来 | 这是预期；无具体 IM 目标时看 `raw_response.xiaoni_os` 是否包含“我想回头分享这个” |
-| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<小腻的OS>`，以及写出的 `<小腻近况>` 是否置顶回放 |
+| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<小腻的OS>`，`agent_session_context_windows.context_summary` 是否写在实际读取的 context key 上，以及写出的 `<小腻近况>` 是否置顶回放 |

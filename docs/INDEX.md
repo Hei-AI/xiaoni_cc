@@ -17,8 +17,8 @@
   - `docs/AGENTS_EMBEDDINGS.md`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考：
   - `docs/AGENTS_OPENAI_REQUESTS.md`
-- 已屏蔽的 memory / relationship / topic 历史资料：
-  - `docs/AGENTS_MEMORY_EVAL.md`
+- 离线 memory replay 历史评测参考，不是当前 runtime memory 契约：
+  - `docs/archive/AGENTS_MEMORY_EVAL-20260604-offline-replay.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
 - `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：

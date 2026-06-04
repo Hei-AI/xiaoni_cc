@@ -50,10 +50,10 @@ NapCat -> provider-service
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
-- `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。存在游标后的未读时，会打开最新未读会话并 materialize 成 `proactive_im_open`；每个群/私聊以上次已读最后一条为游标，旧 backlog 不会被当成当前现场。presence 起源的 tick 无论是否打开 IM，都读取全局最近事件流和 `xiaoni:global` 连续性；没有具体会话时也会走主 loop，可以提交内部 `submit_life_action`、`web_search` 或 `stay_silent`，但不能无目标直接发 QQ。想回头分享的内容会留进 `<小腻的OS>`，不走旁路兴趣表。
+- `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。存在游标后的未读时，会打开最新未读会话并 materialize 成 `proactive_im_open`；每个群/私聊以上次已读最后一条为游标，旧 backlog 不会被当成当前现场。presence 起源的 tick 当前读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；这还不是 event-backed 的全局 `<小腻近况>`，也不会自动 fallback 到某个群 summary。没有具体会话时也会走主 loop，可以提交内部 `submit_life_action`、`web_search` 或 `stay_silent`，但不能无目标直接发 QQ。想回头分享的内容会留进 `<小腻的OS>`，不走旁路兴趣表。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
-- 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。
+- 当前对话历史里的 `<小腻的OS>` 视为小腻跨轮延续下来的内部状态与成长轨迹，按历史真相保留，并随已读历史一起参与上下文窗口管理。`<小腻近况>` 仍由 context summary writer 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始
@@ -96,7 +96,7 @@ docker compose ps
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试仍可用于 Playground 和历史调试；小腻主 prompt 不再从 DB 读取。
 - Playground case library、Trace / Conversation 导入、Provider 请求 payload 查看
-- 空闲生活事件排障时，看 `presence_tick` / `proactive_im_open` 队列项、agent run trace、`agent_life_events`、`conversation_items` 和 Traffic 里的 `llm_call_id`；不要再把 `agent_digital_actions` 当成新自主行动主链路。
+- 空闲生活事件排障时，看 `presence_tick` / `proactive_im_open` 队列项、agent run trace、`agent_life_events`、`conversation_items`、`agent_session_context_windows` 和 Traffic 里的 `llm_call_id`；不要再把 `agent_digital_actions` 当成新自主行动主链路。
 - Trace 里没有 MITM 命中的真实流量时，会从 `llm_call_logs.wire_request/wire_response` 合成 `provider.request` span；配置了 CLIProxyAPI 请求日志目录时，span detail 会优先展示真实上游 request / response，并脱敏敏感 header
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex local provider 使用 `/root/.qqbot-local/codex-auth-profiles/auth-profiles.json` 作为运行态 OAuth profile store；只在 profile 缺失时从只读 `/root/.codex/auth.json` bootstrap，刷新只写 auth-profiles，不改写 auth.json

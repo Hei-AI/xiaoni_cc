@@ -63,7 +63,15 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局最近事件流切片，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` 压缩 key。压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或 `stay_silent` 休息；“想回头分享”的内容会追加进 `<小腻的OS>`，不是写入单独分享池。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity continuity；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或 `stay_silent` 休息；“想回头分享”的内容会追加进 `<小腻的OS>`，不是写入单独分享池。
+
+当前连续性边界：
+
+- `agent_life_events` 已经是 homeostasis / presence projection 的事件真相源。
+- `<小腻近况>` 仍是 context summary writer 写入 `agent_session_context_windows.context_summary` 的纯文本摘要，按 `contextSessionKey` 分桶。
+- 普通群/私聊 run 的 summary key 仍是对应 `payload.sessionKey`；presence-originated run 使用 `xiaoni:global`。
+- 三层 compact memory 已写入 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`，但还没有作为 typed recall projection 自动进入主 runtime prompt。
+- event-backed identity-root `<小腻近况>` 是待实现方向，不要把它当成当前线上契约。
 
 技术对应关系只作为定位用：
 
@@ -73,6 +81,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 | 收消息、发消息、调用模型的统一出口 | `provider-service` |
 | 小腻真正做行为判断的地方 | `agent-service` |
 | 历史/后续行动记录 | `agent_queue_messages` / `agent_runs` / `conversation_items` / `agent_life_events` |
+| 摘要 / read cutoff 兼容状态 | `agent_session_context_windows` |
 | 消息、开关、经历、学习结果的存储 | PostgreSQL / `packages/persistence` |
 
 ## 一条消息会经历什么
@@ -328,6 +337,7 @@ stay_silent
 | 读最近聊天上下文 | 生效 | 她不是只看当前一句话。 |
 | 读当前未读消息批次 | 生效 | 会把连续几条新消息作为一个场面来看。 |
 | 保留 `<小腻的OS>` | 生效 | 这是她之前对自己状态和成长的连续记录。 |
+| `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由 `context_summary_writer` 在压缩时写入 `agent_session_context_windows.context_summary`；presence tick 用 `xiaoni:global` key，但没有 event-backed 全局 fallback。 |
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
@@ -337,17 +347,19 @@ stay_silent
 
 ## 什么是“成长记录”
 
-业务上可以把小腻的长期信息分成三层运行时输入，加上一组三层长期记忆库：
+业务上可以把小腻的长期信息分成当前已接入的运行时输入，和一组已写入但待投影的三层长期记忆库：
 
 1. 最近聊天：她刚刚看到、刚刚经历的上下文。
 2. 成长记录：她过去运行中留下的 `<小腻的OS>`，描述自己状态、边界、关系感受和调整。
-3. 长期记忆投影：从 `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 按问题类型投进来的历史材料。
+3. `<小腻近况>`：context summary writer 压缩出来的纯文本近况，当前仍按 context/session key 存储。
+4. 待接入的长期记忆投影：未来从 `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 按问题类型投进来的历史材料。
 
 这三层都会影响她当前怎么理解现场，但它们不是同一种东西：
 
 - 最近聊天负责“刚刚发生了什么”。
 - `<小腻的OS>` 负责“我一路怎么变成现在这样”。
-- 长期记忆投影负责“这个现场需要哪类过去材料：具体事件、客观事实，还是跨时间模式”。
+- `<小腻近况>` 负责“被压缩掉的近况怎么以纯文本形式保留”。
+- 长期记忆投影负责“这个现场需要哪类过去材料：具体事件、客观事实，还是跨时间模式”，但这一步当前还没有接进主 prompt。
 
 ## 什么现在不要当成主链路
 
@@ -373,7 +385,7 @@ stay_silent
 | QQ 消息完全没有进来 | 收消息入口是否正常 |
 | 进来了但小腻没有处理 | 群/私聊是否启用、自动回复是否开启、是否进入待处理池 |
 | 处理了但没有说话 | 她可能判断应该沉默，需要看当次判断过程 |
-| 说了但不像小腻 | 看 Prompt、成长记录、三层长期记忆投影和当次模型输入 |
+| 说了但不像小腻 | 看 Prompt、`<小腻的OS>`、`<小腻近况>`、identity facts、presence context 和当次模型输入；不要假设三层长期记忆已经自动投影进 prompt |
 | 明明应该查资料却没查 | 看当前阶段是否允许搜索，以及她是否判断需要资料 |
 | 发言内容发不出去 | 看 QQ 发送链路 |
 

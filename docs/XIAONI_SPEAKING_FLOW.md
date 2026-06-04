@@ -20,7 +20,7 @@ flowchart TD
   Policy -->|不允许自动回复| InboxOnly[(agent_inbound_messages only)]
 
   Queue --> Loop[agent-service main loop]
-  Loop --> Context[组装输入<br/>已读历史 / 当前未读 / 小腻近况 / OS / 身份事实 / 媒体 / 当前状态]
+  Loop --> Context[组装输入<br/>已读历史 / 当前未读 / session-window 小腻近况 / OS / 身份事实 / 媒体 / 当前状态]
   Context --> Request[Turn 1 canonical request]
   Request --> LifeAction[submit_life_action<br/>unread_meaning + participation_judgment + final action]
 
@@ -82,9 +82,9 @@ flowchart TD
   G --> H[同一个 main loop]
 ```
 
-presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。无聊、冷却、分享欲和启动宽限不再是硬门禁；疲劳超过恢复阈值时会先记录 `rest_period` 或 `sleep_period`，本轮不打开消息列表。处理时如果 inbox 有游标后的未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有游标后的未读，也会作为 life-only `presence_tick` 进入同一个 main loop。未读来源是 DB 持久化状态，但每个群/私聊以上次已读最后一条为游标，IM 窗口只 materialize 游标之后的未读，旧 backlog 不能被当成当前现场。presence 起源的 tick 会读取全局最近事件流切片，并使用 `xiaoni:global` 压缩 key；即使本轮 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。life-only tick 不能发 QQ，但可以按当前事件流、压缩近况和 `<小腻的OS>` 选择内部 `submit_life_action`、`web_search` 或 `stay_silent`。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
+presence tick 只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。无聊、冷却、分享欲和启动宽限不再是硬门禁；疲劳超过恢复阈值时会先记录 `rest_period` 或 `sleep_period`，本轮不打开消息列表。处理时如果 inbox 有游标后的未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有游标后的未读，也会作为 life-only `presence_tick` 进入同一个 main loop。未读来源是 DB 持久化状态，但每个群/私聊以上次已读最后一条为游标，IM 窗口只 materialize 游标之后的未读，旧 backlog 不能被当成当前现场。presence 起源的 tick 会读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；即使本轮 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局连续性，也不会自动 fallback 到某个群 summary。life-only tick 不能发 QQ，但可以按当前事件流、压缩近况和 `<小腻的OS>` 选择内部 `submit_life_action`、`web_search` 或 `stay_silent`。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
 
-已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，presence 起源的 tick 未压缩时从全局最近事件流读取，压缩后通过 `<小腻近况>` / `<小腻的OS>` 延续。
+已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，presence 起源的 tick 未压缩时从全局 conversation append stream 读取，压缩后当前通过 `xiaoni:global` 的 `<小腻近况>` / `<小腻的OS>` 延续。
 
 `/xiaoni-activity` 展示 Xiaoni 层面的生活事件和安全 trace 摘要。旧 `agent_digital_actions` 只作为历史观测兼容展示，不再作为新自主行动主链路。
 
@@ -239,6 +239,12 @@ scheduleContextCompressionMemoryWriter
 scheduleContextSummaryWriter
 -> 生成新的纯文本 <小腻近况>
 ```
+
+当前压缩事实：
+
+- count-based compaction 触发点是 retained history 超过 `HISTORY_COMPACT_AT=200`，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。
+- `<小腻近况>` 写入 `agent_session_context_windows.context_summary`，key 是普通 run 的 `payload.sessionKey`，或 presence-originated run 的 `xiaoni:global`。
+- 这份摘要不是 `agent_life_events` projection，也不是 OpenAI 官方 compaction item。
 
 长期记忆三层含义：
 

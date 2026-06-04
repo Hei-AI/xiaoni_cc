@@ -11,11 +11,11 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented. Tasks 8-14 are active follow-ups for current
+   Tasks 1-7 are implemented. Tasks 8-16 are active follow-ups for current
    runtime context quality, compact memory quality, image task routing,
-   presence-context v2, and Xiaoni's creative agency. Keep verification notes
-   here and move any next follow-up into a new task instead of reopening the old
-   queue.
+   presence-context v2, Xiaoni's creative agency, idle reminiscence, and
+   identity-root continuity. Keep verification notes here and move any next
+   follow-up into a new task instead of reopening the old queue.
 2. **P0-B: Identity Lineage Phase 1.**
    Substrate work can proceed, but runtime-facing policy waits for P0-A's first
    causality closure.
@@ -195,8 +195,10 @@ Locked decisions from office-hours:
   surfaces, not the required path for new "想回头分享" material.
 - Presence tick opens IM only from per-session cursor-visible unread. If it
   materializes into `proactive_im_open`, the run still preserves the
-  presence-originated global context and `xiaoni:global` continuity instead of
-  falling back to only that group/private local history.
+  presence-originated global conversation context and `xiaoni:global` context
+  summary / read-cutoff compatibility key instead of falling back to only that
+  group/private local history. This is not yet event-backed identity-root
+  `<小腻近况>` continuity.
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
   longer active; current `agent-service` runtime starts queue polling, task
@@ -208,11 +210,14 @@ Locked decisions from office-hours:
   current state, available material, action cost, and source boundary.
 - Prompt/developer/tool-description/in-context state have separate roles and one
   engineering source of truth for numeric meters.
-- 2026-05-31 homeostasis correction: `agent_life_events` is the source of truth;
-  `agent_session_life_states` is projection/cache only. Phase 1 should implement
-  the reducer and admin explanation before restoring any autonomous runner.
-  Suggestions from QQ affect Xiaoni only through the event stream, `<小腻的OS>`,
-  or compact summary, not via hardcoded motive/query/interest fields.
+- 2026-05-31 homeostasis correction: `agent_life_events` is the source of truth
+  for homeostasis / presence projection; `agent_session_life_states` is
+  projection/cache only. It is not yet the source for event-backed
+  `<小腻近况>` or typed long-term memory recall. Phase 1 should implement the
+  reducer and admin explanation before restoring any autonomous runner.
+  Suggestions from QQ affect Xiaoni only through the event stream,
+  `<小腻的OS>`, or compact summary, not via hardcoded motive/query/interest
+  fields.
 
 The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
@@ -1187,6 +1192,105 @@ scheduling, prompt context, and admin explanation.
 - Admin activity can explain which events moved each displayed state value.
 - Prompt context receives facts, residues, costs, and source boundaries without a
   forced recommended action.
+
+### Task 15 - Idle reminiscence and expressive recall
+
+**Status:** todo.
+
+**Source:** 2026-06-01 user note: "人在空闲的时候能回想起很久之前的事情,然后借此抒发".
+
+**Problem:** current memory and presence work mostly answers what Xiaoni knows,
+what recently happened, and what she is currently doing. It does not yet model a
+common idle behavior: when someone has nothing urgent to do, an old memory can
+surface unprompted, become emotionally relevant again, and give them a reason to
+say something, write something, or express a feeling. Without this path, Xiaoni's
+long-term memory can remain too retrieval-like and task-bound instead of feeling
+like a lived inner continuity.
+
+**Discussion seed:**
+
+- Treat idle reminiscence as a low-pressure state transition, not as a generic
+  pre-reply memory lookup.
+- Candidate inputs include boredom, fatigue, quiet chat windows, current residue,
+  recent emotion, anniversaries/time-of-day echoes, and older episodic memories
+  with unresolved or expressive texture.
+- The surfaced memory should preserve source honesty: Xiaoni can say it "想起来"
+  only when the runtime context exposes it as a remembered past event, not as a
+  newly observed real-world fact.
+- Output does not need to force a group message. It can become private OS,
+  creative material, a draft/share candidate, or a reason to enter a chat if the
+  target context fits.
+- Avoid making every idle tick nostalgic. The behavior should be sparse,
+  interruptible, and shaped by homeostasis/attention cost.
+
+**Acceptance criteria:**
+
+- A design pass defines where idle reminiscence is generated, stored, and
+  projected: life event stream, current-state projection, compact memory, or a
+  dedicated expressive-draft surface.
+- The implementation distinguishes old episodic recall from semantic facts,
+  current residue, and constructed creative material.
+- Prompt context can expose a surfaced memory plus the reason it came up without
+  instructing Xiaoni to always mention it.
+- Tests cover quiet idle state, recent active conversation, stale/untrusted
+  memory, and source-honest wording for "想起来" versus "编了个".
+
+### Task 16 - Identity-root continuity and event-backed summary
+
+**Status:** todo.
+
+**Source:** 2026-06-04 investigation of
+`run_1780535608018_1afc4183` and follow-up `$office-hours` /
+`$plan-eng-review`.
+
+**Problem:** Xiaoni should be one continuous identity across groups and DMs, but
+current runtime continuity is still partly session-shaped. The immediate
+failure was a life-only `presence_tick` run using `contextSessionKey =
+xiaoni:global` while the available `<小腻近况>` lived under
+`qq:group:253631878` in `agent_session_context_windows.context_summary`.
+
+Current implementation truth:
+
+- `agent_life_events` is already the source of truth for homeostasis /
+  presence projection.
+- `<小腻近况>` is still written by `context_summary_writer` into
+  `agent_session_context_windows.context_summary`, keyed by `payload.sessionKey`
+  or `xiaoni:global` for presence-originated runs.
+- `agent_memory_observations` / `agent_memory_assertions` /
+  `agent_memory_reflections` are generated during context compression, but typed
+  runtime recall projection is not connected yet.
+- Production data contains historical life-event kinds such as
+  `self_action_started` / `self_action_completed`; the current bounded event-kind
+  writer contract must be reconciled before adding continuity digest kinds.
+
+**Action:**
+
+- Run a read-only audit of `agent_session_context_windows`, `agent_life_events`,
+  and the three memory tables by identity/session/group key.
+- Define the prompt-safe continuity projection contract before changing prompt
+  assembly. It must redact or summarize raw private payloads and enforce
+  visibility / boundary policy.
+- Extend and test the bounded life-event kind contract before writing
+  `continuity_digest_*` or `memory_note_*` events.
+- Seed event-backed continuity from existing `xiaoni:global` / group summaries
+  and compact memory rows with deterministic `dedupe_key`.
+- Switch runtime reads behind `AGENT_CONTINUITY_SOURCE=life_events |
+  session_window`, with shadow trace metadata and fallback to session-window
+  summary on empty/failure.
+
+**Acceptance criteria:**
+
+- A life-only presence tick receives `<小腻近况>` even when the latest source
+  activity happened in a group.
+- A normal group/private run receives the same identity-root continuity without
+  making IM unread cursor, delivery state, or per-surface policy global.
+- Private/surface-local material does not enter global continuity unless a
+  prompt-safe projection explicitly allows it.
+- Trace metadata can explain old summary source, new event source, and
+  projection exclusion counts.
+- Tests cover `listAgentLifeEventsForPrompt()` or its wrapper for active-session
+  visibility, global visibility, `operator_only` exclusion, and prompt-safe
+  payload projection.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 
