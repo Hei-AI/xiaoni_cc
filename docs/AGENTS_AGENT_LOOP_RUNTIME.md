@@ -9,6 +9,11 @@
 
 ## 当前核心结论
 
+工程里仍有 `agent_runs`，但它只表示 trace / delivery / retry /
+observability 边界，不是小腻的认知边界。面向 prompt 和产品行为时，把
+小腻理解成连续事件流里的一个持续 loop：当前动作收口后，工程追加事件、
+扣/恢复精力，再进入下一次行动机会。
+
 group chat 的普通路径现在只有一个决策请求：
 
 ```text
@@ -45,11 +50,41 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 - developer：稳定世界叙事、当前场景、小腻当前精力/行动成本、身份事实。
 - user：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`；标签只保留 `message_id`、`chat_type="群聊/私聊"`、`group` / `private_peer`。
 - assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
-- assistant commentary：`<小腻近况>`、`<小腻的OS>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`。
+- assistant commentary：`<小腻近况>`、`<xiaoni_os>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`；旧历史中可能仍有 `<小腻的OS>`，不迁移。
 
 `<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。当前实现仍把它存在 `agent_session_context_windows.context_summary`，按 context/session key 分桶：普通群/私聊 run 用当前 `payload.sessionKey`，presence-originated run 用 `xiaoni:global`。它还不是 `agent_life_events` 的 identity-root projection，也不会自动从某个群 summary fallback。
 
-`<小腻的OS>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。
+`<xiaoni_os>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。DB 字段仍叫 `xiaoni_os`。
+
+`<STATE>` 不是每次都注入。工程只在状态事件发生时 append：跨 run action
+计数达到阈值、hosted `web_search` 后、低精力提醒、透支后强制睡醒、休息
+中被连续 @ 打扰醒。`<STATE energy>` 允许负数；恢复计算按 `max(0, energy)`
+处理。
+
+上下文压缩或能力变化后，developer block 应追加当前 `<CAPABILITIES>`：
+支持的 tools、skills、路径和精力成本。skill 必须在 `SKILL.md` 中声明
+`## Runtime Cost` / `energy_cost` 才会列入能力列表；缺 cost 的 skill 不列入
+`<SKILLS>`，并写 operator warning。
+
+锁定的 prompt-facing 工具/skill 成本：
+
+```text
+submit_life_action: 0.005
+stay_silent: 0.002
+speak_in_group: 0.015
+reply_in_private: 0.015
+web_search: 0.080
+inspect_image_placeholder: 0.040
+request_image_task: 0.030
+exec_command: 0.030
+recover_energy: 0.000
+skill-creator: 0.120
+qq-usage: 0.004
+```
+
+QQ app 操作细节属于 `$qq-usage` 的 `SKILL.md`，不放进主 prompt。
+未打开 QQ 时只暴露 `<UNREAD_AVAILABLE unread_count="N" direct_mentions="M" />`；
+不暴露 thread list、正文、preview、关键词、摘要或工程提示。
 
 ## 工具集合与 tool_choice
 
@@ -80,6 +115,12 @@ web_search, if enabled
 stay_silent
 ```
 
+locked next target adds:
+
+```text
+recover_energy
+```
+
 presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff key，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。注意：这里的 `xiaoni:global` 是 session-window 兼容 key，不代表 event-backed 全局 `<小腻近况>` 已经落地。
 
 group chat 第一轮：
@@ -100,6 +141,13 @@ if latest life action is image_task and still needs external work:
 
 工程层仍然会保留 actor tools in `tools`，因为 Responses API 的 tool definitions 是请求能力集合；真正每一轮能调用什么由 `tool_choice.allowed_tools` 收缩。
 
+`recover_energy` 是已锁定的下一阶段唯一 prompt-facing 恢复工具。它把休息
+和睡眠合并成一个动作，`duration_minutes` clamp 到 `5..120`，并用非线性
+恢复曲线计算醒来精力。恢复计算把负精力当 `0`，但内部值和
+`<STATE energy>` 可以显示负数。最长休息 120 分钟，达到满恢复。历史/internal
+`rest_period` 和 `sleep_period` 可以继续作为兼容事件存在，但不要作为
+prompt-facing 双工具暴露。
+
 ## `submit_life_action`
 
 这是当前主回合的核心工具。它一次性提交：
@@ -115,7 +163,7 @@ if latest life action is image_task and still needs external work:
 | `should_search` | 是否需要公开新资料 |
 | `context_gap` / `gap_resolution` | 当前上下文缺口属于哪一类，应该怎么处理 |
 | `xiaoni_os` | 本轮之后留给下一次运行的内部连续性 |
-| `pending_share` | 可选，下一轮可能主动分享的材料；life-only 场景会并入 `<小腻的OS>` |
+| `pending_share` | 可选，下一轮可能主动分享的材料；life-only 场景会并入 `<xiaoni_os>` |
 
 普通 `speak` / `proactive` / `silent` 会在 `commitLifeAction` 内直接收口，不再等待下一轮 actor tool：
 
@@ -166,7 +214,8 @@ unread_meaning.addressed_to_me = true
 
 ## Delivery 防重
 
-一轮 run 里只允许一次可见 delivery commit。
+一次工程 trace/run 里只允许一次可见 delivery commit。不要把这个工程边界
+写成小腻自己的认知边界。
 
 关键行为：
 
@@ -226,6 +275,7 @@ no_reply = true
   -> write_memory_reflections
   -> scheduleContextSummaryWriter
   -> 生成新的纯文本 <小腻近况>
+  -> 追加 developer <CAPABILITIES>（tools/skills/costs）
 ```
 
 当前压缩阈值是 count-based：retained history 超过 `HISTORY_COMPACT_AT=200` 时触发，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。token hard budget 仍会作为兜底重算 read cutoff。
@@ -253,4 +303,6 @@ per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调
 | 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
 | 发了两次 | delivery commit / duplicate outbound fingerprint |
 | life-only tick 想分享但没发出来 | 这是预期；无具体 IM 目标时看 `raw_response.xiaoni_os` 是否包含“我想回头分享这个” |
-| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<小腻的OS>`，`agent_session_context_windows.context_summary` 是否写在实际读取的 context key 上，以及写出的 `<小腻近况>` 是否置顶回放 |
+| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<xiaoni_os>`，`agent_session_context_windows.context_summary` 是否写在实际读取的 context key 上，以及写出的 `<小腻近况>` 是否置顶回放 |
+| 休息中被消息打断 | resting 状态下不读正文，只统计 unread/@；连续 3 次直接 @ 后用实际休息时长恢复精力并 append `<STATE>` |
+| skill 没出现在能力列表 | 检查该 skill 的 `SKILL.md` 是否有 `## Runtime Cost` 和合法 `energy_cost`；缺 cost 不列入 `<SKILLS>` |

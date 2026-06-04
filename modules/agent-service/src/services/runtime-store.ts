@@ -20,6 +20,10 @@ import {
   getTopicProjectionVersionById,
   listFeedbackLearningStates,
   listAgentInboundMessages,
+  listQqUsageThreads,
+  listQqUsageThreadWindow,
+  getQqUsageUnreadSummary,
+  markQqUsageThreadRead,
   listFeedbackReflections,
   recordRuntimeIdentityActivationTrace,
   listSelfEvolutionStates,
@@ -46,6 +50,9 @@ import {
   incrementRelationshipTrust,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
+  type QqUsageThreadList,
+  type QqUsageThreadWindow,
+  type QqUsageUnreadSummary,
   type RecordAgentLifeEventInput,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -2908,6 +2915,37 @@ export class RuntimeStore {
       peerId: params.groupId,
       offset: params.offset ?? 0,
       limit: params.limit ?? undefined
+    }, databaseConfig);
+  }
+
+  async getQqUsageUnreadSummary(): Promise<QqUsageUnreadSummary> {
+    return getQqUsageUnreadSummary({}, databaseConfig);
+  }
+
+  async listQqUsageThreads(params: { limit?: number; offset?: number }): Promise<QqUsageThreadList> {
+    return listQqUsageThreads({
+      limit: params.limit,
+      offset: params.offset
+    }, databaseConfig);
+  }
+
+  async listQqUsageThreadWindow(params: {
+    threadKey: string;
+    mode?: 'latest' | 'older' | 'newer';
+    anchorMessageId?: number | string | null;
+    limit?: number;
+  }): Promise<QqUsageThreadWindow> {
+    return listQqUsageThreadWindow({
+      threadKey: params.threadKey,
+      mode: params.mode,
+      anchorMessageId: params.anchorMessageId ?? null,
+      limit: params.limit
+    }, databaseConfig);
+  }
+
+  async markQqUsageThreadRead(params: { threadKey?: string | null }): Promise<{ threadKey: string | null; clearedCount: number }> {
+    return markQqUsageThreadRead({
+      threadKey: params.threadKey || null
     }, databaseConfig);
   }
 

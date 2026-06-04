@@ -4,12 +4,14 @@ import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
+import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store);
 const taskWorkerService = new AgentTaskWorkerService();
+const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store));
 
 let stopping = false;
 let workerTimer: NodeJS.Timeout | null = null;
@@ -29,6 +31,21 @@ app.get('/health', async (_req, res) => {
     task_worker_busy: taskWorkerBusy,
     presence_tick_busy: presenceTickBusy,
     timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/internal/qq-usage', async (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : {};
+  const action = typeof body.action === 'string' ? body.action.trim() : '';
+  const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+    ? body.args as Record<string, unknown>
+    : {};
+  const result = await qqUsageRuntime.execute(action, args);
+  res.json({
+    success: true,
+    result
   });
 });
 

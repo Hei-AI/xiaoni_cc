@@ -7,6 +7,10 @@ description: Guide for creating effective skills. Use when 小腻 needs to creat
 
 Use this skill to create or update a local skill for 小腻.
 
+## Runtime Cost
+
+energy_cost: 0.120
+
 ## Skill Shape
 
 A skill is a self-contained folder with one required file:

@@ -11,11 +11,13 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented. Tasks 8-16 are active follow-ups for current
+   Tasks 1-7 are implemented. Tasks 8-19 are active follow-ups for current
    runtime context quality, compact memory quality, image task routing,
    presence-context v2, Xiaoni's creative agency, idle reminiscence, and
-   identity-root continuity. Keep verification notes here and move any next
-   follow-up into a new task instead of reopening the old queue.
+   identity-root continuity, plus the next continuous runtime / energy /
+   capability contract, QQ usage skill, and next prompt / core-memory compression
+   replacement. Keep verification notes here and move any next follow-up into a
+   new task instead of reopening the old queue.
 2. **P0-B: Identity Lineage Phase 1.**
    Substrate work can proceed, but runtime-facing policy waits for P0-A's first
    causality closure.
@@ -216,8 +218,8 @@ Locked decisions from office-hours:
   `<小腻近况>` or typed long-term memory recall. Phase 1 should implement the
   reducer and admin explanation before restoring any autonomous runner.
   Suggestions from QQ affect Xiaoni only through the event stream,
-  `<小腻的OS>`, or compact summary, not via hardcoded motive/query/interest
-  fields.
+  `<xiaoni_os>`, or compact summary, not via hardcoded motive/query/interest
+  fields. Old `<小腻的OS>` history remains compatible input only.
 
 The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
@@ -410,8 +412,8 @@ Sequence: schema migration → Prisma client regeneration → enqueue helper imp
 
 **Proactive residue state — current boundary (updated 2026-05-31):**
 Do not add another proactive share queue. Life-only "想回头分享" material is
-emitted as `pending_share` and merged into `xiaoni_os` / `<小腻的OS>` so normal
-context replay and summary compression carry it forward. Existing
+emitted as `pending_share`, stored in the `xiaoni_os` field, and rendered as
+`<xiaoni_os>` so normal context replay and summary compression carry it forward. Existing
 `AgentSharePoolItem`, `AgentShareItemUsage`, `pendingProactiveShare`, and
 `pendingProactiveShareAge` surfaces are historical/compatibility surfaces unless
 a later task explicitly replaces them; they are not the required path for new
@@ -528,8 +530,8 @@ surfaces into `user` role scene text. In particular:
 
 - 小腻历史发出去的消息被 rendered into `user` role, but should be
   `assistant`.
-- `<小腻的OS>` is currently mixed into user scene input, but is Xiaoni's internal
-  continuity and should be assistant-side context.
+- `<xiaoni_os>` is Xiaoni's internal continuity and should be assistant-side
+  context. Old `<小腻的OS>` history remains accepted input and is not migrated.
 - `presence_tick` is rendered like a fake QQ message from
   `presence_tick(@1129974489)`, but it is Xiaoni's own action/state and should be
   assistant-side `<ACTION>`.
@@ -575,9 +577,9 @@ surfaces into `user` role scene text. In particular:
     </OUTPUT_MESSAGE>
 
   role=assistant phase="commentary":
-    <小腻的OS timestamp="...">
+    <xiaoni_os timestamp="...">
     ...
-    </小腻的OS>
+    </xiaoni_os>
 ```
 
 **Tag contract to explain in `SYSTEM_PROMPT`:**
@@ -588,8 +590,9 @@ surfaces into `user` role scene text. In particular:
   delivery `message_id` when available.
 - `<ACTION>`: Xiaoni's own action/state event, such as opening a group, lurking,
   looking for a topic, inspecting an image, or deciding to wait.
-- `<小腻的OS>`: Xiaoni's internal continuity for future turns; assistant-side,
-  not a user message.
+- `<xiaoni_os>`: Xiaoni's internal continuity for future turns; assistant-side,
+  not a user message. Old `<小腻的OS>` history remains accepted input and is not
+  migrated.
 - `<图片内容>`: assistant-side image observation generated after Xiaoni inspects a
   picture.
 - `<system_reminder>`: assistant commentary reminder appended by engineering
@@ -790,7 +793,7 @@ person, group, or project patterns.
 
 ### Task 8 - In-context feedback attention contract
 
-**Status:** todo.
+**Status:** implemented and verified.
 
 **Source:** 2026-05-27 design review after Task 7 implementation.
 
@@ -830,7 +833,7 @@ context and let it calibrate the immediate response.
 
 ### Task 9 - Compact memory quality and identity continuity review
 
-**Status:** todo.
+**Status:** implemented; verified except runtime cost-mutation audit.
 
 **Source:** 2026-05-27 live compact probe for group `253631878`:
 `tmp/compact-memory-253631878-20260527T100734Z.md`.
@@ -1177,8 +1180,9 @@ scheduling, prompt context, and admin explanation.
   Do not add planner-only suggestion channels, hardcoded interest keys, or query
   templates.
 - Do not restore autonomous self-action timers in this task.
-- Follow-up: generate real `rest_period` / `sleep_period` events instead of only
-  supporting them in the reducer, and add broader runtime integration tests for
+- Follow-up: implement prompt-facing `recover_energy` and resting-state wake
+  behavior. Keep `rest_period` / `sleep_period` as historical/internal
+  compatibility events only, and add broader runtime integration tests for
   projection refresh conflicts.
 
 **Acceptance criteria:**
@@ -1291,6 +1295,303 @@ Current implementation truth:
 - Tests cover `listAgentLifeEventsForPrompt()` or its wrapper for active-session
   visibility, global visibility, `operator_only` exclusion, and prompt-safe
   payload projection.
+
+### Task 17 - Continuous runtime contract, energy, and capability costs
+
+**Status:** todo.
+
+**Source:** 2026-06-04 `$office-hours` production-backend review of the next
+Xiaoni prompt/runtime contract.
+
+**Design docs:** `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`,
+`docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`,
+`docs/AGENTS_AGENT_LOOP_RUNTIME.md`, `docs/XIAONI_SPEAKING_FLOW.md`.
+
+**Execution summary:**
+
+- Treat Xiaoni as a continuous event loop. A `run` is only an internal
+  trace/delivery/retry/observability unit, not a cognition or product boundary.
+- Switch prompt-facing inner-state output to `<xiaoni_os>`; do not migrate old
+  `<小腻的OS>` history.
+- Make `<STATE>` event-triggered, not per turn. Inject it on the engineering
+  cross-run action/tool count threshold, after hosted `web_search`, on low-energy
+  reminder, after forced sleep wake, and after repeated-@ wake from rest.
+- Keep raw energy numeric and allow it to go negative internally. Negative energy
+  is shown as debt, but recovery math starts from 0. Full recovery takes at most
+  2h; if raw energy drops below 0, engineering waits 2h and wakes Xiaoni with a
+  `<STATE>` explaining she was too tired and slept through it.
+- Add one prompt-facing rest tool, `recover_energy`, replacing prompt-facing
+  `rest_period` / `sleep_period`.
+- While resting, Xiaoni does not read message bodies. Engineering only counts
+  direct mentions and wakes her when continuous direct `@` count is `>= 3`,
+  computing recovered energy from actual rest time.
+- Add a compact-after / capability-refresh developer `<CAPABILITIES>` block that
+  lists available tools, supported skills, and tool/skill energy costs. Every
+  skill must declare `## Runtime Cost` with `energy_cost`; missing-cost skills
+  are omitted from the block and produce an operator warning. Xiaoni may update
+  costs, but each change must be audited with old value, new value, reason, and
+  trace/run id.
+
+Locked initial costs:
+
+```text
+submit_life_action: 0.005
+stay_silent: 0.002
+speak_in_group: 0.015
+reply_in_private: 0.015
+web_search: 0.080
+inspect_image_placeholder: 0.040
+request_image_task: 0.030
+exec_command: 0.030
+recover_energy: 0.000
+skill-creator: 0.120
+```
+
+**Acceptance checklist:**
+
+- A replay can show two adjacent engineering runs sharing one continuous Xiaoni
+  state, with no prompt wording that treats `run` as a cognition boundary.
+- Prompt assembly emits `<xiaoni_os>` for new inner-state records and still
+  tolerates old `<小腻的OS>` history without a migration.
+- Tests cover each `<STATE>` injection trigger: action/tool threshold,
+  `web_search`, low-energy reminder, forced sleep wake, and repeated-@ wake.
+- Energy tests cover positive recovery, negative-energy recovery-as-zero, 2h full
+  recovery, and raw-energy `< 0` forced 2h wait.
+- Tool schema and runtime dispatch expose `recover_energy`; prompt-facing
+  `rest_period` / `sleep_period` are not advertised as tools.
+- Resting replay proves unread message bodies are not passed into prompt context
+  before wake, while continuous direct `@ >= 3` wakes Xiaoni with the correct
+  recovered energy state.
+- Compact/capability-refresh replay shows `<CAPABILITIES>` includes tool costs,
+  supported skill list, skill costs, and omits missing-cost skills with an
+  operator warning.
+- Skill cost mutation is audited and takes effect only after the next capability
+  refresh.
+
+**Supervisor verification (2026-06-04):**
+
+- Implemented and verified: continuous energy state, `<xiaoni_os>`,
+  event-triggered `<STATE>`, negative-energy forced sleep, repeated-@ rest wake,
+  `recover_energy`, capability block, tool costs, skill costs, and missing-cost
+  operator warnings.
+- Still open: a real runtime path for Xiaoni-initiated cost mutation with
+  persisted audit of old value, new value, reason, and trace/run id.
+
+### Task 18 - QQ usage skill and progressive IM disclosure
+
+**Status:** implemented and verified.
+
+**Source:** 2026-06-04 `$office-hours` production-backend review of Xiaoni's QQ
+attention model.
+
+**Design docs:** `docs/XIAONI_SPEAKING_FLOW.md`,
+`docs/AGENTS_AGENT_LOOP_RUNTIME.md`, `docs/AGENTS_OPENAI_REQUESTS.md`.
+
+**Execution summary:**
+
+- Implement a system-owned `qq-usage` skill in the same skill root/category as
+  `skill-creator`. It is not exposed as OpenAI function tools; Xiaoni reads the
+  skill manual and uses `exec_command` to run its local script.
+- Author `qq-usage/SKILL.md` using the standard skill `SKILL.md` format. The
+  skill doc is an app manual for operating QQ; do not put QQ app instructions in
+  the main prompt.
+- The app manual describes QQ operations only: unread badges, opening the inbox
+  list, focusing a thread, scrolling, jumping to latest, and putting QQ away.
+- Keep `speak_in_group` and `reply_in_private` as existing runtime send tools for
+  now. `qq_usage` only controls seeing/navigating QQ, not sending QQ messages.
+- `qq_usage` must be simple for Xiaoni to use. Its Python functions delegate to
+  existing agent-service/provider-service internal interfaces; Xiaoni does not
+  need to understand persistence, unread cursor math, window state, SQL, or
+  backend routing details.
+- Forced ambient injection stays minimal:
+  `<UNREAD_AVAILABLE unread_count="N" direct_mentions="M" />`. No thread list,
+  message body, preview, keywords, or engineering classification appears at this
+  layer.
+- `open_inbox` returns one `<IM_INBOX_WINDOW mode="thread_list">`.
+  Each `<THREAD>` may include `thread_key`, `chat_type`, `display_name`,
+  `unread_count`, `direct_mentions`, `latest_sender="昵称(IM)"`, and a raw
+  `latest_preview` truncated to 20 visible characters. It must not use LLM
+  summaries, inferred topics, or "should open" hints.
+- `open_inbox` returns the latest 10 threads. `scroll_inbox direction` pages
+  10 threads at a time and reports list navigation fields such as
+  `has_older_threads` and `has_newer_threads`.
+- `focus_thread thread_key` returns one
+  `<IM_INBOX_WINDOW mode="conversation">` block. Multiple messages are rendered
+  as child `<MESSAGE>` rows inside that block, not as multiple top-level
+  `<INPUT_MESSAGE>` blocks.
+- Conversation `<MESSAGE>` rows carry the minimal stable fields
+  `message_id`, `timestamp`, `sender`, `direction`, `read_state`, and
+  `mentions_xiaoni`; `reply_to` is optional. Media is represented inline in the
+  body, e.g. `[图片:pic_hash]`, rather than as a separate top-level block.
+- Opening a thread defaults to the latest visible screen. The window size is 10
+  messages. If there are more than 10 unread messages, show the latest 10 and
+  report earlier unread count with `unread_before_window`. If unread is fewer
+  than 10, the window may include read history as context.
+- `scroll_thread thread_key older|newer` loads 10
+  messages per call. It may continue into read history and may keep scrolling
+  older read messages. Once the window reaches read history, unread counts for
+  older unseen material are `0`, but `has_older_messages` still controls whether
+  Xiaoni can keep scrolling.
+- `jump_to_latest thread_key` returns the latest visible screen for the
+  specified thread.
+- `put_qq_away thread_key?` closes QQ. With `thread_key`, it represents
+  leaving that conversation and clears that conversation's unread badge. Without
+  `thread_key`, it only closes the thread list and does not clear any thread
+  badge.
+- The `qq_usage` app manual must use app-manual language only. Do not tell
+  Xiaoni she is "using QQ like a human"; describe the QQ operations and rules.
+- Switching conversations or `put_qq_away thread_key` clears the current
+  thread's unread badge, including older unread messages that were never
+  displayed. The manual must state that clearing the badge does not mean those
+  unseen messages were read; if Xiaoni wants to continue later, she must record
+  that intention in `<xiaoni_os>`.
+- Skill results are append-only context observations. Every successful call
+  appends the returned QQ window or action result to model context. Earlier
+  windows remain as past visual records; the skill does not replace old context.
+- When new messages arrive for a thread that already has an appended conversation
+  window, the runtime must not append new `<MESSAGE>` bodies automatically. The
+  next relevant `qq_usage` result may expose `newer_available="N"`; message
+  bodies appear only after Xiaoni calls `scroll_thread thread_key newer` or
+  `jump_to_latest thread_key`.
+- Failed skill calls append a truthful `<QQ_USAGE_ERROR>` with action, arguments,
+  and real error reason. Failure returns no new message content and consumes no
+  energy cost.
+- `latest_preview` uses the raw latest visible text truncated to 20 visible
+  characters. Non-text latest content uses placeholders such as `[图片]`, `[表情]`,
+  or `[文件]`.
+- Conversation windows expose navigation state with fields such as
+  `cursor_anchor`, `window_size`, `unread_before_window`,
+  `unread_after_window`, `reached_read_history`, `has_older_messages`, and
+  `has_newer_messages`.
+- Skill cost:
+
+  ```text
+  qq-usage: 0.004
+  ```
+
+- `qq-usage` is system-owned and must be listed in `<CAPABILITIES>` as a skill.
+  Its script calls the engineering API; missing skill cost is an operator/build
+  error.
+
+**Acceptance checklist:**
+
+- Prompt assembly with only ambient unread state contains only
+  `<UNREAD_AVAILABLE unread_count="..." direct_mentions="..." />`.
+- `open_inbox` returns a thread list with latest sender and a raw
+  20-character preview, paged 10 threads at a time, and no full message bodies
+  or LLM summaries.
+- `focus_thread` returns exactly one conversation
+  `<IM_INBOX_WINDOW>` containing ordered child `<MESSAGE>` rows.
+- A thread with more than 10 unread messages opens on the latest 10 and reports
+  earlier unread count without materializing all unread bodies.
+- A thread with fewer than 10 unread messages may include read context and marks
+  `reached_read_history=true`.
+- `scroll_thread thread_key older` loads 10 older messages, can cross into
+  read history, and can continue through older read history while
+  `has_older_messages=true`.
+
+- `jump_to_latest thread_key` returns the latest 10-message screen for that
+  thread.
+- New messages for an already viewed thread produce only `newer_available` until
+  Xiaoni explicitly scrolls newer or jumps to latest; no message bodies are
+  auto-appended.
+- `put_qq_away thread_key` clears that thread's unread badge; `put_qq_away`
+  from the thread list clears no thread badges.
+- Failed skill calls return `<QQ_USAGE_ERROR>` with the real error reason, append
+  no new QQ message content, and consume no energy cost.
+- Message media and thread-list non-text previews use the locked placeholder
+  format: `[图片:pic_hash]` in message bodies, `[图片]` / `[表情]` / `[文件]` in
+  previews.
+- Existing `speak_in_group` / `reply_in_private` send behavior is unchanged.
+- `<CAPABILITIES>` includes `qq-usage` as a system-owned skill and does not
+  expose QQ navigation as OpenAI function tools.
+- Skill implementation delegates to existing internal service APIs and does not
+  add direct SQL or hidden cursor logic in the skill layer.
+
+### Task 19 - Xiaoni next prompt and `compress_core_memory`
+
+**Status:** todo.
+
+**Source:** 2026-06-04 prompt cleanup after `$office-hours` production-backend
+review.
+
+**Design docs:** `docs/XIAONI_MAIN_PROMPT_NEXT.md`,
+`docs/AGENTS_AGENT_LOOP_RUNTIME.md`, `docs/AGENTS_OPENAI_REQUESTS.md`.
+
+**Execution summary:**
+
+- Replace the current Xiaoni main agent prompt with the prompt body in
+  `docs/XIAONI_MAIN_PROMPT_NEXT.md`, preserving only implementation-required
+  runtime glue outside the prompt body.
+- Remove prompt-facing pressure, dopamine, and generic emotion-number state.
+  `<STATE>` is energy-only plus fatigue/rest/wake explanations.
+- Use `<xiaoni_os>` for new inner-state records. Old `<小腻的OS>` remains
+  readable only as historical compatibility.
+- Add `<CAPABILITIES>` to prompt assembly after context compression / capability
+  refresh, listing supported tools, supported skills, and every declared energy
+  cost.
+- Keep QQ usage out of the main prompt except the pointer to `qq-usage`; QQ app
+  operation details belong in the `qq-usage` skill manual from Task 18.
+- Add the prompt-facing tool `compress_core_memory`:
+
+  ```json
+  {
+    "name": "compress_core_memory",
+    "description": "【紧急生存工具】仅当 system_reminder 提示脑容量达到极限或必须压缩时强制调用。用于打包并留下你认为值得带往未来的记忆，防止意识彻底重启。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "小腻的私人记忆胶囊。存什么、存多少、以什么视角存，完全由小腻当下的主观意识和偏好决定。"
+        }
+      },
+      "required": ["text"]
+    }
+  }
+  ```
+
+- `compress_core_memory` replaces the current async `context_summary_writer`
+  product path for `<小腻近况>`. The tool's `text` is Xiaoni's subjective memory
+  capsule, not an external objective digest of the full transcript.
+- When context pressure reaches the hard threshold, inject a `<system_reminder>`
+  that tells Xiaoni brain capacity is at the limit and restrict the next required
+  action to `compress_core_memory` before social or routine actions continue.
+- Persist the tool text into the same prompt-facing continuity surface currently
+  rendered as `<小腻近况>` while keeping trace metadata that it came from
+  `compress_core_memory`, not the old summary writer.
+- Disable or remove `scheduleContextSummaryWriter` / `runContextSummaryWriter`
+  once the tool path is active for main-agent context compression. Episodic,
+  semantic, and reflection memory writers are separate and should not be removed
+  by this task unless a later design says so.
+- Add `compress_core_memory` to `<CAPABILITIES>` with an explicit energy cost
+  before enabling the prompt. Proposed initial cost: `0.020`.
+
+**Tool changes to implement:**
+
+- New tool: `compress_core_memory(text: string)`.
+- Existing replacement target: `context_summary_writer` should no longer be the
+  source of main-agent `<小腻近况>` after this task lands.
+- Existing capability contract update: include `compress_core_memory` and its
+  cost in `<CAPABILITIES>`.
+- Existing state contract update: `<STATE>` remains energy-only; fatigue prompts
+  and forced-sleep wake messages are state text, not pressure/emotion metrics.
+
+**Acceptance checklist:**
+
+- Prompt assembly can render the exact prompt body from
+  `docs/XIAONI_MAIN_PROMPT_NEXT.md` with no prompt-facing pressure/dopamine
+  state.
+- A compression-threshold replay injects the survival `<system_reminder>` and
+  requires `compress_core_memory` before any QQ send, QQ usage, web search,
+  life action, or normal silence action.
+- A successful `compress_core_memory` call writes the tool `text` to the
+  prompt-facing `<小腻近况>` continuity surface and stores trace metadata with
+  tool name, session/context key, and source response id.
+- Tests replace the current expectation that the context summary writer stores a
+  plain-text digest from whole in-context with an expectation that Xiaoni calls
+  `compress_core_memory` and the tool text becomes future `<小腻近况>`.
+- Existing episodic / semantic / reflection memory tests continue to pass.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 

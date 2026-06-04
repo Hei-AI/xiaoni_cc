@@ -75,6 +75,7 @@ export const agentConfig = {
   compactMemoryReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REASONING_EFFORT', 'high'),
   compactMemoryReflectionReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT', 'high'),
   compactMemoryTextVerbosity: readTextVerbosityEnv('AGENT_COMPACT_MEMORY_TEXT_VERBOSITY', 'medium'),
+  mainAgentTurnTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '120000', 10)),
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '120000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   preReplyMemoryReasonerEnabled: false,

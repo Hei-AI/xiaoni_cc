@@ -17,6 +17,7 @@ const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
+const { createQqUsagePersistence } = require('./qq-usage');
 const {
   STORAGE_TIMEZONE,
   TIMESTAMP_WITHOUT_TZ_OID,
@@ -452,6 +453,10 @@ const agentMemoryPersistence = createAgentMemoryPersistence({
   createSqlAdapter
 });
 
+const qqUsagePersistence = createQqUsagePersistence({
+  getPrismaClient
+});
+
 module.exports = {
   Prisma,
   buildDatabaseUrl,
@@ -478,5 +483,6 @@ module.exports = {
   ...xiaoniActivityPersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,
-  ...agentMemoryPersistence
+  ...agentMemoryPersistence,
+  ...qqUsagePersistence
 };

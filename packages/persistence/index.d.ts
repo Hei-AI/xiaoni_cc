@@ -641,6 +641,63 @@ export function getAgentInboundMessageByMessageSid(
   filters?: { sessionKey?: string },
   config?: DatabaseUrlConfig
 ): Promise<any | null>;
+export type QqUsageUnreadSummary = {
+  unreadCount: number;
+  directMentions: number;
+};
+export type QqUsageThreadSummary = {
+  threadKey: string;
+  chatType: string;
+  peerId: string;
+  peerName: string | null;
+  accountId: string | null;
+  unreadCount: number;
+  directMentions: number;
+  totalMessages: number;
+  lastReceivedAt: string | Date | null;
+  latestMessage: Record<string, unknown> | null;
+};
+export type QqUsageThreadList = {
+  offset: number;
+  limit: number;
+  hasOlderThreads: boolean;
+  hasNewerThreads: boolean;
+  threads: QqUsageThreadSummary[];
+};
+export type QqUsageThreadWindow = {
+  threadKey: string;
+  mode: string;
+  windowSize: number;
+  cursorAnchor: string | null;
+  hasOlderMessages: boolean;
+  hasNewerMessages: boolean;
+  newerAvailable: number;
+  unreadBeforeWindow: number;
+  unreadAfterWindow: number;
+  reachedReadHistory: boolean;
+  unreadCount: number;
+  directMentions: number;
+  messages: Record<string, unknown>[];
+  latestMessageId: number | null;
+  earliestMessageId: number | null;
+  windowUnreadCount: number;
+};
+export function getQqUsageUnreadSummary(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<QqUsageUnreadSummary>;
+export function listQqUsageThreads(
+  input?: { limit?: number; offset?: number },
+  config?: DatabaseUrlConfig
+): Promise<QqUsageThreadList>;
+export function listQqUsageThreadWindow(
+  input?: { threadKey?: string; mode?: 'latest' | 'older' | 'newer'; anchorMessageId?: string | number | bigint | null; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<QqUsageThreadWindow>;
+export function markQqUsageThreadRead(
+  input?: { threadKey?: string | null },
+  config?: DatabaseUrlConfig
+): Promise<{ threadKey: string | null; clearedCount: number }>;
 export function createFeedbackEpisode(input: FeedbackEpisodeInput, config?: DatabaseUrlConfig): Promise<any>;
 export function listFeedbackEpisodes(
   filters?: {

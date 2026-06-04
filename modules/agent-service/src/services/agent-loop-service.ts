@@ -130,6 +130,13 @@ type ToolContinuationContext = {
   hasVisibleReply: boolean;
 };
 
+type RuntimeStateTrigger =
+  | 'action_tool_threshold'
+  | 'web_search'
+  | 'low_energy_reminder'
+  | 'forced_sleep_wake'
+  | 'repeated_at_wake';
+
 type TurnControlStage =
   | 'read_unread'
   | 'feel_reaction'
@@ -422,6 +429,10 @@ const GLOBAL_LIFE_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
+const RUNTIME_MAX_ENERGY = 1;
+const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
+const RUNTIME_LOW_ENERGY_THRESHOLD = 0.2;
+const RESTING_DIRECT_MENTION_WAKE_THRESHOLD = 3;
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
@@ -433,8 +444,26 @@ const TOOL_NAMES = {
   execCommand: 'exec_command',
   privateReply: 'reply_in_private',
   groupReply: 'speak_in_group',
-  silentFinish: 'stay_silent'
+  silentFinish: 'stay_silent',
+  recoverEnergy: 'recover_energy'
 } as const;
+
+const RUNTIME_TOOL_COSTS: Record<string, number> = {
+  [TOOL_NAMES.lifeAction]: 0.005,
+  [TOOL_NAMES.silentFinish]: 0.002,
+  [TOOL_NAMES.groupReply]: 0.015,
+  [TOOL_NAMES.privateReply]: 0.015,
+  web_search: 0.080,
+  [TOOL_NAMES.inspectImage]: 0.040,
+  [TOOL_NAMES.imageTask]: 0.030,
+  [TOOL_NAMES.execCommand]: 0.030,
+  [TOOL_NAMES.recoverEnergy]: 0.000
+};
+
+const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
+  'skill-creator': 0.120,
+  'qq-usage': 0.004
+};
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   type: 'web_search',
@@ -647,6 +676,29 @@ const FINISH_TOOL = {
         }
       },
       required: ['reason', 'outcome', 'xiaoni_os'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const RECOVER_ENERGY_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.recoverEnergy,
+    description: '暂时休息并恢复精力；这是唯一面向小腻的恢复工具。',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: {
+          type: 'string',
+          description: '为什么现在选择休息。'
+        },
+        xiaoni_os: {
+          type: 'string',
+          description: '休息前留给醒来后的内部连续性。不发给任何人。'
+        }
+      },
+      required: ['reason', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -1260,7 +1312,7 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '`<UNREAD_AVAILABLE>` 是未打开的 IM 元数据，只包含数量和消息定位线索；正文还没进入当前现场。',
   '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
   '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
-  '`<小腻的OS>` 是你留给后续自己的内部连续性，不是 QQ 消息。',
+  '`<xiaoni_os>` 是你留给后续自己的内部连续性，不是 QQ 消息；旧 `<小腻的OS>` 历史只兼容读取。',
   '`<图片内容>` 是你已经检查过图片后留下的观察；没有这个标签时，不要猜图里有什么。',
   '`<system_reminder>` 是工程控制逻辑给你的当前运行边界提醒，不是群友说的话。',
   '`<小腻近况>` 是压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是精确 transcript，也不是召回结果。',
@@ -1275,13 +1327,13 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
   '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
   '如果本轮需要先加载 skill，可以先用 exec_command 读取对应 SKILL.md；读完之后仍要用 submit_life_action、说话工具或 stay_silent 收口。',
-  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；可以 submit_life_action、web_search 或 stay_silent，但不要给任何 QQ 对象发消息。',
-  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就休息，不要编造兴趣或装作读过材料。',
+  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；可以 submit_life_action、web_search、recover_energy 或 stay_silent，但不要给任何 QQ 对象发消息。',
+  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就 recover_energy 或休息，不要编造兴趣或装作读过材料。',
   '',
   '工具阶段：',
   'commentary 工具只补充必要外部上下文：exec_command、inspect_image_placeholder、web_search。exec_command 只用于加载 skill、读取本地 skill 资源或执行 skill 明确要求的本地命令；它不是 QQ 对外动作。',
   'submit_life_action 是本轮决策入口；普通场景也是最终收口。',
-  'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、request_image_task。',
+  'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、recover_energy、request_image_task。',
   '',
   'submit_life_action.action_type 的含义：',
   'speak = 你有具体可说点，并且确实有一句要公开说的话。',
@@ -1315,20 +1367,53 @@ const SKILLS_INSTRUCTIONS = [
   '',
   '### Available skills',
   '- skill-creator: Guide for creating effective skills. Use when 小腻 needs to create a new skill or update an existing skill that extends local behavior, workflows, knowledge, or tool use. (file: r0/skill-creator/SKILL.md)',
+  '- qq-usage: QQ app manual for opening the inbox list, focusing threads, scrolling message windows, jumping to latest, and putting QQ away. Use when only unread metadata is visible or when 小腻 needs to navigate QQ before deciding whether to speak. (file: r0/qq-usage/SKILL.md)',
   '',
   '### How to use skills',
   '- Discovery: 上面的 name、description 和 file 路径是常驻上下文；SKILL.md 正文只在需要这个 skill 时再读取。',
   '- Trigger rules: 如果用户点名 `$skill-name`、直接说 skill 名，或当前任务明显匹配 description，就在本轮使用该 skill。',
   '- 使用 skill 时，先展开 r0 路径，再用 exec_command 读取对应 SKILL.md；只读完成当前任务必需的内容。',
   '- 如果 SKILL.md 引用 scripts/、references/ 或 assets/，按需读取或执行具体文件；路径相对该 skill 目录解析，不要整包加载。',
-  '- Skill 只提供本地说明和资源。真实对外动作仍然落到对应 tool：QQ 发言、沉默、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
+  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、stay_silent、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
   '- 读取 skill 后仍要按本轮工具契约收口：submit_life_action、说话工具或 stay_silent。',
   '</skills_instructions>'
 ].join('\n');
 
+export function buildCapabilitiesDeveloperBlock(input: {
+  toolCosts?: Record<string, number>;
+  skillCosts?: Record<string, number | null | undefined>;
+} = {}) {
+  const toolCosts = input.toolCosts || RUNTIME_TOOL_COSTS;
+  const skillCosts = input.skillCosts || RUNTIME_SKILL_COSTS;
+  const toolLines = Object.entries(toolCosts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, cost]) => `- ${name}: energy_cost=${formatRuntimeEnergy(cost)}`);
+  const skillLines: string[] = [];
+  const warnings: string[] = [];
+  for (const [name, cost] of Object.entries(skillCosts).sort(([left], [right]) => left.localeCompare(right))) {
+    if (typeof cost !== 'number' || !Number.isFinite(cost)) {
+      warnings.push(`skill ${name} omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost`);
+      continue;
+    }
+    skillLines.push(`- ${name}: energy_cost=${formatRuntimeEnergy(cost)}`);
+  }
+  const block = [
+    '<CAPABILITIES>',
+    '<TOOLS>',
+    ...toolLines,
+    '</TOOLS>',
+    '<SKILLS>',
+    ...(skillLines.length > 0 ? skillLines : ['- none']),
+    '</SKILLS>',
+    '</CAPABILITIES>',
+    ...warnings.map((warning) => `<operator_warning>${warning}</operator_warning>`)
+  ].join('\n');
+  return { block, warnings };
+}
+
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
   '<runtime_history_reading>',
-  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / 小腻的OS 可以帮助理解现场，也可以被当前未读自然 callback。',
+  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os 可以帮助理解现场，也可以被当前未读自然 callback。旧 <小腻的OS> 只作为历史兼容读取。',
   '当前轮的 `<system_reminder>` 只用来说明哪些消息属于这次打开 IM 后看到的未读列表。',
   '</runtime_history_reading>'
 ].join('\n');
@@ -1571,6 +1656,207 @@ function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: stri
   };
 }
 
+function formatRuntimeEnergy(value: number) {
+  return Number.isFinite(value) ? value.toFixed(3) : '0.000';
+}
+
+function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+export function recoverRuntimeEnergy(input: {
+  rawEnergy: number;
+  elapsedMs: number;
+  maxEnergy?: number;
+}) {
+  const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
+  const rawEnergy = normalizeRuntimeEnergy(input.rawEnergy, maxEnergy);
+  const elapsedMs = Math.max(0, normalizeRuntimeEnergy(input.elapsedMs, 0));
+  const startEnergy = Math.max(0, rawEnergy);
+  const recoveredEnergy = Math.min(maxEnergy, startEnergy + ((elapsedMs / RUNTIME_FULL_RECOVERY_MS) * maxEnergy));
+  return {
+    rawEnergyBefore: rawEnergy,
+    startEnergy,
+    energy: recoveredEnergy,
+    maxEnergy,
+    debt: rawEnergy < 0 ? Math.abs(rawEnergy) : 0,
+    elapsedMs,
+    fullRecoveryMs: RUNTIME_FULL_RECOVERY_MS
+  };
+}
+
+export function resolveForcedSleepWake(input: {
+  rawEnergy: number;
+  maxEnergy?: number;
+}) {
+  const rawEnergy = normalizeRuntimeEnergy(input.rawEnergy, RUNTIME_MAX_ENERGY);
+  if (rawEnergy >= 0) {
+    return null;
+  }
+  const recovered = recoverRuntimeEnergy({
+    rawEnergy,
+    elapsedMs: RUNTIME_FULL_RECOVERY_MS,
+    maxEnergy: input.maxEnergy
+  });
+  return {
+    waitMs: RUNTIME_FULL_RECOVERY_MS,
+    stateBlock: buildRuntimeStateBlock({
+      trigger: 'forced_sleep_wake',
+      energy: recovered.energy,
+      maxEnergy: recovered.maxEnergy,
+      debt: recovered.debt,
+      note: 'raw_energy was below 0, so engineering waited 2h before waking Xiaoni.'
+    })
+  };
+}
+
+export function buildRuntimeStateBlock(input: {
+  trigger: RuntimeStateTrigger;
+  energy: number;
+  maxEnergy?: number;
+  debt?: number;
+  recovered?: number;
+  note?: string | null;
+}) {
+  const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
+  const energy = normalizeRuntimeEnergy(input.energy, maxEnergy);
+  const debt = Math.max(0, normalizeRuntimeEnergy(input.debt, 0));
+  const recovered = Math.max(0, normalizeRuntimeEnergy(input.recovered, 0));
+  const body = [
+    `energy=${formatRuntimeEnergy(energy)}`,
+    `max_energy=${formatRuntimeEnergy(maxEnergy)}`,
+    debt > 0 ? `debt=${formatRuntimeEnergy(debt)}` : null,
+    recovered > 0 ? `recovered=${formatRuntimeEnergy(recovered)}` : null,
+    input.note ? `note=${input.note}` : null
+  ].filter(Boolean).join('\n');
+  return formatTaggedBlock('STATE', {
+    trigger: input.trigger,
+    energy: formatRuntimeEnergy(energy),
+    max_energy: formatRuntimeEnergy(maxEnergy)
+  }, body);
+}
+
+function extractLatestRuntimeEnergy(loopInput: OpenResponseInputItem[]) {
+  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
+    const item = loopInput[index];
+    if (item.type !== 'message') {
+      continue;
+    }
+    const content = flattenMessageContent(item.content);
+    const stateEnergy = content.match(/<STATE\b[\s\S]*?\benergy="(-?\d+(?:\.\d+)?)"/);
+    if (stateEnergy) {
+      return Number(stateEnergy[1]);
+    }
+    const legacyEnergy = content.match(/当前精力[:：]\s*(-?\d+(?:\.\d+)?)/);
+    if (legacyEnergy) {
+      return Number(legacyEnergy[1]);
+    }
+  }
+  return RUNTIME_MAX_ENERGY;
+}
+
+function extractRuntimeStateDirective(developerContextBlock: string | null | undefined) {
+  const block = developerContextBlock || '';
+  if (!block.trim()) {
+    return null;
+  }
+  if (/<STATE\b/.test(block)) {
+    return null;
+  }
+  const directive = block.match(/<xiaoni_runtime_state\b([^>]*)\/?>/i)
+    || block.match(/<runtime_state\b([^>]*)\/?>/i);
+  if (directive) {
+    const attrs = parseTagAttributes(directive[1] || '');
+    const trigger = normalizeRuntimeStateTrigger(attrs.trigger);
+    const energy = normalizeRuntimeEnergy(attrs.energy ?? attrs.raw_energy, RUNTIME_MAX_ENERGY);
+    const maxEnergy = normalizeRuntimeEnergy(attrs.max_energy, RUNTIME_MAX_ENERGY);
+    if (trigger) {
+      return { trigger, energy, maxEnergy, note: attrs.note || null };
+    }
+  }
+
+  const legacyEnergy = block.match(/当前精力[:：]\s*(-?\d+(?:\.\d+)?)/);
+  if (!legacyEnergy) {
+    return null;
+  }
+  const energy = Number(legacyEnergy[1]);
+  if (energy < 0) {
+    const forced = resolveForcedSleepWake({ rawEnergy: energy });
+    return forced
+      ? { trigger: 'forced_sleep_wake' as const, energy: RUNTIME_MAX_ENERGY, maxEnergy: RUNTIME_MAX_ENERGY, note: 'slept through forced 2h recovery' }
+      : null;
+  }
+  if (energy <= RUNTIME_LOW_ENERGY_THRESHOLD) {
+    return {
+      trigger: 'low_energy_reminder' as const,
+      energy,
+      maxEnergy: RUNTIME_MAX_ENERGY,
+      note: 'low-energy reminder'
+    };
+  }
+  return null;
+}
+
+function parseTagAttributes(value: string) {
+  const attrs: Record<string, string> = {};
+  for (const match of value.matchAll(/\b([a-zA-Z_][\w:-]*)="([^"]*)"/g)) {
+    attrs[match[1]!] = match[2]!;
+  }
+  return attrs;
+}
+
+function normalizeRuntimeStateTrigger(value: unknown): RuntimeStateTrigger | null {
+  return value === 'action_tool_threshold'
+    || value === 'web_search'
+    || value === 'low_energy_reminder'
+    || value === 'forced_sleep_wake'
+    || value === 'repeated_at_wake'
+    ? value
+    : null;
+}
+
+export function resolveRestingWakeFromUnreadMetadata(input: {
+  rawEnergy: number;
+  restingSince: Date | string | number;
+  now: Date | string | number;
+  messages: Array<Pick<QueueBatchMessage, 'wasMentioned'> | { inboundContext?: { WasMentioned?: boolean } }>;
+  maxEnergy?: number;
+}) {
+  const since = new Date(input.restingSince);
+  const now = new Date(input.now);
+  const elapsedMs = Number.isNaN(since.getTime()) || Number.isNaN(now.getTime())
+    ? 0
+    : Math.max(0, now.getTime() - since.getTime());
+  const directMentionCount = input.messages.reduce((count, message) => {
+    const mentioned = ('wasMentioned' in message && message.wasMentioned)
+      || ('inboundContext' in message && message.inboundContext?.WasMentioned);
+    return count + (mentioned ? 1 : 0);
+  }, 0);
+  const recovered = recoverRuntimeEnergy({
+    rawEnergy: input.rawEnergy,
+    elapsedMs,
+    maxEnergy: input.maxEnergy
+  });
+  return {
+    shouldWake: directMentionCount >= RESTING_DIRECT_MENTION_WAKE_THRESHOLD,
+    unreadCount: input.messages.length,
+    directMentionCount,
+    messageBodiesExposed: false,
+    recoveredEnergy: recovered.energy,
+    stateBlock: directMentionCount >= RESTING_DIRECT_MENTION_WAKE_THRESHOLD
+      ? buildRuntimeStateBlock({
+          trigger: 'repeated_at_wake',
+          energy: recovered.energy,
+          maxEnergy: recovered.maxEnergy,
+          recovered: recovered.energy - recovered.startEnergy,
+          debt: recovered.debt,
+          note: `woke after ${directMentionCount} direct mentions while resting`
+        })
+      : null
+  };
+}
+
 function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: string): OpenResponseToolDefinition[] {
   void modelName;
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
@@ -1578,9 +1864,9 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
     : [EXEC_COMMAND_TOOL];
 
   if (chatType === 'group') {
-    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL];
+    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
   }
-  return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL];
+  return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
@@ -1605,14 +1891,15 @@ function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
-  return [LIFE_ACTION_TOOL, ...tools, FINISH_TOOL];
+  return [LIFE_ACTION_TOOL, ...tools, FINISH_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.lifeAction },
-    { type: 'function', name: TOOL_NAMES.silentFinish }
+    { type: 'function', name: TOOL_NAMES.silentFinish },
+    { type: 'function', name: TOOL_NAMES.recoverEnergy }
   ];
   if (agentConfig.webSearchEnabled) {
     tools.unshift({ type: 'web_search' });
@@ -1640,19 +1927,22 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
   if (latestLifeAction?.actionType === 'silent') {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (shouldForceActionToSilenceFromParticipationJudgment(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
@@ -1661,14 +1951,16 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
       { type: 'function', name: TOOL_NAMES.inspectImage },
       { type: 'function', name: TOOL_NAMES.imageTask },
       { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (latestLifeAction?.actionType === 'search') {
     const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
       { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ];
     if (agentConfig.webSearchEnabled) {
       tools.unshift({ type: 'web_search' });
@@ -1681,7 +1973,8 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   if (latestLifeAction?.actionType === 'proactive') {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.groupReply },
-      { type: 'function', name: TOOL_NAMES.silentFinish }
+      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
@@ -2040,6 +2333,14 @@ function buildMainAgentParameters(parameters: Record<string, unknown> | null | u
   const base = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
     ? JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>
     : {};
+  const advancedConfig = base.advanced_config && typeof base.advanced_config === 'object' && !Array.isArray(base.advanced_config)
+    ? base.advanced_config as Record<string, unknown>
+    : {};
+  const generationConfig = advancedConfig.generationConfig
+    && typeof advancedConfig.generationConfig === 'object'
+    && !Array.isArray(advancedConfig.generationConfig)
+    ? advancedConfig.generationConfig as Record<string, unknown>
+    : {};
   const modelConfig = base.model_config && typeof base.model_config === 'object' && !Array.isArray(base.model_config)
     ? base.model_config as Record<string, unknown>
     : null;
@@ -2055,7 +2356,21 @@ function buildMainAgentParameters(parameters: Record<string, unknown> | null | u
     delete base.reasoning;
   }
 
-  return base;
+  const configuredTimeout = generationConfig.timeout;
+  const hasExplicitTimeout = typeof configuredTimeout === 'number'
+    && Number.isFinite(configuredTimeout)
+    && configuredTimeout > 0;
+
+  return {
+    ...base,
+    advanced_config: {
+      ...advancedConfig,
+      generationConfig: {
+        ...generationConfig,
+        ...(hasExplicitTimeout ? {} : { timeout: agentConfig.mainAgentTurnTimeoutMs })
+      }
+    }
+  };
 }
 
 function buildCompactMemoryAgentParameters(parameters: Record<string, unknown> | null | undefined) {
@@ -2535,26 +2850,9 @@ function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
 }
 
 function renderUnreadAvailable(queueMessage: QueueMessageRecord['payload']) {
-  const messages = queueMessage.messages.map((message) => {
-    return {
-      message_id: message.messageId,
-      chat_type: renderPromptChatType(message.chatType),
-      group: message.chatType === 'group' ? formatTagSpeaker(message.peerName, message.peerId) : undefined,
-      private_peer: message.chatType === 'direct' ? formatTagSpeaker(message.peerName, message.peerId) : undefined
-    };
-  });
-
-  return formatTaggedBlock('UNREAD_AVAILABLE', {
-    surface: 'qq',
-    chat_type: renderPromptChatType(queueMessage.chatType),
-    session_key: queueMessage.sessionKey,
-    peer_id: queueMessage.peerId,
-    count: queueMessage.messages.length,
-    materialization: 'not_opened'
-  }, JSON.stringify({
-    policy: 'metadata only until explicit_mention or proactive_use_im opens IM and exposes the unread list',
-    messages
-  }));
+  const unreadCount = queueMessage.messages.length;
+  const directMentions = queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length;
+  return `<UNREAD_AVAILABLE unread_count="${escapeTagAttribute(unreadCount)}" direct_mentions="${escapeTagAttribute(directMentions)}" />`;
 }
 
 function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload']) {
@@ -2573,8 +2871,18 @@ function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload'
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
-  void developerContextBlock;
-  return null;
+  const directive = extractRuntimeStateDirective(developerContextBlock);
+  if (!directive) {
+    return null;
+  }
+  return buildAssistantCommentaryInputItem([
+    buildRuntimeStateBlock({
+      trigger: directive.trigger,
+      energy: directive.energy,
+      maxEnergy: directive.maxEnergy,
+      note: directive.note
+    })
+  ]);
 }
 
 export function buildTurnControlReminder(turnControl: TurnControlState): OpenResponseInputItem | null {
@@ -2628,6 +2936,7 @@ const FINAL_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.privateReply,
   TOOL_NAMES.silentFinish,
   TOOL_NAMES.imageTask,
+  TOOL_NAMES.recoverEnergy,
   ...LEGACY_TOOL_ALIASES.groupReply,
   ...LEGACY_TOOL_ALIASES.privateReply,
   ...LEGACY_TOOL_ALIASES.silentFinish
@@ -2717,12 +3026,19 @@ export function buildToolLoopMonitorReminder(
       : null,
     `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
   ].filter((line): line is string => Boolean(line));
+  const currentEnergy = extractLatestRuntimeEnergy(loopInput);
+  const stateBlock = buildRuntimeStateBlock({
+    trigger: 'action_tool_threshold',
+    energy: currentEnergy - RUNTIME_TOOL_COSTS[TOOL_NAMES.execCommand],
+    note: `action/tool threshold reached: ${signature}`
+  });
 
   return buildAssistantCommentaryInputItem([
     formatTaggedBlock('system_reminder', {
       source: 'tool_loop_monitor',
       signature
-    }, lines.join('\n'))
+    }, lines.join('\n')),
+    stateBlock
   ]);
 }
 
@@ -2752,6 +3068,7 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '- 需要查东西再说 → web_search，查到够用就停',
   '- 需要看清图片内容才能继续 → inspect_image_placeholder',
   '- 帮别人做图 → request_image_task（只登记任务，不等结果）',
+  '- 需要休息恢复 → recover_energy',
   '- 不说了 → stay_silent',
   '',
   '说话时：',
@@ -3626,20 +3943,6 @@ function isXiaoniParticipant(qqId: string, name: string) {
     || normalizedName === `小腻（${botAccountId}）`;
 }
 
-const COMPACT_MEMORY_CANONICAL_PARTICIPANTS = new Map<string, CompactMemoryParticipant>([
-  ['452884318', { qq_id: '452884318', name: '龙哥' }],
-  ['870853294', { qq_id: '870853294', name: '闻震' }],
-  ['3375477814', { qq_id: '3375477814', name: 'Nova' }],
-  ['2427270734', { qq_id: '2427270734', name: '一条大野狗' }]
-]);
-
-const COMPACT_MEMORY_CANONICAL_PARTICIPANTS_BY_NAME = new Map(
-  Array.from(COMPACT_MEMORY_CANONICAL_PARTICIPANTS.values()).map((participant) => [
-    normalizeParticipantLookupName(participant.name),
-    participant
-  ])
-);
-
 function normalizeCompactMemoryQqId(value: string) {
   const normalized = value.trim();
   return normalized === '未知' || /^unknown$/i.test(normalized) || /^null$/i.test(normalized) || /^none$/i.test(normalized)
@@ -3695,13 +3998,7 @@ function canonicalCompactMemoryParticipant(participant: CompactMemoryParticipant
   if (isXiaoniParticipant(qqId, name)) {
     return { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' };
   }
-  const known = qqId ? COMPACT_MEMORY_CANONICAL_PARTICIPANTS.get(qqId) : null;
-  if (known) {
-    return known;
-  }
-  const canonicalName = canonicalizeCompactMemorySubject(name);
-  const knownByName = COMPACT_MEMORY_CANONICAL_PARTICIPANTS_BY_NAME.get(normalizeParticipantLookupName(canonicalName));
-  return knownByName || { qq_id: qqId, name: canonicalName };
+  return { qq_id: qqId, name };
 }
 
 function parseParticipantLabel(value: string): CompactMemoryParticipant | null {
@@ -3718,22 +4015,28 @@ function parseParticipantLabel(value: string): CompactMemoryParticipant | null {
 }
 
 function addParticipantDirectoryEntry(
-  directory: Map<string, CompactMemoryParticipant>,
+  directory: Map<string, CompactMemoryParticipant | null>,
   participant: CompactMemoryParticipant | null
 ) {
   if (!participant) {
     return;
   }
   const canonical = canonicalCompactMemoryParticipant(participant);
-  if (!canonical.qq_id || isMalformedCompactMemoryParticipantName(canonical.name) || isNonSpecificCompactMemoryParticipantName(canonical.name)) {
+  if (!canonical.qq_id || isMalformedCompactMemoryParticipantName(canonical.name)) {
     return;
   }
   directory.set(`qq:${canonical.qq_id}`, canonical);
-  directory.set(`name:${normalizeParticipantLookupName(canonical.name)}`, canonical);
+  const nameKey = `name:${normalizeParticipantLookupName(canonical.name)}`;
+  const existing = directory.get(nameKey);
+  if (typeof existing === 'undefined') {
+    directory.set(nameKey, canonical);
+  } else if (existing && existing.qq_id !== canonical.qq_id) {
+    directory.set(nameKey, null);
+  }
 }
 
 function buildCompactMemoryParticipantDirectory(evictedTurns: ConversationTurn[]) {
-  const directory = new Map<string, CompactMemoryParticipant>();
+  const directory = new Map<string, CompactMemoryParticipant | null>();
   addParticipantDirectoryEntry(directory, { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' });
   for (const turn of evictedTurns) {
     for (const item of Array.isArray(turn.items) ? turn.items : []) {
@@ -3741,7 +4044,7 @@ function buildCompactMemoryParticipantDirectory(evictedTurns: ConversationTurn[]
         addParticipantDirectoryEntry(directory, { qq_id: agentConfig.botAccountId || '1129974489', name: '小腻' });
       }
       const content = String(item.content || '');
-      for (const match of content.matchAll(/\bsender="([^"]+)"/g)) {
+      for (const match of content.matchAll(/\b(?:sender|private_peer)="([^"]+)"/g)) {
         addParticipantDirectoryEntry(directory, parseParticipantLabel(match[1]));
       }
     }
@@ -3751,7 +4054,7 @@ function buildCompactMemoryParticipantDirectory(evictedTurns: ConversationTurn[]
 
 function normalizeCompactMemoryParticipant(
   participant: CompactMemoryParticipant,
-  directory: Map<string, CompactMemoryParticipant>
+  directory: Map<string, CompactMemoryParticipant | null>
 ) {
   const canonical = canonicalCompactMemoryParticipant(participant);
   if (isMalformedCompactMemoryParticipantName(canonical.name)) {
@@ -3765,7 +4068,7 @@ function normalizeCompactMemoryParticipant(
   if (byName && (!canonical.qq_id || canonical.qq_id === byName.qq_id)) {
     return byName;
   }
-  if (!canonical.qq_id || isNonSpecificCompactMemoryParticipantName(canonical.name)) {
+  if (!canonical.qq_id) {
     return null;
   }
   return canonical;
@@ -3773,7 +4076,7 @@ function normalizeCompactMemoryParticipant(
 
 function normalizeCompactMemoryParticipants(
   participants: CompactMemoryParticipant[],
-  directory: Map<string, CompactMemoryParticipant>
+  directory: Map<string, CompactMemoryParticipant | null>
 ) {
   const seen = new Set<string>();
   const result: CompactMemoryParticipant[] = [];
@@ -4371,6 +4674,16 @@ export function applyToolResultToLoopInput(
     const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
     inputItems.push(buildAssistantCommentaryInputItem([
       `<system_reminder>${statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。</system_reminder>`
+    ]));
+  }
+  if (toolCall.name === 'web_search') {
+    const currentEnergy = extractLatestRuntimeEnergy(context?.loopInput ?? []);
+    inputItems.push(buildAssistantCommentaryInputItem([
+      buildRuntimeStateBlock({
+        trigger: 'web_search',
+        energy: currentEnergy - RUNTIME_TOOL_COSTS.web_search,
+        note: 'hosted web_search completed'
+      })
     ]));
   }
   return {
@@ -6308,6 +6621,16 @@ export class AgentLoopService {
       case TOOL_NAMES.imageTask: {
         return this.requestImageTask(toolCall.args, queueMessage);
       }
+      case TOOL_NAMES.recoverEnergy:
+        return {
+          finished: true,
+          recovered: true,
+          reason: typeof toolCall.args.reason === 'string' ? toolCall.args.reason : null,
+          energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
+          xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
+            ? toolCall.args.xiaoni_os.trim()
+            : null
+        };
       case TOOL_NAMES.silentFinish:
       case 'finish':
         return {
@@ -7410,6 +7733,10 @@ export function buildInitialInput(
     items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
+  if (contextSummary || developerContextParts.capabilityRefresh) {
+    items.push(buildDeveloperInputItem([buildCapabilitiesDeveloperBlock().block]));
+  }
+
   for (const turn of history) {
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
@@ -7487,19 +7814,23 @@ function splitDeveloperContextBlock(developerContextBlock: string | null | undef
   if (!block) {
     return {
       worldNarrative: null,
-      dynamicContext: null
+      dynamicContext: null,
+      capabilityRefresh: false
     };
   }
 
   const worldNarrativeMatch = block.match(/<world_narrative>[\s\S]*?<\/world_narrative>/);
   const worldNarrative = worldNarrativeMatch?.[0]?.trim() || null;
+  const capabilityRefresh = /<capability_refresh\b/i.test(block)
+    || /<CAPABILITY_REFRESH\b/.test(block);
   const dynamicContext = worldNarrative
     ? block.replace(worldNarrative, '').trim()
     : block;
 
   return {
     worldNarrative,
-    dynamicContext: dynamicContext || null
+    dynamicContext: dynamicContext || null,
+    capabilityRefresh
   };
 }
 
@@ -7526,17 +7857,17 @@ function buildTurnOs(turn: ConversationTurn) {
 
   if (xiaoniOs) {
     return [
-      '<小腻的OS>',
+      '<xiaoni_os>',
       xiaoniOs,
-      '</小腻的OS>'
+      '</xiaoni_os>'
     ].join('\n');
   }
 
   if (finishReason && !turn.aiResponse && sentMessages.length === 0) {
     return [
-      '<小腻的OS>',
+      '<xiaoni_os>',
       `刚才我没有接。${finishReason}`,
-      '</小腻的OS>'
+      '</xiaoni_os>'
     ].join('\n');
   }
 

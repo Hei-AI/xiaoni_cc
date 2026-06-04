@@ -25,13 +25,76 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
   when unread IM materializes the current run into `proactive_im_open`. The
   compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
-  `agent_life_events` digest. Life-only `presence_tick` can use
+  `agent_life_events` digest. Life-only `presence_tick` can currently use
   `submit_life_action`, `web_search`, or `stay_silent`, not a private planner
-  context. If it produces a "想回头分享" residue, that residue is appended into
-  `<小腻的OS>` so it stays in normal context and later compression.
+  context; the locked next runtime adds prompt-facing `recover_energy`. If it
+  produces a "想回头分享" residue, that residue is appended into `<xiaoni_os>` so
+  it stays in normal context and later compression. Old `<小腻的OS>` history is
+  read as legacy residue and is not migrated.
 - `agent_digital_actions` is historical data only. The old write helpers are
   gone from `@qq-bot/persistence`, and prompt construction no longer reads this
   table for current state.
+
+## Locked Next Runtime Spec
+
+This section records the production target agreed on 2026-06-04. It is not fully
+implemented yet. Current-runtime facts above remain the truth until code lands.
+
+- Xiaoni is modeled as one continuous event loop. Engineering may still use
+  `agent_runs`, queue ids, trace ids, and delivery state for observability,
+  retries, and duplicate-send protection, but prompt-facing language should use
+  "current action", "next action", "visible scene", and "life event" rather than
+  making `run` a cognitive boundary.
+- Energy is an identity-scoped raw value with `max_energy = 1.00`. Raw energy may
+  go below `0`; prompt-facing `<STATE energy="...">` may show that negative
+  value. Recovery math treats any negative value as `0`.
+- Fatigue is derived from energy with a non-linear curve, not from a flat label.
+  The lower the energy gets, the faster fatigue should feel. When energy is low,
+  engineering may append a `<STATE>` reminder such as "我已经很累了，要不要休息一下";
+  this is a state fact, not an action command.
+- `<STATE>` is not injected on every model call. Engineering appends it only on
+  state events, including: cross-run action count threshold, after hosted
+  `web_search`, low-energy reminders, forced-sleep wake, and mention-interrupted
+  wake.
+- Action costs are identity-scoped and cross run boundaries. The first locked
+  costs are:
+
+  ```text
+  submit_life_action: 0.005
+  stay_silent: 0.002
+  speak_in_group: 0.015
+  reply_in_private: 0.015
+  web_search: 0.080
+  inspect_image_placeholder: 0.040
+  request_image_task: 0.030
+  exec_command: 0.030
+  recover_energy: 0.000
+  skill-creator: 0.120
+  ```
+
+- `recover_energy` is the single prompt-facing recovery tool. It replaces
+  prompt-facing `rest_period` / `sleep_period`; those event kinds may remain as
+  historical/internal compatibility rows. `duration_minutes` is clamped to
+  `5..120`.
+- Recovery uses an exponential saturation curve. If `duration_minutes >= 120`,
+  energy restores to `1.00`. Otherwise, use effective energy
+  `max(0, raw_energy)` and restore toward `1.00` with diminishing returns.
+- If engineering detects `raw_energy < 0`, Xiaoni is too exhausted to keep
+  acting. Engineering waits 2 hours before the next action opportunity. Recovery
+  math clamps the effective rest duration at 120 minutes, so this wakes at full
+  energy. When she wakes, append `<STATE>` saying she was too tired and slept
+  through it, with the computed current energy.
+- While resting, Xiaoni does not read message bodies. Engineering records unread
+  metadata and counts direct mention wake signals only. Three or more consecutive
+  direct mentions wake her early, compute recovered energy from the actual rest
+  duration, and append `<STATE>` saying she was interrupted by repeated mentions.
+- New prompt-facing OS continuity uses `<xiaoni_os>`. The persisted DB field can
+  stay `xiaoni_os`. Do not migrate old history; GPT-5.5 can understand older
+  `<小腻的OS>` residue until it naturally ages out.
+- After context compression or capability changes, prepend a developer
+  capability block listing supported tools, supported skills, and their costs.
+  Skills must declare `## Runtime Cost` with `energy_cost: <number>`; skills
+  without explicit cost are not listed and should produce an operator warning.
 
 ## Locked Decisions
 
@@ -46,8 +109,9 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
    admin explanation path first; only then decide whether a new autonomous
    runner is justified.
 4. Suggestions from group/private chat influence Xiaoni only by entering the
-   normal event stream, `<小腻的OS>`, or compact summary. Do not add hardcoded
-   suggestion fields, planner memory, query seeds, or interest-key tables.
+   normal event stream, `<xiaoni_os>`, or compact summary. Old `<小腻的OS>`
+   residue remains historical input only. Do not add hardcoded suggestion fields,
+   planner memory, query seeds, or interest-key tables.
 5. Delete the old shortcut pattern: no hardcoded `motiveText`, no exact-query
    enforcement as personality, no Heine/reading seeds, and no fake source
    wording.
@@ -77,26 +141,27 @@ Fatigue is used only by the scheduler to suppress proactive IM opening while
 energy is too low; after a presence tick is admitted, Xiaoni receives energy plus
 cost context and chooses inside the main loop.
 
-Current action-cost rules:
+Locked production prompt-facing tool/action costs:
 
-- `presence_tick_evaluated`: `0`.
-- `qq_message_seen`: `0`.
-- `surface_visit`: `0.01`.
-- `silence_decision`: `0.005`, or `0.01` for a presence-opened IM that ends
-  silent.
-- visible reply: `0.01` for one message, plus `0.005` per extra message, capped
-  at `0.02`.
-- group visible reply charges the aggregate `speak_in_group` event only;
-  per-message `qq_self_message` rows are audit rows with `0` cost.
-- direct visible reply charges the first `qq_self_message` row with the aggregate
-  visible-reply cost.
-- `pending_share_consumed`: `0.002`.
-- `rest_period`: restores `0.10` action cost and is deduped by a 1-hour bucket.
-- `sleep_period`: clears accumulated action cost to `0` in the 01:00-09:00
-  Asia/Shanghai sleep window and is deduped by a 6-hour bucket.
+```text
+submit_life_action: 0.005
+stay_silent: 0.002
+speak_in_group: 0.015
+reply_in_private: 0.015
+web_search: 0.080
+inspect_image_placeholder: 0.040
+request_image_task: 0.030
+exec_command: 0.030
+recover_energy: 0.000
+skill-creator: 0.120
+```
 
-`rest_period` and `sleep_period` do not currently model a real wall-clock sleep
-duration. They are recovery facts recorded by skipped presence checks.
+Historical reducer-v1 events such as `presence_tick_evaluated`,
+`qq_message_seen`, `surface_visit`, `silence_decision`, `qq_self_message`,
+`pending_share_consumed`, `rest_period`, and `sleep_period` may still exist for
+admin replay and compatibility. They must be normalized into the production
+cost model before being shown to the prompt. `rest_period` and `sleep_period`
+are no longer prompt-facing recovery actions.
 
 ## Event Rules
 
@@ -109,8 +174,12 @@ Append events for facts that happened, not inferred personality:
 - `terminal_action_committed` / `terminal_action_blocked`: delivery boundary.
 - `presence_tick_evaluated`: a scheduler check happened, including skip or
   enqueue reason and the state snapshot used for the decision.
-- `rest_period` / `sleep_period`: rest facts that lower or clear accumulated
-  action cost, which directly restores energy.
+- `recover_energy`: prompt-facing recovery action. Negative energy is displayed
+  as negative but recovery math treats it as `0`; 120 minutes restores to full
+  energy.
+- `rest_period` / `sleep_period`: historical/internal compatibility rest facts.
+  They may remain in old rows or admin replay, but new prompt-facing policy uses
+  `recover_energy`.
 - future digital events: real or explicitly constructed digital actions, each
   carrying source honesty, action cost, and source evidence.
 - historical retired self-action rows such as `self_action_started` /
@@ -155,7 +224,7 @@ Do not restore or add:
 - a second planner context
 - autonomous runner timers beyond the current presence tick
 - a separate share-pool queue for "想回头分享" residue; keep it in normal
-  context / `<小腻的OS>` / compressed summary
+  context / `<xiaoni_os>` / compressed summary
 - hardcoded web-search motives or query templates
 - fake reading/watching/browsing records
 - source wording that implies real evidence without a matching real event

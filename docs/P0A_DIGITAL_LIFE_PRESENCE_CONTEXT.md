@@ -11,12 +11,14 @@ presence-originated event reads the global conversation append stream and uses
 is still backed by `agent_session_context_windows`; event-backed identity-root
 `<小腻近况>` is not implemented yet. If an IM has unread messages after that
 session's last-read cursor, the run can materialize that target as
-`proactive_im_open`; otherwise it stays life-only and can submit an internal
-life action, run grounded hosted `web_search`, or `stay_silent`. It still cannot
-send QQ without a concrete IM target. "想回头分享" material is current-context
-residue: it is appended into `<小腻的OS>` and later session-window
-`<小腻近况>`, not routed through a separate share-pool queue. This is still not
-the full browser-backed digital-life system.
+`proactive_im_open`; otherwise it stays life-only and can currently submit an
+internal life action, run grounded hosted `web_search`, or `stay_silent`. The
+locked next runtime adds prompt-facing `recover_energy`. It still cannot send QQ
+without a concrete IM target. "想回头分享" material is current-context residue:
+it is appended into `<xiaoni_os>` and later session-window `<小腻近况>`, not
+routed through a separate share-pool queue. Old `<小腻的OS>` history is read as
+legacy residue and is not migrated. This is still not the full browser-backed
+digital-life system.
 
 2026-05-31 runtime correction: prompt-facing state is current energy plus recent
 action cost/recovery context only. Earlier design language about boredom,
@@ -89,7 +91,7 @@ cost context, then let Xiaoni choose.
 兴趣画像 / 群聊残留
 → 小腻自己探索数字内容：读、看、玩、搜、收藏、整理
 → 形成数字生活所得和自己的反应
-→ 追加成上下文残留 / `<小腻的OS>`
+→ 追加成上下文残留 / `<xiaoni_os>`
 → 情绪能量决定她是否打开群、主动分享、接当前话题、潜水或睡觉
 → 群友反应回流到分享欲、关系温度、偏好和边界
 → 影响下一轮浏览和分享
@@ -109,7 +111,7 @@ cost context, then let Xiaoni choose.
   share candidate, and whether it should affect interests. Mock records must be
   marked as mock and cannot justify "刚看到 / 刚刷到 / 我查到" wording.
 - `上下文残留`: shareable fragments derived from digital-life material, expressed
-  as Xiaoni's own continuity in `<小腻的OS>` / `<小腻近况>`, with source honesty
+  as Xiaoni's own continuity in `<xiaoni_os>` / `<小腻近况>`, with source honesty
   and whether it can be shared without a group trigger.
 - `情绪能量`: dopamine, pressure, fatigue, boredom, sharing desire, and
   willingness to elaborate. This translates inner state into action.
@@ -118,12 +120,13 @@ cost context, then let Xiaoni choose.
 
 **Energy / fatigue model to engineer:**
 
-Current implemented slice is intentionally simpler than the broader design:
-each life event carries one `actionCost` or falls back to the reducer's
-event-kind default cost. The reducer accumulates that cost, then derives
-`fatigue = actionCost` and `energy = 1 - actionCost`. `rest_period` subtracts
-from accumulated cost; `sleep_period` clears it. Wall-clock time since the last
-rest does not currently create fatigue by itself.
+The locked production target is in
+`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`. Energy is identity-scoped, can go below
+`0`, and uses the production tool/skill cost table there. Recovery is exposed to
+the prompt only as `recover_energy`; wall-clock rest up to 120 minutes restores
+toward full energy, treating negative energy as `0`. Older reducer-v1
+`rest_period` / `sleep_period` rows are compatibility history, not the
+prompt-facing recovery contract.
 
 Use a lightweight human-like curve, not a fake dopamine gauge. The research shape
 to copy is the two-process sleep model: sleep pressure rises while awake and
@@ -201,6 +204,36 @@ gates. It exposes energy and recent action cost so Xiaoni can choose whether to
 act inside the main loop; the scheduler still blocks proactive IM opening while
 fatigue is high enough that energy is below the active-use threshold.
 
+**Locked next energy / rest behavior, 2026-06-04:**
+
+The next prompt-facing runtime removes pressure/dopamine labels and exposes only
+numeric energy. `<STATE>` is event-triggered, not appended on every model call:
+engineering appends it after the configured cross-run action/tool count threshold,
+after hosted `web_search`, when low energy needs a fatigue reminder, after forced
+sleep wake, or after repeated direct mentions interrupt rest.
+
+Energy may go below `0` internally and in `<STATE>`, but recovery treats negative
+energy the same as `0`. Full recovery is capped at 2 hours. `recover_energy`
+is the single prompt-facing rest tool; `rest_period` / `sleep_period` may remain
+historical or internal event kinds, but should not be exposed as separate
+prompt-facing tools. `recover_energy.duration_minutes` is clamped to `5..120`;
+at 120 minutes energy is `1.00`, and shorter durations recover toward `1.00`
+with an exponential curve from `max(raw_energy, 0)`.
+
+Low-energy fatigue text belongs in `<STATE>` as a nudge, e.g. "我已经很累了，要不要
+休息一下", but engineering must not force a rest choice while energy is still
+non-negative. If raw energy drops below `0`, engineering waits 2 hours before
+the next action opportunity. Recovery math clamps the effective rest duration at
+120 minutes, so this wakes at full energy. If Xiaoni did not choose rest herself,
+the wake `<STATE>` says she was too tired and slept through it, then gives the
+recovered numeric energy.
+
+While Xiaoni is resting, the model does not read message bodies. Engineering
+only tracks unread metadata and direct-mention counts. If continuous direct `@`
+count reaches `3`, engineering wakes Xiaoni early, computes recovery from actual
+rest time, and injects a `<STATE>` that says repeated `@` interrupted rest and
+how much energy recovered.
+
 **Possible future `presence_context` shape:**
 
 ```text
@@ -247,17 +280,17 @@ Current implemented slices:
   stays inside the main loop context. It reads the global conversation append
   stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
   even if unread IM materializes the run into `proactive_im_open`; without a
-  concrete IM target it cannot send QQ directly. It can still use
-  `submit_life_action`, `web_search`, or `stay_silent`; any "想回头分享" residue
-  is appended to `<小腻的OS>` and therefore survives normal context replay or
-  later summary compression. The compressed `<小腻近况>` here is still
+  concrete IM target it cannot send QQ directly. It can currently use
+  `submit_life_action`, `web_search`, or `stay_silent`; the locked next runtime
+  adds `recover_energy`. Any "想回头分享" residue is appended to `<xiaoni_os>` and
+  therefore survives normal context replay or later summary compression. The compressed `<小腻近况>` here is still
   `agent_session_context_windows.context_summary`, not an event-backed
   `agent_life_events` digest.
-- 2026-05-31: presence enqueue no longer uses cooldown/boredom/sharing desire or
-  startup grace as hard gates. It still blocks proactive IM opening when fatigue
-  is too high, recording `rest_period` or `sleep_period` instead. Prompt-facing
-  state is current energy and recent action cost/recovery context; Xiaoni chooses
-  the action inside the main loop after a tick is admitted.
+- 2026-05-31 / updated 2026-06-04: presence enqueue no longer uses
+  cooldown/boredom/sharing desire or startup grace as hard gates. The next
+  low-energy contract is the production recovery spec: append `<STATE>` only on
+  state events and expose `recover_energy` as the prompt-facing recovery tool.
+  Historical `rest_period` / `sleep_period` rows remain compatibility data.
 - 2026-05-31: homeostasis design correction locked. The next reducer uses
   `agent_life_events` as the canonical append stream. `agent_session_life_states`
   is only a projection/cache. Do not restore a separate self-action planner, and
@@ -339,7 +372,7 @@ Cross-group sharing rule:
 Context-residue rule:
 
 - The current live path for "what I might want to talk about" is normal context:
-  `pending_share` is merged into `<小腻的OS>` as "我想回头分享这个：...". It should
+  `pending_share` is merged into `<xiaoni_os>` as "我想回头分享这个：...". It should
   make her feel like a person with lingering thoughts, not a retrieval bot
   answering questions.
 - Historical share-pool tables and sidecars may still exist for compatibility
@@ -711,7 +744,7 @@ First-slice recall sources for `小腻当前状态`:
   watching the group continue, and deciding whether the topic is still alive.
 - `上下文残留`: currently hot material, including whether each item is better as
   a short line, light chat, or longer explanation. In the live path this is
-  carried by `<小腻的OS>` / `<小腻近况>` and trace metadata, not by a separate
+  carried by `<xiaoni_os>` / `<小腻近况>` and trace metadata, not by a separate
   share-pool queue.
 - `当天情绪能量`: fatigue, boredom, sharing desire, pressure, and current action
   cost.
