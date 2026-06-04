@@ -413,7 +413,8 @@ const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
 const HISTORY_COMPACT_AT = 200;
-const HISTORY_COMPACT_KEEP = 80;
+const HISTORY_COMPACT_KEEP = 30;
+const LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_SUMMARY_SUBAGENT_TYPE = 'context_summary_writer';
@@ -4628,7 +4629,7 @@ export class AgentLoopService {
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: null,
-        ...(originatedFromLifePresenceTick ? { scope: 'global' as const, limit: 160 } : {})
+        ...(originatedFromLifePresenceTick ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
       });
       historyCount = history.length;
 

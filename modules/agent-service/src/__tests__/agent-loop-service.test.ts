@@ -5144,12 +5144,51 @@ test('processQueueMessage preserves global OS context after presence tick opens 
   }
 
   assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
-  assert.equal(listRecentTurnsCalls[0]?.limit, 160);
+  assert.equal(listRecentTurnsCalls[0]?.limit, 201);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
   assert.match(renderedModelInput, /253631878/);
   assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'reply_sent');
+});
+
+test('buildContextBudgetPlan compacts global life context at 200 turns and keeps 30', async () => {
+  const upsertCalls: any[] = [];
+  const service = new AgentLoopService({
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async (params: any) => {
+      upsertCalls.push(params);
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const history = Array.from({ length: 201 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `global history ${index + 1}`,
+    aiResponse: `global os ${index + 1}`
+  }));
+
+  const plan = await (service as any).buildContextBudgetPlan({
+    history,
+    queueMessage: createLifePresenceTickQueueMessageForTest().payload,
+    runtimePrompt: createRuntimePrompt(),
+    loopContinuation: [],
+    runtimeIdentityFacts: [],
+    developerContextBlock: null,
+    contextSessionKey: 'xiaoni:global'
+  });
+
+  assert.equal(plan.retainedHistory.length, 30);
+  assert.equal(plan.retainedHistory[0]?.id, 172);
+  assert.equal(plan.retainedHistory[29]?.id, 201);
+  assert.equal(plan.readCutoffAfterConversationId, 171);
+  assert.equal(plan.cutoffRecomputed, true);
+  assert.equal(upsertCalls.length, 1);
+  assert.equal(upsertCalls[0]?.sessionKey, 'xiaoni:global');
+  assert.equal(upsertCalls[0]?.readCutoffAfterConversationId, 171);
 });
 
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
