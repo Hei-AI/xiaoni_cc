@@ -73,7 +73,7 @@ cost context, then let Xiaoni choose.
   `web_search` traces may be represented as searched web evidence.
 - Digital-life exploration should be driven by internal state, not fixed
   frequency. Boredom, fatigue, dopamine, pressure, and sharing desire decide
-  whether she browses, opens QQ, shares, lurks, sleeps, or says very little.
+  whether she browses, opens QQ, shares, rests, or keeps the action small.
 - Exploration sources should be mixed: mostly Xiaoni's own interests, with some
   expansion from recent group-chat residue.
 - Proactive sharing is allowed without an explicit group-message trigger.
@@ -129,23 +129,24 @@ toward full energy, treating negative energy as `0`. Older reducer-v1
 `rest_period` / `sleep_period` rows are compatibility history, not the
 prompt-facing recovery contract.
 
-Use a lightweight human-like curve, not a fake dopamine gauge. The research shape
-to copy is the two-process sleep model: sleep pressure rises while awake and
-falls during sleep, while circadian alertness follows a daily rhythm.
+Use a lightweight human-like curve, not a fake dopamine gauge. The useful shape
+is rest pressure plus circadian alertness, while the prompt-facing contract stays
+energy / rest / recovery.
 
 Core variables:
 
-- `energy_budget`: daily action budget. Sleep or long inactivity restores it;
+- `energy_budget`: daily action budget. Rest or long inactivity restores it;
   positive social feedback does not.
-- `sleep_pressure`: 0-1. Rises while awake, approaches high after roughly a full
-  waking day, and falls during sleep or long inactivity.
+- `rest_pressure`: 0-1. Rises across continuous active time and falls during rest
+  or long inactivity.
 - `circadian_alertness`: 0-1. Daily alertness rhythm: low overnight, rises after
-  waking, has a mild afternoon dip, often has an evening second wind, and drops
-  late at night. Shift this curve by Xiaoni's configured schedule.
-- `sleep_inertia`: short wake-up drag. After waking, keep 20-60 minutes of lower
-  action tendency before she is fully online.
+  the configured start of day, has a mild afternoon dip, often has an evening
+  second wind, and drops late at night. Shift this curve by Xiaoni's configured
+  schedule.
+- `post_rest_drag`: short drag after rest. If needed, keep 20-60 minutes of lower
+  action tendency before she is fully active again.
 - `fatigue`: in the current reducer, directly mirrors accumulated action cost.
-  Broader sleep-pressure and circadian modeling remain future design scope.
+  Broader rest-pressure and circadian modeling remain future design scope.
 - `effort_cost_multiplier`: fatigue raises the felt cost of acting. This is the
   main mechanism for "too tired to do the thing".
 - `reward_sensitivity`: attraction to novelty, interaction, fun, and being
@@ -155,19 +156,18 @@ Core variables:
 
 Engineering shape:
 
-- Sleep pressure: low after good sleep; rises across awake time; after about 16
-  awake hours it should be near high; 7-8 hours of sleep should restore most of
-  it.
+- Rest pressure: low after good rest; rises across active time; longer rest
+  should restore most of it.
 - Circadian alertness: night low, morning climb, afternoon dip around 14:00-16:00,
   evening second wind, late-night decline.
-- Sleep inertia: decays after waking; default 20-45 minutes, longer after
-  insufficient sleep.
+- Post-rest drag: decays after rest; default 20-45 minutes, longer after
+  insufficient rest.
 - Fatigue suppresses action, not reward itself. Under fatigue, immediate fun can
   still look attractive, but effort feels more expensive.
 - Positive reactions can raise reward sensitivity / sharing desire, but high
   fatigue should cap how much that turns into action.
 - Pressure makes action more expensive. Acting while pressure is high consumes
-  extra energy and pushes toward shorter replies, silence, or withdrawal.
+  extra energy and pushes toward shorter replies, smaller actions, or recovery.
 
 Action-cost tiers:
 
@@ -211,29 +211,29 @@ The next prompt-facing runtime removes pressure/dopamine labels and exposes only
 numeric energy. `<STATE>` is event-triggered, not appended on every model call:
 engineering appends it after the configured cross-run action/tool count threshold,
 after hosted `web_search`, when low energy needs a fatigue reminder, after forced
-sleep wake, or after repeated direct mentions interrupt rest.
+full recovery, or after repeated direct mentions interrupt rest.
 
 Energy may go below `0` internally and in `<STATE>`, but recovery treats negative
 energy the same as `0`. Full recovery is capped at 2 hours. `recover_energy`
 is the single prompt-facing rest tool; `rest_period` / `sleep_period` may remain
 historical or internal event kinds, but should not be exposed as separate
 prompt-facing tools. `recover_energy.duration_minutes` is clamped to `5..120`;
-at 120 minutes energy is `1.00`, and shorter durations recover toward `1.00`
-with an exponential curve from `max(raw_energy, 0)`.
+at 120 minutes energy is `1.00`, and shorter durations recover linearly toward
+`1.00` from `max(raw_energy, 0)`.
 
 Low-energy fatigue text belongs in `<STATE>` as a nudge, e.g. "我已经很累了，要不要
 休息一下", but engineering must not force a rest choice while energy is still
 non-negative. If raw energy drops below `0`, engineering waits 2 hours before
 the next action opportunity. Recovery math clamps the effective rest duration at
-120 minutes, so this wakes at full energy. If Xiaoni did not choose rest herself,
-the wake `<STATE>` says she was too tired and slept through it, then gives the
-recovered numeric energy.
+120 minutes, so the next opportunity starts at full energy. If Xiaoni did not
+choose rest herself, the `<STATE>` says she was too tired to continue before
+recovering, then gives the recovered numeric energy.
 
 While Xiaoni is resting, the model does not read message bodies. Engineering
 only tracks unread metadata and direct-mention counts. If continuous direct `@`
-count reaches `3`, engineering wakes Xiaoni early, computes recovery from actual
-rest time, and injects a `<STATE>` that says repeated `@` interrupted rest and
-how much energy recovered.
+count reaches `3`, repeated mentions interrupt rest early. Engineering computes
+recovery from actual rest time and injects a `<STATE>` that says repeated `@`
+interrupted rest and how much energy recovered.
 
 **Possible future `presence_context` shape:**
 
@@ -257,7 +257,7 @@ how much energy recovered.
   historical `agent_digital_actions` compatibility records.
 - A separate share-pool queue / ranking path for "想回头分享" residue.
 - Full reaction feedback loop into interests and sharing desire.
-- Full state-driven action scheduling for browsing/opening QQ/sleeping.
+- Full state-driven action scheduling for browsing/opening QQ/resting.
 
 Current implemented slices:
 
@@ -415,13 +415,13 @@ Expiration / recall ranking rule:
 - Different item kinds decay at different speeds:
   - recent action trace: fastest decay; useful for current/few turns only.
   - hot share item: minutes to hours scale.
-  - same-day residue: same-day scale, sharply reduced after sleep or long
+  - same-day residue: same-day scale, sharply reduced after rest or long
     inactivity.
   - short-term interest candidate: days to week scale, maintained by repeated
     self-selection or strong pickup.
   - stable interest: not selected by this transient decay path; it only provides
     direction.
-- Sleep or long inactivity should act as a boundary multiplier that sharply
+- Rest or long inactivity should act as a boundary multiplier that sharply
   lowers same-day residue and action-trace scores.
 - First implementation can use a simple relative score, for example:
 
@@ -698,7 +698,7 @@ In-context state writing principle (locked 2026-05-26):
   trace, current residue, current action budget, fatigue/pressure/boredom,
   shareable material, action costs, and source boundaries.
 - Numeric meters must have one engineering source of truth. Energy/stamina,
-  fatigue, dopamine/reward attraction, pressure, sleep pressure, action budget,
+  fatigue, dopamine/reward attraction, pressure, rest pressure, action budget,
   and action costs are computed before prompt assembly, then projected into
   in-context. Do not let the base prompt, tool descriptions, and current-state
   block each invent separate versions of the same meter.

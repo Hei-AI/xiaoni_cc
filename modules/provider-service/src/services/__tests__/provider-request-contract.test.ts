@@ -161,6 +161,36 @@ test('OpenAI provider serializes allowed_tools without changing the tool list', 
   assert.equal(payload.tools.length, TOOL_DEFINITIONS.length);
 });
 
+test('OpenAI provider preserves top-level strict false on function tools', () => {
+  const provider = new TestOpenAIProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    tools: [
+      {
+        type: 'function',
+        strict: false,
+        function: {
+          name: 'loose_action',
+          description: 'Loose action parser.',
+          parameters: {
+            type: 'object',
+            properties: {
+              reason: { type: 'string' },
+              optional_note: { type: 'string' }
+            },
+            required: ['reason'],
+            additionalProperties: false
+          }
+        }
+      }
+    ]
+  });
+
+  assert.equal(payload.tools[0]?.strict, false);
+  assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason']);
+  assert.equal(payload.tools[0]?.parameters?.properties?.optional_note?.type, 'string');
+});
+
 test('OpenAI provider preserves Responses text and context management fields', () => {
   const provider = new TestOpenAIProvider({} as any);
   const payload = provider.buildPayload({

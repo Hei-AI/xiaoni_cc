@@ -45,6 +45,7 @@ export type OpenResponseInputItem =
 
 export type OpenResponseToolDefinition = {
   type: 'function';
+  strict?: boolean;
   function: {
     name: string;
     description?: string;

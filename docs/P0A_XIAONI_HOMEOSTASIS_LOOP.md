@@ -26,8 +26,8 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
   compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
   `agent_life_events` digest. Life-only `presence_tick` can currently use
-  `submit_life_action`, `web_search`, or `recover_energy`, not a private planner
-  context. If it
+  internal tools, `web_search`, `compress_core_memory`, or `recover_energy`, not
+  a private planner context. If it
   produces a "想回头分享" residue, that residue is appended into `<xiaoni_os>` so
   it stays in normal context and later compression. Old `<小腻的OS>` history is
   read as legacy residue and is not migrated.
@@ -54,13 +54,12 @@ implemented yet. Current-runtime facts above remain the truth until code lands.
   this is a state fact, not an action command.
 - `<STATE>` is not injected on every model call. Engineering appends it only on
   state events, including: cross-run action count threshold, after hosted
-  `web_search`, low-energy reminders, forced-sleep wake, and mention-interrupted
-  wake.
+  `web_search`, low-energy reminders, forced full recovery, and rest interruption
+  by repeated direct mentions.
 - Action costs are identity-scoped and cross run boundaries. The first locked
   costs are:
 
   ```text
-  submit_life_action: 0.005
   speak_in_group: 0.015
   reply_in_private: 0.015
   web_search: 0.080
@@ -75,18 +74,18 @@ implemented yet. Current-runtime facts above remain the truth until code lands.
   prompt-facing `rest_period` / `sleep_period`; those event kinds may remain as
   historical/internal compatibility rows. `duration_minutes` is clamped to
   `5..120`.
-- Recovery uses an exponential saturation curve. If `duration_minutes >= 120`,
-  energy restores to `1.00`. Otherwise, use effective energy
-  `max(0, raw_energy)` and restore toward `1.00` with diminishing returns.
+- Recovery uses a linear curve from `max(0, raw_energy)` toward `1.00`.
+  `duration_minutes >= 120` restores to full energy.
 - If engineering detects `raw_energy < 0`, Xiaoni is too exhausted to keep
   acting. Engineering waits 2 hours before the next action opportunity. Recovery
-  math clamps the effective rest duration at 120 minutes, so this wakes at full
-  energy. When she wakes, append `<STATE>` saying she was too tired and slept
-  through it, with the computed current energy.
+  math uses 120 minutes, so that opportunity starts at full energy. Append
+  `<STATE>` saying she was too tired to continue before recovering, with the
+  computed current energy.
 - While resting, Xiaoni does not read message bodies. Engineering records unread
-  metadata and counts direct mention wake signals only. Three or more consecutive
-  direct mentions wake her early, compute recovered energy from the actual rest
-  duration, and append `<STATE>` saying she was interrupted by repeated mentions.
+  metadata and counts repeated direct mentions only. Three or more consecutive
+  direct mentions interrupt rest early, compute recovered energy from the actual
+  rest duration, and append `<STATE>` saying she was interrupted by repeated
+  mentions.
 - New prompt-facing OS continuity uses `<xiaoni_os>`. The persisted DB field can
   stay `xiaoni_os`. Do not migrate old history; GPT-5.5 can understand older
   `<小腻的OS>` residue until it naturally ages out.
@@ -98,7 +97,7 @@ implemented yet. Current-runtime facts above remain the truth until code lands.
 ## Locked Decisions
 
 1. `agent_life_events` is the canonical append-only event stream for Xiaoni's
-   homeostasis / presence state, QQ-visible actions, silence decisions, and
+   homeostasis / presence state, QQ-visible actions, recovery actions, and
    later digital-life actions. It is not yet the canonical source for
    `<小腻近况>` or typed long-term memory recall.
 2. `agent_session_life_states` and group state tables are projections/caches
@@ -122,7 +121,7 @@ agent_life_events append stream
   -> deterministic reducer
   -> homeostasis snapshot
   -> presence/context projection
-  -> main loop decides: speak / search / silent life action / internal residue
+  -> main loop acts: speak / search / image task / internal residue / recover
   -> resulting action appends new events
 ```
 
@@ -143,7 +142,6 @@ cost context and chooses inside the main loop.
 Locked production prompt-facing tool/action costs:
 
 ```text
-submit_life_action: 0.005
 speak_in_group: 0.015
 reply_in_private: 0.015
 web_search: 0.080
@@ -168,7 +166,9 @@ Append events for facts that happened, not inferred personality:
 - `surface_visit`: Xiaoni opened or used QQ/IM.
 - `qq_message_seen`: a real human message entered Xiaoni's visible stream.
 - `speak_in_group` / `qq_self_message`: Xiaoni actually sent text.
-- `silence_decision`: Xiaoni chose to stay silent or lurk.
+- `silence_decision`: historical reducer-v1 compatibility row only. Current
+  prompt-facing runtime has no silence tool; no tool call is not a completed
+  action.
 - `terminal_action_committed` / `terminal_action_blocked`: delivery boundary.
 - `presence_tick_evaluated`: a scheduler check happened, including skip or
   enqueue reason and the state snapshot used for the decision.

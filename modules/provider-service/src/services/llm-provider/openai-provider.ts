@@ -71,7 +71,13 @@ function normalizeStrictJsonSchema(schema: unknown, options: { optional?: boolea
 }
 
 function normalizeFunctionToolStrictMode(tool: NonNullable<OpenResponseCreateRequest['tools']>[number]): boolean | undefined {
-  return tool.type === 'function' ? tool.function.strict ?? true : undefined;
+  if (tool.type !== 'function') {
+    return undefined;
+  }
+  if (typeof tool.function.strict === 'boolean') {
+    return tool.function.strict;
+  }
+  return typeof tool.strict === 'boolean' ? tool.strict : true;
 }
 
 export class OpenAIProvider implements LLMProvider {
