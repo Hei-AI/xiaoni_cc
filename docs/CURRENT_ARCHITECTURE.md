@@ -63,13 +63,14 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；主 loop 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文，也不是按群/私聊拆 prompt 历史。prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity digest；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。prompt-facing 工具列表固定，不再根据 `direct`、`group` 或 life-only presence 分叉；`send_in_private` 必须显式传 `user_id`，`send_in_group` 必须显式传 `group_id`，缺失时返回 retryable tool error 给模型补参。动作未完成前，没有工具调用不等于沉默或结束。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；主 loop 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文，也不是按群/私聊拆 prompt 历史。prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity digest；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。prompt-facing 工具列表固定，不再根据 `direct`、`group` 或 life-only presence 分叉；`send_in_private` 必须显式传 `user_id`，`send_in_group` 必须显式传 `group_id`，缺失时返回 retryable tool error 给模型补参。life-only `presence_tick` 没有打开具体会话时不能发 QQ，也不能登记图片任务；当前只能让同一个 main loop 选择 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。动作未完成前，没有工具调用不等于沉默或结束。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
 
 当前连续性边界：
 
 - `agent_life_events` 已经是 homeostasis / presence projection 的事件真相源。
 - `<小腻近况>` 仍是 context summary writer 写入 `agent_session_context_windows.context_summary` 的纯文本摘要，当前唯一 key 是 `xiaoni:global`。
 - 群/私聊 session 只表示来源、投递目标和未读游标元数据，不作为 prompt-facing history、context summary、read cutoff 或 prompt cache key。
+- Prompt-visible transcript history 只从 `conversation_items` append ledger 恢复；queue / inbox / LLM / tool logs 只用于排队、收件箱、trace 和审计，不在读取历史时拼回 prompt。
 - 三层 compact memory 已写入 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`，但还没有作为 typed recall projection 自动进入主 runtime prompt。
 - event-backed identity-root `<小腻近况>` 是待实现方向，不要把它当成当前线上契约。
 

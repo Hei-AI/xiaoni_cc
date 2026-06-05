@@ -164,7 +164,7 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'qq:group:101'
+    contextSessionKey: 'xiaoni:global'
   });
 
   const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');

@@ -379,8 +379,10 @@ test('recordNoVisibleDeliveryLifeEvent records lurked action as self-private no-
   assert.match(event.dedupeKey, /^no_visible_delivery:run-runtime-silence:qq:group:999$/);
 });
 
-test('listRecentTurns rebuilds historical user items from structured queue payloads', async () => {
+test('listRecentTurns restores prompt-visible items only from conversation_items ledger', async () => {
+  const queries: string[] = [];
   const store = createStoreWithQuery(async (sql) => {
+    queries.push(sql);
     if (sql.includes('FROM conversations')) {
       return [{
         id: 1,
@@ -394,20 +396,36 @@ test('listRecentTurns rebuilds historical user items from structured queue paylo
     }
 
     if (sql.includes('FROM conversation_items')) {
-      return [{
-        id: 11,
-        conversation_id: 1,
-        session_key: 'qq:group:101',
-        role: 'assistant',
-        phase: 'final_answer',
-        content: '历史助手回复',
-        group_index: 1,
-        item_index: 0,
-        source: 'delivery',
-        delivery_message_id: 9001,
-        run_id: 'run-1',
-        trace_id: 'trace-1'
-      }];
+      return [
+        {
+          id: 10,
+          conversation_id: 1,
+          session_key: 'qq:group:101',
+          role: 'user',
+          phase: null,
+          content: '<INPUT_MESSAGE>ledger 原文</INPUT_MESSAGE>',
+          group_index: 0,
+          item_index: 0,
+          source: 'inbound_batch',
+          delivery_message_id: null,
+          run_id: 'run-1',
+          trace_id: 'trace-1'
+        },
+        {
+          id: 11,
+          conversation_id: 1,
+          session_key: 'qq:group:101',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: '历史助手回复',
+          group_index: 1,
+          item_index: 0,
+          source: 'delivery',
+          delivery_message_id: 9001,
+          run_id: 'run-1',
+          trace_id: 'trace-1'
+        }
+      ];
     }
 
     if (sql.includes('FROM agent_queue_messages q')) {
@@ -468,12 +486,15 @@ test('listRecentTurns rebuilds historical user items from structured queue paylo
 
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.items.length, 2);
-  assert.match(String(turns[0]?.items[0]?.content), /2026-03-28 08:00 \{Alice\(@202\)\}/);
-  assert.match(String(turns[0]?.items[0]?.content), /@\{Bob\(@404\)\} 嘿/);
+  assert.equal(turns[0]?.items[0]?.content, '<INPUT_MESSAGE>ledger 原文</INPUT_MESSAGE>');
   assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
+  assert.equal(queries.some((sql) => sql.includes('FROM agent_queue_messages q')), false);
+  assert.equal(queries.some((sql) => sql.includes('FROM agent_inbound_messages m')), false);
+  assert.equal(queries.some((sql) => sql.includes('llm_call_logs')), false);
+  assert.equal(queries.some((sql) => sql.includes('tool_execution_logs')), false);
 });
 
-test('listRecentTurns falls back to stored transcript content when structured queue payloads are unavailable', async () => {
+test('listRecentTurns reads stored transcript ledger content when queue payloads are unavailable', async () => {
   const store = createStoreWithQuery(async (sql) => {
     if (sql.includes('FROM conversations')) {
       return [{
@@ -533,8 +554,10 @@ test('listRecentTurns falls back to stored transcript content when structured qu
   assert.equal(turns[0]?.items[0]?.content, '#1 {Alice(@202)}: 旧格式');
 });
 
-test('listRecentTurns rebuilds historical user items from inbound messages when queue replay rows are unavailable', async () => {
+test('listRecentTurns does not synthesize missing user items from inbound messages', async () => {
+  const queries: string[] = [];
   const store = createStoreWithQuery(async (sql) => {
+    queries.push(sql);
     if (sql.includes('FROM conversations')) {
       return [{
         id: 1,
@@ -616,14 +639,16 @@ test('listRecentTurns rebuilds historical user items from inbound messages when 
   });
 
   assert.equal(turns.length, 1);
-  assert.equal(turns[0]?.items.length, 2);
-  assert.match(String(turns[0]?.items[0]?.content), /2026-03-28 08:00 \{Alice\(@202\)\}/);
-  assert.match(String(turns[0]?.items[0]?.content), /@\{Bob\(@404\)\} 嘿/);
-  assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
+  assert.equal(turns[0]?.items.length, 1);
+  assert.equal(turns[0]?.items[0]?.role, 'assistant');
+  assert.equal(turns[0]?.items[0]?.content, '历史助手回复');
+  assert.equal(queries.some((sql) => sql.includes('FROM agent_inbound_messages m')), false);
 });
 
-test('listRecentTurns recovers tool replay items from tool execution logs', async () => {
+test('listRecentTurns preserves raw response replay snapshot without recovering from logs', async () => {
+  const queries: string[] = [];
   const store = createStoreWithQuery(async (sql) => {
+    queries.push(sql);
     if (sql.includes('FROM conversations')) {
       return [{
         id: 1,
@@ -720,12 +745,8 @@ test('listRecentTurns recovers tool replay items from tool execution logs', asyn
   const firstTurn = turns[0];
   assert.ok(firstTurn);
   const replayItems = (firstTurn.rawResponse?.responses_replay_items || []) as Array<Record<string, unknown>>;
+  assert.equal(replayItems.length, 2);
   assert.ok(replayItems.some((item) => item.type === 'reasoning' && item.id === 'rs_1'));
-  assert.ok(replayItems.some((item) => (
-    item.type === 'message'
-    && item.role === 'assistant'
-    && String(JSON.stringify(item.content)).includes('我先打开列表看一下')
-  )));
   assert.ok(replayItems.some((item) => (
     item.type === 'function_call'
     && item.call_id === 'call-exec-1'
@@ -733,11 +754,10 @@ test('listRecentTurns recovers tool replay items from tool execution logs', asyn
     && String(item.arguments).includes('open_inbox')
   )));
   assert.equal(replayItems.filter((item) => item.type === 'function_call' && item.call_id === 'call-exec-1').length, 1);
-  assert.ok(replayItems.some((item) => (
-    item.type === 'function_call_output'
-    && item.call_id === 'call-exec-1'
-    && String(item.output).includes('<IM_INBOX_WINDOW')
-  )));
+  assert.equal(replayItems.some((item) => item.type === 'message'), false);
+  assert.equal(replayItems.some((item) => item.type === 'function_call_output'), false);
+  assert.equal(queries.some((sql) => sql.includes('llm_call_logs')), false);
+  assert.equal(queries.some((sql) => sql.includes('tool_execution_logs')), false);
 });
 
 test('listRecentTurns can read the global append stream for life-only presence ticks', async () => {

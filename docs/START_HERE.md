@@ -31,7 +31,7 @@
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
-- 不要把空闲行为做成第二套 planner 或硬编码兴趣表。当前空闲生活事件走 presence tick append 到同一条事件流；主 loop 读取全局 conversation append stream，prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。这个 key 还不是 event-backed 的全局 `<小腻近况>`，也不会自动 fallback 到某个群 summary；即使打开了游标后的未读 IM 并 materialize 成 `proactive_im_open`，也不能退回单个群/私聊的局部上下文。没有具体 IM 目标时不能直接发 QQ，也不能登记图片任务；只能由 main loop 决定 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。动作未完成前，没有工具调用不等于沉默或结束。旧历史里的 `<小腻的OS>` 只做兼容读取，不迁移。
+- 不要把空闲行为做成第二套 planner 或硬编码兴趣表。当前空闲生活事件走 presence tick append 到同一条事件流；主 loop 读取全局 conversation append stream，prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key；即使打开了游标后的未读 IM 并 materialize 成 `proactive_im_open`，也不能退回单个群/私聊的局部上下文。没有具体 IM 目标时不能直接发 QQ，也不能登记图片任务；只能由 main loop 决定 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。动作未完成前，没有工具调用不等于沉默或结束。旧历史里的 `<小腻的OS>` 只做兼容读取，不迁移。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。

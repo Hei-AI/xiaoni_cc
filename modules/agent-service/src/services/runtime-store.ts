@@ -77,12 +77,10 @@ import {
   ConversationTranscriptRole,
   ConversationTranscriptSource,
   ConversationTurn,
-  FinalizedInboundContext,
   QueueBatchMessage,
   QueueMessagePayload,
   QueueMessageRecord
 } from '../types';
-import { renderRuntimeBatchMessage } from './runtime-input-renderer';
 
 const moduleLogger = logger.createModuleLogger('runtime-store');
 
@@ -305,64 +303,6 @@ export function resolvePresenceRecoveryEvent(
     bucketMs: REST_RECOVERY_BUCKET_MS
   };
 }
-
-type StructuredReplayQueueRow = {
-  id: number;
-  trace_id: string;
-  run_id: string | null;
-  conversation_id: number | null;
-  source: string;
-  message_sid: string;
-  chat_type: string;
-  session_key: string;
-  peer_id: string;
-  peer_name: string | null;
-  sender_id: string;
-  sender_name: string | null;
-  account_id: string;
-  body_for_agent: string;
-  raw_payload: string | Record<string, unknown>;
-  inbound_context: string | Record<string, unknown>;
-  payload: string | Record<string, unknown>;
-  created_at: string | Date;
-};
-
-type StructuredReplayInboundRow = {
-  id: number;
-  trace_id: string;
-  source: string;
-  message_sid: string;
-  chat_type: string;
-  session_key: string;
-  peer_id: string;
-  peer_name: string | null;
-  sender_id: string;
-  sender_name: string | null;
-  account_id: string;
-  body_for_agent: string;
-  raw_payload: string | Record<string, unknown>;
-  inbound_context: string | Record<string, unknown>;
-  created_at: string | Date;
-};
-
-type StructuredReplayToolRow = {
-  id: number;
-  trace_id: string;
-  agent_turn: number | null;
-  tool_call_id: string | null;
-  tool_name: string;
-  arguments: string | Record<string, unknown> | null;
-  result: string | Record<string, unknown> | null;
-  started_at: string | Date | null;
-};
-
-type StructuredReplayLlmCallRow = {
-  id: number;
-  trace_id: string;
-  agent_turn: number | null;
-  canonical_response: string | Record<string, unknown> | null;
-  started_at: string | Date | null;
-};
 
 export type ExecutionLeaseDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'lease_released';
 
@@ -1191,326 +1131,6 @@ type ConversationTranscriptItemInput = {
   runId?: string | null;
   traceId?: string | null;
 };
-
-function buildLegacyConversationItems(params: {
-  conversationId: number;
-  sessionKey: string;
-  userMessage: string;
-  aiResponse: string | null;
-  traceId?: string | null;
-}): ConversationTranscriptItem[] {
-  const items: ConversationTranscriptItem[] = [{
-    id: null,
-    conversationId: params.conversationId,
-    sessionKey: params.sessionKey,
-    role: 'user',
-    phase: null,
-    content: params.userMessage,
-    groupIndex: 0,
-    itemIndex: 0,
-    source: 'legacy_user_message',
-    deliveryMessageId: null,
-    runId: null,
-    traceId: params.traceId ?? null
-  }];
-
-  if (typeof params.aiResponse === 'string' && params.aiResponse.trim().length > 0) {
-    items.push({
-      id: null,
-      conversationId: params.conversationId,
-      sessionKey: params.sessionKey,
-      role: 'assistant',
-      phase: null,
-      content: params.aiResponse,
-      groupIndex: 1,
-      itemIndex: 0,
-      source: 'legacy_ai_response',
-      deliveryMessageId: null,
-      runId: null,
-      traceId: params.traceId ?? null
-    });
-  }
-
-  return items;
-}
-
-function buildQueueBatchMessageFromStructuredRow(row: StructuredReplayQueueRow): QueueBatchMessage {
-  const payload = parseJson<Partial<QueueBatchMessage>>(row.payload, {});
-  const defaultInboundContext: FinalizedInboundContext = {
-    Body: payload.bodyForAgent || row.body_for_agent,
-    BodyForAgent: payload.bodyForAgent || row.body_for_agent,
-    BodyForCommands: payload.commandBody || payload.bodyForAgent || row.body_for_agent,
-    CommandAuthorized: false
-  };
-
-  return {
-    queueMessageId: Number(row.id),
-    traceId: row.trace_id,
-    source: row.source,
-    messageId: payload.messageId ?? Number(row.id),
-    messageSid: row.message_sid,
-    chatType: row.chat_type === 'group' ? 'group' : 'direct',
-    sessionKey: row.session_key,
-    peerId: row.peer_id,
-    peerName: row.peer_name || undefined,
-    senderId: row.sender_id,
-    senderName: row.sender_name || undefined,
-    accountId: row.account_id,
-    bodyForAgent: payload.bodyForAgent || row.body_for_agent,
-    rawBody: payload.rawBody || payload.bodyForAgent || row.body_for_agent,
-    commandBody: payload.commandBody || payload.bodyForAgent || row.body_for_agent,
-    wasMentioned: Boolean(payload.wasMentioned),
-    receivedAt: payload.receivedAt || toIso(row.created_at) || new Date().toISOString(),
-    messageTimestamp: payload.messageTimestamp ?? null,
-    rawPayload: parseJson<Record<string, unknown>>(row.raw_payload, {}),
-    inboundContext: parseJson(row.inbound_context, defaultInboundContext)
-  };
-}
-
-function buildQueueBatchMessageFromInboundRow(row: StructuredReplayInboundRow): QueueBatchMessage {
-  const inboundContext = parseJson<FinalizedInboundContext>(row.inbound_context, {
-    Body: row.body_for_agent,
-    BodyForAgent: row.body_for_agent,
-    BodyForCommands: row.body_for_agent,
-    CommandAuthorized: false
-  });
-
-  return {
-    queueMessageId: Number(row.id),
-    traceId: row.trace_id,
-    source: row.source,
-    messageId: Number(row.id),
-    messageSid: row.message_sid,
-    chatType: row.chat_type === 'group' ? 'group' : 'direct',
-    sessionKey: row.session_key,
-    peerId: row.peer_id,
-    peerName: row.peer_name || undefined,
-    senderId: row.sender_id,
-    senderName: row.sender_name || undefined,
-    accountId: row.account_id,
-    bodyForAgent: row.body_for_agent,
-    rawBody: inboundContext.RawBody || inboundContext.Body || inboundContext.BodyForAgent || row.body_for_agent,
-    commandBody: inboundContext.CommandBody || inboundContext.BodyForCommands || row.body_for_agent,
-    wasMentioned: Boolean(inboundContext.WasMentioned),
-    receivedAt: toIso(row.created_at) || new Date().toISOString(),
-    messageTimestamp: typeof inboundContext.Timestamp === 'number'
-      ? new Date(inboundContext.Timestamp * 1000).toISOString()
-      : null,
-    rawPayload: parseJson<Record<string, unknown>>(row.raw_payload, {}),
-    inboundContext
-  };
-}
-
-function buildStructuredReplayConversationItems(params: {
-  rows: Array<StructuredReplayQueueRow | StructuredReplayInboundRow>;
-  traceToConversationId: Map<string, number>;
-}): Map<number, ConversationTranscriptItem[]> {
-  const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
-
-  for (const row of params.rows) {
-    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-    const conversationId = ('conversation_id' in row ? Number(row.conversation_id) : 0) || params.traceToConversationId.get(traceId);
-    if (!conversationId) {
-      continue;
-    }
-
-    const items = itemsByConversationId.get(conversationId) || [];
-    const isQueueReplayRow = 'payload' in row;
-    const message = isQueueReplayRow
-      ? buildQueueBatchMessageFromStructuredRow(row)
-      : buildQueueBatchMessageFromInboundRow(row);
-    const isPresenceAction = isQueueReplayRow && row.source === 'presence_tick';
-    items.push({
-      id: null,
-      conversationId,
-      sessionKey: row.session_key,
-      role: isPresenceAction ? 'assistant' : 'user',
-      phase: isPresenceAction ? 'commentary' : null,
-      content: isPresenceAction
-        ? '<ACTION source="presence_tick">我从自己的生活里抬头看了一眼消息列表。</ACTION>'
-        : renderRuntimeBatchMessage(message, items.length),
-      groupIndex: 0,
-      itemIndex: items.length,
-      source: isPresenceAction ? 'presence_action' : 'inbound_batch',
-      deliveryMessageId: null,
-      runId: isQueueReplayRow ? row.run_id : null,
-      traceId: traceId || null
-    });
-    itemsByConversationId.set(conversationId, items);
-  }
-
-  return itemsByConversationId;
-}
-
-function flattenReplayMessageText(content: unknown) {
-  if (typeof content === 'string') {
-    return content.trim();
-  }
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .map((part) => {
-      if (!part || typeof part !== 'object') {
-        return '';
-      }
-      const typedPart = part as { type?: unknown; text?: unknown; refusal?: unknown };
-      if ((typedPart.type === 'output_text' || typedPart.type === 'input_text') && typeof typedPart.text === 'string') {
-        return typedPart.text.trim();
-      }
-      if (typedPart.type === 'refusal' && typeof typedPart.refusal === 'string') {
-        return typedPart.refusal.trim();
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-}
-
-function buildStructuredLlmReplayItems(rows: StructuredReplayLlmCallRow[]) {
-  const replayItemsByTraceId = new Map<string, Array<Record<string, unknown>>>();
-  for (const row of rows) {
-    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-    if (!traceId) {
-      continue;
-    }
-    const response = parseJson<Record<string, unknown>>(row.canonical_response, {});
-    const output = Array.isArray(response.output) ? response.output : [];
-    const replayItems = replayItemsByTraceId.get(traceId) || [];
-    for (const item of output) {
-      if (!item || typeof item !== 'object') {
-        continue;
-      }
-      const outputItem = item as Record<string, unknown>;
-      if (outputItem.type === 'reasoning') {
-        const reasoningItem: Record<string, unknown> = { type: 'reasoning' };
-        if (typeof outputItem.content === 'string' && outputItem.content.length > 0) {
-          reasoningItem.content = outputItem.content;
-        }
-        if (typeof outputItem.summary === 'string' && outputItem.summary.length > 0 || Array.isArray(outputItem.summary) && outputItem.summary.length > 0) {
-          reasoningItem.summary = outputItem.summary;
-        }
-        if (typeof outputItem.encrypted_content === 'string' && outputItem.encrypted_content.length > 0) {
-          reasoningItem.encrypted_content = outputItem.encrypted_content;
-        }
-        if (Object.keys(reasoningItem).length > 1) {
-          replayItems.push(reasoningItem);
-        }
-        continue;
-      }
-      if (outputItem.type === 'message' && outputItem.role === 'assistant') {
-        const text = flattenReplayMessageText(outputItem.content);
-        if (text) {
-          replayItems.push({
-            type: 'message',
-            role: 'assistant',
-            phase: outputItem.phase === 'final_answer' ? 'final_answer' : 'commentary',
-            content: [{ type: 'output_text', text }]
-          });
-        }
-        continue;
-      }
-      if (outputItem.type !== 'function_call') {
-        continue;
-      }
-      const callId = typeof outputItem.call_id === 'string' ? outputItem.call_id.trim() : '';
-      const toolName = typeof outputItem.name === 'string' ? outputItem.name.trim() : '';
-      if (!callId || !toolName) {
-        continue;
-      }
-      replayItems.push({
-        type: 'function_call',
-        call_id: callId,
-        name: toolName,
-        arguments: typeof outputItem.arguments === 'string' ? outputItem.arguments : JSON.stringify(outputItem.arguments || {})
-      });
-    }
-    if (replayItems.length > 0) {
-      replayItemsByTraceId.set(traceId, replayItems);
-    }
-  }
-  return replayItemsByTraceId;
-}
-
-function buildStructuredToolReplayItems(rows: StructuredReplayToolRow[]) {
-  const replayItemsByTraceId = new Map<string, Array<Record<string, unknown>>>();
-  for (const row of rows) {
-    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-    const callId = typeof row.tool_call_id === 'string' ? row.tool_call_id.trim() : '';
-    const toolName = typeof row.tool_name === 'string' ? row.tool_name.trim() : '';
-    if (!traceId || !callId || !toolName) {
-      continue;
-    }
-    const args = parseJson<Record<string, unknown>>(row.arguments, {});
-    const result = parseJson<Record<string, unknown>>(row.result, {});
-    const output = toolName === 'exec_command' && typeof result.codex_output === 'string'
-      ? result.codex_output
-      : JSON.stringify(result);
-    const replayItems = replayItemsByTraceId.get(traceId) || [];
-    replayItems.push({
-      type: 'function_call',
-      call_id: callId,
-      name: toolName,
-      arguments: JSON.stringify(args)
-    });
-    replayItems.push({
-      type: 'function_call_output',
-      call_id: callId,
-      output
-    });
-    replayItemsByTraceId.set(traceId, replayItems);
-  }
-  return replayItemsByTraceId;
-}
-
-function buildReplayItemKey(item: Record<string, unknown>) {
-  const callId = typeof item.call_id === 'string' ? item.call_id : '';
-  if (callId && (item.type === 'function_call' || item.type === 'function_call_output')) {
-    return `${String(item.type)}:${callId}`;
-  }
-  if (item.type === 'message') {
-    return `message:${String(item.role || '')}:${String(item.phase || '')}:${JSON.stringify(item.content || '')}`;
-  }
-  if (item.type === 'reasoning') {
-    return `reasoning:${JSON.stringify(item.summary || item.content || item.encrypted_content || '')}`;
-  }
-  return '';
-}
-
-function mergeResponseReplayItems(rawResponse: Record<string, unknown>, recoveredReplayItems: Array<Record<string, unknown>>) {
-  if (recoveredReplayItems.length === 0) {
-    return rawResponse;
-  }
-  const existingReplayItems = Array.isArray(rawResponse.responses_replay_items)
-    ? rawResponse.responses_replay_items.filter((item): item is Record<string, unknown> => (
-        Boolean(item && typeof item === 'object' && !Array.isArray(item))
-      ))
-    : [];
-  const existingReplayKeys = new Set(
-    existingReplayItems
-      .map(buildReplayItemKey)
-      .filter(Boolean)
-  );
-  const missingReplayItems = recoveredReplayItems.filter((item) => {
-    const replayKey = buildReplayItemKey(item);
-    if (!replayKey || existingReplayKeys.has(replayKey)) {
-      return !replayKey;
-    }
-    existingReplayKeys.add(replayKey);
-    return true;
-  });
-  if (missingReplayItems.length === 0) {
-    return rawResponse;
-  }
-  return {
-    ...rawResponse,
-    responses_replay_items: [
-      ...existingReplayItems,
-      ...missingReplayItems
-    ]
-  };
-}
 
 export class RuntimeStore {
   private readonly sql: SqlAdapter;
@@ -2603,12 +2223,6 @@ export class RuntimeStore {
 
     const orderedRows = rows.reverse();
     const conversationIds = orderedRows.map((row) => Number(row.id));
-    const traceToConversationId = new Map<string, number>();
-    for (const row of orderedRows) {
-      if (typeof row.trace_id === 'string' && row.trace_id.trim()) {
-        traceToConversationId.set(row.trace_id.trim(), Number(row.id));
-      }
-    }
     const itemRows = conversationIds.length > 0
       ? await this.sql.query<{
           id: number;
@@ -2645,103 +2259,6 @@ export class RuntimeStore {
           conversationIds
         )
       : [];
-    const structuredReplayRows = traceToConversationId.size > 0
-      ? await this.sql.query<StructuredReplayQueueRow>(
-          `
-            SELECT
-              q.id,
-              q.trace_id,
-              q.run_id,
-              q.conversation_id,
-              q.source,
-              q.message_sid,
-              q.chat_type,
-              q.session_key,
-              q.peer_id,
-              q.peer_name,
-              q.sender_id,
-              q.sender_name,
-              q.account_id,
-              q.body_for_agent,
-              q.raw_payload,
-              q.inbound_context,
-              q.payload,
-              q.created_at
-            FROM agent_queue_messages q
-            LEFT JOIN agent_message_batch_items bi ON bi.queue_message_id = q.id
-            WHERE q.trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
-            ORDER BY q.trace_id ASC, COALESCE(bi.position, 2147483647) ASC, q.id ASC
-          `,
-          Array.from(traceToConversationId.keys())
-        )
-      : [];
-    const missingStructuredTraceIds = Array.from(traceToConversationId.keys()).filter((traceId) => (
-      !structuredReplayRows.some((row) => row.trace_id === traceId)
-    ));
-    const structuredReplayInboundRows = missingStructuredTraceIds.length > 0
-      ? await this.sql.query<StructuredReplayInboundRow>(
-          `
-            SELECT
-              m.id,
-              m.trace_id,
-              m.source,
-              m.message_sid,
-              m.chat_type,
-              m.session_key,
-              m.peer_id,
-              m.peer_name,
-              m.sender_id,
-              m.sender_name,
-              m.account_id,
-              m.body_for_agent,
-              m.raw_payload,
-              m.inbound_context,
-              m.received_at AS created_at
-            FROM agent_inbound_messages m
-            WHERE m.trace_id IN (${missingStructuredTraceIds.map(() => '?').join(', ')})
-            ORDER BY m.trace_id ASC, m.received_at ASC, m.id ASC
-          `,
-          missingStructuredTraceIds
-        )
-      : [];
-    const llmReplayRows = traceToConversationId.size > 0
-      ? await this.sql.query<StructuredReplayLlmCallRow>(
-          `
-            SELECT
-              id,
-              trace_id,
-              agent_turn,
-              canonical_response,
-              started_at
-            FROM llm_call_logs
-            WHERE trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
-              AND status = 'completed'
-            ORDER BY trace_id ASC, COALESCE(agent_turn, 2147483647) ASC, started_at ASC, id ASC
-          `,
-          Array.from(traceToConversationId.keys())
-        )
-      : [];
-    const toolReplayRows = traceToConversationId.size > 0
-      ? await this.sql.query<StructuredReplayToolRow>(
-          `
-            SELECT
-              id,
-              trace_id,
-              agent_turn,
-              tool_call_id,
-              tool_name,
-              arguments,
-              result,
-              started_at
-            FROM tool_execution_logs
-            WHERE trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
-              AND status = 'completed'
-              AND tool_call_id IS NOT NULL
-            ORDER BY trace_id ASC, COALESCE(agent_turn, 2147483647) ASC, started_at ASC, id ASC
-          `,
-          Array.from(traceToConversationId.keys())
-        )
-      : [];
 
     const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
     for (const row of itemRows) {
@@ -2768,41 +2285,15 @@ export class RuntimeStore {
       });
       itemsByConversationId.set(conversationId, items);
     }
-    const reconstructedUserItemsByConversationId = buildStructuredReplayConversationItems({
-      rows: [...structuredReplayRows, ...structuredReplayInboundRows],
-      traceToConversationId
-    });
-    const recoveredLlmReplayItemsByTraceId = buildStructuredLlmReplayItems(llmReplayRows);
-    const recoveredToolReplayItemsByTraceId = buildStructuredToolReplayItems(toolReplayRows);
 
     return orderedRows.map((row) => {
       const conversationId = Number(row.id);
-      const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
       const rawResponse = parseJson<Record<string, unknown>>(row.raw_response, {});
-      const recoveredReplayItems = traceId
-        ? [
-            ...(recoveredLlmReplayItemsByTraceId.get(traceId) || []),
-            ...(recoveredToolReplayItemsByTraceId.get(traceId) || [])
-          ]
-        : [];
       const sessionKey = buildTranscriptSessionId(
         Number(row.user_id),
         row.group_id === null ? null : Number(row.group_id)
       );
-      const existingItems = itemsByConversationId.get(conversationId) || buildLegacyConversationItems({
-        conversationId,
-        sessionKey,
-        userMessage: row.user_message,
-        aiResponse: row.ai_response,
-        traceId: row.trace_id
-      });
-      const reconstructedUserItems = reconstructedUserItemsByConversationId.get(conversationId) || [];
-      const items = reconstructedUserItems.length > 0
-        ? [
-            ...reconstructedUserItems,
-            ...existingItems.filter((item) => item.role === 'assistant')
-          ]
-        : existingItems;
+      const items = itemsByConversationId.get(conversationId) || [];
 
       return {
         id: conversationId,
@@ -2813,7 +2304,7 @@ export class RuntimeStore {
         userMessage: row.user_message,
         aiResponse: row.ai_response,
         items,
-        rawResponse: mergeResponseReplayItems(rawResponse, recoveredReplayItems)
+        rawResponse
       };
     });
   }

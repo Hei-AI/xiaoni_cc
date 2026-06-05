@@ -33,7 +33,9 @@ recover_energy
 - assistant `final_answer`：小腻过去真正发出去的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - assistant `commentary`：`<小腻近况>`、`<xiaoni_os>`、`<ACTION>`、`<图片内容>`、`<STATE>`、`<system_reminder>`；旧历史中可能仍有 `<小腻的OS>`，只兼容读取，不迁移。
 
-`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，当前存在 `agent_session_context_windows.context_summary`。主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。这个 key 还不是 event-backed identity-root digest，也不会自动 fallback 到某个群 summary。
+`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，当前存在 `agent_session_context_windows.context_summary`。小腻主 loop 统一只使用 `xiaoni:global` 作为 prompt-facing history / prompt cache / context summary / read-cutoff key；`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。这个 key 还不是 event-backed identity-root digest，也不会自动 fallback 到某个群 summary。
+
+Prompt-visible transcript history 只从 `conversation_items` 这份 append ledger 按 `conversation_id, group_index, item_index, id` 顺序恢复；`agent_queue_messages`、`agent_inbound_messages`、`llm_call_logs`、`tool_execution_logs` 只做 queue / inbox / trace / audit，不参与读时重建 prompt history。
 
 `<xiaoni_os>` 是小腻留给之后自己的私密备注，不发给 QQ。不要在 prompt 或工具 description 里使用工程术语描述它。
 

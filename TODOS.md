@@ -171,10 +171,6 @@ across groups.
 No migration is required; old session-key trust rows can be ignored and trust can
 re-accumulate naturally.
 
-**Note:** `buildPromptCacheKey` at line 1242 returns `queueMessage.sessionKey` for
-the prompt cache prefix — that path is completely separate from trust (Codex verified:
-no shared code path). Do not change it.
-
 **Deployment: hard cutover required.** Codex cross-review found this is unsafe to
 rolling deploy. Old instances write/read trust under `sessionKey`; new instances
 read/write under `XIAONI_IDENTITY_KEY`. During a mixed-version window, L2/L3 users

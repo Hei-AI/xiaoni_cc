@@ -6,12 +6,12 @@ implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
 context and made hardcoded interests look like Xiaoni's own life. The fixed
 interval `life_loop` has also been removed; idle/presence events may only be
-reintroduced through a gated `presence_tick` evaluator. The main loop reads the
-global conversation append stream. Its prompt-facing history, context summary,
-read cutoff, and prompt cache key are all `xiaoni:global`; group/private
-sessions are only source, delivery-target, and unread-cursor metadata. That key
-is still backed by `agent_session_context_windows`; event-backed identity-root `<小腻近况>` is not
-implemented yet. If an IM has unread messages after that session's last-read
+reintroduced through a gated `presence_tick` evaluator. Xiaoni's main loop reads
+the global conversation append stream and has one prompt-facing history / prompt
+cache / context summary / read-cutoff key: `xiaoni:global`. `qq:direct:*` /
+`qq:group:*` remain real session metadata, delivery targets, and unread cursors,
+not context buckets. That key is still backed by `agent_session_context_windows`;
+event-backed identity-root `<小腻近况>` is not implemented yet. If an IM has unread messages after that session's last-read
 cursor, the run can materialize that target as `proactive_im_open`; otherwise it
 stays life-only and can currently use `exec_command`, grounded hosted
 `web_search`, `compress_core_memory`, or `recover_energy`. It still cannot send
@@ -270,11 +270,11 @@ Current implemented slices:
   from agent-service runtime. The old `AgentDigitalAction` write helpers are
   also removed from `@qq-bot/persistence`; the table remains historical
   compatibility data for admin replay only.
-- 2026-05-31 / corrected 2026-06-04: presence-originated `presence_tick` now
-  stays inside the main loop context. It reads the global conversation append
-  stream and uses `xiaoni:global` as the only prompt-facing history, context
-  summary, read cutoff, and prompt cache key, even if unread IM materializes the
-  run into `proactive_im_open`; without a
+- 2026-05-31 / corrected 2026-06-04 / corrected 2026-06-05:
+  presence-originated `presence_tick` now stays inside the main loop context.
+  It reads the global conversation append stream and uses `xiaoni:global` as the
+  only prompt-facing history, prompt cache, context summary, and read cutoff,
+  even if unread IM materializes the run into `proactive_im_open`; without a
   concrete IM target it cannot send QQ directly. It can currently use
   `exec_command`, `web_search`, `compress_core_memory`, or `recover_energy`.
   A no-tool response before action completion is not a silence or finish signal.

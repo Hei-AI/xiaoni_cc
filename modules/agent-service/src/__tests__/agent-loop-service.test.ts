@@ -807,7 +807,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     chat_type: 'group',
     prompt_name: 'agent_loop_v1'
   });
-  assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'qq:group:101');
+  assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'xiaoni:global');
   assert.equal(requestBody.canonicalRequest.prompt_cache_retention, '24h');
   assert.equal(requestBody.parameters.advanced_config.generationConfig.timeout, agentConfig.mainAgentTurnTimeoutMs);
   assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'previous_response_id'), false);
@@ -1862,7 +1862,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].prompt_name, '小腻主AGENT');
   assert.equal(calls[0].model, 'gpt-5.4');
   assert.equal(calls[0].canonicalRequest.metadata.prompt_id, 'prompt-1');
-  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'qq:group:101');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'xiaoni:global');
   assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
   assert.deepEqual(calls[0].parameters, {
     model_config: {
@@ -2188,9 +2188,9 @@ test('context compression memory writer generates episodic, semantic, and reflec
   assert.equal(calls[2].agent_type, 'context_compression_memory_writer:reflection');
   assert.deepEqual(calls.map((call) => call.model), ['gpt-5.5', 'gpt-5.5', 'gpt-5.5']);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.prompt_cache_key), [
-    'qq:group:101:cmem:episodic',
-    'qq:group:101:cmem:semantic',
-    'qq:group:101:cmem:reflection'
+    'xiaoni:global',
+    'xiaoni:global',
+    'xiaoni:global'
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.reasoning), [
     { effort: 'high', summary: 'auto' },
@@ -3150,7 +3150,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     updateLlmJob: [],
     markLeaseVisibleDeliveryCommitted: [],
     ensureXiaoniIdentityRoot: [],
-    createToolExecutionLog: []
+    createToolExecutionLog: [],
+    listRecentTurns: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -3158,7 +3159,10 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     createLlmJob: async () => 'job-success',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [],
+    listRecentTurns: async (params: any) => {
+      storeCalls.listRecentTurns.push(params);
+      return [];
+    },
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
@@ -3259,6 +3263,14 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.sessionKey, 'qq:group:101');
+  assert.deepEqual(storeCalls.listRecentTurns[0], {
+    userId: 202,
+    groupId: 101,
+    afterConversationId: null,
+    scope: 'global',
+    limit: 201
+  });
+  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
       role: item.role,

@@ -23,11 +23,11 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 - IM unread is persisted in `agent_inbound_messages`; each session uses its
   last-read message as the cursor, and opening IM materializes unread messages
   after that cursor so stale backlog is not treated as the current scene.
-- Main-loop ticks read the global conversation append stream and use
-  `xiaoni:global` as the only prompt-facing history, context summary, read
-  cutoff, and prompt cache key, even when unread IM materializes the current run
-  into `proactive_im_open`. Group/private sessions are only source,
-  delivery-target, and unread-cursor metadata. The compressed `<小腻近况>` is still stored in
+- Xiaoni's main loop reads the global conversation append stream and uses only
+  `xiaoni:global` as the prompt-facing history / prompt cache / context summary
+  / read-cutoff key, even when unread IM materializes the current run into
+  `proactive_im_open`. Group/private sessions are only source, delivery-target,
+  and unread-cursor metadata. The compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
   `agent_life_events` digest. Life-only `presence_tick` can currently use
   internal tools, `web_search`, `compress_core_memory`, or `recover_energy`, not

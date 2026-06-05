@@ -36,7 +36,8 @@
 ## Xiaoni Continuity Data Map
 
 - `<小腻近况>` 当前仍在 `agent_session_context_windows.context_summary`，由压力触发的 `compress_core_memory(text)` 写入；普通请求可定义该工具，但只有压力请求的 `allowed_tools` 允许调用。
-- `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。
+- `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；小腻主 loop 统一只使用 `xiaoni:global` 作为 prompt-facing history / prompt cache / context summary / read-cutoff key。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。
+- `conversation_items` 是 prompt-visible transcript append ledger；`listRecentTurns()` 只按 ledger 顺序恢复这些 items。queue、inbox、LLM call 和 tool execution logs 是运行审计/trace 数据，不是 prompt history 的读时恢复来源。
 - `agent_life_events` 是 homeostasis / presence projection 的事件真相源；当前不要把它误读成 `<小腻近况>` 或三层长期记忆的唯一 runtime recall 源。
 - `listAgentLifeEventsForPrompt()` 已存在，但返回的是 life-event rows，不是 prompt-safe memory digest。把它接进主 prompt 前必须先明确 visibility / redaction / boundary policy。
 - 三层长期记忆表已经写入数据，但 typed recall projection 仍是后续工作；当前主 loop 不会自动按问题类型召回这些 rows。
@@ -46,4 +47,4 @@
 - 分阶段约束用 Provider 的 `tool_choice.allowed_tools` 或业务侧状态机表达；这可以缩小当前可调用工具集合，同时不改变 tools 定义本身。
 - 长期学习、RAG 召回、工具结果和当前状态都属于 input / tool result 数据；不要动态拼进 system prompt，也不要破坏 prompt cache 前缀。
 - 如果必须新增 agent workflow，先确认它是不是独立固定契约的 workflow；独立 workflow 可以有自己的固定 instructions 和固定 tools，但同一 workflow 内仍然不能按请求任意改 prompt/tools。
-- 主链路结束后异步发起的 LLM 流程按 subagent 对待：必须带 parent trace / subagent type，有独立 prompt cache key，有固定 contract；不要把它当普通后台 callback 随手拼 prompt。
+- 主链路结束后异步发起的 LLM 流程按 subagent 对待：必须带 parent trace / subagent type，有固定 contract；小腻相关 subagent 也使用同一个 `xiaoni:global` prompt cache key，不要按 QQ 会话或 subagent 类型再拆 prompt cache 分桶。

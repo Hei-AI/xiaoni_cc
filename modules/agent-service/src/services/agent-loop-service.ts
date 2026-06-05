@@ -401,10 +401,10 @@ const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
 const HISTORY_COMPACT_AT = 200;
 const HISTORY_COMPACT_KEEP = 30;
-const LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
+const GLOBAL_PROMPT_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
-const GLOBAL_LIFE_CONTEXT_SESSION_KEY = 'xiaoni:global';
+const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
@@ -1781,19 +1781,17 @@ function buildPromptCacheKey(
   queueMessage: QueueMessageRecord['payload'],
   _runtimePrompt: ResolvedAgentRuntimePrompt
 ) {
-  return queueMessage.sessionKey;
+  void queueMessage;
+  void _runtimePrompt;
+  return GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
 }
 
 function buildSubagentPromptCacheKey(params: {
   queueMessage: QueueMessageRecord['payload'];
   subagentType: string;
 }) {
-  const subagentKey = params.subagentType === CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
-    ? 'cmem'
-    : params.subagentType === FEEDBACK_MEMORY_SUBAGENT_TYPE
-    ? 'fmem'
-    : params.subagentType.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 16);
-  return `${params.queueMessage.sessionKey}:${subagentKey}`.slice(0, 48);
+  void params;
+  return GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
 }
 
 function isRetryableProviderStatus(status: number) {
@@ -4007,7 +4005,6 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const originatedFromLifeOnlyPresenceTick = isLifePresenceTickPayload(queueMessage.payload);
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -4096,12 +4093,13 @@ export class AgentLoopService {
           });
         }
       }
-      const contextSessionKey = originatedFromLifeOnlyPresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
+      const contextSessionKey = GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: null,
-        ...(originatedFromLifeOnlyPresenceTick ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
+        scope: 'global' as const,
+        limit: GLOBAL_PROMPT_HISTORY_LIMIT
       });
       historyCount = history.length;
 
@@ -5265,7 +5263,7 @@ export class AgentLoopService {
           subagentTraceId: params.traceId,
           layer: params.layer
         }),
-        promptCacheKey: `${params.promptCacheKey}:${params.layer}`,
+        promptCacheKey: params.promptCacheKey,
         layer: params.layer,
         reasoningEffort: params.reasoningEffort,
         textVerbosity: agentConfig.compactMemoryTextVerbosity
@@ -5614,7 +5612,7 @@ export class AgentLoopService {
     const contextWindowTokens = policy?.contextWindowTokens ?? null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
-    const contextSessionKey = params.contextSessionKey || params.queueMessage.sessionKey;
+    const contextSessionKey = params.contextSessionKey || GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
     const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
     const contextSummary = cutoffState?.contextSummary ?? null;
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;

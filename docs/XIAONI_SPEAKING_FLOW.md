@@ -98,7 +98,7 @@ flowchart TD
   C -->|low energy| D[由 main loop 继续行动<br/>或 recover_energy]
   C -->|eligible| E[构造 source=presence_tick 事件]
   E --> F[(agent_queue_messages)]
-  F --> G[读取全局 conversation append stream<br/>context key=xiaoni:global]
+  F --> G[读取全局 conversation append stream<br/>prompt/cache/context key=xiaoni:global]
   G --> H{游标后有未读 IM?}
   H -->|yes| I[materialize proactive_im_open]
   H -->|no| J[life-only main loop]
@@ -108,7 +108,9 @@ flowchart TD
 
 `presence_tick` 不是第二套 planner，也不能硬编码兴趣、动机或读书 seed。它只能在状态、预算、冷却和未读游标检查通过后，把“小腻当前有一次行动机会”append 进同一条事件流。固定间隔 `life_loop` 已删除，不是当前契约。
 
-主 loop 读取全局 conversation append stream，并使用 `xiaoni:global` 作为唯一 prompt-facing history、context summary、read cutoff 和 prompt cache key。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
+主 loop 读取全局 conversation append stream，并使用 `xiaoni:global` 作为唯一 prompt-facing history、prompt cache、context summary 和 read cutoff key。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。presence 起源场景即使 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
+
+life-only 没有具体 IM 目标时不能发 QQ；当前只能使用 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。
 
 ## Main Loop 工具集合
 
