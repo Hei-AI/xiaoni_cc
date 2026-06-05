@@ -52,7 +52,7 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 - assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - assistant commentary：`<小腻近况>`、`<xiaoni_os>`、`<ACTION>`、`<图片内容>`、`<system_reminder>`；旧历史中可能仍有 `<小腻的OS>`，不迁移。
 
-`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。当前实现仍把它存在 `agent_session_context_windows.context_summary`，按 context/session key 分桶：普通群/私聊 run 用当前 `payload.sessionKey`，presence-originated run 用 `xiaoni:global`。它还不是 `agent_life_events` 的 identity-root projection，也不会自动从某个群 summary fallback。
+`<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。当前实现把它存在 `agent_session_context_windows.context_summary`，按 context/session key 分桶：普通群/私聊 run 用当前 `payload.sessionKey`，life-only / presence-originated run 用 `xiaoni:global`。主链写入来源是 prompt-facing `compress_core_memory(text)` 的工具文本，不再是后台 `context_summary_writer` 生成的客观摘要。它还不是 `agent_life_events` 的 identity-root projection，也不会自动从某个群 summary fallback。
 
 `<xiaoni_os>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。DB 字段仍叫 `xiaoni_os`。
 
@@ -61,7 +61,7 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 中被连续 @ 打扰醒。`<STATE energy>` 允许负数；恢复计算按 `max(0, energy)`
 处理。
 
-上下文压缩或能力变化后，developer block 应追加当前 `<CAPABILITIES>`：
+每个主 loop 输入开头都会追加一次 developer `<CAPABILITIES>`：
 支持的 tools、skills、路径和精力成本。skill 必须在 `SKILL.md` 中声明
 `## Runtime Cost` / `energy_cost` 才会列入能力列表；缺 cost 的 skill 不列入
 `<SKILLS>`，并写 operator warning。
@@ -78,6 +78,7 @@ inspect_image_placeholder: 0.040
 request_image_task: 0.030
 exec_command: 0.030
 recover_energy: 0.000
+compress_core_memory: 0.020
 skill-creator: 0.120
 qq-usage: 0.004
 ```
@@ -92,33 +93,46 @@ group chat 当前工具定义：
 
 ```text
 submit_life_action
+exec_command
 web_search, if enabled
 speak_in_group
 inspect_image_placeholder
 request_image_task
 stay_silent
+recover_energy
 ```
 
 private chat 当前工具定义：
 
 ```text
+exec_command
 web_search, if enabled
 reply_in_private
 stay_silent
+recover_energy
 ```
 
-life-only presence tick 当前工具定义：
+life-only / presence tick 当前工具定义：
 
 ```text
 submit_life_action
+exec_command
 web_search, if enabled
 stay_silent
+recover_energy
 ```
 
-locked next target adds:
+`compress_core_memory` 是特殊压力工具：普通请求不会暴露它。只有工程检测到
+count-based 压缩阈值或 token hard budget 压力时，输入会追加：
 
 ```text
-recover_energy
+<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">
+```
+
+这一轮 canonical request 的 `tool_choice.allowed_tools` 只允许：
+
+```text
+compress_core_memory
 ```
 
 presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff key，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。注意：这里的 `xiaoni:global` 是 session-window 兼容 key，不代表 event-backed 全局 `<小腻近况>` 已经落地。
@@ -141,7 +155,7 @@ if latest life action is image_task and still needs external work:
 
 工程层仍然会保留 actor tools in `tools`，因为 Responses API 的 tool definitions 是请求能力集合；真正每一轮能调用什么由 `tool_choice.allowed_tools` 收缩。
 
-`recover_energy` 是已锁定的下一阶段唯一 prompt-facing 恢复工具。它把休息
+`recover_energy` 是当前唯一 prompt-facing 恢复工具。它把休息
 和睡眠合并成一个动作，`duration_minutes` clamp 到 `5..120`，并用非线性
 恢复曲线计算醒来精力。恢复计算把负精力当 `0`，但内部值和
 `<STATE energy>` 可以显示负数。最长休息 120 分钟，达到满恢复。历史/internal
@@ -273,12 +287,13 @@ no_reply = true
   -> write_episodic_observations
   -> write_semantic_assertions
   -> write_memory_reflections
-  -> scheduleContextSummaryWriter
-  -> 生成新的纯文本 <小腻近况>
-  -> 追加 developer <CAPABILITIES>（tools/skills/costs）
+  -> 如果本轮由 core_memory_pressure 触发：
+       compress_core_memory(text)
+       -> text 写入 agent_session_context_windows.context_summary
+       -> 更新 read cutoff
 ```
 
-当前压缩阈值是 count-based：retained history 超过 `HISTORY_COMPACT_AT=200` 时触发，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。token hard budget 仍会作为兜底重算 read cutoff。
+当前压缩阈值是 count-based：retained history 超过 `HISTORY_COMPACT_AT=200` 时触发。工程会先把完整可读窗口带给模型，并强制模型调用 `compress_core_memory`；工具成功后才把 read cutoff 推进到只保留最近 `HISTORY_COMPACT_KEEP=30` 个 turns。token hard budget 也会触发同一个 `core_memory_pressure` / `compress_core_memory` 路径，并在成功后推进 cutoff。
 
 per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调用 provider 写入长期学习；结束原因是 `disabled_feedback_episode_tool_removed`。
 
@@ -303,6 +318,6 @@ per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调
 | 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
 | 发了两次 | delivery commit / duplicate outbound fingerprint |
 | life-only tick 想分享但没发出来 | 这是预期；无具体 IM 目标时看 `raw_response.xiaoni_os` 是否包含“我想回头分享这个” |
-| 压缩后忘记刚才在干什么 | `context_summary_writer` 输入是否包含 `<xiaoni_os>`，`agent_session_context_windows.context_summary` 是否写在实际读取的 context key 上，以及写出的 `<小腻近况>` 是否置顶回放 |
+| 压缩后忘记刚才在干什么 | 是否出现 `core_memory_pressure` reminder、`tool_choice` 是否只允许 `compress_core_memory`、工具文本是否写入实际读取的 context key、read cutoff 是否在工具成功后推进 |
 | 休息中被消息打断 | resting 状态下不读正文，只统计 unread/@；连续 3 次直接 @ 后用实际休息时长恢复精力并 append `<STATE>` |
 | skill 没出现在能力列表 | 检查该 skill 的 `SKILL.md` 是否有 `## Runtime Cost` 和合法 `energy_cost`；缺 cost 不列入 `<SKILLS>` |

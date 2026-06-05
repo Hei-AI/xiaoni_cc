@@ -63,7 +63,6 @@ import {
   buildPresenceContextBlock,
   PRESENCE_FATIGUE_RECOVERY_THRESHOLD,
   scoreSharePoolItem,
-  shouldFirePresenceTick,
   type PresenceAnchors,
   type PresenceSharePoolItem
 } from './presence-context';
@@ -208,10 +207,6 @@ function projectionEventId(value: bigint | number | string | null | undefined): 
   } catch {
     return null;
   }
-}
-
-function presenceEvaluationBucket(now: Date) {
-  return Math.floor(now.getTime() / (5 * 60 * 1000));
 }
 
 const REST_RECOVERY_BUCKET_MS = 60 * 60 * 1000;
@@ -459,7 +454,7 @@ export type RuntimePresenceContext = {
 };
 
 function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
-  if (queueMessage.presenceTick) {
+  if (queueMessage.presenceTick || queueMessage.autonomousLife) {
     return false;
   }
   if (queueMessage.chatType === 'direct') {
@@ -1139,6 +1134,12 @@ function isPresenceTickPayload(queueMessage: QueueMessagePayload) {
     || Boolean((queueMessage as QueueMessagePayload & { presenceTick?: unknown }).presenceTick);
 }
 
+function isAutonomousLifePayload(queueMessage: QueueMessagePayload) {
+  return queueMessage.source === 'life_loop'
+    || queueMessage.sessionKey === 'life_loop:xiaoni'
+    || Boolean(queueMessage.autonomousLife);
+}
+
 function buildTranscriptSessionId(userId: number, groupId?: number | null) {
   if (groupId && Number.isFinite(groupId)) {
     return `group:${groupId}`;
@@ -1378,9 +1379,7 @@ export class RuntimeStore {
       now,
       events,
       previousProjection,
-      legacyAnchors: buildPresenceAnchorsFromLife(life, now),
-      cooldownMs: agentConfig.presenceTickCooldownMs,
-      startupGraceMs: agentConfig.presenceTickStartupGraceMs
+      legacyAnchors: buildPresenceAnchorsFromLife(life, now)
     });
     const reducedThroughEventIdForDb = projection.reducedThroughEventId
       ? projectionEventId(projection.reducedThroughEventId)
@@ -1394,79 +1393,6 @@ export class RuntimeStore {
       projection_updated_at: now
     }, databaseConfig);
     return { projection, explanation };
-  }
-
-  private async recordPresenceTickEvaluation(input: {
-    now: Date;
-    state: XiaoniLifeStateProjection['state'];
-    decision: ReturnType<typeof shouldFirePresenceTick>;
-    queueId?: number | string | null;
-    queueStatus?: string | null;
-  }) {
-    const { now, state, decision } = input;
-    await this.recordLifeEventSafe({
-      identityKey: 'xiaoni',
-      eventKind: 'presence_tick_evaluated',
-      occurredAt: now,
-      surface: 'presence_tick',
-      actorType: 'xiaoni',
-      actorId: agentConfig.botAccountId,
-      visibility: 'self_private',
-      payload: {
-        eligible: decision.shouldEnqueue,
-        reason: decision.reason,
-        skip_reason: decision.shouldEnqueue ? null : decision.reason,
-        enqueued: Boolean(input.queueId),
-        queue_id: input.queueId ? String(input.queueId) : null,
-        queue_status: input.queueStatus || null,
-        startup_grace_ms: agentConfig.presenceTickStartupGraceMs,
-        snapshot: {
-          energy: state.energy,
-          action_cost: state.actionCost,
-          startup_grace_active: state.startupGraceActive
-        }
-      },
-      dedupeKey: `presence_tick_evaluated:xiaoni:${presenceEvaluationBucket(now)}:${decision.reason}`
-    });
-  }
-
-  private async recordPresenceRecoveryIfNeeded(input: {
-    now: Date;
-    projection: XiaoniLifeStateProjection;
-    explanation: XiaoniLifeStateExplanation;
-    decision: ReturnType<typeof shouldFirePresenceTick>;
-  }) {
-    if (input.decision.reason !== 'fatigue') {
-      return false;
-    }
-    const recovery = resolvePresenceRecoveryEvent(input.projection.state, input.now);
-    if (!recovery) {
-      return false;
-    }
-    const actionCosts = actionCostContributors(input.explanation);
-    await this.recordLifeEventSafe({
-      identityKey: 'xiaoni',
-      eventKind: recovery.eventKind,
-      occurredAt: input.now,
-      surface: 'presence_tick',
-      actorType: 'xiaoni',
-      actorId: agentConfig.botAccountId,
-      visibility: 'self_private',
-      payload: {
-        reason: recovery.reason,
-        duration_label: renderRecoveryLabel(recovery.eventKind, input.projection.state),
-        before_snapshot: input.projection.state,
-        energy_note: input.explanation.meterDrivers?.fatigue || null,
-        action_cost_sources: actionCosts.map((item) => ({
-          event_id: item.eventId,
-          event_kind: item.eventKind,
-          occurred_at: item.occurredAt,
-          effect: item.effect
-        }))
-      },
-      dedupeKey: `${recovery.eventKind}:xiaoni:${Math.floor(input.now.getTime() / recovery.bucketMs)}:${recovery.reason}`
-    });
-    return true;
   }
 
   async initialize() {
@@ -1491,106 +1417,80 @@ export class RuntimeStore {
     await this.sql.close();
   }
 
-  async enqueuePresenceTick() {
-    if (!agentConfig.presenceTickEnabled) {
-      return { enqueued: false, reason: 'disabled' };
-    }
-
+  async enqueueAutonomousLifeStep() {
     const now = new Date();
-    const life = await this.refreshXiaoniLifeProjection(now);
-    const { projection, explanation } = life;
-    const decision = shouldFirePresenceTick(projection.state);
-    if (!decision.shouldEnqueue) {
-      const recordedRecovery = await this.recordPresenceRecoveryIfNeeded({
-        now,
-        projection,
-        explanation,
-        decision
-      });
-      if (recordedRecovery) {
-        await this.refreshXiaoniLifeProjection(now).catch((error) => {
-          moduleLogger.warn('Failed to refresh Xiaoni life projection after recovery event', {
-            error: error instanceof Error ? error.message : String(error)
-          });
-        });
-      }
-      await this.recordPresenceTickEvaluation({
-        now,
-        state: projection.state,
-        decision
-      });
-      return { enqueued: false, reason: decision.reason };
+    const activeRows = await this.sql.query<{ id: number }>(
+      `
+        SELECT id
+        FROM agent_queue_messages
+        WHERE source = 'life_loop'
+          AND status IN ('pending', 'processing')
+        ORDER BY id DESC
+        LIMIT 1
+      `
+    );
+    if (activeRows.length > 0) {
+      return { enqueued: false, reason: 'already_active' };
     }
 
-    const messageSid = `presence_tick:${now.getTime()}`;
-    const dedupeWindowMs = Math.max(1000, agentConfig.presenceTickIntervalMs);
-    const dedupeKey = `presence_tick:xiaoni:${Math.floor(now.getTime() / dedupeWindowMs)}`;
-    const bodyForAgent = '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。';
+    const messageSid = `life_loop:${now.getTime()}`;
+    const dedupeWindowMs = Math.max(1000, agentConfig.autonomousLoopIntervalMs);
+    const dedupeKey = `life_loop:xiaoni:${Math.floor(now.getTime() / dedupeWindowMs)}`;
+    const bodyForAgent = 'life_loop_step';
     const inboundContext: FinalizedInboundContext = {
-      Body: 'presence_tick',
+      Body: 'life_loop',
       BodyForAgent: bodyForAgent,
-      BodyForCommands: 'presence_tick',
-      RawBody: 'presence_tick',
-      CommandBody: 'presence_tick',
+      BodyForCommands: 'life_loop',
+      RawBody: 'life_loop',
+      CommandBody: 'life_loop',
       From: agentConfig.botAccountId,
       To: agentConfig.botAccountId,
-      SessionKey: 'presence_tick:xiaoni',
+      SessionKey: 'life_loop:xiaoni',
       AccountId: agentConfig.botAccountId,
       MessageSid: messageSid,
       ChatType: 'direct',
-      SenderName: 'presence_tick',
+      SenderName: 'life_loop',
       SenderId: agentConfig.botAccountId,
       Timestamp: Math.floor(now.getTime() / 1000),
       Provider: 'agent-service',
-      Surface: 'presence_tick',
+      Surface: 'life_loop',
       WasMentioned: false,
-      NativeChannelId: 'presence_tick:xiaoni',
+      NativeChannelId: 'life_loop:xiaoni',
       CommandAuthorized: false
     };
     const message = {
-      traceId: `presence_${now.getTime()}_${uuidv4().slice(0, 8)}`,
-      source: 'presence_tick',
+      traceId: `life_${now.getTime()}_${uuidv4().slice(0, 8)}`,
+      source: 'life_loop',
       messageId: 0,
       messageSid,
       dedupeKey,
       chatType: 'direct' as const,
-      sessionKey: 'presence_tick:xiaoni',
+      sessionKey: 'life_loop:xiaoni',
       peerId: 'xiaoni',
       peerName: '小腻',
       senderId: agentConfig.botAccountId,
-      senderName: 'presence_tick',
+      senderName: 'life_loop',
       accountId: agentConfig.botAccountId,
       bodyForAgent,
-      rawBody: 'presence_tick',
-      commandBody: 'presence_tick',
+      rawBody: 'life_loop',
+      commandBody: 'life_loop',
       wasMentioned: false,
       receivedAt: now.toISOString(),
       messageTimestamp: now.toISOString(),
       rawPayload: {
-        kind: 'presence_tick'
+        kind: 'life_loop'
       },
       inboundContext,
-      presenceTick: {
+      autonomousLife: {
         identityKey: 'xiaoni'
       }
     };
-
-    await updateAgentLifeState('xiaoni', {
-      last_presence_tick_enqueued_at: now
-    }, databaseConfig);
 
     const result = await enqueueAgentQueueMessage({
       message,
       payload: message,
       availableAt: now
     }, databaseConfig);
-    await this.recordPresenceTickEvaluation({
-      now,
-      state: projection.state,
-      decision,
-      queueId: result.queueId,
-      queueStatus: result.status
-    });
     return {
       enqueued: result.status === 'pending',
       reason: result.status,
@@ -1797,14 +1697,14 @@ export class RuntimeStore {
     const queueMessage = input.queueMessage;
     const runId = input.runId || queueMessage.runId;
     const traceId = input.traceId || queueMessage.traceId;
-    const outcome = input.outcome || input.presenceOutcome || (isPresenceTickPayload(queueMessage) ? 'lurked' : 'silent');
+    const outcome = input.outcome || input.presenceOutcome || (isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage) ? 'lurked' : 'silent');
     const firstMessage = queueMessage.messages[0] || null;
 
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
       eventKind: 'silence_decision',
       occurredAt: now,
-      surface: 'qq',
+      surface: isAutonomousLifePayload(queueMessage) ? 'life_loop' : 'qq',
       chatType: queueMessage.chatType,
       sessionKey: queueMessage.sessionKey,
       surfaceId: queueMessage.sessionKey,
@@ -1820,7 +1720,7 @@ export class RuntimeStore {
       actorId: queueMessage.accountId,
       targetId: queueMessage.peerId,
       visibility: 'self_private',
-      actionCost: isPresenceTickPayload(queueMessage) ? 0.01 : 0.005,
+      actionCost: isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage) ? 0.01 : 0.005,
       payload: {
         run_id: runId,
         trace_id: traceId,
@@ -1845,6 +1745,50 @@ export class RuntimeStore {
         unread_batch_size: queueMessage.messages.length
       },
       dedupeKey: `silence_decision:${compactDedupePart(runId, traceId || 'run')}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
+    });
+  }
+
+  async recordRecoverEnergyLifeEvent(input: {
+    queueMessage: QueueMessagePayload;
+    runId?: string;
+    toolName: string;
+    toolResult: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    const queueMessage = input.queueMessage;
+    const runId = input.runId || queueMessage.runId;
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'sleep_period',
+      occurredAt: now,
+      surface: isAutonomousLifePayload(queueMessage) ? 'life_loop' : 'qq',
+      chatType: queueMessage.chatType,
+      sessionKey: queueMessage.sessionKey,
+      surfaceId: queueMessage.sessionKey,
+      peerId: queueMessage.peerId,
+      accountId: queueMessage.accountId,
+      batchId: queueMessage.batchId,
+      runId,
+      traceId: queueMessage.traceId,
+      actorType: 'xiaoni',
+      actorId: queueMessage.accountId,
+      targetId: queueMessage.peerId,
+      visibility: 'self_private',
+      actionCost: 0,
+      payload: {
+        tool_name: input.toolName,
+        source: queueMessage.source,
+        reason: typeof input.toolResult.reason === 'string' ? input.toolResult.reason : null,
+        xiaoni_os: typeof input.toolResult.xiaoni_os === 'string' ? input.toolResult.xiaoni_os : null,
+        recovery_policy: 'recover_energy_tool_only'
+      },
+      dedupeKey: `sleep_period:${compactDedupePart(runId, queueMessage.traceId)}:recover_energy`
+    });
+    await this.refreshXiaoniLifeProjection(now).catch((error) => {
+      moduleLogger.warn('Failed to refresh Xiaoni life projection after recover_energy', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
     });
   }
 
@@ -1890,7 +1834,7 @@ export class RuntimeStore {
         items: selectedItems,
         scores: recallScores,
         stateExplanation: renderXiaoniLifeStateExplanation(explanation),
-        isPresenceTick: isPresenceTickPayload(queueMessage)
+        isPresenceTick: isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage)
       }),
       sourceItems: selectedItems,
       recallScores,
@@ -3830,6 +3774,7 @@ export class RuntimeStore {
       inboundContext: latest.inboundContext,
       messages,
       ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
+      ...(latestPayload.autonomousLife ? { autonomousLife: latestPayload.autonomousLife } : {}),
     };
 
     return {

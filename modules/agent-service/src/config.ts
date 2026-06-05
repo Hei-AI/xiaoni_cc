@@ -88,12 +88,9 @@ export const agentConfig = {
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
   pollIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_POLL_INTERVAL_MS || '1000', 10)),
   idleIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10)),
+  autonomousLoopIntervalMs: Math.max(1000, Number.parseInt(process.env.AGENT_AUTONOMOUS_LOOP_INTERVAL_MS || '300000', 10)),
   workerId: process.env.AGENT_WORKER_ID || `agent-service-${process.pid}`,
   botAccountId: process.env.BOT_QQ_NUMBER || '1129974489',
-  presenceTickEnabled: readBooleanEnv('PRESENCE_TICK_ENABLED', false),
-  presenceTickIntervalMs: Math.max(1000, Number.parseInt(process.env.PRESENCE_TICK_INTERVAL_MS || '300000', 10)),
-  presenceTickCooldownMs: Math.max(1000, Number.parseInt(process.env.PRESENCE_TICK_COOLDOWN_MS || String(45 * 60 * 1000), 10)),
-  presenceTickStartupGraceMs: Math.max(0, Number.parseInt(process.env.PRESENCE_TICK_STARTUP_GRACE_MS || String(5 * 60 * 1000), 10)),
   worldNarrative: process.env.AGENT_WORLD_NARRATIVE || [
     '你不是一直在线等人发话。你通常是在某些具体时刻才会打开手Q，看一眼群里在发生什么。',
     '',

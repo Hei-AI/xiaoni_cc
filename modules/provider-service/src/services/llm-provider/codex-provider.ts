@@ -24,6 +24,8 @@ const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const CODEX_JWT_CLAIM_PATH = 'https://api.openai.com/auth';
 const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
+const DEFAULT_CODEX_TRANSIENT_RETRY_ATTEMPTS = 3;
+const DEFAULT_CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = 250;
 
 type CodexProviderRuntimeOptions = {
   id?: 'codex' | 'codex-local';
@@ -69,6 +71,19 @@ function resolveCodexCliAuthPath(): string {
       ? path.join(os.homedir(), codexHome.slice(2))
       : codexHome;
   return path.join(resolvedHome, 'auth.json');
+}
+
+function parsePositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw || !raw.trim()) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class CodexProvider extends OpenAIProvider {
@@ -176,7 +191,7 @@ export class CodexProvider extends OpenAIProvider {
   ): Promise<any> {
     const proxyApiKey = resolveCodexProxyApiKey(this.aiConfig, this.runtimeOptions);
     if (proxyApiKey) {
-      return await this.fetchAndAssembleCodexResponse(
+      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
         baseUrl,
         responsesPath,
         payload,
@@ -190,7 +205,7 @@ export class CodexProvider extends OpenAIProvider {
     const accountId = this.extractAccountId(apiKey);
 
     try {
-      return await this.fetchAndAssembleCodexResponse(
+      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
         baseUrl,
         responsesPath,
         payload,
@@ -214,7 +229,7 @@ export class CodexProvider extends OpenAIProvider {
         status
       });
 
-      return await this.fetchAndAssembleCodexResponse(
+      return await this.fetchAndAssembleCodexResponseWithTransientRetry(
         baseUrl,
         responsesPath,
         payload,
@@ -224,6 +239,56 @@ export class CodexProvider extends OpenAIProvider {
         traceHeaders
       );
     }
+  }
+
+  private async fetchAndAssembleCodexResponseWithTransientRetry(
+    baseUrl: string,
+    responsesPath: string,
+    payload: Record<string, any>,
+    apiKey: string,
+    accountId: string | null,
+    timeoutMs?: number,
+    traceHeaders: Record<string, string> = {}
+  ): Promise<any> {
+    const maxAttempts = parsePositiveIntegerEnv(
+      'CODEX_TRANSIENT_RETRY_ATTEMPTS',
+      DEFAULT_CODEX_TRANSIENT_RETRY_ATTEMPTS
+    );
+    const baseDelayMs = parsePositiveIntegerEnv(
+      'CODEX_TRANSIENT_RETRY_BASE_DELAY_MS',
+      DEFAULT_CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+    );
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.fetchAndAssembleCodexResponse(
+          baseUrl,
+          responsesPath,
+          payload,
+          apiKey,
+          accountId,
+          timeoutMs,
+          traceHeaders
+        );
+      } catch (error) {
+        if (attempt >= maxAttempts || !this.isRetryableTransientCodexError(error)) {
+          throw error;
+        }
+
+        const delayMs = baseDelayMs * (2 ** (attempt - 1));
+        this.codexLogger.warn('Retrying Codex request after transient upstream failure', {
+          attempt,
+          maxAttempts,
+          delayMs,
+          status: this.extractErrorStatus(error),
+          code: this.extractErrorCode(error),
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await delay(delayMs);
+      }
+    }
+
+    throw new Error('Codex request retry loop exited unexpectedly.');
   }
 
   private async fetchAndAssembleCodexResponse(
@@ -288,6 +353,52 @@ export class CodexProvider extends OpenAIProvider {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private isRetryableTransientCodexError(error: unknown): boolean {
+    const status = this.extractErrorStatus(error);
+    if (typeof status === 'number') {
+      return status === 408 ||
+        status === 409 ||
+        status === 425 ||
+        status === 429 ||
+        (status >= 500 && status < 600);
+    }
+
+    const code = this.extractErrorCode(error);
+    if (code && [
+      'ABORT_ERR',
+      'ECONNRESET',
+      'ECONNREFUSED',
+      'EHOSTUNREACH',
+      'ENETUNREACH',
+      'ENOTFOUND',
+      'ETIMEDOUT',
+      'UND_ERR_CONNECT_TIMEOUT',
+      'UND_ERR_SOCKET'
+    ].includes(code)) {
+      return true;
+    }
+
+    const errorName = error instanceof Error ? error.name : '';
+    const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    return errorName === 'AbortError' ||
+      message.includes('fetch failed') ||
+      message.includes('network socket disconnected') ||
+      message.includes('socket disconnected') ||
+      message.includes('terminated');
+  }
+
+  private extractErrorStatus(error: unknown): number | undefined {
+    const candidate = error as any;
+    const status = candidate?.response?.status ?? candidate?.status;
+    return typeof status === 'number' ? status : undefined;
+  }
+
+  private extractErrorCode(error: unknown): string | undefined {
+    const candidate = error as any;
+    const code = candidate?.code ?? candidate?.cause?.code;
+    return typeof code === 'string' && code.trim() ? code.trim() : undefined;
   }
 
   private parseCodexSsePayload(payload: string): any {

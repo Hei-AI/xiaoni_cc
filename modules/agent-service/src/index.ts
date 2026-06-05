@@ -14,12 +14,9 @@ const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store));
 
 let stopping = false;
-let workerTimer: NodeJS.Timeout | null = null;
-let taskWorkerTimer: NodeJS.Timeout | null = null;
-let presenceTickTimer: NodeJS.Timeout | null = null;
 let workerBusy = false;
 let taskWorkerBusy = false;
-let presenceTickBusy = false;
+let autonomousLifeBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -29,7 +26,7 @@ app.get('/health', async (_req, res) => {
     service: 'agent-service',
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
-    presence_tick_busy: presenceTickBusy,
+    autonomous_life_busy: autonomousLifeBusy,
     timestamp: new Date().toISOString()
   });
 });
@@ -49,111 +46,103 @@ app.post('/api/internal/qq-usage', async (req, res) => {
   });
 });
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function pollQueueOnce() {
   if (stopping || workerBusy) {
-    scheduleNext(agentConfig.idleIntervalMs);
-    return;
+    return agentConfig.idleIntervalMs;
   }
 
   workerBusy = true;
   try {
     const queueMessage = await store.claimNextQueueMessage(agentConfig.workerId);
     if (!queueMessage) {
-      scheduleNext(agentConfig.idleIntervalMs);
-      return;
+      return agentConfig.idleIntervalMs;
     }
 
     await loopService.processQueueMessage(queueMessage);
-    scheduleNext(agentConfig.pollIntervalMs);
+    return agentConfig.pollIntervalMs;
   } catch (error) {
     moduleLogger.error('Agent queue poll failed', {
       error: error instanceof Error ? error.message : String(error)
     });
-    scheduleNext(agentConfig.idleIntervalMs);
+    return agentConfig.idleIntervalMs;
   } finally {
     workerBusy = false;
   }
 }
 
-function scheduleNext(delayMs: number) {
-  if (stopping) {
-    return;
+async function runQueueWorkerLoop() {
+  while (!stopping) {
+    const delayMs = await pollQueueOnce();
+    if (!stopping) {
+      await wait(delayMs);
+    }
   }
-  if (workerTimer) {
-    clearTimeout(workerTimer);
-  }
-  workerTimer = setTimeout(() => {
-    void pollQueueOnce();
-  }, delayMs);
 }
 
 async function pollTaskQueueOnce() {
   if (stopping || taskWorkerBusy) {
-    scheduleNextTaskPoll(agentConfig.idleIntervalMs);
-    return;
+    return agentConfig.idleIntervalMs;
   }
 
   taskWorkerBusy = true;
   try {
     const processed = await taskWorkerService.processNext(`${agentConfig.workerId}:task`);
-    scheduleNextTaskPoll(processed ? agentConfig.pollIntervalMs : agentConfig.idleIntervalMs);
+    return processed ? agentConfig.pollIntervalMs : agentConfig.idleIntervalMs;
   } catch (error) {
     moduleLogger.error('Agent task queue poll failed', {
       error: error instanceof Error ? error.message : String(error)
     });
-    scheduleNextTaskPoll(agentConfig.idleIntervalMs);
+    return agentConfig.idleIntervalMs;
   } finally {
     taskWorkerBusy = false;
   }
 }
 
-function scheduleNextTaskPoll(delayMs: number) {
-  if (stopping) {
-    return;
+async function runTaskWorkerLoop() {
+  while (!stopping) {
+    const delayMs = await pollTaskQueueOnce();
+    if (!stopping) {
+      await wait(delayMs);
+    }
   }
-  if (taskWorkerTimer) {
-    clearTimeout(taskWorkerTimer);
-  }
-  taskWorkerTimer = setTimeout(() => {
-    void pollTaskQueueOnce();
-  }, delayMs);
 }
 
-async function runPresenceTickOnce() {
-  if (stopping || presenceTickBusy) {
-    scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
-    return;
+async function enqueueAutonomousLifeOnce() {
+  if (stopping || autonomousLifeBusy) {
+    return agentConfig.autonomousLoopIntervalMs;
   }
 
-  presenceTickBusy = true;
+  autonomousLifeBusy = true;
   try {
-    const result = await store.enqueuePresenceTick();
+    const result = await store.enqueueAutonomousLifeStep();
     if (result.enqueued) {
-      moduleLogger.info('Presence tick enqueued', {
+      moduleLogger.info('Autonomous life step enqueued', {
         queue_id: result.queueId,
-        mode: 'life_level_inbox_scan'
+        mode: 'life_loop'
       });
     }
   } catch (error) {
-    moduleLogger.error('Presence tick failed', {
+    moduleLogger.error('Autonomous life step failed', {
       error: error instanceof Error ? error.message : String(error)
     });
   } finally {
-    presenceTickBusy = false;
-    scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
+    autonomousLifeBusy = false;
   }
+
+  return agentConfig.autonomousLoopIntervalMs;
 }
 
-function scheduleNextPresenceTick(delayMs: number) {
-  if (stopping || !agentConfig.presenceTickEnabled) {
-    return;
+async function runAutonomousLifeLoop() {
+  while (!stopping) {
+    const delayMs = await enqueueAutonomousLifeOnce();
+    if (!stopping) {
+      await wait(delayMs);
+    }
   }
-  if (presenceTickTimer) {
-    clearTimeout(presenceTickTimer);
-  }
-  presenceTickTimer = setTimeout(() => {
-    void runPresenceTickOnce();
-  }, delayMs);
 }
 
 async function shutdown(signal: string) {
@@ -161,18 +150,6 @@ async function shutdown(signal: string) {
     return;
   }
   stopping = true;
-  if (workerTimer) {
-    clearTimeout(workerTimer);
-    workerTimer = null;
-  }
-  if (taskWorkerTimer) {
-    clearTimeout(taskWorkerTimer);
-    taskWorkerTimer = null;
-  }
-  if (presenceTickTimer) {
-    clearTimeout(presenceTickTimer);
-    presenceTickTimer = null;
-  }
   moduleLogger.info('Shutting down agent service', { signal });
   await store.close().catch(() => undefined);
   process.exit(0);
@@ -186,9 +163,9 @@ async function start() {
       port: serverConfig.port
     });
   });
-  scheduleNext(200);
-  scheduleNextTaskPoll(500);
-  scheduleNextPresenceTick(agentConfig.presenceTickIntervalMs);
+  void wait(200).then(() => runQueueWorkerLoop());
+  void wait(500).then(() => runTaskWorkerLoop());
+  void runAutonomousLifeLoop();
 }
 
 process.on('SIGINT', () => {

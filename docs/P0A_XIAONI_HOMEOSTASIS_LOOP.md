@@ -26,8 +26,8 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
   compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
   `agent_life_events` digest. Life-only `presence_tick` can currently use
-  `submit_life_action`, `web_search`, or `stay_silent`, not a private planner
-  context; the locked next runtime adds prompt-facing `recover_energy`. If it
+  `submit_life_action`, `web_search`, `recover_energy`, or `stay_silent`, not a private planner
+  context. If it
   produces a "想回头分享" residue, that residue is appended into `<xiaoni_os>` so
   it stays in normal context and later compression. Old `<小腻的OS>` history is
   read as legacy residue and is not migrated.

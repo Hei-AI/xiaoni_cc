@@ -11,13 +11,15 @@ Archived pre-cleanup snapshot:
 Authoritative execution order:
 
 1. **P0-A: user-visible Xiaoni group-chat behavior.**
-   Tasks 1-7 are implemented. Tasks 8-19 are active follow-ups for current
-   runtime context quality, compact memory quality, image task routing,
-   presence-context v2, Xiaoni's creative agency, idle reminiscence, and
-   identity-root continuity, plus the next continuous runtime / energy /
-   capability contract, QQ usage skill, and next prompt / core-memory compression
-   replacement. Keep verification notes here and move any next follow-up into a
-   new task instead of reopening the old queue.
+   Tasks 1-10 and 18 are implemented / verified in the current branch. Tasks
+   11, 12, 14, and 17 have shipped first or major runtime slices and now track
+   named hardening gaps: richer presence-context v2 trace mapping,
+   creative-agency projection, projection refresh conflicts, and
+   Xiaoni-initiated cost mutation audit. Task 19 is implemented and verified.
+   Tasks 13, 15, and 16 remain active follow-ups for active-intention
+   continuity, idle reminiscence, and identity-root continuity.
+   Keep verification notes here and move any next follow-up into a new task
+   instead of reopening the old queue.
 2. **P0-B: Identity Lineage Phase 1.**
    Substrate work can proceed, but runtime-facing policy waits for P0-A's first
    causality closure.
@@ -27,8 +29,10 @@ Authoritative execution order:
 4. **P1: transcript snapshot compaction production loop.**
    Independent infrastructure follow-up.
 5. **P2: remaining provider-service non-text OneBot segment handling.**
-   `json` card support is done; nested forwards and other segment types still
-   need explicit handling.
+   `json` / `xml` / `share` card and link support is done for direct and expanded
+   forwarded segments. Nested forwards remain placeholder-only, and any remaining
+   OneBot segment types still need explicit handling or explicit unsupported-state
+   logging.
 
 Retired constraints remain retired: do not rebuild a standalone pre-agent gate or
 the removed card-memory subsystem.
@@ -833,7 +837,7 @@ context and let it calibrate the immediate response.
 
 ### Task 9 - Compact memory quality and identity continuity review
 
-**Status:** implemented; verified except runtime cost-mutation audit.
+**Status:** implemented and verified; cost-mutation audit is tracked by Task 17.
 
 **Source:** 2026-05-27 live compact probe for group `253631878`:
 `tmp/compact-memory-253631878-20260527T100734Z.md`.
@@ -884,7 +888,7 @@ policy as settled.
 
 ### Task 10 - Image task tool routing bug
 
-**Status:** todo.
+**Status:** implemented and verified on 2026-06-04.
 
 **Source:** 2026-05-27 trace/run review for
 `run_1779879915056_87d8f640` /
@@ -947,9 +951,24 @@ to request edit-mode work without any actual source image, so the user sees
 - Add regression tests covering the reviewed run shape: avatar-generation prompt,
   no source media, no hidden failure after "queued" acknowledgement.
 
+**Verified 2026-06-04:** `request_image_task` now treats text-only / no-source
+image requests as `image_generate`, even if the model requested edit mode, and
+keeps `image_edit` only when `source_media_tags` resolve to readable media
+assets. The task input records both `requested_operation` and effective
+`operation` so traces explain the normalization. The async worker also falls
+back to `/api/internal/image/generate` for historical `image_edit` tasks with no
+readable source image instead of failing with a hidden worker error.
+
+Validation:
+
+- `npm --prefix modules/agent-service test` — 174 passing.
+- `docker compose build agent-service` — passed.
+- `docker compose up -d agent-service` — restarted.
+- `docker compose ps` — `qqbot-agent-service` is `Up` / `healthy`.
+
 ### Task 11 - Presence context v2 action trace and energy model
 
-**Status:** todo.
+**Status:** first slice implemented; v2 follow-up remains.
 
 **Source:** 2026-05-27 runtime context review against
 `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
@@ -962,6 +981,13 @@ silence, terminal delivery state, and presence tick evaluations. The broader v2
 shape below is now fed by the first event-sourced homeostasis reducer slice in
 Task 14.
 
+**Progress 2026-06-04:** energy / action cost is implemented. The life reducer
+projects `actionCost`, `fatigue`, `energy`, `rewardAttraction`, and related
+internal meters from `agent_life_events`; visible group replies charge bounded
+action cost; `<小腻当前状态>` renders `当前精力` and `精力成本`; and the presence
+sidecar carries selected source items, recall scores, boundary judgments, life
+projection metadata, and reducer contributors.
+
 **Problem:** the design already defines `小腻当前状态` as a six-section private
 context block with recent action trace, current residue, current state,
 available material, action cost, and source boundary. It also defines the
@@ -969,36 +995,35 @@ energy/fatigue/reward model: action budget, sleep pressure, fatigue,
 reward-sensitivity / dopamine-like attraction, pressure, boredom, sharing
 desire, and effort cost.
 
-The current implementation is still a first slice. `presence-context.ts` derives
-`boredom`, `fatigue`, `energy`, and `sharingDesire`, then injects raw decimals.
-It no longer reads historical `agent_digital_actions` as current state. It
-produces the first event-derived six-section state with action cost, source
-boundary, and reducer explanation, but rest/sleep event generation and broader
-digital-life action classes remain follow-up work.
+The current implementation is still a first slice, not the final rich v2. It no
+longer reads historical `agent_digital_actions` as current state, and it already
+projects energy / action cost from the event stream. What remains is richer
+recent-action trace, full section-to-source sidecar mapping, broader digital-life
+action classes, and rest / sleep runtime hardening.
 
-The older "dopamine / stress" surface is also only a compatibility mapping:
-`sharingDesire -> dopamine` and `fatigue -> stress`. It does not yet expose the
-designed action budget / fatigue load / reward attraction / effort-cost model in
-a human-readable way.
+The latest prompt contract intentionally exposes energy / action cost only. Do
+not reintroduce prompt-facing pressure, dopamine, boredom, sharing desire, or
+high / medium / low labels just to satisfy older wording in this TODO. Those
+meters can remain internal reducer/admin facts unless a later prompt design
+changes the contract.
 
 **Action:**
 
-- Implement a presence-context v2 projection that follows the design doc's
-  six-section `小腻当前状态` shape instead of the current thin key/value block.
+- Preserve the implemented energy / action-cost path and its tests.
+- Complete a richer presence-context v2 projection that follows the design doc's
+  full six-section `小腻当前状态` shape instead of the current concise block.
 - Add a real recent-action trace source. It should be built from stored
   presence/digital-action records, ongoing QQ presence state, context residue
   items, same-day group residue, and explicit mock/constructed records. Do not
   invent offline or unsupported external experiences.
-- Replace raw decimals in prompt context with readable scaled state, for example
-  `当前行动预算：5 / 10`, `疲惫负荷：6 / 10`, `压力负荷：2 / 10`,
-  `无聊：7 / 10`, `找刺激/新鲜感：6 / 10`, `分享欲：5 / 10`.
-- Keep the engineering source of truth numeric. Derive readable prompt labels
-  from persisted anchors and action history, not from hand-authored mood text.
+- Keep the engineering source of truth numeric. Derive prompt-facing energy /
+  action-cost wording from persisted events and action history, not from
+  hand-authored mood text.
 - Model reward as `reward_sensitivity` / novelty and pickup attraction, not as a
-  literal biochemical dopamine gauge. Keep compatibility `dopamine` naming only
-  at legacy boundaries if still required.
-- Add action-cost wording that tells the model which actions currently feel
-  light, medium, or expensive, without adding a "recommended action" command.
+  literal biochemical dopamine gauge. Keep it internal or admin-facing unless a
+  later prompt contract explicitly asks to expose it.
+- Expand action-cost wording enough to explain recent cost/recovery facts
+  without adding a "recommended action" command.
 - Preserve source honesty. Mock/constructed material can become Xiaoni's own
   thought or topic, but cannot be phrased as "刚看到 / 刚刷到 / 我查到" unless
   there is real browser evidence.
@@ -1011,7 +1036,7 @@ a human-readable way.
 - `modules/agent-service/src/services/presence-context.ts`
   - `deriveLifeState`
   - `buildPresenceContextBlock`
-  - scaled state/action-budget rendering
+  - richer recent-action trace and energy/action-cost rendering
 - `modules/agent-service/src/services/runtime-store.ts`
   - `buildPresenceContext`
   - presence action/history loading
@@ -1026,23 +1051,28 @@ a human-readable way.
 
 **Acceptance criteria:**
 
-- Runtime `<小腻当前状态>` contains six readable sections matching the design doc:
-  recent action trace, current residue, current state, available material,
-  action cost, and source boundary.
+- Already satisfied: runtime `<小腻当前状态>` exposes current energy, recent action
+  cost/recovery explanation, available material, material boundary, and source
+  honesty wording.
+- Already satisfied: no prompt surface claims real browsing, watching, reading,
+  liking, posting, or downloading unless real-source material supports it.
+- Remaining: runtime `<小腻当前状态>` contains the full six readable sections from
+  the design doc: recent action trace, current residue, current state, available
+  material, action cost, and source boundary.
 - `最近行动轨迹` is no longer just "presence_tick triggered" / "群友消息触发";
   it is derived from traceable records or explicitly says there is no concrete
   recent action material.
-- Current-state rendering exposes action budget, fatigue/pressure load, boredom,
-  novelty/reward attraction, and sharing desire on a readable scale.
-- No prompt surface claims real browsing, watching, reading, liking, posting, or
-  downloading unless a real digital-action record supports it.
+- Current-state rendering stays aligned with the latest prompt contract:
+  prompt-facing energy / action-cost only, with richer internal/admin reducer
+  meters available for trace and explanation.
 - Sidecar traces show which records and scores produced each block section.
 - Tests cover the no-material case, mock-material source-honesty case, and a
   multi-step recent-action trace case.
 
 ### Task 12 - Xiaoni creative agency and latent capability activation
 
-**Status:** first slice implemented 2026-05-31; follow-up hardening remains.
+**Status:** substrate first slice implemented; dedicated creative-activation
+projection remains.
 
 **Source:** 2026-05-28 `$office-hours` note before follow-up discussion.
 
@@ -1060,6 +1090,11 @@ group topic, private chat, same-day residue, or digital-life fragment naturally
 touches something poetic, funny, visual, reflective, technical, or playful,
 Xiaoni should be able to initiate or shape the response from that internal
 capacity instead of only reacting as a thin chat participant.
+
+**Current implementation 2026-06-04:** the homeostasis / presence-context
+substrate can expose residue, cost, source boundary, and private state, but there
+is not yet a dedicated latent-capability / creative-affordance projection or
+traceable creative exercise record path in active code.
 
 **Discussion seed:**
 
@@ -1151,7 +1186,7 @@ return to a self-initiated action.
 
 ### Task 14 - Xiaoni homeostasis reducer
 
-**Status:** first reducer slice implemented 2026-05-31; follow-up hardening remains.
+**Status:** implemented; projection hardening remains.
 
 **Design doc:** `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
 
@@ -1180,10 +1215,16 @@ scheduling, prompt context, and admin explanation.
   Do not add planner-only suggestion channels, hardcoded interest keys, or query
   templates.
 - Do not restore autonomous self-action timers in this task.
-- Follow-up: implement prompt-facing `recover_energy` and resting-state wake
-  behavior. Keep `rest_period` / `sleep_period` as historical/internal
-  compatibility events only, and add broader runtime integration tests for
-  projection refresh conflicts.
+- Implemented 2026-06-04: prompt-facing `recover_energy`, low-energy /
+  forced-sleep `<STATE>` wake behavior, and explicit `sleep_period` recovery
+  events are handled by Task 17.
+- Follow-up: add broader runtime integration tests for projection refresh
+  conflicts and keep Task 11's richer presence-context v2 mapping aligned with
+  reducer output.
+
+**Verified 2026-06-04:** `recover_energy` is exposed without prompt-facing
+`rest_period` / `sleep_period`; explicit recovery records a `sleep_period` life
+event; low-energy and forced-sleep wake `<STATE>` paths have unit coverage.
 
 **Acceptance criteria:**
 
@@ -1257,9 +1298,11 @@ Current implementation truth:
 
 - `agent_life_events` is already the source of truth for homeostasis /
   presence projection.
-- `<小腻近况>` is still written by `context_summary_writer` into
+- `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`, keyed by `payload.sessionKey`
-  or `xiaoni:global` for presence-originated runs.
+  or `xiaoni:global` for life-only / presence-originated runs. The active
+  main-chain writer is prompt-facing `compress_core_memory(text)`, not the old
+  `context_summary_writer` objective digest.
 - `agent_memory_observations` / `agent_memory_assertions` /
   `agent_memory_reflections` are generated during context compression, but typed
   runtime recall projection is not connected yet.
@@ -1298,7 +1341,7 @@ Current implementation truth:
 
 ### Task 17 - Continuous runtime contract, energy, and capability costs
 
-**Status:** todo.
+**Status:** implemented and verified except Xiaoni-initiated cost mutation audit.
 
 **Source:** 2026-06-04 `$office-hours` production-backend review of the next
 Xiaoni prompt/runtime contract.
@@ -1347,26 +1390,28 @@ recover_energy: 0.000
 skill-creator: 0.120
 ```
 
-**Acceptance checklist:**
+**Acceptance checklist status:**
 
-- A replay can show two adjacent engineering runs sharing one continuous Xiaoni
-  state, with no prompt wording that treats `run` as a cognition boundary.
-- Prompt assembly emits `<xiaoni_os>` for new inner-state records and still
-  tolerates old `<小腻的OS>` history without a migration.
-- Tests cover each `<STATE>` injection trigger: action/tool threshold,
+- Satisfied: a replay can show two adjacent engineering runs sharing one
+  continuous Xiaoni state, with no prompt wording that treats `run` as a
+  cognition boundary.
+- Satisfied: prompt assembly emits `<xiaoni_os>` for new inner-state records and
+  still tolerates old `<小腻的OS>` history without a migration.
+- Satisfied: tests cover each `<STATE>` injection trigger: action/tool threshold,
   `web_search`, low-energy reminder, forced sleep wake, and repeated-@ wake.
-- Energy tests cover positive recovery, negative-energy recovery-as-zero, 2h full
-  recovery, and raw-energy `< 0` forced 2h wait.
-- Tool schema and runtime dispatch expose `recover_energy`; prompt-facing
-  `rest_period` / `sleep_period` are not advertised as tools.
-- Resting replay proves unread message bodies are not passed into prompt context
-  before wake, while continuous direct `@ >= 3` wakes Xiaoni with the correct
-  recovered energy state.
-- Compact/capability-refresh replay shows `<CAPABILITIES>` includes tool costs,
-  supported skill list, skill costs, and omits missing-cost skills with an
-  operator warning.
-- Skill cost mutation is audited and takes effect only after the next capability
-  refresh.
+- Satisfied: energy tests cover positive recovery,
+  negative-energy recovery-as-zero, 2h full recovery, and raw-energy `< 0`
+  forced 2h wait.
+- Satisfied: tool schema and runtime dispatch expose `recover_energy`;
+  prompt-facing `rest_period` / `sleep_period` are not advertised as tools.
+- Satisfied: resting replay proves unread message bodies are not passed into
+  prompt context before wake, while continuous direct `@ >= 3` wakes Xiaoni with
+  the correct recovered energy state.
+- Satisfied: compact/capability-refresh replay shows `<CAPABILITIES>` includes
+  tool costs, supported skill list, skill costs, and omits missing-cost skills
+  with an operator warning.
+- Remaining: skill cost mutation is audited and takes effect only after the next
+  capability refresh.
 
 **Supervisor verification (2026-06-04):**
 
@@ -1510,13 +1555,44 @@ attention model.
 
 ### Task 19 - Xiaoni next prompt and `compress_core_memory`
 
-**Status:** todo.
+**Status:** implemented and verified on 2026-06-05.
 
 **Source:** 2026-06-04 prompt cleanup after `$office-hours` production-backend
 review.
 
 **Design docs:** `docs/XIAONI_MAIN_PROMPT_NEXT.md`,
 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`, `docs/AGENTS_OPENAI_REQUESTS.md`.
+
+**Current implementation 2026-06-05:**
+
+- The runtime Xiaoni main prompt mirrors `docs/XIAONI_MAIN_PROMPT_NEXT.md`.
+- `<CAPABILITIES>` is injected once near the beginning of every main-loop input,
+  before `<小腻近况>` and current turn material. It lists supported prompt-facing
+  tools, supported skills, and energy costs, including
+  `compress_core_memory: 0.020`.
+- `<STATE>` remains event-triggered and energy-focused; it is not a per-turn
+  pressure/dopamine/emotion-number block.
+- `compress_core_memory(text)` is a prompt-facing function tool, but it is not
+  exposed during ordinary turns. Engineering injects a
+  `<system_reminder source="core_memory_pressure"
+  required_tool="compress_core_memory">` when count or token pressure requires
+  compression; that request's `tool_choice.allowed_tools` is restricted to
+  `compress_core_memory`.
+- Pressure requests keep the full actor tool definitions in `tools` and narrow
+  only `tool_choice.allowed_tools`; do not replace the request `tools` array
+  with only `compress_core_memory`, because that churns the tool-definition
+  prefix.
+- A successful `compress_core_memory` call writes the exact tool `text` to
+  `agent_session_context_windows.context_summary` for future `<小腻近况>`, then
+  persists the read cutoff. Timeline / raw-response metadata records the tool
+  name, context key, read cutoff, source response id, tool call id, and text
+  length.
+- The main prompt-facing `<小腻近况>` path no longer schedules or contains the
+  old `context_summary_writer` code path. The active post-eviction writer is the
+  separate episodic / semantic / reflection compression memory writer.
+- `speak_in_group` and `reply_in_private` accept explicit `group_id` / `user_id`
+  targets. Provider internal send contracts now honor those target ids instead
+  of silently dropping overrides.
 
 **Execution summary:**
 
@@ -1527,9 +1603,8 @@ review.
   `<STATE>` is energy-only plus fatigue/rest/wake explanations.
 - Use `<xiaoni_os>` for new inner-state records. Old `<小腻的OS>` remains
   readable only as historical compatibility.
-- Add `<CAPABILITIES>` to prompt assembly after context compression / capability
-  refresh, listing supported tools, supported skills, and every declared energy
-  cost.
+- Add `<CAPABILITIES>` to prompt assembly once near the beginning of the request,
+  listing supported tools, supported skills, and every declared energy cost.
 - Keep QQ usage out of the main prompt except the pointer to `qq-usage`; QQ app
   operation details belong in the `qq-usage` skill manual from Task 18.
 - Add the prompt-facing tool `compress_core_memory`:
@@ -1567,7 +1642,7 @@ review.
 - Add `compress_core_memory` to `<CAPABILITIES>` with an explicit energy cost
   before enabling the prompt. Proposed initial cost: `0.020`.
 
-**Tool changes to implement:**
+**Tool changes implemented:**
 
 - New tool: `compress_core_memory(text: string)`.
 - Existing replacement target: `context_summary_writer` should no longer be the
@@ -1577,21 +1652,29 @@ review.
 - Existing state contract update: `<STATE>` remains energy-only; fatigue prompts
   and forced-sleep wake messages are state text, not pressure/emotion metrics.
 
-**Acceptance checklist:**
-
-- Prompt assembly can render the exact prompt body from
+- [x] Prompt assembly can render the exact prompt body from
   `docs/XIAONI_MAIN_PROMPT_NEXT.md` with no prompt-facing pressure/dopamine
   state.
-- A compression-threshold replay injects the survival `<system_reminder>` and
+- [x] A compression-threshold replay injects the survival `<system_reminder>` and
   requires `compress_core_memory` before any QQ send, QQ usage, web search,
   life action, or normal silence action.
-- A successful `compress_core_memory` call writes the tool `text` to the
+- [x] A successful `compress_core_memory` call writes the tool `text` to the
   prompt-facing `<小腻近况>` continuity surface and stores trace metadata with
   tool name, session/context key, and source response id.
-- Tests replace the current expectation that the context summary writer stores a
+- [x] Tests replace the current expectation that the context summary writer stores a
   plain-text digest from whole in-context with an expectation that Xiaoni calls
   `compress_core_memory` and the tool text becomes future `<小腻近况>`.
-- Existing episodic / semantic / reflection memory tests continue to pass.
+- [x] Existing episodic / semantic / reflection memory tests continue to pass.
+- [x] Regression coverage verifies that changing only `tool_choice` leaves the
+  rest of the canonical request (`instructions`, `input`, `tools`, and cache
+  fields) unchanged, and provider serialization keeps the full tool list when
+  emitting structured `allowed_tools`.
+
+Validation:
+
+- `npm --prefix modules/agent-service run build` — passed.
+- `npm --prefix modules/agent-service test` — 179 passing.
+- `npm --prefix modules/provider-service test` — 105 passing.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 
@@ -1703,8 +1786,11 @@ into ready summaries and confirms prompt consumption of ready summaries.
 
 **Status:** partially implemented.
 
-`json` card support is done. Nested forwarded messages and remaining non-text
-segment types still need explicit handling or explicit unsupported-state logging.
+`json` / `xml` / `share` card and link support is done for direct messages and
+expanded forwarded-message contents. Nested forwarded messages are still rendered
+as a placeholder (`[嵌套转发]`) rather than recursively expanded, and any remaining
+OneBot segment types still need explicit handling or explicit unsupported-state
+logging.
 
 ## Historical Evidence
 

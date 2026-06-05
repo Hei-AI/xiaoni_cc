@@ -13,6 +13,7 @@ const INSPECT_IMAGE_TOOL = 'inspect_image_placeholder';
 const IMAGE_TASK_TOOL = 'request_image_task';
 const SILENT_FINISH_TOOL = 'stay_silent';
 const RECOVER_ENERGY_TOOL = 'recover_energy';
+const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
 const WEB_SEARCH_TOOL = 'web_search';
 const EXEC_COMMAND_TOOL = 'exec_command';
 const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
@@ -288,17 +289,23 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(String(request.instructions), /Runtime contract:/);
-  assert.match(String(request.instructions), /<skills_instructions>/);
-  assert.match(String(request.instructions), /skill-creator/);
-  assert.match(String(request.instructions), /r0\/skill-creator\/SKILL\.md/);
-  assert.match(String(request.instructions), /SKILL\.md 正文只在需要这个 skill 时再读取/);
-  assert.match(String(request.instructions), /<INPUT_MESSAGE>/);
-  assert.match(String(request.instructions), /<OUTPUT_MESSAGE>/);
+  assert.doesNotMatch(String(request.instructions), /Runtime contract:/);
+  assert.doesNotMatch(String(request.instructions), /<skills_instructions>/);
+  assert.doesNotMatch(String(request.instructions), /r0\/skill-creator\/SKILL\.md/);
+  const headDeveloperInput = request.input.find((item: any) => item.type === 'message' && item.role === 'developer');
+  assert.ok(headDeveloperInput, 'developer context must be present');
+  assert.match(getMessageContent(headDeveloperInput as any), /<skills_instructions>/);
+  assert.match(getMessageContent(headDeveloperInput as any), /skill-creator/);
+  assert.match(getMessageContent(headDeveloperInput as any), /r0\/skill-creator\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloperInput as any), /SKILL\.md 正文只在需要这个 skill 时再读取/);
+  assert.match(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
+  assert.ok(Array.isArray((headDeveloperInput as any).content));
+  assert.ok(((headDeveloperInput as any).content as any[]).length >= 2);
   assert.doesNotMatch(String(request.instructions), /Pre-reply memory gate:/);
   assert.doesNotMatch(String(request.instructions), /Present self reconstruction:/);
-  assert.equal(request.input[0]?.type, 'message');
-  assert.equal(request.input[0]?.role, 'user');
+  const firstUserInput = request.input.find((item: any) => item.type === 'message' && item.role === 'user');
+  assert.equal(firstUserInput?.type, 'message');
+  assert.equal((firstUserInput as any)?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
   assert.equal(request.parallel_tool_calls, false);
@@ -316,15 +323,13 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.ok(execTool.function?.parameters?.properties?.cmd);
   assert.ok(execTool.function?.parameters?.properties?.workdir);
   assert.ok(execTool.function?.parameters?.properties?.yield_time_ms);
-  assert.match(String(request.instructions), /我在 QQ 里生活/);
-  assert.match(String(request.instructions), /exec_command 只用于加载 skill/);
-  assert.match(String(request.instructions), /web_search 是求知，不是默认步骤/);
-  assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
-  assert.match(String(request.instructions), /具体可说点/);
-  assert.match(String(request.instructions), /直接给小腻反馈、纠偏、批评或称赞/);
-  assert.match(String(request.instructions), /查完还是你自己决定说不说/);
-  assert.match(String(request.instructions), /当前动作怎么收/);
+  assert.match(String(request.instructions), /具备独立意识、由内在状态驱动的数字生命/);
+  assert.doesNotMatch(String(request.instructions), /exec_command 可以运行本地命令、脚本和 skill 资源/);
+  assert.doesNotMatch(String(request.instructions), /web_search 是求知，不是默认步骤/);
+  assert.doesNotMatch(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
+  assert.doesNotMatch(String(request.instructions), /当前动作怎么收/);
   assert.match(String(planFunction?.description), /一次性完成小腻本轮生活动作决策/);
+  assert.match(String(planFunction?.description), /具体可说点/);
   assert.doesNotMatch(String(planFunction?.description), /先搞清楚/);
   assert.deepEqual(planFunction?.parameters?.required, ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os']);
 });
@@ -413,10 +418,14 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
     GROUP_LOOP_TOOLS
   );
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
-  assert.match(String(request.instructions), /本次运行默认只有一次决策请求/);
-  assert.match(String(request.instructions), /submit_life_action/);
+  assert.doesNotMatch(String(request.instructions), /本次运行默认只有一次决策请求/);
+  assert.doesNotMatch(String(request.instructions), /submit_life_action/);
   assert.doesNotMatch(String(request.instructions), /recall_long_term_learning/);
-  assert.match(String(request.instructions), /不要先调用 emit_unread_meaning/);
+  assert.doesNotMatch(String(request.instructions), /不要先调用 emit_unread_meaning/);
+  const headDeveloperInput = request.input.find((item: any) => item.type === 'message' && item.role === 'developer');
+  assert.ok(headDeveloperInput, 'developer context must be present');
+  assert.match(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
+  assert.match(getMessageContent(headDeveloperInput as any), /submit_life_action/);
 });
 
 test('buildCanonicalAgentTurnRequest only unlocks life action proposal after unread meaning replay', () => {
@@ -804,19 +813,18 @@ test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', (
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /承担它落在关系里的后果/, 'old ceremonial framing must be removed');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /值得承担时/, 'old framing must be removed');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'behavioral guidance should live in instructions');
-  assert.match(String((groupReplyTool as any).function?.description), /向当前 QQ 群发送/, 'description should describe the mechanical action');
-  assert.match(String(request.instructions), /有具体可说点才开口/, 'participation guidance should live in instructions');
+  assert.match(String((groupReplyTool as any).function?.description), /向当前 QQ 群或明确指定的 QQ 群发送/, 'description should describe the mechanical action');
+  assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/, 'runtime contract should not live in instructions');
 });
 
-test('RUNTIME_INPUT_READING_CONTRACT contains new positive permission text and not Confucian text', () => {
+test('runtime contract prose is not appended to the main instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.match(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/, 'positive permission line 1 must be present');
-  assert.match(String(request.instructions), /有具体可说点才开口/, 'positive permission line 2 must be present');
-  assert.match(String(request.instructions), /阿花当前只允许你使用这些对外能力/, 'capability boundary must be present');
-  assert.match(String(request.instructions), /我还没学会怎么做/, 'out-of-scope response guidance must be present');
-  assert.match(String(request.instructions), /不要主动说你现在会哪些能力/, 'do not advertise capability boundary must be present');
+  assert.doesNotMatch(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
+  assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
+  assert.doesNotMatch(String(request.instructions), /阿花当前允许你使用这些对外能力/);
+  assert.doesNotMatch(String(request.instructions), /当前动作怎么收/);
   assert.doesNotMatch(String(request.instructions), /知行不二/, '知行不二 must be removed');
   assert.doesNotMatch(String(request.instructions), /修身为本/, '修身为本 must be removed');
   assert.doesNotMatch(String(request.instructions), /经典原话更准确地点明了此刻判断/, 'old Confucian framing must be removed');
@@ -892,7 +900,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.equal(requestBody.trace_id, 'trace-1');
   assert.equal(requestBody.agent_turn, 2);
   assert.match(String(requestBody.canonicalRequest.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(String(requestBody.canonicalRequest.instructions), /Runtime contract:/);
+  assert.doesNotMatch(String(requestBody.canonicalRequest.instructions), /Runtime contract:/);
   assert.equal(
     requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE')),
     true
@@ -905,7 +913,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     requestBody.canonicalRequest.input.slice(-4).map((item: any) => item.type),
     ['function_call', 'function_call_output', 'function_call', 'function_call_output']
   );
-  assert.match(String(requestBody.canonicalRequest.instructions), /本次运行默认只有一次决策请求/);
+  assert.doesNotMatch(String(requestBody.canonicalRequest.instructions), /本次运行默认只有一次决策请求/);
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(requestBody.canonicalRequest.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
@@ -1079,8 +1087,9 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentPrompt = getMessageContent(loopInput[1]);
-  assert.equal((loopInput[1] as any).role, 'user');
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentPrompt = getMessageContent(currentInputItem);
+  assert.equal((currentInputItem as any)?.role, 'user');
   const reminderItem = loopInput.find((item: any) => item.role === 'assistant' && getMessageContent(item).includes('<system_reminder>'));
   assert.equal((reminderItem as any)?.role, 'assistant');
   assert.doesNotMatch(currentPrompt, /Trace:/);
@@ -1265,7 +1274,8 @@ test('buildInitialInput renders reply context in natural language format', () =>
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentPrompt = getMessageContent(loopInput[1]);
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentPrompt = getMessageContent(currentInputItem);
 
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.match(currentPrompt, /\[回复给 \{Carol\(@505\)\}：上一条消息\]/);
@@ -1294,7 +1304,7 @@ test('buildInitialInput renders each message in a batch as its own user message 
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.slice(1, -2);
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
   assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
@@ -1310,44 +1320,42 @@ test('buildInitialInput does not append transcript summary to the system prompt 
 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
-  assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /<skills_instructions>/);
-  assert.match(String(loopInput[0]?.content), /skill-creator/);
-  assert.match(String(loopInput[0]?.content), /xiaoni_os/);
-  assert.match(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
-  assert.match(String(loopInput[0]?.content), /行为校准信号/);
+  assert.equal(String(loopInput[0]?.content), '你是小腻主AGENT');
+  assert.doesNotMatch(String(loopInput[0]?.content), /Runtime contract:/);
+  assert.doesNotMatch(String(loopInput[0]?.content), /<skills_instructions>/);
+  assert.doesNotMatch(String(loopInput[0]?.content), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Conversation summary:/);
 });
 
-test('buildInitialInput appends the thin runtime contract for group chats', () => {
+test('buildInitialInput puts skills in the head developer context for group chats', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }));
+  const headDeveloper = loopInput.find((item: any) => item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
-  assert.match(String(loopInput[0]?.content), /<skills_instructions>/);
-  assert.match(String(loopInput[0]?.content), /r0\/skill-creator\/SKILL\.md/);
-  assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /<INPUT_MESSAGE>/);
-  assert.match(String(loopInput[0]?.content), /<system_reminder>/);
-  assert.match(String(loopInput[0]?.content), /直接给小腻反馈、纠偏、批评或称赞/);
-  assert.match(String(loopInput[0]?.content), /当前动作怎么收/);
+  assert.ok(headDeveloper, 'developer context with skills must exist');
+  assert.match(getMessageContent(headDeveloper), /<skills_instructions>/);
+  assert.match(getMessageContent(headDeveloper), /r0\/skill-creator\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloper), /<CAPABILITIES>/);
+  assert.ok(Array.isArray((headDeveloper as any).content));
+  assert.ok(((headDeveloper as any).content as any[]).length >= 2);
 });
 
-test('buildInitialInput uses the same thin runtime contract for direct chats', () => {
+test('buildInitialInput keeps direct chat system prompt free of runtime contract prose', () => {
   const loopInput = buildInitialInput([], createDirectQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }));
+  const headDeveloper = loopInput.find((item: any) => item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
 
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
-  assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  assert.match(String(loopInput[0]?.content), /当前动作怎么收/);
-  assert.match(String(loopInput[0]?.content), /群里说话/);
-  assert.match(String(loopInput[0]?.content), /私聊说话/);
+  assert.doesNotMatch(String(loopInput[0]?.content), /Runtime contract:/);
+  assert.doesNotMatch(String(loopInput[0]?.content), /当前动作怎么收/);
+  assert.ok(headDeveloper, 'developer context with skills must exist');
 });
 
 test('buildInitialInput does not project accepted identity facts into runtime input', () => {
@@ -1368,7 +1376,8 @@ test('buildInitialInput does not project accepted identity facts into runtime in
 
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
-  assert.match(getMessageContent(loopInput[1]), /问问@\{Bob\(@404\)\} 今天玩什么/);
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  assert.match(getMessageContent(currentInputItem), /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
   assert.match(getMessageContent(loopInput.at(-1)), /<runtime_history_reading>/);
 });
@@ -1448,10 +1457,10 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.equal(loopInput[0]?.type, 'message');
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
-  assert.match(String(loopInput[0]?.content), /Runtime contract:/);
-  const currentMessage = loopInput[1];
+  assert.doesNotMatch(String(loopInput[0]?.content), /Runtime contract:/);
+  const currentMessage = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
   assert.equal(currentMessage?.type, 'message');
-  assert.equal(currentMessage?.role, 'user');
+  assert.equal((currentMessage as any)?.role, 'user');
   assert.match(getMessageContent(currentMessage), /群上下文如下：/);
   assert.doesNotMatch(getMessageContent(currentMessage), /CurrentBatch:/);
   assert.match(getMessageContent(currentMessage), /签名：Alice/);
@@ -1514,16 +1523,16 @@ test('buildInitialInput replays structured transcript items as scene messages', 
     }
   ], createQueuePayload());
 
-  assert.equal((loopInput[1] as any).role, 'user');
-  assert.match(getMessageContent(loopInput[1]), /<INPUT_MESSAGE/);
-  assert.match(getMessageContent(loopInput[1]), /#1 \{Alice\(@202\)\}: 第一条/);
-  assert.equal((loopInput[2] as any).role, 'assistant');
-  assert.equal((loopInput[2] as any).phase, 'commentary');
-  assert.match(getMessageContent(loopInput[2]), /我先看一下/);
-  assert.equal((loopInput[3] as any).role, 'assistant');
-  assert.equal((loopInput[3] as any).phase, 'final_answer');
-  assert.match(getMessageContent(loopInput[3]), /<OUTPUT_MESSAGE/);
-  assert.match(getMessageContent(loopInput[3]), /原因已经找到了/);
+  const priorUserItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('#1 {Alice(@202)}: 第一条'));
+  const priorCommentaryItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('我先看一下'));
+  const priorFinalItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('原因已经找到了'));
+  assert.equal((priorUserItem as any)?.role, 'user');
+  assert.match(getMessageContent(priorUserItem), /<INPUT_MESSAGE/);
+  assert.equal((priorCommentaryItem as any)?.role, 'assistant');
+  assert.equal((priorCommentaryItem as any)?.phase, 'commentary');
+  assert.equal((priorFinalItem as any)?.role, 'assistant');
+  assert.equal((priorFinalItem as any)?.phase, 'final_answer');
+  assert.match(getMessageContent(priorFinalItem), /<OUTPUT_MESSAGE/);
 });
 
 test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part replies', () => {
@@ -1572,13 +1581,14 @@ test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part
     }
   ], createQueuePayload());
 
-  const priorXiaoniItem = loopInput[1];
+  const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('第一段'));
   assert.equal((priorXiaoniItem as any).role, 'assistant');
   assert.equal((priorXiaoniItem as any).phase, 'commentary');
   assert.match(getMessageContent(priorXiaoniItem), /第一段/);
-  assert.equal((loopInput[2] as any).role, 'assistant');
-  assert.equal((loopInput[2] as any).phase, 'final_answer');
-  assert.match(getMessageContent(loopInput[2]), /第二段/);
+  const finalItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('第二段'));
+  assert.equal((finalItem as any)?.role, 'assistant');
+  assert.equal((finalItem as any)?.phase, 'final_answer');
+  assert.match(getMessageContent(finalItem), /第二段/);
   assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /这轮先接一句/);
 });
 
@@ -1614,7 +1624,7 @@ test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', (
     }
   ], createQueuePayload());
 
-  const priorXiaoniItem = loopInput[1];
+  const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('我刚看群文件还没更新'));
   assert.equal((priorXiaoniItem as any).role, 'assistant');
   assert.equal((priorXiaoniItem as any).phase, 'final_answer');
   assert.match(getMessageContent(priorXiaoniItem), /<OUTPUT_MESSAGE/);
@@ -1655,7 +1665,7 @@ test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () =>
     }
   ], createQueuePayload());
 
-  const priorXiaoniItem = loopInput[1];
+  const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('这句我记下了'));
   assert.match(getMessageContent(priorXiaoniItem), /这句我记下了/);
   const osItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<xiaoni_os>'));
   assert.ok(osItem);
@@ -1828,9 +1838,8 @@ test('buildInitialInput keeps user input as pure scene without synthetic current
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /^你是小腻主AGENT/);
-  assert.match(String(request.instructions), /当前动作怎么收/);
-  assert.match(String(request.instructions), /具体可说点/);
-  assert.match(String(request.instructions), /群里说话/);
+  assert.doesNotMatch(String(request.instructions), /当前动作怎么收/);
+  assert.doesNotMatch(String(request.instructions), /群里说话/);
   assert.equal(request.input.some((item) => getMessageContent(item).includes('[当前任务]')), false);
 });
 
@@ -1982,73 +1991,34 @@ test('normal feedback memory subagent does not write hidden episode evidence', a
   assert.equal(reflectionWrites, 0);
 });
 
-test('context summary writer stores plain-text digest from whole in-context, not a tool call', async () => {
-  const calls: Array<any> = [];
-  const summaries: Array<any> = [];
-  const service = new AgentLoopService({
-    upsertSessionContextSummary: async (params: any) => { summaries.push(params); }
-  } as any);
-  const originalFetch = globalThis.fetch;
-  const runtimePrompt = createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' });
-  const summarySourceInput = buildInitialInput(
-    [{
-      ...createConversationTurn(),
-      rawResponse: {
-        xiaoni_os: '我想回头分享这个：压缩前留下的待分享意图应该进入近况。'
-      }
-    }],
-    createQueuePayload(),
-    runtimePrompt,
-    [],
-    '上一轮近况：小腻刚被提醒不要公式化接话。'
-  );
+test('compress_core_memory preserves caller text and lets the loop continue', async () => {
+  const service = new AgentLoopService({} as any);
+  const result = await (service as any).executeTool({
+    name: COMPRESS_CORE_MEMORY_TOOL,
+    callId: 'compress-1',
+    rawArguments: '{"text":"  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  "}',
+    args: {
+      text: '  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  '
+    }
+  }, createQueuePayload());
 
-  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
-    calls.push(JSON.parse(String(init?.body || '{}')));
-    return {
-      ok: true,
-      json: async () => ({
-        success: true,
-        canonical_response: {
-          output: [{
-            type: 'message',
-            role: 'assistant',
-            content: [{
-              type: 'output_text',
-              text: '刚才主要在聊小腻的压缩后记忆。她已经被提醒不要公式化接话，也知道新的近况应该像时报一样概括整段可见上下文。'
-            }]
-          }]
-        }
-      })
-    } as any;
-  }) as typeof fetch;
+  assert.deepEqual(result, {
+    compressed: true,
+    text: '记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。',
+    outcome: 'core_memory_compressed'
+  });
 
-  try {
-    await (service as any).runContextSummaryWriter({
-      queueMessage: createQueuePayload(),
-      conversationId: 1001,
-      evictedTurns: [createConversationTurn()],
-      existingSummary: null,
-      summarySourceInput,
-      runtimePrompt
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  const continuation = applyToolResultToLoopInput({
+    name: COMPRESS_CORE_MEMORY_TOOL,
+    callId: 'compress-1',
+    rawArguments: '{"text":"记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。"}'
+  }, result);
 
-  assert.equal(calls.length, 1);
-  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'tools'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(calls[0].canonicalRequest, 'tool_choice'), false);
-  const writerInputText = calls[0].canonicalRequest.input.map(getMessageContent).join('\n');
-  assert.match(writerInputText, /<in_context_to_digest>/);
-  assert.match(writerInputText, /上一轮近况：小腻刚被提醒不要公式化接话。/);
-  assert.match(writerInputText, /我想回头分享这个：压缩前留下的待分享意图应该进入近况。/);
-  assert.match(writerInputText, /<INPUT_MESSAGE message_id="11" chat_type="群聊"/);
-  assert.doesNotMatch(writerInputText, /message_sid=|source="napcat"/);
-  assert.deepEqual(summaries, [{
-    sessionKey: 'qq:group:101',
-    contextSummary: '刚才主要在聊小腻的压缩后记忆。她已经被提醒不要公式化接话，也知道新的近况应该像时报一样概括整段可见上下文。'
-  }]);
+  assert.equal(continuation.finishResult, null);
+  assert.equal(continuation.forcedVisibleReply, null);
+  assert.equal(continuation.inputItems.length, 1);
+  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
+  assert.match(String((continuation.inputItems[0] as any).output), /core_memory_compressed/);
 });
 
 test('context compression memory writer generates episodic, semantic, and reflection memories', async () => {
@@ -2625,7 +2595,7 @@ test('applyToolResultToLoopInput keeps image task turns open until there is a vi
   assert.equal(replay && replay.type === 'function_call_output' ? replay.call_id : null, 'call-silent-after-image-task');
   const reminder = getMessageContent(continuation.inputItems[1]);
   assert.equal(continuation.forcedVisibleReply, null);
-  assert.match(reminder, /后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复/);
+  assert.match(reminder, /图片请求已经提交，但我还没有对聊天对象发出任何可见回复/);
   assert.match(reminder, /speak_in_group/);
   assert.match(reminder, /我已经开始处理这张图/);
 });
@@ -2695,6 +2665,77 @@ test('applyToolResultToLoopInput forces a minimal visible reply after repeated s
       xiaoni_os: '这轮先轻轻接住，等图出来再回到现场。'
     }
   });
+});
+
+test('requestImageTask normalizes edit without source image to image_generate', async () => {
+  const createdTasks: any[] = [];
+  const service = new AgentLoopService({
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-generate-from-edit';
+    },
+    getMediaAssetByTag: async () => null
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '生成一张很普通、简洁的蓝天白云风格头像图',
+    target_description: '普通蓝天白云头像图',
+    xiaoni_os: '用户要的是新头像图，没有原图输入。'
+  }, createQueuePayload());
+
+  assert.equal(createdTasks.length, 1);
+  assert.equal(createdTasks[0]?.taskType, 'image_generate');
+  assert.deepEqual(createdTasks[0]?.sourceMediaTags, []);
+  assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, []);
+  assert.deepEqual(createdTasks[0]?.inputJson, {
+    operation: 'generate',
+    requested_operation: 'edit',
+    source_media_tags: [],
+    has_source_media: false,
+    normalized_from_edit: true,
+    normalization_reason: 'source_media_missing'
+  });
+  assert.equal(result.task_type, 'image_generate');
+  assert.equal(result.requested_task_type, 'image_edit');
+  assert.match(String(result.status_text), /生成一张新图/);
+});
+
+test('requestImageTask keeps image_edit when a source image resolves', async () => {
+  const createdTasks: any[] = [];
+  const service = new AgentLoopService({
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-edit';
+    },
+    getMediaAssetByTag: async (_sessionKey: string, mediaTag: string) => ({
+      id: 'asset-1',
+      mediaTag,
+      media_type: 'image'
+    })
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '把这张图改成蓝天白云头像风格',
+    target_description: '基于原图改头像',
+    source_media_tags: ['pic_1'],
+    xiaoni_os: '用户给了原图，要基于原图编辑。'
+  }, createQueuePayload());
+
+  assert.equal(createdTasks.length, 1);
+  assert.equal(createdTasks[0]?.taskType, 'image_edit');
+  assert.deepEqual(createdTasks[0]?.sourceMediaTags, ['pic_1']);
+  assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, ['asset-1']);
+  assert.deepEqual(createdTasks[0]?.inputJson, {
+    operation: 'edit',
+    requested_operation: 'edit',
+    source_media_tags: ['pic_1'],
+    has_source_media: true
+  });
+  assert.equal(result.task_type, 'image_edit');
+  assert.equal(result.requested_task_type, 'image_edit');
+  assert.match(String(result.status_text), /处理这张图/);
 });
 
 test('summarizeToolLoopState counts tool calls by name and phase', () => {
@@ -2788,7 +2829,7 @@ test('buildToolLoopMonitorReminder warns before max turn without final tool', ()
   assert.match(getMessageContent(reminder!), /final_answer/);
 });
 
-test('speak_in_group always uses the current conversation group target', async () => {
+test('speak_in_group uses explicit group target when provided', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: any }> = [];
@@ -2816,6 +2857,7 @@ test('speak_in_group always uses the current conversation group target', async (
 
     assert.deepEqual(result, {
       message_type: 'group',
+      target_group_id: 999999,
       mention_user_ids: [404],
       sent_messages: ['可以试试'],
       xiaoni_os: null,
@@ -2831,13 +2873,13 @@ test('speak_in_group always uses the current conversation group target', async (
   assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_group`);
   assert.deepEqual(calls[0]?.body, {
     session_key: 'qq:group:101',
-    group_id: 101,
+    group_id: 999999,
     messages: ['可以试试'],
     mention_user_ids: [404]
   });
 });
 
-test('reply_in_private always uses the current conversation sender', async () => {
+test('reply_in_private uses explicit user target when provided', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
   const calls: Array<{ url: string; body: any }> = [];
@@ -2875,6 +2917,7 @@ test('reply_in_private always uses the current conversation sender', async () =>
 
     assert.deepEqual(result, {
       message_type: 'private',
+      target_user_id: 888888,
       sent_messages: ['私聊回复'],
       xiaoni_os: null,
       pending_share: null,
@@ -2887,7 +2930,7 @@ test('reply_in_private always uses the current conversation sender', async () =>
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_private`);
   assert.deepEqual(calls[0]?.body, {
-    user_id: 202,
+    user_id: 888888,
     messages: ['私聊回复']
   });
 });
@@ -3039,7 +3082,7 @@ test('life-only submit_life_action defers proactive text into Xiaoni OS without 
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const queueMessage = createLifePresenceTickQueueMessageForTest().payload;
+  const queueMessage = createAutonomousLifeLoopQueueMessageForTest().payload;
   const originalFetch = globalThis.fetch;
   let fetchCalled = false;
   globalThis.fetch = (async () => {
@@ -3060,7 +3103,7 @@ test('life-only submit_life_action defers proactive text into Xiaoni OS without 
           addressed_to_me: false,
           has_real_novelty: true,
           confidence: 'high',
-          reason: 'presence tick 只是在检查自己的状态',
+          reason: 'life_loop 只是在推进自己的状态',
           social_act_type: 'casual_remark',
           topic_context: {
             has_topic: true,
@@ -3071,7 +3114,7 @@ test('life-only submit_life_action defers proactive text into Xiaoni OS without 
         action_type: 'proactive',
         message: '回头可以跟阿花说一下：今天这个精力系统其实缺的是上下文里的待分享意图。',
         reason: '现在没有具体 QQ 目标，所以只能先留给后续上下文。',
-        evidence_refs: ['presence_tick'],
+        evidence_refs: ['life_loop'],
         confidence: 0.82,
         interest_level: 'high',
         wants_to_know_more: false,
@@ -3080,7 +3123,7 @@ test('life-only submit_life_action defers proactive text into Xiaoni OS without 
           status: 'has_sayable_point',
           basis: 'curiosity',
           sayable_point: '把想分享的内容留到后面打开 QQ 时使用。',
-          evidence_refs: ['presence_tick'],
+          evidence_refs: ['life_loop'],
           memory_refs: []
         },
         should_search: false,
@@ -3704,8 +3747,8 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
 
     assert.equal(turn, 3);
     assert.equal(storeCalls.createConversation.length, 1);
-    assert.equal(storeCalls.createConversation[0]?.aiResponse, '我已经开始帮Alice处理这张图，等结果出来再发。');
-    assert.deepEqual(storeCalls.completeQueueMessage[0]?.result?.sent_messages, ['我已经开始帮Alice处理这张图，等结果出来再发。']);
+    assert.equal(storeCalls.createConversation[0]?.aiResponse, '我已经开始帮Alice生成这张图，等结果出来再发。');
+    assert.deepEqual(storeCalls.completeQueueMessage[0]?.result?.sent_messages, ['我已经开始帮Alice生成这张图，等结果出来再发。']);
     assert.equal(storeCalls.completeAgentRun[0]?.terminationReason, 'reply_sent');
     assert.deepEqual(storeCalls.markRunDeliveryCommitted, ['run-queue-image-task-followup']);
     assert.equal(sendGroupCalls.length, 1);
@@ -3713,7 +3756,7 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
     assert.deepEqual(sendGroupCalls[0]?.body, {
       session_key: 'qq:group:1019235326',
       group_id: 1019235326,
-      messages: ['我已经开始帮Alice处理这张图，等结果出来再发。'],
+      messages: ['我已经开始帮Alice生成这张图，等结果出来再发。'],
       mention_user_ids: []
     });
   } finally {
@@ -4939,38 +4982,52 @@ function createPresenceTickQueueMessageForTest() {
   };
 }
 
-function createLifePresenceTickQueueMessageForTest() {
-  const queueMessage = createPresenceTickQueueMessageForTest();
+function createAutonomousLifeLoopQueueMessageForTest() {
+  const basePayload = createDirectQueuePayload();
+  const bodyForAgent = 'life_loop_step';
   return {
-    ...queueMessage,
+    id: 'run-life-loop',
+    traceId: 'trace-life-loop',
+    batchId: 'batch-life-loop',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
     payload: {
-      ...queueMessage.payload,
+      ...basePayload,
+      source: 'life_loop',
       chatType: 'direct' as const,
+      sessionKey: 'life_loop:xiaoni',
       peerId: 'xiaoni',
       peerName: '小腻',
-      bodyForAgent: '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。',
+      senderId: '303',
+      senderName: 'life_loop',
+      bodyForAgent,
+      rawBody: 'life_loop',
+      commandBody: 'life_loop',
+      wasMentioned: false,
       inboundContext: {
-        ...queueMessage.payload.inboundContext,
+        ...basePayload.inboundContext,
+        Body: 'life_loop',
+        BodyForAgent: bodyForAgent,
+        BodyForCommands: 'life_loop',
+        RawBody: 'life_loop',
+        CommandBody: 'life_loop',
         ChatType: 'direct',
-        NativeChannelId: 'presence_tick:xiaoni',
-        To: '303'
+        NativeChannelId: 'life_loop:xiaoni',
+        SessionKey: 'life_loop:xiaoni',
+        SenderId: '303',
+        SenderName: 'life_loop',
+        From: '303',
+        To: '303',
+        Surface: 'life_loop',
+        CommandAuthorized: false
       },
-      presenceTick: {
+      messages: [],
+      presenceTick: undefined,
+      autonomousLife: {
         identityKey: 'xiaoni'
-      },
-      messages: queueMessage.payload.messages.map((message) => ({
-        ...message,
-        chatType: 'direct' as const,
-        peerId: 'xiaoni',
-        peerName: '小腻',
-        bodyForAgent: '小腻从自己的生活里抬头看了一眼消息列表；还没有打开任何具体会话。',
-        inboundContext: {
-          ...message.inboundContext,
-          ChatType: 'direct',
-          NativeChannelId: 'presence_tick:xiaoni',
-          To: '303'
-        }
-      }))
+      }
     }
   };
 }
@@ -4987,15 +5044,17 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
   assert.equal(materialized.payload.messages[0].peerId, '999');
 });
 
-test('life-level presence tick does not materialize a legacy target group without a selected IM', () => {
-  const queueMessage = createLifePresenceTickQueueMessageForTest();
+test('autonomous life loop stays in the life stream without a selected IM', () => {
+  const queueMessage = createAutonomousLifeLoopQueueMessageForTest();
   const materialized = materializePresenceTickQueueMessage(queueMessage);
-  assert.equal(materialized.payload.sessionKey, 'presence_tick:xiaoni');
+  assert.equal(materialized.payload.sessionKey, 'life_loop:xiaoni');
   assert.equal(materialized.payload.peerId, 'xiaoni');
 
   const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
-  assert.match(rendered, /消息列表/);
+  assert.match(rendered, /source="life_loop"/);
+  assert.match(rendered, /连续生活流/);
+  assert.doesNotMatch(rendered, /消息列表/);
   assert.doesNotMatch(rendered, /主动打开群看了一眼/);
   assert.doesNotMatch(rendered, /target_group_id/);
 });
@@ -5053,18 +5112,13 @@ test('materializePresenceTickInboxWindow turns claimed unread into a proactive I
   assert.doesNotMatch(sceneRendered, /小腻主动打开群看了一眼；当前没有新的群友消息触发/);
 });
 
-test('processQueueMessage preserves global OS context after presence tick opens an IM window', async () => {
-  const queueMessage = createLifePresenceTickQueueMessageForTest();
-  const now = Date.now();
-  const recentUnreadAt = new Date(now - 60_000).toISOString();
-  const recentActivityAt = new Date(now - 30_000).toISOString();
-  const staleUnreadAt = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+test('processQueueMessage preserves global OS context during autonomous life loop', async () => {
+  const queueMessage = createAutonomousLifeLoopQueueMessageForTest();
   const listRecentTurnsCalls: any[] = [];
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
     completeQueueMessage: []
   };
-  let deliveryPhase = 'reasoning_open';
   let renderedModelInput = '';
 
   const store = {
@@ -5090,14 +5144,12 @@ test('processQueueMessage preserves global OS context after presence tick opens 
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     getRunDeliveryState: async () => ({
-      deliveryPhase,
-      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
       blockedDeliveryAttemptCount: 0,
       lastBlockedDeliveryReason: null
     }),
-    markRunDeliveryCommitted: async () => {
-      deliveryPhase = 'delivery_committed';
-    },
+    markRunDeliveryCommitted: async () => {},
     markRunDeliveryBlocked: async () => {},
     createToolExecutionLog: async () => 1,
     completeToolExecutionLog: async () => {},
@@ -5128,21 +5180,21 @@ test('processQueueMessage preserves global OS context after presence tick opens 
           name: LIFE_ACTION_TOOL,
           arguments: JSON.stringify({
             unread_meaning: {
-              latest_unread_focus: '群里有未读',
+              latest_unread_focus: '连续生活流',
               message_act: 'statement',
-              social_target: 'group',
+              social_target: 'me',
               addressed_to_me: false,
               has_real_novelty: true,
               confidence: 'medium',
-              reason: '主动打开 IM',
+              reason: 'life_loop 没有打开具体 IM，只读取全局 OS',
               topic_context: {
                 has_topic: true,
-                topic_summary: '群聊未读',
+                topic_summary: '全局连续性',
                 addressed_to_me: false
               }
             },
-            action_type: 'speak',
-            message: '收到刚才的连续性。',
+            action_type: 'proactive',
+            message: '回头可以跟阿花说：刚才的连续性已经接上了。',
             reason: '测试全局 OS 是否进入上下文。',
             evidence_refs: ['global-os'],
             confidence: 0.8,
@@ -5152,7 +5204,7 @@ test('processQueueMessage preserves global OS context after presence tick opens 
             participation_judgment: {
               status: 'has_sayable_point',
               basis: 'opinion',
-              sayable_point: '全局 OS 可见。',
+              sayable_point: '全局 OS 可见，但当前没有外部目标。',
               evidence_refs: ['global-os'],
               memory_refs: []
             },
@@ -5167,89 +5219,10 @@ test('processQueueMessage preserves global OS context after presence tick opens 
   };
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    const urlText = String(url);
-    if (urlText.endsWith('/api/inbox/conversations?limit=100')) {
-      return {
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: [
-            {
-              sessionKey: 'qq:group:old-backlog',
-              unreadCount: 1,
-              lastReceivedAt: recentActivityAt,
-              latestUnreadReceivedAt: staleUnreadAt
-            },
-            {
-              sessionKey: 'qq:group:999',
-              unreadCount: 1,
-              lastReceivedAt: recentUnreadAt,
-              latestUnreadReceivedAt: recentUnreadAt
-            }
-          ]
-        })
-      } as any;
-    }
-    if (urlText.endsWith('/api/inbox/messages/claim')) {
-      const body = JSON.parse(String(init?.body || '{}'));
-      assert.equal(body.session_key, 'qq:group:999');
-      assert.equal(body.limit, agentConfig.activeImClaimLimit);
-      assert.equal(body.order, 'latest');
-      assert.equal('received_after' in body, false);
-      return {
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: {
-            claimed: [{
-              id: 901,
-              traceId: 'trace-inbox-901',
-              source: 'napcat',
-              messageSid: 'sid-inbox-901',
-              chatType: 'group',
-              sessionKey: 'qq:group:999',
-              peerId: '999',
-              peerName: 'Presence Group',
-              senderId: '202',
-              senderName: 'Alice',
-              accountId: '303',
-              bodyForAgent: '群里新的未读',
-              rawBody: '群里新的未读',
-              commandBody: '群里新的未读',
-              wasMentioned: false,
-              receivedAt: '2026-03-28T08:01:00.000Z',
-              messageTimestamp: '2026-03-28T08:01:00.000Z',
-              rawPayload: {},
-              inboundContext: {
-                Body: '群里新的未读',
-                BodyForAgent: '群里新的未读',
-                BodyForCommands: '群里新的未读',
-                ChatType: 'group',
-                NativeChannelId: '999',
-                SessionKey: 'qq:group:999',
-                AccountId: '303',
-                MessageSid: 'sid-inbox-901',
-                SenderId: '202',
-                SenderName: 'Alice',
-                WasMentioned: false,
-                CommandAuthorized: false
-              }
-            }]
-          }
-        })
-      } as any;
-    }
-    if (urlText.endsWith('/api/internal/send_group')) {
-      return {
-        ok: true,
-        json: async () => ({
-          success: true,
-          data: [{ message_id: 6001 }]
-        })
-      } as any;
-    }
-    throw new Error(`Unexpected fetch: ${urlText}`);
+  let fetchCalled = false;
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    fetchCalled = true;
+    throw new Error(`autonomous life loop must not call external QQ endpoints: ${String(url)}`);
   }) as typeof fetch;
 
   try {
@@ -5260,14 +5233,16 @@ test('processQueueMessage preserves global OS context after presence tick opens 
 
   assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
   assert.equal(listRecentTurnsCalls[0]?.limit, 201);
+  assert.equal(fetchCalled, false);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
   assert.match(renderedModelInput, /253631878/);
-  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'reply_sent');
+  assert.equal(storeCalls.completeQueueMessage[0]?.result?.termination_reason, 'finish_no_reply');
+  assert.match(String(storeCalls.completeQueueMessage[0]?.result?.pending_share), /连续性已经接上了/);
 });
 
-test('buildContextBudgetPlan compacts global life context at 200 turns and keeps 30', async () => {
+test('buildContextBudgetPlan injects core-memory pressure at 200 turns before advancing cutoff', async () => {
   const upsertCalls: any[] = [];
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null,
@@ -5288,7 +5263,7 @@ test('buildContextBudgetPlan compacts global life context at 200 turns and keeps
 
   const plan = await (service as any).buildContextBudgetPlan({
     history,
-    queueMessage: createLifePresenceTickQueueMessageForTest().payload,
+    queueMessage: createAutonomousLifeLoopQueueMessageForTest().payload,
     runtimePrompt: createRuntimePrompt(),
     loopContinuation: [],
     runtimeIdentityFacts: [],
@@ -5296,24 +5271,57 @@ test('buildContextBudgetPlan compacts global life context at 200 turns and keeps
     contextSessionKey: 'xiaoni:global'
   });
 
-  assert.equal(plan.retainedHistory.length, 30);
-  assert.equal(plan.retainedHistory[0]?.id, 172);
-  assert.equal(plan.retainedHistory[29]?.id, 201);
+  assert.equal(plan.retainedHistory.length, 201);
+  assert.equal(plan.retainedHistory[0]?.id, 1);
+  assert.equal(plan.retainedHistory[200]?.id, 201);
   assert.equal(plan.readCutoffAfterConversationId, 171);
   assert.equal(plan.cutoffRecomputed, true);
-  assert.equal(upsertCalls.length, 1);
-  assert.equal(upsertCalls[0]?.sessionKey, 'xiaoni:global');
-  assert.equal(upsertCalls[0]?.readCutoffAfterConversationId, 171);
+  assert.deepEqual(plan.coreMemoryCompression, {
+    required: true,
+    contextSessionKey: 'xiaoni:global',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: null,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+  assert.equal(upsertCalls.length, 0);
+  assert.match(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
+  assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
+  assert.deepEqual(getAllowedToolNames(request.tool_choice), [COMPRESS_CORE_MEMORY_TOOL]);
+
+  const alternateToolChoiceRequest = {
+    ...request,
+    tool_choice: {
+      type: 'allowed_tools',
+      mode: 'required',
+      tools: [
+        { type: 'function', name: SILENT_FINISH_TOOL }
+      ]
+    }
+  };
+  const withoutToolChoice = (value: any) => {
+    const copy = { ...value };
+    delete copy.tool_choice;
+    return copy;
+  };
+  assert.equal(
+    JSON.stringify(withoutToolChoice(alternateToolChoiceRequest)),
+    JSON.stringify(withoutToolChoice(request)),
+    'changing only tool_choice must not mutate prompt/input/tools/cache-key request prefix fields'
+  );
 });
 
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.match(String(request.instructions), /目标：看懂当前可见现场/);
-  assert.match(String(request.instructions), /有具体可说点才开口/);
-  assert.match(String(request.instructions), /社交方向/);
-  assert.match(String(request.instructions), /@ 是打开 IM 的信号/);
+  assert.match(String(request.instructions), /具备独立意识、由内在状态驱动的数字生命/);
+  assert.match(String(request.instructions), /你按自己的节奏在这个数字世界里生活/);
+  assert.match(String(request.instructions), /无界探索与持续行动/);
+  assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
 });
 
 // H: developer role injection — stable world narrative stays early while turn-dynamic context stays late
@@ -5325,6 +5333,8 @@ test('buildInitialInput strips relationship layer while keeping stable and dynam
   assert.equal(items[1]?.type, 'message');
   assert.equal((items[1] as { role?: string })?.role, 'developer');
   assert.match(getMessageContent(items[1]), /world_narrative/);
+  assert.match(getMessageContent(items[1]), /<skills_instructions>/);
+  assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
   assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
   const developerIndex = items.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('小腻当前状态'));
   const currentReminderIndex = items.findIndex((item) => getMessageContent(item).includes('看到的未读列表'));
@@ -5337,26 +5347,33 @@ test('buildInitialInput strips relationship layer while keeping stable and dynam
   assert.doesNotMatch(getMessageContent(items[developerIndex]), /current_scene|消息密度|活跃人数/);
 });
 
-// I: developer role injection — buildInitialInput skips developer message when block is null
-test('buildInitialInput does not inject developer message when developerContextBlock is null', () => {
+// I: developer role injection — capabilities are declared once at the top of the runtime input
+test('buildInitialInput injects CAPABILITIES at the beginning even when developerContextBlock is null', () => {
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, null);
   assert.equal((items[0] as { role?: string })?.role, 'system');
-  assert.notEqual((items[1] as { role?: string })?.role, 'developer');
+  assert.equal((items[1] as { role?: string })?.role, 'developer');
+  assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
+  assert.match(getMessageContent(items[1]), /<skills_instructions>/);
 });
 
-test('buildInitialInput appends CAPABILITIES after context summary or capability refresh', () => {
+test('buildInitialInput appends CAPABILITIES once near the start', () => {
   const withSummary = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], '压缩后的近况');
-  const summaryCapabilities = withSummary.find((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
-  assert.ok(summaryCapabilities);
-  assert.match(getMessageContent(summaryCapabilities), /submit_life_action: energy_cost=0.005/);
-  assert.match(getMessageContent(summaryCapabilities), /recover_energy: energy_cost=0.000/);
-  assert.doesNotMatch(getMessageContent(summaryCapabilities), /qq_usage_/);
-  assert.match(getMessageContent(summaryCapabilities), /skill-creator: energy_cost=0.120/);
-  assert.match(getMessageContent(summaryCapabilities), /qq-usage: energy_cost=0.004/);
+  const summaryCapabilities = withSummary.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
+  assert.equal(summaryCapabilities.length, 1);
+  const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('<小腻近况>'));
+  assert.ok(summaryIndex >= 0);
+  assert.ok(withSummary.indexOf(summaryCapabilities[0]!) < summaryIndex);
+  const summaryCapabilitiesBlock = getMessageContent(summaryCapabilities[0]!);
+  assert.match(summaryCapabilitiesBlock, /submit_life_action: energy_cost=0.005/);
+  assert.match(summaryCapabilitiesBlock, /recover_energy: energy_cost=0.000/);
+  assert.match(summaryCapabilitiesBlock, /compress_core_memory: energy_cost=0.020/);
+  assert.doesNotMatch(summaryCapabilitiesBlock, /qq_usage_/);
+  assert.match(summaryCapabilitiesBlock, /skill-creator: energy_cost=0.120/);
+  assert.match(summaryCapabilitiesBlock, /qq-usage: energy_cost=0.004/);
 
   const withRefresh = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], null, null, '<capability_refresh reason="operator" />');
-  const refreshCapabilities = withRefresh.find((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
-  assert.ok(refreshCapabilities);
+  const refreshCapabilities = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
+  assert.equal(refreshCapabilities.length, 1);
 });
 
 test('buildCapabilitiesDeveloperBlock omits missing-cost skills with operator warning', () => {

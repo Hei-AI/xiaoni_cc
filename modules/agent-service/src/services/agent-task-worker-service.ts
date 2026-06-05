@@ -142,11 +142,15 @@ export class AgentTaskWorkerService {
     let endpoint = '/api/internal/image/generate';
     if (task.task_type === 'image_edit') {
       const sourceImages = await this.resolveSourceImageInputs(task);
-      if (sourceImages.length === 0) {
-        throw new Error('Image edit task requires at least one readable source image');
+      if (sourceImages.length > 0) {
+        body.images = sourceImages;
+        endpoint = '/api/internal/image/edit';
+      } else {
+        moduleLogger.warn('Image edit task has no readable source image; falling back to generation', {
+          taskId: task.id,
+          sessionKey: task.session_key
+        });
       }
-      body.images = sourceImages;
-      endpoint = '/api/internal/image/edit';
     }
 
     const response = await fetch(`${agentConfig.providerServiceUrl}${endpoint}`, {
@@ -177,7 +181,15 @@ export class AgentTaskWorkerService {
       .filter((asset: AgentMediaAssetRecord) => this.isImageLikeAsset(asset));
     const images = [];
     for (const asset of sourceAssets) {
-      const image = await this.materializeSourceImage(asset);
+      const image = await this.materializeSourceImage(asset).catch((error) => {
+        moduleLogger.warn('Failed to materialize source image for edit task', {
+          taskId: task.id,
+          assetId: asset.id,
+          mediaTag: asset.media_tag,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+      });
       if (image) {
         images.push(image);
       }

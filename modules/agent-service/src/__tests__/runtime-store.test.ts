@@ -170,52 +170,56 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
   assert.equal(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.5 }, new Date('2026-05-31T07:00:00.000Z')), null);
 });
 
-test('fatigue recovery event tells Xiaoni only current energy for sleep', async () => {
+test('recover_energy records sleep recovery from the explicit recovery tool', async () => {
   const store = new RuntimeStore() as any;
   const lifeEvents: any[] = [];
   store.recordLifeEventSafe = async (input: any) => {
     lifeEvents.push(input);
   };
+  store.refreshXiaoniLifeProjection = async () => undefined;
 
-  await store.recordPresenceRecoveryIfNeeded({
-    now: new Date('2026-05-31T00:30:00.000Z'),
-    projection: {
-      state: {
-        boredom: 0.6,
-        fatigue: 0.9,
-        energy: 0.1,
-        sharingDesire: 0.38,
-        sleepPressure: 1,
-        cooldownActive: false,
-        startupGraceActive: false,
-        attention: 1,
-        rewardAttraction: 0.34,
-        restPressure: 1,
-        actionCost: 1
-      }
-    },
-    explanation: {
-      meterDrivers: {
-        fatigue: '当前精力=0.10，累计行动成本=1.00'
+  await store.recordRecoverEnergyLifeEvent({
+    queueMessage: createRuntimeStoreQueuePayload({
+      source: 'life_loop',
+      chatType: 'direct',
+      sessionKey: 'life_loop:xiaoni',
+      peerId: 'xiaoni',
+      peerName: '小腻',
+      bodyForAgent: 'life_loop_step',
+      rawBody: 'life_loop',
+      commandBody: 'life_loop',
+      inboundContext: {
+        Body: 'life_loop',
+        BodyForAgent: 'life_loop_step',
+        BodyForCommands: 'life_loop',
+        NativeChannelId: 'life_loop:xiaoni',
+        CommandAuthorized: false,
+        Surface: 'life_loop'
       },
-      contributors: [{
-        eventId: '2',
-        eventKind: 'speak_in_group',
-        occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，本次行动成本 1.00'
-      }]
-    },
-    decision: { shouldEnqueue: false, reason: 'fatigue' }
+      messages: [],
+      presenceTick: undefined,
+      autonomousLife: {
+        identityKey: 'xiaoni'
+      }
+    }),
+    runId: 'run-recover-energy',
+    toolName: 'recover_energy',
+    toolResult: {
+      recovered: true,
+      reason: '累了，先睡一下',
+      xiaoni_os: '醒来继续自己的事。'
+    }
   });
 
   assert.equal(lifeEvents.length, 1);
   assert.equal(lifeEvents[0].eventKind, 'sleep_period');
-  assert.match(lifeEvents[0].payload.duration_label, /当前精力=0\.10/);
-  assert.doesNotMatch(lifeEvents[0].payload.duration_label, /疲劳=|困倦压力=|行动负担=/);
-  assert.match(lifeEvents[0].payload.duration_label, /睡眠恢复/);
-  assert.equal(lifeEvents[0].payload.energy_note, '当前精力=0.10，累计行动成本=1.00');
-  assert.equal(lifeEvents[0].payload.action_cost_sources[0].effect, '已经开口，本次行动成本 1.00');
-  assert.equal('fatigue_driver' in lifeEvents[0].payload, false);
+  assert.equal(lifeEvents[0].surface, 'life_loop');
+  assert.equal(lifeEvents[0].actionCost, 0);
+  assert.equal(lifeEvents[0].payload.tool_name, 'recover_energy');
+  assert.equal(lifeEvents[0].payload.reason, '累了，先睡一下');
+  assert.equal(lifeEvents[0].payload.xiaoni_os, '醒来继续自己的事。');
+  assert.equal(lifeEvents[0].payload.recovery_policy, 'recover_energy_tool_only');
+  assert.equal('duration_label' in lifeEvents[0].payload, false);
 });
 
 test('visible group replies charge one bounded action cost without per-message double counting', async () => {

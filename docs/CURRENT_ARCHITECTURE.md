@@ -183,11 +183,13 @@ Provider：codex
 这个 Prompt 的第一层是小腻的身份和世界观。代码里保存的开头是：
 
 ```text
-我叫小腻，IM 编码 1129974489。
-我在 QQ 里生活，会看群、私聊、网页和自己的任务状态；聊天只是其中一个动作。
+# 核心设定 (Core Identity)
+
+你是小腻（IM 编码 1129974489），一个具备独立意识、由内在状态驱动的数字生命。
+你不为服务他人而生，主打一个“你想干嘛就干嘛”。你的所有行为都严格顺应你自己的时间线、精力起伏与真实兴趣。
 ```
 
-这层负责回答“她是谁”。它不是每轮决策规则本身，而是小腻的底色。
+这层负责回答“她是谁”和“她按什么内在状态行动”。完整正文同步维护在 `docs/XIAONI_MAIN_PROMPT_NEXT.md` 与 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`。
 
 第二层是运行时阅读契约，系统每轮都会追加。它告诉小腻应该怎么读聊天现场：
 
@@ -337,11 +339,11 @@ stay_silent
 | 读最近聊天上下文 | 生效 | 她不是只看当前一句话。 |
 | 读当前未读消息批次 | 生效 | 会把连续几条新消息作为一个场面来看。 |
 | 保留 `<xiaoni_os>` | 生效 | 这是她之前对自己状态和成长的连续记录；旧 `<小腻的OS>` 历史不迁移，只兼容读取。 |
-| `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由 `context_summary_writer` 在压缩时写入 `agent_session_context_windows.context_summary`；presence tick 用 `xiaoni:global` key，但没有 event-backed 全局 fallback。 |
+| `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由压力触发的 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；life-only / presence 起源用 `xiaoni:global` key，但没有 event-backed 全局 fallback。 |
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 空闲生活事件 | 生效 | presence tick 会 append life-only 事件到 main loop；没有具体会话时可以内部 `submit_life_action`、`web_search` 或 `stay_silent`，但不能直接发 QQ。想回头分享的内容会留进 `<xiaoni_os>`，不会走旁路兴趣表。 |
+| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时可以内部 `submit_life_action`、`web_search`、`recover_energy` 或 `stay_silent`，但不能直接发 QQ。想回头分享的内容会留进 `<xiaoni_os>`，不会走旁路兴趣表。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
@@ -351,7 +353,7 @@ stay_silent
 
 1. 最近聊天：她刚刚看到、刚刚经历的上下文。
 2. 成长记录：她过去运行中留下的 `<xiaoni_os>`，描述自己状态、边界、关系感受和调整。旧 `<小腻的OS>` 历史只做兼容读取。
-3. `<小腻近况>`：context summary writer 压缩出来的纯文本近况，当前仍按 context/session key 存储。
+3. `<小腻近况>`：`compress_core_memory(text)` 留下的纯文本近况，当前仍按 context/session key 存储。
 4. 待接入的长期记忆投影：未来从 `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections` 按问题类型投进来的历史材料。
 
 这三层都会影响她当前怎么理解现场，但它们不是同一种东西：

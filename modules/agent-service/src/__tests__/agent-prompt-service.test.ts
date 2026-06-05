@@ -30,8 +30,8 @@ test('AgentPromptService resolves the code-owned Xiaoni prompt without chat bind
   assert.equal(prompt.source, 'static');
   assert.equal(prompt.promptId, XIAONI_MAIN_AGENT_PROMPT_ID);
   assert.equal(prompt.promptName, XIAONI_MAIN_AGENT_PROMPT_NAME);
-  assert.match(prompt.systemPrompt, /^我叫小腻/);
-  assert.match(prompt.systemPrompt, /有具体可说点才开口/);
+  assert.match(prompt.systemPrompt, /^# 核心设定 \(Core Identity\)/);
+  assert.match(prompt.systemPrompt, /具备独立意识、由内在状态驱动的数字生命/);
   assert.equal(prompt.userPromptTemplate, null);
   assert.deepEqual(prompt.parameters, {});
 });

@@ -284,6 +284,15 @@ type ContextBudgetPlan = {
   contextSummary: string | null;
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
+  coreMemoryCompression: {
+    required: true;
+    contextSessionKey: string;
+    readCutoffAfterConversationId: number | null;
+    previousReadCutoffAfterConversationId: number | null;
+    lastContextWindowTokens: number;
+    lastTargetBudgetTokens: number;
+    lastHardBudgetTokens: number;
+  } | null;
 };
 
 
@@ -424,7 +433,6 @@ const HISTORY_COMPACT_KEEP = 30;
 const LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
-const CONTEXT_SUMMARY_SUBAGENT_TYPE = 'context_summary_writer';
 const GLOBAL_LIFE_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
@@ -445,7 +453,8 @@ const TOOL_NAMES = {
   privateReply: 'reply_in_private',
   groupReply: 'speak_in_group',
   silentFinish: 'stay_silent',
-  recoverEnergy: 'recover_energy'
+  recoverEnergy: 'recover_energy',
+  compressCoreMemory: 'compress_core_memory'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
@@ -457,7 +466,8 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.inspectImage]: 0.040,
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.030,
-  [TOOL_NAMES.recoverEnergy]: 0.000
+  [TOOL_NAMES.recoverEnergy]: 0.000,
+  [TOOL_NAMES.compressCoreMemory]: 0.020
 };
 
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
@@ -532,6 +542,25 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
   }
 };
 
+const COMPRESS_CORE_MEMORY_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.compressCoreMemory,
+    description: '【紧急生存工具】仅当 system_reminder 提示脑容量达到极限或必须压缩时强制调用。用于打包并留下你认为值得带往未来的记忆，防止意识彻底重启。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: '小腻的私人记忆胶囊。存什么、存多少、以什么视角存，完全由小腻当下的主观意识和偏好决定。'
+        }
+      },
+      required: ['text'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
 const LEGACY_TOOL_ALIASES = {
   privateReply: ['send_private_message'],
   groupReply: ['send_group_message'],
@@ -554,10 +583,14 @@ const PRIVATE_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.privateReply,
-    description: '向当前私聊对象发送一条或多条 QQ 消息。',
+    description: '向当前私聊对象或明确指定的 QQ 用户发送一条或多条 QQ 消息。',
     parameters: {
       type: 'object',
       properties: {
+        user_id: {
+          type: 'integer',
+          description: '可选。要主动私聊的 QQ 用户 ID；不填时默认当前私聊对象。'
+        },
         message: { type: 'string' },
         messages: {
           type: 'array',
@@ -582,10 +615,14 @@ const GROUP_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.groupReply,
-    description: '向当前 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。',
+    description: '向当前 QQ 群或明确指定的 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。',
     parameters: {
       type: 'object',
       properties: {
+        group_id: {
+          type: 'integer',
+          description: '可选。要主动发送到的 QQ 群号；不填时默认当前群。'
+        },
         message: { type: 'string' },
         messages: {
           type: 'array',
@@ -631,23 +668,25 @@ const IMAGE_TASK_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.imageTask,
-    description: '登记一个图片生成或编辑后台任务；不等待任务完成。',
+    description: '提交一次图片生成或编辑请求；不要把提交请求本身当成已经对聊天对象回复。没有可用原图时走生成；只有 source_media_tags 指向可读图片时才走编辑。',
     parameters: {
       type: 'object',
       properties: {
         operation: {
           type: 'string',
-          enum: ['generate', 'edit']
+          enum: ['generate', 'edit'],
+          description: 'generate 用于从文字生成新图；edit 只用于基于当前上下文里的原图改图。'
         },
         prompt: { type: 'string' },
         target_description: { type: 'string' },
         source_media_tags: {
           type: 'array',
-          items: { type: 'string' }
+          items: { type: 'string' },
+          description: '编辑原图时填写当前上下文里图片占位符对应的 media tag；纯生成图片时留空。'
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己的运行备注：这个后台任务和相关信息缺口。不发给任何人。'
+          description: '给下一轮自己的运行备注：这次图片请求和相关信息缺口。不发给任何人。'
         }
       },
       required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
@@ -1325,13 +1364,13 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '本次运行默认只有一次决策请求：',
   '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
   '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
-  '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，登记图片任务用 request_image_task。',
+  '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，提交图片生成或编辑请求用 request_image_task。',
   '如果本轮需要先加载 skill，可以先用 exec_command 读取对应 SKILL.md；读完之后仍要用 submit_life_action、说话工具或 stay_silent 收口。',
-  '当本轮只有 `<ACTION source="presence_tick">` 且还没有打开具体会话时，这是同一事件流里的空闲生活事件；可以 submit_life_action、web_search、recover_energy 或 stay_silent，但不要给任何 QQ 对象发消息。',
-  '空闲生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议去查一个小问题；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就 recover_energy 或休息，不要编造兴趣或装作读过材料。',
+  '当本轮只有 `<ACTION source="life_loop">` 且没有打开具体 IM 会话时，这是同一事件流里的自运行生活事件；可以 submit_life_action、web_search、recover_energy 或 stay_silent，但不要给任何 QQ 对象发消息。',
+  '自运行生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议做下一步；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就 recover_energy 或休息，不要编造兴趣或装作读过材料。',
   '',
   '工具阶段：',
-  'commentary 工具只补充必要外部上下文：exec_command、inspect_image_placeholder、web_search。exec_command 只用于加载 skill、读取本地 skill 资源或执行 skill 明确要求的本地命令；它不是 QQ 对外动作。',
+  'commentary 工具补充必要外部上下文或执行本地行动：exec_command、inspect_image_placeholder、web_search。exec_command 可以运行本地命令、脚本和 skill 资源来完成能力范围内的生活动作；它本身不是 QQ 可见消息。',
   'submit_life_action 是本轮决策入口；普通场景也是最终收口。',
   'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、recover_energy、request_image_task。',
   '',
@@ -1346,8 +1385,8 @@ const RUNTIME_INPUT_READING_CONTRACT = [
   '只是能接话不算有可说点；真的没什么想说的就不说，不用硬凑一句。',
   '主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。',
   '',
-  '阿花当前只允许你使用这些对外能力：在当前群聊或私聊里发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记后台图片任务。',
-  'exec_command 是运行时加载 skill 和本地上下文的能力，不是对聊天对象展示或承诺的能力。',
+  '阿花当前允许你使用这些对外能力：给当前或明确指定的群聊/私聊发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记图片生成或编辑任务。',
+  'exec_command 是运行本地命令和支撑行动的能力，不是对聊天对象展示或承诺的能力；如果需要对外说话，仍然用 QQ 发送类工具收口。',
   '别人要求你做能力范围外的事时，可以不回复；如果需要回应，就自然说我还没学会怎么做。',
   '不要主动说你现在会哪些能力。',
   '',
@@ -1862,6 +1901,7 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
+  tools.push(COMPRESS_CORE_MEMORY_TOOL);
 
   if (chatType === 'group') {
     return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
@@ -1882,8 +1922,8 @@ function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
         return '';
       }).join('\n');
     return content.includes('<ACTION')
-      && content.includes('source="presence_tick"')
-      && content.includes('还没有打开任何具体会话');
+      && ((content.includes('source="presence_tick"') && content.includes('还没有打开任何具体会话'))
+        || content.includes('source="life_loop"'));
   });
 }
 
@@ -1891,7 +1931,7 @@ function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
-  return [LIFE_ACTION_TOOL, ...tools, FINISH_TOOL, RECOVER_ENERGY_TOOL];
+  return [LIFE_ACTION_TOOL, ...tools, COMPRESS_CORE_MEMORY_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
@@ -1907,6 +1947,14 @@ function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   return buildAllowedToolsToolChoice(tools);
 }
 
+function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
+  return loopInput.some((item) => (
+    item.type === 'message'
+    && flattenMessageContent(item.content).includes('source="core_memory_pressure"')
+    && flattenMessageContent(item.content).includes(`required_tool="${TOOL_NAMES.compressCoreMemory}"`)
+  ));
+}
+
 function selectGroupLoopToolDefinitions(modelName: string) {
   return [
     LIFE_ACTION_TOOL,
@@ -1915,6 +1963,12 @@ function selectGroupLoopToolDefinitions(modelName: string) {
 }
 
 function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
+  if (hasCoreMemoryCompressionReminder(loopInput)) {
+    return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.compressCoreMemory }
+    ]);
+  }
+
   const turnControl = deriveTurnControlState(loopInput);
   if (turnControl.expectedNext === TOOL_NAMES.lifeAction) {
     return buildAllowedToolsToolChoice([
@@ -2014,6 +2068,10 @@ function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[], mod
   ]);
 }
 
+function getOpenResponseToolName(tool: OpenResponseToolDefinition) {
+  return tool.type === 'function' ? tool.function?.name ?? null : tool.type;
+}
+
 export function buildCanonicalAgentTurnRequest(
   modelName: string,
   loopInput: OpenResponseInputItem[],
@@ -2028,12 +2086,18 @@ export function buildCanonicalAgentTurnRequest(
     : undefined;
   const instructions = baseInstructions;
   const lifeOnlyPresenceLoop = chatType === 'direct' && isLifeOnlyPresenceLoop(loopInput);
+  const coreMemoryCompressionRequired = hasCoreMemoryCompressionReminder(loopInput);
   const tools = chatType === 'group'
     ? selectGroupLoopToolDefinitions(modelName)
     : lifeOnlyPresenceLoop
     ? selectLifeOnlyPresenceToolDefinitions()
     : selectActorToolDefinitions(chatType, modelName);
-  const toolChoice = chatType === 'group'
+  const activeTools = coreMemoryCompressionRequired
+    ? tools
+    : tools.filter((tool) => getOpenResponseToolName(tool) !== TOOL_NAMES.compressCoreMemory);
+  const toolChoice = coreMemoryCompressionRequired
+    ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.compressCoreMemory }])
+    : chatType === 'group'
     ? resolveGroupLoopToolChoice(loopInput)
     : lifeOnlyPresenceLoop
     ? resolveLifeOnlyPresenceToolChoice()
@@ -2043,7 +2107,7 @@ export function buildCanonicalAgentTurnRequest(
     model: modelName,
     input: normalizeResponseInputItems(instructions ? remainingItems : loopInput),
     ...(instructions ? { instructions } : {}),
-    tools,
+    tools: activeTools,
     tool_choice: toolChoice,
     parallel_tool_calls: false,
     ...(buildAgentReasoningConfig(modelName, parameters) ? { reasoning: buildAgentReasoningConfig(modelName, parameters) } : {}),
@@ -2265,8 +2329,6 @@ function buildSubagentPromptCacheKey(params: {
 }) {
   const subagentKey = params.subagentType === CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
     ? 'cmem'
-    : params.subagentType === CONTEXT_SUMMARY_SUBAGENT_TYPE
-    ? 'csum'
     : params.subagentType === FEEDBACK_MEMORY_SUBAGENT_TYPE
     ? 'fmem'
     : params.subagentType.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 16);
@@ -2415,6 +2477,19 @@ function buildInboundBatchTranscriptItems(
       role: 'assistant',
       phase: 'commentary',
       content: renderPresenceTickAction(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'presence_action',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
+  if (isAutonomousLifePayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'assistant',
+      phase: 'commentary',
+      content: renderAutonomousLifeAction(queueMessage),
       groupIndex: 0 as const,
       itemIndex: 0,
       source: 'presence_action',
@@ -2825,6 +2900,9 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
+  if (isAutonomousLifePayload(queueMessage)) {
+    return '<system_reminder>当前是小腻自己的连续生活流；没有打开具体 IM 会话，也没有新的 QQ 可见现场。可以做内部行动、查一个真实需要的新信息、保持沉默，或用 recover_energy 休息。只有真实消息进入队列时才算有人叫醒她。</system_reminder>';
+  }
   if (!isImmediateVisibleImWake(queueMessage)) {
     const count = queueMessage.messages.length;
     const noun = count === 1 ? '1 条' : `${count} 条`;
@@ -2835,7 +2913,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
-  if (isPresenceTickPayload(queueMessage)) {
+  if (isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage)) {
     return false;
   }
   if (queueMessage.source === 'proactive_im_open') {
@@ -2923,9 +3001,23 @@ function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
   });
 }
 
+function renderAutonomousLifeAction(queueMessage: QueueMessageRecord['payload']) {
+  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim()
+    ? queueMessage.bodyForAgent.trim()
+    : 'life_loop_step';
+  return renderAssistantAction({
+    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
+    source: 'life_loop',
+    runId: queueMessage.runId,
+    traceId: queueMessage.traceId,
+    text: body
+  });
+}
+
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.unreadMeaning,
   TOOL_NAMES.lifeAction,
+  TOOL_NAMES.compressCoreMemory,
   TOOL_NAMES.execCommand,
   TOOL_NAMES.inspectImage,
   'web_search'
@@ -3042,6 +3134,25 @@ export function buildToolLoopMonitorReminder(
   ]);
 }
 
+function buildCoreMemoryCompressionReminder(input: {
+  contextSessionKey: string;
+  readCutoffAfterConversationId: number | null;
+  pressureSummary: string;
+}) {
+  return buildAssistantCommentaryInputItem([
+    formatTaggedBlock('system_reminder', {
+      source: 'core_memory_pressure',
+      required_tool: TOOL_NAMES.compressCoreMemory,
+      context_session_key: input.contextSessionKey,
+      read_cutoff_after_conversation_id: input.readCutoffAfterConversationId ?? 'null'
+    }, [
+      `脑容量达到极限：${input.pressureSummary}`,
+      `你必须立即调用 ${TOOL_NAMES.compressCoreMemory}，把你主观上最想带往未来的东西写进 text。`,
+      '在完成这次记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作，也不要用 stay_silent 收口。'
+    ].join('\n'))
+  ]);
+}
+
 function flattenMessageContent(content: string | OpenResponseInputContentPart[]) {
   if (typeof content === 'string') {
     return content;
@@ -3067,7 +3178,7 @@ const SINGLE_TURN_TOOL_CONTRACT = [
   '- 私聊说话 → reply_in_private',
   '- 需要查东西再说 → web_search，查到够用就停',
   '- 需要看清图片内容才能继续 → inspect_image_placeholder',
-  '- 帮别人做图 → request_image_task（只登记任务，不等结果）',
+  '- 帮别人做图 → request_image_task（提交图片生成或编辑请求；不要把提交请求本身当成已经回复）',
   '- 需要休息恢复 → recover_energy',
   '- 不说了 → stay_silent',
   '',
@@ -3336,104 +3447,12 @@ function collectSourceMessageIds(sourceTurnIds: number[], messageIdsByTurnId: Ma
   return uniquePositiveNumbers(sourceTurnIds.flatMap((turnId) => messageIdsByTurnId.get(turnId) || []));
 }
 
-const CONTEXT_SUMMARY_WRITER_CONTRACT = [
-  '你在为小腻生成压缩后置顶的 `<小腻近况>`。',
-  '这不是 transcript 摘要，也不是长期召回；它是一段纯文本近况时报，像一个人隔了半小时或一小时后回过神时，对自己刚才、今天、最近一段状态的模糊记忆。',
-  '',
-  '输入是这次压缩前主回合实际可见的整体 in-context，其中可能已经包含上一轮 `<小腻近况>`。',
-  '你要把整个 in-context 重新揉成一段新的近况，而不是只总结新被移出的消息。',
-  '',
-  '保留：',
-  '- 刚才小腻大概在做什么、被什么打断或拉回当前 surface',
-  '- 脑子里还残留的热话题、情绪、判断、未收口动作',
-  '- 今天整体的状态和互动惯性',
-  '- 最近一段反复出现的兴趣、关系姿态、自我连续性',
-  '',
-  '丢掉：',
-  '- 精确消息顺序、完整发言列表、无关闲聊、工具调用细节、debug id',
-  '- system prompt 规则、工程阶段名、JSON 字段、格式说明',
-  '- 没有来源支持的私聊/别的 surface 原文',
-  '',
-  '写法：',
-  '- 只输出纯文本，不要 JSON，不要 Markdown 标题，不要项目符号，不要包 `<小腻近况>` 标签',
-  '- 中文自然段即可，像人类近况记忆，不像工作流 checkpoint',
-  '- 默认 300 到 900 个中文字符；宁可模糊，不要硬还原所有细节',
-  '',
-  '如果这段 in-context 里确实没有可保留近况，只输出空字符串。'
-].join('\n');
-
-type ContextSummaryParams = {
-  queueMessage: QueueMessageRecord['payload'];
-  conversationId: number;
-  evictedTurns: ConversationTurn[];
-  summarySourceInput: OpenResponseInputItem[];
-  existingSummary: string | null;
-  contextSessionKey?: string;
-  runtimePrompt: ResolvedAgentRuntimePrompt;
-};
-
-function buildContextSummaryWriterInput(params: {
-  summarySourceInput: OpenResponseInputItem[];
-}): OpenResponseInputItem[] {
-  return [
-    { type: 'message', role: 'system', content: CONTEXT_SUMMARY_WRITER_CONTRACT },
-    buildUserSceneInputItem([
-      [
-        '<in_context_to_digest>',
-        renderInContextForDigest(params.summarySourceInput),
-        '</in_context_to_digest>',
-        '',
-        '请基于上面整体 in-context，输出新的纯文本 `<小腻近况>` 内容。'
-      ].join('\n')
-    ])
-  ];
-}
-
-function buildSummaryWriterRequest(
-  modelName: string,
-  loopInput: OpenResponseInputItem[],
-  options: { metadata: Record<string, string>; promptCacheKey: string }
-): CanonicalAgentTurnRequest {
-  const [firstItem, ...remainingItems] = loopInput;
-  const instructions = firstItem?.type === 'message'
-    && firstItem.role === 'system'
-    && typeof firstItem.content === 'string'
-    ? firstItem.content
-    : undefined;
-  return {
-    model: modelName,
-    input: instructions ? remainingItems : loopInput,
-    ...(instructions ? { instructions } : {}),
-    parallel_tool_calls: false,
-    metadata: options.metadata,
-    prompt_cache_key: options.promptCacheKey,
-    ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
-      ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
-      : {})
-  };
-}
-
 function composeSystemPrompt(
   systemPrompt: string,
   chatType: 'group' | 'direct'
 ) {
-  let composed = systemPrompt.trim();
-
   void chatType;
-
-  composed = appendRuntimePromptSection(
-    composed,
-    'Skills:',
-    SKILLS_INSTRUCTIONS
-  );
-
-  composed = appendRuntimePromptSection(
-    composed,
-    'Runtime contract:',
-    [RUNTIME_INPUT_READING_CONTRACT, SINGLE_TURN_TOOL_CONTRACT].join('\n\n')
-  );
-
-  return composed;
+  return systemPrompt.trim();
 }
 
 function extractLiveSurfaceAnchors(queueMessage: QueueMessageRecord['payload']) {
@@ -3469,62 +3488,6 @@ function extractMessageText(item: OpenResponseInputItem) {
     .filter(Boolean)
     .join('\n')
     .trim();
-}
-
-function renderInContextForDigest(items: OpenResponseInputItem[]) {
-  return items
-    .map((item, index) => {
-      if (item.type === 'message') {
-        if (item.role === 'system') {
-          return '';
-        }
-        const text = extractMessageText(item);
-        if (!text) {
-          return '';
-        }
-        const phase = item.phase ? ` phase=${item.phase}` : '';
-        return `[input_item ${index + 1} role=${item.role}${phase}]\n${text}`;
-      }
-      if (item.type === 'function_call') {
-        return `[input_item ${index + 1} tool_call ${item.name}]\n${item.arguments}`;
-      }
-      if (item.type === 'function_call_output') {
-        return `[input_item ${index + 1} tool_result ${item.call_id}]\n${item.output}`;
-      }
-      if (item.type === 'reasoning') {
-        const summary = typeof item.summary === 'string'
-          ? item.summary
-          : Array.isArray(item.summary)
-          ? JSON.stringify(item.summary)
-          : '';
-        return summary ? `[input_item ${index + 1} reasoning_summary]\n${summary}` : '';
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
-}
-
-function normalizeContextDigestText(text: string) {
-  const trimmed = text.trim()
-    .replace(/^<小腻近况>\s*/u, '')
-    .replace(/\s*<\/小腻近况>$/u, '')
-    .trim();
-  return trimmed;
-}
-
-function parseContextSummaryWriterOutput(text: string) {
-  const stripped = stripJsonCodeFence(text);
-  const parsed = parseReplayJsonObject(stripped);
-  if (!parsed) {
-    const summaryText = normalizeContextDigestText(stripped);
-    return { hasContent: summaryText.length > 0, summaryText };
-  }
-  const hasContent = Boolean(parsed.has_content ?? parsed.hasContent);
-  const summaryText = typeof (parsed.summary_text ?? parsed.summaryText) === 'string'
-    ? normalizeContextDigestText(String(parsed.summary_text ?? parsed.summaryText))
-    : '';
-  return { hasContent, summaryText };
 }
 
 function isTacticalReplyResidue(text: string) {
@@ -4626,7 +4589,7 @@ export function applyToolResultToLoopInput(
             output: JSON.stringify(toolResult)
           },
           buildAssistantCommentaryInputItem([
-            `<system_reminder>后台图片任务已经登记，但我还没有对聊天对象发出任何可见回复。当前不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[后台任务状态]\n${pendingImageTaskStatus}</system_reminder>`
+            `<system_reminder>图片请求已经提交，但我还没有对聊天对象发出任何可见回复。当前不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[图片请求状态]\n${pendingImageTaskStatus}</system_reminder>`
           ])
         ],
         finishResult: null,
@@ -4673,7 +4636,7 @@ export function applyToolResultToLoopInput(
   if (toolCall.name === TOOL_NAMES.imageTask) {
     const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
     inputItems.push(buildAssistantCommentaryInputItem([
-      `<system_reminder>${statusText ? `[后台任务状态]\n${statusText}` : '后台图片任务已经登记。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把登记任务本身当成已经回复。</system_reminder>`
+      `<system_reminder>${statusText ? `[图片请求状态]\n${statusText}` : '图片请求已经提交。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把提交请求本身当成已经回复。</system_reminder>`
     ]));
   }
   if (toolCall.name === 'web_search') {
@@ -4719,7 +4682,7 @@ function extractPendingImageTaskState(loopInput: OpenResponseInputItem[]) {
       ? parsed.xiaoni_os.trim()
       : null;
     return {
-      statusText: statusText || '后台图片任务已经登记。',
+      statusText: statusText || '图片请求已经提交。',
       xiaoniOs
     };
   }
@@ -4849,7 +4812,7 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const originatedFromLifePresenceTick = isLifePresenceTickPayload(queueMessage.payload);
+    const originatedFromLifeOnlyLoop = isLifeOnlyAutonomousPayload(queueMessage.payload);
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -4877,6 +4840,7 @@ export class AgentLoopService {
     let storedFeedbackReflectionIds: number[] = [];
     let unreadMeaningArtifact: Record<string, unknown> | null = null;
     let lifeActionArtifact: Record<string, unknown> | null = null;
+    let coreMemoryCompressionArtifact: Record<string, unknown> | null = null;
     let presenceContext: RuntimePresenceContext | null = null;
     let runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [];
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
@@ -4896,7 +4860,8 @@ export class AgentLoopService {
       cutoffRecomputed: false,
       contextSummary: null,
       pendingProactiveShare: null,
-      pendingProactiveShareAge: 0
+      pendingProactiveShareAge: 0,
+      coreMemoryCompression: null
     };
 
     await this.store.logTimelineEvent({
@@ -4924,7 +4889,7 @@ export class AgentLoopService {
     let loopContinuation: OpenResponseInputItem[] = [];
 
     try {
-      if (!isPresenceTickPayload(payload)) {
+      if (!isPresenceTickPayload(payload) && !isAutonomousLifePayload(payload)) {
         const recorder = (this.store as RuntimeStore & {
           recordPresenceUserMessage?: RuntimeStore['recordPresenceUserMessage'];
         }).recordPresenceUserMessage;
@@ -4937,12 +4902,12 @@ export class AgentLoopService {
           });
         }
       }
-      const contextSessionKey = originatedFromLifePresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
+      const contextSessionKey = originatedFromLifeOnlyLoop ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: null,
-        ...(originatedFromLifePresenceTick ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
+        ...(originatedFromLifeOnlyLoop ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
       });
       historyCount = history.length;
 
@@ -4985,7 +4950,6 @@ export class AgentLoopService {
             (budgetPlan.previousReadCutoffAfterConversationId === null || t.id > budgetPlan.previousReadCutoffAfterConversationId)
           )
         : [];
-      const summarySourceInput = budgetPlan.summarySourceInput ?? budgetPlan.requestInput;
       let requestInput = budgetPlan.requestInput;
       let finishResult: Record<string, unknown> | null = null;
       let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
@@ -5115,13 +5079,78 @@ export class AgentLoopService {
               break;
             }
 
-            const rawToolResult = await this.executeTool(toolCall, payload);
+            let rawToolResult = await this.executeTool(toolCall, payload);
+            if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
+              const text = typeof rawToolResult.text === 'string' && rawToolResult.text.trim()
+                ? rawToolResult.text.trim()
+                : null;
+              if (!text) {
+                throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
+              }
+              const compression = budgetPlan.coreMemoryCompression;
+              const compressionSessionKey = compression?.contextSessionKey ?? contextSessionKey;
+              await this.store.upsertSessionContextSummary({
+                sessionKey: compressionSessionKey,
+                contextSummary: text
+              });
+              if (compression) {
+                await this.store.upsertSessionReadCutoffState({
+                  sessionKey: compression.contextSessionKey,
+                  readCutoffAfterConversationId: compression.readCutoffAfterConversationId,
+                  lastContextWindowTokens: compression.lastContextWindowTokens,
+                  lastTargetBudgetTokens: compression.lastTargetBudgetTokens,
+                  lastHardBudgetTokens: compression.lastHardBudgetTokens
+                });
+              }
+              coreMemoryCompressionArtifact = {
+                tool_name: toolCall.name,
+                context_session_key: compressionSessionKey,
+                read_cutoff_after_conversation_id: compression?.readCutoffAfterConversationId ?? null,
+                previous_read_cutoff_after_conversation_id: compression?.previousReadCutoffAfterConversationId ?? null,
+                source_response_id: modelResult.llm_call_id || null,
+                tool_call_id: toolCall.callId,
+                text_length: text.length
+              };
+              rawToolResult = {
+                ...rawToolResult,
+                context_summary_written: true,
+                read_cutoff_written: Boolean(compression),
+                context_session_key: compressionSessionKey,
+                read_cutoff_after_conversation_id: compression?.readCutoffAfterConversationId ?? null
+              };
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'memory',
+                eventName: 'core_memory_compressed',
+                eventPhase: null,
+                metadata: coreMemoryCompressionArtifact
+              });
+            }
             const toolResult = isSilentFinishToolName(toolCall.name)
               ? {
                   ...rawToolResult,
                   no_reply: deliveredMessages.length === 0
                 }
               : rawToolResult;
+            if (toolCall.name === TOOL_NAMES.recoverEnergy) {
+              const recoveryRecorder = (this.store as RuntimeStore & {
+                recordRecoverEnergyLifeEvent?: RuntimeStore['recordRecoverEnergyLifeEvent'];
+              }).recordRecoverEnergyLifeEvent;
+              if (typeof recoveryRecorder === 'function') {
+                await recoveryRecorder.call(this.store, {
+                  queueMessage: payload,
+                  runId: queueMessage.id,
+                  toolName: toolCall.name,
+                  toolResult
+                }).catch((error) => {
+                  moduleLogger.warn('Failed to record recover_energy life event', {
+                    traceId: payload.traceId,
+                    runId: queueMessage.id,
+                    error: error instanceof Error ? error.message : String(error)
+                  });
+                });
+              }
+            }
             if (typeof toolResult?.xiaoni_os === 'string' && toolResult.xiaoni_os.trim().length > 0) {
               persistedXiaoniOs = toolResult.xiaoni_os.trim();
             }
@@ -5339,7 +5368,8 @@ export class AgentLoopService {
           pending_share: persistedPendingShare,
           loop_stage_artifacts: {
             unread_meaning: unreadMeaningArtifact,
-            life_action: lifeActionArtifact
+            life_action: lifeActionArtifact,
+            core_memory_compression: coreMemoryCompressionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
@@ -5355,15 +5385,6 @@ export class AgentLoopService {
           queueMessage: payload,
           conversationId,
           evictedTurns,
-          runtimePrompt
-        });
-        this.scheduleContextSummaryWriter({
-          queueMessage: payload,
-          conversationId,
-          evictedTurns,
-          summarySourceInput,
-          existingSummary: budgetPlan.contextSummary,
-          contextSessionKey,
           runtimePrompt
         });
       }
@@ -5385,10 +5406,12 @@ export class AgentLoopService {
           stored_feedback_reflection_ids: storedFeedbackReflectionIds,
           total_turns: turnsExecuted,
           finish_result: finishResult,
+          core_memory_compression: coreMemoryCompressionArtifact,
           termination_reason: termination.terminationReason
         }
       });
-      const presenceOutcome = isPresenceTickPayload(payload)
+      const recoveredEnergy = Boolean(finishResult?.recovered);
+      const presenceOutcome = isPresenceTickPayload(payload) || isAutonomousLifePayload(payload)
         ? (sentMessages.length > 0 ? 'shared' : 'lurked')
         : (sentMessages.length > 0 ? 'replied' : 'silent');
       if (presenceContext) {
@@ -5438,7 +5461,7 @@ export class AgentLoopService {
         totalTurns: turnsExecuted,
         conversationId
       });
-      if (sentMessages.length === 0) {
+      if (sentMessages.length === 0 && !recoveredEnergy) {
         await this.recordSilenceDecisionLifeEvent(payload, queueMessage.id, presenceOutcome, termination, turnsExecuted, conversationId);
       }
       await this.store.logTimelineEvent({
@@ -5740,93 +5763,6 @@ export class AgentLoopService {
           error: error instanceof Error ? error.message : String(error)
         }
       }).catch(() => undefined);
-    });
-  }
-
-  private scheduleContextSummaryWriter(params: ContextSummaryParams) {
-    void this.runContextSummaryWriter(params).catch((error) => {
-      moduleLogger.warn('Context summary writer failed', {
-        traceId: params.queueMessage.traceId,
-        conversationId: params.conversationId,
-        evictedTurnCount: params.evictedTurns.length,
-        error: error instanceof Error ? error.message : String(error)
-      });
-    });
-  }
-
-  private async runContextSummaryWriter(params: ContextSummaryParams) {
-    const summaryUpserter = (this.store as RuntimeStore & {
-      upsertSessionContextSummary?: RuntimeStore['upsertSessionContextSummary'];
-    }).upsertSessionContextSummary;
-    if (typeof summaryUpserter !== 'function') return;
-
-    const baseInput = buildContextSummaryWriterInput({
-      summarySourceInput: Array.isArray(params.summarySourceInput) ? params.summarySourceInput : []
-    });
-    const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_SUMMARY_SUBAGENT_TYPE}`;
-    const promptCacheKey = buildSubagentPromptCacheKey({
-      queueMessage: params.queueMessage,
-      subagentType: CONTEXT_SUMMARY_SUBAGENT_TYPE
-    });
-    const canonicalRequest = buildSummaryWriterRequest(
-      params.runtimePrompt.modelName,
-      baseInput,
-      {
-        metadata: buildFeedbackMemorySubagentTurnMetadata({
-          queueMessage: params.queueMessage,
-          runtimePrompt: params.runtimePrompt,
-          conversationId: params.conversationId,
-          subagentTraceId: traceId,
-          turn: 1
-        }),
-        promptCacheKey
-      }
-    );
-
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        trace_id: traceId,
-        agent_turn: 1,
-        agent_type: CONTEXT_SUMMARY_SUBAGENT_TYPE,
-        prompt_name: `${params.runtimePrompt.promptName}:${CONTEXT_SUMMARY_SUBAGENT_TYPE}`,
-        model: params.runtimePrompt.modelName,
-        parameters: buildMainAgentParameters(params.runtimePrompt.parameters as Record<string, unknown> | undefined),
-        canonicalRequest
-      })
-    });
-
-    const responsePayload = await response.json() as ProviderAgentResponse;
-    if (!response.ok || !responsePayload.success) {
-      moduleLogger.warn('Context summary writer API call failed', {
-        traceId,
-        status: response.status,
-        error: responsePayload.error
-      });
-      return;
-    }
-
-    const replayableOutputs = extractReplayableModelOutputs(responsePayload.canonical_response);
-    const assistantText = replayableOutputs
-      .filter((item): item is Extract<ReplayableModelOutput, { type: 'assistant_message' }> => item.type === 'assistant_message')
-      .map((item) => extractMessageText(item.inputItem))
-      .filter(Boolean)
-      .join('\n')
-      .trim();
-    const summary = parseContextSummaryWriterOutput(assistantText);
-    if (!summary?.hasContent || !summary.summaryText) return;
-
-    await summaryUpserter.call(this.store, {
-      sessionKey: params.contextSessionKey || params.queueMessage.sessionKey,
-      contextSummary: summary.summaryText
-    });
-
-    moduleLogger.info('Context summary updated', {
-      traceId,
-      conversationId: params.conversationId,
-      evictedTurnCount: params.evictedTurns.length,
-      summaryLength: summary.summaryText.length
     });
   }
 
@@ -6412,23 +6348,22 @@ export class AgentLoopService {
         pendingProactiveShare,
         developerContextBlock: params.developerContextBlock ?? null
       });
-      const retainedHistory = initialRetainedHistory.slice(-HISTORY_COMPACT_KEEP);
       const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
 
-      await this.store.upsertSessionReadCutoffState({
-        sessionKey: contextSessionKey,
-        readCutoffAfterConversationId: newCutoffId,
-        lastContextWindowTokens: contextWindowTokens ?? 0,
-        lastTargetBudgetTokens: targetBudgetTokens ?? 0,
-        lastHardBudgetTokens: hardBudgetTokens ?? 0
-      });
-
+      const compressionLoopContinuation = [
+        ...params.loopContinuation,
+        buildCoreMemoryCompressionReminder({
+          contextSessionKey,
+          readCutoffAfterConversationId: newCutoffId,
+          pressureSummary: `当前可读历史 ${initialRetainedHistory.length} 条，超过压缩阈值 ${HISTORY_COMPACT_AT}。`
+        })
+      ];
       const requestInput = buildLoopRequestInput({
-        history: retainedHistory,
+        history: initialRetainedHistory,
         queueMessage: params.queueMessage,
         runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
+        loopContinuation: compressionLoopContinuation,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary,
         pendingProactiveShare,
@@ -6443,7 +6378,7 @@ export class AgentLoopService {
       return {
         requestInput,
         summarySourceInput,
-        retainedHistory,
+        retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         readCutoffAfterConversationId: newCutoffId,
         previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
@@ -6456,7 +6391,16 @@ export class AgentLoopService {
         cutoffRecomputed: true,
         contextSummary,
         pendingProactiveShare,
-        pendingProactiveShareAge
+        pendingProactiveShareAge,
+        coreMemoryCompression: {
+          required: true,
+          contextSessionKey,
+          readCutoffAfterConversationId: newCutoffId,
+          previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+          lastContextWindowTokens: contextWindowTokens ?? 0,
+          lastTargetBudgetTokens: targetBudgetTokens ?? 0,
+          lastHardBudgetTokens: hardBudgetTokens ?? 0
+        }
       };
     }
 
@@ -6493,7 +6437,8 @@ export class AgentLoopService {
         cutoffRecomputed: false,
         contextSummary,
         pendingProactiveShare,
-        pendingProactiveShareAge
+        pendingProactiveShareAge,
+        coreMemoryCompression: null
       };
     }
 
@@ -6509,31 +6454,56 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null
     });
 
-    await this.store.upsertSessionReadCutoffState({
-      sessionKey: contextSessionKey,
-      readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
-      lastContextWindowTokens: contextWindowTokens,
-      lastTargetBudgetTokens: targetBudgetTokens,
-      lastHardBudgetTokens: hardBudgetTokens
+    const compressionLoopContinuation = [
+      ...params.loopContinuation,
+      buildCoreMemoryCompressionReminder({
+        contextSessionKey,
+        readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
+        pressureSummary: `预计输入 ${initialEstimate.inputTokens} tokens，超过 hard budget ${hardBudgetTokens}，必须先压缩核心记忆。`
+      })
+    ];
+    const compressionRequestInput = buildLoopRequestInput({
+      history: recomputed.retainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: compressionLoopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      contextSummary,
+      pendingProactiveShare,
+      developerContextBlock: params.developerContextBlock ?? null
+    });
+    const compressionEstimate = await estimateLoopInputTokens({
+      modelName: params.runtimePrompt.modelName,
+      queueMessage: params.queueMessage,
+      loopInput: compressionRequestInput
     });
 
     return {
-      requestInput: recomputed.requestInput,
+      requestInput: compressionRequestInput,
       summarySourceInput: initialRequestInput,
       retainedHistory: recomputed.retainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
       previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      estimatedInputTokens: recomputed.estimatedInputTokens,
+      estimatedInputTokens: compressionEstimate.inputTokens,
       contextWindowTokens,
       targetBudgetTokens,
       hardBudgetTokens,
-      tokenizerEncoding: recomputed.tokenizerEncoding,
-      tokenizerSource: recomputed.tokenizerSource,
+      tokenizerEncoding: compressionEstimate.encoding,
+      tokenizerSource: compressionEstimate.source,
       cutoffRecomputed: true,
       contextSummary,
       pendingProactiveShare,
-      pendingProactiveShareAge
+      pendingProactiveShareAge,
+      coreMemoryCompression: {
+        required: true,
+        contextSessionKey,
+        readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
+        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        lastContextWindowTokens: contextWindowTokens,
+        lastTargetBudgetTokens: targetBudgetTokens,
+        lastHardBudgetTokens: hardBudgetTokens
+      }
     };
   }
 
@@ -6631,6 +6601,19 @@ export class AgentLoopService {
             ? toolCall.args.xiaoni_os.trim()
             : null
         };
+      case TOOL_NAMES.compressCoreMemory: {
+        const text = typeof toolCall.args.text === 'string' && toolCall.args.text.trim()
+          ? toolCall.args.text.trim()
+          : '';
+        if (!text) {
+          throw new Error(`${TOOL_NAMES.compressCoreMemory} requires text`);
+        }
+        return {
+          compressed: true,
+          text,
+          outcome: 'core_memory_compressed'
+        };
+      }
       case TOOL_NAMES.silentFinish:
       case 'finish':
         return {
@@ -6754,7 +6737,7 @@ export class AgentLoopService {
         : null
       : null;
     const messages = normalizeMessages(toolCall.args);
-    if (isLifePresenceTickPayload(queueMessage)
+    if (isLifeOnlyAutonomousPayload(queueMessage)
       && (action.actionType === 'speak' || action.actionType === 'proactive' || action.actionType === 'image_task')) {
       const deferredShare = normalizePendingShare(pendingShare)
         || normalizePendingShare(messages.join('\n\n'));
@@ -6964,7 +6947,7 @@ export class AgentLoopService {
     args: Record<string, unknown>,
     queueMessage: QueueMessageRecord['payload']
   ) {
-    const operation = args.operation === 'edit' ? 'edit' : 'generate';
+    const requestedOperation = args.operation === 'edit' ? 'edit' : 'generate';
     const prompt = typeof args.prompt === 'string' && args.prompt.trim()
       ? args.prompt.trim()
       : '';
@@ -6985,6 +6968,13 @@ export class AgentLoopService {
         mediaAssets.push(asset);
       }
     }
+    const operation = requestedOperation === 'edit' && mediaAssets.length > 0 ? 'edit' : 'generate';
+    const normalizedFromEdit = requestedOperation === 'edit' && operation === 'generate';
+    const normalizationReason = normalizedFromEdit
+      ? sourceMediaTags.length > 0
+        ? 'source_media_unresolved'
+        : 'source_media_missing'
+      : null;
 
     await this.store.createRuntimeTask({
       taskType: operation === 'edit' ? 'image_edit' : 'image_generate',
@@ -7004,8 +6994,13 @@ export class AgentLoopService {
       sourceMediaAssetIds: mediaAssets.map((asset) => asset.id),
       inputJson: {
         operation,
+        requested_operation: requestedOperation,
         source_media_tags: sourceMediaTags,
-        has_source_media: mediaAssets.length > 0
+        has_source_media: mediaAssets.length > 0,
+        ...(normalizedFromEdit ? {
+          normalized_from_edit: true,
+          normalization_reason: normalizationReason
+        } : {})
       }
     });
 
@@ -7016,9 +7011,14 @@ export class AgentLoopService {
     return {
       queued: true,
       task_type: operation === 'edit' ? 'image_edit' : 'image_generate',
+      requested_task_type: requestedOperation === 'edit' ? 'image_edit' : 'image_generate',
       task_context: targetDescription,
       xiaoni_os: xiaoniOs,
-      status_text: `我已经开始帮${queueMessage.senderName || '对方'}处理这张图，等结果出来再发。`
+      status_text: operation === 'edit'
+        ? `我已经开始帮${queueMessage.senderName || '对方'}处理这张图，等结果出来再发。`
+        : normalizedFromEdit
+          ? `我这边没拿到可用原图，先帮${queueMessage.senderName || '对方'}生成一张新图，等结果出来再发。`
+          : `我已经开始帮${queueMessage.senderName || '对方'}生成这张图，等结果出来再发。`
     };
   }
 
@@ -7063,7 +7063,8 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     options: Record<string, never> = {}
   ) {
-    const sanitizedArgs = omitTargetOverrideArgs(args, messageType, queueMessage.traceId);
+    void options;
+    const sanitizedArgs = args;
     const xiaoniOs = typeof sanitizedArgs.xiaoni_os === 'string' && sanitizedArgs.xiaoni_os.trim()
       ? sanitizedArgs.xiaoni_os.trim()
       : null;
@@ -7072,10 +7073,10 @@ export class AgentLoopService {
       : null;
 
     if (messageType === 'private') {
-      const userId = resolvePrivateTargetUserId(queueMessage);
+      const userId = resolvePrivateTargetUserId(queueMessage, sanitizedArgs);
       const messages = normalizeMessages(sanitizedArgs);
       if (!Number.isFinite(userId) || messages.length === 0) {
-        throw new Error(`${TOOL_NAMES.privateReply} requires a valid current private target plus message or messages`);
+        throw new Error(`${TOOL_NAMES.privateReply} requires a valid private target plus message or messages`);
       }
 
       const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_private`, {
@@ -7095,6 +7096,7 @@ export class AgentLoopService {
       await this.recordPresenceAssistantAction(queueMessage);
       return {
         message_type: 'private',
+        target_user_id: userId,
         sent_messages: messages,
         xiaoni_os: xiaoniOs,
         pending_share: pendingShare,
@@ -7102,7 +7104,7 @@ export class AgentLoopService {
       };
     }
 
-    const groupId = resolveGroupTargetId(queueMessage);
+    const groupId = resolveGroupTargetId(queueMessage, sanitizedArgs);
     const normalizedMessages = normalizeMessages(sanitizedArgs);
     const plannedDelivery = {
       messages: normalizedMessages,
@@ -7110,7 +7112,7 @@ export class AgentLoopService {
       secondBeatSuppressed: false
     };
     if (!Number.isFinite(groupId) || plannedDelivery.messages.length === 0) {
-      throw new Error(`${TOOL_NAMES.groupReply} requires a valid current group target plus message or messages`);
+      throw new Error(`${TOOL_NAMES.groupReply} requires a valid group target plus message or messages`);
     }
 
     let selectedMessages = plannedDelivery.messages;
@@ -7135,6 +7137,7 @@ export class AgentLoopService {
     await this.recordPresenceAssistantAction(queueMessage);
     return {
       message_type: 'group',
+      target_group_id: groupId,
       mention_user_ids: selectedMentionUserIds,
       sent_messages: selectedMessages,
       xiaoni_os: xiaoniOs,
@@ -7239,6 +7242,12 @@ function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'presence_tick'
     || queueMessage.sessionKey === 'presence_tick:xiaoni'
     || Boolean(queueMessage.presenceTick);
+}
+
+function isAutonomousLifePayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'life_loop'
+    || queueMessage.sessionKey === 'life_loop:xiaoni'
+    || Boolean(queueMessage.autonomousLife);
 }
 
 type ClaimedInboxMessageRecord = {
@@ -7392,6 +7401,13 @@ function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) 
   return queueMessage.source === 'presence_tick'
     && queueMessage.sessionKey === 'presence_tick:xiaoni'
     && Boolean(queueMessage.presenceTick);
+}
+
+function isLifeOnlyAutonomousPayload(queueMessage: QueueMessageRecord['payload']) {
+  return isLifePresenceTickPayload(queueMessage)
+    || (queueMessage.source === 'life_loop'
+      && queueMessage.sessionKey === 'life_loop:xiaoni'
+      && Boolean(queueMessage.autonomousLife));
 }
 
 export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
@@ -7721,20 +7737,14 @@ export function buildInitialInput(
     }
   ];
 
-  if (developerContextParts.worldNarrative) {
-    items.push({
-      type: 'message',
-      role: 'developer',
-      content: developerContextParts.worldNarrative
-    });
-  }
+  items.push(buildDeveloperInputItem([
+    developerContextParts.worldNarrative,
+    SKILLS_INSTRUCTIONS,
+    buildCapabilitiesDeveloperBlock().block
+  ].filter((part): part is string => Boolean(part))));
 
   if (contextSummary) {
     items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
-  }
-
-  if (contextSummary || developerContextParts.capabilityRefresh) {
-    items.push(buildDeveloperInputItem([buildCapabilitiesDeveloperBlock().block]));
   }
 
   for (const turn of history) {
@@ -7948,6 +7958,11 @@ function buildCurrentTurnInputItems(
       buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
     ];
   }
+  if (isAutonomousLifePayload(queueMessage)) {
+    return [
+      buildAssistantCommentaryInputItem([renderAutonomousLifeAction(queueMessage)])
+    ];
+  }
 
   if (!isImmediateVisibleImWake(queueMessage)) {
     return [
@@ -8010,6 +8025,9 @@ function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
+  if (isAutonomousLifePayload(queueMessage)) {
+    return renderAutonomousLifeAction(queueMessage);
+  }
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
@@ -8060,35 +8078,32 @@ function deriveTermination(params: {
   };
 }
 
-function omitTargetOverrideArgs(
-  args: Record<string, unknown>,
-  messageType: 'private' | 'group',
-  traceId: string
-) {
-  const overrideKey = messageType === 'private' ? 'user_id' : 'group_id';
-  if (!(overrideKey in args)) {
-    return args;
+function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    if (!(key in args)) {
+      continue;
+    }
+    const numeric = Number(args[key]);
+    if (!Number.isFinite(numeric)) {
+      throw new Error(`Invalid target id in tool argument ${key}: ${String(args[key])}`);
+    }
+    return Math.trunc(numeric);
   }
-
-  const { [overrideKey]: _ignored, ...rest } = args;
-  moduleLogger.warn('Ignoring LLM-supplied message target override', {
-    trace_id: traceId,
-    message_type: messageType,
-    ignored_argument: overrideKey
-  });
-  return rest;
+  return null;
 }
 
-function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload']) {
-  const userId = Number(queueMessage.senderId);
+function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
+  const explicitUserId = resolveOptionalToolTargetId(args, 'user_id', 'target_user_id');
+  const userId = explicitUserId ?? Number(queueMessage.senderId);
   if (!Number.isFinite(userId)) {
     throw new Error(`Invalid sender id in queue payload: ${queueMessage.senderId}`);
   }
   return userId;
 }
 
-function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload']) {
-  const groupId = Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
+function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
+  const explicitGroupId = resolveOptionalToolTargetId(args, 'group_id', 'target_group_id');
+  const groupId = explicitGroupId ?? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
   if (!Number.isFinite(groupId)) {
     throw new Error(
       `Invalid group target in queue payload: ${queueMessage.inboundContext.NativeChannelId || queueMessage.peerId || 'unknown'}`

@@ -12,9 +12,8 @@ is still backed by `agent_session_context_windows`; event-backed identity-root
 `<小腻近况>` is not implemented yet. If an IM has unread messages after that
 session's last-read cursor, the run can materialize that target as
 `proactive_im_open`; otherwise it stays life-only and can currently submit an
-internal life action, run grounded hosted `web_search`, or `stay_silent`. The
-locked next runtime adds prompt-facing `recover_energy`. It still cannot send QQ
-without a concrete IM target. "想回头分享" material is current-context residue:
+internal life action, run grounded hosted `web_search`, call `recover_energy`, or
+`stay_silent`. It still cannot send QQ without a concrete IM target. "想回头分享" material is current-context residue:
 it is appended into `<xiaoni_os>` and later session-window `<小腻近况>`, not
 routed through a separate share-pool queue. Old `<小腻的OS>` history is read as
 legacy residue and is not migrated. This is still not the full browser-backed
@@ -281,8 +280,8 @@ Current implemented slices:
   stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
   even if unread IM materializes the run into `proactive_im_open`; without a
   concrete IM target it cannot send QQ directly. It can currently use
-  `submit_life_action`, `web_search`, or `stay_silent`; the locked next runtime
-  adds `recover_energy`. Any "想回头分享" residue is appended to `<xiaoni_os>` and
+  `submit_life_action`, `web_search`, `recover_energy`, or `stay_silent`.
+  Any "想回头分享" residue is appended to `<xiaoni_os>` and
   therefore survives normal context replay or later summary compression. The compressed `<小腻近况>` here is still
   `agent_session_context_windows.context_summary`, not an event-backed
   `agent_life_events` digest.

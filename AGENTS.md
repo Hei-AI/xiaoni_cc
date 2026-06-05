@@ -47,6 +47,7 @@
 - 浏览网页、站点 QA、截图、交互验证时，默认优先使用 gstack 的 `$browse`
 - 涉及 OpenAI 产品、API、模型选择或官方文档查询时，默认优先使用 `$openai-docs`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考统一看 `docs/AGENTS_OPENAI_REQUESTS.md`
+- Codex + gstack 本机安装、升级、去重统一看 `docs/AGENTS_GSTACK_CODEX.md`；不要在本仓库 vendoring gstack 或新增重复 skill alias
 - 当前工作站默认 Playwright MCP 直连不稳定；出现 host Chrome 连接失败、超时、附着到 `connect.html`、token 变化或路径漂移时，直接使用 `$playwright-host-chrome-bridge` 修复并校准到 `http://localhost:9978/mcp`
 - 团队协作默认共享这套 gstack 约定；新接手仓库的同学先完成 gstack 接入，再按本文件和 `docs/` 入口继续工作
 - 常用工作流只记这几个：`$autoplan`、`$plan-eng-review`、`$browse`、`$investigate`、`$review`、`$qa`、`$ship`、`$document-release`

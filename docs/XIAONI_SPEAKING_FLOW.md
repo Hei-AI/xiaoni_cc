@@ -45,15 +45,15 @@ flowchart TD
 
 一句话：被动发言、presence 主动发言最后都汇入同一个 `agent-service` main loop。普通说话、主动说一句和沉默现在都在第一轮 `submit_life_action` 内完成；只有真正需要外部结果时才进入后续工具轮。`agent_runs` 是 trace / delivery / retry 边界，不是小腻的认知边界。
 
-## 锁定下一版运行时契约
-
-以下是生产后台下一版契约；没有明确写成“当前实现”的项，排障时不能当作已落地事实使用。
+## 当前运行时契约
 
 - 产品心智是 `while true` 连续事件流。`agent_runs` 只服务 trace、delivery、防重、retry、observability 和管理端展示，不作为 prompt 里的认知边界。
 - prompt-facing 内心标签统一为 `<xiaoni_os>`。旧历史里残留的 `<小腻的OS>` 只做兼容读取，由模型自然理解，不做数据迁移。
 - `<STATE>` 不是每轮固定注入，只在工程触发点追加：跨 run action/tool 计数阈值、hosted `web_search` 返回后、低精力提醒、强制睡醒、连续直接 @ 打断休息。
 - energy 只注入当前数值和满值，例如 `energy="0.42" max_energy="1.00"`；不再注入 pressure、dopamine 或 high / medium / low 标签。
 - prompt-facing 休息工具统一为 `recover_energy`。`rest_period` / `sleep_period` 只能作为历史兼容或内部事件名，不能再作为两个 prompt-facing 工具暴露。
+- `<CAPABILITIES>` 在主 loop 输入开头注入一次，列出当前工具、skill 和 energy cost。
+- `compress_core_memory(text)` 只在工程检测到 context 压力时暴露并强制调用；普通请求不暴露它。压力触发时工程追加 `core_memory_pressure` reminder，并把 `tool_choice.allowed_tools` 限制为 `compress_core_memory`。
 - 当工程检测到 `raw_energy < 0` 时，直接进入 2h 强制等待；恢复曲线按实际休息时长计算，120 分钟满恢复，负精力按 `0` 参与恢复计算。
 - 休息中小腻不读取消息正文。工程只维护未读元数据和连续直接 @ 计数；连续直接 @ `>= 3` 时工程提前唤醒，按实际休息时间计算恢复量，并在下一段 `<STATE>` 里说明她被多次 @ 打断、当前精力恢复到多少。
 
@@ -87,14 +87,14 @@ flowchart TD
 flowchart TD
   A[agent-service 定时器] --> B[deriveLifeState]
   B --> C{shouldFirePresenceTick}
-  C -->|low energy| D[当前抑制或沉默<br/>下一版 recover_energy / resting]
+  C -->|low energy| D[当前抑制或沉默<br/>recover_energy / resting]
   C -->|eligible| E[构造 synthetic message<br/>source=presence_tick]
   E --> F[(agent_queue_messages)]
   F --> G[buildPresenceContext<br/>life state + xiaoni_os / context residue]
   G --> H[同一个 main loop]
 ```
 
-presence tick 当前只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。无聊、冷却、分享欲和启动宽限不再是硬门禁。精力过低、恢复、休息和被连续 @ 唤醒按上一节锁定的下一版契约推进；未落地前，不要把 `recover_energy` 当作当前已实现工具排障。处理时如果 inbox 有游标后的未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有游标后的未读，也会作为 life-only `presence_tick` 进入同一个 main loop。未读来源是 DB 持久化状态，但每个群/私聊以上次已读最后一条为游标，IM 窗口只 materialize 游标之后的未读，旧 backlog 不能被当成当前现场。presence 起源的 tick 会读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；即使本轮 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局连续性，也不会自动 fallback 到某个群 summary。life-only tick 当前不能发 QQ，但可以按当前事件流、压缩近况和 `<xiaoni_os>` 选择内部 `submit_life_action`、`web_search` 或 `stay_silent`；下一版增加 `recover_energy` 作为唯一 prompt-facing 恢复工具。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
+`life_loop` / compatible presence tick 当前只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。无聊、冷却、分享欲和启动宽限不再是硬门禁。精力过低、恢复、休息和被连续 @ 唤醒按上一节当前契约推进。处理时如果 inbox 有游标后的未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有游标后的未读，也会作为 life-only `life_loop` 进入同一个 main loop。未读来源是 DB 持久化状态，但每个群/私聊以上次已读最后一条为游标，IM 窗口只 materialize 游标之后的未读，旧 backlog 不能被当成当前现场。life-only / presence 起源的 tick 会读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；即使本轮 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局连续性，也不会自动 fallback 到某个群 summary。life-only tick 当前不能发 QQ，但可以按当前事件流、压缩近况和 `<xiaoni_os>` 选择内部 `submit_life_action`、`web_search`、`recover_energy` 或 `stay_silent`。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
 
 已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，presence 起源的 tick 未压缩时从全局 conversation append stream 读取，压缩后当前通过 `xiaoni:global` 的 `<小腻近况>` / `<xiaoni_os>` 延续。旧 `<小腻的OS>` 历史只兼容读取，不迁移。
 
@@ -247,15 +247,13 @@ scheduleContextCompressionMemoryWriter
 -> write_episodic_observations
 -> write_semantic_assertions
 -> write_memory_reflections
-
-scheduleContextSummaryWriter
--> 生成新的纯文本 <小腻近况>
 ```
 
 当前压缩事实：
 
 - count-based compaction 触发点是 retained history 超过 `HISTORY_COMPACT_AT=200`，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。
 - `<小腻近况>` 写入 `agent_session_context_windows.context_summary`，key 是普通 run 的 `payload.sessionKey`，或 presence-originated run 的 `xiaoni:global`。
+- 主链 `<小腻近况>` 不再由后台 `context_summary_writer` 生成。工程检测到 count/token 压力时追加 `core_memory_pressure` reminder，并强制模型调用 `compress_core_memory(text)`；工具成功后才写入新的 `<小腻近况>` 并推进 read cutoff。
 - 这份摘要不是 `agent_life_events` projection，也不是 OpenAI 官方 compaction item。
 
 长期记忆三层含义：
@@ -273,4 +271,4 @@ scheduleContextSummaryWriter
 | 明明 `submit_life_action` 发言但没发出 | `commitLifeAction`、provider send API、`markRunDeliveryCommitted` |
 | 沉默太多 | `tool_execution_logs` 里的 `submit_life_action`，重点看 `participation_judgment`、`interest_level`、`reaction_authenticity` |
 | 做图/看图路径卡住 | `request_image_task`、`inspect_image_placeholder`、`agent_media_observations` |
-| 历史压缩后失忆 | `context_summary_writer` 写出的 `<小腻近况>` 和三层 memory writer |
+| 历史压缩后失忆 | `core_memory_pressure` reminder、`compress_core_memory` 工具文本、`agent_session_context_windows.context_summary`、read cutoff、三层 memory writer |

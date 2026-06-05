@@ -28,7 +28,7 @@ function createPersistence(overrides = {}) {
   };
   const sqlAdapter = () => ({
     query: async (statement) => {
-      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('presence_tick', 'proactive_im_open')")) {
+      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('life_loop', 'presence_tick', 'proactive_im_open')")) {
         return overrides.autonomousQueueRows || [];
       }
       if (statement.includes('FROM agent_queue_messages')) {
@@ -157,9 +157,9 @@ test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', asyn
     id: 4161,
     trace_id: 'runtrace_1',
     run_id: 'run_1',
-    source: 'presence_tick',
+    source: 'life_loop',
     status: 'completed',
-    body_for_agent: '小腻从自己的生活里抬头看了一眼 IM 列表；还没有打开任何具体会话。',
+    body_for_agent: 'life_loop_step',
     updated_at: '2026-05-31T14:29:23.395+08:00',
     created_at: '2026-05-31T06:28:55.635+08:00',
     locked_at: null,
@@ -179,8 +179,11 @@ test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', asyn
   const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
 
   assert.equal(feed.items[0].id, 'queue:4161');
+  assert.equal(feed.items[0].title, '连续生活流');
+  assert.equal(feed.items[0].body, '内部自运行 step；没有打开具体 QQ 会话。');
   assert.equal(feed.items[0].timestamp, '2026-05-31T14:29:23.395+08:00');
   assert.equal(feed.current.latestActivityAt, '2026-05-31T14:29:23.395+08:00');
+  assert.equal(feed.current.autonomy.latestLifeLoopAt, '2026-05-31T14:29:23.395+08:00');
   assert.equal(feed.current.autonomy.latestPresenceTickAt, '2026-05-31T14:29:23.395+08:00');
 });
 

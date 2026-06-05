@@ -17,7 +17,9 @@
   - `docs/AGENTS_EMBEDDINGS.md`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考：
   - `docs/AGENTS_OPENAI_REQUESTS.md`
-- 小腻下一版主 prompt 目标文本：
+- Codex + gstack 本机安装、升级、去重：
+  - `docs/AGENTS_GSTACK_CODEX.md`
+- 小腻主 prompt 正文：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
 - 离线 memory replay 历史评测参考，不是当前 runtime memory 契约：
   - `docs/archive/AGENTS_MEMORY_EVAL-20260604-offline-replay.md`
@@ -30,6 +32,8 @@
 ## Runtime And Operations
 - 当前业务与运行架构：
   - `docs/CURRENT_ARCHITECTURE.md`
+- 小腻完整运行态总图，含服务、队列、数据库表、LLM provider、管理端和关键支路：
+  - `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
 - `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
 - 小腻被动发言 / 主动发言阶段图、数据源和来源：

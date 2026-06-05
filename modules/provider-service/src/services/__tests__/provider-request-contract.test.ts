@@ -214,6 +214,7 @@ test('Codex provider serializes allowed_tools without changing the tool list', (
       { type: 'function', name: 'finish' }
     ]
   });
+  assert.equal(payload.tools.length, TOOL_DEFINITIONS.length);
 });
 
 test('Codex provider preserves explicit reasoning settings and include values', () => {
@@ -700,6 +701,124 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
     assert.equal(response.usage.total_tokens, 4);
   } finally {
     (globalThis as any).fetch = previousFetch;
+  }
+});
+
+test('Codex provider retries transient upstream fetch failures before failing the agent turn', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  const calls: Array<{ url: string; init: any }> = [];
+
+  try {
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '3';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
+
+    (globalThis as any).fetch = async (url: string, init: any) => {
+      calls.push({ url, init });
+      if (calls.length === 1) {
+        const error = new TypeError('fetch failed') as TypeError & { cause?: { code: string } };
+        error.cause = { code: 'ECONNRESET' };
+        throw error;
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"recovered"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    const response = await provider.postForTest({
+      model: 'gpt-5.4-mini',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: 'ping' }]
+    });
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.url, 'http://proxy.test/backend-api/codex/responses');
+    assert.equal(calls[1]?.url, 'http://proxy.test/backend-api/codex/responses');
+    assert.equal(response.output_text, 'recovered');
+    assert.equal(response.usage.total_tokens, 5);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Codex provider does not treat OAuth failures as transient retry errors', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  const calls: Array<{ url: string; init: any }> = [];
+
+  try {
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '3';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
+
+    (globalThis as any).fetch = async (url: string, init: any) => {
+      calls.push({ url, init });
+      return {
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        text: async () => '{"detail":"Unauthorized"}'
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+
+    await assert.rejects(
+      () => provider.postForTest({
+        model: 'gpt-5.4-mini',
+        stream: true,
+        input: [{ type: 'message', role: 'user', content: 'ping' }]
+      }),
+      /Codex API error \(401 Unauthorized\)/
+    );
+    assert.equal(calls.length, 1);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
   }
 });
 

@@ -45,6 +45,10 @@ import {
   decideInboundAgentQueueTrigger,
   processInboundAgentQueueTrigger
 } from './services/inbound-agent-trigger-service';
+import {
+  resolveInternalGroupSendRequest,
+  resolveInternalPrivateSendRequest
+} from './services/outbound-send-contract';
 import { logger } from './utils/logger';
 
 const app = express();
@@ -272,45 +276,6 @@ function respondRuntimeFeatureDisabled(
     error: `${feature} is disabled in the simplified runtime`,
     timestamp: new Date().toISOString()
   });
-}
-
-function normalizeOutboundMessages(body: Record<string, unknown>) {
-  if (Array.isArray(body.messages)) {
-    const messages: string[] = [];
-    for (const item of body.messages) {
-      if (typeof item !== 'string' || !item.trim()) {
-        throw new Error('messages must be an array of non-empty strings');
-      }
-      messages.push(item.trim());
-    }
-    if (messages.length > 0) {
-      return messages;
-    }
-  }
-
-  if (typeof body.message === 'string' && body.message.trim()) {
-    return [body.message.trim()];
-  }
-
-  return [];
-}
-
-function normalizeOptionalNumericIdList(value: unknown, fieldName: string) {
-  if (value === undefined || value === null) {
-    return [];
-  }
-
-  if (!Array.isArray(value)) {
-    throw new Error(`${fieldName} must be an array of numeric ids`);
-  }
-
-  return Array.from(new Set(value.map((item) => {
-    const numeric = Number(item);
-    if (!Number.isFinite(numeric)) {
-      throw new Error(`${fieldName} must be an array of numeric ids`);
-    }
-    return Math.trunc(numeric);
-  })));
 }
 
 function markIncomingActivityAsync(params: { messageType: ProviderMessageType; userId: number; groupId?: number }) {
@@ -881,9 +846,7 @@ app.get('/api/status', async (_req, res) => {
 
 app.post('/api/internal/send_private', async (req, res) => {
   try {
-    const userId = Number(req.body?.user_id);
-    const messages = normalizeOutboundMessages(req.body || {});
-    const enforcePolicy = Boolean(req.body?.enforce_policy);
+    const { userId, messages, enforcePolicy } = resolveInternalPrivateSendRequest(req.body || {});
     if (!Number.isFinite(userId) || messages.length === 0) {
       return res.status(400).json({
         success: false,
@@ -926,13 +889,7 @@ app.post('/api/internal/send_private', async (req, res) => {
 
 app.post('/api/internal/send_group', async (req, res) => {
   try {
-    const groupId = Number(req.body?.group_id);
-    const messages = normalizeOutboundMessages(req.body || {});
-    const mentionUserIds = normalizeOptionalNumericIdList(req.body?.mention_user_ids, 'mention_user_ids');
-    const sessionKey = typeof req.body?.session_key === 'string' && req.body.session_key.trim().length > 0
-      ? req.body.session_key.trim()
-      : null;
-    const enforcePolicy = Boolean(req.body?.enforce_policy);
+    const { groupId, messages, mentionUserIds, sessionKey, enforcePolicy } = resolveInternalGroupSendRequest(req.body || {});
     if (!Number.isFinite(groupId) || messages.length === 0) {
       return res.status(400).json({
         success: false,

@@ -1,9 +1,11 @@
 # Xiaoni Main Prompt Next
 
-Status: implementation target, not yet wired into runtime.
+Status: wired into runtime via `modules/agent-service/src/prompts/xiaoni-main-agent.ts`.
 
-This document stores the prompt body intended to replace the current Xiaoni main
-agent prompt. Keep this document aligned with `TODOS.md` before implementation.
+This document stores the Xiaoni main agent prompt body currently mirrored into
+runtime. Keep this document aligned with
+`modules/agent-service/src/prompts/xiaoni-main-agent.ts` when changing the main
+prompt.
 
 ## Prompt Body
 

@@ -16,6 +16,7 @@ energy_cost: 0.004
 ## Commands
 
 Use `exec_command` to run the local script. The script calls the agent-service engineering interface; it does not query PostgreSQL.
+This skill only opens, scrolls, focuses, and closes QQ windows. It does not send QQ messages; sending is handled by the available prompt-facing send tool contract.
 
 ```bash
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox
