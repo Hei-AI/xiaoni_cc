@@ -15,7 +15,7 @@ function allowedToolNames(request: ReturnType<typeof buildCanonicalAgentTurnRequ
     : [];
 }
 
-test('life-only autonomous loop stays inside the agent loop and cannot send QQ messages', () => {
+test('life-only presence tick stays inside the agent loop and cannot send QQ messages', () => {
   const request = buildCanonicalAgentTurnRequest('gpt-5.4-mini', [
     {
       type: 'message',
@@ -26,7 +26,7 @@ test('life-only autonomous loop stays inside the agent loop and cannot send QQ m
       type: 'message',
       role: 'assistant',
       phase: 'commentary',
-      content: '<ACTION source="life_loop">life_loop_step</ACTION>'
+      content: '<ACTION source="presence_tick">还没有打开任何具体会话</ACTION>'
     }
   ], 'direct');
 

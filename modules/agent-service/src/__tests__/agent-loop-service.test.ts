@@ -2800,8 +2800,8 @@ test('speak_in_group with a single message sends it once through executeTool', a
   }]);
 });
 
-test('life-only loop exposes internal tools but not QQ speaking tools', () => {
-  const queueMessage = createAutonomousLifeLoopQueueMessageForTest().payload;
+test('life-only presence tick exposes internal tools but not QQ speaking tools', () => {
+  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest().payload;
   const loopInput = buildInitialInput([], queueMessage);
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'direct');
   const allowedTools = withoutQqUsageTools(getAllowedToolNames(request.tool_choice));
@@ -4498,50 +4498,49 @@ function createPresenceTickQueueMessageForTest() {
   };
 }
 
-function createAutonomousLifeLoopQueueMessageForTest() {
+function createLifeOnlyPresenceTickQueueMessageForTest() {
   const basePayload = createDirectQueuePayload();
-  const bodyForAgent = 'life_loop_step';
+  const bodyForAgent = '还没有打开任何具体会话';
   return {
-    id: 'run-life-loop',
-    traceId: 'trace-life-loop',
-    batchId: 'batch-life-loop',
+    id: 'run-life-presence',
+    traceId: 'trace-life-presence',
+    batchId: 'batch-life-presence',
     status: 'processing',
     attempts: 1,
     createdAt: '2026-03-28T08:00:00.000Z',
     queueMessageIds: [1],
     payload: {
       ...basePayload,
-      source: 'life_loop',
+      source: 'presence_tick',
       chatType: 'direct' as const,
-      sessionKey: 'life_loop:xiaoni',
+      sessionKey: 'presence_tick:xiaoni',
       peerId: 'xiaoni',
       peerName: '小腻',
       senderId: '303',
-      senderName: 'life_loop',
+      senderName: 'presence_tick',
       bodyForAgent,
-      rawBody: 'life_loop',
-      commandBody: 'life_loop',
+      rawBody: 'presence_tick',
+      commandBody: 'presence_tick',
       wasMentioned: false,
       inboundContext: {
         ...basePayload.inboundContext,
-        Body: 'life_loop',
+        Body: 'presence_tick',
         BodyForAgent: bodyForAgent,
-        BodyForCommands: 'life_loop',
-        RawBody: 'life_loop',
-        CommandBody: 'life_loop',
+        BodyForCommands: 'presence_tick',
+        RawBody: 'presence_tick',
+        CommandBody: 'presence_tick',
         ChatType: 'direct',
-        NativeChannelId: 'life_loop:xiaoni',
-        SessionKey: 'life_loop:xiaoni',
+        NativeChannelId: 'presence_tick:xiaoni',
+        SessionKey: 'presence_tick:xiaoni',
         SenderId: '303',
-        SenderName: 'life_loop',
+        SenderName: 'presence_tick',
         From: '303',
         To: '303',
-        Surface: 'life_loop',
+        Surface: 'presence_tick',
         CommandAuthorized: false
       },
       messages: [],
-      presenceTick: undefined,
-      autonomousLife: {
+      presenceTick: {
         identityKey: 'xiaoni'
       }
     }
@@ -4560,16 +4559,16 @@ test('materializePresenceTickQueueMessage replaces synthetic session with target
   assert.equal(materialized.payload.messages[0].peerId, '999');
 });
 
-test('autonomous life loop stays in the life stream without a selected IM', () => {
-  const queueMessage = createAutonomousLifeLoopQueueMessageForTest();
+test('life-only presence tick stays outside IM without a selected target', () => {
+  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest();
   const materialized = materializePresenceTickQueueMessage(queueMessage);
-  assert.equal(materialized.payload.sessionKey, 'life_loop:xiaoni');
+  assert.equal(materialized.payload.sessionKey, 'presence_tick:xiaoni');
   assert.equal(materialized.payload.peerId, 'xiaoni');
 
   const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
-  assert.match(rendered, /source="life_loop"/);
-  assert.match(rendered, /连续生活流/);
+  assert.match(rendered, /source="presence_tick"/);
+  assert.match(rendered, /presence tick/);
   assert.doesNotMatch(rendered, /消息列表/);
   assert.doesNotMatch(rendered, /主动打开群看了一眼/);
   assert.doesNotMatch(rendered, /target_group_id/);
@@ -4628,8 +4627,8 @@ test('materializePresenceTickInboxWindow turns claimed unread into a proactive I
   assert.doesNotMatch(sceneRendered, /小腻主动打开群看了一眼；当前没有新的群友消息触发/);
 });
 
-test('processQueueMessage preserves global OS context during autonomous life loop', async () => {
-  const queueMessage = createAutonomousLifeLoopQueueMessageForTest();
+test('processQueueMessage preserves global OS context during life-only presence tick', async () => {
+  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest();
   const listRecentTurnsCalls: any[] = [];
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
@@ -4705,10 +4704,17 @@ test('processQueueMessage preserves global OS context during autonomous life loo
   };
 
   const originalFetch = globalThis.fetch;
-  let fetchCalled = false;
+  let outboundSendFetchCalled = false;
   globalThis.fetch = (async (url: string | URL | Request) => {
-    fetchCalled = true;
-    throw new Error(`autonomous life loop must not call external QQ endpoints: ${String(url)}`);
+    const urlString = String(url);
+    if (urlString.includes('/api/inbox/conversations')) {
+      return new Response(JSON.stringify({ success: true, data: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+    outboundSendFetchCalled = true;
+    throw new Error(`life-only presence tick must not call outbound QQ endpoints: ${urlString}`);
   }) as typeof fetch;
 
   try {
@@ -4719,7 +4725,7 @@ test('processQueueMessage preserves global OS context during autonomous life loo
 
   assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
   assert.equal(listRecentTurnsCalls[0]?.limit, 201);
-  assert.equal(fetchCalled, false);
+  assert.equal(outboundSendFetchCalled, false);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
@@ -4749,7 +4755,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
 
   const plan = await (service as any).buildContextBudgetPlan({
     history,
-    queueMessage: createAutonomousLifeLoopQueueMessageForTest().payload,
+    queueMessage: createLifeOnlyPresenceTickQueueMessageForTest().payload,
     runtimePrompt: createRuntimePrompt(),
     loopContinuation: [],
     runtimeIdentityFacts: [],

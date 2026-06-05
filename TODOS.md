@@ -16,8 +16,9 @@ Authoritative execution order:
    named hardening gaps: richer presence-context v2 trace mapping,
    creative-agency projection, projection refresh conflicts, and
    Xiaoni-initiated cost mutation audit. Task 19 is implemented and verified.
-   Tasks 13, 15, and 16 remain active follow-ups for active-intention
-   continuity, idle reminiscence, and identity-root continuity.
+   Tasks 13, 15, 16, and 20 remain active follow-ups for active-intention
+   continuity, idle reminiscence, identity-root continuity, and gated
+   presence_tick scheduling.
    Keep verification notes here and move any next follow-up into a new task
    instead of reopening the old queue.
 2. **P0-B: Identity Lineage Phase 1.**
@@ -207,9 +208,10 @@ Locked decisions from office-hours:
   `<小腻近况>` continuity.
 - Mock or real digital-life generation, if added later, must be state-triggered,
   not blind timer-based. The old hosted `web_search` self-action runner is no
-  longer active; current `agent-service` runtime starts queue polling, task
-  polling, and presence tick only. `/health` no longer exposes the retired
-  `self_action_busy` field.
+  longer active; the fixed 5-minute `life_loop` producer has also been removed.
+  Current `agent-service` runtime starts queue polling and task polling only.
+  `/health` no longer exposes the retired `self_action_busy` field or an
+  autonomous-life busy field.
 - Generated actions must be linked records so recent action traces can be
   compressed into in-context state.
 - `小腻当前状态` has six private sections: recent action trace, current residue,
@@ -233,9 +235,10 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
   `AgentPresenceStateSidecar`; regenerated `packages/persistence` Prisma Client.
 - Added shared persistence enqueue helper and moved provider-service
   `enqueueSemanticMessage` onto it.
-- Added agent-service presence tick timer, config keys, active IM
-  materialization, cursor-unread selection, anchor updates, sidecar tracing, and factual
-  `<小腻当前状态>` context injection before the normal reasoning tools run.
+- Added the first presence path, active IM materialization, cursor-unread
+  selection, anchor updates, sidecar tracing, and factual `<小腻当前状态>` context
+  injection before the normal reasoning tools run. The later fixed 5-minute
+  `life_loop` producer has been removed; do not treat it as current runtime.
 - Retired the old `[待分享]` prompt injection / pending-share aging write path.
 - Removed the old raw-SQL `agent_session_state` persistence export and stopped
   creating/writing that table from agent-service; compatibility emotional-state
@@ -269,9 +272,9 @@ The full design is in `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`.
 
 **Implementation update (2026-05-31):**
 - Retired the legacy random self-action search runner from the live
-  `agent-service` process. The current process starts queue polling, task
-  polling, and `presenceTickTimer`; it does not start a standalone self-action
-  timer.
+  `agent-service` process. The current process starts queue polling and task
+  polling only; it does not start a standalone self-action timer or a fixed
+  autonomous-life timer.
 - Removed the old `AgentDigitalAction` write helpers from `@qq-bot/persistence`
   and stopped prompt construction from reading `agent_digital_actions` as
   current state. The table remains historical Admin replay data only.
@@ -423,10 +426,9 @@ emitted as `pending_share`, stored in the `xiaoni_os` field, and rendered as
 a later task explicitly replaces them; they are not the required path for new
 life-only residue.
 
-**Proactive trigger — presence_tick timer:**
-- Add `presenceTickTimer` to `modules/agent-service/src/index.ts` following the
-  exact same `stopping` flag + `clearTimeout` pattern used by `workerTimer` and
-  `taskWorkerTimer` (lines 58-68, 90-100). No new stopping mechanism needed.
+**Proactive trigger — gated presence_tick evaluator:**
+- Add a gated presence evaluator to `modules/agent-service/src/index.ts`. It must
+  not be a blind fixed-frequency action producer.
 - Queue write path (Codex finding): agent-service currently has no enqueue path.
   Only provider-service has `enqueueSemanticMessage`. For `presence_tick`, add a
   shared enqueue function to `packages/persistence` (not raw SQL in agent-service,
@@ -1674,6 +1676,35 @@ Validation:
 - `npm --prefix modules/agent-service run build` — passed.
 - `npm --prefix modules/agent-service test` — 179 passing.
 - `npm --prefix modules/provider-service test` — 105 passing.
+
+### Task 20 - Remove fixed `life_loop` and restore gated presence only
+
+**Status:** active follow-up; fixed `life_loop` removal is implemented on
+2026-06-05, gated evaluator remains TODO.
+
+**Problem:** the removed implementation treated a clock tick as an action
+opportunity: `agent-service` slept for 300000ms and enqueued
+`source='life_loop'`. That bypassed the current architecture rule that proactive
+opportunities must be gated by current state, budget, cooldown, rest, and unread
+IM cursors.
+
+**Current implementation 2026-06-05:**
+
+- `agent-service` no longer starts `runAutonomousLifeLoop`.
+- `AGENT_AUTONOMOUS_LOOP_INTERVAL_MS`, `autonomousLife`, and prompt/runtime
+  `life_loop` handling are removed.
+- Activity feed no longer exposes `latestLifeLoopAt` / `latestLifeLoopStatus`.
+- Pending live DB `life_loop` queue rows must be deleted during deployment cleanup
+  before restarting `agent-service`.
+
+**Remaining TODO:**
+
+- Implement a gated `presence_tick` evaluator that only enqueues after checking
+  energy/rest state, daily budget, cooldown, and unread IM cursors.
+- If the evaluator skips, record `presence_tick_evaluated` with a concrete skip
+  reason instead of calling the main model.
+- If the evaluator enqueues, use `source='presence_tick'` and
+  `session_key='presence_tick:xiaoni'`; do not reintroduce `life_loop`.
 
 ## P0-C - Runtime Data Readiness And Cleanup
 

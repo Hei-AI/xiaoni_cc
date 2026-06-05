@@ -209,10 +209,10 @@ const LIFE_EVENT_LABELS = {
   sleep_period: '睡了一段时间'
 };
 
-const AUTONOMOUS_QUEUE_SOURCES = ['life_loop', 'presence_tick', 'proactive_im_open'];
+const PROACTIVE_QUEUE_SOURCES = ['presence_tick', 'proactive_im_open'];
 
-function isAutonomousQueueSource(source) {
-  return AUTONOMOUS_QUEUE_SOURCES.includes(String(source || ''));
+function isProactiveQueueSource(source) {
+  return PROACTIVE_QUEUE_SOURCES.includes(String(source || ''));
 }
 
 function lifeEventTitle(eventKind, payload) {
@@ -637,10 +637,8 @@ function summarizeMedia(row) {
 function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
-  const autonomousSource = isAutonomousQueueSource(row.source);
-  const title = row.source === 'life_loop'
-    ? '连续生活流'
-    : row.source === 'presence_tick'
+  const proactiveSource = isProactiveQueueSource(row.source);
+  const title = row.source === 'presence_tick'
     ? '主动看一眼群'
     : row.source === 'proactive_im_open'
       ? '主动打开 IM'
@@ -656,18 +654,16 @@ function summarizeQueueMessage(row, staleCutoffMs) {
     source: 'queue_message',
     kind: isStaleProcessing ? 'stale_processing' : row.source || row.status || 'queue',
     title,
-    body: row.source === 'life_loop'
-      ? '内部自运行 step；没有打开具体 QQ 会话。'
-      : truncateText(row.body_for_agent, 360),
+    body: truncateText(row.body_for_agent, 360),
     status: row.status || null,
-    actor: autonomousSource ? 'xiaoni' : 'system',
-    actorName: autonomousSource ? '小腻' : firstString(row.sender_name, row.sender_id),
+    actor: proactiveSource ? 'xiaoni' : 'system',
+    actorName: proactiveSource ? '小腻' : firstString(row.sender_name, row.sender_id),
     timestamp: eventTimestamp(row.updated_at || row.created_at),
     sessionKey: row.session_key || null,
     peerName: row.peer_name || null,
     runId: row.run_id || null,
     traceId: row.trace_id || null,
-    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : autonomousSource ? 'xiaoni' : 'info',
+    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : proactiveSource ? 'xiaoni' : 'info',
     metadata: {
       queueId: String(row.id),
       source: row.source || null,
@@ -808,7 +804,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         `, [perSourceLimit]),
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
-          WHERE source IN ('life_loop', 'presence_tick', 'proactive_im_open')
+          WHERE source IN ('presence_tick', 'proactive_im_open')
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
         `, [perSourceLimit]),
@@ -870,7 +866,6 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         ])
       ]);
 
-      const latestLifeLoopQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'life_loop'));
       const latestPresenceQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'presence_tick'));
       const latestProactiveImQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'proactive_im_open'));
       const latestPresenceEvaluation = latestByTimestamp(lifeEvents.filter((row) => row.event_kind === 'presence_tick_evaluated'));
@@ -910,15 +905,11 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             failed: digitalStats[3]
           },
           autonomy: {
-            latestLifeLoopAt: normalizeDate(latestLifeLoopQueue?.updated_at || latestLifeLoopQueue?.created_at),
-            latestLifeLoopStatus: latestLifeLoopQueue?.status || null,
             latestPresenceTickAt: normalizeDate(
               latestPresenceQueue?.updated_at
               || latestPresenceQueue?.created_at
-              || latestLifeLoopQueue?.updated_at
-              || latestLifeLoopQueue?.created_at
             ),
-            latestPresenceTickStatus: latestPresenceQueue?.status || latestLifeLoopQueue?.status || null,
+            latestPresenceTickStatus: latestPresenceQueue?.status || null,
             latestProactiveImOpenAt: normalizeDate(latestProactiveImQueue?.updated_at || latestProactiveImQueue?.created_at),
             latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
             latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),

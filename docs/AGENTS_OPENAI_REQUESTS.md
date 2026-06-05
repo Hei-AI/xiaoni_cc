@@ -74,7 +74,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `life_loop` / compatible `presence_tick` append 到同一事件流；life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前只能选择 `exec_command`、hosted `web_search`、`compress_core_memory` 或 `recover_energy`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。固定 5 分钟 `life_loop` 已删除；后续主动行动只能由状态、预算、冷却和未读游标门控后以 `presence_tick` append 到同一事件流。life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前只能选择 `exec_command`、hosted `web_search`、`compress_core_memory` 或 `recover_energy`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Local Request Captures
 

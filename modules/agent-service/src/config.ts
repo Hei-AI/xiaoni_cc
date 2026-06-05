@@ -89,7 +89,6 @@ export const agentConfig = {
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
   pollIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_POLL_INTERVAL_MS || '1000', 10)),
   idleIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10)),
-  autonomousLoopIntervalMs: Math.max(1000, Number.parseInt(process.env.AGENT_AUTONOMOUS_LOOP_INTERVAL_MS || '300000', 10)),
   workerId: process.env.AGENT_WORKER_ID || `agent-service-${process.pid}`,
   botAccountId: process.env.BOT_QQ_NUMBER || '1129974489',
   worldNarrative: process.env.AGENT_WORLD_NARRATIVE || [

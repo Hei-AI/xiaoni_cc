@@ -95,9 +95,6 @@ export type QueueMessagePayload = {
   rawPayload: Record<string, unknown>;
   inboundContext: FinalizedInboundContext;
   messages: QueueBatchMessage[];
-  autonomousLife?: {
-    identityKey: string;
-  };
   presenceTick?: {
     identityKey: string;
     targetSessionKey?: string;

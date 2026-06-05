@@ -180,25 +180,24 @@ test('recover_energy records rest recovery from the explicit recovery tool', asy
 
   await store.recordRecoverEnergyLifeEvent({
     queueMessage: createRuntimeStoreQueuePayload({
-      source: 'life_loop',
+      source: 'presence_tick',
       chatType: 'direct',
-      sessionKey: 'life_loop:xiaoni',
+      sessionKey: 'presence_tick:xiaoni',
       peerId: 'xiaoni',
       peerName: '小腻',
-      bodyForAgent: 'life_loop_step',
-      rawBody: 'life_loop',
-      commandBody: 'life_loop',
+      bodyForAgent: '还没有打开任何具体会话',
+      rawBody: 'presence_tick',
+      commandBody: 'presence_tick',
       inboundContext: {
-        Body: 'life_loop',
-        BodyForAgent: 'life_loop_step',
-        BodyForCommands: 'life_loop',
-        NativeChannelId: 'life_loop:xiaoni',
+        Body: 'presence_tick',
+        BodyForAgent: '还没有打开任何具体会话',
+        BodyForCommands: 'presence_tick',
+        NativeChannelId: 'presence_tick:xiaoni',
         CommandAuthorized: false,
-        Surface: 'life_loop'
+        Surface: 'presence_tick'
       },
       messages: [],
-      presenceTick: undefined,
-      autonomousLife: {
+      presenceTick: {
         identityKey: 'xiaoni'
       }
     }),
@@ -215,7 +214,7 @@ test('recover_energy records rest recovery from the explicit recovery tool', asy
 
   assert.equal(lifeEvents.length, 1);
   assert.equal(lifeEvents[0].eventKind, 'sleep_period');
-  assert.equal(lifeEvents[0].surface, 'life_loop');
+  assert.equal(lifeEvents[0].surface, 'presence_tick');
   assert.equal(lifeEvents[0].actionCost, 0);
   assert.equal(lifeEvents[0].payload.tool_name, 'recover_energy');
   assert.equal(lifeEvents[0].payload.reason, '累了，先休息一下');

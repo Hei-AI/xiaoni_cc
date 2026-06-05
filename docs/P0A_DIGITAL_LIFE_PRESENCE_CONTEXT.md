@@ -4,18 +4,19 @@ Status: design-locked from office-hours on 2026-05-26, with the 2026-05-31
 homeostasis correction in `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`. Current
 implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
-context and made hardcoded interests look like Xiaoni's own life. The current
-shape appends idle/presence life events into the same main loop. A
-presence-originated event reads the global conversation append stream and uses
-`xiaoni:global` as the context summary / read-cutoff compatibility key. That key
-is still backed by `agent_session_context_windows`; event-backed identity-root
-`<小腻近况>` is not implemented yet. If an IM has unread messages after that
-session's last-read cursor, the run can materialize that target as
-`proactive_im_open`; otherwise it stays life-only and can currently use
-`exec_command`, grounded hosted `web_search`, `compress_core_memory`, or
-`recover_energy`. It still cannot send QQ or register image tasks without a
-concrete IM target. A no-tool model response before action completion is not a
-silence or finish signal. "想回头分享" material is current-context residue:
+context and made hardcoded interests look like Xiaoni's own life. The fixed
+interval `life_loop` has also been removed; idle/presence events may only be
+reintroduced through a gated `presence_tick` evaluator. A presence-originated
+event reads the global conversation append stream and uses `xiaoni:global` as
+the context summary / read-cutoff compatibility key. That key is still backed by
+`agent_session_context_windows`; event-backed identity-root `<小腻近况>` is not
+implemented yet. If an IM has unread messages after that session's last-read
+cursor, the run can materialize that target as `proactive_im_open`; otherwise it
+stays life-only and can currently use `exec_command`, grounded hosted
+`web_search`, `compress_core_memory`, or `recover_energy`. It still cannot send
+QQ or register image tasks without a concrete IM target. A no-tool model
+response before action completion is not a silence or finish signal. "想回头分享"
+material is current-context residue:
 it is appended into `<xiaoni_os>` and later session-window `<小腻近况>`, not
 routed through a separate share-pool queue. Old `<小腻的OS>` history is read as
 legacy residue and is not migrated. This is still not the full browser-backed

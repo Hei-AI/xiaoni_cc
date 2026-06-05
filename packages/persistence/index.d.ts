@@ -1206,8 +1206,6 @@ export type XiaoniActivityFeedResult = {
       failed: number;
     };
     autonomy: {
-      latestLifeLoopAt: string | null;
-      latestLifeLoopStatus: string | null;
       latestPresenceTickAt: string | null;
       latestPresenceTickStatus: string | null;
       latestProactiveImOpenAt: string | null;

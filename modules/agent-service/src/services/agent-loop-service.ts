@@ -1511,8 +1511,8 @@ function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
         return '';
       }).join('\n');
     return content.includes('<ACTION')
-      && ((content.includes('source="presence_tick"') && content.includes('还没有打开任何具体会话'))
-        || content.includes('source="life_loop"'));
+      && content.includes('source="presence_tick"')
+      && content.includes('还没有打开任何具体会话');
   });
 }
 
@@ -2050,20 +2050,6 @@ function buildInboundBatchTranscriptItems(
       traceId: queueMessage.traceId
     }];
   }
-  if (isAutonomousLifePayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'assistant',
-      phase: 'commentary',
-      content: renderAutonomousLifeAction(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'presence_action',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
-  }
-
   return queueMessage.messages.map((message, index) => ({
     sessionKey: queueMessage.sessionKey,
     role: 'user' as const,
@@ -2458,8 +2444,8 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
-  if (isAutonomousLifePayload(queueMessage)) {
-    return '<system_reminder>当前是小腻自己的连续生活流；没有打开具体 IM 会话，也没有新的 QQ 可见现场。可以做内部行动、查一个真实需要的新信息，或者按自己的精力状态用 recover_energy 休息。只有真实消息进入队列时才算当前现场有新输入。</system_reminder>';
+  if (isLifePresenceTickPayload(queueMessage)) {
+    return '<system_reminder>当前是小腻自己的 presence tick；还没有打开具体 IM 会话，也没有新的 QQ 可见正文。可以选择内部工具、查一个真实需要的新信息，或者按自己的精力状态用 recover_energy 休息。只有真实消息进入队列或主动打开 IM 后才算当前现场有新输入。</system_reminder>';
   }
   if (!isImmediateVisibleImWake(queueMessage)) {
     const count = queueMessage.messages.length;
@@ -2471,7 +2457,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
-  if (isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage)) {
+  if (isPresenceTickPayload(queueMessage)) {
     return false;
   }
   if (queueMessage.source === 'proactive_im_open') {
@@ -2553,19 +2539,6 @@ function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
   return renderAssistantAction({
     timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
     source: 'presence_tick',
-    runId: queueMessage.runId,
-    traceId: queueMessage.traceId,
-    text: body
-  });
-}
-
-function renderAutonomousLifeAction(queueMessage: QueueMessageRecord['payload']) {
-  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim()
-    ? queueMessage.bodyForAgent.trim()
-    : 'life_loop_step';
-  return renderAssistantAction({
-    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
-    source: 'life_loop',
     runId: queueMessage.runId,
     traceId: queueMessage.traceId,
     text: body
@@ -4069,7 +4042,7 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const originatedFromLifeOnlyLoop = isLifeOnlyAutonomousPayload(queueMessage.payload);
+    const originatedFromLifeOnlyPresenceTick = isLifePresenceTickPayload(queueMessage.payload);
     const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
     const payload = activeQueueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -4145,7 +4118,7 @@ export class AgentLoopService {
     let loopContinuation: OpenResponseInputItem[] = [];
 
     try {
-      if (!isPresenceTickPayload(payload) && !isAutonomousLifePayload(payload)) {
+      if (!isPresenceTickPayload(payload)) {
         const recorder = (this.store as RuntimeStore & {
           recordPresenceUserMessage?: RuntimeStore['recordPresenceUserMessage'];
         }).recordPresenceUserMessage;
@@ -4158,12 +4131,12 @@ export class AgentLoopService {
           });
         }
       }
-      const contextSessionKey = originatedFromLifeOnlyLoop ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
+      const contextSessionKey = originatedFromLifeOnlyPresenceTick ? GLOBAL_LIFE_CONTEXT_SESSION_KEY : payload.sessionKey;
       const history = await this.store.listRecentTurns({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: null,
-        ...(originatedFromLifeOnlyLoop ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
+        ...(originatedFromLifeOnlyPresenceTick ? { scope: 'global' as const, limit: LIFE_PRESENCE_GLOBAL_HISTORY_LIMIT } : {})
       });
       historyCount = history.length;
 
@@ -4713,7 +4686,7 @@ export class AgentLoopService {
         }
       });
       const recoveredEnergy = Boolean(finishResult?.recovered);
-      const presenceOutcome = isPresenceTickPayload(payload) || isAutonomousLifePayload(payload)
+      const presenceOutcome = isPresenceTickPayload(payload)
         ? (sentMessages.length > 0 ? 'shared' : 'lurked')
         : (sentMessages.length > 0 ? 'replied' : 'silent');
       if (presenceContext) {
@@ -6502,12 +6475,6 @@ function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
     || Boolean(queueMessage.presenceTick);
 }
 
-function isAutonomousLifePayload(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.source === 'life_loop'
-    || queueMessage.sessionKey === 'life_loop:xiaoni'
-    || Boolean(queueMessage.autonomousLife);
-}
-
 type ClaimedInboxMessageRecord = {
   id: number;
   traceId: string;
@@ -6659,13 +6626,6 @@ function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) 
   return queueMessage.source === 'presence_tick'
     && queueMessage.sessionKey === 'presence_tick:xiaoni'
     && Boolean(queueMessage.presenceTick);
-}
-
-function isLifeOnlyAutonomousPayload(queueMessage: QueueMessageRecord['payload']) {
-  return isLifePresenceTickPayload(queueMessage)
-    || (queueMessage.source === 'life_loop'
-      && queueMessage.sessionKey === 'life_loop:xiaoni'
-      && Boolean(queueMessage.autonomousLife));
 }
 
 export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
@@ -7216,12 +7176,6 @@ function buildCurrentTurnInputItems(
       buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
     ];
   }
-  if (isAutonomousLifePayload(queueMessage)) {
-    return [
-      buildAssistantCommentaryInputItem([renderAutonomousLifeAction(queueMessage)])
-    ];
-  }
-
   if (!isImmediateVisibleImWake(queueMessage)) {
     return [
       buildUserSceneInputItem([renderUnreadAvailable(queueMessage)])
@@ -7283,9 +7237,6 @@ function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
-  if (isAutonomousLifePayload(queueMessage)) {
-    return renderAutonomousLifeAction(queueMessage);
-  }
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');

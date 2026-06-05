@@ -48,11 +48,11 @@ flowchart TD
   Record --> Learn[上下文压缩时异步学习]
   Learn --> Memory[(episodic / semantic / reflection memories<br/>identity facts)]
 
-  AgentTimer[agent-service presence timer] --> PresenceQueue[(life_loop / compatible presence_tick)]
+  PresenceEval[future gated presence evaluator] --> PresenceQueue[(presence_tick)]
   PresenceQueue --> Loop
 ```
 
-一句话：被动发言、presence / life_loop 主动事件都汇入同一个 `agent-service` main loop。普通说话不再先提交一个超长生活动作结构；小腻直接从当前允许工具里行动。`agent_runs` 是 trace / delivery / retry 边界，不是小腻的认知边界。
+一句话：被动发言和未来 gated `presence_tick` 主动事件都汇入同一个 `agent-service` main loop。普通说话不再先提交一个超长生活动作结构；小腻直接从当前允许工具里行动。`agent_runs` 是 trace / delivery / retry 边界，不是小腻的认知边界。
 
 ## 当前运行时契约
 
@@ -93,10 +93,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  A[agent-service 定时器] --> B[deriveLifeState]
+  A[future gated presence evaluator] --> B[deriveLifeState]
   B --> C{eligible?}
   C -->|low energy| D[由 main loop 继续行动<br/>或 recover_energy]
-  C -->|eligible| E[构造 source=life_loop 事件]
+  C -->|eligible| E[构造 source=presence_tick 事件]
   E --> F[(agent_queue_messages)]
   F --> G[读取全局 conversation append stream<br/>context key=xiaoni:global]
   G --> H{游标后有未读 IM?}
@@ -106,7 +106,7 @@ flowchart TD
   J --> K
 ```
 
-`life_loop` / compatible presence tick 不是第二套 planner，也不能硬编码兴趣、动机或读书 seed。它把“小腻当前有一次行动机会”append 进同一条事件流。
+`presence_tick` 不是第二套 planner，也不能硬编码兴趣、动机或读书 seed。它只能在状态、预算、冷却和未读游标检查通过后，把“小腻当前有一次行动机会”append 进同一条事件流。固定间隔 `life_loop` 已删除，不是当前契约。
 
 presence 起源场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
 

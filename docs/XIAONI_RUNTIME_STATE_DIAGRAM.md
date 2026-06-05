@@ -7,9 +7,9 @@
 
 - QQ 行为主链路：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`。
 - 管理端链路：`admin-frontend -> admin-backend -> provider-service / agent-service / PostgreSQL`。
-- `agent-service` 当前启动三条后台循环：queue worker、task worker、autonomous life loop。
+- `agent-service` 当前启动两条后台循环：queue worker 和 task worker。
 - `exec_command` 当前通过 `agent-service -> xiaoni-executor` 执行，不在 `agent-service` 本容器内直接跑命令。
-- 当前自运行入队 source 是 `life_loop`，session key 是 `life_loop:xiaoni`；`presence_tick` 仍是文档和 runtime guard 支持的兼容形态。
+- 固定间隔自运行 `life_loop` 已删除；未来主动行动只能由 gated `presence_tick` evaluator 入队。
 - `agent_runs` 只是 trace / delivery / retry / observability 边界，不是小腻的认知边界。
 - 当前连续性落在 `conversation_items`、`agent_queue_messages`、`agent_life_events`、`agent_session_context_windows`、`xiaoni_os`、identity facts 和异步 memory 输出上。
 - `agent_digital_actions` 只是历史兼容数据，不是当前自主行动主链路。
@@ -22,7 +22,7 @@ flowchart TB
 
   subgraph MainStack["docker-compose.yml / qq_bot_network"]
     Provider["provider-service<br/>:8090 in container / 127.0.0.1:8091<br/>NapCat webhook, inbox, policy, queue gate,<br/>provider execute, media, image, embedding, outbound"]
-    Agent["agent-service<br/>:8092<br/>main loop, queue worker, task worker,<br/>life_loop enqueue, qq-usage API"]
+    Agent["agent-service<br/>:8092<br/>main loop, queue worker, task worker,<br/>qq-usage API"]
     Executor["xiaoni-executor<br/>127.0.0.1:8093 / internal :8093<br/>exec_command host, session poll/kill,<br/>audit log, git archive"]
     AdminBE["admin-backend<br/>:9080<br/>runs, conversations, queue, activity,<br/>traffic, playground, image lab, runtime APIs"]
     AdminFE["admin-frontend<br/>nginx :3003 / 3904<br/>default page: /xiaoni-activity"]
@@ -72,8 +72,8 @@ flowchart TB
   Provider -->|"continuous learning / transcript side effects"| Context
 
   Agent -->|"claimNextQueueMessage"| Queue
-  Agent -->|"current code: enqueueAutonomousLifeStep<br/>source=life_loop / session=life_loop:xiaoni"| Queue
-  Agent -.->|"compat supported: presence_tick / proactive_im_open"| Queue
+  Agent -.->|"future gated evaluator: presence_tick"| Queue
+  Agent -.->|"materialized active IM: proactive_im_open"| Queue
   Agent -->|"select unread thread / claim window"| Provider
   Provider -->|"/api/inbox/conversations<br/>/api/inbox/messages/claim"| Inbox
 
@@ -158,7 +158,7 @@ flowchart TB
 ```mermaid
 flowchart TD
   Q["agent_queue_messages row"] --> Claim["agent-service claimNextQueueMessage"]
-  Claim --> Materialize{"life_loop / presence_tick?"}
+  Claim --> Materialize{"presence_tick?"}
   Materialize -->|"normal QQ trigger"| Input["buildInitialInput"]
   Materialize -->|"life-only"| LifeCtx["global/life context<br/>no concrete QQ target"]
   Materialize -->|"unread IM exists"| OpenIM["claim unread IM window<br/>source=proactive_im_open"]
@@ -216,7 +216,7 @@ flowchart LR
 
 - 不回复：先看 `agent_queue_messages`，再看 `agent_runs`，最后看是否调用了 `recover_energy`、是否已完成可见 delivery，或是否仍在 no-tool continuation。
 - 上下文断裂：看 `conversation_items`、`raw_response.xiaoni_os`、`agent_session_context_windows.context_summary`。
-- 自运行行为：看 `life_loop` queue row、`agent_life_events`、`agent_session_life_states`、`raw_response.xiaoni_os`。
+- 主动 presence 行为：看 `presence_tick` / `proactive_im_open` queue row、`agent_life_events`、`agent_session_life_states`、`raw_response.xiaoni_os`。
 - QQ 未读导航：看 `agent_inbound_messages` 和 `$qq-usage` 输出。
 - `exec_command` 异常：看 `qqbot-xiaoni-executor`、`/home/liahua/.qqbot-local/xiaoni-runtime` 和 `docs/AGENTS_XIAONI_EXECUTOR.md`。
 - 重复发送：看 `agent_runs.delivery_phase`、delivery commit count、outbound tool fingerprint。

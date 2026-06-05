@@ -150,7 +150,7 @@ role=assistant phase=final_answer
 
 role=assistant phase=commentary
 <xiaoni_os>小腻留给之后自己的私密备注</xiaoni_os>
-<ACTION source="life_loop">一次生活流行动机会</ACTION>
+<ACTION source="presence_tick">一次通过状态门控的主动行动机会</ACTION>
 <STATE trigger="..." energy="..." max_energy="..." />
 <system_reminder>当前请求边界提醒</system_reminder>
 ```
@@ -241,7 +241,7 @@ recover_energy
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前工具允许、且她判断需要资料时才会用。 |
-| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时不能发 QQ，只能使用内部工具或 `recover_energy`。 |
+| 空闲生活事件 | 待接入门控 evaluator | 固定 5 分钟 `life_loop` 已删除。下一步只能由状态、预算、冷却和未读游标门控后 enqueue `presence_tick`；没有具体会话时不能发 QQ，只能使用内部工具或 `recover_energy`。 |
 | 本地命令执行 | 生效 | `exec_command` 由 `agent-service` 转发到 `xiaoni-executor`，用于本地 skill 脚本、低风险命令、session poll/kill 和可追溯 git archive。 |
 | 记录处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |

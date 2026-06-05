@@ -45,7 +45,6 @@ import {
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
   createAgentMemoryReflection,
-  enqueueAgentQueueMessage,
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
   serializeTimestampForApi,
@@ -454,7 +453,7 @@ export type RuntimePresenceContext = {
 };
 
 function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
-  if (queueMessage.presenceTick || queueMessage.autonomousLife) {
+  if (queueMessage.presenceTick) {
     return false;
   }
   if (queueMessage.chatType === 'direct') {
@@ -1134,12 +1133,6 @@ function isPresenceTickPayload(queueMessage: QueueMessagePayload) {
     || Boolean((queueMessage as QueueMessagePayload & { presenceTick?: unknown }).presenceTick);
 }
 
-function isAutonomousLifePayload(queueMessage: QueueMessagePayload) {
-  return queueMessage.source === 'life_loop'
-    || queueMessage.sessionKey === 'life_loop:xiaoni'
-    || Boolean(queueMessage.autonomousLife);
-}
-
 function buildTranscriptSessionId(userId: number, groupId?: number | null) {
   if (groupId && Number.isFinite(groupId)) {
     return `group:${groupId}`;
@@ -1417,88 +1410,6 @@ export class RuntimeStore {
     await this.sql.close();
   }
 
-  async enqueueAutonomousLifeStep() {
-    const now = new Date();
-    const activeRows = await this.sql.query<{ id: number }>(
-      `
-        SELECT id
-        FROM agent_queue_messages
-        WHERE source = 'life_loop'
-          AND status IN ('pending', 'processing')
-        ORDER BY id DESC
-        LIMIT 1
-      `
-    );
-    if (activeRows.length > 0) {
-      return { enqueued: false, reason: 'already_active' };
-    }
-
-    const messageSid = `life_loop:${now.getTime()}`;
-    const dedupeWindowMs = Math.max(1000, agentConfig.autonomousLoopIntervalMs);
-    const dedupeKey = `life_loop:xiaoni:${Math.floor(now.getTime() / dedupeWindowMs)}`;
-    const bodyForAgent = 'life_loop_step';
-    const inboundContext: FinalizedInboundContext = {
-      Body: 'life_loop',
-      BodyForAgent: bodyForAgent,
-      BodyForCommands: 'life_loop',
-      RawBody: 'life_loop',
-      CommandBody: 'life_loop',
-      From: agentConfig.botAccountId,
-      To: agentConfig.botAccountId,
-      SessionKey: 'life_loop:xiaoni',
-      AccountId: agentConfig.botAccountId,
-      MessageSid: messageSid,
-      ChatType: 'direct',
-      SenderName: 'life_loop',
-      SenderId: agentConfig.botAccountId,
-      Timestamp: Math.floor(now.getTime() / 1000),
-      Provider: 'agent-service',
-      Surface: 'life_loop',
-      WasMentioned: false,
-      NativeChannelId: 'life_loop:xiaoni',
-      CommandAuthorized: false
-    };
-    const message = {
-      traceId: `life_${now.getTime()}_${uuidv4().slice(0, 8)}`,
-      source: 'life_loop',
-      messageId: 0,
-      messageSid,
-      dedupeKey,
-      chatType: 'direct' as const,
-      sessionKey: 'life_loop:xiaoni',
-      peerId: 'xiaoni',
-      peerName: '小腻',
-      senderId: agentConfig.botAccountId,
-      senderName: 'life_loop',
-      accountId: agentConfig.botAccountId,
-      bodyForAgent,
-      rawBody: 'life_loop',
-      commandBody: 'life_loop',
-      wasMentioned: false,
-      receivedAt: now.toISOString(),
-      messageTimestamp: now.toISOString(),
-      rawPayload: {
-        kind: 'life_loop'
-      },
-      inboundContext,
-      autonomousLife: {
-        identityKey: 'xiaoni'
-      }
-    };
-
-    const result = await enqueueAgentQueueMessage({
-      message,
-      payload: message,
-      availableAt: now
-    }, databaseConfig);
-    return {
-      enqueued: result.status === 'pending',
-      reason: result.status,
-      queueId: result.queueId,
-      targetSessionKey: null
-    };
-  }
-
   async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
     if (!isImmediateVisibleImWake(queueMessage)) {
       return;
@@ -1697,14 +1608,14 @@ export class RuntimeStore {
     const queueMessage = input.queueMessage;
     const runId = input.runId || queueMessage.runId;
     const traceId = input.traceId || queueMessage.traceId;
-    const outcome = input.outcome || input.presenceOutcome || (isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage) ? 'lurked' : 'silent');
+    const outcome = input.outcome || input.presenceOutcome || (isPresenceTickPayload(queueMessage) ? 'lurked' : 'silent');
     const firstMessage = queueMessage.messages[0] || null;
 
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
       eventKind: 'silence_decision',
       occurredAt: now,
-      surface: isAutonomousLifePayload(queueMessage) ? 'life_loop' : 'qq',
+      surface: isPresenceTickPayload(queueMessage) ? 'presence_tick' : 'qq',
       chatType: queueMessage.chatType,
       sessionKey: queueMessage.sessionKey,
       surfaceId: queueMessage.sessionKey,
@@ -1720,7 +1631,7 @@ export class RuntimeStore {
       actorId: queueMessage.accountId,
       targetId: queueMessage.peerId,
       visibility: 'self_private',
-      actionCost: isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage) ? 0.01 : 0.005,
+      actionCost: isPresenceTickPayload(queueMessage) ? 0.01 : 0.005,
       payload: {
         run_id: runId,
         trace_id: traceId,
@@ -1761,7 +1672,7 @@ export class RuntimeStore {
       identityKey: 'xiaoni',
       eventKind: 'sleep_period',
       occurredAt: now,
-      surface: isAutonomousLifePayload(queueMessage) ? 'life_loop' : 'qq',
+      surface: isPresenceTickPayload(queueMessage) ? 'presence_tick' : 'qq',
       chatType: queueMessage.chatType,
       sessionKey: queueMessage.sessionKey,
       surfaceId: queueMessage.sessionKey,
@@ -1836,7 +1747,7 @@ export class RuntimeStore {
         items: selectedItems,
         scores: recallScores,
         stateExplanation: renderXiaoniLifeStateExplanation(explanation),
-        isPresenceTick: isPresenceTickPayload(queueMessage) || isAutonomousLifePayload(queueMessage)
+        isPresenceTick: isPresenceTickPayload(queueMessage)
       }),
       sourceItems: selectedItems,
       recallScores,
@@ -3776,7 +3687,6 @@ export class RuntimeStore {
       inboundContext: latest.inboundContext,
       messages,
       ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
-      ...(latestPayload.autonomousLife ? { autonomousLife: latestPayload.autonomousLife } : {}),
     };
 
     return {

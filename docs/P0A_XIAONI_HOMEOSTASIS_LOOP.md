@@ -10,13 +10,16 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 
 ## Current Runtime Facts
 
-- `agent-service` currently starts queue polling, task polling, and
-  `presenceTickTimer`.
+- `agent-service` currently starts queue polling and task polling only. The fixed
+  interval `life_loop` / autonomous-life loop has been removed.
 - There is no active standalone self-action runner in `agent-service/src/index.ts`.
-  `/health` no longer exposes a `self_action_busy` compatibility field.
+  `/health` no longer exposes a `self_action_busy` compatibility field or an
+  autonomous-life busy field.
 - `presence_tick:xiaoni` is a synthetic life-level queue event. If unread IM
-  exists, the main loop can materialize it as `proactive_im_open`. If no unread
-  IM exists, it stays life-only and must not send QQ directly.
+  exists, the main loop can materialize it as `proactive_im_open`. Future
+  enqueueing must come from a gated evaluator that checks state, budget,
+  cooldown, and unread cursors first. If no unread IM exists, it stays life-only
+  and must not send QQ directly.
 - IM unread is persisted in `agent_inbound_messages`; each session uses its
   last-read message as the cursor, and opening IM materializes unread messages
   after that cursor so stale backlog is not treated as the current scene.

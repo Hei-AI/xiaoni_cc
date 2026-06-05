@@ -16,7 +16,6 @@ const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store));
 let stopping = false;
 let workerBusy = false;
 let taskWorkerBusy = false;
-let autonomousLifeBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -26,7 +25,6 @@ app.get('/health', async (_req, res) => {
     service: 'agent-service',
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
-    autonomous_life_busy: autonomousLifeBusy,
     timestamp: new Date().toISOString()
   });
 });
@@ -111,40 +109,6 @@ async function runTaskWorkerLoop() {
   }
 }
 
-async function enqueueAutonomousLifeOnce() {
-  if (stopping || autonomousLifeBusy) {
-    return agentConfig.autonomousLoopIntervalMs;
-  }
-
-  autonomousLifeBusy = true;
-  try {
-    const result = await store.enqueueAutonomousLifeStep();
-    if (result.enqueued) {
-      moduleLogger.info('Autonomous life step enqueued', {
-        queue_id: result.queueId,
-        mode: 'life_loop'
-      });
-    }
-  } catch (error) {
-    moduleLogger.error('Autonomous life step failed', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-  } finally {
-    autonomousLifeBusy = false;
-  }
-
-  return agentConfig.autonomousLoopIntervalMs;
-}
-
-async function runAutonomousLifeLoop() {
-  while (!stopping) {
-    const delayMs = await enqueueAutonomousLifeOnce();
-    if (!stopping) {
-      await wait(delayMs);
-    }
-  }
-}
-
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -165,7 +129,6 @@ async function start() {
   });
   void wait(200).then(() => runQueueWorkerLoop());
   void wait(500).then(() => runTaskWorkerLoop());
-  void runAutonomousLifeLoop();
 }
 
 process.on('SIGINT', () => {
