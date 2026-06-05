@@ -628,12 +628,7 @@ test('buildCanonicalAgentTurnRequest does not convert low energy into a no-tool 
     [],
     null,
     null,
-    [
-      '<小腻当前状态>',
-      '当前精力：0.14',
-      '精力成本：已经开口，行动成本 1.00',
-      '</小腻当前状态>'
-    ].join('\n')
+    '<xiaoni_runtime_state trigger="low_energy_reminder" energy="0.140" max_energy="1" note="low energy" />'
   );
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
@@ -1153,7 +1148,7 @@ test('buildInitialInput renders each message in a batch as its own user message 
 
   const loopInput = buildInitialInput([], payload);
   const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
-  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
+  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
 
   assert.equal(currentTurnItems.length, 2);
   assert.match(getMessageContent(currentTurnItems[0]), /<INPUT_MESSAGE message_id="11" chat_type="群聊" group="Test Group\(101\)">/);
@@ -1226,11 +1221,10 @@ test('buildInitialInput does not project accepted identity facts into runtime in
   assert.doesNotMatch(rendered, /公式化开头/);
   const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
   assert.match(getMessageContent(currentInputItem), /问问@\{Bob\(@404\)\} 今天玩什么/);
-  assert.match(getMessageContent(loopInput.at(-2)), /<system_reminder>/);
-  assert.match(getMessageContent(loopInput.at(-1)), /<runtime_history_reading>/);
+  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
 });
 
-test('buildInitialInput keeps current batch before reminder and runtime history reading', () => {
+test('buildInitialInput keeps current batch before reminder without deprecated developer tail blocks', () => {
   const payload = createQueuePayload();
   payload.messages.push({
     ...payload.messages[0],
@@ -1278,7 +1272,6 @@ test('buildInitialInput keeps current batch before reminder and runtime history 
   const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12" chat_type="群聊"'));
   const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>已打开 IM；下面是这段时间看到的未读列表'));
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
-  const historyReadingIndex = rendered.findIndex((content) => content.includes('<runtime_history_reading>'));
 
   assert.ok(osIndex !== -1);
   assert.ok(firstCurrentIndex !== -1);
@@ -1286,11 +1279,9 @@ test('buildInitialInput keeps current batch before reminder and runtime history 
   assert.ok(reminderIndex !== -1);
   assert.equal(identityIndex, -1);
   assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
-  assert.ok(historyReadingIndex !== -1);
   assert.ok(osIndex < firstCurrentIndex);
   assert.ok(firstCurrentIndex < secondCurrentIndex);
   assert.ok(secondCurrentIndex < reminderIndex);
-  assert.ok(reminderIndex < historyReadingIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -4286,29 +4277,12 @@ test('buildCanonicalAgentTurnRequest keeps action tools for direct social-target
 });
 
 test('buildTurnStateReminder injects low-energy STATE from runtime context', () => {
-  const reminder = buildTurnStateReminder([
-    '<小腻当前状态>',
-    '当前精力：0.14',
-    '精力成本：已经开口，行动成本 1.00',
-    '</小腻当前状态>'
-  ].join('\n'));
+  const reminder = buildTurnStateReminder('<xiaoni_runtime_state trigger="low_energy_reminder" energy="0.140" max_energy="1" note="low energy" />');
 
   assert.ok(reminder);
   assert.match(getMessageContent(reminder!), /<STATE/);
   assert.match(getMessageContent(reminder!), /trigger="low_energy_reminder"/);
   assert.match(getMessageContent(reminder!), /energy="0.140"/);
-});
-
-test('buildTurnStateReminder injects forced full recovery STATE for negative raw energy', () => {
-  const reminder = buildTurnStateReminder([
-    '<小腻当前状态>',
-    '当前精力：-0.20',
-    '</小腻当前状态>'
-  ].join('\n'));
-
-  assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /trigger="forced_full_recovery"/);
-  assert.match(getMessageContent(reminder!), /energy="1.000"/);
 });
 
 test('buildTurnStateReminder injects explicit runtime STATE directives', () => {
@@ -4407,12 +4381,7 @@ test('energy context keeps action tools available and lets recover_energy be cho
     [],
     null,
     null,
-    [
-      '<小腻当前状态>',
-      '当前精力：0.14',
-      '精力成本：已经开口，行动成本 1.00',
-      '</小腻当前状态>'
-    ].join('\n')
+    '<xiaoni_runtime_state trigger="low_energy_reminder" energy="0.140" max_energy="1" note="low energy" />'
   );
   loopInput.push({
     type: 'function_call',
@@ -4818,9 +4787,9 @@ test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in in
   assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
 });
 
-// H: developer role injection — stable world narrative stays early while turn-dynamic context stays late
-test('buildInitialInput strips relationship layer while keeping stable and dynamic context', () => {
-  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>\n\n<小腻当前状态>刚抬头看了一眼 IM</小腻当前状态>';
+// H: developer role injection — stable world narrative stays early while relationship context is dropped
+test('buildInitialInput strips relationship layer while keeping stable developer context', () => {
+  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, devBlock);
   assert.equal(items[0]?.type, 'message');
   assert.equal((items[0] as { role?: string })?.role, 'system');
@@ -4830,15 +4799,9 @@ test('buildInitialInput strips relationship layer while keeping stable and dynam
   assert.match(getMessageContent(items[1]), /<skills_instructions>/);
   assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
   assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
-  const developerIndex = items.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('小腻当前状态'));
-  const currentReminderIndex = items.findIndex((item) => getMessageContent(item).includes('看到的未读列表'));
-  const historyReadingIndex = items.findIndex((item) => getMessageContent(item).includes('<runtime_history_reading>'));
-  assert.ok(developerIndex > currentReminderIndex);
-  assert.ok(developerIndex < historyReadingIndex);
-  assert.doesNotMatch(getMessageContent(items[developerIndex]), /world_narrative/);
-  assert.doesNotMatch(getMessageContent(items[developerIndex]), /current_relationship|当前关系层级|当前可开放的自己/);
-  assert.match(getMessageContent(items[developerIndex]), /小腻当前状态/);
-  assert.doesNotMatch(getMessageContent(items[developerIndex]), /current_scene|消息密度|活跃人数/);
+  const rendered = items.map(getMessageContent).join('\n');
+  assert.doesNotMatch(rendered, /current_relationship|当前关系层级|当前可开放的自己/);
+  assert.doesNotMatch(rendered, /current_scene|消息密度|活跃人数/);
 });
 
 // I: developer role injection — capabilities are declared once at the top of the runtime input

@@ -59,7 +59,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, databaseConfig } from '../config';
 import { logger } from '../utils/logger';
 import {
-  buildPresenceContextBlock,
   PRESENCE_FATIGUE_RECOVERY_THRESHOLD,
   scoreSharePoolItem,
   type PresenceAnchors,
@@ -443,7 +442,6 @@ export type RuntimeFeedbackEpisode = {
 };
 
 export type RuntimePresenceContext = {
-  block: string;
   sourceItems: PresenceSharePoolItem[];
   recallScores: Record<string, unknown>[];
   boundaryJudgments: Record<string, unknown>[];
@@ -1742,13 +1740,6 @@ export class RuntimeStore {
     const selectedItems = scored.slice(0, 3).map((entry) => entry.item);
     const recallScores = scored.map((entry) => entry.score);
     return {
-      block: buildPresenceContextBlock({
-        state: projection.state,
-        items: selectedItems,
-        scores: recallScores,
-        stateExplanation: renderXiaoniLifeStateExplanation(explanation),
-        isPresenceTick: isPresenceTickPayload(queueMessage)
-      }),
       sourceItems: selectedItems,
       recallScores,
       boundaryJudgments: selectedItems.map((item) => ({
@@ -1761,7 +1752,7 @@ export class RuntimeStore {
         life_projection_version: projection.version,
         reduced_through_event_id: projection.reducedThroughEventId,
         explanation_contributors: explanation.contributors,
-        sections: ['recent_action_trace', 'current_residue', 'current_state', 'state_explanation', 'available_material', 'action_cost', 'source_boundary']
+        sections: ['source_items', 'recall_scores', 'boundary_judgments', 'life_projection']
       },
       lifeProjection: projection,
       lifeExplanation: explanation
@@ -1786,7 +1777,7 @@ export class RuntimeStore {
       recallScores: input.presenceContext.recallScores,
       boundaryJudgments: input.presenceContext.boundaryJudgments,
       compressionMapping: input.presenceContext.compressionMapping,
-      finalContextBlock: input.presenceContext.block,
+      finalContextBlock: '',
       modelActionOutcome: input.outcome || null
     }, databaseConfig);
 

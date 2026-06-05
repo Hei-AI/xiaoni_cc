@@ -167,7 +167,7 @@ flowchart TD
 
   Input --> Prompt["system: xiaoni-main-agent<br/>runtime contract<br/>action closure tool contract"]
   Input --> Replay["replay INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os"]
-  Input --> State["developer: world narrative<br/>&lt;STATE&gt;, &lt;CAPABILITIES&gt;, identity facts,<br/>&lt;小腻当前状态&gt;, &lt;UNREAD_AVAILABLE&gt;"]
+  Input --> State["developer: world narrative + skills + &lt;CAPABILITIES&gt;<br/>assistant commentary: event &lt;STATE&gt;<br/>user/assistant context: &lt;UNREAD_AVAILABLE&gt;, replay"]
   Prompt --> Request["provider-service /api/internal/agent/execute"]
   Replay --> Request
   State --> Request
@@ -206,7 +206,8 @@ flowchart LR
   Conv --> Identity["identity lineage and accepted facts"]
   Run --> Life["agent_life_events"]
   Life --> Projection["agent_session_life_states projection"]
-  Projection --> PromptState["&lt;STATE&gt; / &lt;小腻当前状态&gt;"]
+  Projection --> PromptState["event-triggered &lt;STATE&gt;"]
+  Projection --> SidecarState["presence context sidecar snapshot"]
   Inbox --> QqUsage["$qq-usage windows"]
   Media["agent_media_assets"] --> Observe["agent_media_observations"]
   Tasks["agent_tasks"] --> Artifacts["agent_task_artifacts"]

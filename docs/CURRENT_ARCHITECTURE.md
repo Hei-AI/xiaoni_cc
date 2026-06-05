@@ -51,7 +51,7 @@ QQ 群 / QQ 私聊
 后台还有一条不由 QQ 新消息触发的 presence 生活事件链：
 
 ```text
-小腻当前状态 / 预算 / 冷却
+life state / 预算 / 冷却
   |
   v
 presence tick 判断是否值得 append 一个空闲/看 IM 事件
@@ -286,7 +286,7 @@ recover_energy
 | QQ 消息完全没有进来 | 收消息入口是否正常 |
 | 进来了但小腻没有处理 | 群/私聊是否启用、自动回复是否开启、是否进入待处理池 |
 | 处理了但没有说话 | 她可能判断应该沉默，需要看当次判断过程 |
-| 说了但不像小腻 | 看 Prompt、`<xiaoni_os>`、`<小腻近况>`、identity facts、presence context 和当次模型输入；不要假设三层长期记忆已经自动投影进 prompt |
+| 说了但不像小腻 | 看 Prompt、`<xiaoni_os>`、`<小腻近况>`、event `<STATE>` 和当次模型输入；presence context 只看 sidecar，不要假设三层长期记忆已经自动投影进 prompt |
 | 明明应该查资料却没查 | 看当前阶段是否允许搜索，以及她是否判断需要资料 |
 | 发言内容发不出去 | 看 QQ 发送链路 |
 

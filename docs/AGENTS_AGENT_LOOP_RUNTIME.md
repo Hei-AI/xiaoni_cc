@@ -41,7 +41,7 @@ life-only:
 `buildInitialInput` 给主 loop 的输入由这些层组成：
 
 - system：`runtimePrompt.systemPrompt` 和稳定运行契约。
-- developer：开头一次 `<CAPABILITIES>`，列出当前 tools、skills、路径和 energy cost；后段可以有当前状态、identity facts、presence context。
+- developer：开头一次稳定上下文（可选 `world_narrative`、`<skills_instructions>`、`<CAPABILITIES>`），列出当前 tools、skills、路径和 energy cost；不再追加旧 presence 私有块或旧 history-reading developer 尾块，relationship / scene / presence context 也不进 request input。
 - user：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
 - assistant `final_answer`：小腻过去真正发出去的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
 - assistant `commentary`：`<小腻近况>`、`<xiaoni_os>`、`<ACTION>`、`<图片内容>`、`<STATE>`、`<system_reminder>`；旧历史中可能仍有 `<小腻的OS>`，只兼容读取，不迁移。

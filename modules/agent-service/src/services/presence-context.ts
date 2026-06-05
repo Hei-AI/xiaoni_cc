@@ -54,26 +54,6 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
-function renderMaterialSource(item: PresenceSharePoolItem) {
-  if (item.sourceWording === 'real_web_search') {
-    return '真实网页搜索材料，可以说是查到或看到的资料';
-  }
-  if (item.sourceWording === 'mock_only') {
-    return '模拟材料，只能当作内部假设';
-  }
-  if (item.sourceWording === 'constructed_only') {
-    return '整理出来的材料，不能说成刚查到';
-  }
-  return `${item.sourceKind} 材料，使用前注意来源边界`;
-}
-
-function renderBoundaryLabel(boundaryLabel: string) {
-  if (boundaryLabel === 'safe') return '可以使用';
-  if (boundaryLabel === 'reframe') return '需要换个说法';
-  if (boundaryLabel === 'blocked') return '不要使用';
-  return boundaryLabel;
-}
-
 function hoursBetween(left: Date, right: Date) {
   return Math.max(0, (left.getTime() - right.getTime()) / HOUR_MS);
 }
@@ -128,33 +108,4 @@ export function scoreSharePoolItem(item: PresenceSharePoolItem, now: Date) {
     effortPenalty,
     finalScore
   };
-}
-
-export function buildPresenceContextBlock(params: {
-  state: PresenceLifeState;
-  items: PresenceSharePoolItem[];
-  scores: ReturnType<typeof scoreSharePoolItem>[];
-  stateExplanation?: string | null;
-  isPresenceTick: boolean;
-}) {
-  const topItems = params.items.slice(0, 3);
-  const costExplanation = typeof params.stateExplanation === 'string'
-    ? params.stateExplanation.replace(/^现在的精力：当前精力=[0-9.]+；?/u, '').trim()
-    : '';
-  const hasRealWebSearchMaterial = topItems.some((item) => item.sourceWording === 'real_web_search');
-  const currentResidue = hasRealWebSearchMaterial
-    ? '可用材料里有真实网页搜索留下的内容；只能基于这些材料表达，不能补造没有记录的实时来源。'
-    : '没有真实浏览器证据；模拟或整理出来的材料不能说成刚看到、刚刷到或我查到。';
-  const material = topItems.length > 0
-    ? topItems.map((item) => `- ${item.content}（来源：${renderMaterialSource(item)}；边界：${renderBoundaryLabel(item.boundaryLabel)}）`).join('\n')
-    : '- 暂无可用分享材料';
-  return [
-    '<小腻当前状态>',
-    `当前精力：${params.state.energy.toFixed(2)}`,
-    `精力成本：${costExplanation || '暂无最近行动成本记录。'}`,
-    `可用材料：\n${material}`,
-    `材料边界：${currentResidue}`,
-    `来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到；其他材料不能伪装成实时来源。`,
-    '</小腻当前状态>'
-  ].filter(Boolean).join('\n');
 }

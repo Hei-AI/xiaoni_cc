@@ -195,7 +195,7 @@ input:
   developer CAPABILITIES
   historical INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os
   current queue batch
-  optional media / identity / presence context / STATE
+  optional media / event STATE
 
 tools:
   see Main Loop 工具集合

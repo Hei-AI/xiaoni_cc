@@ -389,7 +389,6 @@ const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 const RUNTIME_MAX_ENERGY = 1;
 const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
-const RUNTIME_LOW_ENERGY_THRESHOLD = 0.2;
 const RESTING_DIRECT_MENTION_RESUME_THRESHOLD = 3;
 
 const TOOL_NAMES = {
@@ -1157,13 +1156,6 @@ export function buildCapabilitiesDeveloperBlock(input: {
   return { block, warnings };
 }
 
-const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
-  '<runtime_history_reading>',
-  '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os 可以帮助理解现场，也可以被当前未读自然 callback。旧 <小腻的OS> 只作为历史兼容读取。',
-  '打开 IM 后的 `<system_reminder>` 只用来说明哪些消息属于已看到的未读列表。',
-  '</runtime_history_reading>'
-].join('\n');
-
 function isPrivateReplyToolName(name: string) {
   return name === TOOL_NAMES.privateReply || LEGACY_TOOL_ALIASES.privateReply.includes(name as typeof LEGACY_TOOL_ALIASES.privateReply[number]);
 }
@@ -1381,10 +1373,6 @@ function extractLatestRuntimeEnergy(loopInput: OpenResponseInputItem[]) {
     if (stateEnergy) {
       return Number(stateEnergy[1]);
     }
-    const legacyEnergy = content.match(/当前精力[:：]\s*(-?\d+(?:\.\d+)?)/);
-    if (legacyEnergy) {
-      return Number(legacyEnergy[1]);
-    }
   }
   return RUNTIME_MAX_ENERGY;
 }
@@ -1407,26 +1395,6 @@ function extractRuntimeStateDirective(developerContextBlock: string | null | und
     if (trigger) {
       return { trigger, energy, maxEnergy, note: attrs.note || null };
     }
-  }
-
-  const legacyEnergy = block.match(/当前精力[:：]\s*(-?\d+(?:\.\d+)?)/);
-  if (!legacyEnergy) {
-    return null;
-  }
-  const energy = Number(legacyEnergy[1]);
-  if (energy < 0) {
-    const forced = resolveForcedFullRecovery({ rawEnergy: energy });
-    return forced
-      ? { trigger: 'forced_full_recovery' as const, energy: RUNTIME_MAX_ENERGY, maxEnergy: RUNTIME_MAX_ENERGY, note: '之前已经透支到 0 以下；恢复从 0 开始算，120 分钟才会完全恢复。' }
-      : null;
-  }
-  if (energy <= RUNTIME_LOW_ENERGY_THRESHOLD) {
-    return {
-      trigger: 'low_energy_reminder' as const,
-      energy,
-      maxEnergy: RUNTIME_MAX_ENERGY,
-      note: 'low-energy reminder'
-    };
   }
   return null;
 }
@@ -4164,8 +4132,7 @@ export class AgentLoopService {
           : null;
       }
       const developerContextBlock = [
-        baseDeveloperContextBlock,
-        presenceContext?.block || null
+        baseDeveloperContextBlock
       ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
       budgetPlan = await this.buildContextBudgetPlan({
         history,
@@ -7035,8 +7002,6 @@ export function buildInitialInput(
   if (turnStateReminder) {
     items.push(turnStateReminder);
   }
-  items.push(buildDeveloperInputItem([RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT]));
-
   return items;
 }
 

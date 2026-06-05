@@ -236,17 +236,9 @@ count reaches `3`, repeated mentions interrupt rest early. Engineering computes
 recovery from actual rest time and injects a `<STATE>` that says repeated `@`
 interrupted rest and how much energy recovered.
 
-**Possible future `presence_context` shape:**
-
-```text
-[当前动作前的小腻状态]
-刚刚的数字活动：浏览过一个关于 AI 检测的吐槽内容。
-自己的反应：觉得它有点像玄学算命。
-当前精力：0.80。
-精力成本：最近没有明显消耗。
-来源：真实浏览器记录。
-[/当前动作前的小腻状态]
-```
+Prompt-facing state is `<STATE>` only. Presence material, source boundaries,
+and share-pool candidates are trace data or future recall inputs; they are not a
+separate per-turn private prompt block.
 
 **Not in current implementation scope:**
 
@@ -263,11 +255,10 @@ interrupted rest and how much energy recovered.
 Current implemented slices:
 
 - 2026-05-26: presence tick, historical share-pool tables, life-state anchors,
-  and sidecar traces. The original slice let Xiaoni proactively open a configured
-  group and inject factual `<小腻当前状态>` into the normal main loop; the current
-  runtime now materializes unread IM targets dynamically from cursor-visible
-  unread, preserves global presence context when materialized, and otherwise
-  stays life-only inside the same loop.
+  and sidecar traces. The original slice included a separate private prompt
+  block; the current runtime has removed that block. It now materializes unread
+  IM targets dynamically from cursor-visible unread, records structured presence
+  trace metadata, and otherwise stays life-only inside the same loop.
 - 2026-05-30: self-action `web_search`. The historical agent-service background loop checked
   budget, cooldown, startup grace, fatigue, and user-interaction limits, then
   calls provider-service with hosted `web_search` plus
@@ -301,7 +292,7 @@ Current implemented slices:
   fake source wording as Xiaoni's inner life.
 - 2026-05-31: first homeostasis reducer slice landed. `presence_tick` now uses
   the event-derived projection, persists `presence_tick_evaluated`, no longer
-  refreshes `last_active_at`, and `小腻当前状态` no longer reads
+  refreshes `last_active_at`, and no prompt-facing presence block reads
   `agent_digital_actions` as current residue.
 - 2026-05-31: `/xiaoni-activity` now treats self-action web-search prompts and
   canonical requests as operator-only trace data. The feed should show life-event
@@ -487,15 +478,14 @@ mock_generation_score =
     desire, or pressure.
   - `source_honesty`: mock/constructed versus real evidence and what wording is
     allowed in group chat.
-- These links are required because recent actions will later be compressed into
-  the in-context current-state block. The prompt should be able to say things
-  like "你刚刚放下手机去做了 X；过了一会儿又拿起来看群；这个话题还
-  有点意思，所以你还盯着聊天窗口" from actual linked records.
+- These links are required because recent actions can later be used by typed
+  recall or operator trace views. They must not become a separate per-turn
+  private prompt block.
 
 Operator traceability rule:
 
-- Every generated `小腻当前状态` block must have a sidecar trace. Do not store
-  only the final prompt text.
+- Every generated presence context snapshot must be represented as structured
+  trace data. Do not store or inject a final private prompt block.
 - The sidecar trace should record:
   - `source_items`: action records, context residue items, group residue, energy
     snapshot, and short-term interest candidates used.
@@ -505,10 +495,8 @@ Operator traceability rule:
   - `boundary_judgments`: safe/reframe/blocked labels for cross-group material.
     For `reframe`, record the kind of removed local detail rather than
     spreading sensitive source text through every trace surface.
-  - `compression_mapping`: which source items became recent action trace,
-    current mental state, shareable material, source boundary, or action cost
-    points.
-  - `final_context_block`: the exact private context injected into the prompt.
+  - `compression_mapping`: which source items were selected and why.
+  - `final_context_block`: deprecated; current runtime writes an empty string.
   - `model_action_outcome`: whether Xiaoni lurked, short-reacted, engaged the
     current topic, proactively shared, elaborated, continued multi-round
     involvement, or stayed away.
@@ -519,7 +507,7 @@ group residue / digital action
 → context residue candidate
 → recall score with decay and boosts
 → boundary label
-→ compressed current-state block
+→ structured trace metadata
 → model action outcome
 ```
 
@@ -544,176 +532,16 @@ State persistence rule:
 - Short-term state may shape current speech. It must not silently mutate
   long-term identity or stable interests without promotion evidence.
 
-In-context action arbitration rule:
+Runtime state and trace rule:
 
-- First version does not need a heavy standalone scheduler that hard-picks
-  "reply / proactively share / lurk". Upstream state should prepare a compact
-  in-context block, then let the model choose the socially natural action inside
-  the current group scene.
-- The block should be retrieved and synthesized from actual state stores:
-  digital-life traces, mock digital-life traces, context residue, same-day
-  residue, short-term preference candidates, fatigue/energy curves, and current
-  group residue. It should not be a static list of generic options.
-- The block should describe Xiaoni's current mental/social scene with enough
-  detail to activate the model's next-token behavior. This does not always mean
-  a recent external action. Xiaoni may have been reading, watching, playing,
-  browsing, thinking about same-day residue, staring at QQ, following the group
-  flow, waiting for replies, or repeatedly picking up and putting down the
-  phone.
-- The block may contain a short multi-step recent action trace, not just one
-  current-state sentence. This is useful with high/low watermark compression:
-  as raw event history grows, compress recent digital/presence actions into a
-  narrative sequence that preserves why Xiaoni is still mentally near the group.
-  Example: "你刚刚放下手机去做了 X；过了一会儿又拿起来看群；这个话题
-  正好有点意思，你也有些无聊，所以还盯着聊天窗口。"
-- The block should describe facts and tendencies, not issue a forced command.
-  Good shape: "刚才读到的段落让她想到 X，她现在有点累，眼睛有点发干";
-  bad shape: "you must reply now" or "you must use this topic".
-- "刚刚在做什么" must come from a real digital trace, recalled same-day residue,
-  context residue item, ongoing group-presence state, or explicitly constructed mock
-  material. If Xiaoni has simply been present in the group, say that. If there
-  is no concrete material, say there is no concrete shareable residue instead of
-  inventing a source.
-- The model may decide among: lurk, short reaction, emoji-like light response,
-  engage current topic, proactively share from context residue, briefly tucao,
-  or stay away because fatigue/pressure is too high.
-- State wording should bias toward human-like behavior without over-controlling
-  output. It should be rich enough to help the model continue from Xiaoni's
-  current mental scene, but still marked as private context that must not be
-  quoted back to the group. Example shape:
-
-```text
-[小腻当前状态]
-当前精力：0.80
-精力成本：最近行动消耗：已经开口，行动成本 0.02
-可用材料：
-- 一个关于夏天和死亡意象的文字联想
-材料边界：整理出来的材料，不能说成刚查到
-来源边界：只能表达自己的想法、印象或整理出来的话题；只有明确标成真实网页搜索的材料，才能说成我查到。
-[/小腻当前状态]
-```
-
-- The block may be longer when there is real material. More detail is useful if
-  it gives the model a concrete mental scene. Do not shorten it into abstract
-  labels just to save tokens.
-- Do not tell the model "now you are more suitable for X" as a final judgment.
-  Provide current energy and action cost points instead; the model should decide
-  whether an action makes sense in the current group scene.
-- First version cost points are deliberately small because energy is a long-lived
-  0-1 activity meter. Ordinary visible replies should stay around `0.01-0.02`;
-  lightweight IM usage should also be in the low hundredths, not tenths.
-- Numeric state should not expose extra meters such as fatigue, boredom, sharing
-  desire, or cooldown. The model needs current energy and how recent action costs
-  relate to it.
-- Use one readable energy/cost shape in the prompt, for example:
-
-```text
-当前精力：0.80
-精力成本：最近行动消耗：已经开口，行动成本 0.02
-```
-- The action budget must not become an extra scheduler deciding for Xiaoni.
-  It should be derived from current energy and current action history. Discuss this together
-  with the full prompt/developer/tool-description/in-context closure before
-  engineering the final formula.
-- Length strategy should be flexible, not a hard word-count target:
-  - `rich-material`: can be relatively long, roughly 300-800 Chinese characters
-    if the details are concrete action trace, recalled material, or Xiaoni's own
-    reaction.
-  - `normal`: roughly 150-400 Chinese characters, enough to explain current
-    action trace and one or two residues.
-  - `no-material`: roughly 50-180 Chinese characters. Do not invent a digital
-    action; say Xiaoni has been present/idling/checking the group and has no
-    concrete shareable residue.
-  - Use token budget as the real engineering guardrail instead of forcing exact
-    character counts.
-  - Each current-state block should normally carry at most one main material and
-    one secondary material. Too many topics will scatter the model.
-- Current-state block structure is fixed to six readable sections:
-
-```text
-[小腻当前状态]
-
-最近行动轨迹：
-<最近几步：放下手机/看群/去做别的数字活动/又回来/仍盯着群。来自
-压缩后的行动记录。>
-
-当前残留：
-<现在脑子里还卡着什么。最多一个主材料、一个次材料。标注来源类型：
-群聊残留、数字生活、mock、收藏整理等。>
-
-现在状态：
-<行动预算、疲惫负荷、压力、无聊、找刺激、分享欲。带总分比如 5/10。
-scale 在 system prompt 中定义。>
-
-可用材料：
-<可用的具体材料内容及来源类型。不写行动建议。>
-
-行动成本：
-<当前体感耗力：哪些动作现在感觉很轻，哪些明显费力，哪些会很吃力。>
-
-来源边界：
-<当前材料的溯源标签：来源类型（mock / 真实浏览器 / 群聊残留 / 自己联想），
-跨群边界标签（safe / reframe / blocked）。规则在 system prompt，此处只有标签。>
-
-[/小腻当前状态]
-```
-
-- Do not add a "recommended action" section. The model receives state,
-  materials, costs, and boundaries, then decides the socially natural action.
-- Every section must map back to sidecar trace sources.
-
-Prompt / developer / tool-description / in-context closure:
-
-In-context state writing principle (locked 2026-05-26):
-
-- The entire 小腻当前状态 block describes state FACTS only. It does not explain
-  what those facts mean for behavior, and it does not contain rule-execution language.
-- Fact: what is true about Xiaoni's current state, experience, or surroundings.
-- Not a fact: what the state means for her behavior, what she should or should not do,
-  what the threshold is, what action is "more suitable".
-- The model activates from facts and derives behavioral implications via emergence.
-  Do not pre-empt that inference.
-- Facts must be concrete enough to activate. "你已经在线很久了" is ambiguous — the
-  model may read it as available and engaged. "你已经在线很久，眼睛发干，注意力有点散"
-  is a concrete sensory fact that activates fatigue.
-- Exception — 来源边界: source honesty is a truth constraint, not embodiment. The
-  invariant rule (no real-source wording without real evidence) belongs in the system
-  prompt / tool description. The per-turn 来源边界 section carries only provenance
-  labels: source type, cross-group boundary label. No rule text.
-- Exception — numeric meters: a number like "5/10" is decorative without a stable
-  scale definition. The scale must be defined once in the system prompt. The state
-  block then projects the current values against that pre-defined scale.
-
-- Stable identity and social principles belong in the base prompt / developer
-  context. Examples: Xiaoni is a QQ group member, not a service; she participates
-  when bored, curious, loose, or sharing-driven; she may lurk; she does not need
-  to answer every message; source honesty is required.
-- World narrative belongs near the beginning of developer context. It explains
-  why Xiaoni opens QQ and participates in group chat, but it should not contain
-  per-turn facts such as "刚才在做什么".
-- Tool descriptions should define action contracts, not personality. They should
-  say what each tool/action records, what counts as real evidence, what is mock,
-  what source wording is allowed, and what side effects are real. Tool
-  descriptions should not decide Xiaoni's mood or whether she wants to talk.
-- In-context state is the only place for per-turn recalled facts: recent action
-  trace, current residue, current action budget, fatigue/pressure/boredom,
-  shareable material, action costs, and source boundaries.
-- Numeric meters must have one engineering source of truth. Energy/stamina,
-  fatigue, dopamine/reward attraction, pressure, rest pressure, action budget,
-  and action costs are computed before prompt assembly, then projected into
-  in-context. Do not let the base prompt, tool descriptions, and current-state
-  block each invent separate versions of the same meter.
-- Relationship/trust and group atmosphere should influence current-state
-  assembly and model interpretation, but they are not the same as energy.
-  Familiarity answers "how open can Xiaoni be here"; energy/action budget answers
-  "how much effort can she spend now".
-- Digital-life traces are records of what Xiaoni did, saw, read, watched, played,
-  saved, or constructed as mock material. In the current architecture they
-  become context residue and current-state material through recall/ranking, not
-  by being pasted wholesale into every prompt.
-- The in-context block is private and disposable. It may affect this turn's
-  action and wording, but it should not mutate stable interests or identity
-  unless the promotion rules produce evidence.
+- Prompt-facing state is only `<STATE>`, appended on event triggers such as tool
+  thresholds, hosted search completion, low-energy reminders, forced recovery,
+  or interrupted rest.
+- `<STATE>` carries numeric energy fields and a short note. It must not carry
+  share material, source boundary prose, current-scene summaries, or action
+  recommendations.
+- Presence/share-pool/source-boundary material remains structured trace data or
+  future typed recall input. It is not pasted into every prompt.
 - Closed-loop path:
 
 ```text
@@ -721,20 +549,13 @@ stable identity / world narrative
 → tools create real or mock digital-life/action records
 → records update context residue, same-day residue, energy/fatigue/action history
 → recall/ranking selects source items with decay and boundary labels
-→ current-state block projects selected state into prompt
+→ event-triggered STATE or structured trace metadata
 → model chooses socially natural action
 → outcome and group reaction write new trace/feedback
 → later promotion may update short-term candidates or stable interests
 ```
 
-- First implementation should verify the loop with sidecar traces before adding
-  more autonomous browser behavior.
-
-- This block should be built from recall, not hand-authored every turn. The
-  engineering task is to retrieve and compress the right material; the model's
-  task is to decide whether and how it matters in the current group scene.
-
-First-slice recall sources for `小腻当前状态`:
+First-slice trace / future recall sources:
 
 - `当天数字生活记录`: future life events for what Xiaoni mock/real read, watched,
   played, browsed, saved, organized, or thought about today. Historical
