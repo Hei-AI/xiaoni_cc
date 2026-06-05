@@ -3,7 +3,7 @@
 本页只回答两个问题：
 
 1. `agent-service` 主聊天 loop 每一步到底吃什么输入，吐什么输出。
-2. 当前架构如何保证普通说话/沉默不再变成固定三段式 turn。
+2. 当前架构如何保证普通说话/沉默不再变成固定三段式请求流程。
 
 如果只想先看总览，回 `docs/CURRENT_ARCHITECTURE.md`。
 
@@ -14,11 +14,10 @@ observability 边界，不是小腻的认知边界。面向 prompt 和产品行�
 小腻理解成连续事件流里的一个持续 loop：当前动作收口后，工程追加事件、
 扣/恢复精力，再进入下一次行动机会。
 
-group chat 的普通路径现在只有一个决策请求：
+group chat 的普通路径现在由当前动作决策直接收口：
 
 ```text
-Turn 1:
-  tool_choice = allowed_tools([submit_life_action])
+tool_choice = allowed_tools([exec_command, submit_life_action])
 
 submit_life_action(action_type=speak, messages=[...])
   -> runtime 直接发送 QQ 消息
@@ -28,25 +27,25 @@ submit_life_action(action_type=silent)
   -> finish, no_reply=true, total_turns=1
 ```
 
-只有确实需要外部结果时才有后续 turn：
+只有确实需要外部结果时才使用外部工具请求：
 
 ```text
 submit_life_action(action_type=search)
   -> web_search
-  -> submit_life_action 或 stay_silent 收口
+  -> submit_life_action 收口
 
 submit_life_action(action_type=image_task, 缺少直接登记所需信息)
   -> inspect_image_placeholder / request_image_task
-  -> submit_life_action 或 stay_silent 收口
+  -> submit_life_action 收口
 ```
 
-旧的 `emit_unread_meaning -> submit_life_action -> speak/stay_silent` 三段式不是当前主路径。`emit_unread_meaning` 只作为历史 replay / 旧日志兼容处理保留，不再出现在新 group loop 的 tool definitions 里。
+旧的三段式判断/发言/沉默路径不是当前主路径。`emit_unread_meaning` 只作为历史 replay / 旧日志兼容处理保留，不再出现在新 group loop 的 tool definitions 里。
 
 ## 输入结构
 
 `buildInitialInput` 给主 loop 的输入由这些层组成：
 
-- system：`runtimePrompt.systemPrompt` + Runtime contract + Single-turn tool contract。
+- system：`runtimePrompt.systemPrompt` + Runtime contract + action closure tool contract。
 - developer：稳定世界叙事、当前场景、小腻当前精力/行动成本、身份事实。
 - user：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`；标签只保留 `message_id`、`chat_type="群聊/私聊"`、`group` / `private_peer`。
 - assistant final：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
@@ -54,7 +53,7 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 
 `<小腻近况>` 是上下文压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是 transcript，也不是召回结果。当前实现把它存在 `agent_session_context_windows.context_summary`，按 context/session key 分桶：普通群/私聊 run 用当前 `payload.sessionKey`，life-only / presence-originated run 用 `xiaoni:global`。主链写入来源是 prompt-facing `compress_core_memory(text)` 的工具文本，不再是后台 `context_summary_writer` 生成的客观摘要。它还不是 `agent_life_events` 的 identity-root projection，也不会自动从某个群 summary fallback。
 
-`<xiaoni_os>` 不是只带上一轮。只要历史 turn 还在当前上下文窗口里，那一轮留下的 OS 就可能被回放。DB 字段仍叫 `xiaoni_os`。
+`<xiaoni_os>` 不是只带上一次请求。只要历史动作还在当前上下文窗口里，当时留下的 OS 就可能被回放。DB 字段仍叫 `xiaoni_os`。
 
 `<STATE>` 不是每次都注入。工程只在状态事件发生时 append：跨 run action
 计数达到阈值、hosted `web_search` 后、低精力提醒、透支后强制睡醒、休息
@@ -70,7 +69,6 @@ submit_life_action(action_type=image_task, 缺少直接登记所需信息)
 
 ```text
 submit_life_action: 0.005
-stay_silent: 0.002
 speak_in_group: 0.015
 reply_in_private: 0.015
 web_search: 0.080
@@ -95,20 +93,21 @@ group chat 当前工具定义：
 submit_life_action
 exec_command
 web_search, if enabled
+compress_core_memory
 speak_in_group
 inspect_image_placeholder
 request_image_task
-stay_silent
 recover_energy
 ```
 
 private chat 当前工具定义：
 
 ```text
+submit_life_action
 exec_command
 web_search, if enabled
+compress_core_memory
 reply_in_private
-stay_silent
 recover_energy
 ```
 
@@ -118,18 +117,19 @@ life-only / presence tick 当前工具定义：
 submit_life_action
 exec_command
 web_search, if enabled
-stay_silent
+compress_core_memory
 recover_energy
 ```
 
-`compress_core_memory` 是特殊压力工具：普通请求不会暴露它。只有工程检测到
-count-based 压缩阈值或 token hard budget 压力时，输入会追加：
+`compress_core_memory` 是特殊压力工具：普通请求可以定义它并在 `<CAPABILITIES>`
+列出成本，但 `tool_choice.allowed_tools` 不允许调用。只有工程检测到 count-based
+压缩阈值或 token hard budget 压力时，输入会追加：
 
 ```text
 <system_reminder source="core_memory_pressure" required_tool="compress_core_memory">
 ```
 
-这一轮 canonical request 的 `tool_choice.allowed_tools` 只允许：
+压力请求的 `tool_choice.allowed_tools` 只允许：
 
 ```text
 compress_core_memory
@@ -137,23 +137,23 @@ compress_core_memory
 
 presence 起源的 tick 是一个上下文特例：如果发现游标后的未读 IM，它可以先 materialize 出一个具体 delivery 目标；但输入组装仍读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff key，不把阿花/海涅这类跨会话 OS 丢进单个群/私聊局部历史之外。注意：这里的 `xiaoni:global` 是 session-window 兼容 key，不代表 event-backed 全局 `<小腻近况>` 已经落地。
 
-group chat 第一轮：
+group chat 默认决策入口：
 
 ```text
-allowed_tools = [submit_life_action]
+allowed_tools = [exec_command, submit_life_action]
 ```
 
 外部工具 follow-up：
 
 ```text
 if latest life action is search:
-  allowed_tools = [web_search, submit_life_action, stay_silent]
+  allowed_tools = [web_search, submit_life_action, recover_energy]
 
 if latest life action is image_task and still needs external work:
-  allowed_tools = [inspect_image_placeholder, request_image_task, submit_life_action, stay_silent]
+  allowed_tools = [inspect_image_placeholder, request_image_task, submit_life_action, recover_energy]
 ```
 
-工程层仍然会保留 actor tools in `tools`，因为 Responses API 的 tool definitions 是请求能力集合；真正每一轮能调用什么由 `tool_choice.allowed_tools` 收缩。
+工程层仍然会保留 actor tools in `tools`，因为 Responses API 的 tool definitions 是请求能力集合；真正当前请求能调用什么由 `tool_choice.allowed_tools` 收缩。
 
 `recover_energy` 是当前唯一 prompt-facing 恢复工具。它把休息
 和睡眠合并成一个动作，`duration_minutes` clamp 到 `5..120`，并用非线性
@@ -164,7 +164,7 @@ prompt-facing 双工具暴露。
 
 ## `submit_life_action`
 
-这是当前主回合的核心工具。它一次性提交：
+这是当前主动作的核心工具。它一次性提交：
 
 | 字段 | 含义 |
 |---|---|
@@ -176,17 +176,17 @@ prompt-facing 双工具暴露。
 | `reaction_authenticity` | 没有、轻微、已形成，还是空方便话 |
 | `should_search` | 是否需要公开新资料 |
 | `context_gap` / `gap_resolution` | 当前上下文缺口属于哪一类，应该怎么处理 |
-| `xiaoni_os` | 本轮之后留给下一次运行的内部连续性 |
-| `pending_share` | 可选，下一轮可能主动分享的材料；life-only 场景会并入 `<xiaoni_os>` |
+| `xiaoni_os` | 当前动作之后留给后续自己的内部连续性 |
+| `pending_share` | 可选，之后可能主动分享的材料；life-only 场景会并入 `<xiaoni_os>` |
 
-普通 `speak` / `proactive` / `silent` 会在 `commitLifeAction` 内直接收口，不再等待下一轮 actor tool：
+普通 `speak` / `proactive` / `silent` 会在 `commitLifeAction` 内直接收口，不再等待另一个 actor tool：
 
 - `speak` / `proactive` 且有 `messages`：直接调用 `sendMessage`。
 - `silent`：直接返回 finished。
 - `speak` / `proactive` 但没有 `messages`：降级成 silent，避免空发言。
 - life-only `presence_tick` 的 `speak` / `proactive` / `image_task` 不会发送 QQ；runtime 会把可分享文本整理成 `我想回头分享这个：...` 并写回 `xiaoni_os`。
 
-`search` 和部分 `image_task` 返回 `finished=false`，让 loop 进入必要的外部工具轮。
+`search` 和部分 `image_task` 返回 `finished=false`，让 loop 进入必要的外部工具请求。
 
 ## 沉默与降级
 
@@ -287,7 +287,7 @@ no_reply = true
   -> write_episodic_observations
   -> write_semantic_assertions
   -> write_memory_reflections
-  -> 如果本轮由 core_memory_pressure 触发：
+  -> 如果当前请求由 core_memory_pressure 触发：
        compress_core_memory(text)
        -> text 写入 agent_session_context_windows.context_summary
        -> 更新 read cutoff
@@ -305,15 +305,15 @@ per-turn `feedback_memory_writer` 现在只保留 timeline start/end，不再调
 - `deriveTurnControlState`：从 replay 判断当前阶段和状态偏置。
 - `parseLifeAction`：解析 `submit_life_action`。
 - `commitLifeAction`：直接提交普通发言、主动发言、沉默，或打开外部工具续轮。
-- `applyToolResultToLoopInput`：`finished=true` 时结束本 run；`finished=false` 时把 tool output replay 给下一轮。
+- `applyToolResultToLoopInput`：`finished=true` 时结束本 run；`finished=false` 时把 tool output replay 给后续请求。
 - `buildDuplicateOutboundSuppression`：防止同一 run 重复 outbound。
 
 ## 排障
 
 | 现象 | 看哪里 |
 |---|---|
-| 第一轮还是 `emit_unread_meaning` | `selectGroupLoopToolDefinitions` / `resolveGroupLoopToolChoice` 是否部署到当前容器 |
-| 普通发言出现 `turn3` | `submit_life_action` 是否缺少 `messages`，或是否走了 `search/image_task` 外部工具路径 |
+| 请求入口还是 `emit_unread_meaning` | `selectGroupLoopToolDefinitions` / `resolveGroupLoopToolChoice` 是否部署到当前容器 |
+| 普通发言的内部 `total_turns` 大于 1 | `submit_life_action` 是否缺少 `messages`，或是否走了 `search/image_task` 外部工具路径 |
 | 模型自然语言结束，没有工具调用 | provider canonical response；主 loop 要求每轮必须有 tool call |
 | 明明要说却沉默 | `participation_judgment`、`reaction_authenticity`、`interest_level`、`unread_meaning` |
 | 发了两次 | delivery commit / duplicate outbound fingerprint |

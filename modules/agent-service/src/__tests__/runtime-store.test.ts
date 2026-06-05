@@ -207,6 +207,8 @@ test('recover_energy records sleep recovery from the explicit recovery tool', as
     toolResult: {
       recovered: true,
       reason: '累了，先睡一下',
+      duration_minutes: 45,
+      duration_ms: 45 * 60 * 1000,
       xiaoni_os: '醒来继续自己的事。'
     }
   });
@@ -217,6 +219,8 @@ test('recover_energy records sleep recovery from the explicit recovery tool', as
   assert.equal(lifeEvents[0].actionCost, 0);
   assert.equal(lifeEvents[0].payload.tool_name, 'recover_energy');
   assert.equal(lifeEvents[0].payload.reason, '累了，先睡一下');
+  assert.equal(lifeEvents[0].payload.duration_minutes, 45);
+  assert.equal(lifeEvents[0].payload.duration_ms, 45 * 60 * 1000);
   assert.equal(lifeEvents[0].payload.xiaoni_os, '醒来继续自己的事。');
   assert.equal(lifeEvents[0].payload.recovery_policy, 'recover_energy_tool_only');
   assert.equal('duration_label' in lifeEvents[0].payload, false);

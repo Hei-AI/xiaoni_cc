@@ -110,7 +110,7 @@
     <text class="label" x="24" y="34">嘴和手：选择怎么在场</text>
     <text class="body" x="24" y="68">三种结果都成立：沉默、求知、发言。</text>
     <text class="small" x="24" y="100">说出口的只有真正要发到群里的话。</text>
-    <text class="tiny" x="24" y="128">stay_silent / web_search / speak_in_group</text>
+    <text class="tiny" x="24" y="128">silent action / web_search / speak_in_group</text>
   </g>
   <path class="connector" d="M 1150 430 C 1048 420 988 372 895 315"/>
 

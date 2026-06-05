@@ -31,7 +31,8 @@ test('life-only autonomous loop stays inside the agent loop and cannot send QQ m
   const names = toolNames(request);
   assert.ok(names.includes('submit_life_action'));
   assert.ok(names.includes('web_search'));
-  assert.ok(names.includes('stay_silent'));
+  assert.equal(names.includes('stay_silent'), false);
+  assert.ok(names.includes('recover_energy'));
   assert.equal(names.includes('reply_in_private'), false);
   assert.equal(names.includes('speak_in_group'), false);
   assert.ok(allowedToolNames(request).includes('submit_life_action'));

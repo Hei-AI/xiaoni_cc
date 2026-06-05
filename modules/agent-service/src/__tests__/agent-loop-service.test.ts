@@ -21,10 +21,10 @@ const GROUP_LOOP_TOOLS = [
   LIFE_ACTION_TOOL,
   EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
+  COMPRESS_CORE_MEMORY_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
-  SILENT_FINISH_TOOL,
   RECOVER_ENERGY_TOOL
 ];
 
@@ -328,7 +328,8 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.doesNotMatch(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.doesNotMatch(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
   assert.doesNotMatch(String(request.instructions), /当前动作怎么收/);
-  assert.match(String(planFunction?.description), /一次性完成小腻本轮生活动作决策/);
+  assert.match(String(planFunction?.description), /一次性提交小腻当前生活动作决策/);
+  assert.doesNotMatch(String(planFunction?.description), /本轮|下一轮|第一轮|Turn 1|Single-turn/);
   assert.match(String(planFunction?.description), /具体可说点/);
   assert.doesNotMatch(String(planFunction?.description), /先搞清楚/);
   assert.deepEqual(planFunction?.parameters?.required, ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os']);
@@ -355,6 +356,75 @@ test('exec_command executes inside the agent runtime and returns structured outp
   assert.equal(result.stdout, 'skill-loaded');
   assert.equal(result.stderr, '');
   assert.equal(result.timed_out, false);
+});
+
+test('exec_command defaults to sh when SHELL is unset', async () => {
+  const originalShell = process.env.SHELL;
+  delete process.env.SHELL;
+  try {
+    const service = new AgentLoopService({} as any, {
+      resolveForQueueMessage: async () => createRuntimePrompt()
+    } as any);
+
+    const result = await (service as any).executeTool({
+      callId: 'call-exec-default-shell',
+      name: EXEC_COMMAND_TOOL,
+      args: {
+        cmd: 'printf default-shell',
+        login: false,
+        yield_time_ms: 1000,
+        max_output_tokens: 100
+      },
+      rawArguments: '{}'
+    }, createQueuePayload());
+
+    assert.equal(result.shell, '/bin/sh');
+    assert.equal(result.exit_code, 0);
+    assert.equal(result.stdout, 'default-shell');
+    assert.equal(result.stderr, '');
+    assert.equal(result.error_message, undefined);
+  } finally {
+    if (typeof originalShell === 'string') {
+      process.env.SHELL = originalShell;
+    } else {
+      delete process.env.SHELL;
+    }
+  }
+});
+
+test('exec_command returns spawn errors as tool output instead of throwing', async () => {
+  const service = new AgentLoopService({} as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-exec-missing-shell',
+    name: EXEC_COMMAND_TOOL,
+    args: {
+      cmd: 'printf unreachable',
+      shell: '/not/a/real-shell',
+      login: false,
+      yield_time_ms: 1000,
+      max_output_tokens: 100
+    },
+    rawArguments: '{"cmd":"printf unreachable","shell":"/not/a/real-shell"}'
+  }, createQueuePayload());
+
+  assert.equal(result.exit_code, null);
+  assert.match(String(result.error_message), /ENOENT|not\/a\/real-shell/);
+  assert.match(String(result.stderr), /ENOENT|not\/a\/real-shell/);
+  assert.equal(result.timed_out, false);
+
+  const continuation = applyToolResultToLoopInput({
+    callId: 'call-exec-missing-shell',
+    name: EXEC_COMMAND_TOOL,
+    rawArguments: '{"cmd":"printf unreachable","shell":"/not/a/real-shell"}'
+  }, result);
+  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
+  assert.equal(continuation.inputItems[0]?.call_id, 'call-exec-missing-shell');
+  const output = JSON.parse(continuation.inputItems[0]?.output || '{}');
+  assert.equal(output.exit_code, null);
+  assert.match(String(output.error_message), /ENOENT|not\/a\/real-shell/);
 });
 
 test('buildInitialInput places xiaoni digest before retained history as the cache chain head', () => {
@@ -446,7 +516,7 @@ test('buildCanonicalAgentTurnRequest only unlocks life action proposal after unr
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [EXEC_COMMAND_TOOL, LIFE_ACTION_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest only allows stay_silent after life action prefers silence', () => {
+test('buildCanonicalAgentTurnRequest no longer exposes stay_silent after life action prefers silence', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -473,7 +543,7 @@ test('buildCanonicalAgentTurnRequest only allows stay_silent after life action p
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest goes directly to act-turn when life action prefers speak', () => {
@@ -533,7 +603,7 @@ test('buildCanonicalAgentTurnRequest uses web search directly for public-info ga
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, RECOVER_ENERGY_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest allows speech when life action prefers speak without pre-reply recall', () => {
@@ -591,7 +661,7 @@ test('buildCanonicalAgentTurnRequest allows search when life action prefers sear
   });
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, RECOVER_ENERGY_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest downgrades low weak speech without direct new cue to silence', () => {
@@ -621,7 +691,7 @@ test('buildCanonicalAgentTurnRequest downgrades low weak speech without direct n
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest goes to act-turn directly for direct new low weak speech', () => {
@@ -681,7 +751,7 @@ test('buildCanonicalAgentTurnRequest downgrades low+formed+no-direct-cue speak t
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL]);
 });
 
 test('buildCanonicalAgentTurnRequest keeps low+formed speak when there is a direct cue', () => {
@@ -741,10 +811,10 @@ test('buildCanonicalAgentTurnRequest downgrades none-interest speak to silence a
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL]);
 });
 
-test('buildCanonicalAgentTurnRequest routes proactive to speak+silent tools', () => {
+test('buildCanonicalAgentTurnRequest routes proactive to speak plus life-action fallback tools', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -773,7 +843,8 @@ test('buildCanonicalAgentTurnRequest routes proactive to speak+silent tools', ()
   const allowedTools = withoutQqUsageTools(getAllowedToolNames(request.tool_choice));
 
   assert.ok(allowedTools.includes(GROUP_REPLY_TOOL), 'proactive must allow speak_in_group');
-  assert.ok(allowedTools.includes(SILENT_FINISH_TOOL), 'proactive must allow stay_silent as fallback');
+  assert.ok(allowedTools.includes(LIFE_ACTION_TOOL), 'proactive fallback silence must go through submit_life_action');
+  assert.ok(!allowedTools.includes(SILENT_FINISH_TOOL), 'proactive must not expose stay_silent');
   assert.ok(!allowedTools.includes(INSPECT_IMAGE_TOOL), 'proactive must not include image tools');
 });
 
@@ -840,7 +911,7 @@ test('search path uses web search directly instead of private memory recall', ()
   loopInput.push({ type: 'function_call_output', call_id: 'c2', output: '{"interest_level":"high","wants_to_know_more":true,"recalled_prior_pattern":"需要查资料再回应","felt_direction":"需要查资料","reaction_authenticity":"formed","should_search":true,"action_type":"search","reason":"需要搜索"}' });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [WEB_SEARCH_TOOL, LIFE_ACTION_TOOL, RECOVER_ENERGY_TOOL]);
 });
 
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
@@ -914,7 +985,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     ['function_call', 'function_call_output', 'function_call', 'function_call_output']
   );
   assert.doesNotMatch(String(requestBody.canonicalRequest.instructions), /本次运行默认只有一次决策请求/);
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(requestBody.canonicalRequest.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(requestBody.canonicalRequest.tool_choice)), [RECOVER_ENERGY_TOOL]);
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
   assert.deepEqual(
     withoutQqUsageTools(requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool))),
@@ -2825,7 +2896,8 @@ test('buildToolLoopMonitorReminder warns before max turn without final tool', ()
   });
 
   assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /最后工具轮次/);
+  assert.match(getMessageContent(reminder!), /工程上限/);
+  assert.doesNotMatch(getMessageContent(reminder!), /工具轮次|本轮|下一轮|第一轮/);
   assert.match(getMessageContent(reminder!), /final_answer/);
 });
 
@@ -4645,8 +4717,8 @@ test('shouldDowngradeWeakSpeakToSilence forces silence for empty_but_convenient 
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL],
-    'empty_but_convenient must always be silenced even when directly addressed');
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL],
+    'empty_but_convenient must not expose stay_silent even when directly addressed');
 });
 
 // A2: socialTarget === 'me' counts as direct new cue
@@ -4716,7 +4788,7 @@ test('parseLifeAction accepts tool output without recalled_prior_pattern and fel
   );
 });
 
-test('participation_judgment=no_sayable_point forces stay_silent even if action_type is speak', () => {
+test('participation_judgment=no_sayable_point suppresses speech without exposing stay_silent', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   loopInput.push({
     type: 'function_call',
@@ -4742,7 +4814,7 @@ test('participation_judgment=no_sayable_point forces stay_silent even if action_
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [SILENT_FINISH_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(request.tool_choice)), [RECOVER_ENERGY_TOOL]);
 });
 
 test('buildTurnStateReminder injects low-energy STATE from runtime context', () => {
@@ -5298,7 +5370,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
       type: 'allowed_tools',
       mode: 'required',
       tools: [
-        { type: 'function', name: SILENT_FINISH_TOOL }
+        { type: 'function', name: RECOVER_ENERGY_TOOL }
       ]
     }
   };
@@ -5397,7 +5469,9 @@ test('recover_energy is exposed without prompt-facing rest_period or sleep_perio
   assert.ok(!toolNames.includes('rest_period'));
   assert.ok(!toolNames.includes('sleep_period'));
   const recoverTool = (request.tools ?? []).find((tool: any) => getToolName(tool) === RECOVER_ENERGY_TOOL) as any;
-  assert.deepEqual(recoverTool?.function?.parameters?.required, ['reason', 'xiaoni_os']);
+  assert.deepEqual(recoverTool?.function?.parameters?.required, ['reason', 'duration_minutes', 'xiaoni_os']);
+  assert.equal(recoverTool?.function?.parameters?.properties?.duration_minutes?.minimum, 5);
+  assert.equal(recoverTool?.function?.parameters?.properties?.duration_minutes?.maximum, 120);
 });
 
 test('qq_usage stays a skill and does not expose navigation as OpenAI tools', () => {

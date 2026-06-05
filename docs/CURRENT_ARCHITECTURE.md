@@ -63,7 +63,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity continuity；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或 `stay_silent` 休息；“想回头分享”的内容会追加进 `<xiaoni_os>`，不是写入单独分享池。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity continuity；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或用 `recover_energy` 休息；沉默收口走 `submit_life_action(action_type=silent)`。“想回头分享”的内容会追加进 `<xiaoni_os>`，不是写入单独分享池。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
 
 当前连续性边界：
 
@@ -100,7 +100,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 
 ## 小腻怎么决定说不说
 
-当前主逻辑用一次结构化 `submit_life_action` 承载“先读场、再看自己、判断缺口、最后行动”。它不是让模型自由发挥，也不是固定三段式 turn。
+当前主逻辑用一次结构化 `submit_life_action` 承载“先读场、再看自己、判断缺口、最后行动”。它不是让模型自由发挥，也不是固定三段式请求流程。
 
 ```text
 先读未读消息
@@ -132,7 +132,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 - 每一步输入长什么样
 - 每一步工具定义长什么样
 - `allowed_tools` 怎么逐轮收缩
-- 最近 `253631878` 为什么经常被压到 `stay_silent`
+- 最近 `253631878` 为什么经常被压成沉默
 - 自学习闭环怎么从主 loop 异步接走
 
 直接看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
@@ -160,7 +160,7 @@ role=assistant phase=final_answer
 role=assistant phase=commentary
 <xiaoni_os>历史轮留下来的内部连续性</xiaoni_os>
 <ACTION source="presence_tick">从自己的生活里抬头看了一眼 IM 列表</ACTION>
-<system_reminder>本轮只需要处理指定的新入站消息</system_reminder>
+<system_reminder>当前只需要处理指定的新入站消息</system_reminder>
 
 developer message near the end
 <小腻当前状态>presence context</小腻当前状态>
@@ -198,10 +198,10 @@ Provider：codex
 <OUTPUT_MESSAGE> 是小腻过去已经发出去的 QQ 消息。
 <ACTION> 是小腻自己的动作或状态事件。
 <xiaoni_os> 是留给后续自己的内部连续性。旧历史里的 <小腻的OS> 仍可读，但新 prompt 不再生成这个标签。
-<system_reminder> 是工程控制逻辑给出的本轮边界提醒。
+<system_reminder> 是工程控制逻辑给出的当前请求边界提醒。
 ```
 
-第三层是单轮工具契约。它把本轮收口限制在 `submit_life_action` 和必要的外部工具续轮里：
+第三层是动作收口工具契约。它把当前动作限制在 `submit_life_action` 和必要的外部工具请求里：
 
 ```text
 话已成立，而且值得我承担，就说。
@@ -210,7 +210,7 @@ Provider：codex
 
 普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口。
 需要求知时，submit_life_action 先选择 search，再进入 web_search 续轮。
-如果使用 web_search，搜索后仍要用 submit_life_action 或 stay_silent 收口。
+如果使用 web_search，搜索后仍要用 submit_life_action 收口；需要休息时可用 recover_energy。
 无论说、查还是不说，都留下自然的 xiaoni_os。
 ```
 
@@ -219,24 +219,25 @@ Provider：codex
 ```text
 小腻主AGENT 身份 Prompt
 + 运行时阅读契约
-+ 单轮工具契约
++ 动作收口工具契约
 + 已读聊天背景
 + 当前未读消息
 + 相关身份事实
 + 当前这批消息
-+ 靠近末尾的场景、小腻状态和可选 turn_state reminder
++ 靠近末尾的场景、小腻状态和可选动态状态 reminder
 + 当前阶段允许的工具
 ```
 
-### 3. 第一步：一次性决定当前生活动作
+### 3. 当前生活动作决策
 
-group chat 第一轮现在只允许小腻调用一个工具：
+group chat 默认决策入口只允许小腻调用一个决策工具，另允许 `exec_command` 读取本地 skill 资源：
 
 ```text
+exec_command
 submit_life_action
 ```
 
-这一步同时完成三件事：理解未读消息、判断有没有具体可说点、决定本轮动作。普通说话、主动说一句和沉默都在这个工具里直接收口，不再强制拆成 `emit_unread_meaning -> submit_life_action -> speak/stay_silent`。
+这一步同时完成三件事：理解未读消息、判断有没有具体可说点、决定当前动作。普通说话、主动说一句和沉默都在这个工具里直接收口，不再强制拆成旧的多轮判断/发言/沉默路径。
 
 | 字段 | 业务含义 |
 |---|---|
@@ -244,13 +245,13 @@ submit_life_action
 | `interest_level` | 兴趣强度：没有、低、中、高 |
 | `wants_to_know_more` | 是否真的想知道更多 |
 | `reaction_authenticity` | 反应强度：没有、轻微、已经形成，或没有具体可说点 |
-| `participation_judgment` | 这轮有没有具体可说点、是否是直接请求，以及证据引用 |
+| `participation_judgment` | 当前有没有具体可说点、是否是直接请求，以及证据引用 |
 | `should_search` | 是否需要查资料 |
-| `action_type` | 本轮动作：发言、沉默、搜索、图任务或主动分享 |
+| `action_type` | 当前动作：发言、沉默、搜索、图任务或主动分享 |
 | `message` / `messages` | `speak` / `proactive` 时真正发到 QQ 里的可见话 |
 | `context_gap` | 当前上下文是否足够，缺口是私有记忆、公开信息，还是群内来源不明 |
 | `gap_resolution` | 下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜 |
-| `xiaoni_os` | 本轮之后留给下一轮自己的内在延续，不发给群里 |
+| `xiaoni_os` | 当前动作之后留给后续自己的内在延续，不发给群里 |
 | `reason` | 为什么 |
 
 这里最重要的字段是 `participation_judgment`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient` 或 `participation_judgment.status=no_sayable_point`，它不等于真正想说。小腻必须区分“我有具体可说点”和“我只是可以补一句”。
@@ -268,7 +269,7 @@ submit_life_action(action_type=silent)
 -> engineering run finished, no_reply=true, total_turns=1
 ```
 
-`stay_silent` 仍然存在，但主要用于外部工具 follow-up 或 legacy/fallback 收口；它不再是普通沉默必须等待的第三轮。
+新 request 不再暴露独立沉默工具；普通沉默和外部工具后的不回复都用 `submit_life_action(action_type=silent)` 收口。
 
 如果 `submit_life_action` 选择 `speak/proactive` 但没有给 `message/messages`，runtime 会降级成沉默，避免空发言。
 
@@ -310,10 +311,10 @@ reaction_authenticity = weak_but_real
 ```text
 web_search
 submit_life_action
-stay_silent
+recover_energy
 ```
 
-也就是说，判断需要资料时，她可以查；查完以后仍要用 `submit_life_action` 或 `stay_silent` 收口。搜索不是默认认真，也不是装样子。只有现场需要新鲜公开事实、官方页面或指定 URL，而她知道得不够时才用。
+也就是说，判断需要资料时，她可以查；查完以后仍要用 `submit_life_action` 收口。搜索不是默认认真，也不是装样子。只有现场需要新鲜公开事实、官方页面或指定 URL，而她知道得不够时才用。
 
 如果倾向是 `image_task` 且需要图片内容或任务登记，下一步允许：
 
@@ -321,7 +322,7 @@ stay_silent
 inspect_image_placeholder
 request_image_task
 submit_life_action
-stay_silent
+recover_energy
 ```
 
 最终发给群友的只有 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
@@ -343,7 +344,7 @@ stay_silent
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时可以内部 `submit_life_action`、`web_search`、`recover_energy` 或 `stay_silent`，但不能直接发 QQ。想回头分享的内容会留进 `<xiaoni_os>`，不会走旁路兴趣表。 |
+| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时可以内部 `submit_life_action`、`web_search` 或 `recover_energy`，但不能直接发 QQ。沉默收口走 `submit_life_action(action_type=silent)`；想回头分享的内容会留进 `<xiaoni_os>`，不会走旁路兴趣表。 |
 | 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
@@ -372,7 +373,7 @@ stay_silent
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
-- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 presence tick 进入主 loop 后的低风险内部行动、`web_search` / `stay_silent`，还不是完整浏览器生活。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 presence tick 进入主 loop 后的低风险内部行动、`web_search` / `recover_energy` / `submit_life_action(action_type=silent)`，还不是完整浏览器生活。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 

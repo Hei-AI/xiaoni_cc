@@ -97,7 +97,7 @@
       <text class="small" x="20" y="104">沉默：不打断现场</text>
       <text class="small" x="20" y="132">求知：搜索公开事实</text>
       <text class="small" x="20" y="160">发言：说具体成立的话</text>
-      <text class="tiny" x="20" y="188">stay_silent / web_search / speak</text>
+      <text class="tiny" x="20" y="188">silent action / web_search / speak</text>
     </g>
 
     <g transform="translate(1245 82)">

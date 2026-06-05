@@ -17,12 +17,12 @@
 - 当前仓库优先使用 stateless manual replay：本地保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。
 - 手动 replay 时必须保留 assistant item 的 `phase`。中间状态用 `commentary`，最终输出用 `final_answer`。
 - reasoning / compaction item 是 opaque continuation state，只能回传，不能把内部结构当业务数据解析。
-- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它不等同于 OpenAI Responses compaction。当前主链由工程检测上下文压力后强制模型调用 `compress_core_memory(text)`，并把工具 `text` 写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。
+- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它不等同于 OpenAI Responses compaction。当前主链由工程检测上下文压力后强制 `compress_core_memory(text)`，并把工具 `text` 写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。普通请求可以定义这个工具和成本，但 `allowed_tools` 不允许它；只有压力请求才允许调用。
 
 ## Compaction
 
 - 官方 compaction 有两种：`context_management: [{ type: "compaction", compact_threshold }]` 和 `/responses/compact`。
-- 如果启用官方 compaction，返回的 compacted output 是下一轮 canonical context 的一部分；不能只抽文本，也不要丢弃 encrypted compaction item。
+- 如果启用官方 compaction，返回的 compacted output 是后续 canonical context 的一部分；不能只抽文本，也不要丢弃 encrypted compaction item。
 - 小腻现有 `<小腻近况>` 可以继续作为产品上下文，但必须和 official compaction 分层命名、分层测试。
 
 ## Tools And Prompts
@@ -58,12 +58,12 @@
   `energy_cost: <number>` 时才列入；缺 cost 的 skill 不列入并产生 operator
   warning。小腻可以通过 skill 维护流程调整 cost；修改必须审计旧值、新值、原因和关联 trace。
 - 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才唤醒，并在唤醒上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
-- 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为本轮行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
-- 主 agent 要把“这轮有没有具体可说点”和“下一步生活动作”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前主契约是在 `submit_life_action` 中输出 `action_type / reason / evidence_refs / confidence`，并在 `participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
-- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `stay_silent`，即使模型同时给了 `action_type=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
+- 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
+- 主 agent 要把“当前有没有具体可说点”和“当前生活动作”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前主契约是在 `submit_life_action` 中输出 `action_type / reason / evidence_refs / confidence`，并在 `participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
+- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `submit_life_action(action_type=silent)` 的无回复结果，即使模型同时给了 `action_type=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
-- `compress_core_memory(text)` 是 prompt-facing 核心记忆压缩工具，但普通请求不暴露它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 `<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">`，并把本轮 `tool_choice.allowed_tools` 限制为 `compress_core_memory`。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
+- `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 `<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">`，并把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
 
 ## Memory And Search Routing
 
@@ -74,7 +74,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `life_loop` / compatible `presence_tick` append 到同一事件流；life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前可以选择内部 `submit_life_action`、hosted `web_search`、`recover_energy` 或 `stay_silent`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `life_loop` / compatible `presence_tick` append 到同一事件流；life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前可以选择内部 `submit_life_action`、hosted `web_search` 或 `recover_energy`，沉默仍走 `submit_life_action(action_type=silent)`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Local Request Captures
 

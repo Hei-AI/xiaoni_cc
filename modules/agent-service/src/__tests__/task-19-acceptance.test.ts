@@ -13,6 +13,7 @@ import type { QueueMessagePayload } from '../types';
 import type { ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
+const STAY_SILENT_TOOL = 'stay_silent';
 
 function readNextPromptBody() {
   const repoRoot = resolve(__dirname, '../../../..');
@@ -144,10 +145,13 @@ test('Task 19 injects CAPABILITIES once near the start and lists compress_core_m
   assert.match(getMessageContent(capabilities[0]), /compress_core_memory: energy_cost=0.020/);
 });
 
-test('Task 19 keeps compress_core_memory unavailable until engineering injects core-memory pressure', async () => {
+test('Task 19 defines compress_core_memory but keeps it unavailable until engineering injects core-memory pressure', async () => {
   const normalInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
   const normalRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, normalInput, 'group');
-  assert.equal((normalRequest.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+  const normalToolNames = (normalRequest.tools ?? []).map((tool: any) => getToolName(tool));
+  assert.equal(normalToolNames.includes(COMPRESS_CORE_MEMORY_TOOL), true);
+  assert.equal(normalToolNames.includes(STAY_SILENT_TOOL), false);
+  assert.equal(getAllowedToolNames(normalRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
 
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null,

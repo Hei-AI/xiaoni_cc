@@ -12,8 +12,8 @@ is still backed by `agent_session_context_windows`; event-backed identity-root
 `<小腻近况>` is not implemented yet. If an IM has unread messages after that
 session's last-read cursor, the run can materialize that target as
 `proactive_im_open`; otherwise it stays life-only and can currently submit an
-internal life action, run grounded hosted `web_search`, call `recover_energy`, or
-`stay_silent`. It still cannot send QQ without a concrete IM target. "想回头分享" material is current-context residue:
+internal life action, run grounded hosted `web_search`, or call `recover_energy`;
+silence is `submit_life_action(action_type=silent)`. It still cannot send QQ without a concrete IM target. "想回头分享" material is current-context residue:
 it is appended into `<xiaoni_os>` and later session-window `<小腻近况>`, not
 routed through a separate share-pool queue. Old `<小腻的OS>` history is read as
 legacy residue and is not migrated. This is still not the full browser-backed
@@ -93,7 +93,7 @@ cost context, then let Xiaoni choose.
 → 追加成上下文残留 / `<xiaoni_os>`
 → 情绪能量决定她是否打开群、主动分享、接当前话题、潜水或睡觉
 → 群友反应回流到分享欲、关系温度、偏好和边界
-→ 影响下一轮浏览和分享
+→ 影响后续浏览和分享
 ```
 
 **Future data that needs to exist:**
@@ -236,13 +236,13 @@ how much energy recovered.
 **Possible future `presence_context` shape:**
 
 ```text
-[本轮开始前的小腻状态]
+[当前动作前的小腻状态]
 刚刚的数字活动：浏览过一个关于 AI 检测的吐槽内容。
 自己的反应：觉得它有点像玄学算命。
 当前精力：0.80。
 精力成本：最近没有明显消耗。
 来源：真实浏览器记录。
-[/本轮开始前的小腻状态]
+[/当前动作前的小腻状态]
 ```
 
 **Not in current implementation scope:**
@@ -280,7 +280,8 @@ Current implemented slices:
   stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
   even if unread IM materializes the run into `proactive_im_open`; without a
   concrete IM target it cannot send QQ directly. It can currently use
-  `submit_life_action`, `web_search`, `recover_energy`, or `stay_silent`.
+  `submit_life_action`, `web_search`, or `recover_energy`; silence is
+  `submit_life_action(action_type=silent)`.
   Any "想回头分享" residue is appended to `<xiaoni_os>` and
   therefore survives normal context replay or later summary compression. The compressed `<小腻近况>` here is still
   `agent_session_context_windows.context_summary`, not an event-backed
@@ -526,7 +527,7 @@ State persistence rule:
 
 - `一轮内状态`: whether Xiaoni wants to speak now, speak briefly or at length,
   engage the current topic, proactively share from current residue, or
-  lurk. This is consumed by the current turn and should not be persisted as
+  lurk. This is consumed by the current action and should not be persisted as
   personality.
 - `当天状态`: fatigue curve, boredom, sharing desire, current mood, hot material,
   and same-day residue. This can affect multiple turns and multiple groups, but
@@ -648,7 +649,7 @@ scale 在 system prompt 中定义。>
 <当前体感耗力：哪些动作现在感觉很轻，哪些明显费力，哪些会很吃力。>
 
 来源边界：
-<本轮材料的溯源标签：来源类型（mock / 真实浏览器 / 群聊残留 / 自己联想），
+<当前材料的溯源标签：来源类型（mock / 真实浏览器 / 群聊残留 / 自己联想），
 跨群边界标签（safe / reframe / blocked）。规则在 system prompt，此处只有标签。>
 
 [/小腻当前状态]

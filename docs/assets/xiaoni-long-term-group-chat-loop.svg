@@ -95,7 +95,7 @@
     <text class="small" x="24" y="116">沉默：不打断现场</text>
     <text class="small" x="24" y="146">求知：先查公开事实</text>
     <text class="small" x="24" y="176">发言：只说真正承担的话</text>
-    <text class="tiny" x="24" y="202">stay_silent / web_search / speak_in_group</text>
+    <text class="tiny" x="24" y="202">silent action / web_search / speak_in_group</text>
   </g>
 
   <path class="arrow" d="M 320 267 H 342"/>

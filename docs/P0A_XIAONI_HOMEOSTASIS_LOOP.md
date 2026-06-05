@@ -26,7 +26,7 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
   compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
   `agent_life_events` digest. Life-only `presence_tick` can currently use
-  `submit_life_action`, `web_search`, `recover_energy`, or `stay_silent`, not a private planner
+  `submit_life_action`, `web_search`, or `recover_energy`, not a private planner
   context. If it
   produces a "想回头分享" residue, that residue is appended into `<xiaoni_os>` so
   it stays in normal context and later compression. Old `<小腻的OS>` history is
@@ -61,7 +61,6 @@ implemented yet. Current-runtime facts above remain the truth until code lands.
 
   ```text
   submit_life_action: 0.005
-  stay_silent: 0.002
   speak_in_group: 0.015
   reply_in_private: 0.015
   web_search: 0.080
@@ -123,7 +122,7 @@ agent_life_events append stream
   -> deterministic reducer
   -> homeostasis snapshot
   -> presence/context projection
-  -> main loop decides: speak / search / stay_silent / internal residue
+  -> main loop decides: speak / search / silent life action / internal residue
   -> resulting action appends new events
 ```
 
@@ -145,7 +144,6 @@ Locked production prompt-facing tool/action costs:
 
 ```text
 submit_life_action: 0.005
-stay_silent: 0.002
 speak_in_group: 0.015
 reply_in_private: 0.015
 web_search: 0.080

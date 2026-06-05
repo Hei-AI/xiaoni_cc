@@ -1780,6 +1780,8 @@ export class RuntimeStore {
         source: queueMessage.source,
         reason: typeof input.toolResult.reason === 'string' ? input.toolResult.reason : null,
         xiaoni_os: typeof input.toolResult.xiaoni_os === 'string' ? input.toolResult.xiaoni_os : null,
+        duration_minutes: typeof input.toolResult.duration_minutes === 'number' ? input.toolResult.duration_minutes : null,
+        duration_ms: typeof input.toolResult.duration_ms === 'number' ? input.toolResult.duration_ms : null,
         recovery_policy: 'recover_energy_tool_only'
       },
       dedupeKey: `sleep_period:${compactDedupePart(runId, queueMessage.traceId)}:recover_energy`

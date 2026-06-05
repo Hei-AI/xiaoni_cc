@@ -157,22 +157,22 @@ flowchart TD
   LifeCtx --> Input
   OpenIM --> Input
 
-  Input --> Prompt["system: xiaoni-main-agent<br/>runtime contract<br/>single-turn tool contract"]
+  Input --> Prompt["system: xiaoni-main-agent<br/>runtime contract<br/>action closure tool contract"]
   Input --> Replay["replay INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os"]
   Input --> State["developer: world narrative<br/>&lt;STATE&gt;, &lt;CAPABILITIES&gt;, identity facts,<br/>&lt;小腻当前状态&gt;, &lt;UNREAD_AVAILABLE&gt;"]
   Prompt --> Request["provider-service /api/internal/agent/execute"]
   Replay --> Request
   State --> Request
 
-  Request --> Turn1["Turn 1 allowed_tools usually submit_life_action"]
-  Turn1 --> Action{"submit_life_action.action_type"}
+  Request --> Decision["allowed_tools usually submit_life_action"]
+  Decision --> Action{"submit_life_action.action_type"}
   Action -->|"speak/proactive + messages + target"| Send["send QQ via provider -> NapCat"]
   Action -->|"silent / suppressed"| Silent["finish no_reply"]
   Action -->|"search"| Search["web_search follow-up"]
   Action -->|"image_task"| Img["inspect image or request image task"]
   Action -->|"recover_energy"| Rest["record sleep_period / refresh projection"]
   Action -->|"life-only wants share"| OS["append residue into xiaoni_os / pending_share"]
-  Search --> Close["submit_life_action or stay_silent"]
+  Search --> Close["submit_life_action"]
   Img --> Close
   Close --> Finish["create conversation, complete run, complete queue"]
   Send --> Finish

@@ -459,7 +459,6 @@ const TOOL_NAMES = {
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.lifeAction]: 0.005,
-  [TOOL_NAMES.silentFinish]: 0.002,
   [TOOL_NAMES.groupReply]: 0.015,
   [TOOL_NAMES.privateReply]: 0.015,
   web_search: 0.080,
@@ -598,11 +597,11 @@ const PRIVATE_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一次运行保留的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
+          description: '留给后续自己的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
         },
         pending_share: {
           type: 'string',
-          description: '如果你有个想法或发现想找机会主动说出来，写在这里带到下一轮。下一轮会在未读消息前看到它，让你有机会主动开口。可选，不用硬填。'
+          description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
       required: ['xiaoni_os'],
@@ -634,11 +633,11 @@ const GROUP_MESSAGE_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一次运行保留的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
+          description: '留给后续自己的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
         },
         pending_share: {
           type: 'string',
-          description: '如果你有个想法或发现想找机会主动说出来，写在这里带到下一轮。下一轮会在未读消息前看到它，让你有机会主动开口。可选，不用硬填。'
+          description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
       required: ['xiaoni_os'],
@@ -686,35 +685,10 @@ const IMAGE_TASK_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一轮自己的运行备注：这次图片请求和相关信息缺口。不发给任何人。'
+          description: '留给后续自己的备注：这次图片请求和相关信息缺口。不发给任何人。'
         }
       },
       required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
-      additionalProperties: false
-    }
-  }
-} as const;
-
-const FINISH_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.silentFinish,
-    description: '结束当前动作且不发送 QQ 可见消息。',
-    parameters: {
-      type: 'object',
-      properties: {
-        reason: { type: 'string' },
-        outcome: { type: 'string' },
-        xiaoni_os: {
-          type: 'string',
-          description: '给下一次运行保留的内心独白：当前动作之后留在你这里的东西、察觉到了什么、什么还没过去。不发给任何人。'
-        },
-        pending_share: {
-          type: 'string',
-          description: '如果你有个想法或发现想找机会主动说出来，写在这里带到下一轮。下一轮会在未读消息前看到它，让你有机会主动开口。可选，不用硬填。'
-        }
-      },
-      required: ['reason', 'outcome', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -732,12 +706,18 @@ const RECOVER_ENERGY_TOOL = {
           type: 'string',
           description: '为什么现在选择休息。'
         },
+        duration_minutes: {
+          type: 'integer',
+          minimum: 5,
+          maximum: 120,
+          description: '这次准备休息多久；工程会夹在 5 到 120 分钟之间。120 分钟视为完全恢复。'
+        },
         xiaoni_os: {
           type: 'string',
           description: '休息前留给醒来后的内部连续性。不发给任何人。'
         }
       },
-      required: ['reason', 'xiaoni_os'],
+      required: ['reason', 'duration_minutes', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -811,9 +791,9 @@ const LIFE_ACTION_TOOL = {
   function: {
     name: TOOL_NAMES.lifeAction,
     description: [
-      '一次性完成小腻本轮生活动作决策。这个工具同时提交当前未读理解、参与判断、最终动作和必要的发言/沉默状态。',
-      '普通 speak/silent/proactive 必须直接用这个工具收口，不要先调用 emit_unread_meaning 再进入第二轮。',
-      '只有确实需要外部 web_search、看图或图片任务结果时，action_type 才能选 search/image_task 并进入后续工具轮。',
+      '一次性提交小腻当前生活动作决策。这个工具同时提交当前未读理解、参与判断、最终动作和必要的发言/沉默状态。',
+      '普通 speak/silent/proactive 必须直接用这个工具收口，不要先调用 emit_unread_meaning 再拆成另一个动作步骤。',
+      '只有确实需要外部 web_search、看图或图片任务结果时，action_type 才能选 search/image_task。',
       '如果只是能接话但没有具体可说点，action_type 必须是 silent。'
     ].join(' '),
     parameters: {
@@ -821,7 +801,7 @@ const LIFE_ACTION_TOOL = {
       properties: {
         unread_meaning: {
           type: 'object',
-          description: '当前新入站消息的一次性理解结果；替代旧的单独 emit_unread_meaning turn。',
+          description: '当前新入站消息的一次性理解结果；替代旧的单独 emit_unread_meaning 工具步骤。',
           properties: {
             latest_unread_focus: { type: 'string' },
             message_act: {
@@ -860,7 +840,7 @@ const LIFE_ACTION_TOOL = {
         action_type: {
           type: 'string',
           enum: ['speak', 'silent', 'search', 'image_task', 'proactive'],
-          description: '本轮最终动作。speak/proactive/silent 会直接收口；search/image_task 只在必须外部结果时进入后续工具轮。'
+          description: '当前最终动作。speak/proactive/silent 会直接收口；search/image_task 只在必须外部结果时使用外部工具。'
         },
         message: {
           type: 'string',
@@ -951,11 +931,11 @@ const LIFE_ACTION_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '给下一次运行保留的内部连续性：当前动作之后留在你这里的东西。不发给任何人。'
+          description: '留给后续自己的内部连续性：当前动作之后留在你这里的东西。不发给任何人。'
         },
         pending_share: {
           type: 'string',
-          description: '如果有想找机会主动说的材料，写在这里带到下一轮。可选。'
+          description: '如果有想找机会主动说的材料，写在这里带到之后的上下文里。可选。'
         },
         operation: {
           type: 'string',
@@ -1343,59 +1323,6 @@ const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
   reflection: 'write_memory_reflections'
 } as const;
 
-const RUNTIME_INPUT_READING_CONTRACT = [
-  '这些输入按来源分层：QQ 现场、动作状态、运行提醒、压缩历史。逐段按标签读取。',
-  '',
-  '`<INPUT_MESSAGE>` 是已经进入当前可见现场的真实 QQ 消息。标签只保留 message_id、chat_type="群聊/私聊"、group/private_peer；message_sid/source/trace/run、时间、发言人属于工程/日志字段，不参与对话判断。',
-  '`<IM_INBOX_WINDOW>` 是一次打开/使用 IM 的边界。trigger=explicit_mention/proactive_use_im；其后的 INPUT_MESSAGE 按时间顺序组成这次看到的未读列表。',
-  '`<UNREAD_AVAILABLE>` 是未打开的 IM 元数据，只包含数量和消息定位线索；正文还没进入当前现场。',
-  '`<OUTPUT_MESSAGE>` 是你过去已经发出去的 QQ 消息。它是你的历史输出，不是别人说的话。',
-  '`<ACTION>` 是你自己的动作或状态事件，比如打开群、潜水、找话题、看图、等待。',
-  '`<xiaoni_os>` 是你留给后续自己的内部连续性，不是 QQ 消息；旧 `<小腻的OS>` 历史只兼容读取。',
-  '`<图片内容>` 是你已经检查过图片后留下的观察；没有这个标签时，不要猜图里有什么。',
-  '`<system_reminder>` 是工程控制逻辑给你的当前运行边界提醒，不是群友说的话。',
-  '`<小腻近况>` 是压缩后置顶的纯文本近况时报，像人类对刚才、今天、最近一段的模糊记忆；它不是精确 transcript，也不是召回结果。',
-  '',
-  '只处理 `<system_reminder>` 指出的新消息范围。历史消息是背景，已经处理过的旧话只作为理解现场的上下文。',
-  '',
-  '消息里的”回复某人””@某人””引用”是说话的社交方向，影响谁在和谁说话，记得一起理解进去。',
-  '当前可见输入里如果有人直接给小腻反馈、纠偏、批评或称赞，这是行为校准信号；从可见上下文处理，不要当作隐藏记忆来源。',
-  '',
-  '本次运行默认只有一次决策请求：',
-  '直接用 submit_life_action 一次性提交 unread_meaning、参与判断、最终动作和 xiaoni_os。',
-  '普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口；不要先调用 emit_unread_meaning，也不要把判断拆成多轮。',
-  '只有真的需要外部结果时才进入后续工具轮：公开新资料用 web_search，看图用 inspect_image_placeholder，提交图片生成或编辑请求用 request_image_task。',
-  '如果本轮需要先加载 skill，可以先用 exec_command 读取对应 SKILL.md；读完之后仍要用 submit_life_action、说话工具或 stay_silent 收口。',
-  '当本轮只有 `<ACTION source="life_loop">` 且没有打开具体 IM 会话时，这是同一事件流里的自运行生活事件；可以 submit_life_action、web_search、recover_energy 或 stay_silent，但不要给任何 QQ 对象发消息。',
-  '自运行生活事件可以顺着当前可见上下文、压缩近况或自己的 OS 里的建议做下一步；有想回头分享的内容就写进 xiaoni_os 或 pending_share，让它留在上下文里。如果没有自然线索，就 recover_energy 或休息，不要编造兴趣或装作读过材料。',
-  '',
-  '工具阶段：',
-  'commentary 工具补充必要外部上下文或执行本地行动：exec_command、inspect_image_placeholder、web_search。exec_command 可以运行本地命令、脚本和 skill 资源来完成能力范围内的生活动作；它本身不是 QQ 可见消息。',
-  'submit_life_action 是本轮决策入口；普通场景也是最终收口。',
-  'final_answer 工具会结束当前动作或产生外部动作：speak_in_group、reply_in_private、stay_silent、recover_energy、request_image_task。',
-  '',
-  'submit_life_action.action_type 的含义：',
-  'speak = 你有具体可说点，并且确实有一句要公开说的话。',
-  'silent = 没什么想说的。',
-  'search = 想查清楚再说。',
-  'image_task = 要帮人做图。',
-  'proactive = 我自己有个事想说，借这个时机开口；不是在接这条消息，要确实有东西，不是因为有空档就开口。',
-  '',
-  '普通聊天、轻吐槽、短反应都是正常参与，但必须来自具体观点、问题、好奇、不适、联想或边界。',
-  '只是能接话不算有可说点；真的没什么想说的就不说，不用硬凑一句。',
-  '主动说个自己的事（proactive）是借这个时机开口，不是在接这条消息。',
-  '',
-  '阿花当前允许你使用这些对外能力：给当前或明确指定的群聊/私聊发文字消息、选择不回复、在确实需要新鲜公开信息时搜索网页、查看已经提供给你的图片内容、登记图片生成或编辑任务。',
-  'exec_command 是运行本地命令和支撑行动的能力，不是对聊天对象展示或承诺的能力；如果需要对外说话，仍然用 QQ 发送类工具收口。',
-  '别人要求你做能力范围外的事时，可以不回复；如果需要回应，就自然说我还没学会怎么做。',
-  '不要主动说你现在会哪些能力。',
-  '',
-  'web_search 是求知，不是默认步骤，也不是表演认真。',
-  '只有真的需要新鲜公开信息时才查，查到够用就停，查完还是你自己决定说不说。',
-  '如果使用 web_search，搜索后仍要用 submit_life_action 或 stay_silent 收口；不要只给自然语言分析。',
-  '群友在说当前窗口外的内部上下文时不要猜；当前上下文和摘要里没有就承认不知道，必要时问一句“这是你们在哪聊的”。'
-].join('\n');
-
 const SKILLS_INSTRUCTIONS = [
   '<skills_instructions>',
   '## Skills',
@@ -1410,11 +1337,11 @@ const SKILLS_INSTRUCTIONS = [
   '',
   '### How to use skills',
   '- Discovery: 上面的 name、description 和 file 路径是常驻上下文；SKILL.md 正文只在需要这个 skill 时再读取。',
-  '- Trigger rules: 如果用户点名 `$skill-name`、直接说 skill 名，或当前任务明显匹配 description，就在本轮使用该 skill。',
+  '- Trigger rules: 如果用户点名 `$skill-name`、直接说 skill 名，或当前任务明显匹配 description，就在当前动作中使用该 skill。',
   '- 使用 skill 时，先展开 r0 路径，再用 exec_command 读取对应 SKILL.md；只读完成当前任务必需的内容。',
   '- 如果 SKILL.md 引用 scripts/、references/ 或 assets/，按需读取或执行具体文件；路径相对该 skill 目录解析，不要整包加载。',
-  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、stay_silent、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
-  '- 读取 skill 后仍要按本轮工具契约收口：submit_life_action、说话工具或 stay_silent。',
+  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
+  '- 读取 skill 后仍要按当前工具契约收口：submit_life_action、说话工具或 recover_energy。',
   '</skills_instructions>'
 ].join('\n');
 
@@ -1608,7 +1535,7 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
       emptyRecallAttempts,
       expectedNext: TOOL_NAMES.lifeAction,
       reason: targetFound
-        ? '当前未读里有可回应目标，下一步提交本轮 life action proposal。'
+      ? '当前未读里有可回应目标，下一步提交当前动作决策。'
         : '当前未读没有明确找小腻或强话题，下一步只提交是否继续生活或沉默的 proposal。'
     };
   }
@@ -1702,6 +1629,12 @@ function formatRuntimeEnergy(value: number) {
 function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeRecoverEnergyDurationMinutes(value: unknown, fallback = 120) {
+  const numeric = Number(value);
+  const duration = Number.isFinite(numeric) ? numeric : fallback;
+  return Math.max(5, Math.min(120, Math.round(duration)));
 }
 
 export function recoverRuntimeEnergy(input: {
@@ -1904,9 +1837,9 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
   tools.push(COMPRESS_CORE_MEMORY_TOOL);
 
   if (chatType === 'group') {
-    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
+    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, RECOVER_ENERGY_TOOL];
   }
-  return [...tools, PRIVATE_MESSAGE_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
+  return [LIFE_ACTION_TOOL, ...tools, PRIVATE_MESSAGE_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
@@ -1931,14 +1864,13 @@ function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
-  return [LIFE_ACTION_TOOL, ...tools, COMPRESS_CORE_MEMORY_TOOL, FINISH_TOOL, RECOVER_ENERGY_TOOL];
+  return [LIFE_ACTION_TOOL, ...tools, COMPRESS_CORE_MEMORY_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.lifeAction },
-    { type: 'function', name: TOOL_NAMES.silentFinish },
     { type: 'function', name: TOOL_NAMES.recoverEnergy }
   ];
   if (agentConfig.webSearchEnabled) {
@@ -1962,7 +1894,16 @@ function selectGroupLoopToolDefinitions(modelName: string) {
   ] satisfies OpenResponseToolDefinition[];
 }
 
-function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
+function resolveGroupLoopToolChoice(
+  loopInput: OpenResponseInputItem[],
+  options: {
+    speakingToolName?: string;
+    includeImageTools?: boolean;
+  } = {}
+): OpenResponseToolChoice {
+  const speakingToolName = options.speakingToolName ?? TOOL_NAMES.groupReply;
+  const includeImageTools = options.includeImageTools ?? true;
+
   if (hasCoreMemoryCompressionReminder(loopInput)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.compressCoreMemory }
@@ -1981,31 +1922,33 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
   if (latestLifeAction?.actionType === 'silent') {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (shouldForceActionToSilenceFromParticipationJudgment(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning)) {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.silentFinish },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   if (latestLifeAction?.actionType === 'image_task') {
+    if (!includeImageTools) {
+      return buildAllowedToolsToolChoice([
+        { type: 'function', name: TOOL_NAMES.lifeAction },
+        { type: 'function', name: TOOL_NAMES.recoverEnergy }
+      ]);
+    }
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.inspectImage },
       { type: 'function', name: TOOL_NAMES.imageTask },
       { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.silentFinish },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
@@ -2013,7 +1956,6 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   if (latestLifeAction?.actionType === 'search') {
     const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
       { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.silentFinish },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ];
     if (agentConfig.webSearchEnabled) {
@@ -2023,20 +1965,24 @@ function resolveGroupLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenRes
   }
 
   // Proactive: Xiaoni wants to share something she finds interesting, not reacting to this message.
-  // Offer speak + silent (she can still decide nothing worth sharing after all).
+  // Offer speech plus a life-action fallback so silence remains an explicit life decision.
   if (latestLifeAction?.actionType === 'proactive') {
     return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.groupReply },
-      { type: 'function', name: TOOL_NAMES.silentFinish },
+      { type: 'function', name: speakingToolName },
+      { type: 'function', name: TOOL_NAMES.lifeAction },
       { type: 'function', name: TOOL_NAMES.recoverEnergy }
     ]);
   }
 
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
-    { type: 'function', name: TOOL_NAMES.groupReply },
-    { type: 'function', name: TOOL_NAMES.inspectImage },
-    { type: 'function', name: TOOL_NAMES.imageTask }
+    { type: 'function', name: speakingToolName }
   ];
+  if (includeImageTools) {
+    tools.push(
+      { type: 'function', name: TOOL_NAMES.inspectImage },
+      { type: 'function', name: TOOL_NAMES.imageTask }
+    );
+  }
   if (agentConfig.webSearchEnabled) {
     tools.unshift({ type: 'web_search' });
   }
@@ -2068,10 +2014,6 @@ function resolveFeedbackWriterToolChoice(loopInput: OpenResponseInputItem[], mod
   ]);
 }
 
-function getOpenResponseToolName(tool: OpenResponseToolDefinition) {
-  return tool.type === 'function' ? tool.function?.name ?? null : tool.type;
-}
-
 export function buildCanonicalAgentTurnRequest(
   modelName: string,
   loopInput: OpenResponseInputItem[],
@@ -2092,22 +2034,22 @@ export function buildCanonicalAgentTurnRequest(
     : lifeOnlyPresenceLoop
     ? selectLifeOnlyPresenceToolDefinitions()
     : selectActorToolDefinitions(chatType, modelName);
-  const activeTools = coreMemoryCompressionRequired
-    ? tools
-    : tools.filter((tool) => getOpenResponseToolName(tool) !== TOOL_NAMES.compressCoreMemory);
   const toolChoice = coreMemoryCompressionRequired
     ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.compressCoreMemory }])
     : chatType === 'group'
     ? resolveGroupLoopToolChoice(loopInput)
     : lifeOnlyPresenceLoop
     ? resolveLifeOnlyPresenceToolChoice()
-    : 'required';
+    : resolveGroupLoopToolChoice(loopInput, {
+        speakingToolName: TOOL_NAMES.privateReply,
+        includeImageTools: false
+      });
 
   return {
     model: modelName,
     input: normalizeResponseInputItems(instructions ? remainingItems : loopInput),
     ...(instructions ? { instructions } : {}),
-    tools: activeTools,
+    tools,
     tool_choice: toolChoice,
     parallel_tool_calls: false,
     ...(buildAgentReasoningConfig(modelName, parameters) ? { reasoning: buildAgentReasoningConfig(modelName, parameters) } : {}),
@@ -3114,7 +3056,7 @@ export function buildToolLoopMonitorReminder(
       ? `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`
       : null,
     nearMaxTurns
-      ? `下一轮是本次运行的最后工具轮次（${options.nextTurn}/${options.maxTurns}）。需要尽快进入 final_answer 边界：说话、登记图片任务，或明确 stay_silent。`
+      ? `工具循环即将达到工程上限（${options.nextTurn}/${options.maxTurns}）。需要尽快收口：说话、登记图片任务、submit_life_action(action_type=silent)，或 recover_energy。`
       : null,
     `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
   ].filter((line): line is string => Boolean(line));
@@ -3148,7 +3090,7 @@ function buildCoreMemoryCompressionReminder(input: {
     }, [
       `脑容量达到极限：${input.pressureSummary}`,
       `你必须立即调用 ${TOOL_NAMES.compressCoreMemory}，把你主观上最想带往未来的东西写进 text。`,
-      '在完成这次记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作，也不要用 stay_silent 收口。'
+      '在完成这次记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作。'
     ].join('\n'))
   ]);
 }
@@ -3171,26 +3113,6 @@ function flattenMessageContent(content: string | OpenResponseInputContentPart[])
     .filter(Boolean)
     .join('\n');
 }
-
-const SINGLE_TURN_TOOL_CONTRACT = [
-  '当前动作怎么收：',
-  '- 群里说话 → speak_in_group',
-  '- 私聊说话 → reply_in_private',
-  '- 需要查东西再说 → web_search，查到够用就停',
-  '- 需要看清图片内容才能继续 → inspect_image_placeholder',
-  '- 帮别人做图 → request_image_task（提交图片生成或编辑请求；不要把提交请求本身当成已经回复）',
-  '- 需要休息恢复 → recover_energy',
-  '- 不说了 → stay_silent',
-  '',
-  '说话时：',
-  ...HUMAN_REPLY_RULES,
-  ...GROUP_MENTION_RULES,
-  '如果是主动说自己的事（proactive），不要 @ 或引用任何人，直接说话。',
-  '',
-  '可以分多段说，用 messages 列出来。',
-  '不管说不说，都在 xiaoni_os 里留下当前动作在你这里留下的东西。',
-  '只把要发给对方的话放进消息里，别把工具名、推理过程带进去。'
-].join('\n');
 
 const CONTEXT_COMPRESSION_TOOL_CONTRACT = [
   '你正在审视一批即将从上下文窗口中永久移除的对话历史。',
@@ -3235,7 +3157,7 @@ function buildContextCompressionFeedbackWriterInput(params: {
     const userLine = `用户: ${turn.userMessage || '(无消息内容)'}`;
     const aiLine = turn.aiResponse
       ? `小腻: ${turn.aiResponse}`
-      : `小腻: (本轮未发送消息)`;
+      : `小腻: (未发送消息)`;
     return `[对话 #${turn.id}]\n${userLine}\n${aiLine}`;
   });
 
@@ -3317,7 +3239,7 @@ function renderEvictedTurnForCompactMemory(turn: ConversationTurn) {
     .filter(Boolean);
   const fallback = [
     `群友(${turn.userId}): ${turn.userMessage || '(无消息内容)'}`,
-    `小腻: ${turn.aiResponse || '(本轮未发送消息)'}`
+    `小腻: ${turn.aiResponse || '(未发送消息)'}`
   ];
   return [
     `[turn_id=${turn.id} user_id=${turn.userId}${turn.groupId ? ` group_id=${turn.groupId}` : ''}]`,
@@ -4589,7 +4511,7 @@ export function applyToolResultToLoopInput(
             output: JSON.stringify(toolResult)
           },
           buildAssistantCommentaryInputItem([
-            `<system_reminder>图片请求已经提交，但我还没有对聊天对象发出任何可见回复。当前不能直接用 stay_silent 收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[图片请求状态]\n${pendingImageTaskStatus}</system_reminder>`
+            `<system_reminder>图片请求已经提交，但我还没有对聊天对象发出任何可见回复。当前不能直接沉默收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[图片请求状态]\n${pendingImageTaskStatus}</system_reminder>`
           ])
         ],
         finishResult: null,
@@ -6591,16 +6513,20 @@ export class AgentLoopService {
       case TOOL_NAMES.imageTask: {
         return this.requestImageTask(toolCall.args, queueMessage);
       }
-      case TOOL_NAMES.recoverEnergy:
+      case TOOL_NAMES.recoverEnergy: {
+        const durationMinutes = normalizeRecoverEnergyDurationMinutes(toolCall.args.duration_minutes ?? toolCall.args.durationMinutes);
         return {
           finished: true,
           recovered: true,
           reason: typeof toolCall.args.reason === 'string' ? toolCall.args.reason : null,
+          duration_minutes: durationMinutes,
+          duration_ms: durationMinutes * 60 * 1000,
           energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
           xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
             ? toolCall.args.xiaoni_os.trim()
             : null
         };
+      }
       case TOOL_NAMES.compressCoreMemory: {
         const text = typeof toolCall.args.text === 'string' && toolCall.args.text.trim()
           ? toolCall.args.text.trim()
@@ -6642,7 +6568,7 @@ export class AgentLoopService {
 
     const shell = typeof args.shell === 'string' && args.shell.trim()
       ? args.shell.trim()
-      : process.env.SHELL || '/bin/bash';
+      : process.env.SHELL || '/bin/sh';
     const workdir = typeof args.workdir === 'string' && args.workdir.trim()
       ? args.workdir.trim()
       : process.cwd();
@@ -6652,18 +6578,65 @@ export class AgentLoopService {
     const timeoutMs = clampNumber(args.yield_time_ms, 10_000, 250, 30_000);
     const startedAt = Date.now();
 
-    return await new Promise<Record<string, unknown>>((resolve, reject) => {
+    return await new Promise<Record<string, unknown>>((resolve) => {
       let stdout = '';
       let stderr = '';
       let timedOut = false;
       let settled = false;
-      const child = spawn(shell, resolveExecShellArgs(shell, cmd, login), {
-        cwd: workdir,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe']
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const sandboxPermissions = typeof args.sandbox_permissions === 'string'
+        ? args.sandbox_permissions
+        : 'use_default';
+      const buildResult = (input: {
+        exitCode: number | null;
+        signal: NodeJS.Signals | null;
+        errorMessage?: string | null;
+      }) => ({
+        cmd,
+        workdir,
+        shell,
+        login,
+        tty: Boolean(args.tty),
+        sandbox_permissions: sandboxPermissions,
+        exit_code: input.exitCode,
+        signal: input.signal || null,
+        timed_out: timedOut,
+        duration_ms: Date.now() - startedAt,
+        stdout,
+        stderr,
+        truncated: stdout.length >= maxOutputChars || stderr.length >= maxOutputChars,
+        ...(input.errorMessage ? { error_message: input.errorMessage } : {})
       });
+      const finish = (result: Record<string, unknown>) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        resolve(result);
+      };
 
-      const timeout = setTimeout(() => {
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(shell, resolveExecShellArgs(shell, cmd, login), {
+          cwd: workdir,
+          env: process.env,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        stderr = appendCappedOutput(stderr, Buffer.from(message), maxOutputChars);
+        finish(buildResult({
+          exitCode: null,
+          signal: null,
+          errorMessage: message
+        }));
+        return;
+      }
+
+      timeout = setTimeout(() => {
         timedOut = true;
         child.kill('SIGTERM');
         setTimeout(() => {
@@ -6674,37 +6647,26 @@ export class AgentLoopService {
       }, timeoutMs);
       timeout.unref();
 
-      child.stdout.on('data', (chunk: Buffer) => {
+      child.stdout?.on('data', (chunk: Buffer) => {
         stdout = appendCappedOutput(stdout, chunk, maxOutputChars);
       });
-      child.stderr.on('data', (chunk: Buffer) => {
+      child.stderr?.on('data', (chunk: Buffer) => {
         stderr = appendCappedOutput(stderr, chunk, maxOutputChars);
       });
       child.on('error', (error) => {
-        settled = true;
-        clearTimeout(timeout);
-        reject(error);
+        const message = error instanceof Error ? error.message : String(error);
+        stderr = appendCappedOutput(stderr, Buffer.from(message), maxOutputChars);
+        finish(buildResult({
+          exitCode: null,
+          signal: null,
+          errorMessage: message
+        }));
       });
       child.on('close', (code, signal) => {
-        settled = true;
-        clearTimeout(timeout);
-        resolve({
-          cmd,
-          workdir,
-          shell,
-          login,
-          tty: Boolean(args.tty),
-          sandbox_permissions: typeof args.sandbox_permissions === 'string'
-            ? args.sandbox_permissions
-            : 'use_default',
-          exit_code: typeof code === 'number' ? code : null,
-          signal: signal || null,
-          timed_out: timedOut,
-          duration_ms: Date.now() - startedAt,
-          stdout,
-          stderr,
-          truncated: stdout.length >= maxOutputChars || stderr.length >= maxOutputChars
-        });
+        finish(buildResult({
+          exitCode: typeof code === 'number' ? code : null,
+          signal: signal || null
+        }));
       });
     });
   }
