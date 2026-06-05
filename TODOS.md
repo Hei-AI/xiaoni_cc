@@ -59,7 +59,7 @@ not been rebuilt into the live `qqbot-agent-service` image.
 **Action:** Keep the removal patch in the canonical `qq_bot` worktree. The live
 `qqbot-agent-service` image was rebuilt from that worktree and force-recreated.
 The final rebuilt image is
-`sha256:463cf0df9aa7ecff13011c83bf02ee042174dc4ce3d24c0f0d74d28db62f2a28`.
+`sha256:48d765b962fc119c8cb86feea7c6c004639c979477cc9addd278da77c099e6c6`.
 
 **Verify:** Historical run `run_1780640856902_c8f5ddea` remains an archived old
 request packet and should not be interpreted as current runtime behavior. Fresh
