@@ -315,13 +315,15 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(String(request.instructions), /Runtime contract:/);
   assert.doesNotMatch(String(request.instructions), /<skills_instructions>/);
-  assert.doesNotMatch(String(request.instructions), /r0\/skill-creator\/SKILL\.md/);
   const headDeveloperInput = request.input.find((item: any) => item.type === 'message' && item.role === 'developer');
   assert.ok(headDeveloperInput, 'developer context must be present');
   assert.match(getMessageContent(headDeveloperInput as any), /<skills_instructions>/);
   assert.match(getMessageContent(headDeveloperInput as any), /skill-creator/);
-  assert.match(getMessageContent(headDeveloperInput as any), /r0\/skill-creator\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloperInput as any), /SKILL\.md 正文只在需要这个 skill 时再读取/);
+  assert.match(getMessageContent(headDeveloperInput as any), /\/app\/modules\/agent-service\/skills\/skill-creator\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloperInput as any), /exec_command 能直接使用的技能目录：\/app\/modules\/agent-service\/skills/);
+  assert.match(getMessageContent(headDeveloperInput as any), /读取技能手册时直接传完整路径，例如：\/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloperInput as any), /exec_command 路径: \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloperInput as any), /cat \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
   assert.match(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloperInput as any).content));
   assert.ok(((headDeveloperInput as any).content as any[]).length >= 2);
@@ -1184,7 +1186,7 @@ test('buildInitialInput puts skills in the head developer context for group chat
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.ok(headDeveloper, 'developer context with skills must exist');
   assert.match(getMessageContent(headDeveloper), /<skills_instructions>/);
-  assert.match(getMessageContent(headDeveloper), /r0\/skill-creator\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloper), /\/app\/modules\/agent-service\/skills\/skill-creator\/SKILL\.md/);
   assert.match(getMessageContent(headDeveloper), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloper as any).content));
   assert.ok(((headDeveloper as any).content as any[]).length >= 2);

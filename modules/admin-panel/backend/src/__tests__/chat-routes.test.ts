@@ -398,7 +398,7 @@ describe('chat settings routes', () => {
           last_hit_at: '2026-04-28T01:23:45.000Z'
         },
         {
-          tool_name: 'submit_life_action',
+          tool_name: 'speak_in_group',
           hit_count: 20,
           run_count: 20,
           successful_hit_count: 20,
@@ -436,7 +436,7 @@ describe('chat settings routes', () => {
         last_hit_at: '2026-04-28T01:23:45.000Z'
       },
       {
-        tool_name: 'submit_life_action',
+        tool_name: 'speak_in_group',
         hit_count: 20,
         run_count: 20,
         successful_hit_count: 20,

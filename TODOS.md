@@ -56,22 +56,24 @@ removal work had been sitting in the sibling
 `/home/liahua/IdeaProject/qq_bot-remove-autonomous-life-loop` worktree and had
 not been rebuilt into the live `qqbot-agent-service` image.
 
-**Action:** Keep the removal patch in the canonical `qq_bot` worktree, rebuild
-and restart `qqbot-agent-service` from that worktree, then issue a fresh agent
-run and inspect `llm_call_logs.wire_request` instead of relying on the trace UI.
+**Action:** Keep the removal patch in the canonical `qq_bot` worktree. The live
+`qqbot-agent-service` image was rebuilt from that worktree and force-recreated.
+The final rebuilt image is
+`sha256:463cf0df9aa7ecff13011c83bf02ee042174dc4ce3d24c0f0d74d28db62f2a28`.
 
-**Verify:** The target run trace and regression coverage show no
-`submit_life_action` span/tool/capability unless it is explicitly marked as
-archived historical data. A fresh real LLM capture must show the updated
-`exec_command` description and must not include `submit_life_action` in
-`wire_request.tools` or `wire_request.tool_choice.tools`.
+**Verify:** Historical run `run_1780640856902_c8f5ddea` remains an archived old
+request packet and should not be interpreted as current runtime behavior. Fresh
+real LLM captures must show the updated `exec_command` description and must not
+include `submit_life_action` in `wire_request.tools` or
+`wire_request.tool_choice.tools`.
 
-**Verified 2026-06-05:** Rebuilt and restarted live `qqbot-agent-service` from
-the canonical `qq_bot` worktree. Deleted 208 historical `source='life_loop'`
-queue rows from the live database, verified 0 remaining rows, confirmed
-`/health` no longer exposes `autonomous_life_busy`, and scanned fresh
-`qqbot-agent-service` logs with no `life_loop`, `AGENT_AUTONOMOUS`, or
-`submit_life_action` hits.
+**Verified 2026-06-05:** Real post-fix LLM captures
+`llm_1780642235195_ecaf6b9e`, `llm_1780642245465_b8520725`, and
+`llm_1780642248598_390aac4a` show no `submit_life_action` in
+`wire_request.tools` or `wire_request.tool_choice.tools`, and do include the
+updated `exec_command` warning. The final live container is healthy and its
+`dist` has no `submit_life_action`, `autonomousLife`, `enqueueAutonomousLife`,
+or `autonomous_life_busy` strings.
 
 ## P0-A - Xiaoni Group Behavior And Cognitive Frame
 
@@ -1415,7 +1417,6 @@ Xiaoni prompt/runtime contract.
 Locked initial costs:
 
 ```text
-submit_life_action: 0.005
 speak_in_group: 0.015
 reply_in_private: 0.015
 web_search: 0.080
