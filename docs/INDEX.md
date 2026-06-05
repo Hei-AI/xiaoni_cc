@@ -13,6 +13,8 @@
   - `docs/AGENTS_BACKEND_DATA.md`
 - 配置、部署、认证、密钥、本机调试访问：
   - `docs/AGENTS_SECRETS_LOCAL_STATE.md`
+- 小腻 `exec_command`、命令 session、git archive、executor 容器排障：
+  - `docs/AGENTS_XIAONI_EXECUTOR.md`
 - embeddings：
   - `docs/AGENTS_EMBEDDINGS.md`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考：
@@ -36,6 +38,8 @@
   - `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
 - `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
   - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
+- `xiaoni-executor` 命令执行服务：
+  - `docs/AGENTS_XIAONI_EXECUTOR.md`
 - 小腻被动发言 / 主动发言阶段图、数据源和来源：
   - `docs/XIAONI_SPEAKING_FLOW.md`
 - 小腻数字生活 / `presence_context` 设计、已落地 presence slice 与当前空闲生活事件：
@@ -57,7 +61,8 @@
 
 ## Xiaoni Doc Status
 - 当前运行事实优先级：`docs/CURRENT_ARCHITECTURE.md` ->
-  `docs/AGENTS_AGENT_LOOP_RUNTIME.md` -> `docs/XIAONI_SPEAKING_FLOW.md` ->
+  `docs/AGENTS_AGENT_LOOP_RUNTIME.md` -> `docs/AGENTS_XIAONI_EXECUTOR.md` ->
+  `docs/XIAONI_SPEAKING_FLOW.md` ->
   `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`。这些文档描述现在真实生效的
   QQ / agent-service / provider-service 链路。
 - Prompt 正文事实源：`docs/XIAONI_MAIN_PROMPT_NEXT.md` 必须和
@@ -68,7 +73,7 @@
   设计当作当前代码事实。
 - 历史材料：`docs/archive/` 和 `docs/exec-plans/completed/` 只作追溯参考，
   其中的旧工具、旧分阶段描述和旧执行计划不是当前 runtime 契约。
-- 图资产：`docs/assets/xiaoni-*.svg` / `.png` 只是说明图。若它们和上面的当前
+- 图资产：文件名以 docs/assets/xiaoni- 开头的 SVG / PNG 只是说明图。若它们和上面的当前
   运行事实冲突，以上面的 current docs 为准，并同时更新 SVG 源和 PNG 导出图。
 
 ## GStack Workflows

@@ -96,7 +96,13 @@ recover_energy(reason, duration_minutes, xiaoni_os)
 
 ### `exec_command`
 
-用于本地 skill 脚本或必要的低风险本地操作。QQ 阅读/导航仍通过 `$qq-usage` 的本地脚本，不把导航动作暴露成 OpenAI tools。
+用于本地 skill 脚本或必要的低风险本地操作。当前 compose 配置下，`agent-service`
+不会在自己容器里直接执行命令，而是通过 `XIAONI_EXECUTOR_URL` 转发到
+`xiaoni-executor`。executor 会把 `/app` 路径映射到 `/workspace/qq_bot`，保存
+session、审计日志和每次执行前的 git archive。QQ 阅读/导航仍通过 `$qq-usage`
+的本地脚本，不把导航动作暴露成 OpenAI tools。
+
+executor 细节和排障看 `docs/AGENTS_XIAONI_EXECUTOR.md`。
 
 ### `compress_core_memory`
 
@@ -176,6 +182,7 @@ per-turn `feedback_memory_writer` 当前只保留 timeline start/end，不再调
 | 发了两次 | delivery commit / duplicate outbound fingerprint |
 | 图任务吞了回复 | `request_image_task` 的 forced visible reply 逻辑 |
 | life-only tick 想发 QQ | 没有具体 IM 目标时这是不允许的；看是否只用了内部工具或 `recover_energy` |
+| `exec_command` 失败或长命令卡住 | `docs/AGENTS_XIAONI_EXECUTOR.md`、`qqbot-xiaoni-executor` logs、`xiaoni-session poll/kill` |
 | 压缩后忘记刚才在干什么 | 是否出现 `core_memory_pressure` reminder、工具文本是否写入实际读取的 context key、read cutoff 是否在工具成功后推进 |
 | 休息中被消息打断 | resting 状态下不读正文，只统计 unread/@；连续 3 次直接 @ 后按实际休息时长恢复精力并 append `<STATE>` |
 | skill 没出现在能力列表 | 检查该 skill 的 `SKILL.md` 是否有 `## Runtime Cost` 和合法 `energy_cost` |

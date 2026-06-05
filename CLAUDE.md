@@ -15,6 +15,7 @@ npm run lint
 
 # Single module
 npm --prefix modules/provider-service test
+npm --prefix modules/xiaoni-executor test
 npm --prefix modules/agent-service test
 npm --prefix modules/admin-panel/backend test
 npm --prefix modules/admin-panel/frontend run build
@@ -40,6 +41,7 @@ npm run deploy:local    # 本地前端联调（只启本地 Vite，不动 Docker
 | `docker compose` service | Container name | Source module |
 |---|---|---|
 | `provider-service` | `qqbot-provider-service` | `modules/provider-service` |
+| `xiaoni-executor` | `qqbot-xiaoni-executor` | `modules/xiaoni-executor` |
 | `agent-service` | `qqbot-agent-service` | `modules/agent-service` |
 | `admin-backend` | `qqbot-admin-backend` | `modules/admin-panel/backend` |
 | `admin-frontend` | `qqbot-admin-frontend` | `modules/admin-panel/frontend` |
@@ -55,6 +57,7 @@ Run these in order. All must pass before creating a PR.
 ```bash
 # 1. Module-level tests (free, <30s per module)
 npm --prefix modules/agent-service test
+npm --prefix modules/xiaoni-executor test
 npm --prefix modules/admin-panel/backend test
 
 # 2. If docker-compose.yml services changed
@@ -66,12 +69,13 @@ docker compose logs -f <container>   # watch for startup errors
 
 ## Architecture
 
-主链：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`
+主链：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`；`exec_command` 支路走 `agent-service -> xiaoni-executor`
 管理端链：`admin-frontend -> admin-backend`
 
 ```
 modules/provider-service      OneBot/NapCat 入站、LLM provider 执行、消息模拟、embeddings、queue 写入
-modules/agent-service         主 agent loop runtime，消费 queue batch、执行 single-turn life action 决策、写 run/trace/delivery state，并运行 presence 后台循环和 life event 投影
+modules/agent-service         主 agent loop runtime，消费 queue batch、执行主行动工具 loop、写 run/trace/delivery state，并运行 presence 后台循环和 life event 投影
+modules/xiaoni-executor       小腻 exec_command 的独立命令执行容器，保存 session、审计日志和 git archive
 modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、image lab、traffic replay、runtime status
 modules/admin-panel/frontend  React + Vite 管理端 UI，只走 admin-backend，不直连 provider-service
 modules/embedding-server      内部 embedding 服务，对外由 provider-service /v1/* 暴露，不直接对外
@@ -201,6 +205,7 @@ Available skills:
 | 后端接口 / 队列 / 数据库 | `docs/AGENTS_BACKEND_DATA.md` |
 | 配置 / 部署 / 认证 / 密钥 | `docs/AGENTS_SECRETS_LOCAL_STATE.md` |
 | agent loop 输入输出 / 工具契约 / 抑制路径 | `docs/AGENTS_AGENT_LOOP_RUNTIME.md` |
+| Xiaoni exec_command / session / git archive | `docs/AGENTS_XIAONI_EXECUTOR.md` |
 | 小腻数字生活 / homeostasis reducer | `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`、`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` |
 | embeddings | `docs/AGENTS_EMBEDDINGS.md` |
 | git / PR | `docs/AGENTS_GIT_PR.md` |

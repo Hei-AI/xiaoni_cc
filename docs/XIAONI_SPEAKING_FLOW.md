@@ -28,7 +28,7 @@ flowchart TD
   Tools -->|web_search| Search[公开信息搜索后继续 loop]
   Tools -->|inspect_image_placeholder| Inspect[看当前图片占位符后继续 loop]
   Tools -->|request_image_task| ImageTask[登记图片任务]
-  Tools -->|exec_command| Exec[执行本地低风险操作或 skill 脚本]
+  Tools -->|exec_command| Exec[xiaoni-executor<br/>执行本地低风险操作或 skill 脚本]
   Tools -->|compress_core_memory| Compress[压力触发时压缩近况]
   Tools -->|recover_energy| Rest[按精力状态休息恢复]
   Tools -->|未完成前无工具调用| Continue[提醒继续行动或 recover_energy]
@@ -163,7 +163,10 @@ recover_energy
 
 ### 本地操作
 
-`exec_command` 用于本地 skill 脚本或必要的低风险操作。QQ 阅读/导航通过 `$qq-usage` 的脚本完成，不把导航动作暴露成 OpenAI tools。
+`exec_command` 用于本地 skill 脚本或必要的低风险操作。当前 compose 配置下，
+`agent-service` 会把命令转发到 `xiaoni-executor`；executor 保存 session、
+审计日志和 git archive，并把 `/app` 路径映射到挂载的仓库工作区。QQ 阅读/导航
+通过 `$qq-usage` 的脚本完成，不把导航动作暴露成 OpenAI tools。
 
 ### 恢复
 
@@ -233,6 +236,7 @@ output:
 | 可见回复后又试图发第二次 | delivery commit / duplicate outbound fingerprint |
 | 图片任务后没回用户状态 | forced visible reply 日志 |
 | life-only 想发 QQ | 没有具体 IM 目标时不允许；看是否只暴露 life-only 工具 |
+| 本地命令执行异常 | `docs/AGENTS_XIAONI_EXECUTOR.md`、`qqbot-xiaoni-executor` logs、session poll/kill |
 | 休息恢复不符合预期 | `recover_energy.duration_minutes`、`recoverRuntimeEnergy`、`agent_life_events` |
 | 上下文断裂 | `conversation_items.raw_response.xiaoni_os`、`agent_session_context_windows.context_summary` |
 | 压缩后忘记刚才在干什么 | `core_memory_pressure` reminder、`compress_core_memory` 工具文本、read cutoff |

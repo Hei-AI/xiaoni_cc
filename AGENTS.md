@@ -10,16 +10,17 @@
 - 只打开完成当前任务必需的下一跳文档；不要把 `AGENTS.md` 当成总手册
 
 ## Runtime Truth
-- 当前 QQ 行为主链路：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`
+- 当前 QQ 行为主链路：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`；`exec_command` 支路走 `agent-service -> xiaoni-executor`
 - 当前管理端链路：`admin-panel/frontend -> admin-panel/backend -> provider-service / agent-service / PostgreSQL`
 - 主运行栈以 `docker-compose.yml` 为准；`docker-compose.napcat.yml` 只负责 NapCat。
-- 新工作优先基于这些活跃模块：`modules/provider-service`、`modules/agent-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
+- 新工作优先基于这些活跃模块：`modules/provider-service`、`modules/agent-service`、`modules/xiaoni-executor`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
 - 次级入口：`modules/embedding-server`、`modules/http-traffic-monitor`
 - 这些不是新人理解系统的第一站，但只要服务由 `docker-compose.yml` 托管，改动后就必须按 `Done Means` 验证
 - 已经移除的旧服务、旧接口和旧页面不要再作为当前契约参考；排障与开发都只围绕上面的活跃模块展开
 
 ## Project Map
 - `modules/provider-service`：OneBot / NapCat 入站与出站、provider debug、消息模拟、simple queue、embeddings、image provider、queue / timeline 主链
+- `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
 - `modules/agent-service`：后台 agent loop / runtime worker，消费 queue、执行主 agent run、维护 delivery state，并运行 presence 后台循环和 life event 投影
@@ -31,6 +32,7 @@
 - API 500、数据不一致、队列/Prompt/会话问题：先看 `modules/admin-panel/backend`；涉及共享表和持久化再看 `packages/persistence`；对应 `docs/AGENTS_BACKEND_DATA.md`
 - provider debug、NapCat 收发消息、embeddings、image provider、simple queue、inbound queue 写入、timeline / queue 主链问题：先看 `modules/provider-service`，不要先在前端或历史模块绕圈
 - agent run、行为判断、delivery state、自学习、presence tick、life event 投影、历史数字行动展示和后台任务执行问题：看 `modules/agent-service`
+- 小腻 `exec_command`、session poll/kill、命令审计、git archive、Docker socket 相关问题：看 `modules/xiaoni-executor`；对应 `docs/AGENTS_XIAONI_EXECUTOR.md`
 - 部署、认证、token、本机访问问题：先看 `docs/AGENTS_SECRETS_LOCAL_STATE.md`，再看 `scripts/deploy-admin-public.sh`、`scripts/start_modules.py`
 - 默认规则：只修真实生效的层，不要围绕错误契约继续堆适配层
 
@@ -62,13 +64,13 @@
 
 ## Done Means
 - 如果改了 `docker-compose.yml` 托管的服务，完成不止是改代码
-- 这条规则适用于所有 compose 托管服务，包括 `modules/agent-service`、`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`modules/embedding-server`
+- 这条规则适用于所有 compose 托管服务，包括 `modules/agent-service`、`modules/xiaoni-executor`、`modules/provider-service`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`modules/embedding-server`
 - 至少要做：对应模块构建或测试、`docker compose build <service>`、`docker compose up -d <service>`、`docker compose ps`、相关日志或健康检查确认正常
 - 不要对主栈执行 `docker compose up -d --remove-orphans`，除非明确要清理同项目下其他容器
 
 ## Open Extra Docs Only When Needed
 - 先看 `docs/INDEX.md`，再按任务进入最少的相关文档
-- 常用下一跳：`docs/AGENTS_FRONTEND.md`、`docs/AGENTS_BACKEND_DATA.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md`、`docs/AGENTS_EMBEDDINGS.md`、`docs/AGENTS_GIT_PR.md`
+- 常用下一跳：`docs/AGENTS_FRONTEND.md`、`docs/AGENTS_BACKEND_DATA.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md`、`docs/AGENTS_XIAONI_EXECUTOR.md`、`docs/AGENTS_EMBEDDINGS.md`、`docs/AGENTS_GIT_PR.md`
 - 运行时认知补充统一回 `docs/START_HERE.md` 和 `README.md`
 - 做跨模块、多阶段或需要交接的任务时，优先直接进入对应 gstack 工作流，而不是新增仓库内 plan 文件
 - 做仓库协作规范、文档治理或 gstack 使用约定调整时，额外使用 gstack 的 `$document-release`

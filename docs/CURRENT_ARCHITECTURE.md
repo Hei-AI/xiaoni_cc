@@ -80,6 +80,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 | QQ 收发通道 | NapCat |
 | 收消息、发消息、调用模型的统一出口 | `provider-service` |
 | 小腻真正做行为判断的地方 | `agent-service` |
+| 本地命令执行支路 | `xiaoni-executor`，由 `agent-service` 的 `exec_command` 转发调用 |
 | 历史/后续行动记录 | `agent_queue_messages` / `conversation_items` / `agent_life_events`；`agent_runs` 只作工程 trace / delivery 边界 |
 | 摘要 / read cutoff 兼容状态 | `agent_session_context_windows` |
 | 消息、开关、经历、学习结果的存储 | PostgreSQL / `packages/persistence` |
@@ -114,7 +115,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
   |
   +-- 需要看图/登记图任务 -> inspect_image_placeholder / request_image_task
   |
-  +-- 需要本地 skill 或低风险操作 -> exec_command
+  +-- 需要本地 skill 或低风险操作 -> exec_command -> xiaoni-executor
   |
   +-- 上下文压力 -> compress_core_memory
   |
@@ -241,6 +242,7 @@ recover_energy
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前工具允许、且她判断需要资料时才会用。 |
 | 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时不能发 QQ，只能使用内部工具或 `recover_energy`。 |
+| 本地命令执行 | 生效 | `exec_command` 由 `agent-service` 转发到 `xiaoni-executor`，用于本地 skill 脚本、低风险命令、session poll/kill 和可追溯 git archive。 |
 | 记录处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 

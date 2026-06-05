@@ -8,6 +8,7 @@
 - QQ 行为主链路：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`。
 - 管理端链路：`admin-frontend -> admin-backend -> provider-service / agent-service / PostgreSQL`。
 - `agent-service` 当前启动三条后台循环：queue worker、task worker、autonomous life loop。
+- `exec_command` 当前通过 `agent-service -> xiaoni-executor` 执行，不在 `agent-service` 本容器内直接跑命令。
 - 当前自运行入队 source 是 `life_loop`，session key 是 `life_loop:xiaoni`；`presence_tick` 仍是文档和 runtime guard 支持的兼容形态。
 - `agent_runs` 只是 trace / delivery / retry / observability 边界，不是小腻的认知边界。
 - 当前连续性落在 `conversation_items`、`agent_queue_messages`、`agent_life_events`、`agent_session_context_windows`、`xiaoni_os`、identity facts 和异步 memory 输出上。
@@ -22,6 +23,7 @@ flowchart TB
   subgraph MainStack["docker-compose.yml / qq_bot_network"]
     Provider["provider-service<br/>:8090 in container / 127.0.0.1:8091<br/>NapCat webhook, inbox, policy, queue gate,<br/>provider execute, media, image, embedding, outbound"]
     Agent["agent-service<br/>:8092<br/>main loop, queue worker, task worker,<br/>life_loop enqueue, qq-usage API"]
+    Executor["xiaoni-executor<br/>127.0.0.1:8093 / internal :8093<br/>exec_command host, session poll/kill,<br/>audit log, git archive"]
     AdminBE["admin-backend<br/>:9080<br/>runs, conversations, queue, activity,<br/>traffic, playground, image lab, runtime APIs"]
     AdminFE["admin-frontend<br/>nginx :3003 / 3904<br/>default page: /xiaoni-activity"]
     Expose["admin-expose-proxy<br/>Caddy :3903<br/>Cloudflare tunnel / Basic auth"]
@@ -37,6 +39,7 @@ flowchart TB
   end
 
   subgraph Storage["Important persistent state"]
+    Workspace[("workspace checkout<br/>/workspace/qq_bot<br/>/app compatibility symlink")]
     Settings[("group_chat_settings<br/>private_chat_settings")]
     Inbox[("agent_inbound_messages<br/>durable IM inbox, unread/read cursor")]
     Queue[("agent_queue_messages<br/>pending / processing / completed")]
@@ -53,6 +56,8 @@ flowchart TB
     Memory[("agent_memory_observations<br/>agent_memory_assertions<br/>agent_memory_reflections")]
     Identity[("xiaoni_identity_roots<br/>identity_lineage_events<br/>accepted_identity_facts<br/>runtime_identity_activation_traces")]
     Traffic[("http_traffic_logs<br/>logs/qqbot-traffic<br/>CLIProxyAPI logs")]
+    ExecRuntime[("~/.qqbot-local/xiaoni-runtime<br/>sessions, exec logs, git archives")]
+    HostDocker[("host Docker socket<br/>/var/run/docker.sock")]
     DigitalCompat[("agent_digital_actions<br/>historical compatibility only")]
     Playground[("prompt / playground / image_lab tables")]
   end
@@ -107,9 +112,12 @@ flowchart TB
   Agent -->|"write artifacts / optional group image delivery"| Tasks
   Agent --> Provider
 
-  Agent -->|"exec_command reads skill<br/>$qq-usage script"| Agent
-  Agent -->|"POST /api/internal/qq-usage"| Agent
+  Agent -->|"exec_command<br/>/api/internal/exec-command"| Executor
+  Executor -->|"workspace mount<br/>/app -> /workspace/qq_bot"| Workspace
+  Executor -->|"session snapshots / audit / git archive"| ExecRuntime
+  Executor -->|"docker socket when needed"| HostDocker
   Agent -->|"qq-usage reads thread list/window<br/>and marks read"| Inbox
+  Agent -->|"POST /api/internal/qq-usage"| Agent
 
   Agent -->|"evicted turns after compaction threshold"| Memory
   Agent -->|"core_memory_pressure<br/>tool_choice=compress_core_memory"| Agent
@@ -169,7 +177,7 @@ flowchart TD
   Action -->|"speak_in_group / reply_in_private"| Send["send QQ via provider -> NapCat"]
   Action -->|"web_search"| Search["search result replay"]
   Action -->|"inspect_image_placeholder / request_image_task"| Img["image observation or task"]
-  Action -->|"exec_command"| Exec["local tool / skill script"]
+  Action -->|"exec_command"| Exec["xiaoni-executor<br/>local tool / skill script"]
   Action -->|"recover_energy"| Rest["record compatible sleep_period<br/>refresh projection"]
   Action -->|"compress_core_memory"| Compress["write session-window summary"]
   Action -->|"no tool before action complete"| Continue["append no-tool reminder"]
@@ -210,5 +218,6 @@ flowchart LR
 - 上下文断裂：看 `conversation_items`、`raw_response.xiaoni_os`、`agent_session_context_windows.context_summary`。
 - 自运行行为：看 `life_loop` queue row、`agent_life_events`、`agent_session_life_states`、`raw_response.xiaoni_os`。
 - QQ 未读导航：看 `agent_inbound_messages` 和 `$qq-usage` 输出。
+- `exec_command` 异常：看 `qqbot-xiaoni-executor`、`/home/liahua/.qqbot-local/xiaoni-runtime` 和 `docs/AGENTS_XIAONI_EXECUTOR.md`。
 - 重复发送：看 `agent_runs.delivery_phase`、delivery commit count、outbound tool fingerprint。
 - 图任务：看 `agent_tasks`、`agent_task_artifacts`、provider image endpoints、group image delivery logs。

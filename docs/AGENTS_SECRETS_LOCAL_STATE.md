@@ -15,6 +15,7 @@
 ## Local Runtime State
 - NapCat 配置保留在 `resource/napcat_config/`。
 - 运行态数据、登录二维码、截图不提交。
+- 小腻 `exec_command` 的 session、审计日志和 git archive 保留在 `/home/liahua/.qqbot-local/xiaoni-runtime/`，由 compose 挂载到 `xiaoni-executor` 的 `/xiaoni-runtime`。
 - CLIProxyAPI request detail 调试默认从宿主机 `/home/liahua/IdeaProject/CLIProxyAPI/logs` 只读挂载进 admin-backend 的 `/app/cliproxyapi-logs`，对应容器环境变量是 `CLIPROXY_REQUEST_LOG_DIR`。
 - 透明 MITM 的 active 宿主机根证书以 `modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem` 为准；不要默认把 `~/.mitmproxy/mitmproxy-ca-cert.pem` 当成当前运行中的 transparent proxy 真相源。
 - 如果 host-side Codex / MCP 在透明 MITM 下出现 TLS 或 MCP 启动告警，优先使用

@@ -6,6 +6,7 @@
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、queue 入口
 - `agent-service`: 主 agent loop runtime，消费 queue batch、重建上下文、执行 agent run、控制 delivery state，并运行 presence 后台循环和 life event 投影
+- `xiaoni-executor`: 小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、run workspace、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻活动”看她当前在做什么
 - `postgres`: 数据存储
@@ -24,7 +25,8 @@
 │   ├── agent-service/
 │   ├── embedding-server/
 │   ├── http-traffic-monitor/
-│   └── provider-service/
+│   ├── provider-service/
+│   └── xiaoni-executor/
 ├── packages/
 ├── resource/
 └── scripts/
@@ -38,6 +40,7 @@
 NapCat -> provider-service
                       \
                        -> agent-service
+                       -> xiaoni-executor (exec_command)
                        -> provider-service -> NapCat
                        -> admin-backend -> admin-frontend
                        -> PostgreSQL (via admin / business data)
@@ -49,6 +52,7 @@ NapCat -> provider-service
 - 管理端默认链路是前端 -> `admin-panel/backend`。
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、queue 写入、image provider、embeddings 和 timeline 记录。
 - `agent-service` 负责消费消息批次、执行 loop agent，并把工程 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。`run` 只是 trace、delivery、retry 边界，不是小腻的认知边界。
+- `xiaoni-executor` 负责执行小腻的 `exec_command`，默认把 `/app` 映射到 `/workspace/qq_bot`，并把 session、审计日志和 git archive 写入 `/home/liahua/.qqbot-local/xiaoni-runtime`。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - `agent-service` 运行 presence tick：它会把“小腻从自己的生活里抬头看一眼”的动作 append 进同一个 queue / agent loop。存在游标后的未读时，会打开最新未读会话并 materialize 成 `proactive_im_open`；每个群/私聊以上次已读最后一条为游标，旧 backlog 不会被当成当前现场。presence 起源的 tick 当前读取全局 conversation append stream，并用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；这还不是 event-backed 的全局 `<小腻近况>`，也不会自动 fallback 到某个群 summary。没有具体会话时也会走主 loop，只能使用 `web_search`、`exec_command`、`compress_core_memory` 或 `recover_energy`，不能无目标直接发 QQ 或登记图片任务；动作未完成前没有工具调用不等于沉默或结束。想回头分享的内容会留进 `<xiaoni_os>`，不走旁路兴趣表。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步收口到 `agent-service` runtime。
@@ -85,6 +89,7 @@ docker compose ps
 - Admin Backend: `http://localhost:9080/api/health`
 - Provider Service: `http://localhost:8091/health`
 - Agent Service: `http://localhost:8092/health`
+- Xiaoni Executor: `localhost:8093` + `/health`
 
 ## 调试能力
 
@@ -108,6 +113,7 @@ docker compose ps
 ```bash
 docker compose logs -f qqbot-provider-service
 docker compose logs -f qqbot-agent-service
+docker compose logs -f qqbot-xiaoni-executor
 docker compose logs -f qqbot-admin-backend
 docker exec -it qqbot-provider-service /bin/sh
 python3 scripts/start_modules.py start
@@ -137,4 +143,5 @@ python3 scripts/start_modules.py status
 - [docs/START_HERE.md](docs/START_HERE.md)
 - [docs/INDEX.md](docs/INDEX.md)
 - [docs/CURRENT_ARCHITECTURE.md](docs/CURRENT_ARCHITECTURE.md)
+- [docs/AGENTS_XIAONI_EXECUTOR.md](docs/AGENTS_XIAONI_EXECUTOR.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)
