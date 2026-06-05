@@ -429,6 +429,7 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
 
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+  'Use /app as the filesystem root for repository paths.',
   'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
 ].join(' ');
 
