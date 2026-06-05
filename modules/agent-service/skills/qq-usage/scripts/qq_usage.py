@@ -7,7 +7,8 @@ import urllib.error
 import urllib.request
 
 
-DEFAULT_ENDPOINT = "http://127.0.0.1:8092/api/internal/qq-usage"
+CONTAINER_ENDPOINT = "http://qqbot-agent-service:8092/api/internal/qq-usage"
+LOCAL_ENDPOINT = "http://127.0.0.1:8092/api/internal/qq-usage"
 
 
 def error_block(action, args, reason):
@@ -28,9 +29,20 @@ def error_block(action, args, reason):
     print(f'<QQ_USAGE_ERROR action="qq_usage.{action}" arguments="{escaped_args}" reason="{escaped_reason}"></QQ_USAGE_ERROR>')
 
 
-def call_engineering_api(action, args):
-    endpoint = os.environ.get("QQ_USAGE_ENDPOINT", DEFAULT_ENDPOINT)
-    payload = json.dumps({"action": action, "args": args}, ensure_ascii=False).encode("utf-8")
+def running_in_container():
+    return os.path.exists("/.dockerenv")
+
+
+def resolve_endpoint():
+    endpoint = os.environ.get("QQ_USAGE_ENDPOINT", "").strip()
+    if endpoint:
+        return endpoint
+    if running_in_container():
+        return CONTAINER_ENDPOINT
+    return LOCAL_ENDPOINT
+
+
+def post_to_endpoint(endpoint, payload):
     request = urllib.request.Request(
         endpoint,
         data=payload,
@@ -39,7 +51,13 @@ def call_engineering_api(action, args):
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         body = response.read().decode("utf-8")
-    data = json.loads(body)
+    return json.loads(body)
+
+
+def call_engineering_api(action, args):
+    endpoint = resolve_endpoint()
+    payload = json.dumps({"action": action, "args": args}, ensure_ascii=False).encode("utf-8")
+    data = post_to_endpoint(endpoint, payload)
     result = data.get("result") if isinstance(data, dict) else None
     content = result.get("content") if isinstance(result, dict) else None
     if isinstance(content, str) and content:

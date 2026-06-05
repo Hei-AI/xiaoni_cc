@@ -345,6 +345,25 @@ type StructuredReplayInboundRow = {
   created_at: string | Date;
 };
 
+type StructuredReplayToolRow = {
+  id: number;
+  trace_id: string;
+  agent_turn: number | null;
+  tool_call_id: string | null;
+  tool_name: string;
+  arguments: string | Record<string, unknown> | null;
+  result: string | Record<string, unknown> | null;
+  started_at: string | Date | null;
+};
+
+type StructuredReplayLlmCallRow = {
+  id: number;
+  trace_id: string;
+  agent_turn: number | null;
+  canonical_response: string | Record<string, unknown> | null;
+  started_at: string | Date | null;
+};
+
 export type AgentRunDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'finished';
 
 type AgentRunDeliveryStateRow = {
@@ -1318,6 +1337,176 @@ function buildStructuredReplayConversationItems(params: {
   }
 
   return itemsByConversationId;
+}
+
+function flattenReplayMessageText(content: unknown) {
+  if (typeof content === 'string') {
+    return content.trim();
+  }
+  if (!Array.isArray(content)) {
+    return '';
+  }
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') {
+        return '';
+      }
+      const typedPart = part as { type?: unknown; text?: unknown; refusal?: unknown };
+      if ((typedPart.type === 'output_text' || typedPart.type === 'input_text') && typeof typedPart.text === 'string') {
+        return typedPart.text.trim();
+      }
+      if (typedPart.type === 'refusal' && typeof typedPart.refusal === 'string') {
+        return typedPart.refusal.trim();
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
+
+function buildStructuredLlmReplayItems(rows: StructuredReplayLlmCallRow[]) {
+  const replayItemsByTraceId = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of rows) {
+    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+    if (!traceId) {
+      continue;
+    }
+    const response = parseJson<Record<string, unknown>>(row.canonical_response, {});
+    const output = Array.isArray(response.output) ? response.output : [];
+    const replayItems = replayItemsByTraceId.get(traceId) || [];
+    for (const item of output) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const outputItem = item as Record<string, unknown>;
+      if (outputItem.type === 'reasoning') {
+        const reasoningItem: Record<string, unknown> = { type: 'reasoning' };
+        if (typeof outputItem.content === 'string' && outputItem.content.length > 0) {
+          reasoningItem.content = outputItem.content;
+        }
+        if (typeof outputItem.summary === 'string' && outputItem.summary.length > 0 || Array.isArray(outputItem.summary) && outputItem.summary.length > 0) {
+          reasoningItem.summary = outputItem.summary;
+        }
+        if (typeof outputItem.encrypted_content === 'string' && outputItem.encrypted_content.length > 0) {
+          reasoningItem.encrypted_content = outputItem.encrypted_content;
+        }
+        if (Object.keys(reasoningItem).length > 1) {
+          replayItems.push(reasoningItem);
+        }
+        continue;
+      }
+      if (outputItem.type === 'message' && outputItem.role === 'assistant') {
+        const text = flattenReplayMessageText(outputItem.content);
+        if (text) {
+          replayItems.push({
+            type: 'message',
+            role: 'assistant',
+            phase: outputItem.phase === 'final_answer' ? 'final_answer' : 'commentary',
+            content: [{ type: 'output_text', text }]
+          });
+        }
+        continue;
+      }
+      if (outputItem.type !== 'function_call') {
+        continue;
+      }
+      const callId = typeof outputItem.call_id === 'string' ? outputItem.call_id.trim() : '';
+      const toolName = typeof outputItem.name === 'string' ? outputItem.name.trim() : '';
+      if (!callId || !toolName) {
+        continue;
+      }
+      replayItems.push({
+        type: 'function_call',
+        call_id: callId,
+        name: toolName,
+        arguments: typeof outputItem.arguments === 'string' ? outputItem.arguments : JSON.stringify(outputItem.arguments || {})
+      });
+    }
+    if (replayItems.length > 0) {
+      replayItemsByTraceId.set(traceId, replayItems);
+    }
+  }
+  return replayItemsByTraceId;
+}
+
+function buildStructuredToolReplayItems(rows: StructuredReplayToolRow[]) {
+  const replayItemsByTraceId = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of rows) {
+    const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+    const callId = typeof row.tool_call_id === 'string' ? row.tool_call_id.trim() : '';
+    const toolName = typeof row.tool_name === 'string' ? row.tool_name.trim() : '';
+    if (!traceId || !callId || !toolName) {
+      continue;
+    }
+    const args = parseJson<Record<string, unknown>>(row.arguments, {});
+    const result = parseJson<Record<string, unknown>>(row.result, {});
+    const output = toolName === 'exec_command' && typeof result.codex_output === 'string'
+      ? result.codex_output
+      : JSON.stringify(result);
+    const replayItems = replayItemsByTraceId.get(traceId) || [];
+    replayItems.push({
+      type: 'function_call',
+      call_id: callId,
+      name: toolName,
+      arguments: JSON.stringify(args)
+    });
+    replayItems.push({
+      type: 'function_call_output',
+      call_id: callId,
+      output
+    });
+    replayItemsByTraceId.set(traceId, replayItems);
+  }
+  return replayItemsByTraceId;
+}
+
+function buildReplayItemKey(item: Record<string, unknown>) {
+  const callId = typeof item.call_id === 'string' ? item.call_id : '';
+  if (callId && (item.type === 'function_call' || item.type === 'function_call_output')) {
+    return `${String(item.type)}:${callId}`;
+  }
+  if (item.type === 'message') {
+    return `message:${String(item.role || '')}:${String(item.phase || '')}:${JSON.stringify(item.content || '')}`;
+  }
+  if (item.type === 'reasoning') {
+    return `reasoning:${JSON.stringify(item.summary || item.content || item.encrypted_content || '')}`;
+  }
+  return '';
+}
+
+function mergeResponseReplayItems(rawResponse: Record<string, unknown>, recoveredReplayItems: Array<Record<string, unknown>>) {
+  if (recoveredReplayItems.length === 0) {
+    return rawResponse;
+  }
+  const existingReplayItems = Array.isArray(rawResponse.responses_replay_items)
+    ? rawResponse.responses_replay_items.filter((item): item is Record<string, unknown> => (
+        Boolean(item && typeof item === 'object' && !Array.isArray(item))
+      ))
+    : [];
+  const existingReplayKeys = new Set(
+    existingReplayItems
+      .map(buildReplayItemKey)
+      .filter(Boolean)
+  );
+  const missingReplayItems = recoveredReplayItems.filter((item) => {
+    const replayKey = buildReplayItemKey(item);
+    if (!replayKey || existingReplayKeys.has(replayKey)) {
+      return !replayKey;
+    }
+    existingReplayKeys.add(replayKey);
+    return true;
+  });
+  if (missingReplayItems.length === 0) {
+    return rawResponse;
+  }
+  return {
+    ...rawResponse,
+    responses_replay_items: [
+      ...existingReplayItems,
+      ...missingReplayItems
+    ]
+  };
 }
 
 export class RuntimeStore {
@@ -2488,6 +2677,44 @@ export class RuntimeStore {
           missingStructuredTraceIds
         )
       : [];
+    const llmReplayRows = traceToConversationId.size > 0
+      ? await this.sql.query<StructuredReplayLlmCallRow>(
+          `
+            SELECT
+              id,
+              trace_id,
+              agent_turn,
+              canonical_response,
+              started_at
+            FROM llm_call_logs
+            WHERE trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
+              AND status = 'completed'
+            ORDER BY trace_id ASC, COALESCE(agent_turn, 2147483647) ASC, started_at ASC, id ASC
+          `,
+          Array.from(traceToConversationId.keys())
+        )
+      : [];
+    const toolReplayRows = traceToConversationId.size > 0
+      ? await this.sql.query<StructuredReplayToolRow>(
+          `
+            SELECT
+              id,
+              trace_id,
+              agent_turn,
+              tool_call_id,
+              tool_name,
+              arguments,
+              result,
+              started_at
+            FROM tool_execution_logs
+            WHERE trace_id IN (${Array.from(traceToConversationId.keys()).map(() => '?').join(', ')})
+              AND status = 'completed'
+              AND tool_call_id IS NOT NULL
+            ORDER BY trace_id ASC, COALESCE(agent_turn, 2147483647) ASC, started_at ASC, id ASC
+          `,
+          Array.from(traceToConversationId.keys())
+        )
+      : [];
 
     const itemsByConversationId = new Map<number, ConversationTranscriptItem[]>();
     for (const row of itemRows) {
@@ -2518,9 +2745,19 @@ export class RuntimeStore {
       rows: [...structuredReplayRows, ...structuredReplayInboundRows],
       traceToConversationId
     });
+    const recoveredLlmReplayItemsByTraceId = buildStructuredLlmReplayItems(llmReplayRows);
+    const recoveredToolReplayItemsByTraceId = buildStructuredToolReplayItems(toolReplayRows);
 
     return orderedRows.map((row) => {
       const conversationId = Number(row.id);
+      const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
+      const rawResponse = parseJson<Record<string, unknown>>(row.raw_response, {});
+      const recoveredReplayItems = traceId
+        ? [
+            ...(recoveredLlmReplayItemsByTraceId.get(traceId) || []),
+            ...(recoveredToolReplayItemsByTraceId.get(traceId) || [])
+          ]
+        : [];
       const sessionKey = buildTranscriptSessionId(
         Number(row.user_id),
         row.group_id === null ? null : Number(row.group_id)
@@ -2549,7 +2786,7 @@ export class RuntimeStore {
         userMessage: row.user_message,
         aiResponse: row.ai_response,
         items,
-        rawResponse: parseJson<Record<string, unknown>>(row.raw_response, {})
+        rawResponse: mergeResponseReplayItems(rawResponse, recoveredReplayItems)
       };
     });
   }

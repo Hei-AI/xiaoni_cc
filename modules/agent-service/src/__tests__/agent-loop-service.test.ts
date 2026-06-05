@@ -925,6 +925,96 @@ test('buildInitialInput repairs stored encrypted reasoning items missing summary
   )));
 });
 
+test('buildInitialInput replays completed tool calls across turns', () => {
+  const turn = createConversationTurn({
+    id: 44,
+    userMessage: '上一段用户消息',
+    aiResponse: '上一段回复'
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'function_call',
+        call_id: 'call-exec-1',
+        name: 'exec_command',
+        arguments: '{"cmd":"python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox"}'
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-exec-1',
+        output: '<IM_INBOX_WINDOW mode="thread_list"></IM_INBOX_WINDOW>'
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+
+  assert.ok(loopInput.some((item: any) => (
+    item.type === 'function_call'
+    && item.call_id === 'call-exec-1'
+    && item.name === 'exec_command'
+  )));
+  assert.ok(loopInput.some((item: any) => (
+    item.type === 'function_call_output'
+    && item.call_id === 'call-exec-1'
+    && item.output.includes('<IM_INBOX_WINDOW')
+  )));
+});
+
+test('buildInitialInput replays stored assistant messages across turns', () => {
+  const turn = createConversationTurn({
+    id: 46,
+    userMessage: '上一段用户消息',
+    aiResponse: null
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'message',
+        role: 'assistant',
+        phase: 'commentary',
+        content: [{
+          type: 'output_text',
+          text: '我先打开列表看一下。'
+        }]
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  const assistantItem = loopInput.find((item: any) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && getMessageContent(item).includes('我先打开列表看一下')
+  )) as any;
+
+  assert.ok(assistantItem);
+  assert.equal(assistantItem.phase, 'commentary');
+  assert.equal(assistantItem.content[0]?.type, 'output_text');
+});
+
+test('buildInitialInput drops unpaired stored tool calls across turns', () => {
+  const turn = createConversationTurn({
+    id: 45,
+    userMessage: '上一段用户消息',
+    aiResponse: '上一段回复'
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'function_call',
+        call_id: 'call-recover-1',
+        name: 'recover_energy',
+        arguments: '{"reason":"done"}'
+      }
+    ]
+  };
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+
+  assert.equal(loopInput.some((item: any) => item.type === 'function_call' && item.call_id === 'call-recover-1'), false);
+});
+
 test('buildInitialInput renders stable batch context without exposing runtime ids', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'

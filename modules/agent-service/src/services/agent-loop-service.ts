@@ -4619,7 +4619,7 @@ export class AgentLoopService {
             core_memory_compression: coreMemoryCompressionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
-          responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
+          responses_replay_items: extractResponseReplayInputItems(loopContinuation),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           finish_reason: termination.finishReason,
@@ -4799,7 +4799,7 @@ export class AgentLoopService {
           sent_messages: sentMessages,
           xiaoni_os: null,
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
-          responses_replay_items: extractReasoningReplayInputItems(loopContinuation),
+          responses_replay_items: extractResponseReplayInputItems(loopContinuation),
           total_turns: turnsExecuted,
           termination_reason: termination.terminationReason,
           no_reply: termination.noReply
@@ -6967,7 +6967,7 @@ export function buildInitialInput(
         items.push(buildAssistantCommentaryInputItem([osText]));
         osAttached = true;
       }
-      items.push(...buildTurnReasoningReplayItems(turn));
+      items.push(...buildTurnResponseReplayItems(turn));
       continue;
     }
 
@@ -6982,7 +6982,7 @@ export function buildInitialInput(
       items.push(buildAssistantCommentaryInputItem([osText]));
     }
 
-    items.push(...buildTurnReasoningReplayItems(turn));
+    items.push(...buildTurnResponseReplayItems(turn));
   }
 
   items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
@@ -7118,13 +7118,128 @@ function normalizeResponseInputItems(items: OpenResponseInputItem[]): OpenRespon
   return normalizedItems;
 }
 
-function extractReasoningReplayInputItems(items: OpenResponseInputItem[]): Array<Extract<OpenResponseInputItem, { type: 'reasoning' }>> {
-  return items
-    .filter(isReasoningReplayItem)
-    .map(normalizeReasoningReplayInputItem);
+type ResponseReplayInputItem =
+  | Extract<OpenResponseInputItem, { type: 'reasoning' }>
+  | Extract<OpenResponseInputItem, { type: 'message' }>
+  | Extract<OpenResponseInputItem, { type: 'function_call' }>
+  | Extract<OpenResponseInputItem, { type: 'function_call_output' }>;
+
+function isAssistantMessageReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'message' }> {
+  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'message') {
+    return false;
+  }
+  const item = value as {
+    role?: unknown;
+    content?: unknown;
+  };
+  return item.role === 'assistant'
+    && (typeof item.content === 'string' && item.content.trim().length > 0
+      || Array.isArray(item.content) && flattenMessageContent(item.content as OpenResponseInputContentPart[]).trim().length > 0);
 }
 
-function buildTurnReasoningReplayItems(turn: ConversationTurn): OpenResponseInputItem[] {
+function normalizeAssistantMessageReplayInputItem(
+  item: Extract<OpenResponseInputItem, { type: 'message' }>
+): Extract<OpenResponseInputItem, { type: 'message' }> {
+  return buildMessageInputItem(
+    'assistant',
+    [flattenMessageContent(item.content).trim()],
+    item.phase === 'final_answer' ? 'final_answer' : 'commentary'
+  ) as Extract<OpenResponseInputItem, { type: 'message' }>;
+}
+
+function isFunctionCallReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'function_call' }> {
+  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call') {
+    return false;
+  }
+  const item = value as {
+    call_id?: unknown;
+    name?: unknown;
+    arguments?: unknown;
+  };
+  return typeof item.call_id === 'string' && item.call_id.trim().length > 0
+    && typeof item.name === 'string' && item.name.trim().length > 0
+    && typeof item.arguments === 'string';
+}
+
+function normalizeFunctionCallReplayInputItem(
+  item: Extract<OpenResponseInputItem, { type: 'function_call' }>
+): Extract<OpenResponseInputItem, { type: 'function_call' }> {
+  return {
+    type: 'function_call',
+    call_id: item.call_id.trim(),
+    name: item.name.trim(),
+    arguments: item.arguments
+  };
+}
+
+function isFunctionCallOutputReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'function_call_output' }> {
+  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call_output') {
+    return false;
+  }
+  const item = value as {
+    call_id?: unknown;
+    output?: unknown;
+  };
+  return typeof item.call_id === 'string' && item.call_id.trim().length > 0
+    && typeof item.output === 'string';
+}
+
+function normalizeFunctionCallOutputReplayInputItem(
+  item: Extract<OpenResponseInputItem, { type: 'function_call_output' }>
+): Extract<OpenResponseInputItem, { type: 'function_call_output' }> {
+  return {
+    type: 'function_call_output',
+    call_id: item.call_id.trim(),
+    output: item.output
+  };
+}
+
+function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null {
+  if (isReasoningReplayItem(item)) {
+    return normalizeReasoningReplayInputItem(item);
+  }
+  if (isAssistantMessageReplayItem(item)) {
+    return normalizeAssistantMessageReplayInputItem(item);
+  }
+  if (isFunctionCallReplayItem(item)) {
+    return normalizeFunctionCallReplayInputItem(item);
+  }
+  if (isFunctionCallOutputReplayItem(item)) {
+    return normalizeFunctionCallOutputReplayInputItem(item);
+  }
+  return null;
+}
+
+function extractResponseReplayInputItems(items: OpenResponseInputItem[]): ResponseReplayInputItem[] {
+  const normalizedItems = items
+    .map(normalizeReplayInputItem)
+    .filter((item): item is ResponseReplayInputItem => Boolean(item));
+  const toolCallIds = new Set(
+    normalizedItems
+      .filter((item): item is Extract<OpenResponseInputItem, { type: 'function_call' }> => item.type === 'function_call')
+      .map((item) => item.call_id)
+  );
+  const toolOutputCallIds = new Set(
+    normalizedItems
+      .filter((item): item is Extract<OpenResponseInputItem, { type: 'function_call_output' }> => item.type === 'function_call_output')
+      .map((item) => item.call_id)
+  );
+
+  return normalizedItems.filter((item) => {
+    if (item.type === 'reasoning') {
+      return true;
+    }
+    if (item.type === 'message') {
+      return true;
+    }
+    if (item.type === 'function_call') {
+      return toolOutputCallIds.has(item.call_id);
+    }
+    return toolCallIds.has(item.call_id);
+  });
+}
+
+function buildTurnResponseReplayItems(turn: ConversationTurn): OpenResponseInputItem[] {
   const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
     ? turn.rawResponse as Record<string, unknown>
     : {};
@@ -7132,9 +7247,7 @@ function buildTurnReasoningReplayItems(turn: ConversationTurn): OpenResponseInpu
     ? rawResponse.responses_replay_items
     : [];
 
-  return replayItems
-    .filter(isReasoningReplayItem)
-    .map(normalizeReasoningReplayInputItem);
+  return extractResponseReplayInputItems(replayItems as OpenResponseInputItem[]);
 }
 
 function buildCurrentTurnInputItems(

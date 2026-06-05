@@ -409,6 +409,14 @@ test('listRecentTurns rebuilds historical user items from structured queue paylo
       return [];
     }
 
+    if (sql.includes('llm_call_logs')) {
+      return [];
+    }
+
+    if (sql.includes('tool_execution_logs')) {
+      return [];
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -460,6 +468,14 @@ test('listRecentTurns falls back to stored transcript content when structured qu
     }
 
     if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
+    if (sql.includes('llm_call_logs')) {
+      return [];
+    }
+
+    if (sql.includes('tool_execution_logs')) {
       return [];
     }
 
@@ -542,6 +558,14 @@ test('listRecentTurns rebuilds historical user items from inbound messages when 
       }];
     }
 
+    if (sql.includes('llm_call_logs')) {
+      return [];
+    }
+
+    if (sql.includes('tool_execution_logs')) {
+      return [];
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   });
 
@@ -555,6 +579,124 @@ test('listRecentTurns rebuilds historical user items from inbound messages when 
   assert.match(String(turns[0]?.items[0]?.content), /2026-03-28 08:00 \{Alice\(@202\)\}/);
   assert.match(String(turns[0]?.items[0]?.content), /@\{Bob\(@404\)\} 嘿/);
   assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
+});
+
+test('listRecentTurns recovers tool replay items from tool execution logs', async () => {
+  const store = createStoreWithQuery(async (sql) => {
+    if (sql.includes('FROM conversations')) {
+      return [{
+        id: 1,
+        batch_id: null,
+        trace_id: 'trace-1',
+        user_id: 202,
+        group_id: 101,
+        user_message: '上一轮消息',
+        ai_response: '上一轮回复',
+        raw_response: JSON.stringify({
+          responses_replay_items: [{
+            type: 'reasoning',
+            id: 'rs_1',
+            summary: [{
+              type: 'summary_text',
+              text: '看了一眼消息列表。'
+            }],
+            content: []
+          }, {
+            type: 'function_call',
+            call_id: 'call-exec-1',
+            name: 'exec_command',
+            arguments: '{"cmd":"python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox"}'
+          }]
+        })
+      }];
+    }
+
+    if (sql.includes('FROM conversation_items')) {
+      return [];
+    }
+
+    if (sql.includes('FROM agent_queue_messages q')) {
+      return [];
+    }
+
+    if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
+    if (sql.includes('llm_call_logs')) {
+      return [{
+        id: 67,
+        trace_id: 'trace-1',
+        agent_turn: 2,
+        canonical_response: JSON.stringify({
+          id: 'resp-1',
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'commentary',
+            content: [{
+              type: 'output_text',
+              text: '我先打开列表看一下。'
+            }]
+          }, {
+            type: 'function_call',
+            call_id: 'call-exec-1',
+            name: 'exec_command',
+            arguments: '{"cmd":"python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox"}'
+          }]
+        }),
+        started_at: '2026-03-28T08:00:00.500Z'
+      }];
+    }
+
+    if (sql.includes('tool_execution_logs')) {
+      return [{
+        id: 77,
+        trace_id: 'trace-1',
+        agent_turn: 2,
+        tool_call_id: 'call-exec-1',
+        tool_name: 'exec_command',
+        arguments: {
+          cmd: 'python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox'
+        },
+        result: {
+          codex_output: 'Chunk ID: abc\nOutput:\n<IM_INBOX_WINDOW mode="thread_list"></IM_INBOX_WINDOW>',
+          stdout: '<IM_INBOX_WINDOW mode="thread_list"></IM_INBOX_WINDOW>'
+        },
+        started_at: '2026-03-28T08:00:01.000Z'
+      }];
+    }
+
+    throw new Error(`Unexpected query: ${sql}`);
+  });
+
+  const turns = await store.listRecentTurns({
+    userId: 202,
+    groupId: 101
+  });
+
+  assert.equal(turns.length, 1);
+  const firstTurn = turns[0];
+  assert.ok(firstTurn);
+  const replayItems = (firstTurn.rawResponse?.responses_replay_items || []) as Array<Record<string, unknown>>;
+  assert.ok(replayItems.some((item) => item.type === 'reasoning' && item.id === 'rs_1'));
+  assert.ok(replayItems.some((item) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && String(JSON.stringify(item.content)).includes('我先打开列表看一下')
+  )));
+  assert.ok(replayItems.some((item) => (
+    item.type === 'function_call'
+    && item.call_id === 'call-exec-1'
+    && item.name === 'exec_command'
+    && String(item.arguments).includes('open_inbox')
+  )));
+  assert.equal(replayItems.filter((item) => item.type === 'function_call' && item.call_id === 'call-exec-1').length, 1);
+  assert.ok(replayItems.some((item) => (
+    item.type === 'function_call_output'
+    && item.call_id === 'call-exec-1'
+    && String(item.output).includes('<IM_INBOX_WINDOW')
+  )));
 });
 
 test('listRecentTurns can read the global append stream for life-only presence ticks', async () => {
@@ -592,6 +734,14 @@ test('listRecentTurns can read the global append stream for life-only presence t
     }
 
     if (sql.includes('FROM agent_inbound_messages m')) {
+      return [];
+    }
+
+    if (sql.includes('llm_call_logs')) {
+      return [];
+    }
+
+    if (sql.includes('tool_execution_logs')) {
       return [];
     }
 

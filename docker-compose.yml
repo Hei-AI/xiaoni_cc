@@ -144,6 +144,7 @@ services:
       - TZ=Asia/Shanghai
       - WORKSPACE_ROOT=/workspace/qq_bot
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
+      - QQ_USAGE_ENDPOINT=http://qqbot-agent-service:8092/api/internal/qq-usage
     volumes:
       - ./:/workspace/qq_bot
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
