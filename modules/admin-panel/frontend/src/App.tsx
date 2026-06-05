@@ -3,8 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { XiaoniActivityPage } from './pages/XiaoniActivityPage';
-import { ConversationsPage } from './pages/ConversationsPage';
-import { RunTracePage } from './pages/RunTracePage';
+import { ActionEventTracePage } from './pages/ActionEventTracePage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
 import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
@@ -39,8 +38,7 @@ const PromptDebugRedirect: React.FC = () => {
 };
 
 const ConversationTimelineRedirect: React.FC = () => {
-  const { conversationId } = useParams<{ conversationId: string }>();
-  return conversationId ? <Navigate to={`/runs/${conversationId}/trace`} replace /> : <Navigate to="/conversations" replace />;
+  return <Navigate to="/xiaoni-action-stream" replace />;
 };
 
 function RouteFallback() {
@@ -65,12 +63,13 @@ function App() {
         <Layout>
           <Suspense fallback={<RouteFallback />}>
             <Routes>
-              <Route path="/" element={<Navigate to="/xiaoni-activity" replace />} />
-              <Route path="/xiaoni-activity" element={<XiaoniActivityPage />} />
-              <Route path="/dashboard" element={<Navigate to="/xiaoni-activity" replace />} />
-              <Route path="/conversations" element={<ConversationsPage />} />
+              <Route path="/" element={<Navigate to="/xiaoni-action-stream" replace />} />
+              <Route path="/xiaoni-action-stream" element={<XiaoniActivityPage />} />
+              <Route path="/xiaoni-activity" element={<Navigate to="/xiaoni-action-stream" replace />} />
+              <Route path="/dashboard" element={<Navigate to="/xiaoni-action-stream" replace />} />
+              <Route path="/conversations" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelineRedirect />} />
-              <Route path="/runs/:runId/trace" element={<RunTracePage />} />
+              <Route path="/xiaoni/action-stream/events/:eventId/trace" element={<ActionEventTracePage />} />
               <Route path="/groups" element={<GroupManagementPage />} />
               <Route path="/groups/:groupId" element={<GroupChatDetailPage />} />
               <Route path="/private-chats" element={<PrivateChatManagementPage />} />

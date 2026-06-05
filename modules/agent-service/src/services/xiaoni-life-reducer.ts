@@ -88,7 +88,7 @@ const DEFAULT_ACTION_COST_BY_EVENT_KIND: Record<string, number> = {
   surface_visit: 0.01,
   qq_message_seen: 0,
   qq_self_message: 0,
-  speak_in_group: 0.01,
+  send_in_group: 0.01,
   silence_decision: 0.005,
   web_search_result: 0,
   pending_share_created: 0,
@@ -285,7 +285,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       rememberContributor(state, event, `看见真实消息，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'qq_self_message':
-    case 'speak_in_group':
+    case 'send_in_group':
       applyActionCost(state, event.eventKind, actionCost);
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.15);
       state.boredomOffset = clamp01(state.boredomOffset - 0.25);

@@ -107,7 +107,7 @@ function createDeps(overrides: Partial<TreatmentDeps> = {}) {
           outputText: JSON.stringify({
             initialImpulse: {
               summary: 'directly addressed',
-              likelyAction: 'speak_in_group_candidate',
+              likelyAction: 'send_in_group_candidate',
               reasons: ['mention'],
               uncertainty: 0.2,
               shouldRecall: true
@@ -129,7 +129,7 @@ function createDeps(overrides: Partial<TreatmentDeps> = {}) {
               confidence: 0.8
             },
             finalCandidateAction: {
-              kind: 'speak_in_group_candidate',
+              kind: 'send_in_group_candidate',
               rationale: 'directly addressed and has relevant memory',
               confidence: 0.85,
               text: '我觉得这里可以接一下。'
@@ -174,12 +174,12 @@ test('MiniTreatmentRunner executes fixed pass1 recall pass2 and writes treatment
   assert.equal(armRuns.length, 2);
   assert.deepEqual(armRuns.map((run) => run.arm), ['treatment', 'treatment']);
   assert.deepEqual(armRuns.map((run) => run.status), ['running', 'completed']);
-  assert.equal(result.finalCandidateAction?.kind, 'speak_in_group_candidate');
+  assert.equal(result.finalCandidateAction?.kind, 'send_in_group_candidate');
   assert.equal(result.retrievedMemoryContext?.observations.length, 1);
   assert.equal(result.retrievedMemoryContext?.reflections.length, 1);
   assert.equal(result.retrievedMemoryContext?.plans.length, 1);
   assert.equal(armRuns[1].outputArtifact.initialImpulse?.summary, 'directly addressed');
-  assert.equal(armRuns[1].outputArtifact.finalCandidateAction?.kind, 'speak_in_group_candidate');
+  assert.equal(armRuns[1].outputArtifact.finalCandidateAction?.kind, 'send_in_group_candidate');
   assert.equal((armRuns[1].inputSummary.metadata as any).semanticRetry, false);
 });
 

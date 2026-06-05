@@ -1565,7 +1565,7 @@ export function PlaygroundPage() {
             </div>
           </div>
         ) : (
-          <EmptyState title="No tool call inferred" description="如果当前 run 是纯文本输出，这里会为空。存在 function/tool 调用时，会优先展示结构化调用卡片。" />
+          <EmptyState title="No tool call inferred" description="如果当前执行是纯文本输出，这里会为空。存在 function/tool 调用时，会优先展示结构化调用卡片。" />
         )}
       </div>
     </div>
@@ -1603,7 +1603,7 @@ export function PlaygroundPage() {
         {rawProviderPayload ? (
           <JsonBlock value={rawProviderPayload} className="h-full min-h-[220px]" />
         ) : (
-          <EmptyState title="No raw payload available" description="当前 run 没有可展示的 provider 原始结果，先运行一次或者切回 Text / Tool。" />
+          <EmptyState title="No raw payload available" description="当前执行没有可展示的 provider 原始结果，先运行一次或者切回 Text / Tool。" />
         )}
       </div>
     </div>
@@ -1824,7 +1824,7 @@ export function PlaygroundPage() {
 
           {promptMode === 'saved' ? (
             <div className="mt-3 rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-xs leading-6 text-muted-foreground">
-              Saved Prompt 会以数据库里的 Prompt 作为基线，但当前工作台里改过的 System Instruction 和 Context Variables 会作为当前 Run 的临时覆盖，不会回写正式 Prompt。
+              Saved Prompt 会以数据库里的 Prompt 作为基线，但当前工作台里改过的 System Instruction 和 Context Variables 会作为当前实验执行的临时覆盖，不会回写正式 Prompt。
             </div>
           ) : null}
 
@@ -1980,7 +1980,7 @@ export function PlaygroundPage() {
         <SheetContent side="left" className="sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Library</SheetTitle>
-            <SheetDescription>Traffic 样本、已保存 Cases 和近期 Runs。</SheetDescription>
+            <SheetDescription>Traffic 样本、已保存 Cases 和近期实验执行。</SheetDescription>
           </SheetHeader>
           <div className="mt-4 flex-1 overflow-hidden">
             {libraryErrorMessage ? (

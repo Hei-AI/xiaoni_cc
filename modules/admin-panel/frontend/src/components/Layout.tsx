@@ -18,7 +18,6 @@ import {
   FileText,
   ImagePlus,
   Menu,
-  MessageCircle,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
@@ -159,24 +158,19 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       label: 'Overview',
       items: [
         {
-          href: '/xiaoni-activity',
-          label: '小腻活动',
+          href: '/xiaoni-action-stream',
+          label: '小腻行动流',
           icon: Activity,
-          description: 'action/tool、in_context 与真实 trace',
-          active: location.pathname === '/xiaoni-activity',
+          description: 'provider、tool、消息和状态事件',
+          active: location.pathname === '/xiaoni-action-stream'
+            || location.pathname === '/xiaoni-activity'
+            || location.pathname.startsWith('/xiaoni/action-stream/events/'),
         },
       ],
     },
     {
       label: 'Engagement',
       items: [
-        {
-          href: '/conversations',
-          label: '对话流',
-          icon: MessageCircle,
-          description: '按会话和 agent run 查看输入批次与回复原因',
-          active: location.pathname.startsWith('/conversations') || location.pathname.startsWith('/runs/'),
-        },
         {
           href: '/groups',
           label: '群聊 IM 入口',

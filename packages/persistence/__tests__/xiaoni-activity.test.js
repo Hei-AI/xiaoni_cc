@@ -236,6 +236,111 @@ test('Xiaoni activity feed hides operator-only self-action LLM prompts', async (
   assert.equal(serialized.includes('today funny internet culture trend'), false);
 });
 
+test('Xiaoni activity feed promotes Codex provider wire payloads to first-class events', async () => {
+  const wireRequest = '{"model":"gpt-5.5","input":[{"role":"user","content":"你发了么？"}]}';
+  const wireResponse = '{"id":"resp_codex","output":[{"type":"function_call","name":"exec_command"}]}';
+  const persistence = createPersistence({
+    llmRows: [{
+      id: 3,
+      llm_call_id: 'llm_codex_1',
+      trace_id: 'runtrace_codex_1',
+      agent_turn: 2,
+      agent_type: 'chat_bot',
+      prompt_template: '小腻主AGENT',
+      model_name: 'gpt-5.5',
+      model_provider: 'codex-local',
+      wire_provider_format: 'codex-local/responses',
+      status: 'completed',
+      started_at: new Date('2026-06-05T10:03:47.000Z'),
+      completed_at: new Date('2026-06-05T10:04:00.000Z'),
+      input_tokens: 10,
+      output_tokens: 4,
+      wire_request_preview_text: wireRequest,
+      wire_response_preview_text: wireResponse,
+      wire_request_bytes: Buffer.byteLength(wireRequest, 'utf8'),
+      wire_response_bytes: Buffer.byteLength(wireResponse, 'utf8'),
+      canonical_request: {
+        instructions: 'normal chat instruction',
+        input: [{
+          role: 'user',
+          content: '你发了么？'
+        }]
+      },
+      processed_response: ''
+    }]
+  });
+
+  const feed = await persistence.getXiaoniActivityFeed({ limit: 10 });
+  const provider = feed.items.find((item) => item.id === 'provider:codex:llm_codex_1');
+
+  assert.ok(provider);
+  assert.equal(provider.source, 'provider_call');
+  assert.equal(provider.kind, 'codex_provider');
+  assert.equal(provider.title, 'Codex Provider 请求');
+  assert.equal(provider.traceId, 'runtrace_codex_1');
+  assert.equal(provider.metadata.spanId, 'provider-request:wire:llm_codex_1');
+  assert.equal(provider.metadata.providerFormat, 'codex-local/responses');
+  assert.equal(provider.metadata.providerRequestPreview, wireRequest);
+  assert.equal(provider.metadata.providerResponsePreview, wireResponse);
+  assert.equal(provider.metadata.providerRequestBytes, Buffer.byteLength(wireRequest, 'utf8'));
+  assert.equal(provider.metadata.providerResponseBytes, Buffer.byteLength(wireResponse, 'utf8'));
+  assert.equal(feed.items.some((item) => item.id === 'llm:llm_codex_1'), true);
+});
+
+test('Xiaoni action stream demotes run id to an internal execution lease target', async () => {
+  const wireRequest = '{"model":"gpt-5.5","input":[{"role":"user","content":"你发了么？"}]}';
+  const wireResponse = '{"id":"resp_codex","output":[{"type":"function_call","name":"exec_command"}]}';
+  const persistence = createPersistence({
+    llmRows: [{
+      id: 4,
+      llm_call_id: 'llm_codex_stream',
+      trace_id: 'trace_codex_stream',
+      run_id: 'run_internal_lease_1',
+      agent_turn: 3,
+      agent_type: 'chat_bot',
+      prompt_template: '小腻主AGENT',
+      model_name: 'gpt-5.5',
+      model_provider: 'codex-local',
+      wire_provider_format: 'codex-local/responses',
+      status: 'completed',
+      started_at: new Date('2026-06-05T10:03:47.000Z'),
+      completed_at: new Date('2026-06-05T10:04:00.000Z'),
+      input_tokens: 10,
+      output_tokens: 4,
+      wire_request_preview_text: wireRequest,
+      wire_response_preview_text: wireResponse,
+      wire_request_bytes: Buffer.byteLength(wireRequest, 'utf8'),
+      wire_response_bytes: Buffer.byteLength(wireResponse, 'utf8'),
+      canonical_request: {
+        input: [{
+          role: 'user',
+          content: '你发了么？'
+        }]
+      },
+      processed_response: ''
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const provider = stream.items.find((item) => item.id === 'provider:codex:llm_codex_stream');
+
+  assert.ok(provider);
+  assert.equal(stream.streamKind, 'xiaoni_action_stream');
+  assert.equal(provider.eventKind, 'provider_request');
+  assert.equal(provider.occurredAt, '2026-06-05T10:03:47.000Z');
+  assert.equal(provider.status, 'ok');
+  assert.equal(provider.runId, null);
+  assert.equal(provider.internalExecutionLeaseId, 'run_internal_lease_1');
+  assert.deepEqual(provider.traceTarget, {
+    internalExecutionLeaseId: 'run_internal_lease_1',
+    traceId: 'trace_codex_stream',
+    spanId: 'provider-request:wire:llm_codex_stream'
+  });
+  assert.equal(provider.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
+  assert.equal(Object.prototype.hasOwnProperty.call(provider.metadata, 'completedAt'), false);
+  assert.equal(provider.metadata.endedAt, '2026-06-05T10:04:00.000Z');
+});
+
 test('Xiaoni activity feed exposes safe action trace previews on digital actions', async () => {
   const persistence = createPersistence({
     digitalActions: [{

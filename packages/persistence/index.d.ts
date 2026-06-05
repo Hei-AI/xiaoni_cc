@@ -1118,7 +1118,7 @@ export type AgentLifeEventKind =
   | 'surface_visit'
   | 'qq_message_seen'
   | 'qq_self_message'
-  | 'speak_in_group'
+  | 'send_in_group'
   | 'silence_decision'
   | 'surface_leave'
   | 'web_search_result'
@@ -1172,7 +1172,7 @@ export type AgentLifeEventProjection = {
 };
 export type XiaoniActivityFeedItem = {
   id: string;
-  source: 'life_event' | 'tool_call' | 'llm_call' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
+  source: 'life_event' | 'tool_call' | 'provider_call' | 'llm_call' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
   kind: string;
   title: string;
   body: string | null;
@@ -1186,6 +1186,19 @@ export type XiaoniActivityFeedItem = {
   traceId: string | null;
   tone: 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
   metadata: Record<string, unknown>;
+};
+export type XiaoniActionStreamItem = Omit<XiaoniActivityFeedItem, 'runId' | 'status'> & {
+  status: 'observed' | 'running' | 'ok' | 'failed' | 'blocked' | 'waiting' | 'resting' | string | null;
+  eventId: string;
+  eventKind: string;
+  occurredAt: string;
+  internalExecutionLeaseId: string | null;
+  runId: null;
+  traceTarget: {
+    internalExecutionLeaseId: string;
+    traceId: string | null;
+    spanId: string | null;
+  } | null;
 };
 export type XiaoniActivityFeedResult = {
   identityKey: string;
@@ -1226,6 +1239,35 @@ export type XiaoniActivityFeedResult = {
     };
   };
   items: XiaoniActivityFeedItem[];
+};
+export type XiaoniActionStreamResult = {
+  identityKey: string;
+  generatedAt: string;
+  streamKind: 'xiaoni_action_stream';
+  current: {
+    lifeState: Record<string, unknown> | null;
+    latestActivityAt: string | null;
+    queue: {
+      pending: number;
+      running: number;
+      staleRunning: number;
+      failed: number;
+    };
+    backgroundActions: {
+      planned: number;
+      running: number;
+      settled: number;
+      failed: number;
+    };
+    autonomy: XiaoniActivityFeedResult['current']['autonomy'];
+    tasks: {
+      pending: number;
+      running: number;
+      settled: number;
+      failed: number;
+    };
+  };
+  items: XiaoniActionStreamItem[];
 };
 export type RecordAgentLifeEventInput = {
   identityKey?: string;
@@ -1301,3 +1343,4 @@ export function listAgentLifeEvents(input?: Record<string, unknown>, config?: Da
 export function listAgentLifeEventsForPrompt(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
 export function findAgentLifeEventByDedupeKey(dedupeKey: string, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection | null>;
 export function getXiaoniActivityFeed(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActivityFeedResult>;
+export function getXiaoniActionStream(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActionStreamResult>;

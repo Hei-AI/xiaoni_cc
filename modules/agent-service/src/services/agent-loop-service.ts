@@ -118,7 +118,7 @@ type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
 
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
-  finishResult: Record<string, unknown> | null;
+  leaseRelease: LeaseReleaseRecord | null;
   forcedVisibleReply: {
     toolName: string;
     args: Record<string, unknown>;
@@ -157,6 +157,27 @@ export type TurnControlState = {
 type DeliveredAssistantMessage = {
   content: string;
   deliveryMessageId: number | null;
+};
+
+type LeaseReleaseReason =
+  | 'visible_delivery_committed'
+  | 'rest_started'
+  | 'blocked_side_effect_after_visible_delivery'
+  | 'max_model_slices_reached'
+  | 'runtime_error'
+  | 'prompt_binding_error';
+
+type LeaseReleaseRecord = {
+  release_lease: true;
+  event_kind: 'lease_released';
+  reason: LeaseReleaseReason;
+  detail: string | null;
+  outcome: string | null;
+  no_visible_delivery: boolean;
+  visible_delivery_committed: boolean;
+  rest_started: boolean;
+  source: string;
+  tool_result?: Record<string, unknown>;
 };
 
 type OutboundDeliveryFingerprint = {
@@ -398,8 +419,8 @@ const TOOL_NAMES = {
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
   execCommand: 'exec_command',
-  privateReply: 'reply_in_private',
-  groupReply: 'speak_in_group',
+  privateReply: 'send_in_private',
+  groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
   compressCoreMemory: 'compress_core_memory'
 } as const;
@@ -512,11 +533,6 @@ const COMPRESS_CORE_MEMORY_TOOL = {
   }
 } as const;
 
-const LEGACY_TOOL_ALIASES = {
-  privateReply: ['send_private_message'],
-  groupReply: ['send_group_message']
-} as const;
-
 const HUMAN_REPLY_RULES = [
   '只发送群友能直接看到的话，不写工具名、阶段名或分析过程。',
   'message/messages 必须来自当前可见消息、工具结果或 proactive 材料；不要重复旧话。',
@@ -533,13 +549,13 @@ const PRIVATE_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.privateReply,
-    description: '向当前私聊对象或明确指定的 QQ 用户发送一条或多条 QQ 消息。',
+    description: '向明确指定的 QQ 用户发送一条或多条 QQ 消息。必须提供 user_id。',
     parameters: {
       type: 'object',
       properties: {
         user_id: {
           type: 'integer',
-          description: '可选。要主动私聊的 QQ 用户 ID；不填时默认当前私聊对象。'
+          description: '必填。要发送到的 QQ 用户 ID。'
         },
         message: { type: 'string' },
         messages: {
@@ -555,7 +571,7 @@ const PRIVATE_MESSAGE_TOOL = {
           description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
-      required: ['xiaoni_os'],
+      required: ['user_id', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -565,13 +581,13 @@ const GROUP_MESSAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.groupReply,
-    description: '向当前 QQ 群或明确指定的 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。',
+    description: '向明确指定的 QQ 群发送一条或多条消息，可选指定需要 @ 的成员。必须提供 group_id。',
     parameters: {
       type: 'object',
       properties: {
         group_id: {
           type: 'integer',
-          description: '可选。要主动发送到的 QQ 群号；不填时默认当前群。'
+          description: '必填。要发送到的 QQ 群号。'
         },
         message: { type: 'string' },
         messages: {
@@ -591,7 +607,7 @@ const GROUP_MESSAGE_TOOL = {
           description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
-      required: ['xiaoni_os'],
+      required: ['group_id', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -618,7 +634,7 @@ const IMAGE_TASK_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.imageTask,
-    description: '提交一次图片生成或编辑请求；不要把提交请求本身当成已经对聊天对象回复。没有可用原图时走生成；只有 source_media_tags 指向可读图片时才走编辑。',
+    description: '提交一次图片生成或编辑请求；提交请求本身不等于已经对聊天对象发言。没有可用原图时走生成；只有 source_media_tags 指向可读图片时才走编辑。',
     parameters: {
       type: 'object',
       properties: {
@@ -1119,7 +1135,7 @@ const SKILLS_INSTRUCTIONS = [
   '- 按需触发：上面的列表只是目录，常驻你的记忆。只有当你自己想用，或者有人明确提到某个 `$skill-name` 且你愿意搭理时，才需要真正翻开对应的 SKILL.md 正文。',
   `- 精准翻阅：决定使用某个 skill 时，直接用 exec_command 读取对应 SKILL.md。例子：\`cat ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md\`。`,
   '- 如果手册里引用了 scripts/、references/ 或 assets/，路径按该 skill 目录解析。比如 qq-usage 里的脚本就用 `/app/modules/agent-service/skills/qq-usage/scripts/...`，不要一口气读取整个目录。',
-  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
+  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：send_in_group、send_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
   '- 还没有完成动作前，不要用“没有工具调用”表达沉默或结束；如果累了就按 <STATE> 调用 recover_energy，如果还有想做的事就继续行动。',
   '</skills_instructions>'
 ].join('\n');
@@ -1157,11 +1173,11 @@ export function buildCapabilitiesDeveloperBlock(input: {
 }
 
 function isPrivateReplyToolName(name: string) {
-  return name === TOOL_NAMES.privateReply || LEGACY_TOOL_ALIASES.privateReply.includes(name as typeof LEGACY_TOOL_ALIASES.privateReply[number]);
+  return name === TOOL_NAMES.privateReply;
 }
 
 function isGroupReplyToolName(name: string) {
-  return name === TOOL_NAMES.groupReply || LEGACY_TOOL_ALIASES.groupReply.includes(name as typeof LEGACY_TOOL_ALIASES.groupReply[number]);
+  return name === TOOL_NAMES.groupReply;
 }
 
 function isSpeakingToolName(name: string) {
@@ -1458,53 +1474,20 @@ export function resolveRestInterruptionFromUnreadMetadata(input: {
   };
 }
 
-function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: string): OpenResponseToolDefinition[] {
+function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
   void modelName;
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
   tools.push(COMPRESS_CORE_MEMORY_TOOL);
-
-  if (chatType === 'group') {
-    return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, RECOVER_ENERGY_TOOL];
-  }
-  return [...tools, PRIVATE_MESSAGE_TOOL, RECOVER_ENERGY_TOOL];
-}
-
-function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
-  return loopInput.some((item) => {
-    if (item.type !== 'message') {
-      return false;
-    }
-    const content = typeof item.content === 'string'
-      ? item.content
-      : item.content.map((part) => {
-        if (part.type === 'input_text' || part.type === 'output_text') return part.text;
-        if (part.type === 'refusal') return part.refusal;
-        return '';
-      }).join('\n');
-    return content.includes('<ACTION')
-      && content.includes('source="presence_tick"')
-      && content.includes('还没有打开任何具体会话');
-  });
-}
-
-function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
-  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
-    ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
-    : [EXEC_COMMAND_TOOL];
-  return [...tools, COMPRESS_CORE_MEMORY_TOOL, RECOVER_ENERGY_TOOL];
-}
-
-function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
-  const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
-    { type: 'function', name: TOOL_NAMES.execCommand },
-    { type: 'function', name: TOOL_NAMES.recoverEnergy }
+  return [
+    ...tools,
+    PRIVATE_MESSAGE_TOOL,
+    GROUP_MESSAGE_TOOL,
+    INSPECT_IMAGE_TOOL,
+    IMAGE_TASK_TOOL,
+    RECOVER_ENERGY_TOOL
   ];
-  if (agentConfig.webSearchEnabled) {
-    tools.unshift({ type: 'web_search' });
-  }
-  return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
 function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
@@ -1515,20 +1498,7 @@ function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
   ));
 }
 
-function selectGroupLoopToolDefinitions(modelName: string) {
-  return selectActorToolDefinitions('group', modelName);
-}
-
-function resolveGroupLoopToolChoice(
-  loopInput: OpenResponseInputItem[],
-  options: {
-    speakingToolName?: string;
-    includeImageTools?: boolean;
-  } = {}
-): OpenResponseToolChoice {
-  const speakingToolName = options.speakingToolName ?? TOOL_NAMES.groupReply;
-  const includeImageTools = options.includeImageTools ?? true;
-
+function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
   if (hasCoreMemoryCompressionReminder(loopInput)) {
     return buildAllowedToolsToolChoice([
       { type: 'function', name: TOOL_NAMES.compressCoreMemory }
@@ -1537,14 +1507,11 @@ function resolveGroupLoopToolChoice(
 
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
-    { type: 'function', name: speakingToolName }
+    { type: 'function', name: TOOL_NAMES.privateReply },
+    { type: 'function', name: TOOL_NAMES.groupReply },
+    { type: 'function', name: TOOL_NAMES.inspectImage },
+    { type: 'function', name: TOOL_NAMES.imageTask }
   ];
-  if (includeImageTools) {
-    tools.push(
-      { type: 'function', name: TOOL_NAMES.inspectImage },
-      { type: 'function', name: TOOL_NAMES.imageTask }
-    );
-  }
   if (agentConfig.webSearchEnabled) {
     tools.unshift({ type: 'web_search' });
   }
@@ -1583,6 +1550,7 @@ export function buildCanonicalAgentTurnRequest(
   chatType: 'group' | 'direct',
   parameters?: AgentModelParameters
 ): CanonicalAgentTurnRequest {
+  void chatType;
   const [firstItem, ...remainingItems] = loopInput;
   const baseInstructions = firstItem?.type === 'message'
     && firstItem.role === 'system'
@@ -1590,23 +1558,11 @@ export function buildCanonicalAgentTurnRequest(
     ? firstItem.content
     : undefined;
   const instructions = baseInstructions;
-  const lifeOnlyPresenceLoop = chatType === 'direct' && isLifeOnlyPresenceLoop(loopInput);
   const coreMemoryCompressionRequired = hasCoreMemoryCompressionReminder(loopInput);
-  const tools = chatType === 'group'
-    ? selectGroupLoopToolDefinitions(modelName)
-    : lifeOnlyPresenceLoop
-    ? selectLifeOnlyPresenceToolDefinitions()
-    : selectActorToolDefinitions(chatType, modelName);
+  const tools = selectMainLoopToolDefinitions(modelName);
   const toolChoice = coreMemoryCompressionRequired
     ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.compressCoreMemory }])
-    : chatType === 'group'
-    ? resolveGroupLoopToolChoice(loopInput)
-    : lifeOnlyPresenceLoop
-    ? resolveLifeOnlyPresenceToolChoice()
-    : resolveGroupLoopToolChoice(loopInput, {
-        speakingToolName: TOOL_NAMES.privateReply,
-        includeImageTools: false
-      });
+    : resolveMainLoopToolChoice(loopInput);
 
   return {
     model: modelName,
@@ -2141,17 +2097,41 @@ function buildOutboundFingerprintFromToolResult(toolResult: Record<string, unkno
   });
 }
 
+function buildLeaseReleaseRecord(params: {
+  reason: LeaseReleaseReason;
+  detail?: string | null;
+  outcome?: string | null;
+  noVisibleDelivery: boolean;
+  visibleDeliveryCommitted: boolean;
+  restStarted?: boolean;
+  source: string;
+  toolResult?: Record<string, unknown>;
+}): LeaseReleaseRecord {
+  return {
+    release_lease: true,
+    event_kind: 'lease_released',
+    reason: params.reason,
+    detail: params.detail ?? null,
+    outcome: params.outcome ?? null,
+    no_visible_delivery: params.noVisibleDelivery,
+    visible_delivery_committed: params.visibleDeliveryCommitted,
+    rest_started: Boolean(params.restStarted),
+    source: params.source,
+    ...(params.toolResult ? { tool_result: params.toolResult } : {})
+  };
+}
+
 function buildAssistantTranscriptItems(params: {
   queueMessage: QueueMessageRecord['payload'];
   deliveredMessages: DeliveredAssistantMessage[];
-  completed: boolean;
+  leaseReleased: boolean;
 }): ConversationTranscriptItem[] {
   if (params.deliveredMessages.length === 0) {
     return [];
   }
 
   return params.deliveredMessages.map((message, index) => {
-    const isFinalMessage = params.completed && index === params.deliveredMessages.length - 1;
+    const isFinalMessage = params.leaseReleased && index === params.deliveredMessages.length - 1;
     return {
       id: null,
       conversationId: 0,
@@ -2530,9 +2510,7 @@ const FINAL_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.groupReply,
   TOOL_NAMES.privateReply,
   TOOL_NAMES.imageTask,
-  TOOL_NAMES.recoverEnergy,
-  ...LEGACY_TOOL_ALIASES.groupReply,
-  ...LEGACY_TOOL_ALIASES.privateReply
+  TOOL_NAMES.recoverEnergy
 ]);
 
 type ToolLoopPhase = 'commentary' | 'final_answer';
@@ -3819,10 +3797,24 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
-  if (toolResult.finished === true) {
+  if (toolResult.release_lease === true) {
+    const reason = toolResult.lease_release_reason === 'rest_started'
+      ? 'rest_started'
+      : toolResult.lease_release_reason === 'blocked_side_effect_after_visible_delivery'
+      ? 'blocked_side_effect_after_visible_delivery'
+      : 'visible_delivery_committed';
     return {
       inputItems: [],
-      finishResult: toolResult,
+      leaseRelease: buildLeaseReleaseRecord({
+        reason,
+        detail: typeof toolResult.reason === 'string' ? toolResult.reason : null,
+        outcome: typeof toolResult.outcome === 'string' ? toolResult.outcome : null,
+        noVisibleDelivery: reason === 'rest_started',
+        visibleDeliveryCommitted: context?.hasVisibleReply ?? false,
+        restStarted: reason === 'rest_started',
+        source: `tool:${toolCall.name}`,
+        toolResult
+      }),
       forcedVisibleReply: null
     };
   }
@@ -3854,7 +3846,7 @@ export function applyToolResultToLoopInput(
   if (toolCall.name === TOOL_NAMES.imageTask) {
     const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
     inputItems.push(buildAssistantCommentaryInputItem([
-      `<system_reminder>${statusText ? `[图片请求状态]\n${statusText}` : '图片请求已经提交。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把提交请求本身当成已经回复。</system_reminder>`
+      `<system_reminder>${statusText ? `[图片请求状态]\n${statusText}` : '图片请求已经提交。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把提交请求本身当成已经发言。</system_reminder>`
     ]));
   }
   if (toolCall.name === 'web_search') {
@@ -3869,7 +3861,7 @@ export function applyToolResultToLoopInput(
   }
   return {
     inputItems,
-    finishResult: null,
+    leaseRelease: null,
     forcedVisibleReply: null
   };
 }
@@ -4083,9 +4075,9 @@ export class AgentLoopService {
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
       eventType: 'decision',
-      eventName: 'agent_run',
+      eventName: 'execution_lease',
       eventPhase: 'start',
-      metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId }
+      metadata: { internal_execution_lease_id: queueMessage.id, batch_id: queueMessage.batchId }
     });
 
     let loopContinuation: OpenResponseInputItem[] = [];
@@ -4152,10 +4144,10 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
-      let finishResult: Record<string, unknown> | null = null;
-      let deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+      let leaseRelease: LeaseReleaseRecord | null = null;
+      let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
 
-      for (let turn = 1; !finishResult && turn <= agentConfig.maxTurns; turn += 1) {
+      for (let turn = 1; !leaseRelease && turn <= agentConfig.maxTurns; turn += 1) {
         turnsExecuted = turn;
         if (turn > 1) {
           budgetPlan = await this.buildContextBudgetPlan({
@@ -4200,7 +4192,7 @@ export class AgentLoopService {
         const hasToolCall = replayableOutputs.some((item) => item.type === 'tool_call');
 
         if (!hasToolCall) {
-          deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
           const pendingImageTaskState = deliveredMessages.length === 0
             ? extractLatestQueuedImageTaskState(requestInput)
             : null;
@@ -4220,6 +4212,10 @@ export class AgentLoopService {
             const forcedToolResult = await this.sendMessage(
               forcedToolName === TOOL_NAMES.privateReply ? 'private' : 'group',
               {
+                ...buildInternalExplicitSendTargetArgs(
+                  forcedToolName === TOOL_NAMES.privateReply ? 'private' : 'group',
+                  payload
+                ),
                 messages: [pendingImageTaskState.statusText],
                 ...(pendingImageTaskState.xiaoniOs ? { xiaoni_os: pendingImageTaskState.xiaoniOs } : {})
               },
@@ -4231,7 +4227,7 @@ export class AgentLoopService {
             if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
               persistedPendingShare = forcedToolResult.pending_share.trim();
             }
-            await this.store.markRunDeliveryCommitted(queueMessage.id);
+            await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
             await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, forcedToolName, forcedToolResult, true);
             await this.store.logTimelineEvent({
               traceId: payload.traceId,
@@ -4243,20 +4239,30 @@ export class AgentLoopService {
                 forced: true
               }
             });
-            deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+            deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
             const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
             if (deliveredFingerprint) {
               deliveredFingerprints.add(deliveredFingerprint);
             }
             deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
-            finishResult = forcedToolResult;
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'visible_delivery_committed',
+              detail: 'Image task acknowledgement was forced after the model stopped without a visible reply.',
+              outcome: 'forced_visible_delivery_committed',
+              noVisibleDelivery: false,
+              visibleDeliveryCommitted: true,
+              source: `tool:${forcedToolName}`,
+              toolResult: forcedToolResult
+            });
           } else if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
-            finishResult = {
-              finished: true,
-              outcome: 'reply_sent',
-              reason: 'Visible delivery already committed; model finished without another tool call.',
-              no_reply: false
-            };
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'visible_delivery_committed',
+              detail: 'Visible delivery was already committed; this bounded model slice stopped without another tool call.',
+              outcome: 'model_slice_settled_after_visible_delivery',
+              noVisibleDelivery: false,
+              visibleDeliveryCommitted: true,
+              source: 'model:no_tool_after_visible_delivery'
+            });
           } else {
             loopContinuation.push(buildAssistantCommentaryInputItem([
               formatTaggedBlock('system_reminder', {
@@ -4264,7 +4270,7 @@ export class AgentLoopService {
                 required_next: 'act_or_recover'
               }, [
                 '刚才没有调用任何工具，所以当前动作还没有完成。',
-                '如果当前要回复，就调用说话工具；如果需要外部信息，就调用 web_search / inspect_image_placeholder / request_image_task；如果精力状态显示该休息，就按自己的状态调用 recover_energy。',
+                '如果当前要发言，就调用说话工具；如果需要外部信息，就调用 web_search / inspect_image_placeholder / request_image_task；如果精力状态显示该休息，就按自己的状态调用 recover_energy。',
                 '不要用“没有工具调用”表达沉默或结束。'
               ].join('\n'))
             ]));
@@ -4292,13 +4298,15 @@ export class AgentLoopService {
           try {
             const duplicateOutbound = buildPostCommitSideEffectSuppression(toolCall, payload.chatType);
             if (duplicateOutbound) {
-              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
             }
             if (duplicateOutbound && deliveryState.deliveryPhase !== 'reasoning_open') {
               const duplicateSuppressed = Boolean(duplicateOutbound?.fingerprint && deliveredFingerprints.has(duplicateOutbound.fingerprint));
               const blockReason = 'Outbound delivery already committed earlier in this run.';
               const toolResult = {
-                finished: true,
+                release_lease: true,
+                lease_release_reason: 'blocked_side_effect_after_visible_delivery',
+                event_kind: 'blocked_side_effect',
                 blocked_transition: true,
                 duplicate_suppressed: duplicateSuppressed,
                 message_type: duplicateOutbound?.payload.messageType ?? null,
@@ -4307,10 +4315,10 @@ export class AgentLoopService {
                 blocked_reason: 'already_delivery_committed',
                 reason: blockReason,
                 outcome: 'blocked_transition',
-                no_reply: false
+                no_visible_delivery: false
               };
-              await this.store.markRunDeliveryBlocked(queueMessage.id, blockReason);
-              moduleLogger.warn('Blocked outbound tool call after delivery commit in agent run', {
+              await this.store.markLeaseDeliveryBlocked(queueMessage.id, blockReason);
+              moduleLogger.warn('Blocked outbound tool call after delivery commit in execution lease', {
                 traceId: payload.traceId,
                 runId: queueMessage.id,
                 agentTurn: turn,
@@ -4333,8 +4341,16 @@ export class AgentLoopService {
                   duplicate_suppressed: duplicateSuppressed
                 }
               });
-              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
-              finishResult = toolResult;
+              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
+              leaseRelease = buildLeaseReleaseRecord({
+                reason: 'blocked_side_effect_after_visible_delivery',
+                detail: blockReason,
+                outcome: 'blocked_transition',
+                noVisibleDelivery: false,
+                visibleDeliveryCommitted: deliveredMessages.length > 0,
+                source: `tool:${toolCall.name}`,
+                toolResult
+              });
               break;
             }
 
@@ -4420,7 +4436,7 @@ export class AgentLoopService {
             });
 
             if (extractSentMessages(toolResult).length > 0) {
-              await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
               await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, toolCall.name, toolResult);
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
@@ -4431,7 +4447,7 @@ export class AgentLoopService {
                   tool_name: toolCall.name
                 }
               });
-              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
               const deliveredFingerprint = buildOutboundFingerprintFromToolResult(toolResult);
               if (deliveredFingerprint) {
                 deliveredFingerprints.add(deliveredFingerprint);
@@ -4457,7 +4473,13 @@ export class AgentLoopService {
               });
               const forcedToolResult = await this.sendMessage(
                 continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                continuation.forcedVisibleReply.args,
+                {
+                  ...buildInternalExplicitSendTargetArgs(
+                    continuation.forcedVisibleReply.toolName === TOOL_NAMES.privateReply ? 'private' : 'group',
+                    payload
+                  ),
+                  ...continuation.forcedVisibleReply.args
+                },
                 payload
               );
               if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
@@ -4466,7 +4488,7 @@ export class AgentLoopService {
               if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
                 persistedPendingShare = forcedToolResult.pending_share.trim();
               }
-              await this.store.markRunDeliveryCommitted(queueMessage.id);
+              await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
               await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, continuation.forcedVisibleReply.toolName, forcedToolResult, true);
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
@@ -4478,17 +4500,25 @@ export class AgentLoopService {
                   forced: true
                 }
               });
-              deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
               const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
               if (deliveredFingerprint) {
                 deliveredFingerprints.add(deliveredFingerprint);
               }
               deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
-              finishResult = forcedToolResult;
+              leaseRelease = buildLeaseReleaseRecord({
+                reason: 'visible_delivery_committed',
+                detail: 'A visible reply was forced after a side-effecting tool produced work that still needed an acknowledgement.',
+                outcome: 'forced_visible_delivery_committed',
+                noVisibleDelivery: false,
+                visibleDeliveryCommitted: true,
+                source: `tool:${continuation.forcedVisibleReply.toolName}`,
+                toolResult: forcedToolResult
+              });
               break;
             }
-            if (continuation.finishResult) {
-              finishResult = continuation.finishResult;
+            if (continuation.leaseRelease) {
+              leaseRelease = continuation.leaseRelease;
               break;
             }
             if (continuation.inputItems.length > 0) {
@@ -4512,13 +4542,13 @@ export class AgentLoopService {
           }
         }
 
-        if (finishResult) {
+        if (leaseRelease) {
           await this.store.logTimelineEvent({
             traceId: payload.traceId,
             eventType: 'decision',
-            eventName: 'finish',
+            eventName: 'lease_released',
             eventPhase: null,
-            metadata: finishResult
+            metadata: leaseRelease
           });
           break;
         }
@@ -4542,17 +4572,26 @@ export class AgentLoopService {
         }
       }
 
-      if (!finishResult) {
-        throw new Error(`Agent exited without finish after ${turnsExecuted} turns`);
+      if (!leaseRelease) {
+        leaseRelease = buildLeaseReleaseRecord({
+          reason: 'max_model_slices_reached',
+          detail: `Internal execution lease reached ${turnsExecuted} model slices without a release event.`,
+          outcome: 'max_model_slices_reached',
+          noVisibleDelivery: deliveredMessages.length === 0,
+          visibleDeliveryCommitted: deliveredMessages.length > 0,
+          source: 'runtime:max_model_slices'
+        });
+        await this.store.logTimelineEvent({
+          traceId: payload.traceId,
+          eventType: 'decision',
+          eventName: 'lease_released',
+          eventPhase: null,
+          metadata: leaseRelease
+        });
       }
 
       const sentMessages = deliveredMessages.map((message) => message.content);
       const finalResponse = sentMessages.length > 0 ? sentMessages.join('\n\n') : null;
-      const termination = deriveTermination({
-        finishResult,
-        deliveredMessages,
-        errorMessage: null
-      });
       persistedXiaoniOs = appendPendingShareToXiaoniOs(persistedXiaoniOs, persistedPendingShare);
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
@@ -4565,7 +4604,7 @@ export class AgentLoopService {
           ...buildAssistantTranscriptItems({
             queueMessage: payload,
             deliveredMessages,
-            completed: true
+            leaseReleased: true
           }).map((item) => ({
             sessionKey: item.sessionKey,
             role: item.role,
@@ -4580,7 +4619,7 @@ export class AgentLoopService {
           }))
         ],
         responseTimeMs: Date.now() - startedAt,
-        status: 'completed',
+        status: 'settled',
         modelName: runtimePrompt?.modelName || null,
         traceId: payload.traceId,
         rawRequest: {
@@ -4620,11 +4659,10 @@ export class AgentLoopService {
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           responses_replay_items: extractResponseReplayInputItems(loopContinuation),
-          total_turns: turnsExecuted,
-          termination_reason: termination.terminationReason,
-          finish_reason: termination.finishReason,
-          finish_outcome: termination.finishOutcome,
-          no_reply: termination.noReply
+          model_request_slices: turnsExecuted,
+          lease_release: leaseRelease,
+          lease_release_reason: leaseRelease.reason,
+          no_visible_delivery: leaseRelease.no_visible_delivery
         }
       });
       if (evictedTurns.length > 0) {
@@ -4643,21 +4681,21 @@ export class AgentLoopService {
       });
 
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
-      await this.store.completeQueueMessage(queueMessage.id, {
+      await this.store.settleQueueMessages(queueMessage.id, {
         conversationId,
         result: {
-          no_reply: termination.noReply,
+          no_visible_delivery: leaseRelease.no_visible_delivery,
           sent_messages: sentMessages,
           xiaoni_os: persistedXiaoniOs,
           pending_share: persistedPendingShare,
           stored_feedback_reflection_ids: storedFeedbackReflectionIds,
-          total_turns: turnsExecuted,
-          finish_result: finishResult,
+          model_request_slices: turnsExecuted,
+          lease_release: leaseRelease,
           core_memory_compression: coreMemoryCompressionArtifact,
-          termination_reason: termination.terminationReason
+          lease_release_reason: leaseRelease.reason
         }
       });
-      const recoveredEnergy = Boolean(finishResult?.recovered);
+      const recoveredEnergy = leaseRelease.rest_started;
       const presenceOutcome = isPresenceTickPayload(payload)
         ? (sentMessages.length > 0 ? 'shared' : 'lurked')
         : (sentMessages.length > 0 ? 'replied' : 'silent');
@@ -4691,35 +4729,34 @@ export class AgentLoopService {
           });
         }
       }
-      await this.store.completeAgentRun(queueMessage.id, {
-        status: 'completed',
-        terminationReason: termination.terminationReason,
-        finishReason: termination.finishReason,
-        finishOutcome: termination.finishOutcome,
-        noReply: termination.noReply,
+      await this.store.releaseExecutionLease(queueMessage.id, {
+        status: 'settled',
+        leaseRelease,
+        noVisibleDelivery: leaseRelease.no_visible_delivery,
         finalResponse,
         sentMessages,
-        totalTurns: turnsExecuted,
+        modelRequestSlices: turnsExecuted,
         conversationId
       });
       await this.store.updateLlmJob(jobId, {
-        status: 'completed',
+        status: 'settled',
         finalResponse,
         totalTurns: turnsExecuted,
         conversationId
       });
       if (sentMessages.length === 0 && !recoveredEnergy) {
-        await this.recordSilenceDecisionLifeEvent(payload, queueMessage.id, presenceOutcome, termination, turnsExecuted, conversationId);
+        await this.recordNoVisibleDeliveryLifeEvent(payload, queueMessage.id, presenceOutcome, leaseRelease, turnsExecuted, conversationId);
       }
       await this.store.logTimelineEvent({
         traceId: payload.traceId,
         eventType: 'decision',
-        eventName: 'agent_run',
+        eventName: 'execution_lease',
         eventPhase: 'end',
         conversationId,
         metadata: {
           sent_count: sentMessages.length,
-          total_turns: turnsExecuted
+          model_request_slices: turnsExecuted,
+          lease_release_reason: leaseRelease.reason
         },
         durationMs: Date.now() - startedAt
       });
@@ -4735,11 +4772,13 @@ export class AgentLoopService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const sentMessages = deliveredMessages.map((item) => item.content);
-      const termination = deriveTermination({
-        finishResult: null,
-        deliveredMessages,
-        errorMessage: message,
-        error
+      const leaseRelease = buildLeaseReleaseRecord({
+        reason: error instanceof MissingAgentPromptBindingError ? 'prompt_binding_error' : 'runtime_error',
+        detail: message,
+        outcome: 'failed',
+        noVisibleDelivery: sentMessages.length === 0,
+        visibleDeliveryCommitted: sentMessages.length > 0,
+        source: 'runtime:error'
       });
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
@@ -4752,7 +4791,7 @@ export class AgentLoopService {
           ...buildAssistantTranscriptItems({
             queueMessage: payload,
             deliveredMessages,
-            completed: false
+            leaseReleased: true
           }).map((item) => ({
             sessionKey: item.sessionKey,
             role: item.role,
@@ -4800,9 +4839,10 @@ export class AgentLoopService {
           xiaoni_os: null,
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
           responses_replay_items: extractResponseReplayInputItems(loopContinuation),
-          total_turns: turnsExecuted,
-          termination_reason: termination.terminationReason,
-          no_reply: termination.noReply
+          model_request_slices: turnsExecuted,
+          lease_release: leaseRelease,
+          lease_release_reason: leaseRelease.reason,
+          no_visible_delivery: leaseRelease.no_visible_delivery
         }
       });
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
@@ -4824,13 +4864,13 @@ export class AgentLoopService {
           });
         }
       }
-      await this.store.completeAgentRun(queueMessage.id, {
+      await this.store.releaseExecutionLease(queueMessage.id, {
         status: 'failed',
-        terminationReason: termination.terminationReason,
-        noReply: termination.noReply,
+        leaseRelease,
+        noVisibleDelivery: leaseRelease.no_visible_delivery,
         finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null,
         sentMessages,
-        totalTurns: turnsExecuted,
+        modelRequestSlices: turnsExecuted,
         errorMessage: message,
         conversationId
       });
@@ -4844,13 +4884,13 @@ export class AgentLoopService {
       await this.store.logTimelineEvent({
         traceId: payload.traceId,
         eventType: 'decision',
-        eventName: 'agent_run',
+        eventName: 'execution_lease',
         eventPhase: 'end',
         conversationId,
         metadata: {
           error_message: message,
-          total_turns: turnsExecuted,
-          termination_reason: termination.terminationReason
+          model_request_slices: turnsExecuted,
+          lease_release_reason: leaseRelease.reason
         },
         durationMs: Date.now() - startedAt
       });
@@ -5005,7 +5045,7 @@ export class AgentLoopService {
         eventPhase: 'end',
         conversationId: params.conversationId,
         metadata: {
-          termination_reason: 'failed',
+          subagent_status: 'failed',
           parent_trace_id: params.queueMessage.traceId,
           error: error instanceof Error ? error.message : String(error)
         }
@@ -5197,7 +5237,7 @@ export class AgentLoopService {
       eventPhase: 'end',
       conversationId: params.conversationId,
       metadata: {
-        termination_reason: 'completed',
+        subagent_status: 'settled',
         observation_count: persistedObservations.length,
         assertion_count: assertions.length,
         reflection_count: reflectionCount
@@ -5292,7 +5332,7 @@ export class AgentLoopService {
         eventPhase: 'end',
         conversationId: params.conversationId,
         metadata: {
-          termination_reason: 'failed',
+          subagent_status: 'failed',
           parent_trace_id: params.queueMessage.traceId,
           error: error instanceof Error ? error.message : String(error)
         }
@@ -5324,7 +5364,7 @@ export class AgentLoopService {
       eventPhase: 'end',
       conversationId: params.conversationId,
       metadata: {
-        termination_reason: 'disabled_feedback_episode_tool_removed',
+        subagent_status: 'disabled_feedback_episode_tool_removed',
         parent_trace_id: params.queueMessage.traceId,
         parent_run_id: params.queueMessage.runId
       }
@@ -5546,7 +5586,7 @@ export class AgentLoopService {
           }
         });
         return {
-          finished: true,
+          writer_settled: true,
           learning_state_id: storedState.id,
           learning_key: deps.activeLearningKey,
           learning_scope: deps.activeLearningScope,
@@ -5804,10 +5844,8 @@ export class AgentLoopService {
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
       case TOOL_NAMES.privateReply:
-      case 'send_private_message':
         return this.sendMessage('private', toolCall.args, queueMessage);
       case TOOL_NAMES.groupReply:
-      case 'send_group_message':
         return this.sendMessage('group', toolCall.args, queueMessage);
       case TOOL_NAMES.unreadMeaning: {
         const meaning = parseUnreadMeaning(toolCall.args);
@@ -5838,7 +5876,9 @@ export class AgentLoopService {
       case TOOL_NAMES.recoverEnergy: {
         const durationMinutes = normalizeRecoverEnergyDurationMinutes(toolCall.args.duration_minutes ?? toolCall.args.durationMinutes);
         return {
-          finished: true,
+          release_lease: true,
+          lease_release_reason: 'rest_started',
+          event_kind: 'rest_started',
           recovered: true,
           reason: typeof toolCall.args.reason === 'string' ? toolCall.args.reason : null,
           duration_minutes: durationMinutes,
@@ -6116,7 +6156,7 @@ export class AgentLoopService {
         image_url: imageUrl,
         reason: typeof args.reason === 'string' && args.reason.trim()
           ? args.reason.trim()
-          : '小腻需要看清这个图片占位符才能继续回复。'
+          : '小腻需要看清这个图片占位符才能继续发言。'
       })
     });
     const payload = await response.json() as { success?: boolean; error?: string; data?: { description?: string; model?: string } };
@@ -6276,10 +6316,30 @@ export class AgentLoopService {
       : null;
 
     if (messageType === 'private') {
-      const userId = resolvePrivateTargetUserId(queueMessage, sanitizedArgs);
       const messages = normalizeMessages(sanitizedArgs);
-      if (!Number.isFinite(userId) || messages.length === 0) {
-        throw new Error(`${TOOL_NAMES.privateReply} requires a valid private target plus message or messages`);
+      let userId: number | null = null;
+      try {
+        userId = resolveOptionalToolTargetId(sanitizedArgs, 'user_id', 'target_user_id');
+      } catch (error) {
+        return buildRetryableSendToolError('private', TOOL_NAMES.privateReply, sanitizedArgs, {
+          errorCode: 'invalid_user_id',
+          message: error instanceof Error ? error.message : String(error),
+          requiredArguments: ['user_id']
+        });
+      }
+      if (userId === null) {
+        return buildRetryableSendToolError('private', TOOL_NAMES.privateReply, sanitizedArgs, {
+          errorCode: 'missing_user_id',
+          message: `${TOOL_NAMES.privateReply} requires explicit user_id.`,
+          requiredArguments: ['user_id']
+        });
+      }
+      if (messages.length === 0) {
+        return buildRetryableSendToolError('private', TOOL_NAMES.privateReply, sanitizedArgs, {
+          errorCode: 'missing_message',
+          message: `${TOOL_NAMES.privateReply} requires message or messages.`,
+          requiredArguments: ['message or messages']
+        });
       }
 
       const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/send_private`, {
@@ -6307,15 +6367,35 @@ export class AgentLoopService {
       };
     }
 
-    const groupId = resolveGroupTargetId(queueMessage, sanitizedArgs);
     const normalizedMessages = normalizeMessages(sanitizedArgs);
+    let groupId: number | null = null;
+    try {
+      groupId = resolveOptionalToolTargetId(sanitizedArgs, 'group_id', 'target_group_id');
+    } catch (error) {
+      return buildRetryableSendToolError('group', TOOL_NAMES.groupReply, sanitizedArgs, {
+        errorCode: 'invalid_group_id',
+        message: error instanceof Error ? error.message : String(error),
+        requiredArguments: ['group_id']
+      });
+    }
+    if (groupId === null) {
+      return buildRetryableSendToolError('group', TOOL_NAMES.groupReply, sanitizedArgs, {
+        errorCode: 'missing_group_id',
+        message: `${TOOL_NAMES.groupReply} requires explicit group_id.`,
+        requiredArguments: ['group_id']
+      });
+    }
     const plannedDelivery = {
       messages: normalizedMessages,
       mentionUserIds: normalizeOptionalIntegerList(sanitizedArgs.mention_user_ids),
       secondBeatSuppressed: false
     };
-    if (!Number.isFinite(groupId) || plannedDelivery.messages.length === 0) {
-      throw new Error(`${TOOL_NAMES.groupReply} requires a valid group target plus message or messages`);
+    if (plannedDelivery.messages.length === 0) {
+      return buildRetryableSendToolError('group', TOOL_NAMES.groupReply, sanitizedArgs, {
+        errorCode: 'missing_message',
+        message: `${TOOL_NAMES.groupReply} requires message or messages.`,
+        requiredArguments: ['message or messages']
+      });
     }
 
     let selectedMessages = plannedDelivery.messages;
@@ -6327,7 +6407,7 @@ export class AgentLoopService {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        session_key: queueMessage.sessionKey,
+        session_key: `qq:group:${groupId}`,
         group_id: groupId,
         messages: selectedMessages,
         mention_user_ids: selectedMentionUserIds
@@ -6337,7 +6417,22 @@ export class AgentLoopService {
     if (!response.ok || payload.success === false) {
       throw new Error(payload.error || `${TOOL_NAMES.groupReply} failed with ${response.status}`);
     }
-    await this.recordPresenceAssistantAction(queueMessage);
+    const currentGroupId = queueMessage.chatType === 'group'
+      ? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId)
+      : null;
+    const presenceQueueMessage = queueMessage.chatType === 'group'
+      && typeof currentGroupId === 'number'
+      && Number.isFinite(currentGroupId)
+      && Math.trunc(currentGroupId) === groupId
+      ? queueMessage
+      : {
+          ...queueMessage,
+          chatType: 'group' as const,
+          sessionKey: `qq:group:${groupId}`,
+          peerId: String(groupId),
+          peerName: undefined
+        };
+    await this.recordPresenceAssistantAction(presenceQueueMessage);
     return {
       message_type: 'group',
       target_group_id: groupId,
@@ -6394,22 +6489,17 @@ export class AgentLoopService {
     });
   }
 
-  private async recordSilenceDecisionLifeEvent(
+  private async recordNoVisibleDeliveryLifeEvent(
     queueMessage: QueueMessageRecord['payload'],
     runId: string,
     outcome: string,
-    termination: {
-      terminationReason: string;
-      finishReason: string | null;
-      finishOutcome: string | null;
-      noReply: boolean;
-    },
-    totalTurns: number,
+    leaseRelease: LeaseReleaseRecord,
+    modelRequestSlices: number,
     conversationId: number | null
   ) {
     const recorder = (this.store as RuntimeStore & {
-      recordSilenceDecisionLifeEvent?: RuntimeStore['recordSilenceDecisionLifeEvent'];
-    }).recordSilenceDecisionLifeEvent;
+      recordNoVisibleDeliveryLifeEvent?: RuntimeStore['recordNoVisibleDeliveryLifeEvent'];
+    }).recordNoVisibleDeliveryLifeEvent;
     if (typeof recorder !== 'function') {
       return;
     }
@@ -6419,11 +6509,16 @@ export class AgentLoopService {
       traceId: queueMessage.traceId,
       outcome,
       presenceOutcome: outcome,
-      termination,
-      totalTurns,
+      leaseRelease: {
+        reason: leaseRelease.reason,
+        detail: leaseRelease.detail,
+        outcome: leaseRelease.outcome,
+        noVisibleDelivery: leaseRelease.no_visible_delivery
+      },
+      modelRequestSlices,
       conversationId
     }).catch((error) => {
-      moduleLogger.warn('Failed to record silence decision life event', {
+      moduleLogger.warn('Failed to record no-visible-delivery life event', {
         traceId: queueMessage.traceId,
         runId,
         outcome,
@@ -7039,9 +7134,16 @@ function buildTurnOs(turn: ConversationTurn) {
   const rawXiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
     ? String((rawResponse as Record<string, unknown>).xiaoni_os)
     : '';
-  const finishReason = typeof (rawResponse as Record<string, unknown>).finish_reason === 'string'
-    ? String((rawResponse as Record<string, unknown>).finish_reason).trim()
+  const leaseRelease = (rawResponse as Record<string, unknown>).lease_release;
+  const leaseReleaseObject = leaseRelease && typeof leaseRelease === 'object'
+    ? leaseRelease as Record<string, unknown>
+    : {};
+  const leaseDetail = typeof leaseReleaseObject.detail === 'string'
+    ? leaseReleaseObject.detail.trim()
     : '';
+  const leaseReason = typeof (rawResponse as Record<string, unknown>).lease_release_reason === 'string'
+    ? String((rawResponse as Record<string, unknown>).lease_release_reason).trim()
+    : (typeof leaseReleaseObject.reason === 'string' ? leaseReleaseObject.reason.trim() : '');
   const sentMessages = Array.isArray((rawResponse as Record<string, unknown>).sent_messages)
     ? ((rawResponse as Record<string, unknown>).sent_messages as unknown[])
         .map((item) => typeof item === 'string' ? item.trim() : '')
@@ -7061,10 +7163,10 @@ function buildTurnOs(turn: ConversationTurn) {
     ].join('\n');
   }
 
-  if (finishReason && !turn.aiResponse && sentMessages.length === 0) {
+  if ((leaseDetail || leaseReason) && !turn.aiResponse && sentMessages.length === 0) {
     return [
       '<xiaoni_os>',
-      `刚才我没有接。${finishReason}`,
+      `刚才我没有可见发言。${leaseDetail || leaseReason}`,
       '</xiaoni_os>'
     ].join('\n');
   }
@@ -7325,51 +7427,6 @@ function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
     .join('\n');
 }
 
-function deriveTermination(params: {
-  finishResult: Record<string, unknown> | null;
-  deliveredMessages: DeliveredAssistantMessage[];
-  errorMessage: string | null;
-  error?: unknown;
-}) {
-  const finishReason = typeof params.finishResult?.reason === 'string' ? params.finishResult.reason : null;
-  const finishOutcome = typeof params.finishResult?.outcome === 'string' ? params.finishResult.outcome : null;
-  const noReply = params.deliveredMessages.length === 0;
-
-  if (params.errorMessage) {
-    if (params.error instanceof MissingAgentPromptBindingError) {
-      return {
-        terminationReason: 'prompt_binding_error',
-        finishReason,
-        finishOutcome,
-        noReply: true
-      };
-    }
-
-    return {
-      terminationReason: params.deliveredMessages.length > 0 ? 'delivery_error' : 'agent_runtime_error',
-      finishReason,
-      finishOutcome,
-      noReply
-    };
-  }
-
-  if (noReply) {
-    return {
-      terminationReason: 'finish_no_reply',
-      finishReason,
-      finishOutcome,
-      noReply: true
-    };
-  }
-
-  return {
-    terminationReason: 'reply_sent',
-    finishReason,
-    finishOutcome,
-    noReply: false
-  };
-}
-
 function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     if (!(key in args)) {
@@ -7395,6 +7452,9 @@ function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload'],
 
 function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
   const explicitGroupId = resolveOptionalToolTargetId(args, 'group_id', 'target_group_id');
+  if (explicitGroupId === null && queueMessage.chatType !== 'group') {
+    throw new Error('Cannot derive a default group target from a non-group queue payload');
+  }
   const groupId = explicitGroupId ?? Number(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId);
   if (!Number.isFinite(groupId)) {
     throw new Error(
@@ -7402,6 +7462,44 @@ function resolveGroupTargetId(queueMessage: QueueMessageRecord['payload'], args:
     );
   }
   return groupId;
+}
+
+function buildRetryableSendToolError(
+  messageType: 'private' | 'group',
+  toolName: string,
+  args: Record<string, unknown>,
+  error: {
+    errorCode: string;
+    message: string;
+    requiredArguments: string[];
+  }
+) {
+  const xiaoniOs = typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim()
+    ? args.xiaoni_os.trim()
+    : null;
+  const pendingShare = typeof args.pending_share === 'string' && args.pending_share.trim()
+    ? args.pending_share.trim()
+    : null;
+
+  return {
+    tool_error: true,
+    retryable: true,
+    tool_name: toolName,
+    message_type: messageType,
+    error_code: error.errorCode,
+    error_message: error.message,
+    required_arguments: error.requiredArguments,
+    received_arguments: Object.keys(args),
+    sent_messages: [],
+    xiaoni_os: xiaoniOs,
+    pending_share: pendingShare
+  };
+}
+
+function buildInternalExplicitSendTargetArgs(messageType: 'private' | 'group', queueMessage: QueueMessageRecord['payload']) {
+  return messageType === 'private'
+    ? { user_id: resolvePrivateTargetUserId(queueMessage) }
+    : { group_id: resolveGroupTargetId(queueMessage) };
 }
 
 function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {

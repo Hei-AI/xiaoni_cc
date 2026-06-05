@@ -24,8 +24,8 @@ flowchart TB
     Provider["provider-service<br/>:8090 in container / 127.0.0.1:8091<br/>NapCat webhook, inbox, policy, queue gate,<br/>provider execute, media, image, embedding, outbound"]
     Agent["agent-service<br/>:8092<br/>main loop, queue worker, task worker,<br/>qq-usage API"]
     Executor["xiaoni-executor<br/>127.0.0.1:8093 / internal :8093<br/>exec_command host, session poll/kill,<br/>audit log, git archive"]
-    AdminBE["admin-backend<br/>:9080<br/>runs, conversations, queue, activity,<br/>traffic, playground, image lab, runtime APIs"]
-    AdminFE["admin-frontend<br/>nginx :3003 / 3904<br/>default page: /xiaoni-activity"]
+    AdminBE["admin-backend<br/>:9080<br/>action-stream, conversations, queue,<br/>traffic, playground, image lab, runtime APIs"]
+    AdminFE["admin-frontend<br/>nginx :3003 / 3904<br/>default page: /xiaoni-action-stream"]
     Expose["admin-expose-proxy<br/>Caddy :3903<br/>Cloudflare tunnel / Basic auth"]
     Embed["embedding-server<br/>:8080 internal<br/>embeddinggemma"]
     PG[("PostgreSQL 16<br/>qqbot_db")]
@@ -42,8 +42,8 @@ flowchart TB
     Workspace[("workspace checkout<br/>/workspace/qq_bot<br/>/app compatibility symlink")]
     Settings[("group_chat_settings<br/>private_chat_settings")]
     Inbox[("agent_inbound_messages<br/>durable IM inbox, unread/read cursor")]
-    Queue[("agent_queue_messages<br/>pending / processing / completed")]
-    Runs[("agent_runs<br/>trace / retry / delivery boundary")]
+    Queue[("agent_queue_messages<br/>pending / processing / settled<br/>internal queue lifecycle")]
+    Runs[("agent_runs<br/>internal execution lease<br/>trace / retry / delivery join key")]
     Tools[("tool_execution_logs<br/>tool calls and results")]
     LlmLogs[("llm_call_logs<br/>canonical / wire request-response")]
     Conv[("conversation_items<br/>INPUT / OUTPUT / ACTION / xiaoni_os replay")]
@@ -91,13 +91,13 @@ flowchart TB
   Provider -->|"trace spans / traffic fallback"| Traffic
 
   Agent -->|"tool log start/end"| Tools
-  Agent -->|"create/update run state"| Runs
+  Agent -->|"claim/release internal execution lease"| Runs
   Agent -->|"append transcript / rawRequest / rawResponse"| Conv
   Agent -->|"append surface_visit / qq_message_seen / speak / silence / compatible sleep_period"| Life
   Agent -->|"refresh deterministic projection"| LifeState
   Agent -->|"record presence context snapshot"| Sidecar
 
-  Agent -->|"speak_in_group / reply_in_private"| Provider
+  Agent -->|"send_in_group / send_in_private"| Provider
   Provider -->|"/api/internal/send_group<br/>/api/internal/send_private"| NapCat
   NapCat --> QQ
 
@@ -119,7 +119,7 @@ flowchart TB
   Agent -->|"qq-usage reads thread list/window<br/>and marks read"| Inbox
   Agent -->|"POST /api/internal/qq-usage"| Agent
 
-  Agent -->|"evicted turns after compaction threshold"| Memory
+  Agent -->|"evicted replay entries after compaction threshold"| Memory
   Agent -->|"core_memory_pressure<br/>tool_choice=compress_core_memory"| Agent
   Agent -->|"compress_core_memory text"| Context
   Agent -->|"identity activation / candidates"| Identity
@@ -165,7 +165,7 @@ flowchart TD
   LifeCtx --> Input
   OpenIM --> Input
 
-  Input --> Prompt["system: xiaoni-main-agent<br/>runtime contract<br/>action closure tool contract"]
+  Input --> Prompt["system: xiaoni-main-agent<br/>runtime contract<br/>tool continuation guard"]
   Input --> Replay["replay INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os"]
   Input --> State["developer: world narrative + skills + &lt;CAPABILITIES&gt;<br/>assistant commentary: event &lt;STATE&gt;<br/>user/assistant context: &lt;UNREAD_AVAILABLE&gt;, replay"]
   Prompt --> Request["provider-service /api/internal/agent/execute"]
@@ -174,21 +174,21 @@ flowchart TD
 
   Request --> Decision["allowed_tools mode=auto"]
   Decision --> Action{"direct tool call"}
-  Action -->|"speak_in_group / reply_in_private"| Send["send QQ via provider -> NapCat"]
+  Action -->|"send_in_group / send_in_private"| Send["send QQ via provider -> NapCat"]
   Action -->|"web_search"| Search["search result replay"]
   Action -->|"inspect_image_placeholder / request_image_task"| Img["image observation or task"]
   Action -->|"exec_command"| Exec["xiaoni-executor<br/>local tool / skill script"]
   Action -->|"recover_energy"| Rest["record compatible sleep_period<br/>refresh projection"]
   Action -->|"compress_core_memory"| Compress["write session-window summary"]
-  Action -->|"no tool before action complete"| Continue["append no-tool reminder"]
+  Action -->|"model output without action tool"| Continue["append no-tool reminder"]
   Search --> Request
   Img --> Request
   Exec --> Request
   Compress --> Request
   Continue --> Request
-  Send --> Finish["create conversation, complete run, complete queue"]
-  Rest --> Finish
-  Finish --> Learn["async memory writers and context summary if evicted turns exist"]
+  Send --> Release["record visible delivery<br/>release internal lease<br/>settle queue row"]
+  Rest --> Release
+  Release --> Learn["async memory writers and context summary if evicted replay entries exist"]
 ```
 
 ## 数据状态图
@@ -215,7 +215,7 @@ flowchart LR
 
 ## 排障入口
 
-- 不回复：先看 `agent_queue_messages`，再看 `agent_runs`，最后看是否调用了 `recover_energy`、是否已完成可见 delivery，或是否仍在 no-tool continuation。
+- 不发言：先看 `agent_queue_messages`，再看 `agent_runs` 这层内部 execution lease，最后看是否调用了 `recover_energy`、是否已有 `visible_delivery_committed` 事件，或是否仍在 no-tool continuation。
 - 上下文断裂：看 `conversation_items`、`raw_response.xiaoni_os`、`agent_session_context_windows.context_summary`。
 - 主动 presence 行为：看 `presence_tick` / `proactive_im_open` queue row、`agent_life_events`、`agent_session_life_states`、`raw_response.xiaoni_os`。
 - QQ 未读导航：看 `agent_inbound_messages` 和 `$qq-usage` 输出。

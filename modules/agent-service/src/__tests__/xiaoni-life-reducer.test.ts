@@ -49,7 +49,7 @@ test('reduceXiaoniLifeState is deterministic by occurred_at then id', () => {
   const events = [
     event({
       id: '2',
-      eventKind: 'speak_in_group',
+      eventKind: 'send_in_group',
       occurredAt: '2026-05-31T09:00:00.000Z',
       actionCost: 0.2
     }),
@@ -81,9 +81,9 @@ test('reduceXiaoniLifeState does not treat silence as boredom reset', () => {
     events: [
       event({
         id: '3',
-        eventKind: 'silence_decision',
+        eventKind: 'no_visible_delivery_observed',
         occurredAt: '2026-05-31T11:55:00.000Z',
-        payload: { reason: 'finish_no_reply' }
+        payload: { lease_release: { reason: 'rest_started' } }
       })
     ]
   });
@@ -100,7 +100,7 @@ test('action cost directly drives fatigue and rest or sleep restores it', () => 
     events: [
       event({
         id: '4',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T09:00:00.000Z',
         actionCost: 0.8
       })
@@ -111,7 +111,7 @@ test('action cost directly drives fatigue and rest or sleep restores it', () => 
     events: [
       event({
         id: '4',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T09:00:00.000Z',
         actionCost: 0.8
       }),
@@ -127,7 +127,7 @@ test('action cost directly drives fatigue and rest or sleep restores it', () => 
     events: [
       event({
         id: '4',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T09:00:00.000Z',
         actionCost: 0.8
       }),
@@ -152,7 +152,7 @@ test('default speech accounting does not exhaust all energy for one group reply'
     events: [
       event({
         id: 'speech-1',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T11:00:00.000Z'
       }),
       event({
@@ -216,7 +216,7 @@ test('projection can resume from previous reduced state', () => {
     events: [
       event({
         id: '8',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T11:30:00.000Z',
         actionCost: 0.1
       })
@@ -225,5 +225,5 @@ test('projection can resume from previous reduced state', () => {
 
   assert.equal(second.projection.reducedThroughEventId, '8');
   assert.equal(second.projection.counters.eventCount, 2);
-  assert.ok(second.explanation.contributors.some((entry) => entry.eventKind === 'speak_in_group'));
+  assert.ok(second.explanation.contributors.some((entry) => entry.eventKind === 'send_in_group'));
 });

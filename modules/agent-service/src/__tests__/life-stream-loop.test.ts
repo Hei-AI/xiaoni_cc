@@ -15,7 +15,7 @@ function allowedToolNames(request: ReturnType<typeof buildCanonicalAgentTurnRequ
     : [];
 }
 
-test('life-only presence tick stays inside the agent loop and cannot send QQ messages', () => {
+test('life-only presence tick uses fixed main-loop tools without the removed life action tool', () => {
   const request = buildCanonicalAgentTurnRequest('gpt-5.4-mini', [
     {
       type: 'message',
@@ -34,9 +34,13 @@ test('life-only presence tick stays inside the agent loop and cannot send QQ mes
   assert.equal(names.includes(REMOVED_LIFE_ACTION_TOOL), false);
   assert.ok(names.includes('web_search'));
   assert.ok(names.includes('recover_energy'));
-  assert.equal(names.includes('reply_in_private'), false);
-  assert.equal(names.includes('speak_in_group'), false);
+  assert.ok(names.includes('send_in_private'));
+  assert.ok(names.includes('send_in_group'));
+  assert.ok(names.includes('inspect_image_placeholder'));
+  assert.ok(names.includes('request_image_task'));
   assert.equal(allowedToolNames(request).includes(REMOVED_LIFE_ACTION_TOOL), false);
+  assert.ok(allowedToolNames(request).includes('send_in_private'));
+  assert.ok(allowedToolNames(request).includes('send_in_group'));
   assert.equal((request.tool_choice as any)?.mode, 'auto');
   assert.notEqual(request.tool_choice, 'required');
 });

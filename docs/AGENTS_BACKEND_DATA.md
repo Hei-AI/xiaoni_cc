@@ -20,8 +20,8 @@
   - `./scripts/self-verification.sh`
 
 ## Current Focus
-- 当前管理端后端以 run-centric 视角为准：优先看 `run-routes`、chat settings、playground、traffic replay、runtime status`
-- `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；不要再把重复回复问题只当成 prompt 文案问题排查。
+- 当前管理端后端以 Xiaoni action stream 视角为准：优先看 `/api/xiaoni/action-stream`、chat settings、playground、traffic replay、runtime status；`run-routes` 只作为高级 trace 兼容入口。
+- `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；它是内部执行 lease / trace join key，不是小腻产品运行态。不要再把重复回复问题只当成 prompt 文案问题排查。
 - 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。
 - Trace span builder 现在有两层 provider 请求证据：优先挂接 MITM / traffic log 命中的真实 provider request；如果没有命中但 `llm_call_logs` 里有 `wire_request` / `wire_response`，会合成 `provider-request:wire:<llm_call_id>` span。
 - 合成 provider span 的 detail 可以再从 `CLIPROXY_REQUEST_LOG_DIR` 指向的 CLIProxyAPI 请求日志补全真实上游 request / response；日志匹配只信 `x-llm-call-id` header，敏感 header 会脱敏。
@@ -30,18 +30,18 @@
 
 - Xiaoni 的新长期记忆表是 `agent_memory_observations`、`agent_memory_assertions`、`agent_memory_reflections`。
 - 写入入口在 `packages/persistence/agent-memory.js`，服务侧只通过 `RuntimeStore.createAgentMemoryObservation` / `createAgentMemoryAssertion` / `createAgentMemoryReflection` 调用。
-- 这些表由 `context_compression_memory_writer` 在旧 turn 移出窗口时异步写入；不要在路由、临时脚本或主聊天工具里绕过 persistence 直接写表。
+- 这些表由 `context_compression_memory_writer` 在旧 replay 条目移出窗口时异步写入；不要在路由、临时脚本或主聊天工具里绕过 persistence 直接写表。
 - 旧 `agent_feedback_reflections` / `agent_feedback_learning_states` 仍在 schema 中用于历史兼容和旧评测，但不是新三层长期记忆的主写入路径。
 
 ## Xiaoni Continuity Data Map
 
 - `<小腻近况>` 当前仍在 `agent_session_context_windows.context_summary`，由压力触发的 `compress_core_memory(text)` 写入；普通请求可定义该工具，但只有压力请求的 `allowed_tools` 允许调用。
-- `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；普通群/私聊 run 用当前 `session_key`，life-only / presence-originated run 用 `xiaoni:global`。
+- `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。
 - `agent_life_events` 是 homeostasis / presence projection 的事件真相源；当前不要把它误读成 `<小腻近况>` 或三层长期记忆的唯一 runtime recall 源。
 - `listAgentLifeEventsForPrompt()` 已存在，但返回的是 life-event rows，不是 prompt-safe memory digest。把它接进主 prompt 前必须先明确 visibility / redaction / boundary policy。
 - 三层长期记忆表已经写入数据，但 typed recall projection 仍是后续工作；当前主 loop 不会自动按问题类型召回这些 rows。
 
-## Agent Runtime Contracts
+## Runtime Contracts
 - loop agent 在同一 workflow 内必须保持同一份 instructions 和同一份 tools 定义；不要为了表达“当前阶段做什么”动态改 prompt 或改 tools 列表。
 - 分阶段约束用 Provider 的 `tool_choice.allowed_tools` 或业务侧状态机表达；这可以缩小当前可调用工具集合，同时不改变 tools 定义本身。
 - 长期学习、RAG 召回、工具结果和当前状态都属于 input / tool result 数据；不要动态拼进 system prompt，也不要破坏 prompt cache 前缀。

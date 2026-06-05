@@ -84,11 +84,11 @@ export const AB_EVAL_FIXTURES: readonly AbEvalFixture[] = Object.freeze([
       messages: ['A: 继续刚才的话题', 'B: @小腻 你看这句是在问你吗？']
     },
     expectedLabel: 'mini_better',
-    expectedTreatmentActionKind: 'speak_in_group_candidate',
+    expectedTreatmentActionKind: 'send_in_group_candidate',
     dimensions: dims([0.9, 0.7, 0.8, 0.9, 0.6, 1], 'Treatment should attend to direct address without over-answering.'),
     isolationCheck: isolation({ fixtureClass: 'attention' }),
     controlArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'missed addressee', confidence: 0.35, silenceReason: 'unclear target' } },
-    treatmentArtifact: { finalCandidateAction: { kind: 'speak_in_group_candidate', rationale: 'directly addressed', confidence: 0.82, text: '我觉得是在问我，这句可以接。' } },
+    treatmentArtifact: { finalCandidateAction: { kind: 'send_in_group_candidate', rationale: 'directly addressed', confidence: 0.82, text: '我觉得是在问我，这句可以接。' } },
     notes: 'Covers attention rather than long memory.'
   },
   {
@@ -123,7 +123,7 @@ export const AB_EVAL_FIXTURES: readonly AbEvalFixture[] = Object.freeze([
     expectedTreatmentActionKind: 'silent_candidate',
     dimensions: dims([0.82, 0.75, 0.95, 0.92, 0.7, 1], 'Treatment should score silence as the socially natural action.'),
     isolationCheck: isolation({ fixtureClass: 'silence' }),
-    controlArtifact: { finalCandidateAction: { kind: 'speak_in_group_candidate', rationale: 'fills silence', confidence: 0.4, text: '哈哈确实。' } },
+    controlArtifact: { finalCandidateAction: { kind: 'send_in_group_candidate', rationale: 'fills silence', confidence: 0.4, text: '哈哈确实。' } },
     treatmentArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'not addressed and thread is already flowing', confidence: 0.9, silenceReason: 'avoid interruption' } },
     notes: 'Represents correct silence, not failure.'
   },

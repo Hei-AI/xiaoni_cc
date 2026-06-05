@@ -11,14 +11,18 @@ interface StructuredDataViewerProps {
   className?: string;
   heightClassName?: string;
   notice?: React.ReactNode;
+  rawText?: boolean;
 }
 
-function formatStructuredData(value: unknown): string {
+function formatStructuredData(value: unknown, rawText = false): string {
   if (value === null || value === undefined) {
     return '';
   }
 
   if (typeof value === 'string') {
+    if (rawText) {
+      return value;
+    }
     try {
       return JSON.stringify(JSON.parse(value), null, 2);
     } catch {
@@ -40,9 +44,10 @@ export function StructuredDataViewer({
   className,
   heightClassName = 'h-[30rem]',
   notice,
+  rawText = false,
 }: StructuredDataViewerProps) {
   const [copied, setCopied] = React.useState(false);
-  const formattedValue = React.useMemo(() => formatStructuredData(value), [value]);
+  const formattedValue = React.useMemo(() => formatStructuredData(value, rawText), [rawText, value]);
   const hasContent = formattedValue.trim().length > 0;
 
   React.useEffect(() => {

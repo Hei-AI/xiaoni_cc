@@ -364,17 +364,17 @@ type StructuredReplayLlmCallRow = {
   started_at: string | Date | null;
 };
 
-export type AgentRunDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'finished';
+export type ExecutionLeaseDeliveryPhase = 'reasoning_open' | 'delivery_committed' | 'lease_released';
 
-type AgentRunDeliveryStateRow = {
+type ExecutionLeaseDeliveryStateRow = {
   delivery_phase: string | null;
   delivery_commit_count: number | string | null;
   blocked_delivery_attempt_count: number | string | null;
   last_blocked_delivery_reason: string | null;
 };
 
-export type AgentRunDeliveryState = {
-  deliveryPhase: AgentRunDeliveryPhase;
+export type ExecutionLeaseDeliveryState = {
+  deliveryPhase: ExecutionLeaseDeliveryPhase;
   deliveryCommitCount: number;
   blockedDeliveryAttemptCount: number;
   lastBlockedDeliveryReason: string | null;
@@ -1122,14 +1122,17 @@ function parseJson<T>(value: unknown, fallback: T): T {
   }
 }
 
-function normalizeDeliveryPhase(value: unknown): AgentRunDeliveryPhase {
-  if (value === 'delivery_committed' || value === 'finished') {
+function normalizeDeliveryPhase(value: unknown): ExecutionLeaseDeliveryPhase {
+  if (value === 'delivery_committed' || value === 'lease_released') {
     return value;
+  }
+  if (value === 'finished') {
+    return 'lease_released';
   }
   return 'reasoning_open';
 }
 
-function mapAgentRunDeliveryState(row?: Partial<AgentRunDeliveryStateRow> | null): AgentRunDeliveryState {
+function mapExecutionLeaseDeliveryState(row?: Partial<ExecutionLeaseDeliveryStateRow> | null): ExecutionLeaseDeliveryState {
   return {
     deliveryPhase: normalizeDeliveryPhase(row?.delivery_phase),
     deliveryCommitCount: Number(row?.delivery_commit_count || 0),
@@ -1714,24 +1717,46 @@ export class RuntimeStore {
       return;
     }
     const replyActionCost = visibleReplyActionCost(messages.length);
+    const actualChatType = input.toolResult.message_type === 'group'
+      ? 'group'
+      : input.toolResult.message_type === 'private'
+      ? 'direct'
+      : queueMessage.chatType === 'group'
+      ? 'group'
+      : 'direct';
+    const targetGroupId = Number(input.toolResult.target_group_id);
+    const targetUserId = Number(input.toolResult.target_user_id);
+    const deliverySessionKey = actualChatType === 'group'
+      ? queueMessage.chatType === 'group' && queueMessage.sessionKey
+        ? queueMessage.sessionKey
+        : `qq:group:${Math.trunc(targetGroupId)}`
+      : queueMessage.chatType === 'direct' && queueMessage.sessionKey
+      ? queueMessage.sessionKey
+      : `qq:direct:${queueMessage.accountId}:${Math.trunc(targetUserId)}`;
+    const deliveryPeerId = actualChatType === 'group' && Number.isFinite(targetGroupId)
+      ? String(Math.trunc(targetGroupId))
+      : actualChatType === 'direct' && Number.isFinite(targetUserId)
+      ? String(Math.trunc(targetUserId))
+      : queueMessage.peerId;
+    const deliveryVisibility = actualChatType === 'direct' ? 'private_surface' : 'active_surface';
 
-    if (queueMessage.chatType === 'group') {
+    if (actualChatType === 'group') {
       await this.recordLifeEventSafe({
         identityKey: 'xiaoni',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: now,
         surface: 'qq',
-        chatType: queueMessage.chatType,
-        sessionKey: queueMessage.sessionKey,
-        surfaceId: queueMessage.sessionKey,
-        peerId: queueMessage.peerId,
+        chatType: actualChatType,
+        sessionKey: deliverySessionKey,
+        surfaceId: deliverySessionKey,
+        peerId: deliveryPeerId,
         accountId: queueMessage.accountId,
         batchId: queueMessage.batchId,
         runId,
         traceId: queueMessage.traceId,
         actorType: 'xiaoni',
         actorId: queueMessage.accountId,
-        targetId: queueMessage.peerId,
+        targetId: deliveryPeerId,
         visibility: 'active_surface',
         actionCost: replyActionCost,
         payload: {
@@ -1741,7 +1766,7 @@ export class RuntimeStore {
           sent_messages: messages,
           delivery: input.toolResult.delivery || null
         },
-        dedupeKey: `speak_in_group:${compactDedupePart(runId, queueMessage.traceId)}`
+        dedupeKey: `send_in_group:${compactDedupePart(runId, queueMessage.traceId)}`
       });
     }
 
@@ -1751,19 +1776,19 @@ export class RuntimeStore {
         eventKind: 'qq_self_message',
         occurredAt: now,
         surface: 'qq',
-        chatType: queueMessage.chatType,
-        sessionKey: queueMessage.sessionKey,
-        surfaceId: queueMessage.sessionKey,
-        peerId: queueMessage.peerId,
+        chatType: actualChatType,
+        sessionKey: deliverySessionKey,
+        surfaceId: deliverySessionKey,
+        peerId: deliveryPeerId,
         accountId: queueMessage.accountId,
         batchId: queueMessage.batchId,
         runId,
         traceId: queueMessage.traceId,
         actorType: 'xiaoni',
         actorId: queueMessage.accountId,
-        targetId: queueMessage.peerId,
-        visibility: queueMessage.chatType === 'direct' ? 'private_surface' : 'active_surface',
-        actionCost: queueMessage.chatType === 'direct' && index === 0 ? replyActionCost : 0,
+        targetId: deliveryPeerId,
+        visibility: deliveryVisibility,
+        actionCost: actualChatType === 'direct' && index === 0 ? replyActionCost : 0,
         payload: {
           tool_name: input.toolName,
           forced: Boolean(input.forced),
@@ -1776,19 +1801,19 @@ export class RuntimeStore {
     }
   }
 
-  async recordSilenceDecisionLifeEvent(input: {
+  async recordNoVisibleDeliveryLifeEvent(input: {
     queueMessage: QueueMessagePayload;
     runId?: string;
     traceId?: string;
     outcome?: string | null;
     presenceOutcome?: string | null;
-    termination: {
-      terminationReason: string;
-      finishReason?: string | null;
-      finishOutcome?: string | null;
-      noReply?: boolean;
+    leaseRelease: {
+      reason: string;
+      detail?: string | null;
+      outcome?: string | null;
+      noVisibleDelivery?: boolean;
     };
-    totalTurns?: number;
+    modelRequestSlices?: number;
     conversationId?: number | null;
   }) {
     const now = new Date();
@@ -1800,7 +1825,7 @@ export class RuntimeStore {
 
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
-      eventKind: 'silence_decision',
+      eventKind: 'no_visible_delivery_observed',
       occurredAt: now,
       surface: isPresenceTickPayload(queueMessage) ? 'presence_tick' : 'qq',
       chatType: queueMessage.chatType,
@@ -1831,18 +1856,18 @@ export class RuntimeStore {
         source: queueMessage.source,
         outcome,
         presence_outcome: input.presenceOutcome || outcome,
-        termination: {
-          reason: input.termination.terminationReason,
-          finish_reason: input.termination.finishReason || null,
-          finish_outcome: input.termination.finishOutcome || null,
-          no_reply: input.termination.noReply ?? true
+        lease_release: {
+          reason: input.leaseRelease.reason,
+          detail: input.leaseRelease.detail || null,
+          outcome: input.leaseRelease.outcome || null,
+          no_visible_delivery: input.leaseRelease.noVisibleDelivery ?? true
         },
-        reason: input.termination.finishReason || input.termination.terminationReason,
-        total_turns: input.totalTurns ?? null,
+        reason: input.leaseRelease.detail || input.leaseRelease.reason,
+        model_request_slices: input.modelRequestSlices ?? null,
         conversation_id: input.conversationId ?? null,
         unread_batch_size: queueMessage.messages.length
       },
-      dedupeKey: `silence_decision:${compactDedupePart(runId, traceId || 'run')}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
+      dedupeKey: `no_visible_delivery:${compactDedupePart(runId, traceId || 'lease')}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
     });
   }
 
@@ -2189,11 +2214,11 @@ export class RuntimeStore {
     });
   }
 
-  async completeQueueMessage(runId: string, params: { conversationId?: number | null; result?: Record<string, unknown> }) {
+  async settleQueueMessages(runId: string, params: { conversationId?: number | null; result?: Record<string, unknown> }) {
     await this.sql.execute(
       `
         UPDATE agent_queue_messages
-        SET status = 'completed',
+        SET status = 'settled',
             conversation_id = COALESCE(?, conversation_id),
             result = ?::jsonb,
             completed_at = NOW(),
@@ -2224,15 +2249,17 @@ export class RuntimeStore {
     );
   }
 
-  async completeAgentRun(runId: string, updates: {
+  async releaseExecutionLease(runId: string, updates: {
     status: string;
-    terminationReason: string;
-    finishReason?: string | null;
-    finishOutcome?: string | null;
-    noReply: boolean;
+    leaseRelease: {
+      reason: string;
+      detail?: string | null;
+      outcome?: string | null;
+    };
+    noVisibleDelivery: boolean;
     finalResponse?: string | null;
     sentMessages?: string[];
-    totalTurns?: number;
+    modelRequestSlices?: number;
     errorMessage?: string | null;
     conversationId?: number | null;
   }) {
@@ -2240,7 +2267,7 @@ export class RuntimeStore {
       `
         UPDATE agent_runs
         SET status = ?,
-            delivery_phase = 'finished',
+            delivery_phase = 'lease_released',
             termination_reason = ?,
             finish_reason = ?,
             finish_outcome = ?,
@@ -2256,13 +2283,13 @@ export class RuntimeStore {
       `,
       [
         updates.status,
-        updates.terminationReason,
-        updates.finishReason ?? null,
-        updates.finishOutcome ?? null,
-        updates.noReply,
+        updates.leaseRelease.reason,
+        updates.leaseRelease.detail ?? null,
+        updates.leaseRelease.outcome ?? null,
+        updates.noVisibleDelivery,
         updates.finalResponse ?? null,
         JSON.stringify(updates.sentMessages || []),
-        updates.totalTurns ?? 0,
+        updates.modelRequestSlices ?? 0,
         updates.errorMessage ?? null,
         updates.conversationId ?? null,
         runId
@@ -2282,8 +2309,8 @@ export class RuntimeStore {
     );
   }
 
-  async getRunDeliveryState(runId: string): Promise<AgentRunDeliveryState> {
-    const rows = await this.sql.query<AgentRunDeliveryStateRow>(
+  async getExecutionLeaseDeliveryState(runId: string): Promise<ExecutionLeaseDeliveryState> {
+    const rows = await this.sql.query<ExecutionLeaseDeliveryStateRow>(
       `
         SELECT
           delivery_phase,
@@ -2297,10 +2324,10 @@ export class RuntimeStore {
       [runId]
     );
 
-    return mapAgentRunDeliveryState(rows[0]);
+    return mapExecutionLeaseDeliveryState(rows[0]);
   }
 
-  async markRunDeliveryCommitted(runId: string) {
+  async markLeaseVisibleDeliveryCommitted(runId: string) {
     await this.sql.execute(
       `
         UPDATE agent_runs
@@ -2316,7 +2343,7 @@ export class RuntimeStore {
     );
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
-      eventKind: 'terminal_action_committed',
+      eventKind: 'visible_delivery_committed',
       occurredAt: new Date(),
       runId,
       actorType: 'xiaoni',
@@ -2325,11 +2352,11 @@ export class RuntimeStore {
       payload: {
         delivery_phase: 'delivery_committed'
       },
-      dedupeKey: `terminal_action_committed:${compactDedupePart(runId, 'run')}`
+      dedupeKey: `visible_delivery_committed:${compactDedupePart(runId, 'lease')}`
     });
   }
 
-  async markRunDeliveryBlocked(runId: string, reason: string) {
+  async markLeaseDeliveryBlocked(runId: string, reason: string) {
     await this.sql.execute(
       `
         UPDATE agent_runs
@@ -2342,7 +2369,7 @@ export class RuntimeStore {
     );
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
-      eventKind: 'terminal_action_blocked',
+      eventKind: 'post_commit_side_effect_blocked',
       occurredAt: new Date(),
       runId,
       actorType: 'xiaoni',
@@ -2351,7 +2378,7 @@ export class RuntimeStore {
       payload: {
         reason
       },
-      dedupeKey: `terminal_action_blocked:${compactDedupePart(runId, 'run')}:${Date.now()}:${uuidv4().slice(0, 8)}`
+      dedupeKey: `post_commit_side_effect_blocked:${compactDedupePart(runId, 'lease')}:${Date.now()}:${uuidv4().slice(0, 8)}`
     });
   }
 

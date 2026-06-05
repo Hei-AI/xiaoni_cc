@@ -108,7 +108,18 @@ function playgroundCapability(record: TraceSpanRecord): 'exact' | 'partial' | 'u
 }
 
 function displayName(record: TraceSpanRecord): string {
+  if (semanticRole(record) === 'turn') {
+    const rawName = String(record.attributes['semantic.display_name'] || record.name || '');
+    const inferredIndex = rawName.match(/\bturn[ ._-]*(\d+)\b/i)?.[1];
+    const sliceIndex = record.source_ref || record.attributes['turn.index'] || inferredIndex;
+    return sliceIndex ? `model slice ${sliceIndex}` : 'model slice';
+  }
   return String(record.attributes['semantic.display_name'] || record.name);
+}
+
+function displayRole(record: TraceSpanRecord): string {
+  const role = semanticRole(record);
+  return role === 'turn' ? 'model_slice' : role;
 }
 
 function buildSubtitle(record: TraceSpanRecord): string | null {
@@ -140,7 +151,7 @@ function buildSubtitle(record: TraceSpanRecord): string | null {
 function buildBadges(record: TraceSpanRecord): string[] {
   const badges = [
     record.kind,
-    semanticRole(record),
+    displayRole(record),
     record.attributes['llm.model_name'],
     record.attributes['tool.name'],
     record.attributes['http.method'],
@@ -321,7 +332,7 @@ function buildMetrics(trace: ConversationTraceData): TraceMetric[] {
       tone: trace.trace.error_count > 0 ? 'danger' : 'success',
     },
     {
-      label: 'Turns',
+      label: 'Model Slices',
       value: String(roleCounts.turn || 0),
       detail: `LLM ${roleCounts.generation || 0} / Tool ${roleCounts.invocation || 0}`,
     },

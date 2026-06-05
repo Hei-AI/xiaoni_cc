@@ -92,6 +92,7 @@ describe('buildConversationTracePayload', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     delete process.env.CLIPROXY_REQUEST_LOG_DIR;
+    delete process.env.CLIPROXY_REQUEST_LOG_DETAIL_ENABLED;
     delete process.env.CLIPROXY_REQUEST_LOG_SCAN_LIMIT;
     (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
     (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([]);
@@ -293,22 +294,28 @@ describe('buildConversationTracePayload', () => {
     );
 
     expect((detail?.input as any).body.prompt).toHaveLength(40000);
+    expect((detail?.input as any).raw_body).toContain('"prompt"');
+    expect((detail?.input as any).body_source).toBe('llm_call_logs.wire_request');
     expect(detail?.output).toMatchObject({
       body_source: 'llm_call_logs.wire_response',
       body: {
         output: [{ type: 'function_call', arguments: '{"ok":true}' }],
       },
     });
+    expect((detail?.output as any).raw_body).toContain('"function_call"');
     expect(detail?.evidence).toMatchObject({
       synthetic: true,
       source: 'llm_call_logs.wire_request/wire_response',
       llm_call_id: 'llm-call-detail',
     });
+    expect((detail?.evidence as any).request_raw_body).toContain('"prompt"');
+    expect((detail?.evidence as any).response_raw_body).toContain('"function_call"');
   });
 
   it('loads real upstream CLIProxyAPI request and response logs for synthetic provider detail', async () => {
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cliproxy-log-'));
     process.env.CLIPROXY_REQUEST_LOG_DIR = logDir;
+    process.env.CLIPROXY_REQUEST_LOG_DETAIL_ENABLED = 'true';
 
     fs.writeFileSync(path.join(logDir, 'v1-responses-2026-03-28T100002-abcd1234.log'), [
       '=== REQUEST INFO ===',
@@ -433,6 +440,7 @@ describe('buildConversationTracePayload', () => {
   it('ignores CLIProxyAPI logs that only mention the llm call id in the request body', async () => {
     const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cliproxy-log-'));
     process.env.CLIPROXY_REQUEST_LOG_DIR = logDir;
+    process.env.CLIPROXY_REQUEST_LOG_DETAIL_ENABLED = 'true';
 
     fs.writeFileSync(path.join(logDir, 'v1-responses-2026-03-28T100004-decoy.log'), [
       '=== REQUEST INFO ===',
@@ -533,7 +541,10 @@ describe('buildConversationTracePayload', () => {
 
     expect(detail).toBeNull();
     expect((db as any).executeQuery).toHaveBeenCalledWith(
-      'SELECT * FROM llm_call_logs WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?) LIMIT 1',
+      `SELECT *, wire_request::text AS wire_request_raw_text, wire_response::text AS wire_response_raw_text
+       FROM llm_call_logs
+       WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?)
+       LIMIT 1`,
       ['llm-call-other-conversation', 'conversation-1', 'trace-1']
     );
   });

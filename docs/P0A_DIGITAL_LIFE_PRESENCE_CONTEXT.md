@@ -6,10 +6,11 @@ implementation has landed the presence-context first slice. Earlier self-action
 side runners were removed from the current runtime because they created a second
 context and made hardcoded interests look like Xiaoni's own life. The fixed
 interval `life_loop` has also been removed; idle/presence events may only be
-reintroduced through a gated `presence_tick` evaluator. A presence-originated
-event reads the global conversation append stream and uses `xiaoni:global` as
-the context summary / read-cutoff compatibility key. That key is still backed by
-`agent_session_context_windows`; event-backed identity-root `<小腻近况>` is not
+reintroduced through a gated `presence_tick` evaluator. The main loop reads the
+global conversation append stream. Its prompt-facing history, context summary,
+read cutoff, and prompt cache key are all `xiaoni:global`; group/private
+sessions are only source, delivery-target, and unread-cursor metadata. That key
+is still backed by `agent_session_context_windows`; event-backed identity-root `<小腻近况>` is not
 implemented yet. If an IM has unread messages after that session's last-read
 cursor, the run can materialize that target as `proactive_im_open`; otherwise it
 stays life-only and can currently use `exec_command`, grounded hosted
@@ -271,8 +272,9 @@ Current implemented slices:
   compatibility data for admin replay only.
 - 2026-05-31 / corrected 2026-06-04: presence-originated `presence_tick` now
   stays inside the main loop context. It reads the global conversation append
-  stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
-  even if unread IM materializes the run into `proactive_im_open`; without a
+  stream and uses `xiaoni:global` as the only prompt-facing history, context
+  summary, read cutoff, and prompt cache key, even if unread IM materializes the
+  run into `proactive_im_open`; without a
   concrete IM target it cannot send QQ directly. It can currently use
   `exec_command`, `web_search`, `compress_core_memory`, or `recover_energy`.
   A no-tool response before action completion is not a silence or finish signal.

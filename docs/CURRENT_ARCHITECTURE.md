@@ -42,10 +42,10 @@ QQ 群 / QQ 私聊
   +-- 调用模型思考
   |
   v
-沉默 / 搜索 / 回复
+沉默 / 搜索 / 发言
   |
   v
-如果回复，发回 QQ
+如果发言，发回 QQ
 ```
 
 后台还有一条不由 QQ 新消息触发的 presence 生活事件链：
@@ -63,13 +63,13 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity digest；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，也不能登记图片任务；当前只能让同一个 main loop 选择 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。动作未完成前，没有工具调用不等于沉默或结束。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；主 loop 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文，也不是按群/私聊拆 prompt 历史。prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity digest；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。prompt-facing 工具列表固定，不再根据 `direct`、`group` 或 life-only presence 分叉；`send_in_private` 必须显式传 `user_id`，`send_in_group` 必须显式传 `group_id`，缺失时返回 retryable tool error 给模型补参。动作未完成前，没有工具调用不等于沉默或结束。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
 
 当前连续性边界：
 
 - `agent_life_events` 已经是 homeostasis / presence projection 的事件真相源。
-- `<小腻近况>` 仍是 context summary writer 写入 `agent_session_context_windows.context_summary` 的纯文本摘要，按 `contextSessionKey` 分桶。
-- 普通群/私聊 run 的 summary key 仍是对应 `payload.sessionKey`；presence-originated run 使用 `xiaoni:global`。
+- `<小腻近况>` 仍是 context summary writer 写入 `agent_session_context_windows.context_summary` 的纯文本摘要，当前唯一 key 是 `xiaoni:global`。
+- 群/私聊 session 只表示来源、投递目标和未读游标元数据，不作为 prompt-facing history、context summary、read cutoff 或 prompt cache key。
 - 三层 compact memory 已写入 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`，但还没有作为 typed recall projection 自动进入主 runtime prompt。
 - event-backed identity-root `<小腻近况>` 是待实现方向，不要把它当成当前线上契约。
 
@@ -109,7 +109,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
   v
 形成小腻自己的当前动作
   |
-  +-- 想说且有目标 -> speak_in_group / reply_in_private
+  +-- 想说且有目标 -> send_in_group / send_in_private
   |
   +-- 需要公开资料 -> web_search 后继续 loop
   |
@@ -122,7 +122,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
   +-- 累了或不想继续 -> recover_energy
 ```
 
-动作未完成前，没有工具调用不是沉默或结束；runtime 会继续提醒她选择真实动作，或者按精力状态调用 `recover_energy`。只有已经完成可见 delivery 后，后续没有工具调用才可以作为本 run 收口。
+动作未完成前，没有工具调用不是沉默或结束；runtime 会继续提醒她选择真实动作，或者按精力状态调用 `recover_energy`。已经完成可见 delivery 后，后续没有工具调用只表示当前内部执行 lease 可以释放；小腻行动流不会因此收口。
 
 这里的关键业务目标是：小腻要像群里真实存在的人，而不是客服。她可以不回，但“不回”不能靠旧工具或空输出硬塞出来；如果只是当前没有可见话，又不想继续，她应该按自己的精力状态休息，或者等下一次真实事件进入。
 
@@ -183,38 +183,20 @@ Provider：codex
 
 ### 3. 当前工具集合
 
-group chat 当前工具：
+main loop 当前固定工具：
 
 ```text
 exec_command
 web_search
 compress_core_memory
-speak_in_group
+send_in_private
+send_in_group
 inspect_image_placeholder
 request_image_task
 recover_energy
 ```
 
-private chat 当前工具：
-
-```text
-exec_command
-web_search
-compress_core_memory
-reply_in_private
-recover_energy
-```
-
-life-only 当前工具：
-
-```text
-exec_command
-web_search
-compress_core_memory
-recover_energy
-```
-
-普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时限制为 `compress_core_memory`。
+普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时限制为 `compress_core_memory`。发送工具不使用来源会话做隐式目标；缺 `user_id` / `group_id` 时工具输出 retryable error。
 
 ### 4. 状态与恢复
 
@@ -224,7 +206,7 @@ recover_energy
 
 ### 5. 外部结果继续 loop
 
-搜索、看图、图片任务、本地操作、压缩近况都可能把结果 replay 回主 loop。最终发给群友的只有 `speak_in_group` / `reply_in_private` 的 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
+搜索、看图、图片任务、本地操作、压缩近况都可能把结果 replay 回主 loop。最终发给 QQ 的只有 `send_in_group` / `send_in_private` 的 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
 
 ## 现在小腻真的具备哪些能力
 
@@ -237,11 +219,11 @@ recover_energy
 | 读最近聊天上下文 | 生效 | 她不是只看当前一句话。 |
 | 读当前未读消息批次 | 生效 | 会把连续几条新消息作为一个场面来看。 |
 | 保留 `<xiaoni_os>` | 生效 | 这是她留给之后自己的私密备注；旧 `<小腻的OS>` 历史不迁移，只兼容读取。 |
-| `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由压力触发的 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；life-only / presence 起源用 `xiaoni:global` key，但没有 event-backed 全局 fallback。 |
+| `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由压力触发的 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；当前唯一 key 是 `xiaoni:global`，但没有 event-backed 全局 fallback。 |
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
 | 搜索外部信息 | 有条件生效 | 只有当前工具允许、且她判断需要资料时才会用。 |
-| 空闲生活事件 | 待接入门控 evaluator | 固定 5 分钟 `life_loop` 已删除。下一步只能由状态、预算、冷却和未读游标门控后 enqueue `presence_tick`；没有具体会话时不能发 QQ，只能使用内部工具或 `recover_energy`。 |
+| 空闲生活事件 | 待接入门控 evaluator | 固定 5 分钟 `life_loop` 已删除。下一步只能由状态、预算、冷却和未读游标门控后 enqueue `presence_tick`；它进入同一个固定 main-loop 工具集合，发送工具靠显式 `user_id` / `group_id` 校验。 |
 | 本地命令执行 | 生效 | `exec_command` 由 `agent-service` 转发到 `xiaoni-executor`，用于本地 skill 脚本、低风险命令、session poll/kill 和可追溯 git archive。 |
 | 记录处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
@@ -271,7 +253,7 @@ recover_energy
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
-- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 life-only / presence 进入主 loop 后的低风险内部工具、`web_search` / `compress_core_memory` / `recover_energy`，还不是完整浏览器生活。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 presence 进入主 loop 后已有工具能力和本地低风险操作，还不是完整浏览器生活。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 
@@ -290,4 +272,4 @@ recover_energy
 | 明明应该查资料却没查 | 看当前阶段是否允许搜索，以及她是否判断需要资料 |
 | 发言内容发不出去 | 看 QQ 发送链路 |
 
-这页的业务结论是：小腻的核心不是“回复生成”，而是“在 QQ 场景里判断自己该如何参与”。沉默、搜索和发言都是有效结果。
+这页的业务结论是：小腻的核心不是“回复生成器”，而是“在 QQ 场景里判断自己该如何参与”。沉默、搜索和发言都是有效结果。

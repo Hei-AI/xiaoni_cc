@@ -168,7 +168,7 @@ export function SampleLibraryPanel({
             <section>
               <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <Clock3 className="h-3.5 w-3.5" />
-                Recent Runs
+                Recent Executions
               </div>
               <div className="space-y-2">
                 {library?.recentRuns.map((run) => (

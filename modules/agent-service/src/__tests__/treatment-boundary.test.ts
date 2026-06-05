@@ -42,7 +42,7 @@ const forbiddenSymbols = [
   'executeTool',
   'sendMessage',
   'requestImageTask',
-  'markRunDeliveryCommitted',
+  'markLeaseVisibleDeliveryCommitted',
   'markFeedbackReflectionsHit',
   'logTimelineEvent',
   'deliveryStateStore',

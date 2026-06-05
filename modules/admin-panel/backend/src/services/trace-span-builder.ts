@@ -54,6 +54,7 @@ interface TraceSpanDto {
 
 interface TracePayloadTrimOptions {
   truncateLargeFields?: boolean;
+  includeRawWireText?: boolean;
 }
 
 interface TraceSpanDetailDto {
@@ -111,6 +112,20 @@ function parseJsonField<T>(value: any, fallback: T): T {
     return value as T;
   }
   return fallback;
+}
+
+function rawJsonText(value: any, fallback: string | null = null): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return String(value);
+  }
 }
 
 function normalizeIdentityEvidenceRef(row: any) {
@@ -339,7 +354,7 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
   const wireRequest = parseJsonField<any>(call.wire_request, null);
   const canonicalResponse = parseJsonField<any>(call.canonical_response, null);
   const wireResponse = parseJsonField<any>(call.wire_response, null);
-  return {
+  const normalized: any = {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
     trace_id: call.trace_id,
@@ -374,6 +389,11 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
     http_requests: [] as any[],
     provider_requests: [] as any[]
   };
+  if (options?.includeRawWireText) {
+    normalized.wire_request_raw_text = rawJsonText(call.wire_request_raw_text, rawJsonText(call.wire_request));
+    normalized.wire_response_raw_text = rawJsonText(call.wire_response_raw_text, rawJsonText(call.wire_response));
+  }
+  return normalized;
 }
 
 function buildPlaygroundCapability(call: any): 'exact' | 'unsupported' {
@@ -482,6 +502,9 @@ function isSafeCliProxyCorrelationId(value: string): boolean {
 }
 
 function cliProxyRequestLogDir(): string | null {
+  if (process.env.CLIPROXY_REQUEST_LOG_DETAIL_ENABLED !== 'true') {
+    return null;
+  }
   const configured = (process.env.CLIPROXY_REQUEST_LOG_DIR || '').trim();
   if (!configured) {
     return null;
@@ -2181,14 +2204,17 @@ export async function buildConversationTraceSpanDetail(
   const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
   if (syntheticProviderRequest) {
     const rows = await database.executeQuery(
-      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?) LIMIT 1`,
+      `SELECT *, wire_request::text AS wire_request_raw_text, wire_response::text AS wire_response_raw_text
+       FROM llm_call_logs
+       WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?)
+       LIMIT 1`,
       [syntheticProviderRequest.llmCallId, conversationId, traceId]
     );
     const row = rows[0] as any;
     if (!row) {
       return null;
     }
-    const call = normalizeLlmCall(row);
+    const call = normalizeLlmCall(row, { includeRawWireText: true });
     const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
     if (cliProxyDetail) {
       return cliProxyDetail;
@@ -2197,13 +2223,15 @@ export async function buildConversationTraceSpanDetail(
     return {
       input: {
         headers: null,
-        body: call.wire_request
+        body: call.wire_request,
+        raw_body: call.wire_request_raw_text,
+        body_source: 'llm_call_logs.wire_request'
       },
       output: {
         status_code: call.error_message ? null : 200,
         headers: null,
         body: call.wire_response,
-        raw_body: null,
+        raw_body: call.wire_response_raw_text,
         body_format: 'json',
         body_source: 'llm_call_logs.wire_response',
         error_message: call.error_message
@@ -2216,7 +2244,9 @@ export async function buildConversationTraceSpanDetail(
         wire_provider_format: call.wire_provider_format || null,
         request_format_version: call.request_format_version || null,
         request_body: call.wire_request,
+        request_raw_body: call.wire_request_raw_text,
         response_body: call.wire_response,
+        response_raw_body: call.wire_response_raw_text,
         duration_ms: call.duration_ms,
         request_timestamp: call.started_at,
         response_timestamp: call.completed_at

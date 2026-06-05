@@ -125,7 +125,7 @@ describe('buildTraceFlowViewModel', () => {
     expect(viewModel.rows.map((row) => row.id)).toEqual(['trace-root', 'turn-1', 'llm-1', 'http-1']);
     expect(viewModel.rows.find((row) => row.id === 'http-1')?.pathTokens).toEqual([
       'Conversation Trace',
-      'Turn 1',
+      'model slice 1',
       'planner',
       'GET api.openai.com',
     ]);
@@ -224,10 +224,10 @@ describe('buildTraceFlowViewModel', () => {
     expect(viewModel.selectedSpanId).toBe('child-http');
     expect(childHttpRow?.pathTokens).toEqual([
       'Conversation Trace',
-      'Turn 2',
+      'model slice 2',
       'tool.web_search',
       'search-specialist',
-      'Child Turn 1',
+      'model slice 1',
       'POST search.api',
     ]);
     expect(viewModel.rows.find((row) => row.id === 'invoke-search')?.errorCountInSubtree).toBe(1);
@@ -467,7 +467,7 @@ describe('buildTraceFlowViewModel', () => {
     expect(viewModel.rows.find((row) => row.id === 'provider-request:101')).toMatchObject({
       parentId: 'llm-1',
       depth: 3,
-      pathTokens: ['Conversation Trace', 'Turn 1', 'planner', 'POST api.openai.com'],
+      pathTokens: ['Conversation Trace', 'model slice 1', 'planner', 'POST api.openai.com'],
     });
   });
 

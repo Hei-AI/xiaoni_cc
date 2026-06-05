@@ -14,7 +14,6 @@ import { createPromptRoutes } from './routes/prompt-routes';
 import { createChatRoutes } from './routes/chat-routes';
 import { createTrafficMonitorRoutes } from './routes/traffic-monitor-routes';
 import { createPlaygroundRoutes } from './routes/playground-routes';
-import { createRunRoutes } from './routes/run-routes';
 import { createTopicLabRoutes } from './routes/topic-lab-routes';
 import { createImageLabRoutes } from './routes/image-lab-routes';
 import { createAgentRuntimeRoutes } from './routes/agent-runtime-routes';
@@ -140,14 +139,12 @@ async function startServer() {
   app.use('/api', createTrafficMonitorRoutes(database, logger)); // HTTP traffic monitoring
   logger.info('🔧 Registering playground routes...');
   app.use('/api', createPlaygroundRoutes(database, logger));     // Playground cases & runs
-  logger.info('🔧 Registering run routes...');
-  app.use('/api', createRunRoutes(database, logger));            // Agent run workspace APIs
   logger.info('🔧 Registering topic lab routes...');
   app.use('/api', createTopicLabRoutes(database, logger));       // Chat memory lab APIs
   logger.info('🔧 Registering image lab routes...');
   app.use('/api', createImageLabRoutes(database, logger));       // Image generation/edit proxy APIs
   logger.info('🔧 Registering agent runtime routes...');
-  app.use('/api', createAgentRuntimeRoutes(database));            // Runtime task/media observability APIs
+  app.use('/api', createAgentRuntimeRoutes(database, logger));     // Runtime task/media observability APIs
 
   logger.info('🔧 Registering inbox routes...');
   app.use('/api/inbox', inboxRoutes);

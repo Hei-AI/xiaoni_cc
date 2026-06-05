@@ -16,15 +16,15 @@ flowchart TD
   NapCat --> Provider[provider-service]
 
   Provider --> Policy[群 / 私聊开关<br/>is_enabled / auto_reply_enabled]
-  Policy -->|允许自动回复| Queue[(agent_queue_messages)]
-  Policy -->|不允许自动回复| InboxOnly[(agent_inbound_messages only)]
+  Policy -->|允许自动发言| Queue[(agent_queue_messages)]
+  Policy -->|不允许自动发言| InboxOnly[(agent_inbound_messages only)]
 
   Queue --> Loop[agent-service main loop]
   Loop --> Context[组装输入<br/>已读历史 / 当前未读 / session-window 小腻近况 / xiaoni_os / 身份事实 / 媒体 / 当前状态]
   Context --> Request[canonical request<br/>allowed_tools mode=auto]
 
   Request --> Tools{小腻选择当前动作}
-  Tools -->|speak_in_group / reply_in_private| Send[发送 QQ 可见消息]
+  Tools -->|send_in_group / send_in_private| Send[发送 QQ 可见消息]
   Tools -->|web_search| Search[公开信息搜索后继续 loop]
   Tools -->|inspect_image_placeholder| Inspect[看当前图片占位符后继续 loop]
   Tools -->|request_image_task| ImageTask[登记图片任务]
@@ -108,50 +108,30 @@ flowchart TD
 
 `presence_tick` 不是第二套 planner，也不能硬编码兴趣、动机或读书 seed。它只能在状态、预算、冷却和未读游标检查通过后，把“小腻当前有一次行动机会”append 进同一条事件流。固定间隔 `life_loop` 已删除，不是当前契约。
 
-presence 起源场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
-
-life-only 没有具体 IM 目标时不能发 QQ；当前只能使用 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。
+主 loop 读取全局 conversation append stream，并使用 `xiaoni:global` 作为唯一 prompt-facing history、context summary、read cutoff 和 prompt cache key。群/私聊 session 只表示来源、投递目标和未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
 
 ## Main Loop 工具集合
 
-当前 group chat 工具定义包含：
+当前 main loop 工具定义固定包含：
 
 ```text
 exec_command
 web_search
 compress_core_memory
-speak_in_group
+send_in_private
+send_in_group
 inspect_image_placeholder
 request_image_task
 recover_energy
 ```
 
-private chat 工具定义包含：
-
-```text
-exec_command
-web_search
-compress_core_memory
-reply_in_private
-recover_energy
-```
-
-life-only 工具定义包含：
-
-```text
-exec_command
-web_search
-compress_core_memory
-recover_energy
-```
-
-普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时把 `allowed_tools` 限制为 `compress_core_memory`。
+普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时把 `allowed_tools` 限制为 `compress_core_memory`。`direct/group` 和 life-only presence 不改变工具列表；发送工具通过显式目标校验决定是否能真正发出。
 
 ## 行动语义
 
 ### 说话
 
-`speak_in_group` 和 `reply_in_private` 是可见 QQ delivery。成功后 runtime 记录 delivery commit；同一 run 后续可见 delivery 会被防重挡住。
+`send_in_group` 和 `send_in_private` 是可见 QQ delivery。`send_in_group` 必须显式传 `group_id`，`send_in_private` 必须显式传 `user_id`；缺失或非法时返回 retryable `tool_error` 给模型补参，不调用 provider。成功后 runtime 记录 delivery commit；同一 run 后续可见 delivery 会被防重挡住。
 
 ### 搜索
 
@@ -159,7 +139,7 @@ recover_energy
 
 ### 图片
 
-`inspect_image_placeholder` 用于当前上下文图片内容不清。`request_image_task` 用于登记生成/编辑任务。图片任务不能吞掉用户同批提出的可见回复需求；runtime 会强制补可见状态回复。
+`inspect_image_placeholder` 用于当前上下文图片内容不清。`request_image_task` 用于登记生成/编辑任务。图片任务不能吞掉用户同批提出的可见发言需求；runtime 会强制补可见状态发言。
 
 ### 本地操作
 
@@ -204,7 +184,7 @@ tool_choice:
   allowed_tools(mode=auto), except pressure requests that require compress_core_memory
 
 parallel_tool_calls: false
-prompt_cache_key: qq:group:<groupId> or related runtime key
+prompt_cache_key: xiaoni:global
 prompt_cache_retention: usually 24h
 ```
 
@@ -225,17 +205,17 @@ output:
 
 ### 图片生成 / 编辑
 
-`request_image_task` 登记任务到 runtime task 表，再由 image provider 链路处理。任务登记本身不是 QQ 可见回复。
+`request_image_task` 登记任务到 runtime task 表，再由 image provider 链路处理。任务登记本身不是 QQ 可见发言。
 
 ## 排障
 
 | 现象 | 优先看哪里 |
 |---|---|
-| 明明调用说话工具但没发出 | `tool_execution_logs`、provider send API、`markRunDeliveryCommitted` |
+| 明明调用说话工具但没发出 | `tool_execution_logs`、provider send API、`markLeaseVisibleDeliveryCommitted` |
 | 模型没有工具调用 | no-tool continuation reminder；动作未完成前不会被当作沉默 |
-| 可见回复后又试图发第二次 | delivery commit / duplicate outbound fingerprint |
+| 可见发言后又试图发第二次 | delivery commit / duplicate outbound fingerprint |
 | 图片任务后没回用户状态 | forced visible reply 日志 |
-| life-only 想发 QQ | 没有具体 IM 目标时不允许；看是否只暴露 life-only 工具 |
+| 说话工具没发出 | 看 `tool_execution_logs.result.tool_error`；缺 `user_id` / `group_id` 会返回 retryable error 给模型补参 |
 | 本地命令执行异常 | `docs/AGENTS_XIAONI_EXECUTOR.md`、`qqbot-xiaoni-executor` logs、session poll/kill |
 | 休息恢复不符合预期 | `recover_energy.duration_minutes`、`recoverRuntimeEnergy`、`agent_life_events` |
 | 上下文断裂 | `conversation_items.raw_response.xiaoni_os`、`agent_session_context_windows.context_summary` |

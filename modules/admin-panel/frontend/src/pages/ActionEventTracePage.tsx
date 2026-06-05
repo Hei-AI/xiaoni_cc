@@ -4,7 +4,6 @@ import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Loader2, Pause, Play, RefreshCw, Waypoints } from 'lucide-react';
 import { TraceWaterfall } from '@/components/trace-canvas/TraceWaterfall';
 import { TraceInspectorPanel, TraceInspectorSheet } from '@/components/trace-canvas/TraceInspector';
-import { AbTracePanel } from '@/components/AbTracePanel';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { MetricCard } from '@/components/console/MetricCard';
@@ -14,10 +13,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ResizableSplit } from '@/components/ui/resizable-split';
 import { createCaseFromSpan, buildPlaygroundRecoveryUrl, openBestPlaygroundCase } from '@/lib/playgroundApi';
 import { buildTraceFlowViewModel } from '@/lib/trace-flow';
-import { useRunTrace } from '@/hooks/useAgentRuns';
+import { useXiaoniActionEventTrace } from '@/hooks/useXiaoniActionTrace';
 
-export const RunTracePage: React.FC = () => {
-  const { runId } = useParams<{ runId: string }>();
+export const ActionEventTracePage: React.FC = () => {
+  const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [autoRefreshEnabled, setAutoRefreshEnabled] = React.useState(true);
@@ -26,11 +25,11 @@ export const RunTracePage: React.FC = () => {
   const [importingSpanId, setImportingSpanId] = React.useState<string | null>(null);
   const [isDesktop, setIsDesktop] = React.useState<boolean>(() => (typeof window === 'undefined' ? true : window.innerWidth >= 1280));
 
-  if (!runId) {
-    return <Navigate to="/conversations" replace />;
+  if (!eventId) {
+    return <Navigate to="/xiaoni-action-stream" replace />;
   }
 
-  const { data: trace, isLoading, error, refetch, isRefetching } = useRunTrace(runId, autoRefreshEnabled);
+  const { data: trace, isLoading, error, refetch, isRefetching } = useXiaoniActionEventTrace(eventId, autoRefreshEnabled);
   const viewModel = React.useMemo(() => (trace ? buildTraceFlowViewModel(trace) : null), [trace]);
   const [selectedSpanId, setSelectedSpanId] = React.useState<string | null>(null);
 
@@ -43,10 +42,14 @@ export const RunTracePage: React.FC = () => {
       setSelectedSpanId(requestedSpanId);
       return;
     }
+    if (trace?.action_event?.focus_span_id && viewModel.rows.some((row) => row.spanId === trace.action_event?.focus_span_id)) {
+      setSelectedSpanId(trace.action_event.focus_span_id);
+      return;
+    }
     if (viewModel.selectedSpanId) {
       setSelectedSpanId(viewModel.selectedSpanId);
     }
-  }, [searchParams, viewModel]);
+  }, [searchParams, trace, viewModel]);
 
   const selectedSpan = React.useMemo(
     () => viewModel?.rows.find((row) => row.spanId === selectedSpanId) || null,
@@ -134,16 +137,16 @@ export const RunTracePage: React.FC = () => {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Trace Detail"
-        title="Trace 详情"
-        description="span tree 和共享时间轴在这里展开，作为 run 的真实执行证据。"
+        eyebrow="Raw Event Trace"
+        title="Raw Trace 详情"
+        description="span tree 和共享时间轴在这里展开，作为行动事件的原始执行证据。"
         icon={<Waypoints className="h-5 w-5" />}
         badge={trace ? <PageHeaderBadge>{trace.trace.status}</PageHeaderBadge> : null}
         actions={(
           <>
-            <Button variant="outline" size="sm" onClick={() => navigate('/conversations')}>
+            <Button variant="outline" size="sm" onClick={() => navigate('/xiaoni-action-stream')}>
               <ArrowLeft className="mr-2 h-4 w-4" />
-              返回对话流
+              返回行动流
             </Button>
             <Button variant={autoRefreshEnabled ? 'default' : 'outline'} size="sm" onClick={() => setAutoRefreshEnabled((value) => !value)}>
               {autoRefreshEnabled ? <Pause className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}
@@ -198,7 +201,7 @@ export const RunTracePage: React.FC = () => {
         <Card className="rounded-[22px]">
           <CardContent className="flex items-center justify-center py-16">
             <Loader2 className="mr-3 h-8 w-8 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">正在加载 run trace...</span>
+            <span className="text-sm text-muted-foreground">正在加载 raw trace...</span>
           </CardContent>
         </Card>
       ) : null}
@@ -206,7 +209,7 @@ export const RunTracePage: React.FC = () => {
       {!isLoading && !error && !trace ? (
         <Card className="rounded-[22px] border-dashed">
           <CardContent className="py-16 text-center text-sm text-muted-foreground">
-            当前 run 还没有可展示的 trace 数据。
+            当前内部片段还没有可展示的 trace 数据。
           </CardContent>
         </Card>
       ) : null}
@@ -218,8 +221,6 @@ export const RunTracePage: React.FC = () => {
               <MetricCard key={metric.label} label={metric.label} value={metric.value} detail={metric.detail} tone={metric.tone} />
             ))}
           </div>
-
-          <AbTracePanel runId={runId} autoRefreshEnabled={autoRefreshEnabled} />
 
           {isDesktop ? (
             <ResizableSplit
@@ -254,7 +255,7 @@ export const RunTracePage: React.FC = () => {
                   contentClassName="flex min-h-0 flex-1 flex-col pt-3"
                 >
                   <TraceInspectorPanel
-                    runId={runId}
+                    eventId={eventId}
                     node={selectedSpan}
                     metadataBadges={viewModel.metadataBadges}
                     onImportToPlayground={canImportSelectedSpan ? handleImportSelectedSpan : undefined}
@@ -281,7 +282,7 @@ export const RunTracePage: React.FC = () => {
 
           {!isDesktop ? (
             <TraceInspectorSheet
-              runId={runId}
+              eventId={eventId}
               open={isMobileInspectorOpen}
               onOpenChange={setIsMobileInspectorOpen}
               node={selectedSpan}

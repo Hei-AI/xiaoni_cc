@@ -4,7 +4,7 @@ const B1_EVENT_KINDS = new Set([
   'surface_visit',
   'qq_message_seen',
   'qq_self_message',
-  'speak_in_group',
+  'send_in_group',
   'silence_decision',
   'surface_leave',
   'web_search_result',

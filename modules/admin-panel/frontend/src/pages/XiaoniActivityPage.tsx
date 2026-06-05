@@ -30,16 +30,24 @@ interface XiaoniActivityFeedItem {
   id: string;
   source: string;
   kind: string;
+  eventId?: string;
+  eventKind?: string;
   title: string;
   body: string | null;
   status: string | null;
   actor: string | null;
   actorName: string | null;
   timestamp: string;
+  occurredAt?: string;
   sessionKey: string | null;
   peerName: string | null;
-  runId: string | null;
+  internalExecutionLeaseId?: string | null;
   traceId: string | null;
+  traceTarget?: {
+    internalExecutionLeaseId: string;
+    traceId: string | null;
+    spanId: string | null;
+  } | null;
   tone: ActivityTone;
   metadata: Record<string, unknown>;
 }
@@ -65,14 +73,14 @@ interface XiaoniActivityFeed {
     lifeState: Record<string, unknown> | null;
     queue: {
       pending: number;
-      processing: number;
-      staleProcessing: number;
+      running: number;
+      staleRunning: number;
       failed: number;
     };
-    digitalActions: {
+    backgroundActions: {
       planned: number;
-      processing: number;
-      completed: number;
+      running: number;
+      settled: number;
       failed: number;
     };
     autonomy: {
@@ -90,8 +98,8 @@ interface XiaoniActivityFeed {
     };
     tasks: {
       pending: number;
-      processing: number;
-      completed: number;
+      running: number;
+      settled: number;
       failed: number;
     };
     runtime: RuntimeSnapshot;
@@ -127,10 +135,10 @@ function statusTone(value?: string | null): 'neutral' | 'success' | 'warning' | 
   if (!value) {
     return 'neutral';
   }
-  if (['healthy', 'completed', 'observed', 'active_surface'].includes(value)) {
+  if (['healthy', 'ok', 'observed', 'active_surface'].includes(value)) {
     return 'success';
   }
-  if (['processing', 'planned', 'pending', 'degraded', 'stale_processing'].includes(value)) {
+  if (['running', 'planned', 'pending', 'waiting', 'degraded', 'stale_processing'].includes(value)) {
     return 'warning';
   }
   if (['failed', 'offline', 'blocked'].includes(value)) {
@@ -139,15 +147,32 @@ function statusTone(value?: string | null): 'neutral' | 'success' | 'warning' | 
   return 'info';
 }
 
+function statusLabel(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  if (value === 'completed') {
+    return 'ok';
+  }
+  if (value === 'processing') {
+    return 'running';
+  }
+  if (value === 'pending' || value === 'planned') {
+    return 'waiting';
+  }
+  return value;
+}
+
 function itemIcon(item: XiaoniActivityFeedItem) {
   if (item.source === 'tool_call') return <Waypoints className="h-4 w-4" />;
+  if (item.source === 'provider_call') return <Activity className="h-4 w-4" />;
   if (item.source === 'llm_call') return <Bot className="h-4 w-4" />;
   if (item.source === 'digital_action') return <Search className="h-4 w-4" />;
   if (item.source === 'task') return <Sparkles className="h-4 w-4" />;
   if (item.source === 'media_observation') return <Image className="h-4 w-4" />;
   if (item.source === 'queue_message') return <Clock3 className="h-4 w-4" />;
   if (item.kind === 'qq_message_seen') return <Eye className="h-4 w-4" />;
-  if (item.kind === 'speak_in_group' || item.kind === 'qq_self_message') return <MessageCircle className="h-4 w-4" />;
+  if (['send_in_group', 'send_in_private', 'qq_self_message'].includes(item.kind)) return <MessageCircle className="h-4 w-4" />;
   if (item.kind === 'terminal_action_blocked') return <AlertTriangle className="h-4 w-4" />;
   return <Bot className="h-4 w-4" />;
 }
@@ -158,6 +183,8 @@ function sourceLabel(source: string) {
       return 'life';
     case 'tool_call':
       return 'tool';
+    case 'provider_call':
+      return 'provider';
     case 'llm_call':
       return 'LLM';
     case 'digital_action':
@@ -176,7 +203,7 @@ function runtimeBusyLabel(runtime: RuntimeSnapshot | undefined) {
     return 'offline';
   }
   const busy = [
-    runtime.workerBusy && 'run',
+    runtime.workerBusy && 'action',
     runtime.taskWorkerBusy && 'task',
     runtime.presenceTickBusy && 'presence',
   ].filter(Boolean);
@@ -186,6 +213,25 @@ function runtimeBusyLabel(runtime: RuntimeSnapshot | undefined) {
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function metadataNumber(metadata: Record<string, unknown>, key: string): number | null {
+  const value = metadata[key];
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatBytes(value: number | null) {
+  if (!value || value <= 0) {
+    return null;
+  }
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function timelineGroups(items: XiaoniActivityFeedItem[]) {
@@ -213,11 +259,11 @@ function RuntimeStrip({
   const busyLabel = runtimeBusyLabel(runtime);
   const queue = feed?.current.queue;
   const tasks = feed?.current.tasks;
-  const digital = feed?.current.digitalActions;
+  const backgroundActions = feed?.current.backgroundActions;
   const autonomy = feed?.current.autonomy;
   const latestTool = feed?.items.find((item) => item.source === 'tool_call');
-  const activeBackground = (tasks?.pending || 0) + (tasks?.processing || 0);
-  const historicalDigital = (digital?.completed || 0) + (digital?.failed || 0) + (digital?.planned || 0) + (digital?.processing || 0);
+  const activeBackground = (tasks?.pending || 0) + (tasks?.running || 0);
+  const historicalBackground = (backgroundActions?.settled || 0) + (backgroundActions?.failed || 0) + (backgroundActions?.planned || 0) + (backgroundActions?.running || 0);
   const lifeState = feed?.current.lifeState as {
     explanation?: { summary?: unknown };
     projection?: { state?: Record<string, unknown> };
@@ -239,14 +285,14 @@ function RuntimeStrip({
           )}
         </div>
         <span className="text-muted-foreground">
-          Agent {runtime?.timestamp ? formatTimestamp(runtime.timestamp) : runtime?.errorMessage || 'pending'}
+          小腻服务 {runtime?.timestamp ? formatTimestamp(runtime.timestamp) : runtime?.errorMessage || 'pending'}
         </span>
         <span className="text-muted-foreground">
           最近 tool <span className="font-medium text-foreground">{latestTool?.kind || '-'}</span>
         </span>
         <span className="text-muted-foreground">
-          queue <span className="font-medium text-foreground">{(queue?.pending || 0) + (queue?.processing || 0)}</span>
-          {queue?.staleProcessing ? <span className="ml-1 text-amber-700">stale {queue.staleProcessing}</span> : null}
+          queue <span className="font-medium text-foreground">{(queue?.pending || 0) + (queue?.running || 0)}</span>
+          {queue?.staleRunning ? <span className="ml-1 text-amber-700">stale {queue.staleRunning}</span> : null}
         </span>
         <span className="text-muted-foreground">
           background <span className="font-medium text-foreground">{activeBackground}</span>
@@ -258,10 +304,10 @@ function RuntimeStrip({
           主动 IM <span className="font-medium text-foreground">{autonomy?.latestProactiveImOpenAt ? formatTimestamp(autonomy.latestProactiveImOpenAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
-          legacy digital <span className="font-medium text-foreground">{historicalDigital}</span>
+          history <span className="font-medium text-foreground">{historicalBackground}</span>
         </span>
         <span className="text-muted-foreground">
-          old runner <span className="font-medium text-foreground">{autonomy?.liveSelfActionRunner ? 'live' : 'removed'}</span>
+          runner <span className="font-medium text-foreground">{autonomy?.liveSelfActionRunner ? 'live' : 'off'}</span>
         </span>
       </div>
       {stateSummary ? (
@@ -276,10 +322,17 @@ function RuntimeStrip({
 function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLatest: boolean }) {
   const navigate = useNavigate();
   const tone = toneClasses[item.tone] ? item.tone : 'neutral';
+  const eventKind = item.eventKind || item.kind;
+  const occurredAt = item.occurredAt || item.timestamp;
   const inContextPreview = metadataText(item.metadata, 'inContextPreview');
   const toolArgumentsPreview = metadataText(item.metadata, 'toolArgumentsPreview');
   const toolResultPreview = metadataText(item.metadata, 'toolResultPreview');
   const responsePreview = metadataText(item.metadata, 'responsePreview');
+  const providerRequestPreview = metadataText(item.metadata, 'providerRequestPreview');
+  const providerResponsePreview = metadataText(item.metadata, 'providerResponsePreview');
+  const providerRequestBytes = formatBytes(metadataNumber(item.metadata, 'providerRequestBytes'));
+  const providerResponseBytes = formatBytes(metadataNumber(item.metadata, 'providerResponseBytes'));
+  const providerFormat = metadataText(item.metadata, 'providerFormat');
   const spanId = metadataText(item.metadata, 'spanId');
   const actionTracePreview = metadataText(item.metadata, 'actionTracePreview');
   const budgetSnapshotPreview = metadataText(item.metadata, 'budgetSnapshotPreview');
@@ -288,12 +341,17 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
   const decisionLlmCallId = metadataText(item.metadata, 'decisionLlmCallId');
   const searchLlmCallId = metadataText(item.metadata, 'searchLlmCallId');
   const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
+  const traceTarget = item.traceTarget || (item.internalExecutionLeaseId ? {
+    internalExecutionLeaseId: item.internalExecutionLeaseId,
+    traceId: item.traceId,
+    spanId
+  } : null);
   const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
 
   return (
     <div className="relative md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6">
       <div className="hidden pt-4 text-right md:block">
-        <time className="block font-mono text-sm font-semibold text-foreground">{formatTimeOnly(item.timestamp)}</time>
+        <time className="block font-mono text-sm font-semibold text-foreground">{formatTimeOnly(occurredAt)}</time>
         <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{sourceLabel(item.source)}</div>
       </div>
 
@@ -310,8 +368,9 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
         <div className="flex flex-wrap items-center gap-2">
           {isLatest ? <StatusPill tone="info">latest</StatusPill> : null}
           <StatusPill tone="neutral">{sourceLabel(item.source)}</StatusPill>
-          {item.status ? <StatusPill tone={statusTone(item.status)}>{item.status}</StatusPill> : null}
-          <time className="text-xs text-muted-foreground md:hidden">{formatTimestamp(item.timestamp)}</time>
+          <StatusPill tone="neutral">{eventKind.replace(/_/g, ' ')}</StatusPill>
+          {item.status ? <StatusPill tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusPill> : null}
+          <time className="text-xs text-muted-foreground md:hidden">{formatTimestamp(occurredAt)}</time>
         </div>
 
         <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -320,26 +379,59 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {item.peerName ? <span>{item.peerName}</span> : null}
               {item.actorName ? <span>{item.actorName}</span> : null}
-              {item.runId ? <span className="font-mono">{item.runId}</span> : null}
+              {item.traceId ? <span className="font-mono">{item.traceId}</span> : null}
               {spanId ? <span className="font-mono">{spanId}</span> : null}
+              {providerFormat ? <span>{providerFormat}</span> : null}
             </div>
           </div>
 
-          {item.runId ? (
+          {traceTarget?.internalExecutionLeaseId && (item.eventId || item.id) ? (
             <Button
               variant="outline"
               size="sm"
               className="shrink-0"
-              onClick={() => navigate(`/runs/${item.runId}/trace${spanId ? `?spanId=${encodeURIComponent(spanId)}` : ''}`)}
+              onClick={() => navigate(`/xiaoni/action-stream/events/${encodeURIComponent(item.eventId || item.id)}/trace${traceTarget.spanId ? `?spanId=${encodeURIComponent(traceTarget.spanId)}` : ''}`)}
             >
               <Waypoints className="mr-2 h-4 w-4" />
-              Trace
+              Raw Trace
             </Button>
           ) : null}
         </div>
 
         {item.body ? (
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
+        ) : null}
+
+        {providerRequestPreview || providerResponsePreview ? (
+          <section className="mt-4 border-t border-border/70 pt-3">
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="inline-flex items-center gap-2">
+                <Activity className="h-3.5 w-3.5" />
+                <span>Codex Provider trace</span>
+              </span>
+              {providerRequestBytes ? <span>request {providerRequestBytes}</span> : null}
+              {providerResponseBytes ? <span>response {providerResponseBytes}</span> : null}
+            </div>
+            <div className="grid gap-3 xl:grid-cols-2">
+              {providerRequestPreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">request preview</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/85">{providerRequestPreview}</pre>
+                </div>
+              ) : null}
+              {providerResponsePreview ? (
+                <div className="min-w-0">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">response preview</div>
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/85">{providerResponsePreview}</pre>
+                </div>
+              ) : null}
+            </div>
+            {traceTarget?.internalExecutionLeaseId ? (
+              <div className="mt-3 text-xs text-muted-foreground">
+                完整原文在 raw trace 的 provider span 中按需加载。
+              </div>
+            ) : null}
+          </section>
         ) : null}
 
         {inContextPreview ? (
@@ -443,12 +535,12 @@ export const XiaoniActivityPage: React.FC = () => {
     error,
     refetch,
   } = useQuery<XiaoniActivityFeed>({
-    queryKey: ['xiaoni-activity-feed'],
+    queryKey: ['xiaoni-action-stream'],
     queryFn: async () => {
-      const response = await fetch('/api/agent-runtime/activity-feed?limit=80');
+      const response = await fetch('/api/xiaoni/action-stream?limit=80');
       const payload = await response.json() as ApiResponse<XiaoniActivityFeed>;
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || 'Failed to load activity feed');
+        throw new Error(payload.error || 'Failed to load action stream');
       }
       return payload.data;
     },
@@ -460,11 +552,11 @@ export const XiaoniActivityPage: React.FC = () => {
   return (
     <PageShell className="max-w-6xl">
       <PageHeader
-        eyebrow="Xiaoni Runtime"
-        title="小腻在干嘛"
-        description="按时间线串起真实 trace：LLM in_context、action/tool、结果和跳转。"
+        eyebrow="Xiaoni Action Stream"
+        title="小腻行动流"
+        description="按时间线展示小腻经过的消息、模型、provider、tool 和后台行动。"
         icon={<Activity className="h-5 w-5" />}
-        badge={feed ? <PageHeaderBadge>{feed.items.length} Items</PageHeaderBadge> : null}
+        badge={feed ? <PageHeaderBadge>{feed.items.length} Events</PageHeaderBadge> : null}
         actions={
           <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
@@ -476,18 +568,18 @@ export const XiaoniActivityPage: React.FC = () => {
       <RuntimeStrip feed={feed} isLoading={isLoading} />
 
       {error ? (
-        <ErrorState description={error instanceof Error ? error.message : '加载小腻活动失败'} onRetry={() => void refetch()} />
+        <ErrorState description={error instanceof Error ? error.message : '加载小腻行动流失败'} onRetry={() => void refetch()} />
       ) : null}
 
       {isLoading && !feed ? (
         <div className="flex h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
           <Loader2 className="h-7 w-7 animate-spin text-primary" />
-          加载活动流...
+          加载行动流...
         </div>
       ) : null}
 
       {feed && feed.items.length === 0 ? (
-        <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无活动" description="还没有小腻活动记录。" />
+        <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无行动事件" description="还没有小腻行动流记录。" />
       ) : null}
 
       {feed && feed.items.length > 0 ? (

@@ -3,7 +3,7 @@
 ## 当前目标
 
 - 稳定当前主仓最小运行栈：`postgres + provider-service + agent-service + admin-panel`
-- 稳定已经落地的 `agent-service` loop runtime、agent run workspace 与 transcript replay
+- 稳定已经落地的 `agent-service` loop runtime、小腻行动流与 transcript replay
 - 继续清理历史兼容代码、陈旧脚本和误导性文档
 - 把管理端保留能力收口到当前真实后端能力，避免再出现无效入口
 - 让 provider-service 成为唯一外部能力接入层，统一承接调试、模拟、NapCat 发送、queue ingress、embeddings 和 memory side effect 调度
@@ -12,7 +12,7 @@
 
 - 继续把仓库脚本、部署说明、环境变量命名统一到 `provider-service`
 - 继续清理残留的旧文案和脚本假设，避免误导运行与排障
-- 稳定 admin playground、queue management、traffic replay、agent run workspace、runtime status 等保留调试面
+- 稳定 admin playground、queue management、traffic replay、小腻行动流 event trace、runtime status 等保留调试面
 - 完成 transcript snapshot compact/materialize 闭环，让 fixed-anchor replay 不再只靠“从会话开头重放”
 - 完成 Xiaoni identity-root continuity 的只读审计、event kind contract 校准和 prompt-safe projection 设计；在切 prompt 前先用 shadow trace 验证 `life_events` 与 session-window summary 的差异
 - 收尾 Xiaoni Identity Lineage Phase 1：连续性试验、trace 证据完整性、legacy migration 验证和 compose 级验证

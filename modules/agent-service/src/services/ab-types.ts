@@ -230,7 +230,7 @@ export type CandidateAction =
 
 export type CandidateActionKind =
   | 'silent_candidate'
-  | 'speak_in_group_candidate'
+  | 'send_in_group_candidate'
   | 'private_reply_candidate'
   | 'web_search_candidate'
   | 'image_task_candidate';
@@ -249,7 +249,7 @@ export interface StaySilentCandidateAction extends CandidateActionBase {
 }
 
 export interface SpeakInGroupCandidateAction extends CandidateActionBase {
-  kind: 'speak_in_group_candidate';
+  kind: 'send_in_group_candidate';
   text: string;
   targetGroupId?: string | null;
 }

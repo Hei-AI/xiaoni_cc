@@ -238,19 +238,60 @@ test('visible group replies charge one bounded action cost without per-message d
       presenceTick: undefined
     }),
     runId: 'run-visible-cost',
-    toolName: 'speak_in_group',
+    toolName: 'send_in_group',
     toolResult: {
       sent_messages: ['第一句', '第二句']
     }
   });
 
   assert.equal(lifeEvents.length, 3);
-  assert.equal(lifeEvents[0].eventKind, 'speak_in_group');
+  assert.equal(lifeEvents[0].eventKind, 'send_in_group');
   assert.equal(lifeEvents[0].actionCost, 0.015);
   assert.equal(lifeEvents[1].eventKind, 'qq_self_message');
   assert.equal(lifeEvents[1].actionCost, 0);
   assert.equal(lifeEvents[2].eventKind, 'qq_self_message');
   assert.equal(lifeEvents[2].actionCost, 0);
+});
+
+test('visible group delivery from a direct run is attributed to the target group', async () => {
+  const store = new RuntimeStore() as any;
+  const lifeEvents: any[] = [];
+  store.recordLifeEventSafe = async (input: any) => {
+    lifeEvents.push(input);
+  };
+
+  await store.recordVisibleDeliveryLifeEvents({
+    queueMessage: createRuntimeStoreQueuePayload({
+      chatType: 'direct',
+      sessionKey: 'qq:direct:303:202',
+      peerId: '202',
+      peerName: 'Alice',
+      inboundContext: {
+        Body: '帮我去群里说一句',
+        BodyForAgent: '帮我去群里说一句',
+        BodyForCommands: '帮我去群里说一句',
+        NativeChannelId: '202',
+        CommandAuthorized: true
+      }
+    }),
+    runId: 'run-direct-to-group',
+    toolName: 'send_in_group',
+    toolResult: {
+      message_type: 'group',
+      target_group_id: 253631878,
+      sent_messages: ['我去群里说一句']
+    }
+  });
+
+  assert.equal(lifeEvents.length, 2);
+  assert.equal(lifeEvents[0].eventKind, 'send_in_group');
+  assert.equal(lifeEvents[0].chatType, 'group');
+  assert.equal(lifeEvents[0].sessionKey, 'qq:group:253631878');
+  assert.equal(lifeEvents[0].peerId, '253631878');
+  assert.equal(lifeEvents[1].eventKind, 'qq_self_message');
+  assert.equal(lifeEvents[1].chatType, 'group');
+  assert.equal(lifeEvents[1].sessionKey, 'qq:group:253631878');
+  assert.equal(lifeEvents[1].actionCost, 0);
 });
 
 test('renderXiaoniLifeStateExplanation tells current energy and recent action costs', () => {
@@ -270,7 +311,7 @@ test('renderXiaoniLifeStateExplanation tells current energy and recent action co
       },
       {
         eventId: '2',
-        eventKind: 'speak_in_group',
+        eventKind: 'send_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
         effect: '已经开口，行动成本 1.00'
       },
@@ -295,7 +336,7 @@ test('renderXiaoniLifeStateExplanation tells current energy and recent action co
   assert.doesNotMatch(text, /无聊=|疲劳=|分享欲=|困倦压力=|疲劳怎么算|空闲检查被跳过/);
 });
 
-test('recordSilenceDecisionLifeEvent records lurked run as self-private silence decision', async () => {
+test('recordNoVisibleDeliveryLifeEvent records lurked action as self-private no-visible-delivery event', async () => {
   const store = createStoreWithSql({});
   const lifeEvents: any[] = [];
   (store as any).recordLifeEventSafe = async (input: any) => {
@@ -304,23 +345,23 @@ test('recordSilenceDecisionLifeEvent records lurked run as self-private silence 
 
   const queueMessage = createRuntimeStoreQueuePayload();
 
-  await store.recordSilenceDecisionLifeEvent({
+  await store.recordNoVisibleDeliveryLifeEvent({
     queueMessage,
     outcome: 'lurked',
     presenceOutcome: 'lurked',
-    termination: {
-      terminationReason: 'finish_no_reply',
-      finishReason: 'opened the group and stayed quiet',
-      finishOutcome: 'complete',
-      noReply: true
+    leaseRelease: {
+      reason: 'rest_started',
+      detail: 'opened the group and stayed quiet',
+      outcome: 'rest_started',
+      noVisibleDelivery: true
     },
-    totalTurns: 1,
+    modelRequestSlices: 1,
     conversationId: 42
   });
 
   assert.equal(lifeEvents.length, 1);
   const event = lifeEvents[0];
-  assert.equal(event.eventKind, 'silence_decision');
+  assert.equal(event.eventKind, 'no_visible_delivery_observed');
   assert.equal(event.visibility, 'self_private');
   assert.equal(event.chatType, 'group');
   assert.equal(event.sessionKey, 'qq:group:999');
@@ -331,11 +372,11 @@ test('recordSilenceDecisionLifeEvent records lurked run as self-private silence 
   assert.equal(event.queueMessageId, 7001);
   assert.equal(event.payload.outcome, 'lurked');
   assert.equal(event.payload.presence_outcome, 'lurked');
-  assert.equal(event.payload.termination.reason, 'finish_no_reply');
-  assert.equal(event.payload.termination.finish_reason, 'opened the group and stayed quiet');
+  assert.equal(event.payload.lease_release.reason, 'rest_started');
+  assert.equal(event.payload.lease_release.detail, 'opened the group and stayed quiet');
   assert.equal(event.payload.reason, 'opened the group and stayed quiet');
   assert.equal(event.payload.conversation_id, 42);
-  assert.match(event.dedupeKey, /^silence_decision:run-runtime-silence:qq:group:999$/);
+  assert.match(event.dedupeKey, /^no_visible_delivery:run-runtime-silence:qq:group:999$/);
 });
 
 test('listRecentTurns rebuilds historical user items from structured queue payloads', async () => {
@@ -764,7 +805,7 @@ test('listRecentTurns can read the global append stream for life-only presence t
   assert.deepEqual(conversationQueries[0]?.params, []);
 });
 
-test('getRunDeliveryState returns normalized persisted delivery state', async () => {
+test('getExecutionLeaseDeliveryState returns normalized persisted delivery state', async () => {
   const store = createStoreWithSql({
     query: async () => [{
       delivery_phase: 'delivery_committed',
@@ -774,7 +815,7 @@ test('getRunDeliveryState returns normalized persisted delivery state', async ()
     }]
   });
 
-  const state = await store.getRunDeliveryState('run-1');
+  const state = await store.getExecutionLeaseDeliveryState('run-1');
 
   assert.deepEqual(state, {
     deliveryPhase: 'delivery_committed',
@@ -784,7 +825,7 @@ test('getRunDeliveryState returns normalized persisted delivery state', async ()
   });
 });
 
-test('markRunDeliveryCommitted persists the single-commit invariant', async () => {
+test('markLeaseVisibleDeliveryCommitted persists the single-commit invariant', async () => {
   const executeCalls: Array<{ sql: string; params?: unknown[] }> = [];
   const lifeEvents: Array<Record<string, unknown>> = [];
   const store = createStoreWithSql({
@@ -796,17 +837,17 @@ test('markRunDeliveryCommitted persists the single-commit invariant', async () =
     lifeEvents.push(input);
   };
 
-  await store.markRunDeliveryCommitted('run-commit');
+  await store.markLeaseVisibleDeliveryCommitted('run-commit');
 
   assert.equal(executeCalls.length, 1);
   assert.match(executeCalls[0]?.sql || '', /delivery_phase = 'delivery_committed'/);
   assert.match(executeCalls[0]?.sql || '', /delivery_commit_count = CASE/);
   assert.deepEqual(executeCalls[0]?.params, ['run-commit']);
-  assert.equal(lifeEvents[0]?.eventKind, 'terminal_action_committed');
+  assert.equal(lifeEvents[0]?.eventKind, 'visible_delivery_committed');
   assert.equal(lifeEvents[0]?.visibility, 'operator_only');
 });
 
-test('markRunDeliveryBlocked increments blocked attempt count and reason', async () => {
+test('markLeaseDeliveryBlocked increments blocked attempt count and reason', async () => {
   const executeCalls: Array<{ sql: string; params?: unknown[] }> = [];
   const lifeEvents: Array<Record<string, unknown>> = [];
   const store = createStoreWithSql({
@@ -818,13 +859,13 @@ test('markRunDeliveryBlocked increments blocked attempt count and reason', async
     lifeEvents.push(input);
   };
 
-  await store.markRunDeliveryBlocked('run-blocked', 'Outbound delivery already committed earlier in this run.');
+  await store.markLeaseDeliveryBlocked('run-blocked', 'Outbound delivery already committed earlier in this run.');
 
   assert.equal(executeCalls.length, 1);
   assert.match(executeCalls[0]?.sql || '', /blocked_delivery_attempt_count = COALESCE\(blocked_delivery_attempt_count, 0\) \+ 1/);
   assert.match(executeCalls[0]?.sql || '', /last_blocked_delivery_reason = \?/);
   assert.deepEqual(executeCalls[0]?.params, ['Outbound delivery already committed earlier in this run.', 'run-blocked']);
-  assert.equal(lifeEvents[0]?.eventKind, 'terminal_action_blocked');
+  assert.equal(lifeEvents[0]?.eventKind, 'post_commit_side_effect_blocked');
   assert.equal(lifeEvents[0]?.visibility, 'operator_only');
 });
 

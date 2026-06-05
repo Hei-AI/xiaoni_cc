@@ -521,7 +521,7 @@ export const GroupChatDetailPage: React.FC = () => {
             <CardContent className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 <span>窗口：最近 {toolMetricsData?.data.window_days ?? 7} 天</span>
-                <Badge variant="outline">总 run {toolMetricsData?.data.total_runs ?? 0}</Badge>
+                <Badge variant="outline">总行动片段 {toolMetricsData?.data.total_runs ?? 0}</Badge>
               </div>
 
               {toolMetricsData?.data.tools?.length ? (
@@ -531,9 +531,9 @@ export const GroupChatDetailPage: React.FC = () => {
                       <TableRow>
                         <TableHead>工具</TableHead>
                         <TableHead>命中次数</TableHead>
-                        <TableHead>命中 run 数</TableHead>
-                        <TableHead>run 覆盖率</TableHead>
-                        <TableHead>平均每次命中 run 调用</TableHead>
+                        <TableHead>命中片段数</TableHead>
+                        <TableHead>片段覆盖率</TableHead>
+                        <TableHead>平均每片段调用</TableHead>
                         <TableHead>最近命中</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -693,8 +693,8 @@ export const GroupChatDetailPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => navigate(`/runs/${conversation.id}/trace`)}
-                              title="查看对话链路详情"
+                              onClick={() => navigate('/xiaoni-action-stream')}
+                              title="查看行动流"
                             >
                               <Eye className="h-3 w-3" />
                             </Button>

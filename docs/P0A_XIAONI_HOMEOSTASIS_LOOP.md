@@ -23,10 +23,11 @@ exists because the 2026-05-31 review changed the source-of-truth rule.
 - IM unread is persisted in `agent_inbound_messages`; each session uses its
   last-read message as the cursor, and opening IM materializes unread messages
   after that cursor so stale backlog is not treated as the current scene.
-- Presence-originated ticks read the global conversation append stream and use
-  `xiaoni:global` as the context summary / read-cutoff compatibility key, even
-  when unread IM materializes the current run into `proactive_im_open`. The
-  compressed `<小腻近况>` is still stored in
+- Main-loop ticks read the global conversation append stream and use
+  `xiaoni:global` as the only prompt-facing history, context summary, read
+  cutoff, and prompt cache key, even when unread IM materializes the current run
+  into `proactive_im_open`. Group/private sessions are only source,
+  delivery-target, and unread-cursor metadata. The compressed `<小腻近况>` is still stored in
   `agent_session_context_windows.context_summary`; it is not yet an event-backed
   `agent_life_events` digest. Life-only `presence_tick` can currently use
   internal tools, `web_search`, `compress_core_memory`, or `recover_energy`, not
@@ -63,8 +64,8 @@ implemented yet. Current-runtime facts above remain the truth until code lands.
   costs are:
 
   ```text
-  speak_in_group: 0.015
-  reply_in_private: 0.015
+  send_in_group: 0.015
+  send_in_private: 0.015
   web_search: 0.080
   inspect_image_placeholder: 0.040
   request_image_task: 0.030
@@ -145,8 +146,8 @@ cost context and chooses inside the main loop.
 Locked production prompt-facing tool/action costs:
 
 ```text
-speak_in_group: 0.015
-reply_in_private: 0.015
+send_in_group: 0.015
+send_in_private: 0.015
 web_search: 0.080
 inspect_image_placeholder: 0.040
 request_image_task: 0.030
@@ -168,9 +169,9 @@ Append events for facts that happened, not inferred personality:
 
 - `surface_visit`: Xiaoni opened or used QQ/IM.
 - `qq_message_seen`: a real human message entered Xiaoni's visible stream.
-- `speak_in_group` / `qq_self_message`: Xiaoni actually sent text.
+- prompt-facing `send_in_group` / `send_in_private` and `qq_self_message` life-event rows: Xiaoni actually sent text.
 - `silence_decision`: historical reducer-v1 compatibility row only. Current
-  prompt-facing runtime has no silence tool; no tool call is not a completed
+  prompt-facing runtime has no silence tool; no tool call is not a terminal
   action.
 - `terminal_action_committed` / `terminal_action_blocked`: delivery boundary.
 - `presence_tick_evaluated`: a scheduler check happened, including skip or
@@ -183,8 +184,9 @@ Append events for facts that happened, not inferred personality:
   `recover_energy`.
 - future digital events: real or explicitly constructed digital actions, each
   carrying source honesty, action cost, and source evidence.
-- historical retired self-action rows such as `self_action_started` /
-  `self_action_completed` may exist in production data and admin activity views.
+- historical retired self-action rows such as `self_action_started` and legacy
+  settled self-action rows may exist in production data and admin activity
+  views.
   Reconcile the bounded event-kind contract before reusing those kinds in new
   writes.
 

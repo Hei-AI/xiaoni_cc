@@ -109,6 +109,34 @@ function previewJson(value, maxLength = 520) {
   }
 }
 
+function rawJsonText(value, fallback = null) {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === null || typeof value === 'undefined') {
+    return fallback;
+  }
+  try {
+    return JSON.stringify(normalizeValue(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function estimateJsonBytes(value) {
+  if (value === null || typeof value === 'undefined') {
+    return 0;
+  }
+  if (typeof value === 'string') {
+    return Buffer.byteLength(value, 'utf8');
+  }
+  try {
+    return Buffer.byteLength(JSON.stringify(normalizeValue(value)), 'utf8');
+  } catch {
+    return Buffer.byteLength(String(value), 'utf8');
+  }
+}
+
 function firstString(...values) {
   for (const value of values) {
     if (typeof value === 'string' && value.trim()) {
@@ -151,6 +179,9 @@ function extractCanonicalInputMessages(request) {
 
 function buildInContextSnapshot(canonicalRequest, contextSummary, inputPrompt) {
   const request = normalizeJsonObject(canonicalRequest, null);
+  const canonicalRequestPreview = !request && typeof canonicalRequest === 'string'
+    ? truncateText(canonicalRequest, 1200)
+    : null;
   const messages = request ? extractCanonicalInputMessages(request) : [];
   const instructions = firstString(
     request?.effective_instructions,
@@ -161,6 +192,7 @@ function buildInContextSnapshot(canonicalRequest, contextSummary, inputPrompt) {
   const parts = [
     contextSummary ? `context_summary: ${contextSummary}` : null,
     inputPrompt ? `input_prompt: ${inputPrompt}` : null,
+    canonicalRequestPreview ? `canonical_request: ${canonicalRequestPreview}` : null,
     ...tailMessages,
     instructions ? `instructions: ${truncateText(instructions, 520)}` : null
   ].filter(Boolean);
@@ -191,19 +223,30 @@ function isSelfActionSearchLlm(row) {
     || metadata.session_id === 'self_action:xiaoni';
 }
 
+function isCodexProviderLlm(row) {
+  const provider = firstString(row?.model_provider, row?.wire_provider_format);
+  const config = normalizeJsonObject(row?.effective_unified_config, {});
+  const configProvider = firstString(config?.model?.provider, config?.provider);
+  return [provider, configProvider]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes('codex'));
+}
+
 const LIFE_EVENT_LABELS = {
   surface_visit: '打开会话',
   qq_message_seen: '看到消息',
   qq_self_message: '发出消息',
-  speak_in_group: '在群里说话',
+  send_in_group: '在群里发言',
+  send_in_private: '发出私聊消息',
   silence_decision: '决定先不说',
   surface_leave: '离开会话',
   self_action_started: '开始后台行动',
-  self_action_completed: '完成后台行动',
+  self_action_completed: '后台行动记录',
   web_search_result: '得到搜索结果',
   state_snapshot: '状态快照',
-  terminal_action_committed: '行动已提交',
-  terminal_action_blocked: '行动被阻止',
+  visible_delivery_committed: '可见投递已提交',
+  post_commit_side_effect_blocked: '后续副作用被阻止',
+  no_visible_delivery_observed: '没有可见发言',
   presence_tick_evaluated: '抬头检查已评估',
   rest_period: '休息了一段时间',
   sleep_period: '睡了一段时间'
@@ -329,7 +372,13 @@ function summarizeLifeEvent(row) {
     peerName: firstString(payload.peer_name, row.session_key),
     runId: row.run_id || null,
     traceId: row.trace_id || null,
-    tone: row.actor_type === 'human' ? 'neutral' : eventKind.includes('blocked') ? 'danger' : eventKind.includes('silence') ? 'warning' : 'xiaoni',
+    tone: row.actor_type === 'human'
+      ? 'neutral'
+      : eventKind.includes('blocked')
+        ? 'danger'
+        : eventKind.includes('no_visible')
+          ? 'warning'
+          : 'xiaoni',
     metadata: {
       sourceActionId: row.source_action_id || payload.action_id || null,
       surface: row.surface || null,
@@ -535,9 +584,9 @@ function summarizeLlmCall(row) {
   const modelName = row.model_name || row.model_provider || 'LLM';
   const inputTokens = Number(row.input_tokens || 0);
   const outputTokens = Number(row.output_tokens || 0);
-  const turnLabel = row.agent_turn ? `turn ${row.agent_turn}` : null;
+  const sliceLabel = row.agent_turn ? `model slice ${row.agent_turn}` : null;
   const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
-  const body = row.error_message || [modelName, turnLabel, tokenLabel].filter(Boolean).join(' · ');
+  const body = row.error_message || [modelName, sliceLabel, tokenLabel].filter(Boolean).join(' · ');
 
   return {
     id: `llm:${row.llm_call_id || row.id}`,
@@ -571,6 +620,61 @@ function summarizeLlmCall(row) {
       inContextMessageCount: inContext.messageCount,
       responsePreview: operatorOnly ? null : truncateText(firstString(row.processed_response, row.raw_response), 520),
       tokenUsage: normalizeJsonObject(row.token_usage)
+    }
+  };
+}
+
+function summarizeCodexProviderCall(row) {
+  const requestPreviewSource = rawJsonText(row.wire_request_preview_text, rawJsonText(row.wire_request));
+  const responsePreviewSource = rawJsonText(row.wire_response_preview_text, rawJsonText(row.wire_response, row.raw_response || null));
+  const provider = firstString(row.wire_provider_format, row.model_provider, 'codex');
+  const modelName = firstString(row.model_name, normalizeJsonObject(row.effective_unified_config, {})?.model?.name, 'unknown model');
+  const inputTokens = Number(row.input_tokens || 0);
+  const outputTokens = Number(row.output_tokens || 0);
+  const requestBytes = Number(row.wire_request_bytes || 0) || estimateJsonBytes(row.wire_request);
+  const responseBytes = Number(row.wire_response_bytes || 0) || estimateJsonBytes(row.wire_response || row.raw_response);
+  const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
+  const body = [
+    provider,
+    modelName,
+    row.llm_call_id || null,
+    tokenLabel
+  ].filter(Boolean).join(' · ');
+
+  return {
+    id: `provider:codex:${row.llm_call_id || row.id}`,
+    source: 'provider_call',
+    kind: 'codex_provider',
+    title: 'Codex Provider 请求',
+    body: truncateText(row.error_message || body, 420),
+    status: row.status || null,
+    actor: 'xiaoni',
+    actorName: '小腻',
+    timestamp: eventTimestamp(row.started_at || row.timestamp || row.completed_at),
+    sessionKey: row.session_key || null,
+    peerName: row.peer_name || null,
+    runId: row.run_id || null,
+    traceId: row.trace_id || null,
+    tone: row.status === 'failed' ? 'danger' : 'info',
+    metadata: {
+      llmCallId: row.llm_call_id || null,
+      spanId: row.llm_call_id ? `provider-request:wire:${row.llm_call_id}` : `provider:codex:${row.id}`,
+      parentSpanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : null,
+      agentTurn: Number(row.agent_turn || 0) || null,
+      modelName,
+      modelProvider: row.model_provider || null,
+      providerFormat: row.wire_provider_format || null,
+      processingTimeMs: row.processing_time_ms ? Number(row.processing_time_ms) : null,
+      apiCallTimeMs: row.api_call_time_ms ? Number(row.api_call_time_ms) : null,
+      inputTokens,
+      outputTokens,
+      completedAt: normalizeDate(row.completed_at),
+      errorMessage: row.error_message || null,
+      providerRequestPreview: truncateText(requestPreviewSource || '', 1200),
+      providerResponsePreview: truncateText(responsePreviewSource || '', 1200),
+      providerRequestBytes: requestBytes,
+      providerResponseBytes: responseBytes,
+      wirePayloadSource: 'llm_call_logs.wire_request/wire_response'
     }
   };
 }
@@ -733,6 +837,122 @@ function dedupeFeedItems(items) {
   });
 }
 
+function normalizeActionStreamStatus(status) {
+  switch (status) {
+    case 'settled':
+    case 'completed':
+      return 'ok';
+    case 'processing':
+      return 'running';
+    case 'pending':
+    case 'planned':
+      return 'waiting';
+    default:
+      return status || null;
+  }
+}
+
+function normalizeActionStreamEventKind(item) {
+  if (item.source === 'provider_call') {
+    return 'provider_request';
+  }
+  if (item.source === 'tool_call') {
+    return 'tool_call';
+  }
+  if (item.source === 'llm_call') {
+    return 'model_request_slice';
+  }
+  if (item.source === 'task') {
+    return 'task_queued';
+  }
+  if (item.source === 'media_observation') {
+    return 'media_observed';
+  }
+  if (item.source === 'queue_message') {
+    return item.status === 'processing' ? 'queue_claimed' : 'queue_event';
+  }
+  if (item.kind === 'send_in_group' || item.kind === 'send_in_private' || item.kind === 'qq_self_message') {
+    return 'visible_delivery_committed';
+  }
+  if (item.kind === 'recover_energy' || item.kind === 'rest_period' || item.kind === 'sleep_period') {
+    return 'rest_started';
+  }
+  if (item.kind === 'qq_message_seen') {
+    return 'qq_message_seen';
+  }
+  if (item.kind === 'state_snapshot') {
+    return 'state_changed';
+  }
+  if (item.source === 'digital_action') {
+    return 'historical_action_record';
+  }
+  return item.kind || item.source || 'runtime_event';
+}
+
+function normalizeActionStreamItem(item) {
+  const spanId = typeof item.metadata?.spanId === 'string' ? item.metadata.spanId : null;
+  const internalExecutionLeaseId = item.runId || null;
+  const metadata = normalizeValue({
+    ...item.metadata,
+    internalExecutionLeaseId,
+    spanId
+  });
+  if (Object.prototype.hasOwnProperty.call(metadata, 'completedAt')) {
+    metadata.endedAt = metadata.completedAt;
+    delete metadata.completedAt;
+  }
+  if (Object.prototype.hasOwnProperty.call(metadata, 'staleProcessing')) {
+    metadata.staleRunning = metadata.staleProcessing;
+    delete metadata.staleProcessing;
+  }
+  return {
+    ...item,
+    runId: null,
+    status: normalizeActionStreamStatus(item.status),
+    eventId: item.id,
+    eventKind: normalizeActionStreamEventKind(item),
+    occurredAt: item.timestamp,
+    internalExecutionLeaseId,
+    traceTarget: internalExecutionLeaseId ? {
+      internalExecutionLeaseId,
+      traceId: item.traceId || null,
+      spanId
+    } : null,
+    metadata
+  };
+}
+
+function normalizeActionStreamCurrent(current) {
+  return {
+    lifeState: current.lifeState,
+    latestActivityAt: current.latestActivityAt,
+    queue: {
+      pending: current.queue.pending,
+      running: current.queue.processing,
+      staleRunning: current.queue.staleProcessing,
+      failed: current.queue.failed
+    },
+    backgroundActions: {
+      planned: current.digitalActions.planned,
+      running: current.digitalActions.processing,
+      settled: current.digitalActions.completed,
+      failed: current.digitalActions.failed
+    },
+    autonomy: {
+      ...current.autonomy,
+      latestPresenceTickStatus: normalizeActionStreamStatus(current.autonomy.latestPresenceTickStatus),
+      latestProactiveImOpenStatus: normalizeActionStreamStatus(current.autonomy.latestProactiveImOpenStatus),
+      latestHistoricalDigitalActionStatus: normalizeActionStreamStatus(current.autonomy.latestHistoricalDigitalActionStatus)
+    },
+    tasks: {
+      pending: current.tasks.pending,
+      running: current.tasks.processing,
+      settled: current.tasks.completed,
+      failed: current.tasks.failed
+    }
+  };
+}
+
 function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) {
   function getClient(config) {
     return getPrismaClient(config);
@@ -817,29 +1037,68 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             r.chat_type,
             l.agent_type AS llm_agent_type,
             l.model_name AS llm_model_name,
-            l.canonical_request,
+            LEFT(l.canonical_request::text, 1200) AS canonical_request,
             l.input_prompt,
             l.context_summary,
             l.status AS llm_status,
             l.started_at AS llm_started_at,
             l.completed_at AS llm_completed_at
-          FROM tool_execution_logs t
+          FROM (
+            SELECT id
+            FROM tool_execution_logs
+            ORDER BY id DESC
+            LIMIT ?
+          ) latest_tool
+          INNER JOIN tool_execution_logs t ON t.id = latest_tool.id
           LEFT JOIN llm_call_logs l ON l.llm_call_id = t.llm_call_id
           LEFT JOIN agent_runs r ON r.trace_id = t.trace_id
-          ORDER BY COALESCE(t.started_at, t.completed_at) DESC NULLS LAST, t.id DESC
-          LIMIT ?
+          ORDER BY t.id DESC
         `, [perSourceLimit]),
         sql.query(`
           SELECT
-            l.*,
+            l.id,
+            l.llm_call_id,
+            l.trace_id,
+            l.agent_turn,
+            l.call_sequence,
+            l.agent_type,
+            l.prompt_template,
+            l.model_name,
+            l.model_provider,
+            l.wire_provider_format,
+            l.status,
+            l.started_at,
+            l.timestamp,
+            l.completed_at,
+            l.input_tokens,
+            l.output_tokens,
+            l.processing_time_ms,
+            l.api_call_time_ms,
+            l.error_message,
+            LEFT(l.canonical_request::text, 1200) AS canonical_request,
+            l.context_summary,
+            l.input_prompt,
+            LEFT(l.processed_response::text, 1200) AS processed_response,
+            LEFT(l.raw_response::text, 1200) AS raw_response,
+            l.token_usage,
+            l.effective_unified_config,
+            LEFT(l.wire_request::text, 1200) AS wire_request_preview_text,
+            LEFT(l.wire_response::text, 1200) AS wire_response_preview_text,
+            OCTET_LENGTH(l.wire_request::text) AS wire_request_bytes,
+            OCTET_LENGTH(l.wire_response::text) AS wire_response_bytes,
             r.id AS run_id,
             r.session_key,
             r.peer_name,
             r.chat_type
-          FROM llm_call_logs l
+          FROM (
+            SELECT id
+            FROM llm_call_logs
+            ORDER BY id DESC
+            LIMIT ?
+          ) latest_llm
+          INNER JOIN llm_call_logs l ON l.id = latest_llm.id
           LEFT JOIN agent_runs r ON r.trace_id = l.trace_id
-          ORDER BY COALESCE(l.started_at, l.timestamp, l.completed_at) DESC NULLS LAST, l.id DESC
-          LIMIT ?
+          ORDER BY l.id DESC
         `, [perSourceLimit]),
         Promise.all([
           prisma.agentQueueMessage.count({ where: { status: 'pending' } }),
@@ -873,6 +1132,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
       const latestDigitalAction = latestByTimestamp(digitalActions);
 
       const items = dedupeFeedItems([
+        ...traceLlmRows.filter(isCodexProviderLlm).map(summarizeCodexProviderCall),
         ...traceToolRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeToolCall),
         ...traceLlmRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmCall),
         ...lifeEvents.map(summarizeLifeEvent),
@@ -938,8 +1198,20 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
     }
   }
 
+  async function getXiaoniActionStream(input = {}, config = {}) {
+    const feed = await getXiaoniActivityFeed(input, config);
+    return {
+      identityKey: feed.identityKey,
+      generatedAt: feed.generatedAt,
+      streamKind: 'xiaoni_action_stream',
+      current: normalizeActionStreamCurrent(feed.current),
+      items: feed.items.map(normalizeActionStreamItem)
+    };
+  }
+
   return {
-    getXiaoniActivityFeed
+    getXiaoniActivityFeed,
+    getXiaoniActionStream
   };
 }
 
