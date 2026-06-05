@@ -129,6 +129,29 @@ services:
     networks:
       - qq_bot_network
 
+  # Xiaoni Executor
+  xiaoni-executor:
+    image: qqbot-xiaoni-executor
+    build:
+      context: .
+      dockerfile: modules/xiaoni-executor/Dockerfile
+      args: *build_no_proxy
+    container_name: qqbot-xiaoni-executor
+    ports:
+      - "127.0.0.1:8093:8093"
+    environment:
+      - HTTP_PORT=8093
+      - TZ=Asia/Shanghai
+      - WORKSPACE_ROOT=/workspace/qq_bot
+      - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
+    volumes:
+      - ./:/workspace/qq_bot
+      - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
+
   # Agent Service
   agent-service:
     image: qqbot-agent-service
@@ -151,6 +174,7 @@ services:
       - DB_PASSWORD=qqbot_password
       - DB_NAME=qqbot_db
       - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
+      - XIAONI_EXECUTOR_URL=http://qqbot-xiaoni-executor:8093
       - AI_MODEL_NAME=gpt-5.4-mini
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-gpt-5.5}
       - AGENT_PRE_REPLY_MEMORY_REASONER_ENABLED=true
@@ -166,6 +190,7 @@ services:
     depends_on:
       - postgres
       - provider-service
+      - xiaoni-executor
     restart: unless-stopped
     networks:
       - qq_bot_network

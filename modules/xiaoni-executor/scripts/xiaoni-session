@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+PORT="${HTTP_PORT:-8093}"
+BASE_URL="${XIAONI_EXECUTOR_SELF_URL:-http://127.0.0.1:${PORT}}"
+ACTION="${1:-}"
+SESSION_ID="${2:-}"
+
+if [ -z "$ACTION" ] || [ -z "$SESSION_ID" ]; then
+  echo "usage: xiaoni-session poll|kill <session_id>" >&2
+  exit 2
+fi
+
+case "$ACTION" in
+  poll)
+    PATH_PART="poll"
+    ;;
+  kill)
+    PATH_PART="kill"
+    ;;
+  *)
+    echo "usage: xiaoni-session poll|kill <session_id>" >&2
+    exit 2
+    ;;
+esac
+
+curl -sS -X POST "${BASE_URL}/api/internal/sessions/${SESSION_ID}/${PATH_PART}" \
+  | python3 -c 'import json,sys
+data=json.load(sys.stdin)
+result=data.get("result") if isinstance(data, dict) else None
+if isinstance(result, dict) and isinstance(result.get("codex_output"), str):
+    print(result["codex_output"])
+else:
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+'

@@ -67,6 +67,7 @@ export const databaseConfig = {
 
 export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
+  xiaoniExecutorUrl: (process.env.XIAONI_EXECUTOR_URL || '').replace(/\/$/, ''),
   modelName: process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
   xiaoniMainAgentModelName: process.env.XIAONI_MAIN_AGENT_MODEL || XIAONI_MAIN_AGENT_DEFAULT_MODEL,
   activeImClaimLimit: Math.max(1, Number.parseInt(process.env.AGENT_IM_TRIGGER_CLAIM_LIMIT || '200', 10) || 200),

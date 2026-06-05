@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+logs
+database/postgres_data
+models
+resource/napcat_qq_data
+modules/**/coverage
+modules/http-traffic-monitor/transparent-proxy/mitmproxy-data
+.env
+.env.*
+!.env.docker.example
