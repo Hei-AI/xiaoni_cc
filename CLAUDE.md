@@ -107,11 +107,11 @@ const run = await getRunById(id);
 
 ---
 
-**Agent loop 契约**：同一 loop workflow 内，每一轮必须保持同一份 instructions 和同一份 tools 定义；分阶段约束用 `tool_choice.allowed_tools` 表达，不能逐轮改 prompt 或 tools 列表。RAG 召回、工具结果、本轮状态属于 input/tool result 数据，不要动态拼进 system prompt。
-**Why:** Anthropic prompt cache 要求 system prompt 前缀在整个 session 内字节级不变；每轮动态拼接会让 cache miss 率趋近 100%，直接导致延迟和成本双双恶化。
+**Agent loop 契约**：同一 loop workflow 内必须保持同一份 instructions 和同一份 tools 定义；分阶段约束用 `tool_choice.allowed_tools` 表达，不能按步骤改 prompt 或 tools 列表。RAG 召回、工具结果、当前状态属于 input/tool result 数据，不要动态拼进 system prompt。
+**Why:** Anthropic prompt cache 要求 system prompt 前缀在整个 session 内字节级不变；动态拼接会让 cache miss 率趋近 100%，直接导致延迟和成本双双恶化。
 
 ```ts
-// BAD — 每轮把 RAG 拼进 system prompt，破坏 cache 前缀
+// BAD — 把 RAG 拼进 system prompt，破坏 cache 前缀
 { role: 'system', content: `${baseInstructions}\n\n## 相关记忆\n${ragContext}` }
 
 // GOOD — RAG 结果作为 user 消息传入，system prompt 保持不变

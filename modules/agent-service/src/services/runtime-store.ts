@@ -255,9 +255,9 @@ function renderRecoveryLabel(
 ) {
   const energy = `当前精力=${metric(state.energy)}`;
   if (eventKind === 'sleep_period') {
-    return `${energy}；本轮先不继续打开消息列表，记录一次睡眠恢复。`;
+    return `${energy}；暂不继续打开消息列表，记录休息恢复。`;
   }
-  return `${energy}；本轮先不继续主动看群，记录一次短暂休息。`;
+  return `${energy}；暂不继续主动看群，记录短暂休息。`;
 }
 
 export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExplanation) {

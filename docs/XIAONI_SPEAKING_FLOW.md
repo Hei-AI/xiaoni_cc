@@ -4,9 +4,9 @@
 
 - 当前系统整体架构是什么样。
 - 小腻被动发言和主动发言分别经历哪些阶段。
-- 主聊天 loop 现在如何避免普通场景变成三段式请求流程。
+- 主聊天 loop 现在如何避免普通场景变成固定状态机。
 
-如果只想先看业务总览，先读 `docs/CURRENT_ARCHITECTURE.md`。如果要查 loop 工具收缩契约和抑制路径，继续看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
+如果只想先看业务总览，先读 `docs/CURRENT_ARCHITECTURE.md`。如果要查 loop 工具收缩、恢复曲线和防重细节，继续看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
 
 ## 总架构
 
@@ -21,41 +21,49 @@ flowchart TD
 
   Queue --> Loop[agent-service main loop]
   Loop --> Context[组装输入<br/>已读历史 / 当前未读 / session-window 小腻近况 / xiaoni_os / 身份事实 / 媒体 / 当前状态]
-  Context --> Request[canonical request]
-  Request --> LifeAction[submit_life_action<br/>unread_meaning + participation_judgment + final action]
+  Context --> Request[canonical request<br/>allowed_tools mode=auto]
 
-  LifeAction -->|speak / proactive with messages| Send[直接发送 QQ 可见消息]
-  LifeAction -->|silent| Silent[直接沉默收口]
-  LifeAction -->|search| Search[web_search 后再 submit_life_action 收口]
-  LifeAction -->|image_task needs result| ImageTools[inspect_image_placeholder / request_image_task]
+  Request --> Tools{小腻选择当前动作}
+  Tools -->|speak_in_group / reply_in_private| Send[发送 QQ 可见消息]
+  Tools -->|web_search| Search[公开信息搜索后继续 loop]
+  Tools -->|inspect_image_placeholder| Inspect[看当前图片占位符后继续 loop]
+  Tools -->|request_image_task| ImageTask[登记图片任务]
+  Tools -->|exec_command| Exec[执行本地低风险操作或 skill 脚本]
+  Tools -->|compress_core_memory| Compress[压力触发时压缩近况]
+  Tools -->|recover_energy| Rest[按精力状态休息恢复]
+  Tools -->|未完成前无工具调用| Continue[提醒继续行动或 recover_energy]
 
   Send --> ProviderSend[provider-service send API]
   ProviderSend --> NapCat --> QQ
 
-  LifeAction --> Record[(agent_runs trace only / conversation_items / tool_execution_logs)]
-  Search --> Record
-  ImageTools --> Record
-  Silent --> Record
+  Search --> Loop
+  Inspect --> Loop
+  ImageTask --> Loop
+  Exec --> Loop
+  Compress --> Loop
+  Continue --> Loop
+
+  Send --> Record[(agent_runs trace / conversation_items / tool_execution_logs)]
+  Rest --> Record
   Record --> Learn[上下文压缩时异步学习]
   Learn --> Memory[(episodic / semantic / reflection memories<br/>identity facts)]
 
-  AgentTimer[agent-service presence timer] --> PresenceQueue[(synthetic presence_tick)]
+  AgentTimer[agent-service presence timer] --> PresenceQueue[(life_loop / compatible presence_tick)]
   PresenceQueue --> Loop
 ```
 
-一句话：被动发言、presence 主动发言最后都汇入同一个 `agent-service` main loop。普通说话、主动说一句和沉默现在都在 `submit_life_action` 内直接完成；只有真正需要外部结果时才使用外部工具请求。`agent_runs` 是 trace / delivery / retry 边界，不是小腻的认知边界。
+一句话：被动发言、presence / life_loop 主动事件都汇入同一个 `agent-service` main loop。普通说话不再先提交一个超长生活动作结构；小腻直接从当前允许工具里行动。`agent_runs` 是 trace / delivery / retry 边界，不是小腻的认知边界。
 
 ## 当前运行时契约
 
-- 产品心智是 `while true` 连续事件流。`agent_runs` 只服务 trace、delivery、防重、retry、observability 和管理端展示，不作为 prompt 里的认知边界。
-- prompt-facing 内心标签统一为 `<xiaoni_os>`。旧历史里残留的 `<小腻的OS>` 只做兼容读取，由模型自然理解，不做数据迁移。
-- `<STATE>` 不是每轮固定注入，只在工程触发点追加：跨 run action/tool 计数阈值、hosted `web_search` 返回后、低精力提醒、强制睡醒、连续直接 @ 打断休息。
-- energy 只注入当前数值和满值，例如 `energy="0.42" max_energy="1.00"`；不再注入 pressure、dopamine 或 high / medium / low 标签。
-- prompt-facing 休息工具统一为 `recover_energy`。`rest_period` / `sleep_period` 只能作为历史兼容或内部事件名，不能再作为两个 prompt-facing 工具暴露。
+- 产品心智是 `while true` 连续事件流。
+- prompt-facing 私密备注标签统一为 `<xiaoni_os>`。不要用工程术语解释它；它是留给之后自己的备注，不发给 QQ。
+- `<STATE>` 不是每次模型请求固定注入，只在状态事件发生时追加：action/tool 计数阈值、hosted `web_search` 后、低精力提醒、负精力后的完整恢复、休息中被连续直接 @ 打断。
+- energy 只注入当前数值和满值，例如 `energy="0.42" max_energy="1.00"`；不注入 pressure、dopamine 或 high / medium / low 标签。
+- energy 可以低于 0。恢复计算从 `max(0, current_energy)` 开始，120 分钟恢复到 `max_energy`。小腻只有在 `<STATE>` 可见时才知道具体精力数值。
+- prompt-facing 休息工具统一为 `recover_energy`。`rest_period` / `sleep_period` 只能作为历史兼容或内部事件名。
 - `<CAPABILITIES>` 在主 loop 输入开头注入一次，列出当前工具、skill 和 energy cost。
-- `compress_core_memory(text)` 在工具定义和 `<CAPABILITIES>` 中存在；普通请求的 `tool_choice.allowed_tools` 不允许它。压力触发时工程追加 `core_memory_pressure` reminder，并把 `tool_choice.allowed_tools` 限制为 `compress_core_memory`。
-- 当工程检测到 `raw_energy < 0` 时，直接进入 2h 强制等待；恢复曲线按实际休息时长计算，120 分钟满恢复，负精力按 `0` 参与恢复计算。
-- 休息中小腻不读取消息正文。工程只维护未读元数据和连续直接 @ 计数；连续直接 @ `>= 3` 时工程提前唤醒，按实际休息时间计算恢复量，并在下一段 `<STATE>` 里说明她被多次 @ 打断、当前精力恢复到多少。
+- 动作未完成前，“没有工具调用”不是沉默也不是结束；runtime 会继续提醒小腻选择真实动作，或者按精力状态调用 `recover_energy`。
 
 ## 被动发言路径
 
@@ -69,7 +77,7 @@ flowchart TD
   E -->|auto_reply_enabled=true| G[buildSemanticInboundMessage]
   G --> H[(agent_queue_messages)]
   H --> I[agent-service worker poll]
-  I --> J[main loop 单次决策，必要时外部工具续轮]
+  I --> J[main loop 当前动作决策，必要时外部工具后续请求]
 ```
 
 `provider-service` 只做入口边界、标准化、记录、入队，不负责最终判断小腻该不该说话。
@@ -79,101 +87,91 @@ flowchart TD
 - `modules/provider-service/src/index.ts`：NapCat event 入站、policy、queue enqueue。
 - `modules/provider-service/src/services/inbound-inbox-service.ts`：入站消息持久化。
 - `packages/persistence/agent-queue.js`：`agent_queue_messages` 入队。
-- `modules/agent-service/src/services/agent-loop-service.ts`：主 loop 决策、发送、沉默和工具续轮。
+- `modules/agent-service/src/services/agent-loop-service.ts`：主 loop 决策、发送、恢复、外部工具后续请求。
 
-## 主动发言路径
+## 主动生活路径
 
 ```mermaid
 flowchart TD
   A[agent-service 定时器] --> B[deriveLifeState]
-  B --> C{shouldFirePresenceTick}
-  C -->|low energy| D[当前抑制或沉默<br/>recover_energy / resting]
-  C -->|eligible| E[构造 synthetic message<br/>source=presence_tick]
+  B --> C{eligible?}
+  C -->|low energy| D[由 main loop 继续行动<br/>或 recover_energy]
+  C -->|eligible| E[构造 source=life_loop 事件]
   E --> F[(agent_queue_messages)]
-  F --> G[buildPresenceContext<br/>life state + xiaoni_os / context residue]
-  G --> H[同一个 main loop]
+  F --> G[读取全局 conversation append stream<br/>context key=xiaoni:global]
+  G --> H{游标后有未读 IM?}
+  H -->|yes| I[materialize proactive_im_open]
+  H -->|no| J[life-only main loop]
+  I --> K[同一个 main loop]
+  J --> K
 ```
 
-`life_loop` / compatible presence tick 当前只决定“要不要把小腻从自己的生活里抬头看一眼这件事 append 进同一个事件流”。无聊、冷却、分享欲和启动宽限不再是硬门禁。精力过低、恢复、休息和被连续 @ 唤醒按上一节当前契约推进。处理时如果 inbox 有游标后的未读，会选择一个未读会话 claim 成 `proactive_im_open`；如果没有游标后的未读，也会作为 life-only `life_loop` 进入同一个 main loop。未读来源是 DB 持久化状态，但每个群/私聊以上次已读最后一条为游标，IM 窗口只 materialize 游标之后的未读，旧 backlog 不能被当成当前现场。life-only / presence 起源的 tick 会读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key；即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局连续性，也不会自动 fallback 到某个群 summary。life-only tick 当前不能发 QQ，但可以按当前事件流、压缩近况和 `<xiaoni_os>` 选择内部 `submit_life_action`、`web_search` 或 `recover_energy`；沉默收口走 `submit_life_action(action_type=silent)`。如果内部行动产生“想回头分享”的内容，它会进入 `xiaoni_os`，后续通过普通上下文或 `<小腻近况>` 压缩延续。
+`life_loop` / compatible presence tick 不是第二套 planner，也不能硬编码兴趣、动机或读书 seed。它把“小腻当前有一次行动机会”append 进同一条事件流。
 
-已经移除 self-action 旁路数字生活 tick。代码里不能硬编码兴趣、动机或读书 seed；群聊/私聊里的建议本来就在事件流里，presence 起源的 tick 未压缩时从全局 conversation append stream 读取，压缩后当前通过 `xiaoni:global` 的 `<小腻近况>` / `<xiaoni_os>` 延续。旧 `<小腻的OS>` 历史只兼容读取，不迁移。
+presence 起源场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使当前动作 materialize 成 `proactive_im_open`，也不会退回到单个群/私聊的局部历史。这个 `xiaoni:global` 近况仍是 `agent_session_context_windows` 里的 session-window 摘要，不是已经落地的 event-backed 全局 digest，也不会自动 fallback 到某个群 summary。
 
-`/xiaoni-activity` 展示 Xiaoni 层面的生活事件和安全 trace 摘要。旧 `agent_digital_actions` 只作为历史观测兼容展示，不再作为新自主行动主链路。
+life-only 没有具体 IM 目标时不能发 QQ；当前只能使用 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。
 
-## Main Loop 当前契约
-
-`buildInitialInput` 会把当前 queue message 组装成模型输入：
-
-- system：小腻主 prompt、运行时阅读契约、单轮工具契约。
-- `role=developer`：稳定世界叙事、身份事实、presence context。
-- `role=user`：真实入站 QQ 消息，渲染为 `<INPUT_MESSAGE ...>`。
-- `role=assistant phase=final_answer`：小腻过去真正发出的 QQ 消息，渲染为 `<OUTPUT_MESSAGE ...>`。
-- `role=assistant phase=commentary`：`<小腻近况>`、`<xiaoni_os>`、`<ACTION>`、`<图片内容>`、`<STATE>`、`<system_reminder>`；旧历史中可能仍有 `<小腻的OS>`。
+## Main Loop 工具集合
 
 当前 group chat 工具定义包含：
 
 ```text
-submit_life_action
-web_search, if enabled
+exec_command
+web_search
+compress_core_memory
 speak_in_group
 inspect_image_placeholder
 request_image_task
 recover_energy
 ```
 
-默认决策入口的 `tool_choice` 收缩为：
+private chat 工具定义包含：
 
 ```text
-allowed_tools = [exec_command, submit_life_action]
+exec_command
+web_search
+compress_core_memory
+reply_in_private
+recover_energy
 ```
 
-`submit_life_action` 不是旧的 proposal-only 中间态。它现在一次性提交：
-
-- `unread_meaning`：当前未读在说什么、说给谁、是否有新推进。
-- `participation_judgment`：有没有具体可说点，还是只是直接请求或没有可说点。
-- `action_type`：`speak`、`silent`、`search`、`image_task`、`proactive`。
-- `message` / `messages`：`speak` 或 `proactive` 时要发给 QQ 的可见文本。
-- `xiaoni_os`：当前动作之后留给后续自己的内部连续性。
-- `context_gap` / `gap_resolution`：只有需要外部信息、看图或问来源时才使用外部工具。
-
-普通路径：
+life-only 工具定义包含：
 
 ```text
-submit_life_action(action_type=speak, messages=[...])
--> runtime 立即调用 provider-service send API
--> engineering run finished, total_turns=1
-
-submit_life_action(action_type=silent)
--> engineering run finished, no_reply=true, total_turns=1
+exec_command
+web_search
+compress_core_memory
+recover_energy
 ```
 
-外部工具路径：
+普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时把 `allowed_tools` 限制为 `compress_core_memory`。
 
-```text
-submit_life_action(action_type=search)
--> web_search
--> submit_life_action 收口
+## 行动语义
 
-submit_life_action(action_type=image_task, 缺少直接登记所需信息)
--> inspect_image_placeholder / request_image_task
--> submit_life_action 收口
-```
+### 说话
 
-`emit_unread_meaning` 只作为历史 replay / 旧日志兼容处理保留，不再是新 group loop 的入口工具，也不再要求普通请求走旧的多轮判断/发言/沉默路径。
+`speak_in_group` 和 `reply_in_private` 是可见 QQ delivery。成功后 runtime 记录 delivery commit；同一 run 后续可见 delivery 会被防重挡住。
 
-## 抑制规则
+### 搜索
 
-沉默不是失败，是一种收口结果。当前工程层会在这些情况下把 `submit_life_action` 收成沉默：
+`web_search` 只用于公开事实、新鲜资料、官方页面或指定 URL。工具返回后 runtime 会把结果和新的 `<STATE>` 放回 loop，让小腻继续行动。
 
-- `action_type=silent`。
-- `participation_judgment.status=no_sayable_point`。
-- `participation_judgment.status=direct_request`，但当前 `unread_meaning` 没有 direct new cue。
-- `action_type=speak` 但 `reaction_authenticity=empty_but_convenient`。
-- `action_type=speak` 且 `interest_level=none`。
-- `action_type=speak` 且 `interest_level=low`，没有直接把小腻拉进来的新理由。
-- 当前状态偏低时，`weak_but_real` 且兴趣不到 high。
+### 图片
 
-direct new cue 要求消息明确指向小腻，并且有真实新信息、问题、请求或反馈；不是“有新消息”就算。
+`inspect_image_placeholder` 用于当前上下文图片内容不清。`request_image_task` 用于登记生成/编辑任务。图片任务不能吞掉用户同批提出的可见回复需求；runtime 会强制补可见状态回复。
+
+### 本地操作
+
+`exec_command` 用于本地 skill 脚本或必要的低风险操作。QQ 阅读/导航通过 `$qq-usage` 的脚本完成，不把导航动作暴露成 OpenAI tools。
+
+### 恢复
+
+`recover_energy` 是小腻自己选择休息恢复的工具。她不应该假装知道不可见的当前精力；如果 `<STATE>` 没给数值，只能基于自己当前疲惫感和是否还想继续来选时长。
+
+### 压缩近况
+
+`compress_core_memory(text)` 是压力专用工具。工程检测到上下文压力时会强制允许它，并把工具文本写入未来 `<小腻近况>`。
 
 ## 所有 LLM 交互面
 
@@ -185,39 +183,22 @@ canonical request 结构：
 
 ```text
 model: runtimePrompt.modelName
+
 instructions:
   runtimePrompt.systemPrompt
-  + Runtime contract
-  + action closure tool contract
+  + stable runtime contract
 
 input:
-  developer/system/runtime context
+  developer CAPABILITIES
   historical INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os
   current queue batch
-  optional media / identity / presence context
+  optional media / identity / presence context / STATE
 
 tools:
-  group chat:
-    submit_life_action
-    exec_command
-    web_search, if enabled
-    compress_core_memory
-    speak_in_group
-    inspect_image_placeholder
-    request_image_task
-    recover_energy
-  private chat:
-    submit_life_action
-    exec_command
-    web_search, if enabled
-    compress_core_memory
-    reply_in_private
-    recover_energy
+  see Main Loop 工具集合
 
 tool_choice:
-  group chat default decision entry: allowed_tools([exec_command, submit_life_action])
-  group chat external follow-up: allowed_tools based on action_type / tool result
-  private chat: allowed_tools based on action_type / tool result
+  allowed_tools(mode=auto), except pressure requests that require compress_core_memory
 
 parallel_tool_calls: false
 prompt_cache_key: qq:group:<groupId> or related runtime key
@@ -236,44 +217,22 @@ input:
   prompt: 请用中文客观描述这张图片里可见的内容。只描述可见事实，不要猜测隐私、身份或意图。
 
 output:
-  description
-  model
-
-persistence:
   agent_media_observations
 ```
 
-### 上下文压缩学习
+### 图片生成 / 编辑
 
-主 loop 收口后，如果有历史 turn 被移出当前窗口，会异步调度：
+`request_image_task` 登记任务到 runtime task 表，再由 image provider 链路处理。任务登记本身不是 QQ 可见回复。
 
-```text
-scheduleContextCompressionMemoryWriter
--> write_episodic_observations
--> write_semantic_assertions
--> write_memory_reflections
-```
+## 排障
 
-当前压缩事实：
-
-- count-based compaction 触发点是 retained history 超过 `HISTORY_COMPACT_AT=200`，压缩后保留 `HISTORY_COMPACT_KEEP=30` 个最近 turns。
-- `<小腻近况>` 写入 `agent_session_context_windows.context_summary`，key 是普通 run 的 `payload.sessionKey`，或 presence-originated run 的 `xiaoni:global`。
-- 主链 `<小腻近况>` 不再由后台 `context_summary_writer` 生成。工程检测到 count/token 压力时追加 `core_memory_pressure` reminder，并强制模型调用 `compress_core_memory(text)`；工具成功后才写入新的 `<小腻近况>` 并推进 read cutoff。
-- 这份摘要不是 `agent_life_events` projection，也不是 OpenAI 官方 compaction item。
-
-长期记忆三层含义：
-
-- episodic observations：具体发生过什么、谁在场、小腻的位置。
-- semantic assertions：客观事实、当前状态、计划、claim；保留 owner、directed_to、scope 和 evidence_summary。
-- reflections：至少两条已落库 observation 支撑的跨时间模式。
-
-## 排障入口
-
-| 现象 | 第一站 |
+| 现象 | 优先看哪里 |
 |---|---|
-| QQ 消息没进 loop | `provider-service` policy、`agent_queue_messages` |
-| 进 loop 但普通场景还是多轮 | `agent-loop-service.ts` 的 `selectGroupLoopToolDefinitions`、`resolveGroupLoopToolChoice`、`commitLifeAction` |
-| 明明 `submit_life_action` 发言但没发出 | `commitLifeAction`、provider send API、`markRunDeliveryCommitted` |
-| 沉默太多 | `tool_execution_logs` 里的 `submit_life_action`，重点看 `participation_judgment`、`interest_level`、`reaction_authenticity` |
-| 做图/看图路径卡住 | `request_image_task`、`inspect_image_placeholder`、`agent_media_observations` |
-| 历史压缩后失忆 | `core_memory_pressure` reminder、`compress_core_memory` 工具文本、`agent_session_context_windows.context_summary`、read cutoff、三层 memory writer |
+| 明明调用说话工具但没发出 | `tool_execution_logs`、provider send API、`markRunDeliveryCommitted` |
+| 模型没有工具调用 | no-tool continuation reminder；动作未完成前不会被当作沉默 |
+| 可见回复后又试图发第二次 | delivery commit / duplicate outbound fingerprint |
+| 图片任务后没回用户状态 | forced visible reply 日志 |
+| life-only 想发 QQ | 没有具体 IM 目标时不允许；看是否只暴露 life-only 工具 |
+| 休息恢复不符合预期 | `recover_energy.duration_minutes`、`recoverRuntimeEnergy`、`agent_life_events` |
+| 上下文断裂 | `conversation_items.raw_response.xiaoni_os`、`agent_session_context_windows.context_summary` |
+| 压缩后忘记刚才在干什么 | `core_memory_pressure` reminder、`compress_core_memory` 工具文本、read cutoff |

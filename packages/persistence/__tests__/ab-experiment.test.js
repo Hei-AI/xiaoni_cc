@@ -98,13 +98,13 @@ test('upsertAbArmRun writes one arm per snapshot and mirrors arm status best-eff
     arm: 'treatment',
     status: 'completed',
     modelName: 'gpt-5.4-mini',
-    outputArtifact: { action: 'stay_silent_candidate' }
+    outputArtifact: { action: 'silent_candidate' }
   });
 
   assert.deepEqual(calls[0][1].where, { snapshot_id_arm: { snapshot_id: 'snap-1', arm: 'treatment' } });
   assert.deepEqual(calls[1][1], { where: { id: 'snap-1' }, data: { treatment_status: 'completed' } });
   assert.equal(armRun.model_name, 'gpt-5.4-mini');
-  assert.deepEqual(armRun.output_artifact, { action: 'stay_silent_candidate' });
+  assert.deepEqual(armRun.output_artifact, { action: 'silent_candidate' });
 });
 
 test('getAbExperimentTrace returns snapshot, arms, and latest eval without promotion fields', async () => {

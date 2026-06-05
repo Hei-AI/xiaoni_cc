@@ -88,7 +88,7 @@ flowchart TB
   Agent -->|"tool log start/end"| Tools
   Agent -->|"create/update run state"| Runs
   Agent -->|"append transcript / rawRequest / rawResponse"| Conv
-  Agent -->|"append surface_visit / qq_message_seen / speak / silence / sleep_period"| Life
+  Agent -->|"append surface_visit / qq_message_seen / speak / silence / compatible sleep_period"| Life
   Agent -->|"refresh deterministic projection"| LifeState
   Agent -->|"record presence context snapshot"| Sidecar
 
@@ -164,21 +164,22 @@ flowchart TD
   Replay --> Request
   State --> Request
 
-  Request --> Decision["allowed_tools usually submit_life_action"]
-  Decision --> Action{"submit_life_action.action_type"}
-  Action -->|"speak/proactive + messages + target"| Send["send QQ via provider -> NapCat"]
-  Action -->|"silent / suppressed"| Silent["finish no_reply"]
-  Action -->|"search"| Search["web_search follow-up"]
-  Action -->|"image_task"| Img["inspect image or request image task"]
-  Action -->|"recover_energy"| Rest["record sleep_period / refresh projection"]
-  Action -->|"life-only wants share"| OS["append residue into xiaoni_os / pending_share"]
-  Search --> Close["submit_life_action"]
-  Img --> Close
-  Close --> Finish["create conversation, complete run, complete queue"]
-  Send --> Finish
-  Silent --> Finish
+  Request --> Decision["allowed_tools mode=auto"]
+  Decision --> Action{"direct tool call"}
+  Action -->|"speak_in_group / reply_in_private"| Send["send QQ via provider -> NapCat"]
+  Action -->|"web_search"| Search["search result replay"]
+  Action -->|"inspect_image_placeholder / request_image_task"| Img["image observation or task"]
+  Action -->|"exec_command"| Exec["local tool / skill script"]
+  Action -->|"recover_energy"| Rest["record compatible sleep_period<br/>refresh projection"]
+  Action -->|"compress_core_memory"| Compress["write session-window summary"]
+  Action -->|"no tool before action complete"| Continue["append no-tool reminder"]
+  Search --> Request
+  Img --> Request
+  Exec --> Request
+  Compress --> Request
+  Continue --> Request
+  Send --> Finish["create conversation, complete run, complete queue"]
   Rest --> Finish
-  OS --> Finish
   Finish --> Learn["async memory writers and context summary if evicted turns exist"]
 ```
 
@@ -205,7 +206,7 @@ flowchart LR
 
 ## 排障入口
 
-- 不回复：先看 `agent_queue_messages`，再看 `agent_runs`，最后看 `tool_execution_logs.submit_life_action`。
+- 不回复：先看 `agent_queue_messages`，再看 `agent_runs`，最后看是否调用了 `recover_energy`、是否已完成可见 delivery，或是否仍在 no-tool continuation。
 - 上下文断裂：看 `conversation_items`、`raw_response.xiaoni_os`、`agent_session_context_windows.context_summary`。
 - 自运行行为：看 `life_loop` queue row、`agent_life_events`、`agent_session_life_states`、`raw_response.xiaoni_os`。
 - QQ 未读导航：看 `agent_inbound_messages` 和 `$qq-usage` 输出。

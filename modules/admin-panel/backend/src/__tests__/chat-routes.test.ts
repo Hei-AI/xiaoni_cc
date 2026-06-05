@@ -391,7 +391,7 @@ describe('chat settings routes', () => {
       .mockResolvedValueOnce([{ total_runs: 20 }])
       .mockResolvedValueOnce([
         {
-          tool_name: 'stay_silent',
+          tool_name: 'recover_energy',
           hit_count: 14,
           run_count: 14,
           successful_hit_count: 14,
@@ -427,7 +427,7 @@ describe('chat settings routes', () => {
     });
     expect(response.body.data.tools).toEqual([
       {
-        tool_name: 'stay_silent',
+        tool_name: 'recover_energy',
         hit_count: 14,
         run_count: 14,
         successful_hit_count: 14,

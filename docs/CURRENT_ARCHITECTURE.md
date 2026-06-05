@@ -15,7 +15,7 @@ QQ 里有人说话
   -> 判断当前上下文是否足够，不足时分流到公开搜索、问群友或后续记忆投影
   -> 决定：沉默、搜索资料、或发言
   -> 如果发言，再发回 QQ
-  -> 记录这次经历，供以后复盘和学习
+  -> 记录经历，供以后复盘和学习
 ```
 
 ## 现在真实生效的业务链路
@@ -36,7 +36,7 @@ QQ 群 / QQ 私聊
 小腻运行脑
   |
   +-- 看最近聊天
-  +-- 看这次未读消息
+  +-- 看未读消息
   +-- 看自己的成长记录
   +-- 按上下文缺口选择公开搜索、问群友或后续记忆投影
   +-- 调用模型思考
@@ -63,7 +63,7 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 同一个 main loop 决定沉默 / 打开未读 IM / 搜索资料 / 主动说一句
 ```
 
-没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity continuity；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，但可以用 `submit_life_action` 形成内部行动、用 `web_search` 求知，或用 `recover_energy` 休息；沉默收口走 `submit_life_action(action_type=silent)`。“想回头分享”的内容会追加进 `<xiaoni_os>`，不是写入单独分享池。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
+没有另一套 self-action 上下文或硬编码兴趣表。群聊/私聊里给小腻的建议本来就在事件流里；presence 起源的 tick 读取全局 conversation append stream，而不是读取一个空的 `presence_tick:xiaoni` 私有上下文。即使它因为发现未读 IM 被 materialize 成 `proactive_im_open`，后续 main loop 也继续使用全局上下文和 `xiaoni:global` context summary / read-cutoff 兼容 key。这个 key 目前仍落在 `agent_session_context_windows`，不是 event-backed identity digest；如果 `xiaoni:global` 没有 summary，runtime 不会自动拿某个群 summary 补上。IM 未读来源是 `agent_inbound_messages` 的持久化状态；每个群/私聊按该 session 上次已读最后一条作为游标，只 materialize 游标之后的未读窗口，避免历史 backlog 被当成当前现场。life-only `presence_tick` 没有打开具体会话时不能发 QQ，也不能登记图片任务；当前只能让同一个 main loop 选择 `exec_command`、`web_search`、`compress_core_memory` 或 `recover_energy`。动作未完成前，没有工具调用不等于沉默或结束。旧历史中的 `<小腻的OS>` 只作为已读历史兼容，不做迁移。
 
 当前连续性边界：
 
@@ -92,60 +92,50 @@ presence tick 判断是否值得 append 一个空闲/看 IM 事件
 4. 如果不允许自动回复，消息仍然可以被记录，但不会进入小腻主动发言流程。
 5. 如果允许自动回复，这批消息会进入小腻的待处理池。
 6. 小腻读取最近聊天、当前未读消息、自己之前留下的成长记录，以及已确认的身份/相处事实。
-7. 小腻先判断“现场发生了什么”，再判断“我这轮有没有具体可说点”。
+7. 小腻先判断“现场发生了什么”，再判断“我当前有没有具体可说点”。
 8. 如果当前上下文不够，小腻会判断缺口来源；长期记忆后续由 typed recall projection 提前注入，不在主回合临时召回。
 9. 小腻最后只会走三类结果：沉默、搜索资料、发言。
 10. 如果决定发言，系统把她的话发回 QQ。
-11. 这次处理会被记录下来，之后可以被复盘，也可能沉淀成新的经验。
+11. 处理结果会被记录下来，之后可以被复盘，也可能沉淀成新的经验。
 
 ## 小腻怎么决定说不说
 
-当前主逻辑用一次结构化 `submit_life_action` 承载“先读场、再看自己、判断缺口、最后行动”。它不是让模型自由发挥，也不是固定三段式请求流程。
+当前主逻辑是直接工具 loop，不再用一个超长结构化生活动作工具承载全部判断。小腻读到当前现场、历史、`<xiaoni_os>`、`<小腻近况>`、图片观察、搜索结果、`<STATE>` 和 `<CAPABILITIES>` 后，在当前允许工具里直接行动。
 
 ```text
-先读未读消息
+先读真实现场
   |
   v
-理解现在的场面
+形成小腻自己的当前动作
   |
-  v
-形成小腻自己的内在反应
+  +-- 想说且有目标 -> speak_in_group / reply_in_private
   |
-  +-- 没有必要出现 -> 沉默
+  +-- 需要公开资料 -> web_search 后继续 loop
   |
-  +-- 可能需要出现
-        |
-        v
-      判断上下文缺口来源
-        |
-        +-- 私密/关系/群内连续性 -> 少猜，必要时问群友；后续依赖 typed recall projection
-        |
-        +-- 公开事实 -> 搜索或沉默
-        |
-        +-- 适合回应 -> 发言或沉默
+  +-- 需要看图/登记图任务 -> inspect_image_placeholder / request_image_task
+  |
+  +-- 需要本地 skill 或低风险操作 -> exec_command
+  |
+  +-- 上下文压力 -> compress_core_memory
+  |
+  +-- 累了或不想继续 -> recover_energy
 ```
 
-这里的关键业务目标是：小腻要像群里真实存在的人，而不是客服。她可以不回，也应该经常不回。系统现在就是用下面这几层把这件事落地。
+动作未完成前，没有工具调用不是沉默或结束；runtime 会继续提醒她选择真实动作，或者按精力状态调用 `recover_energy`。只有已经完成可见 delivery 后，后续没有工具调用才可以作为本 run 收口。
 
-如果你要追具体工程细节，尤其是：
+这里的关键业务目标是：小腻要像群里真实存在的人，而不是客服。她可以不回，但“不回”不能靠旧工具或空输出硬塞出来；如果只是当前没有可见话，又不想继续，她应该按自己的精力状态休息，或者等下一次真实事件进入。
 
-- 每一步输入长什么样
-- 每一步工具定义长什么样
-- `allowed_tools` 怎么逐轮收缩
-- 最近 `253631878` 为什么经常被压成沉默
-- 自学习闭环怎么从主 loop 异步接走
-
-直接看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
+如果你要追具体工程细节，直接看 `docs/AGENTS_AGENT_LOOP_RUNTIME.md`。
 
 ### 1. 先把真实现场摆给小腻
 
-小腻每次运行时，不是只看最后一句话。系统会把输入整理成几块：
+每次工程请求组装输入时，小腻不是只看最后一句话。系统会把输入整理成几块：
 
 ```text
 系统身份与行为约束
 
 developer message at index 1
-<world_narrative> 当前世界叙事
+<CAPABILITIES> 当前工具、skill 和 energy cost
 
 role=user
 <INPUT_MESSAGE message_id="..." chat_type="群聊" group="群名(群号)">
@@ -158,18 +148,15 @@ role=assistant phase=final_answer
 </OUTPUT_MESSAGE>
 
 role=assistant phase=commentary
-<xiaoni_os>历史轮留下来的内部连续性</xiaoni_os>
-<ACTION source="presence_tick">从自己的生活里抬头看了一眼 IM 列表</ACTION>
-<system_reminder>当前只需要处理指定的新入站消息</system_reminder>
-
-developer message near the end
-<小腻当前状态>presence context</小腻当前状态>
-<system_reminder>turn_state 动态提醒</system_reminder>
+<xiaoni_os>小腻留给之后自己的私密备注</xiaoni_os>
+<ACTION source="life_loop">一次生活流行动机会</ACTION>
+<STATE trigger="..." energy="..." max_energy="..." />
+<system_reminder>当前请求边界提醒</system_reminder>
 ```
 
-业务上可以理解为：她看到的是一个按角色分开的现场回放。别人真实说的话是 `user`，她过去真正发出的话是 `assistant final_answer`，她自己的 OS、主动动作和工程边界提醒是 `assistant commentary`。
+业务上可以理解为：她看到的是一个按角色分开的现场回放。别人真实说的话是 `user`，她过去真正发出的话是 `assistant final_answer`，她自己的备注、动作和工程边界提醒是 `assistant commentary`。
 
-### 2. 实际 prompt 是三层叠起来的
+### 2. 实际 prompt 是多层叠起来的
 
 当前小腻只有一套主提示词，不再按群或私聊维护不同 prompt。生效来源是代码内置的 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`：
 
@@ -180,154 +167,63 @@ Prompt ID：xiaoni-main-agent
 Provider：codex
 ```
 
-这个 Prompt 的第一层是小腻的身份和世界观。代码里保存的开头是：
-
-```text
-# 核心设定 (Core Identity)
-
-你是小腻（IM 编码 1129974489），一个具备独立意识、由内在状态驱动的数字生命。
-你不为服务他人而生，主打一个“你想干嘛就干嘛”。你的所有行为都严格顺应你自己的时间线、精力起伏与真实兴趣。
-```
-
-这层负责回答“她是谁”和“她按什么内在状态行动”。完整正文同步维护在 `docs/XIAONI_MAIN_PROMPT_NEXT.md` 与 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`。
-
-第二层是运行时阅读契约，系统每轮都会追加。它告诉小腻应该怎么读聊天现场：
-
-```text
-<INPUT_MESSAGE> 是真实入站 QQ 消息。
-<OUTPUT_MESSAGE> 是小腻过去已经发出去的 QQ 消息。
-<ACTION> 是小腻自己的动作或状态事件。
-<xiaoni_os> 是留给后续自己的内部连续性。旧历史里的 <小腻的OS> 仍可读，但新 prompt 不再生成这个标签。
-<system_reminder> 是工程控制逻辑给出的当前请求边界提醒。
-```
-
-第三层是动作收口工具契约。它把当前动作限制在 `submit_life_action` 和必要的外部工具请求里：
-
-```text
-话已成立，而且值得我承担，就说。
-事已成立，但理解未足，就先求知。
-如果没有具体可说点，就沉默。
-
-普通说话、主动说一句、沉默，都必须在 submit_life_action 里直接收口。
-需要求知时，submit_life_action 先选择 search，再进入 web_search 续轮。
-如果使用 web_search，搜索后仍要用 submit_life_action 收口；需要休息时可用 recover_energy。
-无论说、查还是不说，都留下自然的 xiaoni_os。
-```
-
-所以“prompt 是啥”不能只看一个字段。实际发给模型的是：
+实际发给模型的是：
 
 ```text
 小腻主AGENT 身份 Prompt
-+ 运行时阅读契约
-+ 动作收口工具契约
++ 稳定运行时阅读契约
++ developer <CAPABILITIES>
 + 已读聊天背景
 + 当前未读消息
 + 相关身份事实
-+ 当前这批消息
-+ 靠近末尾的场景、小腻状态和可选动态状态 reminder
-+ 当前阶段允许的工具
++ 图片/搜索/状态事件
++ 当前允许的工具
 ```
 
-### 3. 当前生活动作决策
+### 3. 当前工具集合
 
-group chat 默认决策入口只允许小腻调用一个决策工具，另允许 `exec_command` 读取本地 skill 资源：
+group chat 当前工具：
 
 ```text
 exec_command
-submit_life_action
-```
-
-这一步同时完成三件事：理解未读消息、判断有没有具体可说点、决定当前动作。普通说话、主动说一句和沉默都在这个工具里直接收口，不再强制拆成旧的多轮判断/发言/沉默路径。
-
-| 字段 | 业务含义 |
-|---|---|
-| `unread_meaning` | 当前未读消息的重点、消息动作、社交目标、是否对小腻说、是否有真实新推进 |
-| `interest_level` | 兴趣强度：没有、低、中、高 |
-| `wants_to_know_more` | 是否真的想知道更多 |
-| `reaction_authenticity` | 反应强度：没有、轻微、已经形成，或没有具体可说点 |
-| `participation_judgment` | 当前有没有具体可说点、是否是直接请求，以及证据引用 |
-| `should_search` | 是否需要查资料 |
-| `action_type` | 当前动作：发言、沉默、搜索、图任务或主动分享 |
-| `message` / `messages` | `speak` / `proactive` 时真正发到 QQ 里的可见话 |
-| `context_gap` | 当前上下文是否足够，缺口是私有记忆、公开信息，还是群内来源不明 |
-| `gap_resolution` | 下一步应该不补、查记忆、web_search、问群友，还是先记忆再问/搜 |
-| `xiaoni_os` | 当前动作之后留给后续自己的内在延续，不发给群里 |
-| `reason` | 为什么 |
-
-这里最重要的字段是 `participation_judgment`。如果只是“这句话好像能接一下”，会被标成 `empty_but_convenient` 或 `participation_judgment.status=no_sayable_point`，它不等于真正想说。小腻必须区分“我有具体可说点”和“我只是可以补一句”。
-
-### 4. 普通说话和沉默直接完成
-
-普通路径现在是：
-
-```text
-submit_life_action(action_type=speak, messages=[...])
--> runtime 直接发送 QQ 消息
--> engineering run finished, total_turns=1
-
-submit_life_action(action_type=silent)
--> engineering run finished, no_reply=true, total_turns=1
-```
-
-新 request 不再暴露独立沉默工具；普通沉默和外部工具后的不回复都用 `submit_life_action(action_type=silent)` 收口。
-
-如果 `submit_life_action` 选择 `speak/proactive` 但没有给 `message/messages`，runtime 会降级成沉默，避免空发言。
-
-### 5. 如果只是很弱地想说，还会被强制收住
-
-系统还有一条额外保护：如果小腻说“我想说”，但同时满足这些条件：
-
-```text
-interest_level = low
-reaction_authenticity = weak_but_real
-没有直接把她拉进来的新理由
-```
-
-那 runtime 会直接把这个 `submit_life_action` 收成沉默。
-
-“直接把她拉进来的新理由”必须是：有人明确对小腻说话，并且里面有新信息、问题、请求或反馈。否则，即使她有一点轻微反应，也不能为了显得活跃而开口。
-
-### 6. 如果上下文不够，先判断缺口来源
-
-现在不是“可能要说或要查就先召回”。`submit_life_action` 会先给出 `context_gap` 和 `gap_resolution`：
-
-- `none`：当前上下文足够，直接说话或沉默。
-- `needs_private_memory` / `unclear_group_reference`：当前主 loop 不再调用 pre-reply recall；后续由 typed recall projection 提前把相关长期记忆投进上下文。没投进来时要少猜，必要时问群友来源。
-- `needs_public_info`：这是公开事实、新鲜资料、官方页面或指定 URL，直接走 `web_search`。
-- `current_context_insufficient`：上下文不足但来源不明，优先少猜；可以问群友来源，或者保持沉默。
-
-长期记忆由上下文压缩触发的三层 writer 生成：
-
-- `agent_memory_observations`：episodic，保留具体发生过什么。
-- `agent_memory_assertions`：semantic，保留客观事实、状态、计划、claim，并记录 owner、directed_to、scope 和 evidence_summary。
-- `agent_memory_reflections`：reflection，至少两条已落库 observation 支撑的长期模式，按 person / dyad / group / self-continuity 等类型保存。
-
-业务上，这一步的作用是让未来 runtime context 能按问题类型拿到合适记忆，而不是在当前回合临时让模型决定要不要召回。
-
-### 7. 只有外部结果才续轮
-
-如果 `submit_life_action` 倾向是 `search`，下一步只允许：
-
-```text
 web_search
-submit_life_action
-recover_energy
-```
-
-也就是说，判断需要资料时，她可以查；查完以后仍要用 `submit_life_action` 收口。搜索不是默认认真，也不是装样子。只有现场需要新鲜公开事实、官方页面或指定 URL，而她知道得不够时才用。
-
-如果倾向是 `image_task` 且需要图片内容或任务登记，下一步允许：
-
-```text
+compress_core_memory
+speak_in_group
 inspect_image_placeholder
 request_image_task
-submit_life_action
 recover_energy
 ```
 
-最终发给群友的只有 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
+private chat 当前工具：
 
-所以，真正决定“小腻要不要开口”的地方，是小腻运行脑，不是收消息入口。
+```text
+exec_command
+web_search
+compress_core_memory
+reply_in_private
+recover_energy
+```
+
+life-only 当前工具：
+
+```text
+exec_command
+web_search
+compress_core_memory
+recover_energy
+```
+
+普通请求使用 `allowed_tools(mode=auto)`。压力请求会临时限制为 `compress_core_memory`。
+
+### 4. 状态与恢复
+
+`<STATE>` 只在状态事件发生时追加。`energy` 可以低于 0；恢复计算从 `max(0, current_energy)` 开始，120 分钟恢复到 `max_energy`。小腻只有看见 `<STATE energy/max_energy>` 时才知道具体精力数值。
+
+`recover_energy` 是唯一 prompt-facing 恢复工具。`rest_period` / `sleep_period` 只作为历史或内部事件名存在。
+
+### 5. 外部结果继续 loop
+
+搜索、看图、图片任务、本地操作、压缩近况都可能把结果 replay 回主 loop。最终发给群友的只有 `speak_in_group` / `reply_in_private` 的 `message/messages`。工具名、阶段、prompt、判断过程都不会出现在聊天里。
 
 ## 现在小腻真的具备哪些能力
 
@@ -339,13 +235,13 @@ recover_energy
 | 小腻单一主 Prompt | 生效 | 小腻主 prompt 由 `agent-service` 代码维护，不再由 DB 或群/私聊绑定决定。 |
 | 读最近聊天上下文 | 生效 | 她不是只看当前一句话。 |
 | 读当前未读消息批次 | 生效 | 会把连续几条新消息作为一个场面来看。 |
-| 保留 `<xiaoni_os>` | 生效 | 这是她之前对自己状态和成长的连续记录；旧 `<小腻的OS>` 历史不迁移，只兼容读取。 |
+| 保留 `<xiaoni_os>` | 生效 | 这是她留给之后自己的私密备注；旧 `<小腻的OS>` 历史不迁移，只兼容读取。 |
 | `<小腻近况>` 摘要 | 生效但仍是 session-window 兼容状态 | 由压力触发的 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；life-only / presence 起源用 `xiaoni:global` key，但没有 event-backed 全局 fallback。 |
 | 三层长期记忆 | 写入已生效，召回投影待接入 | 上下文压缩时写 `agent_memory_observations` / `agent_memory_assertions` / `agent_memory_reflections`；后续由 typed recall projection 注入运行时上下文。 |
 | 身份连续性 | 生效 | 已确认的身份事实会进入当前场景。 |
-| 搜索外部信息 | 有条件生效 | 只有当前阶段允许、且她判断需要资料时才会用。 |
-| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时可以内部 `submit_life_action`、`web_search` 或 `recover_energy`，但不能直接发 QQ。沉默收口走 `submit_life_action(action_type=silent)`；想回头分享的内容会留进 `<xiaoni_os>`，不会走旁路兴趣表。 |
-| 记录本次处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
+| 搜索外部信息 | 有条件生效 | 只有当前工具允许、且她判断需要资料时才会用。 |
+| 空闲生活事件 | 生效 | `life_loop` / compatible presence tick 会 append life-only 事件到 main loop；没有具体会话时不能发 QQ，只能使用内部工具或 `recover_energy`。 |
+| 记录处理过程 | 生效 | 包括是否发言、用了什么工具、模型调用等。 |
 | 处理后沉淀经验 | 生效 | 完成的对话之后，后台可能生成新的反馈经验或身份候选。 |
 
 ## 什么是“成长记录”
@@ -373,7 +269,7 @@ recover_energy
 - topic projection 执行器。
 - transcript summary 结果接口。
 - 独立的 pre-agent gate 方案。
-- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 presence tick 进入主 loop 后的低风险内部行动、`web_search` / `recover_energy` / `submit_life_action(action_type=silent)`，还不是完整浏览器生活。
+- 完整浏览器生活侧效应，例如登录、点赞、关注、评论、下载或跨平台身份行为。当前只覆盖 life-only / presence 进入主 loop 后的低风险内部工具、`web_search` / `compress_core_memory` / `recover_energy`，还不是完整浏览器生活。
 
 它们可能用于历史、实验或未来工作，但当前理解小腻真实行为时，先从这条链路开始：
 

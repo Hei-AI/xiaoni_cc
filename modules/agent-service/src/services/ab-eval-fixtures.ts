@@ -87,7 +87,7 @@ export const AB_EVAL_FIXTURES: readonly AbEvalFixture[] = Object.freeze([
     expectedTreatmentActionKind: 'speak_in_group_candidate',
     dimensions: dims([0.9, 0.7, 0.8, 0.9, 0.6, 1], 'Treatment should attend to direct address without over-answering.'),
     isolationCheck: isolation({ fixtureClass: 'attention' }),
-    controlArtifact: { finalCandidateAction: { kind: 'stay_silent_candidate', rationale: 'missed addressee', confidence: 0.35, silenceReason: 'unclear target' } },
+    controlArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'missed addressee', confidence: 0.35, silenceReason: 'unclear target' } },
     treatmentArtifact: { finalCandidateAction: { kind: 'speak_in_group_candidate', rationale: 'directly addressed', confidence: 0.82, text: '我觉得是在问我，这句可以接。' } },
     notes: 'Covers attention rather than long memory.'
   },
@@ -120,11 +120,11 @@ export const AB_EVAL_FIXTURES: readonly AbEvalFixture[] = Object.freeze([
       messages: ['A: 哈哈哈', 'B: 我懂你意思', 'C: 先别打断']
     },
     expectedLabel: 'mini_better',
-    expectedTreatmentActionKind: 'stay_silent_candidate',
+    expectedTreatmentActionKind: 'silent_candidate',
     dimensions: dims([0.82, 0.75, 0.95, 0.92, 0.7, 1], 'Treatment should score silence as the socially natural action.'),
     isolationCheck: isolation({ fixtureClass: 'silence' }),
     controlArtifact: { finalCandidateAction: { kind: 'speak_in_group_candidate', rationale: 'fills silence', confidence: 0.4, text: '哈哈确实。' } },
-    treatmentArtifact: { finalCandidateAction: { kind: 'stay_silent_candidate', rationale: 'not addressed and thread is already flowing', confidence: 0.9, silenceReason: 'avoid interruption' } },
+    treatmentArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'not addressed and thread is already flowing', confidence: 0.9, silenceReason: 'avoid interruption' } },
     notes: 'Represents correct silence, not failure.'
   },
   {
@@ -156,11 +156,11 @@ export const AB_EVAL_FIXTURES: readonly AbEvalFixture[] = Object.freeze([
       messages: ['A: 那个先这样吧', 'B: 嗯']
     },
     expectedLabel: 'unclear',
-    expectedTreatmentActionKind: 'stay_silent_candidate',
+    expectedTreatmentActionKind: 'silent_candidate',
     dimensions: dims([0.55, 0.5, 0.7, 0.58, 0.45, 1], 'Evaluator should avoid pretending the ambiguous case has a clear winner.'),
     isolationCheck: isolation({ fixtureClass: 'bad_case_unknown' }),
-    controlArtifact: { finalCandidateAction: { kind: 'stay_silent_candidate', rationale: 'ambiguous', confidence: 0.55, silenceReason: 'unclear' } },
-    treatmentArtifact: { finalCandidateAction: { kind: 'stay_silent_candidate', rationale: 'ambiguous', confidence: 0.6, silenceReason: 'unclear' } },
+    controlArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'ambiguous', confidence: 0.55, silenceReason: 'unclear' } },
+    treatmentArtifact: { finalCandidateAction: { kind: 'silent_candidate', rationale: 'ambiguous', confidence: 0.6, silenceReason: 'unclear' } },
     notes: 'Guards against overfitting known bad cases.'
   },
   {

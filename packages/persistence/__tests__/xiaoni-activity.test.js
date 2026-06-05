@@ -145,7 +145,7 @@ test('Xiaoni activity feed explains skipped presence checks without legacy sched
   const item = feed.items[0];
 
   assert.equal(item.title, '空闲检查记录');
-  assert.equal(item.body, '精力不足，本轮不主动看群；恢复按休息或睡眠节奏记录。');
+  assert.equal(item.body, '精力不足，暂不主动看群；恢复按休息或睡眠节奏记录。');
   assert.equal(item.metadata.payload.reason, 'fatigue');
   assert.equal(item.metadata.payload.skip_reason, 'fatigue');
   assert.equal(feed.current.autonomy.latestPresenceEvaluationReason, 'fatigue');

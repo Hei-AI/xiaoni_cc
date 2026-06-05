@@ -11,9 +11,11 @@ presence-originated event reads the global conversation append stream and uses
 is still backed by `agent_session_context_windows`; event-backed identity-root
 `<小腻近况>` is not implemented yet. If an IM has unread messages after that
 session's last-read cursor, the run can materialize that target as
-`proactive_im_open`; otherwise it stays life-only and can currently submit an
-internal life action, run grounded hosted `web_search`, or call `recover_energy`;
-silence is `submit_life_action(action_type=silent)`. It still cannot send QQ without a concrete IM target. "想回头分享" material is current-context residue:
+`proactive_im_open`; otherwise it stays life-only and can currently use
+`exec_command`, grounded hosted `web_search`, `compress_core_memory`, or
+`recover_energy`. It still cannot send QQ or register image tasks without a
+concrete IM target. A no-tool model response before action completion is not a
+silence or finish signal. "想回头分享" material is current-context residue:
 it is appended into `<xiaoni_os>` and later session-window `<小腻近况>`, not
 routed through a separate share-pool queue. Old `<小腻的OS>` history is read as
 legacy residue and is not migrated. This is still not the full browser-backed
@@ -91,7 +93,7 @@ cost context, then let Xiaoni choose.
 → 小腻自己探索数字内容：读、看、玩、搜、收藏、整理
 → 形成数字生活所得和自己的反应
 → 追加成上下文残留 / `<xiaoni_os>`
-→ 情绪能量决定她是否打开群、主动分享、接当前话题、潜水或睡觉
+→ 情绪能量决定她是否打开群、主动分享、接当前话题、潜水或休息
 → 群友反应回流到分享欲、关系温度、偏好和边界
 → 影响后续浏览和分享
 ```
@@ -177,7 +179,7 @@ Medium cost:
 主动分享一句 / 接梗 / 简短吐槽 / 看一小段网页
 
 High cost:
-长篇解释 / 深度搜索 / 多轮认真讨论 / 整理复杂内容
+长篇解释 / 深度搜索 / 连续认真讨论 / 整理复杂内容
 ```
 
 Engineering implication:
@@ -280,8 +282,8 @@ Current implemented slices:
   stream and uses `xiaoni:global` for context summary / read-cutoff compatibility
   even if unread IM materializes the run into `proactive_im_open`; without a
   concrete IM target it cannot send QQ directly. It can currently use
-  `submit_life_action`, `web_search`, or `recover_energy`; silence is
-  `submit_life_action(action_type=silent)`.
+  `exec_command`, `web_search`, `compress_core_memory`, or `recover_energy`.
+  A no-tool response before action completion is not a silence or finish signal.
   Any "想回头分享" residue is appended to `<xiaoni_os>` and
   therefore survives normal context replay or later summary compression. The compressed `<小腻近况>` here is still
   `agent_session_context_windows.context_summary`, not an event-backed
@@ -525,7 +527,7 @@ group residue / digital action
 
 State persistence rule:
 
-- `一轮内状态`: whether Xiaoni wants to speak now, speak briefly or at length,
+- `即时状态`: whether Xiaoni wants to speak now, speak briefly or at length,
   engage the current topic, proactively share from current residue, or
   lurk. This is consumed by the current action and should not be persisted as
   personality.
@@ -582,7 +584,7 @@ In-context action arbitration rule:
 ```text
 [小腻当前状态]
 当前精力：0.80
-精力成本：最近行动消耗：已经开口，本次行动成本 0.02
+精力成本：最近行动消耗：已经开口，行动成本 0.02
 可用材料：
 - 一个关于夏天和死亡意象的文字联想
 材料边界：整理出来的材料，不能说成刚查到
@@ -606,7 +608,7 @@ In-context action arbitration rule:
 
 ```text
 当前精力：0.80
-精力成本：最近行动消耗：已经开口，本次行动成本 0.02
+精力成本：最近行动消耗：已经开口，行动成本 0.02
 ```
 - The action budget must not become an extra scheduler deciding for Xiaoni.
   It should be derived from current energy and current action history. Discuss this together

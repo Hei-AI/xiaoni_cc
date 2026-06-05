@@ -236,7 +236,7 @@ function formatCost(value: number) {
 }
 
 function actionCostText(cost: number) {
-  return `本次行动成本 ${formatCost(cost)}`;
+  return `行动成本 ${formatCost(cost)}`;
 }
 
 function resolveActionCost(eventKind: string, eventCost: number) {
@@ -318,8 +318,8 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
         state.lastPresenceTickEnqueuedAt = occurredAt || state.lastPresenceTickEnqueuedAt;
       }
       rememberContributor(state, event, payload.eligible === true
-        ? `这次空闲检查可以进入队列，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`
-        : `这次空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
+        ? `空闲检查可以进入队列，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`
+        : `空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
       state.actionCost = clamp01(state.actionCost - 0.1);
@@ -332,7 +332,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, '刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0.00');
+      rememberContributor(state, event, '刚才记录了一次休息恢复，恢复后累计行动成本重置为 0.00');
       break;
     default:
       applyActionCost(state, event.eventKind, actionCost);

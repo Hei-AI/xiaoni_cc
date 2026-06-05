@@ -98,10 +98,11 @@ type OpenResponseToolDefinition = {
 };
 
 type OpenResponseToolChoice =
+  | 'auto'
   | 'required'
   | {
       type: 'allowed_tools';
-      mode: 'required';
+      mode: 'auto' | 'required';
       tools: Array<
         | {
             type: 'function';
@@ -134,44 +135,15 @@ type RuntimeStateTrigger =
   | 'action_tool_threshold'
   | 'web_search'
   | 'low_energy_reminder'
-  | 'forced_sleep_wake'
-  | 'repeated_at_wake';
+  | 'forced_full_recovery'
+  | 'rest_interrupted';
 
 type TurnControlStage =
   | 'read_unread'
-  | 'feel_reaction'
-  | 'maybe_search_or_inspect'
   | 'finalize';
 
 type TurnControlRecallStatus = 'not_needed';
-type TurnControlExpectedNext =
-  | 'submit_life_action'
-  | 'final_tool';
-type LifeActionContextGap =
-  | 'none'
-  | 'current_context_insufficient'
-  | 'needs_private_memory'
-  | 'needs_public_info'
-  | 'unclear_group_reference';
-type LifeActionGapResolution =
-  | 'none'
-  | 'memory'
-  | 'web_search'
-  | 'ask_group'
-  | 'memory_then_ask_or_search';
-type LifeActionParticipationJudgmentStatus =
-  | 'has_sayable_point'
-  | 'no_sayable_point'
-  | 'direct_request';
-type LifeActionParticipationJudgmentBasis =
-  | 'opinion'
-  | 'question'
-  | 'curiosity'
-  | 'discomfort'
-  | 'association'
-  | 'boundary'
-  | 'direct_request'
-  | 'none';
+type TurnControlExpectedNext = 'final_tool';
 export type TurnControlState = {
   stage: TurnControlStage;
   targetFound: boolean;
@@ -314,27 +286,6 @@ type UnreadMeaning = {
   topicContext: UnreadMeaningTopicContext | null;
 };
 
-type LifeAction = {
-  unreadMeaning: UnreadMeaning | null;
-  actionType: 'speak' | 'silent' | 'search' | 'image_task' | 'proactive';
-  evidenceRefs: string[];
-  confidence: number | null;
-  interestLevel: 'none' | 'low' | 'medium' | 'high';
-  wantsToKnowMore: boolean;
-  reactionAuthenticity: 'none' | 'weak_but_real' | 'formed' | 'empty_but_convenient';
-  participationJudgment: {
-    status: LifeActionParticipationJudgmentStatus;
-    basis: LifeActionParticipationJudgmentBasis;
-    sayablePoint: string | null;
-    evidenceRefs: string[];
-    memoryRefs: string[];
-  };
-  shouldSearch: boolean;
-  contextGap: LifeActionContextGap;
-  gapResolution: LifeActionGapResolution;
-  reason: string;
-};
-
 type FeedbackReflectionCandidate = {
   shouldPersist: boolean;
   feedbackKind: 'positive' | 'negative' | 'mixed';
@@ -393,7 +344,6 @@ type FeedbackMemorySubagentParams = {
   xiaoniOs: string | null;
   deliveredMessages: string[];
   unreadMeaningArtifact: Record<string, unknown> | null;
-  lifeActionArtifact: Record<string, unknown> | null;
 };
 
 type ContextCompressionMemoryParams = {
@@ -440,11 +390,10 @@ const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 const RUNTIME_MAX_ENERGY = 1;
 const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
 const RUNTIME_LOW_ENERGY_THRESHOLD = 0.2;
-const RESTING_DIRECT_MENTION_WAKE_THRESHOLD = 3;
+const RESTING_DIRECT_MENTION_RESUME_THRESHOLD = 3;
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
-  lifeAction: 'submit_life_action',
   inspectImage: 'inspect_image_placeholder',
   imageTask: 'request_image_task',
   feedbackReflection: 'synthesize_feedback_reflection',
@@ -452,13 +401,11 @@ const TOOL_NAMES = {
   execCommand: 'exec_command',
   privateReply: 'reply_in_private',
   groupReply: 'speak_in_group',
-  silentFinish: 'stay_silent',
   recoverEnergy: 'recover_energy',
   compressCoreMemory: 'compress_core_memory'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
-  [TOOL_NAMES.lifeAction]: 0.005,
   [TOOL_NAMES.groupReply]: 0.015,
   [TOOL_NAMES.privateReply]: 0.015,
   web_search: 0.080,
@@ -480,14 +427,19 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   external_web_access: agentConfig.webSearchExternalAccess
 };
 
+const EXEC_COMMAND_DESCRIPTION = [
+  'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+  'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
+].join(' ');
+
 const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
   type: 'function',
   name: TOOL_NAMES.execCommand,
-  description: 'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+  description: EXEC_COMMAND_DESCRIPTION,
   strict: false,
   function: {
     name: TOOL_NAMES.execCommand,
-    description: 'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
+    description: EXEC_COMMAND_DESCRIPTION,
     parameters: {
       type: 'object',
       properties: {
@@ -562,8 +514,7 @@ const COMPRESS_CORE_MEMORY_TOOL = {
 
 const LEGACY_TOOL_ALIASES = {
   privateReply: ['send_private_message'],
-  groupReply: ['send_group_message'],
-  silentFinish: ['finish']
+  groupReply: ['send_group_message']
 } as const;
 
 const HUMAN_REPLY_RULES = [
@@ -685,7 +636,7 @@ const IMAGE_TASK_TOOL = {
         },
         xiaoni_os: {
           type: 'string',
-          description: '留给后续自己的备注：这次图片请求和相关信息缺口。不发给任何人。'
+          description: '留给后续自己的备注：图片请求和相关信息缺口。不发给任何人。'
         }
       },
       required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
@@ -698,7 +649,7 @@ const RECOVER_ENERGY_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.recoverEnergy,
-    description: '暂时休息并恢复精力；这是唯一面向小腻的恢复工具。',
+    description: '主动休息恢复精力；这是唯一面向小腻的恢复工具。休息多久只能根据当前可见的 <STATE energy/max_energy>、自己的疲惫感和还想不想继续来选；没看到当前精力时不要假装知道。',
     parameters: {
       type: 'object',
       properties: {
@@ -710,11 +661,11 @@ const RECOVER_ENERGY_TOOL = {
           type: 'integer',
           minimum: 5,
           maximum: 120,
-          description: '这次准备休息多久；工程会夹在 5 到 120 分钟之间。120 分钟视为完全恢复。'
+          description: '准备休息多久，5 到 120 分钟。当前实现按实际休息时长线性恢复：从 max(0, 当前精力) 往 max_energy 恢复；当前精力可以低于 0，但恢复起点按 0 算；120 分钟表示完全恢复。'
         },
         xiaoni_os: {
           type: 'string',
-          description: '休息前留给醒来后的内部连续性。不发给任何人。'
+          description: '休息前留给之后的自己看的私密备注：为什么撑不住、之后还想记得什么、还想不想继续。不发给任何人。'
         }
       },
       required: ['reason', 'duration_minutes', 'xiaoni_os'],
@@ -781,182 +732,6 @@ const UNREAD_MEANING_TOOL = {
         }
       },
       required: ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context'],
-      additionalProperties: false
-    }
-  }
-} as const;
-
-const LIFE_ACTION_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.lifeAction,
-    description: [
-      '一次性提交小腻当前生活动作决策。这个工具同时提交当前未读理解、参与判断、最终动作和必要的发言/沉默状态。',
-      '普通 speak/silent/proactive 必须直接用这个工具收口，不要先调用 emit_unread_meaning 再拆成另一个动作步骤。',
-      '只有确实需要外部 web_search、看图或图片任务结果时，action_type 才能选 search/image_task。',
-      '如果只是能接话但没有具体可说点，action_type 必须是 silent。'
-    ].join(' '),
-    parameters: {
-      type: 'object',
-      properties: {
-        unread_meaning: {
-          type: 'object',
-          description: '当前新入站消息的一次性理解结果；替代旧的单独 emit_unread_meaning 工具步骤。',
-          properties: {
-            latest_unread_focus: { type: 'string' },
-            message_act: {
-              type: 'string',
-              enum: ['statement', 'question', 'joke', 'tease', 'feedback', 'reaction', 'request', 'unclear']
-            },
-            social_target: {
-              type: 'string',
-              enum: ['me', 'someone_else', 'group', 'unclear']
-            },
-            addressed_to_me: { type: 'boolean' },
-            has_real_novelty: { type: 'boolean' },
-            confidence: {
-              type: 'string',
-              enum: ['low', 'medium', 'high']
-            },
-            reason: { type: 'string' },
-            social_act_type: {
-              type: 'string',
-              enum: ['invitation_curiosity', 'emotional_release', 'relationship_probe', 'concrete_request', 'yes_no_reaction', 'casual_remark']
-            },
-            topic_context: {
-              type: 'object',
-              properties: {
-                has_topic: { type: 'boolean' },
-                topic_summary: { type: 'string' },
-                addressed_to_me: { type: 'boolean' }
-              },
-              required: ['has_topic', 'addressed_to_me'],
-              additionalProperties: false
-            }
-          },
-          required: ['latest_unread_focus', 'message_act', 'social_target', 'addressed_to_me', 'has_real_novelty', 'confidence', 'reason', 'topic_context'],
-          additionalProperties: false
-        },
-        action_type: {
-          type: 'string',
-          enum: ['speak', 'silent', 'search', 'image_task', 'proactive'],
-          description: '当前最终动作。speak/proactive/silent 会直接收口；search/image_task 只在必须外部结果时使用外部工具。'
-        },
-        message: {
-          type: 'string',
-          description: 'action_type=speak/proactive 时可用。只放要发给 QQ 的一句话；多段时用 messages。'
-        },
-        messages: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'action_type=speak/proactive 时可用。多段 QQ 可见消息。'
-        },
-        mention_user_ids: {
-          type: 'array',
-          items: { type: 'integer' },
-          description: '群聊发言时可选。只在自然点名、回应或拉人进话题时填写。'
-        },
-        outcome: {
-          type: 'string',
-          description: 'action_type=silent 时的收口结果，例如 no_sayable_point、not_addressed_to_me、low_energy。'
-        },
-        reason: {
-          type: 'string',
-          description: '一句话说明为什么这个动作现在成立。不要写隐藏推理链。'
-        },
-        evidence_refs: {
-          type: 'array',
-          maxItems: 6,
-          items: { type: 'string' },
-          description: '支持这个动作的当前现场引用，例如第几条消息、发言者、wake_event 或 residue。没有就空数组。'
-        },
-        confidence: {
-          type: 'number',
-          minimum: 0,
-          maximum: 1,
-          description: '0 到 1 的动作确信度；低确信度优先 silent。'
-        },
-        interest_level: {
-          type: 'string',
-          enum: ['none', 'low', 'medium', 'high']
-        },
-        wants_to_know_more: {
-          type: 'boolean'
-        },
-        reaction_authenticity: {
-          type: 'string',
-          enum: ['none', 'weak_but_real', 'formed', 'empty_but_convenient']
-        },
-        participation_judgment: {
-          type: 'object',
-          description: '小腻当前参与或不参与的可检查判断。这不是隐藏推理，只写结论、依据类型和证据引用。',
-          properties: {
-            status: {
-              type: 'string',
-              enum: ['has_sayable_point', 'no_sayable_point', 'direct_request']
-            },
-            basis: {
-              type: 'string',
-              enum: ['opinion', 'question', 'curiosity', 'discomfort', 'association', 'boundary', 'direct_request', 'none']
-            },
-            sayable_point: {
-              type: 'string',
-              description: '一句话写清小腻当前具体想补充的内容点。status=no_sayable_point 时填空字符串。'
-            },
-            evidence_refs: {
-              type: 'array',
-              maxItems: 6,
-              items: { type: 'string' }
-            },
-            memory_refs: {
-              type: 'array',
-              maxItems: 6,
-              items: { type: 'string' }
-            }
-          },
-          required: ['status', 'basis', 'sayable_point', 'evidence_refs', 'memory_refs'],
-          additionalProperties: false
-        },
-        should_search: {
-          type: 'boolean',
-          description: '只有当前上下文不足且缺口属于公开信息时才为 true。'
-        },
-        context_gap: {
-          type: 'string',
-          enum: ['none', 'current_context_insufficient', 'needs_private_memory', 'needs_public_info', 'unclear_group_reference']
-        },
-        gap_resolution: {
-          type: 'string',
-          enum: ['none', 'memory', 'web_search', 'ask_group', 'memory_then_ask_or_search']
-        },
-        xiaoni_os: {
-          type: 'string',
-          description: '留给后续自己的内部连续性：当前动作之后留在你这里的东西。不发给任何人。'
-        },
-        pending_share: {
-          type: 'string',
-          description: '如果有想找机会主动说的材料，写在这里带到之后的上下文里。可选。'
-        },
-        operation: {
-          type: 'string',
-          enum: ['generate', 'edit'],
-          description: 'action_type=image_task 且可以直接登记任务时使用。'
-        },
-        prompt: {
-          type: 'string',
-          description: 'action_type=image_task 且可以直接登记任务时使用。'
-        },
-        target_description: {
-          type: 'string',
-          description: 'action_type=image_task 且可以直接登记任务时使用。'
-        },
-        source_media_tags: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'action_type=image_task 时引用当前上下文图片占位符。'
-        }
-      },
-      required: ['unread_meaning', 'action_type', 'reason', 'evidence_refs', 'confidence', 'interest_level', 'wants_to_know_more', 'reaction_authenticity', 'participation_judgment', 'should_search', 'context_gap', 'gap_resolution', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -1213,7 +988,7 @@ const MEMORY_SEMANTIC_TOOL = {
               xiaoni_relevance: {
                 type: 'string',
                 enum: ['participation_judgment', 'direct_feedback', 'relationship_context', 'topic_knowledge', 'none'],
-                description: '这条断言对小腻自我连续性或未来召回的关系。不是行为指令。'
+                description: '这条断言对小腻保持自己或之后召回的关系。不是行为指令。'
               },
               source_turn_ids: {
                 type: 'array',
@@ -1293,7 +1068,7 @@ const MEMORY_REFLECTION_TOOL = {
               },
               self_continuity_note: {
                 type: 'string',
-                description: '这条 reflection 对小腻自我连续性的含义：她怎么看自己、别人怎么看她、她对某事的稳定关注点。不是未来行为指令。'
+                description: '这条 reflection 对小腻保持自己的含义：她怎么看自己、别人怎么看她、她对某事的稳定关注点。不是未来行为指令。'
               },
               evidence_time_start: { type: 'string' },
               evidence_time_end: { type: 'string' },
@@ -1340,8 +1115,8 @@ const SKILLS_INSTRUCTIONS = [
   '- Trigger rules: 如果用户点名 `$skill-name`、直接说 skill 名，或当前任务明显匹配 description，就在当前动作中使用该 skill。',
   '- 使用 skill 时，先展开 r0 路径，再用 exec_command 读取对应 SKILL.md；只读完成当前任务必需的内容。',
   '- 如果 SKILL.md 引用 scripts/、references/ 或 assets/，按需读取或执行具体文件；路径相对该 skill 目录解析，不要整包加载。',
-  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、web_search、inspect_image_placeholder、request_image_task 或 exec_command。',
-  '- 读取 skill 后仍要按当前工具契约收口：submit_life_action、说话工具或 recover_energy。',
+  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：speak_in_group、reply_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
+  '- 还没有完成动作前，不要用“没有工具调用”表达沉默或结束；如果累了就按 <STATE> 调用 recover_energy，如果还有想做的事就继续行动。',
   '</skills_instructions>'
 ].join('\n');
 
@@ -1380,7 +1155,7 @@ export function buildCapabilitiesDeveloperBlock(input: {
 const RUNTIME_HISTORY_READING_DEVELOPER_CONTEXT = [
   '<runtime_history_reading>',
   '历史里的 INPUT_MESSAGE / OUTPUT_MESSAGE / ACTION / xiaoni_os 可以帮助理解现场，也可以被当前未读自然 callback。旧 <小腻的OS> 只作为历史兼容读取。',
-  '当前轮的 `<system_reminder>` 只用来说明哪些消息属于这次打开 IM 后看到的未读列表。',
+  '打开 IM 后的 `<system_reminder>` 只用来说明哪些消息属于已看到的未读列表。',
   '</runtime_history_reading>'
 ].join('\n');
 
@@ -1392,10 +1167,6 @@ function isGroupReplyToolName(name: string) {
   return name === TOOL_NAMES.groupReply || LEGACY_TOOL_ALIASES.groupReply.includes(name as typeof LEGACY_TOOL_ALIASES.groupReply[number]);
 }
 
-function isSilentFinishToolName(name: string) {
-  return name === TOOL_NAMES.silentFinish || LEGACY_TOOL_ALIASES.silentFinish.includes(name as typeof LEGACY_TOOL_ALIASES.silentFinish[number]);
-}
-
 function isSpeakingToolName(name: string) {
   return isPrivateReplyToolName(name) || isGroupReplyToolName(name);
 }
@@ -1404,20 +1175,11 @@ function isToolCallSideEffecting(toolCall: Pick<AgentToolCall, 'name' | 'args'>)
   if (isSpeakingToolName(toolCall.name) || toolCall.name === TOOL_NAMES.imageTask) {
     return true;
   }
-  if (toolCall.name === TOOL_NAMES.lifeAction) {
-    return toolCall.args.action_type === 'speak'
-      || toolCall.args.action_type === 'proactive'
-      || toolCall.args.action_type === 'image_task';
-  }
   return false;
 }
 
 function hasUnreadMeaningReplay(loopInput: OpenResponseInputItem[]) {
   return hasToolReplay(loopInput, TOOL_NAMES.unreadMeaning);
-}
-
-function hasLifeActionReplay(loopInput: OpenResponseInputItem[]) {
-  return hasToolReplay(loopInput, TOOL_NAMES.lifeAction);
 }
 
 function hasToolReplay(loopInput: OpenResponseInputItem[], toolName: string) {
@@ -1435,41 +1197,7 @@ function parseReplayJsonObject(value: string): Record<string, unknown> | null {
   }
 }
 
-function extractLatestLifeAction(loopInput: OpenResponseInputItem[]): LifeAction | null {
-  const lifeActionCallIds = new Set<string>();
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.lifeAction) {
-      lifeActionCallIds.add(item.call_id);
-    }
-  }
-
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (item.type === 'function_call_output' && lifeActionCallIds.has(item.call_id)) {
-      const parsed = parseReplayJsonObject(item.output);
-      const action = parseLifeAction(parsed);
-      if (action) {
-        return action;
-      }
-    }
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.lifeAction) {
-      const parsed = parseReplayJsonObject(item.arguments);
-      const action = parseLifeAction(parsed);
-      if (action) {
-        return action;
-      }
-    }
-  }
-
-  return null;
-}
-
 function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadMeaning | null {
-  const latestLifeAction = extractLatestLifeAction(loopInput);
-  if (latestLifeAction?.unreadMeaning) {
-    return latestLifeAction.unreadMeaning;
-  }
-
   const unreadMeaningCallIds = new Set<string>();
   for (const item of loopInput) {
     if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
@@ -1526,98 +1254,26 @@ export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): Turn
   const emptyRecallAttempts = 0;
   const meaning = extractLatestUnreadMeaning(loopInput);
   const targetFound = hasUsableGroupTarget(meaning);
-  if (!hasLifeActionReplay(loopInput)) {
-    return {
-      stage: 'feel_reaction',
-      targetFound,
-      recallStatus: 'not_needed',
-      recallAttempts,
-      emptyRecallAttempts,
-      expectedNext: TOOL_NAMES.lifeAction,
-      reason: targetFound
-      ? '当前未读里有可回应目标，下一步提交当前动作决策。'
-        : '当前未读没有明确找小腻或强话题，下一步只提交是否继续生活或沉默的 proposal。'
-    };
-  }
-
-  const action = extractLatestLifeAction(loopInput);
-  const recallStatus: TurnControlRecallStatus = 'not_needed';
-
-  if (action?.actionType === 'search' || action?.actionType === 'image_task' || action?.gapResolution === 'web_search') {
-    return {
-      stage: 'maybe_search_or_inspect',
-      targetFound,
-      recallStatus,
-      recallAttempts,
-      emptyRecallAttempts,
-      expectedNext: 'final_tool',
-      reason: '长期记忆阶段已经结束，下一步只做必要的搜索、看图、做图或沉默。'
-    };
-  }
-
   return {
     stage: 'finalize',
     targetFound,
-    recallStatus,
+    recallStatus: 'not_needed',
     recallAttempts,
     emptyRecallAttempts,
     expectedNext: 'final_tool',
-    reason: '当前已经完成现场理解和 life action proposal，应进入最终动作。'
+    reason: targetFound
+      ? '当前未读里有可回应目标，可以直接说话、查资料、看图、登记图片任务，或按自己的精力状态休息。'
+      : '当前未读没有明确找小腻，也没有稳定的新目标；不要为了接话制造目标，如果累了就按自己的精力状态休息，否则继续自己的行动。'
   };
 }
 
-function shouldDowngradeWeakSpeakToSilence(
-  action: LifeAction | null,
-  meaning: UnreadMeaning | null
-) {
-  if (action?.actionType !== 'speak') {
-    return false;
-  }
-  // Model explicitly flagged the reaction as empty — always silence
-  if (action.reactionAuthenticity === 'empty_but_convenient') {
-    return true;
-  }
-  // Safety catch: model chose speak despite no interest at all
-  if (action.interestLevel === 'none') {
-    return true;
-  }
-  if (action.interestLevel === 'low' && !hasDirectNewCue(meaning)) {
-    // Original: weak reaction with no direct cue
-    if (action.reactionAuthenticity === 'weak_but_real') {
-      return true;
-    }
-    // Extended: even a formed reaction isn't enough when interest is low and nobody's addressing us
-    if (action.reactionAuthenticity === 'formed') {
-      return true;
-    }
-  }
-  return false;
-}
-
-function canUseFinalActionFromParticipationJudgment(action: LifeAction | null, meaning: UnreadMeaning | null) {
-  if (!action) {
-    return false;
-  }
-  if (action.participationJudgment.status === 'has_sayable_point') {
-    return true;
-  }
-  if (action.actionType === 'proactive') {
-    return false;
-  }
-  return action.participationJudgment.status === 'direct_request' && hasDirectNewCue(meaning);
-}
-
-function shouldForceActionToSilenceFromParticipationJudgment(action: LifeAction | null, meaning: UnreadMeaning | null) {
-  if (!action || action.actionType === 'silent') {
-    return false;
-  }
-  return !canUseFinalActionFromParticipationJudgment(action, meaning);
-}
-
-function buildAllowedToolsToolChoice(tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>): OpenResponseToolChoice {
+function buildAllowedToolsToolChoice(
+  tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>,
+  mode: 'auto' | 'required' = 'required'
+): OpenResponseToolChoice {
   return {
     type: 'allowed_tools',
-    mode: 'required',
+    mode,
     tools
   };
 }
@@ -1658,7 +1314,7 @@ export function recoverRuntimeEnergy(input: {
   };
 }
 
-export function resolveForcedSleepWake(input: {
+export function resolveForcedFullRecovery(input: {
   rawEnergy: number;
   maxEnergy?: number;
 }) {
@@ -1674,11 +1330,11 @@ export function resolveForcedSleepWake(input: {
   return {
     waitMs: RUNTIME_FULL_RECOVERY_MS,
     stateBlock: buildRuntimeStateBlock({
-      trigger: 'forced_sleep_wake',
+      trigger: 'forced_full_recovery',
       energy: recovered.energy,
       maxEnergy: recovered.maxEnergy,
       debt: recovered.debt,
-      note: 'raw_energy was below 0, so engineering waited 2h before waking Xiaoni.'
+      note: '之前已经透支到 0 以下；恢复从 0 开始算，120 分钟才会完全恢复。'
     })
   };
 }
@@ -1754,9 +1410,9 @@ function extractRuntimeStateDirective(developerContextBlock: string | null | und
   }
   const energy = Number(legacyEnergy[1]);
   if (energy < 0) {
-    const forced = resolveForcedSleepWake({ rawEnergy: energy });
+    const forced = resolveForcedFullRecovery({ rawEnergy: energy });
     return forced
-      ? { trigger: 'forced_sleep_wake' as const, energy: RUNTIME_MAX_ENERGY, maxEnergy: RUNTIME_MAX_ENERGY, note: 'slept through forced 2h recovery' }
+      ? { trigger: 'forced_full_recovery' as const, energy: RUNTIME_MAX_ENERGY, maxEnergy: RUNTIME_MAX_ENERGY, note: '之前已经透支到 0 以下；恢复从 0 开始算，120 分钟才会完全恢复。' }
       : null;
   }
   if (energy <= RUNTIME_LOW_ENERGY_THRESHOLD) {
@@ -1782,13 +1438,13 @@ function normalizeRuntimeStateTrigger(value: unknown): RuntimeStateTrigger | nul
   return value === 'action_tool_threshold'
     || value === 'web_search'
     || value === 'low_energy_reminder'
-    || value === 'forced_sleep_wake'
-    || value === 'repeated_at_wake'
+    || value === 'forced_full_recovery'
+    || value === 'rest_interrupted'
     ? value
     : null;
 }
 
-export function resolveRestingWakeFromUnreadMetadata(input: {
+export function resolveRestInterruptionFromUnreadMetadata(input: {
   rawEnergy: number;
   restingSince: Date | string | number;
   now: Date | string | number;
@@ -1811,19 +1467,19 @@ export function resolveRestingWakeFromUnreadMetadata(input: {
     maxEnergy: input.maxEnergy
   });
   return {
-    shouldWake: directMentionCount >= RESTING_DIRECT_MENTION_WAKE_THRESHOLD,
+    shouldResume: directMentionCount >= RESTING_DIRECT_MENTION_RESUME_THRESHOLD,
     unreadCount: input.messages.length,
     directMentionCount,
     messageBodiesExposed: false,
     recoveredEnergy: recovered.energy,
-    stateBlock: directMentionCount >= RESTING_DIRECT_MENTION_WAKE_THRESHOLD
+    stateBlock: directMentionCount >= RESTING_DIRECT_MENTION_RESUME_THRESHOLD
       ? buildRuntimeStateBlock({
-          trigger: 'repeated_at_wake',
+          trigger: 'rest_interrupted',
           energy: recovered.energy,
           maxEnergy: recovered.maxEnergy,
           recovered: recovered.energy - recovered.startEnergy,
           debt: recovered.debt,
-          note: `woke after ${directMentionCount} direct mentions while resting`
+          note: `休息中收到 ${directMentionCount} 次直接 @，按实际休息时长结算当前精力。`
         })
       : null
   };
@@ -1839,7 +1495,7 @@ function selectActorToolDefinitions(chatType: 'group' | 'direct', modelName: str
   if (chatType === 'group') {
     return [...tools, GROUP_MESSAGE_TOOL, INSPECT_IMAGE_TOOL, IMAGE_TASK_TOOL, RECOVER_ENERGY_TOOL];
   }
-  return [LIFE_ACTION_TOOL, ...tools, PRIVATE_MESSAGE_TOOL, RECOVER_ENERGY_TOOL];
+  return [...tools, PRIVATE_MESSAGE_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function isLifeOnlyPresenceLoop(loopInput: OpenResponseInputItem[]) {
@@ -1864,19 +1520,18 @@ function selectLifeOnlyPresenceToolDefinitions(): OpenResponseToolDefinition[] {
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
-  return [LIFE_ACTION_TOOL, ...tools, COMPRESS_CORE_MEMORY_TOOL, RECOVER_ENERGY_TOOL];
+  return [...tools, COMPRESS_CORE_MEMORY_TOOL, RECOVER_ENERGY_TOOL];
 }
 
 function resolveLifeOnlyPresenceToolChoice(): OpenResponseToolChoice {
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
-    { type: 'function', name: TOOL_NAMES.lifeAction },
     { type: 'function', name: TOOL_NAMES.recoverEnergy }
   ];
   if (agentConfig.webSearchEnabled) {
     tools.unshift({ type: 'web_search' });
   }
-  return buildAllowedToolsToolChoice(tools);
+  return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
 function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
@@ -1888,10 +1543,7 @@ function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
 }
 
 function selectGroupLoopToolDefinitions(modelName: string) {
-  return [
-    LIFE_ACTION_TOOL,
-    ...selectActorToolDefinitions('group', modelName)
-  ] satisfies OpenResponseToolDefinition[];
+  return selectActorToolDefinitions('group', modelName);
 }
 
 function resolveGroupLoopToolChoice(
@@ -1910,71 +1562,8 @@ function resolveGroupLoopToolChoice(
     ]);
   }
 
-  const turnControl = deriveTurnControlState(loopInput);
-  if (turnControl.expectedNext === TOOL_NAMES.lifeAction) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.execCommand },
-      { type: 'function', name: TOOL_NAMES.lifeAction }
-    ]);
-  }
-
-  const latestLifeAction = extractLatestLifeAction(loopInput);
-  const latestUnreadMeaning = extractLatestUnreadMeaning(loopInput);
-  if (latestLifeAction?.actionType === 'silent') {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ]);
-  }
-
-  if (shouldForceActionToSilenceFromParticipationJudgment(latestLifeAction, latestUnreadMeaning)) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ]);
-  }
-
-  if (shouldDowngradeWeakSpeakToSilence(latestLifeAction, latestUnreadMeaning)) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ]);
-  }
-
-  if (latestLifeAction?.actionType === 'image_task') {
-    if (!includeImageTools) {
-      return buildAllowedToolsToolChoice([
-        { type: 'function', name: TOOL_NAMES.lifeAction },
-        { type: 'function', name: TOOL_NAMES.recoverEnergy }
-      ]);
-    }
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.inspectImage },
-      { type: 'function', name: TOOL_NAMES.imageTask },
-      { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ]);
-  }
-
-  if (latestLifeAction?.actionType === 'search') {
-    const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
-      { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ];
-    if (agentConfig.webSearchEnabled) {
-      tools.unshift({ type: 'web_search' });
-    }
-    return buildAllowedToolsToolChoice(tools);
-  }
-
-  // Proactive: Xiaoni wants to share something she finds interesting, not reacting to this message.
-  // Offer speech plus a life-action fallback so silence remains an explicit life decision.
-  if (latestLifeAction?.actionType === 'proactive') {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: speakingToolName },
-      { type: 'function', name: TOOL_NAMES.lifeAction },
-      { type: 'function', name: TOOL_NAMES.recoverEnergy }
-    ]);
-  }
-
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+    { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: speakingToolName }
   ];
   if (includeImageTools) {
@@ -1986,7 +1575,8 @@ function resolveGroupLoopToolChoice(
   if (agentConfig.webSearchEnabled) {
     tools.unshift({ type: 'web_search' });
   }
-  return buildAllowedToolsToolChoice(tools);
+  tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
+  return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
 function selectFeedbackWriterToolDefinitions(mode: FeedbackWriterMode) {
@@ -2333,6 +1923,40 @@ function resolveExecShellArgs(shell: string, cmd: string, login: boolean) {
   return ['-c', cmd];
 }
 
+function buildCodexExecOutput(input: {
+  chunkId: string;
+  durationMs: number;
+  exitCode: number | null;
+  signal?: NodeJS.Signals | string | null;
+  output: string;
+  running?: boolean;
+  sessionId?: string;
+  blocked?: boolean;
+  truncated?: boolean;
+}) {
+  const lines = [
+    `Chunk ID: ${input.chunkId}`,
+    `Wall time: ${(input.durationMs / 1000).toFixed(4)} seconds`
+  ];
+  if (input.blocked) {
+    lines.push('Process blocked by executor policy');
+  } else if (input.running) {
+    lines.push(`Process running with session ID ${input.sessionId || ''}`.trim());
+  } else if (typeof input.exitCode === 'number') {
+    lines.push(`Process exited with code ${input.exitCode}`);
+  } else if (input.signal) {
+    lines.push(`Process exited with signal ${input.signal}`);
+  } else {
+    lines.push('Process exited without an exit code');
+  }
+  lines.push(`Original token count: ${Math.max(0, Math.ceil(input.output.length / 4))}`);
+  if (input.truncated) {
+    lines.push('Output was truncated to max_output_tokens.');
+  }
+  lines.push('Output:', input.output);
+  return lines.join('\n');
+}
+
 function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
   const base = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
     ? JSON.parse(JSON.stringify(parameters)) as Record<string, unknown>
@@ -2508,16 +2132,8 @@ function buildPostCommitSideEffectSuppression(
   toolCall: Pick<AgentToolCall, 'name' | 'args'>,
   chatType: QueueMessageRecord['payload']['chatType']
 ) {
-  const isLifeAction = toolCall.name === TOOL_NAMES.lifeAction;
-  const isLifeActionMessage = isLifeAction
-    && (
-      toolCall.args.action_type === 'speak'
-      || toolCall.args.action_type === 'proactive'
-      || toolCall.args.action_type === 'image_task'
-    );
   const isImageTaskSideEffect = toolCall.name === TOOL_NAMES.imageTask
-    || (isLifeAction && toolCall.args.action_type === 'image_task');
-  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isLifeActionMessage && !isImageTaskSideEffect) {
+  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isImageTaskSideEffect) {
     return null;
   }
 
@@ -2533,7 +2149,7 @@ function buildPostCommitSideEffectSuppression(
         ? 'group'
         : chatType === 'direct' ? 'private' : 'group',
     messages,
-    mentionUserIds: isGroupReplyToolName(toolCall.name) || (isLifeActionMessage && chatType === 'group')
+    mentionUserIds: isGroupReplyToolName(toolCall.name)
       ? normalizeOptionalIntegerList(toolCall.args.mention_user_ids)
       : []
   };
@@ -2843,7 +2459,7 @@ function renderTranscriptItemForRuntimeContext(
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
   if (isAutonomousLifePayload(queueMessage)) {
-    return '<system_reminder>当前是小腻自己的连续生活流；没有打开具体 IM 会话，也没有新的 QQ 可见现场。可以做内部行动、查一个真实需要的新信息、保持沉默，或用 recover_energy 休息。只有真实消息进入队列时才算有人叫醒她。</system_reminder>';
+    return '<system_reminder>当前是小腻自己的连续生活流；没有打开具体 IM 会话，也没有新的 QQ 可见现场。可以做内部行动、查一个真实需要的新信息，或者按自己的精力状态用 recover_energy 休息。只有真实消息进入队列时才算当前现场有新输入。</system_reminder>';
   }
   if (!isImmediateVisibleImWake(queueMessage)) {
     const count = queueMessage.messages.length;
@@ -2851,7 +2467,7 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读元数据，尚未触发小腻打开 IM；可见现场只有 UNREAD_AVAILABLE，正文等待 @ 或主动使用 IM 后 append。</system_reminder>`;
   }
 
-  return '<system_reminder>本次已打开 IM；以下是这段时间看到的未读列表，按时间顺序阅读；可以自然接续前面的聊天内容。</system_reminder>';
+  return '<system_reminder>已打开 IM；下面是这段时间看到的未读列表，按时间顺序阅读；可以自然接续前面的聊天内容。</system_reminder>';
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
@@ -2887,7 +2503,7 @@ function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload'
     count: queueMessage.messages.length,
     materialization: 'opened',
     trigger
-  }, '小腻正在使用 IM；下面是这次打开后看到的未读消息列表，按时间顺序阅读。');
+  }, '小腻正在使用 IM；下面是打开后看到的未读消息列表，按时间顺序阅读。');
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
@@ -2911,8 +2527,8 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
   }
 
   const lines: string[] = [];
-  if (!turnControl.targetFound && turnControl.stage === 'feel_reaction') {
-    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；下一步只确认是否有具体可说点，不要为了接话而制造目标。');
+  if (!turnControl.targetFound && turnControl.stage === 'finalize') {
+    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；没有具体可说点时不要调用发言工具。');
   }
 
   if (lines.length === 0) {
@@ -2958,7 +2574,6 @@ function renderAutonomousLifeAction(queueMessage: QueueMessageRecord['payload'])
 
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.unreadMeaning,
-  TOOL_NAMES.lifeAction,
   TOOL_NAMES.compressCoreMemory,
   TOOL_NAMES.execCommand,
   TOOL_NAMES.inspectImage,
@@ -2968,12 +2583,10 @@ const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
 const FINAL_TOOL_MONITOR_NAMES = new Set<string>([
   TOOL_NAMES.groupReply,
   TOOL_NAMES.privateReply,
-  TOOL_NAMES.silentFinish,
   TOOL_NAMES.imageTask,
   TOOL_NAMES.recoverEnergy,
   ...LEGACY_TOOL_ALIASES.groupReply,
-  ...LEGACY_TOOL_ALIASES.privateReply,
-  ...LEGACY_TOOL_ALIASES.silentFinish
+  ...LEGACY_TOOL_ALIASES.privateReply
 ]);
 
 type ToolLoopPhase = 'commentary' | 'final_answer';
@@ -3056,7 +2669,7 @@ export function buildToolLoopMonitorReminder(
       ? `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`
       : null,
     nearMaxTurns
-      ? `工具循环即将达到工程上限（${options.nextTurn}/${options.maxTurns}）。需要尽快收口：说话、登记图片任务、submit_life_action(action_type=silent)，或 recover_energy。`
+      ? `工具循环即将达到工程上限（${options.nextTurn}/${options.maxTurns}）。需要尽快形成真实动作：说话、登记图片任务、完成必要操作，或者按自己的精力状态 recover_energy。`
       : null,
     `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
   ].filter((line): line is string => Boolean(line));
@@ -3090,7 +2703,7 @@ function buildCoreMemoryCompressionReminder(input: {
     }, [
       `脑容量达到极限：${input.pressureSummary}`,
       `你必须立即调用 ${TOOL_NAMES.compressCoreMemory}，把你主观上最想带往未来的东西写进 text。`,
-      '在完成这次记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作。'
+      '在完成记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作。'
     ].join('\n'))
   ]);
 }
@@ -3162,7 +2775,7 @@ function buildContextCompressionFeedbackWriterInput(params: {
   });
 
   const header = [
-    `[即将从上下文窗口移除的对话历史 (${params.evictedTurns.length} 轮)]`,
+    `[即将从上下文窗口移除的对话历史 (${params.evictedTurns.length} 条)]`,
     '[这批对话将不再出现在未来的上下文中，请判断是否有值得长期保存的内容]'
   ].join('\n');
 
@@ -3196,7 +2809,7 @@ const COMPACT_MEMORY_SEMANTIC_CONTRACT = [
 
 const COMPACT_MEMORY_REFLECTION_CONTRACT = [
   '你在为小腻的长期召回写 reflection memories。',
-  '目标：从已经落库的 episodic observations 中提炼跨时间模式，用于恢复小腻的自我连续性、人物理解、二人关系、群体事实或项目弧线。',
+  '目标：从已经落库的 episodic observations 中提炼跨时间模式，用于帮助小腻保持自己、理解人物、理解二人关系、群体事实或项目弧线。',
   '成功标准：每条 reflection 至少引用 2 条 source_observation_ids；必须是证据重复出现后的抽象，不是新事实，并且要有稳定主体。',
   '优先写 person_pattern、dyad_pattern、self_continuity、xiaoni_perception；只有证据确实覆盖多人且不是单个说话人的意见时才写 group_norm。',
   'text 要回答“谁持续怎样看/说/对待谁或什么”；self_continuity_note 只写这对小腻保持自己有什么意义，不写未来行为指令。',
@@ -3253,7 +2866,7 @@ function buildCompactMemoryWriterInput(params: {
   runtimePrompt: ResolvedAgentRuntimePrompt;
 }): OpenResponseInputItem[] {
   const header = [
-    `[即将从上下文窗口移除的对话历史 (${params.evictedTurns.length} 轮)]`,
+    `[即将从上下文窗口移除的对话历史 (${params.evictedTurns.length} 条)]`,
     `任务层：${params.layer}`,
     '只从下面证据写入；没有合格内容也必须调用对应工具并返回空数组。'
   ].join('\n');
@@ -3415,7 +3028,6 @@ function extractMessageText(item: OpenResponseInputItem) {
 function isTacticalReplyResidue(text: string) {
   const normalized = text.replace(/\s+/g, '');
   const tacticalMarkers = [
-    /这(?:一)?轮/,
     /最自然的是/,
     /顺着/,
     /轻轻(?:接一句|接一下|补一句|应一句|回一句|顺一句)/,
@@ -3561,100 +3173,6 @@ function parseUnreadMeaning(value: unknown): UnreadMeaning | null {
   };
 }
 
-function parseLifeAction(value: unknown): LifeAction | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  const record = value as Record<string, unknown>;
-  const unreadMeaning = parseUnreadMeaning(record.unread_meaning ?? record.unreadMeaning);
-  const rawActionType = record.action_type ?? record.actionType;
-  const rawReason = record.reason;
-  const evidenceRefs = parseStringArray(record.evidence_refs ?? record.evidenceRefs);
-  const rawConfidence = Number(record.confidence);
-  const rawInterestLevel = record.interest_level ?? record.interestLevel;
-  const wantsToKnowMore = parseOptionalBoolean(record.wants_to_know_more ?? record.wantsToKnowMore);
-  const rawReactionAuthenticity = record.reaction_authenticity ?? record.reactionAuthenticity;
-  const rawParticipationJudgment = record.participation_judgment ?? record.participationJudgment;
-  const shouldSearch = parseOptionalBoolean(record.should_search ?? record.shouldSearch);
-  const rawContextGap = record.context_gap ?? record.contextGap;
-  const rawGapResolution = record.gap_resolution ?? record.gapResolution;
-  const actionType = rawActionType === 'speak'
-    || rawActionType === 'silent'
-    || rawActionType === 'search'
-    || rawActionType === 'image_task'
-    || rawActionType === 'proactive'
-    ? rawActionType
-    : null;
-  const reason = typeof rawReason === 'string' ? rawReason.trim() : '';
-  const confidence = Number.isFinite(rawConfidence)
-    ? Math.max(0, Math.min(1, rawConfidence))
-    : null;
-  const interestLevel = rawInterestLevel === 'none'
-    || rawInterestLevel === 'low'
-    || rawInterestLevel === 'medium'
-    || rawInterestLevel === 'high'
-    ? rawInterestLevel
-    : null;
-  const reactionAuthenticity = rawReactionAuthenticity === 'none'
-    || rawReactionAuthenticity === 'weak_but_real'
-    || rawReactionAuthenticity === 'formed'
-    || rawReactionAuthenticity === 'empty_but_convenient'
-    ? rawReactionAuthenticity
-    : null;
-  const explicitContextGap: LifeActionContextGap | null = rawContextGap === 'none'
-    || rawContextGap === 'current_context_insufficient'
-    || rawContextGap === 'needs_private_memory'
-    || rawContextGap === 'needs_public_info'
-    || rawContextGap === 'unclear_group_reference'
-    ? rawContextGap
-    : null;
-  const explicitGapResolution: LifeActionGapResolution | null = rawGapResolution === 'none'
-    || rawGapResolution === 'memory'
-    || rawGapResolution === 'web_search'
-    || rawGapResolution === 'ask_group'
-    || rawGapResolution === 'memory_then_ask_or_search'
-    ? rawGapResolution
-    : null;
-
-  if (!actionType || !reason || !interestLevel || wantsToKnowMore === null || !reactionAuthenticity || shouldSearch === null) {
-    return null;
-  }
-  const inferredContextGap: LifeActionContextGap = explicitContextGap
-    || (shouldSearch || actionType === 'search'
-      ? 'needs_public_info'
-      : wantsToKnowMore
-      ? 'needs_private_memory'
-      : 'none');
-  const inferredGapResolution: LifeActionGapResolution = explicitGapResolution
-    || (inferredContextGap === 'needs_public_info'
-      ? 'web_search'
-      : inferredContextGap === 'needs_private_memory' || inferredContextGap === 'unclear_group_reference'
-      ? 'memory'
-      : 'none');
-  const participationJudgment = parseLifeActionParticipationJudgment(rawParticipationJudgment, {
-    reactionAuthenticity,
-    actionType,
-    shouldSearch,
-    wantsToKnowMore
-  });
-
-  return {
-    unreadMeaning,
-    actionType,
-    evidenceRefs,
-    confidence,
-    interestLevel,
-    wantsToKnowMore,
-    reactionAuthenticity,
-    participationJudgment,
-    shouldSearch,
-    contextGap: inferredContextGap,
-    gapResolution: inferredGapResolution,
-    reason
-  };
-}
-
 function serializeUnreadMeaning(meaning: UnreadMeaning | null) {
   if (!meaning) {
     return null;
@@ -3669,29 +3187,6 @@ function serializeUnreadMeaning(meaning: UnreadMeaning | null) {
     reason: meaning.reason,
     ...(meaning.socialActType !== null ? { social_act_type: meaning.socialActType } : {}),
     ...(meaning.topicContext !== null ? { topic_context: meaning.topicContext } : {})
-  };
-}
-
-function serializeLifeAction(action: LifeAction) {
-  return {
-    unread_meaning: serializeUnreadMeaning(action.unreadMeaning),
-    action_type: action.actionType,
-    reason: action.reason,
-    evidence_refs: action.evidenceRefs,
-    confidence: action.confidence,
-    interest_level: action.interestLevel,
-    wants_to_know_more: action.wantsToKnowMore,
-    reaction_authenticity: action.reactionAuthenticity,
-    participation_judgment: {
-      status: action.participationJudgment.status,
-      basis: action.participationJudgment.basis,
-      sayable_point: action.participationJudgment.sayablePoint || '',
-      evidence_refs: action.participationJudgment.evidenceRefs,
-      memory_refs: action.participationJudgment.memoryRefs
-    },
-    should_search: action.shouldSearch,
-    context_gap: action.contextGap,
-    gap_resolution: action.gapResolution
   };
 }
 
@@ -4087,105 +3582,6 @@ function parseCompactMemoryObservations(value: unknown) {
   }).filter((item): item is NonNullable<typeof item> => Boolean(item));
 }
 
-function parseLifeActionParticipationJudgment(
-  value: unknown,
-  fallback: {
-    reactionAuthenticity: LifeAction['reactionAuthenticity'];
-    actionType: LifeAction['actionType'];
-    shouldSearch: boolean;
-    wantsToKnowMore: boolean;
-  }
-): LifeAction['participationJudgment'] {
-  const inferredStatus: LifeActionParticipationJudgmentStatus =
-    fallback.reactionAuthenticity === 'formed'
-      && fallback.actionType !== 'silent'
-      && fallback.actionType !== 'image_task'
-      ? 'has_sayable_point'
-    : fallback.reactionAuthenticity === 'weak_but_real' && fallback.actionType === 'speak'
-      ? 'direct_request'
-    : fallback.actionType === 'image_task' || fallback.shouldSearch || fallback.wantsToKnowMore
-      ? 'direct_request'
-      : 'no_sayable_point';
-  const inferredBasis: LifeActionParticipationJudgmentBasis = inferredStatus === 'has_sayable_point'
-    ? fallback.actionType === 'proactive'
-      ? 'association'
-    : fallback.shouldSearch || fallback.wantsToKnowMore
-      ? 'question'
-      : 'opinion'
-    : inferredStatus === 'direct_request'
-    ? 'direct_request'
-    : 'none';
-
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {
-      status: inferredStatus,
-      basis: inferredBasis,
-      sayablePoint: null,
-      evidenceRefs: [],
-      memoryRefs: []
-    };
-  }
-
-  const record = value as Record<string, unknown>;
-  const rawStatus = record.status
-    ?? record.participation_judgment_status
-    ?? record.participationJudgmentStatus;
-  const rawBasis = record.basis
-    ?? record.reason_type
-    ?? record.reasonType;
-  const status: LifeActionParticipationJudgmentStatus = rawStatus === 'has_sayable_point'
-    || rawStatus === 'has_own_judgment'
-    || rawStatus === 'formed'
-    ? 'has_sayable_point'
-    : rawStatus === 'no_sayable_point'
-    || rawStatus === 'no_reason_to_join'
-    || rawStatus === 'not_formed'
-    ? 'no_sayable_point'
-    : rawStatus === 'direct_request'
-    || rawStatus === 'direct_request_only'
-    ? 'direct_request'
-    : inferredStatus;
-  const parsedBasis: LifeActionParticipationJudgmentBasis = rawBasis === 'opinion'
-    || rawBasis === 'stance'
-    ? 'opinion'
-    : rawBasis === 'question'
-    || rawBasis === 'genuine_question'
-    ? 'question'
-    : rawBasis === 'curiosity'
-    || rawBasis === 'interest'
-    ? 'curiosity'
-    : rawBasis === 'discomfort'
-    || rawBasis === 'association'
-    ? rawBasis
-    : rawBasis === 'boundary'
-    || rawBasis === 'identity_boundary'
-    ? 'boundary'
-    : rawBasis === 'direct_request'
-    || rawBasis === 'none'
-    ? rawBasis
-    : inferredBasis;
-  const basis = status === 'no_sayable_point'
-    ? 'none'
-    : status === 'direct_request' && parsedBasis === 'none'
-    ? 'direct_request'
-    : parsedBasis;
-  const rawSayablePoint = record.sayable_point
-    ?? record.sayablePoint
-    ?? record.public_summary
-    ?? record.publicSummary;
-  const sayablePoint = typeof rawSayablePoint === 'string' && rawSayablePoint.trim()
-    ? rawSayablePoint.trim()
-    : null;
-
-  return {
-    status,
-    basis,
-    sayablePoint,
-    evidenceRefs: parseStringArray(record.evidence_refs ?? record.evidenceRefs),
-    memoryRefs: parseStringArray(record.memory_refs ?? record.memoryRefs)
-  };
-}
-
 function parseCompactMemoryAssertions(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return [];
@@ -4477,54 +3873,6 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
-  if (isSilentFinishToolName(toolCall.name)) {
-    const pendingImageTaskStatus = context && !context.hasVisibleReply
-      ? extractPendingImageTaskStatus(context.loopInput)
-      : null;
-    if (pendingImageTaskStatus) {
-      const speakingToolName = context?.speakingToolName ?? TOOL_NAMES.groupReply;
-      if (countPriorSilentFinishCalls(context?.loopInput ?? []) >= 1) {
-        const pendingImageTaskState = extractPendingImageTaskState(context?.loopInput ?? []);
-        return {
-          inputItems: [
-            {
-              type: 'function_call_output',
-              call_id: toolCall.callId,
-              output: JSON.stringify(toolResult)
-            }
-          ],
-          finishResult: null,
-          forcedVisibleReply: {
-            toolName: speakingToolName,
-            args: {
-              messages: [pendingImageTaskStatus],
-              ...(pendingImageTaskState?.xiaoniOs ? { xiaoni_os: pendingImageTaskState.xiaoniOs } : {})
-            }
-          }
-        };
-      }
-      return {
-        inputItems: [
-          {
-            type: 'function_call_output',
-            call_id: toolCall.callId,
-            output: JSON.stringify(toolResult)
-          },
-          buildAssistantCommentaryInputItem([
-            `<system_reminder>图片请求已经提交，但我还没有对聊天对象发出任何可见回复。当前不能直接沉默收口；如果要开口，就调用 ${speakingToolName} 自然接住当前对话。\n\n[图片请求状态]\n${pendingImageTaskStatus}</system_reminder>`
-          ])
-        ],
-        finishResult: null,
-        forcedVisibleReply: null
-      };
-    }
-    return {
-      inputItems: [],
-      finishResult: toolResult,
-      forcedVisibleReply: null
-    };
-  }
-
   if (toolResult.finished === true) {
     return {
       inputItems: [],
@@ -4536,7 +3884,9 @@ export function applyToolResultToLoopInput(
   const inputItems: OpenResponseInputItem[] = [{
     type: 'function_call_output',
     call_id: toolCall.callId,
-    output: JSON.stringify(toolResult)
+    output: toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
+      ? toolResult.codex_output
+      : JSON.stringify(toolResult)
   }];
   const loopInputAfterTool = [
     ...(context?.loopInput ?? []),
@@ -4548,7 +3898,7 @@ export function applyToolResultToLoopInput(
     },
     inputItems[0]
   ];
-  if (toolCall.name === TOOL_NAMES.unreadMeaning || toolCall.name === TOOL_NAMES.lifeAction) {
+  if (toolCall.name === TOOL_NAMES.unreadMeaning) {
     const turnControl = deriveTurnControlState(loopInputAfterTool);
     const reminder = buildTurnControlReminder(turnControl);
     if (reminder) {
@@ -4578,11 +3928,7 @@ export function applyToolResultToLoopInput(
   };
 }
 
-function extractPendingImageTaskStatus(loopInput: OpenResponseInputItem[]) {
-  return extractPendingImageTaskState(loopInput)?.statusText ?? null;
-}
-
-function extractPendingImageTaskState(loopInput: OpenResponseInputItem[]) {
+function extractLatestQueuedImageTaskState(loopInput: OpenResponseInputItem[]) {
   const imageTaskCallIds = new Set<string>();
   for (const item of loopInput) {
     if (item.type === 'function_call' && item.name === TOOL_NAMES.imageTask) {
@@ -4599,27 +3945,16 @@ function extractPendingImageTaskState(loopInput: OpenResponseInputItem[]) {
     if (!parsed || parsed.queued !== true) {
       continue;
     }
-    const statusText = typeof parsed.status_text === 'string' ? parsed.status_text.trim() : '';
+    const statusText = typeof parsed.status_text === 'string' && parsed.status_text.trim()
+      ? parsed.status_text.trim()
+      : '图片请求已经提交。';
     const xiaoniOs = typeof parsed.xiaoni_os === 'string' && parsed.xiaoni_os.trim()
       ? parsed.xiaoni_os.trim()
       : null;
-    return {
-      statusText: statusText || '图片请求已经提交。',
-      xiaoniOs
-    };
+    return { statusText, xiaoniOs };
   }
 
   return null;
-}
-
-function countPriorSilentFinishCalls(loopInput: OpenResponseInputItem[]) {
-  let count = 0;
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && isSilentFinishToolName(item.name)) {
-      count += 1;
-    }
-  }
-  return count;
 }
 
 type ReplayableModelOutput =
@@ -4761,7 +4096,6 @@ export class AgentLoopService {
     let runtimePrompt: ResolvedAgentRuntimePrompt | null = null;
     let storedFeedbackReflectionIds: number[] = [];
     let unreadMeaningArtifact: Record<string, unknown> | null = null;
-    let lifeActionArtifact: Record<string, unknown> | null = null;
     let coreMemoryCompressionArtifact: Record<string, unknown> | null = null;
     let presenceContext: RuntimePresenceContext | null = null;
     let runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [];
@@ -4922,7 +4256,56 @@ export class AgentLoopService {
 
         if (!hasToolCall) {
           deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
-          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
+          const pendingImageTaskState = deliveredMessages.length === 0
+            ? extractLatestQueuedImageTaskState(requestInput)
+            : null;
+          if (pendingImageTaskState) {
+            const forcedToolName = payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply;
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'decision',
+              eventName: 'forced_visible_reply',
+              eventPhase: null,
+              metadata: {
+                source_tool_name: TOOL_NAMES.imageTask,
+                tool_name: forcedToolName,
+                reason: 'model_stopped_after_image_task_without_visible_reply'
+              }
+            });
+            const forcedToolResult = await this.sendMessage(
+              forcedToolName === TOOL_NAMES.privateReply ? 'private' : 'group',
+              {
+                messages: [pendingImageTaskState.statusText],
+                ...(pendingImageTaskState.xiaoniOs ? { xiaoni_os: pendingImageTaskState.xiaoniOs } : {})
+              },
+              payload
+            );
+            if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
+              persistedXiaoniOs = forcedToolResult.xiaoni_os.trim();
+            }
+            if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
+              persistedPendingShare = forcedToolResult.pending_share.trim();
+            }
+            await this.store.markRunDeliveryCommitted(queueMessage.id);
+            await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, forcedToolName, forcedToolResult, true);
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'decision',
+              eventName: 'delivery_commit',
+              eventPhase: null,
+              metadata: {
+                tool_name: forcedToolName,
+                forced: true
+              }
+            });
+            deliveryState = await this.store.getRunDeliveryState(queueMessage.id);
+            const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
+            if (deliveredFingerprint) {
+              deliveredFingerprints.add(deliveredFingerprint);
+            }
+            deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
+            finishResult = forcedToolResult;
+          } else if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
             finishResult = {
               finished: true,
               outcome: 'reply_sent',
@@ -4930,7 +4313,16 @@ export class AgentLoopService {
               no_reply: false
             };
           } else {
-            throw new Error('Agent did not emit any tool call before finish');
+            loopContinuation.push(buildAssistantCommentaryInputItem([
+              formatTaggedBlock('system_reminder', {
+                source: 'no_tool_call_continue',
+                required_next: 'act_or_recover'
+              }, [
+                '刚才没有调用任何工具，所以当前动作还没有完成。',
+                '如果当前要回复，就调用说话工具；如果需要外部信息，就调用 web_search / inspect_image_placeholder / request_image_task；如果精力状态显示该休息，就按自己的状态调用 recover_energy。',
+                '不要用“没有工具调用”表达沉默或结束。'
+              ].join('\n'))
+            ]));
           }
         }
 
@@ -5048,12 +4440,7 @@ export class AgentLoopService {
                 metadata: coreMemoryCompressionArtifact
               });
             }
-            const toolResult = isSilentFinishToolName(toolCall.name)
-              ? {
-                  ...rawToolResult,
-                  no_reply: deliveredMessages.length === 0
-                }
-              : rawToolResult;
+            const toolResult = rawToolResult;
             if (toolCall.name === TOOL_NAMES.recoverEnergy) {
               const recoveryRecorder = (this.store as RuntimeStore & {
                 recordRecoverEnergyLifeEvent?: RuntimeStore['recordRecoverEnergyLifeEvent'];
@@ -5081,12 +4468,6 @@ export class AgentLoopService {
             }
             if (toolCall.name === TOOL_NAMES.unreadMeaning) {
               unreadMeaningArtifact = toolResult;
-            }
-            if (toolCall.name === TOOL_NAMES.lifeAction) {
-              if (toolResult.unread_meaning && typeof toolResult.unread_meaning === 'object' && !Array.isArray(toolResult.unread_meaning)) {
-                unreadMeaningArtifact = toolResult.unread_meaning as Record<string, unknown>;
-              }
-              lifeActionArtifact = toolResult;
             }
             await this.store.completeToolExecutionLog(logId, {
               status: 'completed',
@@ -5290,7 +4671,6 @@ export class AgentLoopService {
           pending_share: persistedPendingShare,
           loop_stage_artifacts: {
             unread_meaning: unreadMeaningArtifact,
-            life_action: lifeActionArtifact,
             core_memory_compression: coreMemoryCompressionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
@@ -6501,9 +5881,6 @@ export class AgentLoopService {
           ...(meaning.topicContext !== null ? { topic_context: meaning.topicContext } : {})
         };
       }
-      case TOOL_NAMES.lifeAction: {
-        return this.commitLifeAction(toolCall, queueMessage);
-      }
       case TOOL_NAMES.execCommand: {
         return this.executeCommand(toolCall.args);
       }
@@ -6540,19 +5917,6 @@ export class AgentLoopService {
           outcome: 'core_memory_compressed'
         };
       }
-      case TOOL_NAMES.silentFinish:
-      case 'finish':
-        return {
-          finished: true,
-          reason: typeof toolCall.args.reason === 'string' ? toolCall.args.reason : null,
-          outcome: typeof toolCall.args.outcome === 'string' ? toolCall.args.outcome : null,
-          xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
-            ? toolCall.args.xiaoni_os.trim()
-            : null,
-          pending_share: typeof toolCall.args.pending_share === 'string' && toolCall.args.pending_share.trim()
-            ? toolCall.args.pending_share.trim()
-            : null
-        };
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }
@@ -6563,7 +5927,82 @@ export class AgentLoopService {
       ? args.cmd
       : '';
     if (!cmd) {
-      throw new Error(`${TOOL_NAMES.execCommand} requires cmd`);
+      const message = `${TOOL_NAMES.execCommand} requires cmd`;
+      return {
+        cmd,
+        workdir: process.cwd(),
+        shell: process.env.SHELL || '/bin/sh',
+        login: args.login !== false,
+        tty: Boolean(args.tty),
+        sandbox_permissions: typeof args.sandbox_permissions === 'string' ? args.sandbox_permissions : 'use_default',
+        exit_code: null,
+        signal: null,
+        timed_out: false,
+        duration_ms: 0,
+        stdout: '',
+        stderr: message,
+        truncated: false,
+        error_message: message,
+        codex_output: buildCodexExecOutput({
+          chunkId: uuidv4().slice(0, 8),
+          durationMs: 0,
+          exitCode: null,
+          output: message
+        })
+      };
+    }
+
+    if (agentConfig.xiaoniExecutorUrl) {
+      try {
+        const response = await fetch(`${agentConfig.xiaoniExecutorUrl}/api/internal/exec-command`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(args)
+        });
+        const text = await response.text();
+        let payload: unknown = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = null;
+        }
+        if (!response.ok) {
+          throw new Error(`xiaoni-executor HTTP ${response.status}: ${text || response.statusText}`);
+        }
+        if (payload && typeof payload === 'object' && 'result' in payload) {
+          const result = (payload as { result?: unknown }).result;
+          if (result && typeof result === 'object' && !Array.isArray(result)) {
+            return result as Record<string, unknown>;
+          }
+        }
+        throw new Error(`xiaoni-executor returned invalid payload: ${text}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          cmd,
+          executor: 'xiaoni-executor',
+          executor_unavailable: true,
+          workdir: typeof args.workdir === 'string' && args.workdir.trim() ? args.workdir.trim() : process.cwd(),
+          shell: typeof args.shell === 'string' && args.shell.trim() ? args.shell.trim() : process.env.SHELL || '/bin/sh',
+          login: args.login !== false,
+          tty: Boolean(args.tty),
+          sandbox_permissions: typeof args.sandbox_permissions === 'string' ? args.sandbox_permissions : 'use_default',
+          exit_code: null,
+          signal: null,
+          timed_out: false,
+          duration_ms: 0,
+          stdout: '',
+          stderr: message,
+          truncated: false,
+          error_message: message,
+          codex_output: buildCodexExecOutput({
+            chunkId: uuidv4().slice(0, 8),
+            durationMs: 0,
+            exitCode: null,
+            output: message
+          })
+        };
+      }
     }
 
     const shell = typeof args.shell === 'string' && args.shell.trim()
@@ -6591,22 +6030,34 @@ export class AgentLoopService {
         exitCode: number | null;
         signal: NodeJS.Signals | null;
         errorMessage?: string | null;
-      }) => ({
-        cmd,
-        workdir,
-        shell,
-        login,
-        tty: Boolean(args.tty),
-        sandbox_permissions: sandboxPermissions,
-        exit_code: input.exitCode,
-        signal: input.signal || null,
-        timed_out: timedOut,
-        duration_ms: Date.now() - startedAt,
-        stdout,
-        stderr,
-        truncated: stdout.length >= maxOutputChars || stderr.length >= maxOutputChars,
-        ...(input.errorMessage ? { error_message: input.errorMessage } : {})
-      });
+      }) => {
+        const durationMs = Date.now() - startedAt;
+        const truncated = stdout.length >= maxOutputChars || stderr.length >= maxOutputChars;
+        return {
+          cmd,
+          workdir,
+          shell,
+          login,
+          tty: Boolean(args.tty),
+          sandbox_permissions: sandboxPermissions,
+          exit_code: input.exitCode,
+          signal: input.signal || null,
+          timed_out: timedOut,
+          duration_ms: durationMs,
+          stdout,
+          stderr,
+          truncated,
+          codex_output: buildCodexExecOutput({
+            chunkId: uuidv4().slice(0, 8),
+            durationMs,
+            exitCode: input.exitCode,
+            signal: input.signal || null,
+            output: stdout + stderr,
+            truncated
+          }),
+          ...(input.errorMessage ? { error_message: input.errorMessage } : {})
+        };
+      };
       const finish = (result: Record<string, unknown>) => {
         if (settled) {
           return;
@@ -6669,161 +6120,6 @@ export class AgentLoopService {
         }));
       });
     });
-  }
-
-  private async commitLifeAction(
-    toolCall: AgentToolCall,
-    queueMessage: QueueMessageRecord['payload']
-  ) {
-    const action = parseLifeAction(toolCall.args);
-    if (!action) {
-      throw new Error(`${toolCall.name} returned invalid arguments`);
-    }
-
-    const base = serializeLifeAction(action);
-    const xiaoniOs = typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
-      ? toolCall.args.xiaoni_os.trim()
-      : action.reason;
-    const pendingShare = typeof toolCall.args.pending_share === 'string' && toolCall.args.pending_share.trim()
-      ? toolCall.args.pending_share.trim()
-      : null;
-    const outcome = typeof toolCall.args.outcome === 'string' && toolCall.args.outcome.trim()
-      ? toolCall.args.outcome.trim()
-      : null;
-
-    const forceSilentReason = action.actionType === 'speak'
-      ? shouldForceActionToSilenceFromParticipationJudgment(action, action.unreadMeaning)
-        ? 'participation_judgment_not_sayable'
-        : shouldDowngradeWeakSpeakToSilence(action, action.unreadMeaning)
-        ? 'weak_speak_downgraded'
-        : null
-      : null;
-    const messages = normalizeMessages(toolCall.args);
-    if (isLifeOnlyAutonomousPayload(queueMessage)
-      && (action.actionType === 'speak' || action.actionType === 'proactive' || action.actionType === 'image_task')) {
-      const deferredShare = normalizePendingShare(pendingShare)
-        || normalizePendingShare(messages.join('\n\n'));
-      return {
-        ...base,
-        proposed_action_type: action.actionType,
-        finished: true,
-        reason: action.reason,
-        outcome: deferredShare ? 'deferred_share_context' : 'life_only_no_external_target',
-        no_reply: true,
-        xiaoni_os: appendPendingShareToXiaoniOs(xiaoniOs, deferredShare),
-        pending_share: deferredShare
-      };
-    }
-
-    if (action.actionType === 'silent' || forceSilentReason || ((action.actionType === 'speak' || action.actionType === 'proactive') && messages.length === 0)) {
-      return {
-        ...base,
-        action_type: 'silent',
-        proposed_action_type: action.actionType,
-        finished: true,
-        reason: forceSilentReason || (messages.length === 0 && action.actionType !== 'silent' ? 'missing_visible_message' : action.reason),
-        outcome: outcome || forceSilentReason || (messages.length === 0 && action.actionType !== 'silent' ? 'missing_visible_message' : 'silent'),
-        xiaoni_os: xiaoniOs,
-        pending_share: pendingShare
-      };
-    }
-
-    if (action.actionType === 'speak' || action.actionType === 'proactive') {
-      const sendResult = await this.sendMessage(
-        queueMessage.chatType === 'direct' ? 'private' : 'group',
-        {
-          ...toolCall.args,
-          message: null,
-          messages,
-          xiaoni_os: xiaoniOs,
-          ...(pendingShare ? { pending_share: pendingShare } : {})
-        },
-        queueMessage
-      );
-      return {
-        ...base,
-        ...sendResult,
-        finished: true,
-        outcome: 'reply_sent',
-        reason: action.reason
-      };
-    }
-
-    if (action.actionType === 'image_task') {
-      const prompt = typeof toolCall.args.prompt === 'string' && toolCall.args.prompt.trim()
-        ? toolCall.args.prompt.trim()
-        : '';
-      if (prompt) {
-        const imageResult = await this.requestImageTask({
-          ...toolCall.args,
-          xiaoni_os: xiaoniOs
-        }, queueMessage);
-        let sendResult: Record<string, unknown> = {};
-        if (messages.length > 0) {
-          sendResult = await this.sendMessage(
-            queueMessage.chatType === 'direct' ? 'private' : 'group',
-            {
-              ...toolCall.args,
-              message: null,
-              messages,
-              xiaoni_os: xiaoniOs,
-              ...(pendingShare ? { pending_share: pendingShare } : {})
-            },
-            queueMessage
-          );
-        }
-        return {
-          ...base,
-          ...imageResult,
-          ...sendResult,
-          finished: true,
-          outcome: messages.length > 0 ? 'image_task_queued_and_replied' : 'image_task_queued',
-          reason: action.reason,
-          xiaoni_os: xiaoniOs,
-          pending_share: pendingShare
-        };
-      }
-      return {
-        ...base,
-        finished: false,
-        needs_external_tool: 'image_task',
-        reason: action.reason,
-        xiaoni_os: xiaoniOs,
-        pending_share: pendingShare
-      };
-    }
-
-    if (action.actionType === 'search') {
-      if (!agentConfig.webSearchEnabled) {
-        return {
-          ...base,
-          action_type: 'silent',
-          proposed_action_type: action.actionType,
-          finished: true,
-          reason: 'web_search_disabled',
-          outcome: 'web_search_disabled',
-          xiaoni_os: xiaoniOs,
-          pending_share: pendingShare
-        };
-      }
-      return {
-        ...base,
-        finished: false,
-        needs_external_tool: 'web_search',
-        reason: action.reason,
-        xiaoni_os: xiaoniOs,
-        pending_share: pendingShare
-      };
-    }
-
-    return {
-      ...base,
-      finished: true,
-      reason: action.reason,
-      outcome: outcome || 'silent',
-      xiaoni_os: xiaoniOs,
-      pending_share: pendingShare
-    };
   }
 
   private async inspectImagePlaceholder(

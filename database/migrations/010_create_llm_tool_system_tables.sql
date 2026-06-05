@@ -22,8 +22,8 @@ CREATE TABLE IF NOT EXISTS llm_jobs (
 
   -- 执行状态
   pending_tool VARCHAR(100) NULL COMMENT '当前等待的工具名',
-  current_turn INT NOT NULL DEFAULT 1 COMMENT '当前轮次',
-  max_turns INT NOT NULL DEFAULT 10 COMMENT '最大轮次',
+  current_turn INT NOT NULL DEFAULT 1 COMMENT '当前步骤',
+  max_turns INT NOT NULL DEFAULT 10 COMMENT '最大步骤',
 
   -- 结果与错误
   final_response TEXT NULL COMMENT '最终响应文本',

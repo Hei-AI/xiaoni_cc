@@ -209,7 +209,7 @@ test('MiniTreatmentRunner uses format repair without semantic retry for invalid 
         modelName: request.modelName,
         outputText: JSON.stringify({
           finalCandidateAction: {
-            kind: 'stay_silent_candidate',
+            kind: 'silent_candidate',
             rationale: 'candidate only',
             confidence: 0.7,
             silenceReason: 'not enough signal'

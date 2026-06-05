@@ -170,7 +170,7 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
   assert.equal(resolvePresenceRecoveryEvent({ ...tiredState, fatigue: 0.5 }, new Date('2026-05-31T07:00:00.000Z')), null);
 });
 
-test('recover_energy records sleep recovery from the explicit recovery tool', async () => {
+test('recover_energy records rest recovery from the explicit recovery tool', async () => {
   const store = new RuntimeStore() as any;
   const lifeEvents: any[] = [];
   store.recordLifeEventSafe = async (input: any) => {
@@ -206,10 +206,10 @@ test('recover_energy records sleep recovery from the explicit recovery tool', as
     toolName: 'recover_energy',
     toolResult: {
       recovered: true,
-      reason: '累了，先睡一下',
+      reason: '累了，先休息一下',
       duration_minutes: 45,
       duration_ms: 45 * 60 * 1000,
-      xiaoni_os: '醒来继续自己的事。'
+      xiaoni_os: '之后继续自己的事。'
     }
   });
 
@@ -218,10 +218,10 @@ test('recover_energy records sleep recovery from the explicit recovery tool', as
   assert.equal(lifeEvents[0].surface, 'life_loop');
   assert.equal(lifeEvents[0].actionCost, 0);
   assert.equal(lifeEvents[0].payload.tool_name, 'recover_energy');
-  assert.equal(lifeEvents[0].payload.reason, '累了，先睡一下');
+  assert.equal(lifeEvents[0].payload.reason, '累了，先休息一下');
   assert.equal(lifeEvents[0].payload.duration_minutes, 45);
   assert.equal(lifeEvents[0].payload.duration_ms, 45 * 60 * 1000);
-  assert.equal(lifeEvents[0].payload.xiaoni_os, '醒来继续自己的事。');
+  assert.equal(lifeEvents[0].payload.xiaoni_os, '之后继续自己的事。');
   assert.equal(lifeEvents[0].payload.recovery_policy, 'recover_energy_tool_only');
   assert.equal('duration_label' in lifeEvents[0].payload, false);
 });
@@ -254,7 +254,7 @@ test('visible group replies charge one bounded action cost without per-message d
   assert.equal(lifeEvents[2].actionCost, 0);
 });
 
-test('renderXiaoniLifeStateExplanation tells the next wake energy and recent action costs', () => {
+test('renderXiaoniLifeStateExplanation tells current energy and recent action costs', () => {
   const text = renderXiaoniLifeStateExplanation({
     version: 'xiaoni-life-v1',
     summary: '当前精力=0.10',
@@ -267,19 +267,19 @@ test('renderXiaoniLifeStateExplanation tells the next wake energy and recent act
         eventId: '3',
         eventKind: 'sleep_period',
         occurredAt: '2026-05-31T07:30:00.000Z',
-        effect: '刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0.00'
+        effect: '刚才记录了一次休息恢复，恢复后累计行动成本重置为 0.00'
       },
       {
         eventId: '2',
         eventKind: 'speak_in_group',
         occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，本次行动成本 1.00'
+        effect: '已经开口，行动成本 1.00'
       },
       {
         eventId: '1',
         eventKind: 'presence_tick_evaluated',
         occurredAt: '2026-05-31T06:00:00.000Z',
-        effect: '这次空闲检查被跳过'
+        effect: '空闲检查被跳过'
       }
     ],
     meterDrivers: {
@@ -291,8 +291,8 @@ test('renderXiaoniLifeStateExplanation tells the next wake energy and recent act
   });
 
   assert.match(text, /现在的精力：当前精力=0\.10/);
-  assert.match(text, /最近行动消耗：已经开口，本次行动成本 1\.00/);
-  assert.match(text, /刚才怎么恢复：刚才记录了一次睡眠恢复，醒来后累计行动成本重置为 0\.00/);
+  assert.match(text, /最近行动消耗：已经开口，行动成本 1\.00/);
+  assert.match(text, /刚才怎么恢复：刚才记录了一次休息恢复，恢复后累计行动成本重置为 0\.00/);
   assert.doesNotMatch(text, /无聊=|疲劳=|分享欲=|困倦压力=|疲劳怎么算|空闲检查被跳过/);
 });
 

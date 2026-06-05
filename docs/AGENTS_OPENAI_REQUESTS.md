@@ -43,12 +43,12 @@
   not "this run" as Xiaoni's mental boundary.
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例；不要塞动态状态、工具列表、skill 列表或 cost。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果、工程提醒、动态能力列表和 cost 都属于 runtime input / developer context，不要回填进 system prompt。工程在主 loop 输入开头追加一次 developer `<CAPABILITIES>`，列出工具、skill 和 cost。
-- 新 prompt-facing OS 连续性标签是 `<xiaoni_os>`。DB 字段可以继续叫
-  `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。
-- `<STATE>` 不每轮注入。工程只在跨 run action 计数阈值、hosted
-  `web_search` 之后、低精力提醒、透支强制睡醒、休息中被连续 @ 打扰醒时
+- 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
+  `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。不要用工程术语解释它。
+- `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
+  `web_search` 之后、低精力提醒、负精力后的完整恢复、休息中被连续 @ 打断时
   append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数，恢复计算按 `max(0, energy)`。
-- 当工程检测到 `raw_energy < 0` 时，强制等待 `2h` 后再唤醒。恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
+- 当工程检测到 `raw_energy < 0` 时，强制等待 `2h` 后再恢复。恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
 - hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 `<STATE>`，让模型看到搜索后的精力变化。
 - prompt-facing 恢复工具只有 `recover_energy`。`rest_period` /
   `sleep_period` 可作为历史/internal 事件留存，但不能作为面向模型的双工具
@@ -57,10 +57,10 @@
   tools、skills 和成本，当前用 `<CAPABILITIES>` 承载并放在主 loop 输入开头。skill 只有在 `SKILL.md` 声明 `## Runtime Cost` /
   `energy_cost: <number>` 时才列入；缺 cost 的 skill 不列入并产生 operator
   warning。小腻可以通过 skill 维护流程调整 cost；修改必须审计旧值、新值、原因和关联 trace。
-- 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才唤醒，并在唤醒上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
+- 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才打断休息，并在后续上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
-- 主 agent 要把“当前有没有具体可说点”和“当前生活动作”作为结构化中间态，而不是用 `has_own_thought` 这类不可检查布尔值。当前主契约是在 `submit_life_action` 中输出 `action_type / reason / evidence_refs / confidence`，并在 `participation_judgment` 中输出 `status / basis / sayable_point / evidence_refs / memory_refs`。
-- `participation_judgment.status=no_sayable_point` 时，工程层必须把最终动作压成 `submit_life_action(action_type=silent)` 的无回复结果，即使模型同时给了 `action_type=speak`。直接请求能力或事实时走 `direct_request`，并且仍需当前消息明确把小腻拉入现场。
+- 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
+- 动作未完成前，“没有工具调用”不能表达沉默或结束。runtime 必须继续提醒模型选择真实动作，或者由小腻按可见 `<STATE>` 和自身疲惫感调用 `recover_energy`。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 - `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 `<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">`，并把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
@@ -74,7 +74,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `life_loop` / compatible `presence_tick` append 到同一事件流；life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前可以选择内部 `submit_life_action`、hosted `web_search` 或 `recover_energy`，沉默仍走 `submit_life_action(action_type=silent)`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前空闲生活事件不是第二套 agent，也不能直接发 QQ。它以 `life_loop` / compatible `presence_tick` append 到同一事件流；life-only / presence 起源的场景读取全局 conversation append stream，并使用 `xiaoni:global` 作为 context summary / read-cutoff 兼容 key。即使因为存在游标后的未读 IM 而 materialize 成 `proactive_im_open`，上下文也不能退回单个群/私聊的局部历史；没有具体 IM 目标时当前只能选择 `exec_command`、hosted `web_search`、`compress_core_memory` 或 `recover_energy`。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Local Request Captures
 

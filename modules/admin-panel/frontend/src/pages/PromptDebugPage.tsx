@@ -515,7 +515,7 @@ export const PromptDebugPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold">调试 Prompt: {prompt.prompt_name}</h1>
             <p className="text-muted-foreground">
-              多轮对话调试，支持思考过程查看
+              连续对话调试，支持思考过程查看
             </p>
           </div>
         </div>

@@ -1735,7 +1735,7 @@ export function PlaygroundPage() {
                 {selectedCaseQuery.data?.caseMode ? <Badge variant="secondary">{selectedCaseQuery.data.caseMode}</Badge> : null}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
-                编辑当前 Prompt，并观察本次运行输出。
+                编辑当前 Prompt，并观察当前运行输出。
               </div>
             </div>
 
@@ -1824,7 +1824,7 @@ export function PlaygroundPage() {
 
           {promptMode === 'saved' ? (
             <div className="mt-3 rounded-2xl border border-border/70 bg-background/70 px-4 py-3 text-xs leading-6 text-muted-foreground">
-              Saved Prompt 会以数据库里的 Prompt 作为基线，但当前工作台里改过的 System Instruction 和 Context Variables 会作为本次 Run 的临时覆盖，不会回写正式 Prompt。
+              Saved Prompt 会以数据库里的 Prompt 作为基线，但当前工作台里改过的 System Instruction 和 Context Variables 会作为当前 Run 的临时覆盖，不会回写正式 Prompt。
             </div>
           ) : null}
 

@@ -64,13 +64,13 @@ function formatNoReplyRate(noReplyRuns: number, totalRuns: number): string {
 
 function summarizeRunDecision(status: string, noReply?: boolean, reason?: string | null): string {
   if (noReply) {
-    return reason ? `这次没有回，停在 ${reason}。` : '这次没有回。';
+    return reason ? `没有回，停在 ${reason}。` : '没有回。';
   }
   if (status === 'failed') {
-    return reason ? `这次失败，终止原因是 ${reason}。` : '这次失败了。';
+    return reason ? `运行失败，终止原因是 ${reason}。` : '运行失败了。';
   }
   if (status === 'completed') {
-    return reason ? `这次完成，收束在 ${reason}。` : '这次完成并给出了结果。';
+    return reason ? `运行完成，收束在 ${reason}。` : '运行完成并给出了结果。';
   }
   return reason ? `当前状态 ${status}，原因 ${reason}。` : `当前状态 ${status}。`;
 }
@@ -566,7 +566,7 @@ export const ConversationsPage: React.FC = () => {
                       </div>
                     ) : (
                       <div className="mt-3 rounded-2xl border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                        这个 run 还没有 participation decision 数据。通常说明它来自旧数据，或者这次不是通过新的 Stage 2 path 进入的。
+                        这个 run 还没有 participation decision 数据。通常说明它来自旧数据，或者当前 run 不是通过新的 Stage 2 path 进入的。
                       </div>
                     )}
                   </div>

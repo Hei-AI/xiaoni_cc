@@ -800,12 +800,12 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
     }
   });
 
-  // 🔥 增强的Debug prompt endpoint - 支持完整prompt配置和多轮对话
+  // 🔥 增强的Debug prompt endpoint - 支持完整prompt配置和连续对话
   router.post('/debug/prompt-v2', async (req, res) => {
     try {
       const {
         prompt_id,            // 🔥 新增: Prompt ID用于加载完整配置
-        messages = [],        // 🔥 新增: 多轮对话历史
+        messages = [],        // 🔥 新增: 连续对话历史
         systemPrompt,         // 向后兼容
         userInput,           // 向后兼容
         parameters = {},
@@ -949,7 +949,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
       // 🔥 调用Bot Core的内部LLM调试接口，传递完整配置
       const internalApiPayload = {
         systemPrompt: finalSystemPrompt,
-        messages: finalMessages,        // 🔥 传递多轮对话
+        messages: finalMessages,        // 🔥 传递连续对话
         parameters: finalParameters,    // 🔥 传递完整配置
         model: finalModel,
         conversation_id: conversation_id || prompt_id

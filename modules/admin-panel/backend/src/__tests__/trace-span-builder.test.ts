@@ -201,7 +201,7 @@ describe('buildConversationTracePayload', () => {
           canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
           wire_request: JSON.stringify({ model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] }),
           canonical_response: JSON.stringify({ output_text: '' }),
-          wire_response: JSON.stringify({ id: 'resp_1', output: [{ type: 'function_call', name: 'stay_silent' }] }),
+          wire_response: JSON.stringify({ id: 'resp_1', output: [{ type: 'function_call', name: 'recover_energy' }] }),
           effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
           processed_response: '',
           input_tokens: 10,

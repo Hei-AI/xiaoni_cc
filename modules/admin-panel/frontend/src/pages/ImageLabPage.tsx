@@ -598,7 +598,7 @@ export function ImageLabPage() {
       <PageHeader
         eyebrow="Image Lab"
         title="gpt-image-2"
-        description="面向人工使用的多轮生图工作台，支持生成、编辑、参考图复用与结果留痕。"
+        description="面向人工使用的连续生图工作台，支持生成、编辑、参考图复用与结果留痕。"
         icon={<ImagePlus className="h-4 w-4" />}
         badge={<PageHeaderBadge>{quality === 'high' ? 'High quality' : quality}</PageHeaderBadge>}
         actions={

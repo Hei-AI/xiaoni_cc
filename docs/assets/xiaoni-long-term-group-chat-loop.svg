@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">小腻长期群聊对话与自进化闭环</title>
-  <desc id="desc">A one-page business diagram that explains how Xiaoni reads a group chat, forms an life action, recalls prior learning, decides to stay silent, search, or speak, and turns the result into future learning.</desc>
+  <desc id="desc">A one-page business diagram that explains how Xiaoni reads a group chat, forms a life action, decides to remain quiet, search, or speak, and turns the result into future learning.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8f6; }
@@ -41,7 +41,7 @@
 
   <rect class="bg" x="0" y="0" width="1600" height="900"/>
   <text class="title" x="70" y="72">小腻长期群聊对话与自进化闭环</text>
-  <text class="subtitle" x="72" y="112">不是“收到消息就回复”，而是每一轮都先看场、再观己、再召回经验，最后选择沉默、求知或发言。</text>
+  <text class="subtitle" x="72" y="112">不是“收到消息就回复”，而是在连续事件流里先看场、再观己，最后选择沉默、求知或发言。</text>
 
   <g transform="translate(70 162)">
     <rect class="card-blue" x="0" y="0" width="250" height="210"/>
@@ -49,7 +49,7 @@
     <text class="label" x="24" y="31">1. 群聊现场进来</text>
     <text class="body" x="24" y="78">看到的不只是一句话</text>
     <text class="small" x="24" y="112">已读聊天背景</text>
-    <text class="small" x="24" y="140">这次未读消息批次</text>
+    <text class="small" x="24" y="140">未读消息批次</text>
     <text class="small" x="24" y="168">回复 / 引用 / @ 的关系</text>
     <text class="small" x="24" y="196">群开关与自动回复开关</text>
   </g>
@@ -62,7 +62,7 @@
     <text class="small" x="24" y="112">重点是什么</text>
     <text class="small" x="24" y="140">是在问、请求、反馈</text>
     <text class="small" x="24" y="168">话是指向谁</text>
-    <text class="tiny" x="24" y="196">工具：emit_unread_meaning</text>
+    <text class="tiny" x="24" y="196">字段：unread_meaning</text>
   </g>
 
   <g transform="translate(630 162)">
@@ -73,18 +73,18 @@
     <text class="small" x="24" y="112">兴趣强弱</text>
     <text class="small" x="24" y="140">观点、疑问、好奇、不适</text>
     <text class="small" x="24" y="168">该说、该查，还是沉默</text>
-    <text class="tiny" x="24" y="196">工具：submit_life_action</text>
+    <text class="tiny" x="24" y="196">工具：direct action tools</text>
   </g>
 
   <g transform="translate(910 162)">
     <rect class="card-purple" x="0" y="0" width="250" height="210"/>
     <rect class="bar-purple" x="0" y="0" width="250" height="48" rx="18"/>
-    <text class="label" x="24" y="31">4. 召回经验</text>
-    <text class="body" x="24" y="78">少量召回过去学过的分寸</text>
-    <text class="small" x="24" y="112">相似互动反馈</text>
-    <text class="small" x="24" y="140">对这个人/话题的经验</text>
+    <text class="label" x="24" y="31">4. 读连续性</text>
+    <text class="body" x="24" y="78">读取已在上下文里的近况</text>
+    <text class="small" x="24" y="112">&lt;小腻近况&gt; / xiaoni_os</text>
+    <text class="small" x="24" y="140">身份事实与当前状态</text>
     <text class="small" x="24" y="168">只校准，不替代当前反应</text>
-    <text class="tiny" x="24" y="196">工具：recall_long_term_learning</text>
+    <text class="tiny" x="24" y="196">公开事实缺口才走 web_search</text>
   </g>
 
   <g transform="translate(1190 162)">
@@ -95,7 +95,7 @@
     <text class="small" x="24" y="116">沉默：不打断现场</text>
     <text class="small" x="24" y="146">求知：先查公开事实</text>
     <text class="small" x="24" y="176">发言：只说真正承担的话</text>
-    <text class="tiny" x="24" y="202">silent action / web_search / speak_in_group</text>
+    <text class="tiny" x="24" y="202">silent / web_search / speak</text>
   </g>
 
   <path class="arrow" d="M 320 267 H 342"/>
@@ -106,9 +106,9 @@
   <g transform="translate(100 430)">
     <rect class="card" x="0" y="0" width="320" height="170"/>
     <rect class="bar-dark" x="0" y="0" width="320" height="45" rx="18"/>
-    <text class="label" x="24" y="30">每轮带入的长期材料</text>
+    <text class="label" x="24" y="30">当前动作带入的连续性材料</text>
     <text class="small" x="24" y="76">1. 最近聊天：刚刚发生了什么</text>
-    <text class="small" x="24" y="108">2. 小腻的OS：上一轮留下的余波</text>
+    <text class="small" x="24" y="108">2. xiaoni_os：历史动作留下的余波</text>
     <text class="small" x="24" y="140">3. 身份事实与相处经验：已确认的长期学习</text>
   </g>
 
@@ -128,7 +128,7 @@
     <text class="label" x="24" y="30">真实结果进入复盘</text>
     <text class="small" x="24" y="76">群友接住、冷场、纠偏、反馈</text>
     <text class="small" x="24" y="108">小腻有没有说错、说多、说少</text>
-    <text class="small" x="24" y="140">这一轮在关系里留下了什么</text>
+    <text class="small" x="24" y="140">动作在关系里留下了什么</text>
   </g>
 
   <g transform="translate(1170 430)">
@@ -148,12 +148,12 @@
   <g transform="translate(100 660)">
     <rect x="0" y="0" width="1370" height="115" rx="22" fill="#edf4ee" stroke="#b6d0bb" stroke-width="2"/>
     <text class="section" x="30" y="38">业务口径</text>
-    <text class="body" x="30" y="72">自进化不是“自动改人设”，而是：每轮群聊的真实后果被记录、复盘、沉淀成经验；下一轮再被召回，用来校准小腻该不该出现、怎么出现。</text>
+    <text class="body" x="30" y="72">自进化不是“自动改人设”，而是：群聊真实后果被记录、复盘、沉淀成经验；之后按场景进入上下文，校准小腻该不该出现、怎么出现。</text>
     <text class="body" x="30" y="100">这让小腻长期看起来像一个会记得关系、会调整边界、会从反馈中变得更会在场的群友。</text>
   </g>
 
   <g transform="translate(104 812)">
-    <text class="tiny" x="0" y="0">真实技术落点：NapCat 收发 QQ；provider-service 负责收消息、发消息和模型出口；agent-service 负责小腻每轮判断；长期记录在 PostgreSQL / packages/persistence。</text>
+    <text class="tiny" x="0" y="0">真实技术落点：NapCat 收发 QQ；provider-service 负责收消息、发消息和模型出口；agent-service 负责小腻当前动作判断；长期记录在 PostgreSQL / packages/persistence。</text>
     <text class="tiny" x="0" y="28">这张图只讲当前群聊主链路，不讲管理端页面。</text>
   </g>
 </svg>

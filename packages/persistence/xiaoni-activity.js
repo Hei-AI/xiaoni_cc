@@ -283,7 +283,7 @@ function lifeEventBody(row, payload) {
     }
     const skipReason = firstString(payload.skip_reason, payload.reason);
     if (skipReason === 'fatigue') {
-      return '精力不足，本轮不主动看群；恢复按休息或睡眠节奏记录。';
+      return '精力不足，暂不主动看群；恢复按休息或睡眠节奏记录。';
     }
     return skipReason ? `空闲检查未入队；原因：${skipReason}` : '空闲检查未入队。';
   }

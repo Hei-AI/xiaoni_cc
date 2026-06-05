@@ -61,7 +61,7 @@ ALTER TABLE api_token_health_config COMMENT = 'Token健康检查配置表';
 
 -- 修复 conversation_sessions 表 (如果存在)
 ALTER TABLE conversation_sessions CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE conversation_sessions COMMENT = '对话Session管理表 - 支持多轮对话上下文管理';
+ALTER TABLE conversation_sessions COMMENT = '对话Session管理表 - 支持连续对话上下文管理';
 
 -- 修复 message_reply_chain 表 (如果存在)
 ALTER TABLE message_reply_chain CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -21,7 +21,7 @@ test('eval fixtures cover all required classes', () => {
   const classes = fixtures.map((fixture) => fixture.fixtureClass).sort();
   assert.deepEqual(classes, [...requiredClasses].sort());
   assert.equal(new Set(fixtures.map((fixture) => fixture.id)).size, fixtures.length);
-  assert.ok(fixtures.some((fixture) => fixture.fixtureClass === 'silence' && fixture.expectedTreatmentActionKind === 'stay_silent_candidate'));
+  assert.ok(fixtures.some((fixture) => fixture.fixtureClass === 'silence' && fixture.expectedTreatmentActionKind === 'silent_candidate'));
   assert.ok(fixtures.some((fixture) => fixture.fixtureClass === 'memory_recall' && fixture.expectedLabel === 'mini_better'));
 });
 

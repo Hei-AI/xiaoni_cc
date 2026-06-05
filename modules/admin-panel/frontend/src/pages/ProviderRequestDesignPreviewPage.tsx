@@ -70,7 +70,7 @@ const responseBody = JSON.stringify(
         content: [
           {
             type: 'output_text',
-            text: '本次 trace 改动主要集中在 provider_request 的 headers/body 折叠展示。',
+            text: '当前 trace 改动主要集中在 provider_request 的 headers/body 折叠展示。',
           },
         ],
       },
@@ -132,7 +132,7 @@ function makeGenerationRow(): TraceWaterfallRow {
           id: 'output',
           label: 'Output',
           value: {
-            processed_response: '本次 trace 改动主要集中在 provider_request 的 headers/body 折叠展示。',
+            processed_response: '当前 trace 改动主要集中在 provider_request 的 headers/body 折叠展示。',
             canonical_response: JSON.parse(responseBody),
           },
           emptyLabel: 'No output captured',

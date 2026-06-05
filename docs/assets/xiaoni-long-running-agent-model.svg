@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
   <title id="title">小腻长期群聊 Agent 工作模型</title>
-  <desc id="desc">A one-page operating model diagram for Xiaoni as a long-running group chat agent, showing the current-turn participation loop and the long-term self-evolution memory loop.</desc>
+  <desc id="desc">A one-page operating model diagram for Xiaoni as a continuous group chat agent, showing the current action loop and the long-term self-evolution memory loop.</desc>
   <defs>
     <style>
       .bg { fill: #f7f8f6; }
@@ -49,11 +49,11 @@
 
   <rect class="bg" width="1600" height="900"/>
   <text class="title" x="70" y="65">小腻长期群聊 Agent 工作模型</text>
-  <text class="subtitle" x="72" y="103">一页讲清：小腻每一轮怎么参与群聊，以及每一轮之后如何沉淀成下一轮的成长。</text>
+  <text class="subtitle" x="72" y="103">一页讲清：小腻如何在连续事件流里参与群聊，以及真实后果如何沉淀成后续成长。</text>
 
   <g transform="translate(70 140)">
     <rect class="lane" x="0" y="0" width="1460" height="350"/>
-    <text class="h" x="28" y="42">A. 当前轮参与闭环：先看场，再观己，最后选择怎么在场</text>
+    <text class="h" x="28" y="42">A. 当前动作参与闭环：先看场，再观己，最后选择怎么在场</text>
 
     <g transform="translate(35 82)">
       <rect class="panel-blue" x="0" y="0" width="220" height="205"/>
@@ -70,10 +70,10 @@
       <rect class="panel-green" x="0" y="0" width="245" height="205"/>
       <rect class="badge-green" x="0" y="0" width="245" height="40" rx="18"/>
       <text class="chip" x="22" y="26">2 工作上下文</text>
-      <text class="body" x="20" y="70">把现场组装成这一轮可思考的材料</text>
+      <text class="body" x="20" y="70">把现场组装成当前可思考的材料</text>
       <text class="small" x="20" y="104">已读消息 + 未读消息</text>
-      <text class="small" x="20" y="132">上一轮小腻的OS</text>
-      <text class="small" x="20" y="160">身份事实 + 召回经验</text>
+      <text class="small" x="20" y="132">历史 xiaoni_os</text>
+      <text class="small" x="20" y="160">身份事实 + 当前近况</text>
       <text class="tiny" x="20" y="188">working memory / context</text>
     </g>
 
@@ -81,10 +81,10 @@
       <rect class="panel-gold" x="0" y="0" width="310" height="238"/>
       <rect class="badge-gold" x="0" y="0" width="310" height="40" rx="18"/>
       <text class="chip" x="22" y="26">3 小腻运行脑</text>
-      <text class="body" x="22" y="70">不是一次性生成回复，而是被工具门控的判断循环：</text>
+      <text class="body" x="22" y="70">工具门控的动作判断：</text>
       <text class="small" x="22" y="104">先理解未读：发生了什么</text>
       <text class="small" x="22" y="132">再判断：有没有具体可说点</text>
-      <text class="small" x="22" y="160">必要时召回：过去学过什么</text>
+      <text class="small" x="22" y="160">判断缺口：少猜 / 搜索 / 沉默</text>
       <text class="small" x="22" y="188">最后选择：沉默 / 求知 / 发言</text>
       <text class="tiny" x="22" y="220">小腻主AGENT + runtime contract + tool choice</text>
     </g>
@@ -97,7 +97,7 @@
       <text class="small" x="20" y="104">沉默：不打断现场</text>
       <text class="small" x="20" y="132">求知：搜索公开事实</text>
       <text class="small" x="20" y="160">发言：说具体成立的话</text>
-      <text class="tiny" x="20" y="188">silent action / web_search / speak</text>
+      <text class="tiny" x="20" y="188">silent / web_search / speak</text>
     </g>
 
     <g transform="translate(1245 82)">
@@ -120,12 +120,12 @@
 
   <g transform="translate(70 525)">
     <rect class="lane2" x="0" y="0" width="1460" height="255"/>
-    <text class="h" x="28" y="40">B. 长期自进化闭环：真实后果被写入，下一轮再被召回</text>
+    <text class="h" x="28" y="40">B. 长期自进化闭环：真实后果被写入，之后按场景进入上下文</text>
 
     <g transform="translate(45 76)">
       <rect class="panel" x="0" y="0" width="265" height="130"/>
       <text class="h2" x="22" y="34">事件记忆</text>
-      <text class="body" x="22" y="66">这一轮发生了什么，结果怎样</text>
+      <text class="body" x="22" y="66">当前动作发生了什么，结果怎样</text>
       <text class="small" x="22" y="98">episode：互动、反馈、冷场、纠偏</text>
     </g>
 
@@ -146,13 +146,13 @@
     <g transform="translate(960 76)">
       <rect class="panel" x="0" y="0" width="230" height="130"/>
       <text class="h2" x="22" y="34">小腻的OS</text>
-      <text class="body" x="22" y="66">上一轮留给下一轮的余波</text>
-      <text class="small" x="22" y="98">每轮自然延续</text>
+      <text class="body" x="22" y="66">历史动作留下的余波</text>
+      <text class="small" x="22" y="98">连续事件流自然延续</text>
     </g>
 
     <g transform="translate(1230 50)">
       <rect class="panel-dark" x="0" y="0" width="190" height="148"/>
-      <text class="chip" x="24" y="36">下一轮召回</text>
+      <text class="chip" x="24" y="36">后续投影</text>
       <text class="chip" x="24" y="72">进入工作上下文</text>
       <text class="small" x="24" y="112" fill="#d7e2df">不是堆记忆</text>
       <text class="small" x="24" y="135" fill="#d7e2df">按场景取少量材料</text>
@@ -162,13 +162,13 @@
     <path class="arrow-gold" d="M 615 141 H 647"/>
     <path class="arrow-gold" d="M 920 141 H 952"/>
     <path class="arrow-gold" d="M 1190 141 H 1222"/>
-    <text class="body" x="45" y="235">业务口径：小腻不是把所有聊天都塞进记忆，而是把真实后果沉淀成下一轮可召回的少量经验。</text>
+    <text class="body" x="45" y="235">业务口径：小腻不是把所有聊天都塞进记忆，而是把真实后果沉淀成后续可投影的少量经验。</text>
   </g>
 
   <path class="arrow-green" d="M 1370 490 C 1395 520 1395 560 1390 585"/>
   <text class="small" x="1398" y="535">复盘写入</text>
   <path class="arrow-green" d="M 1300 525 C 1180 440 820 438 505 525 C 420 548 390 515 425 492"/>
-  <text class="small" x="790" y="472">读回下一轮</text>
+  <text class="small" x="790" y="472">读回上下文</text>
 
-  <text class="tiny" x="98" y="852">真实技术落点：NapCat 收发 QQ；provider-service 负责消息与模型出口；agent-service 负责每轮判断；长期记录在 PostgreSQL / packages/persistence。</text>
+  <text class="tiny" x="98" y="852">真实技术落点：NapCat 收发 QQ；provider-service 负责消息与模型出口；agent-service 负责当前动作判断；长期记录在 PostgreSQL / packages/persistence。</text>
 </svg>

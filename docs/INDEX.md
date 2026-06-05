@@ -55,6 +55,22 @@
 - 脚本入口：
   - `scripts/README.md`
 
+## Xiaoni Doc Status
+- 当前运行事实优先级：`docs/CURRENT_ARCHITECTURE.md` ->
+  `docs/AGENTS_AGENT_LOOP_RUNTIME.md` -> `docs/XIAONI_SPEAKING_FLOW.md` ->
+  `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`。这些文档描述现在真实生效的
+  QQ / agent-service / provider-service 链路。
+- Prompt 正文事实源：`docs/XIAONI_MAIN_PROMPT_NEXT.md` 必须和
+  `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 同步。
+- 设计/目标状态文档：`docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md` 和
+  `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` 可以包含已落地切片、锁定目标和历史
+  兼容说明；阅读时以文内 `Status` / `Current Runtime Facts` 为准，不要把未来
+  设计当作当前代码事实。
+- 历史材料：`docs/archive/` 和 `docs/exec-plans/completed/` 只作追溯参考，
+  其中的旧工具、旧分阶段描述和旧执行计划不是当前 runtime 契约。
+- 图资产：`docs/assets/xiaoni-*.svg` / `.png` 只是说明图。若它们和上面的当前
+  运行事实冲突，以上面的 current docs 为准，并同时更新 SVG 源和 PNG 导出图。
+
 ## GStack Workflows
 - 长任务自动评审：
   - `$autoplan`

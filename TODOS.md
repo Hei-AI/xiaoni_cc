@@ -455,7 +455,7 @@ Timer flow:
    and materializes the run as `source = proactive_im_open`.
 5. If no unread conversation exists, the row still runs through the main loop as
    a life-only `presence_tick` with no group/private delivery target. It may
-   submit an internal life action, use `web_search`, or `stay_silent`, but it
+   use `web_search`, `exec_command`, or `recover_energy`, or naturally stay quiet, but it
    must not send QQ directly.
 
 **Crash window (known risk, accepted this version — locked 2A):** If the process
@@ -655,7 +655,7 @@ being processed:
   "content": [
     {
       "type": "input_text",
-      "text": "<system_reminder>我上一次水群是在 <last_message_id> 之前；这次只需要处理之后出现的新消息。</system_reminder>"
+      "text": "<system_reminder>我上一次水群是在 <last_message_id> 之前；只需要处理之后出现的新消息。</system_reminder>"
     }
   ]
 }
@@ -679,8 +679,8 @@ being processed:
 - Define which tools are `commentary` tools and which are `final_answer` tools.
 - Commentary tools may include scene understanding, recall, image inspection,
   web search, and internal action/reminder surfaces.
-- Final tools include actual QQ output or run-ending decisions:
-  `speak_in_group`, `reply_in_private`, `stay_silent`, and possibly
+- Final tools include actual QQ output or recovery/external actions:
+  `speak_in_group`, `reply_in_private`, `recover_energy`, and possibly
   `request_image_task` depending on whether it is treated as an external action.
 - Move stable "when to use this tool" and "what phase comes next" guidance into
   system/developer prompt.
@@ -1379,7 +1379,6 @@ Locked initial costs:
 
 ```text
 submit_life_action: 0.005
-stay_silent: 0.002
 speak_in_group: 0.015
 reply_in_private: 0.015
 web_search: 0.080

@@ -229,7 +229,7 @@ export type CandidateAction =
   | ImageTaskCandidateAction;
 
 export type CandidateActionKind =
-  | 'stay_silent_candidate'
+  | 'silent_candidate'
   | 'speak_in_group_candidate'
   | 'private_reply_candidate'
   | 'web_search_candidate'
@@ -244,7 +244,7 @@ export interface CandidateActionBase {
 }
 
 export interface StaySilentCandidateAction extends CandidateActionBase {
-  kind: 'stay_silent_candidate';
+  kind: 'silent_candidate';
   silenceReason: string;
 }
 

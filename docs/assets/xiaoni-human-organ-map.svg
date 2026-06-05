@@ -41,7 +41,7 @@
 
   <rect class="bg" x="0" y="0" width="1600" height="900"/>
   <text class="title" x="70" y="68">小腻长期群聊能力的人体组织图</text>
-  <text class="subtitle" x="72" y="106">把小腻当作一个长期在群里生活的人：她先感知现场，再理解、动心、回忆、表达，最后把经历消化成下一轮的成长。</text>
+  <text class="subtitle" x="72" y="106">把小腻当作一个长期在群里生活的人：她先感知现场，再理解、动心、表达，最后把经历消化成持续的成长。</text>
 
   <g transform="translate(650 120)">
     <ellipse class="human" cx="155" cy="82" rx="76" ry="78"/>
@@ -83,7 +83,7 @@
     <text class="label" x="24" y="34">大脑皮层：先理解发生了什么</text>
     <text class="body" x="24" y="68">把群聊从“字面句子”还原成社交场面。</text>
     <text class="small" x="24" y="100">这句话在问、请求、反馈，还是闲聊？</text>
-    <text class="tiny" x="24" y="128">对应工具：emit_unread_meaning</text>
+    <text class="tiny" x="24" y="128">字段：unread_meaning</text>
   </g>
   <path class="connector" d="M 450 410 C 560 370 650 300 760 205"/>
 
@@ -92,16 +92,16 @@
     <text class="label" x="24" y="34">心脏：再看有没有具体可说点</text>
     <text class="body" x="24" y="68">不是问“能不能接一句”，而是问“我有什么具体内容”。</text>
     <text class="small" x="24" y="100">观点、疑问、好奇、不适、联想或边界。</text>
-    <text class="tiny" x="24" y="128">对应工具：submit_life_action</text>
+    <text class="tiny" x="24" y="128">对应工具：direct action tools</text>
   </g>
   <path class="connector" d="M 450 620 C 560 595 670 520 792 430"/>
 
   <g transform="translate(1130 160)">
     <rect class="callout-purple" x="0" y="0" width="385" height="145"/>
-    <text class="label" x="24" y="34">海马体：召回过往相处经验</text>
-    <text class="body" x="24" y="68">如果真的可能要说或要查，才回忆过去学到的分寸。</text>
-    <text class="small" x="24" y="100">相似反馈、这个人的互动历史、话题经验。</text>
-    <text class="tiny" x="24" y="128">对应工具：recall_long_term_learning</text>
+    <text class="label" x="24" y="34">海马体：读当前连续性</text>
+    <text class="body" x="24" y="68">按当前场景读取近况、OS、身份事实和已投影材料。</text>
+    <text class="small" x="24" y="100">少猜来源；公开事实走搜索，关系缺口先留白。</text>
+    <text class="tiny" x="24" y="128">来源：context summary / xiaoni_os / identity facts</text>
   </g>
   <path class="connector" d="M 1130 230 C 1045 210 970 190 900 188"/>
 
@@ -110,14 +110,14 @@
     <text class="label" x="24" y="34">嘴和手：选择怎么在场</text>
     <text class="body" x="24" y="68">三种结果都成立：沉默、求知、发言。</text>
     <text class="small" x="24" y="100">说出口的只有真正要发到群里的话。</text>
-    <text class="tiny" x="24" y="128">silent action / web_search / speak_in_group</text>
+    <text class="tiny" x="24" y="128">silent / web_search / speak</text>
   </g>
   <path class="connector" d="M 1150 430 C 1048 420 988 372 895 315"/>
 
   <g transform="translate(1130 580)">
     <rect class="callout-green" x="0" y="0" width="385" height="150"/>
     <text class="label" x="24" y="34">消化系统：把经历变成成长</text>
-    <text class="body" x="24" y="68">一轮结束后，不是简单存日志，而是复盘真实后果。</text>
+    <text class="body" x="24" y="68">当前动作收口后，不是简单存日志，而是复盘真实后果。</text>
     <text class="small" x="24" y="100">群友接住、冷场、纠偏、反馈，都可能沉淀成经验。</text>
     <text class="tiny" x="24" y="128">episode -> reflection / learning state -> 身份事实候选</text>
   </g>
@@ -131,10 +131,10 @@
   <path class="connector-soft" d="M 800 712 C 800 665 804 610 808 540"/>
 
   <path class="loop" d="M 1280 730 C 1065 835 560 835 300 700"/>
-  <text class="body" x="410" y="830">下一轮带着新的 OS、经验和身份事实继续看场</text>
+  <text class="body" x="410" y="830">之后带着新的 OS、经验和身份事实继续看场</text>
 
   <g transform="translate(70 862)">
-    <text class="tiny" x="0" y="0">业务口径：自进化不是“自动改人设”，而是像人一样把经历消化成记忆、分寸和边界；下一轮再用这些长期材料校准自己该不该出现、怎么出现。</text>
-    <text class="tiny" x="0" y="23">真实技术落点：NapCat 收发 QQ；provider-service 负责消息与模型出口；agent-service 负责每轮判断；长期记录在 PostgreSQL / packages/persistence。</text>
+    <text class="tiny" x="0" y="0">业务口径：自进化不是“自动改人设”，而是像人一样把经历消化成记忆、分寸和边界；之后按场景用少量长期材料校准自己该不该出现、怎么出现。</text>
+    <text class="tiny" x="0" y="23">真实技术落点：NapCat 收发 QQ；provider-service 负责消息与模型出口；agent-service 负责当前动作判断；长期记录在 PostgreSQL / packages/persistence。</text>
   </g>
 </svg>
