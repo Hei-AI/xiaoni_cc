@@ -162,7 +162,6 @@ type DeliveredAssistantMessage = {
 type LeaseReleaseReason =
   | 'visible_delivery_committed'
   | 'rest_started'
-  | 'blocked_side_effect_after_visible_delivery'
   | 'max_model_slices_reached'
   | 'runtime_error'
   | 'prompt_binding_error';
@@ -178,12 +177,6 @@ type LeaseReleaseRecord = {
   rest_started: boolean;
   source: string;
   tool_result?: Record<string, unknown>;
-};
-
-type OutboundDeliveryFingerprint = {
-  messageType: 'private' | 'group';
-  messages: string[];
-  mentionUserIds: number[];
 };
 
 type CanonicalAgentTurnRequest = {
@@ -404,6 +397,7 @@ const HISTORY_COMPACT_KEEP = 30;
 const GLOBAL_PROMPT_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
+const COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS = 3;
 const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
@@ -1794,30 +1788,6 @@ function buildSubagentPromptCacheKey(params: {
   return GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
 }
 
-function isRetryableProviderStatus(status: number) {
-  return status === 502 || status === 503 || status === 504;
-}
-
-function isRetryableCompactMemoryFailure(status: number, error: string | null | undefined) {
-  if (isRetryableProviderStatus(status)) {
-    return true;
-  }
-  if (status !== 500 || !error) {
-    return false;
-  }
-  const normalized = error.toLowerCase();
-  return normalized.includes('aborted')
-    || normalized.includes('timeout')
-    || normalized.includes('timed out')
-    || normalized.includes('temporarily unavailable')
-    || normalized.includes('fetch failed')
-    || normalized.includes('sse error')
-    || normalized.includes('terminated')
-    || normalized.includes('connection reset')
-    || normalized.includes('econnreset')
-    || normalized.includes('socket hang up');
-}
-
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1964,6 +1934,19 @@ function buildInboundBatchTranscriptItems(
   runId: string;
   traceId: string;
 }> {
+  if (isConsciousnessTickPayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'assistant',
+      phase: 'commentary',
+      content: renderConsciousnessTickAction(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'presence_action',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
   if (isPresenceTickPayload(queueMessage)) {
     return [{
       sessionKey: queueMessage.sessionKey,
@@ -1973,6 +1956,19 @@ function buildInboundBatchTranscriptItems(
       groupIndex: 0 as const,
       itemIndex: 0,
       source: 'presence_action',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'user',
+      phase: null,
+      content: renderPhoneNotification(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'inbound_batch',
       runId: queueMessage.runId,
       traceId: queueMessage.traceId
     }];
@@ -2031,68 +2027,6 @@ function extractDeliveredAssistantMessages(toolResult: Record<string, unknown>):
     content,
     deliveryMessageId: deliveryIds[index] ?? null
   }));
-}
-
-function buildOutboundFingerprint(payload: OutboundDeliveryFingerprint) {
-  return JSON.stringify({
-    message_type: payload.messageType,
-    messages: payload.messages,
-    mention_user_ids: payload.mentionUserIds
-  });
-}
-
-function buildPostCommitSideEffectSuppression(
-  toolCall: Pick<AgentToolCall, 'name' | 'args'>,
-  chatType: QueueMessageRecord['payload']['chatType']
-) {
-  const isImageTaskSideEffect = toolCall.name === TOOL_NAMES.imageTask
-  if (!isPrivateReplyToolName(toolCall.name) && !isGroupReplyToolName(toolCall.name) && !isImageTaskSideEffect) {
-    return null;
-  }
-
-  const messages = normalizeMessages(toolCall.args);
-  if (messages.length === 0 && !isImageTaskSideEffect) {
-    return null;
-  }
-
-  const payload: OutboundDeliveryFingerprint = {
-    messageType: isPrivateReplyToolName(toolCall.name)
-      ? 'private'
-      : isGroupReplyToolName(toolCall.name)
-        ? 'group'
-        : chatType === 'direct' ? 'private' : 'group',
-    messages,
-    mentionUserIds: isGroupReplyToolName(toolCall.name)
-      ? normalizeOptionalIntegerList(toolCall.args.mention_user_ids)
-      : []
-  };
-
-  return {
-    fingerprint: messages.length > 0 ? buildOutboundFingerprint(payload) : null,
-    payload
-  };
-}
-
-function buildOutboundFingerprintFromToolResult(toolResult: Record<string, unknown>) {
-  const messageType = toolResult.message_type === 'private' || toolResult.message_type === 'group'
-    ? toolResult.message_type
-    : null;
-  if (!messageType) {
-    return null;
-  }
-
-  const messages = extractSentMessages(toolResult);
-  if (messages.length === 0) {
-    return null;
-  }
-
-  return buildOutboundFingerprint({
-    messageType,
-    messages,
-    mentionUserIds: messageType === 'group'
-      ? normalizeOptionalIntegerList(toolResult.mention_user_ids)
-      : []
-  });
 }
 
 function buildLeaseReleaseRecord(params: {
@@ -2395,52 +2329,43 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
+  if (isConsciousnessTickPayload(queueMessage)) {
+    return '<system_reminder>当前是小腻自己的连续意识循环切片；没有任何 QQ 正文被自动打开。可以继续思考、使用工具、查看 QQ 通知、打开 QQ，或者按精力状态 recover_energy。</system_reminder>';
+  }
   if (isLifePresenceTickPayload(queueMessage)) {
-    return '<system_reminder>当前是小腻自己的 presence tick；还没有打开具体 IM 会话，也没有新的 QQ 可见正文。可以选择内部工具、查一个真实需要的新信息，或者按自己的精力状态用 recover_energy 休息。只有真实消息进入队列或主动打开 IM 后才算当前现场有新输入。</system_reminder>';
+    return '<system_reminder>当前是历史兼容的 presence tick；它不会自动打开 QQ。可以选择内部工具、查看通知、主动使用 qq-usage，或者按精力状态 recover_energy。</system_reminder>';
   }
-  if (!isImmediateVisibleImWake(queueMessage)) {
-    const count = queueMessage.messages.length;
-    const noun = count === 1 ? '1 条' : `${count} 条`;
-    return `<system_reminder>当前 ${queueMessage.sessionKey} 有 ${noun}未读元数据，尚未触发小腻打开 IM；可见现场只有 UNREAD_AVAILABLE，正文等待 @ 或主动使用 IM 后 append。</system_reminder>`;
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return '<system_reminder>手机状态栏出现了 QQ 通知。你只知道通知摘要和未读数量，不知道具体消息内容；只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
   }
-
-  return '<system_reminder>已打开 IM；下面是这段时间看到的未读列表，按时间顺序阅读；可以自然接续前面的聊天内容。</system_reminder>';
+  return '<system_reminder>当前输入来自内部调度切片，不代表 QQ 已经打开。不要把 queue payload 当成 QQ 正文；需要看 QQ 时主动使用 qq-usage。</system_reminder>';
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
-  if (isPresenceTickPayload(queueMessage)) {
-    return false;
-  }
-  if (queueMessage.source === 'proactive_im_open') {
-    return true;
-  }
-  if (queueMessage.chatType === 'direct') {
-    return true;
-  }
-  return Boolean(queueMessage.wasMentioned || queueMessage.messages.some((message) => {
-    return Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
-  }));
+  void queueMessage;
+  return false;
 }
 
-function renderUnreadAvailable(queueMessage: QueueMessageRecord['payload']) {
-  const unreadCount = queueMessage.messages.length;
-  const directMentions = queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length;
-  return `<UNREAD_AVAILABLE unread_count="${escapeTagAttribute(unreadCount)}" direct_mentions="${escapeTagAttribute(directMentions)}" />`;
+function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
+  const notification = queueMessage.phoneNotification;
+  const unreadDelta = Number((notification?.unreadDelta ?? queueMessage.messages.length) || 1);
+  const directMentions = Number(notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length);
+  const chatType = notification?.chatType || queueMessage.chatType;
+  const peerName = notification?.peerName || queueMessage.peerName || null;
+  return `<PHONE_NOTIFICATION app="${escapeTagAttribute(notification?.app || 'qq')}" surface="status_bar" session_key="${escapeTagAttribute(notification?.sessionKey || queueMessage.sessionKey)}" chat_type="${escapeTagAttribute(chatType)}" peer_id="${escapeTagAttribute(notification?.peerId || queueMessage.peerId)}" peer_name="${escapeTagAttribute(peerName || '')}" unread_delta="${escapeTagAttribute(unreadDelta)}" direct_mentions="${escapeTagAttribute(directMentions)}" latest_received_at="${escapeTagAttribute(notification?.latestReceivedAt || queueMessage.receivedAt)}" />`;
 }
 
-function renderImInboxWindowAvailable(queueMessage: QueueMessageRecord['payload']) {
-  const trigger = queueMessage.source === 'proactive_im_open'
-    ? 'proactive_use_im'
-    : queueMessage.wasMentioned ? 'explicit_mention' : 'proactive_use_im';
-  return formatTaggedBlock('IM_INBOX_WINDOW', {
-    surface: 'qq',
-    chat_type: renderPromptChatType(queueMessage.chatType),
-    session_key: queueMessage.sessionKey,
-    peer_id: queueMessage.peerId,
-    count: queueMessage.messages.length,
-    materialization: 'opened',
-    trigger
-  }, '小腻正在使用 IM；下面是打开后看到的未读消息列表，按时间顺序阅读。');
+function renderConsciousnessTickAction(queueMessage: QueueMessageRecord['payload']) {
+  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim()
+    ? queueMessage.bodyForAgent.trim()
+    : '连续意识循环继续推进。';
+  return renderAssistantAction({
+    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
+    source: 'consciousness_tick',
+    runId: queueMessage.runId,
+    traceId: queueMessage.traceId,
+    text: body
+  });
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
@@ -3798,8 +3723,6 @@ export function applyToolResultToLoopInput(
   if (toolResult.release_lease === true) {
     const reason = toolResult.lease_release_reason === 'rest_started'
       ? 'rest_started'
-      : toolResult.lease_release_reason === 'blocked_side_effect_after_visible_delivery'
-      ? 'blocked_side_effect_after_visible_delivery'
       : 'visible_delivery_committed';
     return {
       inputItems: [],
@@ -4005,8 +3928,7 @@ export class AgentLoopService {
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
-    const activeQueueMessage = await materializeActiveImQueueMessage(queueMessage);
-    const payload = activeQueueMessage.payload;
+    const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
     const jobId = await this.store.createLlmJob({
@@ -4024,7 +3946,6 @@ export class AgentLoopService {
     let conversationId: number | null = null;
     let turnsExecuted = 0;
     let deliveredMessages: DeliveredAssistantMessage[] = [];
-    const deliveredFingerprints = new Set<string>();
     let persistedXiaoniOs: string | null = null;
     let persistedPendingShare: string | null = null;
     let historyCount = 0;
@@ -4238,10 +4159,6 @@ export class AgentLoopService {
               }
             });
             deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-            const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
-            if (deliveredFingerprint) {
-              deliveredFingerprints.add(deliveredFingerprint);
-            }
             deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
             leaseRelease = buildLeaseReleaseRecord({
               reason: 'visible_delivery_committed',
@@ -4294,64 +4211,6 @@ export class AgentLoopService {
           });
 
           try {
-            const duplicateOutbound = buildPostCommitSideEffectSuppression(toolCall, payload.chatType);
-            if (duplicateOutbound) {
-              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-            }
-            if (duplicateOutbound && deliveryState.deliveryPhase !== 'reasoning_open') {
-              const duplicateSuppressed = Boolean(duplicateOutbound?.fingerprint && deliveredFingerprints.has(duplicateOutbound.fingerprint));
-              const blockReason = 'Outbound delivery already committed earlier in this run.';
-              const toolResult = {
-                release_lease: true,
-                lease_release_reason: 'blocked_side_effect_after_visible_delivery',
-                event_kind: 'blocked_side_effect',
-                blocked_transition: true,
-                duplicate_suppressed: duplicateSuppressed,
-                message_type: duplicateOutbound?.payload.messageType ?? null,
-                blocked_messages: duplicateOutbound?.payload.messages ?? [],
-                mention_user_ids: duplicateOutbound?.payload.mentionUserIds ?? [],
-                blocked_reason: 'already_delivery_committed',
-                reason: blockReason,
-                outcome: 'blocked_transition',
-                no_visible_delivery: false
-              };
-              await this.store.markLeaseDeliveryBlocked(queueMessage.id, blockReason);
-              moduleLogger.warn('Blocked outbound tool call after delivery commit in execution lease', {
-                traceId: payload.traceId,
-                runId: queueMessage.id,
-                agentTurn: turn,
-                toolName: toolCall.name,
-                messages: duplicateOutbound?.payload.messages ?? [],
-                reason: blockReason
-              });
-              await this.store.completeToolExecutionLog(logId, {
-                status: 'completed',
-                result: toolResult
-              });
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'decision',
-                eventName: 'blocked_transition',
-                eventPhase: null,
-                metadata: {
-                  tool_name: toolCall.name,
-                  blocked_reason: 'already_delivery_committed',
-                  duplicate_suppressed: duplicateSuppressed
-                }
-              });
-              deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-              leaseRelease = buildLeaseReleaseRecord({
-                reason: 'blocked_side_effect_after_visible_delivery',
-                detail: blockReason,
-                outcome: 'blocked_transition',
-                noVisibleDelivery: false,
-                visibleDeliveryCommitted: deliveredMessages.length > 0,
-                source: `tool:${toolCall.name}`,
-                toolResult
-              });
-              break;
-            }
-
             let rawToolResult = await this.executeTool(toolCall, payload);
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               const text = typeof rawToolResult.text === 'string' && rawToolResult.text.trim()
@@ -4446,10 +4305,6 @@ export class AgentLoopService {
                 }
               });
               deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-              const deliveredFingerprint = buildOutboundFingerprintFromToolResult(toolResult);
-              if (deliveredFingerprint) {
-                deliveredFingerprints.add(deliveredFingerprint);
-              }
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
@@ -4499,10 +4354,6 @@ export class AgentLoopService {
                 }
               });
               deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-              const deliveredFingerprint = buildOutboundFingerprintFromToolResult(forcedToolResult);
-              if (deliveredFingerprint) {
-                deliveredFingerprints.add(deliveredFingerprint);
-              }
               deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
               leaseRelease = buildLeaseReleaseRecord({
                 reason: 'visible_delivery_committed',
@@ -5280,32 +5131,31 @@ export class AgentLoopService {
     });
 
     let responsePayload: ProviderAgentResponse | null = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: requestBody
-      });
-      responsePayload = await response.json() as ProviderAgentResponse;
-      if (response.ok && responsePayload.success) {
-        break;
+    for (let attempt = 1; attempt <= COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody
+        });
+        responsePayload = await response.json() as ProviderAgentResponse;
+        if (response.ok && responsePayload.success) {
+          break;
+        }
+        const error = new Error(responsePayload.error || `Compact memory ${params.layer} writer failed with ${response.status}`);
+        if (attempt >= COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS || !isTransientProviderExecutionError(error)) {
+          throw error;
+        }
+      } catch (error) {
+        if (attempt >= COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS || !isTransientProviderExecutionError(error)) {
+          throw error;
+        }
       }
-      const errorMessage = responsePayload.error || null;
-      if (attempt >= 3 || !isRetryableCompactMemoryFailure(response.status, errorMessage)) {
-        throw new Error(responsePayload.error || `Compact memory ${params.layer} writer failed with ${response.status}`);
-      }
-      moduleLogger.warn('Retrying compact memory layer after retryable provider failure', {
-        traceId: params.traceId,
-        layer: params.layer,
-        attempt,
-        status: response.status,
-        error: errorMessage
-      });
-      await delay(500 * attempt);
+      await delay(100 * attempt);
     }
 
     if (!responsePayload?.success) {
-      throw new Error(`Compact memory ${params.layer} writer failed without a successful response`);
+      throw new Error(`Compact memory ${params.layer} writer failed without a successful provider response`);
     }
 
     const toolOutput = extractReplayableModelOutputs(responsePayload.canonical_response).find(isReplayableToolCall);
@@ -5728,7 +5578,7 @@ export class AgentLoopService {
     }
 
     const recomputed = await recomputeReadCutoffToTarget({
-      history: params.history,
+      history: initialRetainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
       loopContinuation: params.loopContinuation,
@@ -6540,317 +6390,26 @@ function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
     || Boolean(queueMessage.presenceTick);
 }
 
-type ClaimedInboxMessageRecord = {
-  id: number;
-  traceId: string;
-  source: string;
-  messageSid: string;
-  chatType: 'direct' | 'group';
-  sessionKey: string;
-  peerId: string;
-  peerName?: string;
-  senderId: string;
-  senderName?: string;
-  accountId: string;
-  bodyForAgent: string;
-  rawBody?: string;
-  commandBody?: string;
-  wasMentioned?: boolean;
-  receivedAt?: string;
-  messageTimestamp?: string | null;
-  rawPayload?: Record<string, unknown>;
-  inboundContext?: Record<string, unknown>;
-};
-
-type InboxConversationSummaryRecord = {
-  sessionKey?: string;
-  session_key?: string;
-  unreadCount?: number;
-  unread_count?: number;
-  lastReceivedAt?: string | null;
-  last_received_at?: string | null;
-  latestUnreadReceivedAt?: string | null;
-  latest_unread_received_at?: string | null;
-};
-
-async function materializeActiveImQueueMessage(queueMessage: QueueMessageRecord): Promise<QueueMessageRecord> {
-  let materializedQueueMessage = materializePresenceTickQueueMessage(queueMessage);
-  const tick = queueMessage.payload.presenceTick;
-  let targetSessionKey = typeof tick?.targetSessionKey === 'string' && tick.targetSessionKey.trim()
-    ? tick.targetSessionKey.trim()
-    : '';
-
-  if (!targetSessionKey && isLifePresenceTickPayload(queueMessage.payload)) {
-    targetSessionKey = await selectUnreadInboxSessionForActiveIm({
-      traceId: queueMessage.traceId
-    }) || '';
-    materializedQueueMessage = queueMessage;
-  }
-
-  if (!targetSessionKey) {
-    return materializedQueueMessage;
-  }
-  const claimedMessages = await claimUnreadInboxWindowForActiveIm({
-    traceId: queueMessage.traceId,
-    sessionKey: targetSessionKey
-  });
-  return materializePresenceTickInboxWindow(materializedQueueMessage, claimedMessages);
+function isTransientProviderExecutionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /terminated|fetch failed|network|timeout|timed out|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR/i.test(message);
 }
 
-async function selectUnreadInboxSessionForActiveIm(params: { traceId: string }): Promise<string | null> {
-  try {
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/inbox/conversations?limit=100`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/json'
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`provider conversations returned HTTP ${response.status}`);
-    }
-    const payload = await response.json() as {
-      success?: boolean;
-      data?: unknown;
-    };
-    if (!payload.success || !Array.isArray(payload.data)) {
-      return null;
-    }
-    const unreadConversations = payload.data
-      .filter((item): item is InboxConversationSummaryRecord => Boolean(item && typeof item === 'object'))
-      .filter((item) => {
-        const count = Number(item.unreadCount ?? item.unread_count ?? 0);
-        const sessionKey = String(item.sessionKey ?? item.session_key ?? '').trim();
-        return count > 0 && sessionKey.length > 0;
-      })
-      .sort((left, right) => {
-        const leftTime = Date.parse(String(
-          left.latestUnreadReceivedAt
-          ?? left.latest_unread_received_at
-          ?? left.lastReceivedAt
-          ?? left.last_received_at
-          ?? ''
-        )) || 0;
-        const rightTime = Date.parse(String(
-          right.latestUnreadReceivedAt
-          ?? right.latest_unread_received_at
-          ?? right.lastReceivedAt
-          ?? right.last_received_at
-          ?? ''
-        )) || 0;
-        return rightTime - leftTime;
-      });
-    const selected = unreadConversations[0];
-    return selected ? String(selected.sessionKey ?? selected.session_key).trim() : null;
-  } catch (error) {
-    moduleLogger.warn('Failed to select unread inbox session for active IM open', {
-      traceId: params.traceId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return null;
-  }
+function isPhoneNotificationPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'phone_notification'
+    || Boolean(queueMessage.phoneNotification)
+    || queueMessage.inboundContext?.Surface === 'phone_notification';
 }
 
-async function claimUnreadInboxWindowForActiveIm(params: { traceId: string; sessionKey: string }): Promise<ClaimedInboxMessageRecord[]> {
-  try {
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/inbox/messages/claim`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        session_key: params.sessionKey,
-        limit: agentConfig.activeImClaimLimit,
-        order: 'latest'
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`provider claim returned HTTP ${response.status}`);
-    }
-    const payload = await response.json() as {
-      success?: boolean;
-      data?: {
-        claimed?: unknown;
-      };
-    };
-    if (!payload.success || !Array.isArray(payload.data?.claimed)) {
-      return [];
-    }
-    return payload.data.claimed
-      .filter((item): item is ClaimedInboxMessageRecord => Boolean(item && typeof item === 'object'));
-  } catch (error) {
-    moduleLogger.warn('Failed to claim unread inbox window for active IM open', {
-      traceId: params.traceId,
-      sessionKey: params.sessionKey,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return [];
-  }
+function isConsciousnessTickPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'consciousness_tick'
+    || Boolean(queueMessage.consciousnessTick);
 }
 
 function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'presence_tick'
     && queueMessage.sessionKey === 'presence_tick:xiaoni'
     && Boolean(queueMessage.presenceTick);
-}
-
-export function materializePresenceTickQueueMessage(queueMessage: QueueMessageRecord): QueueMessageRecord {
-  const tick = queueMessage.payload.presenceTick;
-  if (!tick || queueMessage.payload.sessionKey !== 'presence_tick:xiaoni' || !tick.targetSessionKey || !tick.targetPeerId || !tick.targetAccountId) {
-    return queueMessage;
-  }
-
-  const payload = queueMessage.payload;
-  const targetSessionKey = tick.targetSessionKey;
-  const targetPeerId = tick.targetPeerId;
-  const targetPeerName = tick.targetPeerName || undefined;
-  const targetAccountId = tick.targetAccountId;
-  const targetChatType: QueueMessageRecord['payload']['chatType'] = tick.targetChatType === 'direct' ? 'direct' : 'group';
-  const inboundContext = {
-    ...payload.inboundContext,
-    SessionKey: targetSessionKey,
-    To: targetPeerId,
-    NativeChannelId: targetPeerId,
-    ...(targetChatType === 'group' ? { GroupSubject: targetPeerName || payload.inboundContext.GroupSubject } : {}),
-    ChatType: targetChatType,
-    Surface: 'presence_tick'
-  };
-  const messages = payload.messages.map((message) => ({
-    ...message,
-    chatType: targetChatType,
-    sessionKey: targetSessionKey,
-    peerId: targetPeerId,
-    peerName: targetPeerName,
-    accountId: targetAccountId,
-    inboundContext: {
-      ...message.inboundContext,
-      SessionKey: targetSessionKey,
-      To: targetPeerId,
-      NativeChannelId: targetPeerId,
-      ...(targetChatType === 'group' ? { GroupSubject: targetPeerName || message.inboundContext.GroupSubject } : {}),
-      ChatType: targetChatType,
-      Surface: 'presence_tick'
-    }
-  }));
-
-  return {
-    ...queueMessage,
-    payload: {
-      ...payload,
-      chatType: targetChatType,
-      sessionKey: targetSessionKey,
-      peerId: targetPeerId,
-      peerName: targetPeerName,
-      accountId: targetAccountId,
-      inboundContext,
-      messages
-    }
-  };
-}
-
-export function materializePresenceTickInboxWindow(
-  queueMessage: QueueMessageRecord,
-  claimedMessages: ClaimedInboxMessageRecord[]
-): QueueMessageRecord {
-  if (!queueMessage.payload.presenceTick || claimedMessages.length === 0) {
-    return queueMessage;
-  }
-
-  const messages = claimedMessages.map((message) => mapClaimedInboxMessageToQueueBatch(message));
-  const latest = messages[messages.length - 1];
-  if (!latest) {
-    return queueMessage;
-  }
-
-  const payload = queueMessage.payload;
-  const inboundContext = {
-    ...latest.inboundContext,
-    Surface: 'proactive_im_open',
-    SessionKey: latest.sessionKey,
-    ChatType: latest.chatType,
-    NativeChannelId: latest.peerId,
-    WasMentioned: messages.some((message) => message.wasMentioned),
-    CommandAuthorized: false
-  };
-
-  return {
-    ...queueMessage,
-    payload: {
-      ...payload,
-      source: 'proactive_im_open',
-      chatType: latest.chatType,
-      sessionKey: latest.sessionKey,
-      peerId: latest.peerId,
-      peerName: latest.peerName,
-      senderId: latest.senderId,
-      senderName: latest.senderName,
-      accountId: latest.accountId,
-      bodyForAgent: messages.map((message) => message.bodyForAgent).join('\n'),
-      rawBody: messages.map((message) => message.rawBody).join('\n'),
-      commandBody: messages.map((message) => message.commandBody).join('\n'),
-      wasMentioned: messages.some((message) => message.wasMentioned),
-      receivedAt: latest.receivedAt,
-      messageTimestamp: latest.messageTimestamp,
-      rawPayload: {
-        kind: 'proactive_im_open',
-        source_run_id: payload.runId,
-        source_trace_id: payload.traceId,
-        claimed_message_sids: messages.map((message) => message.messageSid)
-      },
-      inboundContext,
-      messages,
-      presenceTick: undefined
-    }
-  };
-}
-
-function mapClaimedInboxMessageToQueueBatch(message: ClaimedInboxMessageRecord): QueueBatchMessage {
-  const inboundContext = normalizeClaimedInboundContext(message.inboundContext, message);
-  return {
-    queueMessageId: Number(message.id),
-    traceId: message.traceId,
-    source: message.source || 'inbox_claim',
-    messageId: Number(message.id),
-    messageSid: message.messageSid,
-    chatType: message.chatType === 'direct' ? 'direct' : 'group',
-    sessionKey: message.sessionKey,
-    peerId: message.peerId,
-    peerName: message.peerName,
-    senderId: message.senderId,
-    senderName: message.senderName,
-    accountId: message.accountId,
-    bodyForAgent: message.bodyForAgent,
-    rawBody: message.rawBody || message.bodyForAgent,
-    commandBody: message.commandBody || message.bodyForAgent,
-    wasMentioned: Boolean(message.wasMentioned || inboundContext.WasMentioned),
-    receivedAt: message.receivedAt || new Date().toISOString(),
-    messageTimestamp: message.messageTimestamp ?? null,
-    rawPayload: message.rawPayload || {},
-    inboundContext
-  };
-}
-
-function normalizeClaimedInboundContext(
-  value: Record<string, unknown> | undefined,
-  message: ClaimedInboxMessageRecord
-): QueueBatchMessage['inboundContext'] {
-  const context = value && typeof value === 'object' ? value : {};
-  return {
-    ...context,
-    Body: typeof context.Body === 'string' ? context.Body : message.bodyForAgent,
-    BodyForAgent: typeof context.BodyForAgent === 'string' ? context.BodyForAgent : message.bodyForAgent,
-    BodyForCommands: typeof context.BodyForCommands === 'string' ? context.BodyForCommands : message.commandBody || message.bodyForAgent,
-    RawBody: typeof context.RawBody === 'string' ? context.RawBody : message.rawBody || message.bodyForAgent,
-    CommandBody: typeof context.CommandBody === 'string' ? context.CommandBody : message.commandBody || message.bodyForAgent,
-    SessionKey: typeof context.SessionKey === 'string' ? context.SessionKey : message.sessionKey,
-    AccountId: typeof context.AccountId === 'string' ? context.AccountId : message.accountId,
-    MessageSid: typeof context.MessageSid === 'string' ? context.MessageSid : message.messageSid,
-    ChatType: typeof context.ChatType === 'string' ? context.ChatType : message.chatType,
-    SenderName: typeof context.SenderName === 'string' ? context.SenderName : message.senderName,
-    SenderId: typeof context.SenderId === 'string' ? context.SenderId : message.senderId,
-    NativeChannelId: typeof context.NativeChannelId === 'string' ? context.NativeChannelId : message.peerId,
-    WasMentioned: Boolean(context.WasMentioned || message.wasMentioned),
-    CommandAuthorized: false
-  };
 }
 
 function buildLoopRequestInput(params: {
@@ -7354,24 +6913,17 @@ function buildCurrentTurnInputItems(
   queueMessage: QueueMessageRecord['payload'],
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
 ): OpenResponseInputItem[] {
+  if (isConsciousnessTickPayload(queueMessage)) {
+    return [
+      buildAssistantCommentaryInputItem([renderConsciousnessTickAction(queueMessage)])
+    ];
+  }
   if (isPresenceTickPayload(queueMessage)) {
     return [
       buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
     ];
   }
-  if (!isImmediateVisibleImWake(queueMessage)) {
-    return [
-      buildUserSceneInputItem([renderUnreadAvailable(queueMessage)])
-    ];
-  }
-
-  const currentMessages = queueMessage.messages.map((message, index) => renderTranscriptBatchMessage(message, index));
-  const imWindow = renderImInboxWindowAvailable(queueMessage);
-  if (currentMessages.length === 0) {
-    currentMessages.push(imWindow);
-  } else {
-    currentMessages[0] = `${imWindow}\n${currentMessages[0]}`;
-  }
+  const currentMessages = [renderPhoneNotification(queueMessage)];
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
     userPromptTemplate = runtimePrompt.userPromptTemplate;
@@ -7420,6 +6972,12 @@ function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
+  if (isConsciousnessTickPayload(queueMessage)) {
+    return renderConsciousnessTickAction(queueMessage);
+  }
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return renderPhoneNotification(queueMessage);
+  }
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
@@ -7501,9 +7059,12 @@ function buildInternalExplicitSendTargetArgs(messageType: 'private' | 'group', q
 }
 
 function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
-  const userId = resolvePrivateTargetUserId(queueMessage);
+  const userId = parseOptionalInteger(queueMessage.senderId)
+    ?? parseOptionalInteger(queueMessage.accountId)
+    ?? parseOptionalInteger(agentConfig.botAccountId)
+    ?? 1129974489;
   const groupId = queueMessage.chatType === 'group'
-    ? resolveGroupTargetId(queueMessage)
+    ? parseOptionalInteger(queueMessage.inboundContext.NativeChannelId || queueMessage.peerId)
     : null;
 
   return {

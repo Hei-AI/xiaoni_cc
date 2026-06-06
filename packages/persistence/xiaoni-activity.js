@@ -247,15 +247,16 @@ const LIFE_EVENT_LABELS = {
   visible_delivery_committed: '可见投递已提交',
   post_commit_side_effect_blocked: '后续副作用被阻止',
   no_visible_delivery_observed: '没有可见发言',
+  phone_notification: '手机 QQ 通知',
   presence_tick_evaluated: '抬头检查已评估',
   rest_period: '休息了一段时间',
   sleep_period: '睡了一段时间'
 };
 
-const PROACTIVE_QUEUE_SOURCES = ['presence_tick', 'proactive_im_open'];
+const MAIN_LOOP_QUEUE_SOURCES = ['consciousness_tick', 'phone_notification'];
 
-function isProactiveQueueSource(source) {
-  return PROACTIVE_QUEUE_SOURCES.includes(String(source || ''));
+function isMainLoopQueueSource(source) {
+  return MAIN_LOOP_QUEUE_SOURCES.includes(String(source || ''));
 }
 
 function lifeEventTitle(eventKind, payload) {
@@ -674,7 +675,76 @@ function summarizeCodexProviderCall(row) {
       providerResponsePreview: truncateText(responsePreviewSource || '', 1200),
       providerRequestBytes: requestBytes,
       providerResponseBytes: responseBytes,
-      wirePayloadSource: 'llm_call_logs.wire_request/wire_response'
+      wirePayloadSource: 'llm_call_logs.audit_preview'
+    }
+  };
+}
+
+function summarizeReplayProviderEvent(row) {
+  const metadata = normalizeJsonObject(row.metadata);
+  const replayPayload = normalizeJsonObject(row.replayPayload);
+  const wireRequest = row.wireRequest || replayPayload.wire_request || null;
+  const wireResponse = row.wireResponse || replayPayload.wire_response || null;
+  const inputTokens = Number(metadata.inputTokens || metadata.input_tokens || 0);
+  const outputTokens = Number(metadata.outputTokens || metadata.output_tokens || 0);
+  const requestBytes = Number(metadata.providerRequestBytes || metadata.provider_request_bytes || 0) || estimateJsonBytes(wireRequest);
+  const responseBytes = Number(metadata.providerResponseBytes || metadata.provider_response_bytes || 0) || estimateJsonBytes(wireResponse);
+  const provider = firstString(row.modelProvider, metadata.providerFormat, metadata.provider_format, 'codex');
+  const modelName = firstString(row.modelName, metadata.modelName, metadata.model_name, 'unknown model');
+  const spanId = firstString(
+    metadata.spanId,
+    metadata.span_id,
+    row.providerCallId ? `provider-request:wire:${row.providerCallId}` : null,
+    row.eventId
+  );
+  const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
+  const body = [
+    provider,
+    modelName,
+    row.providerCallId || null,
+    tokenLabel
+  ].filter(Boolean).join(' · ');
+
+  return {
+    id: row.eventId,
+    source: 'provider_call',
+    kind: 'codex_provider',
+    title: 'Codex Provider 请求',
+    body: truncateText(row.status === 'failed' ? firstString(metadata.errorMessage, metadata.error_message, body) : body, 420),
+    status: row.status || null,
+    actor: 'xiaoni',
+    actorName: '小腻',
+    timestamp: eventTimestamp(row.occurredAt),
+    sessionKey: firstString(metadata.sessionKey, metadata.session_key),
+    peerName: firstString(metadata.peerName, metadata.peer_name),
+    runId: row.internalExecutionLeaseId || null,
+    traceId: row.traceId || null,
+    tone: row.status === 'failed' ? 'danger' : 'info',
+    traceTarget: row.replayable ? {
+      internalExecutionLeaseId: row.internalExecutionLeaseId || row.traceId || row.eventId,
+      traceId: row.traceId || null,
+      spanId
+    } : null,
+    metadata: {
+      llmCallId: row.providerCallId || null,
+      spanId,
+      parentSpanId: row.providerCallId ? `llm-call:${row.providerCallId}` : null,
+      agentTurn: Number(metadata.agentTurn || metadata.agent_turn || 0) || null,
+      modelName,
+      modelProvider: row.modelProvider || null,
+      providerFormat: firstString(metadata.providerFormat, metadata.provider_format, row.modelProvider),
+      processingTimeMs: Number(metadata.processingTimeMs || metadata.processing_time_ms || 0) || null,
+      apiCallTimeMs: Number(metadata.apiCallTimeMs || metadata.api_call_time_ms || 0) || null,
+      inputTokens,
+      outputTokens,
+      completedAt: firstString(metadata.completedAt, metadata.completed_at, row.updatedAt),
+      errorMessage: firstString(metadata.errorMessage, metadata.error_message),
+      providerRequestPreview: truncateText(rawJsonText(wireRequest) || '', 1200),
+      providerResponsePreview: truncateText(rawJsonText(wireResponse) || '', 1200),
+      providerRequestBytes: requestBytes,
+      providerResponseBytes: responseBytes,
+      wirePayloadSource: 'xiaoni_replay_events',
+      replayEventId: row.eventId
     }
   };
 }
@@ -741,11 +811,12 @@ function summarizeMedia(row) {
 function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
-  const proactiveSource = isProactiveQueueSource(row.source);
-  const title = row.source === 'presence_tick'
-    ? '主动看一眼群'
-    : row.source === 'proactive_im_open'
-      ? '主动打开 IM'
+  const mainLoopSource = isMainLoopQueueSource(row.source);
+  const xiaoniSource = row.source === 'consciousness_tick';
+  const title = row.source === 'consciousness_tick'
+    ? '连续意识切片'
+    : row.source === 'phone_notification'
+      ? '手机 QQ 通知'
       : isStaleProcessing
         ? '旧处理锁残留'
         : row.status === 'pending'
@@ -760,14 +831,14 @@ function summarizeQueueMessage(row, staleCutoffMs) {
     title,
     body: truncateText(row.body_for_agent, 360),
     status: row.status || null,
-    actor: proactiveSource ? 'xiaoni' : 'system',
-    actorName: proactiveSource ? '小腻' : firstString(row.sender_name, row.sender_id),
+    actor: xiaoniSource ? 'xiaoni' : 'system',
+    actorName: xiaoniSource ? '小腻' : row.source === 'phone_notification' ? '手机状态栏' : firstString(row.sender_name, row.sender_id),
     timestamp: eventTimestamp(row.updated_at || row.created_at),
     sessionKey: row.session_key || null,
     peerName: row.peer_name || null,
     runId: row.run_id || null,
     traceId: row.trace_id || null,
-    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : proactiveSource ? 'xiaoni' : 'info',
+    tone: isStaleProcessing ? 'warning' : row.status === 'failed' ? 'danger' : row.status === 'processing' ? 'warning' : mainLoopSource ? 'xiaoni' : 'info',
     metadata: {
       queueId: String(row.id),
       source: row.source || null,
@@ -892,6 +963,9 @@ function normalizeActionStreamEventKind(item) {
 function normalizeActionStreamItem(item) {
   const spanId = typeof item.metadata?.spanId === 'string' ? item.metadata.spanId : null;
   const internalExecutionLeaseId = item.runId || null;
+  const explicitTraceTarget = item.traceTarget && typeof item.traceTarget === 'object'
+    ? item.traceTarget
+    : null;
   const metadata = normalizeValue({
     ...item.metadata,
     internalExecutionLeaseId,
@@ -913,11 +987,7 @@ function normalizeActionStreamItem(item) {
     eventKind: normalizeActionStreamEventKind(item),
     occurredAt: item.timestamp,
     internalExecutionLeaseId,
-    traceTarget: internalExecutionLeaseId ? {
-      internalExecutionLeaseId,
-      traceId: item.traceId || null,
-      spanId
-    } : null,
+    traceTarget: explicitTraceTarget ? normalizeValue(explicitTraceTarget) : null,
     metadata
   };
 }
@@ -940,8 +1010,8 @@ function normalizeActionStreamCurrent(current) {
     },
     autonomy: {
       ...current.autonomy,
-      latestPresenceTickStatus: normalizeActionStreamStatus(current.autonomy.latestPresenceTickStatus),
-      latestProactiveImOpenStatus: normalizeActionStreamStatus(current.autonomy.latestProactiveImOpenStatus),
+      latestConsciousnessTickStatus: normalizeActionStreamStatus(current.autonomy.latestConsciousnessTickStatus),
+      latestPhoneNotificationStatus: normalizeActionStreamStatus(current.autonomy.latestPhoneNotificationStatus),
       latestHistoricalDigitalActionStatus: normalizeActionStreamStatus(current.autonomy.latestHistoricalDigitalActionStatus)
     },
     tasks: {
@@ -953,7 +1023,7 @@ function normalizeActionStreamCurrent(current) {
   };
 }
 
-function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) {
+function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, listXiaoniReplayEvents }) {
   function getClient(config) {
     return getPrismaClient(config);
   }
@@ -1024,7 +1094,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         `, [perSourceLimit]),
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
-          WHERE source IN ('presence_tick', 'proactive_im_open')
+          WHERE source IN ('consciousness_tick', 'phone_notification')
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
         `, [perSourceLimit]),
@@ -1125,8 +1195,8 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
         ])
       ]);
 
-      const latestPresenceQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'presence_tick'));
-      const latestProactiveImQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'proactive_im_open'));
+      const latestConsciousnessQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'consciousness_tick'));
+      const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));
       const latestPresenceEvaluation = latestByTimestamp(lifeEvents.filter((row) => row.event_kind === 'presence_tick_evaluated'));
       const latestPresenceEvaluationPayload = normalizeJsonObject(latestPresenceEvaluation?.payload, {});
       const latestDigitalAction = latestByTimestamp(digitalActions);
@@ -1165,13 +1235,13 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
             failed: digitalStats[3]
           },
           autonomy: {
-            latestPresenceTickAt: normalizeDate(
-              latestPresenceQueue?.updated_at
-              || latestPresenceQueue?.created_at
+            latestConsciousnessTickAt: normalizeDate(
+              latestConsciousnessQueue?.updated_at
+              || latestConsciousnessQueue?.created_at
             ),
-            latestPresenceTickStatus: latestPresenceQueue?.status || null,
-            latestProactiveImOpenAt: normalizeDate(latestProactiveImQueue?.updated_at || latestProactiveImQueue?.created_at),
-            latestProactiveImOpenStatus: latestProactiveImQueue?.status || null,
+            latestConsciousnessTickStatus: latestConsciousnessQueue?.status || null,
+            latestPhoneNotificationAt: normalizeDate(latestPhoneNotificationQueue?.updated_at || latestPhoneNotificationQueue?.created_at),
+            latestPhoneNotificationStatus: latestPhoneNotificationQueue?.status || null,
             latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),
             latestPresenceEvaluationReason: latestPresenceEvaluationPayload.eligible === false
               ? firstString(latestPresenceEvaluationPayload.skip_reason, latestPresenceEvaluationPayload.reason, 'skipped')
@@ -1199,13 +1269,35 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter }) 
   }
 
   async function getXiaoniActionStream(input = {}, config = {}) {
-    const feed = await getXiaoniActivityFeed(input, config);
+    const [feed, replayRows] = await Promise.all([
+      getXiaoniActivityFeed(input, config),
+      typeof listXiaoniReplayEvents === 'function'
+        ? listXiaoniReplayEvents({
+          identityKey: input.identityKey || input.identity_key || 'xiaoni',
+          limit: clampLimit(input.limit, 80, 500),
+          source: 'codex_provider',
+          replayableOnly: true
+        }, config)
+        : []
+    ]);
+    const replayItems = replayRows.map(summarizeReplayProviderEvent);
+    const items = dedupeFeedItems([
+      ...replayItems,
+      ...feed.items.filter((item) => item.source !== 'provider_call')
+    ])
+      .filter((item) => item.timestamp)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, clampLimit(input.limit, 80, 200));
+
     return {
       identityKey: feed.identityKey,
       generatedAt: feed.generatedAt,
       streamKind: 'xiaoni_action_stream',
-      current: normalizeActionStreamCurrent(feed.current),
-      items: feed.items.map(normalizeActionStreamItem)
+      current: {
+        ...normalizeActionStreamCurrent(feed.current),
+        latestActivityAt: items[0]?.timestamp || feed.current.latestActivityAt
+      },
+      items: items.map(normalizeActionStreamItem)
     };
   }
 

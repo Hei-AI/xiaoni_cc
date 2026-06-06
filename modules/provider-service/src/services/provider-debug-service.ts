@@ -214,23 +214,25 @@ async function executeProviderRequest(
     ? canonicalRequest.metadata
     : {};
   const client = createProviderClient(providerId);
-  const startedAt = Date.now();
-  const result = await client.generateContent({
-    request,
-    modelName,
-    providerConfig: config,
-    context: {
-      traceId: payload.trace_id,
-      conversationId: payload.conversation_id,
-      agentTurn: payload.agent_turn,
-      agentType: payload.agent_type,
-      llmCallId,
-      promptName: payload.prompt_name,
-      sessionId: normalizeString(requestMetadata.session_id ?? requestMetadata.session_key),
-      turnId: normalizeString(requestMetadata.turn_id ?? requestMetadata.run_id),
-      sandbox: normalizeString(requestMetadata.sandbox) || 'none'
-    }
-  });
+	  const providerContext = {
+	    traceId: payload.trace_id,
+	    conversationId: payload.conversation_id,
+	    agentTurn: payload.agent_turn,
+	    agentType: payload.agent_type,
+	    llmCallId,
+	    promptName: payload.prompt_name,
+	    replayIdentityKey: persistLlmCall ? 'xiaoni' : 'xiaoni-internal',
+	    sessionId: normalizeString(requestMetadata.session_id ?? requestMetadata.session_key),
+	    turnId: normalizeString(requestMetadata.turn_id ?? requestMetadata.run_id),
+	    sandbox: normalizeString(requestMetadata.sandbox) || 'none'
+	  };
+	  const startedAt = Date.now();
+	  const result = await client.generateContent({
+	    request,
+	    modelName,
+	    providerConfig: config,
+	    context: providerContext
+	  });
   const finishedAt = Date.now();
   const contextPolicy = resolveModelContextPolicy(modelName, config);
   const contextThresholds = contextPolicy
@@ -260,7 +262,7 @@ async function executeProviderRequest(
       requestFormatVersion: result.requestFormatVersion,
       wireProviderFormat: result.wireProviderFormat
     });
-  }
+	  }
 
   return {
     success: true,

@@ -57,7 +57,13 @@ async function pollQueueOnce() {
   try {
     const queueMessage = await store.claimNextQueueMessage(agentConfig.workerId);
     if (!queueMessage) {
-      return agentConfig.idleIntervalMs;
+      await store.enqueueConsciousnessTick('queue_idle');
+      const consciousnessTick = await store.claimNextQueueMessage(agentConfig.workerId);
+      if (!consciousnessTick) {
+        return agentConfig.idleIntervalMs;
+      }
+      await loopService.processQueueMessage(consciousnessTick);
+      return agentConfig.pollIntervalMs;
     }
 
     await loopService.processQueueMessage(queueMessage);

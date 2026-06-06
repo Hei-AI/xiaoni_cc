@@ -10,7 +10,10 @@
 - 只打开完成当前任务必需的下一跳文档；不要把 `AGENTS.md` 当成总手册
 
 ## Runtime Truth
-- 当前 QQ 行为主链路：`NapCat -> provider-service -> agent-service -> provider-service -> NapCat`；`exec_command` 支路走 `agent-service -> xiaoni-executor`
+- 当前 QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看 QQ 未读时，读的是 `agent_inbound_messages` 的 inbox/window，不是 `agent_queue_messages`
+- 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 只是显式 @ / 授权私聊 / 未来 presence 事件触发一次 loop 的内部工程队列，不是小腻的 QQ app 未读列表或认知边界
+- QQ 发言出站链路：`agent-service -> provider-service -> NapCat`
+- `exec_command` 支路走 `agent-service -> xiaoni-executor`
 - 当前管理端链路：`admin-panel/frontend -> admin-panel/backend -> provider-service / agent-service / PostgreSQL`
 - 主运行栈以 `docker-compose.yml` 为准；`docker-compose.napcat.yml` 只负责 NapCat。
 - 新工作优先基于这些活跃模块：`modules/provider-service`、`modules/agent-service`、`modules/xiaoni-executor`、`modules/admin-panel/backend`、`modules/admin-panel/frontend`、`packages/persistence`
@@ -19,11 +22,11 @@
 - 已经移除的旧服务、旧接口和旧页面不要再作为当前契约参考；排障与开发都只围绕上面的活跃模块展开
 
 ## Project Map
-- `modules/provider-service`：OneBot / NapCat 入站与出站、provider debug、消息模拟、simple queue、embeddings、image provider、queue / timeline 主链
+- `modules/provider-service`：OneBot / NapCat 入站与出站、provider debug、消息模拟、simple queue、embeddings、image provider、inbox 写入、内部 loop 触发队列和 timeline
 - `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
-- `modules/agent-service`：后台 agent loop / runtime worker，消费 queue、执行主 agent run、维护 delivery state，并运行 presence 后台循环和 life event 投影
+- `modules/agent-service`：后台 agent loop / runtime worker，消费内部 queue 触发、执行主 agent run、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有固定间隔 self-action / presence runner
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
 - 其余入口统一去 `docs/INDEX.md`
 

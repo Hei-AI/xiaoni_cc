@@ -213,7 +213,9 @@ export class QqUsageService {
 
   async ambientUnread() {
     const summary = await this.store.getQqUsageUnreadSummary();
-    return formatTaggedBlock('UNREAD_AVAILABLE', {
+    return formatTaggedBlock('PHONE_NOTIFICATION', {
+      app: 'qq',
+      surface: 'status_bar',
       unread_count: summary.unreadCount,
       direct_mentions: summary.directMentions
     });
@@ -244,6 +246,7 @@ export class QqUsageService {
 
   async focusThread(threadKey: string): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.focus_thread').catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.focus_thread',
@@ -261,6 +264,7 @@ export class QqUsageService {
       anchorMessageId,
       limit: WINDOW_SIZE
     });
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.scroll_thread').catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.scroll_thread',
@@ -273,6 +277,7 @@ export class QqUsageService {
 
   async jumpToLatest(threadKey: string): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.jump_to_latest').catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.jump_to_latest',

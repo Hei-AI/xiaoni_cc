@@ -1,10 +1,9 @@
 import type { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessage } from '../types';
 
 export type InboundAgentQueueTriggerReason =
-  | 'group_mention_im_trigger'
-  | 'direct_authorized_user_im_trigger'
-  | 'direct_inbox_only'
-  | 'group_unmentioned_inbox_only';
+  | 'group_mention_phone_notification'
+  | 'group_message_phone_notification'
+  | 'direct_phone_notification';
 
 export type InboundAgentQueueTriggerDecision = {
   shouldEnqueue: boolean;
@@ -19,11 +18,6 @@ export type InboundAgentQueuePolicyState = {
 };
 
 export type InboundAgentQueueRuntimeStore = {
-  buildSemanticInboundMessage(message: InboxMessageRecord, sourceContext: {
-    source: string;
-    rawPayload: Record<string, unknown>;
-    inboundContext: FinalizedInboundContext;
-  }): SemanticInboundMessage;
   enqueueSemanticMessage(message: SemanticInboundMessage): Promise<{
     queueId: number;
     status: string;
@@ -37,43 +31,28 @@ export type InboundAgentQueueRuntimeStore = {
   }): Promise<void>;
 };
 
-function parseDirectTriggerUserIds(value: string | undefined): Set<string> {
-  return new Set(String(value || '85178516')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean));
-}
-
 export function decideInboundAgentQueueTrigger(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ): InboundAgentQueueTriggerDecision {
+  void options;
   if (message.chatType === 'group') {
     if (message.wasMentioned) {
       return {
         shouldEnqueue: true,
-        reason: 'group_mention_im_trigger'
+        reason: 'group_mention_phone_notification'
       };
     }
 
     return {
-      shouldEnqueue: false,
-      reason: 'group_unmentioned_inbox_only'
-    };
-  }
-
-  const directTriggerUserIds = options.directTriggerUserIds
-    || parseDirectTriggerUserIds(process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS || process.env.AUTHORIZED_USER_ID);
-  if (directTriggerUserIds.has(String(message.senderId))) {
-    return {
       shouldEnqueue: true,
-      reason: 'direct_authorized_user_im_trigger'
+      reason: 'group_message_phone_notification'
     };
   }
 
   return {
-    shouldEnqueue: false,
-    reason: 'direct_inbox_only'
+    shouldEnqueue: true,
+    reason: 'direct_phone_notification'
   };
 }
 
@@ -81,10 +60,9 @@ export function shouldForceInboundAgentQueueTrigger(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ) {
-  const triggerDecision = decideInboundAgentQueueTrigger(message, options);
-  return message.chatType === 'direct'
-    && triggerDecision.shouldEnqueue
-    && triggerDecision.reason === 'direct_authorized_user_im_trigger';
+  void message;
+  void options;
+  return false;
 }
 
 export function applyForcedInboundAgentQueuePolicy(
@@ -92,15 +70,9 @@ export function applyForcedInboundAgentQueuePolicy(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ): InboundAgentQueuePolicyState {
-  if (!shouldForceInboundAgentQueueTrigger(message, options)) {
-    return policy;
-  }
-
-  return {
-    ...policy,
-    isEnabled: true,
-    autoReplyEnabled: true
-  };
+  void message;
+  void options;
+  return policy;
 }
 
 export async function processInboundAgentQueueTrigger(params: {
@@ -112,142 +84,134 @@ export async function processInboundAgentQueueTrigger(params: {
   source: 'napcat' | 'simulator';
 }, runtimeStoreService: InboundAgentQueueRuntimeStore) {
   const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
-
-  if (!triggerDecision.shouldEnqueue) {
-    await runtimeStoreService.logTimelineEvent({
-      traceId: params.traceId,
-      eventType: 'queue',
-      eventName: 'enqueue',
-      eventPhase: 'skipped',
-      metadata: {
-        source: params.source,
-        reason: triggerDecision.reason,
-        chat_type: params.inboxEvent.chatType,
-        session_key: params.inboxEvent.sessionKey,
-        sender_id: params.inboxEvent.senderId,
-        was_mentioned: params.inboxEvent.wasMentioned
-      }
-    });
-
-    return {
-      attempted: true,
-      queued: false,
-      reason: triggerDecision.reason,
-      traceId: params.traceId,
-      triggerDecision
-    };
-  }
-
-  const inboxWindowMessages = normalizeInboxWindowMessages(params.inboxEvent, params.inboxWindowMessages);
-
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'normalize',
+    eventType: 'phone_notification',
+    eventName: 'build',
     eventPhase: 'start',
     metadata: {
       source: params.source,
-      trigger_reason: triggerDecision.reason,
+      reason: triggerDecision.reason,
       chat_type: params.inboxEvent.chatType,
       session_key: params.inboxEvent.sessionKey,
       sender_id: params.inboxEvent.senderId,
-      im_window_count: inboxWindowMessages.length
+      was_mentioned: params.inboxEvent.wasMentioned
     }
   });
 
-  const semanticMessages = inboxWindowMessages.map((message) => {
-    const isTriggerMessage = message.id === params.inboxEvent.id || message.messageSid === params.inboxEvent.messageSid;
-    return runtimeStoreService.buildSemanticInboundMessage(message, {
-      source: message.source || params.source,
-      rawPayload: isTriggerMessage ? params.rawPayload : message.rawPayload,
-      inboundContext: message.inboundContext || params.inboundContext
-    });
+  const notificationMessage = buildPhoneNotificationMessage(params.inboxEvent, {
+    source: params.source,
+    reason: triggerDecision.reason
   });
 
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'queue',
-    eventName: 'normalize',
-    eventPhase: 'end',
-    metadata: {
-      source: params.source,
-      trigger_reason: triggerDecision.reason,
-      dedupe_keys: semanticMessages.map((message) => message.dedupeKey || null),
-      im_window_count: semanticMessages.length
-    }
-  });
-
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'queue',
+    eventType: 'phone_notification',
     eventName: 'enqueue',
     eventPhase: 'start',
     metadata: {
-      message_sids: semanticMessages.map((message) => message.messageSid),
       source: params.source,
-      trigger_reason: triggerDecision.reason,
-      im_window_count: semanticMessages.length
+      reason: triggerDecision.reason,
+      notification_id: notificationMessage.messageSid,
+      session_key: params.inboxEvent.sessionKey
     }
   });
 
-  const queueResults = [];
-  for (const semanticMessage of semanticMessages) {
-    queueResults.push(await runtimeStoreService.enqueueSemanticMessage(semanticMessage));
-  }
+  const queueResult = await runtimeStoreService.enqueueSemanticMessage(notificationMessage);
 
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'queue',
+    eventType: 'phone_notification',
     eventName: 'enqueue',
     eventPhase: 'end',
     metadata: {
-      queue_ids: queueResults.map((result) => result.queueId),
-      queue_statuses: queueResults.map((result) => result.status),
-      trigger_reason: triggerDecision.reason,
-      im_window_count: semanticMessages.length
+      queue_id: queueResult.queueId,
+      queue_status: queueResult.status,
+      reason: triggerDecision.reason
     }
   });
 
-  const primaryQueueResult = queueResults[queueResults.length - 1] || queueResults[0];
   return {
     attempted: true,
     queued: true,
-    queueId: primaryQueueResult?.queueId ?? 0,
-    queueIds: queueResults.map((result) => result.queueId),
-    queueStatus: primaryQueueResult?.status ?? 'pending',
-    queueStatuses: queueResults.map((result) => result.status),
+    queueId: queueResult.queueId,
+    queueIds: [queueResult.queueId],
+    queueStatus: queueResult.status,
+    queueStatuses: [queueResult.status],
     traceId: params.traceId,
-    imWindowMessageCount: semanticMessages.length,
+    notificationCount: 1,
     triggerDecision
   };
 }
 
-function normalizeInboxWindowMessages(triggerMessage: InboxMessageRecord, inboxWindowMessages?: InboxMessageRecord[]) {
-  const messages = Array.isArray(inboxWindowMessages) && inboxWindowMessages.length > 0
-    ? [...inboxWindowMessages]
-    : [triggerMessage];
-  const hasTrigger = messages.some((message) => {
-    return message.id === triggerMessage.id || message.messageSid === triggerMessage.messageSid;
-  });
-  if (!hasTrigger) {
-    messages.push(triggerMessage);
-  }
+function buildPhoneNotificationMessage(
+  message: InboxMessageRecord,
+  options: { source: 'napcat' | 'simulator'; reason: InboundAgentQueueTriggerReason }
+): SemanticInboundMessage {
+  const notificationId = `phone:${message.messageSid || message.id}`;
+  const peerName = message.peerName || (message.chatType === 'group' ? `群 ${message.peerId}` : `QQ ${message.peerId}`);
+  const summary = message.chatType === 'group'
+    ? `${peerName} 有 1 条新 QQ 消息${message.wasMentioned ? '，其中有人 @ 小腻' : ''}。`
+    : `${peerName} 发来 1 条 QQ 私聊。`;
+  const inboundContext: FinalizedInboundContext = {
+    ...message.inboundContext,
+    Body: '',
+    BodyForAgent: summary,
+    BodyForCommands: '',
+    RawBody: '',
+    CommandBody: '',
+    Surface: 'phone_notification',
+    MessageSid: notificationId,
+    WasMentioned: message.wasMentioned,
+    CommandAuthorized: false
+  };
 
-  const seen = new Set<string>();
-  return messages
-    .sort((left, right) => {
-      const byTime = String(left.receivedAt || '').localeCompare(String(right.receivedAt || ''));
-      if (byTime !== 0) {
-        return byTime;
-      }
-      return Number(left.id || 0) - Number(right.id || 0);
-    })
-    .filter((message) => {
-      const key = message.messageSid || String(message.id);
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
+  return {
+    traceId: message.traceId,
+    source: 'phone_notification',
+    messageId: message.id,
+    messageSid: notificationId,
+    dedupeKey: `phone_notification:${message.dedupeKey || message.messageSid || message.id}`,
+    chatType: message.chatType,
+    sessionKey: message.sessionKey,
+    peerId: message.peerId,
+    peerName: message.peerName,
+    senderId: 'qq',
+    senderName: 'QQ',
+    accountId: message.accountId,
+    bodyForAgent: summary,
+    rawBody: summary,
+    commandBody: '',
+    wasMentioned: message.wasMentioned,
+    receivedAt: message.receivedAt,
+    messageTimestamp: message.messageTimestamp,
+    rawPayload: {
+      kind: 'phone_notification',
+      app: 'qq',
+      reason: options.reason,
+      source: options.source,
+      source_message_id: message.id,
+      source_message_sid: message.messageSid,
+      session_key: message.sessionKey,
+      chat_type: message.chatType,
+      peer_id: message.peerId,
+      peer_name: message.peerName || null,
+      unread_delta: 1,
+      direct_mentions: message.wasMentioned ? 1 : 0,
+      latest_received_at: message.receivedAt
+    },
+    inboundContext,
+    phoneNotification: {
+      app: 'qq',
+      notificationId,
+      sessionKey: message.sessionKey,
+      chatType: message.chatType,
+      peerId: message.peerId,
+      peerName: message.peerName || null,
+      unreadDelta: 1,
+      directMentions: message.wasMentioned ? 1 : 0,
+      latestReceivedAt: message.receivedAt,
+      reason: options.reason
+    }
+  };
 }

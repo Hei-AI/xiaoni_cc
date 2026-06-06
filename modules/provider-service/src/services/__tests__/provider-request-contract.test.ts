@@ -10,6 +10,7 @@ import { OpenAIProvider } from '../llm-provider/openai-provider';
 import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../llm-provider/types';
 import { buildRequestFromMessages, buildUnifiedConfig } from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
+import { runtimeStoreService } from '../runtime-store-service';
 
 class TestOpenAIProvider extends OpenAIProvider {
   buildPayload(request: OpenResponseCreateRequest) {
@@ -954,6 +955,153 @@ test('buildTraceHeaders emits Codex-compatible session metadata headers', () => 
   assert.match(headers['x-codex-turn-metadata'], /"session_id":"qq:group:101"/);
   assert.match(headers['x-codex-turn-metadata'], /"turn_id":"run-1"/);
   assert.match(headers['x-codex-turn-metadata'], /"sandbox":"none"/);
+});
+
+test('Codex provider records only the recovered provider request after internal retry succeeds', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousRecordProviderReplayEvent = runtimeStoreService.recordProviderReplayEvent;
+  const previousEnv = {
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  const replayEvents: any[] = [];
+  let fetchCount = 0;
+
+  try {
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
+    runtimeStoreService.recordProviderReplayEvent = async (event: any) => {
+      replayEvents.push(event);
+      return { eventId: 'provider:codex:llm-recovered' } as any;
+    };
+    (globalThis as any).fetch = async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return {
+          ok: false,
+          status: 502,
+          statusText: 'Bad Gateway',
+          text: async () => '{"error":"temporary"}'
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"recovered"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"id":"resp_recovered","status":"completed","usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+    const config = buildUnifiedConfig('gpt-5.4-mini', 'codex', {}, 'Prompt from provider debug');
+
+    const result = await provider.generateContent({
+      request: {
+        model: 'gpt-5.4-mini',
+        input: [{ type: 'message', role: 'user', content: 'ping' }]
+      },
+      modelName: 'gpt-5.4-mini',
+      providerConfig: config,
+      context: {
+        traceId: 'trace-recovered',
+        llmCallId: 'llm-recovered',
+        replayIdentityKey: 'xiaoni'
+      }
+    });
+
+    assert.equal(fetchCount, 2);
+    assert.equal(result.text, 'recovered');
+    assert.equal(replayEvents.length, 1);
+    assert.equal(replayEvents[0].errorMessage, null);
+    assert.equal(replayEvents[0].wireProviderFormat, 'codex/responses');
+    assert.equal(replayEvents[0].wireResponse.output_text, 'recovered');
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    runtimeStoreService.recordProviderReplayEvent = previousRecordProviderReplayEvent;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Codex provider does not write failed requests into the replay ledger after retry exhaustion', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousRecordProviderReplayEvent = runtimeStoreService.recordProviderReplayEvent;
+  const previousEnv = {
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  let replayWrites = 0;
+
+  try {
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
+    runtimeStoreService.recordProviderReplayEvent = async () => {
+      replayWrites += 1;
+      return { eventId: 'unexpected' } as any;
+    };
+    (globalThis as any).fetch = async () => ({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      text: async () => '{"error":"still broken"}'
+    });
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5.4-mini'
+    });
+    const config = buildUnifiedConfig('gpt-5.4-mini', 'codex', {}, 'Prompt from provider debug');
+
+    await assert.rejects(
+      () => provider.generateContent({
+        request: {
+          model: 'gpt-5.4-mini',
+          input: [{ type: 'message', role: 'user', content: 'ping' }]
+        },
+        modelName: 'gpt-5.4-mini',
+        providerConfig: config,
+        context: {
+          traceId: 'trace-failed',
+          llmCallId: 'llm-failed',
+          replayIdentityKey: 'xiaoni'
+        }
+      }),
+      /Codex API error \(502 Bad Gateway\)/
+    );
+    assert.equal(replayWrites, 0);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    runtimeStoreService.recordProviderReplayEvent = previousRecordProviderReplayEvent;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 });
 
 test('provider debug request builder maps systemPrompt into instructions instead of a synthetic system input message', () => {

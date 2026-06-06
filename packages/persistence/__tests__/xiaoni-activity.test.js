@@ -28,7 +28,7 @@ function createPersistence(overrides = {}) {
   };
   const sqlAdapter = () => ({
     query: async (statement) => {
-      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('presence_tick', 'proactive_im_open')")) {
+      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('consciousness_tick', 'phone_notification')")) {
         return overrides.autonomousQueueRows || [];
       }
       if (statement.includes('FROM agent_queue_messages')) {
@@ -46,7 +46,8 @@ function createPersistence(overrides = {}) {
   });
   return createXiaoniActivityPersistence({
     getPrismaClient: () => prisma,
-    createSqlAdapter: sqlAdapter
+    createSqlAdapter: sqlAdapter,
+    listXiaoniReplayEvents: async () => overrides.replayEvents || []
   });
 }
 
@@ -89,7 +90,7 @@ test('Xiaoni activity feed hides life-event engineering payload fields', async (
       visibility: 'self_private',
       payload: {
         reason: '没有具体可说点。',
-        source: 'proactive_im_open',
+        source: 'phone_notification',
         run_id: 'run_1',
         trace_id: 'trace_1',
         batch_id: 'batch_1',
@@ -111,7 +112,7 @@ test('Xiaoni activity feed hides life-event engineering payload fields', async (
   assert.equal(item.metadata.payload.peer_name, '群 1040740258');
   assert.equal(serializedPayload.includes('run_1'), false);
   assert.equal(serializedPayload.includes('trace_1'), false);
-  assert.equal(serializedPayload.includes('proactive_im_open'), false);
+  assert.equal(serializedPayload.includes('phone_notification'), false);
   assert.equal(serializedPayload.includes('sid_1'), false);
   assert.equal(String(item.metadata.payloadPreview).includes('run_1'), false);
 });
@@ -157,7 +158,7 @@ test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', asyn
     id: 4161,
     trace_id: 'runtrace_1',
     run_id: 'run_1',
-    source: 'presence_tick',
+    source: 'consciousness_tick',
     status: 'completed',
     body_for_agent: '还没有打开任何具体会话',
     updated_at: '2026-05-31T14:29:23.395+08:00',
@@ -179,11 +180,11 @@ test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', asyn
   const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
 
   assert.equal(feed.items[0].id, 'queue:4161');
-  assert.equal(feed.items[0].title, '主动看一眼群');
+  assert.equal(feed.items[0].title, '连续意识切片');
   assert.equal(feed.items[0].body, '还没有打开任何具体会话');
   assert.equal(feed.items[0].timestamp, '2026-05-31T14:29:23.395+08:00');
   assert.equal(feed.current.latestActivityAt, '2026-05-31T14:29:23.395+08:00');
-  assert.equal(feed.current.autonomy.latestPresenceTickAt, '2026-05-31T14:29:23.395+08:00');
+  assert.equal(feed.current.autonomy.latestConsciousnessTickAt, '2026-05-31T14:29:23.395+08:00');
 });
 
 test('Xiaoni activity feed hides operator-only self-action LLM prompts', async () => {
@@ -287,7 +288,7 @@ test('Xiaoni activity feed promotes Codex provider wire payloads to first-class 
   assert.equal(feed.items.some((item) => item.id === 'llm:llm_codex_1'), true);
 });
 
-test('Xiaoni action stream demotes run id to an internal execution lease target', async () => {
+test('Xiaoni action stream reads Codex provider replay from the unified ledger', async () => {
   const wireRequest = '{"model":"gpt-5.5","input":[{"role":"user","content":"你发了么？"}]}';
   const wireResponse = '{"id":"resp_codex","output":[{"type":"function_call","name":"exec_command"}]}';
   const persistence = createPersistence({
@@ -318,6 +319,37 @@ test('Xiaoni action stream demotes run id to an internal execution lease target'
         }]
       },
       processed_response: ''
+    }],
+    replayEvents: [{
+      id: '101',
+      eventId: 'provider:codex:llm_codex_stream',
+      identityKey: 'xiaoni',
+      eventKind: 'codex_provider_request',
+      source: 'codex_provider',
+      occurredAt: '2026-06-05T10:03:47.000Z',
+      traceId: 'trace_codex_stream',
+      conversationId: '42',
+      internalExecutionLeaseId: 'run_internal_lease_1',
+      providerCallId: 'llm_codex_stream',
+      toolCallId: null,
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      status: 'completed',
+      replayable: true,
+      replayPayload: {},
+      wireRequest: { model: 'gpt-5.5', input: [{ role: 'user', content: '你发了么？' }] },
+      wireResponse: { id: 'resp_codex', output: [{ type: 'function_call', name: 'exec_command' }] },
+      metadata: {
+        spanId: 'provider-request:wire:llm_codex_stream',
+        providerFormat: 'codex-local/responses',
+        inputTokens: 10,
+        outputTokens: 4,
+        completedAt: '2026-06-05T10:04:00.000Z'
+      },
+      sourceTable: 'llm_call_logs',
+      sourceId: 'llm_codex_stream',
+      createdAt: '2026-06-05T10:04:00.000Z',
+      updatedAt: '2026-06-05T10:04:00.000Z'
     }]
   });
 
@@ -339,6 +371,36 @@ test('Xiaoni action stream demotes run id to an internal execution lease target'
   assert.equal(provider.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
   assert.equal(Object.prototype.hasOwnProperty.call(provider.metadata, 'completedAt'), false);
   assert.equal(provider.metadata.endedAt, '2026-06-05T10:04:00.000Z');
+  assert.equal(provider.metadata.wirePayloadSource, 'xiaoni_replay_events');
+  assert.equal(stream.items.filter((item) => item.source === 'provider_call').length, 1);
+});
+
+test('Xiaoni action stream does not synthesize raw trace targets for internal events', async () => {
+  const persistence = createPersistence({
+    lifeEvents: [{
+      id: 501,
+      identity_key: 'xiaoni',
+      event_kind: 'surface_visit',
+      occurred_at: new Date('2026-06-05T11:00:00.000Z'),
+      surface: 'qq',
+      actor_type: 'xiaoni',
+      visibility: 'self_private',
+      run_id: 'run_internal_only',
+      trace_id: 'trace_internal_only',
+      payload: {
+        wake_kind: 'proactive_use_im',
+        peer_name: '测试群',
+        unread_batch_size: 2
+      }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const life = stream.items.find((item) => item.id === 'life:501');
+
+  assert.ok(life);
+  assert.equal(life.internalExecutionLeaseId, 'run_internal_only');
+  assert.equal(life.traceTarget, null);
 });
 
 test('Xiaoni activity feed exposes safe action trace previews on digital actions', async () => {

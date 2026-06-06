@@ -19,6 +19,7 @@ import {
   OpenResponseCreateRequest
 } from './types';
 import { buildTraceHeaders } from '../../utils/trace-headers';
+import { runtimeStoreService } from '../runtime-store-service';
 
 type OpenAIProviderOptions = {
   id?: LLMProviderId;
@@ -126,67 +127,161 @@ export class OpenAIProvider implements LLMProvider {
 
   async generateContent(input: LLMProviderContentRequest): Promise<LLMProviderContentResult> {
     const callStartTime = Date.now();
-    const apiKey = await this.resolveApiKey();
-    const providerConfig = input.providerConfig;
-    const providerSpecific = providerConfig?.model?.providerSpecific || {};
-    const baseUrl = typeof providerSpecific.baseUrl === 'string' ? providerSpecific.baseUrl.replace(/\/$/, '') : this.baseUrl;
-    const responsesPath =
-      typeof providerSpecific.responsesPath === 'string' ? providerSpecific.responsesPath : this.responsesPath;
+    try {
+      const providerConfig = input.providerConfig;
+      const apiKey = await this.resolveApiKey();
+      const providerSpecific = providerConfig?.model?.providerSpecific || {};
+      const baseUrl = typeof providerSpecific.baseUrl === 'string' ? providerSpecific.baseUrl.replace(/\/$/, '') : this.baseUrl;
+      const responsesPath =
+        typeof providerSpecific.responsesPath === 'string' ? providerSpecific.responsesPath : this.responsesPath;
+      const payload = this.buildResponsesPayload(input.request, providerConfig);
+      const response = await this.postResponses(
+        baseUrl,
+        responsesPath,
+        payload,
+        apiKey,
+        providerConfig?.performance.timeout || this.timeoutMs,
+        buildTraceHeaders(input.context)
+      );
 
-    const payload = this.buildResponsesPayload(input.request, providerConfig);
-    const response = await this.postResponses(
-      baseUrl,
-      responsesPath,
-      payload,
-      apiKey,
-      providerConfig?.performance.timeout || this.timeoutMs,
-      buildTraceHeaders(input.context)
-    );
+      const text = extractTextFromOpenAIResponse(response);
+      const processingTimeMs = Date.now() - callStartTime;
+      const normalizedUsage = normalizeUsageDetails(response?.usage, Math.ceil(text.length / 4));
+      const inputTokens = normalizedUsage.inputTokens;
+      const outputTokens = normalizedUsage.outputTokens;
 
-    const text = extractTextFromOpenAIResponse(response);
-    const processingTimeMs = Date.now() - callStartTime;
-    const normalizedUsage = normalizeUsageDetails(response?.usage, Math.ceil(text.length / 4));
-    const inputTokens = normalizedUsage.inputTokens;
-    const outputTokens = normalizedUsage.outputTokens;
+      const canonicalResponse = {
+        ...cloneValue(response),
+        status: response?.status || 'completed',
+        model: response?.model || input.modelName,
+        output: Array.isArray(response?.output) ? cloneValue(response.output) : [],
+        output_text: response?.output_text || text,
+        usage: toOpenResponseUsage({
+          inputTokens,
+          outputTokens,
+          totalTokens: normalizedUsage.totalTokens,
+          cachedInputTokens: normalizedUsage.cachedInputTokens,
+          reasoningTokens: normalizedUsage.reasoningTokens,
+          rawUsage: normalizedUsage.rawUsage
+        })
+      };
 
-    const canonicalResponse = {
-      ...cloneValue(response),
-      status: response?.status || 'completed',
-      model: response?.model || input.modelName,
-      output: Array.isArray(response?.output) ? cloneValue(response.output) : [],
-      output_text: response?.output_text || text,
-      usage: toOpenResponseUsage({
-        inputTokens,
-        outputTokens,
-        totalTokens: normalizedUsage.totalTokens,
-        cachedInputTokens: normalizedUsage.cachedInputTokens,
-        reasoningTokens: normalizedUsage.reasoningTokens,
-        rawUsage: normalizedUsage.rawUsage
-      })
+      const result = {
+        provider: this.id,
+        modelName: input.modelName,
+        text,
+        response: canonicalResponse,
+        rawResponse: cloneValue(response),
+        canonicalRequest: cloneValue(input.request),
+        wireRequest: cloneValue(payload),
+        canonicalResponse,
+        wireResponse: cloneValue(response),
+        requestFormatVersion: 'openresponse/v1',
+        wireProviderFormat: `${this.id}/responses`,
+        usage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: normalizedUsage.totalTokens,
+          processingTimeMs,
+          cachedInputTokens: normalizedUsage.cachedInputTokens,
+          reasoningTokens: normalizedUsage.reasoningTokens,
+          rawUsage: normalizedUsage.rawUsage
+        }
+      };
+      await this.recordProviderReplaySuccess(input, result, providerConfig);
+      return result;
+    } catch (error) {
+      this.moduleLogger.error('LLM provider content generation failed', {
+        provider: this.id,
+        modelName: input.modelName,
+        traceId: input.context?.traceId || null,
+        llmCallId: input.context?.llmCallId || null,
+        elapsedMs: Math.max(0, Date.now() - callStartTime),
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
+  }
+
+  protected async recordProviderReplaySuccess(
+    input: LLMProviderContentRequest,
+    result: LLMProviderContentResult,
+    providerConfig?: UnifiedLLMConfig
+  ) {
+    if (!this.shouldRecordProviderReplay(input)) {
+      return;
+    }
+    await this.recordProviderReplay({
+      input,
+      providerConfig,
+      modelName: result.modelName,
+      modelProvider: result.provider,
+      canonicalRequest: result.canonicalRequest as unknown as Record<string, unknown>,
+      wireRequest: result.wireRequest as Record<string, unknown>,
+      canonicalResponse: result.canonicalResponse as unknown as Record<string, unknown>,
+      wireResponse: result.wireResponse as Record<string, unknown>,
+      usage: result.usage,
+      requestFormatVersion: result.requestFormatVersion,
+      wireProviderFormat: result.wireProviderFormat
+    });
+  }
+
+  private shouldRecordProviderReplay(input: LLMProviderContentRequest) {
+    return Boolean(input.context?.llmCallId || input.context?.traceId);
+  }
+
+  private async recordProviderReplay(params: {
+    input: LLMProviderContentRequest;
+    providerConfig?: UnifiedLLMConfig;
+    modelName: string;
+    modelProvider: string;
+    canonicalRequest: Record<string, unknown>;
+    wireRequest: Record<string, unknown>;
+    canonicalResponse: Record<string, unknown>;
+    wireResponse: Record<string, unknown>;
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      processingTimeMs: number;
+      cachedInputTokens?: number;
+      reasoningTokens?: number;
     };
-
-    return {
-      provider: this.id,
-      modelName: input.modelName,
-      text,
-      response: canonicalResponse,
-      rawResponse: cloneValue(response),
-      canonicalRequest: cloneValue(input.request),
-      wireRequest: cloneValue(payload),
-      canonicalResponse,
-      wireResponse: cloneValue(response),
-      requestFormatVersion: 'openresponse/v1',
-      wireProviderFormat: `${this.id}/responses`,
-      usage: {
-        inputTokens,
-        outputTokens,
-        totalTokens: normalizedUsage.totalTokens,
-        processingTimeMs,
-        cachedInputTokens: normalizedUsage.cachedInputTokens,
-        reasoningTokens: normalizedUsage.reasoningTokens,
-        rawUsage: normalizedUsage.rawUsage
+    requestFormatVersion: string;
+    wireProviderFormat: string;
+  }) {
+    const identityKey = params.input.context?.replayIdentityKey || 'xiaoni-internal';
+    try {
+      await runtimeStoreService.recordProviderReplayEvent({
+        identityKey,
+        traceId: params.input.context?.traceId,
+        conversationId: params.input.context?.conversationId,
+        llmCallId: params.input.context?.llmCallId,
+        agentTurn: params.input.context?.agentTurn,
+        agentType: params.input.context?.agentType,
+        promptName: params.input.context?.promptName,
+        modelName: params.modelName,
+        modelProvider: params.modelProvider,
+        canonicalRequest: params.canonicalRequest,
+        wireRequest: params.wireRequest,
+        canonicalResponse: params.canonicalResponse,
+        wireResponse: params.wireResponse,
+        effectiveUnifiedConfig: (params.providerConfig as unknown as Record<string, unknown>) || {},
+        usage: params.usage,
+        requestFormatVersion: params.requestFormatVersion,
+        wireProviderFormat: params.wireProviderFormat,
+        errorMessage: null
+      });
+    } catch (error) {
+      if (identityKey === 'xiaoni') {
+        throw error;
       }
-    };
+      this.moduleLogger.warn('Failed to record internal Codex provider replay event', {
+        error: error instanceof Error ? error.message : String(error),
+        llmCallId: params.input.context?.llmCallId || null,
+        agentType: params.input.context?.agentType || null
+      });
+    }
   }
 
   protected buildContentRequestFromPrompt(prompt: string, config: UnifiedLLMConfig): OpenResponseCreateRequest {

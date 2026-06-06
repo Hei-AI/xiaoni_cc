@@ -247,4 +247,16 @@ export interface SemanticInboundMessage {
   messageTimestamp?: string | null;
   rawPayload: Record<string, unknown>;
   inboundContext: FinalizedInboundContext;
+  phoneNotification?: {
+    app: 'qq' | string;
+    notificationId: string;
+    sessionKey: string;
+    chatType: 'direct' | 'group';
+    peerId: string;
+    peerName?: string | null;
+    unreadDelta: number;
+    directMentions: number;
+    latestReceivedAt?: string | null;
+    reason?: string | null;
+  };
 }

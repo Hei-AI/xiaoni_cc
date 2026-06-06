@@ -15,6 +15,7 @@ import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/h
 import type { LLMProvider, OpenResponseCreateRequest, OpenResponseToolDefinition } from './llm-provider/types';
 import { logger } from '../utils/logger';
 import type { TopicProjectionInputBundle } from './topic-projection-service';
+import { withReplayLlmCallId } from './provider-replay-ledger';
 
 type TopicProjectionExecutionRequest = {
   jobId: number;
@@ -509,19 +510,20 @@ export class TopicProjectionExecutorService {
       top_p: 0.2,
       max_output_tokens: 2200
     };
+	    const context = withReplayLlmCallId({
+	      sessionId: bundle.session_key,
+	      agentType: 'topic_projection_executor',
+	      promptName: 'topic_projection_executor',
+	      replayIdentityKey: 'xiaoni-internal'
+	    }, 'topic_projection');
 
     const result = await provider.generateContent({
       modelName: this.modelName,
       providerConfig: config,
       request,
-      context: {
-        sessionId: bundle.session_key,
-        agentType: 'topic_projection_executor',
-        promptName: 'topic_projection_executor'
-      }
+      context
     });
-
-    const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, TOPIC_PROJECTION_TOOL_NAME);
+	    const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, TOPIC_PROJECTION_TOOL_NAME);
     const structuredTopics = toolPayload ? this.parseTopicsPayload(toolPayload, bundle) : [];
 
     return {

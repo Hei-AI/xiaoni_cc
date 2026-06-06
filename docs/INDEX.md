@@ -32,20 +32,12 @@
   - 再看 `AGENTS.md`
 
 ## Runtime And Operations
-- 当前业务与运行架构：
-  - `docs/CURRENT_ARCHITECTURE.md`
-- 小腻完整运行态总图，含服务、队列、数据库表、LLM provider、管理端和关键支路：
-  - `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
-- `agent-service` loop 细版，含输入输出、工具契约、抑制路径、自学习闭环：
-  - `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
+- 小腻 action replay 唯一回放表、Codex Provider 成功-only 写入和 Raw Trace 组装：
+  - `docs/XIAONI_REPLAY_LEDGER.md`
 - `xiaoni-executor` 命令执行服务：
   - `docs/AGENTS_XIAONI_EXECUTOR.md`
-- 小腻被动发言 / 主动发言阶段图、数据源和来源：
-  - `docs/XIAONI_SPEAKING_FLOW.md`
-- 小腻数字生活 / `presence_context` 设计、已落地 presence slice 与当前空闲生活事件：
-  - `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`
-- 小腻 homeostasis reducer、`agent_life_events` 事件流真相源和下一阶段边界：
-  - `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md`
+- 小腻主 prompt、连续 loop、手机通知和 QQ 使用边界：
+  - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 当前主动队列：
@@ -60,17 +52,12 @@
   - `scripts/README.md`
 
 ## Xiaoni Doc Status
-- 当前运行事实优先级：`docs/CURRENT_ARCHITECTURE.md` ->
-  `docs/AGENTS_AGENT_LOOP_RUNTIME.md` -> `docs/AGENTS_XIAONI_EXECUTOR.md` ->
-  `docs/XIAONI_SPEAKING_FLOW.md` ->
-  `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`。这些文档描述现在真实生效的
-  QQ / agent-service / provider-service 链路。
+- `xiaoni-executor` 事实源：`docs/AGENTS_XIAONI_EXECUTOR.md`。
+- action replay / Raw Trace 事实源：`docs/XIAONI_REPLAY_LEDGER.md`。
 - Prompt 正文事实源：`docs/XIAONI_MAIN_PROMPT_NEXT.md` 必须和
   `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 同步。
-- 设计/目标状态文档：`docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md` 和
-  `docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` 可以包含已落地切片、锁定目标和历史
-  兼容说明；阅读时以文内 `Status` / `Current Runtime Facts` 为准，不要把未来
-  设计当作当前代码事实。
+- 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /
+  START_HERE、主 prompt 和活跃模块代码为准。
 - 历史材料：`docs/archive/` 和 `docs/exec-plans/completed/` 只作追溯参考，
   其中的旧工具、旧分阶段描述和旧执行计划不是当前 runtime 契约。
 - 图资产：文件名以 docs/assets/xiaoni- 开头的 SVG / PNG 只是说明图。若它们和上面的当前

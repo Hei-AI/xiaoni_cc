@@ -140,21 +140,22 @@ async function runTrigger(inboxEvent: InboxMessageRecord) {
   return { result, store };
 }
 
-test('keeps unmentioned group messages inbox-only and does not enqueue', async () => {
+test('enqueues unmentioned group messages as phone notifications without message bodies', async () => {
   const { result, store } = await runTrigger(buildInbox({
     chatType: 'group',
-    wasMentioned: false
+    wasMentioned: false,
+    bodyForAgent: '群里真实正文'
   }));
 
-  assert.equal(result.queued, false);
-  assert.equal(result.reason, 'group_unmentioned_inbox_only');
-  assert.equal(store.enqueuedMessages.length, 0);
-  assert.equal(store.timelineEvents.length, 1);
-  assert.equal(store.timelineEvents[0]?.eventName, 'enqueue');
-  assert.equal(store.timelineEvents[0]?.eventPhase, 'skipped');
+  assert.equal(result.queued, true);
+  assert.equal(result.triggerDecision.reason, 'group_message_phone_notification');
+  assert.equal(store.enqueuedMessages.length, 1);
+  assert.equal(store.enqueuedMessages[0]?.source, 'phone_notification');
+  assert.match(store.enqueuedMessages[0]?.bodyForAgent || '', /有 1 条新 QQ 消息/);
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /群里真实正文/);
 });
 
-test('enqueues mentioned group messages as IM read triggers', async () => {
+test('enqueues mentioned group messages as phone notifications', async () => {
   const context = buildContext({
     Body: '@xiaoni hello',
     BodyForAgent: '@xiaoni hello',
@@ -169,14 +170,16 @@ test('enqueues mentioned group messages as IM read triggers', async () => {
   }));
 
   assert.equal(result.queued, true);
-  assert.equal(result.triggerDecision.reason, 'group_mention_im_trigger');
+  assert.equal(result.triggerDecision.reason, 'group_mention_phone_notification');
   assert.equal(store.enqueuedMessages.length, 1);
   assert.equal(store.enqueuedMessages[0]?.chatType, 'group');
   assert.equal(store.enqueuedMessages[0]?.sessionKey, 'qq:group:100');
   assert.equal(store.enqueuedMessages[0]?.wasMentioned, true);
+  assert.equal(store.enqueuedMessages[0]?.phoneNotification?.directMentions, 1);
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /@xiaoni hello/);
 });
 
-test('enqueues the claimed unread inbox window when mention opens group IM', async () => {
+test('does not enqueue the claimed unread inbox window when a mention arrives', async () => {
   const earlierContext = buildContext({
     Body: '前面普通未读',
     BodyForAgent: '前面普通未读',
@@ -229,18 +232,16 @@ test('enqueues the claimed unread inbox window when mention opens group IM', asy
   }, store);
 
   assert.equal(result.queued, true);
-  assert.equal(result.imWindowMessageCount, 2);
-  assert.deepEqual(result.queueIds, [1, 2]);
-  assert.equal(store.enqueuedMessages.length, 2);
-  assert.equal(store.enqueuedMessages[0]?.messageSid, 'msg-earlier');
-  assert.equal(store.enqueuedMessages[0]?.bodyForAgent, '前面普通未读');
-  assert.equal(store.enqueuedMessages[0]?.wasMentioned, false);
-  assert.equal(store.enqueuedMessages[1]?.messageSid, 'msg-trigger');
-  assert.equal(store.enqueuedMessages[1]?.bodyForAgent, '@xiaoni 看到前面了吗');
-  assert.equal(store.enqueuedMessages[1]?.wasMentioned, true);
+  assert.equal(result.notificationCount, 1);
+  assert.deepEqual(result.queueIds, [1]);
+  assert.equal(store.enqueuedMessages.length, 1);
+  assert.equal(store.enqueuedMessages[0]?.messageSid, 'phone:msg-trigger');
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /前面普通未读/);
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /看到前面了吗/);
+  assert.equal(store.enqueuedMessages[0]?.wasMentioned, true);
 });
 
-test('keeps direct messages inbox-only until xiaoni actively opens IM', async () => {
+test('enqueues direct messages as phone notifications until xiaoni actively opens QQ', async () => {
   const context = buildContext({
     ChatType: 'direct',
     SessionKey: 'qq:direct:1129974489:20001',
@@ -253,14 +254,14 @@ test('keeps direct messages inbox-only until xiaoni actively opens IM', async ()
     inboundContext: context
   }));
 
-  assert.equal(result.queued, false);
-  assert.equal(result.reason, 'direct_inbox_only');
-  assert.equal(store.enqueuedMessages.length, 0);
-  assert.equal(store.timelineEvents.length, 1);
-  assert.equal(store.timelineEvents[0]?.eventPhase, 'skipped');
+  assert.equal(result.queued, true);
+  assert.equal(result.triggerDecision.reason, 'direct_phone_notification');
+  assert.equal(store.enqueuedMessages.length, 1);
+  assert.equal(store.enqueuedMessages[0]?.source, 'phone_notification');
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /hello/);
 });
 
-test('enqueues private messages from authorized user as IM triggers', async () => {
+test('enqueues private messages from authorized user as a single phone notification', async () => {
   const earlierContext = buildContext({
     ChatType: 'direct',
     SessionKey: 'qq:direct:1129974489:85178516',
@@ -311,12 +312,12 @@ test('enqueues private messages from authorized user as IM triggers', async () =
   }, store);
 
   assert.equal(result.queued, true);
-  assert.equal(result.triggerDecision.reason, 'direct_authorized_user_im_trigger');
-  assert.equal(result.imWindowMessageCount, 2);
-  assert.deepEqual(store.enqueuedMessages.map((message) => message.messageSid), ['dm-earlier', 'dm-trigger']);
-  assert.equal(store.enqueuedMessages[1]?.chatType, 'direct');
-  assert.equal(store.enqueuedMessages[1]?.senderId, '85178516');
-  assert.equal(store.enqueuedMessages[1]?.bodyForAgent, '现在这句要让小腻看到');
+  assert.equal(result.triggerDecision.reason, 'direct_phone_notification');
+  assert.equal(result.notificationCount, 1);
+  assert.deepEqual(store.enqueuedMessages.map((message) => message.messageSid), ['phone:dm-trigger']);
+  assert.equal(store.enqueuedMessages[0]?.chatType, 'direct');
+  assert.equal(store.enqueuedMessages[0]?.senderId, 'qq');
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /现在这句要让小腻看到/);
 });
 
 test('forces private authorized user through disabled receive and auto-reply policy', () => {
@@ -332,13 +333,8 @@ test('forces private authorized user through disabled receive and auto-reply pol
     senderId: '85178516'
   };
 
-  assert.equal(shouldForceInboundAgentQueueTrigger(message), true);
-  assert.deepEqual(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), {
-    exists: true,
-    isEnabled: true,
-    continuousLearningEnabled: false,
-    autoReplyEnabled: true
-  });
+  assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
+  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
 });
 
 test('does not force non-authorized private users through disabled policy', () => {

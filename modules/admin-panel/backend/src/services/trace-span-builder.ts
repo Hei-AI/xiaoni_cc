@@ -6,6 +6,8 @@ import {
   listRuntimeIdentityActivationTraces,
   listIdentityEvidenceRefs,
   listTraceTrafficLogs,
+  listXiaoniReplayEvents,
+  findXiaoniReplayEventByEventId,
   parseInstantValue,
   serializeTimestampForApi
 } from '@qq-bot/persistence';
@@ -62,6 +64,24 @@ interface TraceSpanDetailDto {
   output: unknown;
   evidence: unknown;
 }
+
+type XiaoniReplayEventProjection = {
+  eventId: string;
+  source: string;
+  traceId: string | null;
+  conversationId: string | null;
+  providerCallId: string | null;
+  modelName: string | null;
+  modelProvider: string | null;
+  status: string | null;
+  replayable: boolean;
+  replayPayload: Record<string, unknown>;
+  wireRequest: unknown;
+  wireResponse: unknown;
+  metadata: Record<string, unknown>;
+  occurredAt: string | null;
+  updatedAt: string | null;
+};
 
 const TRACE_PAYLOAD_MAX_INLINE_BYTES = 16 * 1024;
 
@@ -419,29 +439,35 @@ function buildPlaygroundSnapshot(call: any, spanId: string) {
   };
 }
 
-function hasCapturedWirePayload(call: any): boolean {
-  return Boolean(call.llm_call_id)
-    && call.wire_request !== null
-    && call.wire_request !== undefined
-    && call.wire_response !== null
-    && call.wire_response !== undefined;
-}
-
 function buildSyntheticProviderRequestSpanId(call: any): string {
-  return `provider-request:wire:${call.llm_call_id}`;
+  if (call.llm_call_id) {
+    return `provider-request:wire:${call.llm_call_id}`;
+  }
+  const replayEventId = typeof call.replay_event_id === 'string' && call.replay_event_id.trim()
+    ? call.replay_event_id.trim()
+    : String(call.id || 'unknown');
+  return `provider-request:replay:${encodeURIComponent(replayEventId)}`;
 }
 
-function parseSyntheticProviderRequestSpanId(spanId: string): { llmCallId: string } | null {
-  if (!spanId.startsWith('provider-request:wire:')) {
-    return null;
+function parseSyntheticProviderRequestSpanId(spanId: string): { llmCallId: string | null; eventId: string | null } | null {
+  if (spanId.startsWith('provider-request:wire:')) {
+    const rawId = spanId.slice('provider-request:wire:'.length);
+    return rawId ? { llmCallId: rawId, eventId: `provider:codex:${rawId}` } : null;
   }
 
-  const rawId = spanId.slice('provider-request:wire:'.length);
-  if (!rawId) {
-    return null;
+  if (spanId.startsWith('provider-request:replay:')) {
+    const rawId = spanId.slice('provider-request:replay:'.length);
+    if (!rawId) {
+      return null;
+    }
+    try {
+      return { llmCallId: null, eventId: decodeURIComponent(rawId) };
+    } catch {
+      return { llmCallId: null, eventId: rawId };
+    }
   }
 
-  return { llmCallId: rawId };
+  return null;
 }
 
 function syntheticProviderHost(call: any): string {
@@ -763,7 +789,7 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
     evidence: {
       synthetic: true,
       source: 'cliproxyapi.request_log',
-      fallback_source: 'llm_call_logs.wire_request/wire_response',
+      fallback_source: 'xiaoni_replay_events.wire_request/wire_response',
       log_file: log.logFile,
       llm_call_id: call.llm_call_id || null,
       model_provider: call.model_provider || null,
@@ -773,6 +799,147 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
       response_timestamp: call.completed_at
     }
   };
+}
+
+function normalizeReplayEventProviderCall(event: XiaoniReplayEventProjection, options?: TracePayloadTrimOptions) {
+  const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
+  const replayPayload = event.replayPayload && typeof event.replayPayload === 'object' ? event.replayPayload : {};
+  const wireRequest = event.wireRequest ?? replayPayload.wire_request ?? null;
+  const wireResponse = event.wireResponse ?? replayPayload.wire_response ?? null;
+  const canonicalRequest = replayPayload.canonical_request ?? null;
+  const canonicalResponse = replayPayload.canonical_response ?? null;
+  const effectiveUnifiedConfig = replayPayload.effective_unified_config ?? null;
+  const startedAt = toIsoString(event.occurredAt);
+  const completedAt = toIsoString(event.updatedAt || event.occurredAt);
+  const providerFormat = typeof metadata.providerFormat === 'string'
+    ? metadata.providerFormat
+    : typeof metadata.provider_format === 'string'
+      ? metadata.provider_format
+      : event.modelProvider;
+
+  const normalized: any = {
+    id: event.eventId,
+    llm_call_id: event.providerCallId,
+    trace_id: event.traceId,
+    conversation_id: event.conversationId,
+    agent_turn: toNumber(metadata.agentTurn ?? metadata.agent_turn),
+    call_sequence: 0,
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: toNumber(metadata.processingTimeMs ?? metadata.processing_time_ms ?? metadata.apiCallTimeMs ?? metadata.api_call_time_ms),
+    status: normalizeStatusCode(event.status),
+    model_name: event.modelName || (typeof metadata.modelName === 'string' ? metadata.modelName : null),
+    model_provider: event.modelProvider || 'codex',
+    agent_type: typeof metadata.agentType === 'string' ? metadata.agentType : null,
+    prompt_template: typeof metadata.promptName === 'string' ? metadata.promptName : null,
+    canonical_request: maybeTrimLargeField(canonicalRequest, 'canonical_request', options),
+    wire_request: maybeTrimLargeField(wireRequest, 'wire_request', options),
+    canonical_response: maybeTrimLargeField(canonicalResponse, 'canonical_response', options),
+    wire_response: maybeTrimLargeField(wireResponse, 'wire_response', options),
+    effective_unified_config: maybeTrimLargeField(effectiveUnifiedConfig, 'effective_unified_config', options),
+    processed_response: null,
+    input_tokens: toNumber(metadata.inputTokens ?? metadata.input_tokens),
+    output_tokens: toNumber(metadata.outputTokens ?? metadata.output_tokens),
+    token_usage: {
+      input_tokens: toNumber(metadata.inputTokens ?? metadata.input_tokens),
+      output_tokens: toNumber(metadata.outputTokens ?? metadata.output_tokens),
+      total_tokens: toNumber(metadata.totalTokens ?? metadata.total_tokens),
+      cached_input_tokens: toNumber(metadata.cachedInputTokens ?? metadata.cached_input_tokens),
+      reasoning_tokens: toNumber(metadata.reasoningTokens ?? metadata.reasoning_tokens)
+    },
+    api_call_time_ms: toNumber(metadata.apiCallTimeMs ?? metadata.api_call_time_ms),
+    processing_time_ms: toNumber(metadata.processingTimeMs ?? metadata.processing_time_ms),
+    error_message: typeof metadata.errorMessage === 'string' ? metadata.errorMessage : null,
+    error_code: null,
+    request_format_version: typeof metadata.requestFormatVersion === 'string' ? metadata.requestFormatVersion : null,
+    wire_provider_format: providerFormat,
+    http_requests: [],
+    provider_requests: [],
+    replay_event_id: event.eventId
+  };
+
+  if (options?.includeRawWireText) {
+    normalized.wire_request_raw_text = rawJsonText(wireRequest);
+    normalized.wire_response_raw_text = rawJsonText(wireResponse);
+  }
+  return normalized;
+}
+
+function replayEventMatchesConversation(event: XiaoniReplayEventProjection, conversationId: string, traceId: string) {
+  return event.source === 'codex_provider'
+    && event.replayable
+    && (String(event.conversationId || '') === String(conversationId) || event.traceId === traceId);
+}
+
+function buildReplayProviderRequestSpan(params: {
+  replayProviderCall: any;
+  replayProviderEvent: XiaoniReplayEventProjection;
+  parentSpanId: string;
+  traceId: string;
+  conversationId: string;
+  agentTurn?: number | null;
+}): TraceSpanDto {
+  const { replayProviderCall, replayProviderEvent } = params;
+  return createSpan({
+    span_id: buildSyntheticProviderRequestSpanId(replayProviderCall),
+    parent_span_id: params.parentSpanId,
+    trace_id: params.traceId,
+    conversation_id: replayProviderCall.conversation_id || params.conversationId,
+    name: 'provider.request',
+    kind: 'client',
+    status_code: replayProviderCall.status,
+    status_message: replayProviderCall.error_message || null,
+    started_at: replayProviderCall.started_at,
+    ended_at: replayProviderCall.completed_at,
+    duration_ms: replayProviderCall.duration_ms,
+    summary: `POST ${syntheticProviderHost(replayProviderCall)}${syntheticProviderPath(replayProviderCall)} -> ${replayProviderCall.status}`,
+    attributes: {
+      'semantic.role': 'provider_request',
+      'semantic.display_name': `POST ${syntheticProviderHost(replayProviderCall)}`,
+      'http.method': 'POST',
+      'http.url': null,
+      'http.host': syntheticProviderHost(replayProviderCall),
+      'http.path': syntheticProviderPath(replayProviderCall),
+      'http.status_code': replayProviderCall.error_message ? null : 200,
+      'trace.llm_call_id': replayProviderCall.llm_call_id || null,
+      'trace.agent_turn': replayProviderCall.agent_turn ?? params.agentTurn ?? null,
+      'provider.api_type': replayProviderCall.wire_provider_format || replayProviderCall.model_provider || null,
+      'provider.traffic_log_id': null,
+      'provider.synthetic_source': 'xiaoni_replay_events.wire_payload',
+      'provider.replay_event_id': replayProviderEvent.eventId
+    },
+    input: {
+      headers: null,
+      body: replayProviderCall.wire_request
+    },
+    output: {
+      status_code: replayProviderCall.error_message ? null : 200,
+      headers: null,
+      body: replayProviderCall.wire_response,
+      raw_body: null,
+      body_format: 'json',
+      body_source: 'xiaoni_replay_events.wire_response',
+      error_message: replayProviderCall.error_message
+    },
+    evidence: {
+      synthetic: true,
+      source: 'xiaoni_replay_events.wire_request/wire_response',
+      replay_event_id: replayProviderEvent.eventId,
+      llm_call_id: replayProviderCall.llm_call_id || null,
+      model_provider: replayProviderCall.model_provider || null,
+      wire_provider_format: replayProviderCall.wire_provider_format || null,
+      request_format_version: replayProviderCall.request_format_version || null,
+      request_body: replayProviderCall.wire_request,
+      response_body: replayProviderCall.wire_response,
+      duration_ms: replayProviderCall.duration_ms,
+      request_timestamp: replayProviderCall.started_at,
+      response_timestamp: replayProviderCall.completed_at
+    },
+    events: [],
+    links: [],
+    confidence: 'observed',
+    source_ref: replayProviderEvent.eventId
+  });
 }
 
 function normalizeToolCall(call: any) {
@@ -1283,6 +1450,37 @@ export async function buildConversationTracePayload(
     }
   };
 
+  const safeReplayEventQuery = async () => {
+    try {
+      const byConversation = await listXiaoniReplayEvents({
+        conversationId,
+        source: 'codex_provider',
+        replayableOnly: true,
+        limit: 500
+      }) as XiaoniReplayEventProjection[];
+      const byTrace = await listXiaoniReplayEvents({
+        traceId,
+        source: 'codex_provider',
+        replayableOnly: true,
+        limit: 500
+      }) as XiaoniReplayEventProjection[];
+      const byEventId = new Map<string, XiaoniReplayEventProjection>();
+      [...byConversation, ...byTrace].forEach((event) => {
+        if (event?.eventId) {
+          byEventId.set(event.eventId, event);
+        }
+      });
+      return Array.from(byEventId.values());
+    } catch (error) {
+      logger.warn('Trace query failed: xiaoni replay events', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
   const [
     llmCallRows,
     toolCallRows,
@@ -1292,7 +1490,8 @@ export async function buildConversationTracePayload(
     llmJobRows,
     queueRows,
     runtimeIdentityActivationTraceRows,
-    identityEvidenceRefRows
+    identityEvidenceRefRows,
+    replayEventRows
   ] = await Promise.all([
     safeQuery(
       llmCallQuery,
@@ -1332,7 +1531,8 @@ export async function buildConversationTracePayload(
       'agent_queue_messages'
     ),
     safeRuntimeIdentityActivationTraceQuery(),
-    safeIdentityEvidenceRefQuery()
+    safeIdentityEvidenceRefQuery(),
+    safeReplayEventQuery()
   ]);
 
   const llmCalls = (llmCallRows as any[])
@@ -1359,6 +1559,15 @@ export async function buildConversationTracePayload(
   const identityEvidenceRefs = Array.isArray(identityEvidenceRefRows)
     ? (identityEvidenceRefRows as any[]).map(normalizeIdentityEvidenceRef)
     : [];
+  const replayEvents = Array.isArray(replayEventRows)
+    ? (replayEventRows as XiaoniReplayEventProjection[]).filter((event) => replayEventMatchesConversation(event, conversationId, traceId))
+    : [];
+  const replayEventByProviderCallId = new Map<string, XiaoniReplayEventProjection>();
+  replayEvents.forEach((event) => {
+    if (event.providerCallId) {
+      replayEventByProviderCallId.set(event.providerCallId, event);
+    }
+  });
   const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
   const lifecycleSpans = pairTimelineEvents(timelineRows as any[]);
   const latestJob = (llmJobRows as any[]).length > 0 ? (llmJobRows as any[])[(llmJobRows as any[]).length - 1] : null;
@@ -1366,6 +1575,7 @@ export async function buildConversationTracePayload(
 
   const spanRecords: TraceSpanDto[] = [];
   const rootSpanId = `trace-root:${traceId}`;
+  const representedReplayEventIds = new Set<string>();
 
   const rootStartedAt = [
     ...lifecycleSpans.map((span) => span.started_at),
@@ -1375,6 +1585,7 @@ export async function buildConversationTracePayload(
     ...queueMessages.map((message) => message.created_at),
     ...runtimeIdentityActivationTraces.map((row) => row.created_at),
     ...identityEvidenceRefs.map((row) => row.created_at),
+    ...replayEvents.map((event) => event.occurredAt),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     toIsoString(conversation.timestamp)
   ].filter(Boolean).sort()[0] || null;
@@ -1666,8 +1877,12 @@ export async function buildConversationTracePayload(
     const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
     const providerStatuses = summarizeProviderStatuses(call.provider_requests);
     const providerHosts = summarizeProviderHosts(call.provider_requests);
-    const hasSyntheticProviderRequest = httpLogs.length === 0 && call.provider_requests.length === 0 && hasCapturedWirePayload(call);
-    const providerRequestCount = call.provider_requests.length + (hasSyntheticProviderRequest ? 1 : 0);
+    const replayProviderEvent = call.llm_call_id ? replayEventByProviderCallId.get(call.llm_call_id) || null : null;
+    const replayProviderCall = replayProviderEvent
+      ? normalizeReplayEventProviderCall(replayProviderEvent, { truncateLargeFields: true })
+      : null;
+    const hasReplayProviderRequest = Boolean(replayProviderCall?.wire_request !== null && replayProviderCall?.wire_request !== undefined);
+    const providerRequestCount = hasReplayProviderRequest ? 1 : call.provider_requests.length;
     if (call.llm_call_id) {
       llmSpanIdByCallId.set(call.llm_call_id, spanId);
     }
@@ -1695,8 +1910,8 @@ export async function buildConversationTracePayload(
         'usage.output_tokens': call.output_tokens,
         'trace.agent_turn': call.agent_turn,
         'provider.request_count': providerRequestCount,
-        'provider.hosts': hasSyntheticProviderRequest ? [syntheticProviderHost(call)] : providerHosts,
-        'provider.statuses': hasSyntheticProviderRequest ? [call.status] : providerStatuses,
+        'provider.hosts': hasReplayProviderRequest ? [syntheticProviderHost(replayProviderCall)] : providerHosts,
+        'provider.statuses': hasReplayProviderRequest ? [replayProviderCall.status] : providerStatuses,
         'playground.capability': playgroundCapability
       },
       input: {
@@ -1725,12 +1940,13 @@ export async function buildConversationTracePayload(
           duration_ms: log.duration_ms,
           api_type: log.api_type
         })),
-        synthetic_provider_request: hasSyntheticProviderRequest
+        synthetic_provider_request: hasReplayProviderRequest
           ? {
-              span_id: buildSyntheticProviderRequestSpanId(call),
-              source: 'llm_call_logs.wire_request/wire_response',
-              llm_call_id: call.llm_call_id || null,
-              wire_provider_format: call.wire_provider_format || null
+              span_id: buildSyntheticProviderRequestSpanId(replayProviderCall),
+              source: 'xiaoni_replay_events.wire_request/wire_response',
+              replay_event_id: replayProviderEvent?.eventId || null,
+              llm_call_id: replayProviderCall.llm_call_id || null,
+              wire_provider_format: replayProviderCall.wire_provider_format || null
             }
           : null,
         playground_capability: playgroundCapability,
@@ -1742,69 +1958,19 @@ export async function buildConversationTracePayload(
       source_ref: call.id
     }));
 
-    if (hasSyntheticProviderRequest) {
-      spanRecords.push(createSpan({
-        span_id: buildSyntheticProviderRequestSpanId(call),
-        parent_span_id: spanId,
-        trace_id: traceId,
-        conversation_id: call.conversation_id || conversationId,
-        name: 'provider.request',
-        kind: 'client',
-        status_code: call.status,
-        status_message: call.error_message || null,
-        started_at: call.started_at,
-        ended_at: call.completed_at,
-        duration_ms: call.duration_ms,
-        summary: `POST ${syntheticProviderHost(call)}${syntheticProviderPath(call)} -> ${call.status}`,
-        attributes: {
-          'semantic.role': 'provider_request',
-          'semantic.display_name': `POST ${syntheticProviderHost(call)}`,
-          'http.method': 'POST',
-          'http.url': null,
-          'http.host': syntheticProviderHost(call),
-          'http.path': syntheticProviderPath(call),
-          'http.status_code': call.error_message ? null : 200,
-          'trace.llm_call_id': call.llm_call_id || null,
-          'trace.agent_turn': call.agent_turn,
-          'provider.api_type': call.wire_provider_format || call.model_provider || null,
-          'provider.traffic_log_id': null,
-          'provider.synthetic_source': 'llm_call_logs.wire_payload'
-        },
-        input: {
-          headers: null,
-          body: maybeTrimLargeField(call.wire_request, 'wire_request', { truncateLargeFields: true })
-        },
-        output: {
-          status_code: call.error_message ? null : 200,
-          headers: null,
-          body: maybeTrimLargeField(call.wire_response, 'wire_response', { truncateLargeFields: true }),
-          raw_body: null,
-          body_format: 'json',
-          body_source: 'llm_call_logs.wire_response',
-          error_message: call.error_message
-        },
-        evidence: {
-          synthetic: true,
-          source: 'llm_call_logs.wire_request/wire_response',
-          llm_call_id: call.llm_call_id || null,
-          model_provider: call.model_provider || null,
-          wire_provider_format: call.wire_provider_format || null,
-          request_format_version: call.request_format_version || null,
-          request_body: maybeTrimLargeField(call.wire_request, 'wire_request', { truncateLargeFields: true }),
-          response_body: maybeTrimLargeField(call.wire_response, 'wire_response', { truncateLargeFields: true }),
-          duration_ms: call.duration_ms,
-          request_timestamp: call.started_at,
-          response_timestamp: call.completed_at
-        },
-        events: [],
-        links: [],
-        confidence: 'observed',
-        source_ref: call.llm_call_id || call.id
+    if (hasReplayProviderRequest && replayProviderCall && replayProviderEvent) {
+      spanRecords.push(buildReplayProviderRequestSpan({
+        replayProviderCall,
+        replayProviderEvent,
+        parentSpanId: spanId,
+        traceId,
+        conversationId: call.conversation_id || conversationId,
+        agentTurn: call.agent_turn
       }));
-      return;
+      representedReplayEventIds.add(replayProviderEvent.eventId);
     }
 
-    if (call.provider_requests.length === 0) {
+    if (hasReplayProviderRequest || call.provider_requests.length === 0) {
       return;
     }
 
@@ -1874,6 +2040,25 @@ export async function buildConversationTracePayload(
         source_ref: log.id
       }));
     });
+	  });
+
+  replayEvents.forEach((event) => {
+    if (representedReplayEventIds.has(event.eventId)) {
+      return;
+    }
+    const replayProviderCall = normalizeReplayEventProviderCall(event, { truncateLargeFields: true });
+    if (replayProviderCall.wire_request === null || replayProviderCall.wire_request === undefined) {
+      return;
+    }
+    spanRecords.push(buildReplayProviderRequestSpan({
+      replayProviderCall,
+      replayProviderEvent: event,
+      parentSpanId: rootSpanId,
+      traceId,
+      conversationId,
+      agentTurn: replayProviderCall.agent_turn
+    }));
+    representedReplayEventIds.add(event.eventId);
   });
 
   const toolSpanIdByCallId = new Map<string, string>();
@@ -2203,18 +2388,16 @@ export async function buildConversationTraceSpanDetail(
 
   const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
   if (syntheticProviderRequest) {
-    const rows = await database.executeQuery(
-      `SELECT *, wire_request::text AS wire_request_raw_text, wire_response::text AS wire_response_raw_text
-       FROM llm_call_logs
-       WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?)
-       LIMIT 1`,
-      [syntheticProviderRequest.llmCallId, conversationId, traceId]
-    );
-    const row = rows[0] as any;
-    if (!row) {
+    const replayEventId = syntheticProviderRequest.eventId
+      || (syntheticProviderRequest.llmCallId ? `provider:codex:${syntheticProviderRequest.llmCallId}` : null);
+    if (!replayEventId) {
       return null;
     }
-    const call = normalizeLlmCall(row, { includeRawWireText: true });
+    const replayEvent = await findXiaoniReplayEventByEventId(replayEventId) as XiaoniReplayEventProjection | null;
+    if (!replayEvent || !replayEventMatchesConversation(replayEvent, conversationId, traceId)) {
+      return null;
+    }
+    const call = normalizeReplayEventProviderCall(replayEvent, { includeRawWireText: true });
     const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
     if (cliProxyDetail) {
       return cliProxyDetail;
@@ -2225,7 +2408,7 @@ export async function buildConversationTraceSpanDetail(
         headers: null,
         body: call.wire_request,
         raw_body: call.wire_request_raw_text,
-        body_source: 'llm_call_logs.wire_request'
+        body_source: 'xiaoni_replay_events.wire_request'
       },
       output: {
         status_code: call.error_message ? null : 200,
@@ -2233,12 +2416,13 @@ export async function buildConversationTraceSpanDetail(
         body: call.wire_response,
         raw_body: call.wire_response_raw_text,
         body_format: 'json',
-        body_source: 'llm_call_logs.wire_response',
+        body_source: 'xiaoni_replay_events.wire_response',
         error_message: call.error_message
       },
       evidence: {
         synthetic: true,
-        source: 'llm_call_logs.wire_request/wire_response',
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: replayEvent.eventId,
         llm_call_id: call.llm_call_id || null,
         model_provider: call.model_provider || null,
         wire_provider_format: call.wire_provider_format || null,

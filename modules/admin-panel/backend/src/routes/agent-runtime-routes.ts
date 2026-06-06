@@ -4,6 +4,7 @@ import winston from 'winston';
 import {
   getXiaoniActionStream,
   getXiaoniActivityFeed,
+  findXiaoniReplayEventByEventId,
   listAgentMediaAssets,
   listAgentTasks,
 } from '@qq-bot/persistence';
@@ -31,6 +32,18 @@ type ActionEventTraceTarget = {
   conversationId: string;
   traceId: string | null;
   spanId: string | null;
+};
+
+type ReplayEventProjection = {
+  eventId: string;
+  eventKind: string;
+  source: string;
+  traceId: string | null;
+  conversationId: string | null;
+  internalExecutionLeaseId: string | null;
+  providerCallId: string | null;
+  replayable: boolean;
+  metadata: Record<string, unknown>;
 };
 
 async function probeAgentService(): Promise<AgentProbeResult> {
@@ -105,143 +118,29 @@ async function resolveActionEventTraceTarget(
   rawEventId: string
 ): Promise<ActionEventTraceTarget | null> {
   const eventId = decodeEventId(rawEventId);
-
-  if (eventId.startsWith('provider:codex:')) {
-    const llmCallId = eventId.slice('provider:codex:'.length).trim();
-    if (!llmCallId) {
+  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as ReplayEventProjection | null;
+  if (replayEvent) {
+    if (!replayEvent.replayable || replayEvent.source !== 'codex_provider') {
       return null;
     }
-    const rows = await database.executeQuery<{
-      id: number | string;
-      llm_call_id: string | null;
-      conversation_id: number | string | null;
-      trace_id: string | null;
-    }>(
-      `SELECT id, llm_call_id, conversation_id, trace_id
-       FROM llm_call_logs
-       WHERE llm_call_id = ? OR id::text = ?
-       ORDER BY started_at DESC NULLS LAST, id DESC
-       LIMIT 1`,
-      [llmCallId, llmCallId]
-    );
-    const row = rows[0];
-    if (!row) {
-      return null;
-    }
-    const conversationId = row.conversation_id
-      ? String(row.conversation_id)
-      : await resolveConversationIdFromTrace(database, row.trace_id, null);
+    const conversationId = replayEvent.conversationId
+      || await resolveConversationIdFromTrace(database, replayEvent.traceId, replayEvent.internalExecutionLeaseId);
     if (!conversationId) {
       return null;
     }
-    const spanSourceId = row.llm_call_id || String(row.id);
+    const metadata = replayEvent.metadata && typeof replayEvent.metadata === 'object'
+      ? replayEvent.metadata
+      : {};
+    const spanId = typeof metadata.spanId === 'string' && metadata.spanId.trim()
+      ? metadata.spanId.trim()
+      : replayEvent.providerCallId
+        ? `provider-request:wire:${replayEvent.providerCallId}`
+        : replayEvent.eventId;
     return {
       conversationId,
-      traceId: row.trace_id || null,
-      spanId: row.llm_call_id ? `provider-request:wire:${spanSourceId}` : `llm:${spanSourceId}`
+      traceId: replayEvent.traceId || null,
+      spanId
     };
-  }
-
-  if (eventId.startsWith('llm:')) {
-    const llmCallId = eventId.slice('llm:'.length).trim();
-    if (!llmCallId) {
-      return null;
-    }
-    const rows = await database.executeQuery<{
-      id: number | string;
-      llm_call_id: string | null;
-      conversation_id: number | string | null;
-      trace_id: string | null;
-    }>(
-      `SELECT id, llm_call_id, conversation_id, trace_id
-       FROM llm_call_logs
-       WHERE llm_call_id = ? OR id::text = ?
-       ORDER BY started_at DESC NULLS LAST, id DESC
-       LIMIT 1`,
-      [llmCallId, llmCallId]
-    );
-    const row = rows[0];
-    if (!row) {
-      return null;
-    }
-    const conversationId = row.conversation_id
-      ? String(row.conversation_id)
-      : await resolveConversationIdFromTrace(database, row.trace_id, null);
-    if (!conversationId) {
-      return null;
-    }
-    return {
-      conversationId,
-      traceId: row.trace_id || null,
-      spanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : `llm:${row.id}`
-    };
-  }
-
-  if (eventId.startsWith('tool:')) {
-    const toolCallId = eventId.slice('tool:'.length).trim();
-    if (!toolCallId) {
-      return null;
-    }
-    const rows = await database.executeQuery<{
-      id: number | string;
-      tool_call_id: string | null;
-      conversation_id: number | string | null;
-      trace_id: string | null;
-    }>(
-      `SELECT id, tool_call_id, conversation_id, trace_id
-       FROM tool_execution_logs
-       WHERE tool_call_id = ? OR id::text = ?
-       ORDER BY started_at DESC NULLS LAST, id DESC
-       LIMIT 1`,
-      [toolCallId, toolCallId]
-    );
-    const row = rows[0];
-    if (!row) {
-      return null;
-    }
-    const conversationId = row.conversation_id
-      ? String(row.conversation_id)
-      : await resolveConversationIdFromTrace(database, row.trace_id, null);
-    if (!conversationId) {
-      return null;
-    }
-    return {
-      conversationId,
-      traceId: row.trace_id || null,
-      spanId: row.tool_call_id ? `tool-call:${row.tool_call_id}` : `tool:${row.id}`
-    };
-  }
-
-  if (eventId.startsWith('queue:')) {
-    const queueId = eventId.slice('queue:'.length).trim();
-    if (!queueId) {
-      return null;
-    }
-    const rows = await database.executeQuery<{
-      id: number | string;
-      conversation_id: number | string | null;
-      trace_id: string | null;
-      run_id: string | null;
-    }>(
-      `SELECT id, conversation_id, trace_id, run_id
-       FROM agent_queue_messages
-       WHERE id::text = ? OR run_id = ?
-       ORDER BY updated_at DESC NULLS LAST, id DESC
-       LIMIT 1`,
-      [queueId, queueId]
-    );
-    const row = rows[0];
-    if (!row) {
-      return null;
-    }
-    const conversationId = row.conversation_id
-      ? String(row.conversation_id)
-      : await resolveConversationIdFromTrace(database, row.trace_id, row.run_id);
-    return conversationId ? {
-      conversationId,
-      traceId: row.trace_id || null,
-      spanId: null
-    } : null;
   }
 
   return null;

@@ -6,6 +6,7 @@ import { logger } from '../utils/logger';
 import { createProviderClient, resolveProviderId } from './llm-provider';
 import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
 import type { LLMProvider, OpenResponseToolDefinition } from './llm-provider/types';
+import { withReplayLlmCallId } from './provider-replay-ledger';
 
 type ParticipationDecision = 'reply' | 'ignore' | 'ambiguous';
 
@@ -626,6 +627,12 @@ export class GroupParticipationService {
       '只有在当前消息明显在接机器人、值得自然接一句、且不是冷却期刷屏时才 reply。',
       `必须通过 ${GROUP_PARTICIPATION_TOOL_NAME} 返回结构化结果，不要改用普通文本回复。`
     ].join('\n');
+	    const context = withReplayLlmCallId({
+	      sessionId: input.inboundContext.SessionKey,
+	      agentType: 'group_participation_judge',
+	      promptName: 'group_participation_judge',
+	      replayIdentityKey: 'xiaoni-internal'
+	    }, 'group_judge');
 
     const result = await provider.generateContent({
       modelName,
@@ -647,14 +654,9 @@ export class GroupParticipationService {
         top_p: 0.2,
         max_output_tokens: 160
       },
-      context: {
-        sessionId: input.inboundContext.SessionKey,
-        agentType: 'group_participation_judge',
-        promptName: 'group_participation_judge'
-      }
+      context
     });
-
-    const parsed = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, GROUP_PARTICIPATION_TOOL_NAME)
+	    const parsed = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, GROUP_PARTICIPATION_TOOL_NAME)
       || parseJsonObject(result.text);
     if (!parsed) {
       throw new Error('LLM judge returned non-JSON payload');

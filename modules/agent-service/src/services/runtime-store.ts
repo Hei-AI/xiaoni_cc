@@ -10,6 +10,8 @@ import {
   ensureAgentTaskSchema,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
+  attachConversationIdToXiaoniReplayEventsByTrace,
+  ensureXiaoniReplayEventSchema,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
@@ -409,16 +411,10 @@ export type RuntimePresenceContext = {
   lifeExplanation: XiaoniLifeStateExplanation;
 };
 
-function isImmediateVisibleImWake(queueMessage: QueueMessagePayload) {
-  if (queueMessage.presenceTick) {
-    return false;
-  }
-  if (queueMessage.chatType === 'direct') {
-    return true;
-  }
-  return Boolean(queueMessage.wasMentioned || queueMessage.messages.some((message) => {
-    return Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
-  }));
+function isPhoneNotificationQueueMessage(queueMessage: QueueMessagePayload) {
+  return queueMessage.source === 'phone_notification'
+    || Boolean(queueMessage.phoneNotification)
+    || queueMessage.inboundContext?.Surface === 'phone_notification';
 }
 
 function normalizeLifeEventOccurredAt(value: unknown) {
@@ -1221,7 +1217,7 @@ export class RuntimeStore {
   }
 
   async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
-    if (!isImmediateVisibleImWake(queueMessage)) {
+    if (!isPhoneNotificationQueueMessage(queueMessage)) {
       return;
     }
 
@@ -1238,10 +1234,10 @@ export class RuntimeStore {
       }, databaseConfig);
     }
 
-    const wakeKind = queueMessage.wasMentioned ? 'explicit_mention' : 'proactive_use_im';
+    const notification = queueMessage.phoneNotification;
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
-      eventKind: 'surface_visit',
+      eventKind: 'phone_notification',
       occurredAt: now,
       surface: 'qq',
       chatType: queueMessage.chatType,
@@ -1252,59 +1248,24 @@ export class RuntimeStore {
       batchId: queueMessage.batchId,
       runId: queueMessage.runId,
       traceId: queueMessage.traceId,
-      actorType: 'xiaoni',
-      actorId: queueMessage.accountId,
-      targetId: queueMessage.peerId,
-      visibility: 'active_surface',
-      actionCost: 0.01,
-      attentionDelta: 0.2,
+      actorType: 'system',
+      actorId: 'qq',
+      targetId: 'xiaoni',
+      visibility: 'private_surface',
+      actionCost: 0,
+      attentionDelta: 0.05,
       payload: {
         source: queueMessage.source,
-        wake_kind: wakeKind,
+        app: notification?.app || 'qq',
         peer_name: queueMessage.peerName || null,
-        unread_batch_size: queueMessage.messages.length,
-        direct_materialization_policy: queueMessage.chatType === 'direct'
-          ? 'private_dm_claimed_by_active_im_open'
-          : 'group_message_requires_explicit_mention_or_active_im_open'
+        unread_delta: notification?.unreadDelta ?? queueMessage.messages.length,
+        direct_mentions: notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length,
+        notification_id: notification?.notificationId || null,
+        latest_received_at: notification?.latestReceivedAt || queueMessage.receivedAt,
+        policy: 'notification_only_no_qq_body'
       },
-      dedupeKey: `surface_visit:${compactDedupePart(queueMessage.runId, queueMessage.traceId)}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
+      dedupeKey: `phone_notification:${compactDedupePart(queueMessage.runId, queueMessage.traceId)}:${compactDedupePart(queueMessage.sessionKey, 'session')}`
     });
-
-    for (const message of queueMessage.messages) {
-      await this.recordLifeEventSafe({
-        identityKey: 'xiaoni',
-        eventKind: 'qq_message_seen',
-        occurredAt: normalizeLifeEventOccurredAt(message.messageTimestamp || message.receivedAt),
-        surface: 'qq',
-        chatType: queueMessage.chatType,
-        sessionKey: queueMessage.sessionKey,
-        surfaceId: queueMessage.sessionKey,
-        peerId: message.peerId,
-        accountId: message.accountId,
-        messageSid: message.messageSid,
-        messageId: String(message.messageId),
-        batchId: queueMessage.batchId,
-        queueMessageId: message.queueMessageId,
-        runId: queueMessage.runId,
-        traceId: message.traceId || queueMessage.traceId,
-        actorType: 'human',
-        actorId: message.senderId,
-        targetId: message.accountId,
-        visibility: 'active_surface',
-        attentionDelta: 0.1,
-        payload: {
-          wake_kind: wakeKind,
-          sender_id: message.senderId,
-          sender_name: message.senderName || null,
-          peer_name: message.peerName || queueMessage.peerName || null,
-          was_mentioned: Boolean(message.wasMentioned || message.inboundContext?.WasMentioned),
-          body_for_agent: message.bodyForAgent,
-          raw_body: message.rawBody,
-          message_timestamp: message.messageTimestamp || null
-        },
-        dedupeKey: `qq_message_seen:${message.messageSid || message.queueMessageId || message.messageId}`
-      });
-    }
   }
 
   async recordPresenceAssistantAction(queueMessage: QueueMessagePayload) {
@@ -1952,10 +1913,7 @@ export class RuntimeStore {
       `
         UPDATE agent_runs
         SET delivery_phase = 'delivery_committed',
-            delivery_commit_count = CASE
-              WHEN delivery_commit_count >= 1 THEN delivery_commit_count
-              ELSE 1
-            END,
+            delivery_commit_count = COALESCE(delivery_commit_count, 0) + 1,
             updated_at = NOW()
         WHERE id = ?
       `,
@@ -2544,6 +2502,78 @@ export class RuntimeStore {
       anchorMessageId: params.anchorMessageId ?? null,
       limit: params.limit
     }, databaseConfig);
+  }
+
+  async recordQqUsageThreadSeen(result: QqUsageThreadWindow, action: string): Promise<void> {
+    const messages = Array.isArray(result.messages) ? result.messages : [];
+    if (!result.threadKey || messages.length === 0) {
+      return;
+    }
+    const latest = messages[messages.length - 1] || {};
+    const chatType = latest.chat_type === 'group' ? 'group' : 'direct';
+    const peerId = String(latest.peer_id || '');
+    const accountId = String(latest.account_id || agentConfig.botAccountId || '1129974489');
+    const now = new Date();
+
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'surface_visit',
+      occurredAt: now,
+      surface: 'qq',
+      chatType,
+      sessionKey: result.threadKey,
+      surfaceId: result.threadKey,
+      peerId,
+      accountId,
+      actorType: 'xiaoni',
+      actorId: accountId,
+      targetId: peerId,
+      visibility: 'active_surface',
+      actionCost: 0.01,
+      attentionDelta: 0.2,
+      payload: {
+        source: 'qq_usage',
+        action,
+        unread_count: result.unreadCount,
+        window_unread_count: result.windowUnreadCount,
+        window_size: messages.length
+      },
+      dedupeKey: `surface_visit:qq_usage:${compactDedupePart(action, 'action')}:${compactDedupePart(result.threadKey, 'thread')}:${compactDedupePart(result.cursorAnchor || String(result.latestMessageId || Date.now()), 'window')}`
+    });
+
+    for (const message of messages) {
+      const messageSid = String(message.message_sid || message.messageSid || message.id || '');
+      await this.recordLifeEventSafe({
+        identityKey: 'xiaoni',
+        eventKind: 'qq_message_seen',
+        occurredAt: normalizeLifeEventOccurredAt(message.message_timestamp || message.received_at),
+        surface: 'qq',
+        chatType: message.chat_type === 'group' ? 'group' : 'direct',
+        sessionKey: result.threadKey,
+        surfaceId: result.threadKey,
+        peerId: String(message.peer_id || peerId),
+        accountId: String(message.account_id || accountId),
+        messageSid,
+        messageId: String(message.id || ''),
+        actorType: 'human',
+        actorId: String(message.sender_id || ''),
+        targetId: accountId,
+        visibility: 'active_surface',
+        attentionDelta: 0.1,
+        payload: {
+          source: 'qq_usage',
+          action,
+          sender_id: message.sender_id || null,
+          sender_name: message.sender_name || null,
+          peer_name: message.peer_name || null,
+          was_mentioned: Number(message.was_mentioned || 0) === 1,
+          body_for_agent: typeof message.body_for_agent === 'string' ? message.body_for_agent : null,
+          raw_body: typeof message.raw_body === 'string' ? message.raw_body : null,
+          message_timestamp: message.message_timestamp || null
+        },
+        dedupeKey: `qq_message_seen:qq_usage:${messageSid || message.id || `${result.threadKey}:${action}`}`
+      });
+    }
   }
 
   async markQqUsageThreadRead(params: { threadKey?: string | null }): Promise<{ threadKey: string | null; clearedCount: number }> {
@@ -3370,11 +3400,104 @@ export class RuntimeStore {
         'UPDATE llm_call_logs SET conversation_id = COALESCE(conversation_id, ?) WHERE trace_id = ?',
         [conversationId, traceId]
       ),
+      attachConversationIdToXiaoniReplayEventsByTrace({ traceId, conversationId }, databaseConfig),
       this.sql.execute(
         'UPDATE timeline_events SET conversation_id = COALESCE(conversation_id, ?) WHERE trace_id = ?',
         [conversationId, traceId]
       )
     ]);
+  }
+
+  async enqueueConsciousnessTick(reason = 'continuous_loop'): Promise<void> {
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const id = uuidv4().slice(0, 8);
+    const messageSid = `consciousness:${Date.now()}:${id}`;
+    const payload: QueueMessagePayload = {
+      traceId: `ticktrace_${Date.now()}_${id}`,
+      runId: '',
+      batchId: '',
+      source: 'consciousness_tick',
+      chatType: 'direct',
+      sessionKey: 'xiaoni:global',
+      peerId: agentConfig.botAccountId || '1129974489',
+      peerName: '小腻',
+      senderId: agentConfig.botAccountId || '1129974489',
+      senderName: '小腻',
+      accountId: agentConfig.botAccountId || '1129974489',
+      bodyForAgent: '连续意识循环继续推进。',
+      rawBody: '连续意识循环继续推进。',
+      commandBody: '',
+      wasMentioned: false,
+      receivedAt: nowIso,
+      messageTimestamp: nowIso,
+      rawPayload: {
+        kind: 'consciousness_tick',
+        reason
+      },
+      inboundContext: {
+        Body: '',
+        BodyForAgent: '连续意识循环继续推进。',
+        BodyForCommands: '',
+        RawBody: '',
+        CommandBody: '',
+        SessionKey: 'xiaoni:global',
+        AccountId: agentConfig.botAccountId || '1129974489',
+        MessageSid: messageSid,
+        ChatType: 'direct',
+        ConversationLabel: '小腻全局意识',
+        SenderName: '小腻',
+        SenderId: agentConfig.botAccountId || '1129974489',
+        Timestamp: Math.floor(now.getTime() / 1000),
+        Provider: 'internal',
+        Surface: 'consciousness_tick',
+        WasMentioned: false,
+        NativeChannelId: 'xiaoni:global',
+        CommandAuthorized: false
+      },
+      messages: [],
+      consciousnessTick: {
+        identityKey: 'xiaoni',
+        reason,
+        createdAt: nowIso
+      }
+    };
+
+    await this.sql.insert(
+      `
+        INSERT INTO agent_queue_messages (
+          trace_id,
+          source,
+          message_sid,
+          dedupe_key,
+          chat_type,
+          session_key,
+          peer_id,
+          peer_name,
+          sender_id,
+          sender_name,
+          account_id,
+          body_for_agent,
+          raw_payload,
+          inbound_context,
+          payload,
+          status,
+          available_at
+        )
+        VALUES (?, 'consciousness_tick', ?, ?, 'direct', 'xiaoni:global', ?, '小腻', 'xiaoni', '小腻', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', NOW())
+      `,
+      [
+        payload.traceId,
+        messageSid,
+        `consciousness_tick:${messageSid}`,
+        payload.peerId,
+        payload.accountId,
+        payload.bodyForAgent,
+        JSON.stringify(payload.rawPayload),
+        JSON.stringify(payload.inboundContext),
+        JSON.stringify(payload)
+      ]
+    );
   }
 
   private mapClaimedRun(input: {
@@ -3409,9 +3532,20 @@ export class RuntimeStore {
       } as QueueBatchMessage;
     });
 
-    const latest = messages[messages.length - 1];
-    const latestPayload = parseJson<Partial<QueueMessagePayload>>(input.rows[input.rows.length - 1]?.payload, {});
-    const payload: QueueMessagePayload = {
+      const latest = messages[messages.length - 1];
+      const latestPayload = parseJson<Partial<QueueMessagePayload>>(input.rows[input.rows.length - 1]?.payload, {});
+      const phoneNotifications = input.rows
+        .map((row) => parseJson<Partial<QueueMessagePayload>>(row.payload, {}).phoneNotification)
+        .filter((notification): notification is NonNullable<QueueMessagePayload['phoneNotification']> => Boolean(notification));
+      const latestPhoneNotification = phoneNotifications[phoneNotifications.length - 1] || latestPayload.phoneNotification;
+      const phoneNotification = latestPhoneNotification
+        ? {
+            ...latestPhoneNotification,
+            unreadDelta: phoneNotifications.reduce((sum, notification) => sum + Math.max(1, Number(notification.unreadDelta || 1)), 0) || Math.max(1, messages.length),
+            directMentions: phoneNotifications.reduce((sum, notification) => sum + Math.max(0, Number(notification.directMentions || 0)), 0)
+          }
+        : undefined;
+      const payload: QueueMessagePayload = {
       traceId: input.traceId,
       runId: input.runId,
       batchId: input.batchId,
@@ -3430,10 +3564,12 @@ export class RuntimeStore {
       receivedAt: latest.receivedAt,
       messageTimestamp: latest.messageTimestamp,
       rawPayload: latest.rawPayload,
-      inboundContext: latest.inboundContext,
-      messages,
-      ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
-    };
+        inboundContext: latest.inboundContext,
+        messages,
+        ...(phoneNotification ? { phoneNotification } : {}),
+        ...(latestPayload.consciousnessTick ? { consciousnessTick: latestPayload.consciousnessTick } : {}),
+        ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
+      };
 
     return {
       id: input.runId,
@@ -3452,6 +3588,7 @@ export class RuntimeStore {
   }
 
   private async ensureSchema() {
+    await ensureXiaoniReplayEventSchema(databaseConfig);
     const ddlStatements = [
       `
         ALTER TABLE llm_call_logs

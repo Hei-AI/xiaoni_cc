@@ -5,7 +5,7 @@ description: QQ app manual for opening the inbox list, focusing threads, scrolli
 
 # QQ Usage
 
-Use this skill when the visible context only shows `<UNREAD_AVAILABLE ... />`, or when you need to navigate QQ before deciding whether to speak, stay silent, search, or inspect media.
+Use this skill when the visible context only shows `<PHONE_NOTIFICATION ... />`, or when you need to navigate QQ before deciding whether to speak, stay silent, search, or inspect media.
 
 ## Runtime Cost
 
@@ -37,7 +37,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 
 ## Reading Rules
 
-- `<UNREAD_AVAILABLE unread_count="N" direct_mentions="M" />` is only a badge. It contains no message bodies, previews, topics, or hints.
+- `<PHONE_NOTIFICATION unread_count="N" direct_mentions="M" />` is only a status-bar notification. It contains no message bodies, previews, topics, or hints.
 - Thread previews are raw latest visible text, truncated to 20 visible characters. Non-text previews use `[图片]`, `[表情]`, or `[文件]`.
 - Conversation messages appear as child `<MESSAGE>` rows inside one `<IM_INBOX_WINDOW>`, not as top-level `<INPUT_MESSAGE>` blocks.
 - Message bodies may include media markers such as `[图片:pic_hash]`.

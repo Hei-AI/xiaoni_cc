@@ -6,6 +6,7 @@ import { buildUnifiedConfig } from './provider-debug-service';
 import { createProviderClient, resolveProviderId } from './llm-provider';
 import { extractNamedFunctionCallArgsFromOpenAIResponse } from './llm-provider/helpers';
 import type { LLMProvider, OpenResponseCreateRequest, OpenResponseToolDefinition } from './llm-provider/types';
+import { withReplayLlmCallId } from './provider-replay-ledger';
 
 type SelfEvolutionLedgerEventRecord = {
   id: number;
@@ -485,18 +486,19 @@ export default class SelfEvolutionExecutorService {
       const config = buildSelfEvolutionConfig(modelName, providerId, this.timeoutMs);
       const provider = this.llmProviderFactory(providerId);
       const request = buildRequest(payload, config);
+	      const context = withReplayLlmCallId({
+	        traceId: `self_evolution_${payload.job_id}`,
+	        agentType: 'self_evolution_executor',
+	        promptName: 'self_evolution_executor',
+	        replayIdentityKey: 'xiaoni-internal'
+	      }, 'self_evolution');
       const result = await provider.generateContent({
         request,
         modelName,
         providerConfig: config,
-        context: {
-          traceId: `self_evolution_${payload.job_id}`,
-          agentType: 'self_evolution_executor',
-          promptName: 'self_evolution_executor'
-        }
+        context
       });
-
-      const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, SELF_EVOLUTION_TOOL_NAME);
+	      const toolPayload = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, SELF_EVOLUTION_TOOL_NAME);
       const states = this.parseStatesPayload(toolPayload) || this.parseStates(result.text);
       return {
         modelName: result.modelName,

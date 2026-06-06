@@ -2,13 +2,21 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import winston from 'winston';
-import { listRuntimeIdentityActivationTraces, listIdentityEvidenceRefs, listTraceTrafficLogs } from '@qq-bot/persistence';
+import {
+  findXiaoniReplayEventByEventId,
+  listRuntimeIdentityActivationTraces,
+  listIdentityEvidenceRefs,
+  listTraceTrafficLogs,
+  listXiaoniReplayEvents
+} from '@qq-bot/persistence';
 import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
   listRuntimeIdentityActivationTraces: jest.fn(),
   listIdentityEvidenceRefs: jest.fn(),
   listTraceTrafficLogs: jest.fn(),
+  listXiaoniReplayEvents: jest.fn(),
+  findXiaoniReplayEventByEventId: jest.fn(),
   parseInstantValue: jest.fn((value: unknown) => {
     if (!value) {
       return null;
@@ -24,6 +32,39 @@ jest.mock('@qq-bot/persistence', () => ({
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }),
 }));
+
+function createReplayEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    eventId: 'provider:codex:llm-call-wire',
+    source: 'codex_provider',
+    traceId: 'trace-1',
+    conversationId: 'conversation-1',
+    providerCallId: 'llm-call-wire',
+    modelName: 'gpt-5.4-mini',
+    modelProvider: 'codex',
+    status: 'completed',
+    replayable: true,
+    replayPayload: {
+      canonical_request: { model: 'gpt-5.4-mini' },
+      canonical_response: { output_text: '' },
+      wire_request: { model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] },
+      wire_response: { id: 'resp_1', output: [{ type: 'function_call', name: 'recover_energy' }] },
+      effective_unified_config: { model: { provider: 'codex', name: 'gpt-5.4-mini' } }
+    },
+    wireRequest: { model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] },
+    wireResponse: { id: 'resp_1', output: [{ type: 'function_call', name: 'recover_energy' }] },
+    metadata: {
+      providerFormat: 'codex/responses',
+      requestFormatVersion: 'openresponse/v1',
+      inputTokens: 10,
+      outputTokens: 20,
+      processingTimeMs: 2000
+    },
+    occurredAt: '2026-03-28T10:00:01.000Z',
+    updatedAt: '2026-03-28T10:00:03.000Z',
+    ...overrides
+  };
+}
 
 function createLogger(): winston.Logger {
   return winston.createLogger({ silent: true });
@@ -96,6 +137,8 @@ describe('buildConversationTracePayload', () => {
     delete process.env.CLIPROXY_REQUEST_LOG_SCAN_LIMIT;
     (listRuntimeIdentityActivationTraces as jest.Mock).mockResolvedValue([]);
     (listIdentityEvidenceRefs as jest.Mock).mockResolvedValue([]);
+    (listXiaoniReplayEvents as jest.Mock).mockResolvedValue([]);
+    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValue(null);
   });
 
   it('attaches provider.request spans directly under generation for exact AI traffic matches', async () => {
@@ -182,7 +225,7 @@ describe('buildConversationTracePayload', () => {
     expect(spans.some((span) => span.span_id === 'http:101')).toBe(false);
   });
 
-  it('derives provider.request spans from captured wire payloads when mitm traffic is absent', async () => {
+  it('does not derive provider.request spans from audit wire payloads when replay ledger is absent', async () => {
     const db = createDatabase({
       llmCallRows: [
         {
@@ -221,44 +264,19 @@ describe('buildConversationTracePayload', () => {
     const generationSpan = payload!.spans.find((span) => span.span_id === 'llm-call:llm-call-wire');
     const providerSpan = payload!.spans.find((span) => span.span_id === 'provider-request:wire:llm-call-wire');
 
-    expect(generationSpan?.attributes['provider.request_count']).toBe(1);
+    expect(generationSpan?.attributes['provider.request_count']).toBe(0);
     expect(generationSpan?.evidence).toMatchObject({
-      synthetic_provider_request: expect.objectContaining({
-        span_id: 'provider-request:wire:llm-call-wire',
-        source: 'llm_call_logs.wire_request/wire_response',
-      }),
+      synthetic_provider_request: null,
     });
-    expect(providerSpan).toMatchObject({
-      parent_span_id: 'llm-call:llm-call-wire',
-      attributes: expect.objectContaining({
-        'semantic.role': 'provider_request',
-        'http.host': 'CLIProxyAPI',
-        'provider.synthetic_source': 'llm_call_logs.wire_payload',
-      }),
-      input: expect.objectContaining({
-        body: expect.objectContaining({
-          input: [{ role: 'user', content: 'hello' }],
-        }),
-      }),
-      output: expect.objectContaining({
-        body_source: 'llm_call_logs.wire_response',
-        body: expect.objectContaining({
-          id: 'resp_1',
-        }),
-      }),
-      evidence: expect.objectContaining({
-        synthetic: true,
-        llm_call_id: 'llm-call-wire',
-      }),
-    });
+    expect(providerSpan).toBeUndefined();
   });
 
-  it('loads full synthetic provider payloads from llm_call_logs for span detail', async () => {
+  it('derives provider.request spans from the xiaoni replay ledger when mitm traffic is absent', async () => {
     const db = createDatabase({
       llmCallRows: [
         {
-          id: 13,
-          llm_call_id: 'llm-call-detail',
+          id: 12,
+          llm_call_id: 'llm-call-wire',
           trace_id: 'trace-1',
           conversation_id: 'conversation-1',
           agent_turn: 1,
@@ -271,9 +289,9 @@ describe('buildConversationTracePayload', () => {
           agent_type: 'chat_bot',
           prompt_template: 'agent_loop_v1',
           canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
-          wire_request: JSON.stringify({ prompt: 'x'.repeat(40000) }),
+          wire_request: JSON.stringify({ model: 'audit-should-not-drive-provider-span' }),
           canonical_response: JSON.stringify({ output_text: '' }),
-          wire_response: JSON.stringify({ output: [{ type: 'function_call', arguments: '{"ok":true}' }] }),
+          wire_response: JSON.stringify({ id: 'audit-response' }),
           effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
           processed_response: '',
           input_tokens: 10,
@@ -286,6 +304,183 @@ describe('buildConversationTracePayload', () => {
       ],
     });
 
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+    (listXiaoniReplayEvents as jest.Mock)
+      .mockResolvedValueOnce([createReplayEvent()])
+      .mockResolvedValueOnce([createReplayEvent()]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const generationSpan = payload!.spans.find((span) => span.span_id === 'llm-call:llm-call-wire');
+    const providerSpan = payload!.spans.find((span) => span.span_id === 'provider-request:wire:llm-call-wire');
+
+    expect(generationSpan?.attributes['provider.request_count']).toBe(1);
+    expect(generationSpan?.evidence).toMatchObject({
+      synthetic_provider_request: expect.objectContaining({
+        span_id: 'provider-request:wire:llm-call-wire',
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: 'provider:codex:llm-call-wire',
+      }),
+    });
+    expect(providerSpan).toMatchObject({
+      parent_span_id: 'llm-call:llm-call-wire',
+      attributes: expect.objectContaining({
+        'semantic.role': 'provider_request',
+        'http.host': 'CLIProxyAPI',
+        'provider.synthetic_source': 'xiaoni_replay_events.wire_payload',
+        'provider.replay_event_id': 'provider:codex:llm-call-wire',
+      }),
+      input: expect.objectContaining({
+        body: expect.objectContaining({
+          input: [{ role: 'user', content: 'hello' }],
+        }),
+      }),
+      output: expect.objectContaining({
+        body_source: 'xiaoni_replay_events.wire_response',
+        body: expect.objectContaining({
+          id: 'resp_1',
+        }),
+      }),
+      evidence: expect.objectContaining({
+        synthetic: true,
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: 'provider:codex:llm-call-wire',
+        llm_call_id: 'llm-call-wire',
+      }),
+    });
+	  });
+
+  it('uses replay ledger as the provider skeleton when matching traffic logs also exist', async () => {
+    const db = createDatabase({
+      llmCallRows: [
+        {
+          id: 16,
+          llm_call_id: 'llm-call-wire',
+          trace_id: 'trace-1',
+          conversation_id: 'conversation-1',
+          agent_turn: 1,
+          call_sequence: 1,
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:03.000Z',
+          status: 'completed',
+          model_name: 'gpt-5.4-mini',
+          model_provider: 'codex',
+          agent_type: 'chat_bot',
+          prompt_template: 'agent_loop_v1',
+          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
+          wire_request: JSON.stringify({ model: 'audit-should-not-drive-provider-span' }),
+          canonical_response: JSON.stringify({ output_text: '' }),
+          wire_response: JSON.stringify({ id: 'audit-response' }),
+          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
+          processed_response: '',
+          input_tokens: 10,
+          output_tokens: 20,
+          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
+          processing_time_ms: 2000,
+          request_format_version: 'openresponse/v1',
+          wire_provider_format: 'codex/responses',
+        },
+      ],
+    });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([
+      {
+        id: 202,
+        request_id: 'traffic-202',
+        trace_id: 'trace-1',
+        conversation_id: 'conversation-1',
+        agent_turn: 1,
+        llm_call_id: 'llm-call-wire',
+        method: 'POST',
+        url: 'https://chatgpt.com/backend-api/codex/responses',
+        host: 'chatgpt.com',
+        path: '/backend-api/codex/responses',
+        request_headers: JSON.stringify({ 'content-type': 'application/json' }),
+        request_body: '{"model":"traffic-observation"}',
+        response_status: 200,
+        response_headers: JSON.stringify({ 'content-type': 'application/json' }),
+        response_body: '{"id":"traffic-response"}',
+        duration_ms: 321,
+        request_timestamp: '2026-03-28T10:00:01.200Z',
+        response_timestamp: '2026-03-28T10:00:01.521Z',
+        is_ai_request: true,
+        api_type: 'codex',
+        error_message: null,
+      },
+    ]);
+    (listXiaoniReplayEvents as jest.Mock)
+      .mockResolvedValueOnce([createReplayEvent()])
+      .mockResolvedValueOnce([createReplayEvent()]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const generationSpan = payload!.spans.find((span) => span.span_id === 'llm-call:llm-call-wire');
+    const providerSpans = payload!.spans.filter((span) => span.name === 'provider.request');
+
+    expect(generationSpan?.attributes['provider.request_count']).toBe(1);
+    expect((generationSpan?.evidence as any).provider_requests).toEqual([
+      expect.objectContaining({
+        traffic_log_id: 202,
+        request_id: 'traffic-202',
+        api_type: 'codex',
+      }),
+    ]);
+    expect(providerSpans).toHaveLength(1);
+    expect(providerSpans[0]).toMatchObject({
+      span_id: 'provider-request:wire:llm-call-wire',
+      attributes: expect.objectContaining({
+        'provider.synthetic_source': 'xiaoni_replay_events.wire_payload',
+        'provider.replay_event_id': 'provider:codex:llm-call-wire',
+      }),
+    });
+    expect(payload!.spans.some((span) => span.span_id === 'provider-request:202')).toBe(false);
+  });
+
+  it('surfaces replay provider spans even without a matching llm_call_logs audit row', async () => {
+    const db = createDatabase({ llmCallRows: [] });
+
+    (listTraceTrafficLogs as jest.Mock).mockResolvedValue([]);
+    (listXiaoniReplayEvents as jest.Mock)
+      .mockResolvedValueOnce([createReplayEvent({
+        eventId: 'provider:codex:llm-orphan',
+        providerCallId: 'llm-orphan'
+      })])
+      .mockResolvedValueOnce([createReplayEvent({
+        eventId: 'provider:codex:llm-orphan',
+        providerCallId: 'llm-orphan'
+      })]);
+
+    const payload = await buildConversationTracePayload(db as never, createLogger(), 'conversation-1');
+    const providerSpan = payload!.spans.find((span) => span.span_id === 'provider-request:wire:llm-orphan');
+
+    expect(providerSpan).toMatchObject({
+      parent_span_id: 'trace-root:trace-1',
+      attributes: expect.objectContaining({
+        'semantic.role': 'provider_request',
+        'provider.replay_event_id': 'provider:codex:llm-orphan',
+      }),
+      evidence: expect.objectContaining({
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: 'provider:codex:llm-orphan',
+        llm_call_id: 'llm-orphan',
+      }),
+    });
+  });
+
+  it('loads full synthetic provider payloads from xiaoni_replay_events for span detail', async () => {
+    const db = createDatabase();
+    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce(createReplayEvent({
+      eventId: 'provider:codex:llm-call-detail',
+      providerCallId: 'llm-call-detail',
+      wireRequest: { prompt: 'x'.repeat(40000) },
+      wireResponse: { output: [{ type: 'function_call', arguments: '{"ok":true}' }] },
+      replayPayload: {
+        canonical_request: { model: 'gpt-5.4-mini' },
+        canonical_response: { output_text: '' },
+        wire_request: { prompt: 'x'.repeat(40000) },
+        wire_response: { output: [{ type: 'function_call', arguments: '{"ok":true}' }] },
+        effective_unified_config: { model: { provider: 'codex', name: 'gpt-5.4-mini' } }
+      }
+    }));
+
     const detail = await buildConversationTraceSpanDetail(
       db as never,
       createLogger(),
@@ -295,9 +490,9 @@ describe('buildConversationTracePayload', () => {
 
     expect((detail?.input as any).body.prompt).toHaveLength(40000);
     expect((detail?.input as any).raw_body).toContain('"prompt"');
-    expect((detail?.input as any).body_source).toBe('llm_call_logs.wire_request');
+    expect((detail?.input as any).body_source).toBe('xiaoni_replay_events.wire_request');
     expect(detail?.output).toMatchObject({
-      body_source: 'llm_call_logs.wire_response',
+      body_source: 'xiaoni_replay_events.wire_response',
       body: {
         output: [{ type: 'function_call', arguments: '{"ok":true}' }],
       },
@@ -305,7 +500,8 @@ describe('buildConversationTracePayload', () => {
     expect((detail?.output as any).raw_body).toContain('"function_call"');
     expect(detail?.evidence).toMatchObject({
       synthetic: true,
-      source: 'llm_call_logs.wire_request/wire_response',
+      source: 'xiaoni_replay_events.wire_request/wire_response',
+      replay_event_id: 'provider:codex:llm-call-detail',
       llm_call_id: 'llm-call-detail',
     });
     expect((detail?.evidence as any).request_raw_body).toContain('"prompt"');
@@ -364,37 +560,13 @@ describe('buildConversationTracePayload', () => {
       'data: downstream'
     ].join('\n'));
 
-    const db = createDatabase({
-      llmCallRows: [
-        {
-          id: 14,
-          llm_call_id: 'llm-call-log',
-          trace_id: 'trace-1',
-          conversation_id: 'conversation-1',
-          agent_turn: 1,
-          call_sequence: 1,
-          started_at: '2026-03-28T10:00:01.000Z',
-          completed_at: '2026-03-28T10:00:03.000Z',
-          status: 'completed',
-          model_name: 'gpt-5.4-mini',
-          model_provider: 'codex',
-          agent_type: 'chat_bot',
-          prompt_template: 'agent_loop_v1',
-          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
-          wire_request: JSON.stringify({ model: 'stored-wire-request' }),
-          canonical_response: JSON.stringify({ output_text: '' }),
-          wire_response: JSON.stringify({ output: [{ type: 'function_call', name: 'stored_wire' }] }),
-          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
-          processed_response: '',
-          input_tokens: 10,
-          output_tokens: 20,
-          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
-          processing_time_ms: 2000,
-          request_format_version: 'openresponse/v1',
-          wire_provider_format: 'codex/responses',
-        },
-      ],
-    });
+    const db = createDatabase();
+    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce(createReplayEvent({
+      eventId: 'provider:codex:llm-call-log',
+      providerCallId: 'llm-call-log',
+      wireRequest: { model: 'stored-wire-request' },
+      wireResponse: { output: [{ type: 'function_call', name: 'stored_wire' }] }
+    }));
 
     const detail = await buildConversationTraceSpanDetail(
       db as never,
@@ -431,7 +603,7 @@ describe('buildConversationTracePayload', () => {
     expect((detail?.input as any).headers.Authorization).toBe('[redacted]');
     expect(detail?.evidence).toMatchObject({
       source: 'cliproxyapi.request_log',
-      fallback_source: 'llm_call_logs.wire_request/wire_response',
+      fallback_source: 'xiaoni_replay_events.wire_request/wire_response',
       log_file: 'v1-responses-2026-03-28T100002-abcd1234.log',
       llm_call_id: 'llm-call-log',
     });
@@ -476,37 +648,13 @@ describe('buildConversationTracePayload', () => {
       '{"id":"wrong-response"}'
     ].join('\n'));
 
-    const db = createDatabase({
-      llmCallRows: [
-        {
-          id: 15,
-          llm_call_id: 'llm-call-body-only',
-          trace_id: 'trace-1',
-          conversation_id: 'conversation-1',
-          agent_turn: 1,
-          call_sequence: 1,
-          started_at: '2026-03-28T10:00:01.000Z',
-          completed_at: '2026-03-28T10:00:03.000Z',
-          status: 'completed',
-          model_name: 'gpt-5.4-mini',
-          model_provider: 'codex',
-          agent_type: 'chat_bot',
-          prompt_template: 'agent_loop_v1',
-          canonical_request: JSON.stringify({ model: 'gpt-5.4-mini' }),
-          wire_request: JSON.stringify({ model: 'stored-wire-request' }),
-          canonical_response: JSON.stringify({ output_text: '' }),
-          wire_response: JSON.stringify({ output: [{ type: 'function_call', name: 'stored_wire' }] }),
-          effective_unified_config: JSON.stringify({ model: { provider: 'codex', name: 'gpt-5.4-mini' } }),
-          processed_response: '',
-          input_tokens: 10,
-          output_tokens: 20,
-          token_usage: JSON.stringify({ input_tokens: 10, output_tokens: 20 }),
-          processing_time_ms: 2000,
-          request_format_version: 'openresponse/v1',
-          wire_provider_format: 'codex/responses',
-        },
-      ],
-    });
+    const db = createDatabase();
+    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce(createReplayEvent({
+      eventId: 'provider:codex:llm-call-body-only',
+      providerCallId: 'llm-call-body-only',
+      wireRequest: { model: 'stored-wire-request' },
+      wireResponse: { output: [{ type: 'function_call', name: 'stored_wire' }] }
+    }));
 
     const detail = await buildConversationTraceSpanDetail(
       db as never,
@@ -516,13 +664,14 @@ describe('buildConversationTracePayload', () => {
     );
 
     expect(detail?.output).toMatchObject({
-      body_source: 'llm_call_logs.wire_response',
+      body_source: 'xiaoni_replay_events.wire_response',
       body: {
         output: [{ type: 'function_call', name: 'stored_wire' }],
       },
     });
     expect(detail?.evidence).toMatchObject({
-      source: 'llm_call_logs.wire_request/wire_response',
+      source: 'xiaoni_replay_events.wire_request/wire_response',
+      replay_event_id: 'provider:codex:llm-call-body-only',
       llm_call_id: 'llm-call-body-only',
     });
   });
@@ -540,12 +689,10 @@ describe('buildConversationTracePayload', () => {
     );
 
     expect(detail).toBeNull();
-    expect((db as any).executeQuery).toHaveBeenCalledWith(
-      `SELECT *, wire_request::text AS wire_request_raw_text, wire_response::text AS wire_response_raw_text
-       FROM llm_call_logs
-       WHERE llm_call_id = ? AND (conversation_id = ? OR trace_id = ?)
-       LIMIT 1`,
-      ['llm-call-other-conversation', 'conversation-1', 'trace-1']
+    expect(findXiaoniReplayEventByEventId).toHaveBeenCalledWith('provider:codex:llm-call-other-conversation');
+    expect((db as any).executeQuery).not.toHaveBeenCalledWith(
+      expect.stringContaining('FROM llm_call_logs'),
+      expect.anything()
     );
   });
 

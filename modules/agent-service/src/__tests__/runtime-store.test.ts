@@ -845,7 +845,7 @@ test('getExecutionLeaseDeliveryState returns normalized persisted delivery state
   });
 });
 
-test('markLeaseVisibleDeliveryCommitted persists the single-commit invariant', async () => {
+test('markLeaseVisibleDeliveryCommitted increments visible delivery commit count', async () => {
   const executeCalls: Array<{ sql: string; params?: unknown[] }> = [];
   const lifeEvents: Array<Record<string, unknown>> = [];
   const store = createStoreWithSql({
@@ -861,7 +861,7 @@ test('markLeaseVisibleDeliveryCommitted persists the single-commit invariant', a
 
   assert.equal(executeCalls.length, 1);
   assert.match(executeCalls[0]?.sql || '', /delivery_phase = 'delivery_committed'/);
-  assert.match(executeCalls[0]?.sql || '', /delivery_commit_count = CASE/);
+  assert.match(executeCalls[0]?.sql || '', /delivery_commit_count = COALESCE\(delivery_commit_count, 0\) \+ 1/);
   assert.deepEqual(executeCalls[0]?.params, ['run-commit']);
   assert.equal(lifeEvents[0]?.eventKind, 'visible_delivery_committed');
   assert.equal(lifeEvents[0]?.visibility, 'operator_only');

@@ -2,6 +2,7 @@
 
 const B1_EVENT_KINDS = new Set([
   'surface_visit',
+  'phone_notification',
   'qq_message_seen',
   'qq_self_message',
   'send_in_group',

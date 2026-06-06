@@ -84,10 +84,10 @@ interface XiaoniActivityFeed {
       failed: number;
     };
     autonomy: {
-      latestPresenceTickAt: string | null;
-      latestPresenceTickStatus: string | null;
-      latestProactiveImOpenAt: string | null;
-      latestProactiveImOpenStatus: string | null;
+      latestConsciousnessTickAt: string | null;
+      latestConsciousnessTickStatus: string | null;
+      latestPhoneNotificationAt: string | null;
+      latestPhoneNotificationStatus: string | null;
       latestPresenceEvaluationAt: string | null;
       latestPresenceEvaluationReason: string | null;
       latestPresenceEvaluationEligible: boolean | null;
@@ -298,10 +298,10 @@ function RuntimeStrip({
           background <span className="font-medium text-foreground">{activeBackground}</span>
         </span>
         <span className="text-muted-foreground">
-          presence <span className="font-medium text-foreground">{autonomy?.latestPresenceTickAt ? formatTimestamp(autonomy.latestPresenceTickAt) : '-'}</span>
+          loop <span className="font-medium text-foreground">{autonomy?.latestConsciousnessTickAt ? formatTimestamp(autonomy.latestConsciousnessTickAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
-          主动 IM <span className="font-medium text-foreground">{autonomy?.latestProactiveImOpenAt ? formatTimestamp(autonomy.latestProactiveImOpenAt) : '-'}</span>
+          手机通知 <span className="font-medium text-foreground">{autonomy?.latestPhoneNotificationAt ? formatTimestamp(autonomy.latestPhoneNotificationAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
           history <span className="font-medium text-foreground">{historicalBackground}</span>
@@ -341,11 +341,7 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
   const decisionLlmCallId = metadataText(item.metadata, 'decisionLlmCallId');
   const searchLlmCallId = metadataText(item.metadata, 'searchLlmCallId');
   const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
-  const traceTarget = item.traceTarget || (item.internalExecutionLeaseId ? {
-    internalExecutionLeaseId: item.internalExecutionLeaseId,
-    traceId: item.traceId,
-    spanId
-  } : null);
+  const traceTarget = item.traceTarget || null;
   const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
 
   return (

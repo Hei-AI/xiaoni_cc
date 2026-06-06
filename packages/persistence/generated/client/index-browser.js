@@ -281,6 +281,32 @@ exports.Prisma.AgentLifeEventScalarFieldEnum = {
   created_at: 'created_at'
 };
 
+exports.Prisma.XiaoniReplayEventScalarFieldEnum = {
+  id: 'id',
+  event_id: 'event_id',
+  identity_key: 'identity_key',
+  event_kind: 'event_kind',
+  source: 'source',
+  occurred_at: 'occurred_at',
+  trace_id: 'trace_id',
+  conversation_id: 'conversation_id',
+  internal_execution_lease_id: 'internal_execution_lease_id',
+  provider_call_id: 'provider_call_id',
+  tool_call_id: 'tool_call_id',
+  model_name: 'model_name',
+  model_provider: 'model_provider',
+  status: 'status',
+  replayable: 'replayable',
+  replay_payload: 'replay_payload',
+  wire_request: 'wire_request',
+  wire_response: 'wire_response',
+  metadata: 'metadata',
+  source_table: 'source_table',
+  source_id: 'source_id',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.GroupChatSettingScalarFieldEnum = {
   group_id: 'group_id',
   group_name: 'group_name',
@@ -1083,6 +1109,7 @@ exports.Prisma.ModelName = {
   AgentPresenceStateSidecar: 'AgentPresenceStateSidecar',
   AgentDigitalAction: 'AgentDigitalAction',
   AgentLifeEvent: 'AgentLifeEvent',
+  XiaoniReplayEvent: 'XiaoniReplayEvent',
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',

@@ -154,6 +154,4 @@ docker compose logs -f qqbot-agent-service
 
 ## Related
 
-- `docs/AGENTS_AGENT_LOOP_RUNTIME.md`
-- `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
 - `docs/AGENTS_SECRETS_LOCAL_STATE.md`

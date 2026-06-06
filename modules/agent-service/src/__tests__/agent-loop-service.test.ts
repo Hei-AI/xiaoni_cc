@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, materializePresenceTickInboxWindow, materializePresenceTickQueueMessage, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -100,7 +100,7 @@ function createQueuePayload(): QueueMessagePayload {
     traceId: 'trace-1',
     runId: 'run-1',
     batchId: 'batch-1',
-    source: 'napcat',
+    source: 'phone_notification',
     chatType: 'group',
     sessionKey: 'qq:group:101',
     peerId: '101',
@@ -127,6 +127,18 @@ function createQueuePayload(): QueueMessagePayload {
         }
       ],
       CommandAuthorized: true
+    },
+    phoneNotification: {
+      app: 'qq',
+      notificationId: 'phone:sid-1',
+      sessionKey: 'qq:group:101',
+      chatType: 'group',
+      peerId: '101',
+      peerName: 'Test Group',
+      unreadDelta: 1,
+      directMentions: 1,
+      latestReceivedAt: '2026-03-28T08:00:00.000Z',
+      reason: 'group_mention_phone_notification'
     },
     messages: [
       {
@@ -226,6 +238,7 @@ function createDirectQueuePayload(): QueueMessagePayload {
   const payload = createQueuePayload();
   return {
     ...payload,
+    source: 'phone_notification',
     chatType: 'direct',
     sessionKey: 'qq:direct:303:202',
     peerId: '202',
@@ -233,6 +246,18 @@ function createDirectQueuePayload(): QueueMessagePayload {
     bodyForAgent: '你在干嘛',
     rawBody: '你在干嘛',
     wasMentioned: false,
+    phoneNotification: {
+      app: 'qq',
+      notificationId: 'phone:sid-direct-1',
+      sessionKey: 'qq:direct:303:202',
+      chatType: 'direct',
+      peerId: '202',
+      peerName: 'Alice',
+      unreadDelta: 1,
+      directMentions: 0,
+      latestReceivedAt: '2026-03-28T08:00:00.000Z',
+      reason: 'direct_phone_notification'
+    },
     inboundContext: {
       ...payload.inboundContext,
       ChatType: 'direct',
@@ -314,7 +339,7 @@ function getMessageContent(item: unknown) {
 }
 
 function expectedCurrentInputMessage() {
-  return '<INPUT_MESSAGE message_id="11" chat_type="群聊" group="Test Group(101)">\n问问@{Bob(@404)} 今天玩什么\n</INPUT_MESSAGE>';
+  return '<PHONE_NOTIFICATION app="qq" surface="status_bar" session_key="qq:group:101" chat_type="group" peer_id="101" peer_name="Test Group" unread_delta="1" direct_mentions="1" latest_received_at="2026-03-28T08:00:00.000Z" />';
 }
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
@@ -550,7 +575,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   const contents = loopInput.map(getMessageContent);
   const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
-  const currentMessageIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE message_id="11"') && content.includes('chat_type="群聊"'));
+  const currentMessageIndex = contents.findIndex((content) => content.includes('<PHONE_NOTIFICATION') && content.includes('session_key="qq:group:101"'));
 
   assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
@@ -776,7 +801,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.match(String(requestBody.canonicalRequest.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(String(requestBody.canonicalRequest.instructions), /Runtime contract:/);
   assert.equal(
-    requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE')),
+    requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION')),
     true
   );
   assert.equal(
@@ -1053,7 +1078,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
   const currentPrompt = getMessageContent(currentInputItem);
   assert.equal((currentInputItem as any)?.role, 'user');
   const reminderItem = loopInput.find((item: any) => item.role === 'assistant' && getMessageContent(item).includes('<system_reminder>'));
@@ -1063,10 +1088,11 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /<INPUT_MESSAGE message_id="11" chat_type="群聊"/);
+  assert.match(currentPrompt, /<PHONE_NOTIFICATION/);
+  assert.match(currentPrompt, /session_key="qq:group:101"/);
   assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
-  assert.match(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
+  assert.doesNotMatch(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
 
@@ -1076,6 +1102,9 @@ test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread 
   payload.bodyForAgent = '普通闲聊正文不应该直接进来';
   payload.rawBody = '普通闲聊正文不应该直接进来';
   payload.inboundContext.WasMentioned = false;
+  if (payload.phoneNotification) {
+    payload.phoneNotification.directMentions = 0;
+  }
   payload.messages[0].wasMentioned = false;
   payload.messages[0].bodyForAgent = '普通闲聊正文不应该直接进来';
   payload.messages[0].rawBody = '普通闲聊正文不应该直接进来';
@@ -1091,17 +1120,18 @@ test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread 
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
   assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
-  assert.match(rendered, /<UNREAD_AVAILABLE unread_count="1" direct_mentions="0" \/>/);
-  assert.doesNotMatch(rendered, /not_opened|session_key|peer_id|latest_preview|messages/);
-  assert.match(rendered, /尚未触发小腻打开 IM/);
+  assert.match(rendered, /<PHONE_NOTIFICATION/);
+  assert.match(rendered, /direct_mentions="0"/);
+  assert.doesNotMatch(rendered, /latest_preview|messages/);
+  assert.match(rendered, /手机状态栏出现了 QQ 通知/);
 
-  const unreadItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<UNREAD_AVAILABLE'));
+  const unreadItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
   assert.equal(unreadItems.length, 1);
   assert.equal((unreadItems[0] as any).role, 'user');
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && getMessageContent(item).includes('<UNREAD_AVAILABLE')), false);
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && getMessageContent(item).includes('<PHONE_NOTIFICATION')), false);
 });
 
-test('buildInitialInput materializes full group IM window when an unread batch mentions xiaoni', () => {
+test('buildInitialInput keeps mentioned group batches as phone notifications only', () => {
   const payload = createQueuePayload();
   payload.wasMentioned = true;
   payload.bodyForAgent = '前面普通未读\n@小腻 看到前面了吗';
@@ -1142,17 +1172,17 @@ test('buildInitialInput materializes full group IM window when an unread batch m
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*materialization="opened"[^>]*trigger="explicit_mention"/);
-  assert.match(rendered, /前面普通未读/);
-  assert.match(rendered, /@小腻 看到前面了吗/);
-  assert.match(rendered, /message_id="11" chat_type="群聊"/);
-  assert.match(rendered, /message_id="12" chat_type="群聊"/);
+  assert.match(rendered, /<PHONE_NOTIFICATION/);
+  assert.doesNotMatch(rendered, /前面普通未读/);
+  assert.doesNotMatch(rendered, /@小腻 看到前面了吗/);
+  assert.doesNotMatch(rendered, /message_id="11" chat_type="群聊"/);
+  assert.doesNotMatch(rendered, /message_id="12" chat_type="群聊"/);
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
-  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
+  assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<PHONE_NOTIFICATION/.test(getMessageContent(item))), false);
 });
 
-test('buildInitialInput materializes full direct IM window when active IM use enqueues it', () => {
+test('buildInitialInput keeps direct batches as phone notifications only', () => {
   const payload = createDirectQueuePayload();
   payload.bodyForAgent = '第一条私聊\n第二条私聊';
   payload.rawBody = '第一条私聊\n第二条私聊';
@@ -1186,14 +1216,14 @@ test('buildInitialInput materializes full direct IM window when active IM use en
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*chat_type="私聊"[^>]*materialization="opened"[^>]*trigger="proactive_use_im"/);
-  assert.match(rendered, /第一条私聊/);
-  assert.match(rendered, /第二条私聊/);
-  assert.match(rendered, /message_id="11" chat_type="私聊"/);
-  assert.match(rendered, /message_id="12" chat_type="私聊"/);
+  assert.match(rendered, /<PHONE_NOTIFICATION/);
+  assert.doesNotMatch(rendered, /第一条私聊/);
+  assert.doesNotMatch(rendered, /第二条私聊/);
+  assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
+  assert.doesNotMatch(rendered, /message_id="12" chat_type="私聊"/);
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
-  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<UNREAD_AVAILABLE/.test(getMessageContent(item))), false);
+  assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
+  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<PHONE_NOTIFICATION/.test(getMessageContent(item))), false);
 });
 
 test('buildInitialInput projects image placeholders without exposing image locators', () => {
@@ -1219,13 +1249,12 @@ test('buildInitialInput projects image placeholders without exposing image locat
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.match(rendered, /\[当前媒体占位符\]/);
-  assert.match(rendered, /image_1/);
-  assert.match(rendered, /不要猜图里有什么/);
+  assert.doesNotMatch(rendered, /\[当前媒体占位符\]/);
+  assert.doesNotMatch(rendered, /image_1/);
   assert.doesNotMatch(rendered, /example\.com\/private/);
 });
 
-test('buildInitialInput renders reply context in natural language format', () => {
+test('buildInitialInput does not expose reply context before QQ is opened', () => {
   const payload = createQueuePayload();
   payload.bodyForAgent = '@Bob 嘿';
   payload.rawBody = '@Bob 嘿';
@@ -1240,15 +1269,15 @@ test('buildInitialInput renders reply context in natural language format', () =>
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
   const currentPrompt = getMessageContent(currentInputItem);
 
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
-  assert.match(currentPrompt, /\[回复给 \{Carol\(@505\)\}：上一条消息\]/);
-  assert.match(currentPrompt, /@\{Bob\(@404\)\} 嘿/);
+  assert.doesNotMatch(currentPrompt, /上一条消息/);
+  assert.doesNotMatch(currentPrompt, /@\{Bob\(@404\)\} 嘿/);
 });
 
-test('buildInitialInput renders each message in a batch as its own user message part', () => {
+test('buildInitialInput renders a notification batch as one phone notification', () => {
   const payload = createQueuePayload();
   payload.messages.push({
     ...payload.messages[0],
@@ -1270,12 +1299,12 @@ test('buildInitialInput renders each message in a batch as its own user message 
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
   assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
 
-  assert.equal(currentTurnItems.length, 2);
-  assert.match(getMessageContent(currentTurnItems[0]), /<INPUT_MESSAGE message_id="11" chat_type="群聊" group="Test Group\(101\)">/);
-  assert.match(getMessageContent(currentTurnItems[1]), /<INPUT_MESSAGE message_id="12" chat_type="群聊" group="Test Group\(101\)">/);
+  assert.equal(currentTurnItems.length, 1);
+  assert.match(getMessageContent(currentTurnItems[0]), /<PHONE_NOTIFICATION/);
+  assert.match(getMessageContent(currentTurnItems[0]), /session_key="qq:group:101"/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
 
@@ -1342,8 +1371,9 @@ test('buildInitialInput does not project accepted identity facts into runtime in
 
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
-  assert.match(getMessageContent(currentInputItem), /问问@\{Bob\(@404\)\} 今天玩什么/);
+  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
+  assert.match(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
+  assert.doesNotMatch(getMessageContent(currentInputItem), /问问@/);
   assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
 });
 
@@ -1391,20 +1421,18 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
   const rendered = request.input.map(getMessageContent);
 
   const osIndex = rendered.findIndex((content) => content.includes('上一段留下的内在延续'));
-  const firstCurrentIndex = rendered.findIndex((content) => content.includes('message_id="11" chat_type="群聊"'));
-  const secondCurrentIndex = rendered.findIndex((content) => content.includes('message_id="12" chat_type="群聊"'));
-  const reminderIndex = rendered.findIndex((content) => content.includes('<system_reminder>已打开 IM；下面是这段时间看到的未读列表'));
+  const notificationIndex = rendered.findIndex((content) => content.includes('<PHONE_NOTIFICATION') && content.includes('session_key="qq:group:101"'));
+  const reminderIndex = rendered.findIndex((content) => content.includes('手机状态栏出现了 QQ 通知'));
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
 
   assert.ok(osIndex !== -1);
-  assert.ok(firstCurrentIndex !== -1);
-  assert.ok(secondCurrentIndex !== -1);
+  assert.ok(notificationIndex !== -1);
   assert.ok(reminderIndex !== -1);
   assert.equal(identityIndex, -1);
   assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
-  assert.ok(osIndex < firstCurrentIndex);
-  assert.ok(firstCurrentIndex < secondCurrentIndex);
-  assert.ok(secondCurrentIndex < reminderIndex);
+  assert.equal(rendered.some((content) => content.includes('第二条')), false);
+  assert.ok(osIndex < notificationIndex);
+  assert.ok(notificationIndex < reminderIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -1420,7 +1448,7 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Runtime contract:/);
-  const currentMessage = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<INPUT_MESSAGE'));
+  const currentMessage = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
   assert.equal(currentMessage?.type, 'message');
   assert.equal((currentMessage as any)?.role, 'user');
   assert.match(getMessageContent(currentMessage), /群上下文如下：/);
@@ -3208,19 +3236,32 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   let turn = 0;
   (service as any).executeAgentTurn = async () => {
     turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-success-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-group-success',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({
+              group_id: 101,
+              messages: ['第一条', '第二条'],
+              xiaoni_os: '这是直接问我，已经正常接住。'
+            })
+          }]
+        }
+      };
+    }
+
     return {
       success: true,
-      llm_call_id: 'llm-success-1',
+      llm_call_id: 'llm-success-2',
       canonical_response: {
         output: [{
-          type: 'function_call',
-          call_id: 'call-group-success',
-          name: GROUP_REPLY_TOOL,
-          arguments: JSON.stringify({
-            group_id: 101,
-            messages: ['第一条', '第二条'],
-            xiaoni_os: '这是直接问我，已经正常接住。'
-          })
+          type: 'message',
+          content: [{ type: 'output_text', text: '' }]
         }]
       }
     };
@@ -3308,7 +3349,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     ]
   );
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['第一条', '第二条']);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'blocked_side_effect_after_visible_delivery');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
@@ -3623,22 +3664,35 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
           }
         };
       }
-	      return {
-	        success: true,
-	        llm_call_id: `llm-image-task-${turn}`,
-	        canonical_response: {
-	          output: [{
-	            type: 'function_call',
-	            call_id: `call-image-status-reply-${turn}`,
-            name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({
-              group_id: 1019235326,
-              messages: ['我已经开始帮Alice生成这张图，等结果出来再发。'],
-              xiaoni_os: '图片任务已提交，同时对群里可见地接住。'
-	            })
-	          }]
-	        }
-	      };
+      if (turn === 2) {
+        return {
+          success: true,
+          llm_call_id: 'llm-image-task-2',
+          canonical_response: {
+            output: [{
+              type: 'function_call',
+              call_id: 'call-image-status-reply-2',
+              name: GROUP_REPLY_TOOL,
+              arguments: JSON.stringify({
+                group_id: 1019235326,
+                messages: ['我已经开始帮Alice生成这张图，等结果出来再发。'],
+                xiaoni_os: '图片任务已提交，同时对群里可见地接住。'
+              })
+            }]
+          }
+        };
+      }
+
+      return {
+        success: true,
+        llm_call_id: 'llm-image-task-3',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            content: [{ type: 'output_text', text: '' }]
+          }]
+        }
+      };
     };
 
     await service.processQueueMessage(queueMessage as any);
@@ -3647,7 +3701,7 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
     assert.equal(storeCalls.createConversation.length, 1);
     assert.equal(storeCalls.createConversation[0]?.aiResponse, '我已经开始帮Alice生成这张图，等结果出来再发。');
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['我已经开始帮Alice生成这张图，等结果出来再发。']);
-    assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'blocked_side_effect_after_visible_delivery');
+	    assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-image-task-followup']);
     assert.equal(sendGroupCalls.length, 1);
     assert.equal(sendGroupCalls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_group`);
@@ -3919,11 +3973,11 @@ test('processQueueMessage completes when the model stops emitting tool calls aft
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
-test('processQueueMessage suppresses duplicate outbound reply attempts within the same run', async () => {
+test('processQueueMessage allows multiple visible deliveries within the same run', async () => {
   const queueMessage = {
-    id: 'run-queue-duplicate',
-    traceId: 'trace-duplicate',
-    batchId: 'batch-duplicate',
+    id: 'run-queue-multi-delivery',
+    traceId: 'trace-multi-delivery',
+    batchId: 'batch-multi-delivery',
     status: 'processing',
     attempts: 1,
     createdAt: '2026-03-28T08:00:00.000Z',
@@ -3941,9 +3995,10 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     logTimelineEvent: []
   };
   let deliveryPhase = 'reasoning_open';
+  let deliveryCommitCount = 0;
 
   const store = {
-    createLlmJob: async () => 'job-duplicate',
+    createLlmJob: async () => 'job-multi-delivery',
     logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
@@ -3952,12 +4007,13 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     upsertProactiveShareState: async () => {},
     getExecutionLeaseDeliveryState: async () => ({
       deliveryPhase,
-      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      deliveryCommitCount,
       blockedDeliveryAttemptCount: storeCalls.markLeaseDeliveryBlocked.length,
       lastBlockedDeliveryReason: storeCalls.markLeaseDeliveryBlocked[storeCalls.markLeaseDeliveryBlocked.length - 1] ?? null
     }),
     markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
       deliveryPhase = 'delivery_committed';
+      deliveryCommitCount += 1;
       storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
     },
     markLeaseDeliveryBlocked: async (_runId: string, reason: string) => {
@@ -3995,13 +4051,28 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
     if (turn === 1) {
       return {
         success: true,
-        llm_call_id: 'llm-duplicate-1',
+        llm_call_id: 'llm-multi-delivery-1',
         canonical_response: {
           output: [{
             type: 'function_call',
-            call_id: 'call-send-duplicate-1',
+            call_id: 'call-send-multi-delivery-1',
             name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({ group_id: 101, message: '同一句话' })
+            arguments: JSON.stringify({ group_id: 101, message: '第一条' })
+          }]
+        }
+      };
+    }
+
+    if (turn === 2) {
+      return {
+        success: true,
+        llm_call_id: 'llm-multi-delivery-2',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-send-multi-delivery-2',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ group_id: 101, message: '第二条' })
           }]
         }
       };
@@ -4009,13 +4080,11 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
 
     return {
       success: true,
-      llm_call_id: 'llm-duplicate-2',
+      llm_call_id: 'llm-multi-delivery-3',
       canonical_response: {
         output: [{
-          type: 'function_call',
-          call_id: 'call-send-duplicate-2',
-          name: GROUP_REPLY_TOOL,
-          arguments: JSON.stringify({ group_id: 101, message: '同一句话' })
+          type: 'message',
+          content: [{ type: 'output_text', text: '' }]
         }]
       }
     };
@@ -4023,394 +4092,42 @@ test('processQueueMessage suppresses duplicate outbound reply attempts within th
   (service as any).executeTool = async (toolCall: any) => {
     executeToolCalls += 1;
     assert.equal(toolCall.name, GROUP_REPLY_TOOL);
+    const message = toolCall.args.message;
     return {
       message_type: 'group',
-      sent_messages: ['同一句话'],
-      xiaoni_os: '已留下的OS',
-      delivery: [{ message_id: 7001 }]
+      sent_messages: [message],
+      xiaoni_os: `已发送：${message}`,
+      delivery: [{ message_id: 7000 + executeToolCalls }]
     };
   };
 
   await service.processQueueMessage(queueMessage as any);
 
-  assert.equal(executeToolCalls, 1);
+  assert.equal(turn, 3);
+  assert.equal(executeToolCalls, 2);
   assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, '同一句话');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '已留下的OS');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '已发送：第二条');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
     [
       expectedCurrentInputMessage(),
-      '同一句话'
+      '第一条',
+      '第二条'
     ]
   );
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'blocked_side_effect_after_visible_delivery');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'blocked_side_effect_after_visible_delivery');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'blocked_transition');
-  assert.match(String(storeCalls.releaseExecutionLease[0]?.leaseRelease?.detail), /already committed earlier in this run/i);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'model_slice_settled_after_visible_delivery');
   assert.equal(storeCalls.completeToolExecutionLog.length, 2);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, true);
-  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-duplicate']);
-  assert.equal(storeCalls.markLeaseDeliveryBlocked.length, 1);
-  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'delivery_commit'), true);
-  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'blocked_transition'), true);
-});
-
-test('processQueueMessage blocks near-duplicate second outbound reply after delivery commit', async () => {
-  const queueMessage = {
-    id: 'run-queue-near-duplicate',
-    traceId: 'trace-near-duplicate',
-    batchId: 'batch-near-duplicate',
-    status: 'processing',
-    attempts: 1,
-    createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [1],
-    payload: createQueuePayload()
-  };
-
-  const storeCalls: Record<string, any[]> = {
-    completeToolExecutionLog: [],
-    releaseExecutionLease: [],
-    markLeaseVisibleDeliveryCommitted: [],
-    markLeaseDeliveryBlocked: []
-  };
-  let deliveryPhase = 'reasoning_open';
-
-  const store = {
-    createLlmJob: async () => 'job-near-duplicate',
-    logTimelineEvent: async () => {},
-    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [],
-    getSessionReadCutoffState: async () => null,
-    upsertSessionReadCutoffState: async () => {},
-    upsertProactiveShareState: async () => {},
-    getExecutionLeaseDeliveryState: async () => ({
-      deliveryPhase,
-      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
-      blockedDeliveryAttemptCount: storeCalls.markLeaseDeliveryBlocked.length,
-      lastBlockedDeliveryReason: storeCalls.markLeaseDeliveryBlocked[storeCalls.markLeaseDeliveryBlocked.length - 1] ?? null
-    }),
-    markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
-      deliveryPhase = 'delivery_committed';
-      storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
-    },
-    markLeaseDeliveryBlocked: async (_runId: string, reason: string) => {
-      storeCalls.markLeaseDeliveryBlocked.push(reason);
-    },
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
-    createConversation: async () => 4001,
-    attachConversationIdToTrace: async () => {},
-    settleQueueMessages: async () => {},
-    failQueueMessage: async () => {},
-    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
-    updateLlmJob: async () => {}
-  } as any;
-
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-
-  (service as any).executeSocialTurnPlanner = async () => ({
-    actionType: 'reply_to_person',
-    addresseeUserId: 202,
-    answerShape: 'light_join',
-    beatCount: 1,
-    beatStyle: 'single_complete',
-    stopRule: 'stop_immediately',
-    reason: '这句还是应该回。'
-  });
-  let turn = 0;
-  let executeToolCalls = 0;
-  (service as any).executeAgentTurn = async () => {
-    turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-near-duplicate-1',
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-send-near-duplicate-1',
-            name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({ group_id: 101, message: '同一句话' })
-          }]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      llm_call_id: 'llm-near-duplicate-2',
-      canonical_response: {
-        output: [{
-          type: 'function_call',
-          call_id: 'call-send-near-duplicate-2',
-          name: GROUP_REPLY_TOOL,
-          arguments: JSON.stringify({ group_id: 101, message: '同一句话。' })
-        }]
-      }
-    };
-  };
-  (service as any).executeTool = async () => {
-    executeToolCalls += 1;
-    return {
-      message_type: 'group',
-      sent_messages: ['同一句话'],
-      delivery: [{ message_id: 7101 }]
-    };
-  };
-
-  await service.processQueueMessage(queueMessage as any);
-
-  assert.equal(executeToolCalls, 1);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'blocked_side_effect_after_visible_delivery');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'blocked_transition');
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, false);
-  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-near-duplicate']);
-  assert.equal(storeCalls.markLeaseDeliveryBlocked.length, 1);
-});
-
-test('processQueueMessage fingerprints duplicate direct replies with the current direct chat type', async () => {
-  const basePayload = createQueuePayload();
-  const directPayload: QueueMessagePayload = {
-    ...basePayload,
-    chatType: 'direct',
-    sessionKey: 'qq:private:202',
-    peerId: '202',
-    peerName: 'Alice',
-    wasMentioned: false,
-    messages: basePayload.messages.map((message) => ({
-      ...message,
-      chatType: 'direct',
-      sessionKey: 'qq:private:202',
-      peerId: '202',
-      peerName: 'Alice',
-      wasMentioned: false
-    }))
-  };
-  const queueMessage = {
-    id: 'run-queue-direct-duplicate',
-    traceId: 'trace-direct-duplicate',
-    batchId: 'batch-direct-duplicate',
-    status: 'processing',
-    attempts: 1,
-    createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [1],
-    payload: directPayload
-  };
-
-  const storeCalls: Record<string, any[]> = {
-    completeToolExecutionLog: [],
-    markLeaseVisibleDeliveryCommitted: [],
-    markLeaseDeliveryBlocked: []
-  };
-  let deliveryPhase = 'reasoning_open';
-
-  const store = {
-    createLlmJob: async () => 'job-direct-duplicate',
-    logTimelineEvent: async () => {},
-    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [],
-    getSessionReadCutoffState: async () => null,
-    upsertSessionReadCutoffState: async () => {},
-    upsertProactiveShareState: async () => {},
-    getExecutionLeaseDeliveryState: async () => ({
-      deliveryPhase,
-      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
-      blockedDeliveryAttemptCount: storeCalls.markLeaseDeliveryBlocked.length,
-      lastBlockedDeliveryReason: storeCalls.markLeaseDeliveryBlocked[storeCalls.markLeaseDeliveryBlocked.length - 1] ?? null
-    }),
-    markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
-      deliveryPhase = 'delivery_committed';
-      storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
-    },
-    markLeaseDeliveryBlocked: async (_runId: string, reason: string) => {
-      storeCalls.markLeaseDeliveryBlocked.push(reason);
-    },
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
-    createConversation: async () => 4101,
-    attachConversationIdToTrace: async () => {},
-    settleQueueMessages: async () => {},
-    failQueueMessage: async () => {},
-    releaseExecutionLease: async () => {},
-    updateLlmJob: async () => {}
-  } as any;
-
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-
-  let turn = 0;
-  let executeToolCalls = 0;
-  (service as any).executeAgentTurn = async () => {
-    turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-direct-duplicate-1',
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-direct-duplicate-1',
-            name: PRIVATE_REPLY_TOOL,
-            arguments: JSON.stringify({ user_id: 202, message: '私聊同一句话' })
-          }]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      llm_call_id: 'llm-direct-duplicate-2',
-      canonical_response: {
-        output: [{
-            type: 'function_call',
-            call_id: 'call-direct-duplicate-2',
-            name: PRIVATE_REPLY_TOOL,
-            arguments: JSON.stringify({
-              user_id: 202,
-              messages: ['私聊同一句话'],
-              mention_user_ids: [404]
-            })
-          }]
-        }
-    };
-  };
-  (service as any).executeTool = async () => {
-    executeToolCalls += 1;
-    return {
-      message_type: 'private',
-      sent_messages: ['私聊同一句话'],
-      delivery: [{ message_id: 7201 }]
-    };
-  };
-
-  await service.processQueueMessage(queueMessage as any);
-
-  assert.equal(executeToolCalls, 1);
-  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.message_type, 'private');
-  assert.deepEqual(storeCalls.completeToolExecutionLog[1]?.result?.mention_user_ids, []);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, true);
-  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-direct-duplicate']);
-  assert.equal(storeCalls.markLeaseDeliveryBlocked.length, 1);
-});
-
-test('processQueueMessage blocks image tasks after visible delivery commit', async () => {
-  const queueMessage = {
-    id: 'run-queue-image-after-delivery',
-    traceId: 'trace-image-after-delivery',
-    batchId: 'batch-image-after-delivery',
-    status: 'processing',
-    attempts: 1,
-    createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [1],
-    payload: createQueuePayload()
-  };
-
-  const storeCalls: Record<string, any[]> = {
-    completeToolExecutionLog: [],
-    markLeaseVisibleDeliveryCommitted: [],
-    markLeaseDeliveryBlocked: []
-  };
-  let deliveryPhase = 'reasoning_open';
-
-  const store = {
-    createLlmJob: async () => 'job-image-after-delivery',
-    logTimelineEvent: async () => {},
-    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [],
-    getSessionReadCutoffState: async () => null,
-    upsertSessionReadCutoffState: async () => {},
-    upsertProactiveShareState: async () => {},
-    getExecutionLeaseDeliveryState: async () => ({
-      deliveryPhase,
-      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
-      blockedDeliveryAttemptCount: storeCalls.markLeaseDeliveryBlocked.length,
-      lastBlockedDeliveryReason: storeCalls.markLeaseDeliveryBlocked[storeCalls.markLeaseDeliveryBlocked.length - 1] ?? null
-    }),
-    markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
-      deliveryPhase = 'delivery_committed';
-      storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
-    },
-    markLeaseDeliveryBlocked: async (_runId: string, reason: string) => {
-      storeCalls.markLeaseDeliveryBlocked.push(reason);
-    },
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
-    createConversation: async () => 4201,
-    attachConversationIdToTrace: async () => {},
-    settleQueueMessages: async () => {},
-    failQueueMessage: async () => {},
-    releaseExecutionLease: async () => {},
-    updateLlmJob: async () => {}
-  } as any;
-
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-
-  let turn = 0;
-  let executeToolCalls = 0;
-  (service as any).executeAgentTurn = async () => {
-    turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-image-after-delivery-1',
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-image-after-delivery-1',
-            name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({ group_id: 101, message: '先回复一句' })
-          }]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      llm_call_id: 'llm-image-after-delivery-2',
-      canonical_response: {
-        output: [{
-            type: 'function_call',
-            call_id: 'call-image-after-delivery-2',
-            name: IMAGE_TASK_TOOL,
-            arguments: JSON.stringify({
-              operation: 'generate',
-              prompt: '再生成一张图',
-              target_description: '测试图',
-              reason: '已经发完后不应再创建任务。'
-            })
-          }]
-        }
-    };
-  };
-  (service as any).executeTool = async () => {
-    executeToolCalls += 1;
-    return {
-      message_type: 'group',
-      sent_messages: ['先回复一句'],
-      delivery: [{ message_id: 7301 }]
-    };
-  };
-
-  await service.processQueueMessage(queueMessage as any);
-
-  assert.equal(executeToolCalls, 1);
-  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.blocked_transition, true);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.message_type, 'group');
-  assert.deepEqual(storeCalls.completeToolExecutionLog[1]?.result?.blocked_messages, []);
-  assert.equal(storeCalls.completeToolExecutionLog[1]?.result?.duplicate_suppressed, false);
-  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-image-after-delivery']);
-  assert.equal(storeCalls.markLeaseDeliveryBlocked.length, 1);
+  assert.equal(storeCalls.completeToolExecutionLog.some((call) => call.result?.blocked_transition), false);
+  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, [
+    'run-queue-multi-delivery',
+    'run-queue-multi-delivery'
+  ]);
+  assert.equal(storeCalls.markLeaseDeliveryBlocked.length, 0);
+  assert.equal(storeCalls.logTimelineEvent.filter((event) => event.eventName === 'delivery_commit').length, 2);
+  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'blocked_transition'), false);
 });
 
 test('applyToolResultToLoopInput releases the lease when a tool result requests release', () => {
@@ -4447,43 +4164,6 @@ test('applyToolResultToLoopInput releases the lease when a tool result requests 
   });
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
-});
-
-test('applyToolResultToLoopInput ends the turn when a speaking tool is downgraded to no-send', () => {
-  const leaseReleaseResult = {
-    release_lease: true,
-    lease_release_reason: 'blocked_side_effect_after_visible_delivery',
-    reason: 'no_send',
-    outcome: 'no_send',
-    no_visible_delivery: true,
-    blocked_transition: true,
-    message_type: 'group',
-    mention_user_ids: [],
-    sent_messages: []
-  };
-
-  const continuation = applyToolResultToLoopInput({
-    callId: 'call-3',
-    name: GROUP_REPLY_TOOL,
-    rawArguments: '{"message":"原句"}'
-  }, leaseReleaseResult);
-
-  assert.deepEqual(continuation, {
-    inputItems: [],
-    leaseRelease: {
-      release_lease: true,
-      event_kind: 'lease_released',
-      reason: 'blocked_side_effect_after_visible_delivery',
-      detail: 'no_send',
-      outcome: 'no_send',
-      no_visible_delivery: false,
-      visible_delivery_committed: false,
-      rest_started: false,
-      source: 'tool:send_in_group',
-      tool_result: leaseReleaseResult
-    },
-    forcedVisibleReply: null
-  });
 });
 
 test('legacy speech tool aliases are rejected instead of dispatching', async () => {
@@ -4680,7 +4360,7 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
     });
   assert.equal(userTexts.some((t: string) => t.includes('[待分享]')), false);
   assert.equal(userTexts.some((t: string) => t.includes('今天看到个很有趣的东西')), false);
-  assert.equal(userTexts.some((t: string) => t.includes('<INPUT_MESSAGE')), true);
+  assert.equal(userTexts.some((t: string) => t.includes('<PHONE_NOTIFICATION')), true);
 });
 
 function createPresenceTickQueueMessageForTest() {
@@ -4699,6 +4379,10 @@ function createPresenceTickQueueMessageForTest() {
       sessionKey: 'presence_tick:xiaoni',
       peerId: '0',
       peerName: undefined,
+      bodyForAgent: 'presence tick',
+      rawBody: 'presence_tick',
+      commandBody: 'presence_tick',
+      phoneNotification: undefined,
       presenceTick: {
         identityKey: 'xiaoni',
         targetSessionKey: 'qq:group:999',
@@ -4778,84 +4462,35 @@ function createLifeOnlyPresenceTickQueueMessageForTest() {
   };
 }
 
-test('materializePresenceTickQueueMessage replaces synthetic session with target group session', () => {
+test('presence tick stays outside QQ even when it carries a target session', () => {
   const queueMessage = createPresenceTickQueueMessageForTest();
-  const materialized = materializePresenceTickQueueMessage(queueMessage);
-  assert.equal(materialized.payload.sessionKey, 'qq:group:999');
-  assert.equal(materialized.payload.peerId, '999');
-  assert.equal(materialized.payload.peerName, 'Presence Group');
-  assert.equal(materialized.payload.inboundContext.SessionKey, 'qq:group:999');
-  assert.equal(materialized.payload.inboundContext.NativeChannelId, '999');
-  assert.equal(materialized.payload.messages[0].sessionKey, 'qq:group:999');
-  assert.equal(materialized.payload.messages[0].peerId, '999');
+  const loopInput = buildInitialInput([], queueMessage.payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  const actionText = loopInput
+    .filter((item: any) => item.role === 'assistant')
+    .map(getMessageContent)
+    .find((content) => content.includes('source="presence_tick"')) || '';
+  assert.equal(queueMessage.payload.sessionKey, 'presence_tick:xiaoni');
+  assert.match(actionText, /source="presence_tick"/);
+  assert.doesNotMatch(actionText, /<IM_INBOX_WINDOW/);
+  assert.doesNotMatch(actionText, /普通未读/);
+  assert.doesNotMatch(actionText, /问问@Bob/);
+  assert.doesNotMatch(actionText, /<PHONE_NOTIFICATION/);
+  assert.match(rendered, /qq-usage/);
 });
 
 test('life-only presence tick stays outside IM without a selected target', () => {
   const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest();
-  const materialized = materializePresenceTickQueueMessage(queueMessage);
-  assert.equal(materialized.payload.sessionKey, 'presence_tick:xiaoni');
-  assert.equal(materialized.payload.peerId, 'xiaoni');
+  assert.equal(queueMessage.payload.sessionKey, 'presence_tick:xiaoni');
+  assert.equal(queueMessage.payload.peerId, 'xiaoni');
 
-  const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
+  const loopInput = buildInitialInput([], queueMessage.payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
   assert.match(rendered, /source="presence_tick"/);
-  assert.match(rendered, /presence tick/);
+  assert.match(rendered, /presence tick|presence_tick|历史兼容/);
   assert.doesNotMatch(rendered, /消息列表/);
   assert.doesNotMatch(rendered, /主动打开群看了一眼/);
   assert.doesNotMatch(rendered, /target_group_id/);
-});
-
-test('materializePresenceTickInboxWindow turns claimed unread into a proactive IM window', () => {
-  const queueMessage = materializePresenceTickQueueMessage(createPresenceTickQueueMessageForTest());
-  const materialized = materializePresenceTickInboxWindow(queueMessage, [{
-    id: 901,
-    traceId: 'trace-inbox-901',
-    source: 'napcat',
-    messageSid: 'sid-inbox-901',
-    chatType: 'group',
-    sessionKey: 'qq:group:999',
-    peerId: '999',
-    peerName: 'Presence Group',
-    senderId: '202',
-    senderName: 'Alice',
-    accountId: '303',
-    bodyForAgent: '普通未读，但是小腻主动打开 IM 后应该看到',
-    rawBody: '普通未读，但是小腻主动打开 IM 后应该看到',
-    commandBody: '普通未读，但是小腻主动打开 IM 后应该看到',
-    wasMentioned: false,
-    receivedAt: '2026-03-28T08:01:00.000Z',
-    messageTimestamp: '2026-03-28T08:01:00.000Z',
-    rawPayload: {},
-    inboundContext: {
-      Body: '普通未读，但是小腻主动打开 IM 后应该看到',
-      BodyForAgent: '普通未读，但是小腻主动打开 IM 后应该看到',
-      BodyForCommands: '普通未读，但是小腻主动打开 IM 后应该看到',
-      ChatType: 'group',
-      NativeChannelId: '999',
-      SessionKey: 'qq:group:999',
-      AccountId: '303',
-      MessageSid: 'sid-inbox-901',
-      SenderId: '202',
-      SenderName: 'Alice',
-      WasMentioned: false,
-      CommandAuthorized: false
-    }
-  }]);
-
-  assert.equal(materialized.payload.source, 'proactive_im_open');
-  assert.equal(materialized.payload.presenceTick, undefined);
-  assert.equal(materialized.payload.messages.length, 1);
-
-  const loopInput = buildInitialInput([], materialized.payload, createRuntimePrompt());
-  const rendered = loopInput.map(getMessageContent).join('\n');
-  const sceneRendered = loopInput
-    .filter((item: any) => item.role !== 'system')
-    .map(getMessageContent)
-    .join('\n');
-  assert.match(rendered, /<IM_INBOX_WINDOW[^>]*trigger="proactive_use_im"/);
-  assert.match(rendered, /普通未读，但是小腻主动打开 IM 后应该看到/);
-  assert.doesNotMatch(sceneRendered, /<UNREAD_AVAILABLE/);
-  assert.doesNotMatch(sceneRendered, /小腻主动打开群看了一眼；当前没有新的群友消息触发/);
 });
 
 test('processQueueMessage preserves global OS context during life-only presence tick', async () => {

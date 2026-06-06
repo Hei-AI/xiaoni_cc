@@ -95,6 +95,23 @@ export type QueueMessagePayload = {
   rawPayload: Record<string, unknown>;
   inboundContext: FinalizedInboundContext;
   messages: QueueBatchMessage[];
+  phoneNotification?: {
+    app: 'qq' | string;
+    notificationId: string;
+    sessionKey: string;
+    chatType: ChatType;
+    peerId: string;
+    peerName?: string | null;
+    unreadDelta: number;
+    directMentions: number;
+    latestReceivedAt?: string | null;
+    reason?: string | null;
+  };
+  consciousnessTick?: {
+    identityKey: string;
+    reason: string;
+    createdAt: string;
+  };
   presenceTick?: {
     identityKey: string;
     targetSessionKey?: string;

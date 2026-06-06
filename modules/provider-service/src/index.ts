@@ -57,7 +57,6 @@ const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs
 const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
 const NAPCAT_QQ_DATA_ROOT = process.env.NAPCAT_QQ_DATA_ROOT || '/app/napcat-qq-data';
 const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
-const IM_TRIGGER_CLAIM_LIMIT = Math.max(Number(process.env.AGENT_IM_TRIGGER_CLAIM_LIMIT || 200), 1);
 const embeddingService = new EmbeddingService(aiConfig);
 const imageProvider = new OpenAIImageProvider();
 const imagePromptAssistant = new ImagePromptAssistantService();
@@ -295,55 +294,8 @@ function recordRelationshipLedgerAsync(inboundContext: FinalizedInboundContext, 
   });
 }
 
-function isInboxOnlyInboundMessage(message: { chatType: 'direct' | 'group'; wasMentioned: boolean; senderId: string }) {
-  return !decideInboundAgentQueueTrigger(message).shouldEnqueue;
-}
-
-async function claimImWindowForAgentTrigger(params: {
-  inboxEvent: InboxMessageRecord;
-  traceId: string;
-  source: 'napcat' | 'simulator';
-  triggerReason: string;
-}) {
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'im_window',
-    eventName: 'claim_unread',
-    eventPhase: 'start',
-    metadata: {
-      source: params.source,
-      trigger_reason: params.triggerReason,
-      session_key: params.inboxEvent.sessionKey,
-      chat_type: params.inboxEvent.chatType,
-      limit: IM_TRIGGER_CLAIM_LIMIT
-    }
-  });
-
-  const claimedMessages = await inboxService.claimMessages({
-    sessionKey: params.inboxEvent.sessionKey,
-    limit: IM_TRIGGER_CLAIM_LIMIT,
-    order: 'latest',
-    markRead: false,
-    includeMessageIds: [params.inboxEvent.id]
-  });
-
-  const messages = claimedMessages.length > 0 ? claimedMessages : [params.inboxEvent];
-  await runtimeStoreService.logTimelineEvent({
-    traceId: params.traceId,
-    eventType: 'im_window',
-    eventName: 'claim_unread',
-    eventPhase: 'end',
-    metadata: {
-      source: params.source,
-      trigger_reason: params.triggerReason,
-      session_key: params.inboxEvent.sessionKey,
-      claimed_count: claimedMessages.length,
-      materialized_count: messages.length,
-      message_sids: messages.map((message) => message.messageSid)
-    }
-  });
-
-  return messages;
+function isInboxOnlyInboundMessage(_message: { chatType: 'direct' | 'group'; wasMentioned: boolean; senderId: string }) {
+  return false;
 }
 
 async function materializeContinuousLearningTurn(params: {
@@ -720,22 +672,10 @@ async function processAutoReply(params: {
   }
 
   const policy = params.policyState || await chatPolicyService.getPolicyState(policyTargets);
-  if (!policy.autoReplyEnabled) {
-    return {
-      attempted: false,
-      queued: false,
-      reason: 'auto_reply_disabled',
-      policy: {
-        ...policy,
-        allowed: false,
-        reason: 'auto_reply_disabled' as const
-      }
-    };
-  }
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'participation',
-    eventName: 'decision',
+    eventType: 'phone_notification',
+    eventName: 'routing',
     eventPhase: 'start',
     metadata: {
       source: params.source,
@@ -744,39 +684,25 @@ async function processAutoReply(params: {
     }
   });
   const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
-  const participationDecision = triggerDecision.shouldEnqueue
-    ? {
-        decision: 'reply' as const,
-        reason: 'delegated_to_agent_service_unified_planner',
-        confidence: 'high' as const,
-        conservativeFallback: false,
-        usedEmbeddings: false,
-        usedLlmJudge: false,
-        scores: null,
-        metadata: {
-          source_of_truth: 'agent_service_unified_planner',
-          provider_boundary_mode: 'hard_safety_only',
-          trigger_reason: triggerDecision.reason
-        }
-      }
-    : {
-        decision: 'ignore' as const,
-        reason: triggerDecision.reason,
-        confidence: 'high' as const,
-        conservativeFallback: false,
-        usedEmbeddings: false,
-        usedLlmJudge: false,
-        scores: null,
-        metadata: {
-          source_of_truth: 'provider_inbound_queue_gate',
-          provider_boundary_mode: 'inbox_only_for_unmentioned_group',
-          trigger_reason: triggerDecision.reason
-        }
-      };
+  const participationDecision = {
+    decision: 'notify' as const,
+    reason: triggerDecision.reason,
+    confidence: 'high' as const,
+    conservativeFallback: false,
+    usedEmbeddings: false,
+    usedLlmJudge: false,
+    scores: null,
+    metadata: {
+      source_of_truth: 'phone_notification',
+      provider_boundary_mode: 'notification_only_no_qq_body',
+      trigger_reason: triggerDecision.reason,
+      auto_reply_enabled: policy.autoReplyEnabled
+    }
+  };
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
-    eventType: 'participation',
-    eventName: 'decision',
+    eventType: 'phone_notification',
+    eventName: 'routing',
     eventPhase: 'end',
     metadata: {
       source: params.source,
@@ -790,25 +716,13 @@ async function processAutoReply(params: {
       ...participationDecision.metadata
     }
   });
-  const inboxWindowMessages = triggerDecision.shouldEnqueue
-    ? await claimImWindowForAgentTrigger({
-        inboxEvent: params.inboxEvent,
-        traceId: params.traceId,
-        source: params.source,
-        triggerReason: triggerDecision.reason
-      })
-    : undefined;
   const queueResult = await processInboundAgentQueueTrigger({
     inboxEvent: params.inboxEvent,
-    inboxWindowMessages,
     inboundContext: params.inboundContext,
     rawPayload: params.rawPayload,
     traceId: params.traceId,
     source: params.source
   }, runtimeStoreService);
-  if (triggerDecision.shouldEnqueue && queueResult.queued && inboxWindowMessages?.length) {
-    await inboxService.markMessagesRead(inboxWindowMessages.map((message) => message.id));
-  }
   return {
     ...queueResult,
     participationDecision
@@ -1555,10 +1469,14 @@ app.post('/api/inbox/messages/claim', async (req, res) => {
       : undefined;
     const limit = Number.parseInt(String(req.body?.limit || '20'), 10);
     const order = req.body?.order === 'latest' ? 'latest' : 'oldest';
+    const markRead = req.body?.mark_read === false || req.body?.markRead === false
+      ? false
+      : undefined;
     const claimed = await inboxService.claimMessages({
       sessionKey,
       limit,
-      order
+      order,
+      markRead
     });
 
     res.json({
@@ -1640,13 +1558,32 @@ app.post('/api/inbox/simulate', async (req, res) => {
       groupId: targets.groupId
     });
     recordRelationshipLedgerAsync(finalizedContext, result.event.id);
-    const learning = await runContinuousLearningIfEnabled({
-      policyState: policy,
-      inboxEventId: result.event.id,
+    const rawPayload = (req.body?.rawPayload && typeof req.body.rawPayload === 'object' && !Array.isArray(req.body.rawPayload))
+      ? req.body.rawPayload as Record<string, unknown>
+      : { simulated: true, inboundContext: finalizedContext };
+    const autoReply = await processAutoReply({
+      inboxEvent: result.event,
       inboundContext: finalizedContext,
+      rawPayload,
       traceId: result.traceId,
-      inboxOnly: isInboxOnlyInboundMessage(result.event)
+      source: 'simulator',
+      policyState: effectivePolicy
     });
+    const learning = autoReply.queued
+      ? await runContinuousLearningIfEnabled({
+          policyState: policy,
+          inboxEventId: result.event.id,
+          inboundContext: finalizedContext,
+          traceId: result.traceId,
+          skipMaterialization: true
+        })
+      : await runContinuousLearningIfEnabled({
+          policyState: policy,
+          inboxEventId: result.event.id,
+          inboundContext: finalizedContext,
+          traceId: result.traceId,
+          inboxOnly: isInboxOnlyInboundMessage(result.event)
+        });
 
     res.json({
       success: true,
@@ -1657,6 +1594,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
           allowed: true,
           reason: 'accepted'
         },
+        autoReply,
         learning,
         ...result
       }

@@ -3,6 +3,7 @@ import { UnifiedLLMConfig } from '../../types';
 import { createProviderClient } from '../llm-provider';
 import { extractNamedFunctionCallArgsFromOpenAIResponse } from '../llm-provider/helpers';
 import { LLMProvider, OpenResponseToolDefinition } from '../llm-provider/types';
+import { withReplayLlmCallId } from '../provider-replay-ledger';
 import { ImagePromptPattern, ImagePromptUseCase, selectImagePromptPatterns } from './prompt-patterns';
 
 const TOOL_NAME = 'compose_image_prompt';
@@ -307,6 +308,11 @@ export class ImagePromptAssistantService {
     const patterns = selectImagePromptPatterns({ prompt, mode });
     const provider = this.providerFactory('codex');
     const config = createConfig(this.modelName);
+	    const context = withReplayLlmCallId({
+	      agentType: 'image_prompt_assistant',
+	      promptName: 'image_prompt_assistant',
+	      replayIdentityKey: 'xiaoni-internal'
+	    }, 'image_prompt');
     const result = await provider.generateContent({
       modelName: this.modelName,
       providerConfig: config,
@@ -336,13 +342,9 @@ export class ImagePromptAssistantService {
         max_output_tokens: config.generation.maxOutputTokens,
         store: false
       },
-      context: {
-        agentType: 'image_prompt_assistant',
-        promptName: 'image_prompt_assistant'
-      }
+      context
     });
-
-    const parsed = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, TOOL_NAME);
+	    const parsed = extractNamedFunctionCallArgsFromOpenAIResponse(result.response, TOOL_NAME);
     if (!parsed) {
       throw new Error('Image prompt assistant returned no structured tool result');
     }

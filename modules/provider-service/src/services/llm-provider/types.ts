@@ -209,6 +209,7 @@ export interface LLMProviderContext {
   agentTurn?: number;
   llmCallId?: string;
   toolCallId?: string;
+  replayIdentityKey?: string;
   sessionId?: string;
   turnId?: string;
   sandbox?: string;
