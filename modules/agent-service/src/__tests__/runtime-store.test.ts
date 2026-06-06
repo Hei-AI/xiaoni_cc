@@ -247,6 +247,55 @@ test('enqueueConsciousnessTick stores a numeric bot sender id', async () => {
   assert.equal(JSON.parse(String(params[9])).senderId, '1129974489');
 });
 
+test('recordQqUsageThreadSeen timestamps seen events at observation time with trace context', async () => {
+  const store = new RuntimeStore() as any;
+  const lifeEvents: any[] = [];
+  store.recordLifeEventSafe = async (input: any) => {
+    lifeEvents.push(input);
+  };
+  const before = Date.now();
+
+  await store.recordQqUsageThreadSeen({
+    threadKey: 'qq:group:253631878',
+    unreadCount: 1,
+    windowUnreadCount: 1,
+    cursorAnchor: '1:1',
+    latestMessageId: 12479,
+    messages: [{
+      id: 12479,
+      message_sid: 'sid-seen-12479',
+      chat_type: 'group',
+      peer_id: '253631878',
+      account_id: '1129974489',
+      sender_id: '3994058476',
+      sender_name: '小伊',
+      peer_name: '群 253631878',
+      body_for_agent: '历史消息正文',
+      raw_body: '历史消息正文',
+      message_timestamp: '2026-06-06T03:07:45.000Z',
+      received_at: '2026-06-06T03:07:45.000Z',
+      was_mentioned: 0
+    }]
+  }, 'qq_usage.focus_thread', {
+    traceId: 'trace-qq-usage',
+    runId: 'run-qq-usage',
+    batchId: 'batch-qq-usage',
+    toolCallId: 'call-exec',
+    toolName: 'exec_command',
+    sessionKey: 'xiaoni:global'
+  });
+
+  const seenEvent = lifeEvents.find((event) => event.eventKind === 'qq_message_seen');
+  assert.ok(seenEvent);
+  assert.ok(new Date(seenEvent.occurredAt).getTime() >= before);
+  assert.equal(seenEvent.traceId, 'trace-qq-usage');
+  assert.equal(seenEvent.runId, 'run-qq-usage');
+  assert.equal(seenEvent.batchId, 'batch-qq-usage');
+  assert.equal(seenEvent.payload.message_timestamp, '2026-06-06T03:07:45.000Z');
+  assert.equal(seenEvent.payload.tool_call_id, 'call-exec');
+  assert.equal(seenEvent.payload.source_session_key, 'xiaoni:global');
+});
+
 test('visible group replies charge one bounded action cost without per-message double counting', async () => {
   const store = new RuntimeStore() as any;
   const lifeEvents: any[] = [];

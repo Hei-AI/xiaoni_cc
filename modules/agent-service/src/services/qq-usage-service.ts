@@ -191,6 +191,15 @@ type QqUsageSkillRuntimeState = {
   threads: Map<string, QqUsageThreadRuntimeState>;
 };
 
+export type QqUsageActionContext = {
+  traceId?: string | null;
+  runId?: string | null;
+  batchId?: string | null;
+  toolCallId?: string | null;
+  toolName?: string | null;
+  sessionKey?: string | null;
+};
+
 const QQ_USAGE_ACTION_LABELS: Record<string, string> = {
   open_inbox: 'qq_usage.open_inbox',
   scroll_inbox: 'qq_usage.scroll_inbox',
@@ -244,9 +253,9 @@ export class QqUsageService {
     };
   }
 
-  async focusThread(threadKey: string): Promise<QqUsageToolResult> {
+  async focusThread(threadKey: string, context: QqUsageActionContext = {}): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
-    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.focus_thread').catch(() => undefined);
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.focus_thread', context).catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.focus_thread',
@@ -257,14 +266,14 @@ export class QqUsageService {
     };
   }
 
-  async scrollThread(threadKey: string, direction: 'older' | 'newer', anchorMessageId: number | string | null): Promise<QqUsageToolResult> {
+  async scrollThread(threadKey: string, direction: 'older' | 'newer', anchorMessageId: number | string | null, context: QqUsageActionContext = {}): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({
       threadKey,
       mode: direction,
       anchorMessageId,
       limit: WINDOW_SIZE
     });
-    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.scroll_thread').catch(() => undefined);
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.scroll_thread', context).catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.scroll_thread',
@@ -275,9 +284,9 @@ export class QqUsageService {
     };
   }
 
-  async jumpToLatest(threadKey: string): Promise<QqUsageToolResult> {
+  async jumpToLatest(threadKey: string, context: QqUsageActionContext = {}): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
-    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.jump_to_latest').catch(() => undefined);
+    await this.store.recordQqUsageThreadSeen(result, 'qq_usage.jump_to_latest', context).catch(() => undefined);
     return {
       qq_usage: true,
       action: 'qq_usage.jump_to_latest',
@@ -349,7 +358,7 @@ export class QqUsageSkillRuntime {
     }
   }
 
-  async execute(action: string, args: Record<string, unknown> = {}): Promise<QqUsageToolResult> {
+  async execute(action: string, args: Record<string, unknown> = {}, context: QqUsageActionContext = {}): Promise<QqUsageToolResult> {
     try {
       let result: QqUsageToolResult;
       if (action === 'open_inbox') {
@@ -362,7 +371,7 @@ export class QqUsageSkillRuntime {
         if (this.state.activeThreadKey && this.state.activeThreadKey !== threadKey) {
           await this.service.putAway(this.state.activeThreadKey);
         }
-        result = await this.service.focusThread(threadKey);
+        result = await this.service.focusThread(threadKey, context);
       } else if (action === 'scroll_thread') {
         const threadKey = normalizeThreadKey(args.thread_key);
         if (!threadKey) throw new Error('thread_key is required');
@@ -371,11 +380,11 @@ export class QqUsageSkillRuntime {
         if (!threadState) throw new Error('focus_thread or jump_to_latest must open this thread before scrolling');
         const anchor = direction === 'newer' ? threadState.latestMessageId : threadState.earliestMessageId;
         if (!anchor) throw new Error('no visible message anchor is available for this thread');
-        result = await this.service.scrollThread(threadKey, direction, anchor);
+        result = await this.service.scrollThread(threadKey, direction, anchor, context);
       } else if (action === 'jump_to_latest') {
         const threadKey = normalizeThreadKey(args.thread_key);
         if (!threadKey) throw new Error('thread_key is required');
-        result = await this.service.jumpToLatest(threadKey);
+        result = await this.service.jumpToLatest(threadKey, context);
       } else if (action === 'put_qq_away') {
         const threadKey = normalizeThreadKey(args.thread_key) || null;
         result = await this.service.putAway(threadKey);

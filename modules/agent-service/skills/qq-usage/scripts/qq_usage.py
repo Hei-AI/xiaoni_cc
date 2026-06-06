@@ -54,9 +54,25 @@ def post_to_endpoint(endpoint, payload):
     return json.loads(body)
 
 
+def build_context():
+    mapping = {
+        "trace_id": "XIAONI_TRACE_ID",
+        "run_id": "XIAONI_RUN_ID",
+        "batch_id": "XIAONI_BATCH_ID",
+        "tool_call_id": "XIAONI_TOOL_CALL_ID",
+        "tool_name": "XIAONI_TOOL_NAME",
+        "session_key": "XIAONI_SESSION_KEY",
+    }
+    return {
+        key: os.environ.get(env_key, "").strip()
+        for key, env_key in mapping.items()
+        if os.environ.get(env_key, "").strip()
+    }
+
+
 def call_engineering_api(action, args):
     endpoint = resolve_endpoint()
-    payload = json.dumps({"action": action, "args": args}, ensure_ascii=False).encode("utf-8")
+    payload = json.dumps({"action": action, "args": args, "context": build_context()}, ensure_ascii=False).encode("utf-8")
     data = post_to_endpoint(endpoint, payload)
     result = data.get("result") if isinstance(data, dict) else None
     content = result.get("content") if isinstance(result, dict) else None

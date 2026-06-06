@@ -19,6 +19,10 @@ let taskWorkerBusy = false;
 
 app.use(express.json({ limit: '2mb' }));
 
+function optionalString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 app.get('/health', async (_req, res) => {
   res.json({
     status: 'healthy',
@@ -37,7 +41,17 @@ app.post('/api/internal/qq-usage', async (req, res) => {
   const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args)
     ? body.args as Record<string, unknown>
     : {};
-  const result = await qqUsageRuntime.execute(action, args);
+  const context = body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+    ? body.context as Record<string, unknown>
+    : {};
+  const result = await qqUsageRuntime.execute(action, args, {
+    traceId: optionalString(context.trace_id ?? context.traceId),
+    runId: optionalString(context.run_id ?? context.runId),
+    batchId: optionalString(context.batch_id ?? context.batchId),
+    toolCallId: optionalString(context.tool_call_id ?? context.toolCallId),
+    toolName: optionalString(context.tool_name ?? context.toolName),
+    sessionKey: optionalString(context.session_key ?? context.sessionKey)
+  });
   res.json({
     success: true,
     result

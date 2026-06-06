@@ -413,7 +413,7 @@ test('exec_command executes inside the agent runtime and returns structured outp
       callId: 'call-exec',
       name: EXEC_COMMAND_TOOL,
       args: {
-        cmd: 'printf skill-loaded',
+        cmd: 'printf "%s|%s|%s" "$XIAONI_TRACE_ID" "$XIAONI_RUN_ID" "$XIAONI_TOOL_CALL_ID"',
         login: false,
         yield_time_ms: 1000,
         max_output_tokens: 100
@@ -422,7 +422,7 @@ test('exec_command executes inside the agent runtime and returns structured outp
     }, createQueuePayload());
 
     assert.equal(result.exit_code, 0);
-    assert.equal(result.stdout, 'skill-loaded');
+    assert.equal(result.stdout, 'trace-1|run-1|call-exec');
     assert.equal(result.stderr, '');
     assert.equal(result.timed_out, false);
     assert.match(String(result.codex_output), /Process exited with code 0/);
@@ -473,6 +473,14 @@ test('exec_command delegates to xiaoni-executor when configured', async () => {
       }, createQueuePayload());
 
       assert.equal(requests[0]?.cmd, 'printf bridge-ok');
+      assert.deepEqual((requests[0]?.env as Record<string, unknown>), {
+        XIAONI_TRACE_ID: 'trace-1',
+        XIAONI_RUN_ID: 'run-1',
+        XIAONI_BATCH_ID: 'batch-1',
+        XIAONI_SESSION_KEY: 'qq:group:101',
+        XIAONI_TOOL_CALL_ID: 'call-exec-bridge',
+        XIAONI_TOOL_NAME: 'exec_command'
+      });
       assert.equal(result.executor, 'xiaoni-executor');
       assert.equal(result.stdout, 'bridge-ok');
       assert.match(String(result.codex_output), /^Chunk ID: bridge/);

@@ -14,6 +14,7 @@ type ExecCommandRequest = {
   max_output_tokens?: unknown;
   yield_time_ms?: unknown;
   sandbox_permissions?: unknown;
+  env?: unknown;
 };
 
 type ExecCommandResult = {
@@ -170,6 +171,20 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
     return defaultValue;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+function normalizeExecEnv(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const env: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!/^[A-Z_][A-Z0-9_]*$/i.test(key) || entry === null || typeof entry === 'undefined') {
+      continue;
+    }
+    env[key] = String(entry);
+  }
+  return env;
 }
 
 function appendCappedOutput(current: string, chunk: Buffer, maxChars: number): { value: string; truncated: boolean } {
@@ -390,7 +405,10 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     timedOut: false,
     child: spawn(shell, resolveExecShellArgs(shell, translatedCmd, login), {
       cwd: workdir,
-      env: process.env,
+      env: {
+        ...process.env,
+        ...normalizeExecEnv(args.env)
+      },
       stdio: ['ignore', 'pipe', 'pipe']
     }),
     exitCode: null,

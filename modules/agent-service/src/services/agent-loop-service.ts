@@ -5713,7 +5713,7 @@ export class AgentLoopService {
         };
       }
       case TOOL_NAMES.execCommand: {
-        return this.executeCommand(toolCall.args);
+        return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage);
@@ -5755,7 +5755,11 @@ export class AgentLoopService {
     }
   }
 
-  private async executeCommand(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async executeCommand(
+    args: Record<string, unknown>,
+    toolCall?: AgentToolCall,
+    queueMessage?: QueueMessageRecord['payload']
+  ): Promise<Record<string, unknown>> {
     const cmd = typeof args.cmd === 'string' && args.cmd.trim()
       ? args.cmd
       : '';
@@ -5785,12 +5789,20 @@ export class AgentLoopService {
       };
     }
 
+    const execArgs = {
+      ...args,
+      env: {
+        ...normalizeExecEnv(args.env),
+        ...buildExecCommandRuntimeEnv(toolCall, queueMessage)
+      }
+    };
+
     if (agentConfig.xiaoniExecutorUrl) {
       try {
         const response = await fetch(`${agentConfig.xiaoniExecutorUrl}/api/internal/exec-command`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(args)
+          body: JSON.stringify(execArgs)
         });
         const text = await response.text();
         let payload: unknown = null;
@@ -5906,7 +5918,10 @@ export class AgentLoopService {
       try {
         child = spawn(shell, resolveExecShellArgs(shell, cmd, login), {
           cwd: workdir,
-          env: process.env,
+          env: {
+            ...process.env,
+            ...normalizeExecEnv(execArgs.env)
+          },
           stdio: ['ignore', 'pipe', 'pipe']
         });
       } catch (error) {
@@ -7074,6 +7089,46 @@ function resolveSessionTargets(queueMessage: QueueMessageRecord['payload']) {
     userId,
     groupId: groupId !== null && Number.isFinite(groupId) ? groupId : null
   };
+}
+
+function normalizeExecEnv(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const env: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!/^[A-Z_][A-Z0-9_]*$/i.test(key) || entry === null || typeof entry === 'undefined') {
+      continue;
+    }
+    env[key] = String(entry);
+  }
+  return env;
+}
+
+function buildExecCommandRuntimeEnv(
+  toolCall?: AgentToolCall,
+  queueMessage?: QueueMessageRecord['payload']
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (queueMessage?.traceId) {
+    env.XIAONI_TRACE_ID = queueMessage.traceId;
+  }
+  if (queueMessage?.runId) {
+    env.XIAONI_RUN_ID = queueMessage.runId;
+  }
+  if (queueMessage?.batchId) {
+    env.XIAONI_BATCH_ID = queueMessage.batchId;
+  }
+  if (queueMessage?.sessionKey) {
+    env.XIAONI_SESSION_KEY = queueMessage.sessionKey;
+  }
+  if (toolCall?.callId) {
+    env.XIAONI_TOOL_CALL_ID = toolCall.callId;
+  }
+  if (toolCall?.name) {
+    env.XIAONI_TOOL_NAME = toolCall.name;
+  }
+  return env;
 }
 
 function extractReplayableModelOutputs(response: ProviderAgentResponse['canonical_response']): ReplayableModelOutput[] {

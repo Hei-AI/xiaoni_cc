@@ -2504,7 +2504,18 @@ export class RuntimeStore {
     }, databaseConfig);
   }
 
-  async recordQqUsageThreadSeen(result: QqUsageThreadWindow, action: string): Promise<void> {
+  async recordQqUsageThreadSeen(
+    result: QqUsageThreadWindow,
+    action: string,
+    context: {
+      traceId?: string | null;
+      runId?: string | null;
+      batchId?: string | null;
+      toolCallId?: string | null;
+      toolName?: string | null;
+      sessionKey?: string | null;
+    } = {}
+  ): Promise<void> {
     const messages = Array.isArray(result.messages) ? result.messages : [];
     if (!result.threadKey || messages.length === 0) {
       return;
@@ -2525,6 +2536,9 @@ export class RuntimeStore {
       surfaceId: result.threadKey,
       peerId,
       accountId,
+      batchId: context.batchId || undefined,
+      runId: context.runId || undefined,
+      traceId: context.traceId || undefined,
       actorType: 'xiaoni',
       actorId: accountId,
       targetId: peerId,
@@ -2536,7 +2550,13 @@ export class RuntimeStore {
         action,
         unread_count: result.unreadCount,
         window_unread_count: result.windowUnreadCount,
-        window_size: messages.length
+        window_size: messages.length,
+        trace_id: context.traceId || null,
+        run_id: context.runId || null,
+        batch_id: context.batchId || null,
+        tool_call_id: context.toolCallId || null,
+        tool_name: context.toolName || null,
+        source_session_key: context.sessionKey || null
       },
       dedupeKey: `surface_visit:qq_usage:${compactDedupePart(action, 'action')}:${compactDedupePart(result.threadKey, 'thread')}:${compactDedupePart(result.cursorAnchor || String(result.latestMessageId || Date.now()), 'window')}`
     });
@@ -2546,7 +2566,7 @@ export class RuntimeStore {
       await this.recordLifeEventSafe({
         identityKey: 'xiaoni',
         eventKind: 'qq_message_seen',
-        occurredAt: normalizeLifeEventOccurredAt(message.message_timestamp || message.received_at),
+        occurredAt: now,
         surface: 'qq',
         chatType: message.chat_type === 'group' ? 'group' : 'direct',
         sessionKey: result.threadKey,
@@ -2555,6 +2575,9 @@ export class RuntimeStore {
         accountId: String(message.account_id || accountId),
         messageSid,
         messageId: String(message.id || ''),
+        batchId: context.batchId || undefined,
+        runId: context.runId || undefined,
+        traceId: context.traceId || undefined,
         actorType: 'human',
         actorId: String(message.sender_id || ''),
         targetId: accountId,
@@ -2569,7 +2592,13 @@ export class RuntimeStore {
           was_mentioned: Number(message.was_mentioned || 0) === 1,
           body_for_agent: typeof message.body_for_agent === 'string' ? message.body_for_agent : null,
           raw_body: typeof message.raw_body === 'string' ? message.raw_body : null,
-          message_timestamp: message.message_timestamp || null
+          message_timestamp: message.message_timestamp || null,
+          trace_id: context.traceId || null,
+          run_id: context.runId || null,
+          batch_id: context.batchId || null,
+          tool_call_id: context.toolCallId || null,
+          tool_name: context.toolName || null,
+          source_session_key: context.sessionKey || null
         },
         dedupeKey: `qq_message_seen:qq_usage:${messageSid || message.id || `${result.threadKey}:${action}`}`
       });
