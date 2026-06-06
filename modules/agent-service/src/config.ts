@@ -65,6 +65,10 @@ export const databaseConfig = {
   database: process.env.DB_NAME || 'qqbot_db'
 };
 
+const mainAgentTurnTimeoutMs = Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '120000', 10));
+const queuePollIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_POLL_INTERVAL_MS || '1000', 10));
+const queueIdleIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10));
+
 export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
   xiaoniExecutorUrl: (process.env.XIAONI_EXECUTOR_URL || '').replace(/\/$/, ''),
@@ -76,7 +80,7 @@ export const agentConfig = {
   compactMemoryReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REASONING_EFFORT', 'high'),
   compactMemoryReflectionReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT', 'high'),
   compactMemoryTextVerbosity: readTextVerbosityEnv('AGENT_COMPACT_MEMORY_TEXT_VERBOSITY', 'medium'),
-  mainAgentTurnTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '120000', 10)),
+  mainAgentTurnTimeoutMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '120000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   preReplyMemoryReasonerEnabled: false,
@@ -87,8 +91,17 @@ export const agentConfig = {
   webSearchContextSize: readWebSearchContextSize(),
   webSearchExternalAccess: readBooleanEnv('AGENT_WEB_SEARCH_EXTERNAL_ACCESS', true),
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
-  pollIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_POLL_INTERVAL_MS || '1000', 10)),
-  idleIntervalMs: Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10)),
+  pollIntervalMs: queuePollIntervalMs,
+  idleIntervalMs: queueIdleIntervalMs,
+  autonomousRuntimeEnabled: readBooleanEnv('AGENT_AUTONOMOUS_RUNTIME_ENABLED', true),
+  autonomousRuntimeSliceIntervalMs: Math.max(
+    200,
+    Number.parseInt(process.env.AGENT_AUTONOMOUS_RUNTIME_SLICE_INTERVAL_MS || '', 10) || queueIdleIntervalMs
+  ),
+  processingRecoveryStaleMs: Math.max(
+    5 * 60 * 1000,
+    Number.parseInt(process.env.AGENT_PROCESSING_RECOVERY_STALE_MS || '', 10) || (mainAgentTurnTimeoutMs * 2)
+  ),
   workerId: process.env.AGENT_WORKER_ID || `agent-service-${process.pid}`,
   botAccountId: process.env.BOT_QQ_NUMBER || '1129974489',
   worldNarrative: process.env.AGENT_WORLD_NARRATIVE || [

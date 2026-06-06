@@ -136,7 +136,14 @@ test('recordAgentLifeEvent accepts homeostasis projection event kinds', async ()
     }
   });
 
-  for (const eventKind of ['presence_tick_evaluated', 'rest_period', 'sleep_period']) {
+  for (const eventKind of [
+    'presence_tick_evaluated',
+    'no_visible_delivery_observed',
+    'visible_delivery_committed',
+    'post_commit_side_effect_blocked',
+    'rest_period',
+    'sleep_period'
+  ]) {
     const event = await persistence.recordAgentLifeEvent({
       eventKind,
       visibility: 'self_private',
@@ -146,7 +153,14 @@ test('recordAgentLifeEvent accepts homeostasis projection event kinds', async ()
     assert.equal(event.eventKind, eventKind);
   }
 
-  assert.deepEqual(createdKinds, ['presence_tick_evaluated', 'rest_period', 'sleep_period']);
+  assert.deepEqual(createdKinds, [
+    'presence_tick_evaluated',
+    'no_visible_delivery_observed',
+    'visible_delivery_committed',
+    'post_commit_side_effect_blocked',
+    'rest_period',
+    'sleep_period'
+  ]);
 });
 
 test('listAgentLifeEvents can read oldest-first batches for projection replay', async () => {
@@ -179,4 +193,146 @@ test('listAgentLifeEvents can read oldest-first batches for projection replay', 
 
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
   assert.equal(rows[0].id, '1');
+});
+
+test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window', async () => {
+  let findPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async (payload) => {
+          findPayload = payload;
+          return [{
+            id: 9n,
+            identity_key: 'xiaoni',
+            event_kind: 'sleep_period',
+            occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+            visibility: 'self_private',
+            payload: {
+              reason: '先休息一下',
+              duration_ms: 5 * 60 * 1000
+            },
+            trace_id: 'trace-rest',
+            run_id: 'run-rest',
+            dedupe_key: 'sleep:1',
+            created_at: new Date('2026-06-06T12:34:51.000Z')
+          }];
+        }
+      }
+    }
+  });
+
+  const activeWindow = await persistence.getActiveAgentRecoveryWindow({
+    identityKey: 'xiaoni',
+    now: new Date('2026-06-06T12:36:51.000Z')
+  });
+
+  assert.deepEqual(findPayload.where, {
+    identity_key: 'xiaoni',
+    event_kind: { in: ['rest_period', 'sleep_period'] }
+  });
+  assert.equal(activeWindow.eventId, '9');
+  assert.equal(activeWindow.eventKind, 'sleep_period');
+  assert.equal(activeWindow.recoverUntil, '2026-06-06T12:39:51.000Z');
+  assert.equal(activeWindow.remainingMs, 3 * 60 * 1000);
+  assert.equal(activeWindow.reason, '先休息一下');
+  assert.equal(activeWindow.traceId, 'trace-rest');
+});
+
+test('getActiveAgentRecoveryWindow ignores expired recovery events', async () => {
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async () => [{
+          id: 10n,
+          identity_key: 'xiaoni',
+          event_kind: 'sleep_period',
+          occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+          visibility: 'self_private',
+          payload: { duration_minutes: 5 },
+          dedupe_key: 'sleep:expired',
+          created_at: new Date('2026-06-06T12:34:51.000Z')
+        }]
+      }
+    }
+  });
+
+  const activeWindow = await persistence.getActiveAgentRecoveryWindow({
+    now: new Date('2026-06-06T12:40:00.000Z')
+  });
+
+  assert.equal(activeWindow, null);
+});
+
+test('getLatestAgentRecoveryWindow returns expired window and continuation status', async () => {
+  let queueLookupPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async () => [{
+          id: 11n,
+          identity_key: 'xiaoni',
+          event_kind: 'sleep_period',
+          occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+          visibility: 'self_private',
+          payload: {
+            reason: '睡五分钟',
+            duration_minutes: 5
+          },
+          trace_id: 'trace-sleep',
+          run_id: 'run-sleep',
+          dedupe_key: 'sleep:latest',
+          created_at: new Date('2026-06-06T12:34:51.000Z')
+        }]
+      },
+      agentQueueMessage: {
+        findUnique: async (payload) => {
+          queueLookupPayload = payload;
+          return null;
+        }
+      }
+    }
+  });
+
+  const latestWindow = await persistence.getLatestAgentRecoveryWindow({
+    now: new Date('2026-06-06T12:40:00.000Z')
+  });
+
+  assert.equal(latestWindow.eventId, '11');
+  assert.equal(latestWindow.active, false);
+  assert.equal(latestWindow.remainingMs, 0);
+  assert.equal(latestWindow.recoverUntil, '2026-06-06T12:39:51.000Z');
+  assert.equal(latestWindow.continuationDedupeKey, 'self_continuation:recovery:11');
+  assert.equal(latestWindow.continuationQueued, false);
+  assert.deepEqual(queueLookupPayload.where, {
+    dedupe_key: 'self_continuation:recovery:11'
+  });
+});
+
+test('getLatestAgentRecoveryWindow marks existing continuation queue', async () => {
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async () => [{
+          id: 12n,
+          identity_key: 'xiaoni',
+          event_kind: 'sleep_period',
+          occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+          visibility: 'self_private',
+          payload: { duration_ms: 300000 },
+          dedupe_key: 'sleep:queued',
+          created_at: new Date('2026-06-06T12:34:51.000Z')
+        }]
+      },
+      agentQueueMessage: {
+        findUnique: async () => ({ id: 99n, status: 'settled' })
+      }
+    }
+  });
+
+  const latestWindow = await persistence.getLatestAgentRecoveryWindow({
+    now: new Date('2026-06-06T12:40:00.000Z')
+  });
+
+  assert.equal(latestWindow.continuationQueued, true);
 });

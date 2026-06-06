@@ -19,6 +19,7 @@ const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
 const { createQqUsagePersistence } = require('./qq-usage');
+const { createAgentRuntimeControlPersistence } = require('./agent-runtime-control');
 const {
   STORAGE_TIMEZONE,
   TIMESTAMP_WITHOUT_TZ_OID,
@@ -463,6 +464,10 @@ const qqUsagePersistence = createQqUsagePersistence({
   getPrismaClient
 });
 
+const agentRuntimeControlPersistence = createAgentRuntimeControlPersistence({
+  createSqlAdapter
+});
+
 module.exports = {
   Prisma,
   buildDatabaseUrl,
@@ -491,5 +496,6 @@ module.exports = {
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,
   ...agentMemoryPersistence,
-  ...qqUsagePersistence
+  ...qqUsagePersistence,
+  ...agentRuntimeControlPersistence
 };

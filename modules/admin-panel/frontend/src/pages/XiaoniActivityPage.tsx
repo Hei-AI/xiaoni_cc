@@ -298,7 +298,7 @@ function RuntimeStrip({
           background <span className="font-medium text-foreground">{activeBackground}</span>
         </span>
         <span className="text-muted-foreground">
-          loop <span className="font-medium text-foreground">{autonomy?.latestConsciousnessTickAt ? formatTimestamp(autonomy.latestConsciousnessTickAt) : '-'}</span>
+          stream <span className="font-medium text-foreground">{feed?.current.latestActivityAt ? formatTimestamp(feed.current.latestActivityAt) : '-'}</span>
         </span>
         <span className="text-muted-foreground">
           手机通知 <span className="font-medium text-foreground">{autonomy?.latestPhoneNotificationAt ? formatTimestamp(autonomy.latestPhoneNotificationAt) : '-'}</span>

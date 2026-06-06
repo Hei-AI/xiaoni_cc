@@ -1,9 +1,11 @@
 import express from 'express';
-import { agentConfig, serverConfig } from './config';
+import { getActiveAgentRecoveryWindow, getAgentRuntimeControl, getLatestAgentRecoveryWindow } from '@qq-bot/persistence';
+import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
+import { processNextAgentQueueItem } from './services/agent-queue-worker';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
@@ -11,11 +13,15 @@ const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store);
 const taskWorkerService = new AgentTaskWorkerService();
-const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store));
+const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
+  botAccountId: agentConfig.botAccountId
+});
 
 let stopping = false;
 let workerBusy = false;
 let taskWorkerBusy = false;
+let runtimeEnabled = true;
+let lastProcessingRecoveryAt = 0;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -29,6 +35,8 @@ app.get('/health', async (_req, res) => {
     service: 'agent-service',
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
+    runtime_enabled: runtimeEnabled,
+    autonomous_runtime_enabled: agentConfig.autonomousRuntimeEnabled,
     timestamp: new Date().toISOString()
   });
 });
@@ -67,21 +75,40 @@ async function pollQueueOnce() {
     return agentConfig.idleIntervalMs;
   }
 
+  await recoverStaleProcessingLeasesPeriodically();
+
+  runtimeEnabled = await isRuntimeEnabled();
+  if (!runtimeEnabled) {
+    return agentConfig.idleIntervalMs;
+  }
+
   workerBusy = true;
   try {
-    const queueMessage = await store.claimNextQueueMessage(agentConfig.workerId);
-    if (!queueMessage) {
-      await store.enqueueConsciousnessTick('queue_idle');
-      const consciousnessTick = await store.claimNextQueueMessage(agentConfig.workerId);
-      if (!consciousnessTick) {
-        return agentConfig.idleIntervalMs;
+    return await processNextAgentQueueItem({
+      store,
+      loopService,
+      workerId: agentConfig.workerId,
+      idleIntervalMs: agentConfig.idleIntervalMs,
+      pollIntervalMs: agentConfig.pollIntervalMs,
+      autonomousRuntimeEnabled: agentConfig.autonomousRuntimeEnabled,
+      autonomousRuntimeSliceIntervalMs: agentConfig.autonomousRuntimeSliceIntervalMs,
+      getActiveRecoveryWindow: () => getActiveAgentRecoveryWindow({
+        identityKey: 'xiaoni'
+      }, databaseConfig),
+      getLatestRecoveryWindow: () => getLatestAgentRecoveryWindow({
+        identityKey: 'xiaoni'
+      }, databaseConfig),
+      onRecoveryWindowError: (error) => {
+        moduleLogger.warn('Failed to check Xiaoni active recovery window', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      },
+      onAutonomousRuntimeSliceError: (error) => {
+        moduleLogger.warn('Failed to enqueue Xiaoni autonomous runtime slice', {
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
-      await loopService.processQueueMessage(consciousnessTick);
-      return agentConfig.pollIntervalMs;
-    }
-
-    await loopService.processQueueMessage(queueMessage);
-    return agentConfig.pollIntervalMs;
+    });
   } catch (error) {
     moduleLogger.error('Agent queue poll failed', {
       error: error instanceof Error ? error.message : String(error)
@@ -89,6 +116,27 @@ async function pollQueueOnce() {
     return agentConfig.idleIntervalMs;
   } finally {
     workerBusy = false;
+  }
+}
+
+async function recoverStaleProcessingLeasesPeriodically() {
+  const now = Date.now();
+  const minIntervalMs = Math.max(30_000, Math.min(agentConfig.processingRecoveryStaleMs, 60_000));
+  if (now - lastProcessingRecoveryAt < minIntervalMs) {
+    return;
+  }
+  lastProcessingRecoveryAt = now;
+  const recovered = await store.recoverStaleProcessingLeases({
+    staleMs: agentConfig.processingRecoveryStaleMs,
+    reason: 'agent_service_periodic_recovery'
+  }).catch((error) => {
+    moduleLogger.warn('Failed to recover stale processing leases during queue polling', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  });
+  if (recovered && (recovered.failedRuns > 0 || recovered.settledRuns > 0 || recovered.failedQueueMessages > 0 || recovered.settledQueueMessages > 0)) {
+    moduleLogger.warn('Recovered stale processing leases during queue polling', recovered);
   }
 }
 
@@ -106,6 +154,11 @@ async function pollTaskQueueOnce() {
     return agentConfig.idleIntervalMs;
   }
 
+  runtimeEnabled = await isRuntimeEnabled();
+  if (!runtimeEnabled) {
+    return agentConfig.idleIntervalMs;
+  }
+
   taskWorkerBusy = true;
   try {
     const processed = await taskWorkerService.processNext(`${agentConfig.workerId}:task`);
@@ -117,6 +170,18 @@ async function pollTaskQueueOnce() {
     return agentConfig.idleIntervalMs;
   } finally {
     taskWorkerBusy = false;
+  }
+}
+
+async function isRuntimeEnabled() {
+  try {
+    const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+    return control.enabled !== false;
+  } catch (error) {
+    moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return true;
   }
 }
 

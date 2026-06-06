@@ -92,18 +92,33 @@ def build_parser():
     scroll_inbox = subcommands.add_parser("scroll_inbox")
     scroll_inbox.add_argument("direction", choices=["older", "newer"])
 
-    focus_thread = subcommands.add_parser("focus_thread")
-    focus_thread.add_argument("thread_key")
+    focus_private = subcommands.add_parser("focus_private")
+    focus_private.add_argument("user_id")
 
-    scroll_thread = subcommands.add_parser("scroll_thread")
-    scroll_thread.add_argument("thread_key")
-    scroll_thread.add_argument("direction", choices=["older", "newer"])
+    focus_group = subcommands.add_parser("focus_group")
+    focus_group.add_argument("group_id")
 
-    jump_to_latest = subcommands.add_parser("jump_to_latest")
-    jump_to_latest.add_argument("thread_key")
+    scroll_private = subcommands.add_parser("scroll_private")
+    scroll_private.add_argument("user_id")
+    scroll_private.add_argument("direction", choices=["older", "newer"])
 
-    put_away = subcommands.add_parser("put_qq_away")
-    put_away.add_argument("thread_key", nargs="?")
+    scroll_group = subcommands.add_parser("scroll_group")
+    scroll_group.add_argument("group_id")
+    scroll_group.add_argument("direction", choices=["older", "newer"])
+
+    jump_private = subcommands.add_parser("jump_private_to_latest")
+    jump_private.add_argument("user_id")
+
+    jump_group = subcommands.add_parser("jump_group_to_latest")
+    jump_group.add_argument("group_id")
+
+    put_private_away = subcommands.add_parser("put_private_away")
+    put_private_away.add_argument("user_id")
+
+    put_group_away = subcommands.add_parser("put_group_away")
+    put_group_away.add_argument("group_id")
+
+    subcommands.add_parser("put_qq_away")
 
     return parser
 

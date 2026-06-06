@@ -1170,6 +1170,21 @@ export type AgentLifeEventProjection = {
   dedupeKey: string;
   createdAt: string | null;
 };
+export type AgentRecoveryWindowProjection = {
+  active: boolean;
+  identityKey: string;
+  eventId: string | null;
+  eventKind: string;
+  occurredAt: string;
+  recoverUntil: string;
+  remainingMs: number;
+  durationMs: number;
+  reason: string | null;
+  traceId: string | null;
+  runId: string | null;
+  continuationDedupeKey?: string | null;
+  continuationQueued?: boolean;
+};
 export type XiaoniActivityFeedItem = {
   id: string;
   source: 'life_event' | 'tool_call' | 'provider_call' | 'llm_call' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
@@ -1406,6 +1421,8 @@ export function ensureAgentLifeEventSchema(config?: DatabaseUrlConfig): Promise<
 export function recordAgentLifeEvent(input: RecordAgentLifeEventInput, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection>;
 export function listAgentLifeEvents(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
 export function listAgentLifeEventsForPrompt(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection[]>;
+export function getActiveAgentRecoveryWindow(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWindowProjection | null>;
+export function getLatestAgentRecoveryWindow(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWindowProjection | null>;
 export function findAgentLifeEventByDedupeKey(dedupeKey: string, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection | null>;
 export function ensureXiaoniReplayEventSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function recordXiaoniReplayEvent(input: RecordXiaoniReplayEventInput, config?: DatabaseUrlConfig): Promise<XiaoniReplayEventProjection>;
@@ -1419,3 +1436,11 @@ export function attachConversationIdToXiaoniReplayEventsByTrace(input: {
 }, config?: DatabaseUrlConfig): Promise<number>;
 export function getXiaoniActivityFeed(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActivityFeedResult>;
 export function getXiaoniActionStream(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActionStreamResult>;
+export type AgentRuntimeControlProjection = {
+  identityKey: string;
+  enabled: boolean;
+  updatedAt: string | null;
+};
+export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function getAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;

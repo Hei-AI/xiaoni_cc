@@ -339,7 +339,7 @@ function getMessageContent(item: unknown) {
 }
 
 function expectedCurrentInputMessage() {
-  return '<PHONE_NOTIFICATION app="qq" surface="status_bar" session_key="qq:group:101" chat_type="group" peer_id="101" peer_name="Test Group" unread_delta="1" direct_mentions="1" latest_received_at="2026-03-28T08:00:00.000Z" />';
+  return '<PHONE_NOTIFICATION app="qq" surface="status_bar" session_key="qq:group:101" chat_type="group" peer_id="101" peer_name="Test Group" unread_delta="1" direct_mentions="1" latest_received_at="2026-03-28T08:00:00.000Z" reason="group_mention_phone_notification" />';
 }
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
@@ -593,6 +593,52 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   assert.match(contents[digestIndex], /上一段近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);
 });
+
+test('buildInitialInput treats self continuation as an internal life slice without QQ input', () => {
+  const selfPayload: QueueMessagePayload = {
+    ...createQueuePayload(),
+    source: 'self_continuation',
+    chatType: 'direct',
+    sessionKey: 'xiaoni:global',
+    peerId: '303',
+    peerName: '小腻',
+    senderId: '303',
+    senderName: '小腻',
+    bodyForAgent: '',
+    rawBody: '',
+    commandBody: '',
+    wasMentioned: false,
+    phoneNotification: undefined,
+    messages: [],
+    inboundContext: {
+      Body: '',
+      BodyForAgent: '',
+      BodyForCommands: '',
+      NativeChannelId: 'xiaoni:global',
+      Surface: 'self_continuation',
+      CommandAuthorized: false
+    },
+    selfContinuation: {
+      identityKey: 'xiaoni',
+      reason: 'recovery_complete',
+      recoveryEventId: '9',
+      recoverUntil: '2026-06-06T12:39:51.000Z',
+      createdAt: '2026-06-06T12:39:51.000Z'
+    }
+  };
+  const loopInput = buildInitialInput([], selfPayload, createRuntimePrompt());
+  const currentTurnRendered = loopInput
+    .filter((item: any) => item.role === 'user' || item.role === 'assistant')
+    .map(getMessageContent)
+    .join('\n');
+
+	  assert.equal(loopInput.some((item: any) => item.role === 'user'), false);
+	  assert.doesNotMatch(currentTurnRendered, /<PHONE_NOTIFICATION/);
+	  assert.doesNotMatch(currentTurnRendered, /<INPUT_MESSAGE/);
+	  assert.doesNotMatch(currentTurnRendered, /当前输入来自内部调度切片/);
+	  assert.match(currentTurnRendered, /连续生命切片/);
+	  assert.match(currentTurnRendered, /recover_energy/);
+	});
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
@@ -1102,6 +1148,49 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.doesNotMatch(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
+});
+
+test('buildInitialInput renders completed image tasks as task notifications', () => {
+  const payload = createQueuePayload();
+  payload.source = 'image_task_notification';
+  payload.sessionKey = 'xiaoni:global';
+  payload.chatType = 'direct';
+  payload.peerId = '1129974489';
+  payload.peerName = '小腻 runtime';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.rawPayload = {
+    kind: 'image_task_completed',
+    task_id: 'task-image-1',
+    picture_id: 'task_artifact_1',
+    picture_path: '/xiaoni-runtime/picture/task_artifact_1.png'
+  };
+  payload.inboundContext.Surface = 'image_task_notification';
+  payload.imageTaskNotification = {
+    taskId: 'task-image-1',
+    taskType: 'image_generate',
+    taskStatus: 'completed',
+    pictureId: 'task_artifact_1',
+    picturePath: '/xiaoni-runtime/picture/task_artifact_1.png',
+    pictureMimeType: 'image/png',
+    pictureBytes: 123,
+    targetDescription: '一张测试图',
+    sourceTraceId: 'trace-source',
+    sourceRunId: 'run-source',
+    createdAt: '2026-03-28T08:01:00.000Z'
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }));
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.match(rendered, /<IMAGE_TASK_NOTIFICATION/);
+  assert.match(rendered, /task_id="task-image-1"/);
+  assert.match(rendered, /picture_id="task_artifact_1"/);
+  assert.match(rendered, /picture_path="\/xiaoni-runtime\/picture\/task_artifact_1\.png"/);
+  assert.match(rendered, /这是生图任务完成通知/);
+  assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
 
 test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread metadata only', () => {
@@ -1682,10 +1771,10 @@ test('buildInitialInput appends standalone xiaoni_os when the latest turn was si
       aiResponse: null,
       rawResponse: {
         lease_release: {
-          reason: 'max_model_slices_reached',
+          reason: 'no_visible_delivery_observed',
           detail: '刚才大家是在彼此接话，我插进去会显得多余。'
         },
-        lease_release_reason: 'max_model_slices_reached',
+        lease_release_reason: 'no_visible_delivery_observed',
         no_visible_delivery: true
       },
       items: [
@@ -2563,8 +2652,9 @@ test('applyToolResultToLoopInput replays image task output and reminds that visi
     rawArguments: '{"prompt":"一张蓝天白云头像图","target_description":"群头像图"}'
   }, {
     queued: true,
+    task_id: 'task-image-queued',
     task_type: 'image_generate',
-    status_text: '我已经开始处理这张图，等结果出来再发。'
+    status_text: '生图任务:task-image-queued 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的'
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
@@ -2579,7 +2669,7 @@ test('applyToolResultToLoopInput replays image task output and reminds that visi
   const reminder = getMessageContent(continuation.inputItems[1]);
   assert.equal(continuation.forcedVisibleReply, null);
   assert.match(reminder, /这还不等于已经对聊天对象说过话/);
-  assert.match(reminder, /我已经开始处理这张图/);
+  assert.match(reminder, /生图任务:task-image-queued 正在进行中/);
 });
 
 test('requestImageTask normalizes edit without source image to image_generate', async () => {
@@ -2613,7 +2703,8 @@ test('requestImageTask normalizes edit without source image to image_generate', 
   });
   assert.equal(result.task_type, 'image_generate');
   assert.equal(result.requested_task_type, 'image_edit');
-  assert.match(String(result.status_text), /生成一张新图/);
+  assert.equal(result.task_id, 'task-generate-from-edit');
+  assert.equal(result.status_text, '生图任务:task-generate-from-edit 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的');
 });
 
 test('requestImageTask keeps image_edit when a source image resolves', async () => {
@@ -2650,7 +2741,8 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   });
   assert.equal(result.task_type, 'image_edit');
   assert.equal(result.requested_task_type, 'image_edit');
-  assert.match(String(result.status_text), /处理这张图/);
+  assert.equal(result.task_id, 'task-edit');
+  assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的');
 });
 
 test('summarizeToolLoopState counts tool calls by name and phase', () => {
@@ -2723,25 +2815,6 @@ test('buildToolLoopMonitorReminder appends deterministic reminder for repeated c
     nextTurn: 4,
     maxTurns: 6
   }), null);
-});
-
-test('buildToolLoopMonitorReminder warns before max turn without final tool', () => {
-  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'meaning-1',
-    name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"问题","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"问题"}'
-  });
-
-  const reminder = buildToolLoopMonitorReminder(loopInput, {
-    nextTurn: 6,
-    maxTurns: 6
-  });
-
-  assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /工程上限/);
-  assert.match(getMessageContent(reminder!), /final_answer/);
 });
 
 test('send_in_group uses explicit group target when provided', async () => {
@@ -3151,6 +3224,7 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
   assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.role, 'user');
+  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.source, 'sensory_event');
   assert.equal(storeCalls.createConversation[0]?.errorReason, 'No active agent prompt binding found for current conversation');
   assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.prompt, {
     source: null,
@@ -3327,7 +3401,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       content: item.content,
       groupIndex: item.groupIndex,
       itemIndex: item.itemIndex,
-      deliveryMessageId: item.deliveryMessageId ?? null
+      deliveryMessageId: item.deliveryMessageId ?? null,
+      source: item.source
     })),
     [
       {
@@ -3336,7 +3411,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
         content: expectedCurrentInputMessage(),
         groupIndex: 0,
         itemIndex: 0,
-        deliveryMessageId: null
+        deliveryMessageId: null,
+        source: 'sensory_event'
       },
       {
         role: 'assistant',
@@ -3344,7 +3420,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
         content: '第一条',
         groupIndex: 1,
         itemIndex: 0,
-        deliveryMessageId: 5001
+        deliveryMessageId: 5001,
+        source: 'delivery'
       },
       {
         role: 'assistant',
@@ -3352,7 +3429,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
         content: '第二条',
         groupIndex: 1,
         itemIndex: 1,
-        deliveryMessageId: 5002
+        deliveryMessageId: 5002,
+        source: 'delivery'
       }
     ]
   );
@@ -3361,6 +3439,20 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
+  assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.runtime_stream, {
+    stream_key: 'xiaoni:global',
+    context_session_key: 'xiaoni:global',
+    trigger_source: 'phone_notification',
+    trigger_kind: 'sensory_event',
+    sensory_input: true,
+    append_strategy: 'responses_replay_items',
+    response_replay_item_count: storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.length,
+    model_request_slices: 2
+  });
+  assert.deepEqual(
+    storeCalls.createConversation[0]?.rawResponse?.runtime_stream,
+    storeCalls.createConversation[0]?.rawRequest?.runtime_stream
+  );
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.loop_stage_artifacts?.life_action, undefined);
   assert.equal(storeCalls.createToolExecutionLog[0]?.toolName, GROUP_REPLY_TOOL);
   assert.equal(storeCalls.createToolExecutionLog[0]?.sideEffect, true);
@@ -3498,12 +3590,13 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   await service.processQueueMessage(queueMessage as any);
 
   assert.equal(turn, 2);
-  assert.match(secondTurnInput, /没有调用任何工具/);
-  assert.match(secondTurnInput, /不要用.+没有工具调用.+表达沉默或结束/);
+  assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
+  assert.doesNotMatch(secondTurnInput, /不要用.+没有工具调用.+表达沉默或结束/);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.source, 'sensory_event');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.detail, '精力不够，自己选择休息。');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先休息，之后再看。');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
@@ -3515,6 +3608,105 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent[0]?.toolName, RECOVER_ENERGY_TOOL);
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
+});
+
+test('processQueueMessage continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
+  const queueMessage = {
+    id: 'run-queue-unbounded-loop',
+    traceId: 'trace-unbounded-loop',
+    batchId: 'batch-unbounded-loop',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    recordNoVisibleDeliveryLifeEvent: [],
+    recordRecoverEnergyLifeEvent: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-unbounded-loop',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1888;
+    },
+    attachConversationIdToTrace: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordNoVisibleDeliveryLifeEvent: async (params: any) => { storeCalls.recordNoVisibleDeliveryLifeEvent.push(params); },
+    recordRecoverEnergyLifeEvent: async (params: any) => { storeCalls.recordRecoverEnergyLifeEvent.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turns = 0;
+  (service as any).executeAgentTurn = async () => {
+    turns += 1;
+    if (turns > agentConfig.maxTurns + 2) {
+      return {
+        success: true,
+        llm_call_id: `llm-unbounded-terminal-${turns}`,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-unbounded-recover',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: JSON.stringify({
+              reason: '模型自己决定休息，工程没有按 slice 上限截断。',
+              duration_minutes: 5,
+              xiaoni_os: '连续输出已经自然收束。'
+            })
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: `llm-unbounded-loop-${turns}`,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          content: [{ type: 'output_text', text: `内部想法 ${turns}` }]
+        }]
+      }
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(turns, agentConfig.maxTurns + 3);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, agentConfig.maxTurns + 3);
+  assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
 test('processQueueMessage does not allow request_image_task to swallow the visible group reply', async () => {
@@ -3683,8 +3875,8 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
               name: GROUP_REPLY_TOOL,
               arguments: JSON.stringify({
                 group_id: 1019235326,
-                messages: ['我已经开始帮Alice生成这张图，等结果出来再发。'],
-                xiaoni_os: '图片任务已提交，同时对群里可见地接住。'
+                messages: ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。'],
+                xiaoni_os: '图片任务已提交，但对群里的可见回复由我自己决定措辞。'
               })
             }]
           }
@@ -3707,8 +3899,8 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
 
     assert.equal(turn, 3);
     assert.equal(storeCalls.createConversation.length, 1);
-    assert.equal(storeCalls.createConversation[0]?.aiResponse, '我已经开始帮Alice生成这张图，等结果出来再发。');
-    assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['我已经开始帮Alice生成这张图，等结果出来再发。']);
+    assert.equal(storeCalls.createConversation[0]?.aiResponse, '图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。');
+    assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。']);
 	    assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-image-task-followup']);
     assert.equal(sendGroupCalls.length, 1);
@@ -3716,9 +3908,136 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
     assert.deepEqual(sendGroupCalls[0]?.body, {
       session_key: 'qq:group:1019235326',
       group_id: 1019235326,
-      messages: ['我已经开始帮Alice生成这张图，等结果出来再发。'],
+      messages: ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。'],
       mention_user_ids: []
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('processQueueMessage does not auto-send image task status after queuing', async () => {
+  const queueMessage = {
+    id: 'run-queue-image-task-no-auto-send',
+    traceId: 'trace-image-task-no-auto-send',
+    batchId: 'batch-image-task-no-auto-send',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-04-27T14:06:27.315Z',
+    queueMessageIds: [2006],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    markLeaseVisibleDeliveryCommitted: [],
+    createRuntimeTask: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-image-task-no-auto-send',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    createRuntimeTask: async (input: any) => {
+      storeCalls.createRuntimeTask.push(input);
+      return { id: 'task-image-no-auto-send' };
+    },
+    getMediaAssetByTag: async () => null,
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async (runId: string) => {
+      storeCalls.markLeaseVisibleDeliveryCommitted.push(runId);
+    },
+    markLeaseDeliveryBlocked: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 3590;
+    },
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: Array<{ url: string; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({
+      url: String(url),
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    });
+    return {
+      ok: true,
+      json: async () => ({ success: true, data: { message_id: 7789 } })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    let turn = 0;
+    (service as any).executeAgentTurn = async () => {
+      turn += 1;
+      if (turn === 1) {
+        return {
+          success: true,
+          llm_call_id: 'llm-image-task-no-auto-send-1',
+          canonical_response: {
+            output: [{
+              type: 'function_call',
+              call_id: 'call-image-task-no-auto-send',
+              name: IMAGE_TASK_TOOL,
+              arguments: JSON.stringify({
+                prompt: '一张很普通的蓝天白云头像图',
+                target_description: '群聊里用于头像的普通蓝天白云图'
+              })
+            }]
+          }
+        };
+      }
+      return {
+        success: true,
+        llm_call_id: 'llm-image-task-no-auto-send-2',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-recover-after-image-task',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: JSON.stringify({
+              reason: '生图任务已进入后台，等完成通知。',
+              duration_minutes: 5,
+              xiaoni_os: '生图任务 task-image-no-auto-send 正在后台进行，完成后会通知我。'
+            })
+          }]
+        }
+      };
+    };
+
+    await service.processQueueMessage(queueMessage as any);
+
+    assert.equal(turn, 2);
+    assert.equal(storeCalls.createRuntimeTask.length, 1);
+    assert.equal(storeCalls.createConversation.length, 1);
+    assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+    assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, []);
+    assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
+    assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, []);
+    assert.deepEqual(fetchCalls, []);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -4300,6 +4619,58 @@ test('runtime energy recovery starts negative debt from zero and reaches full in
   assert.match(String(forced?.stateBlock), /trigger="forced_full_recovery"/);
 });
 
+test('recover_energy refuses to sleep when Xiaoni is already full energy', async () => {
+  const service = new AgentLoopService({
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 1,
+      maxEnergy: 1
+    })
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-recover-full',
+    name: RECOVER_ENERGY_TOOL,
+    args: {
+      reason: '我想继续睡',
+      duration_minutes: 30,
+      xiaoni_os: '其实已经不累了。'
+    },
+    rawArguments: '{}'
+  }, createQueuePayload());
+
+  assert.equal(result.release_lease, undefined);
+  assert.equal(result.recovered, false);
+  assert.equal(result.rest_rejected, true);
+  assert.equal(result.reason, '你已经精力充沛了, 不能再睡觉了 ,去找点事做');
+  assert.equal(result.energy, 1);
+  assert.equal(result.max_energy, 1);
+  assert.equal(result.xiaoni_os, '其实已经不累了。');
+});
+
+test('recover_energy can still sleep when current energy is below full', async () => {
+  const service = new AgentLoopService({
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.5,
+      maxEnergy: 1
+    })
+  } as any);
+
+  const result = await (service as any).executeTool({
+    callId: 'call-recover-low',
+    name: RECOVER_ENERGY_TOOL,
+    args: {
+      reason: '真的累了',
+      duration_minutes: 30
+    },
+    rawArguments: '{}'
+  }, createQueuePayload());
+
+  assert.equal(result.release_lease, true);
+  assert.equal(result.lease_release_reason, 'rest_started');
+  assert.equal(result.recovered, true);
+  assert.equal(result.duration_ms, 30 * 60 * 1000);
+});
+
 test('rest interruption uses unread metadata only and resumes after three direct mentions', () => {
   const result = resolveRestInterruptionFromUnreadMetadata({
     rawEnergy: -0.2,
@@ -4730,6 +5101,7 @@ test('buildInitialInput appends CAPABILITIES once near the start', () => {
   assert.doesNotMatch(summaryCapabilitiesBlock, /qq_usage_/);
   assert.match(summaryCapabilitiesBlock, /skill-creator: energy_cost=0.120/);
   assert.match(summaryCapabilitiesBlock, /qq-usage: energy_cost=0.004/);
+  assert.match(summaryCapabilitiesBlock, /qq-send-image: energy_cost=0.012/);
 
   const withRefresh = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], null, null, '<capability_refresh reason="operator" />');
   const refreshCapabilities = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));

@@ -17,6 +17,21 @@ type ExecCommandRequest = {
   env?: unknown;
 };
 
+type StorePictureRequest = {
+  picture_id?: unknown;
+  data_url?: unknown;
+  mime_type?: unknown;
+  format?: unknown;
+};
+
+type StoredPicture = {
+  picture_id: string;
+  filename: string;
+  path: string;
+  mime_type: string;
+  bytes: number;
+};
+
 type ExecCommandResult = {
   cmd: string;
   workdir: string;
@@ -78,6 +93,68 @@ const runtimeRoot = process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime';
 const workspaceRoot = process.env.WORKSPACE_ROOT || '/workspace/qq_bot';
 const sessions = new Map<string, RuntimeSession>();
 const execFileAsync = promisify(execFile);
+
+function safePictureId(value: unknown) {
+  const raw = typeof value === 'string' && value.trim()
+    ? value.trim()
+    : `picture_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  const normalized = raw.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/^_+/, '');
+  return normalized || `picture_${Date.now()}_${randomUUID().slice(0, 8)}`;
+}
+
+function extensionForPicture(mimeType: string, format: unknown) {
+  const normalizedFormat = typeof format === 'string' ? format.trim().toLowerCase() : '';
+  if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(normalizedFormat)) {
+    return normalizedFormat === 'jpeg' ? 'jpg' : normalizedFormat;
+  }
+  const normalizedMime = mimeType.toLowerCase();
+  if (normalizedMime.includes('jpeg') || normalizedMime.includes('jpg')) {
+    return 'jpg';
+  }
+  if (normalizedMime.includes('webp')) {
+    return 'webp';
+  }
+  if (normalizedMime.includes('gif')) {
+    return 'gif';
+  }
+  return 'png';
+}
+
+export async function storePicture(input: StorePictureRequest, root = runtimeRoot): Promise<StoredPicture> {
+  const dataUrl = typeof input.data_url === 'string' ? input.data_url.trim() : '';
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/s);
+  if (!match) {
+    throw new Error('store picture requires a base64 data_url');
+  }
+  const mimeType = typeof input.mime_type === 'string' && input.mime_type.trim()
+    ? input.mime_type.trim()
+    : match[1];
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length === 0) {
+    throw new Error('store picture received empty image bytes');
+  }
+  const pictureId = safePictureId(input.picture_id);
+  const extension = extensionForPicture(mimeType, input.format);
+  const filename = pictureId.match(/\.[a-z0-9]{2,5}$/i) ? pictureId : `${pictureId}.${extension}`;
+  const pictureDir = path.join(root, 'picture');
+  await mkdir(pictureDir, { recursive: true });
+  const filePath = path.join(pictureDir, filename);
+  await writeFile(filePath, bytes);
+  await appendAudit('picture_store', {
+    picture_id: pictureId,
+    filename,
+    path: filePath,
+    mime_type: mimeType,
+    bytes: bytes.length
+  }, root);
+  return {
+    picture_id: pictureId,
+    filename,
+    path: filePath,
+    mime_type: mimeType,
+    bytes: bytes.length
+  };
+}
 
 export function splitCsv(value: string): string[] {
   return value
@@ -219,9 +296,11 @@ async function persistSession(session: RuntimeSession) {
   await writeFile(buildSessionFilePath(session.id), JSON.stringify(snapshot, null, 2));
 }
 
-async function appendAudit(event: string, payload: Record<string, unknown>) {
+async function appendAudit(event: string, payload: Record<string, unknown>, root = runtimeRoot) {
   const line = JSON.stringify({ event, at: new Date().toISOString(), ...payload });
-  await appendFile(path.join(runtimeRoot, 'logs', 'exec-command.jsonl'), `${line}\n`);
+  const logsDir = path.join(root, 'logs');
+  await mkdir(logsDir, { recursive: true });
+  await appendFile(path.join(logsDir, 'exec-command.jsonl'), `${line}\n`);
 }
 
 function sessionToSnapshot(session: RuntimeSession) {
@@ -575,6 +654,19 @@ async function route(req: IncomingMessage, res: ServerResponse) {
     const body = await readJson(req);
     const result = await executeCommand((body && typeof body === 'object') ? body as ExecCommandRequest : {});
     sendJson(res, 200, { success: true, result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/internal/pictures') {
+    try {
+      const body = await readJson(req);
+      const result = await storePicture((body && typeof body === 'object') ? body as StorePictureRequest : {});
+      sendJson(res, 200, { success: true, result });
+    } catch (error) {
+      sendJson(res, 400, {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
     return;
   }
   const pollMatch = url.pathname.match(/^\/api\/internal\/sessions\/([^/]+)\/poll$/);

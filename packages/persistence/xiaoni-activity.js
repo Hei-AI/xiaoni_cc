@@ -208,6 +208,16 @@ function eventTimestamp(value) {
   return normalizeDate(value) || new Date(0).toISOString();
 }
 
+function queueDisplayTimestamp(row) {
+  if (!row) {
+    return null;
+  }
+  if (isMainLoopQueueSource(row?.source)) {
+    return normalizeDate(row.processing_started_at || row.locked_at || row.available_at || row.created_at);
+  }
+  return normalizeDate(row.updated_at || row.processing_started_at || row.locked_at || row.created_at);
+}
+
 function canonicalMetadata(row) {
   const request = normalizeJsonObject(row?.canonical_request, null);
   return normalizeJsonObject(request?.metadata, {});
@@ -253,7 +263,7 @@ const LIFE_EVENT_LABELS = {
   sleep_period: '睡了一段时间'
 };
 
-const MAIN_LOOP_QUEUE_SOURCES = ['consciousness_tick', 'phone_notification'];
+const MAIN_LOOP_QUEUE_SOURCES = ['phone_notification'];
 
 function isMainLoopQueueSource(source) {
   return MAIN_LOOP_QUEUE_SOURCES.includes(String(source || ''));
@@ -812,9 +822,9 @@ function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
   const mainLoopSource = isMainLoopQueueSource(row.source);
-  const xiaoniSource = row.source === 'consciousness_tick';
-  const title = row.source === 'consciousness_tick'
-    ? '连续意识切片'
+  const legacyConsciousnessTick = row.source === 'consciousness_tick';
+  const title = legacyConsciousnessTick
+    ? '历史连续意识切片'
     : row.source === 'phone_notification'
       ? '手机 QQ 通知'
       : isStaleProcessing
@@ -831,9 +841,9 @@ function summarizeQueueMessage(row, staleCutoffMs) {
     title,
     body: truncateText(row.body_for_agent, 360),
     status: row.status || null,
-    actor: xiaoniSource ? 'xiaoni' : 'system',
-    actorName: xiaoniSource ? '小腻' : row.source === 'phone_notification' ? '手机状态栏' : firstString(row.sender_name, row.sender_id),
-    timestamp: eventTimestamp(row.updated_at || row.created_at),
+    actor: 'system',
+    actorName: row.source === 'phone_notification' ? '手机状态栏' : firstString(row.sender_name, row.sender_id),
+    timestamp: eventTimestamp(queueDisplayTimestamp(row)),
     sessionKey: row.session_key || null,
     peerName: row.peer_name || null,
     runId: row.run_id || null,
@@ -893,8 +903,8 @@ function normalizeLifeState(row) {
 function latestByTimestamp(items) {
   return items
     .filter(Boolean)
-    .sort((left, right) => new Date(eventTimestamp(right.updated_at || right.created_at || right.occurred_at)).getTime()
-      - new Date(eventTimestamp(left.updated_at || left.created_at || left.occurred_at)).getTime())[0] || null;
+    .sort((left, right) => new Date(eventTimestamp(queueDisplayTimestamp(right) || right.updated_at || right.created_at || right.occurred_at)).getTime()
+      - new Date(eventTimestamp(queueDisplayTimestamp(left) || left.updated_at || left.created_at || left.occurred_at)).getTime())[0] || null;
 }
 
 function dedupeFeedItems(items) {
@@ -1094,7 +1104,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
         `, [perSourceLimit]),
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
-          WHERE source IN ('consciousness_tick', 'phone_notification')
+          WHERE source IN ('phone_notification')
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
         `, [perSourceLimit]),
@@ -1195,7 +1205,6 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
         ])
       ]);
 
-      const latestConsciousnessQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'consciousness_tick'));
       const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));
       const latestPresenceEvaluation = latestByTimestamp(lifeEvents.filter((row) => row.event_kind === 'presence_tick_evaluated'));
       const latestPresenceEvaluationPayload = normalizeJsonObject(latestPresenceEvaluation?.payload, {});
@@ -1235,12 +1244,9 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
             failed: digitalStats[3]
           },
           autonomy: {
-            latestConsciousnessTickAt: normalizeDate(
-              latestConsciousnessQueue?.updated_at
-              || latestConsciousnessQueue?.created_at
-            ),
-            latestConsciousnessTickStatus: latestConsciousnessQueue?.status || null,
-            latestPhoneNotificationAt: normalizeDate(latestPhoneNotificationQueue?.updated_at || latestPhoneNotificationQueue?.created_at),
+            latestConsciousnessTickAt: null,
+            latestConsciousnessTickStatus: null,
+            latestPhoneNotificationAt: queueDisplayTimestamp(latestPhoneNotificationQueue),
             latestPhoneNotificationStatus: latestPhoneNotificationQueue?.status || null,
             latestPresenceEvaluationAt: normalizeDate(latestPresenceEvaluation?.occurred_at),
             latestPresenceEvaluationReason: latestPresenceEvaluationPayload.eligible === false

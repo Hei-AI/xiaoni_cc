@@ -5,8 +5,10 @@ import {
   getXiaoniActionStream,
   getXiaoniActivityFeed,
   findXiaoniReplayEventByEventId,
+  getAgentRuntimeControl,
   listAgentMediaAssets,
   listAgentTasks,
+  updateAgentRuntimeControl,
 } from '@qq-bot/persistence';
 import { DatabaseManager } from '../services/database';
 import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
@@ -159,6 +161,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       workerBusy: Boolean(agentPayload.worker_busy),
       taskWorkerBusy: Boolean(agentPayload.task_worker_busy),
       presenceTickBusy: Boolean(agentPayload.presence_tick_busy),
+      runtimeEnabled: agentPayload.runtime_enabled !== false,
       timestamp: typeof agentPayload.timestamp === 'string' ? agentPayload.timestamp : null,
       url: AGENT_SERVICE_URL,
       healthStatusCode: agentProbe.statusCode,
@@ -274,6 +277,46 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: 'Failed to fetch Xiaoni action event trace span detail',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/agent-runtime/control', async (_req, res) => {
+    try {
+      const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' });
+      res.json({
+        success: true,
+        data: control,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni runtime control',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.patch('/agent-runtime/control', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as Record<string, unknown>
+        : {};
+      const control = await updateAgentRuntimeControl({
+        identityKey: 'xiaoni',
+        enabled: body.enabled !== false
+      });
+      res.json({
+        success: true,
+        data: control,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to update Xiaoni runtime control',
         timestamp: new Date().toISOString()
       });
     }

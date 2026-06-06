@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、inbox 写入和内部 loop 触发队列入口
-- `agent-service`: 主 agent loop runtime，消费内部触发队列、重建上下文、执行内部 execution lease、控制 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有固定间隔 presence/self-action 后台循环
+- `agent-service`: 主 agent loop runtime，消费内部触发队列、重建上下文、执行内部 execution lease、控制 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence/self-action runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻连续主 loop
 - `xiaoni-executor`: 小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、小腻行动流、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻行动流”看她当前在做什么
@@ -55,7 +55,7 @@ NapCat -> provider-service
 - `xiaoni-executor` 负责执行小腻的 `exec_command`，默认把 `/app` 映射到 `/workspace/qq_bot`，并把 session、审计日志和 git archive 写入 `/home/liahua/.qqbot-local/xiaoni-runtime`。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - 小腻看 QQ 未读时走 `$qq-usage`：模型通过 `exec_command` 调用 `modules/agent-service/skills/qq-usage` 脚本，脚本请求 `agent-service /api/internal/qq-usage`，底层读取 `agent_inbound_messages` 的 thread list / conversation window。当前 `open_inbox` 最多展示 10 个 thread，`focus_thread` / `scroll_thread` 每次最多展示 10 条消息。清角标通过 `put_qq_away` 写回 inbox read state。
-- 小腻主循环是同一个连续 LLM loop：有 QQ 输入时 queue 里放 `phone_notification`，空闲时由 `agent-service` 自己补 `consciousness_tick` 继续推进。QQ 正文不会因为 queue 被自动打开；模型只能先看到手机状态栏通知摘要，需要内容时自己用 `$qq-usage` 打开 QQ。主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一是 `xiaoni:global`；群/私聊 session 只表示来源、投递目标和 QQ app 未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。
+- 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态与记忆通过 `responses_replay_items` / `conversation_items` 追加进下一轮 request。空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice；它不是旧 `consciousness_tick` 敲钟，也不会自动打开 QQ。QQ 正文不会因为 queue 被自动打开；模型只能先看到手机状态栏通知摘要，需要内容时自己用 `$qq-usage` 打开 QQ。主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一是 `xiaoni:global`；群/私聊 session 只表示来源、投递目标和 QQ app 未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。
 - provider 侧的 participation 现在保留为硬安全边界和观测事件，主行为判断逐步迁移到 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。当前对话历史里的旧 `<小腻的OS>` 按历史真相保留，不做 DB 迁移，并随已读历史一起参与上下文窗口管理。`<小腻近况>` 当前由 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
@@ -102,7 +102,7 @@ docker compose ps
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试仍可用于 Playground 和历史调试；小腻主 prompt 不再从 DB 读取。
 - Playground case library、Raw Trace / Conversation 导入、Provider 请求 payload 查看
-- QQ 未读导航排障时，看 `agent_inbound_messages`、`$qq-usage` 输出和 `agent-service /api/internal/qq-usage`；不要把 `agent_queue_messages` 当成小腻 QQ app 未读列表。小腻 loop 排障时，看 `phone_notification` / `consciousness_tick` queue 项、raw trace、`agent_life_events`、`conversation_items`、`agent_session_context_windows` 和 Traffic 里的 `llm_call_id`。
+- QQ 未读导航排障时，看 `agent_inbound_messages`、`$qq-usage` 输出和 `agent-service /api/internal/qq-usage`；不要把 `agent_queue_messages` 当成小腻 QQ app 未读列表。小腻 loop 排障时，看 `phone_notification` queue 项、raw trace 的 `runtime_stream`、`responses_replay_items`、`agent_life_events`、`conversation_items`、`agent_session_context_windows` 和 Traffic 里的 `llm_call_id`。
 - Trace 里的 provider 请求骨架统一来自 `xiaoni_replay_events.wire_request/wire_response`；traffic / MITM / CLIProxyAPI 日志只补证据和 detail，不再决定 action replay 是否存在。`llm_call_logs` 只做审计，不做 action replay source。
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex local provider 使用 `/root/.qqbot-local/codex-auth-profiles/auth-profiles.json` 作为运行态 OAuth profile store；只在 profile 缺失时从只读 `/root/.codex/auth.json` bootstrap，刷新只写 auth-profiles，不改写 auth.json

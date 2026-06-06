@@ -54,7 +54,7 @@ export function buildGroupMessageText(message: string, mentionUserIds: Array<str
 export function normalizeImageFileReference(value: string) {
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new Error('Group image file cannot be empty');
+    throw new Error('Image file cannot be empty');
   }
 
   const dataUrlMatch = /^data:([^;]+);base64,(.+)$/i.exec(trimmed);
@@ -63,6 +63,26 @@ export function normalizeImageFileReference(value: string) {
   }
 
   return trimmed;
+}
+
+function buildImageMessage(imageFile: string, caption?: string) {
+  const message: Array<Record<string, unknown>> = [
+    {
+      type: 'image',
+      data: {
+        file: normalizeImageFileReference(imageFile)
+      }
+    }
+  ];
+  if (typeof caption === 'string' && caption.trim()) {
+    message.push({
+      type: 'text',
+      data: {
+        text: caption.trim()
+      }
+    });
+  }
+  return message;
 }
 
 export class NapcatClient {
@@ -108,6 +128,13 @@ export class NapcatClient {
     });
   }
 
+  async sendPrivateImage(userId: number, imageFile: string, caption?: string): Promise<any> {
+    return this.callAction('send_private_msg', {
+      user_id: userId,
+      message: buildImageMessage(imageFile, caption)
+    });
+  }
+
   async sendGroupMessage(groupId: number, message: string, mentionUserIds: Array<string | number> = []): Promise<any> {
     return this.callAction('send_group_msg', {
       group_id: groupId,
@@ -116,25 +143,9 @@ export class NapcatClient {
   }
 
   async sendGroupImage(groupId: number, imageFile: string, caption?: string): Promise<any> {
-    const message: Array<Record<string, unknown>> = [
-      {
-        type: 'image',
-        data: {
-          file: normalizeImageFileReference(imageFile)
-        }
-      }
-    ];
-    if (typeof caption === 'string' && caption.trim()) {
-      message.push({
-        type: 'text',
-        data: {
-          text: caption.trim()
-        }
-      });
-    }
     return this.callAction('send_group_msg', {
       group_id: groupId,
-      message
+      message: buildImageMessage(imageFile, caption)
     });
   }
 

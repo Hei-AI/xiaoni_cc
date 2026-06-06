@@ -21,34 +21,46 @@ This skill only opens, scrolls, focuses, and closes QQ windows. It does not send
 ```bash
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_inbox older
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_thread 'qq:group:123'
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_thread 'qq:group:123' older
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_to_latest 'qq:group:123'
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away 'qq:group:123'
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private 85178516 older
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_group 123 older
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_group_to_latest 123
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_private_away 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_group_away 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
 ```
 
 - `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows.
 - `scroll_inbox older|newer` pages the thread list by 10.
-- `focus_thread thread_key` opens a conversation and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
-- `scroll_thread thread_key older|newer` scrolls the current conversation window by 10 messages.
-- `jump_to_latest thread_key` jumps to the latest visible screen for that conversation.
-- `put_qq_away thread_key?` closes QQ. With `thread_key`, it clears that thread's unread badge. Without `thread_key`, it only closes the list.
+- `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
+- `focus_group group_id` opens a group by QQ group id.
+- `scroll_private user_id older|newer` and `scroll_group group_id older|newer` scroll the current conversation window by 10 messages.
+- `jump_private_to_latest user_id` and `jump_group_to_latest group_id` jump to the latest visible screen for that conversation.
+- `put_private_away user_id` and `put_group_away group_id` close QQ and clear that conversation's unread badge.
+- `put_qq_away` without an id only closes the list and clears no thread badge.
+
+## Conversation IDs
+
+- For private chats, use the other person's QQ id: `focus_private 85178516`.
+- For groups, use the QQ group id: `focus_group 123`.
+- Do not pass internal `thread_key` / `session_key` values to this skill. Use the QQ id or group id instead.
 
 ## Reading Rules
 
-- `<PHONE_NOTIFICATION unread_count="N" direct_mentions="M" />` is only a status-bar notification. It contains no message bodies, previews, topics, or hints.
+- `<PHONE_NOTIFICATION ... />` is only a status-bar notification. It contains no message bodies, previews, topics, or hints. Use `focus_private user_id` or `focus_group group_id` to open the matching conversation.
 - Thread previews are raw latest visible text, truncated to 20 visible characters. Non-text previews use `[图片]`, `[表情]`, or `[文件]`.
 - Conversation messages appear as child `<MESSAGE>` rows inside one `<IM_INBOX_WINDOW>`, not as top-level `<INPUT_MESSAGE>` blocks.
 - Message bodies may include media markers such as `[图片:pic_hash]`.
 - Opening a thread shows the latest visible 10-message screen. If there are more than 10 unread messages, only the latest 10 appear and `unread_before_window` reports the earlier unread count.
 - If fewer than 10 unread messages exist, the window may include read history and `reached_read_history="true"`.
-- New arrivals for an already viewed thread are not shown automatically. Use `scroll_thread thread_key newer` or `jump_to_latest thread_key` to reveal them.
+- New arrivals for an already viewed conversation are not shown automatically. Use `scroll_private user_id newer` / `scroll_group group_id newer` or the matching `jump_*_to_latest` command to reveal them.
 
 ## Badge Rules
 
 - Switching conversations can clear the previous conversation's unread badge, including messages not displayed in the visible window.
-- `put_qq_away thread_key` clears that thread's unread badge.
+- `put_private_away user_id` or `put_group_away group_id` clears that conversation's unread badge.
 - Clearing a badge does not mean unseen messages were read. If you want to continue later, record that intention in `xiaoni_os`.
 - `put_qq_away` without a thread key only closes the list and clears no thread badge.
 

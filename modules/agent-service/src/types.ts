@@ -107,6 +107,19 @@ export type QueueMessagePayload = {
     latestReceivedAt?: string | null;
     reason?: string | null;
   };
+  imageTaskNotification?: {
+    taskId: string;
+    taskType: string;
+    taskStatus: string;
+    pictureId: string;
+    picturePath: string;
+    pictureMimeType?: string;
+    pictureBytes?: number;
+    targetDescription?: string | null;
+    sourceTraceId?: string | null;
+    sourceRunId?: string | null;
+    createdAt: string;
+  };
   consciousnessTick?: {
     identityKey: string;
     reason: string;
@@ -120,6 +133,13 @@ export type QueueMessagePayload = {
     targetPeerName?: string | null;
     targetChatType?: ChatType;
     targetAccountId?: string;
+  };
+  selfContinuation?: {
+    identityKey: string;
+    reason: 'recovery_complete' | string;
+    recoveryEventId?: string | null;
+    recoverUntil?: string | null;
+    createdAt: string;
   };
 };
 
@@ -142,7 +162,14 @@ export type ConversationTranscriptRole = 'user' | 'assistant';
 
 export type ConversationTranscriptPhase = 'commentary' | 'final_answer';
 
-export type ConversationTranscriptSource = 'inbound_batch' | 'presence_action' | 'delivery' | 'legacy_user_message' | 'legacy_ai_response';
+export type ConversationTranscriptSource =
+  | 'inbound_batch'
+  | 'sensory_event'
+  | 'self_continuation'
+  | 'presence_action'
+  | 'delivery'
+  | 'legacy_user_message'
+  | 'legacy_ai_response';
 
 export type ConversationTranscriptItem = {
   id: number | null;

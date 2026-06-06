@@ -893,6 +893,41 @@ app.post('/api/internal/send_group_image', async (req, res) => {
   }
 });
 
+app.post('/api/internal/send_private_image', async (req, res) => {
+  try {
+    const userId = Number(req.body?.user_id);
+    const imageFile = typeof req.body?.image_file === 'string'
+      ? req.body.image_file
+      : typeof req.body?.data_url === 'string'
+        ? req.body.data_url
+        : typeof req.body?.url === 'string'
+          ? req.body.url
+          : '';
+    const caption = typeof req.body?.caption === 'string' ? req.body.caption : undefined;
+
+    if (!Number.isFinite(userId) || !imageFile.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: user_id and image_file/data_url/url'
+      });
+    }
+
+    const deliverableImageFile = await materializeRuntimeImageAsset(imageFile);
+    const data = await napcatClient.sendPrivateImage(userId, deliverableImageFile, caption);
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send private image',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.get('/api/internal/runtime-assets/:filename', async (req, res) => {
   try {
     const filename = path.basename(req.params.filename || '');

@@ -162,7 +162,6 @@ type DeliveredAssistantMessage = {
 type LeaseReleaseReason =
   | 'visible_delivery_committed'
   | 'rest_started'
-  | 'max_model_slices_reached'
   | 'runtime_error'
   | 'prompt_binding_error';
 
@@ -432,7 +431,8 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
 
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
   'skill-creator': 0.120,
-  'qq-usage': 0.004
+  'qq-usage': 0.004,
+  'qq-send-image': 0.012
 };
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
@@ -1123,14 +1123,14 @@ const SKILLS_INSTRUCTIONS = [
   '### 当前可用技能 (Available skills)',
   `- skill-creator: 你的造物指南。当现有工具不好用，你想为自己创造新能力、新脚本，或者改造自己的工作流时，去阅读它。(文件路径: ${XIAONI_SKILL_ROOT}/skill-creator/SKILL.md)`,
   `- qq-usage: 你的视线控制器。当你发现有 QQ 未读消息，且你正好有兴致想去操作 QQ，比如打开会话列表、聚焦某个聊天、翻阅上下文、回到最新消息或关掉 QQ 界面时，去阅读它并调用里面提供的脚本。(文件路径: ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md)`,
+  `- qq-send-image: 你的 QQ 图片发送器。当你已经拿到 /xiaoni-runtime 下的本地图片路径，且普通发送工具只有文字字段时，去阅读它并调用里面的脚本把图片发到群里或私聊里。(文件路径: ${XIAONI_SKILL_ROOT}/qq-send-image/SKILL.md)`,
   `- 探索更多 (Explore more): 当前列表只是常驻提示。想确认本地到底有哪些技能时，用 exec_command 执行 \`ls ${XIAONI_SKILL_ROOT}\`；看到目标目录后再读对应的 \`${XIAONI_SKILL_ROOT}/<skill-name>/SKILL.md\`。如果翻完发现没有能满足需求的，再用 skill-creator 自己写一个。`,
   '',
   '### 技能使用法则 (How to use skills)',
   '- 按需触发：上面的列表只是目录，常驻你的记忆。只有当你自己想用，或者有人明确提到某个 `$skill-name` 且你愿意搭理时，才需要真正翻开对应的 SKILL.md 正文。',
-  `- 精准翻阅：决定使用某个 skill 时，直接用 exec_command 读取对应 SKILL.md。例子：\`cat ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md\`。`,
+  `- 精准翻阅：决定使用某个 skill 时，直接用 exec_command 读取对应 SKILL.md。例子：\`cat ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md\` 或 \`cat ${XIAONI_SKILL_ROOT}/qq-send-image/SKILL.md\`。`,
   '- 如果手册里引用了 scripts/、references/ 或 assets/，路径按该 skill 目录解析。比如 qq-usage 里的脚本就用 `/app/modules/agent-service/skills/qq-usage/scripts/...`，不要一口气读取整个目录。',
-  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，并通过 exec_command 运行该 skill 的本地脚本；真实对外发言仍然落到对应 tool：send_in_group、send_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
-  '- 还没有完成动作前，不要用“没有工具调用”表达沉默或结束；如果累了就按 <STATE> 调用 recover_energy，如果还有想做的事就继续行动。',
+  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，QQ 群图片发送使用 $qq-send-image，并通过 exec_command 运行对应 skill 的本地脚本；其他真实对外动作仍然落到对应 tool：send_in_group、send_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
   '</skills_instructions>'
 ].join('\n');
 
@@ -1930,10 +1930,13 @@ function buildInboundBatchTranscriptItems(
   content: string;
   groupIndex: 0;
   itemIndex: number;
-  source: 'inbound_batch' | 'presence_action';
+  source: 'inbound_batch' | 'sensory_event' | 'presence_action';
   runId: string;
   traceId: string;
 }> {
+  if (isSelfContinuationPayload(queueMessage)) {
+    return [];
+  }
   if (isConsciousnessTickPayload(queueMessage)) {
     return [{
       sessionKey: queueMessage.sessionKey,
@@ -1960,6 +1963,19 @@ function buildInboundBatchTranscriptItems(
       traceId: queueMessage.traceId
     }];
   }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'user',
+      phase: null,
+      content: renderImageTaskNotification(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'sensory_event',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return [{
       sessionKey: queueMessage.sessionKey,
@@ -1968,7 +1984,7 @@ function buildInboundBatchTranscriptItems(
       content: renderPhoneNotification(queueMessage),
       groupIndex: 0 as const,
       itemIndex: 0,
-      source: 'inbound_batch',
+      source: 'sensory_event',
       runId: queueMessage.runId,
       traceId: queueMessage.traceId
     }];
@@ -2329,14 +2345,20 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
+  if (isSelfContinuationPayload(queueMessage)) {
+    return '<system_reminder>当前是小腻自己的连续生命切片，不是 QQ 正文，也不是有人在催促你。可以继续思考、更新状态、查看手机 QQ 通知、打开 QQ、使用工具、保持沉默，或者按精力状态调用 recover_energy 休息。</system_reminder>';
+  }
   if (isConsciousnessTickPayload(queueMessage)) {
     return '<system_reminder>当前是小腻自己的连续意识循环切片；没有任何 QQ 正文被自动打开。可以继续思考、使用工具、查看 QQ 通知、打开 QQ，或者按精力状态 recover_energy。</system_reminder>';
   }
   if (isLifePresenceTickPayload(queueMessage)) {
     return '<system_reminder>当前是历史兼容的 presence tick；它不会自动打开 QQ。可以选择内部工具、查看通知、主动使用 qq-usage，或者按精力状态 recover_energy。</system_reminder>';
   }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return '<system_reminder>这是生图任务完成通知，不是 QQ 消息。通知里给出的 task_id、picture_id 和 picture_path 是已完成图片的直接线索；可以按路径读取或后续自行决定怎么处理。</system_reminder>';
+  }
   if (isPhoneNotificationPayload(queueMessage)) {
-    return '<system_reminder>手机状态栏出现了 QQ 通知。你只知道通知摘要和未读数量，不知道具体消息内容；只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
+    return '<system_reminder>手机状态栏出现了 QQ 通知。这是外界进入当前行动流的感官输入，不是 QQ 正文；你只知道通知摘要和未读数量。只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
   }
   return '<system_reminder>当前输入来自内部调度切片，不代表 QQ 已经打开。不要把 queue payload 当成 QQ 正文；需要看 QQ 时主动使用 qq-usage。</system_reminder>';
 }
@@ -2352,7 +2374,37 @@ function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   const directMentions = Number(notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length);
   const chatType = notification?.chatType || queueMessage.chatType;
   const peerName = notification?.peerName || queueMessage.peerName || null;
-  return `<PHONE_NOTIFICATION app="${escapeTagAttribute(notification?.app || 'qq')}" surface="status_bar" session_key="${escapeTagAttribute(notification?.sessionKey || queueMessage.sessionKey)}" chat_type="${escapeTagAttribute(chatType)}" peer_id="${escapeTagAttribute(notification?.peerId || queueMessage.peerId)}" peer_name="${escapeTagAttribute(peerName || '')}" unread_delta="${escapeTagAttribute(unreadDelta)}" direct_mentions="${escapeTagAttribute(directMentions)}" latest_received_at="${escapeTagAttribute(notification?.latestReceivedAt || queueMessage.receivedAt)}" />`;
+  const renderedAttributes = formatTagAttributes({
+    app: notification?.app || 'qq',
+    surface: 'status_bar',
+    session_key: notification?.sessionKey || queueMessage.sessionKey,
+    chat_type: chatType,
+    peer_id: notification?.peerId || queueMessage.peerId,
+    peer_name: peerName || '',
+    unread_delta: unreadDelta,
+    direct_mentions: directMentions,
+    latest_received_at: notification?.latestReceivedAt || queueMessage.receivedAt,
+    reason: notification?.reason || ''
+  });
+  return `<PHONE_NOTIFICATION ${renderedAttributes} />`;
+}
+
+function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']) {
+  const notification = queueMessage.imageTaskNotification;
+  const renderedAttributes = formatTagAttributes({
+    task_id: notification?.taskId || queueMessage.rawPayload?.task_id,
+    task_type: notification?.taskType || queueMessage.rawPayload?.task_type,
+    task_status: notification?.taskStatus || queueMessage.rawPayload?.task_status || 'completed',
+    picture_id: notification?.pictureId || queueMessage.rawPayload?.picture_id,
+    picture_path: notification?.picturePath || queueMessage.rawPayload?.picture_path,
+    picture_mime_type: notification?.pictureMimeType || queueMessage.rawPayload?.picture_mime_type,
+    picture_bytes: notification?.pictureBytes || queueMessage.rawPayload?.picture_bytes,
+    target_description: notification?.targetDescription || queueMessage.rawPayload?.target_description,
+    source_trace_id: notification?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
+    source_run_id: notification?.sourceRunId || queueMessage.rawPayload?.source_run_id,
+    created_at: notification?.createdAt || queueMessage.receivedAt
+  });
+  return `<IMAGE_TASK_NOTIFICATION ${renderedAttributes} />`;
 }
 
 function renderConsciousnessTickAction(queueMessage: QueueMessageRecord['payload']) {
@@ -2496,15 +2548,13 @@ export function buildToolLoopMonitorReminder(
   const repeated = Object.entries(state.byName)
     .filter(([name, record]) => COMMENTARY_TOOL_MONITOR_NAMES.has(name) && record.count >= 2)
     .map(([name, record]) => `${name}x${record.count}`);
-  const nearMaxTurns = options.nextTurn >= options.maxTurns && !state.terminalToolCalled;
 
-  if (repeated.length === 0 && !nearMaxTurns) {
+  if (repeated.length === 0) {
     return null;
   }
 
   const signature = [
-    repeated.length > 0 ? `repeat:${repeated.join(',')}` : null,
-    nearMaxTurns ? `near_max:${options.nextTurn}/${options.maxTurns}` : null
+    `repeat:${repeated.join(',')}`
   ].filter(Boolean).join('|');
 
   if (hasToolLoopMonitorReminder(loopInput, signature)) {
@@ -2512,14 +2562,9 @@ export function buildToolLoopMonitorReminder(
   }
 
   const lines = [
-    repeated.length > 0
-      ? `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`
-      : null,
-    nearMaxTurns
-      ? `工具循环即将达到工程上限（${options.nextTurn}/${options.maxTurns}）。需要尽快形成真实动作：说话、登记图片任务、完成必要操作，或者按自己的精力状态 recover_energy。`
-      : null,
+    `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`,
     `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
-  ].filter((line): line is string => Boolean(line));
+  ];
   const currentEnergy = extractLatestRuntimeEnergy(loopInput);
   const stateBlock = buildRuntimeStateBlock({
     trigger: 'action_tool_threshold',
@@ -3787,35 +3832,6 @@ export function applyToolResultToLoopInput(
   };
 }
 
-function extractLatestQueuedImageTaskState(loopInput: OpenResponseInputItem[]) {
-  const imageTaskCallIds = new Set<string>();
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.imageTask) {
-      imageTaskCallIds.add(item.call_id);
-    }
-  }
-
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (item.type !== 'function_call_output' || !imageTaskCallIds.has(item.call_id)) {
-      continue;
-    }
-    const parsed = parseReplayJsonObject(item.output);
-    if (!parsed || parsed.queued !== true) {
-      continue;
-    }
-    const statusText = typeof parsed.status_text === 'string' && parsed.status_text.trim()
-      ? parsed.status_text.trim()
-      : '图片请求已经提交。';
-    const xiaoniOs = typeof parsed.xiaoni_os === 'string' && parsed.xiaoni_os.trim()
-      ? parsed.xiaoni_os.trim()
-      : null;
-    return { statusText, xiaoniOs };
-  }
-
-  return null;
-}
-
 type ReplayableModelOutput =
   | {
       type: 'tool_call';
@@ -4066,7 +4082,7 @@ export class AgentLoopService {
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
 
-      for (let turn = 1; !leaseRelease && turn <= agentConfig.maxTurns; turn += 1) {
+      for (let turn = 1; !leaseRelease; turn += 1) {
         turnsExecuted = turn;
         if (turn > 1) {
           budgetPlan = await this.buildContextBudgetPlan({
@@ -4112,64 +4128,7 @@ export class AgentLoopService {
 
         if (!hasToolCall) {
           deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-          const pendingImageTaskState = deliveredMessages.length === 0
-            ? extractLatestQueuedImageTaskState(requestInput)
-            : null;
-          if (pendingImageTaskState) {
-            const forcedToolName = payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply;
-            await this.store.logTimelineEvent({
-              traceId: payload.traceId,
-              eventType: 'decision',
-              eventName: 'forced_visible_reply',
-              eventPhase: null,
-              metadata: {
-                source_tool_name: TOOL_NAMES.imageTask,
-                tool_name: forcedToolName,
-                reason: 'model_stopped_after_image_task_without_visible_reply'
-              }
-            });
-            const forcedToolResult = await this.sendMessage(
-              forcedToolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-              {
-                ...buildInternalExplicitSendTargetArgs(
-                  forcedToolName === TOOL_NAMES.privateReply ? 'private' : 'group',
-                  payload
-                ),
-                messages: [pendingImageTaskState.statusText],
-                ...(pendingImageTaskState.xiaoniOs ? { xiaoni_os: pendingImageTaskState.xiaoniOs } : {})
-              },
-              payload
-            );
-            if (typeof forcedToolResult?.xiaoni_os === 'string' && forcedToolResult.xiaoni_os.trim().length > 0) {
-              persistedXiaoniOs = forcedToolResult.xiaoni_os.trim();
-            }
-            if (typeof forcedToolResult?.pending_share === 'string' && forcedToolResult.pending_share.trim().length > 0) {
-              persistedPendingShare = forcedToolResult.pending_share.trim();
-            }
-            await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
-            await this.recordVisibleDeliveryLifeEvents(payload, queueMessage.id, forcedToolName, forcedToolResult, true);
-            await this.store.logTimelineEvent({
-              traceId: payload.traceId,
-              eventType: 'decision',
-              eventName: 'delivery_commit',
-              eventPhase: null,
-              metadata: {
-                tool_name: forcedToolName,
-                forced: true
-              }
-            });
-            deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-            deliveredMessages.push(...extractDeliveredAssistantMessages(forcedToolResult));
-            leaseRelease = buildLeaseReleaseRecord({
-              reason: 'visible_delivery_committed',
-              detail: 'Image task acknowledgement was forced after the model stopped without a visible reply.',
-              outcome: 'forced_visible_delivery_committed',
-              noVisibleDelivery: false,
-              visibleDeliveryCommitted: true,
-              source: `tool:${forcedToolName}`,
-              toolResult: forcedToolResult
-            });
-          } else if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
+          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
             leaseRelease = buildLeaseReleaseRecord({
               reason: 'visible_delivery_committed',
               detail: 'Visible delivery was already committed; this bounded model slice stopped without another tool call.',
@@ -4178,17 +4137,6 @@ export class AgentLoopService {
               visibleDeliveryCommitted: true,
               source: 'model:no_tool_after_visible_delivery'
             });
-          } else {
-            loopContinuation.push(buildAssistantCommentaryInputItem([
-              formatTaggedBlock('system_reminder', {
-                source: 'no_tool_call_continue',
-                required_next: 'act_or_recover'
-              }, [
-                '刚才没有调用任何工具，所以当前动作还没有完成。',
-                '如果当前要发言，就调用说话工具；如果需要外部信息，就调用 web_search / inspect_image_placeholder / request_image_task；如果精力状态显示该休息，就按自己的状态调用 recover_energy。',
-                '不要用“没有工具调用”表达沉默或结束。'
-              ].join('\n'))
-            ]));
           }
         }
 
@@ -4259,7 +4207,7 @@ export class AgentLoopService {
               });
             }
             const toolResult = rawToolResult;
-            if (toolCall.name === TOOL_NAMES.recoverEnergy) {
+            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.release_lease === true) {
               const recoveryRecorder = (this.store as RuntimeStore & {
                 recordRecoverEnergyLifeEvent?: RuntimeStore['recordRecoverEnergyLifeEvent'];
               }).recordRecoverEnergyLifeEvent;
@@ -4402,46 +4350,17 @@ export class AgentLoopService {
           break;
         }
 
-        const monitorReminder = buildToolLoopMonitorReminder(loopContinuation, {
-          nextTurn: turn + 1,
-          maxTurns: agentConfig.maxTurns
-        });
-        if (monitorReminder) {
-          loopContinuation.push(monitorReminder);
-          await this.store.logTimelineEvent({
-            traceId: payload.traceId,
-            eventType: 'decision',
-            eventName: 'tool_loop_monitor',
-            eventPhase: null,
-            metadata: {
-              next_turn: turn + 1,
-              max_turns: agentConfig.maxTurns
-            }
-          }).catch(() => undefined);
-        }
-      }
-
-      if (!leaseRelease) {
-        leaseRelease = buildLeaseReleaseRecord({
-          reason: 'max_model_slices_reached',
-          detail: `Internal execution lease reached ${turnsExecuted} model slices without a release event.`,
-          outcome: 'max_model_slices_reached',
-          noVisibleDelivery: deliveredMessages.length === 0,
-          visibleDeliveryCommitted: deliveredMessages.length > 0,
-          source: 'runtime:max_model_slices'
-        });
-        await this.store.logTimelineEvent({
-          traceId: payload.traceId,
-          eventType: 'decision',
-          eventName: 'lease_released',
-          eventPhase: null,
-          metadata: leaseRelease
-        });
       }
 
       const sentMessages = deliveredMessages.map((message) => message.content);
       const finalResponse = sentMessages.length > 0 ? sentMessages.join('\n\n') : null;
       persistedXiaoniOs = appendPendingShareToXiaoniOs(persistedXiaoniOs, persistedPendingShare);
+      const responseReplayItems = extractResponseReplayInputItems(loopContinuation);
+      const runtimeStream = buildRuntimeStreamMetadata(payload, {
+        contextSessionKey,
+        responseReplayItemCount: responseReplayItems.length,
+        turnsExecuted
+      });
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
@@ -4496,7 +4415,8 @@ export class AgentLoopService {
             model_name: runtimePrompt.modelName
           },
           retrieved_feedback_reflections: [],
-          runtime_identity_facts: runtimeIdentityFacts
+          runtime_identity_facts: runtimeIdentityFacts,
+          runtime_stream: runtimeStream
         },
         rawResponse: {
           sent_messages: sentMessages,
@@ -4507,7 +4427,8 @@ export class AgentLoopService {
             core_memory_compression: coreMemoryCompressionArtifact
           },
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
-          responses_replay_items: extractResponseReplayInputItems(loopContinuation),
+          responses_replay_items: responseReplayItems,
+          runtime_stream: runtimeStream,
           model_request_slices: turnsExecuted,
           lease_release: leaseRelease,
           lease_release_reason: leaseRelease.reason,
@@ -4621,6 +4542,12 @@ export class AgentLoopService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const sentMessages = deliveredMessages.map((item) => item.content);
+      const responseReplayItems = extractResponseReplayInputItems(loopContinuation);
+      const runtimeStream = buildRuntimeStreamMetadata(payload, {
+        contextSessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+        responseReplayItemCount: responseReplayItems.length,
+        turnsExecuted
+      });
       const leaseRelease = buildLeaseReleaseRecord({
         reason: error instanceof MissingAgentPromptBindingError ? 'prompt_binding_error' : 'runtime_error',
         detail: message,
@@ -4681,13 +4608,15 @@ export class AgentLoopService {
             prompt_id: runtimePrompt?.promptId || null,
             prompt_name: runtimePrompt?.promptName || null,
             model_name: runtimePrompt?.modelName || null
-          }
+          },
+          runtime_stream: runtimeStream
         },
         rawResponse: {
           sent_messages: sentMessages,
           xiaoni_os: null,
           context_budget_turns: contextBudgetTurns.map(serializeContextBudgetTurnRecord),
-          responses_replay_items: extractResponseReplayInputItems(loopContinuation),
+          responses_replay_items: responseReplayItems,
+          runtime_stream: runtimeStream,
           model_request_slices: turnsExecuted,
           lease_release: leaseRelease,
           lease_release_reason: leaseRelease.reason,
@@ -5722,6 +5651,20 @@ export class AgentLoopService {
         return this.requestImageTask(toolCall.args, queueMessage);
       }
       case TOOL_NAMES.recoverEnergy: {
+        const energyState = await this.getCurrentEnergyStateForRecovery(queueMessage);
+        if (energyState && energyState.energy >= energyState.maxEnergy - 0.001) {
+          return {
+            recovered: false,
+            rest_rejected: true,
+            reason: '你已经精力充沛了, 不能再睡觉了 ,去找点事做',
+            energy: energyState.energy,
+            max_energy: energyState.maxEnergy,
+            energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
+            xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
+              ? toolCall.args.xiaoni_os.trim()
+              : null
+          };
+        }
         const durationMinutes = normalizeRecoverEnergyDurationMinutes(toolCall.args.duration_minutes ?? toolCall.args.durationMinutes);
         return {
           release_lease: true,
@@ -5752,6 +5695,27 @@ export class AgentLoopService {
       }
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
+    }
+  }
+
+  private async getCurrentEnergyStateForRecovery(queueMessage: QueueMessageRecord['payload']) {
+    const reader = (this.store as RuntimeStore & {
+      getCurrentXiaoniEnergyState?: RuntimeStore['getCurrentXiaoniEnergyState'];
+    }).getCurrentXiaoniEnergyState;
+    if (typeof reader !== 'function') {
+      return null;
+    }
+    try {
+      const state = await reader.call(this.store);
+      const energy = normalizeRuntimeEnergy(state?.energy, RUNTIME_MAX_ENERGY);
+      const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(state?.maxEnergy, RUNTIME_MAX_ENERGY));
+      return { energy, maxEnergy };
+    } catch (error) {
+      moduleLogger.warn('Failed to read Xiaoni energy before recover_energy', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
     }
   }
 
@@ -6082,7 +6046,7 @@ export class AgentLoopService {
         : 'source_media_missing'
       : null;
 
-    await this.store.createRuntimeTask({
+    const task = await this.store.createRuntimeTask({
       taskType: operation === 'edit' ? 'image_edit' : 'image_generate',
       status: 'pending',
       sessionKey: queueMessage.sessionKey,
@@ -6113,18 +6077,20 @@ export class AgentLoopService {
     const xiaoniOs = typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim()
       ? args.xiaoni_os.trim()
       : null;
+    const taskId = typeof task === 'string'
+      ? task
+      : typeof task?.id === 'string'
+        ? task.id
+        : null;
 
     return {
       queued: true,
+      task_id: taskId,
       task_type: operation === 'edit' ? 'image_edit' : 'image_generate',
       requested_task_type: requestedOperation === 'edit' ? 'image_edit' : 'image_generate',
       task_context: targetDescription,
       xiaoni_os: xiaoniOs,
-      status_text: operation === 'edit'
-        ? `我已经开始帮${queueMessage.senderName || '对方'}处理这张图，等结果出来再发。`
-        : normalizedFromEdit
-          ? `我这边没拿到可用原图，先帮${queueMessage.senderName || '对方'}生成一张新图，等结果出来再发。`
-          : `我已经开始帮${queueMessage.senderName || '对方'}生成这张图，等结果出来再发。`
+      status_text: `生图任务:${taskId || 'unknown'} 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的`
     };
   }
 
@@ -6416,6 +6382,18 @@ function isPhoneNotificationPayload(queueMessage: QueueMessageRecord['payload'])
     || queueMessage.inboundContext?.Surface === 'phone_notification';
 }
 
+function isImageTaskNotificationPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'image_task_notification'
+    || Boolean(queueMessage.imageTaskNotification)
+    || queueMessage.inboundContext?.Surface === 'image_task_notification';
+}
+
+function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'self_continuation'
+    || Boolean(queueMessage.selfContinuation)
+    || queueMessage.inboundContext?.Surface === 'self_continuation';
+}
+
 function isConsciousnessTickPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'consciousness_tick'
     || Boolean(queueMessage.consciousnessTick);
@@ -6657,7 +6635,10 @@ export function buildInitialInput(
   if (mediaPlaceholderContext) {
     items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
   }
-  items.push(buildAssistantCommentaryInputItem([buildCurrentProcessingReminder(queueMessage)]));
+  const currentProcessingReminder = buildCurrentProcessingReminder(queueMessage);
+  if (currentProcessingReminder) {
+    items.push(buildAssistantCommentaryInputItem([currentProcessingReminder]));
+  }
   if (developerContextParts.dynamicContext) {
     items.push({
       type: 'message',
@@ -6928,6 +6909,9 @@ function buildCurrentTurnInputItems(
   queueMessage: QueueMessageRecord['payload'],
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
 ): OpenResponseInputItem[] {
+  if (isSelfContinuationPayload(queueMessage)) {
+    return [];
+  }
   if (isConsciousnessTickPayload(queueMessage)) {
     return [
       buildAssistantCommentaryInputItem([renderConsciousnessTickAction(queueMessage)])
@@ -6938,7 +6922,13 @@ function buildCurrentTurnInputItems(
       buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
     ];
   }
-  const currentMessages = [renderPhoneNotification(queueMessage)];
+  const currentMessages = [
+    isImageTaskNotificationPayload(queueMessage)
+      ? renderImageTaskNotification(queueMessage)
+      : isPhoneNotificationPayload(queueMessage)
+        ? renderPhoneNotification(queueMessage)
+        : renderConversationInput(queueMessage)
+  ];
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
     userPromptTemplate = runtimePrompt.userPromptTemplate;
@@ -6987,15 +6977,60 @@ function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
+  if (isSelfContinuationPayload(queueMessage)) {
+    return '';
+  }
   if (isConsciousnessTickPayload(queueMessage)) {
     return renderConsciousnessTickAction(queueMessage);
   }
   if (isPhoneNotificationPayload(queueMessage)) {
     return renderPhoneNotification(queueMessage);
   }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return renderImageTaskNotification(queueMessage);
+  }
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
+}
+
+function classifyRuntimeStreamInput(queueMessage: QueueMessageRecord['payload']) {
+  if (isSelfContinuationPayload(queueMessage)) {
+    return 'self_continuation';
+  }
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return 'sensory_event';
+  }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return 'sensory_event';
+  }
+  if (isConsciousnessTickPayload(queueMessage)) {
+    return 'legacy_consciousness_tick';
+  }
+  if (isPresenceTickPayload(queueMessage)) {
+    return 'legacy_presence_action';
+  }
+  return 'inbound_batch';
+}
+
+function buildRuntimeStreamMetadata(
+  queueMessage: QueueMessageRecord['payload'],
+  params: {
+    contextSessionKey: string;
+    responseReplayItemCount: number;
+    turnsExecuted: number;
+  }
+) {
+  return {
+    stream_key: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    context_session_key: params.contextSessionKey,
+    trigger_source: queueMessage.source,
+    trigger_kind: classifyRuntimeStreamInput(queueMessage),
+    sensory_input: isPhoneNotificationPayload(queueMessage) || isImageTaskNotificationPayload(queueMessage),
+    append_strategy: 'responses_replay_items',
+    response_replay_item_count: params.responseReplayItemCount,
+    model_request_slices: params.turnsExecuted
+  };
 }
 
 function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: string[]) {

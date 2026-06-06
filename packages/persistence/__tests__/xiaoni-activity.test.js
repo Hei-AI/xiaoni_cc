@@ -28,7 +28,7 @@ function createPersistence(overrides = {}) {
   };
   const sqlAdapter = () => ({
     query: async (statement) => {
-      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('consciousness_tick', 'phone_notification')")) {
+      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('phone_notification')")) {
         return overrides.autonomousQueueRows || [];
       }
       if (statement.includes('FROM agent_queue_messages')) {
@@ -153,23 +153,24 @@ test('Xiaoni activity feed explains skipped presence checks without legacy sched
   assert.equal(JSON.stringify(item).includes('旧版调度器'), false);
 });
 
-test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', async () => {
+test('Xiaoni activity feed keeps sensory queue timestamps in storage timezone', async () => {
   const queueRow = {
     id: 4161,
     trace_id: 'runtrace_1',
     run_id: 'run_1',
-    source: 'consciousness_tick',
+    source: 'phone_notification',
     status: 'completed',
-    body_for_agent: '还没有打开任何具体会话',
+    body_for_agent: '手机状态栏有 1 条 QQ 未读',
     updated_at: '2026-05-31T14:29:23.395+08:00',
     created_at: '2026-05-31T06:28:55.635+08:00',
-    locked_at: null,
+    locked_at: '2026-05-31T14:28:56.395+08:00',
+    processing_started_at: '2026-05-31T14:28:56.395+08:00',
     available_at: '2026-05-31T06:28:55.635+08:00',
     completed_at: '2026-05-31T14:29:23.395+08:00',
     attempts: 1,
     session_key: 'qq:group:253631878',
-    peer_name: '小腻',
-    sender_name: '小腻',
+    peer_name: '测试群',
+    sender_name: '手机状态栏',
     sender_id: '1129974489',
     error_message: null
   };
@@ -180,11 +181,63 @@ test('Xiaoni activity feed keeps SQL queue timestamps in storage timezone', asyn
   const feed = await persistence.getXiaoniActivityFeed({ limit: 5 });
 
   assert.equal(feed.items[0].id, 'queue:4161');
-  assert.equal(feed.items[0].title, '连续意识切片');
-  assert.equal(feed.items[0].body, '还没有打开任何具体会话');
-  assert.equal(feed.items[0].timestamp, '2026-05-31T14:29:23.395+08:00');
-  assert.equal(feed.current.latestActivityAt, '2026-05-31T14:29:23.395+08:00');
-  assert.equal(feed.current.autonomy.latestConsciousnessTickAt, '2026-05-31T14:29:23.395+08:00');
+  assert.equal(feed.items[0].title, '手机 QQ 通知');
+  assert.equal(feed.items[0].body, '手机状态栏有 1 条 QQ 未读');
+  assert.equal(feed.items[0].timestamp, '2026-05-31T14:28:56.395+08:00');
+  assert.equal(feed.current.latestActivityAt, '2026-05-31T14:28:56.395+08:00');
+  assert.equal(feed.current.autonomy.latestConsciousnessTickAt, null);
+  assert.equal(feed.current.autonomy.latestConsciousnessTickStatus, null);
+  assert.equal(feed.current.autonomy.latestPhoneNotificationAt, '2026-05-31T14:28:56.395+08:00');
+});
+
+test('Xiaoni action stream does not sort settled phone notifications after visible delivery', async () => {
+  const persistence = createPersistence({
+    lifeEvents: [{
+      id: 6464,
+      identity_key: 'xiaoni',
+      event_kind: 'send_in_group',
+      occurred_at: new Date('2026-05-31T06:29:10.000Z'),
+      surface: 'qq',
+      chat_type: 'group',
+      session_key: 'qq:group:253631878',
+      peer_id: '253631878',
+      actor_type: 'xiaoni',
+      actor_id: '1129974489',
+      visibility: 'active_surface',
+      run_id: 'run_1',
+      trace_id: 'runtrace_1',
+      payload: {
+        sent_messages: ['发出去了'],
+        peer_name: '测试群'
+      }
+    }],
+    autonomousQueueRows: [{
+      id: 4161,
+      trace_id: 'runtrace_1',
+      run_id: 'run_1',
+      source: 'phone_notification',
+      status: 'settled',
+      body_for_agent: '手机状态栏有 1 条 QQ 未读',
+      updated_at: '2026-05-31T14:29:23.395+08:00',
+      created_at: '2026-05-31T06:28:55.635+08:00',
+      locked_at: '2026-05-31T14:28:56.395+08:00',
+      processing_started_at: '2026-05-31T14:28:56.395+08:00',
+      available_at: '2026-05-31T06:28:55.635+08:00',
+      completed_at: '2026-05-31T14:29:23.395+08:00',
+      attempts: 1,
+      session_key: 'qq:group:253631878',
+      peer_name: '测试群',
+      sender_name: '手机状态栏',
+      sender_id: '1129974489',
+      error_message: null
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 5 });
+
+  assert.equal(stream.items[0].id, 'life:6464');
+  assert.equal(stream.items[0].eventKind, 'visible_delivery_committed');
+  assert.equal(stream.items.find((item) => item.id === 'queue:4161').occurredAt, '2026-05-31T14:28:56.395+08:00');
 });
 
 test('Xiaoni activity feed hides operator-only self-action LLM prompts', async () => {

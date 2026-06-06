@@ -49,8 +49,10 @@ import {
   createAgentMemoryReflection,
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
+  enqueueAgentQueueMessage,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
+  type AgentRecoveryWindowProjection,
   type QqUsageThreadList,
   type QqUsageThreadWindow,
   type QqUsageUnreadSummary,
@@ -130,6 +132,75 @@ type AgentLifeStateRow = {
   projection_version?: string | null;
   projection_updated_at?: Date | string | null;
 };
+
+type SelfContinuationReason = 'autonomous_runtime_slice' | 'recovery_complete' | string;
+
+function buildSelfContinuationPayload(input: {
+  now: Date;
+  traceId: string;
+  messageSid: string;
+  accountId: string;
+  reason: SelfContinuationReason;
+  rawPayload?: Record<string, unknown>;
+  recoveryEventId?: string | null;
+  recoverUntil?: string | null;
+}): QueueMessagePayload {
+  const nowIso = input.now.toISOString();
+  const inboundContext = {
+    Body: '',
+    BodyForAgent: '',
+    BodyForCommands: '',
+    RawBody: '',
+    CommandBody: '',
+    SessionKey: 'xiaoni:global',
+    AccountId: input.accountId,
+    MessageSid: input.messageSid,
+    ChatType: 'direct',
+    ConversationLabel: '小腻全局 runtime',
+    SenderName: '小腻',
+    SenderId: input.accountId,
+    Timestamp: Math.floor(input.now.getTime() / 1000),
+    Provider: 'internal',
+    Surface: 'self_continuation',
+    WasMentioned: false,
+    NativeChannelId: 'xiaoni:global',
+    CommandAuthorized: false
+  };
+
+  return {
+    traceId: input.traceId,
+    runId: '',
+    batchId: '',
+    source: 'self_continuation',
+    chatType: 'direct',
+    sessionKey: 'xiaoni:global',
+    peerId: input.accountId,
+    peerName: '小腻',
+    senderId: input.accountId,
+    senderName: '小腻',
+    accountId: input.accountId,
+    bodyForAgent: '',
+    rawBody: '',
+    commandBody: '',
+    wasMentioned: false,
+    receivedAt: nowIso,
+    messageTimestamp: nowIso,
+    rawPayload: {
+      kind: 'self_continuation',
+      reason: input.reason,
+      ...input.rawPayload
+    },
+    inboundContext,
+    messages: [],
+    selfContinuation: {
+      identityKey: 'xiaoni',
+      reason: input.reason,
+      recoveryEventId: input.recoveryEventId ?? null,
+      recoverUntil: input.recoverUntil ?? null,
+      createdAt: nowIso
+    }
+  };
+}
 
 function toValidDate(value: Date | string | null | undefined): Date | null {
   if (!value) {
@@ -1196,6 +1267,18 @@ export class RuntimeStore {
 
   async initialize() {
     await this.ensureSchema();
+    const recovered = await this.recoverStaleProcessingLeases({
+      staleMs: agentConfig.processingRecoveryStaleMs,
+      reason: 'agent_service_startup_recovery'
+    }).catch((error) => {
+      moduleLogger.warn('Failed to recover stale processing leases during startup', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    });
+    if (recovered && (recovered.failedRuns > 0 || recovered.settledRuns > 0 || recovered.failedQueueMessages > 0 || recovered.settledQueueMessages > 0)) {
+      moduleLogger.warn('Recovered stale processing leases during startup', recovered);
+    }
     await ensureFeedbackReflectionSchema(databaseConfig);
     await ensureRelationshipTrustSchema(databaseConfig);
     await ensureIdentityLineageSchema(databaseConfig);
@@ -1214,6 +1297,167 @@ export class RuntimeStore {
 
   async close() {
     await this.sql.close();
+  }
+
+  async recoverStaleProcessingLeases(input: { staleMs: number; reason: string }) {
+    const staleMs = Math.max(60_000, Number(input.staleMs || 0));
+    const staleBefore = new Date(Date.now() - staleMs);
+    const errorMessage = `${input.reason}: processing lease older than ${staleMs}ms`;
+
+    return this.sql.withTransaction(async (tx) => {
+      const committedRunRows = await tx.query<{ id: string }>(
+        `
+          SELECT id
+          FROM agent_runs
+          WHERE status = 'processing'
+            AND started_at < ?
+            AND (
+              delivery_phase = 'delivery_committed'
+              OR COALESCE(delivery_commit_count, 0) > 0
+            )
+          FOR UPDATE
+        `,
+        [staleBefore]
+      );
+      const committedRunIds = committedRunRows.map((row) => row.id).filter(Boolean);
+
+      let settledRuns = 0;
+      let settledQueueMessages = 0;
+      if (committedRunIds.length > 0) {
+        const placeholders = committedRunIds.map(() => '?').join(', ');
+        settledRuns = await tx.execute(
+          `
+            UPDATE agent_runs
+            SET status = 'settled',
+                delivery_phase = 'lease_released',
+                termination_reason = 'processing_recovery_visible_delivery_committed',
+                finish_reason = ?,
+                finish_outcome = 'processing_recovery_after_visible_delivery',
+                no_reply = FALSE,
+                error_message = NULL,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE id IN (${placeholders})
+          `,
+          [errorMessage, ...committedRunIds]
+        );
+        settledQueueMessages = await tx.execute(
+          `
+            UPDATE agent_queue_messages
+            SET status = 'settled',
+                error_message = NULL,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE status = 'processing'
+              AND run_id IN (${placeholders})
+          `,
+          committedRunIds
+        );
+        await tx.execute(
+          `
+            UPDATE agent_message_batches
+            SET status = 'settled',
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE id IN (
+              SELECT batch_id
+              FROM agent_runs
+              WHERE id IN (${placeholders})
+            )
+          `,
+          committedRunIds
+        );
+      }
+
+      const failedRunRows = await tx.query<{ id: string }>(
+        `
+          SELECT id
+          FROM agent_runs
+          WHERE status = 'processing'
+            AND started_at < ?
+          FOR UPDATE
+        `,
+        [staleBefore]
+      );
+      const failedRunIds = failedRunRows.map((row) => row.id).filter(Boolean);
+
+      let failedRuns = 0;
+      let failedQueueMessages = 0;
+      if (failedRunIds.length > 0) {
+        const placeholders = failedRunIds.map(() => '?').join(', ');
+        failedRuns = await tx.execute(
+          `
+            UPDATE agent_runs
+            SET status = 'failed',
+                termination_reason = 'processing_recovery_stale_processing',
+                finish_reason = ?,
+                finish_outcome = 'processing_recovery_as_failed',
+                error_message = ?,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE id IN (${placeholders})
+          `,
+          [errorMessage, errorMessage, ...failedRunIds]
+        );
+        failedQueueMessages = await tx.execute(
+          `
+            UPDATE agent_queue_messages
+            SET status = 'failed',
+                error_message = ?,
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE status = 'processing'
+              AND run_id IN (${placeholders})
+          `,
+          [errorMessage, ...failedRunIds]
+        );
+        await tx.execute(
+          `
+            UPDATE agent_message_batches
+            SET status = 'failed',
+                completed_at = COALESCE(completed_at, NOW()),
+                updated_at = NOW()
+            WHERE id IN (
+              SELECT batch_id
+              FROM agent_runs
+              WHERE id IN (${placeholders})
+            )
+          `,
+          failedRunIds
+        );
+      }
+
+      const orphanQueueMessages = await tx.execute(
+        `
+          UPDATE agent_queue_messages
+          SET status = 'failed',
+              error_message = ?,
+              completed_at = COALESCE(completed_at, NOW()),
+              updated_at = NOW()
+          WHERE status = 'processing'
+            AND (locked_at IS NULL OR locked_at < ?)
+        `,
+        [errorMessage, staleBefore]
+      );
+
+      return {
+        staleBefore: staleBefore.toISOString(),
+        staleMs,
+        settledRuns,
+        settledQueueMessages,
+        failedRuns,
+        failedQueueMessages: failedQueueMessages + orphanQueueMessages,
+        orphanQueueMessages
+      };
+    });
+  }
+
+  async getCurrentXiaoniEnergyState(now = new Date()) {
+    const { projection } = await this.refreshXiaoniLifeProjection(now);
+    return {
+      energy: Number(projection.state.energy),
+      maxEnergy: 1
+    };
   }
 
   async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
@@ -1641,6 +1885,115 @@ export class RuntimeStore {
 
   async createRuntimeTask(input: Record<string, unknown>) {
     return createAgentTask(input, databaseConfig);
+  }
+
+  async enqueueSelfContinuationForRecovery(recoveryWindow: AgentRecoveryWindowProjection): Promise<boolean> {
+    const now = new Date();
+    const eventId = typeof recoveryWindow.eventId === 'string' && recoveryWindow.eventId.trim()
+      ? recoveryWindow.eventId.trim()
+      : 'unknown';
+    const dedupeKey = recoveryWindow.continuationDedupeKey || `self_continuation:recovery:${eventId}`;
+    const id = uuidv4().slice(0, 8);
+    const messageSid = `self-continuation:recovery:${eventId}`;
+    const traceId = `selftrace_${Date.now()}_${id}`;
+    const accountId = agentConfig.botAccountId || '1129974489';
+    const payload = buildSelfContinuationPayload({
+      now,
+      traceId,
+      accountId,
+      messageSid,
+      reason: 'recovery_complete',
+      recoveryEventId: recoveryWindow.eventId ?? null,
+      recoverUntil: recoveryWindow.recoverUntil ?? null,
+      rawPayload: {
+        recovery_event_id: recoveryWindow.eventId ?? null,
+        recover_until: recoveryWindow.recoverUntil ?? null,
+        previous_run_id: recoveryWindow.runId ?? null,
+        previous_trace_id: recoveryWindow.traceId ?? null
+      }
+    });
+    const rows = await this.sql.query(
+      `
+        INSERT INTO agent_queue_messages (
+          trace_id,
+          source,
+          message_sid,
+          dedupe_key,
+          chat_type,
+          session_key,
+          peer_id,
+          peer_name,
+          sender_id,
+          sender_name,
+          account_id,
+          body_for_agent,
+          raw_payload,
+          inbound_context,
+          payload,
+          status,
+          available_at,
+          created_at,
+          updated_at
+        )
+        VALUES (?, 'self_continuation', ?, ?, 'direct', 'xiaoni:global', ?, '小腻', ?, '小腻', ?, '', ?::jsonb, ?::jsonb, ?::jsonb, 'pending', NOW(), NOW(), NOW())
+        ON CONFLICT (dedupe_key) DO NOTHING
+        RETURNING id
+      `,
+      [
+        traceId,
+        messageSid,
+        dedupeKey,
+        accountId,
+        accountId,
+        accountId,
+        JSON.stringify(payload.rawPayload),
+        JSON.stringify(payload.inboundContext),
+        JSON.stringify(payload)
+      ]
+    );
+    return rows.length > 0;
+  }
+
+  async enqueueAutonomousRuntimeSlice(input: { minIntervalMs?: number } = {}): Promise<boolean> {
+    const now = new Date();
+    const minIntervalMs = Math.max(200, Number(input.minIntervalMs || agentConfig.autonomousRuntimeSliceIntervalMs || agentConfig.idleIntervalMs));
+    const bucket = Math.floor(now.getTime() / minIntervalMs);
+    const id = uuidv4().slice(0, 8);
+    const traceId = `selftrace_${Date.now()}_${id}`;
+    const messageSid = `self-continuation:autonomous:${bucket}`;
+    const accountId = agentConfig.botAccountId || '1129974489';
+    const payload = buildSelfContinuationPayload({
+      now,
+      traceId,
+      messageSid,
+      accountId,
+      reason: 'autonomous_runtime_slice',
+      rawPayload: {
+        interval_ms: minIntervalMs,
+        schedule_bucket: bucket
+      }
+    });
+    const result = await enqueueAgentQueueMessage({
+      message: {
+        traceId,
+        source: 'self_continuation',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey: 'xiaoni:global',
+        peerId: accountId,
+        peerName: '小腻',
+        senderId: accountId,
+        senderName: '小腻',
+        accountId,
+        bodyForAgent: '',
+        rawPayload: payload.rawPayload,
+        inboundContext: payload.inboundContext
+      },
+      payload,
+      availableAt: now
+    }, databaseConfig);
+    return result.status === 'pending' && result.attempts === 0;
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {
@@ -3437,99 +3790,6 @@ export class RuntimeStore {
     ]);
   }
 
-  async enqueueConsciousnessTick(reason = 'continuous_loop'): Promise<void> {
-    const now = new Date();
-    const nowIso = now.toISOString();
-    const id = uuidv4().slice(0, 8);
-    const messageSid = `consciousness:${Date.now()}:${id}`;
-    const payload: QueueMessagePayload = {
-      traceId: `ticktrace_${Date.now()}_${id}`,
-      runId: '',
-      batchId: '',
-      source: 'consciousness_tick',
-      chatType: 'direct',
-      sessionKey: 'xiaoni:global',
-      peerId: agentConfig.botAccountId || '1129974489',
-      peerName: '小腻',
-      senderId: agentConfig.botAccountId || '1129974489',
-      senderName: '小腻',
-      accountId: agentConfig.botAccountId || '1129974489',
-      bodyForAgent: '连续意识循环继续推进。',
-      rawBody: '连续意识循环继续推进。',
-      commandBody: '',
-      wasMentioned: false,
-      receivedAt: nowIso,
-      messageTimestamp: nowIso,
-      rawPayload: {
-        kind: 'consciousness_tick',
-        reason
-      },
-      inboundContext: {
-        Body: '',
-        BodyForAgent: '连续意识循环继续推进。',
-        BodyForCommands: '',
-        RawBody: '',
-        CommandBody: '',
-        SessionKey: 'xiaoni:global',
-        AccountId: agentConfig.botAccountId || '1129974489',
-        MessageSid: messageSid,
-        ChatType: 'direct',
-        ConversationLabel: '小腻全局意识',
-        SenderName: '小腻',
-        SenderId: agentConfig.botAccountId || '1129974489',
-        Timestamp: Math.floor(now.getTime() / 1000),
-        Provider: 'internal',
-        Surface: 'consciousness_tick',
-        WasMentioned: false,
-        NativeChannelId: 'xiaoni:global',
-        CommandAuthorized: false
-      },
-      messages: [],
-      consciousnessTick: {
-        identityKey: 'xiaoni',
-        reason,
-        createdAt: nowIso
-      }
-    };
-
-    await this.sql.insert(
-      `
-        INSERT INTO agent_queue_messages (
-          trace_id,
-          source,
-          message_sid,
-          dedupe_key,
-          chat_type,
-          session_key,
-          peer_id,
-          peer_name,
-          sender_id,
-          sender_name,
-          account_id,
-          body_for_agent,
-          raw_payload,
-          inbound_context,
-          payload,
-          status,
-          available_at
-        )
-        VALUES (?, 'consciousness_tick', ?, ?, 'direct', 'xiaoni:global', ?, '小腻', ?, '小腻', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', NOW())
-      `,
-      [
-        payload.traceId,
-        messageSid,
-        `consciousness_tick:${messageSid}`,
-        payload.peerId,
-        payload.senderId,
-        payload.accountId,
-        payload.bodyForAgent,
-        JSON.stringify(payload.rawPayload),
-        JSON.stringify(payload.inboundContext),
-        JSON.stringify(payload)
-      ]
-    );
-  }
-
   private mapClaimedRun(input: {
     runId: string;
     batchId: string;
@@ -3599,6 +3859,7 @@ export class RuntimeStore {
         ...(phoneNotification ? { phoneNotification } : {}),
         ...(latestPayload.consciousnessTick ? { consciousnessTick: latestPayload.consciousnessTick } : {}),
         ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
+        ...(latestPayload.selfContinuation ? { selfContinuation: latestPayload.selfContinuation } : {}),
       };
 
     return {

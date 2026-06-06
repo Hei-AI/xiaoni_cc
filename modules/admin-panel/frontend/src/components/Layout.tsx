@@ -21,6 +21,7 @@ import {
   Network,
   PanelLeftClose,
   PanelLeftOpen,
+  Power,
   Sparkles,
   Search,
   ShieldCheck,
@@ -190,6 +191,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
     {
       label: 'Configuration',
       items: [
+        {
+          href: '/xiaoni-runtime-settings',
+          label: '小腻运行配置',
+          icon: Power,
+          description: '暂停或恢复小腻主循环',
+          active: location.pathname.startsWith('/xiaoni-runtime-settings'),
+        },
         {
           href: '/prompts',
           label: 'Prompt 管理',

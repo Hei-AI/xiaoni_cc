@@ -121,6 +121,45 @@ test('buildPresenceAnchorsFromLife preserves recent activity for presence anchor
   assert.equal(state.energy, 1);
 });
 
+test('recoverStaleProcessingLeases releases committed runs and fails abandoned runs', async () => {
+  const store = new RuntimeStore() as any;
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  const executes: Array<{ sql: string; params?: unknown[] }> = [];
+  let queryCount = 0;
+  store.sql = {
+    withTransaction: async (callback: any) => callback({
+      query: async (sql: string, params?: unknown[]) => {
+        queries.push({ sql, params });
+        queryCount += 1;
+        if (queryCount === 1) {
+          return [{ id: 'run_committed' }];
+        }
+        return [{ id: 'run_abandoned' }];
+      },
+      execute: async (sql: string, params?: unknown[]) => {
+        executes.push({ sql, params });
+        return 1;
+      }
+    }),
+    close: async () => undefined
+  };
+
+  const result = await store.recoverStaleProcessingLeases({
+    staleMs: 60_000,
+    reason: 'test_startup_recovery'
+  });
+
+  assert.equal(result.settledRuns, 1);
+  assert.equal(result.settledQueueMessages, 1);
+  assert.equal(result.failedRuns, 1);
+  assert.equal(result.failedQueueMessages, 2);
+  assert.equal(result.orphanQueueMessages, 1);
+  assert.equal(queries.length, 2);
+  assert.equal(executes.some((call) => call.sql.includes("termination_reason = 'processing_recovery_visible_delivery_committed'")), true);
+  assert.equal(executes.some((call) => call.sql.includes("termination_reason = 'processing_recovery_stale_processing'")), true);
+  assert.equal(executes.some((call) => call.sql.includes("WHERE status = 'processing'") && call.sql.includes('locked_at IS NULL')), true);
+});
+
 test('buildPresenceAnchorsFromLife resets stale daily proactive count', () => {
   const anchors = buildPresenceAnchorsFromLife({
     service_started_at: '2026-05-26T04:00:00.000Z',
@@ -223,28 +262,6 @@ test('recover_energy records rest recovery from the explicit recovery tool', asy
   assert.equal(lifeEvents[0].payload.xiaoni_os, '之后继续自己的事。');
   assert.equal(lifeEvents[0].payload.recovery_policy, 'recover_energy_tool_only');
   assert.equal('duration_label' in lifeEvents[0].payload, false);
-});
-
-test('enqueueConsciousnessTick stores a numeric bot sender id', async () => {
-  const inserts: Array<{ sql: string; params?: unknown[] }> = [];
-  const store = new RuntimeStore() as any;
-  store.sql = {
-    insert: async (sql: string, params?: unknown[]) => {
-      inserts.push({ sql, params });
-      return 1;
-    },
-    query: async () => [],
-    execute: async () => undefined,
-    close: async () => undefined
-  };
-
-  await store.enqueueConsciousnessTick('test_review');
-
-  assert.equal(inserts.length, 1);
-  const params = inserts[0]?.params || [];
-  assert.equal(inserts[0]?.sql.includes("'xiaoni', '小腻'"), false);
-  assert.equal(params[4], '1129974489');
-  assert.equal(JSON.parse(String(params[9])).senderId, '1129974489');
 });
 
 test('recordQqUsageThreadSeen timestamps seen events at observation time with trace context', async () => {

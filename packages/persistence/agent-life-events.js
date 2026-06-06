@@ -15,6 +15,9 @@ const B1_EVENT_KINDS = new Set([
   'terminal_action_committed',
   'terminal_action_blocked',
   'presence_tick_evaluated',
+  'no_visible_delivery_observed',
+  'visible_delivery_committed',
+  'post_commit_side_effect_blocked',
   'rest_period',
   'sleep_period'
 ]);
@@ -134,6 +137,59 @@ function normalizeLifeEvent(row) {
     payload: normalizeJsonObject(row.payload),
     dedupeKey: row.dedupe_key,
     createdAt: normalizeDate(row.created_at)
+  };
+}
+
+function toDate(value) {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function normalizeRecoveryDurationMs(payload) {
+  const normalizedPayload = normalizeJsonObject(payload, {});
+  const explicitDurationMs = Number(normalizedPayload.duration_ms);
+  if (Number.isFinite(explicitDurationMs) && explicitDurationMs > 0) {
+    return explicitDurationMs;
+  }
+  const durationMinutes = Number(normalizedPayload.duration_minutes);
+  if (Number.isFinite(durationMinutes) && durationMinutes > 0) {
+    return durationMinutes * 60 * 1000;
+  }
+  return 0;
+}
+
+function normalizeActiveRecoveryWindow(row, now) {
+  const recoveryWindow = normalizeRecoveryWindow(row, now);
+  return recoveryWindow?.active ? recoveryWindow : null;
+}
+
+function normalizeRecoveryWindow(row, now) {
+  const occurredAt = toDate(row?.occurred_at);
+  const nowDate = toDate(now) || new Date();
+  const durationMs = normalizeRecoveryDurationMs(row?.payload);
+  if (!occurredAt || durationMs <= 0) {
+    return null;
+  }
+  const recoverUntil = new Date(occurredAt.getTime() + durationMs);
+  const remainingMs = recoverUntil.getTime() - nowDate.getTime();
+  const payload = normalizeJsonObject(row.payload, {});
+  const eventId = normalizeBigIntString(row.id);
+  return {
+    active: remainingMs > 0,
+    identityKey: row.identity_key,
+    eventId,
+    eventKind: row.event_kind,
+    occurredAt: occurredAt.toISOString(),
+    recoverUntil: recoverUntil.toISOString(),
+    remainingMs: Math.max(0, remainingMs),
+    durationMs,
+    reason: normalizeOptionalString(payload.reason),
+    traceId: row.trace_id || null,
+    runId: row.run_id || null,
+    continuationDedupeKey: eventId ? `self_continuation:recovery:${eventId}` : null
   };
 }
 
@@ -319,11 +375,67 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
     return rows.map(normalizeLifeEvent).filter(Boolean).reverse();
   }
 
+  async function getActiveAgentRecoveryWindow(input = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
+    const now = toDate(input.now) || new Date();
+    const rows = await prisma.agentLifeEvent.findMany({
+      where: {
+        identity_key: identityKey,
+        event_kind: { in: ['rest_period', 'sleep_period'] }
+      },
+      orderBy: [{ occurred_at: 'desc' }, { id: 'desc' }],
+      take: Math.max(1, Math.min(Number(input.limit || 20), 100))
+    });
+    for (const row of rows) {
+      const activeWindow = normalizeActiveRecoveryWindow(row, now);
+      if (activeWindow) {
+        return activeWindow;
+      }
+    }
+    return null;
+  }
+
+  async function getLatestAgentRecoveryWindow(input = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
+    const now = toDate(input.now) || new Date();
+    const rows = await prisma.agentLifeEvent.findMany({
+      where: {
+        identity_key: identityKey,
+        event_kind: { in: ['rest_period', 'sleep_period'] }
+      },
+      orderBy: [{ occurred_at: 'desc' }, { id: 'desc' }],
+      take: Math.max(1, Math.min(Number(input.limit || 20), 100))
+    });
+    for (const row of rows) {
+      const recoveryWindow = normalizeRecoveryWindow(row, now);
+      if (!recoveryWindow) {
+        continue;
+      }
+      let continuationQueued = false;
+      if (recoveryWindow.continuationDedupeKey && prisma.agentQueueMessage?.findUnique) {
+        const existingQueueMessage = await prisma.agentQueueMessage.findUnique({
+          where: { dedupe_key: recoveryWindow.continuationDedupeKey },
+          select: { id: true, status: true }
+        });
+        continuationQueued = Boolean(existingQueueMessage);
+      }
+      return {
+        ...recoveryWindow,
+        continuationQueued
+      };
+    }
+    return null;
+  }
+
   return {
     ensureAgentLifeEventSchema,
     recordAgentLifeEvent,
     listAgentLifeEvents,
     listAgentLifeEventsForPrompt,
+    getActiveAgentRecoveryWindow,
+    getLatestAgentRecoveryWindow,
     findAgentLifeEventByDedupeKey
   };
 }
