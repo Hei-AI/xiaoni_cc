@@ -3484,13 +3484,14 @@ export class RuntimeStore {
           status,
           available_at
         )
-        VALUES (?, 'consciousness_tick', ?, ?, 'direct', 'xiaoni:global', ?, '小腻', 'xiaoni', '小腻', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', NOW())
+        VALUES (?, 'consciousness_tick', ?, ?, 'direct', 'xiaoni:global', ?, '小腻', ?, '小腻', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', NOW())
       `,
       [
         payload.traceId,
         messageSid,
         `consciousness_tick:${messageSid}`,
         payload.peerId,
+        payload.senderId,
         payload.accountId,
         payload.bodyForAgent,
         JSON.stringify(payload.rawPayload),

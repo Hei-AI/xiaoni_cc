@@ -225,6 +225,28 @@ test('recover_energy records rest recovery from the explicit recovery tool', asy
   assert.equal('duration_label' in lifeEvents[0].payload, false);
 });
 
+test('enqueueConsciousnessTick stores a numeric bot sender id', async () => {
+  const inserts: Array<{ sql: string; params?: unknown[] }> = [];
+  const store = new RuntimeStore() as any;
+  store.sql = {
+    insert: async (sql: string, params?: unknown[]) => {
+      inserts.push({ sql, params });
+      return 1;
+    },
+    query: async () => [],
+    execute: async () => undefined,
+    close: async () => undefined
+  };
+
+  await store.enqueueConsciousnessTick('test_review');
+
+  assert.equal(inserts.length, 1);
+  const params = inserts[0]?.params || [];
+  assert.equal(inserts[0]?.sql.includes("'xiaoni', '小腻'"), false);
+  assert.equal(params[4], '1129974489');
+  assert.equal(JSON.parse(String(params[9])).senderId, '1129974489');
+});
+
 test('visible group replies charge one bounded action cost without per-message double counting', async () => {
   const store = new RuntimeStore() as any;
   const lifeEvents: any[] = [];

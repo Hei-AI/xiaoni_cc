@@ -6999,9 +6999,12 @@ function resolveOptionalToolTargetId(args: Record<string, unknown>, ...keys: str
 
 function resolvePrivateTargetUserId(queueMessage: QueueMessageRecord['payload'], args: Record<string, unknown> = {}) {
   const explicitUserId = resolveOptionalToolTargetId(args, 'user_id', 'target_user_id');
-  const userId = explicitUserId ?? Number(queueMessage.senderId);
+  const userId = explicitUserId
+    ?? parseOptionalInteger(queueMessage.senderId)
+    ?? parseOptionalInteger(queueMessage.peerId)
+    ?? parseOptionalInteger(queueMessage.inboundContext.NativeChannelId);
   if (!Number.isFinite(userId)) {
-    throw new Error(`Invalid sender id in queue payload: ${queueMessage.senderId}`);
+    throw new Error(`Invalid private target in queue payload: sender=${queueMessage.senderId || 'unknown'}, peer=${queueMessage.peerId || 'unknown'}`);
   }
   return userId;
 }

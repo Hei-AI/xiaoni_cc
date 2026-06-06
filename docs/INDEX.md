@@ -40,8 +40,6 @@
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
 - 路线图：
   - `docs/ROADMAP.md`
-- 当前主动队列：
-  - `TODOS.md`
 - 执行计划归档与当前候选：
   - `docs/exec-plans/README.md`
   - `docs/exec-plans/active/`
