@@ -198,6 +198,15 @@ type CanonicalAgentTurnRequest = {
   prompt_cache_retention?: string;
 };
 
+type AgentLoopServiceOptions = {
+  isRuntimeEnabled?: () => boolean | Promise<boolean>;
+  runtimePausePollMs?: number;
+};
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 type ProviderAgentResponse = {
   success: boolean;
   llm_call_id?: string;
@@ -3939,8 +3948,71 @@ function isReplayableToolCall(item: ReplayableModelOutput): item is Extract<Repl
 export class AgentLoopService {
   constructor(
     private readonly store: RuntimeStore,
-    private readonly promptResolver: AgentPromptResolver = new AgentPromptService()
+    private readonly promptResolver: AgentPromptResolver = new AgentPromptService(),
+    private readonly options: AgentLoopServiceOptions = {}
   ) {}
+
+  private async isRuntimeEnabledForLoop() {
+    if (typeof this.options.isRuntimeEnabled !== 'function') {
+      return true;
+    }
+
+    try {
+      return await this.options.isRuntimeEnabled() !== false;
+    } catch (error) {
+      moduleLogger.warn('Failed to check Xiaoni runtime control during active loop; defaulting enabled', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return true;
+    }
+  }
+
+  private async waitForRuntimeEnabledBeforeModelSlice(payload: QueueMessageRecord['payload'], runId: string) {
+    let pauseLogged = false;
+    const pollMs = Math.max(50, Math.min(this.options.runtimePausePollMs ?? agentConfig.idleIntervalMs, agentConfig.idleIntervalMs));
+
+    while (!await this.isRuntimeEnabledForLoop()) {
+      if (!pauseLogged) {
+        pauseLogged = true;
+        await this.store.logTimelineEvent({
+          traceId: payload.traceId,
+          eventType: 'decision',
+          eventName: 'runtime_paused',
+          eventPhase: 'start',
+          metadata: {
+            run_id: runId,
+            source: 'runtime:control'
+          }
+        }).catch((error) => {
+          moduleLogger.warn('Failed to log Xiaoni runtime pause', {
+            traceId: payload.traceId,
+            runId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
+      await sleep(pollMs);
+    }
+
+    if (pauseLogged) {
+      await this.store.logTimelineEvent({
+        traceId: payload.traceId,
+        eventType: 'decision',
+        eventName: 'runtime_paused',
+        eventPhase: 'end',
+        metadata: {
+          run_id: runId,
+          source: 'runtime:control'
+        }
+      }).catch((error) => {
+        moduleLogger.warn('Failed to log Xiaoni runtime resume', {
+          traceId: payload.traceId,
+          runId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+  }
 
   async processQueueMessage(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
@@ -4083,6 +4155,7 @@ export class AgentLoopService {
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
 
       for (let turn = 1; !leaseRelease; turn += 1) {
+        await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         turnsExecuted = turn;
         if (turn > 1) {
           budgetPlan = await this.buildContextBudgetPlan({

@@ -11,7 +11,9 @@ import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
-const loopService = new AgentLoopService(store);
+const loopService = new AgentLoopService(store, undefined, {
+  isRuntimeEnabled
+});
 const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
   botAccountId: agentConfig.botAccountId

@@ -3610,6 +3610,121 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
+test('processQueueMessage waits before the next model slice when runtime control is disabled', async () => {
+  const queueMessage = {
+    id: 'run-queue-runtime-paused',
+    traceId: 'trace-runtime-paused',
+    batchId: 'batch-runtime-paused',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    logTimelineEvent: [],
+    recordNoVisibleDeliveryLifeEvent: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-runtime-paused',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1999;
+    },
+    attachConversationIdToTrace: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordNoVisibleDeliveryLifeEvent: async (params: any) => { storeCalls.recordNoVisibleDeliveryLifeEvent.push(params); }
+  } as any;
+
+  let runtimeChecks = 0;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any, {
+    isRuntimeEnabled: async () => {
+      runtimeChecks += 1;
+      return runtimeChecks !== 2;
+    },
+    runtimePausePollMs: 50
+  });
+
+  let turns = 0;
+  (service as any).executeAgentTurn = async () => {
+    turns += 1;
+    if (turns === 2) {
+      return {
+        success: true,
+        llm_call_id: 'llm-runtime-resumed',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-runtime-resumed-recover',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: JSON.stringify({
+              reason: '暂停恢复后继续原来的 loop，然后自己休息。',
+              duration_minutes: 5,
+              xiaoni_os: '工程暂停只是等了一下。'
+            })
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: `llm-runtime-paused-${turns}`,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          content: [{ type: 'output_text', text: '.' }]
+        }]
+      }
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(turns, 2);
+  assert.equal(runtimeChecks, 3);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
+  assert.equal(
+    storeCalls.logTimelineEvent.some((event) => event.eventName === 'runtime_paused' && event.eventPhase === 'start'),
+    true
+  );
+  assert.equal(
+    storeCalls.logTimelineEvent.some((event) => event.eventName === 'runtime_paused' && event.eventPhase === 'end'),
+    true
+  );
+});
+
 test('processQueueMessage continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-unbounded-loop',
