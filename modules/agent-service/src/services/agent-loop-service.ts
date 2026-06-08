@@ -6163,7 +6163,7 @@ export class AgentLoopService {
       requested_task_type: requestedOperation === 'edit' ? 'image_edit' : 'image_generate',
       task_context: targetDescription,
       xiaoni_os: xiaoniOs,
-      status_text: `生图任务:${taskId || 'unknown'} 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的`
+      status_text: `生图任务:${taskId || 'unknown'} 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的`
     };
   }
 

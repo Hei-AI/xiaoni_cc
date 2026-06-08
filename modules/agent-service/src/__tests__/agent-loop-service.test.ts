@@ -2654,7 +2654,7 @@ test('applyToolResultToLoopInput replays image task output and reminds that visi
     queued: true,
     task_id: 'task-image-queued',
     task_type: 'image_generate',
-    status_text: '生图任务:task-image-queued 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的'
+    status_text: '生图任务:task-image-queued 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的'
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
@@ -2704,7 +2704,7 @@ test('requestImageTask normalizes edit without source image to image_generate', 
   assert.equal(result.task_type, 'image_generate');
   assert.equal(result.requested_task_type, 'image_edit');
   assert.equal(result.task_id, 'task-generate-from-edit');
-  assert.equal(result.status_text, '生图任务:task-generate-from-edit 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的');
+  assert.equal(result.status_text, '生图任务:task-generate-from-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
 });
 
 test('requestImageTask keeps image_edit when a source image resolves', async () => {
@@ -2742,7 +2742,7 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   assert.equal(result.task_type, 'image_edit');
   assert.equal(result.requested_task_type, 'image_edit');
   assert.equal(result.task_id, 'task-edit');
-  assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 phone notify 的形式通知到你。你去忙你自己的');
+  assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
 });
 
 test('summarizeToolLoopState counts tool calls by name and phase', () => {
