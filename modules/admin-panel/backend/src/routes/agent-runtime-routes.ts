@@ -11,7 +11,12 @@ import {
   updateAgentRuntimeControl,
 } from '@qq-bot/persistence';
 import { DatabaseManager } from '../services/database';
-import { buildConversationTracePayload, buildConversationTraceSpanDetail } from '../services/trace-span-builder';
+import {
+  buildConversationTracePayload,
+  buildConversationTraceSpanDetail,
+  buildXiaoniReplayProviderTracePayload,
+  buildXiaoniReplayProviderTraceSpanDetail
+} from '../services/trace-span-builder';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
 const AGENT_REQUEST_TIMEOUT_MS = 5000;
@@ -31,7 +36,7 @@ type AgentProbeResult =
     };
 
 type ActionEventTraceTarget = {
-  conversationId: string;
+  conversationId: string | null;
   traceId: string | null;
   spanId: string | null;
 };
@@ -127,9 +132,6 @@ async function resolveActionEventTraceTarget(
     }
     const conversationId = replayEvent.conversationId
       || await resolveConversationIdFromTrace(database, replayEvent.traceId, replayEvent.internalExecutionLeaseId);
-    if (!conversationId) {
-      return null;
-    }
     const metadata = replayEvent.metadata && typeof replayEvent.metadata === 'object'
       ? replayEvent.metadata
       : {};
@@ -139,7 +141,7 @@ async function resolveActionEventTraceTarget(
         ? `provider-request:wire:${replayEvent.providerCallId}`
         : replayEvent.eventId;
     return {
-      conversationId,
+      conversationId: conversationId || null,
       traceId: replayEvent.traceId || null,
       spanId
     };
@@ -211,7 +213,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         });
       }
 
-      const payload = await buildConversationTracePayload(database, logger, target.conversationId);
+      const payload = target.conversationId
+        ? await buildConversationTracePayload(database, logger, target.conversationId)
+        : await buildXiaoniReplayProviderTracePayload(logger, decodeEventId(req.params.eventId));
       if (!payload) {
         return res.status(404).json({
           success: false,
@@ -254,7 +258,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       }
 
       const spanId = decodeEventId(req.params.spanId);
-      const detail = await buildConversationTraceSpanDetail(database, logger, target.conversationId, spanId);
+      const detail = target.conversationId
+        ? await buildConversationTraceSpanDetail(database, logger, target.conversationId, spanId)
+        : await buildXiaoniReplayProviderTraceSpanDetail(logger, decodeEventId(req.params.eventId), spanId);
       if (!detail) {
         return res.status(404).json({
           success: false,

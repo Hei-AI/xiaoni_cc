@@ -876,7 +876,7 @@ function buildReplayProviderRequestSpan(params: {
   replayProviderEvent: XiaoniReplayEventProjection;
   parentSpanId: string;
   traceId: string;
-  conversationId: string;
+  conversationId: string | null;
   agentTurn?: number | null;
 }): TraceSpanDto {
   const { replayProviderCall, replayProviderEvent } = params;
@@ -939,6 +939,108 @@ function buildReplayProviderRequestSpan(params: {
     links: [],
     confidence: 'observed',
     source_ref: replayProviderEvent.eventId
+  });
+}
+
+function isReplayableCodexProviderEvent(event: XiaoniReplayEventProjection | null): event is XiaoniReplayEventProjection {
+  return Boolean(event && event.source === 'codex_provider' && event.replayable);
+}
+
+function buildReplayProviderTraceRoot(event: XiaoniReplayEventProjection, call: any, traceId: string, rootSpanId: string): TraceSpanDto {
+  return createSpan({
+    span_id: rootSpanId,
+    parent_span_id: null,
+    trace_id: traceId,
+    conversation_id: event.conversationId || null,
+    name: 'xiaoni.action_event',
+    kind: 'internal',
+    status_code: call.status,
+    status_message: call.error_message || null,
+    started_at: call.started_at,
+    ended_at: call.completed_at,
+    duration_ms: call.duration_ms,
+    summary: `Codex Provider 请求 ${call.llm_call_id || event.eventId}`,
+    attributes: {
+      'semantic.role': 'action_event',
+      'semantic.actor': 'xiaoni',
+      'action.event_id': event.eventId,
+      'action.source': event.source,
+      'action.replayable': event.replayable,
+      'provider.api_type': call.wire_provider_format || call.model_provider || null,
+      'trace.llm_call_id': call.llm_call_id || null
+    },
+    input: {
+      event_id: event.eventId,
+      trace_id: traceId
+    },
+    output: {
+      status: event.status,
+      error_message: call.error_message || null
+    },
+    evidence: event,
+    events: [],
+    links: [],
+    confidence: 'observed',
+    source_ref: event.eventId
+  });
+}
+
+function buildReplayProviderTraceLlmSpan(event: XiaoniReplayEventProjection, call: any, traceId: string, rootSpanId: string): TraceSpanDto {
+  return createSpan({
+    span_id: call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${event.eventId}`,
+    parent_span_id: rootSpanId,
+    trace_id: traceId,
+    conversation_id: event.conversationId || null,
+    name: 'llm.generation',
+    kind: 'client',
+    status_code: call.status,
+    status_message: call.error_message || null,
+    started_at: call.started_at,
+    ended_at: call.completed_at,
+    duration_ms: call.duration_ms,
+    summary: safePreview(call.canonical_response || call.wire_response || call.error_message || event.eventId),
+    attributes: {
+      'semantic.role': 'generation',
+      'semantic.actor': call.agent_type || 'xiaoni',
+      'semantic.display_name': `${call.model_provider || 'model'} / ${call.model_name || 'unknown'}`,
+      'llm.model_name': call.model_name,
+      'llm.model_provider': call.model_provider,
+      'llm.prompt_template': call.prompt_template,
+      'usage.input_tokens': call.input_tokens,
+      'usage.output_tokens': call.output_tokens,
+      'trace.agent_turn': call.agent_turn,
+      'provider.request_count': 1,
+      'provider.hosts': [syntheticProviderHost(call)],
+      'provider.statuses': [call.status]
+    },
+    input: {
+      prompt_template: call.prompt_template,
+      canonical_request: call.canonical_request,
+      wire_request: call.wire_request,
+      effective_unified_config: call.effective_unified_config
+    },
+    output: {
+      processed_response: call.processed_response,
+      canonical_response: call.canonical_response,
+      wire_response: call.wire_response,
+      token_usage: call.token_usage,
+      error_message: call.error_message,
+      error_code: call.error_code
+    },
+    evidence: {
+      ...call,
+      synthetic_provider_request: {
+        span_id: buildSyntheticProviderRequestSpanId(call),
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: event.eventId,
+        llm_call_id: call.llm_call_id || null,
+        wire_provider_format: call.wire_provider_format || null
+      }
+    },
+    events: [],
+    links: [],
+    confidence: 'observed',
+    source_ref: event.eventId
   });
 }
 
@@ -2313,6 +2415,105 @@ export async function buildConversationTracePayload(
   };
 }
 
+export async function buildXiaoniReplayProviderTracePayload(
+  logger: winston.Logger,
+  eventId: string
+) {
+  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as XiaoniReplayEventProjection | null;
+  if (!isReplayableCodexProviderEvent(replayEvent)) {
+    return null;
+  }
+
+  const traceId = replayEvent.traceId || replayEvent.eventId;
+  const rootSpanId = `action-event:${replayEvent.eventId}`;
+  const replayProviderCall = normalizeReplayEventProviderCall(replayEvent, { truncateLargeFields: true });
+  const llmSpan = buildReplayProviderTraceLlmSpan(replayEvent, replayProviderCall, traceId, rootSpanId);
+  const spanRecords = [
+    buildReplayProviderTraceRoot(replayEvent, replayProviderCall, traceId, rootSpanId),
+    llmSpan,
+    buildReplayProviderRequestSpan({
+      replayProviderCall,
+      replayProviderEvent: replayEvent,
+      parentSpanId: llmSpan.span_id,
+      traceId,
+      conversationId: replayEvent.conversationId || null,
+      agentTurn: replayProviderCall.agent_turn
+    })
+  ];
+
+  assignTreeMetadata(spanRecords, rootSpanId);
+  const orderedSpans = [...spanRecords].sort((left, right) => left.sort_key.localeCompare(right.sort_key));
+  const firstErrorSpan = orderedSpans.find((span) => span.status_code === 'error') || null;
+  const bottleneckSpan = [...orderedSpans]
+    .filter((span) => typeof span.duration_ms === 'number')
+    .sort((left, right) => (right.duration_ms || 0) - (left.duration_ms || 0))[0] || null;
+  const inputTokens = toNumber(replayProviderCall.token_usage?.input_tokens ?? replayProviderCall.input_tokens) ?? 0;
+  const outputTokens = toNumber(replayProviderCall.token_usage?.output_tokens ?? replayProviderCall.output_tokens) ?? 0;
+  const cachedInputTokens = extractCachedInputTokens(replayProviderCall.token_usage);
+
+  logger.debug('Built Xiaoni replay provider trace payload without conversation', {
+    eventId: replayEvent.eventId,
+    traceId,
+    spanCount: orderedSpans.length
+  });
+
+  return {
+    conversation_id: replayEvent.conversationId || null,
+    batch_id: null,
+    trace: {
+      trace_id: traceId,
+      root_span_id: rootSpanId,
+      status: replayProviderCall.status,
+      started_at: replayProviderCall.started_at,
+      ended_at: replayProviderCall.completed_at,
+      duration_ms: replayProviderCall.duration_ms,
+      span_count: orderedSpans.length,
+      error_count: orderedSpans.filter((span) => span.status_code === 'error').length,
+      summary: safePreview(replayProviderCall.canonical_response || replayProviderCall.wire_response || replayEvent.eventId),
+      first_error: firstErrorSpan ? {
+        span_id: firstErrorSpan.span_id,
+        title: firstErrorSpan.name,
+        summary: firstErrorSpan.summary
+      } : null,
+      bottleneck: bottleneckSpan ? {
+        span_id: bottleneckSpan.span_id,
+        title: bottleneckSpan.name,
+        duration_ms: bottleneckSpan.duration_ms
+      } : null,
+      token_summary: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
+        cached_input_tokens: cachedInputTokens
+      }
+    },
+    spans: orderedSpans,
+    raw_evidence: {
+      conversation: null,
+      replay_event: replayEvent,
+      llm_calls: [replayProviderCall],
+      tool_calls: [],
+      http_logs: [],
+      websocket_logs: [],
+      timeline_events: [],
+      llm_jobs: [],
+      queue_messages: [],
+      runtime_identity_activation_traces: [],
+      identity_evidence_refs: []
+    },
+    data_quality: {
+      trace_headers_propagated: replayEvent.traceId ? 'partial' : 'missing',
+      llm_logs_complete: 'partial',
+      tool_logs_complete: 'missing',
+      http_logs_complete: 'missing',
+      timeline_complete: 'partial',
+      identity_trace_lite: 'missing',
+      replay_event_complete: replayProviderCall.wire_request && replayProviderCall.wire_response ? 'complete' : 'partial',
+      overall: 'partial'
+    }
+  };
+}
+
 export async function buildConversationTraceSpanDetail(
   database: DatabaseManager,
   logger: winston.Logger,
@@ -2499,5 +2700,91 @@ export async function buildConversationTraceSpanDetail(
   }
 
   logger.debug('Trace span detail not required for span', { conversationId, traceId, spanId });
+  return null;
+}
+
+export async function buildXiaoniReplayProviderTraceSpanDetail(
+  logger: winston.Logger,
+  eventId: string,
+  spanId: string
+): Promise<TraceSpanDetailDto | null> {
+  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as XiaoniReplayEventProjection | null;
+  if (!isReplayableCodexProviderEvent(replayEvent)) {
+    return null;
+  }
+
+  const call = normalizeReplayEventProviderCall(replayEvent, { includeRawWireText: true });
+  const providerSpanId = buildSyntheticProviderRequestSpanId(call);
+  if (spanId === providerSpanId) {
+    const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
+    if (cliProxyDetail) {
+      return cliProxyDetail;
+    }
+
+    return {
+      input: {
+        headers: null,
+        body: call.wire_request,
+        raw_body: call.wire_request_raw_text,
+        body_source: 'xiaoni_replay_events.wire_request'
+      },
+      output: {
+        status_code: call.error_message ? null : 200,
+        headers: null,
+        body: call.wire_response,
+        raw_body: call.wire_response_raw_text,
+        body_format: 'json',
+        body_source: 'xiaoni_replay_events.wire_response',
+        error_message: call.error_message
+      },
+      evidence: {
+        synthetic: true,
+        source: 'xiaoni_replay_events.wire_request/wire_response',
+        replay_event_id: replayEvent.eventId,
+        llm_call_id: call.llm_call_id || null,
+        model_provider: call.model_provider || null,
+        wire_provider_format: call.wire_provider_format || null,
+        request_format_version: call.request_format_version || null,
+        request_body: call.wire_request,
+        request_raw_body: call.wire_request_raw_text,
+        response_body: call.wire_response,
+        response_raw_body: call.wire_response_raw_text,
+        duration_ms: call.duration_ms,
+        request_timestamp: call.started_at,
+        response_timestamp: call.completed_at
+      }
+    };
+  }
+
+  const llmSpanId = call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${replayEvent.eventId}`;
+  if (spanId === llmSpanId) {
+    return {
+      input: {
+        prompt_template: call.prompt_template,
+        canonical_request: call.canonical_request,
+        wire_request: call.wire_request,
+        effective_unified_config: call.effective_unified_config
+      },
+      output: {
+        processed_response: call.processed_response,
+        canonical_response: call.canonical_response,
+        wire_response: call.wire_response,
+        token_usage: call.token_usage,
+        error_message: call.error_message,
+        error_code: call.error_code
+      },
+      evidence: {
+        ...call,
+        synthetic_provider_request: {
+          span_id: providerSpanId,
+          source: 'xiaoni_replay_events.wire_request/wire_response',
+          replay_event_id: replayEvent.eventId,
+          llm_call_id: call.llm_call_id || null,
+          wire_provider_format: call.wire_provider_format || null
+        }
+      }
+    };
+  }
+
   return null;
 }

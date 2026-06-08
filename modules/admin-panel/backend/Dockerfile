@@ -9,6 +9,7 @@ RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app/modules/admin-panel/backend
 
 FROM base AS deps
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
 COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js packages/persistence/agent-queue.js packages/persistence/agent-presence.js packages/persistence/agent-life-events.js packages/persistence/xiaoni-replay-events.js packages/persistence/xiaoni-activity.js packages/persistence/ab-experiment.js packages/persistence/relationship-trust.js packages/persistence/agent-memory.js packages/persistence/qq-usage.js packages/persistence/agent-runtime-control.js ./packages/persistence/
@@ -34,6 +35,7 @@ COPY modules/admin-panel/backend/tsconfig.json ./
 RUN npm run build
 
 FROM base AS prod-deps
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY packages/persistence/package.json packages/persistence/package-lock.json ./packages/persistence/
 COPY packages/persistence/index.js packages/persistence/index.d.ts packages/persistence/time.js packages/persistence/traffic.js packages/persistence/self-evolution.js packages/persistence/feedback-reflection.js packages/persistence/identity-lineage.js packages/persistence/topic-lab.js packages/persistence/image-lab.js packages/persistence/agent-media.js packages/persistence/agent-tasks.js packages/persistence/agent-queue.js packages/persistence/agent-presence.js packages/persistence/agent-life-events.js packages/persistence/xiaoni-replay-events.js packages/persistence/xiaoni-activity.js packages/persistence/ab-experiment.js packages/persistence/relationship-trust.js packages/persistence/agent-memory.js packages/persistence/qq-usage.js packages/persistence/agent-runtime-control.js ./packages/persistence/
