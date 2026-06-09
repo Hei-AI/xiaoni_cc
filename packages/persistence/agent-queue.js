@@ -23,6 +23,11 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function normalizePositiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function parseJson(value, fallback) {
   if (value === null || typeof value === 'undefined') {
     return fallback;
@@ -437,8 +442,182 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
+  async function enqueueFinalAnswerIdleReminderIfBucketEmpty(input = {}, config = {}) {
+    const reminderText = normalizeOptionalString(input.reminderText || input.reminder_text);
+    if (!reminderText) {
+      throw new Error('enqueueFinalAnswerIdleReminderIfBucketEmpty requires reminderText');
+    }
+
+    const intervalMs = Math.max(60 * 1000, normalizePositiveInteger(input.intervalMs || input.interval_ms, 5 * 60 * 1000));
+    const now = input.now instanceof Date
+      ? input.now
+      : input.now
+      ? new Date(input.now)
+      : new Date();
+    const effectiveNow = Number.isNaN(now.getTime()) ? new Date() : now;
+    const nowIso = effectiveNow.toISOString();
+    const bucket = Math.floor(effectiveNow.getTime() / intervalMs);
+    const sourceRunId = normalizeOptionalString(input.sourceRunId || input.source_run_id);
+    const sourceTraceId = normalizeOptionalString(input.sourceTraceId || input.source_trace_id);
+    const sourceLlmCallId = normalizeOptionalString(input.sourceLlmCallId || input.source_llm_call_id);
+    const sourceTurn = Number.isFinite(Number(input.sourceTurn || input.source_turn))
+      ? Number(input.sourceTurn || input.source_turn)
+      : null;
+    const accountId = normalizeOptionalString(input.accountId || input.account_id) || '1129974489';
+    const traceId = `systemreminder_${effectiveNow.getTime()}_${randomUUID().slice(0, 8)}`;
+    const messageSid = `system-reminder:final-answer-idle:${bucket}`;
+    const inboundContext = {
+      Body: reminderText,
+      BodyForAgent: reminderText,
+      BodyForCommands: '',
+      RawBody: reminderText,
+      CommandBody: '',
+      SessionKey: 'xiaoni:global',
+      AccountId: accountId,
+      MessageSid: messageSid,
+      ChatType: 'direct',
+      ConversationLabel: '小腻全局 runtime',
+      SenderName: 'system_reminder',
+      SenderId: 'system',
+      Timestamp: Math.floor(effectiveNow.getTime() / 1000),
+      Provider: 'internal',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: 'xiaoni:global',
+      CommandAuthorized: false
+    };
+    const rawPayload = {
+      kind: 'system_reminder',
+      reason: 'final_answer_idle',
+      source_trace_id: sourceTraceId,
+      source_run_id: sourceRunId,
+      source_llm_call_id: sourceLlmCallId,
+      source_turn: sourceTurn,
+      interval_ms: intervalMs,
+      schedule_bucket: bucket
+    };
+    const payload = {
+      traceId,
+      runId: '',
+      batchId: '',
+      source: 'system_reminder',
+      chatType: 'direct',
+      sessionKey: 'xiaoni:global',
+      peerId: accountId,
+      peerName: '小腻',
+      senderId: 'system',
+      senderName: 'system_reminder',
+      accountId,
+      bodyForAgent: reminderText,
+      rawBody: reminderText,
+      commandBody: '',
+      wasMentioned: false,
+      receivedAt: nowIso,
+      messageTimestamp: nowIso,
+      rawPayload,
+      inboundContext,
+      messages: [],
+      systemReminder: {
+        reminder: reminderText,
+        reason: 'final_answer_idle',
+        sourceTraceId,
+        sourceRunId,
+        sourceLlmCallId,
+        sourceTurn,
+        createdAt: nowIso
+      }
+    };
+
+    const { sql, shouldClose } = createSql(input, config);
+    try {
+      return await sql.withTransaction(async (tx) => {
+        await tx.query(
+          'SELECT pg_advisory_xact_lock(hashtext(?)) AS locked',
+          ['agent_queue_messages:final_answer_idle_reminder']
+        );
+        const pendingRows = await tx.query(
+          `
+            SELECT id
+            FROM agent_queue_messages
+            WHERE status = 'pending'
+            LIMIT 1
+          `
+        );
+        if (pendingRows.length > 0) {
+          return {
+            enqueued: false,
+            reason: 'queue_not_empty',
+            queueId: null,
+            dedupeKey: messageSid
+          };
+        }
+
+        const insertedRows = await tx.query(
+          `
+            INSERT INTO agent_queue_messages (
+              trace_id,
+              source,
+              message_sid,
+              dedupe_key,
+              chat_type,
+              session_key,
+              peer_id,
+              peer_name,
+              sender_id,
+              sender_name,
+              account_id,
+              body_for_agent,
+              raw_payload,
+              inbound_context,
+              payload,
+              status,
+              available_at
+            )
+            VALUES (?, 'system_reminder', ?, ?, 'direct', 'xiaoni:global', ?, ?, 'system', 'system_reminder', ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, 'pending', ?)
+            ON CONFLICT (dedupe_key) DO NOTHING
+            RETURNING id
+          `,
+          [
+            traceId,
+            messageSid,
+            messageSid,
+            accountId,
+            '小腻',
+            accountId,
+            reminderText,
+            JSON.stringify(rawPayload),
+            JSON.stringify(inboundContext),
+            JSON.stringify(payload),
+            effectiveNow
+          ]
+        );
+
+        const inserted = insertedRows[0];
+        if (!inserted) {
+          return {
+            enqueued: false,
+            reason: 'deduped',
+            queueId: null,
+            dedupeKey: messageSid
+          };
+        }
+        return {
+          enqueued: true,
+          reason: 'enqueued',
+          queueId: Number(inserted.id || 0),
+          dedupeKey: messageSid
+        };
+      });
+    } finally {
+      if (shouldClose) {
+        await sql.close();
+      }
+    }
+  }
+
   return {
     enqueueAgentQueueMessage,
+    enqueueFinalAnswerIdleReminderIfBucketEmpty,
     claimNextAgentQueueMessage,
     settleAgentQueueMessages,
     failAgentQueueMessage

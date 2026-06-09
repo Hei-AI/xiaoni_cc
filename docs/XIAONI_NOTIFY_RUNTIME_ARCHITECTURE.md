@@ -35,7 +35,8 @@ loop tick
   -> POST provider-service /api/internal/agent/execute
   -> provider-service codex-provider / OpenAI
   -> parse assistant response / tool_call / final_answer
-  -> action dispatch
+  -> Step 8 ResponseActionRouter
+  -> ToolDispatcher / post action
   -> save transcript / replay / trace
   -> next loop
 ```
@@ -47,6 +48,7 @@ loop tick
 | NapCat QQ message | `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | self continuation | `self_continuation`，空闲且未休息时维持连续主 loop。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
+| final_answer idle reminder | `system_reminder`，模型返回 `final_answer` 且 bucket 为空时由 Step 8 post action 写入。 | `modules/agent-service/src/services/response-action-router.ts` / `packages/persistence/agent-queue.js` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
 写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，等待主 loop 在后续 slice 里 pick。
@@ -89,7 +91,19 @@ agent-service
   -> agent-service action dispatch
 ```
 
-`final_answer` / `tool_call` / assistant message 都是模型响应内容。响应解析后由 `agent-service` 决定后续动作；不能把模型返回的 `phase` 当作 runtime 消费策略，除非另有明确实现和文档。
+`final_answer` / `tool_call` / assistant message 都是模型响应内容。响应解析后由 `agent-service` 的 `ResponseActionRouter` 决定后续动作。历史 transcript 仍保持原始 phase：存下来的 `commentary` / `final_answer` 怎么样，回放和渲染就怎么样；只有 Step 8 的 runtime post action 会消费 `final_answer` 这个响应类型。
+
+`final_answer` 当前有一条明确消费策略：
+
+```text
+canonical_response
+  -> ResponseActionRouter
+  -> final_answer without tool_call
+  -> if Notify Bucket has no pending item
+  -> enqueue system_reminder notify
+```
+
+写入使用 `packages/persistence/agent-queue.js` 的原子方法，先在事务里检查 pending bucket，再写 `system_reminder`。如果当前输入本身就是 `system_reminder`，`agent-service` 不会再次回灌同类提醒，避免自循环。
 
 ## 动作分发
 
@@ -99,7 +113,8 @@ agent-service
 | QQ reply | `agent-service -> provider-service -> NapCat`。 | delivery state、trace、conversation item 写回持久层。 |
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
-| message / silent / `final_answer` | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮。 |
+| `final_answer` | `ResponseActionRouter` 生成 post action；bucket 为空时写入 `system_reminder` notify。 | post action 结果记录 timeline；transcript / replay 仍按原始 phase 保存。 |
+| message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮。 |
 
 ## 持久化边界
 

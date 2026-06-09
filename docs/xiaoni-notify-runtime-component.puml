@@ -19,73 +19,85 @@ skinparam NoteBackgroundColor #FFF8DF
 left to right direction
 title 小腻 Notify Bucket 运行组件图
 
-component "外部输入\n----\nNapCat QQ message\nself / presence\nsystem reminder" as External #DCF2EE
+component "外部输入\n----\nNapCat QQ message\nself continuation\nsystem reminder" as External #DCF2EE
 
-component "provider-service\n----\n- normalize inbound\n- write QQ body to inbox\n- push notify\n- provider API:\n  reply / image finish\n- LLM provider gateway" as Provider #EDF7FF
+package "provider-service" as Provider #EDF7FF {
+  component "inbound normalizer\n----\nnormalize NapCat event\nwrite inbox\npush notify" as ProviderInbound #EDF7FF
+  component "provider API\n----\nQQ outbound\nmedia inspect\nimage endpoints" as ProviderApi #EDF7FF
+  component "codex-provider\n----\nLLM adapter\nOpenAI request/response" as CodexProvider #E5F7F2
+  component "image provider\n----\nOpenAI / Codex\nimage transport" as ImageProvider #E5F7F2
+}
 
 database "agent_inbound_messages\n----\nQQ 正文 inbox / window" as Inbox #E6EEF9
-component "agent-service\nqq-usage API\n----\n/api/internal/qq-usage" as QqUsage #FFFDF5
 
 queue "Notify Bucket\n----\n唯一概念桶" as Bucket #FFF2C8
-
 database "agent_queue_messages\n----\n当前持久化 / lease 实现" as QueueTable #E6EEF9
 
-component "agent-service\n小腻 runtime loop\n----\n1 loop tick\n2 build prompt\n3 build dev\n4 append history\n5 pick notify event\n6 combined finish\n7 POST codex-provider\n8 action dispatch\n9/10 trace + save" as Agent #FFFDF5
-
-component "codex-provider\n----\n- build OpenAI request\n- execute POST\n- parse response\n- normalize tool_call / final_answer" as CodexProvider #E5F7F2
+package "agent-service" as AgentService #FFFDF5 {
+  component "小腻 runtime loop\n----\n1 loop tick\n2 build prompt/dev\n3 append history\n4 Step 5 pick notify\n5 Step 6 combined finish\n6 Step 7 execute model POST\n7 Step 9/10 save" as RuntimeLoop #FFFDF5
+  component "Step 8\nResponseActionRouter\n----\npreserve replay\nclassify final_answer / tool_call\nemit post actions" as ResponseRouter #FFF2C8
+  component "ToolDispatcher\n----\nunified tool entry\nlog tool_execution_logs\nroute by tool name" as ToolDispatcher #FFF2C8
+  component "qq-usage API\n----\n/api/internal/qq-usage" as QqUsage #FFFDF5
+  component "agent task worker\n----\nimage task\ncompletion notify" as TaskWorker #FFFDF5
+}
 
 cloud "OpenAI\n----\nassistant response\nimage generation" as OpenAI #F1ECFF
 
-component "xiaoni-executor\n----\nexec_command\nstdout / stderr\nsession state" as Executor #E5F7F2
-
-component "image provider\n----\nengineering starts image task\ncompletion handled by provider-service" as ImageProvider #E5F7F2
+component "xiaoni-executor\n----\nexec_command\npicture store\nsession state" as Executor #E5F7F2
 
 database "replay / conversation / trace\n----\nhistory transcript\npost-action result" as History #E6EEF9
 
-External --> Provider : inbound / trigger
-Provider --> Inbox : write QQ body
-Provider --> Bucket : push notify
+External --> ProviderInbound : QQ inbound / trigger
+ProviderInbound --> Inbox : write QQ body
+ProviderInbound --> Bucket : push phone_notification
 Bucket .. QueueTable : carried by
-Bucket --> Agent : Step 5 pick, non-blocking
+Bucket --> RuntimeLoop : Step 5 pick, non-blocking
 
-Agent --> CodexProvider : Step 7 execute POST
-CodexProvider --> OpenAI : request
-OpenAI --> CodexProvider : response
-CodexProvider --> Agent : parsed response
+RuntimeLoop --> CodexProvider : Step 7\n/provider-service /agent/execute
+CodexProvider --> OpenAI : LLM request
+OpenAI --> CodexProvider : assistant / tool_call / final_answer
+CodexProvider --> ResponseRouter : canonical_response
 
-Agent --> QqUsage : Step 8 $qq-usage
+ResponseRouter --> History : replay / transcript plan
+ResponseRouter --> Bucket : final_answer post action\nif bucket empty
+ResponseRouter --> ToolDispatcher : tool_call
+ResponseRouter --> RuntimeLoop : no-tool continuation
+
+ToolDispatcher --> QqUsage : $qq-usage
 QqUsage --> Inbox : read inbox window
-QqUsage --> Agent : QQ context
+QqUsage --> ToolDispatcher : QQ context
 
-Agent --> Provider : Step 8 reply
-Provider --> External : QQ outbound via NapCat
+ToolDispatcher --> ProviderApi : QQ reply / media inspect
+ProviderApi --> External : QQ outbound via NapCat
 
-Agent --> Executor : Step 8 exec_command
-Executor --> Agent : stdout / stderr
+ToolDispatcher --> Executor : exec_command
+Executor --> ToolDispatcher : stdout / stderr
 
-Agent --> ImageProvider : Step 8 image task
+ToolDispatcher --> TaskWorker : request_image_task
+TaskWorker --> ImageProvider : provider-service image endpoint
 ImageProvider --> OpenAI : image generation
 OpenAI --> ImageProvider : image result
-ImageProvider --> Provider : completion
-Provider --> Bucket : push completion notify
+TaskWorker --> Executor : store picture
+TaskWorker --> Bucket : push image completion notify
 
-Agent --> History : Step 9/10 save
-Agent -[#607086,dashed]-> Agent : next loop
+RuntimeLoop --> History : Step 9/10 save
+History --> RuntimeLoop : next loop context
+RuntimeLoop -[#607086,dashed]-> RuntimeLoop : next loop
 
 note bottom of Bucket
   回灌目标是概念上的 Notify Bucket。
   agent_queue_messages 只是当前承载实现，
-  不应该在图上被当成业务队列组件。
+  不是 QQ 正文 inbox。
 end note
 
-note bottom of Inbox
-  QQ 正文存在 agent_inbound_messages。
-  $qq-usage 是 agent 选择的动作，
-  当前由 agent-service API 读取 persistence。
+note bottom of ResponseRouter
+  final_answer 在这里消费为 post action。
+  不改变历史 transcript 的 phase 渲染：
+  历史存什么，出去就是什么。
 end note
 
-note bottom of CodexProvider
-  codex-provider 是一个模型适配组件，
-  不是 send / parse 两个独立服务。
+note bottom of ToolDispatcher
+  归一的是 tool control plane，
+  不是把所有 tool 都塞进 provider-service。
 end note
 @enduml

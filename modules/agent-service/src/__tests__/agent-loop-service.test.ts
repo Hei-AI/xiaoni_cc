@@ -4158,6 +4158,105 @@ test('processQueueMessage does not auto-send image task status after queuing', a
   }
 });
 
+test('executeResponsePostActions enqueues final_answer idle reminder through the store', async () => {
+  const storeCalls: Record<string, any[]> = {
+    enqueueFinalAnswerIdleReminder: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    enqueueFinalAnswerIdleReminder: async (params: any) => {
+      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
+      return {
+        enqueued: true,
+        reason: 'enqueued',
+        queueId: 123,
+        dedupeKey: 'system-reminder:final-answer-idle:1'
+      };
+    },
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const queueMessage = createQueuePayload();
+
+  await (service as any).executeResponsePostActions([{
+    type: 'enqueue_final_answer_idle_reminder',
+    reminderText: '去看看 todo。'
+  }], {
+    queueMessage,
+    runId: 'run-final',
+    turn: 3,
+    llmCallId: 'llm-final'
+  });
+
+  assert.deepEqual(storeCalls.enqueueFinalAnswerIdleReminder, [{
+    reminderText: '去看看 todo。',
+    sourceRunId: 'run-final',
+    sourceTraceId: queueMessage.traceId,
+    sourceLlmCallId: 'llm-final',
+    sourceTurn: 3
+  }]);
+  assert.equal(storeCalls.logTimelineEvent.length, 1);
+  assert.equal(storeCalls.logTimelineEvent[0].eventName, 'final_answer_idle_reminder');
+  assert.equal(storeCalls.logTimelineEvent[0].metadata.enqueued, true);
+});
+
+test('executeResponsePostActions does not re-enqueue idle reminder from system reminder input', async () => {
+  const storeCalls: Record<string, any[]> = {
+    enqueueFinalAnswerIdleReminder: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    enqueueFinalAnswerIdleReminder: async (params: any) => {
+      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
+      return {
+        enqueued: true,
+        reason: 'enqueued',
+        queueId: 123,
+        dedupeKey: 'system-reminder:final-answer-idle:1'
+      };
+    },
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const basePayload = createQueuePayload();
+  const queueMessage = {
+    ...basePayload,
+    source: 'system_reminder',
+    inboundContext: {
+      ...basePayload.inboundContext,
+      Surface: 'system_reminder'
+    },
+    systemReminder: {
+      reminder: '去看看 todo。',
+      reason: 'final_answer_idle',
+      createdAt: '2026-06-09T00:00:00.000Z'
+    }
+  };
+
+  await (service as any).executeResponsePostActions([{
+    type: 'enqueue_final_answer_idle_reminder',
+    reminderText: '去看看 todo。'
+  }], {
+    queueMessage,
+    runId: 'run-reminder',
+    turn: 1,
+    llmCallId: 'llm-reminder'
+  });
+
+  assert.equal(storeCalls.enqueueFinalAnswerIdleReminder.length, 0);
+  assert.equal(storeCalls.logTimelineEvent.length, 1);
+  assert.equal(storeCalls.logTimelineEvent[0].metadata.enqueued, false);
+  assert.equal(storeCalls.logTimelineEvent[0].metadata.reason, 'source_is_system_reminder');
+});
+
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',

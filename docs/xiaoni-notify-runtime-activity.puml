@@ -61,8 +61,8 @@ end note
 :OpenAI response\nassistant message / tool_call / final_answer;
 
 |小腻主 loop / agent-service|
-if (Step 8 action dispatch?) then (普通 tool)
-  :run selected tool;
+if (Step 8 ResponseActionRouter?) then (tool_call)
+  :ToolDispatcher\nrun selected tool;
   note right
     $qq-usage: agent-service /api/internal/qq-usage -> agent_inbound_messages
     reply: agent-service -> provider-service -> NapCat
@@ -83,7 +83,15 @@ elseif (image / provider task) then
   end note
   goto bucket
 
-else (message / silent / final_answer)
+elseif (final_answer) then
+  |小腻主 loop / agent-service|
+  :post action:\nif Notify Bucket empty,\nenqueue system_reminder;
+  note right
+    final_answer 在 Step 8 被消费为 post action。
+    历史 transcript 仍按原始 phase 保存 / 回放。
+  end note
+
+else (message / silent)
   :no external tool dispatch;
 endif
 

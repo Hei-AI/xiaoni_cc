@@ -141,6 +141,15 @@ export type QueueMessagePayload = {
     recoverUntil?: string | null;
     createdAt: string;
   };
+  systemReminder?: {
+    reminder: string;
+    reason: string;
+    sourceTraceId?: string | null;
+    sourceRunId?: string | null;
+    sourceLlmCallId?: string | null;
+    sourceTurn?: number | null;
+    createdAt: string;
+  };
 };
 
 export type QueueMessageRecord = {

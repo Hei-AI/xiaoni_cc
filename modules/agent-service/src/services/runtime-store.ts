@@ -50,6 +50,7 @@ import {
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
   enqueueAgentQueueMessage,
+  enqueueFinalAnswerIdleReminderIfBucketEmpty,
   claimNextAgentQueueMessage,
   settleAgentQueueMessages,
   failAgentQueueMessage,
@@ -129,6 +130,13 @@ type AgentLifeStateRow = {
 };
 
 type SelfContinuationReason = 'autonomous_runtime_slice' | 'recovery_complete' | string;
+
+export type FinalAnswerIdleReminderEnqueueResult = {
+  enqueued: boolean;
+  reason: 'enqueued' | 'queue_not_empty' | 'deduped';
+  queueId: number | null;
+  dedupeKey: string;
+};
 
 function buildSelfContinuationPayload(input: {
   now: Date;
@@ -1809,6 +1817,25 @@ export class RuntimeStore {
       availableAt: now
     }, databaseConfig);
     return result.status === 'pending' && result.attempts === 0;
+  }
+
+  async enqueueFinalAnswerIdleReminder(input: {
+    reminderText: string;
+    sourceRunId?: string | null;
+    sourceTraceId?: string | null;
+    sourceLlmCallId?: string | null;
+    sourceTurn?: number | null;
+  }): Promise<FinalAnswerIdleReminderEnqueueResult> {
+    return enqueueFinalAnswerIdleReminderIfBucketEmpty({
+      reminderText: input.reminderText,
+      sourceRunId: input.sourceRunId ?? null,
+      sourceTraceId: input.sourceTraceId ?? null,
+      sourceLlmCallId: input.sourceLlmCallId ?? null,
+      sourceTurn: input.sourceTurn ?? null,
+      accountId: agentConfig.botAccountId || '1129974489',
+      intervalMs: agentConfig.finalAnswerIdleReminderIntervalMs,
+      sqlAdapter: this.sql
+    }, databaseConfig) as Promise<FinalAnswerIdleReminderEnqueueResult>;
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

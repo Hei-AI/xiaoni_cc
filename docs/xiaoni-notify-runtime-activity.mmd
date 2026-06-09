@@ -53,24 +53,28 @@ flowchart LR
     onlyConsumer["唯一消费路径<br/>Notify Bucket -> Step 5"]:::note
     s6["Step 6 combined finish"]:::step
     s7["Step 7 execute POST<br/>to codex-provider"]:::step
-    dispatch{"Step 8<br/>action dispatch?"}:::decision
+    router{"Step 8<br/>ResponseActionRouter"}:::decision
+    dispatcher{"ToolDispatcher<br/>tool_call?"}:::decision
     qqUsage["$qq-usage"]:::tool
     qqUsageApi["agent-service<br/>/api/internal/qq-usage"]:::step
     readInbox["read QQ body<br/>via persistence"]:::step
     reply["reply"]:::tool
     exec["exec_command"]:::tool
     execResult["stdout / stderr<br/>session result"]:::step
-    noTool["message<br/>silent / final"]:::step
+    finalPost["final_answer post action<br/>if bucket empty: enqueue system_reminder"]:::step
+    noTool["message / silent<br/>no external tool"]:::step
     s9["Step 9 post-action"]:::step
     s10["Step 10 save transcript / trace"]:::step
 
     s1 --> s2 --> s3 --> s4 --> s5
     s5 -.-> onlyConsumer
     s5 --> s6 --> s7
-    dispatch -- "$qq-usage" --> qqUsage --> qqUsageApi --> readInbox --> s9
-    dispatch -- "reply" --> reply --> replyProvider --> s9
-    dispatch -- "exec_command" --> exec --> executor
-    dispatch -- "message / silent / final_answer" --> noTool --> s9
+    router -- "tool_call" --> dispatcher
+    dispatcher -- "$qq-usage" --> qqUsage --> qqUsageApi --> readInbox --> s9
+    dispatcher -- "reply" --> reply --> replyProvider --> s9
+    dispatcher -- "exec_command" --> exec --> executor
+    router -- "final_answer" --> finalPost --> s9
+    router -- "message / silent" --> noTool --> s9
     s9 --> s10 -. "next loop tick" .-> s1
   end
 
@@ -96,8 +100,9 @@ flowchart LR
   push --> bucket
   bucket --> s5
   s7 --> providerSend
-  providerParse --> dispatch
+  providerParse --> router
   readInbox --> inbox
-  dispatch -- "image / provider task" --> imageStart
+  dispatcher -- "image / provider task" --> imageStart
   imageGen --> imageFinishProvider
   imagePush --> bucket
+  finalPost --> bucket

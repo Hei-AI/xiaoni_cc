@@ -31,6 +31,12 @@ import {
 } from './runtime-store';
 import { resolveModelContextPolicy } from './model-context-policy';
 import { estimateTextTokens } from './token-estimator';
+import {
+  ResponseActionRouter,
+  type ResponsePostAction,
+  extractReplayableModelOutputs,
+  isReplayableToolCall
+} from './response-action-router';
 
 type OpenResponseInputItem =
   | {
@@ -1985,6 +1991,19 @@ function buildInboundBatchTranscriptItems(
       traceId: queueMessage.traceId
     }];
   }
+  if (isSystemReminderPayload(queueMessage)) {
+    return [{
+      sessionKey: queueMessage.sessionKey,
+      role: 'assistant',
+      phase: 'commentary',
+      content: renderSystemReminder(queueMessage),
+      groupIndex: 0 as const,
+      itemIndex: 0,
+      source: 'sensory_event',
+      runId: queueMessage.runId,
+      traceId: queueMessage.traceId
+    }];
+  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return [{
       sessionKey: queueMessage.sessionKey,
@@ -2366,6 +2385,9 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
   if (isImageTaskNotificationPayload(queueMessage)) {
     return '<system_reminder>这是生图任务完成通知，不是 QQ 消息。通知里给出的 task_id、picture_id 和 picture_path 是已完成图片的直接线索；可以按路径读取或后续自行决定怎么处理。</system_reminder>';
   }
+  if (isSystemReminderPayload(queueMessage)) {
+    return '<system_reminder>当前输入来自小腻 runtime 的内部提醒，不是 QQ 正文，也不是用户消息。可以把它当作行动建议，但不要伪装成外界催促。</system_reminder>';
+  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return '<system_reminder>手机状态栏出现了 QQ 通知。这是外界进入当前行动流的感官输入，不是 QQ 正文；你只知道通知摘要和未读数量。只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
   }
@@ -2414,6 +2436,23 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
     created_at: notification?.createdAt || queueMessage.receivedAt
   });
   return `<IMAGE_TASK_NOTIFICATION ${renderedAttributes} />`;
+}
+
+function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
+  const reminder = typeof queueMessage.systemReminder?.reminder === 'string' && queueMessage.systemReminder.reminder.trim()
+    ? queueMessage.systemReminder.reminder.trim()
+    : typeof queueMessage.bodyForAgent === 'string'
+      ? queueMessage.bodyForAgent.trim()
+      : '';
+  return formatTaggedBlock('system_reminder', {
+    source: 'final_answer_idle',
+    reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
+    source_trace_id: queueMessage.systemReminder?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
+    source_run_id: queueMessage.systemReminder?.sourceRunId || queueMessage.rawPayload?.source_run_id,
+    source_llm_call_id: queueMessage.systemReminder?.sourceLlmCallId || queueMessage.rawPayload?.source_llm_call_id,
+    source_turn: queueMessage.systemReminder?.sourceTurn || queueMessage.rawPayload?.source_turn,
+    created_at: queueMessage.systemReminder?.createdAt || queueMessage.receivedAt
+  }, reminder || '没事做时可以自己找点事做，或休息。');
 }
 
 function renderConsciousnessTickAction(queueMessage: QueueMessageRecord['payload']) {
@@ -3841,31 +3880,6 @@ export function applyToolResultToLoopInput(
   };
 }
 
-type ReplayableModelOutput =
-  | {
-      type: 'tool_call';
-      inputItem: OpenResponseInputItem & {
-        type: 'function_call';
-        call_id: string;
-        name: string;
-        arguments: string;
-      };
-      toolCall: AgentToolCall;
-    }
-  | {
-      type: 'assistant_message';
-      inputItem: OpenResponseInputItem;
-    }
-  | {
-      type: 'reasoning';
-      inputItem: {
-        type: 'reasoning';
-        content?: string;
-        summary?: string | Array<Record<string, unknown>>;
-        encrypted_content?: string;
-      };
-    };
-
 type AgentModelParameters = Record<string, unknown> | null | undefined;
 
 function normalizeModelSlug(modelName: string) {
@@ -3941,11 +3955,9 @@ function buildAgentInclude(modelName: string, parameters: AgentModelParameters):
   return include.size > 0 ? Array.from(include) : undefined;
 }
 
-function isReplayableToolCall(item: ReplayableModelOutput): item is Extract<ReplayableModelOutput, { type: 'tool_call' }> {
-  return item.type === 'tool_call';
-}
-
 export class AgentLoopService {
+  private readonly responseActionRouter = new ResponseActionRouter();
+
   constructor(
     private readonly store: RuntimeStore,
     private readonly promptResolver: AgentPromptResolver = new AgentPromptService(),
@@ -4196,8 +4208,15 @@ export class AgentLoopService {
           runtimePrompt
         );
         attachActualUsageToTurnBudget(turnBudgetRecord, modelResult);
-        const replayableOutputs = extractReplayableModelOutputs(modelResult.canonical_response);
-        const hasToolCall = replayableOutputs.some((item) => item.type === 'tool_call');
+        const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
+        const replayableOutputs = actionPlan.replayableOutputs;
+        const hasToolCall = actionPlan.hasToolCall;
+        await this.executeResponsePostActions(actionPlan.postActions, {
+          queueMessage: payload,
+          runId: queueMessage.id,
+          turn,
+          llmCallId: modelResult.llm_call_id || null
+        });
 
         if (!hasToolCall) {
           deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
@@ -5644,6 +5663,59 @@ export class AgentLoopService {
     };
   }
 
+  private async executeResponsePostActions(
+    postActions: ResponsePostAction[],
+    context: {
+      queueMessage: QueueMessageRecord['payload'];
+      runId: string;
+      turn: number;
+      llmCallId: string | null;
+    }
+  ) {
+    for (const action of postActions) {
+      if (action.type !== 'enqueue_final_answer_idle_reminder') {
+        continue;
+      }
+      if (isSystemReminderPayload(context.queueMessage)) {
+        await this.store.logTimelineEvent({
+          traceId: context.queueMessage.traceId,
+          eventType: 'decision',
+          eventName: 'final_answer_idle_reminder',
+          eventPhase: null,
+          metadata: {
+            enqueued: false,
+            reason: 'source_is_system_reminder',
+            source_llm_call_id: context.llmCallId,
+            source_turn: context.turn
+          }
+        });
+        continue;
+      }
+
+      const result = await this.store.enqueueFinalAnswerIdleReminder({
+        reminderText: action.reminderText,
+        sourceRunId: context.runId,
+        sourceTraceId: context.queueMessage.traceId,
+        sourceLlmCallId: context.llmCallId,
+        sourceTurn: context.turn
+      });
+      await this.store.logTimelineEvent({
+        traceId: context.queueMessage.traceId,
+        eventType: 'decision',
+        eventName: 'final_answer_idle_reminder',
+        eventPhase: null,
+        metadata: {
+          enqueued: result.enqueued,
+          reason: result.reason,
+          queue_id: result.queueId ?? null,
+          dedupe_key: result.dedupeKey ?? null,
+          source_llm_call_id: context.llmCallId,
+          source_turn: context.turn
+        }
+      });
+    }
+  }
+
   private async executeAgentTurn(
     turnInput: OpenResponseInputItem[],
     queueMessage: QueueMessageRecord['payload'],
@@ -6461,6 +6533,12 @@ function isImageTaskNotificationPayload(queueMessage: QueueMessageRecord['payloa
     || queueMessage.inboundContext?.Surface === 'image_task_notification';
 }
 
+function isSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
+  return queueMessage.source === 'system_reminder'
+    || Boolean(queueMessage.systemReminder)
+    || queueMessage.inboundContext?.Surface === 'system_reminder';
+}
+
 function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'self_continuation'
     || Boolean(queueMessage.selfContinuation)
@@ -6995,6 +7073,11 @@ function buildCurrentTurnInputItems(
       buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
     ];
   }
+  if (isSystemReminderPayload(queueMessage)) {
+    return [
+      buildAssistantCommentaryInputItem([renderSystemReminder(queueMessage)])
+    ];
+  }
   const currentMessages = [
     isImageTaskNotificationPayload(queueMessage)
       ? renderImageTaskNotification(queueMessage)
@@ -7062,6 +7145,9 @@ function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
   if (isImageTaskNotificationPayload(queueMessage)) {
     return renderImageTaskNotification(queueMessage);
   }
+  if (isSystemReminderPayload(queueMessage)) {
+    return renderSystemReminder(queueMessage);
+  }
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
@@ -7075,6 +7161,9 @@ function classifyRuntimeStreamInput(queueMessage: QueueMessageRecord['payload'])
     return 'sensory_event';
   }
   if (isImageTaskNotificationPayload(queueMessage)) {
+    return 'sensory_event';
+  }
+  if (isSystemReminderPayload(queueMessage)) {
     return 'sensory_event';
   }
   if (isConsciousnessTickPayload(queueMessage)) {
@@ -7099,7 +7188,9 @@ function buildRuntimeStreamMetadata(
     context_session_key: params.contextSessionKey,
     trigger_source: queueMessage.source,
     trigger_kind: classifyRuntimeStreamInput(queueMessage),
-    sensory_input: isPhoneNotificationPayload(queueMessage) || isImageTaskNotificationPayload(queueMessage),
+    sensory_input: isPhoneNotificationPayload(queueMessage)
+      || isImageTaskNotificationPayload(queueMessage)
+      || isSystemReminderPayload(queueMessage),
     append_strategy: 'responses_replay_items',
     response_replay_item_count: params.responseReplayItemCount,
     model_request_slices: params.turnsExecuted
@@ -7237,84 +7328,6 @@ function buildExecCommandRuntimeEnv(
     env.XIAONI_TOOL_NAME = toolCall.name;
   }
   return env;
-}
-
-function extractReplayableModelOutputs(response: ProviderAgentResponse['canonical_response']): ReplayableModelOutput[] {
-  const output = Array.isArray(response?.output) ? response.output : [];
-  const replayItems: ReplayableModelOutput[] = [];
-
-  for (const item of output) {
-    if (item?.type === 'reasoning') {
-      const reasoningItem = normalizeReasoningReplayInputItem({
-        type: 'reasoning',
-        ...(typeof item.content === 'string' && item.content.length > 0
-          ? { content: item.content }
-          : {}),
-        ...(typeof item.summary === 'string' && item.summary.length > 0
-          ? { summary: item.summary }
-          : Array.isArray(item.summary) && item.summary.length > 0
-          ? { summary: item.summary }
-          : {}),
-        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-          ? { encrypted_content: item.encrypted_content }
-          : {})
-      });
-      if (isReasoningReplayItem(reasoningItem)) {
-        replayItems.push({
-          type: 'reasoning',
-          inputItem: reasoningItem
-        });
-      }
-      continue;
-    }
-
-    if (item?.type === 'message' && item.role === 'assistant') {
-      const text = Array.isArray(item.content)
-        ? item.content
-            .map((part) => part?.type === 'output_text' && typeof part.text === 'string' ? part.text.trim() : '')
-            .filter(Boolean)
-            .join('\n')
-        : '';
-      if (text) {
-        replayItems.push({
-          type: 'assistant_message',
-          inputItem: buildMessageInputItem('assistant', [text], item.phase === 'final_answer' ? 'final_answer' : 'commentary')
-        });
-      }
-      continue;
-    }
-
-    if (item?.type !== 'function_call' || typeof item.name !== 'string') {
-      continue;
-    }
-
-    const rawArguments = typeof item.arguments === 'string' ? item.arguments : '{}';
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(rawArguments) as Record<string, unknown>;
-    } catch {
-      args = {};
-    }
-
-    const callId = item.call_id || `tool_${uuidv4().slice(0, 8)}`;
-    replayItems.push({
-      type: 'tool_call',
-      inputItem: {
-        type: 'function_call',
-        call_id: callId,
-        name: item.name,
-        arguments: rawArguments
-      },
-      toolCall: {
-        callId,
-        name: item.name,
-        args,
-        rawArguments
-      }
-    });
-  }
-
-  return replayItems;
 }
 
 function normalizeMessages(args: Record<string, unknown>) {

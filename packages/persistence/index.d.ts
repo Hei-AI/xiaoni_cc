@@ -1330,6 +1330,34 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   availableAt: string | null;
   payload: Record<string, unknown>;
 }>;
+export type AgentQueueFinalAnswerIdleReminderInput = {
+  reminderText?: string;
+  reminder_text?: string;
+  sourceTraceId?: string | null;
+  source_trace_id?: string | null;
+  sourceRunId?: string | null;
+  source_run_id?: string | null;
+  sourceLlmCallId?: string | null;
+  source_llm_call_id?: string | null;
+  sourceTurn?: number | null;
+  source_turn?: number | null;
+  accountId?: string;
+  account_id?: string;
+  intervalMs?: number;
+  interval_ms?: number;
+  now?: string | Date;
+  sqlAdapter?: SqlAdapter;
+};
+export type AgentQueueFinalAnswerIdleReminderResult = {
+  enqueued: boolean;
+  reason: 'enqueued' | 'queue_not_empty' | 'deduped';
+  queueId: number | null;
+  dedupeKey: string;
+};
+export function enqueueFinalAnswerIdleReminderIfBucketEmpty(
+  input?: AgentQueueFinalAnswerIdleReminderInput,
+  config?: DatabaseUrlConfig
+): Promise<AgentQueueFinalAnswerIdleReminderResult>;
 export type AgentQueueClaimInput = {
   workerId?: string;
   worker_id?: string;
