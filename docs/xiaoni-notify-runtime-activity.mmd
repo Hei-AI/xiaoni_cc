@@ -1,0 +1,103 @@
+flowchart LR
+  %% Xiaoni runtime activity diagram.
+  %% Mermaid source of docs/xiaoni-notify-runtime-activity.svg.
+
+  classDef step fill:#e6eef9,stroke:#557cad,color:#17202b
+  classDef bucket fill:#fff2c8,stroke:#c99008,stroke-width:2px,color:#17202b
+  classDef tool fill:#e5f7f2,stroke:#4f9d8a,color:#17202b
+  classDef note fill:#fff8df,stroke:#d8ad31,color:#17202b
+  classDef decision fill:#fff2c8,stroke:#c99008,color:#17202b
+
+  subgraph inbound["外部输入 / NapCat / inbox"]
+    direction TB
+    src["QQ / self / presence<br/>async completion 也从这里写桶"]:::step
+    qq{"QQ event?"}:::decision
+    napcat["NapCat"]:::step
+    inbox["agent_inbound_messages<br/>QQ 正文 inbox"]:::step
+    inboxNote["QQ 正文在 inbox<br/>不在 Notify Bucket"]:::note
+    runtimeEvent["runtime / system event<br/>self continuation / presence"]:::step
+
+    src --> qq
+    qq -- yes --> napcat
+    inbox -.-> inboxNote
+    qq -- self / presence --> runtimeEvent
+  end
+
+  subgraph provider["provider-service"]
+    direction TB
+    normalize["normalize inbound"]:::step
+    writeInbox["write QQ body"]:::step
+    push["push notify"]:::step
+    replyProvider["send reply<br/>-> NapCat"]:::step
+    imageFinishProvider["receive image finish"]:::step
+    imagePush["push completion notify"]:::step
+
+    normalize --> writeInbox --> push
+    imageFinishProvider --> imagePush
+  end
+
+  subgraph notify["Notify Bucket"]
+    direction TB
+    bucket["Notify Bucket<br/>唯一概念桶"]:::bucket
+    bucketNote["所有来源只写入这个块<br/>只有 Step 5 消费<br/>agent_queue_messages 是持久化 / lease 实现细节"]:::note
+    bucket -.-> bucketNote
+  end
+
+  subgraph loop["小腻主 loop / agent-service"]
+    direction TB
+    s1["Step 1 loop tick"]:::step
+    s2["Step 2 build prompt"]:::step
+    s3["Step 3 build dev"]:::step
+    s4["Step 4 append hist event"]:::step
+    s5["Step 5 non-blocking pick<br/>from Notify Bucket"]:::step
+    onlyConsumer["唯一消费路径<br/>Notify Bucket -> Step 5"]:::note
+    s6["Step 6 combined finish"]:::step
+    s7["Step 7 execute POST<br/>to codex-provider"]:::step
+    dispatch{"Step 8<br/>action dispatch?"}:::decision
+    qqUsage["$qq-usage"]:::tool
+    qqUsageApi["agent-service<br/>/api/internal/qq-usage"]:::step
+    readInbox["read QQ body<br/>via persistence"]:::step
+    reply["reply"]:::tool
+    exec["exec_command"]:::tool
+    execResult["stdout / stderr<br/>session result"]:::step
+    noTool["message<br/>silent / final"]:::step
+    s9["Step 9 post-action"]:::step
+    s10["Step 10 save transcript / trace"]:::step
+
+    s1 --> s2 --> s3 --> s4 --> s5
+    s5 -.-> onlyConsumer
+    s5 --> s6 --> s7
+    dispatch -- "$qq-usage" --> qqUsage --> qqUsageApi --> readInbox --> s9
+    dispatch -- "reply" --> reply --> replyProvider --> s9
+    dispatch -- "exec_command" --> exec --> executor
+    dispatch -- "message / silent / final_answer" --> noTool --> s9
+    s9 --> s10 -. "next loop tick" .-> s1
+  end
+
+  subgraph llm["LLM / 工程工具"]
+    direction TB
+    providerSend["codex-provider<br/>send request"]:::tool
+    openai["OpenAI<br/>assistant / tool_call / final_answer"]:::tool
+    providerParse["codex-provider<br/>parse response"]:::tool
+    imageNote["生图不是外部直接注入源<br/>由 Step 8 分发启动<br/>完成后回写同一个 Notify Bucket"]:::note
+    imageStart["start image / provider task"]:::tool
+    imageGen["OpenAI image generation"]:::tool
+    executor["xiaoni-executor"]:::tool
+
+    imageNote
+    providerSend --> openai --> providerParse
+    imageStart --> imageGen
+    executor --> execResult
+  end
+
+  napcat --> normalize
+  writeInbox --> inbox
+  runtimeEvent --> push
+  push --> bucket
+  bucket --> s5
+  s7 --> providerSend
+  providerParse --> dispatch
+  readInbox --> inbox
+  dispatch -- "image / provider task" --> imageStart
+  imageGen --> imageFinishProvider
+  imagePush --> bucket

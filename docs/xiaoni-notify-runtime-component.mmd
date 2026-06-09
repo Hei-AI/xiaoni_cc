@@ -1,0 +1,65 @@
+flowchart LR
+  %% Topology-oriented source for docs/xiaoni-notify-runtime-component.svg.
+  %% The SVG is hand-tuned for clean line routing; this Mermaid file keeps the semantic graph.
+
+  classDef external fill:#dcf2ee,stroke:#4f9d8a,color:#17202b
+  classDef provider fill:#edf7ff,stroke:#4d8fcb,color:#17202b
+  classDef bucket fill:#fff2c8,stroke:#c99008,stroke-width:2px,color:#17202b
+  classDef agent fill:#fffdf5,stroke:#c99008,stroke-width:2px,color:#17202b
+  classDef step fill:#e6eef9,stroke:#557cad,color:#17202b
+  classDef tool fill:#e5f7f2,stroke:#4f9d8a,color:#17202b
+  classDef llm fill:#f1ecff,stroke:#7c63c7,color:#17202b
+  classDef store fill:#e6eef9,stroke:#557cad,color:#17202b
+  classDef note fill:#fff8df,stroke:#d8ad31,color:#17202b
+
+  napcat["NapCat<br/>QQ 收 / 发"]:::external
+  self["self / presence<br/>runtime trigger"]:::external
+
+  normalize["provider-service<br/>normalize"]:::provider
+  writeInbox["provider-service<br/>write inbox"]:::provider
+  pushNotify["provider-service<br/>push notify"]:::provider
+  providerApi["provider-service API<br/>reply / image finish notify"]:::provider
+  imageFinish["provider-service<br/>image finish notify"]:::provider
+
+  inbox["agent_inbound_messages<br/>QQ 正文 inbox / window"]:::store
+  inboxNote["不是 runtime queue<br/>$qq-usage 通过 agent-service API 读"]:::note
+  qqUsageApi["agent-service<br/>/api/internal/qq-usage"]:::agent
+
+  bucket["Notify Bucket<br/>唯一概念桶"]:::bucket
+  queue["agent_queue_messages<br/>持久化 / lease 实现"]:::store
+
+  s1["Step 1 loop tick"]:::step
+  s2["Step 2 build prompt"]:::step
+  s3["Step 3 build dev"]:::step
+  s4["Step 4 append history"]:::step
+  s5["Step 5 pick event<br/>non-blocking"]:::step
+  s6["Step 6 combined finish"]:::step
+  s7["Step 7 execute POST<br/>to codex-provider"]:::step
+  s8{"Step 8<br/>action dispatch?"}:::bucket
+  s9["Step 9/10 trace / save"]:::step
+
+  codexProvider["codex-provider<br/>build request / execute POST / parse response"]:::tool
+  openai["LLM / OpenAI<br/>assistant response"]:::llm
+  executor["xiaoni-executor<br/>exec_command"]:::tool
+  imageProvider["image provider<br/>工程发起生图"]:::tool
+  openaiImage["OpenAI Image<br/>image result"]:::llm
+
+  napcat --> normalize
+  self --> normalize
+  normalize --> writeInbox --> pushNotify --> bucket
+  writeInbox --> inbox
+  providerApi --> napcat
+  qqUsageApi --> inbox
+  inbox -.-> inboxNote
+  bucket -. "carried by" .-> queue
+
+  bucket --> s5
+  s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7 --> s8 --> s9
+  s9 -. "next loop" .-> s1
+
+  s7 --> codexProvider --> openai --> codexProvider --> s8
+
+  s8 -- "$qq-usage" --> qqUsageApi
+  s8 -- "reply" --> providerApi
+  s8 -- "exec_command" --> executor
+  s8 -- "image task" --> imageProvider --> openaiImage --> providerApi --> bucket

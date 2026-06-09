@@ -641,6 +641,236 @@ export function getAgentInboundMessageByMessageSid(
   filters?: { sessionKey?: string },
   config?: DatabaseUrlConfig
 ): Promise<any | null>;
+export type InboundInboxSource = 'napcat' | 'simulator' | string;
+export type InboundInboxMessageRecord = {
+  id: number;
+  traceId: string;
+  source: InboundInboxSource;
+  messageSid: string;
+  dedupeKey: string;
+  chatType: 'direct' | 'group';
+  sessionKey: string;
+  peerId: string;
+  peerName?: string;
+  senderId: string;
+  senderName?: string;
+  accountId: string;
+  isRead: boolean;
+  readAt?: string | null;
+  receivedAt: string;
+  messageTimestamp?: string | null;
+  bodyForAgent: string;
+  rawBody: string;
+  commandBody: string;
+  wasMentioned: boolean;
+  replyToId?: string;
+  replyToBody?: string;
+  replyToSender?: string;
+  rawPayload: Record<string, unknown>;
+  inboundContext: Record<string, unknown>;
+};
+export type InboundInboxConversationSummary = {
+  sessionKey: string;
+  chatType: 'direct' | 'group';
+  peerId: string;
+  peerName?: string;
+  accountId: string;
+  unreadCount: number;
+  totalMessages: number;
+  lastReceivedAt?: string | null;
+  latestUnreadReceivedAt?: string | null;
+  latestBodyForAgent?: string;
+  latestSenderId?: string;
+  latestSenderName?: string;
+};
+export type InboundInboxStats = {
+  totalConversations: number;
+  totalMessages: number;
+  unreadConversations: number;
+  unreadMessages: number;
+  lastReceivedAt?: string | null;
+};
+export type InboundInboxPersistenceCallInput = {
+  sqlAdapter?: SqlAdapter;
+  [key: string]: any;
+};
+export type InboundInboxPersistenceApi = {
+  ensureInboundInboxSchema(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  persistInboundMessage(input: InboundInboxPersistenceCallInput & {
+    inboundContext: Record<string, unknown>;
+    rawPayload?: Record<string, unknown>;
+    traceId: string;
+    source?: InboundInboxSource;
+  }, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord>;
+  getInboundInboxStats(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<InboundInboxStats>;
+  listInboundInboxConversations(input?: InboundInboxPersistenceCallInput & {
+    limit?: number;
+    offset?: number;
+  }, config?: DatabaseUrlConfig): Promise<InboundInboxConversationSummary[]>;
+  listInboundConversationMessages(input: InboundInboxPersistenceCallInput & {
+    sessionKey: string;
+    includeRead?: boolean;
+    limit?: number;
+  }, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+  listUnreadInboundMessages(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+  claimInboundMessages(input?: InboundInboxPersistenceCallInput & {
+    sessionKey?: string;
+    limit?: number;
+    order?: 'oldest' | 'latest';
+    markRead?: boolean;
+    includeMessageIds?: number[];
+  }, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+  markInboundMessagesRead(input?: InboundInboxPersistenceCallInput & {
+    ids?: number[];
+  } | number[], config?: DatabaseUrlConfig): Promise<number>;
+};
+export function createInboundInboxPersistence(deps?: {
+  createSqlAdapter?: (config?: DatabaseUrlConfig) => SqlAdapter;
+  sqlAdapter?: SqlAdapter;
+}): InboundInboxPersistenceApi;
+export function ensureInboundInboxSchema(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function persistInboundMessage(input: InboundInboxPersistenceCallInput & {
+  inboundContext: Record<string, unknown>;
+  rawPayload?: Record<string, unknown>;
+  traceId: string;
+  source?: InboundInboxSource;
+}, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord>;
+export function getInboundInboxStats(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<InboundInboxStats>;
+export function listInboundInboxConversations(input?: InboundInboxPersistenceCallInput & {
+  limit?: number;
+  offset?: number;
+}, config?: DatabaseUrlConfig): Promise<InboundInboxConversationSummary[]>;
+export function listInboundConversationMessages(input: InboundInboxPersistenceCallInput & {
+  sessionKey: string;
+  includeRead?: boolean;
+  limit?: number;
+}, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+export function listUnreadInboundMessages(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+export function claimInboundMessages(input?: InboundInboxPersistenceCallInput & {
+  sessionKey?: string;
+  limit?: number;
+  order?: 'oldest' | 'latest';
+  markRead?: boolean;
+  includeMessageIds?: number[];
+}, config?: DatabaseUrlConfig): Promise<InboundInboxMessageRecord[]>;
+export function markInboundMessagesRead(input?: InboundInboxPersistenceCallInput & {
+  ids?: number[];
+} | number[], config?: DatabaseUrlConfig): Promise<number>;
+export type AgentRuntimePersistenceCallInput = {
+  sqlAdapter?: SqlAdapter;
+  [key: string]: any;
+};
+export type AgentRuntimeLeaseRecoveryResult = {
+  staleBefore: string;
+  staleMs: number;
+  settledRuns: number;
+  settledQueueMessages: number;
+  failedRuns: number;
+  failedQueueMessages: number;
+  orphanQueueMessages: number;
+};
+export type AgentRuntimePersistenceApi = {
+  ensureAgentRuntimeSchema(input?: AgentRuntimePersistenceCallInput & {
+    includeAgentExtras?: boolean;
+    profile?: 'agent' | 'provider' | string;
+  }, config?: DatabaseUrlConfig): Promise<void>;
+  ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  recordLlmCallLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
+    traceId?: string;
+    trace_id?: string;
+    conversationId?: number | string | null;
+    conversation_id?: number | string | null;
+    useCoalesceAssignment?: boolean;
+  }, config?: DatabaseUrlConfig): Promise<number>;
+  recoverStaleProcessingLeases(input?: AgentRuntimePersistenceCallInput & {
+    staleMs?: number;
+    stale_ms?: number;
+    reason?: string;
+  }, config?: DatabaseUrlConfig): Promise<AgentRuntimeLeaseRecoveryResult>;
+  enqueueSelfContinuationQueueMessage(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<boolean>;
+  releaseExecutionLease(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  getExecutionLeaseDeliveryState(input?: AgentRuntimePersistenceCallInput & { runId?: string }, config?: DatabaseUrlConfig): Promise<{
+    deliveryPhase: 'reasoning_open' | 'delivery_committed' | 'lease_released';
+    deliveryCommitCount: number;
+    blockedDeliveryAttemptCount: number;
+    lastBlockedDeliveryReason: string | null;
+  }>;
+  markLeaseVisibleDeliveryCommitted(input?: AgentRuntimePersistenceCallInput & { runId?: string }, config?: DatabaseUrlConfig): Promise<void>;
+  markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
+  createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
+  updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  createToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+  completeToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
+  createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+  getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
+  upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
+    summaryText: string | null;
+    summarizedThroughConversationId: number | null;
+  }>;
+  listStoredConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
+  createStoredConversation(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+  getTranscriptSnapshotBySessionId(input?: AgentRuntimePersistenceCallInput & { sessionId?: string }, config?: DatabaseUrlConfig): Promise<any | null>;
+  upsertTranscriptSnapshot(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+};
+export function createAgentRuntimePersistence(deps?: {
+  createSqlAdapter?: (config?: DatabaseUrlConfig) => SqlAdapter;
+  sqlAdapter?: SqlAdapter;
+}): AgentRuntimePersistenceApi;
+export function ensureAgentRuntimeSchema(input?: AgentRuntimePersistenceCallInput & {
+  includeAgentExtras?: boolean;
+  profile?: 'agent' | 'provider' | string;
+}, config?: DatabaseUrlConfig): Promise<void>;
+export function ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function recordLlmCallLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
+  traceId?: string;
+  trace_id?: string;
+  conversationId?: number | string | null;
+  conversation_id?: number | string | null;
+  useCoalesceAssignment?: boolean;
+}, config?: DatabaseUrlConfig): Promise<number>;
+export function recoverStaleProcessingLeases(input?: AgentRuntimePersistenceCallInput & {
+  staleMs?: number;
+  stale_ms?: number;
+  reason?: string;
+}, config?: DatabaseUrlConfig): Promise<AgentRuntimeLeaseRecoveryResult>;
+export function enqueueSelfContinuationQueueMessage(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<boolean>;
+export function releaseExecutionLease(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function getExecutionLeaseDeliveryState(input?: AgentRuntimePersistenceCallInput & { runId?: string }, config?: DatabaseUrlConfig): Promise<{
+  deliveryPhase: 'reasoning_open' | 'delivery_committed' | 'lease_released';
+  deliveryCommitCount: number;
+  blockedDeliveryAttemptCount: number;
+  lastBlockedDeliveryReason: string | null;
+}>;
+export function markLeaseVisibleDeliveryCommitted(input?: AgentRuntimePersistenceCallInput & { runId?: string }, config?: DatabaseUrlConfig): Promise<void>;
+export function markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
+export function createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
+export function updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function createToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+export function completeToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
+export function createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+export function getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
+export function upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
+  summaryText: string | null;
+  summarizedThroughConversationId: number | null;
+}>;
+export function listStoredConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
+export function createStoredConversation(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+export function getTranscriptSnapshotBySessionId(input?: AgentRuntimePersistenceCallInput & { sessionId?: string }, config?: DatabaseUrlConfig): Promise<any | null>;
+export function upsertTranscriptSnapshot(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export type QqUsageUnreadSummary = {
   unreadCount: number;
   directMentions: number;
@@ -1100,6 +1330,86 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   availableAt: string | null;
   payload: Record<string, unknown>;
 }>;
+export type AgentQueueClaimInput = {
+  workerId?: string;
+  worker_id?: string;
+  sqlAdapter?: SqlAdapter;
+};
+export type AgentQueueBatchMessage = {
+  queueMessageId: number;
+  traceId: string;
+  source: string;
+  messageId: number;
+  messageSid: string;
+  chatType: 'direct' | 'group';
+  sessionKey: string;
+  peerId: string;
+  peerName?: string;
+  senderId: string;
+  senderName?: string;
+  accountId: string;
+  bodyForAgent: string;
+  rawBody: string;
+  commandBody: string;
+  wasMentioned: boolean;
+  receivedAt: string;
+  messageTimestamp?: string | null;
+  rawPayload: Record<string, unknown>;
+  inboundContext: Record<string, unknown>;
+};
+export type AgentQueueClaimedMessage = {
+  id: string;
+  traceId: string;
+  batchId: string;
+  status: string;
+  attempts: number;
+  createdAt: string;
+  processingStartedAt?: string | null;
+  completedAt?: string | null;
+  conversationId?: number | null;
+  errorMessage?: string | null;
+  queueMessageIds: number[];
+  payload: Record<string, unknown> & {
+    traceId: string;
+    runId: string;
+    batchId: string;
+    source: string;
+    chatType: 'direct' | 'group';
+    sessionKey: string;
+    peerId: string;
+    peerName?: string;
+    senderId: string;
+    senderName?: string;
+    accountId: string;
+    bodyForAgent: string;
+    rawBody: string;
+    commandBody: string;
+    wasMentioned: boolean;
+    receivedAt: string;
+    messageTimestamp?: string | null;
+    rawPayload: Record<string, unknown>;
+    inboundContext: Record<string, unknown>;
+    messages: AgentQueueBatchMessage[];
+  };
+};
+export function claimNextAgentQueueMessage(input?: AgentQueueClaimInput, config?: DatabaseUrlConfig): Promise<AgentQueueClaimedMessage | null>;
+export function settleAgentQueueMessages(input: {
+  runId?: string;
+  run_id?: string;
+  conversationId?: number | null;
+  conversation_id?: number | null;
+  result?: Record<string, unknown>;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<void>;
+export function failAgentQueueMessage(input: {
+  runId?: string;
+  run_id?: string;
+  errorMessage?: string;
+  error_message?: string;
+  conversationId?: number | null;
+  conversation_id?: number | null;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<void>;
 
 // agent-presence
 export type AgentSharePoolItemProjection = {

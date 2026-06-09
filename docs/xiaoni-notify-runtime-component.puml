@@ -1,0 +1,91 @@
+@startuml
+!pragma layout smetana
+skinparam dpi 150
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam defaultFontSize 15
+skinparam ArrowColor #40526B
+skinparam ArrowThickness 1.5
+skinparam ComponentBorderColor #557CAD
+skinparam ComponentBackgroundColor #E6EEF9
+skinparam DatabaseBorderColor #557CAD
+skinparam DatabaseBackgroundColor #E6EEF9
+skinparam QueueBorderColor #C99008
+skinparam QueueBackgroundColor #FFF2C8
+skinparam NoteBorderColor #D8AD31
+skinparam NoteBackgroundColor #FFF8DF
+
+left to right direction
+title 小腻 Notify Bucket 运行组件图
+
+component "外部输入\n----\nNapCat QQ message\nself / presence\nsystem reminder" as External #DCF2EE
+
+component "provider-service\n----\n- normalize inbound\n- write QQ body to inbox\n- push notify\n- provider API:\n  reply / image finish\n- LLM provider gateway" as Provider #EDF7FF
+
+database "agent_inbound_messages\n----\nQQ 正文 inbox / window" as Inbox #E6EEF9
+component "agent-service\nqq-usage API\n----\n/api/internal/qq-usage" as QqUsage #FFFDF5
+
+queue "Notify Bucket\n----\n唯一概念桶" as Bucket #FFF2C8
+
+database "agent_queue_messages\n----\n当前持久化 / lease 实现" as QueueTable #E6EEF9
+
+component "agent-service\n小腻 runtime loop\n----\n1 loop tick\n2 build prompt\n3 build dev\n4 append history\n5 pick notify event\n6 combined finish\n7 POST codex-provider\n8 action dispatch\n9/10 trace + save" as Agent #FFFDF5
+
+component "codex-provider\n----\n- build OpenAI request\n- execute POST\n- parse response\n- normalize tool_call / final_answer" as CodexProvider #E5F7F2
+
+cloud "OpenAI\n----\nassistant response\nimage generation" as OpenAI #F1ECFF
+
+component "xiaoni-executor\n----\nexec_command\nstdout / stderr\nsession state" as Executor #E5F7F2
+
+component "image provider\n----\nengineering starts image task\ncompletion handled by provider-service" as ImageProvider #E5F7F2
+
+database "replay / conversation / trace\n----\nhistory transcript\npost-action result" as History #E6EEF9
+
+External --> Provider : inbound / trigger
+Provider --> Inbox : write QQ body
+Provider --> Bucket : push notify
+Bucket .. QueueTable : carried by
+Bucket --> Agent : Step 5 pick, non-blocking
+
+Agent --> CodexProvider : Step 7 execute POST
+CodexProvider --> OpenAI : request
+OpenAI --> CodexProvider : response
+CodexProvider --> Agent : parsed response
+
+Agent --> QqUsage : Step 8 $qq-usage
+QqUsage --> Inbox : read inbox window
+QqUsage --> Agent : QQ context
+
+Agent --> Provider : Step 8 reply
+Provider --> External : QQ outbound via NapCat
+
+Agent --> Executor : Step 8 exec_command
+Executor --> Agent : stdout / stderr
+
+Agent --> ImageProvider : Step 8 image task
+ImageProvider --> OpenAI : image generation
+OpenAI --> ImageProvider : image result
+ImageProvider --> Provider : completion
+Provider --> Bucket : push completion notify
+
+Agent --> History : Step 9/10 save
+Agent -[#607086,dashed]-> Agent : next loop
+
+note bottom of Bucket
+  回灌目标是概念上的 Notify Bucket。
+  agent_queue_messages 只是当前承载实现，
+  不应该在图上被当成业务队列组件。
+end note
+
+note bottom of Inbox
+  QQ 正文存在 agent_inbound_messages。
+  $qq-usage 是 agent 选择的动作，
+  当前由 agent-service API 读取 persistence。
+end note
+
+note bottom of CodexProvider
+  codex-provider 是一个模型适配组件，
+  不是 send / parse 两个独立服务。
+end note
+@enduml

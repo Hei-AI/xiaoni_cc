@@ -11,6 +11,8 @@ const { createImageLabPersistence } = require('./image-lab');
 const { createAgentMediaPersistence } = require('./agent-media');
 const { createAgentTaskPersistence } = require('./agent-tasks');
 const { createAgentQueuePersistence } = require('./agent-queue');
+const { createInboundInboxPersistence } = require('./inbound-inbox');
+const { createAgentRuntimePersistence } = require('./agent-runtime');
 const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAgentLifeEventPersistence } = require('./agent-life-events');
 const { createXiaoniReplayEventPersistence } = require('./xiaoni-replay-events');
@@ -52,7 +54,8 @@ function createPoolConfig(config = {}) {
     connectionString: resolveDatabaseUrl(config),
     max: Number.parseInt(String(config.connectionLimit || 10), 10),
     idleTimeoutMillis: 30000,
-    application_name: config.applicationName || 'qq-bot'
+    application_name: config.applicationName || 'qq-bot',
+    options: `-c timezone=${STORAGE_TIMEZONE}`
   };
 }
 
@@ -133,9 +136,6 @@ function createSqlExecutor(pool) {
 
 function createSqlAdapter(config = {}) {
   const pool = new Pool(createPoolConfig(config));
-  pool.on('connect', (client) => {
-    void client.query(`SET TIME ZONE '${STORAGE_TIMEZONE}'`);
-  });
   const executor = createSqlExecutor(pool);
 
   return {
@@ -423,7 +423,16 @@ const agentTaskPersistence = createAgentTaskPersistence({
 });
 
 const agentQueuePersistence = createAgentQueuePersistence({
-  getPrismaClient
+  getPrismaClient,
+  createSqlAdapter
+});
+
+const inboundInboxPersistence = createInboundInboxPersistence({
+  createSqlAdapter
+});
+
+const agentRuntimePersistence = createAgentRuntimePersistence({
+  createSqlAdapter
 });
 
 const agentPresencePersistence = createAgentPresencePersistence({
@@ -475,6 +484,8 @@ module.exports = {
   createSqlAdapter,
   getPrismaClient,
   closePrismaClient,
+  createInboundInboxPersistence,
+  createAgentRuntimePersistence,
   resolveChatAgentPrompt,
   listAgentInboundMessages,
   listAgentInboundMessagesByIds,
@@ -489,6 +500,8 @@ module.exports = {
   ...agentMediaPersistence,
   ...agentTaskPersistence,
   ...agentQueuePersistence,
+  ...inboundInboxPersistence,
+  ...agentRuntimePersistence,
   ...agentPresencePersistence,
   ...agentLifeEventPersistence,
   ...xiaoniReplayEventPersistence,

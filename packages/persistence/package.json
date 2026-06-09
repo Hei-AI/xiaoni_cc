@@ -5,7 +5,8 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
-    "generate": "prisma generate"
+    "generate": "prisma generate",
+    "test": "node --test __tests__/*.test.js"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",

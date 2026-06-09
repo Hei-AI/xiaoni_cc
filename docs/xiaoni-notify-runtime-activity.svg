@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="1580" viewBox="0 0 1900 1580" role="img" aria-labelledby="title desc">
+  <title id="title">小腻 Runtime Loop 与 Notify Bucket 活动图</title>
+  <desc id="desc">provider-service 独立泳道放在小腻主 loop 右侧；外部输入和异步完成写入唯一 Notify Bucket，只有 Step 5 消费；exec_command 由 agent-service 直连 xiaoni-executor。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#40526b"/>
+    </marker>
+    <marker id="arrow-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b7791f"/>
+    </marker>
+    <style>
+      .page { fill: #fff; }
+      .lane { fill: #fbfcfd; stroke: #cbd6e4; stroke-width: 1.5; }
+      .lane-title { font: 700 18px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #17202b; }
+      .box { fill: #e6eef9; stroke: #557cad; stroke-width: 1.6; rx: 8; }
+      .provider { fill: #edf7ff; stroke: #4d8fcb; stroke-width: 1.8; rx: 8; }
+      .tool { fill: #e5f7f2; stroke: #4f9d8a; stroke-width: 1.6; rx: 8; }
+      .bucket { fill: #fff2c8; stroke: #c99008; stroke-width: 2.6; rx: 8; }
+      .note { fill: #fff8df; stroke: #d8ad31; stroke-width: 1.4; rx: 6; }
+      .diamond { fill: #fff2c8; stroke: #c99008; stroke-width: 1.8; }
+      .label { font: 600 15px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #17202b; }
+      .small { font: 13px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #40526b; }
+      .tiny { font: 12px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #40526b; }
+      .edge { fill: none; stroke: #40526b; stroke-width: 1.8; marker-end: url(#arrow); }
+      .edge-soft { fill: none; stroke: #607086; stroke-width: 1.5; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+      .edge-warn { fill: none; stroke: #b7791f; stroke-width: 2; marker-end: url(#arrow-warn); }
+      .caption { font: 700 14px "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif; fill: #17202b; }
+    </style>
+  </defs>
+
+  <rect class="page" x="0" y="0" width="1900" height="1580"/>
+  <text x="950" y="34" text-anchor="middle" class="lane-title">小腻 Runtime Loop 与 Notify Bucket - 当前实现主链路</text>
+
+  <rect class="lane" x="30" y="60" width="285" height="1460"/>
+  <rect class="lane" x="340" y="60" width="245" height="1460"/>
+  <rect class="lane" x="610" y="60" width="430" height="1460"/>
+  <rect class="lane" x="1065" y="60" width="300" height="1460"/>
+  <rect class="lane" x="1390" y="60" width="480" height="1460"/>
+
+  <text x="172" y="88" text-anchor="middle" class="lane-title">外部 / NapCat / inbox</text>
+  <text x="462" y="88" text-anchor="middle" class="lane-title">Notify Bucket</text>
+  <text x="825" y="88" text-anchor="middle" class="lane-title">小腻主 loop / agent-service</text>
+  <text x="1215" y="88" text-anchor="middle" class="lane-title">provider-service</text>
+  <text x="1630" y="88" text-anchor="middle" class="lane-title">LLM / provider adapters / 工程工具</text>
+
+  <!-- External / inbox -->
+  <rect class="box" x="65" y="125" width="215" height="58"/>
+  <text x="172" y="150" text-anchor="middle" class="label">QQ / self / presence</text>
+  <text x="172" y="170" text-anchor="middle" class="small">async completion 也是事件</text>
+
+  <path class="diamond" d="M172 215 L235 255 L172 295 L109 255 Z"/>
+  <text x="172" y="252" text-anchor="middle" class="label">QQ</text>
+  <text x="172" y="270" text-anchor="middle" class="label">event?</text>
+
+  <rect class="box" x="75" y="340" width="195" height="52"/>
+  <text x="172" y="371" text-anchor="middle" class="label">NapCat</text>
+
+  <rect class="box" x="55" y="1035" width="235" height="62"/>
+  <text x="172" y="1061" text-anchor="middle" class="label">agent_inbound_messages</text>
+  <text x="172" y="1083" text-anchor="middle" class="small">QQ 正文 inbox</text>
+
+  <rect class="note" x="55" y="1125" width="235" height="58"/>
+  <text x="172" y="1149" text-anchor="middle" class="small">QQ 正文不进 Notify Bucket</text>
+  <text x="172" y="1170" text-anchor="middle" class="small">只有 $qq-usage 读取</text>
+
+  <rect class="box" x="65" y="1245" width="215" height="58"/>
+  <text x="172" y="1270" text-anchor="middle" class="label">NapCat outbound</text>
+  <text x="172" y="1290" text-anchor="middle" class="small">reply delivery</text>
+
+  <path class="edge" d="M172 183 L172 215"/>
+  <path class="edge" d="M172 295 L172 340"/>
+
+  <!-- Notify Bucket -->
+  <rect class="bucket" x="370" y="545" width="185" height="92"/>
+  <text x="462" y="583" text-anchor="middle" class="label">Notify Bucket</text>
+  <text x="462" y="607" text-anchor="middle" class="label">唯一概念桶</text>
+
+  <rect class="note" x="360" y="705" width="205" height="104"/>
+  <text x="462" y="731" text-anchor="middle" class="small">所有来源只写这个块</text>
+  <text x="462" y="753" text-anchor="middle" class="small">只有 Step 5 消费</text>
+  <text x="462" y="775" text-anchor="middle" class="small">agent_queue_messages 是</text>
+  <text x="462" y="797" text-anchor="middle" class="small">持久化 / lease 实现</text>
+
+  <!-- Agent loop -->
+  <rect class="box" x="715" y="120" width="220" height="46"/>
+  <text x="825" y="149" text-anchor="middle" class="label">Step 1 loop tick</text>
+
+  <rect class="box" x="715" y="190" width="220" height="46"/>
+  <text x="825" y="219" text-anchor="middle" class="label">Step 2 build prompt</text>
+
+  <rect class="box" x="715" y="260" width="220" height="46"/>
+  <text x="825" y="289" text-anchor="middle" class="label">Step 3 build dev</text>
+
+  <rect class="box" x="715" y="330" width="220" height="46"/>
+  <text x="825" y="359" text-anchor="middle" class="label">Step 4 append hist event</text>
+
+  <rect class="box" x="685" y="420" width="280" height="64"/>
+  <text x="825" y="446" text-anchor="middle" class="label">Step 5 non-blocking pick</text>
+  <text x="825" y="468" text-anchor="middle" class="small">from Notify Bucket</text>
+
+  <rect class="note" x="710" y="515" width="230" height="64"/>
+  <text x="825" y="540" text-anchor="middle" class="small">唯一消费路径</text>
+  <text x="825" y="562" text-anchor="middle" class="small">Notify Bucket -> Step 5</text>
+
+  <rect class="box" x="715" y="640" width="220" height="46"/>
+  <text x="825" y="669" text-anchor="middle" class="label">Step 6 combined finish</text>
+
+  <rect class="box" x="685" y="725" width="280" height="58"/>
+  <text x="825" y="750" text-anchor="middle" class="label">Step 7 execute POST</text>
+  <text x="825" y="771" text-anchor="middle" class="small">via provider-service</text>
+
+  <path class="diamond" d="M825 845 L945 915 L825 985 L705 915 Z"/>
+  <text x="825" y="907" text-anchor="middle" class="label">Step 8</text>
+  <text x="825" y="929" text-anchor="middle" class="label">action dispatch?</text>
+
+  <rect class="tool" x="655" y="1028" width="135" height="48"/>
+  <text x="722" y="1057" text-anchor="middle" class="label">$qq-usage</text>
+
+  <rect class="tool" x="815" y="1028" width="110" height="48"/>
+  <text x="870" y="1057" text-anchor="middle" class="label">reply</text>
+
+  <rect class="tool" x="655" y="1160" width="165" height="48"/>
+  <text x="738" y="1189" text-anchor="middle" class="label">exec_command</text>
+
+  <rect class="box" x="930" y="1028" width="90" height="58"/>
+  <text x="975" y="1053" text-anchor="middle" class="small">message</text>
+  <text x="975" y="1073" text-anchor="middle" class="small">silent / final</text>
+
+  <rect class="box" x="730" y="1335" width="200" height="46"/>
+  <text x="830" y="1364" text-anchor="middle" class="label">Step 9 post-action</text>
+
+  <rect class="box" x="700" y="1410" width="260" height="46"/>
+  <text x="830" y="1439" text-anchor="middle" class="label">Step 10 save transcript / trace</text>
+
+  <path class="edge" d="M825 166 L825 190"/>
+  <path class="edge" d="M825 236 L825 260"/>
+  <path class="edge" d="M825 306 L825 330"/>
+  <path class="edge" d="M825 376 L825 420"/>
+  <path class="edge" d="M555 591 C625 591 625 452 685 452"/>
+  <path class="edge" d="M825 484 L825 640"/>
+  <path class="edge" d="M825 686 L825 725"/>
+  <path class="edge" d="M755 968 C720 995 722 1010 722 1028"/>
+  <path class="edge" d="M825 985 C835 1008 852 1022 870 1028"/>
+  <path class="edge" d="M795 978 C740 1045 738 1115 738 1160"/>
+  <path class="edge" d="M945 915 C980 945 980 1005 975 1028"/>
+  <path class="edge" d="M722 1076 C620 1170 650 1300 780 1335"/>
+  <path class="edge" d="M975 1086 C980 1215 925 1295 880 1335"/>
+  <path class="edge" d="M830 1381 L830 1410"/>
+  <path class="edge-soft" d="M960 1433 C1015 1433 1015 110 935 110"/>
+  <text x="1000" y="1408" text-anchor="middle" class="tiny">next loop tick</text>
+
+  <!-- provider-service -->
+  <rect class="provider" x="1100" y="330" width="230" height="54"/>
+  <text x="1215" y="363" text-anchor="middle" class="label">normalize inbound</text>
+
+  <rect class="provider" x="1100" y="430" width="230" height="54"/>
+  <text x="1215" y="453" text-anchor="middle" class="label">write QQ body</text>
+  <text x="1215" y="473" text-anchor="middle" class="small">to inbox</text>
+
+  <rect class="provider" x="1115" y="540" width="200" height="52"/>
+  <text x="1215" y="571" text-anchor="middle" class="label">push notify</text>
+
+  <rect class="provider" x="1100" y="1038" width="230" height="54"/>
+  <text x="1215" y="1061" text-anchor="middle" class="label">send reply</text>
+  <text x="1215" y="1081" text-anchor="middle" class="small">-> NapCat</text>
+
+  <rect class="provider" x="1090" y="1320" width="250" height="54"/>
+  <text x="1215" y="1343" text-anchor="middle" class="label">receive image finish</text>
+  <text x="1215" y="1363" text-anchor="middle" class="small">push completion notify</text>
+
+  <path class="edge" d="M270 366 C720 340 920 340 1100 357"/>
+  <path class="edge" d="M1215 384 L1215 430"/>
+  <path class="edge" d="M1100 457 C860 720 515 1000 290 1066"/>
+  <path class="edge" d="M1215 484 L1215 540"/>
+  <path class="edge" d="M1115 566 C930 565 700 560 555 590"/>
+  <path class="edge" d="M925 1052 L1100 1065"/>
+  <path class="edge" d="M1100 1065 C780 1110 460 1200 280 1274"/>
+  <path class="edge" d="M820 1184 C1040 1188 1280 1210 1505 1226"/>
+  <text x="1160" y="1165" text-anchor="middle" class="tiny">direct exec_command</text>
+  <path class="edge" d="M1100 1347 C990 1355 950 1360 930 1360"/>
+  <path class="edge-warn" d="M1090 1347 L462 1347 L462 637"/>
+
+  <!-- LLM / tools -->
+  <rect class="tool" x="1505" y="705" width="240" height="52"/>
+  <text x="1625" y="726" text-anchor="middle" class="label">codex-provider</text>
+  <text x="1625" y="746" text-anchor="middle" class="small">provider-service sends</text>
+
+  <rect class="tool" x="1505" y="790" width="240" height="64"/>
+  <text x="1625" y="816" text-anchor="middle" class="label">OpenAI</text>
+  <text x="1625" y="838" text-anchor="middle" class="small">assistant / tool_call / final_answer</text>
+
+  <rect class="tool" x="1505" y="890" width="240" height="52"/>
+  <text x="1625" y="911" text-anchor="middle" class="label">codex-provider</text>
+  <text x="1625" y="931" text-anchor="middle" class="small">provider-service parses</text>
+
+  <rect class="note" x="1455" y="120" width="340" height="86"/>
+  <text x="1625" y="146" text-anchor="middle" class="small">生图不是外部直接注入源</text>
+  <text x="1625" y="169" text-anchor="middle" class="small">由 Step 8 分发启动</text>
+  <text x="1625" y="192" text-anchor="middle" class="small">完成后回写同一个 Notify Bucket</text>
+
+  <rect class="tool" x="1505" y="1010" width="240" height="52"/>
+  <text x="1625" y="1041" text-anchor="middle" class="label">start image/provider task</text>
+
+  <rect class="tool" x="1505" y="1095" width="240" height="52"/>
+  <text x="1625" y="1126" text-anchor="middle" class="label">OpenAI image generation</text>
+
+  <rect class="tool" x="1505" y="1200" width="240" height="52"/>
+  <text x="1625" y="1231" text-anchor="middle" class="label">xiaoni-executor</text>
+
+  <rect class="box" x="1505" y="1280" width="240" height="54"/>
+  <text x="1625" y="1303" text-anchor="middle" class="label">stdout / stderr</text>
+  <text x="1625" y="1323" text-anchor="middle" class="small">session result</text>
+
+  <path class="edge" d="M965 754 L1505 731"/>
+  <path class="edge" d="M1625 757 L1625 790"/>
+  <path class="edge" d="M1625 854 L1625 890"/>
+  <path class="edge" d="M1505 916 L945 915"/>
+  <path class="edge" d="M945 915 C1200 920 1280 1030 1505 1036"/>
+  <text x="1305" y="1005" text-anchor="middle" class="tiny">image/provider task</text>
+  <path class="edge" d="M1625 1062 L1625 1095"/>
+  <path class="edge" d="M1505 1121 L1340 1347"/>
+  <path class="edge" d="M1625 1252 L1625 1280"/>
+  <path class="edge" d="M1505 1307 C1280 1328 1000 1335 930 1360"/>
+
+  <!-- Direct external reads -->
+  <path class="edge" d="M722 1076 L290 1066"/>
+  <text x="520" y="1037" text-anchor="middle" class="tiny">$qq-usage API read</text>
+
+  <text x="955" y="1512" text-anchor="middle" class="caption">image finish 回灌同一个 Notify Bucket；下一轮仍由 Step 5 pick</text>
+</svg>

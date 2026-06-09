@@ -143,6 +143,7 @@ python3 scripts/start_modules.py status
 
 - [docs/START_HERE.md](docs/START_HERE.md)
 - [docs/INDEX.md](docs/INDEX.md)
+- [docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md](docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md)
 - [docs/XIAONI_REPLAY_LEDGER.md](docs/XIAONI_REPLAY_LEDGER.md)
 - [docs/AGENTS_XIAONI_EXECUTOR.md](docs/AGENTS_XIAONI_EXECUTOR.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)

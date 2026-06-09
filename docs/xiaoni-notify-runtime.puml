@@ -1,0 +1,78 @@
+@startuml
+!theme plain
+skinparam dpi 150
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam defaultFontSize 16
+skinparam sequenceMessageAlign center
+skinparam ArrowColor #40526B
+skinparam ArrowThickness 1.4
+skinparam ParticipantBorderColor #557CAD
+skinparam ParticipantBackgroundColor #E6EEF9
+skinparam ParticipantFontColor #17202B
+skinparam BoxBorderColor #CBD6E4
+skinparam BoxBackgroundColor #FBFCFD
+skinparam NoteBorderColor #D8AD31
+skinparam NoteBackgroundColor #FFF8DF
+
+title 小腻 Notify Bucket 与 Runtime Loop
+
+participant "外部 / 自注入\nNapCat / self / presence" as Source #DCF2EE
+queue "Notify Bucket\n概念入口\n(agent_queue_messages 承载)" as Bucket #E6EEF9
+participant "小腻主 loop\nagent-service" as Loop #FFF2C8
+database "QQ 正文 inbox\nagent_inbound_messages" as Inbox #E6EEF9
+participant "OpenAI\nLLM / image" as OpenAI #E8F5DF
+participant "provider-service\nLLM / QQ outbound" as Provider #F5E4F2
+participant "xiaoni-executor" as Executor #E5F7F2
+database "历史 / trace\nreplay / conversation" as Store #E6EEF9
+
+note over Bucket
+回灌目标是概念上的 Notify Bucket，
+不是直接把箭头画到某张表。
+agent_queue_messages 只是当前持久化/lease 实现细节。
+end note
+
+== notify 注入 ==
+Source -> Bucket : push notify\nphone_notification / self_continuation / system event
+Source -> Inbox : QQ 正文另存\n不是 notify queue
+
+== 小腻主 loop ==
+Loop -> Loop : Step 1 loop tick
+Loop -> Loop : Step 2 build prompt\nStep 3 build dev\nStep 4 append hist event
+Loop -> Bucket : Step 5 non-blocking pick
+Bucket --> Loop : maybe notify event\n没有 notify 也继续
+Loop -> Loop : Step 6 combined finish
+Loop -> Provider : Step 7 execute POST\n/api/internal/agent/execute
+Provider -> OpenAI : codex-provider -> OpenAI
+OpenAI --> Provider : assistant response / tool_call
+Provider --> Loop : parsed response
+
+== Step 8 动作分发 ==
+alt $qq-usage
+  Loop -> Inbox : read QQ body
+  Inbox --> Loop : body as tool output
+else reply
+  Loop -> Provider : send via NapCat
+  Provider --> Loop : delivery state
+else exec_command
+  Loop -> Executor : exec_command
+  Executor --> Loop : stdout / stderr / session
+else image / provider task
+  Loop -> Provider : start image/provider task
+  Provider -> OpenAI : image generation request
+  OpenAI --> Provider : image finish
+  Provider -> Bucket : push completion notify\n回灌 Notify Bucket
+  note right of Bucket
+    下一轮仍然由 Step 5 pick，
+    不是直接塞进 prompt。
+  end note
+else message / silent / final
+  Loop -> Loop : no external tool
+end
+
+== 保存并延续 ==
+Loop -> Store : Step 9/10 post-action + save\ntranscript / replay / trace
+Loop -> Loop : next loop tick
+
+@enduml

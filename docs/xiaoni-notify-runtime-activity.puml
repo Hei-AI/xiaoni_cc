@@ -1,0 +1,95 @@
+@startuml
+!theme plain
+skinparam dpi 180
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam defaultFontSize 16
+skinparam ArrowColor #40526B
+skinparam ArrowThickness 1.4
+skinparam ActivityBorderColor #557CAD
+skinparam ActivityBackgroundColor #E6EEF9
+skinparam ActivityDiamondBorderColor #C99008
+skinparam ActivityDiamondBackgroundColor #FFF2C8
+skinparam SwimlaneBorderColor #CBD6E4
+skinparam SwimlaneTitleBackgroundColor #FBFCFD
+skinparam NoteBorderColor #D8AD31
+skinparam NoteBackgroundColor #FFF8DF
+
+title 小腻 Runtime Loop 与 Notify Bucket - Swimlane Activity
+
+|外部输入 / provider / inbox|
+start
+:QQ message / self continuation / presence / async completion;
+
+if (QQ event?) then (yes)
+  :NapCat -> provider-service\nnormalize;
+  :write QQ body\nagent_inbound_messages;
+  note right
+    QQ 正文在 inbox，
+    不在 Notify Bucket。
+  end note
+else (self / presence)
+  :runtime/system event;
+endif
+:push notify;
+
+|Notify Bucket|
+label bucket
+:Notify Bucket\n唯一概念桶;
+note right
+  其他来源只写入这个桶。
+  只有小腻主 loop 在 Step 5 消费。
+  agent_queue_messages 只是当前持久化 / lease 实现细节。
+end note
+
+|小腻主 loop / agent-service|
+:Step 1 loop tick;
+:Step 2 build prompt;
+:Step 3 build dev;
+:Step 4 append hist event;
+:Step 5 non-blocking pick\nfrom Notify Bucket;
+note right
+  唯一消费路径：Notify Bucket -> Step 5。
+  有 notify 就放进 request；
+  没有 notify 也继续 loop。
+end note
+:Step 6 combined finish;
+:Step 7 execute POST\ncodex-provider -> OpenAI;
+
+|LLM / 工程工具|
+:OpenAI response\nassistant message / tool_call / final_answer;
+
+|小腻主 loop / agent-service|
+if (Step 8 action dispatch?) then (普通 tool)
+  :run selected tool;
+  note right
+    $qq-usage: agent-service /api/internal/qq-usage -> agent_inbound_messages
+    reply: agent-service -> provider-service -> NapCat
+    exec_command: agent-service -> xiaoni-executor
+  end note
+  :tool result appended\nfor next model slice;
+
+elseif (image / provider task) then
+  |LLM / 工程工具|
+  :start image/provider task;
+  :OpenAI image generation;
+  :provider-service receives finish;
+  :push completion notify;
+  note right
+    生图不是外部直接注入源。
+    它由 Step 8 分发启动；
+    完成后回写同一个 Notify Bucket。
+  end note
+  goto bucket
+
+else (message / silent / final_answer)
+  :no external tool dispatch;
+endif
+
+|小腻主 loop / agent-service|
+:Step 9 execute post-action;
+:Step 10 save transcript / replay / trace;
+:next loop tick;
+stop
+@enduml
