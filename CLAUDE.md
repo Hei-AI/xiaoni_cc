@@ -73,8 +73,8 @@ docker compose logs -f <container>   # watch for startup errors
 管理端链：`admin-frontend -> admin-backend`
 
 ```
-modules/provider-service      OneBot/NapCat 入站、LLM provider 执行、消息模拟、embeddings、queue 写入
-modules/agent-service         主 agent loop runtime，消费 queue batch、执行主行动工具 loop、写 run/trace/delivery state，并运行 presence 后台循环和 life event 投影
+modules/provider-service      OneBot/NapCat 入站、LLM provider 执行、消息模拟、embeddings、Notify Bucket ingress
+modules/agent-service         主 agent loop runtime，消费 Notify Bucket、执行工具 loop、路由 response action、写 run/trace/delivery state 和 life event 投影
 modules/xiaoni-executor       小腻 exec_command 的独立命令执行容器，保存 session、审计日志和 git archive
 modules/admin-panel/backend   运营 API，承接 runs、conversations、queue、playground、image lab、traffic replay、runtime status
 modules/admin-panel/frontend  React + Vite 管理端 UI，只走 admin-backend，不直连 provider-service
@@ -183,6 +183,7 @@ Available skills:
 | `$retro` | Retrospective |
 | `$investigate` | Systematic root-cause debugging |
 | `$document-release` | Post-ship doc updates |
+| `$document-generate` | Generate missing feature/module docs |
 | `$codex` | Multi-AI second opinion via OpenAI Codex |
 | `$cso` | OWASP Top 10 + STRIDE security audit |
 | `$autoplan` | Auto-review pipeline (CEO -> design -> eng) |
@@ -204,12 +205,14 @@ Available skills:
 | 前端页面 / 交互 / 生产前端 | `docs/AGENTS_FRONTEND.md` |
 | 后端接口 / 队列 / 数据库 | `docs/AGENTS_BACKEND_DATA.md` |
 | 配置 / 部署 / 认证 / 密钥 | `docs/AGENTS_SECRETS_LOCAL_STATE.md` |
-| agent loop 输入输出 / 工具契约 / 抑制路径 | `docs/AGENTS_AGENT_LOOP_RUNTIME.md` |
+| 小腻 Notify Bucket / QQ inbox / 主 loop / 动作分发 | `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md` |
+| action replay / Raw Trace / provider 请求骨架 | `docs/XIAONI_REPLAY_LEDGER.md` |
+| 小腻主 prompt / 连续 loop / 手机通知边界 | `docs/XIAONI_MAIN_PROMPT_NEXT.md` |
 | Xiaoni exec_command / session / git archive | `docs/AGENTS_XIAONI_EXECUTOR.md` |
-| 小腻数字生活 / homeostasis reducer | `docs/P0A_DIGITAL_LIFE_PRESENCE_CONTEXT.md`、`docs/P0A_XIAONI_HOMEOSTASIS_LOOP.md` |
+| 小腻当前 runtime 状态图 | `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md` |
 | embeddings | `docs/AGENTS_EMBEDDINGS.md` |
 | git / PR | `docs/AGENTS_GIT_PR.md` |
-| 业务架构总览 | `docs/CURRENT_ARCHITECTURE.md` |
+| 路线图 | `docs/ROADMAP.md` |
 
 ## Skill routing
 

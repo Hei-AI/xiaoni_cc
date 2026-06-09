@@ -11,7 +11,7 @@
 
 ## Runtime Truth
 - 当前 QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看 QQ 未读时，读的是 `agent_inbound_messages` 的 inbox/window，不是 `agent_queue_messages`
-- 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 只是显式 @ / 授权私聊 / 未来 presence 事件触发一次 loop 的内部工程队列，不是小腻的 QQ app 未读列表或认知边界
+- 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 是 Notify Bucket 的持久化 / lease 承载，承载 `phone_notification`、`self_continuation`、`image_task_completed`、`system_reminder` 等触发，不是小腻的 QQ app 未读列表或认知边界
 - QQ 发言出站链路：`agent-service -> provider-service -> NapCat`
 - `exec_command` 支路走 `agent-service -> xiaoni-executor`
 - 当前管理端链路：`admin-panel/frontend -> admin-panel/backend -> provider-service / agent-service / PostgreSQL`
@@ -26,7 +26,7 @@
 - `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
-- `modules/agent-service`：后台 agent loop / runtime worker，消费内部 queue 触发、执行主 agent run、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻的连续主 loop
+- `modules/agent-service`：后台 agent loop / runtime worker，消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻的连续主 loop
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
 - 其余入口统一去 `docs/INDEX.md`
 
@@ -34,7 +34,7 @@
 - 页面展示错、交互异常、浏览器请求失败：先分清生产前端还是本地联调，再看 `modules/admin-panel/frontend`；对应 `docs/AGENTS_FRONTEND.md`
 - API 500、数据不一致、队列/Prompt/会话问题：先看 `modules/admin-panel/backend`；涉及共享表和持久化再看 `packages/persistence`；对应 `docs/AGENTS_BACKEND_DATA.md`
 - provider debug、NapCat 收发消息、embeddings、image provider、simple queue、inbound queue 写入、timeline / queue 主链问题：先看 `modules/provider-service`，不要先在前端或历史模块绕圈
-- agent run、行为判断、delivery state、自学习、presence tick、life event 投影、历史数字行动展示和后台任务执行问题：看 `modules/agent-service`
+- agent run、行为判断、delivery state、自学习、self continuation / system reminder、life event 投影、历史数字行动展示和后台任务执行问题：看 `modules/agent-service`
 - 小腻 `exec_command`、session poll/kill、命令审计、git archive、Docker socket 相关问题：看 `modules/xiaoni-executor`；对应 `docs/AGENTS_XIAONI_EXECUTOR.md`
 - 部署、认证、token、本机访问问题：先看 `docs/AGENTS_SECRETS_LOCAL_STATE.md`，再看 `scripts/deploy-admin-public.sh`、`scripts/start_modules.py`
 - 默认规则：只修真实生效的层，不要围绕错误契约继续堆适配层

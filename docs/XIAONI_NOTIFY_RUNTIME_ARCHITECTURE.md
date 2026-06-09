@@ -6,15 +6,12 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `docs/xiaoni-notify-runtime-activity.svg` | 主活动图，手工布局，强调唯一 Notify Bucket 和小腻主 loop 的 pick 点。 |
+| `docs/xiaoni-notify-runtime-activity.svg` | 主活动图，强调唯一 Notify Bucket 和小腻主 loop 的 pick 点。 |
 | `docs/xiaoni-notify-runtime-activity.mmd` | 活动图 Mermaid 语义源，不要求逐像素等同 SVG。 |
 | `docs/xiaoni-notify-runtime-activity.puml` | 活动图 PlantUML 备选源。 |
 | `docs/xiaoni-notify-runtime-component.svg` | PlantUML 渲染的组件图，强调服务、队列、LLM provider 和工具边界。 |
-| `docs/xiaoni-notify-runtime-component-plantuml.svg` | 同一组件图的 PlantUML 导出副本。 |
 | `docs/xiaoni-notify-runtime-component.mmd` | 组件图 Mermaid 语义源。 |
 | `docs/xiaoni-notify-runtime-component.puml` | 组件图 PlantUML 渲染源。 |
-| `docs/xiaoni-notify-runtime.puml` / `docs/xiaoni-notify-runtime.svg` | 早期时序图，只作辅助理解，不是当前首选图。 |
-| `docs/xiaoni-overall-architecture.html` | 可交互整体架构图，用来浏览大结构，不替代本文契约。 |
 | `docs/mermaid-puppeteer.json` | Mermaid 导出 SVG 时使用的 Puppeteer 配置。 |
 
 ## 当前契约
@@ -104,6 +101,12 @@ canonical_response
 ```
 
 写入使用 `packages/persistence/agent-queue.js` 的原子方法，先在事务里检查 pending bucket，再写 `system_reminder`。如果当前输入本身就是 `system_reminder`，`agent-service` 不会再次回灌同类提醒，避免自循环。
+
+相关配置：
+
+| 环境变量 | 默认值 | 作用 |
+| --- | --- | --- |
+| `AGENT_FINAL_ANSWER_IDLE_REMINDER_INTERVAL_MS` | `300000` | `final_answer` 空桶提醒的去重时间桶，当前最小值也是 5 分钟。它只影响 `system_reminder` 的 dedupe bucket，不改变历史 transcript phase。 |
 
 ## 动作分发
 

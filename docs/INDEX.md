@@ -42,8 +42,6 @@
   - `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md`
 - 小腻当前 runtime 状态图：
   - `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
-- 小腻整体架构 HTML 图：
-  - `docs/xiaoni-overall-architecture.html`
 - 路线图：
   - `docs/ROADMAP.md`
 - 执行计划归档与当前候选：
@@ -84,6 +82,8 @@
   - `$ship`
 - 发版后文档同步：
   - `$document-release`
+- 生成缺失专项文档：
+  - `$document-generate`
 
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。
