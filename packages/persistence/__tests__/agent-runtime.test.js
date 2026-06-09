@@ -25,12 +25,16 @@ test('ensureAgentRuntimeSchema includes agent-only runtime tables and delivery c
   const createLlmLogsIndex = statements.findIndex((sql) => sql.includes('CREATE TABLE IF NOT EXISTS llm_call_logs'));
   const alterLlmLogsIndex = statements.findIndex((sql) => sql.includes('ALTER TABLE llm_call_logs'));
   const indexLlmLogsIndex = statements.findIndex((sql) => sql.includes('CREATE INDEX IF NOT EXISTS idx_llm_call_logs_trace_started_id'));
+  const createAgentQueueIndex = statements.findIndex((sql) => sql.includes('CREATE TABLE IF NOT EXISTS agent_queue_messages'));
+  const alterAgentQueueIndex = statements.findIndex((sql) => sql.includes('ALTER TABLE agent_queue_messages'));
   assert.notEqual(createLlmLogsIndex, -1);
   assert.notEqual(alterLlmLogsIndex, -1);
   assert.notEqual(indexLlmLogsIndex, -1);
+  assert.notEqual(createAgentQueueIndex, -1);
+  assert.notEqual(alterAgentQueueIndex, -1);
   assert.ok(createLlmLogsIndex < alterLlmLogsIndex);
   assert.ok(createLlmLogsIndex < indexLlmLogsIndex);
-  assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS agent_queue_messages')));
+  assert.ok(createAgentQueueIndex < alterAgentQueueIndex);
   assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS conversation_items')));
   assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS agent_session_context_windows')));
   assert.ok(statements.some((sql) => sql.includes('ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_phase')));

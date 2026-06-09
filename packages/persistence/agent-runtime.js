@@ -53,11 +53,6 @@ const COMMON_RUNTIME_DDLS = [
       ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP(3)
   `,
   `
-    ALTER TABLE agent_queue_messages
-      ADD COLUMN IF NOT EXISTS batch_id VARCHAR(128),
-      ADD COLUMN IF NOT EXISTS run_id VARCHAR(128)
-  `,
-  `
     CREATE TABLE IF NOT EXISTS agent_queue_messages (
       id BIGSERIAL PRIMARY KEY,
       trace_id VARCHAR(128) NOT NULL,
@@ -91,6 +86,11 @@ const COMMON_RUNTIME_DDLS = [
       created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
+  `,
+  `
+    ALTER TABLE agent_queue_messages
+      ADD COLUMN IF NOT EXISTS batch_id VARCHAR(128),
+      ADD COLUMN IF NOT EXISTS run_id VARCHAR(128)
   `,
   `
     CREATE TABLE IF NOT EXISTS agent_message_batches (
