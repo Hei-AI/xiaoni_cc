@@ -42,7 +42,10 @@ export const aiConfig: AIConfig = {
 export const napcatConfig = {
   baseUrl: (process.env.NAPCAT_HTTP_BASE_URL || 'http://napcat:3000').replace(/\/$/, ''),
   accessToken: process.env.NAPCAT_HTTP_ACCESS_TOKEN || process.env.WEBSOCKET_ACCESS_TOKEN || '',
-  timeoutMs: Number.parseInt(process.env.NAPCAT_HTTP_TIMEOUT_MS || '10000', 10)
+  timeoutMs: Number.parseInt(process.env.NAPCAT_HTTP_TIMEOUT_MS || '10000', 10),
+  webUiBaseUrl: (process.env.NAPCAT_WEBUI_BASE_URL || 'http://napcat:6099').replace(/\/$/, ''),
+  webUiToken: process.env.NAPCAT_WEBUI_TOKEN || process.env.NAPCAT_HTTP_ACCESS_TOKEN || process.env.WEBSOCKET_ACCESS_TOKEN || '',
+  webUiTimeoutMs: Number.parseInt(process.env.NAPCAT_WEBUI_TIMEOUT_MS || '10000', 10)
 };
 
 export const databaseConfig = {

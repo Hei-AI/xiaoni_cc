@@ -13,6 +13,7 @@ import { aiConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } fr
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
+import { NapcatWebuiClient, formatNapcatWebuiError, NapcatWebuiLoginStatus } from './services/napcat-webui-client';
 import { ChatPolicyService } from './services/chat-policy-service';
 import {
   buildNapcatInboundContext,
@@ -60,6 +61,7 @@ const embeddingService = new EmbeddingService(aiConfig);
 const imageProvider = new OpenAIImageProvider();
 const imagePromptAssistant = new ImagePromptAssistantService();
 const napcatClient = new NapcatClient();
+const napcatWebuiClient = new NapcatWebuiClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
 const recentMessageCache = new RecentMessageCache();
@@ -205,6 +207,49 @@ async function readNapcatFileAsImageDataUrl(filePath: string, filename?: string 
     bytes: buffer.length,
     filename: filename || path.basename(filePath)
   };
+}
+
+function buildNapcatLoginStatusPayload(
+  probe: { reachable: boolean; selfId?: number | null; error?: string },
+  webuiStatus?: NapcatWebuiLoginStatus,
+  errorMessage?: string | null
+) {
+  const qqLoggedIn = probe.reachable || Boolean(webuiStatus?.isLogin);
+  const qrPayload = qqLoggedIn
+    ? null
+    : webuiStatus?.qrPayload || null;
+
+  return {
+    napcatReachable: probe.reachable,
+    qqLoggedIn,
+    qqAccountId: probe.selfId ? String(probe.selfId) : null,
+    qrAvailable: Boolean(qrPayload),
+    qrPayload,
+    qrPayloadType: qrPayload ? 'url' : null,
+    webuiConfigured: napcatWebuiClient.isConfigured(),
+    message: qqLoggedIn ? null : errorMessage || webuiStatus?.message || probe.error || null,
+    lastCheckedAt: new Date().toISOString()
+  };
+}
+
+async function getNapcatLoginStatusPayload(refreshQrcode: boolean) {
+  const probe = await napcatClient.probe();
+  if (probe.reachable) {
+    return buildNapcatLoginStatusPayload(probe);
+  }
+
+  if (!napcatWebuiClient.isConfigured()) {
+    return buildNapcatLoginStatusPayload(probe, undefined, 'NapCat WebUI token is not configured');
+  }
+
+  try {
+    const webuiStatus = refreshQrcode
+      ? await napcatWebuiClient.requestLoginQrcode()
+      : await napcatWebuiClient.checkLoginStatus();
+    return buildNapcatLoginStatusPayload(probe, webuiStatus);
+  } catch (error) {
+    return buildNapcatLoginStatusPayload(probe, undefined, formatNapcatWebuiError(error));
+  }
 }
 
 async function fetchImageAsDataUrl(url: string, mimeType?: string | null) {
@@ -770,6 +815,24 @@ app.get('/api/status', async (_req, res) => {
     status: napcat.reachable ? 'running' : 'degraded',
     napcat,
     port: serverConfig.port,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/napcat-login/status', async (_req, res) => {
+  const data = await getNapcatLoginStatusPayload(false);
+  res.json({
+    success: true,
+    data,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.post('/api/napcat-login/qrcode', async (_req, res) => {
+  const data = await getNapcatLoginStatusPayload(true);
+  res.json({
+    success: true,
+    data,
     timestamp: new Date().toISOString()
   });
 });

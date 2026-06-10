@@ -20,6 +20,34 @@ type ProviderProbeResult =
       error: string;
     };
 
+async function proxyProviderRuntimeEndpoint(
+  res: express.Response,
+  logger: winston.Logger,
+  method: 'get' | 'post',
+  path: string,
+  body?: unknown
+) {
+  try {
+    const response = await axios.request({
+      method,
+      url: `${PROVIDER_SERVICE_URL}${path}`,
+      data: body,
+      timeout: PROVIDER_REQUEST_TIMEOUT_MS,
+      validateStatus: () => true
+    });
+
+    return res.status(response.status).json(response.data);
+  } catch (error) {
+    logger.error('Failed to proxy provider runtime endpoint', { method, path, error });
+    return res.status(503).json({
+      success: false,
+      error: 'provider-service runtime proxy unavailable',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
 // 创建状态和健康检查相关路由
 export function createStatusRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
@@ -129,6 +157,14 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         timestamp: new Date().toISOString()
       });
     }
+  });
+
+  router.get('/runtime/napcat-login/status', async (_req, res) => {
+    return proxyProviderRuntimeEndpoint(res, logger, 'get', '/api/napcat-login/status');
+  });
+
+  router.post('/runtime/napcat-login/qrcode', async (_req, res) => {
+    return proxyProviderRuntimeEndpoint(res, logger, 'post', '/api/napcat-login/qrcode', {});
   });
 
   // 仪表板统计数据
