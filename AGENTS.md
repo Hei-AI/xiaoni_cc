@@ -12,6 +12,7 @@
 ## Runtime Truth
 - 当前 QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看 QQ 未读时，读的是 `agent_inbound_messages` 的 inbox/window，不是 `agent_queue_messages`
 - 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 是 Notify Bucket 的持久化 / lease 承载，承载 `phone_notification`、`self_continuation`、`image_task_completed`、`system_reminder` 等触发，不是小腻的 QQ app 未读列表或认知边界
+- 聊天对象的 `auto_reply_enabled=0` 是 provider-service 侧硬开关：仍写入 QQ inbox，但不写 `phone_notification` 到 Notify Bucket，因此不会唤醒主 loop 发言
 - QQ 发言出站链路：`agent-service -> provider-service -> NapCat`
 - `exec_command` 支路走 `agent-service -> xiaoni-executor`
 - 当前管理端链路：`admin-panel/frontend -> admin-panel/backend -> provider-service / agent-service / PostgreSQL`

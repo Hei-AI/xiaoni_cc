@@ -91,6 +91,23 @@ Traffic / MITM / CLIProxyAPI logs 只能做证据补充：
 - span detail 可以从 CLIProxyAPI 请求日志补全真实上游 request / response。
 - CLIProxyAPI 日志匹配只信 `x-llm-call-id` header，敏感 header 必须脱敏。
 
+## Image Fork Boundary
+
+图片理解 fork 不应成为长期 action replay 的 base64 来源。`inspect_image_placeholder`
+会临时 clone 当前主 agent request，把图片 data URL 放进
+`function_call_output.output=[input_image]`，并通过 no-persist debug 请求获取文本
+观察。
+
+可回放、可进入主上下文的是工具结果文本：
+
+```xml
+<image id="...">含义是: ...</image>
+```
+
+不可作为长期 replay 内容的是图片 base64、本次 fork 的 `input_image` data URL 和
+no-persist traffic 请求。需要重新看图时，应按图片 id 重新 materialize 图片并发起
+新的 vision fork。
+
 ## How To Verify Replay Writes
 
 ### 1. 查 action stream

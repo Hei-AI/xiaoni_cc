@@ -40,6 +40,8 @@
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
 - 小腻 Notify Bucket、QQ inbox、主 loop 和动作分发架构：
   - `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md`
+- 小腻 auto reply 硬开关、`final_answer` idle 推进、图片理解 fork 和 base64 持久化边界：
+  - `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`
 - 小腻当前 runtime 状态图：
   - `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md`
 - 路线图：
@@ -56,6 +58,8 @@
 ## Xiaoni Doc Status
 - `xiaoni-executor` 事实源：`docs/AGENTS_XIAONI_EXECUTOR.md`。
 - action replay / Raw Trace 事实源：`docs/XIAONI_REPLAY_LEDGER.md`。
+- runtime 硬开关、idle continuation 和图片理解事实源：
+  `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`。
 - Prompt 正文事实源：`docs/XIAONI_MAIN_PROMPT_NEXT.md` 必须和
   `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 同步。
 - 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /

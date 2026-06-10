@@ -27,12 +27,16 @@ flowchart LR
     direction TB
     normalize["normalize inbound"]:::step
     writeInbox["write QQ body"]:::step
+    autoReplyGate{"auto_reply_enabled?"}:::decision
     push["push notify"]:::step
+    skipNotify["skip phone_notification<br/>timeline auto_reply_disabled"]:::step
     replyProvider["send reply<br/>-> NapCat"]:::step
     imageFinishProvider["receive image finish"]:::step
     imagePush["push completion notify"]:::step
 
-    normalize --> writeInbox --> push
+    normalize --> writeInbox --> autoReplyGate
+    autoReplyGate -- yes --> push
+    autoReplyGate -- no --> skipNotify
     imageFinishProvider --> imagePush
   end
 
@@ -58,6 +62,7 @@ flowchart LR
     qqUsage["$qq-usage"]:::tool
     qqUsageApi["agent-service<br/>/api/internal/qq-usage"]:::step
     readInbox["read QQ body<br/>via persistence"]:::step
+    inspectImage["inspect_image_placeholder"]:::tool
     reply["reply"]:::tool
     exec["exec_command"]:::tool
     execResult["stdout / stderr<br/>session result"]:::step
@@ -71,6 +76,7 @@ flowchart LR
     s5 --> s6 --> s7
     router -- "tool_call" --> dispatcher
     dispatcher -- "$qq-usage" --> qqUsage --> qqUsageApi --> readInbox --> s9
+    dispatcher -- "inspect image" --> inspectImage --> imageVisionFork --> imageObservation --> s9
     dispatcher -- "reply" --> reply --> replyProvider --> s9
     dispatcher -- "exec_command" --> exec --> executor
     router -- "final_answer" --> finalPost --> s9
@@ -86,11 +92,14 @@ flowchart LR
     imageNote["生图不是外部直接注入源<br/>由 Step 8 分发启动<br/>完成后回写同一个 Notify Bucket"]:::note
     imageStart["start image / provider task"]:::tool
     imageGen["OpenAI image generation"]:::tool
+    imageVisionFork["image vision fork<br/>current context + input_image<br/>no traffic persist"]:::tool
+    imageObservation["text observation<br/>&lt;image id=...&gt;"]:::step
     executor["xiaoni-executor"]:::tool
 
     imageNote
     providerSend --> openai --> providerParse
     imageStart --> imageGen
+    imageVisionFork --> openai --> imageObservation
     executor --> execResult
   end
 

@@ -29,10 +29,16 @@ if (QQ event?) then (yes)
     QQ 正文在 inbox，
     不在 Notify Bucket。
   end note
+  if (auto_reply_enabled?) then (yes)
+    :push phone_notification;
+  else (no)
+    :skip phone_notification\nreason=auto_reply_disabled;
+    stop
+  endif
 else (self / presence)
   :runtime/system event;
+  :push notify;
 endif
-:push notify;
 
 |Notify Bucket|
 label bucket
@@ -65,6 +71,7 @@ if (Step 8 ResponseActionRouter?) then (tool_call)
   :ToolDispatcher\nrun selected tool;
   note right
     $qq-usage: agent-service /api/internal/qq-usage -> agent_inbound_messages
+    inspect_image_placeholder: current main context + input_image fork -> text observation
     reply: agent-service -> provider-service -> NapCat
     exec_command: agent-service -> xiaoni-executor
   end note
@@ -88,6 +95,7 @@ elseif (final_answer) then
   :post action:\nif Notify Bucket empty,\nenqueue system_reminder;
   note right
     final_answer 在 Step 8 被消费为 post action。
+    reason=final_answer_idle 的提醒下一轮作为 user scene input。
     历史 transcript 仍按原始 phase 保存 / 回放。
   end note
 

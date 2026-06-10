@@ -32,6 +32,14 @@
 - prompt 迁移从最小 prompt baseline 开始；删除无必要的步骤化过程约束，保留真正影响 QQ 行为和安全边界的规则。
 - 不要默认在 system prompt 加当前日期；只有业务时区、本地日期或政策生效日期需要时才显式加入。
 
+## Image Inputs And Vision Forks
+
+- OpenAI 官方 vision 示例展示 `input_image` 放在 `user` message 的 content 数组里；这是上游通用文档的公开形态。
+- 小腻 `inspect_image_placeholder` 的生产实现是仓库内 fork 契约：复用当前主 agent 的完整 canonical request，追加 assistant sentinel `让我来看看这个图是啥意思`，再追加 `function_call` 和 `function_call_output.output=[{type:"input_image", ...}]`。
+- 这个 fork 只用于让小腻在自己的上下文里理解图片，不是新的通用 OpenAI 请求模式。provider helper 必须原样保留 `function_call_output.output` 数组；不能把 image content 转成字符串。
+- vision fork 必须设置 no-persist 语义：`executionMode=image_vision_fork_no_persist` 和 `x-qqbot-no-traffic-persist: 1`。主 loop 后续只继承 `<image id="...">含义是: ...</image>` 文本，不继承图片 base64。
+- 图片 id 使用 `agent_media_assets.id`。不要把 `image_1` 这类临时编号作为 prompt-facing 稳定契约。
+
 ## Xiaoni Prompt Contract
 
 本节描述当前已落地的生产后台契约。

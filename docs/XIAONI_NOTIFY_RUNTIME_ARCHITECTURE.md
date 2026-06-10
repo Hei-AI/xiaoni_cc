@@ -20,6 +20,8 @@
 
 QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`，收口在 `packages/persistence/inbound-inbox.js` 和 `packages/persistence/qq-usage.js`。小腻只有在模型主动选择 `$qq-usage` 时，才通过 `agent-service /api/internal/qq-usage` 读取 inbox/window。
 
+聊天对象的 `auto_reply_enabled` 是 provider-service 侧硬边界。`auto_reply_enabled=false` 时，QQ 正文仍写入 `agent_inbound_messages`，但不写 `phone_notification` 到 Notify Bucket，也就不会因为这条 QQ 消息唤醒主 loop。
+
 主 loop 由 `agent-service` 承载。一次 slice 的主链路是：
 
 ```text
@@ -42,7 +44,7 @@ loop tick
 
 | 来源 | 写入内容 | 当前代码入口 |
 | --- | --- | --- |
-| NapCat QQ message | `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
+| NapCat QQ message | `auto_reply_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | self continuation | `self_continuation`，空闲且未休息时维持连续主 loop。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
 | final_answer idle reminder | `system_reminder`，模型返回 `final_answer` 且 bucket 为空时由 Step 8 post action 写入。 | `modules/agent-service/src/services/response-action-router.ts` / `packages/persistence/agent-queue.js` |
@@ -58,7 +60,8 @@ QQ 入站链路分成两步：
 NapCat
   -> provider-service normalize inbound
   -> persist QQ body into agent_inbound_messages
-  -> enqueue phone_notification into Notify Bucket
+  -> if auto_reply_enabled=true: enqueue phone_notification into Notify Bucket
+  -> if auto_reply_enabled=false: timeline skip, no Notify Bucket row
 ```
 
 `agent_inbound_messages` 是 QQ app 的正文 inbox/window。`phone_notification` 是状态栏通知。小腻看到通知，不等于已经打开 QQ 正文。
@@ -98,9 +101,18 @@ canonical_response
   -> final_answer without tool_call
   -> if Notify Bucket has no pending item
   -> enqueue system_reminder notify
+  -> next loop renders reason=final_answer_idle as user scene input
 ```
 
 写入使用 `packages/persistence/agent-queue.js` 的原子方法，先在事务里检查 pending bucket，再写 `system_reminder`。如果当前输入本身就是 `system_reminder`，`agent-service` 不会再次回灌同类提醒，避免自循环。
+
+当前 idle reminder 的文本是：
+
+```text
+去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情
+```
+
+注意两层语义：持久化 queue source 是 `system_reminder`，用于去重、排障和避免自循环；进入下一轮模型请求时，`reason=final_answer_idle` 的这条提醒作为 `user` scene input，而不是 assistant 自己继续输出。
 
 相关配置：
 
@@ -115,9 +127,29 @@ canonical_response
 | `$qq-usage` | `exec_command` 运行本地 skill 脚本，脚本调 `agent-service /api/internal/qq-usage`。 | tool output 追加进后续 request，并记录 surface visit/seen。 |
 | QQ reply | `agent-service -> provider-service -> NapCat`。 | delivery state、trace、conversation item 写回持久层。 |
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
+| `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
 | `final_answer` | `ResponseActionRouter` 生成 post action；bucket 为空时写入 `system_reminder` notify。 | post action 结果记录 timeline；transcript / replay 仍按原始 phase 保存。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮。 |
+
+## 图片理解 Fork
+
+`inspect_image_placeholder` 不是 provider-service 里的无上下文图片摘要器。当前实现要求小腻在自己的完整主 agent 上下文中看图：
+
+```text
+main agent request
+  -> clone canonical request
+  -> append assistant output_text: 让我来看看这个图是啥意思
+  -> append function_call inspect_image_placeholder(image_id)
+  -> append function_call_output.output=[input_image data URL]
+  -> call provider-service /api/internal/llm/debug
+       executionMode=image_vision_fork_no_persist
+       x-qqbot-no-traffic-persist: 1
+  -> record media observation
+  -> return <image id="...">含义是: ...</image>
+```
+
+主 loop 不保留图片 base64。后续上下文只继承图片观察文本；如果需要重新看同一张图，再按稳定图片 id 重新调用 `inspect_image_placeholder`。
 
 ## 持久化边界
 
@@ -136,7 +168,9 @@ provider-service 和 agent-service 里的 store/service 类只能做适配和编
 
 - QQ 入站正文是否落库：看 `agent_inbound_messages` 和 provider-service 入站日志。
 - Notify Bucket 是否写入：看 `agent_queue_messages` 的 `source`、`dedupe_key`、`status`、`available_at`。
+- `auto_reply_enabled=0` 是否生效：看 provider-service timeline 的 `phone_notification/enqueue` 是否为 `eventPhase=skip`、`reason=auto_reply_disabled`，并确认 `agent_queue_messages` 没有对应 pending `phone_notification`。
 - 主 loop 是否消费：看 agent-service worker 日志、`agent_queue_messages` lease 字段和 action stream trace。
 - `$qq-usage` 看不到内容：先查 `agent-service /api/internal/qq-usage`，再查 `packages/persistence/qq-usage.js` 查询条件。
+- 图片理解上下文或 base64 膨胀异常：查 `inspect_image_placeholder` 的 `image_vision_fork_no_persist` 请求、`agent_media_assets` 观察记录和 `<image id="...">` tool output；不要把 traffic / replay 里的 base64 当作正常长期产物。
 - 模型请求或 provider 响应异常：查 provider-service `/api/internal/agent/execute`、codex-provider trace 和 `xiaoni_replay_events`。
 - `exec_command` 异常：查 `xiaoni-executor` `/api/internal/exec-command`、session state 和审计日志。

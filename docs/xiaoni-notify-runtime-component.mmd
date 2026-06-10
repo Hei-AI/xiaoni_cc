@@ -22,8 +22,8 @@ flowchart LR
 
   subgraph provider["provider-service"]
     direction TB
-    providerInbound["inbound normalizer<br/>write inbox / push notify"]:::provider
-    providerApi["provider API<br/>QQ outbound / media inspect / image endpoints"]:::provider
+    providerInbound["inbound normalizer<br/>write inbox / auto_reply gate / push notify"]:::provider
+    providerApi["provider API<br/>QQ outbound / media materialize / image endpoints"]:::provider
     codexProvider["codex-provider<br/>LLM adapter"]:::tool
     imageProvider["image provider<br/>OpenAI / Codex image transport"]:::tool
   end
@@ -34,6 +34,7 @@ flowchart LR
     router{"Step 8<br/>ResponseActionRouter"}:::bucket
     dispatcher{"ToolDispatcher<br/>unified tool entry"}:::bucket
     qqUsageApi["qq-usage API<br/>/api/internal/qq-usage"]:::agent
+    imageVisionFork["image vision fork<br/>main context + input_image<br/>no-persist"]:::agent
     taskWorker["agent task worker<br/>image task completion"]:::agent
   end
 
@@ -43,7 +44,8 @@ flowchart LR
 
   external --> providerInbound
   providerInbound --> inbox
-  providerInbound --> bucket
+  providerInbound -- "auto_reply_enabled=true" --> bucket
+  providerInbound -. "auto_reply_enabled=false: skip" .-> history
   bucket -. "carried by" .-> queue
   bucket --> loop
   bucket -.-> noteBucket
@@ -56,6 +58,7 @@ flowchart LR
   router -.-> noteRouter
 
   dispatcher --> qqUsageApi --> inbox
+  dispatcher --> imageVisionFork --> codexProvider
   dispatcher --> providerApi --> external
   dispatcher --> executor --> dispatcher
   dispatcher --> taskWorker --> imageProvider --> openai

@@ -22,8 +22,8 @@ title 小腻 Notify Bucket 运行组件图
 component "外部输入\n----\nNapCat QQ message\nself continuation\nsystem reminder" as External #DCF2EE
 
 package "provider-service" as Provider #EDF7FF {
-  component "inbound normalizer\n----\nnormalize NapCat event\nwrite inbox\npush notify" as ProviderInbound #EDF7FF
-  component "provider API\n----\nQQ outbound\nmedia inspect\nimage endpoints" as ProviderApi #EDF7FF
+  component "inbound normalizer\n----\nnormalize NapCat event\nwrite inbox\nauto_reply gate\npush notify" as ProviderInbound #EDF7FF
+  component "provider API\n----\nQQ outbound\nmedia materialize\nimage endpoints" as ProviderApi #EDF7FF
   component "codex-provider\n----\nLLM adapter\nOpenAI request/response" as CodexProvider #E5F7F2
   component "image provider\n----\nOpenAI / Codex\nimage transport" as ImageProvider #E5F7F2
 }
@@ -38,6 +38,7 @@ package "agent-service" as AgentService #FFFDF5 {
   component "Step 8\nResponseActionRouter\n----\npreserve replay\nclassify final_answer / tool_call\nemit post actions" as ResponseRouter #FFF2C8
   component "ToolDispatcher\n----\nunified tool entry\nlog tool_execution_logs\nroute by tool name" as ToolDispatcher #FFF2C8
   component "qq-usage API\n----\n/api/internal/qq-usage" as QqUsage #FFFDF5
+  component "image vision fork\n----\ncurrent main context\nfunction_call_output input_image\nno-persist" as ImageVisionFork #FFFDF5
   component "agent task worker\n----\nimage task\ncompletion notify" as TaskWorker #FFFDF5
 }
 
@@ -49,7 +50,8 @@ database "replay / conversation / trace\n----\nhistory transcript\npost-action r
 
 External --> ProviderInbound : QQ inbound / trigger
 ProviderInbound --> Inbox : write QQ body
-ProviderInbound --> Bucket : push phone_notification
+ProviderInbound --> Bucket : auto_reply_enabled=true\npush phone_notification
+ProviderInbound -[#607086,dashed]-> History : auto_reply_enabled=false\nskip notify, log timeline
 Bucket .. QueueTable : carried by
 Bucket --> RuntimeLoop : Step 5 pick, non-blocking
 
@@ -67,7 +69,12 @@ ToolDispatcher --> QqUsage : $qq-usage
 QqUsage --> Inbox : read inbox window
 QqUsage --> ToolDispatcher : QQ context
 
-ToolDispatcher --> ProviderApi : QQ reply / media inspect
+ToolDispatcher --> ImageVisionFork : inspect_image_placeholder
+ImageVisionFork --> CodexProvider : /api/internal/llm/debug\nx-qqbot-no-traffic-persist
+CodexProvider --> ImageVisionFork : image meaning text
+ImageVisionFork --> ToolDispatcher : <image id=...>含义是...</image>
+
+ToolDispatcher --> ProviderApi : QQ reply / media materialize
 ProviderApi --> External : QQ outbound via NapCat
 
 ToolDispatcher --> Executor : exec_command
