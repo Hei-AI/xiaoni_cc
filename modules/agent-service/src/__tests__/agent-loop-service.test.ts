@@ -292,6 +292,41 @@ function createDirectQueuePayload(): QueueMessagePayload {
   };
 }
 
+function createSelfContinuationQueuePayload(): QueueMessagePayload {
+  const payload = createQueuePayload();
+  return {
+    ...payload,
+    source: 'self_continuation',
+    chatType: 'direct',
+    sessionKey: 'xiaoni:global',
+    peerId: '303',
+    peerName: '小腻',
+    senderId: '303',
+    senderName: '小腻',
+    bodyForAgent: '',
+    rawBody: '',
+    commandBody: '',
+    wasMentioned: false,
+    phoneNotification: undefined,
+    messages: [],
+    inboundContext: {
+      Body: '',
+      BodyForAgent: '',
+      BodyForCommands: '',
+      NativeChannelId: 'xiaoni:global',
+      Surface: 'self_continuation',
+      CommandAuthorized: false
+    },
+    selfContinuation: {
+      identityKey: 'xiaoni',
+      reason: 'recovery_complete',
+      recoveryEventId: '9',
+      recoverUntil: '2026-06-06T12:39:51.000Z',
+      createdAt: '2026-06-06T12:39:51.000Z'
+    }
+  };
+}
+
 function createRuntimePrompt(overrides: Partial<ResolvedAgentRuntimePrompt> = {}): ResolvedAgentRuntimePrompt {
   return {
     source: 'default',
@@ -630,50 +665,20 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
 });
 
 test('buildInitialInput treats self continuation as an internal life slice without QQ input', () => {
-  const selfPayload: QueueMessagePayload = {
-    ...createQueuePayload(),
-    source: 'self_continuation',
-    chatType: 'direct',
-    sessionKey: 'xiaoni:global',
-    peerId: '303',
-    peerName: '小腻',
-    senderId: '303',
-    senderName: '小腻',
-    bodyForAgent: '',
-    rawBody: '',
-    commandBody: '',
-    wasMentioned: false,
-    phoneNotification: undefined,
-    messages: [],
-    inboundContext: {
-      Body: '',
-      BodyForAgent: '',
-      BodyForCommands: '',
-      NativeChannelId: 'xiaoni:global',
-      Surface: 'self_continuation',
-      CommandAuthorized: false
-    },
-    selfContinuation: {
-      identityKey: 'xiaoni',
-      reason: 'recovery_complete',
-      recoveryEventId: '9',
-      recoverUntil: '2026-06-06T12:39:51.000Z',
-      createdAt: '2026-06-06T12:39:51.000Z'
-    }
-  };
+  const selfPayload = createSelfContinuationQueuePayload();
   const loopInput = buildInitialInput([], selfPayload, createRuntimePrompt());
   const currentTurnRendered = loopInput
     .filter((item: any) => item.role === 'user' || item.role === 'assistant')
     .map(getMessageContent)
     .join('\n');
 
-	  assert.equal(loopInput.some((item: any) => item.role === 'user'), false);
-	  assert.doesNotMatch(currentTurnRendered, /<PHONE_NOTIFICATION/);
-	  assert.doesNotMatch(currentTurnRendered, /<INPUT_MESSAGE/);
-	  assert.doesNotMatch(currentTurnRendered, /当前输入来自内部调度切片/);
-	  assert.match(currentTurnRendered, /连续生命切片/);
-	  assert.match(currentTurnRendered, /recover_energy/);
-	});
+  assert.equal(loopInput.some((item: any) => item.role === 'user'), false);
+  assert.doesNotMatch(currentTurnRendered, /<PHONE_NOTIFICATION/);
+  assert.doesNotMatch(currentTurnRendered, /<INPUT_MESSAGE/);
+  assert.doesNotMatch(currentTurnRendered, /当前输入来自内部调度切片/);
+  assert.match(currentTurnRendered, /连续生命切片/);
+  assert.match(currentTurnRendered, /recover_energy/);
+});
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
@@ -3551,20 +3556,6 @@ test('send_in_group with a single message sends it once through executeTool', as
   }]);
 });
 
-test('life-only presence tick uses the fixed main-loop tool list', () => {
-  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest().payload;
-  const loopInput = buildInitialInput([], queueMessage);
-  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'direct');
-  const allowedTools = withoutQqUsageTools(getAllowedToolNames(request.tool_choice));
-
-  assert.deepEqual(
-    withoutQqUsageTools((request.tools ?? []).map((tool: any) => getToolName(tool))),
-    DIRECT_LOOP_TOOLS
-  );
-  assert.deepEqual(allowedTools, DIRECT_ALLOWED_TOOLS);
-  assert.equal((request.tool_choice as any)?.mode, 'auto');
-});
-
 test('processQueueMessage fails without a bound prompt and does not call the provider', async () => {
   const queueMessage = {
     id: 'run-queue-1',
@@ -5498,138 +5489,17 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(userTexts.some((t: string) => t.includes('<PHONE_NOTIFICATION')), true);
 });
 
-function createPresenceTickQueueMessageForTest() {
-  const basePayload = createQueuePayload();
-  return {
-    id: 'run-presence',
-    traceId: 'trace-presence',
-    batchId: 'batch-presence',
+test('processQueueMessage preserves global OS context during self continuation', async () => {
+  const queueMessage = {
+    id: 'run-self-continuation',
+    traceId: 'trace-self-continuation',
+    batchId: 'batch-self-continuation',
     status: 'processing',
     attempts: 1,
     createdAt: '2026-03-28T08:00:00.000Z',
     queueMessageIds: [1],
-    payload: {
-      ...basePayload,
-      source: 'presence_tick',
-      sessionKey: 'presence_tick:xiaoni',
-      peerId: '0',
-      peerName: undefined,
-      bodyForAgent: 'presence tick',
-      rawBody: 'presence_tick',
-      commandBody: 'presence_tick',
-      phoneNotification: undefined,
-      presenceTick: {
-        identityKey: 'xiaoni',
-        targetSessionKey: 'qq:group:999',
-        targetGroupId: 999,
-        targetPeerId: '999',
-        targetPeerName: 'Presence Group',
-        targetChatType: 'group' as const,
-        targetAccountId: '303'
-      },
-      inboundContext: {
-        ...basePayload.inboundContext,
-        SessionKey: 'presence_tick:xiaoni',
-        NativeChannelId: '0'
-      },
-      messages: basePayload.messages.map((message) => ({
-        ...message,
-        source: 'presence_tick',
-        sessionKey: 'presence_tick:xiaoni',
-        peerId: '0',
-        peerName: undefined,
-        inboundContext: {
-          ...message.inboundContext,
-          SessionKey: 'presence_tick:xiaoni',
-          NativeChannelId: '0'
-        }
-      }))
-    }
+    payload: createSelfContinuationQueuePayload()
   };
-}
-
-function createLifeOnlyPresenceTickQueueMessageForTest() {
-  const basePayload = createDirectQueuePayload();
-  const bodyForAgent = '还没有打开任何具体会话';
-  return {
-    id: 'run-life-presence',
-    traceId: 'trace-life-presence',
-    batchId: 'batch-life-presence',
-    status: 'processing',
-    attempts: 1,
-    createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [1],
-    payload: {
-      ...basePayload,
-      source: 'presence_tick',
-      chatType: 'direct' as const,
-      sessionKey: 'presence_tick:xiaoni',
-      peerId: 'xiaoni',
-      peerName: '小腻',
-      senderId: '303',
-      senderName: 'presence_tick',
-      bodyForAgent,
-      rawBody: 'presence_tick',
-      commandBody: 'presence_tick',
-      wasMentioned: false,
-      inboundContext: {
-        ...basePayload.inboundContext,
-        Body: 'presence_tick',
-        BodyForAgent: bodyForAgent,
-        BodyForCommands: 'presence_tick',
-        RawBody: 'presence_tick',
-        CommandBody: 'presence_tick',
-        ChatType: 'direct',
-        NativeChannelId: 'presence_tick:xiaoni',
-        SessionKey: 'presence_tick:xiaoni',
-        SenderId: '303',
-        SenderName: 'presence_tick',
-        From: '303',
-        To: '303',
-        Surface: 'presence_tick',
-        CommandAuthorized: false
-      },
-      messages: [],
-      presenceTick: {
-        identityKey: 'xiaoni'
-      }
-    }
-  };
-}
-
-test('presence tick stays outside QQ even when it carries a target session', () => {
-  const queueMessage = createPresenceTickQueueMessageForTest();
-  const loopInput = buildInitialInput([], queueMessage.payload, createRuntimePrompt());
-  const rendered = loopInput.map(getMessageContent).join('\n');
-  const actionText = loopInput
-    .filter((item: any) => item.role === 'assistant')
-    .map(getMessageContent)
-    .find((content) => content.includes('source="presence_tick"')) || '';
-  assert.equal(queueMessage.payload.sessionKey, 'presence_tick:xiaoni');
-  assert.match(actionText, /source="presence_tick"/);
-  assert.doesNotMatch(actionText, /<IM_INBOX_WINDOW/);
-  assert.doesNotMatch(actionText, /普通未读/);
-  assert.doesNotMatch(actionText, /问问@Bob/);
-  assert.doesNotMatch(actionText, /<PHONE_NOTIFICATION/);
-  assert.match(rendered, /qq-usage/);
-});
-
-test('life-only presence tick stays outside IM without a selected target', () => {
-  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest();
-  assert.equal(queueMessage.payload.sessionKey, 'presence_tick:xiaoni');
-  assert.equal(queueMessage.payload.peerId, 'xiaoni');
-
-  const loopInput = buildInitialInput([], queueMessage.payload, createRuntimePrompt());
-  const rendered = loopInput.map(getMessageContent).join('\n');
-  assert.match(rendered, /source="presence_tick"/);
-  assert.match(rendered, /presence tick|presence_tick|历史兼容/);
-  assert.doesNotMatch(rendered, /消息列表/);
-  assert.doesNotMatch(rendered, /主动打开群看了一眼/);
-  assert.doesNotMatch(rendered, /target_group_id/);
-});
-
-test('processQueueMessage preserves global OS context during life-only presence tick', async () => {
-  const queueMessage = createLifeOnlyPresenceTickQueueMessageForTest();
   const listRecentTurnsCalls: any[] = [];
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
@@ -5638,7 +5508,7 @@ test('processQueueMessage preserves global OS context during life-only presence 
   let renderedModelInput = '';
 
   const store = {
-    createLlmJob: async () => 'job-presence-global',
+    createLlmJob: async () => 'job-self-continuation-global',
     logTimelineEvent: async () => {},
     listRecentTurns: async (params: any) => {
       listRecentTurnsCalls.push(params);
@@ -5688,11 +5558,11 @@ test('processQueueMessage preserves global OS context during life-only presence 
     renderedModelInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
-      llm_call_id: 'llm-presence-global',
+      llm_call_id: 'llm-self-continuation-global',
       canonical_response: {
         output: [{
           type: 'function_call',
-          call_id: 'call-presence-global',
+          call_id: 'call-self-continuation-global',
           name: RECOVER_ENERGY_TOOL,
           arguments: JSON.stringify({
             reason: '测试全局 OS 是否进入上下文，当前没有外部目标，先休息。',
@@ -5715,7 +5585,7 @@ test('processQueueMessage preserves global OS context during life-only presence 
       });
     }
     outboundSendFetchCalled = true;
-    throw new Error(`recover-only presence tick test must not call outbound QQ endpoints: ${urlString}`);
+    throw new Error(`recover-only self continuation test must not call outbound QQ endpoints: ${urlString}`);
   }) as typeof fetch;
 
   try {
@@ -5756,7 +5626,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
 
   const plan = await (service as any).buildContextBudgetPlan({
     history,
-    queueMessage: createLifeOnlyPresenceTickQueueMessageForTest().payload,
+    queueMessage: createSelfContinuationQueuePayload(),
     runtimePrompt: createRuntimePrompt(),
     loopContinuation: [],
     runtimeIdentityFacts: [],

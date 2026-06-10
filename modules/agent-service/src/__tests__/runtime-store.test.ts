@@ -848,7 +848,7 @@ test('listRecentTurns preserves raw response replay snapshot without recovering 
   assert.equal(queries.some((sql) => sql.includes('tool_execution_logs')), false);
 });
 
-test('listRecentTurns can read the global append stream for life-only presence ticks', async () => {
+test('listRecentTurns can read the global append stream for autonomous runtime slices', async () => {
   const conversationQueries: Array<{ sql: string; params?: unknown[] }> = [];
   const store = createStoreWithQuery(async (sql, params) => {
     if (sql.includes('FROM conversations')) {

@@ -2049,38 +2049,12 @@ function buildInboundBatchTranscriptItems(
   content: string;
   groupIndex: 0;
   itemIndex: number;
-  source: 'inbound_batch' | 'sensory_event' | 'presence_action';
+  source: 'inbound_batch' | 'sensory_event';
   runId: string;
   traceId: string;
 }> {
   if (isSelfContinuationPayload(queueMessage)) {
     return [];
-  }
-  if (isConsciousnessTickPayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'assistant',
-      phase: 'commentary',
-      content: renderConsciousnessTickAction(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'presence_action',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
-  }
-  if (isPresenceTickPayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'assistant',
-      phase: 'commentary',
-      content: renderPresenceTickAction(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'presence_action',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
   }
   if (isImageTaskNotificationPayload(queueMessage)) {
     return [{
@@ -2496,12 +2470,6 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
   if (isSelfContinuationPayload(queueMessage)) {
     return '<system_reminder>当前是小腻自己的连续生命切片，不是 QQ 正文，也不是有人在催促你。可以继续思考、更新状态、查看手机 QQ 通知、打开 QQ、使用工具、保持沉默，或者按精力状态调用 recover_energy 休息。</system_reminder>';
   }
-  if (isConsciousnessTickPayload(queueMessage)) {
-    return '<system_reminder>当前是小腻自己的连续意识循环切片；没有任何 QQ 正文被自动打开。可以继续思考、使用工具、查看 QQ 通知、打开 QQ，或者按精力状态 recover_energy。</system_reminder>';
-  }
-  if (isLifePresenceTickPayload(queueMessage)) {
-    return '<system_reminder>当前是历史兼容的 presence tick；它不会自动打开 QQ。可以选择内部工具、查看通知、主动使用 qq-usage，或者按精力状态 recover_energy。</system_reminder>';
-  }
   if (isImageTaskNotificationPayload(queueMessage)) {
     return '<system_reminder>这是生图任务完成通知，不是 QQ 消息。通知里给出的 task_id、picture_id 和 picture_path 是已完成图片的直接线索；可以按路径读取或后续自行决定怎么处理。</system_reminder>';
   }
@@ -2559,14 +2527,6 @@ function buildPickedTriggerSnapshot(queueMessage: QueueMessageRecord['payload'])
       reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
       status: 'already_picked'
     }, '这条内部提醒已经被接收进上下文，不是新的外部输入。可以参考它继续行动，也可以转向别的事情。');
-  }
-
-  if (isConsciousnessTickPayload(queueMessage) || isPresenceTickPayload(queueMessage)) {
-    return formatTaggedBlock('runtime_event_snapshot', {
-      source: queueMessage.source,
-      status: 'already_picked',
-      session_key: queueMessage.sessionKey
-    }, '这个内部调度切片已经进入上下文，不是新的当前事件。');
   }
 
   if (isSelfContinuationPayload(queueMessage)) {
@@ -2646,19 +2606,6 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   }, reminder || '没事做时可以自己找点事做，或休息。');
 }
 
-function renderConsciousnessTickAction(queueMessage: QueueMessageRecord['payload']) {
-  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim()
-    ? queueMessage.bodyForAgent.trim()
-    : '连续意识循环继续推进。';
-  return renderAssistantAction({
-    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
-    source: 'consciousness_tick',
-    runId: queueMessage.runId,
-    traceId: queueMessage.traceId,
-    text: body
-  });
-}
-
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
   const directive = extractRuntimeStateDirective(developerContextBlock);
   if (!directive) {
@@ -2697,19 +2644,6 @@ export function buildTurnControlReminder(turnControl: TurnControlState): OpenRes
       expected_next: turnControl.expectedNext
     }, lines.join('\n'))
   ]);
-}
-
-function renderPresenceTickAction(queueMessage: QueueMessageRecord['payload']) {
-  const body = typeof queueMessage.bodyForAgent === 'string' && queueMessage.bodyForAgent.trim() && queueMessage.bodyForAgent.trim() !== 'presence_tick'
-    ? queueMessage.bodyForAgent.trim()
-    : '我从自己的生活里抬头看了一眼消息列表。';
-  return renderAssistantAction({
-    timestamp: queueMessage.messageTimestamp || queueMessage.receivedAt,
-    source: 'presence_tick',
-    runId: queueMessage.runId,
-    traceId: queueMessage.traceId,
-    text: body
-  });
 }
 
 const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
@@ -4327,18 +4261,16 @@ export class AgentLoopService {
     let loopContinuation: OpenResponseInputItem[] = [];
 
     try {
-      if (!isPresenceTickPayload(payload)) {
-        const recorder = (this.store as RuntimeStore & {
-          recordPresenceUserMessage?: RuntimeStore['recordPresenceUserMessage'];
-        }).recordPresenceUserMessage;
-        if (typeof recorder === 'function') {
-          await recorder.call(this.store, payload).catch((error) => {
-            moduleLogger.warn('Failed to record presence user-message anchor', {
-              traceId: payload.traceId,
-              error: error instanceof Error ? error.message : String(error)
-            });
+      const recorder = (this.store as RuntimeStore & {
+        recordPresenceUserMessage?: RuntimeStore['recordPresenceUserMessage'];
+      }).recordPresenceUserMessage;
+      if (typeof recorder === 'function') {
+        await recorder.call(this.store, payload).catch((error) => {
+          moduleLogger.warn('Failed to record presence user-message anchor', {
+            traceId: payload.traceId,
+            error: error instanceof Error ? error.message : String(error)
           });
-        }
+        });
       }
       const contextSessionKey = GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
       const history = await this.store.listRecentTurns({
@@ -4801,9 +4733,7 @@ export class AgentLoopService {
         }
       });
       const recoveredEnergy = leaseRelease.rest_started;
-      const presenceOutcome = isPresenceTickPayload(payload)
-        ? (sentMessages.length > 0 ? 'shared' : 'lurked')
-        : (sentMessages.length > 0 ? 'replied' : 'silent');
+      const presenceOutcome = sentMessages.length > 0 ? 'replied' : 'silent';
       if (presenceContext) {
         const sidecarRecorder = (this.store as RuntimeStore & {
           recordPresenceSidecar?: RuntimeStore['recordPresenceSidecar'];
@@ -4815,19 +4745,6 @@ export class AgentLoopService {
             outcome: presenceOutcome
           }).catch((error) => {
             moduleLogger.warn('Failed to record presence sidecar', {
-              traceId: payload.traceId,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          });
-        }
-      }
-      if (isPresenceTickPayload(payload)) {
-        const proactiveRecorder = (this.store as RuntimeStore & {
-          recordPresenceProactiveCompletion?: RuntimeStore['recordPresenceProactiveCompletion'];
-        }).recordPresenceProactiveCompletion;
-        if (typeof proactiveRecorder === 'function') {
-          await proactiveRecorder.call(this.store, payload, presenceOutcome).catch((error) => {
-            moduleLogger.warn('Failed to record presence proactive completion', {
               traceId: payload.traceId,
               error: error instanceof Error ? error.message : String(error)
             });
@@ -6832,12 +6749,6 @@ function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCu
   return history.filter((turn) => turn.id > readCutoffAfterConversationId);
 }
 
-function isPresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.source === 'presence_tick'
-    || queueMessage.sessionKey === 'presence_tick:xiaoni'
-    || Boolean(queueMessage.presenceTick);
-}
-
 function isTransientProviderExecutionError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /terminated|fetch failed|network|timeout|timed out|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR/i.test(message);
@@ -6873,17 +6784,6 @@ function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) 
   return queueMessage.source === 'self_continuation'
     || Boolean(queueMessage.selfContinuation)
     || queueMessage.inboundContext?.Surface === 'self_continuation';
-}
-
-function isConsciousnessTickPayload(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.source === 'consciousness_tick'
-    || Boolean(queueMessage.consciousnessTick);
-}
-
-function isLifePresenceTickPayload(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.source === 'presence_tick'
-    && queueMessage.sessionKey === 'presence_tick:xiaoni'
-    && Boolean(queueMessage.presenceTick);
 }
 
 function buildLoopRequestInput(params: {
@@ -7410,16 +7310,6 @@ function buildCurrentTurnInputItems(
   if (isSelfContinuationPayload(queueMessage)) {
     return [];
   }
-  if (isConsciousnessTickPayload(queueMessage)) {
-    return [
-      buildAssistantCommentaryInputItem([renderConsciousnessTickAction(queueMessage)])
-    ];
-  }
-  if (isPresenceTickPayload(queueMessage)) {
-    return [
-      buildAssistantCommentaryInputItem([renderPresenceTickAction(queueMessage)])
-    ];
-  }
   if (isSystemReminderPayload(queueMessage)) {
     if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
       return [
@@ -7491,9 +7381,6 @@ function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
   if (isSelfContinuationPayload(queueMessage)) {
     return '';
   }
-  if (isConsciousnessTickPayload(queueMessage)) {
-    return renderConsciousnessTickAction(queueMessage);
-  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return renderPhoneNotification(queueMessage);
   }
@@ -7520,12 +7407,6 @@ function classifyRuntimeStreamInput(queueMessage: QueueMessageRecord['payload'])
   }
   if (isSystemReminderPayload(queueMessage)) {
     return 'sensory_event';
-  }
-  if (isConsciousnessTickPayload(queueMessage)) {
-    return 'legacy_consciousness_tick';
-  }
-  if (isPresenceTickPayload(queueMessage)) {
-    return 'legacy_presence_action';
   }
   return 'inbound_batch';
 }
