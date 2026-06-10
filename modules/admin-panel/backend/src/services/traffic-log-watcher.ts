@@ -523,6 +523,12 @@ export class TrafficLogWatcher {
   }
 
   private shouldPersistRecord(record: TrafficLogRecord): boolean {
+    const requestHeaders = this.parseHeaders(record.request_headers);
+    const noPersist = requestHeaders['x-qqbot-no-traffic-persist'];
+    if (typeof noPersist === 'string' && ['1', 'true', 'yes'].includes(noPersist.trim().toLowerCase())) {
+      return false;
+    }
+
     if (record.is_ai_request) {
       return true;
     }
@@ -564,6 +570,24 @@ export class TrafficLogWatcher {
       normalizedContentType.includes('application/x-www-form-urlencoded');
 
     return isRelevantInternalRequest && isStructuredApiRequest;
+  }
+
+  private parseHeaders(value: any): Record<string, string> {
+    const raw = typeof value === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return {};
+          }
+        })()
+      : value;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(raw).map(([key, headerValue]) => [key.toLowerCase(), String(headerValue)])
+    );
   }
 
   /**

@@ -9,15 +9,19 @@ export type OpenResponseInputContentPart =
   | { type: 'input_image'; image_url?: string; source?: Record<string, any>; [key: string]: any }
   | { type: 'input_file'; source: Record<string, any>; [key: string]: any };
 
+export type OpenResponseFunctionCallOutput = string | OpenResponseInputContentPart[];
+
 export type OpenResponseOutputContentPart =
   | { type: 'output_text'; text: string; annotations?: Array<Record<string, any>>; [key: string]: any }
   | { type: 'refusal'; refusal: string; [key: string]: any };
+
+export type OpenResponseMessageContentPart = OpenResponseInputContentPart | OpenResponseOutputContentPart;
 
 export type OpenResponseInputItem =
   | {
       type: 'message';
       role: OpenResponseMessageRole;
-      content: string | OpenResponseInputContentPart[];
+      content: string | OpenResponseMessageContentPart[];
       phase?: 'commentary' | 'final_answer';
     }
   | {
@@ -30,7 +34,7 @@ export type OpenResponseInputItem =
   | {
       type: 'function_call_output';
       call_id: string;
-      output: string;
+      output: OpenResponseFunctionCallOutput;
     }
   | {
       type: 'reasoning';

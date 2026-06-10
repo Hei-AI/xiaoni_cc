@@ -358,6 +358,10 @@ export class OpenAIProvider implements LLMProvider {
       payload.include = Array.from(new Set(request.include.filter((item) => typeof item === 'string' && item.trim())));
     }
 
+    if (typeof request.store === 'boolean') {
+      payload.store = request.store;
+    }
+
     if (request.metadata) {
       payload.metadata = request.metadata;
     }

@@ -6,6 +6,7 @@ export type InboundMentionedUser = {
 };
 
 export type InboundMediaAsset = {
+  id?: string;
   mediaTag: string;
   placeholder: string;
   mediaType: 'image' | 'audio' | 'video' | 'file' | string;

@@ -1160,6 +1160,10 @@ export function getAgentMediaAssetByTag(
   filters?: { sessionKey?: string; session_key?: string; messageSids?: string[]; message_sids?: string[]; mediaTag?: string; media_tag?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any | null>;
+export function getAgentMediaAssetById(
+  filters?: { id?: string; assetId?: string; asset_id?: string; sessionKey?: string; session_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
 export function createAgentMediaObservation(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;
 export function ensureAgentTaskSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function createAgentTask(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<any>;

@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { agentConfig } from '../config';
 import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
+import { FINAL_ANSWER_IDLE_REMINDER_TEXT } from '../services/response-action-router';
 import type { QueueMessagePayload } from '../types';
 
 const PRIVATE_REPLY_TOOL = 'send_in_private';
@@ -307,6 +308,37 @@ function createRuntimePrompt(overrides: Partial<ResolvedAgentRuntimePrompt> = {}
   };
 }
 
+function buildTestMainCanonicalRequest(
+  loopInput: ReturnType<typeof buildInitialInput>,
+  queueMessage: QueueMessagePayload,
+  runtimePrompt: ResolvedAgentRuntimePrompt
+) {
+  return {
+    ...buildCanonicalAgentTurnRequest(
+      runtimePrompt.modelName,
+      loopInput,
+      queueMessage.chatType,
+      runtimePrompt.parameters as Record<string, unknown> | undefined
+    ),
+    metadata: {
+      trace_id: queueMessage.traceId,
+      run_id: queueMessage.runId,
+      batch_id: queueMessage.batchId,
+      session_key: queueMessage.sessionKey,
+      session_id: queueMessage.sessionKey,
+      turn_id: queueMessage.runId,
+      sandbox: 'none',
+      chat_type: queueMessage.chatType,
+      prompt_name: runtimePrompt.promptName,
+      ...(runtimePrompt.promptId ? { prompt_id: runtimePrompt.promptId } : {})
+    },
+    prompt_cache_key: 'xiaoni:global',
+    ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
+      ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
+      : {})
+  };
+}
+
 function getMessageContent(item: unknown) {
   if (!item || typeof item !== 'object' || !('type' in item) || (item as any).type !== 'message') {
     return '';
@@ -557,9 +589,12 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     }, result);
     assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
     assert.equal(continuation.inputItems[0]?.call_id, 'call-exec-missing-shell');
-    assert.match(continuation.inputItems[0]?.output || '', /^Chunk ID:/);
-    assert.match(continuation.inputItems[0]?.output || '', /Process exited without an exit code/);
-    assert.match(continuation.inputItems[0]?.output || '', /ENOENT|not\/a\/real-shell/);
+    const output = typeof continuation.inputItems[0]?.output === 'string'
+      ? continuation.inputItems[0].output
+      : '';
+    assert.match(output, /^Chunk ID:/);
+    assert.match(output, /Process exited without an exit code/);
+    assert.match(output, /ENOENT|not\/a\/real-shell/);
   });
 });
 
@@ -808,7 +843,9 @@ test('search path uses web search directly instead of private memory recall', ()
 });
 
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
+  const queuePayload = createQueuePayload();
+  const runtimePrompt = createRuntimePrompt();
+  const loopInput = buildInitialInput([], queuePayload);
   loopInput.push({
     type: 'function_call',
     call_id: 'call-plan',
@@ -843,7 +880,13 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   }) as typeof fetch;
 
   try {
-    await (service as any).executeAgentTurn(loopInput, createQueuePayload(), 'trace-1', 2, createRuntimePrompt());
+    await (service as any).executeAgentTurn(
+      buildTestMainCanonicalRequest(loopInput, queuePayload, runtimePrompt),
+      queuePayload,
+      'trace-1',
+      2,
+      runtimePrompt
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -893,7 +936,9 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
 });
 
 test('executeAgentTurn forwards encrypted reasoning input items to provider-service', async () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
+  const queuePayload = createQueuePayload();
+  const runtimePrompt = createRuntimePrompt();
+  const loopInput = buildInitialInput([], queuePayload);
   loopInput.push({
     type: 'reasoning',
     summary: [{ type: 'summary_text', text: 'understood unread meaning' }],
@@ -932,7 +977,13 @@ test('executeAgentTurn forwards encrypted reasoning input items to provider-serv
   }) as typeof fetch;
 
   try {
-    await (service as any).executeAgentTurn(loopInput, createQueuePayload(), 'trace-1', 2, createRuntimePrompt());
+    await (service as any).executeAgentTurn(
+      buildTestMainCanonicalRequest(loopInput, queuePayload, runtimePrompt),
+      queuePayload,
+      'trace-1',
+      2,
+      runtimePrompt
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -946,7 +997,9 @@ test('executeAgentTurn forwards encrypted reasoning input items to provider-serv
 });
 
 test('executeAgentTurn fills an empty summary for encrypted reasoning items without one', async () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
+  const queuePayload = createQueuePayload();
+  const runtimePrompt = createRuntimePrompt();
+  const loopInput = buildInitialInput([], queuePayload);
   loopInput.push({
     type: 'reasoning',
     encrypted_content: 'enc-without-summary'
@@ -973,7 +1026,13 @@ test('executeAgentTurn fills an empty summary for encrypted reasoning items with
   }) as typeof fetch;
 
   try {
-    await (service as any).executeAgentTurn(loopInput, createQueuePayload(), 'trace-1', 2, createRuntimePrompt());
+    await (service as any).executeAgentTurn(
+      buildTestMainCanonicalRequest(loopInput, queuePayload, runtimePrompt),
+      queuePayload,
+      'trace-1',
+      2,
+      runtimePrompt
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1148,6 +1207,40 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.doesNotMatch(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
+});
+
+test('buildInitialInput renders final-answer idle reminder as bare user input', () => {
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.bodyForAgent = FINAL_ANSWER_IDLE_REMINDER_TEXT;
+  payload.rawBody = FINAL_ANSWER_IDLE_REMINDER_TEXT;
+  payload.rawPayload = {
+    reason: 'final_answer_idle'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: FINAL_ANSWER_IDLE_REMINDER_TEXT
+  };
+  payload.systemReminder = {
+    reminder: FINAL_ANSWER_IDLE_REMINDER_TEXT,
+    reason: 'final_answer_idle',
+    createdAt: '2026-06-10T00:00:00.000Z'
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt({
+    systemPrompt: '你是小腻主AGENT'
+  }));
+  const reminderItems = loopInput.filter((item: any) => getMessageContent(item) === FINAL_ANSWER_IDLE_REMINDER_TEXT);
+
+  assert.equal(reminderItems.length, 1);
+  assert.equal((reminderItems[0] as any).role, 'user');
+  assert.equal((reminderItems[0] as any).phase, undefined);
+  assert.doesNotMatch(getMessageContent(reminderItems[0]), /<system_reminder>/);
+  assert.equal(loopInput.some((item: any) => (
+    item.role === 'assistant'
+    && getMessageContent(item).includes('当前输入来自小腻 runtime 的内部提醒')
+  )), false);
 });
 
 test('buildInitialInput renders completed image tasks as task notifications', () => {
@@ -1939,6 +2032,26 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
   const calls: Array<any> = [];
+  const queuePayload = createQueuePayload();
+  const runtimePrompt = createRuntimePrompt({
+    source: 'group',
+    promptId: 'prompt-1',
+    promptName: '小腻主AGENT',
+    modelName: 'gpt-5.4',
+    parameters: {
+      model_config: {
+        providerSpecific: {
+          reasoningEffort: 'high'
+        }
+      },
+      advanced_config: {
+        generationConfig: {
+          maxOutputTokens: 4096
+        }
+      }
+    }
+  });
+  const loopInput = buildInitialInput([], queuePayload);
 
   globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
     calls.push(JSON.parse(String(init?.body || '{}')));
@@ -1956,28 +2069,11 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
 
   try {
     await (service as any).executeAgentTurn(
-      buildInitialInput([], createQueuePayload()),
-      createQueuePayload(),
+      buildTestMainCanonicalRequest(loopInput, queuePayload, runtimePrompt),
+      queuePayload,
       'trace-2',
       1,
-      createRuntimePrompt({
-        source: 'group',
-        promptId: 'prompt-1',
-        promptName: '小腻主AGENT',
-        modelName: 'gpt-5.4',
-        parameters: {
-          model_config: {
-            providerSpecific: {
-              reasoningEffort: 'high'
-            }
-          },
-          advanced_config: {
-            generationConfig: {
-              maxOutputTokens: 4096
-            }
-          }
-        }
-      })
+      runtimePrompt
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -2710,6 +2806,7 @@ test('requestImageTask normalizes edit without source image to image_generate', 
 test('requestImageTask keeps image_edit when a source image resolves', async () => {
   const createdTasks: any[] = [];
   const service = new AgentLoopService({
+    getMediaAssetById: async () => null,
     createRuntimeTask: async (input: any) => {
       createdTasks.push(input);
       return 'task-edit';
@@ -2743,6 +2840,240 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   assert.equal(result.requested_task_type, 'image_edit');
   assert.equal(result.task_id, 'task-edit');
   assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
+});
+
+test('inspect_image_placeholder runs a no-persist main-context vision fork by image id', async () => {
+  const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
+  const queueMessage = {
+    id: 'run-queue-image-vision-fork',
+    traceId: 'trace-image-vision-fork',
+    batchId: 'batch-image-vision-fork',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-06-10T00:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    completeToolExecutionLog: [],
+    recordMediaObservation: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-image-vision-fork',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async () => [
+      createConversationTurn({
+        id: 77,
+        userMessage: '之前说过这张图可能有猫',
+        aiResponse: '我还没真正看图。'
+      })
+    ],
+    getSessionReadCutoffState: async () => ({
+      readCutoffAfterConversationId: null,
+      contextSummary: '最近在认真区分占位符和真实图片内容。',
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0
+    }),
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getMediaAssetById: async (_sessionKey: string, assetId: string) => ({
+      id: assetId,
+      session_key: 'qq:group:101',
+      media_tag: 'image_1',
+      media_type: 'image',
+      mime_type: 'image/png',
+      source_locator: 'https://example.test/private/cat.png',
+      metadata: {},
+      observations: [{
+        id: 'old-obs',
+        description: '旧观察不应该短路。'
+      }]
+    }),
+    getMediaAssetByTag: async () => null,
+    recordMediaObservation: async (params: any) => {
+      storeCalls.recordMediaObservation.push(params);
+      return { id: 'obs-new', ...params };
+    },
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    createToolExecutionLog: async () => storeCalls.completeToolExecutionLog.length + 1,
+    completeToolExecutionLog: async (_logId: number, params: any) => {
+      storeCalls.completeToolExecutionLog.push(params);
+    },
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 4096;
+    },
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const mainRequests: any[] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    mainRequests.push(canonicalRequest);
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-main-image-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-inspect-image',
+            name: INSPECT_IMAGE_TOOL,
+            arguments: JSON.stringify({
+              image_id: 'asset-img-123',
+              reason: '需要真正看图才能接话。'
+            })
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-main-image-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-rest-after-image',
+          name: RECOVER_ENERGY_TOOL,
+          arguments: JSON.stringify({
+            reason: '看完图后先停一下。',
+            duration_minutes: 5,
+            xiaoni_os: '已经通过视觉 fork 看过 asset-img-123。'
+          })
+        }]
+      }
+    };
+  };
+
+  const originalFetch = globalThis.fetch;
+  const fetchCalls: Array<{ url: string; headers: any; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const parsed = init?.body ? JSON.parse(String(init.body)) : null;
+    fetchCalls.push({
+      url: String(url),
+      headers: init?.headers || {},
+      body: parsed
+    });
+    if (String(url).endsWith('/api/internal/media/materialize-image')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            data_url: imageDataUrl,
+            mime_type: 'image/png'
+          }
+        })
+      } as Response;
+    }
+    if (String(url).endsWith('/api/internal/llm/debug')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          response: '这是一只猫',
+          model: 'gpt-5.4-mini',
+          provider: 'openai',
+          llm_call_id: 'llm-image-fork'
+        })
+      } as Response;
+    }
+    throw new Error(`Unexpected fetch: ${String(url)}`);
+  }) as typeof fetch;
+
+  try {
+    await service.processQueueMessage(queueMessage as any);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const materializeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/media/materialize-image'));
+  const debugCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/llm/debug'));
+  assert.equal(materializeCalls.length, 1);
+  assert.equal(debugCalls.length, 1);
+  assert.equal(fetchCalls.some((call) => call.url.includes('/api/internal/media/inspect')), false);
+  assert.equal(materializeCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
+  assert.equal(debugCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
+
+  const mainRequest = mainRequests[0];
+  const forkRequest = debugCalls[0]?.body?.canonicalRequest;
+  assert.ok(mainRequest);
+  assert.ok(forkRequest);
+  assert.deepEqual(forkRequest.input.slice(0, -3), mainRequest.input);
+  assert.equal(forkRequest.instructions, mainRequest.instructions);
+  assert.deepEqual(forkRequest.tools, mainRequest.tools);
+  assert.equal(forkRequest.tool_choice, 'none');
+  assert.equal(forkRequest.parallel_tool_calls, false);
+  assert.equal(forkRequest.store, false);
+
+  const appendedItems = forkRequest.input.slice(mainRequest.input.length);
+  assert.equal(appendedItems.length, 3);
+  const [visionCommentary, visionCall, visionOutput] = appendedItems;
+  assert.equal(visionCommentary?.type, 'message');
+  assert.equal(visionCommentary?.role, 'assistant');
+  assert.equal(getMessageContent(visionCommentary), '让我来看看这个图是啥意思');
+  assert.equal(
+    Array.isArray(visionCommentary?.content)
+      ? visionCommentary.content.some((part: any) => part.type === 'input_image')
+      : false,
+    false
+  );
+  assert.equal(visionCall?.type, 'function_call');
+  assert.equal(visionCall?.name, 'inspect_image_placeholder');
+  assert.deepEqual(JSON.parse(visionCall?.arguments), {
+    image_id: 'asset-img-123',
+    detail: 'original'
+  });
+  assert.equal(visionOutput?.type, 'function_call_output');
+  assert.equal(visionOutput?.call_id, visionCall?.call_id);
+  assert.deepEqual(visionOutput?.output, [{
+    type: 'input_image',
+    image_url: imageDataUrl,
+    detail: 'original'
+  }]);
+  assert.equal(appendedItems.some((item: any) => item.role === 'user'), false);
+  assert.doesNotMatch(JSON.stringify([visionCommentary, visionCall]), /data:image/);
+  assert.match(JSON.stringify(visionOutput?.output), /data:image\/png;base64,QUJDREVGRw==/);
+
+  assert.equal(storeCalls.recordMediaObservation.length, 1);
+  assert.equal(storeCalls.recordMediaObservation[0]?.assetId, 'asset-img-123');
+  assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
+
+  const inspectLog = storeCalls.completeToolExecutionLog.find((call) => call.result?.image_id === 'asset-img-123');
+  assert.ok(inspectLog);
+  assert.equal(inspectLog.result.output_xml, '<image id="asset-img-123">含义是: 这是一只猫</image>');
+  const replayText = JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []);
+  assert.match(replayText, /<image id=\\"asset-img-123\\">含义是: 这是一只猫<\/image>/);
+  const persistedRuntimeText = JSON.stringify({
+    toolLogs: storeCalls.completeToolExecutionLog,
+    conversations: storeCalls.createConversation,
+    settle: storeCalls.settleQueueMessages,
+    release: storeCalls.releaseExecutionLease
+  });
+  assert.doesNotMatch(persistedRuntimeText, /data:image/);
+  assert.doesNotMatch(persistedRuntimeText, /QUJDREVGRw==/);
 });
 
 test('summarizeToolLoopState counts tool calls by name and phase', () => {
@@ -3556,7 +3887,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
 
   let turn = 0;
   let secondTurnInput = '';
-  (service as any).executeAgentTurn = async (requestInput: any[]) => {
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     turn += 1;
     if (turn === 1) {
       return {
@@ -3568,7 +3899,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
       };
     }
 
-    secondTurnInput = requestInput.map(getMessageContent).join('\n');
+    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
       llm_call_id: 'llm-recover',
@@ -5142,8 +5473,8 @@ test('processQueueMessage preserves global OS context during life-only presence 
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
 
-  (service as any).executeAgentTurn = async (requestInput: any[]) => {
-    renderedModelInput = requestInput.map(getMessageContent).join('\n');
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    renderedModelInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
       llm_call_id: 'llm-presence-global',

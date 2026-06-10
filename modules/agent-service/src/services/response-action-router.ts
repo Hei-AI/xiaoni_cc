@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { AgentToolCall, ConversationTranscriptPhase } from '../types';
 
-export const FINAL_ANSWER_IDLE_REMINDER_TEXT = '没事做的话,去看看todo内容还有啥感兴趣想做的, 或者看看网页吧,自己找点事做,实在无聊的话睡觉也行';
+export const FINAL_ANSWER_IDLE_REMINDER_TEXT = '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情';
 
 export type ResponseInputContentPart =
   | {

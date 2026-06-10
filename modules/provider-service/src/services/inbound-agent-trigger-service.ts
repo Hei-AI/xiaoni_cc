@@ -79,6 +79,7 @@ export async function processInboundAgentQueueTrigger(params: {
   inboxEvent: InboxMessageRecord;
   inboxWindowMessages?: InboxMessageRecord[];
   inboundContext: FinalizedInboundContext;
+  policyState?: InboundAgentQueuePolicyState;
   rawPayload: Record<string, unknown>;
   traceId: string;
   source: 'napcat' | 'simulator';
@@ -98,6 +99,34 @@ export async function processInboundAgentQueueTrigger(params: {
       was_mentioned: params.inboxEvent.wasMentioned
     }
   });
+
+  if (params.policyState?.autoReplyEnabled === false) {
+    await runtimeStoreService.logTimelineEvent({
+      traceId: params.traceId,
+      eventType: 'phone_notification',
+      eventName: 'enqueue',
+      eventPhase: 'skip',
+      metadata: {
+        source: params.source,
+        reason: 'auto_reply_disabled',
+        trigger_reason: triggerDecision.reason,
+        session_key: params.inboxEvent.sessionKey
+      }
+    });
+
+    return {
+      attempted: true,
+      queued: false,
+      queueId: null,
+      queueIds: [],
+      queueStatus: 'skipped',
+      queueStatuses: [],
+      traceId: params.traceId,
+      notificationCount: 0,
+      triggerDecision,
+      reason: 'auto_reply_disabled'
+    };
+  }
 
   const notificationMessage = buildPhoneNotificationMessage(params.inboxEvent, {
     source: params.source,

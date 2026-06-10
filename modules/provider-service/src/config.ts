@@ -65,10 +65,6 @@ export const agentRunConfig = {
   batchWindowMs: Math.max(200, Number.parseInt(process.env.AGENT_RUN_BATCH_WINDOW_MS || '4000', 10))
 };
 
-export const mediaInspectorConfig = {
-  modelName: process.env.MEDIA_INSPECTOR_MODEL_NAME || 'gpt-5.4-mini'
-};
-
 export const selfEvolutionConfig = {
   enabled: process.env.SELF_EVOLUTION_ENABLED !== 'false',
   webhookUrl: process.env.SELF_EVOLUTION_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/self-evolution/execute`,

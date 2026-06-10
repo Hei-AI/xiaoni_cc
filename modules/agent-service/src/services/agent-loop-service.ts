@@ -54,7 +54,7 @@ type OpenResponseInputItem =
   | {
       type: 'function_call_output';
       call_id: string;
-      output: string;
+      output: string | OpenResponseInputContentPart[];
     }
   | {
       type: 'reasoning';
@@ -79,6 +79,7 @@ type OpenResponseInputContentPart =
   | {
       type: 'input_image';
       image_url: string;
+      detail?: 'low' | 'high' | 'auto' | 'original';
     };
 
 type OpenResponseToolDefinition = {
@@ -106,6 +107,7 @@ type OpenResponseToolDefinition = {
 type OpenResponseToolChoice =
   | 'auto'
   | 'required'
+  | 'none'
   | {
       type: 'allowed_tools';
       mode: 'auto' | 'required';
@@ -135,6 +137,10 @@ type ToolContinuationContext = {
   loopInput: OpenResponseInputItem[];
   speakingToolName: string;
   hasVisibleReply: boolean;
+};
+
+type ToolExecutionContext = {
+  currentCanonicalRequest?: CanonicalAgentTurnRequest;
 };
 
 type RuntimeStateTrigger =
@@ -202,6 +208,8 @@ type CanonicalAgentTurnRequest = {
   parallel_tool_calls: false;
   prompt_cache_key?: string;
   prompt_cache_retention?: string;
+  max_output_tokens?: number;
+  store?: boolean;
 };
 
 type AgentLoopServiceOptions = {
@@ -456,6 +464,9 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   external_web_access: agentConfig.webSearchExternalAccess
 };
 
+const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
+const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
+
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
   'Use /app as the filesystem root for repository paths.',
@@ -626,14 +637,21 @@ const INSPECT_IMAGE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.inspectImage,
-    description: '读取当前上下文中图片占位符对应的图片观察结果。',
+    description: '读取当前上下文中图片占位符对应的真实图片。优先填写 image_id（agent_media_assets.id）；只有旧上下文没有 image_id 时才用 media_tag 兼容查找。',
     parameters: {
       type: 'object',
       properties: {
-        media_tag: { type: 'string' },
+        image_id: {
+          type: 'string',
+          description: '优先使用的图片真实 id，即 agent_media_assets.id。'
+        },
+        media_tag: {
+          type: 'string',
+          description: '兼容旧上下文的占位符标签 fallback；最终回填仍使用真实 image id。'
+        },
         reason: { type: 'string' }
       },
-      required: ['media_tag', 'reason'],
+      required: ['reason'],
       additionalProperties: false
     }
   }
@@ -657,7 +675,7 @@ const IMAGE_TASK_TOOL = {
         source_media_tags: {
           type: 'array',
           items: { type: 'string' },
-          description: '编辑原图时填写当前上下文里图片占位符对应的 media tag；纯生成图片时留空。'
+          description: '编辑原图时填写当前上下文里的图片真实 id；旧上下文没有 id 时可填 media tag。纯生成图片时留空。'
         },
         xiaoni_os: {
           type: 'string',
@@ -1229,7 +1247,11 @@ function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadM
 
   for (let index = loopInput.length - 1; index >= 0; index -= 1) {
     const item = loopInput[index];
-    if (item.type === 'function_call_output' && unreadMeaningCallIds.has(item.call_id)) {
+    if (
+      item.type === 'function_call_output'
+      && unreadMeaningCallIds.has(item.call_id)
+      && typeof item.output === 'string'
+    ) {
       const parsed = parseReplayJsonObject(item.output);
       const meaning = parseUnreadMeaning(parsed);
       if (meaning) {
@@ -1586,6 +1608,84 @@ export function buildCanonicalAgentTurnRequest(
   };
 }
 
+function buildMainAgentCanonicalRequest(
+  runtimePrompt: ResolvedAgentRuntimePrompt,
+  turnInput: OpenResponseInputItem[],
+  queueMessage: QueueMessageRecord['payload']
+): CanonicalAgentTurnRequest {
+  return {
+    ...buildCanonicalAgentTurnRequest(
+      runtimePrompt.modelName,
+      turnInput,
+      queueMessage.chatType,
+      runtimePrompt.parameters as Record<string, unknown> | undefined
+    ),
+    metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
+    prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt),
+    ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
+      ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
+      : {})
+  };
+}
+
+function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
+  return JSON.parse(JSON.stringify(request)) as CanonicalAgentTurnRequest;
+}
+
+function buildImageVisionForkRequest(
+  baseRequest: CanonicalAgentTurnRequest,
+  imageDataUrl: string,
+  imageId: string
+): CanonicalAgentTurnRequest {
+  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  const imageVisionCallId = `call_image_vision_${imageId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  forkRequest.input = [
+    ...forkRequest.input,
+    {
+      type: 'message',
+      role: 'assistant',
+      content: [
+        {
+          type: 'output_text',
+          text: IMAGE_VISION_FORK_SENTINEL
+        }
+      ]
+    },
+    {
+      type: 'function_call',
+      call_id: imageVisionCallId,
+      name: 'inspect_image_placeholder',
+      arguments: JSON.stringify({
+        image_id: imageId,
+        detail: 'original'
+      })
+    },
+    {
+      type: 'function_call_output',
+      call_id: imageVisionCallId,
+      output: [{
+        type: 'input_image',
+        image_url: imageDataUrl,
+        detail: 'original'
+      }]
+    }
+  ];
+  forkRequest.tool_choice = 'none';
+  forkRequest.parallel_tool_calls = false;
+  forkRequest.store = false;
+  forkRequest.metadata = {
+    ...(forkRequest.metadata || {}),
+    image_vision_fork: 'true',
+    image_id: imageId,
+    no_persist: 'true'
+  };
+  return forkRequest;
+}
+
+function buildImageObservationXml(imageId: string, description: string) {
+  return `<image id="${escapeTagAttribute(imageId)}">含义是: ${escapeTaggedText(description)}</image>`;
+}
+
 function buildFeedbackWriterRequest(
   modelName: string,
   loopInput: OpenResponseInputItem[],
@@ -1694,7 +1794,9 @@ function renderTranscriptBatchMessage(
     if (!asset || typeof asset.mediaTag !== 'string' || !asset.mediaTag.trim()) {
       continue;
     }
-    const mediaTag = asset.mediaTag.trim();
+    const mediaTag = typeof asset.id === 'string' && asset.id.trim()
+      ? asset.id.trim()
+      : asset.mediaTag.trim();
     const mediaType = typeof asset.mediaType === 'string' && asset.mediaType.trim()
       ? asset.mediaType.trim()
       : 'media';
@@ -1992,11 +2094,12 @@ function buildInboundBatchTranscriptItems(
     }];
   }
   if (isSystemReminderPayload(queueMessage)) {
+    const finalAnswerIdleReminder = isFinalAnswerIdleSystemReminderPayload(queueMessage);
     return [{
       sessionKey: queueMessage.sessionKey,
-      role: 'assistant',
-      phase: 'commentary',
-      content: renderSystemReminder(queueMessage),
+      role: finalAnswerIdleReminder ? 'user' : 'assistant',
+      phase: finalAnswerIdleReminder ? null : 'commentary',
+      content: finalAnswerIdleReminder ? getSystemReminderText(queueMessage) : renderSystemReminder(queueMessage),
       groupIndex: 0 as const,
       itemIndex: 0,
       source: 'sensory_event',
@@ -2385,6 +2488,9 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
   if (isImageTaskNotificationPayload(queueMessage)) {
     return '<system_reminder>这是生图任务完成通知，不是 QQ 消息。通知里给出的 task_id、picture_id 和 picture_path 是已完成图片的直接线索；可以按路径读取或后续自行决定怎么处理。</system_reminder>';
   }
+  if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
+    return '';
+  }
   if (isSystemReminderPayload(queueMessage)) {
     return '<system_reminder>当前输入来自小腻 runtime 的内部提醒，不是 QQ 正文，也不是用户消息。可以把它当作行动建议，但不要伪装成外界催促。</system_reminder>';
   }
@@ -2438,12 +2544,17 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
   return `<IMAGE_TASK_NOTIFICATION ${renderedAttributes} />`;
 }
 
-function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
+function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
   const reminder = typeof queueMessage.systemReminder?.reminder === 'string' && queueMessage.systemReminder.reminder.trim()
     ? queueMessage.systemReminder.reminder.trim()
     : typeof queueMessage.bodyForAgent === 'string'
       ? queueMessage.bodyForAgent.trim()
       : '';
+  return reminder;
+}
+
+function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
+  const reminder = getSystemReminderText(queueMessage);
   return formatTaggedBlock('system_reminder', {
     source: 'final_answer_idle',
     reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
@@ -3838,7 +3949,9 @@ export function applyToolResultToLoopInput(
     call_id: toolCall.callId,
     output: toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
       ? toolResult.codex_output
-      : JSON.stringify(toolResult)
+      : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
+        ? toolResult.output_xml
+        : JSON.stringify(toolResult)
   }];
   const loopInputAfterTool = [
     ...(context?.loopInput ?? []),
@@ -4200,8 +4313,9 @@ export class AgentLoopService {
           cutoffRecomputed: budgetPlan.cutoffRecomputed
         };
         contextBudgetTurns.push(turnBudgetRecord);
+        const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload);
         const modelResult = await this.executeAgentTurn(
-          requestInput,
+          currentCanonicalRequest,
           payload,
           payload.traceId,
           turn,
@@ -4251,7 +4365,9 @@ export class AgentLoopService {
           });
 
           try {
-            let rawToolResult = await this.executeTool(toolCall, payload);
+            let rawToolResult = await this.executeTool(toolCall, payload, {
+              currentCanonicalRequest
+            });
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               const text = typeof rawToolResult.text === 'string' && rawToolResult.text.trim()
                 ? rawToolResult.text.trim()
@@ -5717,25 +5833,12 @@ export class AgentLoopService {
   }
 
   private async executeAgentTurn(
-    turnInput: OpenResponseInputItem[],
+    canonicalRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload'],
     traceId: string,
     turn: number,
     runtimePrompt: ResolvedAgentRuntimePrompt
   ) {
-    const canonicalRequest: CanonicalAgentTurnRequest = {
-      ...buildCanonicalAgentTurnRequest(
-        runtimePrompt.modelName,
-        turnInput,
-        queueMessage.chatType,
-        runtimePrompt.parameters as Record<string, unknown> | undefined
-      ),
-      metadata: buildAgentTurnMetadata(queueMessage, runtimePrompt),
-      prompt_cache_key: buildPromptCacheKey(queueMessage, runtimePrompt),
-      ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
-        ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
-        : {})
-    };
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
       method: 'POST',
       headers: {
@@ -5762,7 +5865,8 @@ export class AgentLoopService {
 
   private async executeTool(
     toolCall: AgentToolCall,
-    queueMessage: QueueMessageRecord['payload']
+    queueMessage: QueueMessageRecord['payload'],
+    context: ToolExecutionContext = {}
   ): Promise<Record<string, unknown>> {
     switch (toolCall.name) {
       case TOOL_NAMES.privateReply:
@@ -5790,7 +5894,7 @@ export class AgentLoopService {
         return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
       case TOOL_NAMES.inspectImage: {
-        return this.inspectImagePlaceholder(toolCall.args, queueMessage);
+        return this.inspectImagePlaceholder(toolCall.args, queueMessage, context);
       }
       case TOOL_NAMES.imageTask: {
         return this.requestImageTask(toolCall.args, queueMessage);
@@ -6081,80 +6185,149 @@ export class AgentLoopService {
 
   private async inspectImagePlaceholder(
     args: Record<string, unknown>,
-    queueMessage: QueueMessageRecord['payload']
+    queueMessage: QueueMessageRecord['payload'],
+    context: ToolExecutionContext
   ) {
+    const imageId = typeof args.image_id === 'string' && args.image_id.trim()
+      ? args.image_id.trim()
+      : '';
     const mediaTag = typeof args.media_tag === 'string' && args.media_tag.trim()
       ? args.media_tag.trim()
       : '';
-    if (!mediaTag) {
-      throw new Error(`${TOOL_NAMES.inspectImage} requires media_tag`);
+    if (!imageId && !mediaTag) {
+      throw new Error(`${TOOL_NAMES.inspectImage} requires image_id or media_tag`);
     }
 
-    const asset = await this.store.getMediaAssetByTag(queueMessage.sessionKey, mediaTag);
+    const assetReaderById = (this.store as RuntimeStore & {
+      getMediaAssetById?: RuntimeStore['getMediaAssetById'];
+    }).getMediaAssetById;
+    const asset = imageId && typeof assetReaderById === 'function'
+      ? await assetReaderById.call(this.store, queueMessage.sessionKey, imageId)
+      : await this.store.getMediaAssetByTag(queueMessage.sessionKey, mediaTag);
     if (!asset) {
       throw new Error(`${TOOL_NAMES.inspectImage} could not find the requested image placeholder`);
     }
 
-    const cachedObservation = Array.isArray(asset.observations) ? asset.observations[0] : null;
-    if (cachedObservation?.description) {
-      return {
-        media_tag: mediaTag,
-        inspected: true,
-        cached: true,
-        description: cachedObservation.description
-      };
+    const assetId = typeof asset.id === 'string' && asset.id.trim() ? asset.id.trim() : imageId;
+    if (!assetId) {
+      throw new Error(`${TOOL_NAMES.inspectImage} resolved an image without a stable id`);
     }
 
-    const imageUrl = typeof asset.source_locator === 'string' && asset.source_locator.trim()
-      ? asset.source_locator.trim()
-      : typeof asset.storage_uri === 'string' && asset.storage_uri.trim()
-        ? asset.storage_uri.trim()
-        : '';
-    if (!imageUrl) {
+    const baseRequest = context.currentCanonicalRequest;
+    if (!baseRequest) {
+      throw new Error(`${TOOL_NAMES.inspectImage} requires current main-agent request context`);
+    }
+
+    const materialized = await this.materializeImageAsset(asset);
+    if (!materialized.dataUrl) {
+      const description = '这张图片目前只有占位符，没有可读取的图片数据。';
+      const outputXml = buildImageObservationXml(assetId, description);
       return {
-        media_tag: mediaTag,
+        image_id: assetId,
+        media_tag: asset.media_tag || mediaTag || null,
         inspected: false,
-        description: '这张图片目前只有占位符，没有可读取的图片链接。'
+        description,
+        output_xml: outputXml
       };
     }
 
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/media/inspect`, {
+    const forkRequest = buildImageVisionForkRequest(baseRequest, materialized.dataUrl, assetId);
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
       },
       body: JSON.stringify({
         trace_id: queueMessage.traceId,
-        image_url: imageUrl,
-        reason: typeof args.reason === 'string' && args.reason.trim()
-          ? args.reason.trim()
-          : '小腻需要看清这个图片占位符才能继续发言。'
+        executionMode: 'image_vision_fork_no_persist',
+        model: forkRequest.model,
+        canonicalRequest: forkRequest
       })
     });
-    const payload = await response.json() as { success?: boolean; error?: string; data?: { description?: string; model?: string } };
+    const payload = await response.json() as { success?: boolean; error?: string; response?: string; model?: string; provider?: string; llm_call_id?: string };
     if (!response.ok || payload.success === false) {
-      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} failed with ${response.status}`);
+      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
     }
 
-    const description = typeof payload.data?.description === 'string' && payload.data.description.trim()
-      ? payload.data.description.trim()
+    const description = typeof payload.response === 'string' && payload.response.trim()
+      ? payload.response.trim()
       : '图片已读取，但没有得到有效描述。';
     await this.store.recordMediaObservation({
-      assetId: asset.id,
+      assetId,
       observer: 'xiaoni',
       description,
-      sourceModel: payload.data?.model || null,
+      sourceModel: payload.model || null,
       metadata: {
         trace_id: queueMessage.traceId,
+        llm_call_id: payload.llm_call_id || null,
+        fork: 'main_agent_context_vision',
         reason: typeof args.reason === 'string' ? args.reason : null
       }
     });
 
+    const outputXml = buildImageObservationXml(assetId, description);
     return {
-      media_tag: mediaTag,
+      image_id: assetId,
+      media_tag: asset.media_tag || mediaTag || null,
       inspected: true,
-      cached: false,
-      description
+      description,
+      output_xml: outputXml
+    };
+  }
+
+  private async materializeImageAsset(asset: Record<string, unknown>) {
+    const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata)
+      ? asset.metadata as Record<string, unknown>
+      : {};
+    const sourceLocator = typeof asset.source_locator === 'string' && asset.source_locator.trim()
+      ? asset.source_locator.trim()
+      : typeof asset.sourceLocator === 'string' && asset.sourceLocator.trim()
+        ? asset.sourceLocator.trim()
+        : typeof asset.storage_uri === 'string' && asset.storage_uri.trim()
+          ? asset.storage_uri.trim()
+          : typeof asset.storageUri === 'string' && asset.storageUri.trim()
+            ? asset.storageUri.trim()
+            : '';
+    const fileId = typeof metadata.file_id === 'string' && metadata.file_id.trim()
+      ? metadata.file_id.trim()
+      : '';
+    if (!sourceLocator && !fileId) {
+      return { dataUrl: null as string | null, mimeType: null as string | null };
+    }
+
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/media/materialize-image`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
+      },
+      body: JSON.stringify({
+        asset_id: asset.id,
+        source_locator: sourceLocator || undefined,
+        file_id: fileId || undefined,
+        file_name: typeof metadata.file_name === 'string' ? metadata.file_name : undefined,
+        mime_type: typeof asset.mime_type === 'string'
+          ? asset.mime_type
+          : typeof asset.mimeType === 'string'
+            ? asset.mimeType
+            : undefined,
+        metadata: {
+          file_id: fileId || undefined,
+          file_name: typeof metadata.file_name === 'string' ? metadata.file_name : undefined
+        }
+      })
+    });
+    const payload = await response.json() as { success?: boolean; error?: string; data?: { data_url?: string; mime_type?: string } };
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} materialize failed with ${response.status}`);
+    }
+    const dataUrl = typeof payload.data?.data_url === 'string' && payload.data.data_url.startsWith('data:image/')
+      ? payload.data.data_url
+      : null;
+    return {
+      dataUrl,
+      mimeType: typeof payload.data?.mime_type === 'string' ? payload.data.mime_type : null
     };
   }
 
@@ -6243,6 +6416,16 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     requestedTag: string
   ) {
+    const assetReaderById = (this.store as RuntimeStore & {
+      getMediaAssetById?: RuntimeStore['getMediaAssetById'];
+    }).getMediaAssetById;
+    if (typeof assetReaderById === 'function') {
+      const byId = await assetReaderById.call(this.store, queueMessage.sessionKey, requestedTag);
+      if (byId) {
+        return byId;
+      }
+    }
+
     const exact = await this.store.getMediaAssetByTag(queueMessage.sessionKey, requestedTag);
     if (exact) {
       return exact;
@@ -6259,14 +6442,19 @@ export class AgentLoopService {
 
     const candidate = contextualAssets.find((asset) => {
       const mediaTag = typeof asset.mediaTag === 'string' ? asset.mediaTag.toLowerCase() : '';
+      const assetId = typeof asset.id === 'string' ? asset.id.toLowerCase() : '';
       const placeholder = typeof asset.placeholder === 'string' ? asset.placeholder.toLowerCase() : '';
       const fileName = typeof asset.fileName === 'string' ? asset.fileName.toLowerCase() : '';
-      return normalized === mediaTag
+      return normalized === assetId
+        || normalized === mediaTag
         || normalized === `file:${fileName}`
         || normalized === fileName
         || Boolean(fileName && normalized.includes(fileName))
         || Boolean(placeholder && normalized === placeholder);
     });
+    if (candidate?.id && typeof assetReaderById === 'function') {
+      return assetReaderById.call(this.store, queueMessage.sessionKey, candidate.id);
+    }
     if (candidate?.mediaTag) {
       return this.store.getMediaAssetByTag(queueMessage.sessionKey, candidate.mediaTag);
     }
@@ -6537,6 +6725,14 @@ function isSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'system_reminder'
     || Boolean(queueMessage.systemReminder)
     || queueMessage.inboundContext?.Surface === 'system_reminder';
+}
+
+function isFinalAnswerIdleSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  return reason === 'final_answer_idle';
 }
 
 function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -6928,7 +7124,11 @@ type ResponseReplayInputItem =
   | Extract<OpenResponseInputItem, { type: 'reasoning' }>
   | Extract<OpenResponseInputItem, { type: 'message' }>
   | Extract<OpenResponseInputItem, { type: 'function_call' }>
-  | Extract<OpenResponseInputItem, { type: 'function_call_output' }>;
+  | FunctionCallOutputReplayInputItem;
+
+type FunctionCallOutputReplayInputItem = Extract<OpenResponseInputItem, { type: 'function_call_output' }> & {
+  output: string;
+};
 
 function isAssistantMessageReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'message' }> {
   if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'message') {
@@ -6978,7 +7178,7 @@ function normalizeFunctionCallReplayInputItem(
   };
 }
 
-function isFunctionCallOutputReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'function_call_output' }> {
+function isFunctionCallOutputReplayItem(value: unknown): value is FunctionCallOutputReplayInputItem {
   if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call_output') {
     return false;
   }
@@ -6991,8 +7191,8 @@ function isFunctionCallOutputReplayItem(value: unknown): value is Extract<OpenRe
 }
 
 function normalizeFunctionCallOutputReplayInputItem(
-  item: Extract<OpenResponseInputItem, { type: 'function_call_output' }>
-): Extract<OpenResponseInputItem, { type: 'function_call_output' }> {
+  item: FunctionCallOutputReplayInputItem
+): FunctionCallOutputReplayInputItem {
   return {
     type: 'function_call_output',
     call_id: item.call_id.trim(),
@@ -7027,7 +7227,7 @@ function extractResponseReplayInputItems(items: OpenResponseInputItem[]): Respon
   );
   const toolOutputCallIds = new Set(
     normalizedItems
-      .filter((item): item is Extract<OpenResponseInputItem, { type: 'function_call_output' }> => item.type === 'function_call_output')
+      .filter((item): item is FunctionCallOutputReplayInputItem => item.type === 'function_call_output')
       .map((item) => item.call_id)
   );
 
@@ -7074,6 +7274,11 @@ function buildCurrentTurnInputItems(
     ];
   }
   if (isSystemReminderPayload(queueMessage)) {
+    if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
+      return [
+        buildUserSceneInputItem([getSystemReminderText(queueMessage)])
+      ];
+    }
     return [
       buildAssistantCommentaryInputItem([renderSystemReminder(queueMessage)])
     ];
@@ -7117,7 +7322,10 @@ function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['
       seen.add(asset.mediaTag);
       const sender = message.senderName || message.senderId || '有人';
       const typeText = asset.mediaType === 'image' ? '图片' : asset.mediaType;
-      lines.push(`- ${asset.mediaTag}: ${sender} 发来的${typeText}占位符 ${asset.placeholder || '[Image]'}。如果确实需要看清内容，再调用 inspect_image_placeholder。`);
+      const assetId = typeof asset.id === 'string' && asset.id.trim() ? asset.id.trim() : '';
+      const label = assetId || asset.mediaTag;
+      const fallback = assetId && asset.mediaTag !== assetId ? `（旧 media_tag: ${asset.mediaTag}）` : '';
+      lines.push(`- ${label}: ${sender} 发来的${typeText}占位符 ${asset.placeholder || '[Image]'}${fallback}。如果确实需要看清内容，再调用 inspect_image_placeholder，优先传 image_id。`);
     }
   }
 

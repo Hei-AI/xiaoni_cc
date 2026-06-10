@@ -6,6 +6,11 @@ import {
 } from '../services/response-action-router';
 
 test('ResponseActionRouter turns final_answer without tools into an idle-reminder post action', () => {
+  assert.equal(
+    FINAL_ANSWER_IDLE_REMINDER_TEXT,
+    '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情'
+  );
+
   const plan = new ResponseActionRouter().route({
     output: [{
       type: 'message',

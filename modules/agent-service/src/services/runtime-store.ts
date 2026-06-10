@@ -16,6 +16,7 @@ import {
   ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
   getAgentMediaAssetByTag,
+  getAgentMediaAssetById,
   getFeedbackLearningState,
   listAgentMediaAssets,
   listAcceptedIdentityFacts,
@@ -1729,6 +1730,13 @@ export class RuntimeStore {
       sessionKey,
       mediaTag,
       limit: 1
+    }, databaseConfig);
+  }
+
+  async getMediaAssetById(sessionKey: string, assetId: string) {
+    return getAgentMediaAssetById({
+      sessionKey,
+      id: assetId
     }, databaseConfig);
   }
 

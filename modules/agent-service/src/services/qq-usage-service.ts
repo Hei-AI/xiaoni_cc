@@ -71,7 +71,7 @@ function mediaKind(asset: Record<string, unknown>) {
 }
 
 function mediaHash(asset: Record<string, unknown>, index: number) {
-  const raw = String(asset.mediaTag || asset.fileId || asset.fileName || asset.locator || `pic_${index + 1}`);
+  const raw = String(asset.id || asset.assetId || asset.mediaAssetId || asset.mediaTag || asset.fileId || asset.fileName || asset.locator || `pic_${index + 1}`);
   return raw.replace(/^\[?图片[:：]?/u, '').replace(/\]?$/u, '').slice(0, 64) || `pic_${index + 1}`;
 }
 

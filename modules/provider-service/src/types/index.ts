@@ -107,6 +107,7 @@ export interface InboundMentionedUser {
 }
 
 export interface InboundMediaAsset {
+  id?: string;
   mediaTag: string;
   placeholder: string;
   mediaType: 'image' | 'audio' | 'video' | 'file' | string;

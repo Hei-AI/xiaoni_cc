@@ -1,7 +1,9 @@
 import type {
   OpenResponseCreateRequest,
+  OpenResponseFunctionCallOutput,
   OpenResponseInputContentPart,
   OpenResponseInputItem,
+  OpenResponseMessageContentPart,
   OpenResponseOutputItem,
   OpenResponseResource,
   OpenResponseToolChoice,
@@ -155,6 +157,56 @@ export function geminiContentsToOpenResponseInput(contents: any[], systemInstruc
   return input;
 }
 
+function normalizeOpenAIInputContentPart(part: OpenResponseInputContentPart): OpenResponseInputContentPart {
+  if (part.type === 'input_image' && part.image_url) {
+    return {
+      ...part,
+      type: 'input_image',
+      image_url: part.image_url
+    };
+  }
+  return part;
+}
+
+function normalizeOpenAIMessageContentPart(part: OpenResponseMessageContentPart): OpenResponseMessageContentPart {
+  if (part.type === 'input_image' && part.image_url) {
+    return {
+      ...part,
+      type: 'input_image',
+      image_url: part.image_url
+    };
+  }
+  return part;
+}
+
+function normalizeGeminiFunctionResponsePayload(output: OpenResponseFunctionCallOutput): any {
+  if (typeof output === 'string') {
+    try {
+      return JSON.parse(output);
+    } catch {
+      return { output };
+    }
+  }
+
+  if (Array.isArray(output)) {
+    return {
+      output: output.map((part) => {
+        if (part?.type === 'input_image') {
+          return {
+            type: 'input_image',
+            detail: typeof part.detail === 'string' ? part.detail : undefined,
+            image_url: part.image_url ? '[image omitted]' : undefined,
+            source: part.source ? '[image source omitted]' : undefined
+          };
+        }
+        return part;
+      })
+    };
+  }
+
+  return { output };
+}
+
 export function openResponseInputToOpenAIInput(
   input: string | OpenResponseInputItem[],
   instructions?: string
@@ -187,18 +239,18 @@ export function openResponseInputToOpenAIInput(
           : {}),
         content: typeof item.content === 'string'
           ? item.content
-          : item.content.map((part) => {
-              if (part.type === 'input_text') {
-                return part;
-              }
-              if (part.type === 'input_image' && part.image_url) {
-                return {
-                  type: 'input_image',
-                  image_url: part.image_url
-                };
-              }
-              return part;
-            })
+          : item.content.map(normalizeOpenAIMessageContentPart)
+      });
+      continue;
+    }
+
+    if (item.type === 'function_call_output') {
+      normalizedInput.push({
+        type: 'function_call_output',
+        call_id: item.call_id,
+        output: Array.isArray(item.output)
+          ? item.output.map(normalizeOpenAIInputContentPart)
+          : item.output
       });
       continue;
     }
@@ -249,6 +301,12 @@ export function openResponseInputToGeminiRequest(request: OpenResponseCreateRequ
             if (part.type === 'input_text') {
               return [{ text: part.text }];
             }
+            if (part.type === 'output_text') {
+              return [{ text: part.text }];
+            }
+            if (part.type === 'refusal') {
+              return [{ text: part.refusal }];
+            }
             if (part.type === 'input_image' && part.image_url?.startsWith('data:')) {
               const match = /^data:([^;]+);base64,(.+)$/.exec(part.image_url);
               if (match) {
@@ -284,14 +342,7 @@ export function openResponseInputToGeminiRequest(request: OpenResponseCreateRequ
     }
 
     if (item.type === 'function_call_output') {
-      let responsePayload: any = item.output;
-      if (typeof responsePayload === 'string') {
-        try {
-          responsePayload = JSON.parse(responsePayload);
-        } catch {
-          responsePayload = { output: responsePayload };
-        }
-      }
+      const responsePayload = normalizeGeminiFunctionResponsePayload(item.output);
       contents.push({
         role: 'user',
         parts: [{

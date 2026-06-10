@@ -9,7 +9,7 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, mediaInspectorConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -32,7 +32,6 @@ import TopicProjectionExecutorService from './services/topic-projection-executor
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
-import { inspectMediaImage } from './services/media-inspector-service';
 import {
   buildSimpleQueueSimulationContext,
   type ProviderMessageType,
@@ -225,6 +224,20 @@ async function fetchImageAsDataUrl(url: string, mimeType?: string | null) {
   };
 }
 
+function ensureInboundMediaAssetIds(inboundContext: FinalizedInboundContext) {
+  const mediaAssets = Array.isArray(inboundContext.MediaAssets) ? inboundContext.MediaAssets : [];
+  for (const asset of mediaAssets) {
+    if (!asset || typeof asset !== 'object') {
+      continue;
+    }
+    if (typeof asset.id === 'string' && asset.id.trim()) {
+      asset.id = asset.id.trim();
+      continue;
+    }
+    asset.id = `media_${Date.now()}_${randomUUID().slice(0, 8)}`;
+  }
+}
+
 async function persistInboundMediaAssets(inboundContext: FinalizedInboundContext, sourceMessageId?: number | null, traceId?: string) {
   const mediaAssets = Array.isArray(inboundContext.MediaAssets) ? inboundContext.MediaAssets : [];
   if (mediaAssets.length === 0) {
@@ -232,6 +245,7 @@ async function persistInboundMediaAssets(inboundContext: FinalizedInboundContext
   }
 
   return upsertAgentMediaAssets(mediaAssets.map((asset) => ({
+    id: asset.id,
     source: inboundContext.Surface || inboundContext.Provider || 'napcat',
     sourceMessageId: sourceMessageId || null,
     traceId,
@@ -589,6 +603,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   if (!inboundContext) {
     return { accepted: false, reason: 'invalid_message' as const };
   }
+  ensureInboundMediaAssetIds(inboundContext);
 
   const result = await inboxService.ingestIncomingMessage({
     inboundContext,
@@ -685,8 +700,8 @@ async function processAutoReply(params: {
   });
   const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
   const participationDecision = {
-    decision: 'notify' as const,
-    reason: triggerDecision.reason,
+    decision: policy.autoReplyEnabled ? 'notify' as const : 'skip' as const,
+    reason: policy.autoReplyEnabled ? triggerDecision.reason : 'auto_reply_disabled',
     confidence: 'high' as const,
     conservativeFallback: false,
     usedEmbeddings: false,
@@ -719,6 +734,7 @@ async function processAutoReply(params: {
   const queueResult = await processInboundAgentQueueTrigger({
     inboxEvent: params.inboxEvent,
     inboundContext: params.inboundContext,
+    policyState: policy,
     rawPayload: params.rawPayload,
     traceId: params.traceId,
     source: params.source
@@ -1072,65 +1088,6 @@ app.post('/api/internal/image/prompt-assistant', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Image prompt assistant failed',
-      timestamp: new Date().toISOString()
-    });
-  }
-});
-
-app.post('/api/internal/media/inspect', async (req, res) => {
-  try {
-    const imageUrl = typeof req.body?.image_url === 'string'
-      ? req.body.image_url.trim()
-      : typeof req.body?.url === 'string'
-        ? req.body.url.trim()
-        : typeof req.body?.data_url === 'string'
-          ? req.body.data_url.trim()
-          : '';
-    if (!imageUrl) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required parameter: image_url'
-      });
-    }
-
-    const reason = typeof req.body?.reason === 'string' && req.body.reason.trim()
-      ? req.body.reason.trim()
-      : typeof req.body?.prompt === 'string' && req.body.prompt.trim()
-        ? req.body.prompt.trim()
-        : undefined;
-    const model = typeof req.body?.model === 'string' && req.body.model.trim()
-      ? req.body.model.trim()
-      : undefined;
-    const result = await inspectMediaImage({
-      imageUrl,
-      traceId: typeof req.body?.trace_id === 'string' ? req.body.trace_id : undefined,
-      reason,
-      model,
-      defaultModel: mediaInspectorConfig.modelName
-    }, executeAgentRequest);
-
-    res.json({
-      success: true,
-      data: {
-        description: result.description,
-        summary: result.summary,
-        visible_text: result.visible_text,
-        objects: result.objects,
-        uncertainty: result.uncertainty,
-        safety_notes: result.safety_notes,
-        model: result.model,
-        provider: result.provider,
-        llm_call_id: result.llm_call_id
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    moduleLogger.error('Media inspect request failed', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Media inspect failed',
       timestamp: new Date().toISOString()
     });
   }
@@ -1577,6 +1534,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       });
     }
 
+    ensureInboundMediaAssetIds(finalizedContext);
     const result = await inboxService.ingestIncomingMessage({
       inboundContext: finalizedContext,
       rawPayload: (req.body?.rawPayload && typeof req.body.rawPayload === 'object' && !Array.isArray(req.body.rawPayload))
@@ -1585,6 +1543,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       traceId: finalizedContext.MessageSid,
       source: 'simulator'
     });
+    await persistInboundMediaAssets(finalizedContext, result.event.id, result.traceId);
     rememberInboundContext(recentMessageCache, finalizedContext);
 
     markIncomingActivityAsync({

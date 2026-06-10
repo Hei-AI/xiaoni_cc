@@ -342,6 +342,10 @@ class HTTPTrafficLogger:
         return datetime.now(timezone.utc)
 
     def _should_capture_flow(self, flow: http.HTTPFlow, api_info: Dict[str, Any]) -> bool:
+        no_persist = flow.request.headers.get('x-qqbot-no-traffic-persist')
+        if no_persist and no_persist.strip().lower() in ('1', 'true', 'yes'):
+            return False
+
         if api_info.get('is_ai_request'):
             return True
 

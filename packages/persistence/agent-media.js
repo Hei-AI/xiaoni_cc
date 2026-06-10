@@ -234,6 +234,30 @@ function createAgentMediaPersistence({ getPrismaClient, createSqlAdapter }) {
     return rows[0] || null;
   }
 
+  async function getAgentMediaAssetById(filters = {}, config = {}) {
+    const prisma = getClient(config);
+    const id = normalizeOptionalString(filters.id || filters.assetId || filters.asset_id);
+    if (!id) {
+      return null;
+    }
+    const where = {
+      id
+    };
+    if (filters.sessionKey || filters.session_key) {
+      where.session_key = String(filters.sessionKey || filters.session_key);
+    }
+    const row = await prisma.agentMediaAsset.findFirst({
+      where,
+      include: {
+        observations: {
+          orderBy: [{ created_at: 'desc' }],
+          take: 3
+        }
+      }
+    });
+    return normalizeAsset(row);
+  }
+
   async function createAgentMediaObservation(input, config = {}) {
     const prisma = getClient(config);
     const created = await prisma.agentMediaObservation.create({
@@ -256,6 +280,7 @@ function createAgentMediaPersistence({ getPrismaClient, createSqlAdapter }) {
     upsertAgentMediaAssets,
     listAgentMediaAssets,
     getAgentMediaAssetByTag,
+    getAgentMediaAssetById,
     createAgentMediaObservation
   };
 }

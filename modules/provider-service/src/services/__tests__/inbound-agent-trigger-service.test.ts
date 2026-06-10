@@ -155,6 +155,39 @@ test('enqueues unmentioned group messages as phone notifications without message
   assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /群里真实正文/);
 });
 
+test('does not enqueue phone notification when auto reply is disabled', async () => {
+  const inboxEvent = buildInbox({
+    chatType: 'group',
+    wasMentioned: false,
+    bodyForAgent: '群里真实正文'
+  });
+  const store = new FakeRuntimeStore();
+  const result = await processInboundAgentQueueTrigger({
+    inboxEvent,
+    inboundContext: inboxEvent.inboundContext,
+    policyState: {
+      exists: true,
+      isEnabled: true,
+      continuousLearningEnabled: true,
+      autoReplyEnabled: false
+    },
+    rawPayload: { test: true },
+    traceId: inboxEvent.traceId,
+    source: 'napcat'
+  }, store);
+
+  assert.equal(result.attempted, true);
+  assert.equal(result.queued, false);
+  assert.equal(result.reason, 'auto_reply_disabled');
+  assert.deepEqual(result.queueIds, []);
+  assert.equal(store.enqueuedMessages.length, 0);
+  assert.equal(store.timelineEvents.some((event) => (
+    event.eventName === 'enqueue'
+    && event.eventPhase === 'skip'
+    && (event.metadata as any)?.reason === 'auto_reply_disabled'
+  )), true);
+});
+
 test('enqueues mentioned group messages as phone notifications', async () => {
   const context = buildContext({
     Body: '@xiaoni hello',

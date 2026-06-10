@@ -101,6 +101,7 @@ function createCanonicalRequest(): OpenResponseCreateRequest {
     previous_response_id: 'resp_prev_789',
     prompt_cache_key: 'qq:group:101',
     prompt_cache_retention: '24h',
+    store: false,
     input: [
       {
         type: 'message',
@@ -140,12 +141,52 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.previous_response_id, 'resp_prev_789');
   assert.equal(payload.prompt_cache_key, 'qq:group:101');
   assert.equal(payload.prompt_cache_retention, '24h');
+  assert.equal(payload.store, false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
   assert.equal(payload.tools[1]?.external_web_access, true);
   assert.equal(payload.tools[0]?.strict, true);
   assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason', 'note']);
   assert.deepEqual(payload.tools[0]?.parameters?.properties?.note?.type, ['string', 'null']);
+});
+
+test('OpenAI provider preserves function_call_output image content arrays', () => {
+  const provider = new TestOpenAIProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    input: [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '让我来看看这个图是啥意思' }]
+      },
+      {
+        type: 'function_call',
+        call_id: 'call-image-asset-123',
+        name: 'inspect_image_placeholder',
+        arguments: '{"image_id":"asset-img-123","detail":"original"}'
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-image-asset-123',
+        output: [{
+          type: 'input_image',
+          image_url: 'data:image/png;base64,QUJDREVGRw==',
+          detail: 'original'
+        }]
+      }
+    ]
+  });
+
+  assert.deepEqual(payload.input[2], {
+    type: 'function_call_output',
+    call_id: 'call-image-asset-123',
+    output: [{
+      type: 'input_image',
+      image_url: 'data:image/png;base64,QUJDREVGRw==',
+      detail: 'original'
+    }]
+  });
 });
 
 test('OpenAI provider serializes allowed_tools without changing the tool list', () => {
@@ -232,6 +273,45 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.deepEqual(payload.text, { verbosity: 'low' });
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning'), false);
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
+});
+
+test('Codex provider preserves function_call_output image content arrays', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    input: [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: '让我来看看这个图是啥意思' }]
+      },
+      {
+        type: 'function_call',
+        call_id: 'call-image-asset-123',
+        name: 'inspect_image_placeholder',
+        arguments: '{"image_id":"asset-img-123","detail":"original"}'
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-image-asset-123',
+        output: [{
+          type: 'input_image',
+          image_url: 'data:image/png;base64,QUJDREVGRw==',
+          detail: 'original'
+        }]
+      }
+    ]
+  });
+
+  assert.deepEqual(payload.input[2], {
+    type: 'function_call_output',
+    call_id: 'call-image-asset-123',
+    output: [{
+      type: 'input_image',
+      image_url: 'data:image/png;base64,QUJDREVGRw==',
+      detail: 'original'
+    }]
+  });
 });
 
 test('Codex provider serializes allowed_tools without changing the tool list', () => {
