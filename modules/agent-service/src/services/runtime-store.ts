@@ -1271,13 +1271,13 @@ export class RuntimeStore {
       staleMs: agentConfig.processingRecoveryStaleMs,
       reason: 'agent_service_startup_recovery'
     }).catch((error) => {
-      moduleLogger.warn('Failed to recover stale processing leases during startup', {
+      moduleLogger.warn('Failed to recover stale processing runs during startup', {
         error: error instanceof Error ? error.message : String(error)
       });
       return null;
     });
     if (recovered && (recovered.failedRuns > 0 || recovered.settledRuns > 0 || recovered.failedQueueMessages > 0 || recovered.settledQueueMessages > 0)) {
-      moduleLogger.warn('Recovered stale processing leases during startup', recovered);
+      moduleLogger.warn('Recovered stale processing runs during startup', recovered);
     }
     await ensureFeedbackReflectionSchema(databaseConfig);
     await ensureRelationshipTrustSchema(databaseConfig);

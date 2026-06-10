@@ -22,7 +22,7 @@
 ## Current Focus
 - 当前管理端后端以 Xiaoni action stream 视角为准：优先看 `/api/xiaoni/action-stream`、chat settings、playground、traffic replay、runtime status；不要再把旧 `/api/runs` / `run-routes` 当成当前产品运行态入口。
 - `xiaoni_replay_events` 是小腻 action replay 的唯一回放表。经过 Codex Provider 的请求必须先写这张表并标记 replayable，再投影/审计到 `llm_call_logs` 等表；纯工程内部事件可以没有 Raw Trace。后台辅助 Codex 请求也写同一张 replay 表，但用内部 identity 隔离，不能污染小腻 action stream。
-- `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；它是内部执行 lease / trace join key，不是小腻产品运行态。不要再把重复回复问题只当成 prompt 文案问题排查。
+- `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；它是内部 run / trace join key，不是小腻产品运行态。不要再把重复回复问题只当成 prompt 文案问题排查。
 - 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。
 - Trace span builder 以 `xiaoni_replay_events` 为 provider 请求骨架。只要 replay 表里有 `wire_request` / `wire_response`，Trace 就合成一条 `provider-request:wire:<llm_call_id>` span；匹配到的 MITM / traffic log 只作为 generation span evidence，不再额外生成第二条 provider span。`llm_call_logs`、`tool_execution_logs`、`agent_queue_messages` 不能作为 action replay fallback。
 - 合成 provider span 的 detail 可以再从 `CLIPROXY_REQUEST_LOG_DIR` 指向的 CLIProxyAPI 请求日志补全真实上游 request / response；日志匹配只信 `x-llm-call-id` header，敏感 header 会脱敏。完整契约看 `docs/XIAONI_REPLAY_LEDGER.md`。

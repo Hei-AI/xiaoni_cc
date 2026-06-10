@@ -104,7 +104,13 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   assert.equal(inserts.length, 4);
   assert.equal(executes.length, 1);
   assert.ok(executes[0].sql.includes('UPDATE agent_queue_messages'));
+  assert.ok(executes[0].sql.includes("status = 'consumed'"));
+  assert.ok(executes[0].sql.includes('result = ?::jsonb'));
   assert.equal(executes[0].params[0], 'worker-1');
+  const consumedResult = JSON.parse(executes[0].params[4]);
+  assert.equal(consumedResult.doorbell_consumed, true);
+  assert.equal(consumedResult.worker_id, 'worker-1');
+  assert.equal(typeof consumedResult.consumed_at, 'string');
   assert.deepEqual(executes[0].params.slice(-2), [10, 11]);
 });
 

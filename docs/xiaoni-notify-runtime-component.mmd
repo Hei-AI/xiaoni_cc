@@ -14,7 +14,7 @@ flowchart LR
 
   external["外部输入<br/>NapCat QQ / self continuation / system reminder"]:::external
   bucket["Notify Bucket<br/>唯一概念桶"]:::bucket
-  queue["agent_queue_messages<br/>持久化 / lease 实现"]:::store
+  queue["agent_queue_messages<br/>持久化门铃 / consumed after pick"]:::store
   inbox["agent_inbound_messages<br/>QQ 正文 inbox / window"]:::store
   history["replay / conversation / trace<br/>历史与 action trace"]:::store
   openai["OpenAI<br/>assistant response / image generation"]:::llm

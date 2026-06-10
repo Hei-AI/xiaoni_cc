@@ -132,13 +132,13 @@ async function recoverStaleProcessingLeasesPeriodically() {
     staleMs: agentConfig.processingRecoveryStaleMs,
     reason: 'agent_service_periodic_recovery'
   }).catch((error) => {
-    moduleLogger.warn('Failed to recover stale processing leases during queue polling', {
+    moduleLogger.warn('Failed to recover stale processing runs during queue polling', {
       error: error instanceof Error ? error.message : String(error)
     });
     return null;
   });
   if (recovered && (recovered.failedRuns > 0 || recovered.settledRuns > 0 || recovered.failedQueueMessages > 0 || recovered.settledQueueMessages > 0)) {
-    moduleLogger.warn('Recovered stale processing leases during queue polling', recovered);
+    moduleLogger.warn('Recovered stale processing runs during queue polling', recovered);
   }
 }
 

@@ -594,7 +594,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
   async function recoverStaleProcessingLeases(input = {}, config = {}) {
     const staleMs = Math.max(60_000, Number(input.staleMs || input.stale_ms || 0));
     const staleBefore = new Date(Date.now() - staleMs);
-    const errorMessage = `${input.reason}: processing lease older than ${staleMs}ms`;
+    const errorMessage = `${input.reason}: processing run older than ${staleMs}ms`;
     return withSql(input, config, (sql) => sql.withTransaction(async (tx) => {
       const committedRunRows = await tx.query(
         `

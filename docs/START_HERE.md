@@ -26,13 +26,13 @@
 - 不要因为 `agent-service` 在 compose 里，就把它当成管理端入口；它是 QQ 行为判断和后台 runtime 入口。
 - 不要把 `exec_command` 误认为在 `agent-service` 本容器里直接执行；当前 compose 配置下它走独立的 `xiaoni-executor`。
 - 不要把 provider 侧 participation 继续理解成完整“是否说话”的总决策器；它只保留硬边界和观测层。当前 `auto_reply_enabled=0` 会硬拦截 `phone_notification` 入 Notify Bucket，主行为判断仍在 `agent-service` runtime。
-- 不要再把旧的 conversation timeline 当成当前调试主入口；现在看的是小腻行动流。`agent_runs` 只作为内部执行 lease / trace join key。
+- 不要再把旧的 conversation timeline 当成当前调试主入口；现在看的是小腻行动流。`agent_runs` 只作为内部 run / trace join key。
 - 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
-- 不要把 `agent_queue_messages` 当成 QQ 未读 inbox。它只是 Notify Bucket 的持久化/lease 承载；QQ 正文在 `agent_inbound_messages`，只有模型主动用 `$qq-usage` 时才会通过 `agent-service /api/internal/qq-usage` 读取。
+- 不要把 `agent_queue_messages` 当成 QQ 未读 inbox。它只是 Notify Bucket 的持久化门铃；被 pick 后即视为 consumed，QQ 正文在 `agent_inbound_messages`，只有模型主动用 `$qq-usage` 时才会通过 `agent-service /api/internal/qq-usage` 读取。
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
-- 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` 敲钟。当前小腻只有一条连续主 runtime stream：QQ 消息变成手机状态栏 `phone_notification` 感官事件；模型 response、tool result、状态与记忆通过 `responses_replay_items` / `conversation_items` 追加进后续 request。空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice；模型返回 `final_answer` 且 bucket 为空时，runtime 会追加一个下一轮可见的 idle reminder，而不是继续裸请求同一个 `final_answer`。是否打开 QQ 与是否发言都由同一条 loop 自己决定。主 loop 读取全局 conversation append stream，prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。动作未完成前，没有工具调用不等于沉默或结束。旧历史里的 `<小腻的OS>` 只做兼容读取，不迁移。
+- 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` 敲钟。当前小腻只有一条连续主 runtime stream：QQ 消息变成手机状态栏 `phone_notification` 感官事件；模型 response、tool result、状态与记忆通过 `responses_replay_items` / `conversation_items` 追加进后续 request。空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice；模型返回 `final_answer` 时，当前 active loop 会追加一条 user-role `final_answer_turn_control`，bucket 为空时还会追加一个未来可见的 idle reminder。Notify 只在第一轮作为当前输入，后续同一 run 只能作为 `runtime_event_snapshot status=already_picked` 出现，不能反复当成新的状态栏通知。是否打开 QQ、是否发言、是否继续做别的，都由同一条 loop 自己决定。主 loop 读取全局 conversation append stream，prompt-facing history、context summary、read cutoff 和 prompt cache key 统一使用 `xiaoni:global`。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。旧历史里的 `<小腻的OS>` 只做兼容读取，不迁移。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。

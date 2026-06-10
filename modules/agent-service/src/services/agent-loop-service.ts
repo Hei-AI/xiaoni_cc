@@ -360,6 +360,8 @@ type FeedbackLearningStateCandidate = {
   reason: string;
 };
 
+type RuntimeTriggerInputMode = 'fresh_trigger' | 'picked_snapshot';
+
 type FeedbackWriterMode = 'episode_only' | 'durable_lessons';
 type CompactMemoryLayer = 'episodic' | 'semantic' | 'reflection';
 
@@ -2442,12 +2444,27 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
+const HISTORICAL_NOTIFICATION_TAG_PATTERN = /<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b/i;
+
+function isHistoricalNotificationSnapshot(
+  item: ConversationTranscriptItem,
+  content: string
+) {
+  return item.role !== 'assistant'
+    && item.source === 'sensory_event'
+    && HISTORICAL_NOTIFICATION_TAG_PATTERN.test(content);
+}
+
 function renderTranscriptItemForRuntimeContext(
   item: ConversationTranscriptItem,
   accountId: string
 ): OpenResponseInputItem | null {
   const content = String(item.content || '').trim();
   if (!content) {
+    return null;
+  }
+
+  if (isHistoricalNotificationSnapshot(item, content)) {
     return null;
   }
 
@@ -2498,6 +2515,69 @@ function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payloa
     return '<system_reminder>手机状态栏出现了 QQ 通知。这是外界进入当前行动流的感官输入，不是 QQ 正文；你只知道通知摘要和未读数量。只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
   }
   return '<system_reminder>当前输入来自内部调度切片，不代表 QQ 已经打开。不要把 queue payload 当成 QQ 正文；需要看 QQ 时主动使用 qq-usage。</system_reminder>';
+}
+
+function buildPickedTriggerSnapshot(queueMessage: QueueMessageRecord['payload']) {
+  if (isPhoneNotificationPayload(queueMessage)) {
+    const notification = queueMessage.phoneNotification;
+    return formatTaggedBlock('runtime_event_snapshot', {
+      source: 'phone_notification',
+      status: 'already_picked',
+      session_key: notification?.sessionKey || queueMessage.sessionKey,
+      chat_type: notification?.chatType || queueMessage.chatType,
+      peer_id: notification?.peerId || queueMessage.peerId,
+      unread_delta: notification?.unreadDelta ?? queueMessage.messages.length,
+      direct_mentions: notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length,
+      latest_received_at: notification?.latestReceivedAt || queueMessage.receivedAt
+    }, '这条手机 QQ 通知已经被接收进上下文，不是新的状态栏通知。后续如果要看 QQ 正文，仍需主动使用 qq-usage；如果已经决定放下，就继续做别的或休息。');
+  }
+
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    const notification = queueMessage.imageTaskNotification;
+    return formatTaggedBlock('runtime_event_snapshot', {
+      source: 'image_task_notification',
+      status: 'already_picked',
+      task_id: notification?.taskId || queueMessage.rawPayload?.task_id,
+      picture_id: notification?.pictureId || queueMessage.rawPayload?.picture_id,
+      source_trace_id: notification?.sourceTraceId || queueMessage.rawPayload?.source_trace_id
+    }, '这条图片任务完成通知已经被接收进上下文，不是新的完成通知。可以继续处理已知图片，也可以把它放下去做别的。');
+  }
+
+  if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
+    return formatTaggedBlock('runtime_event_snapshot', {
+      source: 'system_reminder',
+      reason: 'final_answer_idle',
+      status: 'already_picked',
+      source_trace_id: queueMessage.systemReminder?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
+      source_run_id: queueMessage.systemReminder?.sourceRunId || queueMessage.rawPayload?.source_run_id
+    }, '这条 final_answer idle 提醒已经被接收进上下文，不是新的外部催促。继续行动时不要复述旧 final_answer。');
+  }
+
+  if (isSystemReminderPayload(queueMessage)) {
+    return formatTaggedBlock('runtime_event_snapshot', {
+      source: 'system_reminder',
+      reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
+      status: 'already_picked'
+    }, '这条内部提醒已经被接收进上下文，不是新的外部输入。可以参考它继续行动，也可以转向别的事情。');
+  }
+
+  if (isConsciousnessTickPayload(queueMessage) || isPresenceTickPayload(queueMessage)) {
+    return formatTaggedBlock('runtime_event_snapshot', {
+      source: queueMessage.source,
+      status: 'already_picked',
+      session_key: queueMessage.sessionKey
+    }, '这个内部调度切片已经进入上下文，不是新的当前事件。');
+  }
+
+  if (isSelfContinuationPayload(queueMessage)) {
+    return '<system_reminder>当前连续生命切片已经进入上下文。后续轮次是在同一段自续行动中推进，不代表有新的 QQ 正文或新的通知。</system_reminder>';
+  }
+
+  return formatTaggedBlock('runtime_event_snapshot', {
+    source: queueMessage.source || 'inbound_batch',
+    status: 'already_picked',
+    session_key: queueMessage.sessionKey
+  }, '这批输入已经被接收进上下文，不是新的当前输入。');
 }
 
 function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
@@ -2737,6 +2817,39 @@ export function buildToolLoopMonitorReminder(
       signature
     }, lines.join('\n')),
     stateBlock
+  ]);
+}
+
+function countAssistantFinalAnswers(loopInput: OpenResponseInputItem[]) {
+  return loopInput.filter((item) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && item.phase === 'final_answer'
+  )).length;
+}
+
+export function buildFinalAnswerTurnControlReminder(
+  loopInput: OpenResponseInputItem[],
+  options: {
+    nextTurn: number;
+    maxTurns: number;
+  }
+): OpenResponseInputItem | null {
+  const finalAnswerCount = countAssistantFinalAnswers(loopInput);
+  if (finalAnswerCount === 0) {
+    return null;
+  }
+
+  return buildUserSceneInputItem([
+    formatTaggedBlock('system_reminder', {
+      source: 'final_answer_turn_control',
+      final_answer_count: finalAnswerCount,
+      next_turn: options.nextTurn,
+      max_turns: options.maxTurns
+    }, [
+      '你刚才输出了 final_answer，但当前连续 runtime 切片还在继续；final_answer 只会作为历史回放，不会自动推进或清理 QQ。',
+      `下一轮不要原样复述上一条 final_answer。如果你已经决定不继续看、不说话或放下这件事，请选择真实动作收口，或者调用 ${TOOL_NAMES.recoverEnergy} 休息。`
+    ].join('\n'))
   ]);
 }
 
@@ -4265,7 +4378,8 @@ export class AgentLoopService {
         loopContinuation,
         runtimeIdentityFacts,
         developerContextBlock,
-        contextSessionKey
+        contextSessionKey,
+        triggerInputMode: 'fresh_trigger'
       });
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
@@ -4290,7 +4404,8 @@ export class AgentLoopService {
             loopContinuation,
             runtimeIdentityFacts,
             developerContextBlock,
-            contextSessionKey
+            contextSessionKey,
+            triggerInputMode: 'picked_snapshot'
           });
           requestInput = budgetPlan.requestInput;
         }
@@ -4325,6 +4440,7 @@ export class AgentLoopService {
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
         const hasToolCall = actionPlan.hasToolCall;
+        const hasFinalAnswer = actionPlan.hasFinalAnswer;
         await this.executeResponsePostActions(actionPlan.postActions, {
           queueMessage: payload,
           runId: queueMessage.id,
@@ -4534,7 +4650,8 @@ export class AgentLoopService {
               queueMessage: payload,
               runtimePrompt,
               loopContinuation,
-              runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts
+              runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
+              triggerInputMode: 'picked_snapshot'
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -4544,6 +4661,16 @@ export class AgentLoopService {
               errorMessage: message
             });
             throw error;
+          }
+        }
+
+        if (!leaseRelease && hasFinalAnswer) {
+          const reminder = buildFinalAnswerTurnControlReminder(loopContinuation, {
+            nextTurn: turn + 1,
+            maxTurns: agentConfig.maxTurns
+          });
+          if (reminder) {
+            loopContinuation.push(reminder);
           }
         }
 
@@ -5591,6 +5718,7 @@ export class AgentLoopService {
     runtimeIdentityFacts: RuntimeIdentityFactProjection[];
     developerContextBlock?: string | null;
     contextSessionKey?: string;
+    triggerInputMode?: RuntimeTriggerInputMode;
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -5605,6 +5733,7 @@ export class AgentLoopService {
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
+    const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
     // Count-based compaction: when retained history exceeds HISTORY_COMPACT_AT turns,
     // evict everything except the most recent HISTORY_COMPACT_KEEP turns regardless of token budget.
@@ -5618,7 +5747,8 @@ export class AgentLoopService {
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary,
         pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null
+        developerContextBlock: params.developerContextBlock ?? null,
+        triggerInputMode
       });
       const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
@@ -5639,7 +5769,8 @@ export class AgentLoopService {
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary,
         pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null
+        developerContextBlock: params.developerContextBlock ?? null,
+        triggerInputMode
       });
       const estimate = await estimateLoopInputTokens({
         modelName: params.runtimePrompt.modelName,
@@ -5684,7 +5815,8 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
       pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null
+      developerContextBlock: params.developerContextBlock ?? null,
+      triggerInputMode
     });
     const initialEstimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
@@ -5723,7 +5855,8 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
       pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null
+      developerContextBlock: params.developerContextBlock ?? null,
+      triggerInputMode
     });
 
     const compressionLoopContinuation = [
@@ -5742,7 +5875,8 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
       pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null
+      developerContextBlock: params.developerContextBlock ?? null,
+      triggerInputMode
     });
     const compressionEstimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
@@ -6761,9 +6895,10 @@ function buildLoopRequestInput(params: {
   contextSummary?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
+  triggerInputMode?: RuntimeTriggerInputMode;
 }) {
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger'),
     ...params.loopContinuation
   ];
 }
@@ -6794,6 +6929,7 @@ async function recomputeReadCutoffToTarget(params: {
   contextSummary?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
+  triggerInputMode?: RuntimeTriggerInputMode;
 }) {
   let retainedHistory: ConversationTurn[] = [];
   let readCutoffAfterConversationId: number | null = params.history.length > 0
@@ -6802,15 +6938,16 @@ async function recomputeReadCutoffToTarget(params: {
   let lastEstimate = await estimateLoopInputTokens({
     modelName: params.runtimePrompt.modelName,
     queueMessage: params.queueMessage,
-    loopInput: buildLoopRequestInput({
-      history: retainedHistory,
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary: params.contextSummary,
-      developerContextBlock: params.developerContextBlock
-    })
+      loopInput: buildLoopRequestInput({
+        history: retainedHistory,
+        queueMessage: params.queueMessage,
+        runtimePrompt: params.runtimePrompt,
+        loopContinuation: params.loopContinuation,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        contextSummary: params.contextSummary,
+        developerContextBlock: params.developerContextBlock,
+        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
+      })
   });
 
   for (let index = params.history.length - 1; index >= 0; index -= 1) {
@@ -6825,7 +6962,8 @@ async function recomputeReadCutoffToTarget(params: {
         loopContinuation: params.loopContinuation,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary: params.contextSummary,
-        developerContextBlock: params.developerContextBlock
+        developerContextBlock: params.developerContextBlock,
+        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
       })
     });
     if (candidateEstimate.inputTokens > params.targetBudgetTokens) {
@@ -6845,7 +6983,8 @@ async function recomputeReadCutoffToTarget(params: {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary: params.contextSummary,
       pendingProactiveShare: params.pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock
+      developerContextBlock: params.developerContextBlock,
+      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
     }),
     retainedHistory,
     readCutoffAfterConversationId,
@@ -6905,7 +7044,8 @@ export function buildInitialInput(
   _runtimeIdentityFacts: RuntimeIdentityFactProjection[] = [],
   contextSummary: string | null = null,
   pendingProactiveShare: string | null = null,
-  developerContextBlock: string | null = null
+  developerContextBlock: string | null = null,
+  triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger'
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -6977,14 +7117,21 @@ export function buildInitialInput(
     items.push(...buildTurnResponseReplayItems(turn));
   }
 
-  items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
-  const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
-  if (mediaPlaceholderContext) {
-    items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
-  }
-  const currentProcessingReminder = buildCurrentProcessingReminder(queueMessage);
-  if (currentProcessingReminder) {
-    items.push(buildAssistantCommentaryInputItem([currentProcessingReminder]));
+  if (triggerInputMode === 'fresh_trigger') {
+    items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
+    const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
+    if (mediaPlaceholderContext) {
+      items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
+    }
+    const currentProcessingReminder = buildCurrentProcessingReminder(queueMessage);
+    if (currentProcessingReminder) {
+      items.push(buildAssistantCommentaryInputItem([currentProcessingReminder]));
+    }
+  } else {
+    const pickedSnapshot = buildPickedTriggerSnapshot(queueMessage);
+    if (pickedSnapshot) {
+      items.push(buildAssistantCommentaryInputItem([pickedSnapshot]));
+    }
   }
   if (developerContextParts.dynamicContext) {
     items.push({

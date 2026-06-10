@@ -16,7 +16,7 @@
 
 ## 当前契约
 
-`Notify Bucket` 是概念桶，不是一张新的业务表。当前持久化和 lease 承载是 `agent_queue_messages`，收口在 `packages/persistence/agent-queue.js`。所有来源只能写入这个桶，只有 `agent-service` 主 loop 消费它。
+`Notify Bucket` 是概念桶，不是一张新的业务表。当前持久化承载是 `agent_queue_messages`，收口在 `packages/persistence/agent-queue.js`。它只表示“门铃等待被 pick”，不表示小腻正在被这条通知长期占用。所有来源只能写入这个桶，只有 `agent-service` 主 loop 消费它。
 
 QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`，收口在 `packages/persistence/inbound-inbox.js` 和 `packages/persistence/qq-usage.js`。小腻只有在模型主动选择 `$qq-usage` 时，才通过 `agent-service /api/internal/qq-usage` 读取 inbox/window。
 
@@ -30,6 +30,7 @@ loop tick
   -> build dev
   -> append history / replay items
   -> pick Notify Bucket event if available
+  -> mark queue row consumed; run owns subsequent continuation
   -> combined finish
   -> POST provider-service /api/internal/agent/execute
   -> provider-service codex-provider / OpenAI
@@ -50,7 +51,7 @@ loop tick
 | final_answer idle reminder | `system_reminder`，模型返回 `final_answer` 且 bucket 为空时由 Step 8 post action 写入。 | `modules/agent-service/src/services/response-action-router.ts` / `packages/persistence/agent-queue.js` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
-写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，等待主 loop 在后续 slice 里 pick。
+写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，等待主 loop 在后续 slice 里 pick。事件一旦被 pick，就从 `pending` 变成 `consumed`：门铃已经进入上下文，后续模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
 
 ## QQ Inbox
 
@@ -98,10 +99,12 @@ agent-service
 ```text
 canonical_response
   -> ResponseActionRouter
+  -> final_answer
+  -> current active loop appends final_answer_turn_control as user scene input before the next model slice
   -> final_answer without tool_call
   -> if Notify Bucket has no pending item
   -> enqueue system_reminder notify
-  -> next loop renders reason=final_answer_idle as user scene input
+  -> future loop renders reason=final_answer_idle as user scene input
 ```
 
 写入使用 `packages/persistence/agent-queue.js` 的原子方法，先在事务里检查 pending bucket，再写 `system_reminder`。如果当前输入本身就是 `system_reminder`，`agent-service` 不会再次回灌同类提醒，避免自循环。
@@ -112,7 +115,7 @@ canonical_response
 去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情
 ```
 
-注意两层语义：持久化 queue source 是 `system_reminder`，用于去重、排障和避免自循环；进入下一轮模型请求时，`reason=final_answer_idle` 的这条提醒作为 `user` scene input，而不是 assistant 自己继续输出。
+注意三层语义：当前 active loop 内的 `final_answer_turn_control` 是直接追加到下一次模型请求的 `user` scene input，用来避免 assistant 只回放自己的 `final_answer`；原始 Notify 在第二轮以后只作为 `runtime_event_snapshot status=already_picked` 出现，不再作为新的当前通知；持久化 queue source 是 `system_reminder`，用于空桶时去重、排障和避免自循环，未来 loop 里 `reason=final_answer_idle` 的提醒也作为 `user` scene input，而不是 assistant 自己继续输出。
 
 相关配置：
 
@@ -129,8 +132,8 @@ canonical_response
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
-| `final_answer` | `ResponseActionRouter` 生成 post action；bucket 为空时写入 `system_reminder` notify。 | post action 结果记录 timeline；transcript / replay 仍按原始 phase 保存。 |
-| message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮。 |
+| `final_answer` | 当前 active loop 先追加 `final_answer_turn_control` user scene input；`ResponseActionRouter` 生成 post action，bucket 为空时写入 `system_reminder` notify。 | 后续切片只看到 already-picked snapshot，不会重新看到同一条 current Notify；post action 结果记录 timeline；transcript / replay 仍按原始 phase 保存。 |
+| message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮；如果继续切片，原始 Notify 只作为 already-picked snapshot。 |
 
 ## 图片理解 Fork
 

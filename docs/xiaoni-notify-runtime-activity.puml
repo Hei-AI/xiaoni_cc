@@ -46,7 +46,7 @@ label bucket
 note right
   其他来源只写入这个桶。
   只有小腻主 loop 在 Step 5 消费。
-  agent_queue_messages 只是当前持久化 / lease 实现细节。
+  agent_queue_messages 只是当前持久化门铃。
 end note
 
 |小腻主 loop / agent-service|

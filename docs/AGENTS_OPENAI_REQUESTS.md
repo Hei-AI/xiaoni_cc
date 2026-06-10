@@ -68,7 +68,7 @@
 - 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才打断休息，并在后续上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
 - 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
-- 动作未完成前，“没有工具调用”不能表达沉默或结束。runtime 必须继续提醒模型选择真实动作，或者由小腻按可见 `<STATE>` 和自身疲惫感调用 `recover_energy`。
+- Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；后续同一 run 的模型切片只能看到 `runtime_event_snapshot status=already_picked` 和 replay/tool state，不能再次把同一条 Notify 当成新的当前事件。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 - `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 `<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">`，并把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。

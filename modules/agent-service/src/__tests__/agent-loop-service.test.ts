@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildFinalAnswerTurnControlReminder, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { FINAL_ANSWER_IDLE_REMINDER_TEXT } from '../services/response-action-router';
 import type { QueueMessagePayload } from '../types';
@@ -1496,6 +1496,65 @@ test('buildInitialInput renders a notification batch as one phone notification',
   assert.match(getMessageContent(currentTurnItems[0]), /<PHONE_NOTIFICATION/);
   assert.match(getMessageContent(currentTurnItems[0]), /session_key="qq:group:101"/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
+});
+
+test('buildInitialInput does not replay historical notification snapshots as current input', () => {
+  const historicalTurn = createConversationTurn({ id: 31 }) as any;
+  historicalTurn.items = [
+    {
+      ...historicalTurn.items[0],
+      source: 'sensory_event',
+      content: expectedCurrentInputMessage(),
+      deliveryMessageId: null,
+      runId: 'run-historical-notification',
+      traceId: 'trace-historical-notification'
+    },
+    historicalTurn.items[1]
+  ] as any;
+
+  const payload = createQueuePayload();
+  payload.phoneNotification!.unreadDelta = 3;
+  payload.phoneNotification!.directMentions = 2;
+
+  const loopInput = buildInitialInput([historicalTurn], payload);
+  const rendered = loopInput.map(getMessageContent).join('\n');
+  const phoneNotificationItems = loopInput.filter((item: any) => (
+    item.role === 'user'
+    && getMessageContent(item).includes('<PHONE_NOTIFICATION')
+  ));
+
+  assert.equal(phoneNotificationItems.length, 1);
+  assert.match(getMessageContent(phoneNotificationItems[0]), /unread_delta="3"/);
+  assert.match(getMessageContent(phoneNotificationItems[0]), /direct_mentions="2"/);
+  assert.doesNotMatch(rendered, /unread_delta="1"/);
+});
+
+test('buildInitialInput renders picked notification as a snapshot instead of current input', () => {
+  const payload = createQueuePayload();
+  payload.phoneNotification!.unreadDelta = 4;
+  payload.phoneNotification!.directMentions = 0;
+
+  const loopInput = buildInitialInput(
+    [],
+    payload,
+    createRuntimePrompt(),
+    [],
+    null,
+    null,
+    null,
+    'picked_snapshot'
+  );
+  const rendered = loopInput
+    .filter((item: any) => item.role !== 'system')
+    .map(getMessageContent)
+    .join('\n');
+
+  assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
+  assert.match(rendered, /<runtime_event_snapshot/);
+  assert.match(rendered, /source="phone_notification"/);
+  assert.match(rendered, /status="already_picked"/);
+  assert.match(rendered, /unread_delta="4"/);
+  assert.match(rendered, /不是新的状态栏通知/);
 });
 
 test('buildInitialInput does not append transcript summary to the system prompt by default', () => {
@@ -3148,6 +3207,30 @@ test('buildToolLoopMonitorReminder appends deterministic reminder for repeated c
   }), null);
 });
 
+test('buildFinalAnswerTurnControlReminder appends a user scene reminder after final_answer', () => {
+  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
+  loopInput.push({
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾。' }]
+  });
+
+  const reminder = buildFinalAnswerTurnControlReminder(loopInput, {
+    nextTurn: 2,
+    maxTurns: 8
+  });
+
+  assert.ok(reminder);
+  assert.equal(reminder?.type, 'message');
+  assert.equal(reminder?.role, 'user');
+  assert.equal((reminder as any).phase, undefined);
+  assert.match(getMessageContent(reminder!), /source="final_answer_turn_control"/);
+  assert.match(getMessageContent(reminder!), /final_answer_count="1"/);
+  assert.match(getMessageContent(reminder!), /不要原样复述上一条 final_answer/);
+  assert.match(getMessageContent(reminder!), /recover_energy/);
+});
+
 test('send_in_group uses explicit group target when provided', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;
@@ -3921,6 +4004,9 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   await service.processQueueMessage(queueMessage as any);
 
   assert.equal(turn, 2);
+  assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
+  assert.match(secondTurnInput, /source="phone_notification"/);
+  assert.match(secondTurnInput, /status="already_picked"/);
   assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
   assert.doesNotMatch(secondTurnInput, /不要用.+没有工具调用.+表达沉默或结束/);
   assert.equal(storeCalls.createConversation.length, 1);
@@ -3939,6 +4025,131 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent[0]?.toolName, RECOVER_ENERGY_TOOL);
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
+});
+
+test('processQueueMessage appends user turn control after final_answer before the next slice', async () => {
+  const queueMessage = {
+    id: 'run-queue-final-answer-control',
+    traceId: 'trace-final-answer-control',
+    batchId: 'batch-final-answer-control',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    recordNoVisibleDeliveryLifeEvent: [],
+    recordRecoverEnergyLifeEvent: [],
+    enqueueFinalAnswerIdleReminder: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-final-answer-control',
+    logTimelineEvent: async () => {},
+    enqueueFinalAnswerIdleReminder: async (params: any) => {
+      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
+      return {
+        enqueued: false,
+        reason: 'pending_item_exists',
+        queueId: null,
+        dedupeKey: null
+      };
+    },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1999;
+    },
+    attachConversationIdToTrace: async () => {},
+    createToolExecutionLog: async () => 1,
+    completeToolExecutionLog: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordNoVisibleDeliveryLifeEvent: async (params: any) => { storeCalls.recordNoVisibleDeliveryLifeEvent.push(params); },
+    recordRecoverEnergyLifeEvent: async (params: any) => { storeCalls.recordRecoverEnergyLifeEvent.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  let reminderRole: string | null = null;
+  let reminderText = '';
+  let secondTurnInput = '';
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-final-answer-control-1',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
+          }]
+        }
+      };
+    }
+
+    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
+    const reminderItem = (canonicalRequest.input || []).find((item: any) => (
+      item?.type === 'message'
+      && getMessageContent(item).includes('source="final_answer_turn_control"')
+    ));
+    reminderRole = reminderItem?.role || null;
+    reminderText = reminderItem ? getMessageContent(reminderItem) : '';
+    return {
+      success: true,
+      llm_call_id: 'llm-final-answer-control-2',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-final-answer-control-recover',
+          name: RECOVER_ENERGY_TOOL,
+          arguments: JSON.stringify({
+            reason: '看到了 final_answer 控制提醒，决定休息。',
+            duration_minutes: 10,
+            xiaoni_os: 'final_answer 后已收到 user scene 控制提醒。'
+          })
+        }]
+      }
+    };
+  };
+
+  await service.processQueueMessage(queueMessage as any);
+
+  assert.equal(turn, 2);
+  assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
+  assert.match(secondTurnInput, /source="phone_notification"/);
+  assert.match(secondTurnInput, /status="already_picked"/);
+  assert.equal(reminderRole, 'user');
+  assert.match(reminderText, /source="final_answer_turn_control"/);
+  assert.match(reminderText, /final_answer_count="1"/);
+  assert.match(reminderText, /不要原样复述上一条 final_answer/);
+  assert.equal(storeCalls.enqueueFinalAnswerIdleReminder.length, 1);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
 });
 
 test('processQueueMessage waits before the next model slice when runtime control is disabled', async () => {

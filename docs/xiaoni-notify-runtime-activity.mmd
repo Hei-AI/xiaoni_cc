@@ -43,7 +43,7 @@ flowchart LR
   subgraph notify["Notify Bucket"]
     direction TB
     bucket["Notify Bucket<br/>唯一概念桶"]:::bucket
-    bucketNote["所有来源只写入这个块<br/>只有 Step 5 消费<br/>agent_queue_messages 是持久化 / lease 实现细节"]:::note
+    bucketNote["所有来源只写入这个块<br/>只有 Step 5 pick<br/>agent_queue_messages 是持久化门铃"]:::note
     bucket -.-> bucketNote
   end
 

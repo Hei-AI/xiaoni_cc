@@ -348,7 +348,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
         await tx.execute(
           `
             UPDATE agent_queue_messages
-            SET status = 'processing',
+            SET status = 'consumed',
                 attempts = attempts + 1,
                 locked_at = NOW(),
                 locked_by = ?,
@@ -356,10 +356,22 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
                 batch_id = ?,
                 run_id = ?,
                 trace_id = ?,
+                result = ?::jsonb,
                 updated_at = NOW()
             WHERE id IN (${placeholders})
           `,
-          [workerId, batchId, runId, traceId, ...queueIds]
+          [
+            workerId,
+            batchId,
+            runId,
+            traceId,
+            JSON.stringify({
+              doorbell_consumed: true,
+              consumed_at: new Date(now).toISOString(),
+              worker_id: workerId
+            }),
+            ...queueIds
+          ]
         );
 
         return mapClaimedRun({
