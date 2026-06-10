@@ -35,7 +35,7 @@ database "agent_queue_messages\n----\n持久化门铃\npick 后 consumed" as Que
 
 package "agent-service" as AgentService #FFFDF5 {
   component "小腻 runtime loop\n----\n1 loop tick\n2 build prompt/dev\n3 append history\n4 Step 5 pick notify\n5 Step 6 combined finish\n6 Step 7 execute model POST\n7 Step 9/10 save" as RuntimeLoop #FFFDF5
-  component "Step 8\nResponseActionRouter\n----\npreserve replay\nclassify final_answer / tool_call\nemit post actions" as ResponseRouter #FFF2C8
+  component "Step 8\nResponseActionRouter\n----\npreserve replay\nclassify final_answer / tool_call\nsettle final_answer" as ResponseRouter #FFF2C8
   component "ToolDispatcher\n----\nunified tool entry\nlog tool_execution_logs\nroute by tool name" as ToolDispatcher #FFF2C8
   component "qq-usage API\n----\n/api/internal/qq-usage" as QqUsage #FFFDF5
   component "image vision fork\n----\ncurrent main context\nfunction_call_output input_image\nno-persist" as ImageVisionFork #FFFDF5
@@ -61,7 +61,7 @@ OpenAI --> CodexProvider : assistant / tool_call / final_answer
 CodexProvider --> ResponseRouter : canonical_response
 
 ResponseRouter --> History : replay / transcript plan
-ResponseRouter --> Bucket : final_answer post action\nif bucket empty
+ResponseRouter --> RuntimeLoop : final_answer settle / release\nno idle reminder
 ResponseRouter --> ToolDispatcher : tool_call
 ResponseRouter --> RuntimeLoop : no-tool continuation
 
@@ -98,7 +98,8 @@ note bottom of Bucket
 end note
 
 note bottom of ResponseRouter
-  final_answer 在这里消费为 post action。
+  final_answer 在这里 settle / release。
+  不再回写 final_answer_idle reminder。
   不改变历史 transcript 的 phase 渲染：
   历史存什么，出去就是什么。
 end note

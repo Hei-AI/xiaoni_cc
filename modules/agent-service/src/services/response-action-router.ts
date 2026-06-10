@@ -1,8 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { AgentToolCall, ConversationTranscriptPhase } from '../types';
 
-export const FINAL_ANSWER_IDLE_REMINDER_TEXT = '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情';
-
 export type ResponseInputContentPart =
   | {
       type: 'input_text';
@@ -82,10 +80,7 @@ export type ReplayableModelOutput =
       inputItem: Extract<ResponseInputItem, { type: 'reasoning' }>;
     };
 
-export type ResponsePostAction = {
-  type: 'enqueue_final_answer_idle_reminder';
-  reminderText: string;
-};
+export type ResponsePostAction = never;
 
 export type ResponseActionPlan = {
   replayableOutputs: ReplayableModelOutput[];
@@ -254,12 +249,7 @@ export class ResponseActionRouter {
       hasToolCall,
       hasFinalAnswer,
       toolCalls,
-      postActions: hasFinalAnswer && !hasToolCall
-        ? [{
-            type: 'enqueue_final_answer_idle_reminder',
-            reminderText: FINAL_ANSWER_IDLE_REMINDER_TEXT
-          }]
-        : []
+      postActions: []
     };
   }
 }

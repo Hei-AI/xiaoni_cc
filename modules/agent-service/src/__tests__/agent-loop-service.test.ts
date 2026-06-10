@@ -2,9 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildFinalAnswerTurnControlReminder, buildInitialInput, buildRuntimeStateBlock, buildToolLoopMonitorReminder, buildTurnStateReminder, deriveTurnControlState, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, summarizeToolLoopState, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
-import { FINAL_ANSWER_IDLE_REMINDER_TEXT } from '../services/response-action-router';
 import type { QueueMessagePayload } from '../types';
 
 const PRIVATE_REPLY_TOOL = 'send_in_private';
@@ -406,7 +405,24 @@ function getMessageContent(item: unknown) {
 }
 
 function expectedCurrentInputMessage() {
-  return '<PHONE_NOTIFICATION app="qq" surface="status_bar" session_key="qq:group:101" chat_type="group" peer_id="101" peer_name="Test Group" unread_delta="1" direct_mentions="1" latest_received_at="2026-03-28T08:00:00.000Z" reason="group_mention_phone_notification" />';
+  return [
+    '<system_reminder>',
+    '有新的未读qq消息（1 条）。你有空愿意的话可以用 qq-usage 打开看。',
+    '==',
+    '以下只展示有人明确喊你的信息',
+    '{Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
+    '</system_reminder>'
+  ].join('\n');
+}
+
+function isPhoneNotificationReminderContent(content: string) {
+  return content.includes('<system_reminder>')
+    && content.includes('有新的未读qq消息');
+}
+
+function isImageTaskNotificationReminderContent(content: string) {
+  return content.includes('<system_reminder>')
+    && content.includes('图片生成任务:');
 }
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
@@ -630,6 +646,11 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     assert.match(output, /^Chunk ID:/);
     assert.match(output, /Process exited without an exit code/);
     assert.match(output, /ENOENT|not\/a\/real-shell/);
+    const stateItem = continuation.inputItems[1];
+    assert.equal(stateItem?.type, 'message');
+    assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
+    assert.match(getMessageContent(stateItem), /energy=0.998/);
+    assert.match(getMessageContent(stateItem), /max_energy=1.000/);
   });
 });
 
@@ -653,7 +674,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   const contents = loopInput.map(getMessageContent);
   const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
-  const currentMessageIndex = contents.findIndex((content) => content.includes('<PHONE_NOTIFICATION') && content.includes('session_key="qq:group:101"'));
+  const currentMessageIndex = contents.findIndex(isPhoneNotificationReminderContent);
 
   assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
@@ -668,7 +689,7 @@ test('buildInitialInput treats self continuation as an internal life slice witho
   const selfPayload = createSelfContinuationQueuePayload();
   const loopInput = buildInitialInput([], selfPayload, createRuntimePrompt());
   const currentTurnRendered = loopInput
-    .filter((item: any) => item.role === 'user' || item.role === 'assistant')
+    .filter((item: any) => item.role === 'user' || item.role === 'assistant' || item.role === 'developer')
     .map(getMessageContent)
     .join('\n');
 
@@ -676,7 +697,8 @@ test('buildInitialInput treats self continuation as an internal life slice witho
   assert.doesNotMatch(currentTurnRendered, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentTurnRendered, /<INPUT_MESSAGE/);
   assert.doesNotMatch(currentTurnRendered, /当前输入来自内部调度切片/);
-  assert.match(currentTurnRendered, /连续生命切片/);
+  assert.doesNotMatch(currentTurnRendered, /连续生命切片/);
+  assert.match(currentTurnRendered, /外界很安静/);
   assert.match(currentTurnRendered, /recover_energy/);
 });
 
@@ -903,7 +925,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   assert.match(String(requestBody.canonicalRequest.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(String(requestBody.canonicalRequest.instructions), /Runtime contract:/);
   assert.equal(
-    requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION')),
+    requestBody.canonicalRequest.input.some((item: any) => item.type === 'message' && item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item))),
     true
   );
   assert.equal(
@@ -1196,39 +1218,39 @@ test('buildInitialInput renders stable batch context without exposing runtime id
     systemPrompt: '你是小腻主AGENT'
   }));
 
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const currentPrompt = getMessageContent(currentInputItem);
-  assert.equal((currentInputItem as any)?.role, 'user');
-  const reminderItem = loopInput.find((item: any) => item.role === 'assistant' && getMessageContent(item).includes('<system_reminder>'));
-  assert.equal((reminderItem as any)?.role, 'assistant');
+  assert.equal((currentInputItem as any)?.role, 'developer');
   assert.doesNotMatch(currentPrompt, /Trace:/);
   assert.doesNotMatch(currentPrompt, /RunId:/);
   assert.doesNotMatch(currentPrompt, /BatchId:/);
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
-  assert.match(currentPrompt, /<PHONE_NOTIFICATION/);
-  assert.match(currentPrompt, /session_key="qq:group:101"/);
+  assert.match(currentPrompt, /<system_reminder>/);
+  assert.match(currentPrompt, /有新的未读qq消息/);
+  assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
+  assert.doesNotMatch(currentPrompt, /session_key=/);
   assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
-  assert.doesNotMatch(currentPrompt, /问问@\{Bob\(@404\)\} 今天玩什么/);
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
 
-test('buildInitialInput renders final-answer idle reminder as bare user input', () => {
+test('buildInitialInput treats legacy final-answer idle reminder as a generic system reminder', () => {
+  const reminderText = '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情';
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
-  payload.bodyForAgent = FINAL_ANSWER_IDLE_REMINDER_TEXT;
-  payload.rawBody = FINAL_ANSWER_IDLE_REMINDER_TEXT;
+  payload.bodyForAgent = reminderText;
+  payload.rawBody = reminderText;
   payload.rawPayload = {
     reason: 'final_answer_idle'
   };
   payload.inboundContext = {
     ...payload.inboundContext,
     Surface: 'system_reminder',
-    BodyForAgent: FINAL_ANSWER_IDLE_REMINDER_TEXT
+    BodyForAgent: reminderText
   };
   payload.systemReminder = {
-    reminder: FINAL_ANSWER_IDLE_REMINDER_TEXT,
+    reminder: reminderText,
     reason: 'final_answer_idle',
     createdAt: '2026-06-10T00:00:00.000Z'
   };
@@ -1236,15 +1258,17 @@ test('buildInitialInput renders final-answer idle reminder as bare user input', 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }));
-  const reminderItems = loopInput.filter((item: any) => getMessageContent(item) === FINAL_ANSWER_IDLE_REMINDER_TEXT);
+  const reminderItems = loopInput.filter((item: any) => getMessageContent(item).includes(reminderText));
 
   assert.equal(reminderItems.length, 1);
-  assert.equal((reminderItems[0] as any).role, 'user');
+  assert.equal((reminderItems[0] as any).role, 'developer');
   assert.equal((reminderItems[0] as any).phase, undefined);
-  assert.doesNotMatch(getMessageContent(reminderItems[0]), /<system_reminder>/);
+  assert.match(getMessageContent(reminderItems[0]), /<system_reminder/);
+  assert.doesNotMatch(getMessageContent(reminderItems[0]), /source="system_reminder"/);
+  assert.doesNotMatch(getMessageContent(reminderItems[0]), /reason="final_answer_idle"/);
   assert.equal(loopInput.some((item: any) => (
-    item.role === 'assistant'
-    && getMessageContent(item).includes('当前输入来自小腻 runtime 的内部提醒')
+    item.role === 'user'
+    && getMessageContent(item) === reminderText
   )), false);
 });
 
@@ -1283,11 +1307,12 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   }));
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.match(rendered, /<IMAGE_TASK_NOTIFICATION/);
-  assert.match(rendered, /task_id="task-image-1"/);
-  assert.match(rendered, /picture_id="task_artifact_1"/);
-  assert.match(rendered, /picture_path="\/xiaoni-runtime\/picture\/task_artifact_1\.png"/);
-  assert.match(rendered, /这是生图任务完成通知/);
+  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, /图片生成任务:task-image-1 已完成/);
+  assert.match(rendered, /图片ID: task_artifact_1/);
+  assert.match(rendered, /图片路径: \/xiaoni-runtime\/picture\/task_artifact_1\.png/);
+  assert.doesNotMatch(rendered, /<IMAGE_TASK_NOTIFICATION/);
+  assert.doesNotMatch(rendered, /picture_bytes|source_trace_id|source_run_id|created_at/);
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
 
@@ -1315,15 +1340,16 @@ test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread 
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
   assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
-  assert.match(rendered, /<PHONE_NOTIFICATION/);
-  assert.match(rendered, /direct_mentions="0"/);
+  assert.match(rendered, /有新的未读qq消息/);
+  assert.match(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, /latest_preview|messages/);
-  assert.match(rendered, /手机状态栏出现了 QQ 通知/);
+  assert.doesNotMatch(rendered, /手机状态栏出现了 QQ 通知/);
+  assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 
-  const unreadItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
+  const unreadItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   assert.equal(unreadItems.length, 1);
-  assert.equal((unreadItems[0] as any).role, 'user');
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && getMessageContent(item).includes('<PHONE_NOTIFICATION')), false);
+  assert.equal((unreadItems[0] as any).role, 'developer');
+  assert.equal(loopInput.some((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item))), false);
 });
 
 test('buildInitialInput keeps mentioned group batches as phone notifications only', () => {
@@ -1367,14 +1393,17 @@ test('buildInitialInput keeps mentioned group batches as phone notifications onl
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /<PHONE_NOTIFICATION/);
+  assert.match(rendered, /有新的未读qq消息/);
   assert.doesNotMatch(rendered, /前面普通未读/);
-  assert.doesNotMatch(rendered, /@小腻 看到前面了吗/);
+  assert.match(rendered, /@小腻 看到前面了吗/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="群聊"/);
   assert.doesNotMatch(rendered, /message_id="12" chat_type="群聊"/);
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
+  assert.doesNotMatch(sceneRendered, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<PHONE_NOTIFICATION/.test(getMessageContent(item))), false);
+  const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  assert.ok(developerNotification);
+  assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"|前面普通未读/);
 });
 
 test('buildInitialInput keeps direct batches as phone notifications only', () => {
@@ -1411,14 +1440,19 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(rendered, /第一条私聊/);
-  assert.doesNotMatch(rendered, /第二条私聊/);
+  assert.match(rendered, /有新的未读qq消息/);
+  assert.match(rendered, /Alice\(@202\).*发来 2 条消息/);
+  assert.match(rendered, /第二条私聊/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
   assert.doesNotMatch(rendered, /message_id="12" chat_type="私聊"/);
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
+  assert.doesNotMatch(sceneRendered, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
-  assert.equal(loopInput.some((item: any) => item.role === 'developer' && /Alice|202|<IM_INBOX_WINDOW|<PHONE_NOTIFICATION/.test(getMessageContent(item))), false);
+  const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  assert.ok(developerNotification);
+  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*发来 2 条消息/);
+  assert.match(getMessageContent(developerNotification), /第二条私聊/);
+  assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"|message_id=/);
 });
 
 test('buildInitialInput projects image placeholders without exposing image locators', () => {
@@ -1464,12 +1498,12 @@ test('buildInitialInput does not expose reply context before QQ is opened', () =
   };
 
   const loopInput = buildInitialInput([], payload);
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
+  const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const currentPrompt = getMessageContent(currentInputItem);
 
   assert.doesNotMatch(currentPrompt, /sender=|timestamp=/);
   assert.doesNotMatch(currentPrompt, /上一条消息/);
-  assert.doesNotMatch(currentPrompt, /@\{Bob\(@404\)\} 嘿/);
+  assert.match(currentPrompt, /\{Bob\(@404\)\} 嘿/);
 });
 
 test('buildInitialInput renders a notification batch as one phone notification', () => {
@@ -1494,12 +1528,11 @@ test('buildInitialInput renders a notification batch as one phone notification',
   });
 
   const loopInput = buildInitialInput([], payload);
-  const currentTurnItems = loopInput.filter((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
-  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
 
   assert.equal(currentTurnItems.length, 1);
-  assert.match(getMessageContent(currentTurnItems[0]), /<PHONE_NOTIFICATION/);
-  assert.match(getMessageContent(currentTurnItems[0]), /session_key="qq:group:101"/);
+  assert.match(getMessageContent(currentTurnItems[0]), /有新的未读qq消息/);
+  assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
 
@@ -1524,17 +1557,16 @@ test('buildInitialInput does not replay historical notification snapshots as cur
   const loopInput = buildInitialInput([historicalTurn], payload);
   const rendered = loopInput.map(getMessageContent).join('\n');
   const phoneNotificationItems = loopInput.filter((item: any) => (
-    item.role === 'user'
-    && getMessageContent(item).includes('<PHONE_NOTIFICATION')
+    item.role === 'developer'
+    && isPhoneNotificationReminderContent(getMessageContent(item))
   ));
 
   assert.equal(phoneNotificationItems.length, 1);
-  assert.match(getMessageContent(phoneNotificationItems[0]), /unread_delta="3"/);
-  assert.match(getMessageContent(phoneNotificationItems[0]), /direct_mentions="2"/);
-  assert.doesNotMatch(rendered, /unread_delta="1"/);
+  assert.match(getMessageContent(phoneNotificationItems[0]), /有新的未读qq消息（3 条）/);
+  assert.doesNotMatch(rendered, /有新的未读qq消息（1 条）/);
 });
 
-test('buildInitialInput renders picked notification as a snapshot instead of current input', () => {
+test('buildInitialInput suppresses already-picked notification context', () => {
   const payload = createQueuePayload();
   payload.phoneNotification!.unreadDelta = 4;
   payload.phoneNotification!.directMentions = 0;
@@ -1547,7 +1579,7 @@ test('buildInitialInput renders picked notification as a snapshot instead of cur
     null,
     null,
     null,
-    'picked_snapshot'
+    'suppress_current_trigger'
   );
   const rendered = loopInput
     .filter((item: any) => item.role !== 'system')
@@ -1555,11 +1587,11 @@ test('buildInitialInput renders picked notification as a snapshot instead of cur
     .join('\n');
 
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
-  assert.match(rendered, /<runtime_event_snapshot/);
-  assert.match(rendered, /source="phone_notification"/);
-  assert.match(rendered, /status="already_picked"/);
-  assert.match(rendered, /unread_delta="4"/);
-  assert.match(rendered, /不是新的状态栏通知/);
+  assert.doesNotMatch(rendered, /有新的未读qq消息/);
+  assert.doesNotMatch(rendered, /<runtime_event_snapshot/);
+  assert.doesNotMatch(rendered, /source="phone_notification"/);
+  assert.doesNotMatch(rendered, /status="already_picked"/);
+  assert.doesNotMatch(rendered, /4 条/);
 });
 
 test('buildInitialInput does not append transcript summary to the system prompt by default', () => {
@@ -1625,10 +1657,10 @@ test('buildInitialInput does not project accepted identity facts into runtime in
 
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
-  const currentInputItem = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
-  assert.match(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(getMessageContent(currentInputItem), /问问@/);
-  assert.match(getMessageContent(loopInput.at(-1)), /<system_reminder>/);
+  const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  assert.match(getMessageContent(currentInputItem), /有新的未读qq消息/);
+  assert.doesNotMatch(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
+  assert.equal((currentInputItem as any)?.role, 'developer');
 });
 
 test('buildInitialInput keeps current batch before reminder without deprecated developer tail blocks', () => {
@@ -1675,18 +1707,15 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
   const rendered = request.input.map(getMessageContent);
 
   const osIndex = rendered.findIndex((content) => content.includes('上一段留下的内在延续'));
-  const notificationIndex = rendered.findIndex((content) => content.includes('<PHONE_NOTIFICATION') && content.includes('session_key="qq:group:101"'));
-  const reminderIndex = rendered.findIndex((content) => content.includes('手机状态栏出现了 QQ 通知'));
+  const notificationIndex = rendered.findIndex(isPhoneNotificationReminderContent);
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
 
   assert.ok(osIndex !== -1);
   assert.ok(notificationIndex !== -1);
-  assert.ok(reminderIndex !== -1);
   assert.equal(identityIndex, -1);
   assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
   assert.equal(rendered.some((content) => content.includes('第二条')), false);
   assert.ok(osIndex < notificationIndex);
-  assert.ok(notificationIndex < reminderIndex);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -1702,9 +1731,9 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.equal(loopInput[0]?.role, 'system');
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.doesNotMatch(String(loopInput[0]?.content), /Runtime contract:/);
-  const currentMessage = loopInput.find((item: any) => item.role === 'user' && getMessageContent(item).includes('<PHONE_NOTIFICATION'));
+  const currentMessage = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   assert.equal(currentMessage?.type, 'message');
-  assert.equal((currentMessage as any)?.role, 'user');
+  assert.equal((currentMessage as any)?.role, 'developer');
   assert.match(getMessageContent(currentMessage), /群上下文如下：/);
   assert.doesNotMatch(getMessageContent(currentMessage), /CurrentBatch:/);
   assert.match(getMessageContent(currentMessage), /签名：Alice/);
@@ -2785,25 +2814,23 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
     sent_messages: ['我们出去玩吧']
   });
 
-  assert.deepEqual(continuation, {
-    inputItems: [{
-      type: 'function_call_output',
-      call_id: 'call-1',
-      output: '{"sent_messages":["我们出去玩吧"]}'
-    }],
-    leaseRelease: null,
-    forcedVisibleReply: null
-  });
+  assert.equal(continuation.leaseRelease, null);
+  assert.equal(continuation.forcedVisibleReply, null);
+  assert.equal(continuation.inputItems.length, 1);
   loopInput.push(...continuation.inputItems);
   const lastItem = loopInput.at(-1);
   assert.equal(lastItem?.type, 'function_call_output');
   assert.equal(lastItem && lastItem.type === 'function_call_output' ? lastItem.call_id : null, 'call-1');
-  assert.equal(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : null, '{"sent_messages":["我们出去玩吧"]}');
+  const output = JSON.parse(String(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : '{}'));
+  assert.deepEqual(output.sent_messages, ['我们出去玩吧']);
+  assert.equal(output.energy_cost, 0.015);
+  assert.equal(output.energy, 0.985);
+  assert.equal(output.max_energy, 1);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
 });
 
-test('applyToolResultToLoopInput replays image task output and reminds that visible reply is still needed', () => {
+test('applyToolResultToLoopInput replays image task output without follow-up reminder', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
 
   const continuation = applyToolResultToLoopInput({
@@ -2822,14 +2849,50 @@ test('applyToolResultToLoopInput replays image task output and reminds that visi
   });
 
   assert.equal(continuation.leaseRelease, null);
-  assert.equal(continuation.inputItems.length, 2);
+  assert.equal(continuation.inputItems.length, 1);
   const replay = continuation.inputItems[0];
   assert.equal(replay?.type, 'function_call_output');
   assert.equal(replay && replay.type === 'function_call_output' ? replay.call_id : null, 'call-image-task');
-  const reminder = getMessageContent(continuation.inputItems[1]);
+  const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
+  assert.match(String(output.status_text), /生图任务:task-image-queued 正在进行中/);
+  assert.equal(output.energy_cost, 0.03);
+  assert.equal(output.energy, 0.97);
+  assert.equal(output.max_energy, 1);
   assert.equal(continuation.forcedVisibleReply, null);
-  assert.match(reminder, /这还不等于已经对聊天对象说过话/);
-  assert.match(reminder, /生图任务:task-image-queued 正在进行中/);
+});
+
+test('applyToolResultToLoopInput carries energy forward from prior JSON tool output', () => {
+  const first = applyToolResultToLoopInput({
+    callId: 'call-send-first',
+    name: PRIVATE_REPLY_TOOL,
+    rawArguments: '{"message":"先说一句"}'
+  }, {
+    sent_messages: ['先说一句']
+  });
+  const loopInput = [
+    ...buildInitialInput([], createQueuePayload(), createRuntimePrompt()),
+    ...first.inputItems
+  ];
+
+  const second = applyToolResultToLoopInput({
+    callId: 'call-image-second',
+    name: IMAGE_TASK_TOOL,
+    rawArguments: '{"prompt":"一张图","target_description":"图"}'
+  }, {
+    queued: true,
+    task_id: 'task-after-send'
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false
+  });
+
+  const replay = second.inputItems[0];
+  assert.equal(replay?.type, 'function_call_output');
+  const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
+  assert.equal(output.energy_cost, 0.03);
+  assert.equal(output.energy, 0.955);
+  assert.equal(output.max_energy, 1);
 });
 
 test('requestImageTask normalizes edit without source image to image_generate', async () => {
@@ -3138,102 +3201,6 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   });
   assert.doesNotMatch(persistedRuntimeText, /data:image/);
   assert.doesNotMatch(persistedRuntimeText, /QUJDREVGRw==/);
-});
-
-test('summarizeToolLoopState counts tool calls by name and phase', () => {
-  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'meaning-1',
-    name: UNREAD_MEANING_TOOL,
-    arguments: '{"latest_unread_focus":"有人问小腻","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"直接问"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'reply-1',
-    name: GROUP_REPLY_TOOL,
-    arguments: '{"group_id":101,"messages":["来了"],"xiaoni_os":"接住了"}'
-  });
-
-  const state = summarizeToolLoopState(loopInput);
-
-  assert.deepEqual(state.byName[UNREAD_MEANING_TOOL], {
-    count: 1,
-    phase: 'commentary'
-  });
-  assert.deepEqual(state.byName[GROUP_REPLY_TOOL], {
-    count: 1,
-    phase: 'final_answer'
-  });
-  assert.deepEqual(state.byPhase, {
-    commentary: 1,
-    final_answer: 1
-  });
-  assert.equal(state.terminalToolCalled, true);
-});
-
-test('buildToolLoopMonitorReminder appends deterministic reminder for repeated commentary tools', () => {
-  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'exec-1',
-    name: EXEC_COMMAND_TOOL,
-    arguments: '{"cmd":"pwd"}'
-  });
-  loopInput.push({
-    type: 'function_call_output',
-    call_id: 'exec-1',
-    output: '{"stdout":"/workspace","exit_code":0}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'exec-2',
-    name: EXEC_COMMAND_TOOL,
-    arguments: '{"cmd":"pwd"}'
-  });
-
-  const reminder = buildToolLoopMonitorReminder(loopInput, {
-    nextTurn: 4,
-    maxTurns: 6
-  });
-
-  assert.ok(reminder);
-  assert.equal(reminder?.type, 'message');
-  assert.equal(reminder?.role, 'assistant');
-  assert.equal((reminder as any).phase, 'commentary');
-  assert.match(getMessageContent(reminder!), /source="tool_loop_monitor"/);
-  assert.match(getMessageContent(reminder!), /exec_commandx2/);
-  assert.match(getMessageContent(reminder!), /不要继续重复/);
-
-  loopInput.push(reminder!);
-  assert.equal(buildToolLoopMonitorReminder(loopInput, {
-    nextTurn: 4,
-    maxTurns: 6
-  }), null);
-});
-
-test('buildFinalAnswerTurnControlReminder appends a user scene reminder after final_answer', () => {
-  const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  loopInput.push({
-    type: 'message',
-    role: 'assistant',
-    phase: 'final_answer',
-    content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾。' }]
-  });
-
-  const reminder = buildFinalAnswerTurnControlReminder(loopInput, {
-    nextTurn: 2,
-    maxTurns: 8
-  });
-
-  assert.ok(reminder);
-  assert.equal(reminder?.type, 'message');
-  assert.equal(reminder?.role, 'user');
-  assert.equal((reminder as any).phase, undefined);
-  assert.match(getMessageContent(reminder!), /source="final_answer_turn_control"/);
-  assert.match(getMessageContent(reminder!), /final_answer_count="1"/);
-  assert.match(getMessageContent(reminder!), /不要原样复述上一条 final_answer/);
-  assert.match(getMessageContent(reminder!), /recover_energy/);
 });
 
 test('send_in_group uses explicit group target when provided', async () => {
@@ -3996,8 +3963,9 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
 
   assert.equal(turn, 2);
   assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
-  assert.match(secondTurnInput, /source="phone_notification"/);
-  assert.match(secondTurnInput, /status="already_picked"/);
+  assert.doesNotMatch(secondTurnInput, /source="phone_notification"/);
+  assert.doesNotMatch(secondTurnInput, /status="already_picked"/);
+  assert.doesNotMatch(secondTurnInput, /<runtime_event_snapshot/);
   assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
   assert.doesNotMatch(secondTurnInput, /不要用.+没有工具调用.+表达沉默或结束/);
   assert.equal(storeCalls.createConversation.length, 1);
@@ -4018,7 +3986,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('processQueueMessage appends user turn control after final_answer before the next slice', async () => {
+test('processQueueMessage releases final_answer without prompt-facing follow-up reminders', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4036,22 +4004,12 @@ test('processQueueMessage appends user turn control after final_answer before th
     releaseExecutionLease: [],
     updateLlmJob: [],
     recordNoVisibleDeliveryLifeEvent: [],
-    recordRecoverEnergyLifeEvent: [],
-    enqueueFinalAnswerIdleReminder: []
+    recordRecoverEnergyLifeEvent: []
   };
 
   const store = {
     createLlmJob: async () => 'job-final-answer-control',
     logTimelineEvent: async () => {},
-    enqueueFinalAnswerIdleReminder: async (params: any) => {
-      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
-      return {
-        enqueued: false,
-        reason: 'pending_item_exists',
-        queueId: null,
-        dedupeKey: null
-      };
-    },
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
@@ -4083,46 +4041,17 @@ test('processQueueMessage appends user turn control after final_answer before th
   } as any);
 
   let turn = 0;
-  let reminderRole: string | null = null;
-  let reminderText = '';
-  let secondTurnInput = '';
-  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+  (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-final-answer-control-1',
-        canonical_response: {
-          output: [{
-            type: 'message',
-            role: 'assistant',
-            phase: 'final_answer',
-            content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
-          }]
-        }
-      };
-    }
-
-    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
-    const reminderItem = (canonicalRequest.input || []).find((item: any) => (
-      item?.type === 'message'
-      && getMessageContent(item).includes('source="final_answer_turn_control"')
-    ));
-    reminderRole = reminderItem?.role || null;
-    reminderText = reminderItem ? getMessageContent(reminderItem) : '';
     return {
       success: true,
-      llm_call_id: 'llm-final-answer-control-2',
+      llm_call_id: 'llm-final-answer-control-1',
       canonical_response: {
         output: [{
-          type: 'function_call',
-          call_id: 'call-final-answer-control-recover',
-          name: RECOVER_ENERGY_TOOL,
-          arguments: JSON.stringify({
-            reason: '看到了 final_answer 控制提醒，决定休息。',
-            duration_minutes: 10,
-            xiaoni_os: 'final_answer 后已收到 user scene 控制提醒。'
-          })
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
         }]
       }
     };
@@ -4130,17 +4059,16 @@ test('processQueueMessage appends user turn control after final_answer before th
 
   await service.processQueueMessage(queueMessage as any);
 
-  assert.equal(turn, 2);
-  assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
-  assert.match(secondTurnInput, /source="phone_notification"/);
-  assert.match(secondTurnInput, /status="already_picked"/);
-  assert.equal(reminderRole, 'user');
-  assert.match(reminderText, /source="final_answer_turn_control"/);
-  assert.match(reminderText, /final_answer_count="1"/);
-  assert.match(reminderText, /不要原样复述上一条 final_answer/);
-  assert.equal(storeCalls.enqueueFinalAnswerIdleReminder.length, 1);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(turn, 1);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'no_visible_delivery_observed');
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'no_visible_delivery_observed');
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'no_visible_delivery_observed');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
+  assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 1);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
 });
 
 test('processQueueMessage waits before the next model slice when runtime control is disabled', async () => {
@@ -4691,105 +4619,6 @@ test('processQueueMessage does not auto-send image task status after queuing', a
   }
 });
 
-test('executeResponsePostActions enqueues final_answer idle reminder through the store', async () => {
-  const storeCalls: Record<string, any[]> = {
-    enqueueFinalAnswerIdleReminder: [],
-    logTimelineEvent: []
-  };
-  const store = {
-    enqueueFinalAnswerIdleReminder: async (params: any) => {
-      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
-      return {
-        enqueued: true,
-        reason: 'enqueued',
-        queueId: 123,
-        dedupeKey: 'system-reminder:final-answer-idle:1'
-      };
-    },
-    logTimelineEvent: async (params: any) => {
-      storeCalls.logTimelineEvent.push(params);
-    }
-  } as any;
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-  const queueMessage = createQueuePayload();
-
-  await (service as any).executeResponsePostActions([{
-    type: 'enqueue_final_answer_idle_reminder',
-    reminderText: '去看看 todo。'
-  }], {
-    queueMessage,
-    runId: 'run-final',
-    turn: 3,
-    llmCallId: 'llm-final'
-  });
-
-  assert.deepEqual(storeCalls.enqueueFinalAnswerIdleReminder, [{
-    reminderText: '去看看 todo。',
-    sourceRunId: 'run-final',
-    sourceTraceId: queueMessage.traceId,
-    sourceLlmCallId: 'llm-final',
-    sourceTurn: 3
-  }]);
-  assert.equal(storeCalls.logTimelineEvent.length, 1);
-  assert.equal(storeCalls.logTimelineEvent[0].eventName, 'final_answer_idle_reminder');
-  assert.equal(storeCalls.logTimelineEvent[0].metadata.enqueued, true);
-});
-
-test('executeResponsePostActions does not re-enqueue idle reminder from system reminder input', async () => {
-  const storeCalls: Record<string, any[]> = {
-    enqueueFinalAnswerIdleReminder: [],
-    logTimelineEvent: []
-  };
-  const store = {
-    enqueueFinalAnswerIdleReminder: async (params: any) => {
-      storeCalls.enqueueFinalAnswerIdleReminder.push(params);
-      return {
-        enqueued: true,
-        reason: 'enqueued',
-        queueId: 123,
-        dedupeKey: 'system-reminder:final-answer-idle:1'
-      };
-    },
-    logTimelineEvent: async (params: any) => {
-      storeCalls.logTimelineEvent.push(params);
-    }
-  } as any;
-  const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
-  const basePayload = createQueuePayload();
-  const queueMessage = {
-    ...basePayload,
-    source: 'system_reminder',
-    inboundContext: {
-      ...basePayload.inboundContext,
-      Surface: 'system_reminder'
-    },
-    systemReminder: {
-      reminder: '去看看 todo。',
-      reason: 'final_answer_idle',
-      createdAt: '2026-06-09T00:00:00.000Z'
-    }
-  };
-
-  await (service as any).executeResponsePostActions([{
-    type: 'enqueue_final_answer_idle_reminder',
-    reminderText: '去看看 todo。'
-  }], {
-    queueMessage,
-    runId: 'run-reminder',
-    turn: 1,
-    llmCallId: 'llm-reminder'
-  });
-
-  assert.equal(storeCalls.enqueueFinalAnswerIdleReminder.length, 0);
-  assert.equal(storeCalls.logTimelineEvent.length, 1);
-  assert.equal(storeCalls.logTimelineEvent[0].metadata.enqueued, false);
-  assert.equal(storeCalls.logTimelineEvent[0].metadata.reason, 'source_is_system_reminder');
-});
-
 test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',
@@ -5295,38 +5124,18 @@ test('buildTurnStateReminder injects low-energy STATE from runtime context', () 
 
   assert.ok(reminder);
   assert.match(getMessageContent(reminder!), /<STATE/);
-  assert.match(getMessageContent(reminder!), /trigger="low_energy_reminder"/);
-  assert.match(getMessageContent(reminder!), /energy="0.140"/);
+  assert.match(getMessageContent(reminder!), /energy=0.140/);
+  assert.match(getMessageContent(reminder!), /max_energy=1.000/);
+  assert.doesNotMatch(getMessageContent(reminder!), /trigger=|note=/);
 });
 
 test('buildTurnStateReminder injects explicit runtime STATE directives', () => {
   const reminder = buildTurnStateReminder('<xiaoni_runtime_state trigger="web_search" energy="0.920" max_energy="1" note="after search" />');
 
   assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /trigger="web_search"/);
-  assert.match(getMessageContent(reminder!), /energy="0.920"/);
-  assert.match(getMessageContent(reminder!), /after search/);
-});
-
-test('buildToolLoopMonitorReminder appends action/tool threshold STATE', () => {
-  const loopInput = buildInitialInput([], createQueuePayload());
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-exec-1',
-    name: EXEC_COMMAND_TOOL,
-    arguments: '{"cmd":"pwd"}'
-  });
-  loopInput.push({
-    type: 'function_call',
-    call_id: 'call-exec-2',
-    name: EXEC_COMMAND_TOOL,
-    arguments: '{"cmd":"ls"}'
-  });
-
-  const reminder = buildToolLoopMonitorReminder(loopInput, { nextTurn: 2, maxTurns: 5 });
-  assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /source="tool_loop_monitor"/);
-  assert.match(getMessageContent(reminder!), /trigger="action_tool_threshold"/);
+  assert.match(getMessageContent(reminder!), /energy=0.920/);
+  assert.match(getMessageContent(reminder!), /max_energy=1.000/);
+  assert.doesNotMatch(getMessageContent(reminder!), /trigger=|after search|note=/);
 });
 
 test('applyToolResultToLoopInput appends web_search STATE after hosted search', () => {
@@ -5347,9 +5156,12 @@ test('applyToolResultToLoopInput appends web_search STATE after hosted search', 
     }
   );
 
-  const stateItem = continuation.inputItems.find((item) => getMessageContent(item).includes('trigger="web_search"'));
+  const stateItem = continuation.inputItems.find((item) => getMessageContent(item).includes('energy=0.420'));
   assert.ok(stateItem);
-  assert.match(getMessageContent(stateItem), /energy="0.420"/);
+  assert.equal(stateItem?.type, 'message');
+  assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
+  assert.match(getMessageContent(stateItem), /energy=0.420/);
+  assert.doesNotMatch(getMessageContent(stateItem), /trigger=|note=/);
 });
 
 test('runtime energy recovery starts negative debt from zero and reaches full in two hours', () => {
@@ -5363,7 +5175,8 @@ test('runtime energy recovery starts negative debt from zero and reaches full in
   assert.equal(full.energy, 1);
   const forced = resolveForcedFullRecovery({ rawEnergy: -0.01 });
   assert.equal(forced?.waitMs, 2 * 60 * 60 * 1000);
-  assert.match(String(forced?.stateBlock), /trigger="forced_full_recovery"/);
+  assert.match(String(forced?.stateBlock), /energy=1.000/);
+  assert.doesNotMatch(String(forced?.stateBlock), /trigger=|note=|debt=|recovered=/);
 });
 
 test('recover_energy refuses to sleep when Xiaoni is already full energy', async () => {
@@ -5435,8 +5248,8 @@ test('rest interruption uses unread metadata only and resumes after three direct
   assert.equal(result.directMentionCount, 3);
   assert.equal(result.unreadCount, 4);
   assert.equal(result.messageBodiesExposed, false);
-  assert.match(String(result.stateBlock), /trigger="rest_interrupted"/);
-  assert.match(String(result.stateBlock), /energy="0.500"/);
+  assert.match(String(result.stateBlock), /energy=0.500/);
+  assert.doesNotMatch(String(result.stateBlock), /trigger=|note=|debt=|recovered=/);
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
@@ -5478,15 +5291,15 @@ test('removed life action tool is not exposed as a prompt-facing tool', () => {
 // E: old pending_share state machine is retired; presence context owns proactive material.
 test('buildInitialInput does not inject legacy pending_share blocks', () => {
   const input = buildInitialInput([], createQueuePayload(), undefined, [], null, '今天看到个很有趣的东西');
-  const userTexts = input
-    .filter((item: any) => item.type === 'message' && item.role === 'user')
+  const promptTexts = input
+    .filter((item: any) => item.type === 'message' && (item.role === 'user' || item.role === 'developer'))
     .flatMap((item: any) => {
       const content = Array.isArray(item.content) ? item.content : [item.content];
       return content.map((c: any) => (typeof c === 'string' ? c : c?.text ?? ''));
     });
-  assert.equal(userTexts.some((t: string) => t.includes('[待分享]')), false);
-  assert.equal(userTexts.some((t: string) => t.includes('今天看到个很有趣的东西')), false);
-  assert.equal(userTexts.some((t: string) => t.includes('<PHONE_NOTIFICATION')), true);
+  assert.equal(promptTexts.some((t: string) => t.includes('[待分享]')), false);
+  assert.equal(promptTexts.some((t: string) => t.includes('今天看到个很有趣的东西')), false);
+  assert.equal(promptTexts.some((t: string) => isPhoneNotificationReminderContent(t)), true);
 });
 
 test('processQueueMessage preserves global OS context during self continuation', async () => {
@@ -5649,7 +5462,9 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
     lastHardBudgetTokens: 380000
   });
   assert.equal(upsertCalls.length, 0);
-  assert.match(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
+  assert.match(JSON.stringify(plan.requestInput), /脑容量达到极限/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
   assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
@@ -5725,26 +5540,26 @@ test('buildInitialInput appends CAPABILITIES once near the start', () => {
   assert.match(summaryCapabilitiesBlock, /recover_energy: energy_cost=0.000/);
   assert.match(summaryCapabilitiesBlock, /compress_core_memory: energy_cost=0.020/);
   assert.doesNotMatch(summaryCapabilitiesBlock, /qq_usage_/);
-  assert.match(summaryCapabilitiesBlock, /skill-creator: energy_cost=0.120/);
-  assert.match(summaryCapabilitiesBlock, /qq-usage: energy_cost=0.004/);
-  assert.match(summaryCapabilitiesBlock, /qq-send-image: energy_cost=0.012/);
+  assert.match(summaryCapabilitiesBlock, /skill-creator: energy_cost=0.002/);
+  assert.match(summaryCapabilitiesBlock, /qq-usage: energy_cost=0.002/);
+  assert.match(summaryCapabilitiesBlock, /qq-send-image: energy_cost=0.002/);
 
   const withRefresh = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], null, null, '<capability_refresh reason="operator" />');
   const refreshCapabilities = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
   assert.equal(refreshCapabilities.length, 1);
 });
 
-test('buildCapabilitiesDeveloperBlock omits missing-cost skills with operator warning', () => {
+test('buildCapabilitiesDeveloperBlock omits missing-cost skills without prompt-facing operator warning', () => {
   const { block, warnings } = buildCapabilitiesDeveloperBlock({
     skillCosts: {
-      'skill-creator': 0.120,
+      'skill-creator': 0.002,
       'missing-cost': null
     }
   });
 
-  assert.match(block, /skill-creator: energy_cost=0.120/);
+  assert.match(block, /skill-creator: energy_cost=0.002/);
   assert.doesNotMatch(block, /missing-cost: energy_cost/);
-  assert.match(block, /<operator_warning>skill missing-cost omitted/);
+  assert.doesNotMatch(block, /operator_warning|missing-cost omitted/);
   assert.deepEqual(warnings, ['skill missing-cost omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost']);
 });
 

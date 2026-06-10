@@ -1,16 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  FINAL_ANSWER_IDLE_REMINDER_TEXT,
-  ResponseActionRouter
-} from '../services/response-action-router';
+import { ResponseActionRouter } from '../services/response-action-router';
 
-test('ResponseActionRouter turns final_answer without tools into an idle-reminder post action', () => {
-  assert.equal(
-    FINAL_ANSWER_IDLE_REMINDER_TEXT,
-    '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情'
-  );
-
+test('ResponseActionRouter does not create final_answer idle reminder post actions', () => {
   const plan = new ResponseActionRouter().route({
     output: [{
       type: 'message',
@@ -24,10 +16,7 @@ test('ResponseActionRouter turns final_answer without tools into an idle-reminde
   assert.equal(plan.hasToolCall, false);
   assert.equal(plan.toolCalls.length, 0);
   assert.equal(plan.replayableOutputs.length, 1);
-  assert.deepEqual(plan.postActions, [{
-    type: 'enqueue_final_answer_idle_reminder',
-    reminderText: FINAL_ANSWER_IDLE_REMINDER_TEXT
-  }]);
+  assert.deepEqual(plan.postActions, []);
 });
 
 test('ResponseActionRouter does not enqueue idle reminder when final_answer also has a tool call', () => {

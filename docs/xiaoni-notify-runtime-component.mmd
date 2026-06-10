@@ -38,7 +38,7 @@ flowchart LR
     taskWorker["agent task worker<br/>image task completion"]:::agent
   end
 
-  noteRouter["final_answer 在 router 消费为 post action<br/>transcript phase 仍按原样保存 / 回放"]:::note
+  noteRouter["final_answer 在 router settle / release<br/>不再回写 idle reminder<br/>transcript phase 仍按原样保存 / 回放"]:::note
   noteDispatch["归一的是 tool control plane<br/>不是所有 tool 都走 provider-service"]:::note
   noteBucket["agent_queue_messages 是承载实现<br/>不是 QQ 正文 inbox"]:::note
 
@@ -52,7 +52,7 @@ flowchart LR
 
   loop --> codexProvider --> openai --> codexProvider --> router
   router --> history
-  router -- "final_answer post action<br/>if bucket empty" --> bucket
+  router -- "final_answer settle / release<br/>no idle reminder" --> loop
   router -- "tool_call" --> dispatcher
   router -- "message / silent" --> loop
   router -.-> noteRouter

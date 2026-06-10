@@ -57,21 +57,21 @@
   `web_search` 之后、低精力提醒、负精力后的完整恢复、休息中被连续 @ 打断时
   append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数，恢复计算按 `max(0, energy)`。
 - 当工程检测到 `raw_energy < 0` 时，强制等待 `2h` 后再恢复。恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
-- hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 `<STATE>`，让模型看到搜索后的精力变化。
+- hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 developer role `<STATE>`，让模型看到搜索后的精力变化。`exec_command` 和 `inspect_image_placeholder` 这类不能安全 JSON 包装的本地执行路径也保留原始输出，并由工程额外追加 body-only `<STATE>`；结构化 JSON tool callback 则直接在 output JSON 中回传 `energy_cost`、`energy`、`max_energy`。
 - prompt-facing 恢复工具只有 `recover_energy`。`rest_period` /
   `sleep_period` 可作为历史/internal 事件留存，但不能作为面向模型的双工具
   契约。
 - developer block 必须追加支持的
   tools、skills 和成本，当前用 `<CAPABILITIES>` 承载并放在主 loop 输入开头。skill 只有在 `SKILL.md` 声明 `## Runtime Cost` /
-  `energy_cost: <number>` 时才列入；缺 cost 的 skill 不列入并产生 operator
+  `energy_cost: <number>` 时才列入；当前本地 skill 默认 / 兜底成本统一按 `0.002` 展示，缺 cost 的 skill 不列入并产生 operator
   warning。小腻可以通过 skill 维护流程调整 cost；修改必须审计旧值、新值、原因和关联 trace。
 - 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才打断休息，并在后续上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
 - 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
-- Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；后续同一 run 的模型切片只能看到 `runtime_event_snapshot status=already_picked` 和 replay/tool state，不能再次把同一条 Notify 当成新的当前事件。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
+- Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；这些 prompt-facing runtime reminder 使用 `developer` role，`phone_notification` 和 `image_task_notification` 都使用 body-only `<system_reminder>` 模板，不暴露 `<PHONE_NOTIFICATION>` / `<IMAGE_TASK_NOTIFICATION>` 或 queue trace 属性。后续同一 run 的模型切片只保留 replay/tool state，不再把同一条 Notify 重新渲染成当前事件，也不追加 `already_picked` 快照。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
-- `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 `<system_reminder source="core_memory_pressure" required_tool="compress_core_memory">`，并把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
+- `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`；不要依赖 prompt XML 属性检测。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
 
 ## Memory And Search Routing
 

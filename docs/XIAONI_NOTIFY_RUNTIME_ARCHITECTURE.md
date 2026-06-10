@@ -48,7 +48,6 @@ loop tick
 | NapCat QQ message | `auto_reply_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | self continuation | `self_continuation`，空闲且未休息时维持连续主 loop。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
-| final_answer idle reminder | `system_reminder`，模型返回 `final_answer` 且 bucket 为空时由 Step 8 post action 写入。 | `modules/agent-service/src/services/response-action-router.ts` / `packages/persistence/agent-queue.js` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
 写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，等待主 loop 在后续 slice 里 pick。事件一旦被 pick，就从 `pending` 变成 `consumed`：门铃已经进入上下文，后续模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
@@ -92,36 +91,19 @@ agent-service
   -> agent-service action dispatch
 ```
 
-`final_answer` / `tool_call` / assistant message 都是模型响应内容。响应解析后由 `agent-service` 的 `ResponseActionRouter` 决定后续动作。历史 transcript 仍保持原始 phase：存下来的 `commentary` / `final_answer` 怎么样，回放和渲染就怎么样；只有 Step 8 的 runtime post action 会消费 `final_answer` 这个响应类型。
+`final_answer` / `tool_call` / assistant message 都是模型响应内容。响应解析后由 `agent-service` 决定后续动作。历史 transcript 仍保持原始 phase：存下来的 `commentary` / `final_answer` 怎么样，回放和渲染就怎么样。
 
-`final_answer` 当前有一条明确消费策略：
+`final_answer` 当前有一条代码侧消费策略：
 
 ```text
 canonical_response
-  -> ResponseActionRouter
   -> final_answer
-  -> current active loop appends final_answer_turn_control as user scene input before the next model slice
-  -> final_answer without tool_call
-  -> if Notify Bucket has no pending item
-  -> enqueue system_reminder notify
-  -> future loop renders reason=final_answer_idle as user scene input
+  -> no tool_call and no visible delivery
+  -> settle / release lease_release_reason=no_visible_delivery_observed
+  -> later idle work uses the normal self_continuation path
 ```
 
-写入使用 `packages/persistence/agent-queue.js` 的原子方法，先在事务里检查 pending bucket，再写 `system_reminder`。如果当前输入本身就是 `system_reminder`，`agent-service` 不会再次回灌同类提醒，避免自循环。
-
-当前 idle reminder 的文本是：
-
-```text
-去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情
-```
-
-注意三层语义：当前 active loop 内的 `final_answer_turn_control` 是直接追加到下一次模型请求的 `user` scene input，用来避免 assistant 只回放自己的 `final_answer`；原始 Notify 在第二轮以后只作为 `runtime_event_snapshot status=already_picked` 出现，不再作为新的当前通知；持久化 queue source 是 `system_reminder`，用于空桶时去重、排障和避免自循环，未来 loop 里 `reason=final_answer_idle` 的提醒也作为 `user` scene input，而不是 assistant 自己继续输出。
-
-相关配置：
-
-| 环境变量 | 默认值 | 作用 |
-| --- | --- | --- |
-| `AGENT_FINAL_ANSWER_IDLE_REMINDER_INTERVAL_MS` | `300000` | `final_answer` 空桶提醒的去重时间桶，当前最小值也是 5 分钟。它只影响 `system_reminder` 的 dedupe bucket，不改变历史 transcript phase。 |
+当前 active loop 不再追加 `final_answer_turn_control` user scene input，也不再通过 `ResponseActionRouter` 写 `final_answer_idle` system reminder。历史 `reason=final_answer_idle` queue row 如果仍存在，只按普通内部 `system_reminder` 兼容读取，不作为新的 prompt-facing 契约。
 
 ## 动作分发
 
@@ -132,8 +114,8 @@ canonical_response
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
-| `final_answer` | 当前 active loop 先追加 `final_answer_turn_control` user scene input；`ResponseActionRouter` 生成 post action，bucket 为空时写入 `system_reminder` notify。 | 后续切片只看到 already-picked snapshot，不会重新看到同一条 current Notify；post action 结果记录 timeline；transcript / replay 仍按原始 phase 保存。 |
-| message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace，并进入下一轮；如果继续切片，原始 Notify 只作为 already-picked snapshot。 |
+| `final_answer` | 无外部工具分发；如果没有可见 delivery，代码侧以 `no_visible_delivery_observed` settle / release。 | transcript / replay 仍按原始 phase 保存；不会追加 prompt-facing follow-up reminder。 |
+| message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；如果继续切片，原始 Notify 不会重新作为当前输入。 |
 
 ## 图片理解 Fork
 

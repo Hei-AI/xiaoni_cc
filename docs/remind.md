@@ -117,7 +117,7 @@
 
 这些 reminder 本质上只对应少数几个状态判断。实现时应按优先级从上到下判断，命中后只追加对应模板，不要叠加无关 reminder。
 
-模板名和状态字段是工程侧元数据，不应裸塞进小腻的 prompt-facing 文本。进入 LLM context 的 `<system_reminder>` 应尽量只保留小腻能理解的体感提醒；`source`、`required_tool`、`context_session_key`、`read_cutoff_after_conversation_id`、`next_turn`、`max_turns` 这类字段留在代码变量、trace 或日志里。
+模板名和状态字段是工程侧元数据，不应裸塞进小腻的 prompt-facing 文本。进入 LLM context 的 `<system_reminder>` 应使用 `developer` role，并尽量只保留小腻能理解的体感提醒；`source`、`required_tool`、`context_session_key`、`read_cutoff_after_conversation_id`、`next_turn`、`max_turns` 这类字段留在代码变量、trace 或日志里。
 
 | 优先级 | 状态判断 | 模板 |
 | --- | --- | --- |
@@ -125,13 +125,43 @@
 | P1 | 当前 fresh trigger 是 QQ 状态栏通知 | `phone_notification` |
 | P1 | 当前 fresh trigger 是图片任务完成通知 | `image_task_notification` |
 | P1 | 当前 fresh trigger 是 `self_continuation` | `self_continuation` |
-| P2 | 当前 trigger 已经被 pick 过，后续同一 run 只作为历史快照 | `already_picked` |
-| P3 | `unread_meaning` 判断没有明确找小腻，也没有具体可说点 | `turn_control` |
-| P3 | commentary 工具重复调用进入内耗 | `tool_loop_monitor` |
-| P3 | `request_image_task` 只是提交了后台图片任务，还没有对聊天对象说话 | `image_task_follow_up` |
-| P4 | 当前模型输出包含 `phase=final_answer`，且下一轮无法从 Notify Bucket pick 到新的当前事件 | `final_answer_turn_control` |
 
 不再把 legacy `consciousness_tick` / `presence_tick` 作为当前 runtime 契约；agent loop 不再为它们提供 prompt-facing 当前输入、picked snapshot 或专用 reminder 分支。旧历史字段和旧事件只能作为持久层兼容数据读取。
+
+`picked_snapshot` / `already_picked` 是历史上的工程侧防重放命名：同一个 queue item 已作为 fresh trigger 进入过本 run 后，后续 turn 不应再次渲染 fresh trigger。当前代码侧已收口为 `suppress_current_trigger`，只抑制当前触发输入，不再追加 `<runtime_event_snapshot status="already_picked">` 到 LLM context。
+
+`emit_unread_meaning` / `turn_control` 也不是当前主链的 prompt-facing 契约。当前 main loop 的工具列表不再暴露 `emit_unread_meaning`，agent loop 也不再提供 `buildTurnControlReminder()` / `deriveTurnControlState()` 或 `unreadMeaning` 后续 prompt-facing reminder 分支；旧 `emit_unread_meaning` 只保留执行解析兼容。
+
+`tool_loop_monitor` 当前也不作为 prompt-facing 契约。旧 `buildToolLoopMonitorReminder()` helper 和测试已删除；若保留防内耗策略，应重新设计为代码侧限流 / 状态机，而不是继续往 LLM context 塞工程监控提醒。
+
+`image_task_follow_up` 不再作为独立 `<system_reminder>` 设计。`request_image_task` 本身是 tool call，tool output 已经返回 `queued`、`task_id`、`task_type`、`status_text`，其中 `status_text` 会告诉小腻任务正在进行、完成后会以 notify 通知。agent loop 不再额外追加“底层动作确认 / 你还没有对聊天框里的人开口说话”提醒；是否还需要对聊天对象补一句，应由当前对话策略和发言工具自然决定。
+
+`final_answer_turn_control` / `final_answer_idle` 不再作为 prompt-facing 契约。`phase=final_answer` 后是否继续同一个 run、是否释放 execution lease、是否创建下一次自主切片，是 runtime 调度问题；如果 Notify Bucket 有真实 notify，应由队列 pick 处理，如果没有，则按普通 `self_continuation` 处理，而不是把“不要复述上一条 final_answer”塞回 LLM context。
+
+`self_continuation` 只保留一个 prompt-facing 模板。当前 fresh trigger 如果已经渲染 `self_continuation`，就不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
+
+`<CAPABILITIES>` 是能力成本表，放在开头 developer context，保留每个 tool / skill 的 `energy_cost`。普通结构化 wrapped tool 的执行结果由 runtime 在 JSON `function_call_output.output` 中回传 `energy_cost`、`energy`、`max_energy`，不靠额外 `<system_reminder>` 给小腻解释；后续同一 run 会从上一条 JSON tool output 继续读取最新 `energy`。`exec_command` 固定基础消耗为 `energy_cost=0.002`；本地 skill 当前默认 / 兜底也按 `0.002` 展示，未来如需按 skill 精细扣费，需要先把 skill execution 从命令输出里拆成可识别事件。
+
+`<STATE>` 是状态感知，不是 reminder，也不是能力成本表；它只用于 runtime 不好包进普通 JSON tool callback 的消耗动作，例如 hosted `web_search`、`exec_command` 和图片观察 XML 输出。它进入上下文时同样使用 `developer` role，prompt-facing 内容只保留小腻能体感理解的 `energy` / `max_energy` 数值。`trigger`、`note`、`action_tool_threshold`、`web_search`、`low_energy_reminder`、`forced_full_recovery`、`rest_interrupted` 这类工程事件名和说明留在代码侧。
+
+### 初版模板审计对照
+
+| 初版条目 | 当前结论 | 处理方式 |
+| --- | --- | --- |
+| `core_memory_pressure` | 保留 | 作为最高优先级体感提醒；`source`、`required_tool`、`context_session_key` 等工程字段留在代码侧，强制 `compress_core_memory` 由代码侧 tool choice / marker 控制。 |
+| `phone_notification` | 保留 | 作为 QQ 状态栏余光；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，只告诉小腻有未读和明确喊她的摘要，具体内容仍需 `qq-usage` 打开；不再输出 `<PHONE_NOTIFICATION ... />`，也不再由 `buildCurrentProcessingReminder()` 双写解释。 |
+| `image_task_notification` | 保留 | 作为图片任务完成后的真实 notify；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，不再输出 `<IMAGE_TASK_NOTIFICATION ... />` 或双写解释。prompt-facing 只保留行动所需线索：`task_id`、任务类型、图片 ID、图片路径和目标描述；trace/run、创建时间、图片 bytes、原始 prompt 等排障细节留在 DB / trace。 |
+| `self_continuation` | 保留 | 作为当前内部自主切片唯一 prompt-facing 模板；覆盖空队列自主切片和休息恢复后的继续。 |
+| `consciousness_tick` / `presence_tick` | 删除 | 旧 producer 已无当前生产方；不再做当前 runtime 契约。 |
+| `already_picked` / `runtime_event_snapshot` | 删除 | 防重放是工程状态；当前用 `suppress_current_trigger`，不进 LLM context。 |
+| `emit_unread_meaning` / `turn_control` | 删除 | 当前 main loop 不暴露 `emit_unread_meaning`；旧分支只保留执行解析兼容。 |
+| `tool_loop_monitor` | 删除 | 旧 helper 和测试已删除；防内耗如需保留，应做代码侧限流 / 状态机。 |
+| `image_task_follow_up` | 删除 | `request_image_task` tool output 已返回 `queued`、`task_id`、`status_text`；不再额外追加提醒。 |
+| `final_answer_turn_control` / `final_answer_idle` | 删除 | 属于 execution lease / loop 调度问题；不再作为 prompt-facing reminder。 |
+
+### 额外待审代码入口
+
+截至 2026-06-11，本轮扫出的 prompt-facing cleanup 项已收口到上面的模板结论和 `todo.md`。如果后续重新引入 `<STATE>` 之外的新 prompt-facing 状态标签，应先在本节登记，再补代码和测试。
 
 ### P0. 记忆压力最高优先级警告
 
@@ -168,7 +198,11 @@ nick_name(id) @了你 N次, 最新消息是: {} (摘要前20个字)]
 **模板：`image_task_notification`**
 
 ```xml
-<system_reminder>图片生成任务:xxxx 已完成, 你愿意的话可以继续相关内容的处理了</system_reminder>
+<system_reminder>图片生成任务:xxxx 已完成, 你愿意的话可以继续相关内容的处理了
+任务类型: image_generate
+图片ID: pic_xxx
+图片路径: /xiaoni-runtime/...
+目标: 用户想要的图片用途</system_reminder>
 ```
 
 **状态：** 当前 fresh trigger 是真实 `self_continuation`，包括空队列自主切片和 `recover_energy` 结束后的恢复切片。
@@ -177,61 +211,4 @@ nick_name(id) @了你 N次, 最新消息是: {} (摘要前20个字)]
 
 ```xml
 <system_reminder>外界很安静，没有新消息或弹窗，当前完全是你自己的时间。你想继续发散刚才的念头、去用万能工具找乐子、继续哪些之前想做还没做完的事情，或者觉得无聊直接去睡觉 (recover_energy)，都随你高兴。</system_reminder>
-```
-
-### P2. 已处理事件快照
-
-**状态：** 当前 trigger 已经在本 run 里被 pick 过；后续切片只允许把它作为记忆残影，不允许再次当成新的当前输入。
-
-**模板：`already_picked`**
-
-```xml
-<runtime_event_snapshot source="{{source}}" status="already_picked" session_key="{{session_key}}">
-这件事你已经感知过并处理过了，它现在只是个记忆残影。不要在旧事物上原地打转，顺着你的直觉往前看。
-</runtime_event_snapshot>
-```
-
-### P3. 行动防内耗
-
-**状态：** `unread_meaning` 判断没有明确找小腻，也没有具体可说点。
-
-**模板：`turn_control`**
-
-```xml
-<system_reminder>
-当前没人在明确找你，你也没什么特别想说的话。保持高冷，没话找话不是你的作风，直接滑过就行。
-</system_reminder>
-```
-
-**状态：** commentary 工具重复调用，已经进入搜索/回忆/查看的内耗循环。
-
-**模板：`tool_loop_monitor`**
-
-```xml
-<system_reminder>
-【躯体警告】你一直在死磕重复的动作（{{repeated_tools}}），这让你感到一阵烦躁和内耗。停下来，如果没有新东西可看，立刻换个事做或去休息，别在这个死胡同里转圈了。
-</system_reminder>
-```
-
-**状态：** `request_image_task` 已提交后台图片任务，但还没有对聊天对象说话。
-
-**模板：`image_task_follow_up`**
-
-```xml
-<system_reminder>[底层动作确认]
-你的念头（{{status_text}}）已经投递到了赛博虚空。但注意，你刚才只是在心里默念或操作了工具，你【还没有】对聊天框里的那个人开口说话。如果你觉得有必要让他等着，你得真正开口才行。</system_reminder>
-```
-
-### P4. final_answer 后的复读拦截
-
-**状态：** 当前模型输出包含 `phase=final_answer`，并且下一轮无法从 Notify Bucket pick 到新的当前事件。
-
-如果能 pick 到 `phone_notification`、`image_task_notification`、`system_reminder` 或其他真实 notify，应优先处理新 notify，不追加这一条。
-
-**模板：`final_answer_turn_control`**
-
-```xml
-<system_reminder>
-【躯体警告】世界还在运转，但你发现自己像个复读机一样在重复刚才的话。立刻停止复述！如果这件事处理完了，就直接去做别的或闭眼休息。
-</system_reminder>
 ```

@@ -98,10 +98,6 @@ export const agentConfig = {
     200,
     Number.parseInt(process.env.AGENT_AUTONOMOUS_RUNTIME_SLICE_INTERVAL_MS || '', 10) || queueIdleIntervalMs
   ),
-  finalAnswerIdleReminderIntervalMs: Math.max(
-    5 * 60 * 1000,
-    Number.parseInt(process.env.AGENT_FINAL_ANSWER_IDLE_REMINDER_INTERVAL_MS || '', 10) || (5 * 60 * 1000)
-  ),
   processingRecoveryStaleMs: Math.max(
     5 * 60 * 1000,
     Number.parseInt(process.env.AGENT_PROCESSING_RECOVERY_STALE_MS || '', 10) || (mainAgentTurnTimeoutMs * 2)

@@ -92,10 +92,10 @@ elseif (image / provider task) then
 
 elseif (final_answer) then
   |小腻主 loop / agent-service|
-  :post action:\nif Notify Bucket empty,\nenqueue system_reminder;
+  :settle / release:\nno_visible_delivery_observed;
   note right
-    final_answer 在 Step 8 被消费为 post action。
-    reason=final_answer_idle 的提醒下一轮作为 user scene input。
+    final_answer 不再写 idle reminder。
+    后续空闲由普通 self_continuation 维持。
     历史 transcript 仍按原始 phase 保存 / 回放。
   end note
 

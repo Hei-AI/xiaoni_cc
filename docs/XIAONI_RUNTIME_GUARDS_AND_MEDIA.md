@@ -11,8 +11,8 @@
 | QQ 入站正文 | 始终先落 `agent_inbound_messages`，作为 QQ app inbox/window。 | `modules/provider-service/src/services/inbound-inbox-service.ts` |
 | `auto_reply_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | `phone_notification` | 只含状态栏摘要，不含 QQ 正文；小腻必须主动用 `$qq-usage` 才能看到正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
-| `final_answer` idle | 模型返回 `final_answer` 且无 tool call 时，Step 8 在 bucket 为空时追加一个 `system_reminder`。 | `modules/agent-service/src/services/response-action-router.ts` |
-| idle reminder 输入形态 | 持久化 source 是 `system_reminder`；下一轮组 prompt 时，`reason=final_answer_idle` 的提醒作为 `user` scene input 进入主 agent。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| `final_answer` no-visible settle | 模型返回 `final_answer` 且无 tool call / 可见 delivery 时，代码侧以 `no_visible_delivery_observed` 结束当前 slice。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| legacy idle reminder 输入形态 | 历史 `reason=final_answer_idle` 行只按普通内部 `system_reminder` 兼容读取；当前 runtime 不再生产它。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片理解 | `inspect_image_placeholder` 复用当前主 agent request，追加图片 base64 fork，返回文本观察。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片观察输出 | 主 agent 只收到 `<image id="...">含义是: ...</image>`；base64 不进入长期 replay。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 
@@ -46,27 +46,20 @@ inbox，也不删除后续人工排障可见性；它只阻止主 loop 被这条
 ## Final Answer Idle Flow
 
 `final_answer` 不等于“后面可以继续直接请求同一个 assistant”。当前策略是把
-`final_answer` 当作一个完成事件，再由 runtime 显式追加下一轮输入：
+`final_answer` 当作一个完成事件，由代码侧明确结束当前 slice：
 
 ```text
 OpenAI response phase=final_answer
   -> provider-service returns canonical response
-  -> agent-service ResponseActionRouter sees final_answer without tool_call
-  -> enqueueFinalAnswerIdleReminder checks pending Notify Bucket atomically
-  -> if empty: enqueue source=system_reminder, reason=final_answer_idle
-  -> next loop consumes it as user scene input
+  -> agent-service sees no tool_call and no visible delivery
+  -> settle / release with lease_release_reason=no_visible_delivery_observed
+  -> later idle work uses the normal self_continuation path
 ```
 
-提醒文本必须保持为：
-
-```text
-去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情
-```
-
-这个文本是下一轮的可见行动请求，不改写上一轮 transcript，也不把
-`final_answer` phase 改成 `commentary`。如果当前输入本身就是
-`final_answer_idle` 的 `system_reminder`，post action 不再回灌同类提醒，避免
-自循环。
+这不改写上一轮 transcript，也不把 `final_answer` phase 改成 `commentary`。
+当前 runtime 不再追加 `final_answer_turn_control` user scene input，也不再写
+`reason=final_answer_idle` 的 Notify Bucket reminder。历史 `final_answer_idle`
+行只按普通内部 `system_reminder` 兼容读取。
 
 ## Image Vision Fork
 

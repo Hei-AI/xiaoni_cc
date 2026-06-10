@@ -44,7 +44,7 @@ while service is running and runtime control is enabled
 - `phone_notification` is sensory input from the phone status bar. It is not QQ message body.
 - `phone_notification` is only enqueued when the chat policy allows auto reply. `auto_reply_enabled=false` still keeps the QQ body in inbox, but does not wake the main loop.
 - `self_continuation` is an internal runtime slice. It is not a fake QQ message and not legacy `consciousness_tick` / `presence_tick`.
-- `final_answer_idle` is a `system_reminder` queue item that is rendered as the next user scene input after a `final_answer` when the bucket is otherwise empty.
+- `final_answer_idle` is a legacy `system_reminder` reason. The current runtime no longer produces it; historical rows are rendered as ordinary internal system reminders.
 - `recover_energy` is the only prompt-facing rest tool. While a recovery window is active, the host does not create autonomous slices.
 - `agent_queue_messages` is an engineering ingress queue. It is not Xiaoni's QQ unread list or cognitive boundary.
 - `xiaoni:global` is the only prompt-facing history, context summary, read-cutoff, and prompt cache key for the main loop.

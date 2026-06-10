@@ -82,6 +82,8 @@ type OpenResponseInputContentPart =
       detail?: 'low' | 'high' | 'auto' | 'original';
     };
 
+const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
+
 type OpenResponseToolDefinition = {
   type: 'function';
   name?: string;
@@ -150,22 +152,6 @@ type RuntimeStateTrigger =
   | 'forced_full_recovery'
   | 'rest_interrupted';
 
-type TurnControlStage =
-  | 'read_unread'
-  | 'finalize';
-
-type TurnControlRecallStatus = 'not_needed';
-type TurnControlExpectedNext = 'final_tool';
-export type TurnControlState = {
-  stage: TurnControlStage;
-  targetFound: boolean;
-  recallStatus: TurnControlRecallStatus;
-  recallAttempts: number;
-  emptyRecallAttempts: number;
-  expectedNext: TurnControlExpectedNext;
-  reason: string;
-};
-
 type DeliveredAssistantMessage = {
   content: string;
   deliveryMessageId: number | null;
@@ -173,6 +159,7 @@ type DeliveredAssistantMessage = {
 
 type LeaseReleaseReason =
   | 'visible_delivery_committed'
+  | 'no_visible_delivery_observed'
   | 'rest_started'
   | 'runtime_error'
   | 'prompt_binding_error';
@@ -360,7 +347,7 @@ type FeedbackLearningStateCandidate = {
   reason: string;
 };
 
-type RuntimeTriggerInputMode = 'fresh_trigger' | 'picked_snapshot';
+type RuntimeTriggerInputMode = 'fresh_trigger' | 'suppress_current_trigger';
 
 type FeedbackWriterMode = 'episode_only' | 'durable_lessons';
 type CompactMemoryLayer = 'episodic' | 'semantic' | 'reflection';
@@ -449,15 +436,15 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   web_search: 0.080,
   [TOOL_NAMES.inspectImage]: 0.040,
   [TOOL_NAMES.imageTask]: 0.030,
-  [TOOL_NAMES.execCommand]: 0.030,
+  [TOOL_NAMES.execCommand]: 0.002,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020
 };
 
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
-  'skill-creator': 0.120,
-  'qq-usage': 0.004,
-  'qq-send-image': 0.012
+  'skill-creator': 0.002,
+  'qq-usage': 0.002,
+  'qq-send-image': 0.002
 };
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
@@ -1195,8 +1182,7 @@ export function buildCapabilitiesDeveloperBlock(input: {
     '<SKILLS>',
     ...(skillLines.length > 0 ? skillLines : ['- none']),
     '</SKILLS>',
-    '</CAPABILITIES>',
-    ...warnings.map((warning) => `<operator_warning>${warning}</operator_warning>`)
+    '</CAPABILITIES>'
   ].join('\n');
   return { block, warnings };
 }
@@ -1220,97 +1206,8 @@ function isToolCallSideEffecting(toolCall: Pick<AgentToolCall, 'name' | 'args'>)
   return false;
 }
 
-function hasUnreadMeaningReplay(loopInput: OpenResponseInputItem[]) {
-  return hasToolReplay(loopInput, TOOL_NAMES.unreadMeaning);
-}
-
 function hasToolReplay(loopInput: OpenResponseInputItem[], toolName: string) {
   return loopInput.some((item) => item.type === 'function_call' && item.name === toolName);
-}
-
-function parseReplayJsonObject(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function extractLatestUnreadMeaning(loopInput: OpenResponseInputItem[]): UnreadMeaning | null {
-  const unreadMeaningCallIds = new Set<string>();
-  for (const item of loopInput) {
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
-      unreadMeaningCallIds.add(item.call_id);
-    }
-  }
-
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (
-      item.type === 'function_call_output'
-      && unreadMeaningCallIds.has(item.call_id)
-      && typeof item.output === 'string'
-    ) {
-      const parsed = parseReplayJsonObject(item.output);
-      const meaning = parseUnreadMeaning(parsed);
-      if (meaning) {
-        return meaning;
-      }
-    }
-    if (item.type === 'function_call' && item.name === TOOL_NAMES.unreadMeaning) {
-      const parsed = parseReplayJsonObject(item.arguments);
-      const meaning = parseUnreadMeaning(parsed);
-      if (meaning) {
-        return meaning;
-      }
-    }
-  }
-
-  return null;
-}
-
-function hasDirectNewCue(meaning: UnreadMeaning | null) {
-  if (!meaning?.addressedToMe && meaning?.socialTarget !== 'me') {
-    return false;
-  }
-  if (meaning.hasRealNovelty) {
-    return true;
-  }
-  return meaning.messageAct === 'question' || meaning.messageAct === 'request' || meaning.messageAct === 'feedback';
-}
-
-function hasUsableGroupTarget(meaning: UnreadMeaning | null) {
-  if (!meaning) {
-    return false;
-  }
-  if (hasDirectNewCue(meaning)) {
-    return true;
-  }
-  if (meaning.socialTarget === 'group' && meaning.hasRealNovelty) {
-    return true;
-  }
-  return Boolean(meaning.topicContext?.hasTopic && meaning.hasRealNovelty);
-}
-
-export function deriveTurnControlState(loopInput: OpenResponseInputItem[]): TurnControlState {
-  const recallAttempts = 0;
-  const emptyRecallAttempts = 0;
-  const meaning = extractLatestUnreadMeaning(loopInput);
-  const targetFound = hasUsableGroupTarget(meaning);
-  return {
-    stage: 'finalize',
-    targetFound,
-    recallStatus: 'not_needed',
-    recallAttempts,
-    emptyRecallAttempts,
-    expectedNext: 'final_tool',
-    reason: targetFound
-      ? '当前未读里有可回应目标，可以直接说话、查资料、看图、登记图片任务，或按自己的精力状态休息。'
-      : '当前未读没有明确找小腻，也没有稳定的新目标；不要为了接话制造目标，如果累了就按自己的精力状态休息，否则继续自己的行动。'
-  };
 }
 
 function buildAllowedToolsToolChoice(
@@ -1395,35 +1292,67 @@ export function buildRuntimeStateBlock(input: {
 }) {
   const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
   const energy = normalizeRuntimeEnergy(input.energy, maxEnergy);
-  const debt = Math.max(0, normalizeRuntimeEnergy(input.debt, 0));
-  const recovered = Math.max(0, normalizeRuntimeEnergy(input.recovered, 0));
   const body = [
     `energy=${formatRuntimeEnergy(energy)}`,
-    `max_energy=${formatRuntimeEnergy(maxEnergy)}`,
-    debt > 0 ? `debt=${formatRuntimeEnergy(debt)}` : null,
-    recovered > 0 ? `recovered=${formatRuntimeEnergy(recovered)}` : null,
-    input.note ? `note=${input.note}` : null
+    `max_energy=${formatRuntimeEnergy(maxEnergy)}`
   ].filter(Boolean).join('\n');
-  return formatTaggedBlock('STATE', {
-    trigger: input.trigger,
-    energy: formatRuntimeEnergy(energy),
-    max_energy: formatRuntimeEnergy(maxEnergy)
-  }, body);
+  return formatTaggedBlock('STATE', {}, body);
 }
 
-function extractLatestRuntimeEnergy(loopInput: OpenResponseInputItem[]) {
+function parseRuntimeStateFromFunctionOutput(output: string) {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    const energy = normalizeRuntimeEnergy(record.energy, Number.NaN);
+    const maxEnergy = normalizeRuntimeEnergy(record.max_energy ?? record.maxEnergy, RUNTIME_MAX_ENERGY);
+    if (!Number.isFinite(energy)) {
+      return null;
+    }
+    return {
+      energy,
+      maxEnergy: Math.max(0.001, maxEnergy)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractLatestRuntimeState(loopInput: OpenResponseInputItem[]) {
   for (let index = loopInput.length - 1; index >= 0; index -= 1) {
     const item = loopInput[index];
+    if (item.type === 'function_call_output') {
+      const state = parseRuntimeStateFromFunctionOutput(String(item.output || ''));
+      if (state) {
+        return state;
+      }
+      continue;
+    }
     if (item.type !== 'message') {
       continue;
     }
     const content = flattenMessageContent(item.content);
-    const stateEnergy = content.match(/<STATE\b[\s\S]*?\benergy="(-?\d+(?:\.\d+)?)"/);
+    const stateEnergy = content.match(/<STATE\b[^>]*\benergy="(-?\d+(?:\.\d+)?)"/)
+      || content.match(/<STATE\b[\s\S]*?(?:^|\n)energy=(-?\d+(?:\.\d+)?)/m);
     if (stateEnergy) {
-      return Number(stateEnergy[1]);
+      const stateMaxEnergy = content.match(/<STATE\b[^>]*\bmax_energy="(-?\d+(?:\.\d+)?)"/)
+        || content.match(/<STATE\b[\s\S]*?(?:^|\n)max_energy=(-?\d+(?:\.\d+)?)/m);
+      return {
+        energy: Number(stateEnergy[1]),
+        maxEnergy: Math.max(0.001, normalizeRuntimeEnergy(stateMaxEnergy?.[1], RUNTIME_MAX_ENERGY))
+      };
     }
   }
-  return RUNTIME_MAX_ENERGY;
+  return {
+    energy: RUNTIME_MAX_ENERGY,
+    maxEnergy: RUNTIME_MAX_ENERGY
+  };
+}
+
+function extractLatestRuntimeEnergy(loopInput: OpenResponseInputItem[]) {
+  return extractLatestRuntimeState(loopInput).energy;
 }
 
 function extractRuntimeStateDirective(developerContextBlock: string | null | undefined) {
@@ -1524,11 +1453,7 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
 }
 
 function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
-  return loopInput.some((item) => (
-    item.type === 'message'
-    && flattenMessageContent(item.content).includes('source="core_memory_pressure"')
-    && flattenMessageContent(item.content).includes(`required_tool="${TOOL_NAMES.compressCoreMemory}"`)
-  ));
+  return loopInput.some((item) => Boolean((item as Record<PropertyKey, unknown>)[CORE_MEMORY_COMPRESSION_REMINDER_MARKER]));
 }
 
 function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
@@ -2070,12 +1995,11 @@ function buildInboundBatchTranscriptItems(
     }];
   }
   if (isSystemReminderPayload(queueMessage)) {
-    const finalAnswerIdleReminder = isFinalAnswerIdleSystemReminderPayload(queueMessage);
     return [{
       sessionKey: queueMessage.sessionKey,
-      role: finalAnswerIdleReminder ? 'user' : 'assistant',
-      phase: finalAnswerIdleReminder ? null : 'commentary',
-      content: finalAnswerIdleReminder ? getSystemReminderText(queueMessage) : renderSystemReminder(queueMessage),
+      role: 'assistant',
+      phase: 'commentary',
+      content: renderSystemReminder(queueMessage),
       groupIndex: 0 as const,
       itemIndex: 0,
       source: 'sensory_event',
@@ -2418,7 +2342,7 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
-const HISTORICAL_NOTIFICATION_TAG_PATTERN = /<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b/i;
+const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:))/i;
 
 function isHistoricalNotificationSnapshot(
   item: ConversationTranscriptItem,
@@ -2468,120 +2392,100 @@ function renderTranscriptItemForRuntimeContext(
 
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
   if (isSelfContinuationPayload(queueMessage)) {
-    return '<system_reminder>当前是小腻自己的连续生命切片，不是 QQ 正文，也不是有人在催促你。可以继续思考、更新状态、查看手机 QQ 通知、打开 QQ、使用工具、保持沉默，或者按精力状态调用 recover_energy 休息。</system_reminder>';
-  }
-  if (isImageTaskNotificationPayload(queueMessage)) {
-    return '<system_reminder>这是生图任务完成通知，不是 QQ 消息。通知里给出的 task_id、picture_id 和 picture_path 是已完成图片的直接线索；可以按路径读取或后续自行决定怎么处理。</system_reminder>';
-  }
-  if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
-    return '';
+    return '<system_reminder>外界很安静，没有新消息或弹窗，当前完全是你自己的时间。你想继续发散刚才的念头、去用万能工具找乐子、继续哪些之前想做还没做完的事情，或者觉得无聊直接去睡觉 (recover_energy)，都随你高兴。</system_reminder>';
   }
   if (isSystemReminderPayload(queueMessage)) {
     return '<system_reminder>当前输入来自小腻 runtime 的内部提醒，不是 QQ 正文，也不是用户消息。可以把它当作行动建议，但不要伪装成外界催促。</system_reminder>';
   }
-  if (isPhoneNotificationPayload(queueMessage)) {
-    return '<system_reminder>手机状态栏出现了 QQ 通知。这是外界进入当前行动流的感官输入，不是 QQ 正文；你只知道通知摘要和未读数量。只有主动使用 qq-usage 打开 QQ 后，才算真正看到消息正文。</system_reminder>';
-  }
-  return '<system_reminder>当前输入来自内部调度切片，不代表 QQ 已经打开。不要把 queue payload 当成 QQ 正文；需要看 QQ 时主动使用 qq-usage。</system_reminder>';
+  return '';
 }
 
-function buildPickedTriggerSnapshot(queueMessage: QueueMessageRecord['payload']) {
-  if (isPhoneNotificationPayload(queueMessage)) {
-    const notification = queueMessage.phoneNotification;
-    return formatTaggedBlock('runtime_event_snapshot', {
-      source: 'phone_notification',
-      status: 'already_picked',
-      session_key: notification?.sessionKey || queueMessage.sessionKey,
-      chat_type: notification?.chatType || queueMessage.chatType,
-      peer_id: notification?.peerId || queueMessage.peerId,
-      unread_delta: notification?.unreadDelta ?? queueMessage.messages.length,
-      direct_mentions: notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length,
-      latest_received_at: notification?.latestReceivedAt || queueMessage.receivedAt
-    }, '这条手机 QQ 通知已经被接收进上下文，不是新的状态栏通知。后续如果要看 QQ 正文，仍需主动使用 qq-usage；如果已经决定放下，就继续做别的或休息。');
-  }
-
-  if (isImageTaskNotificationPayload(queueMessage)) {
-    const notification = queueMessage.imageTaskNotification;
-    return formatTaggedBlock('runtime_event_snapshot', {
-      source: 'image_task_notification',
-      status: 'already_picked',
-      task_id: notification?.taskId || queueMessage.rawPayload?.task_id,
-      picture_id: notification?.pictureId || queueMessage.rawPayload?.picture_id,
-      source_trace_id: notification?.sourceTraceId || queueMessage.rawPayload?.source_trace_id
-    }, '这条图片任务完成通知已经被接收进上下文，不是新的完成通知。可以继续处理已知图片，也可以把它放下去做别的。');
-  }
-
-  if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
-    return formatTaggedBlock('runtime_event_snapshot', {
-      source: 'system_reminder',
-      reason: 'final_answer_idle',
-      status: 'already_picked',
-      source_trace_id: queueMessage.systemReminder?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
-      source_run_id: queueMessage.systemReminder?.sourceRunId || queueMessage.rawPayload?.source_run_id
-    }, '这条 final_answer idle 提醒已经被接收进上下文，不是新的外部催促。继续行动时不要复述旧 final_answer。');
-  }
-
-  if (isSystemReminderPayload(queueMessage)) {
-    return formatTaggedBlock('runtime_event_snapshot', {
-      source: 'system_reminder',
-      reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
-      status: 'already_picked'
-    }, '这条内部提醒已经被接收进上下文，不是新的外部输入。可以参考它继续行动，也可以转向别的事情。');
-  }
-
-  if (isSelfContinuationPayload(queueMessage)) {
-    return '<system_reminder>当前连续生命切片已经进入上下文。后续轮次是在同一段自续行动中推进，不代表有新的 QQ 正文或新的通知。</system_reminder>';
-  }
-
-  return formatTaggedBlock('runtime_event_snapshot', {
-    source: queueMessage.source || 'inbound_batch',
-    status: 'already_picked',
-    session_key: queueMessage.sessionKey
-  }, '这批输入已经被接收进上下文，不是新的当前输入。');
+function isPhoneNotificationDirectCueMessage(
+  queueMessage: QueueMessageRecord['payload'],
+  message: QueueBatchMessage
+) {
+  return queueMessage.chatType === 'direct'
+    || Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
 }
 
-function isImmediateVisibleImWake(queueMessage: QueueMessageRecord['payload']) {
-  void queueMessage;
-  return false;
+function truncateNotificationSummary(text: string, maxChars = 20) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  const chars = Array.from(normalized);
+  return chars.length > maxChars
+    ? `${chars.slice(0, maxChars).join('')}...`
+    : normalized;
+}
+
+function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['payload']) {
+  const grouped = new Map<string, {
+    senderId: string;
+    senderName?: string;
+    count: number;
+    latestSummary: string;
+  }>();
+
+  for (const message of queueMessage.messages) {
+    if (!isPhoneNotificationDirectCueMessage(queueMessage, message)) {
+      continue;
+    }
+    const key = message.senderId || message.senderName || 'unknown';
+    const current = grouped.get(key) || {
+      senderId: message.senderId,
+      senderName: message.senderName,
+      count: 0,
+      latestSummary: ''
+    };
+    current.count += 1;
+    const summary = truncateNotificationSummary(
+      normalizeTranscriptMessageText(message.bodyForAgent || '', message.inboundContext.MentionedUsers)
+    );
+    if (summary) {
+      current.latestSummary = summary;
+    }
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.values()).map((entry) => {
+    const identity = formatIdentity(entry.senderName, entry.senderId);
+    const latest = entry.latestSummary || '无摘要';
+    return queueMessage.chatType === 'direct'
+      ? `${identity} 发来 ${entry.count} 条消息, 最新消息是: {${latest}}`
+      : `${identity} @了你 ${entry.count} 次, 最新消息是: {${latest}}`;
+  });
 }
 
 function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   const notification = queueMessage.phoneNotification;
   const unreadDelta = Number((notification?.unreadDelta ?? queueMessage.messages.length) || 1);
-  const directMentions = Number(notification?.directMentions ?? queueMessage.messages.filter((message) => Boolean(message.wasMentioned || message.inboundContext?.WasMentioned)).length);
-  const chatType = notification?.chatType || queueMessage.chatType;
-  const peerName = notification?.peerName || queueMessage.peerName || null;
-  const renderedAttributes = formatTagAttributes({
-    app: notification?.app || 'qq',
-    surface: 'status_bar',
-    session_key: notification?.sessionKey || queueMessage.sessionKey,
-    chat_type: chatType,
-    peer_id: notification?.peerId || queueMessage.peerId,
-    peer_name: peerName || '',
-    unread_delta: unreadDelta,
-    direct_mentions: directMentions,
-    latest_received_at: notification?.latestReceivedAt || queueMessage.receivedAt,
-    reason: notification?.reason || ''
-  });
-  return `<PHONE_NOTIFICATION ${renderedAttributes} />`;
+  const directCueLines = buildPhoneNotificationDirectCueLines(queueMessage);
+  return formatTaggedBlock('system_reminder', {}, [
+    `有新的未读qq消息（${unreadDelta} 条）。你有空愿意的话可以用 qq-usage 打开看。`,
+    '==',
+    '以下只展示有人明确喊你的信息',
+    directCueLines.length > 0
+      ? directCueLines.join('\n')
+      : '（没有明确喊你的信息）'
+  ].join('\n'));
 }
 
 function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']) {
   const notification = queueMessage.imageTaskNotification;
-  const renderedAttributes = formatTagAttributes({
-    task_id: notification?.taskId || queueMessage.rawPayload?.task_id,
-    task_type: notification?.taskType || queueMessage.rawPayload?.task_type,
-    task_status: notification?.taskStatus || queueMessage.rawPayload?.task_status || 'completed',
-    picture_id: notification?.pictureId || queueMessage.rawPayload?.picture_id,
-    picture_path: notification?.picturePath || queueMessage.rawPayload?.picture_path,
-    picture_mime_type: notification?.pictureMimeType || queueMessage.rawPayload?.picture_mime_type,
-    picture_bytes: notification?.pictureBytes || queueMessage.rawPayload?.picture_bytes,
-    target_description: notification?.targetDescription || queueMessage.rawPayload?.target_description,
-    source_trace_id: notification?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
-    source_run_id: notification?.sourceRunId || queueMessage.rawPayload?.source_run_id,
-    created_at: notification?.createdAt || queueMessage.receivedAt
-  });
-  return `<IMAGE_TASK_NOTIFICATION ${renderedAttributes} />`;
+  const taskId = notification?.taskId || queueMessage.rawPayload?.task_id || 'unknown';
+  const taskStatus = notification?.taskStatus || queueMessage.rawPayload?.task_status || 'completed';
+  const taskType = notification?.taskType || queueMessage.rawPayload?.task_type;
+  const pictureId = notification?.pictureId || queueMessage.rawPayload?.picture_id;
+  const picturePath = notification?.picturePath || queueMessage.rawPayload?.picture_path;
+  const targetDescription = notification?.targetDescription || queueMessage.rawPayload?.target_description;
+  return formatTaggedBlock('system_reminder', {}, [
+    `图片生成任务:${taskId} ${taskStatus === 'completed' ? '已完成' : String(taskStatus)}, 你愿意的话可以继续相关内容的处理了`,
+    taskType ? `任务类型: ${taskType}` : '',
+    pictureId ? `图片ID: ${pictureId}` : '',
+    picturePath ? `图片路径: ${picturePath}` : '',
+    targetDescription ? `目标: ${targetDescription}` : ''
+  ].filter(Boolean).join('\n'));
 }
 
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
@@ -2595,15 +2499,7 @@ function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
 
 function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   const reminder = getSystemReminderText(queueMessage);
-  return formatTaggedBlock('system_reminder', {
-    source: 'final_answer_idle',
-    reason: queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason,
-    source_trace_id: queueMessage.systemReminder?.sourceTraceId || queueMessage.rawPayload?.source_trace_id,
-    source_run_id: queueMessage.systemReminder?.sourceRunId || queueMessage.rawPayload?.source_run_id,
-    source_llm_call_id: queueMessage.systemReminder?.sourceLlmCallId || queueMessage.rawPayload?.source_llm_call_id,
-    source_turn: queueMessage.systemReminder?.sourceTurn || queueMessage.rawPayload?.source_turn,
-    created_at: queueMessage.systemReminder?.createdAt || queueMessage.receivedAt
-  }, reminder || '没事做时可以自己找点事做，或休息。');
+  return formatTaggedBlock('system_reminder', {}, reminder || '没事做时可以自己找点事做，或休息。');
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
@@ -2611,7 +2507,7 @@ export function buildTurnStateReminder(developerContextBlock: string | null | un
   if (!directive) {
     return null;
   }
-  return buildAssistantCommentaryInputItem([
+  return buildDeveloperInputItem([
     buildRuntimeStateBlock({
       trigger: directive.trigger,
       energy: directive.energy,
@@ -2621,189 +2517,25 @@ export function buildTurnStateReminder(developerContextBlock: string | null | un
   ]);
 }
 
-export function buildTurnControlReminder(turnControl: TurnControlState): OpenResponseInputItem | null {
-  if (turnControl.stage === 'read_unread') {
-    return null;
-  }
-
-  const lines: string[] = [];
-  if (!turnControl.targetFound && turnControl.stage === 'finalize') {
-    lines.push('当前未读没有明确找小腻，也没有稳定的新目标；没有具体可说点时不要调用发言工具。');
-  }
-
-  if (lines.length === 0) {
-    return null;
-  }
-
-  return buildAssistantCommentaryInputItem([
-    formatTaggedBlock('system_reminder', {
-      source: 'turn_control',
-      stage: turnControl.stage,
-      target_found: String(turnControl.targetFound),
-      recall_status: turnControl.recallStatus,
-      expected_next: turnControl.expectedNext
-    }, lines.join('\n'))
-  ]);
-}
-
-const COMMENTARY_TOOL_MONITOR_NAMES = new Set<string>([
-  TOOL_NAMES.unreadMeaning,
-  TOOL_NAMES.compressCoreMemory,
-  TOOL_NAMES.execCommand,
-  TOOL_NAMES.inspectImage,
-  'web_search'
-]);
-
-const FINAL_TOOL_MONITOR_NAMES = new Set<string>([
-  TOOL_NAMES.groupReply,
-  TOOL_NAMES.privateReply,
-  TOOL_NAMES.imageTask,
-  TOOL_NAMES.recoverEnergy
-]);
-
-type ToolLoopPhase = 'commentary' | 'final_answer';
-
-function classifyToolLoopPhase(toolName: string): ToolLoopPhase {
-  return FINAL_TOOL_MONITOR_NAMES.has(toolName) ? 'final_answer' : 'commentary';
-}
-
-export function summarizeToolLoopState(loopInput: OpenResponseInputItem[]) {
-  const byName: Record<string, { count: number; phase: ToolLoopPhase }> = {};
-  const byPhase: Record<ToolLoopPhase, number> = {
-    commentary: 0,
-    final_answer: 0
-  };
-  let latestToolName: string | null = null;
-  let terminalToolCalled = false;
-
-  for (const item of loopInput) {
-    if (item.type !== 'function_call') {
-      continue;
-    }
-    const phase = classifyToolLoopPhase(item.name);
-    byName[item.name] = {
-      count: (byName[item.name]?.count ?? 0) + 1,
-      phase
-    };
-    byPhase[phase] += 1;
-    latestToolName = item.name;
-    if (phase === 'final_answer') {
-      terminalToolCalled = true;
-    }
-  }
-
-  return {
-    byName,
-    byPhase,
-    latestToolName,
-    terminalToolCalled
-  };
-}
-
-function hasToolLoopMonitorReminder(loopInput: OpenResponseInputItem[], signature: string) {
-  return loopInput.some((item) => (
-    item.type === 'message'
-    && item.role === 'assistant'
-    && item.phase === 'commentary'
-    && flattenMessageContent(item.content).includes('source="tool_loop_monitor"')
-    && flattenMessageContent(item.content).includes(`signature="${escapeTagAttribute(signature)}"`)
-  ));
-}
-
-export function buildToolLoopMonitorReminder(
-  loopInput: OpenResponseInputItem[],
-  options: {
-    nextTurn: number;
-    maxTurns: number;
-  }
-): OpenResponseInputItem | null {
-  const state = summarizeToolLoopState(loopInput);
-  const repeated = Object.entries(state.byName)
-    .filter(([name, record]) => COMMENTARY_TOOL_MONITOR_NAMES.has(name) && record.count >= 2)
-    .map(([name, record]) => `${name}x${record.count}`);
-
-  if (repeated.length === 0) {
-    return null;
-  }
-
-  const signature = [
-    `repeat:${repeated.join(',')}`
-  ].filter(Boolean).join('|');
-
-  if (hasToolLoopMonitorReminder(loopInput, signature)) {
-    return null;
-  }
-
-  const lines = [
-    `工具循环监控：这些 commentary 工具已经重复调用：${repeated.join('，')}。如果没有新信息，就不要继续重复 recall/search/inspect。`,
-    `当前计数：commentary=${state.byPhase.commentary}，final_answer=${state.byPhase.final_answer}。`
-  ];
-  const currentEnergy = extractLatestRuntimeEnergy(loopInput);
-  const stateBlock = buildRuntimeStateBlock({
-    trigger: 'action_tool_threshold',
-    energy: currentEnergy - RUNTIME_TOOL_COSTS[TOOL_NAMES.execCommand],
-    note: `action/tool threshold reached: ${signature}`
-  });
-
-  return buildAssistantCommentaryInputItem([
-    formatTaggedBlock('system_reminder', {
-      source: 'tool_loop_monitor',
-      signature
-    }, lines.join('\n')),
-    stateBlock
-  ]);
-}
-
-function countAssistantFinalAnswers(loopInput: OpenResponseInputItem[]) {
-  return loopInput.filter((item) => (
-    item.type === 'message'
-    && item.role === 'assistant'
-    && item.phase === 'final_answer'
-  )).length;
-}
-
-export function buildFinalAnswerTurnControlReminder(
-  loopInput: OpenResponseInputItem[],
-  options: {
-    nextTurn: number;
-    maxTurns: number;
-  }
-): OpenResponseInputItem | null {
-  const finalAnswerCount = countAssistantFinalAnswers(loopInput);
-  if (finalAnswerCount === 0) {
-    return null;
-  }
-
-  return buildUserSceneInputItem([
-    formatTaggedBlock('system_reminder', {
-      source: 'final_answer_turn_control',
-      final_answer_count: finalAnswerCount,
-      next_turn: options.nextTurn,
-      max_turns: options.maxTurns
-    }, [
-      '你刚才输出了 final_answer，但当前连续 runtime 切片还在继续；final_answer 只会作为历史回放，不会自动推进或清理 QQ。',
-      `下一轮不要原样复述上一条 final_answer。如果你已经决定不继续看、不说话或放下这件事，请选择真实动作收口，或者调用 ${TOOL_NAMES.recoverEnergy} 休息。`
-    ].join('\n'))
-  ]);
-}
-
 function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
   readCutoffAfterConversationId: number | null;
   pressureSummary: string;
 }) {
-  return buildAssistantCommentaryInputItem([
-    formatTaggedBlock('system_reminder', {
-      source: 'core_memory_pressure',
-      required_tool: TOOL_NAMES.compressCoreMemory,
-      context_session_key: input.contextSessionKey,
-      read_cutoff_after_conversation_id: input.readCutoffAfterConversationId ?? 'null'
-    }, [
+  void input.contextSessionKey;
+  void input.readCutoffAfterConversationId;
+  const item = buildDeveloperInputItem([
+    formatTaggedBlock('system_reminder', {}, [
       `脑容量达到极限：${input.pressureSummary}`,
       `你必须立即调用 ${TOOL_NAMES.compressCoreMemory}，把你主观上最想带往未来的东西写进 text。`,
       '在完成记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作。'
     ].join('\n'))
   ]);
+  Object.defineProperty(item, CORE_MEMORY_COMPRESSION_REMINDER_MARKER, {
+    value: true,
+    enumerable: false
+  });
+  return item;
 }
 
 function flattenMessageContent(content: string | OpenResponseInputContentPart[]) {
@@ -3966,6 +3698,20 @@ function parseFeedbackReflectionCandidate(value: unknown): FeedbackReflectionCan
   };
 }
 
+function buildToolRuntimeEnergyResult(toolName: string, loopInput: OpenResponseInputItem[]) {
+  const cost = RUNTIME_TOOL_COSTS[toolName];
+  if (!Number.isFinite(cost)) {
+    return null;
+  }
+  const currentState = extractLatestRuntimeState(loopInput);
+  const nextEnergy = normalizeRuntimeEnergy(currentState.energy - cost, currentState.maxEnergy);
+  return {
+    energy_cost: Number(cost),
+    energy: nextEnergy,
+    max_energy: currentState.maxEnergy
+  };
+}
+
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>,
@@ -3991,6 +3737,18 @@ export function applyToolResultToLoopInput(
     };
   }
 
+  const runtimeEnergy = buildToolRuntimeEnergyResult(toolCall.name, context?.loopInput ?? []);
+  const usesNativeToolOutput = toolCall.name === 'web_search'
+    || (toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string')
+    || (toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string');
+  const structuredToolResult = runtimeEnergy && !usesNativeToolOutput
+    ? {
+        ...toolResult,
+        energy_cost: runtimeEnergy.energy_cost,
+        energy: runtimeEnergy.energy,
+        max_energy: runtimeEnergy.max_energy
+      }
+    : toolResult;
   const inputItems: OpenResponseInputItem[] = [{
     type: 'function_call_output',
     call_id: toolCall.callId,
@@ -3998,38 +3756,14 @@ export function applyToolResultToLoopInput(
       ? toolResult.codex_output
       : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
         ? toolResult.output_xml
-        : JSON.stringify(toolResult)
+        : JSON.stringify(structuredToolResult)
   }];
-  const loopInputAfterTool = [
-    ...(context?.loopInput ?? []),
-    {
-      type: 'function_call' as const,
-      call_id: toolCall.callId,
-      name: toolCall.name,
-      arguments: toolCall.rawArguments
-    },
-    inputItems[0]
-  ];
-  if (toolCall.name === TOOL_NAMES.unreadMeaning) {
-    const turnControl = deriveTurnControlState(loopInputAfterTool);
-    const reminder = buildTurnControlReminder(turnControl);
-    if (reminder) {
-      inputItems.push(reminder);
-    }
-  }
-  if (toolCall.name === TOOL_NAMES.imageTask) {
-    const statusText = typeof toolResult.status_text === 'string' ? toolResult.status_text.trim() : '';
-    inputItems.push(buildAssistantCommentaryInputItem([
-      `<system_reminder>${statusText ? `[图片请求状态]\n${statusText}` : '图片请求已经提交。'}\n\n这还不等于已经对聊天对象说过话；如果当前仍该自然接话，就继续收口，不要把提交请求本身当成已经发言。</system_reminder>`
-    ]));
-  }
-  if (toolCall.name === 'web_search') {
-    const currentEnergy = extractLatestRuntimeEnergy(context?.loopInput ?? []);
-    inputItems.push(buildAssistantCommentaryInputItem([
+  if (runtimeEnergy && usesNativeToolOutput) {
+    inputItems.push(buildDeveloperInputItem([
       buildRuntimeStateBlock({
-        trigger: 'web_search',
-        energy: currentEnergy - RUNTIME_TOOL_COSTS.web_search,
-        note: 'hosted web_search completed'
+        trigger: toolCall.name === 'web_search' ? 'web_search' : 'action_tool_threshold',
+        energy: runtimeEnergy.energy,
+        maxEnergy: runtimeEnergy.max_energy
       })
     ]));
   }
@@ -4337,7 +4071,7 @@ export class AgentLoopService {
             runtimeIdentityFacts,
             developerContextBlock,
             contextSessionKey,
-            triggerInputMode: 'picked_snapshot'
+            triggerInputMode: 'suppress_current_trigger'
           });
           requestInput = budgetPlan.requestInput;
         }
@@ -4390,6 +4124,15 @@ export class AgentLoopService {
               noVisibleDelivery: false,
               visibleDeliveryCommitted: true,
               source: 'model:no_tool_after_visible_delivery'
+            });
+          } else if (hasFinalAnswer) {
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'no_visible_delivery_observed',
+              detail: 'Model returned final_answer without a tool call or visible delivery; ending this runtime slice in code.',
+              outcome: 'model_final_answer_without_visible_delivery',
+              noVisibleDelivery: true,
+              visibleDeliveryCommitted: false,
+              source: 'model:final_answer_without_tool'
             });
           }
         }
@@ -4583,7 +4326,7 @@ export class AgentLoopService {
               runtimePrompt,
               loopContinuation,
               runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
-              triggerInputMode: 'picked_snapshot'
+              triggerInputMode: 'suppress_current_trigger'
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -4595,17 +4338,6 @@ export class AgentLoopService {
             throw error;
           }
         }
-
-        if (!leaseRelease && hasFinalAnswer) {
-          const reminder = buildFinalAnswerTurnControlReminder(loopContinuation, {
-            nextTurn: turn + 1,
-            maxTurns: agentConfig.maxTurns
-          });
-          if (reminder) {
-            loopContinuation.push(reminder);
-          }
-        }
-
         if (leaseRelease) {
           await this.store.logTimelineEvent({
             traceId: payload.traceId,
@@ -5839,48 +5571,8 @@ export class AgentLoopService {
       llmCallId: string | null;
     }
   ) {
-    for (const action of postActions) {
-      if (action.type !== 'enqueue_final_answer_idle_reminder') {
-        continue;
-      }
-      if (isSystemReminderPayload(context.queueMessage)) {
-        await this.store.logTimelineEvent({
-          traceId: context.queueMessage.traceId,
-          eventType: 'decision',
-          eventName: 'final_answer_idle_reminder',
-          eventPhase: null,
-          metadata: {
-            enqueued: false,
-            reason: 'source_is_system_reminder',
-            source_llm_call_id: context.llmCallId,
-            source_turn: context.turn
-          }
-        });
-        continue;
-      }
-
-      const result = await this.store.enqueueFinalAnswerIdleReminder({
-        reminderText: action.reminderText,
-        sourceRunId: context.runId,
-        sourceTraceId: context.queueMessage.traceId,
-        sourceLlmCallId: context.llmCallId,
-        sourceTurn: context.turn
-      });
-      await this.store.logTimelineEvent({
-        traceId: context.queueMessage.traceId,
-        eventType: 'decision',
-        eventName: 'final_answer_idle_reminder',
-        eventPhase: null,
-        metadata: {
-          enqueued: result.enqueued,
-          reason: result.reason,
-          queue_id: result.queueId ?? null,
-          dedupe_key: result.dedupeKey ?? null,
-          source_llm_call_id: context.llmCallId,
-          source_turn: context.turn
-        }
-      });
-    }
+    void postActions;
+    void context;
   }
 
   private async executeAgentTurn(
@@ -6772,14 +6464,6 @@ function isSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
     || queueMessage.inboundContext?.Surface === 'system_reminder';
 }
 
-function isFinalAnswerIdleSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
-  if (!isSystemReminderPayload(queueMessage)) {
-    return false;
-  }
-  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
-  return reason === 'final_answer_idle';
-}
-
 function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.source === 'self_continuation'
     || Boolean(queueMessage.selfContinuation)
@@ -7019,18 +6703,9 @@ export function buildInitialInput(
 
   if (triggerInputMode === 'fresh_trigger') {
     items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
-    const mediaPlaceholderContext = renderCurrentMediaPlaceholderContext(queueMessage);
-    if (mediaPlaceholderContext) {
-      items.push(buildAssistantCommentaryInputItem([mediaPlaceholderContext]));
-    }
     const currentProcessingReminder = buildCurrentProcessingReminder(queueMessage);
     if (currentProcessingReminder) {
-      items.push(buildAssistantCommentaryInputItem([currentProcessingReminder]));
-    }
-  } else {
-    const pickedSnapshot = buildPickedTriggerSnapshot(queueMessage);
-    if (pickedSnapshot) {
-      items.push(buildAssistantCommentaryInputItem([pickedSnapshot]));
+      items.push(buildDeveloperInputItem([currentProcessingReminder]));
     }
   }
   if (developerContextParts.dynamicContext) {
@@ -7310,18 +6985,13 @@ function buildCurrentTurnInputItems(
   if (isSelfContinuationPayload(queueMessage)) {
     return [];
   }
-  if (isSystemReminderPayload(queueMessage)) {
-    if (isFinalAnswerIdleSystemReminderPayload(queueMessage)) {
-      return [
-        buildUserSceneInputItem([getSystemReminderText(queueMessage)])
-      ];
-    }
-    return [
-      buildAssistantCommentaryInputItem([renderSystemReminder(queueMessage)])
-    ];
-  }
+  const isRuntimeReminder = isSystemReminderPayload(queueMessage)
+    || isImageTaskNotificationPayload(queueMessage)
+    || isPhoneNotificationPayload(queueMessage);
   const currentMessages = [
-    isImageTaskNotificationPayload(queueMessage)
+    isSystemReminderPayload(queueMessage)
+      ? renderSystemReminder(queueMessage)
+      : isImageTaskNotificationPayload(queueMessage)
       ? renderImageTaskNotification(queueMessage)
       : isPhoneNotificationPayload(queueMessage)
         ? renderPhoneNotification(queueMessage)
@@ -7338,43 +7008,11 @@ function buildCurrentTurnInputItems(
       }))
     : currentMessages;
 
-  return renderedMessages.map((message) => buildUserSceneInputItem([message]));
-}
-
-function renderCurrentMediaPlaceholderContext(queueMessage: QueueMessageRecord['payload']) {
-  if (!isImmediateVisibleImWake(queueMessage)) {
-    return '';
-  }
-
-  const lines: string[] = [];
-  const seen = new Set<string>();
-  for (const message of queueMessage.messages) {
-    const assets = Array.isArray(message.inboundContext.MediaAssets)
-      ? message.inboundContext.MediaAssets
-      : [];
-    for (const asset of assets) {
-      if (!asset || typeof asset.mediaTag !== 'string' || seen.has(asset.mediaTag)) {
-        continue;
-      }
-      seen.add(asset.mediaTag);
-      const sender = message.senderName || message.senderId || '有人';
-      const typeText = asset.mediaType === 'image' ? '图片' : asset.mediaType;
-      const assetId = typeof asset.id === 'string' && asset.id.trim() ? asset.id.trim() : '';
-      const label = assetId || asset.mediaTag;
-      const fallback = assetId && asset.mediaTag !== assetId ? `（旧 media_tag: ${asset.mediaTag}）` : '';
-      lines.push(`- ${label}: ${sender} 发来的${typeText}占位符 ${asset.placeholder || '[Image]'}${fallback}。如果确实需要看清内容，再调用 inspect_image_placeholder，优先传 image_id。`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return '';
-  }
-
-  return [
-    '[当前媒体占位符]',
-    '这些只是占位符，不等于我已经看过内容；不要猜图里有什么。',
-    ...lines
-  ].join('\n');
+  return renderedMessages.map((message) => (
+    isRuntimeReminder
+      ? buildDeveloperInputItem([message])
+      : buildUserSceneInputItem([message])
+  ));
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {

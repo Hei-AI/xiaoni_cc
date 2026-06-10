@@ -10,7 +10,7 @@ Use this skill when you already have a local generated image path, such as `/xia
 ## Runtime Cost
 
 ```text
-energy_cost: 0.012
+energy_cost: 0.002
 ```
 
 ## Command
