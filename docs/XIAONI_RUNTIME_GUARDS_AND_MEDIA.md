@@ -1,0 +1,136 @@
+# Xiaoni Runtime Guards And Media
+
+本文档记录小腻主 runtime 里三类容易混淆的边界：QQ 自动回复开关、
+`final_answer` 后续推进、图片理解 fork。它是当前代码契约的说明页，不记录
+旧方案。
+
+## Reference
+
+| 领域 | 当前契约 | 代码入口 |
+| --- | --- | --- |
+| QQ 入站正文 | 始终先落 `agent_inbound_messages`，作为 QQ app inbox/window。 | `modules/provider-service/src/services/inbound-inbox-service.ts` |
+| `auto_reply_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
+| `phone_notification` | 只含状态栏摘要，不含 QQ 正文；小腻必须主动用 `$qq-usage` 才能看到正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
+| `final_answer` idle | 模型返回 `final_answer` 且无 tool call 时，Step 8 在 bucket 为空时追加一个 `system_reminder`。 | `modules/agent-service/src/services/response-action-router.ts` |
+| idle reminder 输入形态 | 持久化 source 是 `system_reminder`；下一轮组 prompt 时，`reason=final_answer_idle` 的提醒作为 `user` scene input 进入主 agent。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| 图片理解 | `inspect_image_placeholder` 复用当前主 agent request，追加图片 base64 fork，返回文本观察。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| 图片观察输出 | 主 agent 只收到 `<image id="...">含义是: ...</image>`；base64 不进入长期 replay。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+
+## Auto Reply Hard Gate
+
+QQ 入站链路分两层：
+
+```text
+NapCat
+  -> provider-service normalize inbound
+  -> write body into agent_inbound_messages
+  -> check chat policy
+  -> if auto_reply_enabled=true: enqueue phone_notification
+  -> if auto_reply_enabled=false: skip phone_notification enqueue
+```
+
+`auto_reply_enabled=0` 是当前聊天对象的 runtime 硬禁言入口。它不影响消息落
+inbox，也不删除后续人工排障可见性；它只阻止主 loop 被这条 QQ 消息唤醒。
+
+排障时看三处：
+
+1. `agent_inbound_messages` 是否有正文。
+2. timeline 的 `phone_notification/routing` 是否为 `decision=skip`、
+   `reason=auto_reply_disabled`。
+3. `agent_queue_messages` 是否没有对应 `phone_notification` pending row。
+
+`agent_runtime_control.enabled=false` 是全局 runtime worker 暂停；它和
+`auto_reply_enabled=0` 是两层不同开关。前者让 agent-service 不跑主 loop，
+后者让 provider-service 不把某个聊天的新消息写入 Notify Bucket。
+
+## Final Answer Idle Flow
+
+`final_answer` 不等于“后面可以继续直接请求同一个 assistant”。当前策略是把
+`final_answer` 当作一个完成事件，再由 runtime 显式追加下一轮输入：
+
+```text
+OpenAI response phase=final_answer
+  -> provider-service returns canonical response
+  -> agent-service ResponseActionRouter sees final_answer without tool_call
+  -> enqueueFinalAnswerIdleReminder checks pending Notify Bucket atomically
+  -> if empty: enqueue source=system_reminder, reason=final_answer_idle
+  -> next loop consumes it as user scene input
+```
+
+提醒文本必须保持为：
+
+```text
+去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情
+```
+
+这个文本是下一轮的可见行动请求，不改写上一轮 transcript，也不把
+`final_answer` phase 改成 `commentary`。如果当前输入本身就是
+`final_answer_idle` 的 `system_reminder`，post action 不再回灌同类提醒，避免
+自循环。
+
+## Image Vision Fork
+
+图片理解的目标有两个：
+
+- 小腻必须在自己的完整上下文里理解图片，而不是交给一个无上下文图片摘要器。
+- 图片 base64 只能短暂进入视觉 fork，不要反复占据主 loop replay 和 traffic
+  持久化空间。
+
+当前流程：
+
+```text
+main agent calls inspect_image_placeholder(image_id)
+  -> agent-service resolves agent_media_assets by stable image id
+  -> materialize image into data URL
+  -> clone current CanonicalAgentTurnRequest
+  -> append assistant message: 让我来看看这个图是啥意思
+  -> append function_call inspect_image_placeholder
+  -> append function_call_output.output=[{type: input_image, image_url: data URL}]
+  -> POST provider-service /api/internal/llm/debug
+       x-qqbot-no-traffic-persist: 1
+       executionMode=image_vision_fork_no_persist
+  -> record media observation text
+  -> return <image id="...">含义是: ...</image>
+```
+
+图片 id 使用真实 `agent_media_assets.id`。不要生成 `image_1` 这类临时编号作为
+主契约；临时 placeholder 只能作为兼容线索。
+
+## Replay And Persistence
+
+视觉 fork 请求里的 base64 不应该进入下面这些长期表或管理端回放骨架：
+
+- `xiaoni_replay_events`
+- `llm_call_logs`
+- traffic / MITM 持久化日志
+- 后续主 loop 的 `responses_replay_items`
+
+主 loop 可继承的是图片观察文本：
+
+```xml
+<image id="...">含义是: ...</image>
+```
+
+如果之后需要重新看同一张图，模型应再次调用 `inspect_image_placeholder`，由
+runtime 重新 materialize 图片并发起新的 no-persist vision fork。
+
+## OpenAI Request Boundary
+
+OpenAI 官方 vision 示例展示 `input_image` 放在 `user` message 的 content 数组
+里。当前仓库的 image vision fork 不是要声明一个新的上游通用格式，而是复用
+Codex-style tool output replay：把图片作为 `function_call_output.output` 数组
+交回给同一次 fork request。Provider helper 必须保留这个数组，不能把它转成
+字符串或丢掉 `input_image`。
+
+## Verification
+
+改动这些路径后，至少跑：
+
+```bash
+npm --prefix modules/agent-service test
+npm --prefix modules/provider-service test
+npm --prefix packages/persistence test
+```
+
+如果改到 compose 托管服务，按 `AGENTS.md` 的 `Done Means` 重新 build / up
+对应服务，并检查健康状态。
