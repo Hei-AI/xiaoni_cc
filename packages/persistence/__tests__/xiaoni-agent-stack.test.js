@@ -90,6 +90,9 @@ function createMockSql() {
         rows.slice.push(row);
         return [row];
       }
+      if (sql.includes('FROM llm_request_slices')) {
+        return rows.slice;
+      }
       if (sql.includes('INSERT INTO tool_executions') || sql.includes('UPDATE tool_executions')) {
         const row = {
           id: 40,
@@ -197,6 +200,52 @@ test('recordLlmRequestSlice stores canonical request and output item range', asy
   assert.equal(slice.outputEndIndex, 10);
   assert.equal(slice.outputItems[0].call_id, 'call-1');
   assert.equal(slice.tokenUsage.input_tokens, 10);
+});
+
+test('listLlmRequestSlices summaryOnly avoids selecting large request and response payloads', async () => {
+  const sql = createMockSql();
+  sql.rows.slice.push({
+    id: 30,
+    slice_id: 'llm-1',
+    llm_call_id: 'llm-1',
+    identity_key: 'xiaoni',
+    input_start_index: 1,
+    input_end_index: 8,
+    input_stack_item_ids: [],
+    output_start_index: 9,
+    output_end_index: 10,
+    canonical_request: {},
+    wire_request: null,
+    canonical_response: null,
+    wire_response: null,
+    raw_response: null,
+    output_items: [],
+    status: 'completed',
+    token_usage: { input_tokens: 10, output_tokens: 3 },
+    trace_id: 'trace-1',
+    run_id: 'run-1',
+    conversation_id: null,
+    agent_turn: 1,
+    model_name: 'gpt-test',
+    model_provider: 'codex',
+    request_format_version: 'responses/v1',
+    wire_provider_format: 'openai/responses',
+    processing_time_ms: 123,
+    metadata: {},
+    created_at: '2026-06-11T00:00:00.000Z',
+    completed_at: '2026-06-11T00:00:01.000Z',
+    updated_at: '2026-06-11T00:00:01.000Z'
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const rows = await persistence.listLlmRequestSlices({ summaryOnly: true, limit: 10 });
+  const query = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('FROM llm_request_slices'));
+
+  assert.ok(query);
+  assert.match(query.sql, /NULL::jsonb AS wire_request/);
+  assert.doesNotMatch(query.sql, /SELECT \*/);
+  assert.equal(rows[0].wireRequest, null);
+  assert.deepEqual(rows[0].outputItems, []);
 });
 
 test('recordToolExecution and completeToolExecution link tool result callback stack item', async () => {

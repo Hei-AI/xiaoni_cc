@@ -765,6 +765,41 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const clauses = ['identity_key = ?'];
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
+    const summaryOnly = input.summaryOnly === true || input.summary_only === true;
+    const selectColumns = summaryOnly
+      ? `
+          id,
+          slice_id,
+          llm_call_id,
+          identity_key,
+          input_start_index,
+          input_end_index,
+          '[]'::jsonb AS input_stack_item_ids,
+          output_start_index,
+          output_end_index,
+          '{}'::jsonb AS canonical_request,
+          NULL::jsonb AS wire_request,
+          NULL::jsonb AS canonical_response,
+          NULL::jsonb AS wire_response,
+          NULL::jsonb AS raw_response,
+          '[]'::jsonb AS output_items,
+          status,
+          token_usage,
+          trace_id,
+          run_id,
+          conversation_id,
+          agent_turn,
+          model_name,
+          model_provider,
+          request_format_version,
+          wire_provider_format,
+          processing_time_ms,
+          metadata,
+          created_at,
+          completed_at,
+          updated_at
+        `
+      : '*';
     const traceId = firstString(input.traceId, input.trace_id);
     const runId = firstString(input.runId, input.run_id);
     const llmCallId = firstString(input.llmCallId, input.llm_call_id);
@@ -795,7 +830,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
         `
-          SELECT *
+          SELECT ${selectColumns}
           FROM llm_request_slices
           WHERE ${clauses.join(' AND ')}
           ORDER BY COALESCE(agent_turn, 0) ${input.chronological ? 'ASC' : 'DESC'}, created_at ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}

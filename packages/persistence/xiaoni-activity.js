@@ -1460,8 +1460,12 @@ function createXiaoniActivityPersistence({
   async function getXiaoniActivityFeed(input = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
+    const actionStreamProjection = input.actionStreamProjection === true || input.action_stream_projection === true;
     const limit = clampLimit(input.limit, 80, 200);
-    const perSourceLimit = Math.max(30, limit);
+    const scanLimit = actionStreamProjection
+      ? clampLimit(input.scanLimit || input.scan_limit || Math.max(limit * 2, 120), 120, 300)
+      : limit;
+    const perSourceLimit = Math.max(30, scanLimit);
     const timeWindow = resolveTimeWindow(input);
     const timeFilter = prismaTimeFilter(timeWindow);
     const staleProcessingMs = Math.max(60_000, Number(input.staleProcessingMs || input.stale_processing_ms || 5 * 60_000));
@@ -1557,17 +1561,26 @@ function createXiaoniActivityPersistence({
           ? listLlmRequestSlices({
             identityKey,
             limit: perSourceLimit,
+            summaryOnly: actionStreamProjection,
             startTime: timeWindow.startTime,
             endTime: timeWindow.endTime
           }, config).catch(() => [])
           : [],
         typeof listAgentStackItems === 'function'
-          ? listAgentStackItems({
-            identityKey,
-            limit: perSourceLimit,
-            startTime: timeWindow.startTime,
-            endTime: timeWindow.endTime
-          }, config).catch(() => [])
+          ? (actionStreamProjection
+            ? Promise.all(['runtime_input', 'function_call', 'function_call_output'].map((itemKind) => listAgentStackItems({
+              identityKey,
+              itemKind,
+              limit: perSourceLimit,
+              startTime: timeWindow.startTime,
+              endTime: timeWindow.endTime
+            }, config))).then((rows) => rows.flat()).catch(() => [])
+            : listAgentStackItems({
+              identityKey,
+              limit: perSourceLimit,
+              startTime: timeWindow.startTime,
+              endTime: timeWindow.endTime
+            }, config).catch(() => []))
           : [],
         typeof listToolExecutions === 'function'
           ? listToolExecutions({
@@ -1616,7 +1629,7 @@ function createXiaoniActivityPersistence({
         ? llmRequestSliceRows
         : [];
 
-      const items = dedupeFeedItems([
+      const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
         ...normalizedAgentStackRows.map(summarizeAgentStackItem),
         ...normalizedAgentStackToolRows.map(summarizeAgentStackToolExecution),
@@ -1628,7 +1641,10 @@ function createXiaoniActivityPersistence({
         ...autonomousQueueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs))
       ])
         .filter((item) => item.timestamp)
-        .filter((item) => itemMatchesTimeWindow(item, timeWindow))
+        .filter((item) => itemMatchesTimeWindow(item, timeWindow));
+      const items = (actionStreamProjection
+        ? projectedItems.filter(isPrimaryActionStreamItem)
+        : projectedItems)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, limit);
 
@@ -1687,13 +1703,18 @@ function createXiaoniActivityPersistence({
 
   async function getXiaoniActionStream(input = {}, config = {}) {
     const timeWindow = resolveTimeWindow(input);
-    const feed = await getXiaoniActivityFeed(input, config);
+    const limit = clampLimit(input.limit, 80, 200);
+    const feed = await getXiaoniActivityFeed({
+      ...input,
+      limit,
+      actionStreamProjection: true
+    }, config);
     const feedActionItems = feed.items.filter(isPrimaryActionStreamItem);
     const items = dedupeFeedItems(feedActionItems)
       .filter((item) => item.timestamp)
       .filter((item) => itemMatchesTimeWindow(item, timeWindow))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, clampLimit(input.limit, 80, 200));
+      .slice(0, limit);
 
     return {
       identityKey: feed.identityKey,

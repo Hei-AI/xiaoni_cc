@@ -41,9 +41,16 @@ function createPersistence(overrides = {}) {
   return createXiaoniActivityPersistence({
     getPrismaClient: () => prisma,
     createSqlAdapter: sqlAdapter,
-    listLlmRequestSlices: async () => overrides.llmRequestSliceRows || overrides.llmRows || [],
-    listAgentStackItems: async () => overrides.agentStackRows || [],
-    listToolExecutions: async () => overrides.agentStackToolRows || [],
+    listLlmRequestSlices: async (input = {}) => (overrides.llmRequestSliceRows || overrides.llmRows || [])
+      .slice(0, input.limit || 100),
+    listAgentStackItems: async (input = {}) => {
+      const rows = overrides.agentStackRows || [];
+      const itemKind = input.itemKind || input.item_kind || null;
+      return rows
+        .filter((row) => !itemKind || row.itemKind === itemKind || row.item_kind === itemKind)
+        .slice(0, input.limit || 100);
+    },
+    listToolExecutions: async (input = {}) => (overrides.agentStackToolRows || []).slice(0, input.limit || 100),
     findAgentStackItemByEventId: async (eventId) => (overrides.agentStackRows || []).find((row) => row.eventId === eventId) || null
   });
 }
@@ -385,6 +392,85 @@ test('Xiaoni action stream projects stack tool requests without provider replay 
   assert.equal(stackItem.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
   assert.equal(stackItem.metadata.stackSource, 'agent_stack_items');
   assert.equal(stackItem.metadata.argumentsPreview, '{"cmd":"date"}');
+  assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
+});
+
+test('Xiaoni action stream filters primary cards before applying the display limit', async () => {
+  const noisyFinalAnswers = Array.from({ length: 40 }, (_, index) => ({
+    id: String(2000 + index),
+    eventId: `stack:slice_noise_${index}:output:0`,
+    identityKey: 'xiaoni',
+    stackIndex: 2000 + index,
+    itemKind: 'assistant_output',
+    role: 'assistant',
+    phase: index % 2 === 0 ? 'final_answer' : null,
+    content: {
+      type: 'message',
+      role: 'assistant',
+      phase: index % 2 === 0 ? 'final_answer' : null,
+      content: [{ type: 'output_text', text: `ordinary model output ${index}` }]
+    },
+    traceId: `trace_noise_${index}`,
+    runId: `run_noise_${index}`,
+    createdAt: new Date(Date.parse('2026-06-05T10:30:00.000Z') - index * 1000).toISOString(),
+    metadata: {
+      output_item_index: 0
+    }
+  }));
+  const persistence = createPersistence({
+    agentStackRows: [
+      ...noisyFinalAnswers,
+      {
+        id: '101',
+        eventId: 'stack:trace_codex_stream:call_exec',
+        identityKey: 'xiaoni',
+        stackIndex: 20,
+        itemKind: 'function_call',
+        role: 'assistant',
+        phase: null,
+        toolCallId: 'call_exec',
+        llmRequestSliceId: 'slice_codex_stream',
+        content: {
+          type: 'function_call',
+          call_id: 'call_exec',
+          name: 'exec_command',
+          arguments: '{"cmd":"date"}'
+        },
+        traceId: 'trace_codex_stream',
+        runId: 'run_internal_lease_1',
+        createdAt: '2026-06-05T10:04:00.000Z',
+        metadata: {
+          output_item_index: 0
+        }
+      }
+    ],
+    llmRequestSliceRows: [{
+      id: '3',
+      sliceId: 'slice_codex_stream',
+      llmCallId: 'llm_codex_stream',
+      traceId: 'trace_codex_stream',
+      runId: 'run_internal_lease_1',
+      agentTurn: 1,
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      status: 'completed',
+      createdAt: '2026-06-05T10:03:47.000Z',
+      completedAt: '2026-06-05T10:04:00.000Z',
+      tokenUsage: { input_tokens: 10, output_tokens: 4 },
+      canonicalRequest: { input: [{ role: 'user', content: 'run date' }] },
+      wireRequest: { model: 'gpt-5.5' },
+      wireResponse: { id: 'resp_codex_stream' }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 5 });
+
+  assert.deepEqual(stream.items.map((item) => item.id), [
+    'stack:101',
+    'llm-slice:slice_codex_stream'
+  ]);
+  assert.equal(stream.items.some((item) => item.kind === 'final_answer'), false);
   assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
 });
 
