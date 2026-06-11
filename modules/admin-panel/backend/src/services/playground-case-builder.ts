@@ -1023,7 +1023,7 @@ function buildRequestPatch(
 }
 
 export class PlaygroundCaseBuilder {
-  private llmCallTableName: 'llm_call_logs' | 'llm_calls' | null | undefined;
+  private llmCallTableName: 'llm_request_slices' | null | undefined;
   private static readonly LIBRARY_TRAFFIC_LIMIT = 24;
   private static readonly LIBRARY_CASE_LIMIT = 24;
   private static readonly LIBRARY_RUN_LIMIT = 12;
@@ -1608,10 +1608,9 @@ export class PlaygroundCaseBuilder {
 
     const rows = await this.db.executeQuery<LLMCallRow>(
       `
-        SELECT *
+        SELECT ${this.llmRequestSliceSelectColumns()}
         FROM ${tableName}
         WHERE canonical_request IS NOT NULL
-          AND effective_unified_config IS NOT NULL
           AND (${clauses.join(' OR ')})
         ORDER BY started_at ASC, id ASC
         LIMIT 1
@@ -1924,7 +1923,7 @@ export class PlaygroundCaseBuilder {
       traffic.llm_call_id
         ? this.db.executeQuery<LLMCallRow>(
             `
-              SELECT *
+              SELECT ${this.llmRequestSliceSelectColumns()}
               FROM ${tableName}
               WHERE llm_call_id = ?
               ORDER BY started_at ASC, id ASC
@@ -1936,7 +1935,7 @@ export class PlaygroundCaseBuilder {
       traffic.trace_id
         ? this.db.executeQuery<LLMCallRow>(
             `
-              SELECT *
+              SELECT ${this.llmRequestSliceSelectColumns()}
               FROM ${tableName}
               WHERE trace_id = ?
               ORDER BY started_at ASC, id ASC
@@ -1948,7 +1947,7 @@ export class PlaygroundCaseBuilder {
       traffic.conversation_id
         ? this.db.executeQuery<LLMCallRow>(
             `
-              SELECT *
+              SELECT ${this.llmRequestSliceSelectColumns()}
               FROM ${tableName}
               WHERE conversation_id = ?
               ORDER BY started_at ASC, id ASC
@@ -1972,10 +1971,10 @@ export class PlaygroundCaseBuilder {
       conversation.trace_id
         ? this.db.executeQuery<LLMCallRow>(
             `
-              SELECT *
-              FROM ${tableName}
-              WHERE trace_id = ?
-              ORDER BY started_at ASC, id ASC
+          SELECT ${this.llmRequestSliceSelectColumns()}
+          FROM ${tableName}
+          WHERE trace_id = ?
+          ORDER BY started_at ASC, id ASC
               LIMIT 1
             `,
             [conversation.trace_id]
@@ -1983,7 +1982,7 @@ export class PlaygroundCaseBuilder {
         : Promise.resolve([]),
       this.db.executeQuery<LLMCallRow>(
         `
-          SELECT *
+          SELECT ${this.llmRequestSliceSelectColumns()}
           FROM ${tableName}
           WHERE conversation_id = ?
           ORDER BY started_at ASC, id ASC
@@ -2010,7 +2009,7 @@ export class PlaygroundCaseBuilder {
 
       const rows = await this.db.executeQuery<LLMCallRow>(
         `
-          SELECT *
+          SELECT ${this.llmRequestSliceSelectColumns()}
           FROM ${tableName}
           WHERE llm_call_id = ?
           ORDER BY started_at ASC, id ASC
@@ -2030,7 +2029,7 @@ export class PlaygroundCaseBuilder {
 
       const rows = await this.db.executeQuery<LLMCallRow>(
         `
-          SELECT *
+          SELECT ${this.llmRequestSliceSelectColumns()}
           FROM ${tableName}
           WHERE id = ?
           LIMIT 1
@@ -2044,18 +2043,45 @@ export class PlaygroundCaseBuilder {
     return null;
   }
 
-  private async resolveLlmCallTableName(): Promise<'llm_call_logs' | 'llm_calls' | null> {
+  private llmRequestSliceSelectColumns(): string {
+    return `
+      id,
+      trace_id,
+      conversation_id,
+      llm_call_id,
+      agent_turn,
+      model_provider,
+      model_name,
+      NULL::text AS prompt_template,
+      canonical_request,
+      canonical_response,
+      wire_request,
+      wire_response,
+      NULL::jsonb AS effective_unified_config,
+      request_format_version,
+      wire_provider_format,
+      COALESCE(CAST(canonical_response AS text), CAST(raw_response AS text), CAST(output_items AS text), '') AS processed_response,
+      COALESCE((token_usage::jsonb->>'input_tokens')::int, (token_usage::jsonb->>'prompt_tokens')::int, 0) AS input_tokens,
+      COALESCE((token_usage::jsonb->>'output_tokens')::int, (token_usage::jsonb->>'completion_tokens')::int, 0) AS output_tokens,
+      NULL::numeric AS api_call_time_ms,
+      processing_time_ms,
+      created_at AS started_at,
+      completed_at,
+      status
+    `;
+  }
+
+  private async resolveLlmCallTableName(): Promise<'llm_request_slices' | null> {
     if (this.llmCallTableName !== undefined) {
       return this.llmCallTableName;
     }
 
-    const rows = await this.db.executeQuery<{ table_name: 'llm_call_logs' | 'llm_calls' }>(
+    const rows = await this.db.executeQuery<{ table_name: 'llm_request_slices' }>(
       `
         SELECT TABLE_NAME
         FROM information_schema.TABLES
         WHERE TABLE_SCHEMA = current_schema()
-          AND TABLE_NAME IN ('llm_call_logs', 'llm_calls')
-        ORDER BY CASE TABLE_NAME WHEN 'llm_call_logs' THEN 0 ELSE 1 END
+          AND TABLE_NAME = 'llm_request_slices'
         LIMIT 1
       `
     );
@@ -2063,7 +2089,7 @@ export class PlaygroundCaseBuilder {
     this.llmCallTableName = rows[0]?.table_name || null;
     if (!this.llmCallTableName) {
       this.logger.warn('No LLM call table found for playground case builder', {
-        checkedTables: ['llm_call_logs', 'llm_calls']
+        checkedTables: ['llm_request_slices']
       });
     }
 

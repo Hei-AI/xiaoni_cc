@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useXiaoniActionEventTraceSpanDetail } from '@/hooks/useXiaoniActionTrace';
+import { summarizeProviderRequestInputBody } from '@/lib/trace-provider-request-summary';
 import { cn, formatTimestamp } from '@/lib/utils';
 import { TraceInspectorSection, TraceWaterfallRow } from '@/types';
 
@@ -125,6 +126,48 @@ function canLazyLoadSpanDetail(spanId: string): boolean {
 
 function shouldAlwaysLoadSpanDetail(node: TraceWaterfallRow | null): boolean {
   return Boolean(node && node.semanticRole === 'provider_request' && node.spanId.startsWith('provider-request:wire:'));
+}
+
+function ProviderRequestInputSummaryNotice({ body }: { body: unknown }) {
+  const summary = React.useMemo(() => summarizeProviderRequestInputBody(body), [body]);
+  if (!summary) {
+    return null;
+  }
+
+  const reminderFound = summary.lastSystemReminderIndex !== null && summary.lastSystemReminderText;
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-700/80 bg-slate-950/70 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Input Items</div>
+          <div className="mt-1 text-sm font-semibold text-slate-100">{summary.inputCount}</div>
+        </div>
+        <div className="rounded-lg border border-slate-700/80 bg-slate-950/70 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Tail Item</div>
+          <div className="mt-1 text-sm font-semibold text-slate-100">input[{summary.lastItemIndex}]</div>
+          <div className="mt-1 text-[11px] text-slate-400">{summary.lastItemLabel}</div>
+        </div>
+      </div>
+      {reminderFound ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+            Last system_reminder input[{summary.lastSystemReminderIndex}]
+          </div>
+          <div className="mt-2 whitespace-pre-wrap text-xs leading-5 text-emerald-50">{summary.lastSystemReminderText}</div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-xs leading-5 text-amber-50">
+          No prompt-facing system_reminder found in body.input.
+        </div>
+      )}
+      {!reminderFound || summary.lastSystemReminderIndex !== summary.lastItemIndex ? (
+        <div className="rounded-lg border border-slate-700/80 bg-slate-950/70 p-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Last Item Text</div>
+          <div className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-200">{summary.lastItemText || '(no text content)'}</div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 interface TraceInspectorSurfaceProps {
@@ -303,6 +346,7 @@ function TraceInspectorSurface({
                   bodyEmptyLabel="无请求体"
                   bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
                   headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
+                  bodyNotice={<ProviderRequestInputSummaryNotice body={inputPayload.body} />}
                 />
                 {inputPayloadMeta.rawBody ? (
                   <StructuredDataViewer

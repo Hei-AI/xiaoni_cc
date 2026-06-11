@@ -12,6 +12,7 @@
 ## Runtime Truth
 - 当前 QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看 QQ 未读时，读的是 `agent_inbound_messages` 的 inbox/window，不是 `agent_queue_messages`
 - 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 是 Notify Bucket 的持久化门铃，承载 `phone_notification`、`self_continuation`、`image_task_completed`、`system_reminder` 等触发。被主 loop pick 后即视为 consumed，不是小腻的 QQ app 未读列表、认知边界或长期运行凭证
+- 当前底层重构的事实源是追加式 Xiaoni agent stack：目标 `agent_stack_items` 记录连续可回放上下文，`llm_request_slices` 记录真实 LLM 请求和 provider wire payload，`tool_executions` 记录工具执行；行动流是这些事实的投影。旧 `llm_call_logs`、`tool_execution_logs`、provider replay ledger 已移除并由 schema ensure drop。细节看 `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - 聊天对象的 `auto_reply_enabled=0` 是 provider-service 侧硬开关：仍写入 QQ inbox，但不写 `phone_notification` 到 Notify Bucket，因此不会唤醒主 loop 发言
 - QQ 发言出站链路：`agent-service -> provider-service -> NapCat`
 - `exec_command` 支路走 `agent-service -> xiaoni-executor`

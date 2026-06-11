@@ -34,12 +34,6 @@ function createPersistence(overrides = {}) {
       if (statement.includes('FROM agent_queue_messages')) {
         return overrides.queueRows || [];
       }
-      if (statement.includes('FROM tool_execution_logs')) {
-        return overrides.toolRows || [];
-      }
-      if (statement.includes('FROM llm_call_logs')) {
-        return overrides.llmRows || [];
-      }
       return [];
     },
     close: async () => undefined
@@ -47,7 +41,10 @@ function createPersistence(overrides = {}) {
   return createXiaoniActivityPersistence({
     getPrismaClient: () => prisma,
     createSqlAdapter: sqlAdapter,
-    listXiaoniReplayEvents: async () => overrides.replayEvents || []
+    listLlmRequestSlices: async () => overrides.llmRequestSliceRows || overrides.llmRows || [],
+    listAgentStackItems: async () => overrides.agentStackRows || [],
+    listToolExecutions: async () => overrides.agentStackToolRows || [],
+    findAgentStackItemByEventId: async (eventId) => (overrides.agentStackRows || []).find((row) => row.eventId === eventId) || null
   });
 }
 
@@ -190,7 +187,7 @@ test('Xiaoni activity feed keeps sensory queue timestamps in storage timezone', 
   assert.equal(feed.current.autonomy.latestPhoneNotificationAt, '2026-05-31T14:28:56.395+08:00');
 });
 
-test('Xiaoni action stream does not sort settled phone notifications after visible delivery', async () => {
+test('Xiaoni action stream keeps visible actions without duplicating settled phone notification queue rows', async () => {
   const persistence = createPersistence({
     lifeEvents: [{
       id: 6464,
@@ -235,9 +232,11 @@ test('Xiaoni action stream does not sort settled phone notifications after visib
 
   const stream = await persistence.getXiaoniActionStream({ limit: 5 });
 
-  assert.equal(stream.items[0].id, 'life:6464');
+  assert.deepEqual(stream.items.map((item) => item.id), ['life:6464']);
   assert.equal(stream.items[0].eventKind, 'visible_delivery_committed');
-  assert.equal(stream.items.find((item) => item.id === 'queue:4161').occurredAt, '2026-05-31T14:28:56.395+08:00');
+  assert.equal(stream.items[0].traceTarget.traceId, 'runtrace_1');
+  assert.equal(stream.current.autonomy.latestPhoneNotificationAt, '2026-05-31T14:28:56.395+08:00');
+  assert.equal(stream.current.latestActivityAt, '2026-05-31T06:29:10.000Z');
 });
 
 test('Xiaoni activity feed hides operator-only self-action LLM prompts', async () => {
@@ -285,150 +284,189 @@ test('Xiaoni activity feed hides operator-only self-action LLM prompts', async (
   const serialized = JSON.stringify(feed);
 
   assert.equal(feed.items.some((item) => item.id === 'llm:llm_self'), false);
-  assert.equal(feed.items.some((item) => item.id === 'llm:llm_chat'), true);
+  assert.equal(feed.items.some((item) => item.id === 'llm-slice:llm_chat'), true);
   assert.equal(serialized.includes('请用这个 exact query'), false);
   assert.equal(serialized.includes('today funny internet culture trend'), false);
 });
 
-test('Xiaoni activity feed promotes Codex provider wire payloads to first-class events', async () => {
-  const wireRequest = '{"model":"gpt-5.5","input":[{"role":"user","content":"你发了么？"}]}';
-  const wireResponse = '{"id":"resp_codex","output":[{"type":"function_call","name":"exec_command"}]}';
+test('Xiaoni activity feed promotes LLM request slices to first-class events', async () => {
+  const wireRequest = { model: 'gpt-5.5', input: [{ role: 'user', content: '你发了么？' }] };
+  const wireResponse = { id: 'resp_codex', output: [{ type: 'function_call', name: 'exec_command' }] };
   const persistence = createPersistence({
-    llmRows: [{
-      id: 3,
-      llm_call_id: 'llm_codex_1',
-      trace_id: 'runtrace_codex_1',
-      agent_turn: 2,
-      agent_type: 'chat_bot',
-      prompt_template: '小腻主AGENT',
-      model_name: 'gpt-5.5',
-      model_provider: 'codex-local',
-      wire_provider_format: 'codex-local/responses',
+    llmRequestSliceRows: [{
+      id: '3',
+      sliceId: 'slice_codex_1',
+      llmCallId: 'llm_codex_1',
+      traceId: 'runtrace_codex_1',
+      runId: 'run_codex_1',
+      agentTurn: 2,
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
       status: 'completed',
-      started_at: new Date('2026-06-05T10:03:47.000Z'),
-      completed_at: new Date('2026-06-05T10:04:00.000Z'),
-      input_tokens: 10,
-      output_tokens: 4,
-      wire_request_preview_text: wireRequest,
-      wire_response_preview_text: wireResponse,
-      wire_request_bytes: Buffer.byteLength(wireRequest, 'utf8'),
-      wire_response_bytes: Buffer.byteLength(wireResponse, 'utf8'),
-      canonical_request: {
+      createdAt: '2026-06-05T10:03:47.000Z',
+      completedAt: '2026-06-05T10:04:00.000Z',
+      tokenUsage: { input_tokens: 10, output_tokens: 4 },
+      wireRequest,
+      wireResponse,
+      canonicalRequest: {
         instructions: 'normal chat instruction',
         input: [{
           role: 'user',
           content: '你发了么？'
         }]
-      },
-      processed_response: ''
+      }
     }]
   });
 
   const feed = await persistence.getXiaoniActivityFeed({ limit: 10 });
-  const provider = feed.items.find((item) => item.id === 'provider:codex:llm_codex_1');
+  const slice = feed.items.find((item) => item.id === 'llm-slice:slice_codex_1');
 
-  assert.ok(provider);
-  assert.equal(provider.source, 'provider_call');
-  assert.equal(provider.kind, 'codex_provider');
-  assert.equal(provider.title, 'Codex Provider 请求');
-  assert.equal(provider.traceId, 'runtrace_codex_1');
-  assert.equal(provider.metadata.spanId, 'provider-request:wire:llm_codex_1');
-  assert.equal(provider.metadata.providerFormat, 'codex-local/responses');
-  assert.equal(provider.metadata.providerRequestPreview, wireRequest);
-  assert.equal(provider.metadata.providerResponsePreview, wireResponse);
-  assert.equal(provider.metadata.providerRequestBytes, Buffer.byteLength(wireRequest, 'utf8'));
-  assert.equal(provider.metadata.providerResponseBytes, Buffer.byteLength(wireResponse, 'utf8'));
-  assert.equal(feed.items.some((item) => item.id === 'llm:llm_codex_1'), true);
+  assert.ok(slice);
+  assert.equal(slice.source, 'llm_request');
+  assert.equal(slice.kind, 'llm_request_slice');
+  assert.equal(slice.title, 'LLM 请求');
+  assert.equal(slice.traceId, 'runtrace_codex_1');
+  assert.equal(slice.metadata.spanId, 'stack-slice:slice_codex_1');
+  assert.equal(slice.metadata.providerFormat, 'codex-local/responses');
+  assert.match(slice.metadata.providerRequestPreview, /gpt-5.5/);
+  assert.match(slice.metadata.providerResponsePreview, /resp_codex/);
+  assert.equal(slice.metadata.providerRequestBytes, Buffer.byteLength(JSON.stringify(wireRequest), 'utf8'));
+  assert.equal(slice.metadata.providerResponseBytes, Buffer.byteLength(JSON.stringify(wireResponse), 'utf8'));
+  assert.equal(feed.items.some((item) => item.id === 'llm:llm_codex_1'), false);
 });
 
-test('Xiaoni action stream reads Codex provider replay from the unified ledger', async () => {
-  const wireRequest = '{"model":"gpt-5.5","input":[{"role":"user","content":"你发了么？"}]}';
-  const wireResponse = '{"id":"resp_codex","output":[{"type":"function_call","name":"exec_command"}]}';
+test('Xiaoni action stream projects stack tool requests without provider replay rows', async () => {
   const persistence = createPersistence({
-    llmRows: [{
-      id: 4,
-      llm_call_id: 'llm_codex_stream',
-      trace_id: 'trace_codex_stream',
-      run_id: 'run_internal_lease_1',
-      agent_turn: 3,
-      agent_type: 'chat_bot',
-      prompt_template: '小腻主AGENT',
-      model_name: 'gpt-5.5',
-      model_provider: 'codex-local',
-      wire_provider_format: 'codex-local/responses',
-      status: 'completed',
-      started_at: new Date('2026-06-05T10:03:47.000Z'),
-      completed_at: new Date('2026-06-05T10:04:00.000Z'),
-      input_tokens: 10,
-      output_tokens: 4,
-      wire_request_preview_text: wireRequest,
-      wire_response_preview_text: wireResponse,
-      wire_request_bytes: Buffer.byteLength(wireRequest, 'utf8'),
-      wire_response_bytes: Buffer.byteLength(wireResponse, 'utf8'),
-      canonical_request: {
-        input: [{
-          role: 'user',
-          content: '你发了么？'
-        }]
-      },
-      processed_response: ''
-    }],
-    replayEvents: [{
+    agentStackRows: [{
       id: '101',
-      eventId: 'provider:codex:llm_codex_stream',
+      eventId: 'stack:trace_codex_stream:call_exec',
       identityKey: 'xiaoni',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
-      occurredAt: '2026-06-05T10:03:47.000Z',
+      stackIndex: 20,
+      itemKind: 'function_call',
+      role: 'assistant',
+      phase: null,
+      toolCallId: 'call_exec',
+      llmRequestSliceId: 'slice_codex_stream',
+      content: {
+        type: 'function_call',
+        call_id: 'call_exec',
+        name: 'exec_command',
+        arguments: '{"cmd":"date"}'
+      },
       traceId: 'trace_codex_stream',
       conversationId: '42',
-      internalExecutionLeaseId: 'run_internal_lease_1',
-      providerCallId: 'llm_codex_stream',
-      toolCallId: null,
-      modelName: 'gpt-5.5',
-      modelProvider: 'codex-local',
+      runId: 'run_internal_lease_1',
       status: 'completed',
-      replayable: true,
-      replayPayload: {},
-      wireRequest: { model: 'gpt-5.5', input: [{ role: 'user', content: '你发了么？' }] },
-      wireResponse: { id: 'resp_codex', output: [{ type: 'function_call', name: 'exec_command' }] },
-      metadata: {
-        spanId: 'provider-request:wire:llm_codex_stream',
-        providerFormat: 'codex-local/responses',
-        inputTokens: 10,
-        outputTokens: 4,
-        completedAt: '2026-06-05T10:04:00.000Z'
-      },
-      sourceTable: 'llm_call_logs',
-      sourceId: 'llm_codex_stream',
       createdAt: '2026-06-05T10:04:00.000Z',
-      updatedAt: '2026-06-05T10:04:00.000Z'
+      metadata: {
+        output_item_index: 0
+      }
     }]
   });
 
   const stream = await persistence.getXiaoniActionStream({ limit: 10 });
-  const provider = stream.items.find((item) => item.id === 'provider:codex:llm_codex_stream');
+  const stackItem = stream.items.find((item) => item.id === 'stack:101');
 
-  assert.ok(provider);
+  assert.ok(stackItem);
   assert.equal(stream.streamKind, 'xiaoni_action_stream');
-  assert.equal(provider.eventKind, 'provider_request');
-  assert.equal(provider.occurredAt, '2026-06-05T10:03:47.000Z');
-  assert.equal(provider.status, 'ok');
-  assert.equal(provider.runId, null);
-  assert.equal(provider.internalExecutionLeaseId, 'run_internal_lease_1');
-  assert.deepEqual(provider.traceTarget, {
+  assert.equal(stackItem.source, 'llm_stack_item');
+  assert.equal(stackItem.eventKind, 'model_tool_request');
+  assert.equal(stackItem.title, '请求工具: exec_command');
+  assert.equal(stackItem.occurredAt, '2026-06-05T10:04:00.000Z');
+  assert.equal(stackItem.status, null);
+  assert.equal(stackItem.runId, null);
+  assert.equal(stackItem.internalExecutionLeaseId, 'run_internal_lease_1');
+  assert.deepEqual(stackItem.traceTarget, {
     internalExecutionLeaseId: 'run_internal_lease_1',
     traceId: 'trace_codex_stream',
-    spanId: 'provider-request:wire:llm_codex_stream'
+    spanId: 'tool-call:call_exec'
   });
-  assert.equal(provider.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
-  assert.equal(Object.prototype.hasOwnProperty.call(provider.metadata, 'completedAt'), false);
-  assert.equal(provider.metadata.endedAt, '2026-06-05T10:04:00.000Z');
-  assert.equal(provider.metadata.wirePayloadSource, 'xiaoni_replay_events');
-  assert.equal(stream.items.filter((item) => item.source === 'provider_call').length, 1);
+  assert.equal(stackItem.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
+  assert.equal(stackItem.metadata.stackSource, 'agent_stack_items');
+  assert.equal(stackItem.metadata.argumentsPreview, '{"cmd":"date"}');
+  assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
 });
 
-test('Xiaoni action stream does not synthesize raw trace targets for internal events', async () => {
+test('Xiaoni activity feed projects stack ledger items without legacy LLM rows', async () => {
+  const persistence = createPersistence({
+    agentStackRows: [{
+      id: '9001',
+      eventId: 'stack:llm-1:output:0',
+      identityKey: 'xiaoni',
+      stackIndex: 12,
+      itemKind: 'function_call',
+      role: 'assistant',
+      phase: null,
+      toolCallId: 'call-1',
+      llmRequestSliceId: 'llm-1',
+      content: {
+        type: 'function_call',
+        call_id: 'call-1',
+        name: 'exec_command',
+        arguments: '{"cmd":"pwd"}'
+      },
+      traceId: 'trace-1',
+      runId: 'run-1',
+      createdAt: '2026-06-11T10:00:00.000Z',
+      metadata: {
+        output_item_index: 0
+      }
+    }]
+  });
+
+  const feed = await persistence.getXiaoniActivityFeed({ limit: 10 });
+
+  assert.equal(feed.items.some((item) => item.id === 'stack:9001'), true);
+  const actionStream = await persistence.getXiaoniActionStream({ limit: 10 });
+  assert.equal(actionStream.items[0].eventKind, 'model_tool_request');
+  assert.equal(actionStream.items[0].traceTarget.spanId, 'tool-call:call-1');
+});
+
+test('Xiaoni action stream treats stack tool executions as first-class activity', async () => {
+  const persistence = createPersistence({
+    agentStackToolRows: [{
+      id: '701',
+      executionId: 'tool:trace-tool:call-recover',
+      identityKey: 'xiaoni',
+      llmRequestSliceId: 'slice-tool',
+      llmCallId: 'llm-tool',
+      traceId: 'trace-tool',
+      conversationId: null,
+      runId: 'run-tool',
+      toolCallId: 'call-recover',
+      toolName: 'recover_energy',
+      arguments: { reason: '困了' },
+      result: {
+        status_text: '开始休息',
+        release_lease: true
+      },
+      status: 'completed',
+      sideEffect: true,
+      startedAt: '2026-06-05T12:00:00.000Z',
+      completedAt: '2026-06-05T12:00:03.000Z',
+      metadata: {
+        agentTurn: 1
+      }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const tool = stream.items.find((item) => item.id === 'tool-exec:tool:trace-tool:call-recover');
+
+  assert.ok(tool);
+  assert.equal(tool.source, 'tool_execution');
+  assert.equal(tool.eventKind, 'tool_executed');
+  assert.equal(tool.kind, 'recover_energy');
+  assert.equal(tool.title, 'tool: recover_energy');
+  assert.equal(tool.status, 'ok');
+  assert.equal(tool.occurredAt, '2026-06-05T12:00:00.000Z');
+  assert.equal(tool.internalExecutionLeaseId, 'run-tool');
+  assert.equal(tool.metadata.toolArgumentsPreview, '{"reason":"困了"}');
+  assert.match(tool.metadata.toolResultPreview, /开始休息/);
+});
+
+test('Xiaoni action stream excludes internal non-tool life events', async () => {
   const persistence = createPersistence({
     lifeEvents: [{
       id: 501,
@@ -449,11 +487,9 @@ test('Xiaoni action stream does not synthesize raw trace targets for internal ev
   });
 
   const stream = await persistence.getXiaoniActionStream({ limit: 10 });
-  const life = stream.items.find((item) => item.id === 'life:501');
 
-  assert.ok(life);
-  assert.equal(life.internalExecutionLeaseId, 'run_internal_only');
-  assert.equal(life.traceTarget, null);
+  assert.deepEqual(stream.items, []);
+  assert.equal(stream.current.latestActivityAt, null);
 });
 
 test('Xiaoni activity feed exposes safe action trace previews on digital actions', async () => {

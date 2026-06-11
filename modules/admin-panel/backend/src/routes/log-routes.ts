@@ -140,21 +140,23 @@ export function createLogRoutes(database: DatabaseManager, logger: winston.Logge
 
       const logs = await database.executeQuery(
         `SELECT
-          id, conversation_id, trace_id, session_id, model_name,
+          id, conversation_id, trace_id, NULL::text AS session_id, model_name,
           LEFT(COALESCE(canonical_request::jsonb->>'instructions', CAST(canonical_request AS text)), 200) as prompt_preview,
           request_format_version, wire_provider_format,
-          LEFT(processed_response, 200) as response_preview,
-          status, timestamp as created_at, processing_time_ms, input_tokens, output_tokens
-         FROM llm_call_logs
+          LEFT(COALESCE(CAST(canonical_response AS text), CAST(wire_response AS text), CAST(raw_response AS text), CAST(output_items AS text)), 200) as response_preview,
+          status, created_at, processing_time_ms,
+          COALESCE((token_usage::jsonb->>'input_tokens')::int, (token_usage::jsonb->>'prompt_tokens')::int, 0) AS input_tokens,
+          COALESCE((token_usage::jsonb->>'output_tokens')::int, (token_usage::jsonb->>'completion_tokens')::int, 0) AS output_tokens
+         FROM llm_request_slices
          ${whereClause}
-         ORDER BY timestamp DESC
+         ORDER BY created_at DESC
          LIMIT ? OFFSET ?`,
         [...params, limit, offset]
       );
 
       // 获取总数
       const totalResult = await database.executeQuery<{ total: number }>(
-        `SELECT COUNT(*) as total FROM llm_call_logs ${whereClause}`,
+        `SELECT COUNT(*) as total FROM llm_request_slices ${whereClause}`,
         params
       );
       const total = totalResult[0]?.total || 0;

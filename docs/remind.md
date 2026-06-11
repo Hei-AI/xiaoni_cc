@@ -136,9 +136,11 @@
 
 `image_task_follow_up` 不再作为独立 `<system_reminder>` 设计。`request_image_task` 本身是 tool call，tool output 已经返回 `queued`、`task_id`、`task_type`、`status_text`，其中 `status_text` 会告诉小腻任务正在进行、完成后会以 notify 通知。agent loop 不再额外追加“底层动作确认 / 你还没有对聊天框里的人开口说话”提醒；是否还需要对聊天对象补一句，应由当前对话策略和发言工具自然决定。
 
-`final_answer_turn_control` / `final_answer_idle` 不再作为 prompt-facing 契约。`phase=final_answer` 后是否继续同一个 run、是否释放 execution lease、是否创建下一次自主切片，是 runtime 调度问题；如果 Notify Bucket 有真实 notify，应由队列 pick 处理，如果没有，则按普通 `self_continuation` 处理，而不是把“不要复述上一条 final_answer”塞回 LLM context。
+final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后是否继续同一个 run、是否释放 execution lease、是否创建下一次自主切片，是 runtime 调度问题；如果 Notify Bucket 有真实 notify，应由队列 pick 处理，如果没有，则按普通 `self_continuation` 处理，而不是把“不要复述上一条 final_answer”塞回 LLM context。
 
 `self_continuation` 只保留一个 prompt-facing 模板。当前 fresh trigger 如果已经渲染 `self_continuation`，就不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
+
+`phone_notification` / `image_task_notification` / `system_reminder` / `self_continuation` 这类 runtime reminder 只属于当前输入，不是 QQ 正文，也不是 assistant 历史。代码侧不得把它们写入 `conversation_items`，也不得把它们写入 `conversations.user_message` 作为可回放内容；目标实现中它们作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，后续 prompt history 只保留真实 QQ 正文、assistant 可见投递、tool result / response replay 和必要记忆。
 
 `<CAPABILITIES>` 是能力成本表，放在开头 developer context，保留每个 tool / skill 的 `energy_cost`。普通结构化 wrapped tool 的执行结果由 runtime 在 JSON `function_call_output.output` 中回传 `energy_cost`、`energy`、`max_energy`，不靠额外 `<system_reminder>` 给小腻解释；后续同一 run 会从上一条 JSON tool output 继续读取最新 `energy`。`exec_command` 固定基础消耗为 `energy_cost=0.002`；本地 skill 当前默认 / 兜底也按 `0.002` 展示，未来如需按 skill 精细扣费，需要先把 skill execution 从命令输出里拆成可识别事件。
 
@@ -157,7 +159,7 @@
 | `emit_unread_meaning` / `turn_control` | 删除 | 当前 main loop 不暴露 `emit_unread_meaning`；旧分支只保留执行解析兼容。 |
 | `tool_loop_monitor` | 删除 | 旧 helper 和测试已删除；防内耗如需保留，应做代码侧限流 / 状态机。 |
 | `image_task_follow_up` | 删除 | `request_image_task` tool output 已返回 `queued`、`task_id`、`status_text`；不再额外追加提醒。 |
-| `final_answer_turn_control` / `final_answer_idle` | 删除 | 属于 execution lease / loop 调度问题；不再作为 prompt-facing reminder。 |
+| final-answer 专用 reminder | 删除 | 属于 execution lease / loop 调度问题；不再作为 prompt-facing reminder。 |
 
 ### 额外待审代码入口
 

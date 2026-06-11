@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、inbox 写入、auto reply 入桶硬开关和内部 loop 触发队列入口
-- `agent-service`: 主 agent loop runtime，消费内部触发队列、重建上下文、执行内部 execution lease、控制 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence/self-action runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻连续主 loop
+- `agent-service`: 主 agent loop runtime，消费内部触发队列、组装连续 stack ledger 上的 LLM request slice、执行工具和 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence/self-action runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻连续主 loop
 - `xiaoni-executor`: 小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、小腻行动流、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻行动流”看她当前在做什么
@@ -55,7 +55,7 @@ NapCat -> provider-service
 - `xiaoni-executor` 负责执行小腻的 `exec_command`，默认把 `/app` 映射到 `/workspace/qq_bot`，并把 session、审计日志和 git archive 写入 `/home/liahua/.qqbot-local/xiaoni-runtime`。
 - 小腻主 prompt 只有一套，维护在 `modules/agent-service/src/prompts/xiaoni-main-agent.ts`；群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - 小腻看 QQ 未读时走 `$qq-usage`：模型通过 `exec_command` 调用 `modules/agent-service/skills/qq-usage` 脚本，脚本请求 `agent-service /api/internal/qq-usage`，底层读取 `agent_inbound_messages` 的 thread list / conversation window。当前 `open_inbox` 最多展示 10 个 thread，`focus_thread` / `scroll_thread` 每次最多展示 10 条消息。清角标通过 `put_qq_away` 写回 inbox read state。
-- 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态与记忆通过 `responses_replay_items` / `conversation_items` 追加进下一轮 request。空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice；模型返回 `final_answer` 且 Notify Bucket 没有 pending item 时，会由 Step 8 post action 写入一个 `system_reminder`，下一轮作为 `user` scene input 让小腻继续找事做。这些都不是旧 `consciousness_tick` / `presence_tick` 分支，也不会自动打开 QQ。QQ 正文不会因为 queue 被自动打开；模型只能先看到手机状态栏通知摘要，需要内容时自己用 `$qq-usage` 打开 QQ。主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一是 `xiaoni:global`；群/私聊 session 只表示来源、投递目标和 QQ app 未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。
+- 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态、可见投递与必要记忆按顺序追加进目标 `agent_stack_items`，每次真实 LLM 调用记录为 `llm_request_slices`。空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice；模型返回 `final_answer` 且没有工具调用时，不写 final-answer 专用 prompt reminder，后续仍由真实 notify 或普通 `self_continuation` 继续推进。这些都不是旧 `consciousness_tick` / `presence_tick` 分支，也不会自动打开 QQ。QQ 正文不会因为 queue 被自动打开；模型只能先看到手机状态栏通知摘要，需要内容时自己用 `$qq-usage` 打开 QQ。主 loop 的 prompt-facing history、context summary、read cutoff 和 prompt cache key 统一是 `xiaoni:global`；群/私聊 session 只表示来源、投递目标和 QQ app 未读游标元数据，不形成任何 QQ 维度 prompt history/cache key。迁移期旧 runtime audit / transcript 表只能作为兼容投影或审计来源，目标契约见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - provider 侧 participation 保留为硬安全边界和观测事件；其中 `auto_reply_enabled=0` 会硬拦截 `phone_notification` 入桶。主行为判断仍在 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。当前对话历史里的旧 `<小腻的OS>` 按历史真相保留，不做 DB 迁移，并随已读历史一起参与上下文窗口管理。`<小腻近况>` 当前由 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
@@ -96,15 +96,15 @@ docker compose ps
 
 保留的调试面：
 
-- Admin 小腻行动流：真实 trace 里的 provider/tool、模型请求切片、发言、看群、历史后台行动、任务、图片观察和 runtime busy flags
+- Admin 小腻行动流：由目标 `agent_stack_items` / `llm_request_slices` / `tool_executions` 与 life/media/task 事实投影出来的当前行动、模型请求切片、工具结果、发言、看群、历史后台行动、任务、图片观察和 runtime busy flags
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
-- Admin 小腻行动流 event trace、runtime status、task/media 观测；Raw Trace 通过 `/api/xiaoni/action-stream/events/:eventId/trace` 读取，回放源统一是 `xiaoni_replay_events`
+- Admin 小腻行动流 event trace、runtime status、task/media 观测；行动卡片目标来源是 `agent_stack_items` 的模型输出 / 当前输入 / 可见投递、`tool_executions` 的工程工具结果以及必要 life/media/task 事件，Raw Trace 通过 `/api/xiaoni/action-stream/events/:eventId/trace` 聚焦对应 LLM/tool span。
 - Admin Queue Management
 - Prompt 管理 / 编辑 / 调试仍可用于 Playground 和历史调试；小腻主 prompt 不再从 DB 读取。
 - Playground case library、Raw Trace / Conversation 导入、Provider 请求 payload 查看
-- QQ 未读导航排障时，看 `agent_inbound_messages`、`$qq-usage` 输出和 `agent-service /api/internal/qq-usage`；不要把 `agent_queue_messages` 当成小腻 QQ app 未读列表。小腻 loop 排障时，看 `phone_notification` queue 项、raw trace 的 `runtime_stream`、`responses_replay_items`、`agent_life_events`、`conversation_items`、`agent_session_context_windows` 和 Traffic 里的 `llm_call_id`。
+- QQ 未读导航排障时，看 `agent_inbound_messages`、`$qq-usage` 输出和 `agent-service /api/internal/qq-usage`；不要把 `agent_queue_messages` 当成小腻 QQ app 未读列表。小腻 loop 排障时，目标优先看 `agent_stack_items`、`llm_request_slices`、`tool_executions`、`agent_life_events`、`agent_session_context_windows`；旧 runtime audit / provider replay 表已移除。
 - 如果 `auto_reply_enabled=0` 后小腻仍被 QQ 消息唤醒，先查 provider-service timeline 里 `phone_notification/routing` 与 `phone_notification/enqueue` 是否为 `reason=auto_reply_disabled`，再查 `agent_queue_messages` 是否仍出现对应 pending row。
-- Trace 里的 provider 请求骨架统一来自 `xiaoni_replay_events.wire_request/wire_response`；traffic / MITM / CLIProxyAPI 日志只补证据和 detail，不再决定 action replay 是否存在。`llm_call_logs` 只做审计，不做 action replay source。
+- Trace 里的 provider 请求证据来自 `llm_request_slices.wire_request/wire_response`；traffic / MITM / CLIProxyAPI 日志只补证据和 detail。目标 LLM request stack 和完整 request/response 审计源是 `llm_request_slices`，主行动流的模型工具请求卡从 `agent_stack_items` 派生。
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex local provider 使用 `/root/.qqbot-local/codex-auth-profiles/auth-profiles.json` 作为运行态 OAuth profile store；只在 profile 缺失时从只读 `/root/.codex/auth.json` bootstrap，刷新只写 auth-profiles，不改写 auth.json
 - Traffic 只记录 Codex 限额信号，不做账号切换，也不改写 auth.json
@@ -144,8 +144,8 @@ python3 scripts/start_modules.py status
 
 - [docs/START_HERE.md](docs/START_HERE.md)
 - [docs/INDEX.md](docs/INDEX.md)
+- [docs/XIAONI_AGENT_STACK_LEDGER.md](docs/XIAONI_AGENT_STACK_LEDGER.md)
 - [docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md](docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md)
 - [docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md](docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md)
-- [docs/XIAONI_REPLAY_LEDGER.md](docs/XIAONI_REPLAY_LEDGER.md)
 - [docs/AGENTS_XIAONI_EXECUTOR.md](docs/AGENTS_XIAONI_EXECUTOR.md)
 - [docs/ROADMAP.md](docs/ROADMAP.md)

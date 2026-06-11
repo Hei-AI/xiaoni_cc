@@ -1550,6 +1550,14 @@ test('buildInitialInput does not replay historical notification snapshots as cur
       runId: 'run-historical-notification',
       traceId: 'trace-historical-notification'
     },
+    {
+      ...historicalTurn.items[0],
+      source: 'inbound_batch',
+      content: '<PHONE_NOTIFICATION app="qq" surface="status_bar" unread_delta="7" />',
+      deliveryMessageId: null,
+      runId: 'run-historical-inbound-notification',
+      traceId: 'trace-historical-inbound-notification'
+    },
     historicalTurn.items[1]
   ] as any;
 
@@ -1567,6 +1575,7 @@ test('buildInitialInput does not replay historical notification snapshots as cur
   assert.equal(phoneNotificationItems.length, 1);
   assert.match(getMessageContent(phoneNotificationItems[0]), /有新的未读qq消息（3 条）/);
   assert.doesNotMatch(rendered, /有新的未读qq消息（1 条）/);
+  assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
 
 test('buildInitialInput suppresses already-picked notification context', () => {
@@ -2990,7 +2999,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
     settleQueueMessages: [],
     releaseExecutionLease: [],
     updateLlmJob: [],
-    completeToolExecutionLog: [],
+    completeAgentStackToolExecution: [],
     recordMediaObservation: []
   };
 
@@ -3038,9 +3047,8 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
     }),
     markLeaseVisibleDeliveryCommitted: async () => {},
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => storeCalls.completeToolExecutionLog.length + 1,
-    completeToolExecutionLog: async (_logId: number, params: any) => {
-      storeCalls.completeToolExecutionLog.push(params);
+    completeAgentStackToolExecution: async (params: any) => {
+      storeCalls.completeAgentStackToolExecution.push(params);
     },
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
@@ -3191,13 +3199,13 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.equal(storeCalls.recordMediaObservation[0]?.assetId, 'asset-img-123');
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
 
-  const inspectLog = storeCalls.completeToolExecutionLog.find((call) => call.result?.image_id === 'asset-img-123');
+  const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === 'asset-img-123');
   assert.ok(inspectLog);
   assert.equal(inspectLog.result.output_xml, '<image id="asset-img-123">含义是: 这是一只猫</image>');
   const replayText = JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []);
   assert.match(replayText, /<image id=\\"asset-img-123\\">含义是: 这是一只猫<\/image>/);
   const persistedRuntimeText = JSON.stringify({
-    toolLogs: storeCalls.completeToolExecutionLog,
+    toolLogs: storeCalls.completeAgentStackToolExecution,
     conversations: storeCalls.createConversation,
     settle: storeCalls.settleQueueMessages,
     release: storeCalls.releaseExecutionLease
@@ -3597,9 +3605,8 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'failed');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.role, 'user');
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.source, 'sensory_event');
+  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
+  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 0);
   assert.equal(storeCalls.createConversation[0]?.errorReason, 'No active agent prompt binding found for current conversation');
   assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.prompt, {
     source: null,
@@ -3635,7 +3642,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     updateLlmJob: [],
     markLeaseVisibleDeliveryCommitted: [],
     ensureXiaoniIdentityRoot: [],
-    createToolExecutionLog: [],
+    recordAgentStackToolExecution: [],
     listRecentTurns: []
   };
   let deliveryPhase = 'reasoning_open';
@@ -3662,11 +3669,11 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
     },
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async (params: any) => {
-      storeCalls.createToolExecutionLog.push(params);
-      return 1;
+    recordAgentStackToolExecution: async (params: any) => {
+      storeCalls.recordAgentStackToolExecution.push(params);
+      return { id: 1, ...params };
     },
-    completeToolExecutionLog: async () => {},
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 1001;
@@ -3761,6 +3768,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.sessionKey, 'qq:group:101');
+  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.deepEqual(storeCalls.listRecentTurns[0], {
     userId: 202,
     groupId: 101,
@@ -3780,15 +3788,6 @@ test('processQueueMessage persists delivered assistant transcript items with fin
       source: item.source
     })),
     [
-      {
-        role: 'user',
-        phase: null,
-        content: expectedCurrentInputMessage(),
-        groupIndex: 0,
-        itemIndex: 0,
-        deliveryMessageId: null,
-        source: 'sensory_event'
-      },
       {
         role: 'assistant',
         phase: 'commentary',
@@ -3829,8 +3828,8 @@ test('processQueueMessage persists delivered assistant transcript items with fin
     storeCalls.createConversation[0]?.rawRequest?.runtime_stream
   );
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.loop_stage_artifacts?.life_action, undefined);
-  assert.equal(storeCalls.createToolExecutionLog[0]?.toolName, GROUP_REPLY_TOOL);
-  assert.equal(storeCalls.createToolExecutionLog[0]?.sideEffect, true);
+  assert.equal(storeCalls.recordAgentStackToolExecution[0]?.toolName, GROUP_REPLY_TOOL);
+  assert.equal(storeCalls.recordAgentStackToolExecution[0]?.sideEffect, true);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-success']);
   assert.deepEqual(sendGroupCalls, [{
     url: `${agentConfig.providerServiceUrl}/api/internal/send_group`,
@@ -3915,8 +3914,8 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
       return 1777;
     },
     attachConversationIdToTrace: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     failQueueMessage: async () => {},
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
@@ -3974,8 +3973,8 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.[0]?.source, 'sensory_event');
+  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
+  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 0);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.detail, '精力不够，自己选择休息。');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先休息，之后再看。');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
@@ -3989,7 +3988,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('processQueueMessage releases final_answer without prompt-facing follow-up reminders', async () => {
+test('processQueueMessage keeps final_answer in the stack and continues until a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4029,8 +4028,8 @@ test('processQueueMessage releases final_answer without prompt-facing follow-up 
       return 1999;
     },
     attachConversationIdToTrace: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     failQueueMessage: async () => {},
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
@@ -4044,17 +4043,38 @@ test('processQueueMessage releases final_answer without prompt-facing follow-up 
   } as any);
 
   let turn = 0;
-  (service as any).executeAgentTurn = async () => {
+  let secondTurnInput = '';
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-final-answer-control-1',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
+          }]
+        }
+      };
+    }
+
+    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
-      llm_call_id: 'llm-final-answer-control-1',
+      llm_call_id: 'llm-final-answer-control-2',
       canonical_response: {
         output: [{
-          type: 'message',
-          role: 'assistant',
-          phase: 'final_answer',
-          content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
+          type: 'function_call',
+          call_id: 'call-final-answer-then-recover',
+          name: RECOVER_ENERGY_TOOL,
+          arguments: JSON.stringify({
+            reason: 'final_answer 不是终止信号，下一轮自己选择休息。',
+            duration_minutes: 5,
+            xiaoni_os: 'final_answer 已进入可回放 stack，当前 lease 由 recover_energy 收束。'
+          })
         }]
       }
     };
@@ -4062,16 +4082,19 @@ test('processQueueMessage releases final_answer without prompt-facing follow-up 
 
   await service.processQueueMessage(queueMessage as any);
 
-  assert.equal(turn, 1);
+  assert.equal(turn, 2);
+  assert.match(secondTurnInput, /这条时间戳还是刚才那一尾/);
+  assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'no_visible_delivery_observed');
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'no_visible_delivery_observed');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, 'final_answer 已进入可回放 stack，当前 lease 由 recover_energy 收束。');
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'no_visible_delivery_observed');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
-  assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 1);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
 test('processQueueMessage waits before the next model slice when runtime control is disabled', async () => {
@@ -4114,8 +4137,8 @@ test('processQueueMessage waits before the next model slice when runtime control
       return 1999;
     },
     attachConversationIdToTrace: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
     updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
@@ -4229,8 +4252,8 @@ test('processQueueMessage continues past the historical max turn count until Xia
       return 1888;
     },
     attachConversationIdToTrace: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
     updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
@@ -4242,10 +4265,12 @@ test('processQueueMessage continues past the historical max turn count until Xia
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
 
+  const historicalMaxTurns = 3;
+  const originalMaxTurns = agentConfig.maxTurns;
   let turns = 0;
   (service as any).executeAgentTurn = async () => {
     turns += 1;
-    if (turns > agentConfig.maxTurns + 2) {
+    if (turns > historicalMaxTurns + 2) {
       return {
         success: true,
         llm_call_id: `llm-unbounded-terminal-${turns}`,
@@ -4275,15 +4300,20 @@ test('processQueueMessage continues past the historical max turn count until Xia
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  agentConfig.maxTurns = historicalMaxTurns;
+  try {
+    await service.processQueueMessage(queueMessage as any);
+  } finally {
+    agentConfig.maxTurns = originalMaxTurns;
+  }
 
-  assert.equal(turns, agentConfig.maxTurns + 3);
+  assert.equal(turns, historicalMaxTurns + 3);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, agentConfig.maxTurns + 3);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, historicalMaxTurns + 3);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
@@ -4387,8 +4417,8 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
       storeCalls.markLeaseVisibleDeliveryCommitted.push(runId);
     },
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 3589;
@@ -4539,8 +4569,8 @@ test('processQueueMessage does not auto-send image task status after queuing', a
       storeCalls.markLeaseVisibleDeliveryCommitted.push(runId);
     },
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 3590;
@@ -4661,8 +4691,8 @@ test('processQueueMessage stores partially delivered assistant transcript as com
       storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
     },
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 2001;
@@ -4734,6 +4764,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'failed');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
       role: item.role,
@@ -4741,11 +4772,6 @@ test('processQueueMessage stores partially delivered assistant transcript as com
       content: item.content
     })),
     [
-      {
-        role: 'user',
-        phase: null,
-        content: expectedCurrentInputMessage()
-      },
       {
         role: 'assistant',
         phase: 'final_answer',
@@ -4800,8 +4826,8 @@ test('processQueueMessage completes when the model stops emitting tool calls aft
       storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
     },
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 2101;
@@ -4893,7 +4919,7 @@ test('processQueueMessage allows multiple visible deliveries within the same run
 
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
-    completeToolExecutionLog: [],
+    completeAgentStackToolExecution: [],
     settleQueueMessages: [],
     releaseExecutionLease: [],
     markLeaseVisibleDeliveryCommitted: [],
@@ -4925,8 +4951,8 @@ test('processQueueMessage allows multiple visible deliveries within the same run
     markLeaseDeliveryBlocked: async (_runId: string, reason: string) => {
       storeCalls.markLeaseDeliveryBlocked.push(reason);
     },
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async (_logId: number, params: any) => { storeCalls.completeToolExecutionLog.push(params); },
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async (params: any) => { storeCalls.completeAgentStackToolExecution.push(params); },
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 3001;
@@ -5014,10 +5040,10 @@ test('processQueueMessage allows multiple visible deliveries within the same run
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '已发送：第二条');
+  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
     [
-      expectedCurrentInputMessage(),
       '第一条',
       '第二条'
     ]
@@ -5025,8 +5051,8 @@ test('processQueueMessage allows multiple visible deliveries within the same run
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'model_slice_settled_after_visible_delivery');
-  assert.equal(storeCalls.completeToolExecutionLog.length, 2);
-  assert.equal(storeCalls.completeToolExecutionLog.some((call) => call.result?.blocked_transition), false);
+  assert.equal(storeCalls.completeAgentStackToolExecution.length, 2);
+  assert.equal(storeCalls.completeAgentStackToolExecution.some((call) => call.result?.blocked_transition), false);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, [
     'run-queue-multi-delivery',
     'run-queue-multi-delivery'
@@ -5353,8 +5379,8 @@ test('processQueueMessage preserves global OS context during self continuation',
     }),
     markLeaseVisibleDeliveryCommitted: async () => {},
     markLeaseDeliveryBlocked: async () => {},
-    createToolExecutionLog: async () => 1,
-    completeToolExecutionLog: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 2001;

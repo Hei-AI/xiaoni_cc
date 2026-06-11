@@ -3,64 +3,15 @@ import {
   enqueueAgentQueueMessage,
   ensureAgentRuntimeSchema,
   logRuntimeTimelineEvent,
-  recordLlmCallLog,
   attachConversationIdToRuntimeTrace,
-  attachConversationIdToXiaoniReplayEventsByTrace,
-  ensureXiaoniReplayEventSchema,
-  recordXiaoniReplayEvent,
   type SqlAdapter
 } from '@qq-bot/persistence';
 import { agentRunConfig, databaseConfig } from '../config';
 import { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessage } from '../types';
 
-type ProviderReplayEventParams = {
-  identityKey?: string;
-  traceId?: string;
-  conversationId?: unknown;
-  llmCallId?: string;
-  agentTurn?: number;
-  agentType?: string;
-  promptName?: string;
-  modelName: string;
-  modelProvider: string;
-  canonicalRequest: Record<string, unknown>;
-  wireRequest: Record<string, unknown>;
-  canonicalResponse: Record<string, unknown>;
-  wireResponse: Record<string, unknown>;
-  effectiveUnifiedConfig: Record<string, unknown>;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    processingTimeMs: number;
-    cachedInputTokens?: number;
-    reasoningTokens?: number;
-  };
-  requestFormatVersion: string;
-  wireProviderFormat: string;
-  errorMessage?: string | null;
-  sourceTable?: string | null;
-  sourceId?: string | null;
-};
-
 function toNumericConversationId(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
-}
-
-function isCodexProvider(params: { modelProvider?: string; wireProviderFormat?: string; effectiveUnifiedConfig?: Record<string, unknown> }) {
-  const config = params.effectiveUnifiedConfig || {};
-  const model = config.model && typeof config.model === 'object' ? config.model as Record<string, unknown> : {};
-  return [params.modelProvider, params.wireProviderFormat, model.provider]
-    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-    .some((value) => value.toLowerCase().includes('codex'));
-}
-
-function replayEventIdForLlmCall(params: { llmCallId?: string; traceId?: string; agentTurn?: number; modelName?: string }) {
-  if (params.llmCallId) {
-    return `provider:codex:${params.llmCallId}`;
-  }
-  return `provider:codex:${params.traceId || 'unknown'}:${params.agentTurn || 1}:${params.modelName || 'model'}`;
 }
 
 export class RuntimeStoreService {
@@ -80,7 +31,6 @@ export class RuntimeStoreService {
   }
 
   async initialize() {
-    await ensureXiaoniReplayEventSchema(databaseConfig);
     await this.ensureSchema();
   }
 
@@ -117,57 +67,6 @@ export class RuntimeStoreService {
     }, databaseConfig);
   }
 
-  async recordProviderReplayEvent(params: ProviderReplayEventParams) {
-    if (!isCodexProvider(params)) {
-      return null;
-    }
-    if (params.errorMessage) {
-      return null;
-    }
-
-    return recordXiaoniReplayEvent({
-      eventId: replayEventIdForLlmCall(params),
-      identityKey: params.identityKey || 'xiaoni',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
-      traceId: params.traceId || null,
-      conversationId: toNumericConversationId(params.conversationId),
-      providerCallId: params.llmCallId || null,
-      modelName: params.modelName,
-      modelProvider: params.modelProvider,
-      status: 'completed',
-      replayable: true,
-      replayPayload: {
-        canonical_request: params.canonicalRequest || {},
-        canonical_response: params.canonicalResponse || {},
-        wire_request: params.wireRequest || {},
-        wire_response: params.wireResponse || {},
-        effective_unified_config: params.effectiveUnifiedConfig || {}
-      },
-      wireRequest: params.wireRequest || {},
-      wireResponse: params.wireResponse || {},
-      metadata: {
-        llmCallId: params.llmCallId || null,
-        spanId: params.llmCallId ? `provider-request:wire:${params.llmCallId}` : replayEventIdForLlmCall(params),
-        agentTurn: params.agentTurn ?? 1,
-        agentType: params.agentType || 'chat_bot',
-        promptName: params.promptName || 'agent_loop_v1',
-        providerFormat: params.wireProviderFormat,
-        requestFormatVersion: params.requestFormatVersion,
-        processingTimeMs: params.usage.processingTimeMs,
-        apiCallTimeMs: params.usage.processingTimeMs,
-        inputTokens: params.usage.inputTokens,
-        outputTokens: params.usage.outputTokens,
-        totalTokens: params.usage.totalTokens,
-        cachedInputTokens: params.usage.cachedInputTokens || 0,
-        reasoningTokens: params.usage.reasoningTokens || 0,
-        errorMessage: null
-      },
-      sourceTable: params.sourceTable || null,
-      sourceId: params.sourceId || null
-    }, databaseConfig);
-  }
-
   async recordLlmCall(params: {
     traceId?: string;
     conversationId?: unknown;
@@ -196,16 +95,7 @@ export class RuntimeStoreService {
     wireProviderFormat: string;
     errorMessage?: string | null;
   }) {
-    await this.recordProviderReplayEvent({
-      ...params,
-      sourceTable: 'llm_call_logs',
-      sourceId: params.llmCallId || null
-    });
-
-    await recordLlmCallLog({
-      ...params,
-      sqlAdapter: this.sql
-    }, databaseConfig);
+    void params;
   }
 
   async attachConversationIdToTrace(traceId: string, conversationId: unknown) {
@@ -218,10 +108,6 @@ export class RuntimeStoreService {
       traceId,
       conversationId: numericConversationId,
       sqlAdapter: this.sql
-    }, databaseConfig);
-    await attachConversationIdToXiaoniReplayEventsByTrace({
-      traceId,
-      conversationId: numericConversationId
     }, databaseConfig);
   }
 

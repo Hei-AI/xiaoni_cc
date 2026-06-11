@@ -73,12 +73,115 @@ function normalizeJsonObject(value, fallback = {}) {
     : fallback;
 }
 
+function parseJsonValue(value, fallback = null) {
+  if (value === null || typeof value === 'undefined') {
+    return fallback;
+  }
+  if (typeof value === 'object') {
+    return normalizeValue(value);
+  }
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+  try {
+    return normalizeValue(JSON.parse(trimmed));
+  } catch {
+    return fallback;
+  }
+}
+
 function clampLimit(value, fallback = 80, max = 200) {
   const parsed = Number.parseInt(String(value || ''), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallback;
   }
   return Math.max(1, Math.min(parsed, max));
+}
+
+function parseDateBoundary(value) {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveTimeWindow(input = {}) {
+  const startTime = parseDateBoundary(
+    input.startTime
+    || input.start_time
+    || input.since
+    || input.from
+  );
+  const endTime = parseDateBoundary(
+    input.endTime
+    || input.end_time
+    || input.until
+    || input.to
+  );
+  return { startTime, endTime };
+}
+
+function hasTimeWindow(timeWindow) {
+  return Boolean(timeWindow?.startTime || timeWindow?.endTime);
+}
+
+function prismaTimeFilter(timeWindow) {
+  const filter = {};
+  if (timeWindow.startTime) {
+    filter.gte = timeWindow.startTime;
+  }
+  if (timeWindow.endTime) {
+    filter.lte = timeWindow.endTime;
+  }
+  return Object.keys(filter).length ? filter : null;
+}
+
+function buildSqlTimePredicate(expressions, timeWindow) {
+  if (!hasTimeWindow(timeWindow)) {
+    return { clause: '', params: [] };
+  }
+  const clauses = [];
+  const params = [];
+  for (const expression of expressions) {
+    const parts = [];
+    if (timeWindow.startTime) {
+      parts.push(`${expression} >= ?`);
+      params.push(timeWindow.startTime);
+    }
+    if (timeWindow.endTime) {
+      parts.push(`${expression} <= ?`);
+      params.push(timeWindow.endTime);
+    }
+    if (parts.length) {
+      clauses.push(`(${parts.join(' AND ')})`);
+    }
+  }
+  return {
+    clause: clauses.length ? `(${clauses.join(' OR ')})` : '',
+    params
+  };
+}
+
+function itemMatchesTimeWindow(item, timeWindow) {
+  if (!hasTimeWindow(timeWindow)) {
+    return true;
+  }
+  const timestampMs = new Date(item.timestamp).getTime();
+  if (!Number.isFinite(timestampMs)) {
+    return false;
+  }
+  if (timeWindow.startTime && timestampMs < timeWindow.startTime.getTime()) {
+    return false;
+  }
+  if (timeWindow.endTime && timestampMs > timeWindow.endTime.getTime()) {
+    return false;
+  }
+  return true;
 }
 
 function truncateText(value, maxLength = 240) {
@@ -166,42 +269,17 @@ function extractText(value) {
   return null;
 }
 
-function extractCanonicalInputMessages(request) {
-  const input = Array.isArray(request?.input) ? request.input : [];
-  return input
-    .map((item) => {
-      const role = firstString(item?.role, item?.type) || 'item';
-      const content = extractText(item?.content ?? item);
-      return content ? `${role}: ${content}` : null;
-    })
-    .filter(Boolean);
-}
-
-function buildInContextSnapshot(canonicalRequest, contextSummary, inputPrompt) {
-  const request = normalizeJsonObject(canonicalRequest, null);
-  const canonicalRequestPreview = !request && typeof canonicalRequest === 'string'
-    ? truncateText(canonicalRequest, 1200)
-    : null;
-  const messages = request ? extractCanonicalInputMessages(request) : [];
-  const instructions = firstString(
-    request?.effective_instructions,
-    request?.instructions,
-    request?.runtime_guidance
-  );
-  const tailMessages = messages.slice(-10);
-  const parts = [
-    contextSummary ? `context_summary: ${contextSummary}` : null,
-    inputPrompt ? `input_prompt: ${inputPrompt}` : null,
-    canonicalRequestPreview ? `canonical_request: ${canonicalRequestPreview}` : null,
-    ...tailMessages,
-    instructions ? `instructions: ${truncateText(instructions, 520)}` : null
-  ].filter(Boolean);
-
-  return {
-    messageCount: messages.length,
-    preview: truncateText(parts.join('\n\n'), 1200),
-    messages: tailMessages.map((message) => truncateText(message, 360)).filter(Boolean)
-  };
+function previewResponseItemText(item) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  if (item.type === 'function_call') {
+    return firstString(item.arguments, previewJson(item.arguments));
+  }
+  if (item.type === 'function_call_output') {
+    return firstString(item.output, previewJson(item.output));
+  }
+  return extractText(item.content ?? item.summary ?? item);
 }
 
 function eventTimestamp(value) {
@@ -219,7 +297,7 @@ function queueDisplayTimestamp(row) {
 }
 
 function canonicalMetadata(row) {
-  const request = normalizeJsonObject(row?.canonical_request, null);
+  const request = normalizeJsonObject(row?.canonical_request ?? row?.canonicalRequest, null);
   return normalizeJsonObject(request?.metadata, {});
 }
 
@@ -340,6 +418,9 @@ function lifeEventBody(row, payload) {
       return '精力不足，暂不主动看群；恢复按休息或睡眠节奏记录。';
     }
     return skipReason ? `空闲检查未入队；原因：${skipReason}` : '空闲检查未入队。';
+  }
+  if (row.event_kind === 'no_visible_delivery_observed') {
+    return '这一轮没有对外发言。';
   }
   if (row.event_kind === 'rest_period' || row.event_kind === 'sleep_period') {
     return firstString(payload.reason, payload.duration_label, payload.bucket);
@@ -522,239 +603,223 @@ function summarizeDigitalAction(row) {
   };
 }
 
-function summarizeToolCall(row) {
+function summarizeAgentStackItem(row) {
+  const content = normalizeJsonObject(row.content, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const itemKind = row.itemKind || row.item_kind || 'stack_item';
+  const toolName = firstString(content.name, metadata.tool_name);
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id, content.call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const isToolCall = itemKind === 'function_call';
+  const isToolOutput = itemKind === 'function_call_output';
+  const isRuntimeInput = itemKind === 'runtime_input';
+  const isAssistantOutput = itemKind === 'assistant_output';
+  const body = isToolCall
+    ? firstString(content.arguments, previewJson(content.arguments), metadata.argumentsPreview)
+    : isToolOutput
+      ? firstString(content.output, previewJson(content.output))
+      : isRuntimeInput
+        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        : previewResponseItemText(content);
+  const spanId = isToolCall && toolCallId
+    ? `tool-call:${toolCallId}`
+    : isToolOutput && toolCallId
+      ? `tool-output:${toolCallId}`
+      : llmSliceId
+        ? `stack-slice:${llmSliceId}`
+        : `stack:${row.id || row.eventId || row.event_id}`;
+
+  return {
+    id: `stack:${row.id || row.eventId || row.event_id}`,
+    source: isRuntimeInput ? 'runtime_input' : 'llm_stack_item',
+    kind: isToolCall
+      ? 'function_call'
+      : isToolOutput
+        ? 'function_call_output'
+        : isAssistantOutput
+          ? firstString(row.phase, content.phase, 'assistant_message')
+          : itemKind,
+    title: isToolCall
+      ? `请求工具: ${toolName || 'tool'}`
+      : isToolOutput
+        ? `工具结果: ${toolName || toolCallId || 'tool'}`
+        : isRuntimeInput
+          ? '当前输入'
+          : row.phase === 'final_answer' || content.phase === 'final_answer'
+            ? '模型输出: final_answer'
+            : '模型输出',
+    body: truncateText(body, 420),
+    status: null,
+    actor: isRuntimeInput ? 'system' : 'xiaoni',
+    actorName: isRuntimeInput ? 'Runtime' : '小腻',
+    timestamp: eventTimestamp(row.createdAt || row.created_at),
+    sessionKey: firstString(content.session_key, metadata.session_key),
+    peerName: firstString(content.peer_name, metadata.peer_name),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
+    tone: isToolOutput ? 'success' : isToolCall ? 'xiaoni' : isRuntimeInput ? 'info' : 'info',
+    metadata: {
+      stackItemId: row.id || null,
+      stackEventId: row.eventId || row.event_id || null,
+      stackIndex: Number(row.stackIndex || row.stack_index || 0) || null,
+      stackSource: 'agent_stack_items',
+      llmRequestSliceId: llmSliceId,
+      llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
+      spanId,
+      parentSpanId: llmSliceId ? `stack-slice:${llmSliceId}` : null,
+      outputItemType: firstString(content.type, itemKind),
+      outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
+      toolCallId,
+      toolName,
+      messagePhase: firstString(row.phase, content.phase),
+      argumentsPreview: isToolCall ? truncateText(firstString(content.arguments, previewJson(content.arguments)), 1200) : null,
+      toolResultPreview: isToolOutput ? previewJson(content.output) : null,
+      payloadPreview: isRuntimeInput ? previewJson(content) : null
+    }
+  };
+}
+
+function normalizeStackRowForActivity(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  return {
+    ...row,
+    id: row.id === null || typeof row.id === 'undefined' ? null : String(row.id),
+    eventId: row.eventId || row.event_id || null,
+    itemKind: row.itemKind || row.item_kind || null,
+    toolCallId: row.toolCallId || row.tool_call_id || null,
+    llmRequestSliceId: row.llmRequestSliceId || row.llm_request_slice_id || null,
+    content: normalizeJsonObject(row.content, {}),
+    metadata: normalizeJsonObject(row.metadata, {}),
+    traceId: row.traceId || row.trace_id || null,
+    runId: row.runId || row.run_id || null,
+    conversationId: row.conversationId || row.conversation_id || null,
+    createdAt: row.createdAt || row.created_at || null
+  };
+}
+
+function summarizeAgentStackToolExecution(row) {
   const args = normalizeJsonObject(row.arguments);
   const result = normalizeJsonObject(row.result);
-  const inContext = buildInContextSnapshot(row.canonical_request, row.context_summary, row.input_prompt);
-  const operatorOnly = isSelfActionSearchLlm(row);
-  const isBlockedTransition = Boolean(result.blocked_transition);
-  const sentMessages = Array.isArray(result.sent_messages)
-    ? result.sent_messages.filter((item) => typeof item === 'string' && item.trim()).join('\n')
-    : null;
-  const blockedMessages = Array.isArray(result.blocked_messages)
-    ? result.blocked_messages.filter((item) => typeof item === 'string' && item.trim()).join('\n')
-    : null;
-  const title = `tool: ${row.tool_name || row.tool_type || 'unknown'}`;
   const body = firstString(
-    isBlockedTransition ? result.reason : null,
-    isBlockedTransition ? result.blocked_reason : null,
-    isBlockedTransition ? blockedMessages : null,
-    sentMessages,
-    args.query,
-    args.message,
-    Array.isArray(args.messages) ? args.messages.join('\n') : null,
-    args.reason,
-    args.outcome,
+    result.status_text,
+    result.output_xml,
+    result.text,
+    Array.isArray(result.sent_messages) ? result.sent_messages.join('\n') : null,
     result.reason,
     result.outcome,
-    args.xiaoni_os,
+    args.query,
+    args.message,
+    row.errorMessage,
     row.error_message
   );
-
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const executionId = firstString(row.executionId, row.execution_id) || String(row.id || '');
   return {
-    id: `tool:${row.tool_call_id || row.id}`,
-    source: 'tool_call',
-    kind: row.tool_name || row.tool_type || 'tool',
-    title,
+    id: `tool-exec:${executionId}`,
+    source: 'tool_execution',
+    kind: firstString(row.toolName, row.tool_name, 'tool'),
+    title: `tool: ${firstString(row.toolName, row.tool_name, 'tool')}`,
     body: truncateText(body, 420),
     status: row.status || null,
     actor: 'xiaoni',
     actorName: '小腻',
-    timestamp: eventTimestamp(row.started_at || row.completed_at),
-    sessionKey: row.session_key || null,
-    peerName: row.peer_name || null,
-    runId: row.run_id || null,
-    traceId: row.trace_id || null,
-    tone: row.status === 'failed' ? 'danger' : isBlockedTransition ? 'warning' : row.status === 'completed' ? 'success' : 'warning',
+    timestamp: eventTimestamp(row.startedAt || row.started_at || row.createdAt || row.created_at),
+    sessionKey: firstString(row.metadata?.session_key, row.metadata?.sessionKey),
+    peerName: firstString(row.metadata?.peer_name, row.metadata?.peerName),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
+    tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : 'warning',
     metadata: {
-      toolCallId: row.tool_call_id || null,
-      llmCallId: row.llm_call_id || null,
-      spanId: row.tool_call_id ? `tool-call:${row.tool_call_id}` : `tool:${row.id}`,
-      parentSpanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : null,
-      agentTurn: Number(row.agent_turn || 0) || null,
-      toolType: row.tool_type || null,
-      executionMode: row.execution_mode || null,
-      sideEffect: Boolean(row.side_effect),
-      durationMs: row.duration_ms ? Number(row.duration_ms) : null,
-      completedAt: normalizeDate(row.completed_at),
-      errorMessage: row.error_message || null,
-      llmAgentType: row.llm_agent_type || null,
-      llmModelName: row.llm_model_name || null,
-      inContextPreview: operatorOnly ? null : inContext.preview,
-      inContextMessageCount: inContext.messageCount,
-      toolArgumentsPreview: operatorOnly ? null : previewJson(args),
-      toolResultPreview: operatorOnly ? null : previewJson(result)
+      executionId: row.executionId || row.execution_id || null,
+      toolCallId,
+      llmRequestSliceId: llmSliceId,
+      spanId: toolCallId ? `tool-call:${toolCallId}` : `tool-exec:${row.id}`,
+      parentSpanId: llmSliceId ? `stack-slice:${llmSliceId}` : null,
+      agentTurn: Number(row.agentTurn || row.agent_turn || 0) || null,
+      toolArgumentsPreview: previewJson(args),
+      toolResultPreview: previewJson(result),
+      errorMessage: row.errorMessage || row.error_message || null,
+      sideEffect: Boolean(row.sideEffect ?? row.side_effect)
     }
   };
 }
 
-function summarizeLlmCall(row) {
-  const inContext = buildInContextSnapshot(row.canonical_request, row.context_summary, row.input_prompt);
-  const operatorOnly = isSelfActionSearchLlm(row);
-  const title = `LLM: ${row.agent_type || row.prompt_template || 'runtime'}`;
-  const modelName = row.model_name || row.model_provider || 'LLM';
-  const inputTokens = Number(row.input_tokens || 0);
-  const outputTokens = Number(row.output_tokens || 0);
-  const sliceLabel = row.agent_turn ? `model slice ${row.agent_turn}` : null;
-  const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
-  const body = row.error_message || [modelName, sliceLabel, tokenLabel].filter(Boolean).join(' · ');
-
-  return {
-    id: `llm:${row.llm_call_id || row.id}`,
-    source: 'llm_call',
-    kind: row.agent_type || row.prompt_template || 'llm_call',
-    title,
-    body: truncateText(body, 420),
-    status: row.status || null,
-    actor: 'xiaoni',
-    actorName: '小腻',
-    timestamp: eventTimestamp(row.started_at || row.timestamp || row.completed_at),
-    sessionKey: row.session_key || null,
-    peerName: row.peer_name || null,
-    runId: row.run_id || null,
-    traceId: row.trace_id || null,
-    tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'info' : 'warning',
-    metadata: {
-      llmCallId: row.llm_call_id || null,
-      spanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : `llm:${row.id}`,
-      agentTurn: Number(row.agent_turn || 0) || null,
-      modelName: row.model_name || null,
-      modelProvider: row.model_provider || null,
-      promptTemplate: row.prompt_template || null,
-      processingTimeMs: row.processing_time_ms ? Number(row.processing_time_ms) : null,
-      apiCallTimeMs: row.api_call_time_ms ? Number(row.api_call_time_ms) : null,
-      inputTokens,
-      outputTokens,
-      completedAt: normalizeDate(row.completed_at),
-      errorMessage: row.error_message || null,
-      inContextPreview: operatorOnly ? null : inContext.preview,
-      inContextMessageCount: inContext.messageCount,
-      responsePreview: operatorOnly ? null : truncateText(firstString(row.processed_response, row.raw_response), 520),
-      tokenUsage: normalizeJsonObject(row.token_usage)
-    }
-  };
-}
-
-function summarizeCodexProviderCall(row) {
-  const requestPreviewSource = rawJsonText(row.wire_request_preview_text, rawJsonText(row.wire_request));
-  const responsePreviewSource = rawJsonText(row.wire_response_preview_text, rawJsonText(row.wire_response, row.raw_response || null));
-  const provider = firstString(row.wire_provider_format, row.model_provider, 'codex');
-  const modelName = firstString(row.model_name, normalizeJsonObject(row.effective_unified_config, {})?.model?.name, 'unknown model');
-  const inputTokens = Number(row.input_tokens || 0);
-  const outputTokens = Number(row.output_tokens || 0);
-  const requestBytes = Number(row.wire_request_bytes || 0) || estimateJsonBytes(row.wire_request);
-  const responseBytes = Number(row.wire_response_bytes || 0) || estimateJsonBytes(row.wire_response || row.raw_response);
-  const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
-  const body = [
-    provider,
-    modelName,
-    row.llm_call_id || null,
-    tokenLabel
-  ].filter(Boolean).join(' · ');
-
-  return {
-    id: `provider:codex:${row.llm_call_id || row.id}`,
-    source: 'provider_call',
-    kind: 'codex_provider',
-    title: 'Codex Provider 请求',
-    body: truncateText(row.error_message || body, 420),
-    status: row.status || null,
-    actor: 'xiaoni',
-    actorName: '小腻',
-    timestamp: eventTimestamp(row.started_at || row.timestamp || row.completed_at),
-    sessionKey: row.session_key || null,
-    peerName: row.peer_name || null,
-    runId: row.run_id || null,
-    traceId: row.trace_id || null,
-    tone: row.status === 'failed' ? 'danger' : 'info',
-    metadata: {
-      llmCallId: row.llm_call_id || null,
-      spanId: row.llm_call_id ? `provider-request:wire:${row.llm_call_id}` : `provider:codex:${row.id}`,
-      parentSpanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : null,
-      agentTurn: Number(row.agent_turn || 0) || null,
-      modelName,
-      modelProvider: row.model_provider || null,
-      providerFormat: row.wire_provider_format || null,
-      processingTimeMs: row.processing_time_ms ? Number(row.processing_time_ms) : null,
-      apiCallTimeMs: row.api_call_time_ms ? Number(row.api_call_time_ms) : null,
-      inputTokens,
-      outputTokens,
-      completedAt: normalizeDate(row.completed_at),
-      errorMessage: row.error_message || null,
-      providerRequestPreview: truncateText(requestPreviewSource || '', 1200),
-      providerResponsePreview: truncateText(responsePreviewSource || '', 1200),
-      providerRequestBytes: requestBytes,
-      providerResponseBytes: responseBytes,
-      wirePayloadSource: 'llm_call_logs.audit_preview'
-    }
-  };
-}
-
-function summarizeReplayProviderEvent(row) {
-  const metadata = normalizeJsonObject(row.metadata);
-  const replayPayload = normalizeJsonObject(row.replayPayload);
-  const wireRequest = row.wireRequest || replayPayload.wire_request || null;
-  const wireResponse = row.wireResponse || replayPayload.wire_response || null;
-  const inputTokens = Number(metadata.inputTokens || metadata.input_tokens || 0);
-  const outputTokens = Number(metadata.outputTokens || metadata.output_tokens || 0);
-  const requestBytes = Number(metadata.providerRequestBytes || metadata.provider_request_bytes || 0) || estimateJsonBytes(wireRequest);
-  const responseBytes = Number(metadata.providerResponseBytes || metadata.provider_response_bytes || 0) || estimateJsonBytes(wireResponse);
-  const provider = firstString(row.modelProvider, metadata.providerFormat, metadata.provider_format, 'codex');
-  const modelName = firstString(row.modelName, metadata.modelName, metadata.model_name, 'unknown model');
-  const spanId = firstString(
-    metadata.spanId,
-    metadata.span_id,
-    row.providerCallId ? `provider-request:wire:${row.providerCallId}` : null,
-    row.eventId
+function summarizeLlmRequestSlice(row) {
+  const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
+  const canonicalRequest = normalizeJsonObject(row.canonicalRequest ?? row.canonical_request, {});
+  const wireRequest = normalizeJsonObject(row.wireRequest ?? row.wire_request, null);
+  const canonicalResponse = normalizeJsonObject(row.canonicalResponse ?? row.canonical_response, null);
+  const wireResponse = normalizeJsonObject(row.wireResponse ?? row.wire_response, null);
+  const outputItems = Array.isArray(row.outputItems)
+    ? row.outputItems
+    : normalizeJsonObject(row.output_items, []);
+  const inputTokens = Number(
+    tokenUsage.input_tokens
+    || tokenUsage.inputTokens
+    || tokenUsage.prompt_tokens
+    || tokenUsage.promptTokens
+    || 0
   );
+  const outputTokens = Number(
+    tokenUsage.output_tokens
+    || tokenUsage.outputTokens
+    || tokenUsage.completion_tokens
+    || tokenUsage.completionTokens
+    || 0
+  );
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  const provider = firstString(row.wireProviderFormat, row.wire_provider_format, row.modelProvider, row.model_provider, 'provider');
+  const modelName = firstString(row.modelName, row.model_name, 'model');
   const tokenLabel = inputTokens || outputTokens ? `${inputTokens}->${outputTokens} tokens` : null;
+  const outputCount = Array.isArray(outputItems) ? outputItems.length : 0;
   const body = [
     provider,
     modelName,
-    row.providerCallId || null,
-    tokenLabel
+    row.agentTurn || row.agent_turn ? `turn ${row.agentTurn || row.agent_turn}` : null,
+    tokenLabel,
+    outputCount ? `${outputCount} output item(s)` : null
   ].filter(Boolean).join(' · ');
+  const requestPayload = wireRequest || canonicalRequest;
+  const responsePayload = wireResponse || canonicalResponse || row.rawResponse || row.raw_response;
 
   return {
-    id: row.eventId,
-    source: 'provider_call',
-    kind: 'codex_provider',
-    title: 'Codex Provider 请求',
-    body: truncateText(row.status === 'failed' ? firstString(metadata.errorMessage, metadata.error_message, body) : body, 420),
+    id: `llm-slice:${sliceId || row.id}`,
+    source: 'llm_request',
+    kind: 'llm_request_slice',
+    title: 'LLM 请求',
+    body: truncateText(row.errorMessage || row.error_message || body, 420),
     status: row.status || null,
     actor: 'xiaoni',
     actorName: '小腻',
-    timestamp: eventTimestamp(row.occurredAt),
-    sessionKey: firstString(metadata.sessionKey, metadata.session_key),
-    peerName: firstString(metadata.peerName, metadata.peer_name),
-    runId: row.internalExecutionLeaseId || null,
-    traceId: row.traceId || null,
+    timestamp: eventTimestamp(row.createdAt || row.created_at || row.completedAt || row.completed_at),
+    sessionKey: firstString(row.metadata?.session_key, row.metadata?.sessionKey),
+    peerName: firstString(row.metadata?.peer_name, row.metadata?.peerName),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
     tone: row.status === 'failed' ? 'danger' : 'info',
-    traceTarget: row.replayable ? {
-      internalExecutionLeaseId: row.internalExecutionLeaseId || row.traceId || row.eventId,
-      traceId: row.traceId || null,
-      spanId
-    } : null,
     metadata: {
-      llmCallId: row.providerCallId || null,
-      spanId,
-      parentSpanId: row.providerCallId ? `llm-call:${row.providerCallId}` : null,
-      agentTurn: Number(metadata.agentTurn || metadata.agent_turn || 0) || null,
+      llmRequestSliceId: sliceId || null,
+      llmCallId,
+      spanId: sliceId ? `stack-slice:${sliceId}` : `llm-slice:${row.id}`,
+      agentTurn: Number(row.agentTurn || row.agent_turn || 0) || null,
       modelName,
-      modelProvider: row.modelProvider || null,
-      providerFormat: firstString(metadata.providerFormat, metadata.provider_format, row.modelProvider),
-      processingTimeMs: Number(metadata.processingTimeMs || metadata.processing_time_ms || 0) || null,
-      apiCallTimeMs: Number(metadata.apiCallTimeMs || metadata.api_call_time_ms || 0) || null,
+      modelProvider: row.modelProvider || row.model_provider || null,
+      providerFormat: row.wireProviderFormat || row.wire_provider_format || null,
+      requestFormatVersion: row.requestFormatVersion || row.request_format_version || null,
+      processingTimeMs: Number(row.processingTimeMs || row.processing_time_ms || 0) || null,
       inputTokens,
       outputTokens,
-      completedAt: firstString(metadata.completedAt, metadata.completed_at, row.updatedAt),
-      errorMessage: firstString(metadata.errorMessage, metadata.error_message),
-      providerRequestPreview: truncateText(rawJsonText(wireRequest) || '', 1200),
-      providerResponsePreview: truncateText(rawJsonText(wireResponse) || '', 1200),
-      providerRequestBytes: requestBytes,
-      providerResponseBytes: responseBytes,
-      wirePayloadSource: 'xiaoni_replay_events',
-      replayEventId: row.eventId
+      completedAt: normalizeDate(row.completedAt || row.completed_at),
+      errorMessage: row.errorMessage || row.error_message || null,
+      providerRequestPreview: truncateText(rawJsonText(requestPayload) || '', 1200),
+      providerResponsePreview: truncateText(rawJsonText(responsePayload) || '', 1200),
+      providerRequestBytes: estimateJsonBytes(requestPayload),
+      providerResponseBytes: estimateJsonBytes(responsePayload),
+      wirePayloadSource: 'llm_request_slices'
     }
   };
 }
@@ -934,14 +999,23 @@ function normalizeActionStreamStatus(status) {
 }
 
 function normalizeActionStreamEventKind(item) {
-  if (item.source === 'provider_call') {
-    return 'provider_request';
+  if (item.source === 'runtime_input') {
+    return 'runtime_input';
   }
-  if (item.source === 'tool_call') {
-    return 'tool_call';
+  if (item.source === 'tool_execution') {
+    return 'tool_executed';
   }
-  if (item.source === 'llm_call') {
+  if (item.source === 'llm_request') {
     return 'model_request_slice';
+  }
+  if (item.source === 'llm_stack_item') {
+    if (item.kind === 'function_call') {
+      return 'model_tool_request';
+    }
+    if (item.kind === 'function_call_output') {
+      return 'tool_result_callback';
+    }
+    return 'model_output';
   }
   if (item.source === 'task') {
     return 'task_queued';
@@ -970,12 +1044,54 @@ function normalizeActionStreamEventKind(item) {
   return item.kind || item.source || 'runtime_event';
 }
 
+const ACTION_STREAM_EXCLUDED_LIFE_KINDS = new Set([
+  'no_visible_delivery_observed',
+  'presence_tick_evaluated',
+  'surface_visit'
+]);
+
+function isPrimaryActionStreamItem(item) {
+  if (!item) {
+    return false;
+  }
+  if (item.source === 'life_event' && ACTION_STREAM_EXCLUDED_LIFE_KINDS.has(item.kind)) {
+    return false;
+  }
+  if (item.source === 'llm_stack_item' && item.kind !== 'function_call' && item.kind !== 'function_call_output') {
+    return false;
+  }
+  if (item.source === 'queue_message' && item.kind === 'phone_notification') {
+    return false;
+  }
+  return true;
+}
+
+function inferActionStreamTraceTarget(item, explicitTraceTarget) {
+  if (explicitTraceTarget) {
+    return explicitTraceTarget;
+  }
+  const spanId = typeof item.metadata?.spanId === 'string' && item.metadata.spanId.trim()
+    ? item.metadata.spanId.trim()
+    : null;
+  const traceId = firstString(item.traceId);
+  const internalExecutionLeaseId = firstString(item.runId, traceId);
+  if (!traceId && !internalExecutionLeaseId && !spanId) {
+    return null;
+  }
+  return {
+    internalExecutionLeaseId,
+    traceId,
+    spanId
+  };
+}
+
 function normalizeActionStreamItem(item) {
   const spanId = typeof item.metadata?.spanId === 'string' ? item.metadata.spanId : null;
-  const internalExecutionLeaseId = item.runId || null;
+  const internalExecutionLeaseId = item.runId || item.traceId || null;
   const explicitTraceTarget = item.traceTarget && typeof item.traceTarget === 'object'
     ? item.traceTarget
     : null;
+  const traceTarget = inferActionStreamTraceTarget(item, explicitTraceTarget);
   const metadata = normalizeValue({
     ...item.metadata,
     internalExecutionLeaseId,
@@ -997,7 +1113,7 @@ function normalizeActionStreamItem(item) {
     eventKind: normalizeActionStreamEventKind(item),
     occurredAt: item.timestamp,
     internalExecutionLeaseId,
-    traceTarget: explicitTraceTarget ? normalizeValue(explicitTraceTarget) : null,
+    traceTarget: traceTarget ? normalizeValue(traceTarget) : null,
     metadata
   };
 }
@@ -1033,9 +1149,312 @@ function normalizeActionStreamCurrent(current) {
   };
 }
 
-function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, listXiaoniReplayEvents }) {
+function normalizeBigIntLookupId(value) {
+  if (value === null || typeof value === 'undefined' || value === '') {
+    return null;
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseActionEventId(eventId) {
+  if (typeof eventId !== 'string' || !eventId.trim()) {
+    return null;
+  }
+  const [prefix, ...rest] = eventId.trim().split(':');
+  const key = rest.join(':');
+  return key ? { prefix, key } : null;
+}
+
+function normalizeTraceTarget(input = {}) {
+  const traceId = firstString(input.traceId, input.trace_id);
+  const runId = firstString(input.runId, input.run_id, input.internalExecutionLeaseId, input.internal_execution_lease_id);
+  const spanId = firstString(input.spanId, input.span_id);
+  const conversationId = input.conversationId === null || typeof input.conversationId === 'undefined'
+    ? firstString(input.conversation_id)
+    : String(input.conversationId);
+  if (!conversationId && !traceId && !runId && !spanId) {
+    return null;
+  }
+  return normalizeValue({
+    conversationId: conversationId || null,
+    traceId: traceId || null,
+    spanId: spanId || null,
+    internalExecutionLeaseId: runId || traceId || null
+  });
+}
+
+function createXiaoniActivityPersistence({
+  getPrismaClient,
+  createSqlAdapter,
+  listAgentStackItems,
+  listLlmRequestSlices,
+  listToolExecutions,
+  findAgentStackItemByEventId
+}) {
   function getClient(config) {
     return getPrismaClient(config);
+  }
+
+  async function resolveConversationIdFromTarget(target, config = {}) {
+    if (!target || target.conversationId) {
+      return target?.conversationId || null;
+    }
+    const sql = createSqlAdapter(config);
+    try {
+      if (target.internalExecutionLeaseId) {
+        const runRows = await sql.query(
+          'SELECT conversation_id FROM agent_runs WHERE id = ? LIMIT 1',
+          [target.internalExecutionLeaseId]
+        );
+        const conversationId = runRows[0]?.conversation_id;
+        if (conversationId) {
+          return String(conversationId);
+        }
+      }
+
+      if (target.traceId) {
+        const conversationRows = await sql.query(
+          'SELECT id FROM conversations WHERE trace_id = ? ORDER BY id DESC LIMIT 1',
+          [target.traceId]
+        );
+        const conversationId = conversationRows[0]?.id;
+        if (conversationId) {
+          return String(conversationId);
+        }
+      }
+    } finally {
+      await sql.close();
+    }
+    return null;
+  }
+
+  async function enrichTraceTarget(target, config = {}) {
+    if (!target) {
+      return null;
+    }
+    const conversationId = await resolveConversationIdFromTarget(target, config);
+    return normalizeTraceTarget({
+      ...target,
+      conversationId
+    });
+  }
+
+  async function resolveToolActionTraceTarget(key, config = {}) {
+    if (typeof listToolExecutions !== 'function') {
+      return null;
+    }
+    let rows = await listToolExecutions({
+      identityKey: 'xiaoni',
+      executionId: key,
+      limit: 1
+    }, config);
+    if (!rows[0]) {
+      rows = await listToolExecutions({
+        identityKey: 'xiaoni',
+        toolCallId: key,
+        limit: 1
+      }, config);
+    }
+    const row = rows[0] || null;
+    if (!row) {
+      return null;
+    }
+    return normalizeTraceTarget({
+      conversationId: row.conversationId,
+      traceId: row.traceId,
+      runId: row.runId,
+      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`
+    });
+  }
+
+  async function resolveLlmActionTraceTarget(key, config = {}) {
+    if (typeof listLlmRequestSlices !== 'function') {
+      return null;
+    }
+    let rows = await listLlmRequestSlices({
+      identityKey: 'xiaoni',
+      sliceId: key,
+      limit: 1
+    }, config);
+    if (!rows[0]) {
+      rows = await listLlmRequestSlices({
+        identityKey: 'xiaoni',
+        llmCallId: key,
+        limit: 1
+      }, config);
+    }
+    const row = rows[0] || null;
+    if (!row) {
+      return null;
+    }
+    return normalizeTraceTarget({
+      conversationId: row.conversationId,
+      traceId: row.traceId,
+      runId: row.runId,
+      spanId: row.sliceId ? `stack-slice:${row.sliceId}` : `llm-slice:${row.id}`
+    });
+  }
+
+  async function resolveStackActionTraceTarget(key, config = {}) {
+    let row = null;
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM agent_stack_items
+          WHERE id::text = ? OR event_id = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        [key, key]
+      );
+      row = rows[0] ? normalizeStackRowForActivity(rows[0]) : null;
+    } catch {
+      row = null;
+    } finally {
+      await sql.close();
+    }
+    if (typeof findAgentStackItemByEventId === 'function') {
+      row = row || await findAgentStackItemByEventId(key, config);
+    }
+    if (!row && typeof listAgentStackItems === 'function') {
+      const rows = await listAgentStackItems({
+        identityKey: 'xiaoni',
+        eventId: key,
+        limit: 1
+      }, config);
+      row = rows[0] || null;
+    }
+    if (!row) {
+      return null;
+    }
+    const metadata = normalizeJsonObject(row.metadata);
+    const toolCallId = firstString(row.toolCallId, metadata.toolCallId, metadata.tool_call_id);
+    const sliceId = firstString(row.llmRequestSliceId, metadata.llmRequestSliceId, metadata.llm_request_slice_id);
+    return normalizeTraceTarget({
+      conversationId: row.conversationId,
+      traceId: row.traceId,
+      runId: row.runId,
+      spanId: toolCallId
+        ? `tool-call:${toolCallId}`
+        : sliceId
+          ? `stack-slice:${sliceId}`
+          : `stack:${row.id || row.eventId}`
+    });
+  }
+
+  async function resolveToolExecutionActionTraceTarget(key, config = {}) {
+    if (typeof listToolExecutions !== 'function') {
+      return null;
+    }
+    const rows = await listToolExecutions({
+      identityKey: 'xiaoni',
+      executionId: key,
+      limit: 1
+    }, config);
+    const row = rows[0] || null;
+    if (!row) {
+      return null;
+    }
+    return normalizeTraceTarget({
+      conversationId: row.conversationId,
+      traceId: row.traceId,
+      runId: row.runId,
+      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`
+    });
+  }
+
+  async function findXiaoniActionEventTraceTarget(eventId, config = {}) {
+    const parsed = parseActionEventId(eventId);
+    if (!parsed) {
+      return null;
+    }
+
+    const prisma = getClient(config);
+    if (parsed.prefix === 'life') {
+      const id = normalizeBigIntLookupId(parsed.key);
+      if (id === null) {
+        return null;
+      }
+      const row = await prisma.agentLifeEvent.findUnique({ where: { id } });
+      if (!row) {
+        return null;
+      }
+      return enrichTraceTarget(normalizeTraceTarget({
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: row.llm_call_id ? `llm-call:${row.llm_call_id}` : null
+      }), config);
+    }
+
+    if (parsed.prefix === 'queue') {
+      const id = normalizeBigIntLookupId(parsed.key);
+      if (id === null) {
+        return null;
+      }
+      const row = await prisma.agentQueueMessage.findUnique({ where: { id } });
+      if (!row) {
+        return null;
+      }
+      return enrichTraceTarget(normalizeTraceTarget({
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: `queue:${row.id}`
+      }), config);
+    }
+
+    if (parsed.prefix === 'task') {
+      const row = await prisma.agentTask.findUnique({ where: { id: parsed.key } });
+      if (!row) {
+        return null;
+      }
+      return enrichTraceTarget(normalizeTraceTarget({
+        traceId: row.source_trace_id,
+        runId: row.source_run_id,
+        spanId: `task:${row.id}`
+      }), config);
+    }
+
+    if (parsed.prefix === 'media') {
+      const row = await prisma.agentMediaAsset.findUnique({ where: { id: parsed.key } });
+      if (!row) {
+        return null;
+      }
+      return enrichTraceTarget(normalizeTraceTarget({
+        traceId: row.trace_id,
+        spanId: `media:${row.id}`
+      }), config);
+    }
+
+    if (parsed.prefix === 'tool') {
+      return enrichTraceTarget(await resolveToolActionTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'llm') {
+      return enrichTraceTarget(await resolveLlmActionTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'llm-slice' || parsed.prefix === 'llm-stack') {
+      const llmCallId = parsed.key.split(':')[0];
+      return enrichTraceTarget(await resolveLlmActionTraceTarget(llmCallId, config), config);
+    }
+
+    if (parsed.prefix === 'stack') {
+      return enrichTraceTarget(await resolveStackActionTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'tool-exec') {
+      return enrichTraceTarget(await resolveToolExecutionActionTraceTarget(parsed.key, config), config);
+    }
+
+    return null;
   }
 
   async function getXiaoniActivityFeed(input = {}, config = {}) {
@@ -1043,9 +1462,33 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
     const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
     const limit = clampLimit(input.limit, 80, 200);
     const perSourceLimit = Math.max(30, limit);
+    const timeWindow = resolveTimeWindow(input);
+    const timeFilter = prismaTimeFilter(timeWindow);
     const staleProcessingMs = Math.max(60_000, Number(input.staleProcessingMs || input.stale_processing_ms || 5 * 60_000));
     const processingStaleBefore = new Date(Date.now() - staleProcessingMs);
     const sql = createSqlAdapter(config);
+    const queueTimePredicate = buildSqlTimePredicate([
+      'COALESCE(processing_started_at, locked_at, updated_at, available_at, created_at)'
+    ], timeWindow);
+    const phoneQueueTimePredicate = buildSqlTimePredicate([
+      'COALESCE(processing_started_at, locked_at, available_at, created_at)'
+    ], timeWindow);
+    const lifeEventWhere = {
+      identity_key: identityKey,
+      event_kind: { notIn: ['pending_share_created', 'pending_share_consumed'] },
+      ...(timeFilter ? { occurred_at: timeFilter } : {})
+    };
+    const digitalActionWhere = {
+      identity_key: identityKey,
+      ...(timeFilter ? { created_at: timeFilter } : {})
+    };
+    const taskWhere = timeFilter ? { created_at: timeFilter } : {};
+    const mediaWhere = timeFilter ? {
+      OR: [
+        { created_at: timeFilter },
+        { observations: { some: { created_at: timeFilter } } }
+      ]
+    } : {};
 
     try {
       const [
@@ -1056,8 +1499,9 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
         mediaAssets,
         queueItems,
         autonomousQueueItems,
-        traceToolRows,
-        traceLlmRows,
+        llmRequestSliceRows,
+        agentStackRows,
+        agentStackToolRows,
         queueStats,
         digitalStats,
         taskStats
@@ -1066,19 +1510,17 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
           where: { identity_key: identityKey }
         }),
         prisma.agentLifeEvent.findMany({
-          where: {
-            identity_key: identityKey,
-            event_kind: { notIn: ['pending_share_created', 'pending_share_consumed'] }
-          },
+          where: lifeEventWhere,
           orderBy: [{ occurred_at: 'desc' }, { id: 'desc' }],
           take: perSourceLimit
         }),
         prisma.agentDigitalAction.findMany({
-          where: { identity_key: identityKey },
+          where: digitalActionWhere,
           orderBy: [{ created_at: 'desc' }],
           take: perSourceLimit
         }),
         prisma.agentTask.findMany({
+          where: taskWhere,
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: perSourceLimit,
           include: {
@@ -1088,6 +1530,7 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
           }
         }),
         prisma.agentMediaAsset.findMany({
+          where: mediaWhere,
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: perSourceLimit,
           include: {
@@ -1099,87 +1542,41 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
           WHERE status IN ('pending', 'processing', 'failed')
+          ${queueTimePredicate.clause ? `AND ${queueTimePredicate.clause}` : ''}
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
-        `, [perSourceLimit]),
+        `, [...queueTimePredicate.params, perSourceLimit]),
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
           WHERE source IN ('phone_notification')
+          ${phoneQueueTimePredicate.clause ? `AND ${phoneQueueTimePredicate.clause}` : ''}
           ORDER BY updated_at DESC, id DESC
           LIMIT ?
-        `, [perSourceLimit]),
-        sql.query(`
-          SELECT
-            t.*,
-            r.id AS run_id,
-            r.session_key,
-            r.peer_name,
-            r.chat_type,
-            l.agent_type AS llm_agent_type,
-            l.model_name AS llm_model_name,
-            LEFT(l.canonical_request::text, 1200) AS canonical_request,
-            l.input_prompt,
-            l.context_summary,
-            l.status AS llm_status,
-            l.started_at AS llm_started_at,
-            l.completed_at AS llm_completed_at
-          FROM (
-            SELECT id
-            FROM tool_execution_logs
-            ORDER BY id DESC
-            LIMIT ?
-          ) latest_tool
-          INNER JOIN tool_execution_logs t ON t.id = latest_tool.id
-          LEFT JOIN llm_call_logs l ON l.llm_call_id = t.llm_call_id
-          LEFT JOIN agent_runs r ON r.trace_id = t.trace_id
-          ORDER BY t.id DESC
-        `, [perSourceLimit]),
-        sql.query(`
-          SELECT
-            l.id,
-            l.llm_call_id,
-            l.trace_id,
-            l.agent_turn,
-            l.call_sequence,
-            l.agent_type,
-            l.prompt_template,
-            l.model_name,
-            l.model_provider,
-            l.wire_provider_format,
-            l.status,
-            l.started_at,
-            l.timestamp,
-            l.completed_at,
-            l.input_tokens,
-            l.output_tokens,
-            l.processing_time_ms,
-            l.api_call_time_ms,
-            l.error_message,
-            LEFT(l.canonical_request::text, 1200) AS canonical_request,
-            l.context_summary,
-            l.input_prompt,
-            LEFT(l.processed_response::text, 1200) AS processed_response,
-            LEFT(l.raw_response::text, 1200) AS raw_response,
-            l.token_usage,
-            l.effective_unified_config,
-            LEFT(l.wire_request::text, 1200) AS wire_request_preview_text,
-            LEFT(l.wire_response::text, 1200) AS wire_response_preview_text,
-            OCTET_LENGTH(l.wire_request::text) AS wire_request_bytes,
-            OCTET_LENGTH(l.wire_response::text) AS wire_response_bytes,
-            r.id AS run_id,
-            r.session_key,
-            r.peer_name,
-            r.chat_type
-          FROM (
-            SELECT id
-            FROM llm_call_logs
-            ORDER BY id DESC
-            LIMIT ?
-          ) latest_llm
-          INNER JOIN llm_call_logs l ON l.id = latest_llm.id
-          LEFT JOIN agent_runs r ON r.trace_id = l.trace_id
-          ORDER BY l.id DESC
-        `, [perSourceLimit]),
+        `, [...phoneQueueTimePredicate.params, perSourceLimit]),
+        typeof listLlmRequestSlices === 'function'
+          ? listLlmRequestSlices({
+            identityKey,
+            limit: perSourceLimit,
+            startTime: timeWindow.startTime,
+            endTime: timeWindow.endTime
+          }, config).catch(() => [])
+          : [],
+        typeof listAgentStackItems === 'function'
+          ? listAgentStackItems({
+            identityKey,
+            limit: perSourceLimit,
+            startTime: timeWindow.startTime,
+            endTime: timeWindow.endTime
+          }, config).catch(() => [])
+          : [],
+        typeof listToolExecutions === 'function'
+          ? listToolExecutions({
+            identityKey,
+            limit: perSourceLimit,
+            startTime: timeWindow.startTime,
+            endTime: timeWindow.endTime
+          }, config).catch(() => [])
+          : [],
         Promise.all([
           prisma.agentQueueMessage.count({ where: { status: 'pending' } }),
           prisma.agentQueueMessage.count({ where: { status: 'processing' } }),
@@ -1209,11 +1606,20 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
       const latestPresenceEvaluation = latestByTimestamp(lifeEvents.filter((row) => row.event_kind === 'presence_tick_evaluated'));
       const latestPresenceEvaluationPayload = normalizeJsonObject(latestPresenceEvaluation?.payload, {});
       const latestDigitalAction = latestByTimestamp(digitalActions);
+      const normalizedAgentStackRows = Array.isArray(agentStackRows)
+        ? agentStackRows.map(normalizeStackRowForActivity).filter(Boolean)
+        : [];
+      const normalizedAgentStackToolRows = Array.isArray(agentStackToolRows)
+        ? agentStackToolRows
+        : [];
+      const normalizedLlmRequestSliceRows = Array.isArray(llmRequestSliceRows)
+        ? llmRequestSliceRows
+        : [];
 
       const items = dedupeFeedItems([
-        ...traceLlmRows.filter(isCodexProviderLlm).map(summarizeCodexProviderCall),
-        ...traceToolRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeToolCall),
-        ...traceLlmRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmCall),
+        ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
+        ...normalizedAgentStackRows.map(summarizeAgentStackItem),
+        ...normalizedAgentStackToolRows.map(summarizeAgentStackToolExecution),
         ...lifeEvents.map(summarizeLifeEvent),
         ...digitalActions.map(summarizeDigitalAction),
         ...tasks.map(summarizeTask),
@@ -1222,12 +1628,17 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
         ...autonomousQueueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs))
       ])
         .filter((item) => item.timestamp)
+        .filter((item) => itemMatchesTimeWindow(item, timeWindow))
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, limit);
 
       return {
         identityKey,
         generatedAt: new Date().toISOString(),
+        filters: {
+          startTime: normalizeDate(timeWindow.startTime),
+          endTime: normalizeDate(timeWindow.endTime)
+        },
         current: {
           lifeState: normalizeLifeState(lifeState),
           latestActivityAt: items[0]?.timestamp || null,
@@ -1275,23 +1686,12 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
   }
 
   async function getXiaoniActionStream(input = {}, config = {}) {
-    const [feed, replayRows] = await Promise.all([
-      getXiaoniActivityFeed(input, config),
-      typeof listXiaoniReplayEvents === 'function'
-        ? listXiaoniReplayEvents({
-          identityKey: input.identityKey || input.identity_key || 'xiaoni',
-          limit: clampLimit(input.limit, 80, 500),
-          source: 'codex_provider',
-          replayableOnly: true
-        }, config)
-        : []
-    ]);
-    const replayItems = replayRows.map(summarizeReplayProviderEvent);
-    const items = dedupeFeedItems([
-      ...replayItems,
-      ...feed.items.filter((item) => item.source !== 'provider_call')
-    ])
+    const timeWindow = resolveTimeWindow(input);
+    const feed = await getXiaoniActivityFeed(input, config);
+    const feedActionItems = feed.items.filter(isPrimaryActionStreamItem);
+    const items = dedupeFeedItems(feedActionItems)
       .filter((item) => item.timestamp)
+      .filter((item) => itemMatchesTimeWindow(item, timeWindow))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, clampLimit(input.limit, 80, 200));
 
@@ -1299,17 +1699,19 @@ function createXiaoniActivityPersistence({ getPrismaClient, createSqlAdapter, li
       identityKey: feed.identityKey,
       generatedAt: feed.generatedAt,
       streamKind: 'xiaoni_action_stream',
+      filters: feed.filters,
       current: {
         ...normalizeActionStreamCurrent(feed.current),
-        latestActivityAt: items[0]?.timestamp || feed.current.latestActivityAt
+        latestActivityAt: items[0]?.timestamp || null
       },
       items: items.map(normalizeActionStreamItem)
     };
   }
 
   return {
-    getXiaoniActivityFeed,
-    getXiaoniActionStream
+      getXiaoniActivityFeed,
+    getXiaoniActionStream,
+    findXiaoniActionEventTraceTarget
   };
 }
 

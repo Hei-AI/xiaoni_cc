@@ -1,10 +1,11 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
   Bot,
+  Calendar,
   Clock3,
   Eye,
   Image,
@@ -17,14 +18,16 @@ import {
   Waypoints,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
-import { cn, formatDateOnly, formatTimeOnly, formatTimestamp } from '@/lib/utils';
+import { cn, formatDateOnly, formatIsoOffset, formatTimeOnly, formatTimestamp } from '@/lib/utils';
 
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
+type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom' | 'all';
 
 interface XiaoniActivityFeedItem {
   id: string;
@@ -68,6 +71,11 @@ interface RuntimeSnapshot {
 interface XiaoniActivityFeed {
   identityKey: string;
   generatedAt: string;
+  filters?: {
+    range?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+  };
   current: {
     latestActivityAt: string | null;
     lifeState: Record<string, unknown> | null;
@@ -131,6 +139,51 @@ const iconClasses: Record<string, string> = {
   neutral: 'bg-muted text-muted-foreground',
 };
 
+const TIME_RANGE_OPTIONS: Array<{ value: TimeRange; label: string }> = [
+  { value: '1h', label: '1h' },
+  { value: '6h', label: '6h' },
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
+  { value: 'all', label: '全部' },
+  { value: 'custom', label: '自定义' },
+];
+
+const TIME_RANGE_DURATION_MS: Partial<Record<TimeRange, number>> = {
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+};
+
+function coerceTimeRange(value: string | null): TimeRange {
+  return TIME_RANGE_OPTIONS.some((option) => option.value === value)
+    ? value as TimeRange
+    : '24h';
+}
+
+function timeRangeLabel(value: TimeRange) {
+  return TIME_RANGE_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function formatDateTimeLocal(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return [
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
+  ].join('T');
+}
+
+function defaultCustomWindow(sourceRange: TimeRange) {
+  const now = new Date();
+  const durationMs = TIME_RANGE_DURATION_MS[sourceRange] ?? TIME_RANGE_DURATION_MS['24h'] ?? 24 * 60 * 60 * 1000;
+  return {
+    startTime: formatDateTimeLocal(new Date(now.getTime() - durationMs)),
+    endTime: formatDateTimeLocal(now),
+  };
+}
+
 function statusTone(value?: string | null): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
   if (!value) {
     return 'neutral';
@@ -164,9 +217,9 @@ function statusLabel(value?: string | null) {
 }
 
 function itemIcon(item: XiaoniActivityFeedItem) {
-  if (item.source === 'tool_call') return <Waypoints className="h-4 w-4" />;
-  if (item.source === 'provider_call') return <Activity className="h-4 w-4" />;
-  if (item.source === 'llm_call') return <Bot className="h-4 w-4" />;
+  if (item.source === 'tool_execution') return <Waypoints className="h-4 w-4" />;
+  if (item.source === 'llm_stack_item') return <Waypoints className="h-4 w-4" />;
+  if (item.source === 'llm_request') return <Activity className="h-4 w-4" />;
   if (item.source === 'digital_action') return <Search className="h-4 w-4" />;
   if (item.source === 'task') return <Sparkles className="h-4 w-4" />;
   if (item.source === 'media_observation') return <Image className="h-4 w-4" />;
@@ -181,12 +234,12 @@ function sourceLabel(source: string) {
   switch (source) {
     case 'life_event':
       return 'life';
-    case 'tool_call':
+    case 'tool_execution':
       return 'tool';
-    case 'provider_call':
-      return 'provider';
-    case 'llm_call':
+    case 'llm_request':
       return 'LLM';
+    case 'llm_stack_item':
+      return 'stack';
     case 'digital_action':
       return 'history';
     case 'media_observation':
@@ -234,6 +287,13 @@ function formatBytes(value: number | null) {
   return `${(value / 1024 / 1024).toFixed(2)} MB`;
 }
 
+function formatPayloadSize(requestBytes: string | null, responseBytes: string | null) {
+  if (requestBytes && responseBytes) {
+    return `${requestBytes} -> ${responseBytes}`;
+  }
+  return requestBytes || responseBytes;
+}
+
 function timelineGroups(items: XiaoniActivityFeedItem[]) {
   const groups: Array<{ day: string; items: XiaoniActivityFeedItem[] }> = [];
   for (const item of items) {
@@ -261,7 +321,7 @@ function RuntimeStrip({
   const tasks = feed?.current.tasks;
   const backgroundActions = feed?.current.backgroundActions;
   const autonomy = feed?.current.autonomy;
-  const latestTool = feed?.items.find((item) => item.source === 'tool_call');
+  const latestTool = feed?.items.find((item) => item.source === 'tool_execution');
   const activeBackground = (tasks?.pending || 0) + (tasks?.running || 0);
   const historicalBackground = (backgroundActions?.settled || 0) + (backgroundActions?.failed || 0) + (backgroundActions?.planned || 0) + (backgroundActions?.running || 0);
   const lifeState = feed?.current.lifeState as {
@@ -319,6 +379,60 @@ function RuntimeStrip({
   );
 }
 
+function TimeRangeControls({
+  range,
+  startTime,
+  endTime,
+  onRangeChange,
+  onCustomTimeChange,
+}: {
+  range: TimeRange;
+  startTime: string;
+  endTime: string;
+  onRangeChange: (range: TimeRange) => void;
+  onCustomTimeChange: (key: 'start_time' | 'end_time', value: string) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {TIME_RANGE_OPTIONS.map((option) => (
+            <Button
+              key={option.value}
+              variant={range === option.value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onRangeChange(option.value)}
+              className="h-8 px-3"
+            >
+              {option.value === 'custom' ? <Calendar className="mr-2 h-4 w-4" /> : null}
+              {option.label}
+            </Button>
+          ))}
+        </div>
+        {range === 'custom' ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Input
+              type="datetime-local"
+              step="1"
+              value={startTime}
+              onChange={(event) => onCustomTimeChange('start_time', event.target.value)}
+              className="sm:w-56"
+            />
+            <span className="text-sm text-muted-foreground">至</span>
+            <Input
+              type="datetime-local"
+              step="1"
+              value={endTime}
+              onChange={(event) => onCustomTimeChange('end_time', event.target.value)}
+              className="sm:w-56"
+            />
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLatest: boolean }) {
   const navigate = useNavigate();
   const tone = toneClasses[item.tone] ? item.tone : 'neutral';
@@ -328,11 +442,10 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
   const toolArgumentsPreview = metadataText(item.metadata, 'toolArgumentsPreview');
   const toolResultPreview = metadataText(item.metadata, 'toolResultPreview');
   const responsePreview = metadataText(item.metadata, 'responsePreview');
-  const providerRequestPreview = metadataText(item.metadata, 'providerRequestPreview');
-  const providerResponsePreview = metadataText(item.metadata, 'providerResponsePreview');
   const providerRequestBytes = formatBytes(metadataNumber(item.metadata, 'providerRequestBytes'));
   const providerResponseBytes = formatBytes(metadataNumber(item.metadata, 'providerResponseBytes'));
   const providerFormat = metadataText(item.metadata, 'providerFormat');
+  const payloadSize = formatPayloadSize(providerRequestBytes, providerResponseBytes);
   const spanId = metadataText(item.metadata, 'spanId');
   const actionTracePreview = metadataText(item.metadata, 'actionTracePreview');
   const budgetSnapshotPreview = metadataText(item.metadata, 'budgetSnapshotPreview');
@@ -378,6 +491,7 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
               {item.traceId ? <span className="font-mono">{item.traceId}</span> : null}
               {spanId ? <span className="font-mono">{spanId}</span> : null}
               {providerFormat ? <span>{providerFormat}</span> : null}
+              {item.source === 'llm_request' && payloadSize ? <span>payload {payloadSize}</span> : null}
             </div>
           </div>
 
@@ -398,49 +512,27 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
         ) : null}
 
-        {providerRequestPreview || providerResponsePreview ? (
+        {item.source === 'llm_request' && responsePreview ? (
           <section className="mt-4 border-t border-border/70 pt-3">
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              <span className="inline-flex items-center gap-2">
-                <Activity className="h-3.5 w-3.5" />
-                <span>Codex Provider trace</span>
-              </span>
-              {providerRequestBytes ? <span>request {providerRequestBytes}</span> : null}
-              {providerResponseBytes ? <span>response {providerResponseBytes}</span> : null}
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <Bot className="h-3.5 w-3.5" />
+              <span>LLM response</span>
             </div>
-            <div className="grid gap-3 xl:grid-cols-2">
-              {providerRequestPreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">request preview</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/85">{providerRequestPreview}</pre>
-                </div>
-              ) : null}
-              {providerResponsePreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">response preview</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/85">{providerResponsePreview}</pre>
-                </div>
-              ) : null}
-            </div>
-            {traceTarget?.internalExecutionLeaseId ? (
-              <div className="mt-3 text-xs text-muted-foreground">
-                完整原文在 raw trace 的 provider span 中按需加载。
-              </div>
-            ) : null}
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/90">{responsePreview}</pre>
           </section>
         ) : null}
 
         {inContextPreview ? (
-          <section className="mt-4 border-t border-border/70 pt-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <details className="mt-4 border-t border-border/70 pt-3">
+            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               <Bot className="h-3.5 w-3.5" />
-              <span>{item.source === 'llm_call' ? 'LLM in_context' : '对应 LLM in_context'}</span>
-            </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{inContextPreview}</pre>
-          </section>
+              <span>{item.source === 'llm_request' ? 'LLM context' : '对应 LLM context'}</span>
+            </summary>
+            <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{inContextPreview}</pre>
+          </details>
         ) : null}
 
-        {toolArgumentsPreview || toolResultPreview || responsePreview ? (
+        {toolArgumentsPreview || toolResultPreview || (responsePreview && item.source !== 'llm_request') ? (
           <section className="mt-4 border-t border-border/70 pt-3">
             <div className="grid gap-3 lg:grid-cols-2">
               {toolArgumentsPreview ? (
@@ -455,7 +547,7 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{toolResultPreview}</pre>
                 </div>
               ) : null}
-              {responsePreview ? (
+              {responsePreview && item.source !== 'llm_request' ? (
                 <details className="min-w-0 lg:col-span-2">
                   <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     LLM response
@@ -524,6 +616,10 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
 }
 
 export const XiaoniActivityPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const timeRange = coerceTimeRange(searchParams.get('range'));
+  const startTime = searchParams.get('start_time') || '';
+  const endTime = searchParams.get('end_time') || '';
   const {
     data: feed,
     isLoading,
@@ -531,9 +627,21 @@ export const XiaoniActivityPage: React.FC = () => {
     error,
     refetch,
   } = useQuery<XiaoniActivityFeed>({
-    queryKey: ['xiaoni-action-stream'],
+    queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime],
     queryFn: async () => {
-      const response = await fetch('/api/xiaoni/action-stream?limit=80');
+      const params = new URLSearchParams({
+        limit: '80',
+        range: timeRange,
+      });
+      if (timeRange === 'custom') {
+        if (startTime) {
+          params.set('start_time', formatIsoOffset(startTime, { fallback: startTime }));
+        }
+        if (endTime) {
+          params.set('end_time', formatIsoOffset(endTime, { fallback: endTime }));
+        }
+      }
+      const response = await fetch(`/api/xiaoni/action-stream?${params}`);
       const payload = await response.json() as ApiResponse<XiaoniActivityFeed>;
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || 'Failed to load action stream');
@@ -544,15 +652,53 @@ export const XiaoniActivityPage: React.FC = () => {
   });
 
   const groups = React.useMemo(() => timelineGroups(feed?.items || []), [feed?.items]);
+  const rangeBadge = timeRange === 'custom'
+    ? [startTime || '开始', endTime || '现在'].join(' - ')
+    : timeRangeLabel(timeRange);
+
+  const updateSearchParam = React.useCallback((mutator: (params: URLSearchParams) => void) => {
+    const nextParams = new URLSearchParams(searchParams);
+    mutator(nextParams);
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const handleRangeChange = React.useCallback((nextRange: TimeRange) => {
+    updateSearchParam((nextParams) => {
+      nextParams.set('range', nextRange);
+      if (nextRange === 'custom') {
+        const defaults = defaultCustomWindow(timeRange);
+        if (!nextParams.get('start_time')) {
+          nextParams.set('start_time', defaults.startTime);
+        }
+        if (!nextParams.get('end_time')) {
+          nextParams.set('end_time', defaults.endTime);
+        }
+      } else {
+        nextParams.delete('start_time');
+        nextParams.delete('end_time');
+      }
+    });
+  }, [timeRange, updateSearchParam]);
+
+  const handleCustomTimeChange = React.useCallback((key: 'start_time' | 'end_time', value: string) => {
+    updateSearchParam((nextParams) => {
+      nextParams.set('range', 'custom');
+      if (value) {
+        nextParams.set(key, value);
+      } else {
+        nextParams.delete(key);
+      }
+    });
+  }, [updateSearchParam]);
 
   return (
-    <PageShell className="max-w-6xl">
+    <PageShell className="max-w-4xl">
       <PageHeader
         eyebrow="Xiaoni Action Stream"
         title="小腻行动流"
-        description="按时间线展示小腻经过的消息、模型、provider、tool 和后台行动。"
+        description="按时间线展示小腻看到的消息、调用的工具、发出的内容、休息状态和后台行动。"
         icon={<Activity className="h-5 w-5" />}
-        badge={feed ? <PageHeaderBadge>{feed.items.length} Events</PageHeaderBadge> : null}
+        badge={feed ? <PageHeaderBadge>{feed.items.length} Events · {rangeBadge}</PageHeaderBadge> : null}
         actions={
           <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
@@ -562,6 +708,13 @@ export const XiaoniActivityPage: React.FC = () => {
       />
 
       <RuntimeStrip feed={feed} isLoading={isLoading} />
+      <TimeRangeControls
+        range={timeRange}
+        startTime={startTime}
+        endTime={endTime}
+        onRangeChange={handleRangeChange}
+        onCustomTimeChange={handleCustomTimeChange}
+      />
 
       {error ? (
         <ErrorState description={error instanceof Error ? error.message : '加载小腻行动流失败'} onRetry={() => void refetch()} />

@@ -624,39 +624,39 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
           l.id,
           l.conversation_id,
           l.trace_id,
-          l.call_sequence,
-          l.agent_type,
+          COALESCE(l.agent_turn, 0) AS call_sequence,
+          'chat_bot' AS agent_type,
           l.model_name,
           l.model_provider,
-          l.prompt_template,
+          NULL::text AS prompt_template,
           l.canonical_request,
-          NULL::jsonb AS wire_request,
+          l.wire_request,
           l.request_format_version,
           l.wire_provider_format,
-          l.input_tokens,
-          NULL::jsonb AS canonical_response,
-          l.raw_response AS wire_response,
-          l.processed_response,
-          l.output_tokens,
-          l.api_call_time_ms,
+          COALESCE((l.token_usage::jsonb->>'input_tokens')::int, (l.token_usage::jsonb->>'prompt_tokens')::int, 0) AS input_tokens,
+          l.canonical_response,
+          l.wire_response,
+          COALESCE(CAST(l.canonical_response AS text), CAST(l.raw_response AS text), CAST(l.output_items AS text), '') AS processed_response,
+          COALESCE((l.token_usage::jsonb->>'output_tokens')::int, (l.token_usage::jsonb->>'completion_tokens')::int, 0) AS output_tokens,
+          NULL::numeric AS api_call_time_ms,
           l.processing_time_ms,
-          l.timestamp,
+          l.created_at AS timestamp,
           l.status,
-          l.error_message,
-          l.error_code,
+          NULL::text AS error_message,
+          NULL::text AS error_code,
           NULL::numeric AS cost_estimate,
           l.token_usage
-        FROM llm_call_logs l
+        FROM llm_request_slices l
         INNER JOIN (
-          SELECT id, timestamp, call_sequence
-          FROM llm_call_logs
+          SELECT id, created_at, COALESCE(agent_turn, 0) AS call_sequence
+          FROM llm_request_slices
           WHERE trace_id = ?
           UNION DISTINCT
-          SELECT id, timestamp, call_sequence
-          FROM llm_call_logs
+          SELECT id, created_at, COALESCE(agent_turn, 0) AS call_sequence
+          FROM llm_request_slices
           WHERE conversation_id = ?
         ) matched ON matched.id = l.id
-        ORDER BY matched.timestamp ASC, matched.call_sequence ASC, matched.id ASC
+        ORDER BY matched.created_at ASC, matched.call_sequence ASC, matched.id ASC
       `;
       const llmCalls = await database.executeQuery(llmCallsQuery, [traceId, conversationId]);
 
@@ -774,7 +774,7 @@ export function createDebugRoutes(database: DatabaseManager, logger: winston.Log
         debug_info: {
           data_completeness: {
             conversation_record: 'complete',
-            llm_call_logs: normalizedLlmCalls.length > 0 ? 'complete' : 'missing',
+            llm_request_slices: normalizedLlmCalls.length > 0 ? 'complete' : 'missing',
             queue_logs: websocketLogs.length > 0 ? 'complete' : 'missing',
             processing_events: processingEvents.length > 0 ? 'complete' : 'missing'
           },

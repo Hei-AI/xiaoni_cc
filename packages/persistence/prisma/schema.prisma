@@ -208,37 +208,118 @@ model AgentLifeEvent {
   @@map("agent_life_events")
 }
 
-model XiaoniReplayEvent {
-  id                          BigInt    @id @default(autoincrement()) @db.BigInt
-  event_id                    String    @unique @db.VarChar(191)
-  identity_key                String    @default("xiaoni") @db.VarChar(191)
-  event_kind                  String    @db.VarChar(64)
-  source                      String    @db.VarChar(64)
-  occurred_at                 DateTime  @default(now()) @db.Timestamp(3)
-  trace_id                    String?   @db.VarChar(128)
-  conversation_id             BigInt?   @db.BigInt
-  internal_execution_lease_id String?   @db.VarChar(128)
-  provider_call_id            String?   @db.VarChar(128)
-  tool_call_id                String?   @db.VarChar(128)
-  model_name                  String?   @db.VarChar(191)
-  model_provider              String?   @db.VarChar(64)
-  status                      String?   @db.VarChar(32)
-  replayable                  Boolean   @default(false)
-  replay_payload              Json      @default("{}")
-  wire_request                Json?
-  wire_response               Json?
-  metadata                    Json      @default("{}")
-  source_table                String?   @db.VarChar(128)
-  source_id                   String?   @db.VarChar(191)
-  created_at                  DateTime  @default(now()) @db.Timestamp(3)
-  updated_at                  DateTime  @updatedAt @db.Timestamp(3)
+model AgentStackItem {
+  id                   BigInt    @id @default(autoincrement()) @db.BigInt
+  event_id             String    @unique @db.VarChar(191)
+  identity_key         String    @default("xiaoni") @db.VarChar(191)
+  stack_index          BigInt    @db.BigInt
+  item_kind            String    @db.VarChar(64)
+  role                 String?   @db.VarChar(32)
+  phase                String?   @db.VarChar(32)
+  provider_item_id     String?   @db.VarChar(191)
+  tool_call_id         String?   @db.VarChar(191)
+  llm_request_slice_id String?   @db.VarChar(191)
+  content              Json      @default("{}")
+  visibility           String    @default("model_visible") @db.VarChar(32)
+  source_type          String?   @db.VarChar(64)
+  source_id            String?   @db.VarChar(191)
+  trace_id             String?   @db.VarChar(128)
+  run_id               String?   @db.VarChar(128)
+  conversation_id      BigInt?   @db.BigInt
+  metadata             Json      @default("{}")
+  created_at           DateTime  @default(now()) @db.Timestamp(3)
+  updated_at           DateTime  @updatedAt @db.Timestamp(3)
 
-  @@index([identity_key, occurred_at, id], map: "idx_xiaoni_replay_events_identity_time")
-  @@index([trace_id], map: "idx_xiaoni_replay_events_trace")
-  @@index([conversation_id], map: "idx_xiaoni_replay_events_conversation")
-  @@index([provider_call_id], map: "idx_xiaoni_replay_events_provider_call")
-  @@index([internal_execution_lease_id], map: "idx_xiaoni_replay_events_lease")
-  @@map("xiaoni_replay_events")
+  @@unique([identity_key, stack_index], map: "uniq_agent_stack_items_identity_index")
+  @@index([identity_key, stack_index], map: "idx_agent_stack_items_identity_index")
+  @@index([trace_id, stack_index], map: "idx_agent_stack_items_trace")
+  @@index([run_id, stack_index], map: "idx_agent_stack_items_run")
+  @@index([tool_call_id], map: "idx_agent_stack_items_tool_call")
+  @@index([llm_request_slice_id], map: "idx_agent_stack_items_slice")
+  @@map("agent_stack_items")
+}
+
+model LlmRequestSlice {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  slice_id               String    @unique @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  input_start_index      BigInt?   @db.BigInt
+  input_end_index        BigInt?   @db.BigInt
+  input_stack_item_ids   Json      @default("[]")
+  output_start_index     BigInt?   @db.BigInt
+  output_end_index       BigInt?   @db.BigInt
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  conversation_id        BigInt?   @db.BigInt
+  agent_turn             Int?
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  request_format_version String?   @db.VarChar(64)
+  wire_provider_format   String?   @db.VarChar(128)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamp(3)
+  completed_at           DateTime? @db.Timestamp(3)
+  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, created_at, id], map: "idx_llm_request_slices_identity_time")
+  @@index([trace_id, agent_turn, id], map: "idx_llm_request_slices_trace")
+  @@index([llm_call_id], map: "idx_llm_request_slices_llm_call")
+  @@map("llm_request_slices")
+}
+
+model ToolExecution {
+  id                   BigInt    @id @default(autoincrement()) @db.BigInt
+  execution_id         String    @unique @db.VarChar(191)
+  identity_key         String    @default("xiaoni") @db.VarChar(191)
+  llm_request_slice_id String?   @db.VarChar(191)
+  llm_call_id          String?   @db.VarChar(128)
+  tool_call_id         String?   @db.VarChar(191)
+  tool_name            String    @db.VarChar(191)
+  arguments            Json      @default("{}")
+  raw_arguments        String?
+  result               Json      @default("{}")
+  status               String    @default("running") @db.VarChar(32)
+  error_message        String?
+  side_effect          Boolean   @default(false)
+  trace_id             String?   @db.VarChar(128)
+  run_id               String?   @db.VarChar(128)
+  conversation_id      BigInt?   @db.BigInt
+  agent_turn           Int?
+  stack_call_item_id   BigInt?   @db.BigInt
+  stack_output_item_id BigInt?   @db.BigInt
+  metadata             Json      @default("{}")
+  created_at           DateTime  @default(now()) @db.Timestamp(3)
+  started_at           DateTime  @default(now()) @db.Timestamp(3)
+  completed_at         DateTime? @db.Timestamp(3)
+  updated_at           DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([trace_id, started_at, id], map: "idx_tool_executions_trace")
+  @@index([tool_call_id], map: "idx_tool_executions_tool_call")
+  @@index([llm_request_slice_id], map: "idx_tool_executions_slice")
+  @@map("tool_executions")
+}
+
+model StackCompaction {
+  id                    BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key          String   @default("xiaoni") @db.VarChar(191)
+  compacted_start_index BigInt   @db.BigInt
+  compacted_end_index   BigInt   @db.BigInt
+  summary_stack_item_id BigInt?  @db.BigInt
+  method                String   @db.VarChar(64)
+  metadata              Json     @default("{}")
+  created_at            DateTime @default(now()) @db.Timestamp(3)
+
+  @@map("stack_compactions")
 }
 
 model GroupChatSetting {

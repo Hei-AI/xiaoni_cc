@@ -15,7 +15,7 @@ const { createInboundInboxPersistence } = require('./inbound-inbox');
 const { createAgentRuntimePersistence } = require('./agent-runtime');
 const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAgentLifeEventPersistence } = require('./agent-life-events');
-const { createXiaoniReplayEventPersistence } = require('./xiaoni-replay-events');
+const { createXiaoniAgentStackPersistence } = require('./xiaoni-agent-stack');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
@@ -445,14 +445,17 @@ const agentLifeEventPersistence = createAgentLifeEventPersistence({
   createSqlAdapter
 });
 
-const xiaoniReplayEventPersistence = createXiaoniReplayEventPersistence({
+const xiaoniAgentStackPersistence = createXiaoniAgentStackPersistence({
   createSqlAdapter
 });
 
 const xiaoniActivityPersistence = createXiaoniActivityPersistence({
   getPrismaClient,
   createSqlAdapter,
-  listXiaoniReplayEvents: xiaoniReplayEventPersistence.listXiaoniReplayEvents
+  listAgentStackItems: xiaoniAgentStackPersistence.listAgentStackItems,
+  listLlmRequestSlices: xiaoniAgentStackPersistence.listLlmRequestSlices,
+  listToolExecutions: xiaoniAgentStackPersistence.listToolExecutions,
+  findAgentStackItemByEventId: xiaoniAgentStackPersistence.findAgentStackItemByEventId
 });
 
 const abExperimentPersistence = createAbExperimentPersistence({
@@ -486,6 +489,7 @@ module.exports = {
   closePrismaClient,
   createInboundInboxPersistence,
   createAgentRuntimePersistence,
+  createXiaoniAgentStackPersistence,
   resolveChatAgentPrompt,
   listAgentInboundMessages,
   listAgentInboundMessagesByIds,
@@ -504,7 +508,7 @@ module.exports = {
   ...agentRuntimePersistence,
   ...agentPresencePersistence,
   ...agentLifeEventPersistence,
-  ...xiaoniReplayEventPersistence,
+  ...xiaoniAgentStackPersistence,
   ...xiaoniActivityPersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,

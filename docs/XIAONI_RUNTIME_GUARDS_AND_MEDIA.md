@@ -11,8 +11,7 @@
 | QQ 入站正文 | 始终先落 `agent_inbound_messages`，作为 QQ app inbox/window。 | `modules/provider-service/src/services/inbound-inbox-service.ts` |
 | `auto_reply_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | `phone_notification` | 只含状态栏摘要，不含 QQ 正文；小腻必须主动用 `$qq-usage` 才能看到正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
-| `final_answer` no-visible settle | 模型返回 `final_answer` 且无 tool call / 可见 delivery 时，代码侧以 `no_visible_delivery_observed` 结束当前 slice。 | `modules/agent-service/src/services/agent-loop-service.ts` |
-| legacy idle reminder 输入形态 | 历史 `reason=final_answer_idle` 行只按普通内部 `system_reminder` 兼容读取；当前 runtime 不再生产它。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| `final_answer` continuous loop | 模型返回 `final_answer` 且无 tool call 时，只表示本轮没有更多工具；不产生 final-answer 专用 prompt reminder，后续仍由真实 notify 或 `self_continuation` 推进。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片理解 | `inspect_image_placeholder` 复用当前主 agent request，追加图片 base64 fork，返回文本观察。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片观察输出 | 主 agent 只收到 `<image id="...">含义是: ...</image>`；base64 不进入长期 replay。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 
@@ -43,22 +42,22 @@ inbox，也不删除后续人工排障可见性；它只阻止主 loop 被这条
 `auto_reply_enabled=0` 是两层不同开关。前者让 agent-service 不跑主 loop，
 后者让 provider-service 不把某个聊天的新消息写入 Notify Bucket。
 
-## Final Answer Idle Flow
+## Final Answer Continuation
 
-`final_answer` 不等于“后面可以继续直接请求同一个 assistant”。当前策略是把
-`final_answer` 当作一个完成事件，由代码侧明确结束当前 slice：
+`final_answer` 不等于“agent loop 结束”。当前目标策略是把它当作本轮模型输出，
+按原始 phase 追加进 stack，然后让外层 loop 继续：
 
 ```text
 OpenAI response phase=final_answer
   -> provider-service returns canonical response
-  -> agent-service sees no tool_call and no visible delivery
-  -> settle / release with lease_release_reason=no_visible_delivery_observed
-  -> later idle work uses the normal self_continuation path
+  -> agent-service sees no tool_call
+  -> append response output items into agent_stack_items
+  -> do not append final-answer-specific reminder
+  -> next tick uses real notify or normal self_continuation
 ```
 
 这不改写上一轮 transcript，也不把 `final_answer` phase 改成 `commentary`。
-当前 runtime 不再追加 `final_answer_turn_control` user scene input，也不再写
-`reason=final_answer_idle` 的 Notify Bucket reminder。历史 `final_answer_idle`
+当前 runtime 不再追加 final-answer 专用 prompt reminder。历史同类 Notify Bucket
 行只按普通内部 `system_reminder` 兼容读取。
 
 ## Image Vision Fork
@@ -93,10 +92,9 @@ main agent calls inspect_image_placeholder(image_id)
 
 视觉 fork 请求里的 base64 不应该进入下面这些长期表或管理端回放骨架：
 
-- `xiaoni_replay_events`
-- `llm_call_logs`
+- `llm_request_slices`
 - traffic / MITM 持久化日志
-- 后续主 loop 的 `responses_replay_items`
+- 后续主 loop 的 `agent_stack_items` 可回放 image payload
 
 主 loop 可继承的是图片观察文本：
 

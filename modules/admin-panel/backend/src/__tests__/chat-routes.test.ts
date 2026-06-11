@@ -417,7 +417,7 @@ describe('chat settings routes', () => {
     );
     expect(database.executeQuery).toHaveBeenNthCalledWith(
       2,
-      expect.stringContaining('FROM tool_execution_logs'),
+      expect.stringContaining('FROM tool_executions'),
       ['qq:group:253631878', expect.any(String)]
     );
     expect(response.body.data).toMatchObject({

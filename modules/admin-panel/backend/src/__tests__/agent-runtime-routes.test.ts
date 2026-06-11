@@ -4,25 +4,21 @@ import winston from 'winston';
 import { createAgentRuntimeRoutes } from '../routes/agent-runtime-routes';
 import {
   buildConversationTracePayload,
-  buildConversationTraceSpanDetail,
-  buildXiaoniReplayProviderTracePayload,
-  buildXiaoniReplayProviderTraceSpanDetail
+  buildConversationTraceSpanDetail
 } from '../services/trace-span-builder';
-import { findXiaoniReplayEventByEventId } from '@qq-bot/persistence';
+import { findXiaoniActionEventTraceTarget } from '@qq-bot/persistence';
 
 jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
-  findXiaoniReplayEventByEventId: jest.fn(),
+  findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentTasks: jest.fn()
 }));
 
 jest.mock('../services/trace-span-builder', () => ({
   buildConversationTracePayload: jest.fn(),
-  buildConversationTraceSpanDetail: jest.fn(),
-  buildXiaoniReplayProviderTracePayload: jest.fn(),
-  buildXiaoniReplayProviderTraceSpanDetail: jest.fn()
+  buildConversationTraceSpanDetail: jest.fn()
 }));
 
 function createLogger(): winston.Logger {
@@ -47,18 +43,13 @@ describe('agent runtime action event trace routes', () => {
     jest.clearAllMocks();
   });
 
-  it('resolves a Codex provider action event to its raw provider span trace', async () => {
+  it('resolves an LLM request action event to its conversation trace', async () => {
     const database = createDatabaseMock();
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce({
-      eventId: 'provider:codex:llm_abc',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
       traceId: 'trace-1',
       conversationId: '42',
-      internalExecutionLeaseId: 'lease-1',
-      providerCallId: 'llm_abc',
-      replayable: true,
-      metadata: { spanId: 'provider-request:wire:llm_abc' }
+      spanId: 'stack-slice:slice_abc',
+      internalExecutionLeaseId: 'lease-1'
     });
     (buildConversationTracePayload as jest.Mock).mockResolvedValueOnce({
       conversation_id: '42',
@@ -70,31 +61,27 @@ describe('agent runtime action event trace routes', () => {
     });
 
     const response = await request(createApp(database))
-      .get('/api/xiaoni/action-stream/events/provider%3Acodex%3Allm_abc/trace');
+      .get('/api/xiaoni/action-stream/events/llm-slice%3Aslice_abc/trace');
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(database.executeQuery).not.toHaveBeenCalled();
+    expect(findXiaoniActionEventTraceTarget).toHaveBeenCalledWith('llm-slice:slice_abc');
     expect(buildConversationTracePayload).toHaveBeenCalledWith(expect.anything(), expect.anything(), '42');
     expect(response.body.data.action_event).toEqual({
-      event_id: 'provider:codex:llm_abc',
-      focus_span_id: 'provider-request:wire:llm_abc',
+      event_id: 'llm-slice:slice_abc',
+      focus_span_id: 'stack-slice:slice_abc',
       trace_id: 'trace-1'
     });
   });
 
   it('loads span detail through the action event route', async () => {
     const database = createDatabaseMock();
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce({
-      eventId: 'provider:codex:llm_abc',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
       traceId: 'trace-1',
       conversationId: '42',
-      internalExecutionLeaseId: 'lease-1',
-      providerCallId: 'llm_abc',
-      replayable: true,
-      metadata: { spanId: 'provider-request:wire:llm_abc' }
+      spanId: 'stack-slice:slice_abc',
+      internalExecutionLeaseId: 'lease-1'
     });
     (buildConversationTraceSpanDetail as jest.Mock).mockResolvedValueOnce({
       input: { raw_body: '{"model":"gpt"}' },
@@ -103,7 +90,7 @@ describe('agent runtime action event trace routes', () => {
     });
 
     const response = await request(createApp(database))
-      .get('/api/xiaoni/action-stream/events/provider%3Acodex%3Allm_abc/trace/spans/provider-request%3Awire%3Allm_abc/detail');
+      .get('/api/xiaoni/action-stream/events/llm-slice%3Aslice_abc/trace/spans/provider-request%3Awire%3Allm_abc/detail');
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -116,117 +103,58 @@ describe('agent runtime action event trace routes', () => {
     expect(response.body.data.input.raw_body).toBe('{"model":"gpt"}');
   });
 
-  it('resolves replay provider traces even when no conversation is attached yet', async () => {
+  it('resolves a life action event to its conversation trace', async () => {
     const database = createDatabaseMock();
-    database.executeQuery.mockResolvedValueOnce([]);
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce({
-      eventId: 'provider:codex:llm_global',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
-      traceId: 'runtrace-global',
-      conversationId: null,
-      internalExecutionLeaseId: null,
-      providerCallId: 'llm_global',
-      replayable: true,
-      metadata: { spanId: 'provider-request:wire:llm_global' }
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
+      traceId: 'trace-internal',
+      conversationId: '42',
+      spanId: 'llm-call:llm_abc',
+      internalExecutionLeaseId: 'lease-internal'
     });
-    (buildXiaoniReplayProviderTracePayload as jest.Mock).mockResolvedValueOnce({
-      conversation_id: null,
+    (buildConversationTracePayload as jest.Mock).mockResolvedValueOnce({
+      conversation_id: '42',
       batch_id: null,
-      trace: { trace_id: 'runtrace-global', status: 'ok' },
+      trace: { trace_id: 'trace-internal', status: 'ok' },
       spans: [],
       raw_evidence: {},
       data_quality: {}
     });
 
     const response = await request(createApp(database))
-      .get('/api/xiaoni/action-stream/events/provider%3Acodex%3Allm_global/trace');
-
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(database.executeQuery).toHaveBeenCalledWith(
-      'SELECT id FROM conversations WHERE trace_id = ? ORDER BY id DESC LIMIT 1',
-      ['runtrace-global']
-    );
-    expect(buildConversationTracePayload).not.toHaveBeenCalled();
-    expect(buildXiaoniReplayProviderTracePayload).toHaveBeenCalledWith(
-      expect.anything(),
-      'provider:codex:llm_global'
-    );
-    expect(response.body.data.action_event).toEqual({
-      event_id: 'provider:codex:llm_global',
-      focus_span_id: 'provider-request:wire:llm_global',
-      trace_id: 'runtrace-global'
-    });
-  });
-
-  it('loads replay provider span detail without a conversation', async () => {
-    const database = createDatabaseMock();
-    database.executeQuery.mockResolvedValueOnce([]);
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce({
-      eventId: 'provider:codex:llm_global',
-      eventKind: 'codex_provider_request',
-      source: 'codex_provider',
-      traceId: 'runtrace-global',
-      conversationId: null,
-      internalExecutionLeaseId: null,
-      providerCallId: 'llm_global',
-      replayable: true,
-      metadata: { spanId: 'provider-request:wire:llm_global' }
-    });
-    (buildXiaoniReplayProviderTraceSpanDetail as jest.Mock).mockResolvedValueOnce({
-      input: { raw_body: '{"model":"gpt"}' },
-      output: { raw_body: '{"type":"response"}' },
-      evidence: { synthetic: true }
-    });
-
-    const response = await request(createApp(database))
-      .get('/api/xiaoni/action-stream/events/provider%3Acodex%3Allm_global/trace/spans/provider-request%3Awire%3Allm_global/detail');
-
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(buildConversationTraceSpanDetail).not.toHaveBeenCalled();
-    expect(buildXiaoniReplayProviderTraceSpanDetail).toHaveBeenCalledWith(
-      expect.anything(),
-      'provider:codex:llm_global',
-      'provider-request:wire:llm_global'
-    );
-    expect(response.body.data.evidence.synthetic).toBe(true);
-  });
-
-  it('does not resolve non-replayable internal action events to traces', async () => {
-    const database = createDatabaseMock();
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce({
-      eventId: 'life:1',
-      eventKind: 'surface_visit',
-      source: 'life_event',
-      traceId: 'trace-internal',
-      conversationId: '42',
-      internalExecutionLeaseId: 'lease-internal',
-      providerCallId: null,
-      replayable: false,
-      metadata: {}
-    });
-
-    const response = await request(createApp(database))
       .get('/api/xiaoni/action-stream/events/life%3A1/trace');
 
+    expect(response.status).toBe(200);
+    expect(buildConversationTracePayload).toHaveBeenCalledWith(expect.anything(), expect.anything(), '42');
+    expect(response.body.data.action_event).toEqual({
+      event_id: 'life:1',
+      focus_span_id: 'llm-call:llm_abc',
+      trace_id: 'trace-internal'
+    });
+  });
+
+  it('does not fall back to route-local audit queries when no trace target exists', async () => {
+    const database = createDatabaseMock();
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce(null);
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream/events/llm-slice%3Amissing/trace');
+
     expect(response.status).toBe(404);
+    expect(database.executeQuery).not.toHaveBeenCalled();
     expect(buildConversationTracePayload).not.toHaveBeenCalled();
   });
 
-  it('does not fall back to audit tables when the replay ledger has no action event', async () => {
+  it('does not build a trace when the target has no conversation', async () => {
     const database = createDatabaseMock();
-    database.executeQuery.mockResolvedValueOnce([{
-      id: 123,
-      llm_call_id: 'llm_missing',
-      conversation_id: '42',
-      trace_id: 'trace-1'
-    }]);
-    (findXiaoniReplayEventByEventId as jest.Mock).mockResolvedValueOnce(null);
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
+      traceId: 'runtrace-global',
+      conversationId: null,
+      spanId: 'stack-slice:slice_global',
+      internalExecutionLeaseId: 'run-global'
+    });
 
     const response = await request(createApp(database))
-      .get('/api/xiaoni/action-stream/events/provider%3Acodex%3Allm_missing/trace');
+      .get('/api/xiaoni/action-stream/events/llm-slice%3Aslice_global/trace');
 
     expect(response.status).toBe(404);
     expect(database.executeQuery).not.toHaveBeenCalled();

@@ -349,7 +349,7 @@ describe('buildTraceFlowViewModel', () => {
           llm_call_id: 'llm-call-wire',
 	          synthetic_provider_request: {
 	            span_id: 'provider-request:wire:llm-call-wire',
-	            source: 'xiaoni_replay_events.wire_request/wire_response',
+	            source: 'llm_request_slices.wire_request/wire_response',
 	          },
         },
       }),
@@ -365,7 +365,7 @@ describe('buildTraceFlowViewModel', () => {
           'semantic.display_name': 'POST codex-local',
           'trace.llm_call_id': 'llm-call-wire',
           'provider.api_type': 'codex-local/responses',
-	          'provider.synthetic_source': 'xiaoni_replay_events.wire_payload',
+	          'provider.synthetic_source': 'llm_request_slices.wire_payload',
           'http.host': 'codex-local',
           'http.path': '/responses',
         },
@@ -378,7 +378,7 @@ describe('buildTraceFlowViewModel', () => {
         },
         evidence: {
           synthetic: true,
-	          source: 'xiaoni_replay_events.wire_request/wire_response',
+	          source: 'llm_request_slices.wire_request/wire_response',
           llm_call_id: 'llm-call-wire',
         },
       }),

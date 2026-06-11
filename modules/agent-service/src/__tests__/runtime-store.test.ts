@@ -556,11 +556,11 @@ test('listRecentTurns restores prompt-visible items only from conversation_items
       return [];
     }
 
-    if (sql.includes('llm_call_logs')) {
+    if (sql.includes('legacy_llm_audit_table')) {
       return [];
     }
 
-    if (sql.includes('tool_execution_logs')) {
+    if (sql.includes('legacy_tool_audit_table')) {
       return [];
     }
 
@@ -578,8 +578,8 @@ test('listRecentTurns restores prompt-visible items only from conversation_items
   assert.equal(turns[0]?.items[1]?.content, '历史助手回复');
   assert.equal(queries.some((sql) => sql.includes('FROM agent_queue_messages q')), false);
   assert.equal(queries.some((sql) => sql.includes('FROM agent_inbound_messages m')), false);
-  assert.equal(queries.some((sql) => sql.includes('llm_call_logs')), false);
-  assert.equal(queries.some((sql) => sql.includes('tool_execution_logs')), false);
+  assert.equal(queries.some((sql) => sql.includes('legacy_llm_audit_table')), false);
+  assert.equal(queries.some((sql) => sql.includes('legacy_tool_audit_table')), false);
 });
 
 test('listRecentTurns reads stored transcript ledger content when queue payloads are unavailable', async () => {
@@ -621,11 +621,11 @@ test('listRecentTurns reads stored transcript ledger content when queue payloads
       return [];
     }
 
-    if (sql.includes('llm_call_logs')) {
+    if (sql.includes('legacy_llm_audit_table')) {
       return [];
     }
 
-    if (sql.includes('tool_execution_logs')) {
+    if (sql.includes('legacy_tool_audit_table')) {
       return [];
     }
 
@@ -710,11 +710,11 @@ test('listRecentTurns does not synthesize missing user items from inbound messag
       }];
     }
 
-    if (sql.includes('llm_call_logs')) {
+    if (sql.includes('legacy_llm_audit_table')) {
       return [];
     }
 
-    if (sql.includes('tool_execution_logs')) {
+    if (sql.includes('legacy_tool_audit_table')) {
       return [];
     }
 
@@ -777,7 +777,7 @@ test('listRecentTurns preserves raw response replay snapshot without recovering 
       return [];
     }
 
-    if (sql.includes('llm_call_logs')) {
+    if (sql.includes('legacy_llm_audit_table')) {
       return [{
         id: 67,
         trace_id: 'trace-1',
@@ -803,7 +803,7 @@ test('listRecentTurns preserves raw response replay snapshot without recovering 
       }];
     }
 
-    if (sql.includes('tool_execution_logs')) {
+    if (sql.includes('legacy_tool_audit_table')) {
       return [{
         id: 77,
         trace_id: 'trace-1',
@@ -844,8 +844,8 @@ test('listRecentTurns preserves raw response replay snapshot without recovering 
   assert.equal(replayItems.filter((item) => item.type === 'function_call' && item.call_id === 'call-exec-1').length, 1);
   assert.equal(replayItems.some((item) => item.type === 'message'), false);
   assert.equal(replayItems.some((item) => item.type === 'function_call_output'), false);
-  assert.equal(queries.some((sql) => sql.includes('llm_call_logs')), false);
-  assert.equal(queries.some((sql) => sql.includes('tool_execution_logs')), false);
+  assert.equal(queries.some((sql) => sql.includes('legacy_llm_audit_table')), false);
+  assert.equal(queries.some((sql) => sql.includes('legacy_tool_audit_table')), false);
 });
 
 test('listRecentTurns can read the global append stream for autonomous runtime slices', async () => {
@@ -886,11 +886,11 @@ test('listRecentTurns can read the global append stream for autonomous runtime s
       return [];
     }
 
-    if (sql.includes('llm_call_logs')) {
+    if (sql.includes('legacy_llm_audit_table')) {
       return [];
     }
 
-    if (sql.includes('tool_execution_logs')) {
+    if (sql.includes('legacy_tool_audit_table')) {
       return [];
     }
 

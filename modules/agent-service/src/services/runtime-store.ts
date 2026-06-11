@@ -10,8 +10,13 @@ import {
   ensureAgentTaskSchema,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
-  attachConversationIdToXiaoniReplayEventsByTrace,
-  ensureXiaoniReplayEventSchema,
+  ensureXiaoniAgentStackSchema,
+  getAgentStackHead as getAgentStackHeadPersistence,
+  appendAgentStackItems as appendAgentStackItemsPersistence,
+  recordLlmRequestSlice as recordLlmRequestSlicePersistence,
+  recordToolExecution as recordToolExecutionPersistence,
+  completeToolExecution as completeAgentStackToolExecutionPersistence,
+  attachConversationIdToAgentStackByTrace,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
   ensureFeedbackReflectionSchema,
@@ -63,8 +68,6 @@ import {
   markLeaseDeliveryBlocked as markLeaseDeliveryBlockedPersistence,
   createLlmJob as createLlmJobPersistence,
   updateLlmJob as updateLlmJobPersistence,
-  createToolExecutionLog as createToolExecutionLogPersistence,
-  completeToolExecutionLog as completeToolExecutionLogPersistence,
   logRuntimeTimelineEvent,
   listRecentConversationTurns,
   createConversationWithItems,
@@ -1940,30 +1943,105 @@ export class RuntimeStore {
     }, databaseConfig);
   }
 
-  async createToolExecutionLog(params: {
-    traceId: string;
-    jobId: string;
-    agentTurn: number;
-    llmCallId: string;
-    toolCallId: string;
-    toolName: string;
-    methodId?: string;
-    arguments: Record<string, unknown>;
-    sideEffect: boolean;
+  async getAgentStackHead(identityKey = 'xiaoni') {
+    return getAgentStackHeadPersistence({
+      identityKey,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async appendAgentStackItems(params: {
+    identityKey?: string;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
+    llmRequestSliceId?: string | null;
+    items: Array<Record<string, unknown>>;
   }) {
-    return createToolExecutionLogPersistence({
+    return appendAgentStackItemsPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      traceId: params.traceId || null,
+      runId: params.runId || null,
+      conversationId: params.conversationId ?? null,
+      sourceType: params.sourceType || null,
+      sourceId: params.sourceId || null,
+      llmRequestSliceId: params.llmRequestSliceId || null,
+      items: params.items,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordLlmRequestSlice(params: {
+    sliceId: string;
+    llmCallId?: string | null;
+    traceId: string;
+    runId: string;
+    conversationId?: number | null;
+    agentTurn: number;
+    inputStartIndex?: number | null;
+    inputEndIndex?: number | null;
+    inputStackItemIds?: Array<string | number>;
+    outputStartIndex?: number | null;
+    outputEndIndex?: number | null;
+    canonicalRequest: Record<string, unknown>;
+    wireRequest?: Record<string, unknown> | null;
+    canonicalResponse?: Record<string, unknown> | null;
+    wireResponse?: Record<string, unknown> | null;
+    rawResponse?: Record<string, unknown> | null;
+    outputItems: unknown[];
+    status: string;
+    tokenUsage?: Record<string, unknown>;
+    modelName?: string | null;
+    modelProvider?: string | null;
+    requestFormatVersion?: string | null;
+    wireProviderFormat?: string | null;
+    processingTimeMs?: number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordLlmRequestSlicePersistence({
+      identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
   }
 
-  async completeToolExecutionLog(logId: number, params: {
+  async recordAgentStackToolExecution(params: {
+    executionId: string;
+    llmRequestSliceId?: string | null;
+    llmCallId?: string | null;
+    toolCallId: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    rawArguments?: string | null;
+    result?: Record<string, unknown>;
+    status: string;
+    errorMessage?: string | null;
+    sideEffect?: boolean;
+    traceId: string;
+    runId: string;
+    conversationId?: number | null;
+    agentTurn: number;
+    stackCallItemId?: string | number | null;
+    stackOutputItemId?: string | number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordToolExecutionPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async completeAgentStackToolExecution(params: {
+    executionId: string;
     status: string;
     result?: Record<string, unknown>;
     errorMessage?: string | null;
+    stackOutputItemId?: string | number | null;
   }) {
-    await completeToolExecutionLogPersistence({
-      logId,
+    return completeAgentStackToolExecutionPersistence({
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
@@ -2977,12 +3055,18 @@ export class RuntimeStore {
         useCoalesceAssignment: true,
         sqlAdapter: this.sql
       }, databaseConfig),
-      attachConversationIdToXiaoniReplayEventsByTrace({ traceId, conversationId }, databaseConfig)
+      attachConversationIdToAgentStackByTrace({
+        traceId,
+        conversationId,
+        sqlAdapter: this.sql
+      }, databaseConfig)
     ]);
   }
 
   private async ensureSchema() {
-    await ensureXiaoniReplayEventSchema(databaseConfig);
+    await ensureXiaoniAgentStackSchema({
+      sqlAdapter: this.sql
+    }, databaseConfig);
     await ensureAgentRuntimeSchema({
       profile: 'agent',
       sqlAdapter: this.sql

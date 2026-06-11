@@ -290,6 +290,8 @@ async function executeProviderRequest(
     canonical_response: result.canonicalResponse,
     wire_response: result.wireResponse,
     raw_response: result.rawResponse,
+    request_format_version: result.requestFormatVersion,
+    wire_provider_format: result.wireProviderFormat,
     context_policy: contextPolicy
       ? {
           model: contextPolicy.model,

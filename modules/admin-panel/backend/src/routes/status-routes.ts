@@ -188,9 +188,9 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         database.executeQuery<{ count: number }>("SELECT COUNT(*) as count FROM conversation_sessions WHERE status = 'active'"),
         database.executeQuery<{ count: number }>(
           `SELECT COUNT(*) as count
-           FROM llm_call_logs
-           WHERE timestamp >= CURRENT_DATE
-             AND timestamp < CURRENT_DATE + INTERVAL '1 day'`
+           FROM llm_request_slices
+           WHERE created_at >= CURRENT_DATE
+             AND created_at < CURRENT_DATE + INTERVAL '1 day'`
         )
       ]);
 

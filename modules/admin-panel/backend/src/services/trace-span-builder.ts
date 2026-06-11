@@ -6,8 +6,9 @@ import {
   listRuntimeIdentityActivationTraces,
   listIdentityEvidenceRefs,
   listTraceTrafficLogs,
-  listXiaoniReplayEvents,
-  findXiaoniReplayEventByEventId,
+  listAgentStackItems,
+  listLlmRequestSlices,
+  listToolExecutions,
   parseInstantValue,
   serializeTimestampForApi
 } from '@qq-bot/persistence';
@@ -64,24 +65,6 @@ interface TraceSpanDetailDto {
   output: unknown;
   evidence: unknown;
 }
-
-type XiaoniReplayEventProjection = {
-  eventId: string;
-  source: string;
-  traceId: string | null;
-  conversationId: string | null;
-  providerCallId: string | null;
-  modelName: string | null;
-  modelProvider: string | null;
-  status: string | null;
-  replayable: boolean;
-  replayPayload: Record<string, unknown>;
-  wireRequest: unknown;
-  wireResponse: unknown;
-  metadata: Record<string, unknown>;
-  occurredAt: string | null;
-  updatedAt: string | null;
-};
 
 const TRACE_PAYLOAD_MAX_INLINE_BYTES = 16 * 1024;
 
@@ -374,6 +357,7 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
   const wireRequest = parseJsonField<any>(call.wire_request, null);
   const canonicalResponse = parseJsonField<any>(call.canonical_response, null);
   const wireResponse = parseJsonField<any>(call.wire_response, null);
+  const rawResponse = parseJsonField<any>(call.raw_response, null);
   const normalized: any = {
     id: call.id,
     llm_call_id: call.llm_call_id || null,
@@ -395,6 +379,7 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
     wire_request: maybeTrimLargeField(wireRequest, 'wire_request', options),
     canonical_response: maybeTrimLargeField(canonicalResponse, 'canonical_response', options),
     wire_response: maybeTrimLargeField(wireResponse, 'wire_response', options),
+    raw_response: maybeTrimLargeField(rawResponse, 'raw_response', options),
     effective_unified_config: maybeTrimLargeField(effectiveUnifiedConfig, 'effective_unified_config', options),
     processed_response: maybeTrimLargeField(call.processed_response || null, 'processed_response', options),
     input_tokens: toNumber(call.input_tokens),
@@ -414,6 +399,84 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
     normalized.wire_response_raw_text = rawJsonText(call.wire_response_raw_text, rawJsonText(call.wire_response));
   }
   return normalized;
+}
+
+function normalizeStackLlmSlice(slice: any, options?: TracePayloadTrimOptions) {
+  const canonicalRequest = enrichCanonicalRequest(parseJsonField<any>(slice.canonicalRequest ?? slice.canonical_request, null));
+  const wireRequest = parseJsonField<any>(slice.wireRequest ?? slice.wire_request, null);
+  const canonicalResponse = parseJsonField<any>(slice.canonicalResponse ?? slice.canonical_response, null);
+  const wireResponse = parseJsonField<any>(slice.wireResponse ?? slice.wire_response, null);
+  const rawResponse = parseJsonField<any>(slice.rawResponse ?? slice.raw_response, null);
+  const tokenUsage = parseJsonField<any>(slice.tokenUsage ?? slice.token_usage, {});
+  const outputItems = parseJsonField<any[]>(slice.outputItems ?? slice.output_items, []);
+  const startedAt = toIsoString(slice.createdAt ?? slice.created_at);
+  const completedAt = toIsoString(slice.completedAt ?? slice.completed_at ?? slice.updatedAt ?? slice.updated_at);
+  return {
+    id: slice.id ?? null,
+    slice_id: slice.sliceId ?? slice.slice_id,
+    llm_call_id: slice.llmCallId ?? slice.llm_call_id ?? null,
+    trace_id: slice.traceId ?? slice.trace_id ?? null,
+    run_id: slice.runId ?? slice.run_id ?? null,
+    conversation_id: slice.conversationId ?? slice.conversation_id ?? null,
+    agent_turn: toNumber(slice.agentTurn ?? slice.agent_turn),
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: getDurationMs(startedAt, completedAt, slice.processingTimeMs ?? slice.processing_time_ms),
+    status: normalizeStatusCode(slice.status),
+    model_name: slice.modelName ?? slice.model_name ?? null,
+    model_provider: slice.modelProvider ?? slice.model_provider ?? null,
+    canonical_request: maybeTrimLargeField(canonicalRequest, 'canonical_request', options),
+    wire_request: maybeTrimLargeField(wireRequest, 'wire_request', options),
+    canonical_response: maybeTrimLargeField(canonicalResponse, 'canonical_response', options),
+    wire_response: maybeTrimLargeField(wireResponse, 'wire_response', options),
+    raw_response: maybeTrimLargeField(rawResponse, 'raw_response', options),
+    output_items: maybeTrimLargeField(outputItems, 'output_items', options),
+    token_usage: tokenUsage,
+    input_start_index: toNumber(slice.inputStartIndex ?? slice.input_start_index),
+    input_end_index: toNumber(slice.inputEndIndex ?? slice.input_end_index),
+    output_start_index: toNumber(slice.outputStartIndex ?? slice.output_start_index),
+    output_end_index: toNumber(slice.outputEndIndex ?? slice.output_end_index),
+    input_tokens: toNumber(tokenUsage.input_tokens),
+    output_tokens: toNumber(tokenUsage.output_tokens),
+    request_format_version: slice.requestFormatVersion ?? slice.request_format_version ?? null,
+    wire_provider_format: slice.wireProviderFormat ?? slice.wire_provider_format ?? null,
+    metadata: parseJsonField<any>(slice.metadata, {}),
+    ...(options?.includeRawWireText
+      ? {
+          wire_request_raw_text: rawJsonText(slice.wireRequest ?? slice.wire_request),
+          wire_response_raw_text: rawJsonText(slice.wireResponse ?? slice.wire_response)
+        }
+      : {})
+  };
+}
+
+function normalizeStackToolExecution(row: any) {
+  const startedAt = toIsoString(row.startedAt ?? row.started_at ?? row.createdAt ?? row.created_at);
+  const completedAt = toIsoString(row.completedAt ?? row.completed_at ?? row.updatedAt ?? row.updated_at);
+  return {
+    id: row.id ?? null,
+    execution_id: row.executionId ?? row.execution_id ?? null,
+    llm_request_slice_id: row.llmRequestSliceId ?? row.llm_request_slice_id ?? null,
+    llm_call_id: row.llmCallId ?? row.llm_call_id ?? null,
+    tool_call_id: row.toolCallId ?? row.tool_call_id ?? null,
+    tool_name: row.toolName ?? row.tool_name ?? null,
+    arguments: parseJsonField<any>(row.arguments, {}),
+    raw_arguments: row.rawArguments ?? row.raw_arguments ?? null,
+    result: parseJsonField<any>(row.result, {}),
+    status: normalizeStatusCode(row.status),
+    error_message: row.errorMessage ?? row.error_message ?? null,
+    side_effect: Boolean(row.sideEffect ?? row.side_effect),
+    trace_id: row.traceId ?? row.trace_id ?? null,
+    run_id: row.runId ?? row.run_id ?? null,
+    conversation_id: row.conversationId ?? row.conversation_id ?? null,
+    agent_turn: toNumber(row.agentTurn ?? row.agent_turn),
+    stack_call_item_id: row.stackCallItemId ?? row.stack_call_item_id ?? null,
+    stack_output_item_id: row.stackOutputItemId ?? row.stack_output_item_id ?? null,
+    metadata: parseJsonField<any>(row.metadata, {}),
+    started_at: startedAt,
+    completed_at: completedAt,
+    duration_ms: getDurationMs(startedAt, completedAt)
+  };
 }
 
 function buildPlaygroundCapability(call: any): 'exact' | 'unsupported' {
@@ -443,27 +506,27 @@ function buildSyntheticProviderRequestSpanId(call: any): string {
   if (call.llm_call_id) {
     return `provider-request:wire:${call.llm_call_id}`;
   }
-  const replayEventId = typeof call.replay_event_id === 'string' && call.replay_event_id.trim()
-    ? call.replay_event_id.trim()
+  const sliceId = typeof call.slice_id === 'string' && call.slice_id.trim()
+    ? call.slice_id.trim()
     : String(call.id || 'unknown');
-  return `provider-request:replay:${encodeURIComponent(replayEventId)}`;
+  return `provider-request:slice:${encodeURIComponent(sliceId)}`;
 }
 
-function parseSyntheticProviderRequestSpanId(spanId: string): { llmCallId: string | null; eventId: string | null } | null {
+function parseSyntheticProviderRequestSpanId(spanId: string): { llmCallId: string | null; sliceId: string | null } | null {
   if (spanId.startsWith('provider-request:wire:')) {
     const rawId = spanId.slice('provider-request:wire:'.length);
-    return rawId ? { llmCallId: rawId, eventId: `provider:codex:${rawId}` } : null;
+    return rawId ? { llmCallId: rawId, sliceId: null } : null;
   }
 
-  if (spanId.startsWith('provider-request:replay:')) {
-    const rawId = spanId.slice('provider-request:replay:'.length);
+  if (spanId.startsWith('provider-request:slice:')) {
+    const rawId = spanId.slice('provider-request:slice:'.length);
     if (!rawId) {
       return null;
     }
     try {
-      return { llmCallId: null, eventId: decodeURIComponent(rawId) };
+      return { llmCallId: null, sliceId: decodeURIComponent(rawId) };
     } catch {
-      return { llmCallId: null, eventId: rawId };
+      return { llmCallId: null, sliceId: rawId };
     }
   }
 
@@ -789,7 +852,7 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
     evidence: {
       synthetic: true,
       source: 'cliproxyapi.request_log',
-      fallback_source: 'xiaoni_replay_events.wire_request/wire_response',
+      fallback_source: 'llm_request_slices.wire_request/wire_response',
       log_file: log.logFile,
       llm_call_id: call.llm_call_id || null,
       model_provider: call.model_provider || null,
@@ -801,246 +864,116 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
   };
 }
 
-function normalizeReplayEventProviderCall(event: XiaoniReplayEventProjection, options?: TracePayloadTrimOptions) {
-  const metadata = event.metadata && typeof event.metadata === 'object' ? event.metadata : {};
-  const replayPayload = event.replayPayload && typeof event.replayPayload === 'object' ? event.replayPayload : {};
-  const wireRequest = event.wireRequest ?? replayPayload.wire_request ?? null;
-  const wireResponse = event.wireResponse ?? replayPayload.wire_response ?? null;
-  const canonicalRequest = replayPayload.canonical_request ?? null;
-  const canonicalResponse = replayPayload.canonical_response ?? null;
-  const effectiveUnifiedConfig = replayPayload.effective_unified_config ?? null;
-  const startedAt = toIsoString(event.occurredAt);
-  const completedAt = toIsoString(event.updatedAt || event.occurredAt);
-  const providerFormat = typeof metadata.providerFormat === 'string'
-    ? metadata.providerFormat
-    : typeof metadata.provider_format === 'string'
-      ? metadata.provider_format
-      : event.modelProvider;
-
-  const normalized: any = {
-    id: event.eventId,
-    llm_call_id: event.providerCallId,
-    trace_id: event.traceId,
-    conversation_id: event.conversationId,
-    agent_turn: toNumber(metadata.agentTurn ?? metadata.agent_turn),
-    call_sequence: 0,
-    started_at: startedAt,
-    completed_at: completedAt,
-    duration_ms: toNumber(metadata.processingTimeMs ?? metadata.processing_time_ms ?? metadata.apiCallTimeMs ?? metadata.api_call_time_ms),
-    status: normalizeStatusCode(event.status),
-    model_name: event.modelName || (typeof metadata.modelName === 'string' ? metadata.modelName : null),
-    model_provider: event.modelProvider || 'codex',
-    agent_type: typeof metadata.agentType === 'string' ? metadata.agentType : null,
-    prompt_template: typeof metadata.promptName === 'string' ? metadata.promptName : null,
-    canonical_request: maybeTrimLargeField(canonicalRequest, 'canonical_request', options),
-    wire_request: maybeTrimLargeField(wireRequest, 'wire_request', options),
-    canonical_response: maybeTrimLargeField(canonicalResponse, 'canonical_response', options),
-    wire_response: maybeTrimLargeField(wireResponse, 'wire_response', options),
-    effective_unified_config: maybeTrimLargeField(effectiveUnifiedConfig, 'effective_unified_config', options),
-    processed_response: null,
-    input_tokens: toNumber(metadata.inputTokens ?? metadata.input_tokens),
-    output_tokens: toNumber(metadata.outputTokens ?? metadata.output_tokens),
-    token_usage: {
-      input_tokens: toNumber(metadata.inputTokens ?? metadata.input_tokens),
-      output_tokens: toNumber(metadata.outputTokens ?? metadata.output_tokens),
-      total_tokens: toNumber(metadata.totalTokens ?? metadata.total_tokens),
-      cached_input_tokens: toNumber(metadata.cachedInputTokens ?? metadata.cached_input_tokens),
-      reasoning_tokens: toNumber(metadata.reasoningTokens ?? metadata.reasoning_tokens)
-    },
-    api_call_time_ms: toNumber(metadata.apiCallTimeMs ?? metadata.api_call_time_ms),
-    processing_time_ms: toNumber(metadata.processingTimeMs ?? metadata.processing_time_ms),
-    error_message: typeof metadata.errorMessage === 'string' ? metadata.errorMessage : null,
+function normalizeStackSliceProviderCall(slice: any) {
+  const metadata = slice.metadata && typeof slice.metadata === 'object' ? slice.metadata : {};
+  return {
+    id: slice.slice_id || slice.id,
+    slice_id: slice.slice_id || null,
+    llm_call_id: slice.llm_call_id || null,
+    trace_id: slice.trace_id || null,
+    conversation_id: slice.conversation_id || null,
+    agent_turn: slice.agent_turn ?? null,
+    started_at: slice.started_at,
+    completed_at: slice.completed_at,
+    duration_ms: slice.duration_ms,
+    status: slice.status,
+    model_name: slice.model_name || null,
+    model_provider: slice.model_provider || null,
+    canonical_request: slice.canonical_request,
+    wire_request: slice.wire_request,
+    canonical_response: slice.canonical_response,
+    wire_response: slice.wire_response,
+    input_tokens: slice.input_tokens,
+    output_tokens: slice.output_tokens,
+    token_usage: slice.token_usage,
+    error_message: typeof metadata.errorMessage === 'string'
+      ? metadata.errorMessage
+      : typeof metadata.error_message === 'string'
+        ? metadata.error_message
+        : null,
     error_code: null,
-    request_format_version: typeof metadata.requestFormatVersion === 'string' ? metadata.requestFormatVersion : null,
-    wire_provider_format: providerFormat,
-    http_requests: [],
-    provider_requests: [],
-    replay_event_id: event.eventId
+    request_format_version: slice.request_format_version,
+    wire_provider_format: slice.wire_provider_format,
+    wire_request_raw_text: slice.wire_request_raw_text,
+    wire_response_raw_text: slice.wire_response_raw_text
   };
-
-  if (options?.includeRawWireText) {
-    normalized.wire_request_raw_text = rawJsonText(wireRequest);
-    normalized.wire_response_raw_text = rawJsonText(wireResponse);
-  }
-  return normalized;
 }
 
-function replayEventMatchesConversation(event: XiaoniReplayEventProjection, conversationId: string, traceId: string) {
-  return event.source === 'codex_provider'
-    && event.replayable
-    && (String(event.conversationId || '') === String(conversationId) || event.traceId === traceId);
+function hasProviderWirePayload(providerCall: any): boolean {
+  return providerCall?.wire_request !== null && providerCall?.wire_request !== undefined;
 }
 
-function buildReplayProviderRequestSpan(params: {
-  replayProviderCall: any;
-  replayProviderEvent: XiaoniReplayEventProjection;
+function buildStackProviderRequestSpan(params: {
+  providerCall: any;
   parentSpanId: string;
   traceId: string;
   conversationId: string | null;
   agentTurn?: number | null;
 }): TraceSpanDto {
-  const { replayProviderCall, replayProviderEvent } = params;
+  const { providerCall } = params;
   return createSpan({
-    span_id: buildSyntheticProviderRequestSpanId(replayProviderCall),
+    span_id: buildSyntheticProviderRequestSpanId(providerCall),
     parent_span_id: params.parentSpanId,
     trace_id: params.traceId,
-    conversation_id: replayProviderCall.conversation_id || params.conversationId,
+    conversation_id: providerCall.conversation_id || params.conversationId,
     name: 'provider.request',
     kind: 'client',
-    status_code: replayProviderCall.status,
-    status_message: replayProviderCall.error_message || null,
-    started_at: replayProviderCall.started_at,
-    ended_at: replayProviderCall.completed_at,
-    duration_ms: replayProviderCall.duration_ms,
-    summary: `POST ${syntheticProviderHost(replayProviderCall)}${syntheticProviderPath(replayProviderCall)} -> ${replayProviderCall.status}`,
+    status_code: providerCall.status,
+    status_message: providerCall.error_message || null,
+    started_at: providerCall.started_at,
+    ended_at: providerCall.completed_at,
+    duration_ms: providerCall.duration_ms,
+    summary: `POST ${syntheticProviderHost(providerCall)}${syntheticProviderPath(providerCall)} -> ${providerCall.status}`,
     attributes: {
       'semantic.role': 'provider_request',
-      'semantic.display_name': `POST ${syntheticProviderHost(replayProviderCall)}`,
+      'semantic.display_name': `POST ${syntheticProviderHost(providerCall)}`,
       'http.method': 'POST',
       'http.url': null,
-      'http.host': syntheticProviderHost(replayProviderCall),
-      'http.path': syntheticProviderPath(replayProviderCall),
-      'http.status_code': replayProviderCall.error_message ? null : 200,
-      'trace.llm_call_id': replayProviderCall.llm_call_id || null,
-      'trace.agent_turn': replayProviderCall.agent_turn ?? params.agentTurn ?? null,
-      'provider.api_type': replayProviderCall.wire_provider_format || replayProviderCall.model_provider || null,
+      'http.host': syntheticProviderHost(providerCall),
+      'http.path': syntheticProviderPath(providerCall),
+      'http.status_code': providerCall.error_message ? null : 200,
+      'trace.llm_call_id': providerCall.llm_call_id || null,
+      'trace.agent_turn': providerCall.agent_turn ?? params.agentTurn ?? null,
+      'provider.api_type': providerCall.wire_provider_format || providerCall.model_provider || null,
       'provider.traffic_log_id': null,
-      'provider.synthetic_source': 'xiaoni_replay_events.wire_payload',
-      'provider.replay_event_id': replayProviderEvent.eventId
+      'provider.synthetic_source': 'llm_request_slices.wire_payload',
+      'stack.slice_id': providerCall.slice_id || null
     },
     input: {
       headers: null,
-      body: replayProviderCall.wire_request
+      body: providerCall.wire_request,
+      raw_body: providerCall.wire_request_raw_text || null,
+      method: 'POST',
+      upstream_url: null,
+      body_source: 'llm_request_slices.wire_request'
     },
     output: {
-      status_code: replayProviderCall.error_message ? null : 200,
+      status_code: providerCall.error_message ? null : 200,
       headers: null,
-      body: replayProviderCall.wire_response,
-      raw_body: null,
+      body: providerCall.wire_response,
+      raw_body: providerCall.wire_response_raw_text || null,
       body_format: 'json',
-      body_source: 'xiaoni_replay_events.wire_response',
-      error_message: replayProviderCall.error_message
+      body_source: 'llm_request_slices.wire_response',
+      error_message: providerCall.error_message
     },
     evidence: {
       synthetic: true,
-      source: 'xiaoni_replay_events.wire_request/wire_response',
-      replay_event_id: replayProviderEvent.eventId,
-      llm_call_id: replayProviderCall.llm_call_id || null,
-      model_provider: replayProviderCall.model_provider || null,
-      wire_provider_format: replayProviderCall.wire_provider_format || null,
-      request_format_version: replayProviderCall.request_format_version || null,
-      request_body: replayProviderCall.wire_request,
-      response_body: replayProviderCall.wire_response,
-      duration_ms: replayProviderCall.duration_ms,
-      request_timestamp: replayProviderCall.started_at,
-      response_timestamp: replayProviderCall.completed_at
+      source: 'llm_request_slices.wire_request/wire_response',
+      slice_id: providerCall.slice_id || null,
+      llm_call_id: providerCall.llm_call_id || null,
+      model_provider: providerCall.model_provider || null,
+      wire_provider_format: providerCall.wire_provider_format || null,
+      request_format_version: providerCall.request_format_version || null,
+      request_body: providerCall.wire_request,
+      response_body: providerCall.wire_response,
+      duration_ms: providerCall.duration_ms,
+      request_timestamp: providerCall.started_at,
+      response_timestamp: providerCall.completed_at
     },
     events: [],
     links: [],
     confidence: 'observed',
-    source_ref: replayProviderEvent.eventId
-  });
-}
-
-function isReplayableCodexProviderEvent(event: XiaoniReplayEventProjection | null): event is XiaoniReplayEventProjection {
-  return Boolean(event && event.source === 'codex_provider' && event.replayable);
-}
-
-function buildReplayProviderTraceRoot(event: XiaoniReplayEventProjection, call: any, traceId: string, rootSpanId: string): TraceSpanDto {
-  return createSpan({
-    span_id: rootSpanId,
-    parent_span_id: null,
-    trace_id: traceId,
-    conversation_id: event.conversationId || null,
-    name: 'xiaoni.action_event',
-    kind: 'internal',
-    status_code: call.status,
-    status_message: call.error_message || null,
-    started_at: call.started_at,
-    ended_at: call.completed_at,
-    duration_ms: call.duration_ms,
-    summary: `Codex Provider 请求 ${call.llm_call_id || event.eventId}`,
-    attributes: {
-      'semantic.role': 'action_event',
-      'semantic.actor': 'xiaoni',
-      'action.event_id': event.eventId,
-      'action.source': event.source,
-      'action.replayable': event.replayable,
-      'provider.api_type': call.wire_provider_format || call.model_provider || null,
-      'trace.llm_call_id': call.llm_call_id || null
-    },
-    input: {
-      event_id: event.eventId,
-      trace_id: traceId
-    },
-    output: {
-      status: event.status,
-      error_message: call.error_message || null
-    },
-    evidence: event,
-    events: [],
-    links: [],
-    confidence: 'observed',
-    source_ref: event.eventId
-  });
-}
-
-function buildReplayProviderTraceLlmSpan(event: XiaoniReplayEventProjection, call: any, traceId: string, rootSpanId: string): TraceSpanDto {
-  return createSpan({
-    span_id: call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${event.eventId}`,
-    parent_span_id: rootSpanId,
-    trace_id: traceId,
-    conversation_id: event.conversationId || null,
-    name: 'llm.generation',
-    kind: 'client',
-    status_code: call.status,
-    status_message: call.error_message || null,
-    started_at: call.started_at,
-    ended_at: call.completed_at,
-    duration_ms: call.duration_ms,
-    summary: safePreview(call.canonical_response || call.wire_response || call.error_message || event.eventId),
-    attributes: {
-      'semantic.role': 'generation',
-      'semantic.actor': call.agent_type || 'xiaoni',
-      'semantic.display_name': `${call.model_provider || 'model'} / ${call.model_name || 'unknown'}`,
-      'llm.model_name': call.model_name,
-      'llm.model_provider': call.model_provider,
-      'llm.prompt_template': call.prompt_template,
-      'usage.input_tokens': call.input_tokens,
-      'usage.output_tokens': call.output_tokens,
-      'trace.agent_turn': call.agent_turn,
-      'provider.request_count': 1,
-      'provider.hosts': [syntheticProviderHost(call)],
-      'provider.statuses': [call.status]
-    },
-    input: {
-      prompt_template: call.prompt_template,
-      canonical_request: call.canonical_request,
-      wire_request: call.wire_request,
-      effective_unified_config: call.effective_unified_config
-    },
-    output: {
-      processed_response: call.processed_response,
-      canonical_response: call.canonical_response,
-      wire_response: call.wire_response,
-      token_usage: call.token_usage,
-      error_message: call.error_message,
-      error_code: call.error_code
-    },
-    evidence: {
-      ...call,
-      synthetic_provider_request: {
-        span_id: buildSyntheticProviderRequestSpanId(call),
-        source: 'xiaoni_replay_events.wire_request/wire_response',
-        replay_event_id: event.eventId,
-        llm_call_id: call.llm_call_id || null,
-        wire_provider_format: call.wire_provider_format || null
-      }
-    },
-    events: [],
-    links: [],
-    confidence: 'observed',
-    source_ref: event.eventId
+    source_ref: providerCall.slice_id || providerCall.llm_call_id || providerCall.id
   });
 }
 
@@ -1328,7 +1261,11 @@ function pairTimelineEvents(events: any[]) {
     });
   }
 
-  return spans.filter((span) => ['queue', 'context', 'decision'].includes(span.type));
+  return spans.filter((span) => (
+    span.type === 'queue'
+    || span.type === 'context'
+    || (span.type === 'decision' && span.title === 'participation.decision')
+  ));
 }
 
 function buildSyntheticTurns(llmCalls: any[], toolCalls: any[], unattributedHttp: any[], conversation: any, latestJob: any) {
@@ -1462,32 +1399,6 @@ export async function buildConversationTracePayload(
     }
   };
 
-  const llmCallQuery = `
-    SELECT l.*
-    FROM llm_call_logs l
-    INNER JOIN (
-      SELECT id, timestamp, call_sequence
-      FROM llm_call_logs
-      WHERE trace_id = ?
-      UNION DISTINCT
-      SELECT id, timestamp, call_sequence
-      FROM llm_call_logs
-      WHERE conversation_id = ?
-    ) matched ON matched.id = l.id
-    ORDER BY matched.timestamp ASC, matched.call_sequence ASC, matched.id ASC
-  `;
-
-  const toolCallQuery = `
-    SELECT t.*
-    FROM tool_execution_logs t
-    INNER JOIN (
-      SELECT id, COALESCE(started_at, completed_at) AS sort_time
-      FROM tool_execution_logs
-      WHERE trace_id = ?
-    ) matched ON matched.id = t.id
-    ORDER BY matched.sort_time ASC, matched.id ASC
-  `;
-
   const queueQuery = `
     SELECT q.*
     FROM agent_queue_messages q
@@ -1552,29 +1463,82 @@ export async function buildConversationTracePayload(
     }
   };
 
-  const safeReplayEventQuery = async () => {
+  const safeStackSliceQuery = async () => {
     try {
-      const byConversation = await listXiaoniReplayEvents({
+      const byConversation = await listLlmRequestSlices({
         conversationId,
-        source: 'codex_provider',
-        replayableOnly: true,
         limit: 500
-      }) as XiaoniReplayEventProjection[];
-      const byTrace = await listXiaoniReplayEvents({
+      }) as any[];
+      const byTrace = await listLlmRequestSlices({
         traceId,
-        source: 'codex_provider',
-        replayableOnly: true,
         limit: 500
-      }) as XiaoniReplayEventProjection[];
-      const byEventId = new Map<string, XiaoniReplayEventProjection>();
-      [...byConversation, ...byTrace].forEach((event) => {
-        if (event?.eventId) {
-          byEventId.set(event.eventId, event);
+      }) as any[];
+      const bySliceId = new Map<string, any>();
+      [...byConversation, ...byTrace].forEach((slice) => {
+        const sliceId = slice?.sliceId || slice?.slice_id;
+        if (sliceId) {
+          bySliceId.set(sliceId, slice);
         }
       });
-      return Array.from(byEventId.values());
+      return Array.from(bySliceId.values());
     } catch (error) {
-      logger.warn('Trace query failed: xiaoni replay events', {
+      logger.warn('Trace query failed: Xiaoni agent stack LLM slices', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
+  const safeStackToolExecutionQuery = async () => {
+    try {
+      const byConversation = await listToolExecutions({
+        conversationId,
+        limit: 500
+      }) as any[];
+      const byTrace = await listToolExecutions({
+        traceId,
+        limit: 500
+      }) as any[];
+      const byExecutionId = new Map<string, any>();
+      [...byConversation, ...byTrace].forEach((tool) => {
+        const executionId = tool?.executionId || tool?.execution_id || tool?.id;
+        if (executionId) {
+          byExecutionId.set(String(executionId), tool);
+        }
+      });
+      return Array.from(byExecutionId.values());
+    } catch (error) {
+      logger.warn('Trace query failed: Xiaoni tool executions', {
+        error: error instanceof Error ? error.message : String(error),
+        conversationId,
+        traceId
+      });
+      return [];
+    }
+  };
+
+  const safeStackItemQuery = async () => {
+    try {
+      const byConversation = await listAgentStackItems({
+        conversationId,
+        limit: 1000
+      }) as any[];
+      const byTrace = await listAgentStackItems({
+        traceId,
+        limit: 1000
+      }) as any[];
+      const byId = new Map<string, any>();
+      [...byConversation, ...byTrace].forEach((item) => {
+        const id = item?.id || item?.eventId || item?.event_id;
+        if (id) {
+          byId.set(String(id), item);
+        }
+      });
+      return Array.from(byId.values());
+    } catch (error) {
+      logger.warn('Trace query failed: Xiaoni agent stack items', {
         error: error instanceof Error ? error.message : String(error),
         conversationId,
         traceId
@@ -1593,18 +1557,12 @@ export async function buildConversationTracePayload(
     queueRows,
     runtimeIdentityActivationTraceRows,
     identityEvidenceRefRows,
-    replayEventRows
+    stackSliceRows,
+    stackToolExecutionRows,
+    stackItemRows
   ] = await Promise.all([
-    safeQuery(
-      llmCallQuery,
-      [traceId, conversationId],
-      'llm_call_logs'
-    ),
-    safeQuery(
-      toolCallQuery,
-      [traceId],
-      'tool_execution_logs'
-    ),
+    Promise.resolve([]),
+    Promise.resolve([]),
     safeTrafficQuery(),
     safeQuery(
       `SELECT * FROM websocket_logs
@@ -1634,7 +1592,9 @@ export async function buildConversationTracePayload(
     ),
     safeRuntimeIdentityActivationTraceQuery(),
     safeIdentityEvidenceRefQuery(),
-    safeReplayEventQuery()
+    safeStackSliceQuery(),
+    safeStackToolExecutionQuery(),
+    safeStackItemQuery()
   ]);
 
   const llmCalls = (llmCallRows as any[])
@@ -1652,7 +1612,20 @@ export async function buildConversationTracePayload(
       }
       return left.id - right.id;
     });
-  const toolCalls = (toolCallRows as any[]).map(normalizeToolCall);
+  const stackSlices = (stackSliceRows as any[])
+    .map((row) => normalizeStackLlmSlice(row, { truncateLargeFields: true }))
+    .sort((left, right) => compareTimes(left.started_at, right.started_at)
+      || ((left.agent_turn || 0) - (right.agent_turn || 0)));
+  const stackToolExecutions = (stackToolExecutionRows as any[]).map(normalizeStackToolExecution);
+  const stackToolCallIds = new Set(
+    stackToolExecutions
+      .map((tool) => tool.tool_call_id)
+      .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string' && toolCallId.trim().length > 0)
+  );
+  const toolCalls = (toolCallRows as any[])
+    .map(normalizeToolCall)
+    .filter((tool) => !tool.tool_call_id || !stackToolCallIds.has(tool.tool_call_id));
+  const stackItems = Array.isArray(stackItemRows) ? stackItemRows as any[] : [];
   const httpLogs = (httpRows as any[]).map((row) => normalizeHttpLog(row, { truncateLargeFields: true }));
   const queueMessages = (queueRows as any[]).map(normalizeQueueMessage);
   const runtimeIdentityActivationTraces = Array.isArray(runtimeIdentityActivationTraceRows)
@@ -1661,15 +1634,6 @@ export async function buildConversationTracePayload(
   const identityEvidenceRefs = Array.isArray(identityEvidenceRefRows)
     ? (identityEvidenceRefRows as any[]).map(normalizeIdentityEvidenceRef)
     : [];
-  const replayEvents = Array.isArray(replayEventRows)
-    ? (replayEventRows as XiaoniReplayEventProjection[]).filter((event) => replayEventMatchesConversation(event, conversationId, traceId))
-    : [];
-  const replayEventByProviderCallId = new Map<string, XiaoniReplayEventProjection>();
-  replayEvents.forEach((event) => {
-    if (event.providerCallId) {
-      replayEventByProviderCallId.set(event.providerCallId, event);
-    }
-  });
   const unattributedHttp = attachHttpLogs(toolCalls, llmCalls, httpLogs);
   const lifecycleSpans = pairTimelineEvents(timelineRows as any[]);
   const latestJob = (llmJobRows as any[]).length > 0 ? (llmJobRows as any[])[(llmJobRows as any[]).length - 1] : null;
@@ -1677,23 +1641,25 @@ export async function buildConversationTracePayload(
 
   const spanRecords: TraceSpanDto[] = [];
   const rootSpanId = `trace-root:${traceId}`;
-  const representedReplayEventIds = new Set<string>();
 
   const rootStartedAt = [
     ...lifecycleSpans.map((span) => span.started_at),
+    ...stackSlices.map((slice) => slice.started_at),
+    ...stackToolExecutions.map((tool) => tool.started_at),
     ...llmCalls.map((call) => call.started_at),
     ...toolCalls.map((call) => call.started_at),
     ...httpLogs.map((log) => log.request_timestamp),
     ...queueMessages.map((message) => message.created_at),
     ...runtimeIdentityActivationTraces.map((row) => row.created_at),
     ...identityEvidenceRefs.map((row) => row.created_at),
-    ...replayEvents.map((event) => event.occurredAt),
     ...(websocketRows as any[]).map((row) => toIsoString(row.timestamp)),
     toIsoString(conversation.timestamp)
   ].filter(Boolean).sort()[0] || null;
 
   const rootEndedAt = [
     ...lifecycleSpans.map((span) => span.ended_at),
+    ...stackSlices.map((slice) => slice.completed_at),
+    ...stackToolExecutions.map((tool) => tool.completed_at),
     ...llmCalls.map((call) => call.completed_at),
     ...toolCalls.map((call) => call.completed_at),
     ...httpLogs.map((log) => log.response_timestamp),
@@ -1972,6 +1938,135 @@ export async function buildConversationTracePayload(
     }));
   });
 
+  const stackSliceSpanIdBySliceId = new Map<string, string>();
+  stackSlices.forEach((slice) => {
+    const spanId = `stack-slice:${slice.slice_id}`;
+    if (slice.slice_id) {
+      stackSliceSpanIdBySliceId.set(slice.slice_id, spanId);
+    }
+    const providerCall = normalizeStackSliceProviderCall(slice);
+    const hasProviderRequest = hasProviderWirePayload(providerCall);
+    spanRecords.push(createSpan({
+      span_id: spanId,
+      parent_span_id: turnSpanIdByTurn.get(slice.agent_turn ?? 1) || rootSpanId,
+      trace_id: traceId,
+      conversation_id: slice.conversation_id || conversationId,
+      name: 'llm.request_slice',
+      kind: 'client',
+      status_code: slice.status,
+      status_message: null,
+      started_at: slice.started_at,
+      ended_at: slice.completed_at,
+      duration_ms: slice.duration_ms,
+      summary: safePreview(slice.canonical_response || slice.raw_response || slice.output_items),
+      attributes: {
+        'semantic.role': 'generation',
+        'semantic.actor': 'xiaoni',
+        'semantic.display_name': `${slice.model_provider || 'model'} / ${slice.model_name || 'unknown'}`,
+        'stack.slice_id': slice.slice_id,
+        'stack.input_start_index': slice.input_start_index,
+        'stack.input_end_index': slice.input_end_index,
+        'stack.output_start_index': slice.output_start_index,
+        'stack.output_end_index': slice.output_end_index,
+        'llm.model_name': slice.model_name,
+        'llm.model_provider': slice.model_provider,
+        'llm.llm_call_id': slice.llm_call_id,
+        'usage.input_tokens': slice.input_tokens,
+        'usage.output_tokens': slice.output_tokens,
+        'trace.agent_turn': slice.agent_turn,
+        'provider.request_count': hasProviderRequest ? 1 : 0,
+        'provider.hosts': hasProviderRequest ? [syntheticProviderHost(providerCall)] : []
+      },
+      input: {
+        canonical_request: slice.canonical_request,
+        wire_request: slice.wire_request,
+        input_range: {
+          start: slice.input_start_index,
+          end: slice.input_end_index
+        }
+      },
+      output: {
+        canonical_response: slice.canonical_response,
+        wire_response: slice.wire_response,
+        raw_response: slice.raw_response,
+        output_items: slice.output_items,
+        token_usage: slice.token_usage
+      },
+      evidence: {
+        ...slice,
+        stack_items: stackItems.filter((item) => (item.llmRequestSliceId || item.llm_request_slice_id) === slice.slice_id),
+        synthetic_provider_request: hasProviderRequest
+          ? {
+              span_id: buildSyntheticProviderRequestSpanId(providerCall),
+              source: 'llm_request_slices.wire_request/wire_response',
+              slice_id: providerCall.slice_id || null,
+              llm_call_id: providerCall.llm_call_id || null,
+              wire_provider_format: providerCall.wire_provider_format || null
+            }
+          : null
+      },
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: slice.slice_id
+    }));
+
+    if (hasProviderRequest) {
+      spanRecords.push(buildStackProviderRequestSpan({
+        providerCall,
+        parentSpanId: spanId,
+        traceId,
+        conversationId: slice.conversation_id || conversationId,
+        agentTurn: slice.agent_turn
+      }));
+    }
+  });
+
+  stackToolExecutions.forEach((tool) => {
+    const spanId = tool.tool_call_id ? `tool-call:${tool.tool_call_id}` : `tool-exec:${tool.execution_id || tool.id}`;
+    spanRecords.push(createSpan({
+      span_id: spanId,
+      parent_span_id: (tool.llm_request_slice_id && stackSliceSpanIdBySliceId.get(tool.llm_request_slice_id))
+        || turnSpanIdByTurn.get(tool.agent_turn ?? 1)
+        || rootSpanId,
+      trace_id: traceId,
+      conversation_id: tool.conversation_id || conversationId,
+      name: 'tool.execution',
+      kind: 'internal',
+      status_code: tool.status,
+      status_message: tool.error_message || null,
+      started_at: tool.started_at,
+      ended_at: tool.completed_at,
+      duration_ms: tool.duration_ms,
+      summary: safePreview(tool.result || tool.error_message || tool.arguments),
+      attributes: {
+        'semantic.role': 'invocation',
+        'semantic.capability': tool.tool_name,
+        'semantic.display_name': tool.tool_name,
+        'tool.name': tool.tool_name,
+        'tool.side_effect': tool.side_effect,
+        'tool.execution_id': tool.execution_id,
+        'stack.slice_id': tool.llm_request_slice_id,
+        'stack.call_item_id': tool.stack_call_item_id,
+        'stack.output_item_id': tool.stack_output_item_id,
+        'trace.agent_turn': tool.agent_turn
+      },
+      input: {
+        arguments: tool.arguments,
+        raw_arguments: tool.raw_arguments
+      },
+      output: {
+        result: tool.result,
+        error_message: tool.error_message
+      },
+      evidence: tool,
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: tool.execution_id || tool.id
+    }));
+  });
+
   const llmSpanIdByCallId = new Map<string, string>();
   llmCalls.forEach((call) => {
     const spanId = call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${call.id}`;
@@ -1979,12 +2074,6 @@ export async function buildConversationTracePayload(
     const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
     const providerStatuses = summarizeProviderStatuses(call.provider_requests);
     const providerHosts = summarizeProviderHosts(call.provider_requests);
-    const replayProviderEvent = call.llm_call_id ? replayEventByProviderCallId.get(call.llm_call_id) || null : null;
-    const replayProviderCall = replayProviderEvent
-      ? normalizeReplayEventProviderCall(replayProviderEvent, { truncateLargeFields: true })
-      : null;
-    const hasReplayProviderRequest = Boolean(replayProviderCall?.wire_request !== null && replayProviderCall?.wire_request !== undefined);
-    const providerRequestCount = hasReplayProviderRequest ? 1 : call.provider_requests.length;
     if (call.llm_call_id) {
       llmSpanIdByCallId.set(call.llm_call_id, spanId);
     }
@@ -2011,9 +2100,9 @@ export async function buildConversationTracePayload(
         'usage.input_tokens': call.input_tokens,
         'usage.output_tokens': call.output_tokens,
         'trace.agent_turn': call.agent_turn,
-        'provider.request_count': providerRequestCount,
-        'provider.hosts': hasReplayProviderRequest ? [syntheticProviderHost(replayProviderCall)] : providerHosts,
-        'provider.statuses': hasReplayProviderRequest ? [replayProviderCall.status] : providerStatuses,
+        'provider.request_count': call.provider_requests.length,
+        'provider.hosts': providerHosts,
+        'provider.statuses': providerStatuses,
         'playground.capability': playgroundCapability
       },
       input: {
@@ -2026,6 +2115,7 @@ export async function buildConversationTracePayload(
         processed_response: call.processed_response,
         canonical_response: call.canonical_response,
         wire_response: call.wire_response,
+        raw_response: call.raw_response,
         token_usage: call.token_usage,
         error_message: call.error_message,
         error_code: call.error_code
@@ -2042,15 +2132,6 @@ export async function buildConversationTracePayload(
           duration_ms: log.duration_ms,
           api_type: log.api_type
         })),
-        synthetic_provider_request: hasReplayProviderRequest
-          ? {
-              span_id: buildSyntheticProviderRequestSpanId(replayProviderCall),
-              source: 'xiaoni_replay_events.wire_request/wire_response',
-              replay_event_id: replayProviderEvent?.eventId || null,
-              llm_call_id: replayProviderCall.llm_call_id || null,
-              wire_provider_format: replayProviderCall.wire_provider_format || null
-            }
-          : null,
         playground_capability: playgroundCapability,
         playground_source_snapshot: playgroundSnapshot
       },
@@ -2060,19 +2141,7 @@ export async function buildConversationTracePayload(
       source_ref: call.id
     }));
 
-    if (hasReplayProviderRequest && replayProviderCall && replayProviderEvent) {
-      spanRecords.push(buildReplayProviderRequestSpan({
-        replayProviderCall,
-        replayProviderEvent,
-        parentSpanId: spanId,
-        traceId,
-        conversationId: call.conversation_id || conversationId,
-        agentTurn: call.agent_turn
-      }));
-      representedReplayEventIds.add(replayProviderEvent.eventId);
-    }
-
-    if (hasReplayProviderRequest || call.provider_requests.length === 0) {
+    if (call.provider_requests.length === 0) {
       return;
     }
 
@@ -2143,25 +2212,6 @@ export async function buildConversationTracePayload(
       }));
     });
 	  });
-
-  replayEvents.forEach((event) => {
-    if (representedReplayEventIds.has(event.eventId)) {
-      return;
-    }
-    const replayProviderCall = normalizeReplayEventProviderCall(event, { truncateLargeFields: true });
-    if (replayProviderCall.wire_request === null || replayProviderCall.wire_request === undefined) {
-      return;
-    }
-    spanRecords.push(buildReplayProviderRequestSpan({
-      replayProviderCall,
-      replayProviderEvent: event,
-      parentSpanId: rootSpanId,
-      traceId,
-      conversationId,
-      agentTurn: replayProviderCall.agent_turn
-    }));
-    representedReplayEventIds.add(event.eventId);
-  });
 
   const toolSpanIdByCallId = new Map<string, string>();
   toolCalls.forEach((call) => {
@@ -2346,13 +2396,14 @@ export async function buildConversationTracePayload(
 
   const dataQuality = {
     trace_headers_propagated: httpLogs.some((log) => log.llm_call_id || log.tool_call_id || log.agent_turn !== null || log.conversation_id) ? 'complete' : (httpLogs.length > 0 ? 'partial' : 'missing'),
-    llm_logs_complete: llmCalls.length === 0 ? 'missing' : (llmCalls.every((call) => call.started_at && call.completed_at) ? 'complete' : 'partial'),
-    tool_logs_complete: toolCalls.length === 0 ? 'missing' : (toolCalls.every((call) => call.started_at) ? 'complete' : 'partial'),
+    llm_logs_complete: (llmCalls.length + stackSlices.length) === 0 ? 'missing' : ([...llmCalls, ...stackSlices].every((call) => call.started_at && call.completed_at) ? 'complete' : 'partial'),
+    tool_logs_complete: (toolCalls.length + stackToolExecutions.length) === 0 ? 'missing' : ([...toolCalls, ...stackToolExecutions].every((call) => call.started_at) ? 'complete' : 'partial'),
     http_logs_complete: httpLogs.length === 0 ? 'missing' : (httpLogs.every((log) => log.request_timestamp && log.response_timestamp) ? 'complete' : 'partial'),
     timeline_complete: timelineRows.length > 0 ? 'complete' : 'partial',
-    identity_trace_lite: runtimeIdentityActivationTraces.length > 0 || identityEvidenceRefs.length > 0 ? 'complete' : 'missing'
+    identity_trace_lite: runtimeIdentityActivationTraces.length > 0 || identityEvidenceRefs.length > 0 ? 'complete' : 'missing',
+    agent_stack_complete: stackSlices.length > 0 || stackItems.length > 0 ? 'complete' : 'missing'
   };
-  const tokenSummary = llmCalls.reduce((summary, call) => {
+  const tokenSummary = [...llmCalls, ...stackSlices].reduce((summary, call) => {
     const inputTokens = toNumber(call.token_usage?.input_tokens ?? call.input_tokens) ?? 0;
     const outputTokens = toNumber(call.token_usage?.output_tokens ?? call.output_tokens) ?? 0;
     const cachedInputTokens = extractCachedInputTokens(call.token_usage);
@@ -2403,6 +2454,9 @@ export async function buildConversationTracePayload(
       llm_calls: llmCalls,
       tool_calls: toolCalls,
       http_logs: httpLogs,
+      agent_stack_items: stackItems,
+      llm_request_slices: stackSlices,
+      tool_executions: stackToolExecutions,
       llm_jobs: llmJobRows,
       queue_messages: queueMessages,
       runtime_identity_activation_traces: runtimeIdentityActivationTraces,
@@ -2411,105 +2465,6 @@ export async function buildConversationTracePayload(
     data_quality: {
       ...dataQuality,
       overall: Object.values(dataQuality).every((value) => value === 'complete') ? 'complete' : 'partial'
-    }
-  };
-}
-
-export async function buildXiaoniReplayProviderTracePayload(
-  logger: winston.Logger,
-  eventId: string
-) {
-  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as XiaoniReplayEventProjection | null;
-  if (!isReplayableCodexProviderEvent(replayEvent)) {
-    return null;
-  }
-
-  const traceId = replayEvent.traceId || replayEvent.eventId;
-  const rootSpanId = `action-event:${replayEvent.eventId}`;
-  const replayProviderCall = normalizeReplayEventProviderCall(replayEvent, { truncateLargeFields: true });
-  const llmSpan = buildReplayProviderTraceLlmSpan(replayEvent, replayProviderCall, traceId, rootSpanId);
-  const spanRecords = [
-    buildReplayProviderTraceRoot(replayEvent, replayProviderCall, traceId, rootSpanId),
-    llmSpan,
-    buildReplayProviderRequestSpan({
-      replayProviderCall,
-      replayProviderEvent: replayEvent,
-      parentSpanId: llmSpan.span_id,
-      traceId,
-      conversationId: replayEvent.conversationId || null,
-      agentTurn: replayProviderCall.agent_turn
-    })
-  ];
-
-  assignTreeMetadata(spanRecords, rootSpanId);
-  const orderedSpans = [...spanRecords].sort((left, right) => left.sort_key.localeCompare(right.sort_key));
-  const firstErrorSpan = orderedSpans.find((span) => span.status_code === 'error') || null;
-  const bottleneckSpan = [...orderedSpans]
-    .filter((span) => typeof span.duration_ms === 'number')
-    .sort((left, right) => (right.duration_ms || 0) - (left.duration_ms || 0))[0] || null;
-  const inputTokens = toNumber(replayProviderCall.token_usage?.input_tokens ?? replayProviderCall.input_tokens) ?? 0;
-  const outputTokens = toNumber(replayProviderCall.token_usage?.output_tokens ?? replayProviderCall.output_tokens) ?? 0;
-  const cachedInputTokens = extractCachedInputTokens(replayProviderCall.token_usage);
-
-  logger.debug('Built Xiaoni replay provider trace payload without conversation', {
-    eventId: replayEvent.eventId,
-    traceId,
-    spanCount: orderedSpans.length
-  });
-
-  return {
-    conversation_id: replayEvent.conversationId || null,
-    batch_id: null,
-    trace: {
-      trace_id: traceId,
-      root_span_id: rootSpanId,
-      status: replayProviderCall.status,
-      started_at: replayProviderCall.started_at,
-      ended_at: replayProviderCall.completed_at,
-      duration_ms: replayProviderCall.duration_ms,
-      span_count: orderedSpans.length,
-      error_count: orderedSpans.filter((span) => span.status_code === 'error').length,
-      summary: safePreview(replayProviderCall.canonical_response || replayProviderCall.wire_response || replayEvent.eventId),
-      first_error: firstErrorSpan ? {
-        span_id: firstErrorSpan.span_id,
-        title: firstErrorSpan.name,
-        summary: firstErrorSpan.summary
-      } : null,
-      bottleneck: bottleneckSpan ? {
-        span_id: bottleneckSpan.span_id,
-        title: bottleneckSpan.name,
-        duration_ms: bottleneckSpan.duration_ms
-      } : null,
-      token_summary: {
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        total_tokens: inputTokens + outputTokens,
-        cached_input_tokens: cachedInputTokens
-      }
-    },
-    spans: orderedSpans,
-    raw_evidence: {
-      conversation: null,
-      replay_event: replayEvent,
-      llm_calls: [replayProviderCall],
-      tool_calls: [],
-      http_logs: [],
-      websocket_logs: [],
-      timeline_events: [],
-      llm_jobs: [],
-      queue_messages: [],
-      runtime_identity_activation_traces: [],
-      identity_evidence_refs: []
-    },
-    data_quality: {
-      trace_headers_propagated: replayEvent.traceId ? 'partial' : 'missing',
-      llm_logs_complete: 'partial',
-      tool_logs_complete: 'missing',
-      http_logs_complete: 'missing',
-      timeline_complete: 'partial',
-      identity_trace_lite: 'missing',
-      replay_event_complete: replayProviderCall.wire_request && replayProviderCall.wire_response ? 'complete' : 'partial',
-      overall: 'partial'
     }
   };
 }
@@ -2535,106 +2490,152 @@ export async function buildConversationTraceSpanDetail(
   const conversation = conversations[0] as any;
   const traceId = conversation.trace_id || `conversation-${conversationId}`;
 
-  if (spanId.startsWith('llm-call:')) {
-    const llmCallId = spanId.slice('llm-call:'.length);
+  if (spanId.startsWith('stack-slice:')) {
+    const sliceId = spanId.slice('stack-slice:'.length);
     const rows = await database.executeQuery(
-      `SELECT * FROM llm_call_logs WHERE llm_call_id = ? LIMIT 1`,
-      [llmCallId]
+      `SELECT * FROM llm_request_slices WHERE slice_id = ? LIMIT 1`,
+      [sliceId]
     );
     const row = rows[0] as any;
     if (!row) {
       return null;
     }
-    const call = normalizeLlmCall(row);
-    const traceTraffic = await listTraceTrafficLogs({ traceId, conversationId });
-    call.provider_requests = (traceTraffic as any[])
-      .map((log) => normalizeHttpLog(log))
-      .filter((log) => log.llm_call_id === llmCallId && log.is_ai_request);
+    const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+    return {
+      input: {
+        canonical_request: slice.canonical_request,
+        wire_request: slice.wire_request,
+        input_range: {
+          start: slice.input_start_index,
+          end: slice.input_end_index
+        }
+      },
+      output: {
+        canonical_response: slice.canonical_response,
+        wire_response: slice.wire_response,
+        raw_response: slice.raw_response,
+        output_items: slice.output_items,
+        token_usage: slice.token_usage
+      },
+      evidence: slice
+    };
+  }
 
-    const playgroundCapability = buildPlaygroundCapability(call);
-    const playgroundSnapshot = buildPlaygroundSnapshot(call, spanId);
+  if (spanId.startsWith('tool-call:')) {
+    const toolCallId = spanId.slice('tool-call:'.length);
+    const rows = await database.executeQuery(
+      `
+        SELECT *
+        FROM tool_executions
+        WHERE tool_call_id = ?
+          AND (trace_id = ? OR conversation_id = ?)
+        ORDER BY started_at DESC, id DESC
+        LIMIT 1
+      `,
+      [toolCallId, traceId, conversationId]
+    );
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+    const tool = normalizeStackToolExecution(row);
+    return {
+      input: {
+        arguments: tool.arguments,
+        raw_arguments: tool.raw_arguments
+      },
+      output: {
+        result: tool.result,
+        error_message: tool.error_message
+      },
+      evidence: tool
+    };
+  }
+
+  if (spanId.startsWith('llm-call:')) {
+    const llmCallId = spanId.slice('llm-call:'.length);
+    const rows = await database.executeQuery(
+      `SELECT * FROM llm_request_slices WHERE llm_call_id = ? OR slice_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [llmCallId, llmCallId]
+    );
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+    const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
 
     return {
       input: {
-        prompt_template: call.prompt_template,
-        canonical_request: call.canonical_request,
-        wire_request: call.wire_request,
-        effective_unified_config: call.effective_unified_config
+        canonical_request: slice.canonical_request,
+        wire_request: slice.wire_request,
+        input_range: {
+          start: slice.input_start_index,
+          end: slice.input_end_index
+        }
       },
       output: {
-        processed_response: call.processed_response,
-        canonical_response: call.canonical_response,
-        wire_response: call.wire_response,
-        token_usage: call.token_usage,
-        error_message: call.error_message,
-        error_code: call.error_code
+        canonical_response: slice.canonical_response,
+        wire_response: slice.wire_response,
+        raw_response: slice.raw_response,
+        output_items: slice.output_items,
+        token_usage: slice.token_usage
       },
-      evidence: {
-        ...call,
-        provider_requests: call.provider_requests.map((log: any) => ({
-          traffic_log_id: log.id,
-          request_id: log.request_id,
-          method: log.method,
-          host: log.host,
-          path: log.path,
-          response_status: log.response_status,
-          duration_ms: log.duration_ms,
-          api_type: log.api_type
-        })),
-        playground_capability: playgroundCapability,
-        playground_source_snapshot: playgroundSnapshot
-      }
+      evidence: slice
     };
   }
 
   const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
   if (syntheticProviderRequest) {
-    const replayEventId = syntheticProviderRequest.eventId
-      || (syntheticProviderRequest.llmCallId ? `provider:codex:${syntheticProviderRequest.llmCallId}` : null);
-    if (!replayEventId) {
+    const lookupId = syntheticProviderRequest.llmCallId || syntheticProviderRequest.sliceId;
+    if (!lookupId) {
       return null;
     }
-    const replayEvent = await findXiaoniReplayEventByEventId(replayEventId) as XiaoniReplayEventProjection | null;
-    if (!replayEvent || !replayEventMatchesConversation(replayEvent, conversationId, traceId)) {
+    const rows = await database.executeQuery(
+      `
+        SELECT *
+        FROM llm_request_slices
+        WHERE (llm_call_id = ? OR slice_id = ?)
+          AND (trace_id = ? OR conversation_id = ?)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      `,
+      [lookupId, lookupId, traceId, conversationId]
+    );
+    const row = rows[0] as any;
+    if (!row) {
       return null;
     }
-    const call = normalizeReplayEventProviderCall(replayEvent, { includeRawWireText: true });
-    const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
-    if (cliProxyDetail) {
-      return cliProxyDetail;
+    const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+    const providerCall = normalizeStackSliceProviderCall(slice);
+    if (!hasProviderWirePayload(providerCall)) {
+      return null;
     }
-
     return {
       input: {
         headers: null,
-        body: call.wire_request,
-        raw_body: call.wire_request_raw_text,
-        body_source: 'xiaoni_replay_events.wire_request'
+        body: providerCall.wire_request,
+        raw_body: providerCall.wire_request_raw_text || null,
+        method: 'POST',
+        upstream_url: null,
+        body_source: 'llm_request_slices.wire_request'
       },
       output: {
-        status_code: call.error_message ? null : 200,
+        status_code: providerCall.error_message ? null : 200,
         headers: null,
-        body: call.wire_response,
-        raw_body: call.wire_response_raw_text,
+        body: providerCall.wire_response,
+        raw_body: providerCall.wire_response_raw_text || null,
         body_format: 'json',
-        body_source: 'xiaoni_replay_events.wire_response',
-        error_message: call.error_message
+        body_source: 'llm_request_slices.wire_response',
+        error_message: providerCall.error_message
       },
       evidence: {
         synthetic: true,
-        source: 'xiaoni_replay_events.wire_request/wire_response',
-        replay_event_id: replayEvent.eventId,
-        llm_call_id: call.llm_call_id || null,
-        model_provider: call.model_provider || null,
-        wire_provider_format: call.wire_provider_format || null,
-        request_format_version: call.request_format_version || null,
-        request_body: call.wire_request,
-        request_raw_body: call.wire_request_raw_text,
-        response_body: call.wire_response,
-        response_raw_body: call.wire_response_raw_text,
-        duration_ms: call.duration_ms,
-        request_timestamp: call.started_at,
-        response_timestamp: call.completed_at
+        source: 'llm_request_slices.wire_request/wire_response',
+        slice_id: providerCall.slice_id || null,
+        llm_call_id: providerCall.llm_call_id || null,
+        model_provider: providerCall.model_provider || null,
+        wire_provider_format: providerCall.wire_provider_format || null,
+        request_format_version: providerCall.request_format_version || null
       }
     };
   }
@@ -2700,91 +2701,5 @@ export async function buildConversationTraceSpanDetail(
   }
 
   logger.debug('Trace span detail not required for span', { conversationId, traceId, spanId });
-  return null;
-}
-
-export async function buildXiaoniReplayProviderTraceSpanDetail(
-  logger: winston.Logger,
-  eventId: string,
-  spanId: string
-): Promise<TraceSpanDetailDto | null> {
-  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as XiaoniReplayEventProjection | null;
-  if (!isReplayableCodexProviderEvent(replayEvent)) {
-    return null;
-  }
-
-  const call = normalizeReplayEventProviderCall(replayEvent, { includeRawWireText: true });
-  const providerSpanId = buildSyntheticProviderRequestSpanId(call);
-  if (spanId === providerSpanId) {
-    const cliProxyDetail = buildCliProxyApiSpanDetail(call, logger);
-    if (cliProxyDetail) {
-      return cliProxyDetail;
-    }
-
-    return {
-      input: {
-        headers: null,
-        body: call.wire_request,
-        raw_body: call.wire_request_raw_text,
-        body_source: 'xiaoni_replay_events.wire_request'
-      },
-      output: {
-        status_code: call.error_message ? null : 200,
-        headers: null,
-        body: call.wire_response,
-        raw_body: call.wire_response_raw_text,
-        body_format: 'json',
-        body_source: 'xiaoni_replay_events.wire_response',
-        error_message: call.error_message
-      },
-      evidence: {
-        synthetic: true,
-        source: 'xiaoni_replay_events.wire_request/wire_response',
-        replay_event_id: replayEvent.eventId,
-        llm_call_id: call.llm_call_id || null,
-        model_provider: call.model_provider || null,
-        wire_provider_format: call.wire_provider_format || null,
-        request_format_version: call.request_format_version || null,
-        request_body: call.wire_request,
-        request_raw_body: call.wire_request_raw_text,
-        response_body: call.wire_response,
-        response_raw_body: call.wire_response_raw_text,
-        duration_ms: call.duration_ms,
-        request_timestamp: call.started_at,
-        response_timestamp: call.completed_at
-      }
-    };
-  }
-
-  const llmSpanId = call.llm_call_id ? `llm-call:${call.llm_call_id}` : `llm:${replayEvent.eventId}`;
-  if (spanId === llmSpanId) {
-    return {
-      input: {
-        prompt_template: call.prompt_template,
-        canonical_request: call.canonical_request,
-        wire_request: call.wire_request,
-        effective_unified_config: call.effective_unified_config
-      },
-      output: {
-        processed_response: call.processed_response,
-        canonical_response: call.canonical_response,
-        wire_response: call.wire_response,
-        token_usage: call.token_usage,
-        error_message: call.error_message,
-        error_code: call.error_code
-      },
-      evidence: {
-        ...call,
-        synthetic_provider_request: {
-          span_id: providerSpanId,
-          source: 'xiaoni_replay_events.wire_request/wire_response',
-          replay_event_id: replayEvent.eventId,
-          llm_call_id: call.llm_call_id || null,
-          wire_provider_format: call.wire_provider_format || null
-        }
-      }
-    };
-  }
-
   return null;
 }

@@ -124,7 +124,7 @@ async function loadSessionToolMetrics(
         COUNT(DISTINCT trace_id) AS run_count,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) AS successful_hit_count,
         MAX(COALESCE(completed_at, started_at)) AS last_hit_at
-      FROM tool_execution_logs
+      FROM tool_executions
       WHERE trace_id IN (SELECT trace_id FROM session_runs)
       GROUP BY tool_name
       ORDER BY COUNT(*) DESC, tool_name ASC

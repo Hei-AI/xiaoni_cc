@@ -213,6 +213,7 @@ type ProviderAgentResponse = {
   llm_call_id?: string;
   response?: string;
   model?: string;
+  provider?: string;
   canonical_response?: {
     id?: string;
     output?: Array<{
@@ -237,6 +238,8 @@ type ProviderAgentResponse = {
   raw_response?: Record<string, unknown>;
   usage?: Record<string, unknown>;
   usage_details?: Record<string, unknown>;
+  request_format_version?: string;
+  wire_provider_format?: string;
   performance?: {
     processing_time_ms?: number;
   };
@@ -1978,47 +1981,8 @@ function buildInboundBatchTranscriptItems(
   runId: string;
   traceId: string;
 }> {
-  if (isSelfContinuationPayload(queueMessage)) {
+  if (isPromptFacingRuntimeReminderPayload(queueMessage)) {
     return [];
-  }
-  if (isImageTaskNotificationPayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'user',
-      phase: null,
-      content: renderImageTaskNotification(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'sensory_event',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
-  }
-  if (isSystemReminderPayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'assistant',
-      phase: 'commentary',
-      content: renderSystemReminder(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'sensory_event',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
-  }
-  if (isPhoneNotificationPayload(queueMessage)) {
-    return [{
-      sessionKey: queueMessage.sessionKey,
-      role: 'user',
-      phase: null,
-      content: renderPhoneNotification(queueMessage),
-      groupIndex: 0 as const,
-      itemIndex: 0,
-      source: 'sensory_event',
-      runId: queueMessage.runId,
-      traceId: queueMessage.traceId
-    }];
   }
   return queueMessage.messages.map((message, index) => ({
     sessionKey: queueMessage.sessionKey,
@@ -2349,7 +2313,7 @@ function isHistoricalNotificationSnapshot(
   content: string
 ) {
   return item.role !== 'assistant'
-    && item.source === 'sensory_event'
+    && (item.source === 'sensory_event' || item.source === 'inbound_batch')
     && HISTORICAL_NOTIFICATION_TAG_PATTERN.test(content);
 }
 
@@ -2393,9 +2357,6 @@ function renderTranscriptItemForRuntimeContext(
 function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
   if (isSelfContinuationPayload(queueMessage)) {
     return '<system_reminder>外界很安静，没有新消息或弹窗，当前完全是你自己的时间。你想继续发散刚才的念头、去用万能工具找乐子、继续哪些之前想做还没做完的事情，或者觉得无聊直接去睡觉 (recover_energy)，都随你高兴。</system_reminder>';
-  }
-  if (isSystemReminderPayload(queueMessage)) {
-    return '<system_reminder>当前输入来自小腻 runtime 的内部提醒，不是 QQ 正文，也不是用户消息。可以把它当作行动建议，但不要伪装成外界催促。</system_reminder>';
   }
   return '';
 }
@@ -4058,6 +4019,19 @@ export class AgentLoopService {
       let requestInput = budgetPlan.requestInput;
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
+      await this.appendAgentStackItemsSafe({
+        traceId: payload.traceId,
+        runId: queueMessage.id,
+        sourceType: 'agent_queue_messages',
+        sourceId: queueMessage.id,
+        items: [
+          buildRuntimeInputStackItem({
+            queueMessage: payload,
+            runId: queueMessage.id,
+            runtimePrompt
+          }) as Record<string, unknown>
+        ]
+      });
 
       for (let turn = 1; !leaseRelease; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -4095,6 +4069,8 @@ export class AgentLoopService {
         };
         contextBudgetTurns.push(turnBudgetRecord);
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload);
+        const inputEndIndex = await this.getAgentStackHeadSafe(payload.traceId);
+        const inputStartIndex = inputEndIndex > 0 ? 1 : null;
         const modelResult = await this.executeAgentTurn(
           currentCanonicalRequest,
           payload,
@@ -4103,10 +4079,72 @@ export class AgentLoopService {
           runtimePrompt
         );
         attachActualUsageToTurnBudget(turnBudgetRecord, modelResult);
+        const sliceId = modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
+        const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        const outputStackRows = await this.appendAgentStackItemsSafe({
+          traceId: payload.traceId,
+          runId: queueMessage.id,
+          sourceType: 'llm_request_slices',
+          sourceId: sliceId,
+          llmRequestSliceId: sliceId,
+          items: buildModelOutputStackItems(outputItems, sliceId) as Array<Record<string, unknown>>
+        });
+        const outputStackIndexes = outputStackRows
+          .map((row) => Number((row as { stackIndex?: unknown }).stackIndex))
+          .filter((value) => Number.isFinite(value));
+        const toolCallStackItemIdByCallId = new Map<string, string | number>();
+        for (const row of outputStackRows) {
+          const toolCallId = typeof (row as { toolCallId?: unknown }).toolCallId === 'string'
+            ? (row as { toolCallId: string }).toolCallId
+            : null;
+          const itemKind = typeof (row as { itemKind?: unknown }).itemKind === 'string'
+            ? (row as { itemKind: string }).itemKind
+            : null;
+          const id = (row as { id?: unknown }).id;
+          if (toolCallId && itemKind === 'function_call' && (typeof id === 'string' || typeof id === 'number')) {
+            toolCallStackItemIdByCallId.set(toolCallId, id);
+          }
+        }
+        await this.recordLlmRequestSliceSafe({
+          sliceId,
+          llmCallId: modelResult.llm_call_id || null,
+          traceId: payload.traceId,
+          runId: queueMessage.id,
+          agentTurn: turn,
+          inputStartIndex,
+          inputEndIndex: inputEndIndex > 0 ? inputEndIndex : null,
+          outputStartIndex: outputStackIndexes.length > 0 ? Math.min(...outputStackIndexes) : null,
+          outputEndIndex: outputStackIndexes.length > 0 ? Math.max(...outputStackIndexes) : null,
+          canonicalRequest: currentCanonicalRequest as unknown as Record<string, unknown>,
+          wireRequest: modelResult.wire_request || null,
+          canonicalResponse: modelResult.canonical_response || null,
+          wireResponse: modelResult.wire_response || null,
+          rawResponse: modelResult.raw_response || null,
+          outputItems,
+          status: 'completed',
+          tokenUsage: {
+            input_tokens: modelResult.usage?.input_tokens ?? null,
+            output_tokens: modelResult.usage?.output_tokens ?? null,
+            total_tokens: modelResult.usage?.total_tokens ?? modelResult.usage_details?.total_tokens ?? null,
+            cached_input_tokens: modelResult.usage_details?.cached_input_tokens ?? null,
+            reasoning_tokens: modelResult.usage_details?.reasoning_tokens ?? null,
+            raw_usage: modelResult.usage_details?.raw_usage ?? {}
+          },
+          modelName: modelResult.model || runtimePrompt.modelName,
+          modelProvider: modelResult.provider || null,
+          requestFormatVersion: modelResult.request_format_version || null,
+          wireProviderFormat: modelResult.wire_provider_format || null,
+          processingTimeMs: typeof modelResult.performance?.processing_time_ms === 'number'
+            ? modelResult.performance.processing_time_ms
+            : null,
+          metadata: {
+            prompt_name: runtimePrompt.promptName,
+            has_tool_call: outputItems.some((item) => item.type === 'function_call')
+          }
+        });
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
         const hasToolCall = actionPlan.hasToolCall;
-        const hasFinalAnswer = actionPlan.hasFinalAnswer;
         await this.executeResponsePostActions(actionPlan.postActions, {
           queueMessage: payload,
           runId: queueMessage.id,
@@ -4125,15 +4163,6 @@ export class AgentLoopService {
               visibleDeliveryCommitted: true,
               source: 'model:no_tool_after_visible_delivery'
             });
-          } else if (hasFinalAnswer) {
-            leaseRelease = buildLeaseReleaseRecord({
-              reason: 'no_visible_delivery_observed',
-              detail: 'Model returned final_answer without a tool call or visible delivery; ending this runtime slice in code.',
-              outcome: 'model_final_answer_without_visible_delivery',
-              noVisibleDelivery: true,
-              visibleDeliveryCommitted: false,
-              source: 'model:final_answer_without_tool'
-            });
           }
         }
 
@@ -4143,16 +4172,27 @@ export class AgentLoopService {
             continue;
           }
           const toolCall = replayItem.toolCall;
-          const logId = await this.store.createToolExecutionLog({
-            traceId: payload.traceId,
-            jobId,
-            agentTurn: turn,
-            llmCallId: modelResult.llm_call_id || toolCall.callId,
+          const stackToolExecutionId = `tool:${queueMessage.id}:${toolCall.callId}`;
+          await this.recordAgentStackToolExecutionSafe({
+            executionId: stackToolExecutionId,
+            llmRequestSliceId: sliceId,
+            llmCallId: modelResult.llm_call_id || null,
             toolCallId: toolCall.callId,
             toolName: toolCall.name,
-            methodId: toolCall.name,
             arguments: toolCall.args,
-            sideEffect: isToolCallSideEffecting(toolCall)
+            rawArguments: toolCall.rawArguments,
+            status: 'running',
+            sideEffect: isToolCallSideEffecting(toolCall),
+            traceId: payload.traceId,
+            runId: queueMessage.id,
+            agentTurn: turn,
+            stackCallItemId: toolCallStackItemIdByCallId.get(toolCall.callId) || null,
+            metadata: {
+              model_name: runtimePrompt.modelName,
+              session_key: payload.sessionKey,
+              chat_type: payload.chatType,
+              peer_name: payload.peerName || null
+            }
           });
 
           try {
@@ -4234,10 +4274,6 @@ export class AgentLoopService {
             if (toolCall.name === TOOL_NAMES.unreadMeaning) {
               unreadMeaningArtifact = toolResult;
             }
-            await this.store.completeToolExecutionLog(logId, {
-              status: 'completed',
-              result: toolResult
-            });
 
             if (extractSentMessages(toolResult).length > 0) {
               await this.store.markLeaseVisibleDeliveryCommitted(queueMessage.id);
@@ -4259,6 +4295,26 @@ export class AgentLoopService {
               loopInput: requestInput,
               speakingToolName: payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
               hasVisibleReply: deliveredMessages.length > 0
+            });
+            const toolOutputStackRows = await this.appendAgentStackItemsSafe({
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              sourceType: 'tool_executions',
+              sourceId: stackToolExecutionId,
+              llmRequestSliceId: sliceId,
+              items: buildToolResultStackItems({
+                toolCall,
+                toolResult,
+                continuationItems: continuation.inputItems,
+                llmRequestSliceId: sliceId
+              }) as Array<Record<string, unknown>>
+            });
+            const stackOutputItemId = (toolOutputStackRows[0] as { id?: string | number } | undefined)?.id || null;
+            await this.completeAgentStackToolExecutionSafe({
+              executionId: stackToolExecutionId,
+              status: 'completed',
+              result: toolResult,
+              stackOutputItemId
             });
             if (continuation.forcedVisibleReply) {
               await this.store.logTimelineEvent({
@@ -4330,7 +4386,8 @@ export class AgentLoopService {
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            await this.store.completeToolExecutionLog(logId, {
+            await this.completeAgentStackToolExecutionSafe({
+              executionId: stackToolExecutionId,
               status: 'failed',
               result: {},
               errorMessage: message
@@ -4363,7 +4420,7 @@ export class AgentLoopService {
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
-        userMessage: renderConversationInput(payload),
+        userMessage: renderConversationStorageUserMessage(payload),
         aiResponse: finalResponse,
         sessionKey: payload.sessionKey,
         transcriptItems: [
@@ -4543,7 +4600,7 @@ export class AgentLoopService {
       conversationId = await this.store.createConversation({
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
-        userMessage: renderConversationInput(payload),
+        userMessage: renderConversationStorageUserMessage(payload),
         aiResponse: null,
         sessionKey: payload.sessionKey,
         transcriptItems: [
@@ -5575,6 +5632,120 @@ export class AgentLoopService {
     void context;
   }
 
+  private async getAgentStackHeadSafe(traceId: string) {
+    const reader = (this.store as RuntimeStore & {
+      getAgentStackHead?: RuntimeStore['getAgentStackHead'];
+    }).getAgentStackHead;
+    if (typeof reader !== 'function') {
+      return 0;
+    }
+    try {
+      return await reader.call(this.store, XIAONI_IDENTITY_KEY);
+    } catch (error) {
+      moduleLogger.warn('Failed to read Xiaoni agent stack head', {
+        traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return 0;
+    }
+  }
+
+  private async appendAgentStackItemsSafe(params: {
+    traceId: string;
+    runId: string;
+    sourceType?: string | null;
+    sourceId?: string | null;
+    llmRequestSliceId?: string | null;
+    items: Array<Record<string, unknown>>;
+  }) {
+    const appender = (this.store as RuntimeStore & {
+      appendAgentStackItems?: RuntimeStore['appendAgentStackItems'];
+    }).appendAgentStackItems;
+    if (typeof appender !== 'function' || params.items.length === 0) {
+      return [];
+    }
+    try {
+      return await appender.call(this.store, {
+        identityKey: XIAONI_IDENTITY_KEY,
+        traceId: params.traceId,
+        runId: params.runId,
+        sourceType: params.sourceType || null,
+        sourceId: params.sourceId || null,
+        llmRequestSliceId: params.llmRequestSliceId || null,
+        items: params.items
+      }) as Array<Record<string, unknown>>;
+    } catch (error) {
+      moduleLogger.warn('Failed to append Xiaoni agent stack items', {
+        traceId: params.traceId,
+        runId: params.runId,
+        itemCount: params.items.length,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  private async recordLlmRequestSliceSafe(params: Parameters<RuntimeStore['recordLlmRequestSlice']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordLlmRequestSlice?: RuntimeStore['recordLlmRequestSlice'];
+    }).recordLlmRequestSlice;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record Xiaoni LLM request slice', {
+        traceId: params.traceId,
+        runId: params.runId,
+        llmCallId: params.llmCallId,
+        sliceId: params.sliceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async recordAgentStackToolExecutionSafe(params: Parameters<RuntimeStore['recordAgentStackToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordAgentStackToolExecution?: RuntimeStore['recordAgentStackToolExecution'];
+    }).recordAgentStackToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record Xiaoni stack tool execution', {
+        traceId: params.traceId,
+        runId: params.runId,
+        toolCallId: params.toolCallId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeAgentStackToolExecutionSafe(params: Parameters<RuntimeStore['completeAgentStackToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeAgentStackToolExecution?: RuntimeStore['completeAgentStackToolExecution'];
+    }).completeAgentStackToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete Xiaoni stack tool execution', {
+        executionId: params.executionId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private async executeAgentTurn(
     canonicalRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload'],
@@ -6470,6 +6641,13 @@ function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) 
     || queueMessage.inboundContext?.Surface === 'self_continuation';
 }
 
+function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['payload']) {
+  return isSelfContinuationPayload(queueMessage)
+    || isPhoneNotificationPayload(queueMessage)
+    || isImageTaskNotificationPayload(queueMessage)
+    || isSystemReminderPayload(queueMessage);
+}
+
 function buildLoopRequestInput(params: {
   history: ConversationTurn[];
   queueMessage: QueueMessageRecord['payload'];
@@ -6613,6 +6791,131 @@ function serializeContextBudgetTurnRecord(record: ContextBudgetTurnRecord) {
     tokenizer_encoding: record.tokenizerEncoding,
     tokenizer_source: record.tokenizerSource,
     cutoff_recomputed: record.cutoffRecomputed
+  };
+}
+
+function extractCanonicalResponseOutputItems(modelResult: ProviderAgentResponse): Array<Record<string, unknown>> {
+  const output = Array.isArray(modelResult.canonical_response?.output)
+    ? modelResult.canonical_response.output
+    : [];
+  return output
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+    .map((item) => ({ ...item }));
+}
+
+function stackKindForModelOutputItem(item: Record<string, unknown>) {
+  const type = typeof item.type === 'string' ? item.type : 'assistant_output';
+  if (type === 'function_call') {
+    return 'function_call';
+  }
+  if (type === 'function_call_output') {
+    return 'function_call_output';
+  }
+  return 'assistant_output';
+}
+
+function stackRoleForModelOutputItem(item: Record<string, unknown>) {
+  return typeof item.role === 'string' ? item.role : 'assistant';
+}
+
+function stackPhaseForModelOutputItem(item: Record<string, unknown>) {
+  return item.phase === 'final_answer' ? 'final_answer' : item.phase === 'commentary' ? 'commentary' : null;
+}
+
+function stackToolCallIdForModelOutputItem(item: Record<string, unknown>) {
+  return typeof item.call_id === 'string' && item.call_id.trim()
+    ? item.call_id.trim()
+    : null;
+}
+
+function buildModelOutputStackItems(outputItems: Array<Record<string, unknown>>, sliceId: string) {
+  return outputItems.map((item, index) => ({
+    eventId: `stack:${sliceId}:output:${index}`,
+    itemKind: stackKindForModelOutputItem(item),
+    role: stackRoleForModelOutputItem(item),
+    phase: stackPhaseForModelOutputItem(item),
+    providerItemId: typeof item.id === 'string' ? item.id : null,
+    toolCallId: stackToolCallIdForModelOutputItem(item),
+    llmRequestSliceId: sliceId,
+    content: item,
+    visibility: 'model_visible',
+    metadata: {
+      output_item_index: index,
+      output_item_type: typeof item.type === 'string' ? item.type : null
+    }
+  }));
+}
+
+function toolResultToFallbackFunctionCallOutput(toolCall: AgentToolCall, toolResult: Record<string, unknown>) {
+  return {
+    type: 'function_call_output',
+    call_id: toolCall.callId,
+    output: JSON.stringify(toolResult)
+  };
+}
+
+function buildToolResultStackItems(params: {
+  toolCall: AgentToolCall;
+  toolResult: Record<string, unknown>;
+  continuationItems?: OpenResponseInputItem[];
+  llmRequestSliceId?: string | null;
+}) {
+  const functionCallOutputs = (params.continuationItems || [])
+    .filter((item): item is Extract<OpenResponseInputItem, { type: 'function_call_output' }> => item.type === 'function_call_output');
+  const outputItems = functionCallOutputs.length > 0
+    ? functionCallOutputs
+    : [toolResultToFallbackFunctionCallOutput(params.toolCall, params.toolResult)];
+
+  return outputItems.map((item, index) => ({
+    eventId: `stack:${params.llmRequestSliceId || 'slice'}:tool-output:${params.toolCall.callId}:${index}`,
+    itemKind: 'function_call_output',
+    role: 'tool',
+    phase: null,
+    toolCallId: item.call_id,
+    llmRequestSliceId: params.llmRequestSliceId || null,
+    content: item,
+    visibility: functionCallOutputs.length > 0 ? 'model_visible' : 'trace_only',
+    metadata: {
+      output_item_index: index,
+      tool_name: params.toolCall.name,
+      output_forwarded_to_model: functionCallOutputs.length > 0
+    }
+  }));
+}
+
+function buildRuntimeInputStackItem(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  runId: string;
+  runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>;
+}) {
+  const currentInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
+    .filter((item) => item.type !== 'message' || flattenMessageContent(item.content).trim().length > 0);
+  const reminder = buildCurrentProcessingReminder(params.queueMessage);
+  return {
+    eventId: `stack:${params.runId || params.queueMessage.traceId}:runtime-input`,
+    itemKind: 'runtime_input',
+    role: currentInputItems.some((item) => item.type === 'message' && item.role === 'user') ? 'user' : 'developer',
+    phase: null,
+    content: {
+      source: params.queueMessage.source,
+      trace_id: params.queueMessage.traceId,
+      run_id: params.runId,
+      session_key: params.queueMessage.sessionKey,
+      chat_type: params.queueMessage.chatType,
+      peer_id: params.queueMessage.peerId,
+      peer_name: params.queueMessage.peerName || null,
+      input_items: currentInputItems,
+      system_reminder: reminder || null
+    },
+    visibility: 'model_visible',
+    sourceType: 'agent_queue_messages',
+    sourceId: params.runId || null,
+    traceId: params.queueMessage.traceId,
+    runId: params.runId,
+    metadata: {
+      queue_source: params.queueMessage.source,
+      prompt_facing_runtime_reminder: isPromptFacingRuntimeReminderPayload(params.queueMessage)
+    }
   };
 }
 
@@ -7031,6 +7334,12 @@ function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
   return queueMessage.messages
     .map((message, index) => renderTranscriptBatchMessage(message, index))
     .join('\n');
+}
+
+function renderConversationStorageUserMessage(queueMessage: QueueMessageRecord['payload']) {
+  return isPromptFacingRuntimeReminderPayload(queueMessage)
+    ? ''
+    : renderConversationInput(queueMessage);
 }
 
 function classifyRuntimeStreamInput(queueMessage: QueueMessageRecord['payload']) {

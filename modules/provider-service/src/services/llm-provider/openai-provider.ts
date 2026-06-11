@@ -19,7 +19,6 @@ import {
   OpenResponseCreateRequest
 } from './types';
 import { buildTraceHeaders } from '../../utils/trace-headers';
-import { runtimeStoreService } from '../runtime-store-service';
 
 type OpenAIProviderOptions = {
   id?: LLMProviderId;
@@ -188,7 +187,6 @@ export class OpenAIProvider implements LLMProvider {
           rawUsage: normalizedUsage.rawUsage
         }
       };
-      await this.recordProviderReplaySuccess(input, result, providerConfig);
       return result;
     } catch (error) {
       this.moduleLogger.error('LLM provider content generation failed', {
@@ -200,87 +198,6 @@ export class OpenAIProvider implements LLMProvider {
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
-    }
-  }
-
-  protected async recordProviderReplaySuccess(
-    input: LLMProviderContentRequest,
-    result: LLMProviderContentResult,
-    providerConfig?: UnifiedLLMConfig
-  ) {
-    if (!this.shouldRecordProviderReplay(input)) {
-      return;
-    }
-    await this.recordProviderReplay({
-      input,
-      providerConfig,
-      modelName: result.modelName,
-      modelProvider: result.provider,
-      canonicalRequest: result.canonicalRequest as unknown as Record<string, unknown>,
-      wireRequest: result.wireRequest as Record<string, unknown>,
-      canonicalResponse: result.canonicalResponse as unknown as Record<string, unknown>,
-      wireResponse: result.wireResponse as Record<string, unknown>,
-      usage: result.usage,
-      requestFormatVersion: result.requestFormatVersion,
-      wireProviderFormat: result.wireProviderFormat
-    });
-  }
-
-  private shouldRecordProviderReplay(input: LLMProviderContentRequest) {
-    return Boolean(input.context?.llmCallId || input.context?.traceId);
-  }
-
-  private async recordProviderReplay(params: {
-    input: LLMProviderContentRequest;
-    providerConfig?: UnifiedLLMConfig;
-    modelName: string;
-    modelProvider: string;
-    canonicalRequest: Record<string, unknown>;
-    wireRequest: Record<string, unknown>;
-    canonicalResponse: Record<string, unknown>;
-    wireResponse: Record<string, unknown>;
-    usage: {
-      inputTokens: number;
-      outputTokens: number;
-      totalTokens: number;
-      processingTimeMs: number;
-      cachedInputTokens?: number;
-      reasoningTokens?: number;
-    };
-    requestFormatVersion: string;
-    wireProviderFormat: string;
-  }) {
-    const identityKey = params.input.context?.replayIdentityKey || 'xiaoni-internal';
-    try {
-      await runtimeStoreService.recordProviderReplayEvent({
-        identityKey,
-        traceId: params.input.context?.traceId,
-        conversationId: params.input.context?.conversationId,
-        llmCallId: params.input.context?.llmCallId,
-        agentTurn: params.input.context?.agentTurn,
-        agentType: params.input.context?.agentType,
-        promptName: params.input.context?.promptName,
-        modelName: params.modelName,
-        modelProvider: params.modelProvider,
-        canonicalRequest: params.canonicalRequest,
-        wireRequest: params.wireRequest,
-        canonicalResponse: params.canonicalResponse,
-        wireResponse: params.wireResponse,
-        effectiveUnifiedConfig: (params.providerConfig as unknown as Record<string, unknown>) || {},
-        usage: params.usage,
-        requestFormatVersion: params.requestFormatVersion,
-        wireProviderFormat: params.wireProviderFormat,
-        errorMessage: null
-      });
-    } catch (error) {
-      if (identityKey === 'xiaoni') {
-        throw error;
-      }
-      this.moduleLogger.warn('Failed to record internal Codex provider replay event', {
-        error: error instanceof Error ? error.message : String(error),
-        llmCallId: params.input.context?.llmCallId || null,
-        agentType: params.input.context?.agentType || null
-      });
     }
   }
 

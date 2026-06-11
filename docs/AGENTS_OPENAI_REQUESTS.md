@@ -14,7 +14,7 @@
 
 ## State And Replay
 
-- 当前仓库优先使用 stateless manual replay：本地保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。
+- 当前仓库优先使用 stateless manual replay：本地通过 `agent_stack_items` 保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。每次真实 LLM 请求及 provider wire payload 记录为 `llm_request_slices`；trace evidence 不参与主观历史重建。
 - 手动 replay 时必须保留 assistant item 的 `phase`。中间状态用 `commentary`，最终输出用 `final_answer`。
 - reasoning / compaction item 是 opaque continuation state，只能回传，不能把内部结构当业务数据解析。
 - app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它不等同于 OpenAI Responses compaction。当前主链由工程检测上下文压力后强制 `compress_core_memory(text)`，并把工具 `text` 写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。普通请求可以定义这个工具和成本，但 `allowed_tools` 不允许它；只有压力请求才允许调用。
@@ -49,6 +49,11 @@
   trace / delivery / retry boundaries only. Prompt-facing language should talk
   about current action, next action, visible scene, state event, and life event,
   not "this run" as Xiaoni's mental boundary.
+- The durable request assembly contract is the Xiaoni agent stack ledger:
+  `agent_stack_items` are the ordered replay/input/action items,
+  `llm_request_slices` are the real provider calls, and `tool_executions` are
+  tool side effects plus callback payloads. See
+  `docs/XIAONI_AGENT_STACK_LEDGER.md`.
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例；不要塞动态状态、工具列表、skill 列表或 cost。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果、工程提醒、动态能力列表和 cost 都属于 runtime input / developer context，不要回填进 system prompt。工程在主 loop 输入开头追加一次 developer `<CAPABILITIES>`，列出工具、skill 和 cost。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
@@ -68,7 +73,9 @@
 - 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才打断休息，并在后续上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
 - 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
-- Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；这些 prompt-facing runtime reminder 使用 `developer` role，`phone_notification` 和 `image_task_notification` 都使用 body-only `<system_reminder>` 模板，不暴露 `<PHONE_NOTIFICATION>` / `<IMAGE_TASK_NOTIFICATION>` 或 queue trace 属性。后续同一 run 的模型切片只保留 replay/tool state，不再把同一条 Notify 重新渲染成当前事件，也不追加 `already_picked` 快照。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
+- Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；这些 prompt-facing runtime reminder 使用 `developer` role，`phone_notification` 和 `image_task_notification` 都使用 body-only `<system_reminder>` 模板，不暴露 `<PHONE_NOTIFICATION>` / `<IMAGE_TASK_NOTIFICATION>` 或 queue trace 属性。后续同一连续 loop 的模型切片只保留 stack/tool state，不再把同一条 Notify 重新渲染成当前事件，也不追加 `already_picked` 快照。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
+- Prompt-facing runtime reminder 是当前输入，不是会话正文或 assistant 历史。它们不写入 `conversation_items`，也不写入 `conversations.user_message`；目标写法是在 `agent_stack_items` 中作为 `runtime_input` 保留本轮事实。真实 QQ 正文、assistant 可见投递、tool callback / response output items 才进入后续可回放 stack。
+- `final_answer` 不是 loop break。模型返回 `phase=final_answer` 且没有工具调用时，不追加 final-answer 专用 prompt reminder；下一轮由真实 notify 或普通 `self_continuation` 继续。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
 - `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`；不要依赖 prompt XML 属性检测。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
@@ -82,7 +89,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前小腻只有一条连续主 runtime stream，不存在第二套 presence/self-action runner。QQ 输入只以 `phone_notification` 感官事件形式进入 prompt，正文必须由模型主动通过 `$qq-usage` 打开 QQ 后才可见；空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice，而不是补旧 `consciousness_tick` / `presence_tick`。连续性来自模型 response、tool result、状态与记忆被保存为 `responses_replay_items` / `conversation_items` 并追加进后续 request。整个小腻主 loop 只有 `xiaoni:global` 一条 prompt-facing history / context summary / read-cutoff / prompt cache key；`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前小腻只有一条连续主 runtime stream，不存在第二套 presence/self-action runner。QQ 输入只以 `phone_notification` 感官事件形式进入 prompt，正文必须由模型主动通过 `$qq-usage` 打开 QQ 后才可见；空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice，而不是补旧 `consciousness_tick` / `presence_tick`。连续性目标来自模型 response output items、tool result、状态与记忆被保存为 `agent_stack_items`，并由 `llm_request_slices` 记录每次真实请求。整个小腻主 loop 只有 `xiaoni:global` 一条 prompt-facing history / context summary / read-cutoff / prompt cache key；`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Local Request Captures
 

@@ -10,7 +10,6 @@ import { OpenAIProvider } from '../llm-provider/openai-provider';
 import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../llm-provider/types';
 import { buildRequestFromMessages, buildUnifiedConfig } from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
-import { runtimeStoreService } from '../runtime-store-service';
 
 class TestOpenAIProvider extends OpenAIProvider {
   buildPayload(request: OpenResponseCreateRequest) {
@@ -1037,23 +1036,17 @@ test('buildTraceHeaders emits Codex-compatible session metadata headers', () => 
   assert.match(headers['x-codex-turn-metadata'], /"sandbox":"none"/);
 });
 
-test('Codex provider records only the recovered provider request after internal retry succeeds', async () => {
+test('Codex provider returns only the recovered response after internal retry succeeds', async () => {
   const previousFetch = globalThis.fetch;
-  const previousRecordProviderReplayEvent = runtimeStoreService.recordProviderReplayEvent;
   const previousEnv = {
     CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
     CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
   };
-  const replayEvents: any[] = [];
   let fetchCount = 0;
 
   try {
     process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
     process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
-    runtimeStoreService.recordProviderReplayEvent = async (event: any) => {
-      replayEvents.push(event);
-      return { eventId: 'provider:codex:llm-recovered' } as any;
-    };
     (globalThis as any).fetch = async () => {
       fetchCount += 1;
       if (fetchCount === 1) {
@@ -1104,13 +1097,10 @@ test('Codex provider records only the recovered provider request after internal 
 
     assert.equal(fetchCount, 2);
     assert.equal(result.text, 'recovered');
-    assert.equal(replayEvents.length, 1);
-    assert.equal(replayEvents[0].errorMessage, null);
-    assert.equal(replayEvents[0].wireProviderFormat, 'codex/responses');
-    assert.equal(replayEvents[0].wireResponse.output_text, 'recovered');
+    assert.equal(result.wireProviderFormat, 'codex/responses');
+    assert.equal((result.wireResponse as any).output_text, 'recovered');
   } finally {
     (globalThis as any).fetch = previousFetch;
-    runtimeStoreService.recordProviderReplayEvent = previousRecordProviderReplayEvent;
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
         delete process.env[key];
@@ -1121,22 +1111,16 @@ test('Codex provider records only the recovered provider request after internal 
   }
 });
 
-test('Codex provider does not write failed requests into the replay ledger after retry exhaustion', async () => {
+test('Codex provider rejects after retry exhaustion without returning a response', async () => {
   const previousFetch = globalThis.fetch;
-  const previousRecordProviderReplayEvent = runtimeStoreService.recordProviderReplayEvent;
   const previousEnv = {
     CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
     CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
   };
-  let replayWrites = 0;
 
   try {
     process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
     process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
-    runtimeStoreService.recordProviderReplayEvent = async () => {
-      replayWrites += 1;
-      return { eventId: 'unexpected' } as any;
-    };
     (globalThis as any).fetch = async () => ({
       ok: false,
       status: 502,
@@ -1170,10 +1154,8 @@ test('Codex provider does not write failed requests into the replay ledger after
       }),
       /Codex API error \(502 Bad Gateway\)/
     );
-    assert.equal(replayWrites, 0);
   } finally {
     (globalThis as any).fetch = previousFetch;
-    runtimeStoreService.recordProviderReplayEvent = previousRecordProviderReplayEvent;
     for (const [key, value] of Object.entries(previousEnv)) {
       if (value === undefined) {
         delete process.env[key];

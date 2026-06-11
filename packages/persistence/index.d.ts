@@ -760,6 +760,119 @@ export type AgentRuntimePersistenceCallInput = {
   sqlAdapter?: SqlAdapter;
   [key: string]: any;
 };
+export type XiaoniAgentStackPersistenceCallInput = {
+  sqlAdapter?: SqlAdapter;
+  [key: string]: any;
+};
+export type XiaoniAgentStackItem = {
+  id: string | null;
+  eventId: string;
+  identityKey: string;
+  stackIndex: number;
+  itemKind: string;
+  role: string | null;
+  phase: string | null;
+  providerItemId: string | null;
+  toolCallId: string | null;
+  llmRequestSliceId: string | null;
+  content: Record<string, unknown>;
+  visibility: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  traceId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+export type XiaoniLlmRequestSlice = {
+  id: string | null;
+  sliceId: string;
+  llmCallId: string | null;
+  identityKey: string;
+  inputStartIndex: number | null;
+  inputEndIndex: number | null;
+  outputStartIndex: number | null;
+  outputEndIndex: number | null;
+  canonicalRequest: Record<string, unknown>;
+  wireRequest: Record<string, unknown> | null;
+  canonicalResponse: Record<string, unknown> | null;
+  wireResponse: Record<string, unknown> | null;
+  rawResponse: Record<string, unknown> | null;
+  outputItems: unknown[];
+  status: string | null;
+  tokenUsage: Record<string, unknown>;
+  traceId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  agentTurn: number | null;
+  modelName: string | null;
+  modelProvider: string | null;
+  requestFormatVersion: string | null;
+  wireProviderFormat: string | null;
+  processingTimeMs: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string | null;
+  completedAt: string | null;
+  updatedAt: string | null;
+};
+export type XiaoniToolExecution = {
+  id: string | null;
+  executionId: string;
+  identityKey: string;
+  llmRequestSliceId: string | null;
+  llmCallId: string | null;
+  toolCallId: string | null;
+  toolName: string | null;
+  arguments: Record<string, unknown>;
+  rawArguments: string | null;
+  result: Record<string, unknown>;
+  status: string | null;
+  errorMessage: string | null;
+  sideEffect: boolean;
+  traceId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  agentTurn: number | null;
+  stackCallItemId: string | null;
+  stackOutputItemId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string | null;
+};
+export type XiaoniAgentStackPersistenceApi = {
+  ensureXiaoniAgentStackSchema(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+  appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
+  appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+  recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
+  recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
+  completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
+  listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+  listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+  listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
+  findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
+  attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+};
+export function createXiaoniAgentStackPersistence(deps?: {
+  createSqlAdapter?: (config?: DatabaseUrlConfig) => SqlAdapter;
+  sqlAdapter?: SqlAdapter;
+}): XiaoniAgentStackPersistenceApi;
+export function ensureXiaoniAgentStackSchema(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+export function appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
+export function appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
+export function recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
+export function completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
+export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
+export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
+export function attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export type AgentRuntimeLeaseRecoveryResult = {
   staleBefore: string;
   staleMs: number;
@@ -777,7 +890,6 @@ export type AgentRuntimePersistenceApi = {
   ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-  recordLlmCallLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
     traceId?: string;
     trace_id?: string;
@@ -802,8 +914,6 @@ export type AgentRuntimePersistenceApi = {
   markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
   createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
   updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-  createToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
-  completeToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
   createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
   getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
@@ -830,7 +940,6 @@ export function ensureAgentRuntimeSchema(input?: AgentRuntimePersistenceCallInpu
 export function ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-export function recordLlmCallLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
   traceId?: string;
   trace_id?: string;
@@ -855,8 +964,6 @@ export function markLeaseVisibleDeliveryCommitted(input?: AgentRuntimePersistenc
 export function markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
 export function createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
 export function updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-export function createToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
-export function completeToolExecutionLog(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
 export function createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export function getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
@@ -1501,7 +1608,7 @@ export type AgentRecoveryWindowProjection = {
 };
 export type XiaoniActivityFeedItem = {
   id: string;
-  source: 'life_event' | 'tool_call' | 'provider_call' | 'llm_call' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
+  source: 'life_event' | 'tool_execution' | 'llm_request' | 'llm_stack_item' | 'digital_action' | 'task' | 'media_observation' | 'queue_message' | string;
   kind: string;
   title: string;
   body: string | null;
@@ -1529,74 +1636,21 @@ export type XiaoniActionStreamItem = Omit<XiaoniActivityFeedItem, 'runId' | 'sta
     spanId: string | null;
   } | null;
 };
-export type XiaoniReplayEventProjection = {
-  id: string | null;
-  eventId: string;
-  identityKey: string;
-  eventKind: string;
-  source: string;
-  occurredAt: string | null;
-  traceId: string | null;
+export type XiaoniActionEventTraceTarget = {
   conversationId: string | null;
+  traceId: string | null;
+  spanId: string | null;
   internalExecutionLeaseId: string | null;
-  providerCallId: string | null;
-  toolCallId: string | null;
-  modelName: string | null;
-  modelProvider: string | null;
-  status: string | null;
-  replayable: boolean;
-  replayPayload: Record<string, unknown>;
-  wireRequest: Record<string, unknown> | null;
-  wireResponse: Record<string, unknown> | null;
-  metadata: Record<string, unknown>;
-  sourceTable: string | null;
-  sourceId: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
 };
-export type RecordXiaoniReplayEventInput = {
-  eventId?: string;
-  event_id?: string;
-  identityKey?: string;
-  identity_key?: string;
-  eventKind?: string;
-  event_kind?: string;
-  source?: string;
-  occurredAt?: string | Date | null;
-  occurred_at?: string | Date | null;
-  traceId?: string | null;
-  trace_id?: string | null;
-  conversationId?: number | bigint | string | null;
-  conversation_id?: number | bigint | string | null;
-  internalExecutionLeaseId?: string | null;
-  internal_execution_lease_id?: string | null;
-  runId?: string | null;
-  run_id?: string | null;
-  providerCallId?: string | null;
-  provider_call_id?: string | null;
-  toolCallId?: string | null;
-  tool_call_id?: string | null;
-  modelName?: string | null;
-  model_name?: string | null;
-  modelProvider?: string | null;
-  model_provider?: string | null;
-  status?: string | null;
-  replayable?: boolean;
-  replayPayload?: Record<string, unknown>;
-  replay_payload?: Record<string, unknown>;
-  wireRequest?: Record<string, unknown> | null;
-  wire_request?: Record<string, unknown> | null;
-  wireResponse?: Record<string, unknown> | null;
-  wire_response?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown>;
-  sourceTable?: string | null;
-  source_table?: string | null;
-  sourceId?: string | null;
-  source_id?: string | null;
+export type XiaoniActivityTimeFilters = {
+  range?: string;
+  startTime?: string | null;
+  endTime?: string | null;
 };
 export type XiaoniActivityFeedResult = {
   identityKey: string;
   generatedAt: string;
+  filters?: XiaoniActivityTimeFilters;
   current: {
     lifeState: Record<string, unknown> | null;
     latestActivityAt: string | null;
@@ -1638,6 +1692,7 @@ export type XiaoniActionStreamResult = {
   identityKey: string;
   generatedAt: string;
   streamKind: 'xiaoni_action_stream';
+  filters?: XiaoniActivityTimeFilters;
   current: {
     lifeState: Record<string, unknown> | null;
     latestActivityAt: string | null;
@@ -1738,18 +1793,9 @@ export function listAgentLifeEventsForPrompt(input?: Record<string, unknown>, co
 export function getActiveAgentRecoveryWindow(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWindowProjection | null>;
 export function getLatestAgentRecoveryWindow(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWindowProjection | null>;
 export function findAgentLifeEventByDedupeKey(dedupeKey: string, config?: DatabaseUrlConfig): Promise<AgentLifeEventProjection | null>;
-export function ensureXiaoniReplayEventSchema(config?: DatabaseUrlConfig): Promise<void>;
-export function recordXiaoniReplayEvent(input: RecordXiaoniReplayEventInput, config?: DatabaseUrlConfig): Promise<XiaoniReplayEventProjection>;
-export function listXiaoniReplayEvents(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniReplayEventProjection[]>;
-export function findXiaoniReplayEventByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniReplayEventProjection | null>;
-export function attachConversationIdToXiaoniReplayEventsByTrace(input: {
-  traceId?: string | null;
-  trace_id?: string | null;
-  conversationId?: number | bigint | string | null;
-  conversation_id?: number | bigint | string | null;
-}, config?: DatabaseUrlConfig): Promise<number>;
 export function getXiaoniActivityFeed(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActivityFeedResult>;
 export function getXiaoniActionStream(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActionStreamResult>;
+export function findXiaoniActionEventTraceTarget(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniActionEventTraceTarget | null>;
 export type AgentRuntimeControlProjection = {
   identityKey: string;
   enabled: boolean;

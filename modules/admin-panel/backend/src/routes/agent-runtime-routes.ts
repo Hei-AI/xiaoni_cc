@@ -4,7 +4,7 @@ import winston from 'winston';
 import {
   getXiaoniActionStream,
   getXiaoniActivityFeed,
-  findXiaoniReplayEventByEventId,
+  findXiaoniActionEventTraceTarget,
   getAgentRuntimeControl,
   listAgentMediaAssets,
   listAgentTasks,
@@ -13,13 +13,18 @@ import {
 import { DatabaseManager } from '../services/database';
 import {
   buildConversationTracePayload,
-  buildConversationTraceSpanDetail,
-  buildXiaoniReplayProviderTracePayload,
-  buildXiaoniReplayProviderTraceSpanDetail
+  buildConversationTraceSpanDetail
 } from '../services/trace-span-builder';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
 const AGENT_REQUEST_TIMEOUT_MS = 5000;
+const ACTION_STREAM_RANGE_MS: Record<string, number> = {
+  '1h': 60 * 60 * 1000,
+  '6h': 6 * 60 * 60 * 1000,
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000
+};
 
 type AgentProbeResult =
   | {
@@ -39,18 +44,6 @@ type ActionEventTraceTarget = {
   conversationId: string | null;
   traceId: string | null;
   spanId: string | null;
-};
-
-type ReplayEventProjection = {
-  eventId: string;
-  eventKind: string;
-  source: string;
-  traceId: string | null;
-  conversationId: string | null;
-  internalExecutionLeaseId: string | null;
-  providerCallId: string | null;
-  replayable: boolean;
-  metadata: Record<string, unknown>;
 };
 
 async function probeAgentService(): Promise<AgentProbeResult> {
@@ -91,63 +84,56 @@ function decodeEventId(raw: string) {
   }
 }
 
-async function resolveConversationIdFromTrace(
-  database: DatabaseManager,
-  traceId: string | null | undefined,
-  runId: string | null | undefined
-): Promise<string | null> {
-  if (runId) {
-    const rows = await database.executeQuery<{ conversation_id: number | string | null }>(
-      'SELECT conversation_id FROM agent_runs WHERE id = ? LIMIT 1',
-      [runId]
-    );
-    const conversationId = rows[0]?.conversation_id;
-    if (conversationId) {
-      return String(conversationId);
-    }
+function firstQueryString(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return firstQueryString(value[0]);
   }
-
-  if (traceId) {
-    const rows = await database.executeQuery<{ id: number | string }>(
-      'SELECT id FROM conversations WHERE trace_id = ? ORDER BY id DESC LIMIT 1',
-      [traceId]
-    );
-    if (rows[0]?.id) {
-      return String(rows[0].id);
-    }
-  }
-
-  return null;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-async function resolveActionEventTraceTarget(
-  database: DatabaseManager,
-  rawEventId: string
-): Promise<ActionEventTraceTarget | null> {
-  const eventId = decodeEventId(rawEventId);
-  const replayEvent = await findXiaoniReplayEventByEventId(eventId) as ReplayEventProjection | null;
-  if (replayEvent) {
-    if (!replayEvent.replayable || replayEvent.source !== 'codex_provider') {
-      return null;
-    }
-    const conversationId = replayEvent.conversationId
-      || await resolveConversationIdFromTrace(database, replayEvent.traceId, replayEvent.internalExecutionLeaseId);
-    const metadata = replayEvent.metadata && typeof replayEvent.metadata === 'object'
-      ? replayEvent.metadata
-      : {};
-    const spanId = typeof metadata.spanId === 'string' && metadata.spanId.trim()
-      ? metadata.spanId.trim()
-      : replayEvent.providerCallId
-        ? `provider-request:wire:${replayEvent.providerCallId}`
-        : replayEvent.eventId;
+function parseQueryDate(value: unknown): Date | null {
+  const raw = firstQueryString(value);
+  if (!raw) {
+    return null;
+  }
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveActionStreamTimeFilter(query: express.Request['query']) {
+  const range = firstQueryString(query.range) || 'all';
+  if (Object.prototype.hasOwnProperty.call(ACTION_STREAM_RANGE_MS, range)) {
+    const endTime = new Date();
+    const startTime = new Date(endTime.getTime() - ACTION_STREAM_RANGE_MS[range]);
     return {
-      conversationId: conversationId || null,
-      traceId: replayEvent.traceId || null,
-      spanId
+      range,
+      startTime,
+      endTime
     };
   }
 
-  return null;
+  const startTime = parseQueryDate(query.start_time ?? query.startTime);
+  const endTime = parseQueryDate(query.end_time ?? query.endTime);
+  return {
+    range: range === 'custom' ? 'custom' : 'all',
+    startTime,
+    endTime
+  };
+}
+
+function serializeActionStreamTimeFilter(filter: ReturnType<typeof resolveActionStreamTimeFilter>) {
+  return {
+    range: filter.range,
+    startTime: filter.startTime ? filter.startTime.toISOString() : null,
+    endTime: filter.endTime ? filter.endTime.toISOString() : null
+  };
+}
+
+async function resolveActionEventTraceTarget(
+  rawEventId: string
+): Promise<ActionEventTraceTarget | null> {
+  const eventId = decodeEventId(rawEventId);
+  return await findXiaoniActionEventTraceTarget(eventId) as ActionEventTraceTarget | null;
 }
 
 export function createAgentRuntimeRoutes(database: DatabaseManager, logger: winston.Logger) {
@@ -177,8 +163,14 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
         ? req.query.identity_key.trim()
         : 'xiaoni';
+      const timeFilter = resolveActionStreamTimeFilter(req.query);
       const [stream, runtime] = await Promise.all([
-        getXiaoniActionStream({ identityKey, limit }),
+        getXiaoniActionStream({
+          identityKey,
+          limit,
+          startTime: timeFilter.startTime,
+          endTime: timeFilter.endTime
+        }),
         loadRuntimeSnapshot()
       ]);
 
@@ -186,6 +178,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         success: true,
         data: {
           ...stream,
+          filters: {
+            ...(typeof stream === 'object' && stream && 'filters' in stream ? (stream as Record<string, unknown>).filters as Record<string, unknown> : {}),
+            ...serializeActionStreamTimeFilter(timeFilter)
+          },
           current: {
             ...stream.current,
             runtime
@@ -204,7 +200,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
 
   router.get('/xiaoni/action-stream/events/:eventId/trace', async (req, res) => {
     try {
-      const target = await resolveActionEventTraceTarget(database, req.params.eventId);
+      const target = await resolveActionEventTraceTarget(req.params.eventId);
       if (!target) {
         return res.status(404).json({
           success: false,
@@ -215,7 +211,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
 
       const payload = target.conversationId
         ? await buildConversationTracePayload(database, logger, target.conversationId)
-        : await buildXiaoniReplayProviderTracePayload(logger, decodeEventId(req.params.eventId));
+        : null;
       if (!payload) {
         return res.status(404).json({
           success: false,
@@ -248,7 +244,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
 
   router.get('/xiaoni/action-stream/events/:eventId/trace/spans/:spanId/detail', async (req, res) => {
     try {
-      const target = await resolveActionEventTraceTarget(database, req.params.eventId);
+      const target = await resolveActionEventTraceTarget(req.params.eventId);
       if (!target) {
         return res.status(404).json({
           success: false,
@@ -260,7 +256,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const spanId = decodeEventId(req.params.spanId);
       const detail = target.conversationId
         ? await buildConversationTraceSpanDetail(database, logger, target.conversationId, spanId)
-        : await buildXiaoniReplayProviderTraceSpanDetail(logger, decodeEventId(req.params.eventId), spanId);
+        : null;
       if (!detail) {
         return res.status(404).json({
           success: false,
@@ -334,8 +330,14 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
         ? req.query.identity_key.trim()
         : 'xiaoni';
+      const timeFilter = resolveActionStreamTimeFilter(req.query);
       const [feed, runtime] = await Promise.all([
-        getXiaoniActivityFeed({ identityKey, limit }),
+        getXiaoniActivityFeed({
+          identityKey,
+          limit,
+          startTime: timeFilter.startTime,
+          endTime: timeFilter.endTime
+        }),
         loadRuntimeSnapshot()
       ]);
 
@@ -343,6 +345,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         success: true,
         data: {
           ...feed,
+          filters: {
+            ...(typeof feed === 'object' && feed && 'filters' in feed ? (feed as Record<string, unknown>).filters as Record<string, unknown> : {}),
+            ...serializeActionStreamTimeFilter(timeFilter)
+          },
           current: {
             ...feed.current,
             runtime

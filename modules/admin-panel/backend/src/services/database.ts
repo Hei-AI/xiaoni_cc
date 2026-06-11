@@ -570,26 +570,6 @@ export class DatabaseManager {
         ddl: 'CREATE INDEX IF NOT EXISTS idx_prompt_updated_at_id ON prompt_debug_sessions (prompt_id, updated_at, id)'
       },
       {
-        tableName: 'llm_call_logs',
-        indexName: 'idx_trace_timestamp_sequence_id',
-        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_timestamp_sequence_id ON llm_call_logs (trace_id, timestamp, call_sequence, id)'
-      },
-      {
-        tableName: 'llm_call_logs',
-        indexName: 'idx_conversation_started_id',
-        ddl: 'CREATE INDEX IF NOT EXISTS idx_conversation_started_id ON llm_call_logs (conversation_id, started_at, id)'
-      },
-      {
-        tableName: 'llm_call_logs',
-        indexName: 'idx_trace_started_id',
-        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_started_id ON llm_call_logs (trace_id, started_at, id)'
-      },
-      {
-        tableName: 'llm_call_logs',
-        indexName: 'idx_llm_call_started_id',
-        ddl: 'CREATE INDEX IF NOT EXISTS idx_llm_call_started_id ON llm_call_logs (llm_call_id, started_at, id)'
-      },
-      {
         tableName: 'http_traffic_logs',
         indexName: 'idx_trace_request_time_id',
         ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_request_time_id ON http_traffic_logs (trace_id, request_timestamp, id)'
@@ -613,11 +593,6 @@ export class DatabaseManager {
         tableName: 'llm_jobs',
         indexName: 'idx_trace_created_id',
         ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_created_id ON llm_jobs (trace_id, created_at, id)'
-      },
-      {
-        tableName: 'tool_execution_logs',
-        indexName: 'idx_trace_started_completed_id',
-        ddl: 'CREATE INDEX IF NOT EXISTS idx_trace_started_completed_id ON tool_execution_logs (trace_id, started_at, completed_at, id)'
       },
       {
         tableName: 'traffic_replay_history',

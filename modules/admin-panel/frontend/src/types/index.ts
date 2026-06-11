@@ -143,7 +143,7 @@ export interface LLMFlowResponse {
   debug_info: {
     data_completeness: {
       conversation_record: 'complete' | 'partial' | 'missing';
-      llm_call_logs: 'complete' | 'partial' | 'missing';
+      llm_request_slices: 'complete' | 'partial' | 'missing';
       queue_logs: 'complete' | 'partial' | 'missing';
       processing_events: 'complete' | 'partial' | 'missing';
     };

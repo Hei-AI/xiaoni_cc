@@ -4,54 +4,9 @@ const { randomUUID } = require('crypto');
 const { serializeTimestampForApi } = require('./time');
 
 const COMMON_RUNTIME_DDLS = [
-  `
-    CREATE TABLE IF NOT EXISTS llm_call_logs (
-      id BIGSERIAL PRIMARY KEY,
-      llm_call_id VARCHAR(100),
-      trace_id VARCHAR(100),
-      conversation_id BIGINT,
-      session_id VARCHAR(100),
-      call_sequence INTEGER DEFAULT 1,
-      agent_turn INTEGER,
-      agent_type VARCHAR(64),
-      model_name VARCHAR(100),
-      model_provider VARCHAR(64),
-      prompt_template TEXT,
-      input_prompt TEXT,
-      canonical_request JSONB,
-      canonical_response JSONB,
-      wire_request JSONB,
-      wire_response JSONB,
-      effective_unified_config JSONB,
-      request_format_version VARCHAR(32),
-      wire_provider_format VARCHAR(64),
-      raw_response TEXT,
-      processed_response TEXT,
-      status VARCHAR(32),
-      error_message TEXT,
-      error_code VARCHAR(64),
-      started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
-      timestamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      processing_time_ms INTEGER DEFAULT 0,
-      api_call_time_ms INTEGER DEFAULT 0,
-      input_tokens INTEGER DEFAULT 0,
-      output_tokens INTEGER DEFAULT 0,
-      token_usage JSONB,
-      user_id BIGINT DEFAULT 0,
-      context_summary TEXT
-    )
-  `,
-  `
-    ALTER TABLE llm_call_logs
-      ADD COLUMN IF NOT EXISTS llm_call_id VARCHAR(100),
-      ADD COLUMN IF NOT EXISTS agent_turn INTEGER,
-      ADD COLUMN IF NOT EXISTS canonical_response JSONB,
-      ADD COLUMN IF NOT EXISTS wire_request JSONB,
-      ADD COLUMN IF NOT EXISTS wire_response JSONB,
-      ADD COLUMN IF NOT EXISTS effective_unified_config JSONB,
-      ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP(3)
-  `,
+  'DROP TABLE IF EXISTS llm_call_logs CASCADE',
+  'DROP TABLE IF EXISTS tool_execution_logs CASCADE',
+  'DROP TABLE IF EXISTS xiaoni_replay_events CASCADE',
   `
     CREATE TABLE IF NOT EXISTS agent_queue_messages (
       id BIGSERIAL PRIMARY KEY,
@@ -168,29 +123,6 @@ const COMMON_RUNTIME_DDLS = [
       updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
-  `
-    CREATE TABLE IF NOT EXISTS tool_execution_logs (
-      id BIGSERIAL PRIMARY KEY,
-      tool_call_id VARCHAR(128),
-      trace_id VARCHAR(128) NOT NULL,
-      conversation_id BIGINT,
-      job_id VARCHAR(128),
-      agent_turn INTEGER,
-      llm_call_id VARCHAR(128),
-      tool_type VARCHAR(64),
-      tool_name VARCHAR(128) NOT NULL,
-      method_id VARCHAR(128),
-      arguments JSONB,
-      result JSONB,
-      status VARCHAR(32) NOT NULL DEFAULT 'pending',
-      error_message TEXT,
-      execution_mode VARCHAR(64),
-      side_effect BOOLEAN NOT NULL DEFAULT FALSE,
-      started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
-      duration_ms BIGINT
-    )
-  `,
   'CREATE INDEX IF NOT EXISTS idx_agent_queue_pending_available ON agent_queue_messages (status, available_at, id)',
   'CREATE INDEX IF NOT EXISTS idx_agent_queue_session_pending ON agent_queue_messages (session_key, status, available_at, id)',
   'CREATE INDEX IF NOT EXISTS idx_agent_queue_trace_created ON agent_queue_messages (trace_id, created_at, id)',
@@ -198,9 +130,7 @@ const COMMON_RUNTIME_DDLS = [
   'CREATE INDEX IF NOT EXISTS idx_agent_runs_trace_id ON agent_runs (trace_id)',
   'CREATE INDEX IF NOT EXISTS idx_agent_batches_session_created ON agent_message_batches (session_key, created_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_agent_batch_items_batch_position ON agent_message_batch_items (batch_id, position)',
-  'CREATE INDEX IF NOT EXISTS idx_llm_call_logs_trace_started_id ON llm_call_logs (trace_id, started_at, id)',
-  'CREATE INDEX IF NOT EXISTS idx_llm_jobs_trace_created ON llm_jobs (trace_id, created_at, id)',
-  'CREATE INDEX IF NOT EXISTS idx_tool_execution_logs_trace_started ON tool_execution_logs (trace_id, started_at, completed_at, id)'
+  'CREATE INDEX IF NOT EXISTS idx_llm_jobs_trace_created ON llm_jobs (trace_id, created_at, id)'
 ];
 
 const TRANSCRIPT_SNAPSHOT_DDLS = [
@@ -482,81 +412,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
-  async function recordLlmCallLog(input = {}, config = {}) {
-    await withSql(input, config, async (sql) => {
-      await sql.insert(
-        `
-          INSERT INTO llm_call_logs (
-            llm_call_id,
-            trace_id,
-            conversation_id,
-            call_sequence,
-            agent_turn,
-            agent_type,
-            model_name,
-            model_provider,
-            prompt_template,
-            canonical_request,
-            canonical_response,
-            wire_request,
-            wire_response,
-            request_format_version,
-            wire_provider_format,
-            raw_response,
-            processed_response,
-            status,
-            error_message,
-            started_at,
-            completed_at,
-            timestamp,
-            processing_time_ms,
-            api_call_time_ms,
-            input_tokens,
-            output_tokens,
-            token_usage,
-            effective_unified_config
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?::jsonb, ?, ?, ?, NOW() - (? * INTERVAL '1 millisecond'), NOW(), NOW(), ?, ?, ?, ?, ?::jsonb, ?::jsonb)
-        `,
-        [
-          input.llmCallId || null,
-          input.traceId || null,
-          toNumericConversationId(input.conversationId),
-          input.agentTurn ?? 1,
-          input.agentTurn ?? 1,
-          input.agentType || 'chat_bot',
-          input.modelName,
-          input.modelProvider,
-          input.promptName || 'agent_loop_v1',
-          JSON.stringify(normalizeJsonObject(input.canonicalRequest)),
-          JSON.stringify(normalizeJsonObject(input.canonicalResponse)),
-          JSON.stringify(normalizeJsonObject(input.wireRequest)),
-          JSON.stringify(normalizeJsonObject(input.wireResponse)),
-          input.requestFormatVersion,
-          input.wireProviderFormat,
-          JSON.stringify(normalizeJsonObject(input.wireResponse)),
-          input.processedResponse,
-          input.errorMessage ? 'failed' : 'completed',
-          input.errorMessage || null,
-          input.usage?.processingTimeMs,
-          input.usage?.processingTimeMs,
-          input.usage?.processingTimeMs,
-          input.usage?.inputTokens,
-          input.usage?.outputTokens,
-          JSON.stringify({
-            input_tokens: input.usage?.inputTokens,
-            output_tokens: input.usage?.outputTokens,
-            total_tokens: input.usage?.totalTokens,
-            cached_input_tokens: input.usage?.cachedInputTokens || 0,
-            reasoning_tokens: input.usage?.reasoningTokens || 0,
-            raw_usage: input.usage?.rawUsage || {}
-          }),
-          JSON.stringify(normalizeJsonObject(input.effectiveUnifiedConfig))
-        ]
-      );
-    });
-  }
-
   async function attachConversationIdToRuntimeTrace(input = {}, config = {}) {
     const traceId = typeof input.traceId === 'string' ? input.traceId : input.trace_id;
     const conversationId = toNumericConversationId(input.conversationId ?? input.conversation_id);
@@ -568,9 +423,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
       'agent_runs',
       'agent_message_batches',
       'llm_jobs',
-      'tool_execution_logs',
-      'timeline_events',
-      'llm_call_logs'
+      'timeline_events'
     ];
     return withSql(input, config, async (sql) => {
       let updated = 0;
@@ -938,65 +791,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           input.metadata ? JSON.stringify(input.metadata) : null,
           input.status,
           input.jobId
-        ]
-      );
-    });
-  }
-
-  async function createToolExecutionLog(input = {}, config = {}) {
-    return withSql(input, config, async (sql) => {
-      const result = await sql.insert(
-        `
-          INSERT INTO tool_execution_logs (
-            tool_call_id,
-            trace_id,
-            job_id,
-            agent_turn,
-            llm_call_id,
-            tool_type,
-            tool_name,
-            method_id,
-            arguments,
-            status,
-            execution_mode,
-            side_effect,
-            started_at
-          )
-          VALUES (?, ?, ?, ?, ?, 'function', ?, ?, ?::jsonb, 'processing', 'agent_loop', ?, NOW())
-        `,
-        [
-          input.toolCallId,
-          input.traceId,
-          input.jobId,
-          input.agentTurn,
-          input.llmCallId,
-          input.toolName,
-          input.methodId || input.toolName,
-          JSON.stringify(normalizeJsonObject(input.arguments)),
-          input.sideEffect
-        ]
-      );
-      return result.insertId;
-    });
-  }
-
-  async function completeToolExecutionLog(input = {}, config = {}) {
-    await withSql(input, config, async (sql) => {
-      await sql.execute(
-        `
-          UPDATE tool_execution_logs
-          SET status = ?,
-              result = ?::jsonb,
-              error_message = ?,
-              completed_at = NOW(),
-              duration_ms = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000))
-          WHERE id = ?
-        `,
-        [
-          input.status,
-          JSON.stringify(normalizeJsonObject(input.result)),
-          input.errorMessage ?? null,
-          input.logId
         ]
       );
     });
@@ -1507,7 +1301,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     ensureTranscriptSnapshotSchema,
     ensureConversationStoreSchema,
     logRuntimeTimelineEvent,
-    recordLlmCallLog,
     attachConversationIdToRuntimeTrace,
     recoverStaleProcessingLeases,
     enqueueSelfContinuationQueueMessage,
@@ -1517,8 +1310,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     markLeaseDeliveryBlocked,
     createLlmJob,
     updateLlmJob,
-    createToolExecutionLog,
-    completeToolExecutionLog,
     listRecentConversationTurns,
     createConversationWithItems,
     getSessionReadCutoffState,
