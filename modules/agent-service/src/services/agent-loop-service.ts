@@ -6650,7 +6650,7 @@ export function buildInitialInput(
   ].filter((part): part is string => Boolean(part))));
 
   if (contextSummary) {
-    items.push(buildAssistantCommentaryInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
+    items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
   for (const turn of history) {

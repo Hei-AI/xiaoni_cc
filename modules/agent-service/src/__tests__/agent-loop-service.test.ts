@@ -674,10 +674,13 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   const contents = loopInput.map(getMessageContent);
   const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
+  const digestItem = loopInput[digestIndex] as any;
   const currentMessageIndex = contents.findIndex(isPhoneNotificationReminderContent);
 
   assert.ok(historyIndex >= 0);
   assert.ok(digestIndex >= 0);
+  assert.equal(digestItem?.role, 'developer');
+  assert.equal(digestItem?.phase, undefined);
   assert.ok(currentMessageIndex >= 0);
   assert.ok(digestIndex < historyIndex);
   assert.ok(digestIndex < currentMessageIndex);
@@ -5532,7 +5535,7 @@ test('buildInitialInput appends CAPABILITIES once near the start', () => {
   const withSummary = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], '压缩后的近况');
   const summaryCapabilities = withSummary.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
   assert.equal(summaryCapabilities.length, 1);
-  const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('<小腻近况>'));
+  const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<小腻近况>'));
   assert.ok(summaryIndex >= 0);
   assert.ok(withSummary.indexOf(summaryCapabilities[0]!) < summaryIndex);
   const summaryCapabilitiesBlock = getMessageContent(summaryCapabilities[0]!);

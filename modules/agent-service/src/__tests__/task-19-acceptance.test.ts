@@ -199,7 +199,7 @@ test('Task 19 compress_core_memory tool text is the future prompt-facing Xiaoni 
   const input = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], text);
   const statusItem = input.find((item) => (
     item.type === 'message'
-    && item.role === 'assistant'
+    && item.role === 'developer'
     && getMessageContent(item).includes('<小腻近况>')
   ));
 
