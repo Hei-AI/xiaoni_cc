@@ -75,12 +75,10 @@ describe('chat settings route regressions', () => {
     expect(listResponse.body.data[0]).toMatchObject({
       user_id: 999999991,
       auto_reply_enabled: 0,
-      agent_prompt_id: null,
     });
     expect(detailResponse.body.data.user_settings).toMatchObject({
       user_id: 999999991,
       auto_reply_enabled: 0,
-      agent_prompt_id: null,
     });
   });
 });

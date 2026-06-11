@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import {
   Plus,
-  Eye,
   Filter,
   MessageCircle,
   PauseCircle,
@@ -52,7 +50,6 @@ interface PrivateChatUser {
   success_rate: number;
   avg_response_time: string;
   is_enabled: number;
-  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   im_receive_enabled?: number;
   agent_im_entry_enabled?: number;
@@ -78,7 +75,6 @@ export const normalizePrivateChatUser = (user: PrivateChatUser): PrivateChatUser
   failed_replies: Number(user.failed_replies ?? 0),
   success_rate: Number(user.success_rate ?? 0),
   is_enabled: Number(user.is_enabled ?? 0),
-  continuous_learning_enabled: Number(user.continuous_learning_enabled ?? 0),
   auto_reply_enabled: Number(user.auto_reply_enabled ?? 0),
   im_receive_enabled: Number(user.im_receive_enabled ?? user.is_enabled ?? 0),
   agent_im_entry_enabled: Number(user.agent_im_entry_enabled ?? user.auto_reply_enabled ?? 0),
@@ -114,7 +110,7 @@ const fetchPrivateChats = async (params: {
   };
 };
 
-const updatePrivateChat = async (userId: number, data: { is_enabled?: number; continuous_learning_enabled?: number; auto_reply_enabled?: number }) => {
+const updatePrivateChat = async (userId: number, data: { is_enabled?: number; auto_reply_enabled?: number }) => {
   const response = await fetch(`/api/private-chats/${userId}/settings`, {
     method: 'PUT',
     headers: {
@@ -147,7 +143,6 @@ const createPrivateChat = async (data: { user_id: number; username?: string }) =
 const batchUpdatePrivateChats = async (data: {
   user_ids: number[];
   is_enabled?: number;
-  continuous_learning_enabled?: number;
   auto_reply_enabled?: number;
 }) => {
   const response = await fetch('/api/private-chats/batch', {
@@ -206,7 +201,6 @@ export const PrivateChatManagementPage: React.FC = () => {
   });
 
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const limit = 20;
 
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
@@ -227,11 +221,10 @@ export const PrivateChatManagementPage: React.FC = () => {
 
   const createPrivateChatMutation = useMutation({
     mutationFn: createPrivateChat,
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['private-chats'] });
       setCreateDialogOpen(false);
       setCreateForm({ userId: '', username: '' });
-      navigate(`/private-chats/${variables.user_id}`);
     },
   });
 
@@ -280,7 +273,7 @@ export const PrivateChatManagementPage: React.FC = () => {
     batchUpdateMutation.mutate({
       user_ids: selectedUsers,
       ...(field === 'is_enabled' && !value
-        ? { is_enabled: 0, continuous_learning_enabled: 0, auto_reply_enabled: 0 }
+        ? { is_enabled: 0, auto_reply_enabled: 0 }
         : { [field]: value ? 1 : 0 }),
     });
   };
@@ -354,10 +347,9 @@ export const PrivateChatManagementPage: React.FC = () => {
   const rows = data?.data || [];
   const metrics = useMemo(() => {
     const enabled = rows.filter((user) => user.im_receive_enabled ?? user.is_enabled).length;
-    const learning = rows.filter((user) => user.continuous_learning_enabled).length;
     const autoReply = rows.filter((user) => user.agent_im_entry_enabled ?? user.auto_reply_enabled).length;
     const avgSuccess = rows.length > 0 ? Math.round(rows.reduce((sum, user) => sum + user.success_rate, 0) / rows.length) : 0;
-    return { enabled, learning, autoReply, avgSuccess };
+    return { enabled, autoReply, avgSuccess };
   }, [rows]);
 
   const renderToggleControl = (user: PrivateChatUser, field: PrivateChatToggleField, label: string) => {
@@ -407,7 +399,7 @@ export const PrivateChatManagementPage: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加私聊策略</DialogTitle>
-            <DialogDescription>输入指定 QQ 号后，默认会创建为“IM 入口开启，agent 投递关闭”。</DialogDescription>
+            <DialogDescription>输入指定 QQ 号后，默认会创建为“IM 入口开启，消息投递关闭”。</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -435,7 +427,7 @@ export const PrivateChatManagementPage: React.FC = () => {
               取消
             </Button>
             <Button onClick={() => void handleCreatePrivateChat()} disabled={createPrivateChatMutation.isPending}>
-              {createPrivateChatMutation.isPending ? '创建中...' : '创建并进入详情'}
+              {createPrivateChatMutation.isPending ? '创建中...' : '创建'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -462,7 +454,7 @@ export const PrivateChatManagementPage: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="当前页用户" value={rows.length} icon={<User className="h-5 w-5" />} />
-        <MetricCard label="IM 入口开启" value={metrics.enabled} detail={`学习开启 ${metrics.learning} / agent 投递 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="IM 入口开启" value={metrics.enabled} detail={`消息投递 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
         <MetricCard label="平均成功率" value={`${metrics.avgSuccess}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
@@ -493,7 +485,7 @@ export const PrivateChatManagementPage: React.FC = () => {
                 checked={filters.auto_reply_enabled === true}
                 onCheckedChange={(checked) => handleFilterChange('auto_reply_enabled', checked ? true : undefined)}
               />
-              <span>agent 投递开启</span>
+              <span>消息投递开启</span>
             </label>
             <Button
               variant="outline"
@@ -522,17 +514,11 @@ export const PrivateChatManagementPage: React.FC = () => {
                 <PauseCircle className="mr-2 h-4 w-4" />
                 批量关闭 IM
               </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('continuous_learning_enabled', true)} disabled={batchUpdateMutation.isPending}>
-                开启持续学习
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('continuous_learning_enabled', false)} disabled={batchUpdateMutation.isPending}>
-                关闭持续学习
-              </Button>
               <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('auto_reply_enabled', true)} disabled={batchUpdateMutation.isPending}>
-                开启 agent 投递
+                开启消息投递
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleBatchUpdate('auto_reply_enabled', false)} disabled={batchUpdateMutation.isPending}>
-                关闭 agent 投递
+                关闭消息投递
               </Button>
               <Button
                 size="sm"
@@ -583,12 +569,9 @@ export const PrivateChatManagementPage: React.FC = () => {
                       </StatusPill>
                       <StatusPill tone={(user.im_receive_enabled ?? user.is_enabled) ? 'success' : 'neutral'}>{(user.im_receive_enabled ?? user.is_enabled) ? '可进 IM' : '不进 IM'}</StatusPill>
                       <StatusPill tone={(user.agent_im_entry_enabled ?? user.auto_reply_enabled) ? 'info' : 'warning'}>
-                        {(user.agent_im_entry_enabled ?? user.auto_reply_enabled) ? 'agent 投递' : '只进未读'}
+                        {(user.agent_im_entry_enabled ?? user.auto_reply_enabled) ? '消息投递' : '只进未读'}
                       </StatusPill>
                       {user.direct_force_im_trigger_enabled ? <Badge variant="outline">工程强制</Badge> : null}
-                      <StatusPill tone={user.continuous_learning_enabled ? 'info' : 'neutral'}>
-                        {user.continuous_learning_enabled ? '持续学习开启' : '持续学习关闭'}
-                      </StatusPill>
                       <Badge variant="outline">成功率 {user.success_rate}%</Badge>
                     </>
                   }
@@ -603,13 +586,8 @@ export const PrivateChatManagementPage: React.FC = () => {
                   }
                 >
                   <div className="grid grid-cols-1 gap-2">
-                    <Button variant="outline" size="sm" onClick={() => navigate(`/private-chats/${user.user_id}`)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      详情
-                    </Button>
                     {renderToggleControl(user, 'is_enabled', '进入小腻 IM')}
-                    {renderToggleControl(user, 'continuous_learning_enabled', '持续学习')}
-                    {renderToggleControl(user, 'auto_reply_enabled', 'agent 投递')}
+                    {renderToggleControl(user, 'auto_reply_enabled', '消息投递')}
                     <Button
                       variant="outline"
                       size="sm"
@@ -642,10 +620,9 @@ export const PrivateChatManagementPage: React.FC = () => {
                     <TableHead>对话统计</TableHead>
                     <TableHead>成功率</TableHead>
                     <TableHead>IM 入口</TableHead>
-                    <TableHead>持续学习</TableHead>
-                    <TableHead>agent 投递</TableHead>
+                    <TableHead>消息投递</TableHead>
                     <TableHead>最后对话</TableHead>
-                    <TableHead>操作</TableHead>
+                    <TableHead>开关</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -677,17 +654,11 @@ export const PrivateChatManagementPage: React.FC = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusPill tone={user.continuous_learning_enabled ? 'info' : 'neutral'}>{user.continuous_learning_enabled ? '开启' : '关闭'}</StatusPill>
-                      </TableCell>
-                      <TableCell>
                         <StatusPill tone={(user.agent_im_entry_enabled ?? user.auto_reply_enabled) ? 'info' : 'warning'}>{(user.agent_im_entry_enabled ?? user.auto_reply_enabled) ? '投递' : '不投递'}</StatusPill>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{user.last_conversation_time ? formatDate(user.last_conversation_time) : '无'}</TableCell>
                       <TableCell>
                         <div className="flex min-w-[240px] items-center gap-4">
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/private-chats/${user.user_id}`)}>
-                            <Eye className="h-3 w-3" />
-                          </Button>
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-muted-foreground">进 IM</span>
                             <Switch
@@ -695,15 +666,6 @@ export const PrivateChatManagementPage: React.FC = () => {
                               onCheckedChange={(nextChecked) => void handleUserUpdate(user.user_id, 'is_enabled', nextChecked)}
                               disabled={Boolean(user.direct_force_im_trigger_enabled) || loadingStates[`${user.user_id}_is_enabled`] || false}
                               aria-label={`private-${user.user_id}-receive`}
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground">学习</span>
-                            <Switch
-                              checked={Boolean(user.continuous_learning_enabled)}
-                              onCheckedChange={(nextChecked) => void handleUserUpdate(user.user_id, 'continuous_learning_enabled', nextChecked)}
-                              disabled={loadingStates[`${user.user_id}_continuous_learning_enabled`] || isChatSettingToggleDisabled(user, 'continuous_learning_enabled')}
-                              aria-label={`private-${user.user_id}-continuous-learning`}
                             />
                           </div>
                           <div className="flex items-center gap-2">

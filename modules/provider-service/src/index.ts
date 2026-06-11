@@ -68,6 +68,51 @@ const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
+
+function parseDirectAgentTriggerUserIds() {
+  const raw = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS
+    || process.env.AUTHORIZED_USER_ID
+    || String(aiConfig.authorized_user_id);
+  const ids = new Set<string>();
+  String(raw)
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .forEach((item) => ids.add(String(Math.trunc(item))));
+  return ids;
+}
+
+const directAgentTriggerUserIds = parseDirectAgentTriggerUserIds();
+type ChatPolicyState = Awaited<ReturnType<ChatPolicyService['getPolicyState']>>;
+
+function applyEffectiveInboundPolicy(
+  policy: ChatPolicyState,
+  params: { messageType: ProviderMessageType; userId: number; wasMentioned?: boolean }
+) {
+  return applyForcedInboundAgentQueuePolicy(policy, {
+    chatType: params.messageType === 'group' ? 'group' : 'direct',
+    wasMentioned: params.wasMentioned === true,
+    senderId: String(params.userId)
+  }, {
+    directTriggerUserIds: directAgentTriggerUserIds
+  });
+}
+
+function buildIncomingPolicyResult(policy: ChatPolicyState) {
+  return {
+    ...policy,
+    allowed: policy.isEnabled,
+    reason: policy.isEnabled ? 'accepted' as const : 'receive_disabled' as const
+  };
+}
+
+function buildAutoReplyPolicyResult(policy: ChatPolicyState) {
+  return {
+    ...policy,
+    allowed: policy.autoReplyEnabled,
+    reason: policy.autoReplyEnabled ? 'accepted' as const : 'auto_reply_disabled' as const
+  };
+}
 const relationshipLedgerService = new RelationshipLedgerService({
   recentMessageProvider: async ({ sessionKey, currentMessageSid }) => {
     const messages = await inboxService.listConversationMessages({
@@ -392,32 +437,10 @@ async function runContinuousLearningIfEnabled(params: {
   skipMaterialization?: boolean;
   inboxOnly?: boolean;
 }) {
-  if (!params.policyState.continuousLearningEnabled) {
-    return {
-      attempted: false,
-      reason: 'continuous_learning_disabled'
-    };
-  }
-
-  if (params.inboxOnly) {
-    return {
-      attempted: false,
-      reason: 'inbox_only_until_im_opened'
-    };
-  }
-
-  if (!params.skipMaterialization) {
-    await materializeContinuousLearningTurn({
-      inboundContext: params.inboundContext,
-      currentMessageId: params.inboxEventId,
-      traceId: params.traceId
-    });
-  }
-
-  scheduleCompactionSideEffects(params.inboundContext);
+  void params;
   return {
-    attempted: true,
-    reason: params.skipMaterialization ? 'scheduled_existing_transcript' : 'materialized_and_scheduled'
+    attempted: false,
+    reason: 'continuous_learning_retired'
   };
 }
 
@@ -486,6 +509,11 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     userId: Number(payload.user_id),
     groupId: messageType === 'group' ? Number(payload.group_id) : undefined
   });
+  const effectivePolicy = applyEffectiveInboundPolicy(policyState, {
+    messageType,
+    userId: Number(payload.user_id),
+    wasMentioned: finalizedContext.WasMentioned === true
+  });
   recordRelationshipLedgerAsync(finalizedContext, result.event.id);
   const autoReply = await processAutoReply({
     inboxEvent: result.event,
@@ -498,7 +526,7 @@ async function simulateSimpleQueueMessage(messageType: ProviderMessageType, payl
     },
     traceId: result.traceId,
     source: 'simulator',
-    policyState
+    policyState: effectivePolicy
   });
   const inboxOnly = isInboxOnlyInboundMessage(result.event);
   const learning = !autoReply.queued
@@ -619,10 +647,10 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     userId,
     groupId
   });
-  const effectivePolicy = applyForcedInboundAgentQueuePolicy(policy, {
-    chatType: messageType === 'group' ? 'group' : 'direct',
-    wasMentioned: false,
-    senderId: String(userId)
+  const effectivePolicy = applyEffectiveInboundPolicy(policy, {
+    messageType,
+    userId,
+    wasMentioned: false
   });
 
   if (!effectivePolicy.isEnabled) {
@@ -848,10 +876,14 @@ app.post('/api/internal/send_private', async (req, res) => {
     }
 
     if (enforcePolicy) {
-      const policy = await chatPolicyService.checkAutoReplyPolicy({
+      const policyState = await chatPolicyService.getPolicyState({
         messageType: 'private',
         userId
       });
+      const policy = buildAutoReplyPolicyResult(applyEffectiveInboundPolicy(policyState, {
+        messageType: 'private',
+        userId
+      }));
       if (!policy.allowed) {
         return res.status(409).json({
           success: false,
@@ -891,11 +923,15 @@ app.post('/api/internal/send_group', async (req, res) => {
     }
 
     if (enforcePolicy) {
-      const policy = await chatPolicyService.checkAutoReplyPolicy({
+      const policyState = await chatPolicyService.getPolicyState({
         messageType: 'group',
         userId: 0,
         groupId
       });
+      const policy = buildAutoReplyPolicyResult(applyEffectiveInboundPolicy(policyState, {
+        messageType: 'group',
+        userId: 0
+      }));
       if (!policy.allowed) {
         return res.status(409).json({
           success: false,
@@ -1294,11 +1330,15 @@ app.post('/api/internal/chat-policies/check-incoming', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required parameter: group_id' });
     }
 
-    const policy = await chatPolicyService.checkIncomingPolicy({
+    const policyState = await chatPolicyService.getPolicyState({
       messageType,
       userId: Number.isFinite(userId) ? userId : 0,
       groupId
     });
+    const policy = buildIncomingPolicyResult(applyEffectiveInboundPolicy(policyState, {
+      messageType,
+      userId: Number.isFinite(userId) ? userId : 0
+    }));
 
     res.json({
       success: true,
@@ -1327,11 +1367,15 @@ app.post('/api/internal/chat-policies/check-auto-reply', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Missing required parameter: group_id' });
     }
 
-    const policy = await chatPolicyService.checkAutoReplyPolicy({
+    const policyState = await chatPolicyService.getPolicyState({
       messageType,
       userId: Number.isFinite(userId) ? userId : 0,
       groupId
     });
+    const policy = buildAutoReplyPolicyResult(applyEffectiveInboundPolicy(policyState, {
+      messageType,
+      userId: Number.isFinite(userId) ? userId : 0
+    }));
 
     res.json({
       success: true,
@@ -1576,10 +1620,10 @@ app.post('/api/inbox/simulate', async (req, res) => {
       userId: targets.userId,
       groupId: targets.groupId
     });
-    const effectivePolicy = applyForcedInboundAgentQueuePolicy(policy, {
-      chatType: targets.messageType === 'group' ? 'group' : 'direct',
-      wasMentioned: finalizedContext.WasMentioned === true,
-      senderId: String(targets.userId)
+    const effectivePolicy = applyEffectiveInboundPolicy(policy, {
+      messageType: targets.messageType,
+      userId: targets.userId,
+      wasMentioned: finalizedContext.WasMentioned === true
     });
 
     if (!effectivePolicy.isEnabled) {

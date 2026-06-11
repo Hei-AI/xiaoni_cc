@@ -9,7 +9,8 @@ test('policy state treats receive as the hard parent switch', async () => {
       findUnique: async () => ({
         is_enabled: 0,
         continuous_learning_enabled: 1,
-        auto_reply_enabled: 1
+        auto_reply_enabled: 1,
+        agent_prompt_id: null
       })
     }
   };
@@ -28,7 +29,7 @@ test('policy state treats receive as the hard parent switch', async () => {
   });
 });
 
-test('missing policy rows keep learning enabled and auto reply disabled by default', async () => {
+test('missing policy rows keep receive enabled and message delivery disabled by default', async () => {
   const service = new ChatPolicyService();
   (service as any).prisma = {
     privateChatSetting: {
@@ -44,7 +45,34 @@ test('missing policy rows keep learning enabled and auto reply disabled by defau
   assert.deepEqual(state, {
     exists: false,
     isEnabled: true,
-    continuousLearningEnabled: true,
+    continuousLearningEnabled: false,
     autoReplyEnabled: false
+  });
+});
+
+test('policy state allows group auto reply without a prompt binding', async () => {
+  const service = new ChatPolicyService();
+  (service as any).prisma = {
+    groupChatSetting: {
+      findUnique: async () => ({
+        is_enabled: 1,
+        continuous_learning_enabled: 1,
+        auto_reply_enabled: 1,
+        agent_prompt_id: null
+      })
+    }
+  };
+
+  const state = await service.getPolicyState({
+    messageType: 'group',
+    userId: 20001,
+    groupId: 100
+  });
+
+  assert.deepEqual(state, {
+    exists: true,
+    isEnabled: true,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: true
   });
 });

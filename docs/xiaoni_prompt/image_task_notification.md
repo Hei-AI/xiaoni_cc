@@ -1,0 +1,5 @@
+图片生成任务:{{TASK_ID}} {{TASK_RESULT}}, 你愿意的话可以继续相关内容的处理了
+{{TASK_TYPE_LINE}}
+{{PICTURE_ID_LINE}}
+{{PICTURE_PATH_LINE}}
+{{TARGET_DESCRIPTION_LINE}}

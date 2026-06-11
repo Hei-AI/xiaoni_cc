@@ -6,9 +6,7 @@ type MessageType = 'private' | 'group';
 
 type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
-  continuous_learning_enabled: number | bigint | null;
   auto_reply_enabled: number | bigint | null;
-  agent_prompt_id?: string | null;
 };
 
 export type PolicyState = {
@@ -87,7 +85,7 @@ export class ChatPolicyService {
           create: {
             group_id: BigInt(params.groupId),
             is_enabled: 1,
-            continuous_learning_enabled: 1,
+            continuous_learning_enabled: 0,
             auto_reply_enabled: 0,
             last_activity: new Date()
           },
@@ -103,7 +101,7 @@ export class ChatPolicyService {
         create: {
           user_id: BigInt(params.userId),
           is_enabled: 1,
-          continuous_learning_enabled: 1,
+          continuous_learning_enabled: 0,
           auto_reply_enabled: 0,
           last_activity: new Date()
         },
@@ -128,22 +126,18 @@ export class ChatPolicyService {
       return {
         exists: false,
         isEnabled: true,
-        continuousLearningEnabled: true,
+        continuousLearningEnabled: false,
         autoReplyEnabled: false
       };
     }
 
     const isEnabled = Boolean(row.is_enabled);
-    const continuousLearningEnabled = isEnabled && Boolean(row.continuous_learning_enabled);
-    const autoReplyEnabled = isEnabled
-      && typeof row.agent_prompt_id === 'string'
-      && row.agent_prompt_id.trim().length > 0
-      && Boolean(row.auto_reply_enabled);
+    const autoReplyEnabled = isEnabled && Boolean(row.auto_reply_enabled);
 
     return {
       exists: true,
       isEnabled,
-      continuousLearningEnabled,
+      continuousLearningEnabled: false,
       autoReplyEnabled
     };
   }
@@ -157,9 +151,7 @@ export class ChatPolicyService {
       where: { group_id: BigInt(groupId) },
       select: {
         is_enabled: true,
-        continuous_learning_enabled: true,
-        auto_reply_enabled: true,
-        agent_prompt_id: true
+        auto_reply_enabled: true
       }
     });
 
@@ -171,9 +163,7 @@ export class ChatPolicyService {
       where: { user_id: BigInt(userId) },
       select: {
         is_enabled: true,
-        continuous_learning_enabled: true,
-        auto_reply_enabled: true,
-        agent_prompt_id: true
+        auto_reply_enabled: true
       }
     });
 

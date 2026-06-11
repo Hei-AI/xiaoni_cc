@@ -24,9 +24,13 @@ loop tick
   -> provider-service codex-provider / OpenAI
   -> append response.output_items into agent_stack_items
   -> if function_call: dispatch tools and append function_call_output
-  -> if final_answer and no tool: continue via real notify or self_continuation
+  -> if final_answer and no tool: append normal self_continuation input, then continue
   -> next loop
 ```
+
+同一条 queue message 的 active loop 不在普通下一片重组固定前缀；`system prompt`
+和稳定 developer head 在 loop 外组装一次。后续模型片只追加 response output、tool
+output 或 runtime reminder。P0 上下文压缩完成后可以重组窗口，因为那是显式压缩。
 
 目标事实源见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。迁移期旧 transcript、LLM/tool
 审计表可以继续作为兼容投影或审计来源，但不要再把它们写成小腻连续认知的概念来源。
@@ -91,10 +95,10 @@ canonical_response
   -> no function_call
   -> append response output items
   -> do not append final-answer-specific reminder
-  -> later work uses real Notify Bucket item or normal self_continuation
+  -> append normal self_continuation developer reminder before the next model slice
 ```
 
-当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，只按普通内部 `system_reminder` 兼容读取，不作为新的 prompt-facing 契约。
+当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
 
 ## 动作分发
 
@@ -105,7 +109,7 @@ canonical_response
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
-| `final_answer` | 无外部工具分发；如果没有工具调用，只追加模型 output item 并进入下一轮调度。 | 不追加 prompt-facing follow-up reminder；后续由真实 notify 或普通 `self_continuation` 推进。 |
+| `final_answer` | 无外部工具分发；如果没有工具调用，先追加模型 output item，再追加普通 `self_continuation` runtime input 进入下一轮模型切片。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；如果继续切片，原始 Notify 不会重新作为当前输入。 |
 
 ## 图片理解 Fork

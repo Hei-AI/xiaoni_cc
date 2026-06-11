@@ -8,12 +8,10 @@ interface PrivateChatSettingRow {
   user_id: number;
   username: string | null;
   is_enabled: number;
-  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number | null;
   welcome_message: string | null;
   user_notes: string | null;
-  agent_prompt_id: string | null;
   last_activity: string | null;
 }
 
@@ -21,12 +19,10 @@ interface GroupChatSettingRow {
   group_id: number;
   group_name: string | null;
   is_enabled: number;
-  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   transcript_compact_offset: number | null;
   welcome_message: string | null;
   admin_user_id: number | null;
-  agent_prompt_id: string | null;
   last_activity: string | null;
 }
 
@@ -38,7 +34,7 @@ interface ToolMetricRow {
   last_hit_at: string | null;
 }
 
-type ChatSettingToggleField = 'is_enabled' | 'continuous_learning_enabled' | 'auto_reply_enabled';
+type ChatSettingToggleField = 'is_enabled' | 'auto_reply_enabled';
 
 type ChatSettingSanitizeOptions = {
   allowedFields: readonly string[];
@@ -46,7 +42,6 @@ type ChatSettingSanitizeOptions = {
 
 const TOGGLE_FIELDS: readonly ChatSettingToggleField[] = [
   'is_enabled',
-  'continuous_learning_enabled',
   'auto_reply_enabled'
 ];
 
@@ -185,7 +180,6 @@ export function normalizeChatSettingUpdates(
   });
 
   if (sanitizedUpdates.is_enabled === 0) {
-    sanitizedUpdates.continuous_learning_enabled = 0;
     sanitizedUpdates.auto_reply_enabled = 0;
   }
 
@@ -212,7 +206,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const success = await database.upsertGroupChatSettings(groupId, {
         group_name: groupName || null,
         is_enabled: 1,
-        continuous_learning_enabled: 1,
+        continuous_learning_enabled: 0,
         auto_reply_enabled: 0
       });
       const groupSettings = await database.getGroupChatSettingById(groupId);
@@ -224,7 +218,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           group_id: groupId,
           group_name: groupName || null,
           is_enabled: 1,
-          continuous_learning_enabled: 1,
+          continuous_learning_enabled: 0,
           auto_reply_enabled: 0
         },
         timestamp: new Date().toISOString()
@@ -277,14 +271,12 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           g.group_id,
           g.group_name,
           g.is_enabled,
-          CASE WHEN g.is_enabled = 1 THEN g.continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
           CASE WHEN g.is_enabled = 1 THEN g.auto_reply_enabled ELSE 0 END as auto_reply_enabled,
           g.is_enabled as im_receive_enabled,
           CASE WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 1 ELSE 0 END as agent_im_entry_enabled,
           g.transcript_compact_offset,
           g.welcome_message,
           g.admin_user_id,
-          g.agent_prompt_id,
           g.last_activity,
           g.created_at,
           g.updated_at,
@@ -302,7 +294,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           END as activity_level,
           CASE
             WHEN g.is_enabled = 1 AND g.auto_reply_enabled = 1 THEN 'active'
-            WHEN g.is_enabled = 1 AND g.continuous_learning_enabled = 1 THEN 'learning_only'
             WHEN g.is_enabled = 1 THEN 'receiving_only'
             ELSE 'disabled'
           END as status,
@@ -448,14 +439,9 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
             ELSE CONCAT(ROUND(stats.avg_response_time), 'ms')
           END as avg_response_time,
           COALESCE(pcs.is_enabled, 1) as is_enabled,
-          CASE
-            WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.continuous_learning_enabled, 1)
-            ELSE 0
-          END as continuous_learning_enabled,
           CASE WHEN COALESCE(pcs.is_enabled, 1) = 1 THEN COALESCE(pcs.auto_reply_enabled, 0) ELSE 0 END as auto_reply_enabled,
           COALESCE(pcs.transcript_compact_offset, 6) as transcript_compact_offset,
-          pcs.user_notes,
-          pcs.agent_prompt_id
+          pcs.user_notes
         FROM (
           SELECT user_id FROM private_chat_settings
           UNION
@@ -561,10 +547,9 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取用户设置
       const userSettingsRows = await database.executeQuery<PrivateChatSettingRow>(`
         SELECT user_id, username, is_enabled,
-               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
                CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message, user_notes,
-               transcript_compact_offset, agent_prompt_id, last_activity
+               transcript_compact_offset, last_activity
         FROM private_chat_settings
         WHERE user_id = ?
       `, [userId]);
@@ -577,7 +562,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         user_id: userId,
         nickname: userSettingRow?.username || `用户${userId}`,
         is_enabled: baseReceiveEnabled,
-        continuous_learning_enabled: userSettingRow?.continuous_learning_enabled ?? 1,
         auto_reply_enabled: baseAutoReplyEnabled,
         direct_force_im_trigger_enabled: directForceImTriggerEnabled,
         im_receive_enabled: directForceImTriggerEnabled ? 1 : baseReceiveEnabled,
@@ -585,7 +569,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         transcript_compact_offset: userSettingRow?.transcript_compact_offset ?? 6,
         welcome_message: userSettingRow?.welcome_message || null,
         user_notes: userSettingRow?.user_notes || null,
-        agent_prompt_id: userSettingRow?.agent_prompt_id || null,
         last_activity: userSettingRow?.last_activity || null
       };
 
@@ -660,7 +643,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
   // 批量更新私聊用户设置
   router.post('/private-chats/batch', async (req, res) => {
     try {
-      const { user_ids, is_enabled, continuous_learning_enabled, auto_reply_enabled } = req.body;
+      const { user_ids, is_enabled, auto_reply_enabled } = req.body;
 
       if (!Array.isArray(user_ids) || user_ids.length === 0) {
         return res.status(400).json({
@@ -689,23 +672,16 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         updateValues.push(is_enabled ? 1 : 0);
       }
 
-      if (continuous_learning_enabled !== undefined) {
-        updateFields.push('continuous_learning_enabled = ?');
-        updateValues.push(continuous_learning_enabled ? 1 : 0);
-      }
-
       if (auto_reply_enabled !== undefined) {
         updateFields.push('auto_reply_enabled = ?');
         updateValues.push(auto_reply_enabled ? 1 : 0);
       }
 
       if (is_enabled === false || is_enabled === 0) {
-        updateFields = updateFields.filter((field) => field !== 'continuous_learning_enabled = ?' && field !== 'auto_reply_enabled = ?');
+        updateFields = updateFields.filter((field) => field !== 'auto_reply_enabled = ?');
         if (updateValues.length > 1) {
           updateValues = updateValues.slice(0, 1);
         }
-        updateFields.push('continuous_learning_enabled = ?');
-        updateValues.push(0);
         updateFields.push('auto_reply_enabled = ?');
         updateValues.push(0);
       }
@@ -733,7 +709,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       logger.info('Batch private chat settings updated', {
         user_ids: validIds,
         is_enabled,
-        continuous_learning_enabled,
         auto_reply_enabled,
         affectedRows: result
       });
@@ -806,7 +781,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       const success = await database.upsertPrivateChatSettings(userId, {
         username: username || null,
         is_enabled: 1,
-        continuous_learning_enabled: 1,
+        continuous_learning_enabled: 0,
         auto_reply_enabled: 0
       });
       const settings = await database.getPrivateChatSettingById(userId);
@@ -818,7 +793,7 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
           user_id: userId,
           username: username || null,
           is_enabled: 1,
-          continuous_learning_enabled: 1,
+          continuous_learning_enabled: 0,
           auto_reply_enabled: 0
         },
         timestamp: new Date().toISOString()
@@ -918,7 +893,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         allowedFields: [
           'username',
           'is_enabled',
-          'continuous_learning_enabled',
           'auto_reply_enabled',
           'transcript_compact_offset',
           'welcome_message',
@@ -1046,10 +1020,9 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
       // 获取群聊设置
       const groupSettingsRows = await database.executeQuery<GroupChatSettingRow>(`
         SELECT group_id, group_name, is_enabled,
-               CASE WHEN is_enabled = 1 THEN continuous_learning_enabled ELSE 0 END as continuous_learning_enabled,
                CASE WHEN is_enabled = 1 THEN auto_reply_enabled ELSE 0 END as auto_reply_enabled,
                welcome_message,
-               transcript_compact_offset, admin_user_id, agent_prompt_id, last_activity
+               transcript_compact_offset, admin_user_id, last_activity
         FROM group_chat_settings
         WHERE group_id = ?
       `, [groupId]);
@@ -1061,14 +1034,12 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         group_id: groupId,
         group_name: groupSettingsRow?.group_name || `群聊${groupId}`,
         is_enabled: groupReceiveEnabled,
-        continuous_learning_enabled: groupSettingsRow?.continuous_learning_enabled ?? 1,
         auto_reply_enabled: groupAutoReplyEnabled,
         im_receive_enabled: groupReceiveEnabled,
         agent_im_entry_enabled: groupReceiveEnabled === 1 && groupAutoReplyEnabled === 1 ? 1 : 0,
         transcript_compact_offset: groupSettingsRow?.transcript_compact_offset ?? 6,
         welcome_message: groupSettingsRow?.welcome_message || null,
         admin_user_id: groupSettingsRow?.admin_user_id || null,
-        agent_prompt_id: groupSettingsRow?.agent_prompt_id || null,
         last_activity: groupSettingsRow?.last_activity || null
       };
 
@@ -1185,7 +1156,6 @@ export function createChatRoutes(database: DatabaseManager, logger: winston.Logg
         allowedFields: [
           'group_name',
           'is_enabled',
-          'continuous_learning_enabled',
           'auto_reply_enabled',
           'transcript_compact_offset',
           'welcome_message',

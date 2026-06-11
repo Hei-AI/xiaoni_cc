@@ -197,6 +197,7 @@ services:
       - qq_bot_network
     volumes:
       - ./logs/agent-service:/app/logs
+      - ./docs/xiaoni_prompt:/app/docs/xiaoni_prompt:ro
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
 
   # Admin Panel Backend

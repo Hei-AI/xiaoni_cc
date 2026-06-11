@@ -125,13 +125,14 @@ export class AgentPromptService implements AgentPromptResolver {
     const contextVariables = {};
     const modelName = agentConfig.xiaoniMainAgentModelName;
     const runtimeVariables = buildRuntimeVariables(queueMessage, modelName);
+    const systemPrompt = agentConfig.systemPrompt;
 
     return {
       source: 'static',
       promptId: XIAONI_MAIN_AGENT_PROMPT_ID,
       promptName: XIAONI_MAIN_AGENT_PROMPT_NAME,
-      systemPrompt: renderPromptTemplate(agentConfig.systemPrompt, contextVariables, runtimeVariables),
-      identityGenesisSnapshot: agentConfig.systemPrompt,
+      systemPrompt: renderPromptTemplate(systemPrompt, contextVariables, runtimeVariables),
+      identityGenesisSnapshot: systemPrompt,
       userPromptTemplate: null,
       contextVariables,
       runtimeVariables,

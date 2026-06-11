@@ -6,7 +6,7 @@
 
 ## 一、核心系统指令 (Core System Prompt)
 
-**应用位置：** `xiaoni-main-agent.ts` 或大模型请求的 `instructions` / 第一个 `system` item。
+**应用位置：** `docs/xiaoni_prompt/` 中的 prompt 文件，或大模型请求的 `instructions` / 第一个 `system` item。
 
 ```markdown
 # 核心设定 (Core Identity)
@@ -136,7 +136,7 @@
 
 `image_task_follow_up` 不再作为独立 `<system_reminder>` 设计。`request_image_task` 本身是 tool call，tool output 已经返回 `queued`、`task_id`、`task_type`、`status_text`，其中 `status_text` 会告诉小腻任务正在进行、完成后会以 notify 通知。agent loop 不再额外追加“底层动作确认 / 你还没有对聊天框里的人开口说话”提醒；是否还需要对聊天对象补一句，应由当前对话策略和发言工具自然决定。
 
-final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后是否继续同一个 run、是否释放 execution lease、是否创建下一次自主切片，是 runtime 调度问题；如果 Notify Bucket 有真实 notify，应由队列 pick 处理，如果没有，则按普通 `self_continuation` 处理，而不是把“不要复述上一条 final_answer”塞回 LLM context。
+final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能释放/结束连续主 loop；如果当前 active loop 继续推进且没有真实 notify，就在下一次模型切片前追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。这不是 `final_answer_idle` / `final_answer_turn_control`，也不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
 
 `self_continuation` 只保留一个 prompt-facing 模板。当前 fresh trigger 如果已经渲染 `self_continuation`，就不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
 
@@ -151,7 +151,7 @@ final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=f
 | 初版条目 | 当前结论 | 处理方式 |
 | --- | --- | --- |
 | `core_memory_pressure` | 保留 | 作为最高优先级体感提醒；`source`、`required_tool`、`context_session_key` 等工程字段留在代码侧，强制 `compress_core_memory` 由代码侧 tool choice / marker 控制。 |
-| `phone_notification` | 保留 | 作为 QQ 状态栏余光；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，只告诉小腻有未读和明确喊她的摘要，具体内容仍需 `qq-usage` 打开；不再输出 `<PHONE_NOTIFICATION ... />`，也不再由 `buildCurrentProcessingReminder()` 双写解释。 |
+| `phone_notification` | 保留 | 作为 QQ 状态栏余光；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，只告诉小腻有未读和明确喊她的摘要，具体内容仍需 `qq-usage` 打开；不再输出 `<PHONE_NOTIFICATION ... />`，也不再走独立 current-processing reminder 通道双写解释。 |
 | `image_task_notification` | 保留 | 作为图片任务完成后的真实 notify；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，不再输出 `<IMAGE_TASK_NOTIFICATION ... />` 或双写解释。prompt-facing 只保留行动所需线索：`task_id`、任务类型、图片 ID、图片路径和目标描述；trace/run、创建时间、图片 bytes、原始 prompt 等排障细节留在 DB / trace。 |
 | `self_continuation` | 保留 | 作为当前内部自主切片唯一 prompt-facing 模板；覆盖空队列自主切片和休息恢复后的继续。 |
 | `consciousness_tick` / `presence_tick` | 删除 | 旧 producer 已无当前生产方；不再做当前 runtime 契约。 |

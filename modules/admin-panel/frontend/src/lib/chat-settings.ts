@@ -1,10 +1,9 @@
 export type ChatSettingsState = {
   is_enabled?: number | boolean | null;
-  continuous_learning_enabled?: number | boolean | null;
   auto_reply_enabled?: number | boolean | null;
 };
 
-export type ChatSettingsToggleField = 'is_enabled' | 'continuous_learning_enabled' | 'auto_reply_enabled';
+export type ChatSettingsToggleField = 'is_enabled' | 'auto_reply_enabled';
 
 export function isChatSettingEnabled(value: unknown): boolean {
   return Boolean(value);
@@ -19,7 +18,6 @@ export function applyChatSettingToggle<T extends ChatSettingsState>(
   if (field === 'is_enabled' && !checked) {
     return {
       is_enabled: 0,
-      continuous_learning_enabled: 0,
       auto_reply_enabled: 0,
     } as Partial<T>;
   }

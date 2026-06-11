@@ -45,13 +45,11 @@ describe('chat settings routes', () => {
     expect(response.status).toBe(200);
     expect(database.upsertGroupChatSettings).toHaveBeenCalledWith(123, {
       is_enabled: 0,
-      continuous_learning_enabled: 0,
       auto_reply_enabled: 0,
     });
     expect(response.body.data).toMatchObject({
       group_id: 123,
       is_enabled: 0,
-      continuous_learning_enabled: 0,
       auto_reply_enabled: 0,
     });
   });
@@ -200,43 +198,16 @@ describe('chat settings routes', () => {
     );
   });
 
-  it('normalizes continuous learning updates to integer flags', async () => {
+  it('rejects deprecated continuous learning updates', async () => {
     const database = createDatabaseMock();
-    database.upsertPrivateChatSettings.mockResolvedValue(true);
-    database.getPrivateChatSettingById
-      .mockResolvedValueOnce({
-        user_id: 456,
-        username: 'tester',
-        is_enabled: 1,
-        continuous_learning_enabled: 0,
-        auto_reply_enabled: 0,
-        transcript_compact_offset: 6,
-        welcome_message: null,
-        user_notes: null,
-        agent_prompt_id: 'prompt-456',
-        last_activity: null,
-      })
-      .mockResolvedValue({
-        user_id: 456,
-        username: 'tester',
-        is_enabled: 1,
-        continuous_learning_enabled: 1,
-        auto_reply_enabled: 0,
-        transcript_compact_offset: 6,
-        welcome_message: null,
-        user_notes: null,
-        agent_prompt_id: 'prompt-456',
-        last_activity: null,
-      });
 
     const response = await request(createApp(database))
       .put('/api/private-chats/456/settings')
       .send({ continuous_learning_enabled: true });
 
-    expect(response.status).toBe(200);
-    expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
-      continuous_learning_enabled: 1,
-    });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('No valid fields to update');
+    expect(database.upsertPrivateChatSettings).not.toHaveBeenCalled();
   });
 
   it('accepts transcript_compact_offset for group and private chat settings', async () => {
@@ -373,12 +344,11 @@ describe('chat settings routes', () => {
         auto_reply_enabled: true,
       },
       {
-        allowedFields: ['is_enabled', 'continuous_learning_enabled', 'auto_reply_enabled'],
+        allowedFields: ['is_enabled', 'auto_reply_enabled'],
       }
     )).toEqual({
       sanitizedUpdates: {
         is_enabled: 0,
-        continuous_learning_enabled: 0,
         auto_reply_enabled: 0,
       },
       validationError: null,

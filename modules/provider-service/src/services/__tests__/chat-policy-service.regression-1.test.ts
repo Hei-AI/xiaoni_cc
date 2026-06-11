@@ -2,10 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatPolicyService } from '../chat-policy-service';
 
-test('auto reply is disabled at runtime when the prompt binding is missing', async () => {
-  // Regression: ISSUE-001 — stale rows rendered auto reply as enabled without a prompt binding
-  // Found by /qa on 2026-04-01
-  // Report: .gstack/qa-reports/qa-report-127.0.0.1-2026-04-01.md
+test('auto reply follows the runtime toggle without requiring deprecated prompt bindings', async () => {
+  // Per-chat prompt bindings are retired; admin and provider runtime must agree.
   const service = new ChatPolicyService();
   (service as any).prisma = {
     privateChatSetting: {
@@ -26,7 +24,7 @@ test('auto reply is disabled at runtime when the prompt binding is missing', asy
   assert.deepEqual(state, {
     exists: true,
     isEnabled: true,
-    continuousLearningEnabled: true,
-    autoReplyEnabled: false
+    continuousLearningEnabled: false,
+    autoReplyEnabled: true
   });
 });

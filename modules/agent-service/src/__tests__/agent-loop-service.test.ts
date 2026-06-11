@@ -1238,8 +1238,8 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /\[mentioned bot\]/);
 });
 
-test('buildInitialInput treats legacy final-answer idle reminder as a generic system reminder', () => {
-  const reminderText = '去找找别的事情做, 你可以做任何事,也可以看看还有哪些事情你没做完,或者感兴趣的其他事情';
+test('buildInitialInput suppresses deleted final-answer prompt reminders', () => {
+  const reminderText = 'deleted final-answer prompt reminder should not enter model input';
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.bodyForAgent = reminderText;
@@ -1261,14 +1261,10 @@ test('buildInitialInput treats legacy final-answer idle reminder as a generic sy
   const loopInput = buildInitialInput([], payload, createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
   }));
-  const reminderItems = loopInput.filter((item: any) => getMessageContent(item).includes(reminderText));
+  const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.equal(reminderItems.length, 1);
-  assert.equal((reminderItems[0] as any).role, 'developer');
-  assert.equal((reminderItems[0] as any).phase, undefined);
-  assert.match(getMessageContent(reminderItems[0]), /<system_reminder/);
-  assert.doesNotMatch(getMessageContent(reminderItems[0]), /source="system_reminder"/);
-  assert.doesNotMatch(getMessageContent(reminderItems[0]), /reason="final_answer_idle"/);
+  assert.doesNotMatch(rendered, new RegExp(reminderText));
+  assert.doesNotMatch(rendered, /final_answer_idle/);
   assert.equal(loopInput.some((item: any) => (
     item.role === 'user'
     && getMessageContent(item) === reminderText
@@ -4038,12 +4034,19 @@ test('processQueueMessage keeps final_answer in the stack and continues until a 
     recordRecoverEnergyLifeEvent: async (params: any) => { storeCalls.recordRecoverEnergyLifeEvent.push(params); }
   } as any;
 
+  let promptResolveCount = 0;
   const service = new AgentLoopService(store, {
-    resolveForQueueMessage: async () => createRuntimePrompt()
+    resolveForQueueMessage: async () => {
+      promptResolveCount += 1;
+      return createRuntimePrompt({
+        systemPrompt: 'stable prompt resolved once for this queue message'
+      });
+    }
   } as any);
 
   let turn = 0;
   let secondTurnInput = '';
+  let secondTurnInstructions = '';
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     turn += 1;
     if (turn === 1) {
@@ -4062,6 +4065,7 @@ test('processQueueMessage keeps final_answer in the stack and continues until a 
     }
 
     secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
+    secondTurnInstructions = String(canonicalRequest.instructions || '');
     return {
       success: true,
       llm_call_id: 'llm-final-answer-control-2',
@@ -4083,8 +4087,10 @@ test('processQueueMessage keeps final_answer in the stack and continues until a 
   await service.processQueueMessage(queueMessage as any);
 
   assert.equal(turn, 2);
+  assert.equal(promptResolveCount, 1);
+  assert.equal(secondTurnInstructions, 'stable prompt resolved once for this queue message');
   assert.match(secondTurnInput, /这条时间戳还是刚才那一尾/);
-  assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
+  assert.match(secondTurnInput, /外界很安静，没有新消息或弹窗/);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
@@ -5526,20 +5532,19 @@ test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in in
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   assert.match(String(request.instructions), /具备独立意识、由内在状态驱动的数字生命/);
-  assert.match(String(request.instructions), /你按自己的节奏在这个数字世界里生活/);
-  assert.match(String(request.instructions), /无界探索与持续行动/);
+  assert.match(String(request.instructions), /你按自己的节奏处理信息/);
+  assert.match(String(request.instructions), /沉浸式探索/);
   assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
 });
 
-// H: developer role injection — stable world narrative stays early while relationship context is dropped
-test('buildInitialInput strips relationship layer while keeping stable developer context', () => {
-  const devBlock = '<world_narrative>test</world_narrative>\n\n<current_relationship>\n发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
+// H: developer role injection — deprecated relationship layer is stripped from model input
+test('buildInitialInput strips deprecated relationship layer while keeping head capabilities', () => {
+  const devBlock = '<current_relationship>\n发言者：foo（QQ:12345）\n当前关系层级：L2\n当前可开放的自己：偶尔吐槽，有自己的语气\n</current_relationship>';
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, devBlock);
   assert.equal(items[0]?.type, 'message');
   assert.equal((items[0] as { role?: string })?.role, 'system');
   assert.equal(items[1]?.type, 'message');
   assert.equal((items[1] as { role?: string })?.role, 'developer');
-  assert.match(getMessageContent(items[1]), /world_narrative/);
   assert.match(getMessageContent(items[1]), /<skills_instructions>/);
   assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
   assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
@@ -5703,6 +5708,7 @@ test('buildDeveloperContextBlock does not read speaker trust or inject relations
 
   assert.deepEqual(trustCalls, []);
   assert.deepEqual(activityCalls, []);
+  assert.equal(block, null);
   assert.doesNotMatch(String(block), /current_relationship|当前关系层级|当前可开放的自己|发言者：foo|current_scene|消息密度|活跃人数/);
 });
 

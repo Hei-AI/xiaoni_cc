@@ -366,8 +366,14 @@ test('forces private authorized user through disabled receive and auto-reply pol
     senderId: '85178516'
   };
 
-  assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
-  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
+  const options = { directTriggerUserIds: new Set(['85178516']) };
+  assert.equal(shouldForceInboundAgentQueueTrigger(message, options), true);
+  assert.deepEqual(applyForcedInboundAgentQueuePolicy(disabledPolicy, message, options), {
+    exists: true,
+    isEnabled: true,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: true
+  });
 });
 
 test('does not force non-authorized private users through disabled policy', () => {
@@ -383,6 +389,7 @@ test('does not force non-authorized private users through disabled policy', () =
     senderId: '20001'
   };
 
-  assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
-  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
+  const options = { directTriggerUserIds: new Set(['85178516']) };
+  assert.equal(shouldForceInboundAgentQueueTrigger(message, options), false);
+  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message, options), disabledPolicy);
 });

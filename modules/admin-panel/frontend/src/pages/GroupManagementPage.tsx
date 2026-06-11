@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -10,7 +9,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Eye,
   Filter,
   Plus,
   MessageCircle,
@@ -49,7 +47,6 @@ interface GroupChat {
   avg_response_time: number;
   activity_level: number;
   is_enabled: number;
-  continuous_learning_enabled: number;
   auto_reply_enabled: number;
   im_receive_enabled?: number;
   agent_im_entry_enabled?: number;
@@ -98,7 +95,7 @@ const fetchGroups = async (params: {
 
 const updateGroup = async (
   groupId: number,
-  data: { is_enabled?: number; continuous_learning_enabled?: number; auto_reply_enabled?: number; group_name?: string | null; welcome_message?: string | null }
+  data: { is_enabled?: number; auto_reply_enabled?: number; group_name?: string | null; welcome_message?: string | null }
 ) => {
   const response = await fetch(`/api/group-chats/${groupId}/settings`, {
     method: 'PUT',
@@ -144,7 +141,6 @@ export const GroupManagementPage: React.FC = () => {
   });
 
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const limit = 20;
 
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
@@ -156,11 +152,10 @@ export const GroupManagementPage: React.FC = () => {
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
   const createGroupMutation = useMutation({
     mutationFn: createGroup,
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       setCreateDialogOpen(false);
       setCreateForm({ groupId: '', groupName: '' });
-      navigate(`/groups/${variables.group_id}`);
     },
   });
 
@@ -247,13 +242,12 @@ export const GroupManagementPage: React.FC = () => {
   const rows = data?.data ?? [];
   const metrics = useMemo(() => {
     const enabled = rows.filter((group) => group.im_receive_enabled ?? group.is_enabled).length;
-    const learning = rows.filter((group) => group.continuous_learning_enabled).length;
     const autoReply = rows.filter((group) => group.agent_im_entry_enabled ?? group.auto_reply_enabled).length;
     const avgActivity =
       rows.length > 0
         ? Math.round(rows.reduce((sum, group) => sum + group.activity_level, 0) / rows.length)
         : 0;
-    return { enabled, learning, autoReply, avgActivity };
+    return { enabled, autoReply, avgActivity };
   }, [rows]);
 
   const renderToggleControl = (group: GroupChat, field: GroupToggleField, label: string) => {
@@ -302,7 +296,7 @@ export const GroupManagementPage: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加群聊策略</DialogTitle>
-            <DialogDescription>输入指定群号后，默认会创建为“IM 入口开启，被 @ 投递关闭”。</DialogDescription>
+            <DialogDescription>输入指定群号后，默认会创建为“IM 入口开启，消息投递关闭”。</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -330,7 +324,7 @@ export const GroupManagementPage: React.FC = () => {
               取消
             </Button>
             <Button onClick={() => void handleCreateGroup()} disabled={createGroupMutation.isPending}>
-              {createGroupMutation.isPending ? '创建中...' : '创建并进入详情'}
+              {createGroupMutation.isPending ? '创建中...' : '创建'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -338,7 +332,7 @@ export const GroupManagementPage: React.FC = () => {
       <PageHeader
         eyebrow="Group Desk"
         title="群聊 IM 入口"
-        description="查看和配置哪些群能进入小腻 IM，以及被 @ 后是否投递给 agent loop。"
+        description="查看和配置哪些群能进入小腻 IM，以及哪些群消息会投递给 agent loop。"
         icon={<Users className="h-5 w-5" />}
         actions={
           <>
@@ -357,7 +351,7 @@ export const GroupManagementPage: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <MetricCard label="当前页群组" value={rows.length} icon={<Users className="h-5 w-5" />} />
-        <MetricCard label="IM 入口开启" value={metrics.enabled} detail={`学习开启 ${metrics.learning} / @ 投递 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
+        <MetricCard label="IM 入口开启" value={metrics.enabled} detail={`消息投递 ${metrics.autoReply}`} icon={<PlayCircle className="h-5 w-5" />} tone="success" />
         <MetricCard label="平均活跃度" value={`${metrics.avgActivity}%`} icon={<MessageCircle className="h-5 w-5" />} tone="warning" />
       </div>
 
@@ -388,7 +382,7 @@ export const GroupManagementPage: React.FC = () => {
                 checked={filters.status === 'active'}
                 onCheckedChange={(checked) => handleFilterChange('status', checked ? 'active' : undefined)}
               />
-              <span>@ 投递开启</span>
+              <span>消息投递开启</span>
             </label>
             <label className="flex items-center gap-2">
               <Checkbox
@@ -438,20 +432,14 @@ export const GroupManagementPage: React.FC = () => {
                   badges={
                     <>
                       <StatusPill tone={(group.im_receive_enabled ?? group.is_enabled) ? 'success' : 'neutral'}>{(group.im_receive_enabled ?? group.is_enabled) ? '可进 IM' : '不进 IM'}</StatusPill>
-                      <StatusPill tone={group.continuous_learning_enabled ? 'info' : 'neutral'}>
-                        {group.continuous_learning_enabled ? '持续学习开启' : '持续学习关闭'}
-                      </StatusPill>
                       <StatusPill tone={(group.agent_im_entry_enabled ?? group.auto_reply_enabled) ? 'info' : 'warning'}>
-                        {(group.agent_im_entry_enabled ?? group.auto_reply_enabled) ? '@ 后投递' : '只进未读'}
+                        {(group.agent_im_entry_enabled ?? group.auto_reply_enabled) ? '消息投递' : '只进未读'}
                       </StatusPill>
                       <Badge variant="outline">活跃度 {group.activity_level}%</Badge>
                     </>
                   }
                   action={
-                    <Button variant="outline" size="sm" onClick={() => navigate(`/groups/${group.group_id}`)}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      详情
-                    </Button>
+                    null
                   }
                   meta={
                     <>
@@ -463,8 +451,7 @@ export const GroupManagementPage: React.FC = () => {
                 >
                   <div className="space-y-2">
                     {renderToggleControl(group, 'is_enabled', '进入小腻 IM')}
-                    {renderToggleControl(group, 'continuous_learning_enabled', '持续学习')}
-                    {renderToggleControl(group, 'auto_reply_enabled', '@ 后投递')}
+                    {renderToggleControl(group, 'auto_reply_enabled', '消息投递')}
                   </div>
                 </EntityCard>
               ))}
@@ -477,12 +464,11 @@ export const GroupManagementPage: React.FC = () => {
                     <TableHead>群号</TableHead>
                     <TableHead>群名称</TableHead>
                     <TableHead>IM 入口</TableHead>
-                    <TableHead>持续学习</TableHead>
-                    <TableHead>@ 投递</TableHead>
+                    <TableHead>消息投递</TableHead>
                     <TableHead>活跃度</TableHead>
                     <TableHead>统计信息</TableHead>
                     <TableHead>最后活跃</TableHead>
-                    <TableHead>操作</TableHead>
+                    <TableHead>开关</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -492,9 +478,6 @@ export const GroupManagementPage: React.FC = () => {
                       <TableCell>{group.group_name || '未知群聊'}</TableCell>
                       <TableCell>
                         <StatusPill tone={(group.im_receive_enabled ?? group.is_enabled) ? 'success' : 'neutral'}>{(group.im_receive_enabled ?? group.is_enabled) ? '可进 IM' : '不进 IM'}</StatusPill>
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill tone={group.continuous_learning_enabled ? 'info' : 'neutral'}>{group.continuous_learning_enabled ? '开启' : '关闭'}</StatusPill>
                       </TableCell>
                       <TableCell>
                         <StatusPill tone={(group.agent_im_entry_enabled ?? group.auto_reply_enabled) ? 'info' : 'warning'}>{(group.agent_im_entry_enabled ?? group.auto_reply_enabled) ? '投递' : '不投递'}</StatusPill>
@@ -508,7 +491,7 @@ export const GroupManagementPage: React.FC = () => {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{formatDate(group.last_conversation_time)}</TableCell>
                       <TableCell>
-                        <div className="flex min-w-[240px] items-center gap-4">
+                        <div className="flex min-w-[180px] items-center gap-4">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-medium text-muted-foreground">进 IM</span>
                             <Switch
@@ -519,16 +502,7 @@ export const GroupManagementPage: React.FC = () => {
                             />
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground">学习</span>
-                            <Switch
-                              checked={Boolean(group.continuous_learning_enabled)}
-                              onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'continuous_learning_enabled', nextChecked)}
-                              disabled={loadingStates[`${group.group_id}_continuous_learning_enabled`] || isChatSettingToggleDisabled(group, 'continuous_learning_enabled')}
-                              aria-label={`group-${group.group_id}-continuous-learning`}
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium text-muted-foreground">@ 投递</span>
+                            <span className="text-xs font-medium text-muted-foreground">投递</span>
                             <Switch
                               checked={Boolean(group.auto_reply_enabled)}
                               onCheckedChange={(nextChecked) => void handleGroupUpdate(group.group_id, 'auto_reply_enabled', nextChecked)}
@@ -536,9 +510,6 @@ export const GroupManagementPage: React.FC = () => {
                               aria-label={`group-${group.group_id}-auto-reply`}
                             />
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => navigate(`/groups/${group.group_id}`)}>
-                            <Eye className="h-3 w-3" />
-                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>

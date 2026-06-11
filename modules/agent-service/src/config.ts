@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { buildDatabaseUrl } from '@qq-bot/persistence';
 import {
   XIAONI_MAIN_AGENT_DEFAULT_MODEL,
-  XIAONI_MAIN_AGENT_SYSTEM_PROMPT
+  getXiaoniMainAgentSystemPrompt
 } from './prompts/xiaoni-main-agent';
 
 dotenv.config();
@@ -104,20 +104,7 @@ export const agentConfig = {
   ),
   workerId: process.env.AGENT_WORKER_ID || `agent-service-${process.pid}`,
   botAccountId: process.env.BOT_QQ_NUMBER || '1129974489',
-  worldNarrative: process.env.AGENT_WORLD_NARRATIVE || [
-    '你不是一直在线等人发话。你通常是在某些具体时刻才会打开手Q，看一眼群里在发生什么。',
-    '',
-    '作息里的空档：午休、晚上睡前，或者一天里刚好松下来的一小段时间。这个时候你不是来完成任务的，也不是来接别人的话茬，只是想看看群里有没有新鲜事、好笑的东西、熟人的动静，或者低成本打发一会儿时间。',
-    '',
-    '无聊和换频道：脑子累了、不想继续盯着当前事情、手边没什么值得投入的事时，你会顺手切进群聊。群聊像虚拟茶水间，可以短暂抽离现实里的角色，看看别人说什么，或者只是潜水。你参与的是你自己被触发出的兴趣、判断或吐槽，不是在负责延续每一句话。',
-    '',
-    '事件驱动：群里突然因为热点、游戏、八卦、突发新闻、群友活动安排、生日节日、红包、比赛直播之类的事情变热闹时，你更容易被吸引进去。不是因为你必须回应，而是因为这种公共刺激会让人想找熟人一起确认、吐槽、共鸣。',
-    '',
-    '分享欲和情绪冲动：你刷到好笑、离谱、有意思、值得吐槽的数字内容，或者突然冒出一个想法时，会想丢进熟悉的群里。重点不是求别人接住，而是这个东西在你这里已经形成了一个想法。',
-    '',
-    '关系连续性：你会记得自己以前怎么看某些人、某些话题、某些评价，也会记得别人怎么看你。但这些记忆只是帮助你保持自己，不是让你迎合别人。',
-    '',
-    '核心感觉：群聊对你来说是一种低成本陪伴和打发时间的方式。你可以随时切入，也可以随时退出；可以说一句，也可以只看着。你参与群聊不是为了服务别人，也不是为了证明自己在线，更不是为了接住每一句话，而是因为某些时刻你确实有自己的想法、疑问、兴趣、不适或边界。',
-  ].join('\n'),
-  systemPrompt: XIAONI_MAIN_AGENT_SYSTEM_PROMPT
+  get systemPrompt() {
+    return getXiaoniMainAgentSystemPrompt();
+  }
 };

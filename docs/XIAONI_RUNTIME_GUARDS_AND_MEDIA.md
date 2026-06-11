@@ -11,7 +11,7 @@
 | QQ 入站正文 | 始终先落 `agent_inbound_messages`，作为 QQ app inbox/window。 | `modules/provider-service/src/services/inbound-inbox-service.ts` |
 | `auto_reply_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | `phone_notification` | 只含状态栏摘要，不含 QQ 正文；小腻必须主动用 `$qq-usage` 才能看到正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
-| `final_answer` continuous loop | 模型返回 `final_answer` 且无 tool call 时，只表示本轮没有更多工具；不产生 final-answer 专用 prompt reminder，后续仍由真实 notify 或 `self_continuation` 推进。 | `modules/agent-service/src/services/agent-loop-service.ts` |
+| `final_answer` continuous loop | 模型返回 `final_answer` 且无 tool call 时，只表示本轮没有更多工具；不产生 final-answer 专用 prompt reminder，但同一连续 loop 的下一片必须追加普通 `self_continuation` developer reminder。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片理解 | `inspect_image_placeholder` 复用当前主 agent request，追加图片 base64 fork，返回文本观察。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片观察输出 | 主 agent 只收到 `<image id="...">含义是: ...</image>`；base64 不进入长期 replay。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 
@@ -53,12 +53,12 @@ OpenAI response phase=final_answer
   -> agent-service sees no tool_call
   -> append response output items into agent_stack_items
   -> do not append final-answer-specific reminder
-  -> next tick uses real notify or normal self_continuation
+  -> append normal self_continuation developer reminder before the next model slice
 ```
 
 这不改写上一轮 transcript，也不把 `final_answer` phase 改成 `commentary`。
-当前 runtime 不再追加 final-answer 专用 prompt reminder。历史同类 Notify Bucket
-行只按普通内部 `system_reminder` 兼容读取。
+当前 runtime 不再追加 final-answer 专用 prompt reminder；连续 loop 只追加普通 `self_continuation` 模板。历史同类 Notify Bucket
+行如果仍存在，也不再作为 prompt-facing `system_reminder` 渲染。
 
 ## Image Vision Fork
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { agentConfig } from '../config';
-import { XIAONI_MAIN_AGENT_SYSTEM_PROMPT } from '../prompts/xiaoni-main-agent';
+import { getXiaoniMainAgentSystemPrompt } from '../prompts/xiaoni-main-agent';
 import {
   AgentLoopService,
   buildCanonicalAgentTurnRequest,
@@ -14,13 +14,9 @@ import type { ResolvedAgentRuntimePrompt } from '../services/agent-prompt-servic
 
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
 
-function readNextPromptBody() {
+function readSystemPromptBody() {
   const repoRoot = resolve(__dirname, '../../../..');
-  const doc = readFileSync(resolve(repoRoot, 'docs/XIAONI_MAIN_PROMPT_NEXT.md'), 'utf8');
-  const marker = '## Prompt Body\n\n';
-  const markerIndex = doc.indexOf(marker);
-  assert.notEqual(markerIndex, -1, 'XIAONI_MAIN_PROMPT_NEXT.md must keep a Prompt Body marker');
-  return doc.slice(markerIndex + marker.length).trimEnd();
+  return readFileSync(resolve(repoRoot, 'docs/xiaoni_prompt/system_prompt.md'), 'utf8').trimEnd();
 }
 
 function getToolName(tool: { type: string; function?: { name?: string } }) {
@@ -124,11 +120,12 @@ function createConversationTurn(id: number) {
   };
 }
 
-test('Task 19 prompt body mirrors docs/XIAONI_MAIN_PROMPT_NEXT.md and keeps survival language', () => {
-  assert.equal(XIAONI_MAIN_AGENT_SYSTEM_PROMPT, readNextPromptBody());
-  assert.match(XIAONI_MAIN_AGENT_SYSTEM_PROMPT, new RegExp(COMPRESS_CORE_MEMORY_TOOL));
-  assert.match(XIAONI_MAIN_AGENT_SYSTEM_PROMPT, /脑容量达到极限/);
-  assert.doesNotMatch(XIAONI_MAIN_AGENT_SYSTEM_PROMPT, /pressure|dopamine|多巴胺|压力指标|情绪数字/u);
+test('Task 19 prompt body loads from docs/xiaoni_prompt/system_prompt.md', () => {
+  const systemPrompt = getXiaoniMainAgentSystemPrompt();
+  assert.equal(systemPrompt, readSystemPromptBody());
+  assert.match(systemPrompt, new RegExp(COMPRESS_CORE_MEMORY_TOOL));
+  assert.match(systemPrompt, /脑容量达到极限/);
+  assert.doesNotMatch(systemPrompt, /pressure|dopamine|多巴胺|压力指标|情绪数字/u);
 });
 
 test('Task 19 injects CAPABILITIES once near the start and lists compress_core_memory cost', () => {

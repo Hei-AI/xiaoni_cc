@@ -6,9 +6,7 @@ import { XiaoniActivityPage } from './pages/XiaoniActivityPage';
 import { XiaoniRuntimeSettingsPage } from './pages/XiaoniRuntimeSettingsPage';
 import { ActionEventTracePage } from './pages/ActionEventTracePage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
-import { GroupChatDetailPage } from './pages/GroupChatDetailPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
-import { PrivateChatDetailPage } from './pages/PrivateChatDetailPage';
 import { PromptManagementPage } from './pages/PromptManagementPage';
 import { PromptDetailPage } from './pages/PromptDetailPage';
 import { PromptEditPage } from './pages/PromptEditPage';
@@ -73,9 +71,9 @@ function App() {
               <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelineRedirect />} />
               <Route path="/xiaoni/action-stream/events/:eventId/trace" element={<ActionEventTracePage />} />
               <Route path="/groups" element={<GroupManagementPage />} />
-              <Route path="/groups/:groupId" element={<GroupChatDetailPage />} />
+              <Route path="/groups/:groupId" element={<Navigate to="/groups" replace />} />
               <Route path="/private-chats" element={<PrivateChatManagementPage />} />
-              <Route path="/private-chats/:userId" element={<PrivateChatDetailPage />} />
+              <Route path="/private-chats/:userId" element={<Navigate to="/private-chats" replace />} />
               <Route path="/prompts" element={<PromptManagementPage />} />
               <Route path="/prompts/new" element={<PromptEditPage />} />
               <Route path="/prompts/:promptId" element={<PromptRedirect />} />

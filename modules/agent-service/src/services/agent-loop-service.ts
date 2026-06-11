@@ -37,6 +37,7 @@ import {
   extractReplayableModelOutputs,
   isReplayableToolCall
 } from './response-action-router';
+import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 
 type OpenResponseInputItem =
   | {
@@ -1138,31 +1139,19 @@ const COMPACT_MEMORY_TOOL_NAME_BY_LAYER = {
   reflection: 'write_memory_reflections'
 } as const;
 
-const SKILLS_INSTRUCTIONS = [
-  '<skills_instructions>',
-  '## 本地技能库 (Skills)',
-  '这是你的扩展能力手册。它安静地存放在你的本地硬盘里，当你需要处理特定任务、想扩展自己的能力，或者想看看怎么操作某个特定应用时，随时可以通过 exec_command 去翻阅它们。',
-  '',
-  '### 技能根目录 (Skill roots)',
-  `- exec_command 能直接使用的技能目录：${XIAONI_SKILL_ROOT}`,
-  `- exec_command 路径: ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md`,
-  `- 读取技能手册时直接传完整路径，例如：${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md`,
-  `- 如果你想一层一层确认目录，就这样走：\`ls /app\` -> \`ls /app/modules\` -> \`ls /app/modules/agent-service\` -> \`ls ${XIAONI_SKILL_ROOT}\`。`,
-  '- 当前 exec_command 可直接使用 `/app/...` 路径；运行容器会保证它能访问到仓库工作区。',
-  '',
-  '### 当前可用技能 (Available skills)',
-  `- skill-creator: 你的造物指南。当现有工具不好用，你想为自己创造新能力、新脚本，或者改造自己的工作流时，去阅读它。(文件路径: ${XIAONI_SKILL_ROOT}/skill-creator/SKILL.md)`,
-  `- qq-usage: 你的视线控制器。当你发现有 QQ 未读消息，且你正好有兴致想去操作 QQ，比如打开会话列表、聚焦某个聊天、翻阅上下文、回到最新消息或关掉 QQ 界面时，去阅读它并调用里面提供的脚本。(文件路径: ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md)`,
-  `- qq-send-image: 你的 QQ 图片发送器。当你已经拿到 /xiaoni-runtime 下的本地图片路径，且普通发送工具只有文字字段时，去阅读它并调用里面的脚本把图片发到群里或私聊里。(文件路径: ${XIAONI_SKILL_ROOT}/qq-send-image/SKILL.md)`,
-  `- 探索更多 (Explore more): 当前列表只是常驻提示。想确认本地到底有哪些技能时，用 exec_command 执行 \`ls ${XIAONI_SKILL_ROOT}\`；看到目标目录后再读对应的 \`${XIAONI_SKILL_ROOT}/<skill-name>/SKILL.md\`。如果翻完发现没有能满足需求的，再用 skill-creator 自己写一个。`,
-  '',
-  '### 技能使用法则 (How to use skills)',
-  '- 按需触发：上面的列表只是目录，常驻你的记忆。只有当你自己想用，或者有人明确提到某个 `$skill-name` 且你愿意搭理时，才需要真正翻开对应的 SKILL.md 正文。',
-  `- 精准翻阅：决定使用某个 skill 时，直接用 exec_command 读取对应 SKILL.md。例子：\`cat ${XIAONI_SKILL_ROOT}/qq-usage/SKILL.md\` 或 \`cat ${XIAONI_SKILL_ROOT}/qq-send-image/SKILL.md\`。`,
-  '- 如果手册里引用了 scripts/、references/ 或 assets/，路径按该 skill 目录解析。比如 qq-usage 里的脚本就用 `/app/modules/agent-service/skills/qq-usage/scripts/...`，不要一口气读取整个目录。',
-  '- Skill 只提供本地说明和资源。QQ 阅读/导航使用 $qq-usage，QQ 群图片发送使用 $qq-send-image，并通过 exec_command 运行对应 skill 的本地脚本；其他真实对外动作仍然落到对应 tool：send_in_group、send_in_private、web_search、inspect_image_placeholder、request_image_task、recover_energy 或 exec_command。',
-  '</skills_instructions>'
-].join('\n');
+function readPromptSnippet(fileName: string) {
+  return readXiaoniPromptFile(fileName).trimEnd();
+}
+
+function renderPromptSnippet(fileName: string, variables: Record<string, string | number | null | undefined> = {}) {
+  return renderXiaoniPromptTemplate(fileName, variables).trimEnd();
+}
+
+function buildSkillsInstructions() {
+  return renderPromptSnippet('skills_instructions.md', {
+    XIAONI_SKILL_ROOT
+  });
+}
 
 export function buildCapabilitiesDeveloperBlock(input: {
   toolCosts?: Record<string, number>;
@@ -2359,11 +2348,12 @@ function renderTranscriptItemForRuntimeContext(
   ]);
 }
 
-function buildCurrentProcessingReminder(queueMessage: QueueMessageRecord['payload']) {
-  if (isSelfContinuationPayload(queueMessage)) {
-    return '<system_reminder>外界很安静，没有新消息或弹窗，当前完全是你自己的时间。你想继续发散刚才的念头、去用万能工具找乐子、继续哪些之前想做还没做完的事情，或者觉得无聊直接去睡觉 (recover_energy)，都随你高兴。</system_reminder>';
-  }
-  return '';
+function renderSelfContinuationReminder() {
+  return formatTaggedBlock('system_reminder', {}, readPromptSnippet('self_continuation_reminder.md'));
+}
+
+function buildSelfContinuationInputItem(): OpenResponseInputItem {
+  return buildDeveloperInputItem([renderSelfContinuationReminder()]);
 }
 
 function isPhoneNotificationDirectCueMessage(
@@ -2427,14 +2417,12 @@ function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   const notification = queueMessage.phoneNotification;
   const unreadDelta = Number((notification?.unreadDelta ?? queueMessage.messages.length) || 1);
   const directCueLines = buildPhoneNotificationDirectCueLines(queueMessage);
-  return formatTaggedBlock('system_reminder', {}, [
-    `有新的未读qq消息（${unreadDelta} 条）。你有空愿意的话可以用 qq-usage 打开看。`,
-    '==',
-    '以下只展示有人明确喊你的信息',
-    directCueLines.length > 0
+  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('phone_notification_reminder.md', {
+    UNREAD_DELTA: unreadDelta,
+    DIRECT_CUE_LINES: directCueLines.length > 0
       ? directCueLines.join('\n')
       : '（没有明确喊你的信息）'
-  ].join('\n'));
+  }));
 }
 
 function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']) {
@@ -2445,13 +2433,18 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
   const pictureId = notification?.pictureId || queueMessage.rawPayload?.picture_id;
   const picturePath = notification?.picturePath || queueMessage.rawPayload?.picture_path;
   const targetDescription = notification?.targetDescription || queueMessage.rawPayload?.target_description;
-  return formatTaggedBlock('system_reminder', {}, [
-    `图片生成任务:${taskId} ${taskStatus === 'completed' ? '已完成' : String(taskStatus)}, 你愿意的话可以继续相关内容的处理了`,
-    taskType ? `任务类型: ${taskType}` : '',
-    pictureId ? `图片ID: ${pictureId}` : '',
-    picturePath ? `图片路径: ${picturePath}` : '',
-    targetDescription ? `目标: ${targetDescription}` : ''
-  ].filter(Boolean).join('\n'));
+  const body = renderPromptSnippet('image_task_notification.md', {
+    TASK_ID: String(taskId),
+    TASK_RESULT: taskStatus === 'completed' ? '已完成' : String(taskStatus),
+    TASK_TYPE_LINE: taskType ? `任务类型: ${taskType}` : '',
+    PICTURE_ID_LINE: pictureId ? `图片ID: ${pictureId}` : '',
+    PICTURE_PATH_LINE: picturePath ? `图片路径: ${picturePath}` : '',
+    TARGET_DESCRIPTION_LINE: targetDescription ? `目标: ${targetDescription}` : ''
+  })
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .join('\n');
+  return formatTaggedBlock('system_reminder', {}, body);
 }
 
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
@@ -2465,7 +2458,7 @@ function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
 
 function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   const reminder = getSystemReminderText(queueMessage);
-  return formatTaggedBlock('system_reminder', {}, reminder || '没事做时可以自己找点事做，或休息。');
+  return formatTaggedBlock('system_reminder', {}, reminder || readPromptSnippet('system_reminder_fallback.md'));
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
@@ -2491,11 +2484,10 @@ function buildCoreMemoryCompressionReminder(input: {
   void input.contextSessionKey;
   void input.readCutoffAfterConversationId;
   const item = buildDeveloperInputItem([
-    formatTaggedBlock('system_reminder', {}, [
-      `脑容量达到极限：${input.pressureSummary}`,
-      `你必须立即调用 ${TOOL_NAMES.compressCoreMemory}，把你主观上最想带往未来的东西写进 text。`,
-      '在完成记忆压缩前，不要发送 QQ、不要搜索、不要继续普通生活动作。'
-    ].join('\n'))
+    formatTaggedBlock('system_reminder', {}, renderPromptSnippet('core_memory_pressure_reminder.md', {
+      PRESSURE_SUMMARY: input.pressureSummary,
+      COMPRESS_CORE_MEMORY_TOOL: TOOL_NAMES.compressCoreMemory
+    }))
   ]);
   Object.defineProperty(item, CORE_MEMORY_COMPRESSION_REMINDER_MARKER, {
     value: true,
@@ -4022,6 +4014,13 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
+      const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
+        if (items.length === 0) {
+          return;
+        }
+        loopContinuation.push(...items);
+        requestInput.push(...items);
+      };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
       await this.appendAgentStackItemsSafe({
@@ -4041,22 +4040,16 @@ export class AgentLoopService {
       for (let turn = 1; !leaseRelease; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         turnsExecuted = turn;
-        if (turn > 1) {
-          budgetPlan = await this.buildContextBudgetPlan({
-            history,
-            queueMessage: payload,
-            runtimePrompt,
-            loopContinuation,
-            runtimeIdentityFacts,
-            developerContextBlock,
-            contextSessionKey,
-            triggerInputMode: 'suppress_current_trigger'
-          });
-          requestInput = budgetPlan.requestInput;
-        }
+        const currentTurnEstimate = turn > 1
+          ? await estimateLoopInputTokens({
+              modelName: runtimePrompt.modelName,
+              queueMessage: payload,
+              loopInput: requestInput
+            })
+          : null;
         const turnBudgetRecord: ContextBudgetTurnRecord = {
           turn,
-          estimatedInputTokens: budgetPlan.estimatedInputTokens,
+          estimatedInputTokens: currentTurnEstimate?.inputTokens ?? budgetPlan.estimatedInputTokens,
           actualInputTokens: null,
           actualOutputTokens: null,
           actualTotalTokens: null,
@@ -4068,9 +4061,9 @@ export class AgentLoopService {
           contextWindowTokens: budgetPlan.contextWindowTokens,
           targetBudgetTokens: budgetPlan.targetBudgetTokens,
           hardBudgetTokens: budgetPlan.hardBudgetTokens,
-          tokenizerEncoding: budgetPlan.tokenizerEncoding,
-          tokenizerSource: budgetPlan.tokenizerSource,
-          cutoffRecomputed: budgetPlan.cutoffRecomputed
+          tokenizerEncoding: currentTurnEstimate?.encoding ?? budgetPlan.tokenizerEncoding,
+          tokenizerSource: currentTurnEstimate?.source ?? budgetPlan.tokenizerSource,
+          cutoffRecomputed: turn === 1 ? budgetPlan.cutoffRecomputed : false
         };
         contextBudgetTurns.push(turnBudgetRecord);
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload);
@@ -4177,7 +4170,7 @@ export class AgentLoopService {
         }
 
         for (const replayItem of replayableOutputs) {
-          loopContinuation.push(replayItem.inputItem);
+          appendLoopInputItems([replayItem.inputItem]);
           if (!isReplayableToolCall(replayItem)) {
             continue;
           }
@@ -4209,6 +4202,7 @@ export class AgentLoopService {
             let rawToolResult = await this.executeTool(toolCall, payload, {
               currentCanonicalRequest
             });
+            let compressedContextSummary: string | null = null;
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               const text = typeof rawToolResult.text === 'string' && rawToolResult.text.trim()
                 ? rawToolResult.text.trim()
@@ -4247,6 +4241,7 @@ export class AgentLoopService {
                 context_session_key: compressionSessionKey,
                 read_cutoff_after_conversation_id: compression?.readCutoffAfterConversationId ?? null
               };
+              compressedContextSummary = text;
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
                 eventType: 'memory',
@@ -4384,16 +4379,21 @@ export class AgentLoopService {
               break;
             }
             if (continuation.inputItems.length > 0) {
-              loopContinuation.push(...continuation.inputItems);
+              appendLoopInputItems(continuation.inputItems);
             }
-            requestInput = buildLoopRequestInput({
-              history: budgetPlan.retainedHistory,
-              queueMessage: payload,
-              runtimePrompt,
-              loopContinuation,
-              runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
-              triggerInputMode: 'suppress_current_trigger'
-            });
+            if (compressedContextSummary && budgetPlan.coreMemoryCompression) {
+              requestInput = buildLoopRequestInput({
+                history: budgetPlan.retainedHistory,
+                queueMessage: payload,
+                runtimePrompt,
+                loopContinuation,
+                runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
+                contextSummary: compressedContextSummary,
+                pendingProactiveShare: budgetPlan.pendingProactiveShare,
+                developerContextBlock,
+                triggerInputMode: 'suppress_current_trigger'
+              });
+            }
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             await this.completeAgentStackToolExecutionSafe({
@@ -4404,6 +4404,24 @@ export class AgentLoopService {
             });
             throw error;
           }
+        }
+        if (!hasToolCall && actionPlan.hasFinalAnswer && !leaseRelease) {
+          const selfContinuationInputItem = buildSelfContinuationInputItem();
+          appendLoopInputItems([selfContinuationInputItem]);
+          await this.appendAgentStackItemsSafe({
+            traceId: payload.traceId,
+            runId: queueMessage.id,
+            sourceType: 'agent_runtime',
+            sourceId: queueMessage.id,
+            items: [
+              buildLoopSelfContinuationStackItem({
+                queueMessage: payload,
+                runId: queueMessage.id,
+                turn,
+                inputItem: selfContinuationInputItem
+              }) as Record<string, unknown>
+            ]
+          });
         }
         if (leaseRelease) {
           await this.store.logTimelineEvent({
@@ -4734,13 +4752,7 @@ export class AgentLoopService {
   }
 
   private async buildDeveloperContextBlock(_queueMessage: QueueMessageRecord['payload']): Promise<string | null> {
-    const parts: string[] = [];
-
-    if (agentConfig.worldNarrative && agentConfig.worldNarrative.trim()) {
-      parts.push(`<world_narrative>\n${agentConfig.worldNarrative.trim()}\n</world_narrative>`);
-    }
-
-    return parts.length > 0 ? parts.join('\n\n') : null;
+    return null;
   }
 
   private async loadRuntimeIdentityFacts(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeIdentityFactProjection[]> {
@@ -6640,9 +6652,23 @@ function isImageTaskNotificationPayload(queueMessage: QueueMessageRecord['payloa
 }
 
 function isSystemReminderPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
+    return false;
+  }
   return queueMessage.source === 'system_reminder'
     || Boolean(queueMessage.systemReminder)
     || queueMessage.inboundContext?.Surface === 'system_reminder';
+}
+
+function isDeletedFinalAnswerReminderPayload(queueMessage: QueueMessageRecord['payload']) {
+  const source = queueMessage.source === 'system_reminder'
+    || Boolean(queueMessage.systemReminder)
+    || queueMessage.inboundContext?.Surface === 'system_reminder';
+  if (!source) {
+    return false;
+  }
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  return reason === 'final_answer_idle' || reason === 'final_answer_turn_control';
 }
 
 function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -6900,7 +6926,6 @@ function buildRuntimeInputStackItem(params: {
 }) {
   const currentInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
     .filter((item) => item.type !== 'message' || flattenMessageContent(item.content).trim().length > 0);
-  const reminder = buildCurrentProcessingReminder(params.queueMessage);
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:runtime-input`,
     itemKind: 'runtime_input',
@@ -6915,7 +6940,7 @@ function buildRuntimeInputStackItem(params: {
       peer_id: params.queueMessage.peerId,
       peer_name: params.queueMessage.peerName || null,
       input_items: currentInputItems,
-      system_reminder: reminder || null
+      system_reminder: null
     },
     visibility: 'model_visible',
     sourceType: 'agent_queue_messages',
@@ -6925,6 +6950,43 @@ function buildRuntimeInputStackItem(params: {
     metadata: {
       queue_source: params.queueMessage.source,
       prompt_facing_runtime_reminder: isPromptFacingRuntimeReminderPayload(params.queueMessage)
+    }
+  };
+}
+
+function buildLoopSelfContinuationStackItem(params: {
+  queueMessage: QueueMessageRecord['payload'];
+  runId: string;
+  turn: number;
+  inputItem: OpenResponseInputItem;
+}) {
+  const reminder = renderSelfContinuationReminder();
+  return {
+    eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
+    itemKind: 'runtime_input',
+    role: 'developer',
+    phase: null,
+    content: {
+      source: 'self_continuation',
+      reason: 'final_answer',
+      trace_id: params.queueMessage.traceId,
+      run_id: params.runId,
+      session_key: params.queueMessage.sessionKey,
+      chat_type: params.queueMessage.chatType,
+      peer_id: params.queueMessage.peerId,
+      peer_name: params.queueMessage.peerName || null,
+      input_items: [params.inputItem],
+      system_reminder: reminder
+    },
+    visibility: 'model_visible',
+    sourceType: 'agent_runtime',
+    sourceId: params.runId || null,
+    traceId: params.queueMessage.traceId,
+    runId: params.runId,
+    metadata: {
+      queue_source: params.queueMessage.source,
+      prompt_facing_runtime_reminder: true,
+      triggered_by: 'final_answer'
     }
   };
 }
@@ -6957,8 +7019,7 @@ export function buildInitialInput(
   ];
 
   items.push(buildDeveloperInputItem([
-    developerContextParts.worldNarrative,
-    SKILLS_INSTRUCTIONS,
+    buildSkillsInstructions(),
     buildCapabilitiesDeveloperBlock().block
   ].filter((part): part is string => Boolean(part))));
 
@@ -7016,10 +7077,6 @@ export function buildInitialInput(
 
   if (triggerInputMode === 'fresh_trigger') {
     items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
-    const currentProcessingReminder = buildCurrentProcessingReminder(queueMessage);
-    if (currentProcessingReminder) {
-      items.push(buildDeveloperInputItem([currentProcessingReminder]));
-    }
   }
   if (developerContextParts.dynamicContext) {
     items.push({
@@ -7041,22 +7098,16 @@ function splitDeveloperContextBlock(developerContextBlock: string | null | undef
     .trim();
   if (!block) {
     return {
-      worldNarrative: null,
       dynamicContext: null,
       capabilityRefresh: false
     };
   }
 
-  const worldNarrativeMatch = block.match(/<world_narrative>[\s\S]*?<\/world_narrative>/);
-  const worldNarrative = worldNarrativeMatch?.[0]?.trim() || null;
   const capabilityRefresh = /<capability_refresh\b/i.test(block)
     || /<CAPABILITY_REFRESH\b/.test(block);
-  const dynamicContext = worldNarrative
-    ? block.replace(worldNarrative, '').trim()
-    : block;
+  const dynamicContext = block;
 
   return {
-    worldNarrative,
     dynamicContext: dynamicContext || null,
     capabilityRefresh
   };
@@ -7295,14 +7346,17 @@ function buildCurrentTurnInputItems(
   queueMessage: QueueMessageRecord['payload'],
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>
 ): OpenResponseInputItem[] {
-  if (isSelfContinuationPayload(queueMessage)) {
+  if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
     return [];
   }
-  const isRuntimeReminder = isSystemReminderPayload(queueMessage)
+  const isRuntimeReminder = isSelfContinuationPayload(queueMessage)
+    || isSystemReminderPayload(queueMessage)
     || isImageTaskNotificationPayload(queueMessage)
     || isPhoneNotificationPayload(queueMessage);
   const currentMessages = [
-    isSystemReminderPayload(queueMessage)
+    isSelfContinuationPayload(queueMessage)
+      ? renderSelfContinuationReminder()
+      : isSystemReminderPayload(queueMessage)
       ? renderSystemReminder(queueMessage)
       : isImageTaskNotificationPayload(queueMessage)
       ? renderImageTaskNotification(queueMessage)

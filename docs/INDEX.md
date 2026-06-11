@@ -23,8 +23,9 @@
   - `docs/AGENTS_OPENAI_REQUESTS.md`
 - Codex + gstack 本机安装、升级、去重：
   - `docs/AGENTS_GSTACK_CODEX.md`
-- 小腻主 prompt 正文：
+- 小腻主 prompt 正文与 prompt-facing 模板：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
+  - `docs/xiaoni_prompt/`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
 - `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：
@@ -55,8 +56,8 @@
 - Raw Trace provider payload 事实源：`docs/XIAONI_AGENT_STACK_LEDGER.md` 的 `llm_request_slices`；它不是独立行动流主卡片。
 - runtime 硬开关、final answer 连续推进和图片理解事实源：
   `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`。
-- Prompt 正文事实源：`docs/XIAONI_MAIN_PROMPT_NEXT.md` 必须和
-  `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 同步。
+- Prompt 正文事实源：`docs/xiaoni_prompt/`。`agent-service` 通过 mtime/size 检查实时重读这些文件；
+  `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 只保留加载入口。
 - 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /
   START_HERE、agent stack ledger、主 prompt 和活跃模块代码为准。
 - 历史执行计划和旧 archive 不再作为仓库内阅读路径；当前契约只看本索引列出的

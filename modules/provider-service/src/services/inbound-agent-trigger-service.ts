@@ -60,9 +60,10 @@ export function shouldForceInboundAgentQueueTrigger(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ) {
-  void message;
-  void options;
-  return false;
+  const senderId = String(message.senderId || '').trim();
+  return message.chatType === 'direct'
+    && senderId.length > 0
+    && options.directTriggerUserIds?.has(senderId) === true;
 }
 
 export function applyForcedInboundAgentQueuePolicy(
@@ -70,9 +71,15 @@ export function applyForcedInboundAgentQueuePolicy(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ): InboundAgentQueuePolicyState {
-  void message;
-  void options;
-  return policy;
+  if (!shouldForceInboundAgentQueueTrigger(message, options)) {
+    return policy;
+  }
+
+  return {
+    ...policy,
+    isEnabled: true,
+    autoReplyEnabled: true
+  };
 }
 
 export async function processInboundAgentQueueTrigger(params: {

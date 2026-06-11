@@ -20,7 +20,8 @@ agent_stack_items[0..n]
 ```
 
 `final_answer` 不是终止条件。它只是模型本轮没有更多工具调用的输出形态；如果小腻
-仍然活着，下一轮继续由 runtime pick 新 notify 或普通 `self_continuation` 推进。
+仍然活着，当前连续 loop 的下一轮必须先追加真实 notify 或普通 `self_continuation`
+runtime input，再继续发下一次模型请求。
 不要为了 `final_answer` 额外制造专用 prompt reminder。
 
 目标伪代码：
@@ -48,7 +49,9 @@ while (xiaoni_alive) {
   }
 
   if (phase(response.output_items) === "final_answer") {
-    scheduleSelfContinuationIfNoRealNotify()
+    const reminder = renderSelfContinuationReminder()
+    appendStackItems([reminder])
+    request.push(reminder)
     continue
   }
 
@@ -156,6 +159,9 @@ request =
 规则：
 
 - 只 append 模型可回放输出，不 append 整个 provider envelope。
+- 同一条 queue message 的 continuous loop 中，固定 `system prompt` 和稳定 developer
+  前缀只在 loop 外组装一次；普通下一片只追加模型 output、tool output 和 runtime
+  reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
 - `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
@@ -234,8 +240,8 @@ node --test packages/persistence/__tests__/*.test.js
 
 - 一个 LLM response 的 output items 按顺序追加到 `agent_stack_items`。
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
-- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；下一轮仍可由
-  self continuation 或真实 notify 推进。
+- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；下一轮必须由
+  普通 self continuation 或真实 notify 作为 runtime input 推进。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。
