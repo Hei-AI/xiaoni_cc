@@ -10,11 +10,15 @@ interface HttpPayloadAccordionProps {
   headers: unknown;
   body: unknown;
   className?: string;
+  headersTitle?: string;
+  bodyTitle?: string;
   bodyEmptyLabel?: string;
   headersEmptyLabel?: string;
   bodyHeightClassName?: string;
   headersHeightClassName?: string;
   bodyNotice?: React.ReactNode;
+  defaultHeadersOpen?: boolean;
+  defaultBodyOpen?: boolean;
 }
 
 interface PayloadSectionProps {
@@ -66,15 +70,19 @@ export function HttpPayloadAccordion({
   headers,
   body,
   className,
+  headersTitle = 'Headers',
+  bodyTitle = 'Body',
   bodyEmptyLabel = '无 Body',
   headersEmptyLabel = '无 Headers',
   bodyHeightClassName = 'h-[20rem]',
   headersHeightClassName = 'h-[16rem]',
   bodyNotice,
+  defaultHeadersOpen = false,
+  defaultBodyOpen = true,
 }: HttpPayloadAccordionProps) {
   const [sectionsOpen, setSectionsOpen] = React.useState<Record<HttpPayloadSectionId, boolean>>({
-    headers: false,
-    body: true,
+    headers: defaultHeadersOpen,
+    body: defaultBodyOpen,
   });
 
   const handleSectionToggle = React.useCallback((sectionId: HttpPayloadSectionId, nextOpen: boolean) => {
@@ -88,7 +96,7 @@ export function HttpPayloadAccordion({
     <div className={cn('flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1', className)}>
       <PayloadSection
         id="headers"
-        title="Headers"
+        title={headersTitle}
         value={headers}
         open={sectionsOpen.headers}
         onOpenChange={(nextOpen) => handleSectionToggle('headers', nextOpen)}
@@ -97,7 +105,7 @@ export function HttpPayloadAccordion({
       />
       <PayloadSection
         id="body"
-        title="Body"
+        title={bodyTitle}
         value={body}
         open={sectionsOpen.body}
         onOpenChange={(nextOpen) => handleSectionToggle('body', nextOpen)}

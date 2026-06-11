@@ -342,12 +342,15 @@ function TraceInspectorSurface({
                   key={`${node.id}-input`}
                   headers={inputPayload.headers}
                   body={inputPayload.body}
+                  headersTitle="Request Headers"
+                  bodyTitle="Request Body"
                   headersEmptyLabel="无请求头"
                   bodyEmptyLabel="无请求体"
                   bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
                   headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
-                  bodyNotice={<ProviderRequestInputSummaryNotice body={inputPayload.body} />}
+                  defaultHeadersOpen
                 />
+                <ProviderRequestInputSummaryNotice body={inputPayload.body} />
                 {inputPayloadMeta.rawBody ? (
                   <StructuredDataViewer
                     title="Raw Request"
@@ -357,6 +360,21 @@ function TraceInspectorSurface({
                     rawText
                   />
                 ) : null}
+                <HttpPayloadAccordion
+                  key={`${node.id}-input-response`}
+                  headers={outputPayload.headers}
+                  body={outputPayload.body}
+                  headersTitle="Response Headers"
+                  bodyTitle="Response Body"
+                  headersEmptyLabel="无响应头"
+                  bodyEmptyLabel="无响应体"
+                  bodyHeightClassName="h-[20rem] xl:h-[min(42vh,24rem)]"
+                  headersHeightClassName="h-[16rem] xl:h-[min(34vh,20rem)]"
+                  defaultHeadersOpen
+                  bodyNotice={outputPayloadMeta.bodySource === 'sse_complete'
+                    ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整流见 Output tab 的 Raw Output。'
+                    : undefined}
+                />
               </div>
             ) : (
               <StructuredDataViewer
@@ -374,10 +392,13 @@ function TraceInspectorSurface({
                   key={`${node.id}-output`}
                   headers={outputPayload.headers}
                   body={outputPayload.body}
+                  headersTitle="Response Headers"
+                  bodyTitle="Response Body"
                   headersEmptyLabel="无响应头"
                   bodyEmptyLabel="无响应体"
                   bodyHeightClassName="h-[24rem] xl:h-[min(54vh,30rem)]"
                   headersHeightClassName="h-[18rem] xl:h-[min(38vh,22rem)]"
+                  defaultHeadersOpen
                   bodyNotice={outputPayloadMeta.bodySource === 'sse_complete'
                     ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整流见下方原始输出。'
                     : undefined}
