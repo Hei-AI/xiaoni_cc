@@ -39,6 +39,6 @@ export function useXiaoniActionEventTraceSpanDetail(eventId: string | null, span
       `/api/xiaoni/action-stream/events/${encodeURIComponent(eventId || '')}/trace/spans/${encodeURIComponent(spanId || '')}/detail`
     ),
     enabled: Boolean(eventId && spanId),
-    staleTime: 30000,
+    staleTime: 0,
   });
 }

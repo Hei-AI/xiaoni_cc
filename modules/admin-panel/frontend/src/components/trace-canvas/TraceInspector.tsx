@@ -85,6 +85,20 @@ function readHttpPayloadMeta(value: unknown): {
   };
 }
 
+function toRawPayloadText(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_error) {
+    return String(value);
+  }
+}
+
 function isProviderRequestNode(node: TraceWaterfallRow | null): node is TraceWaterfallRow {
   return Boolean(node && node.semanticRole === 'provider_request');
 }
@@ -176,6 +190,7 @@ interface TraceInspectorSurfaceProps {
   metadataBadges: string[];
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
+  surfaceLabel?: string;
   allowFloating: boolean;
   detached: boolean;
   onImportToPlayground?: () => void;
@@ -194,6 +209,7 @@ function TraceInspectorSurface({
   metadataBadges,
   activeTab,
   onActiveTabChange,
+  surfaceLabel = 'Selected Span',
   allowFloating,
   detached,
   onImportToPlayground,
@@ -234,13 +250,18 @@ function TraceInspectorSurface({
   const inputPayloadMeta = readHttpPayloadMeta(resolvedInputValue);
   const outputPayload = readHttpPayload(resolvedOutputValue);
   const outputPayloadMeta = readHttpPayloadMeta(resolvedOutputValue);
+  const outputRawBody = outputPayloadMeta.rawBody
+    ? outputPayloadMeta.rawBody
+    : isProviderRequestNode(node)
+      ? toRawPayloadText(outputPayload.body)
+      : null;
 
   return (
     <Card className={cn('h-full min-h-[420px] rounded-[22px] bg-[linear-gradient(180deg,#fff,#faf8f5)]', className)}>
       <CardContent className="flex h-full min-h-0 flex-col p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="inline-flex w-fit rounded-full border border-[hsl(var(--info))]/20 bg-[hsl(var(--info))]/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[hsl(var(--info))]">
-            {detached ? 'Detached Inspector' : 'Selected Span'}
+            {detached ? 'Detached Inspector' : surfaceLabel}
           </div>
           <div className="flex items-center gap-2">
             {node.providerRequestSpanId && onFocusProviderRequest ? (
@@ -375,10 +396,10 @@ function TraceInspectorSurface({
                     ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整原始响应见下方 Raw Response。'
                     : undefined}
                 />
-                {outputPayloadMeta.rawBody ? (
+                {outputRawBody ? (
                   <StructuredDataViewer
                     title="Raw Response"
-                    value={outputPayloadMeta.rawBody}
+                    value={outputRawBody}
                     emptyLabel="无原始响应体"
                     heightClassName="h-[20rem] xl:h-[min(42vh,24rem)]"
                     rawText
@@ -412,10 +433,10 @@ function TraceInspectorSurface({
                     ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整流见下方原始输出。'
                     : undefined}
                 />
-                {outputPayloadMeta.rawBody ? (
+                {outputRawBody ? (
                   <StructuredDataViewer
                     title="Raw Output"
-                    value={outputPayloadMeta.rawBody}
+                    value={outputRawBody}
                     emptyLabel="无原始响应体"
                     heightClassName="h-[20rem] xl:h-[min(42vh,24rem)]"
                     rawText
@@ -451,6 +472,7 @@ interface TraceInspectorPanelProps {
   metadataBadges: string[];
   className?: string;
   allowFloating?: boolean;
+  surfaceLabel?: string;
   onImportToPlayground?: () => void;
   isImportingToPlayground?: boolean;
   onFocusProviderRequest?: (spanId: string) => void;
@@ -464,6 +486,7 @@ export function TraceInspectorPanel({
   metadataBadges,
   className,
   allowFloating = true,
+  surfaceLabel,
   onImportToPlayground,
   isImportingToPlayground = false,
   onFocusProviderRequest,
@@ -568,6 +591,7 @@ export function TraceInspectorPanel({
           metadataBadges={metadataBadges}
           activeTab={activeTab}
           onActiveTabChange={setActiveTab}
+          surfaceLabel={surfaceLabel}
           allowFloating={allowFloating}
           detached={false}
           onImportToPlayground={onImportToPlayground}
@@ -589,6 +613,7 @@ export function TraceInspectorPanel({
                 metadataBadges={metadataBadges}
                 activeTab={activeTab}
                 onActiveTabChange={setActiveTab}
+                surfaceLabel={surfaceLabel}
                 allowFloating={allowFloating}
                 detached
                 onImportToPlayground={onImportToPlayground}
