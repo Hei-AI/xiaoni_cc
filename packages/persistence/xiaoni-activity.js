@@ -1073,15 +1073,23 @@ function inferActionStreamTraceTarget(item, explicitTraceTarget) {
   const spanId = typeof item.metadata?.spanId === 'string' && item.metadata.spanId.trim()
     ? item.metadata.spanId.trim()
     : null;
+  const llmRequestSliceId = firstString(item.metadata?.llmRequestSliceId, item.metadata?.llm_request_slice_id);
+  const toolCallId = firstString(item.metadata?.toolCallId, item.metadata?.tool_call_id);
+  const stackItemId = item.source === 'llm_stack_item' && typeof item.id === 'string' && item.id.startsWith('stack:')
+    ? item.id.slice('stack:'.length)
+    : firstString(item.metadata?.stackItemId, item.metadata?.stack_item_id);
   const traceId = firstString(item.traceId);
   const internalExecutionLeaseId = firstString(item.runId, traceId);
-  if (!traceId && !internalExecutionLeaseId && !spanId) {
+  if (!traceId && !internalExecutionLeaseId && !spanId && !llmRequestSliceId && !toolCallId && !stackItemId) {
     return null;
   }
   return {
     internalExecutionLeaseId,
     traceId,
-    spanId
+    spanId,
+    llmRequestSliceId,
+    toolCallId,
+    stackItemId
   };
 }
 
@@ -1173,17 +1181,23 @@ function normalizeTraceTarget(input = {}) {
   const traceId = firstString(input.traceId, input.trace_id);
   const runId = firstString(input.runId, input.run_id, input.internalExecutionLeaseId, input.internal_execution_lease_id);
   const spanId = firstString(input.spanId, input.span_id);
+  const llmRequestSliceId = firstString(input.llmRequestSliceId, input.llm_request_slice_id, input.sliceId, input.slice_id);
+  const toolCallId = firstString(input.toolCallId, input.tool_call_id);
+  const stackItemId = firstString(input.stackItemId, input.stack_item_id);
   const conversationId = input.conversationId === null || typeof input.conversationId === 'undefined'
     ? firstString(input.conversation_id)
     : String(input.conversationId);
-  if (!conversationId && !traceId && !runId && !spanId) {
+  if (!conversationId && !traceId && !runId && !spanId && !llmRequestSliceId && !toolCallId && !stackItemId) {
     return null;
   }
   return normalizeValue({
     conversationId: conversationId || null,
     traceId: traceId || null,
     spanId: spanId || null,
-    internalExecutionLeaseId: runId || traceId || null
+    internalExecutionLeaseId: runId || traceId || null,
+    llmRequestSliceId: llmRequestSliceId || null,
+    toolCallId: toolCallId || null,
+    stackItemId: stackItemId || null
   });
 }
 
@@ -1267,7 +1281,9 @@ function createXiaoniActivityPersistence({
       conversationId: row.conversationId,
       traceId: row.traceId,
       runId: row.runId,
-      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`
+      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`,
+      toolCallId: row.toolCallId,
+      llmRequestSliceId: row.llmRequestSliceId
     });
   }
 
@@ -1295,7 +1311,8 @@ function createXiaoniActivityPersistence({
       conversationId: row.conversationId,
       traceId: row.traceId,
       runId: row.runId,
-      spanId: row.sliceId ? `stack-slice:${row.sliceId}` : `llm-slice:${row.id}`
+      spanId: row.sliceId ? `stack-slice:${row.sliceId}` : `llm-slice:${row.id}`,
+      llmRequestSliceId: row.sliceId
     });
   }
 
@@ -1340,6 +1357,9 @@ function createXiaoniActivityPersistence({
       conversationId: row.conversationId,
       traceId: row.traceId,
       runId: row.runId,
+      stackItemId: row.id || key,
+      toolCallId,
+      llmRequestSliceId: sliceId,
       spanId: toolCallId
         ? `tool-call:${toolCallId}`
         : sliceId

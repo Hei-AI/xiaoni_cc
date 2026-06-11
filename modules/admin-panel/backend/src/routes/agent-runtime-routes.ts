@@ -13,7 +13,9 @@ import {
 import { DatabaseManager } from '../services/database';
 import {
   buildConversationTracePayload,
-  buildConversationTraceSpanDetail
+  buildConversationTraceSpanDetail,
+  buildStackTracePayload,
+  buildStackTraceSpanDetail
 } from '../services/trace-span-builder';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
@@ -44,6 +46,10 @@ type ActionEventTraceTarget = {
   conversationId: string | null;
   traceId: string | null;
   spanId: string | null;
+  internalExecutionLeaseId?: string | null;
+  llmRequestSliceId?: string | null;
+  toolCallId?: string | null;
+  stackItemId?: string | null;
 };
 
 async function probeAgentService(): Promise<AgentProbeResult> {
@@ -211,7 +217,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
 
       const payload = target.conversationId
         ? await buildConversationTracePayload(database, logger, target.conversationId)
-        : null;
+        : await buildStackTracePayload(logger, target);
       if (!payload) {
         return res.status(404).json({
           success: false,
@@ -256,7 +262,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const spanId = decodeEventId(req.params.spanId);
       const detail = target.conversationId
         ? await buildConversationTraceSpanDetail(database, logger, target.conversationId, spanId)
-        : null;
+        : await buildStackTraceSpanDetail(logger, target, spanId);
       if (!detail) {
         return res.status(404).json({
           success: false,

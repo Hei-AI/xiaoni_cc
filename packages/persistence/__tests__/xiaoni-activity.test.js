@@ -387,7 +387,10 @@ test('Xiaoni action stream projects stack tool requests without provider replay 
   assert.deepEqual(stackItem.traceTarget, {
     internalExecutionLeaseId: 'run_internal_lease_1',
     traceId: 'trace_codex_stream',
-    spanId: 'tool-call:call_exec'
+    spanId: 'tool-call:call_exec',
+    llmRequestSliceId: 'slice_codex_stream',
+    toolCallId: 'call_exec',
+    stackItemId: '101'
   });
   assert.equal(stackItem.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
   assert.equal(stackItem.metadata.stackSource, 'agent_stack_items');
@@ -507,6 +510,8 @@ test('Xiaoni activity feed projects stack ledger items without legacy LLM rows',
   const actionStream = await persistence.getXiaoniActionStream({ limit: 10 });
   assert.equal(actionStream.items[0].eventKind, 'model_tool_request');
   assert.equal(actionStream.items[0].traceTarget.spanId, 'tool-call:call-1');
+  assert.equal(actionStream.items[0].traceTarget.llmRequestSliceId, 'llm-1');
+  assert.equal(actionStream.items[0].traceTarget.toolCallId, 'call-1');
 });
 
 test('Xiaoni action stream treats stack tool executions as first-class activity', async () => {

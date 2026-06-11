@@ -4,7 +4,9 @@ import winston from 'winston';
 import { createAgentRuntimeRoutes } from '../routes/agent-runtime-routes';
 import {
   buildConversationTracePayload,
-  buildConversationTraceSpanDetail
+  buildConversationTraceSpanDetail,
+  buildStackTracePayload,
+  buildStackTraceSpanDetail
 } from '../services/trace-span-builder';
 import { findXiaoniActionEventTraceTarget } from '@qq-bot/persistence';
 
@@ -18,7 +20,9 @@ jest.mock('@qq-bot/persistence', () => ({
 
 jest.mock('../services/trace-span-builder', () => ({
   buildConversationTracePayload: jest.fn(),
-  buildConversationTraceSpanDetail: jest.fn()
+  buildConversationTraceSpanDetail: jest.fn(),
+  buildStackTracePayload: jest.fn(),
+  buildStackTraceSpanDetail: jest.fn()
 }));
 
 function createLogger(): winston.Logger {
@@ -144,20 +148,84 @@ describe('agent runtime action event trace routes', () => {
     expect(buildConversationTracePayload).not.toHaveBeenCalled();
   });
 
-  it('does not build a trace when the target has no conversation', async () => {
+  it('falls back to stack trace when the target has no conversation', async () => {
     const database = createDatabaseMock();
     (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
       traceId: 'runtrace-global',
       conversationId: null,
       spanId: 'stack-slice:slice_global',
-      internalExecutionLeaseId: 'run-global'
+      internalExecutionLeaseId: 'run-global',
+      llmRequestSliceId: 'slice_global',
+      toolCallId: null,
+      stackItemId: '1204'
+    });
+    (buildStackTracePayload as jest.Mock).mockResolvedValueOnce({
+      conversation_id: null,
+      batch_id: null,
+      trace: { trace_id: 'runtrace-global', status: 'ok' },
+      spans: [],
+      raw_evidence: {},
+      data_quality: {}
     });
 
     const response = await request(createApp(database))
       .get('/api/xiaoni/action-stream/events/llm-slice%3Aslice_global/trace');
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
     expect(database.executeQuery).not.toHaveBeenCalled();
     expect(buildConversationTracePayload).not.toHaveBeenCalled();
+    expect(buildStackTracePayload).toHaveBeenCalledWith(expect.anything(), {
+      traceId: 'runtrace-global',
+      conversationId: null,
+      spanId: 'stack-slice:slice_global',
+      internalExecutionLeaseId: 'run-global',
+      llmRequestSliceId: 'slice_global',
+      toolCallId: null,
+      stackItemId: '1204'
+    });
+    expect(response.body.data.action_event).toEqual({
+      event_id: 'llm-slice:slice_global',
+      focus_span_id: 'stack-slice:slice_global',
+      trace_id: 'runtrace-global'
+    });
+  });
+
+  it('falls back to stack span detail when the target has no conversation', async () => {
+    const database = createDatabaseMock();
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
+      traceId: 'runtrace-global',
+      conversationId: null,
+      spanId: 'tool-call:call_global',
+      internalExecutionLeaseId: 'run-global',
+      llmRequestSliceId: 'slice_global',
+      toolCallId: 'call_global',
+      stackItemId: '1204'
+    });
+    (buildStackTraceSpanDetail as jest.Mock).mockResolvedValueOnce({
+      input: { arguments: { cmd: 'date' } },
+      output: { result: { stdout: 'ok' } },
+      evidence: { execution_id: 'tool-1' }
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream/events/stack%3A1204/trace/spans/tool-call%3Acall_global/detail');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(buildConversationTraceSpanDetail).not.toHaveBeenCalled();
+    expect(buildStackTraceSpanDetail).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        traceId: 'runtrace-global',
+        conversationId: null,
+        spanId: 'tool-call:call_global',
+        internalExecutionLeaseId: 'run-global',
+        llmRequestSliceId: 'slice_global',
+        toolCallId: 'call_global',
+        stackItemId: '1204'
+      },
+      'tool-call:call_global'
+    );
+    expect(response.body.data.input.arguments.cmd).toBe('date');
   });
 });

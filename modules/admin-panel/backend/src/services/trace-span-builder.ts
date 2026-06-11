@@ -66,6 +66,16 @@ interface TraceSpanDetailDto {
   evidence: unknown;
 }
 
+interface StackTraceTarget {
+  conversationId?: string | null;
+  traceId?: string | null;
+  internalExecutionLeaseId?: string | null;
+  spanId?: string | null;
+  llmRequestSliceId?: string | null;
+  toolCallId?: string | null;
+  stackItemId?: string | null;
+}
+
 const TRACE_PAYLOAD_MAX_INLINE_BYTES = 16 * 1024;
 
 function estimateJsonBytes(value: unknown): number {
@@ -1364,6 +1374,483 @@ function assignTreeMetadata(spans: TraceSpanDto[], rootSpanId: string) {
     root.sort_key = '000';
     visit(rootSpanId, 1, '000');
   }
+}
+
+function firstNonEmptyString(...values: Array<unknown>): string | null {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function dedupeBy<T>(rows: T[], getKey: (row: T) => unknown): T[] {
+  const byKey = new Map<string, T>();
+  rows.forEach((row, index) => {
+    const key = getKey(row) ?? `row:${index}`;
+    byKey.set(String(key), row);
+  });
+  return Array.from(byKey.values());
+}
+
+function trimTraceEvidence<T extends Record<string, unknown>>(value: T, fieldLabels: Record<string, string>): T {
+  const trimmed = { ...value };
+  Object.entries(fieldLabels).forEach(([field, label]) => {
+    if (Object.prototype.hasOwnProperty.call(trimmed, field)) {
+      trimmed[field as keyof T] = maybeTrimLargeField(trimmed[field], label, { truncateLargeFields: true }) as T[keyof T];
+    }
+  });
+  return trimmed;
+}
+
+async function listStackTraceRows<T>(
+  label: string,
+  target: StackTraceTarget,
+  logger: winston.Logger,
+  listFn: (input: Record<string, unknown>) => Promise<T[]>,
+  keyFn: (row: T) => unknown,
+  limit = 500
+): Promise<T[]> {
+  const traceId = firstNonEmptyString(target.traceId);
+  const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const queries: Promise<T[]>[] = [];
+
+  if (runId) {
+    queries.push(listFn({
+      identityKey: 'xiaoni',
+      runId,
+      chronological: true,
+      limit
+    }));
+  } else if (traceId) {
+    queries.push(listFn({
+      identityKey: 'xiaoni',
+      traceId,
+      chronological: true,
+      limit
+    }));
+  }
+
+  if (queries.length === 0) {
+    return [];
+  }
+
+  try {
+    const rows = (await Promise.all(queries)).flat();
+    return dedupeBy(rows, keyFn);
+  } catch (error) {
+    logger.warn(`Trace query failed: ${label}`, {
+      error: error instanceof Error ? error.message : String(error),
+      traceId,
+      runId
+    });
+    return [];
+  }
+}
+
+export async function buildStackTracePayload(
+  logger: winston.Logger,
+  target: StackTraceTarget
+) {
+  const traceId = firstNonEmptyString(target.traceId, target.internalExecutionLeaseId);
+  const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const focusedSliceId = firstNonEmptyString(target.llmRequestSliceId);
+  const focusedToolCallId = firstNonEmptyString(target.toolCallId);
+  if (!traceId && !runId && !focusedSliceId && !focusedToolCallId) {
+    return null;
+  }
+
+  let stackSliceRows: any[] = [];
+  let stackToolExecutionRows: any[] = [];
+  let stackItemRows: any[] = [];
+
+  if (focusedSliceId || focusedToolCallId) {
+    try {
+      const [focusedSlices, focusedTools, focusedItems] = await Promise.all([
+        focusedSliceId
+          ? listLlmRequestSlices({
+            identityKey: 'xiaoni',
+            sliceId: focusedSliceId,
+            summaryOnly: true,
+            limit: 1
+          }) as Promise<any[]>
+          : Promise.resolve([]),
+        focusedToolCallId
+          ? listToolExecutions({
+            identityKey: 'xiaoni',
+            toolCallId: focusedToolCallId,
+            limit: 10
+          }) as Promise<any[]>
+          : Promise.resolve([]),
+        focusedToolCallId
+          ? listAgentStackItems({
+            identityKey: 'xiaoni',
+            toolCallId: focusedToolCallId,
+            limit: 20
+          }) as Promise<any[]>
+          : Promise.resolve([])
+      ]);
+      stackSliceRows = focusedSlices;
+      stackToolExecutionRows = focusedTools;
+      stackItemRows = focusedItems;
+    } catch (error) {
+      logger.warn('Trace query failed: focused Xiaoni stack trace', {
+        error: error instanceof Error ? error.message : String(error),
+        focusedSliceId,
+        focusedToolCallId,
+        traceId,
+        runId
+      });
+      return null;
+    }
+  } else {
+    [
+      stackSliceRows,
+      stackToolExecutionRows,
+      stackItemRows
+    ] = await Promise.all([
+      listStackTraceRows(
+        'Xiaoni stack trace LLM slices',
+        target,
+        logger,
+        (input) => listLlmRequestSlices({ ...input, summaryOnly: true }) as Promise<any[]>,
+        (row: any) => row?.sliceId || row?.slice_id || row?.id
+      ),
+      listStackTraceRows(
+        'Xiaoni stack trace tool executions',
+        target,
+        logger,
+        (input) => listToolExecutions(input) as Promise<any[]>,
+        (row: any) => row?.executionId || row?.execution_id || row?.id
+      ),
+      listStackTraceRows(
+        'Xiaoni stack trace items',
+        target,
+        logger,
+        async (input) => (await Promise.all(
+          ['runtime_input', 'function_call', 'function_call_output'].map((itemKind) => listAgentStackItems({
+            ...input,
+            itemKind,
+            limit: 1000
+          }) as Promise<any[]>)
+        )).flat(),
+        (row: any) => row?.id || row?.eventId || row?.event_id,
+        1000
+      )
+    ]);
+  }
+
+  if (stackSliceRows.length === 0 && stackToolExecutionRows.length === 0 && stackItemRows.length === 0) {
+    return null;
+  }
+
+  const stackSlices = (stackSliceRows as any[])
+    .map((row) => normalizeStackLlmSlice(row, { truncateLargeFields: true }))
+    .sort((left, right) => compareTimes(left.started_at, right.started_at)
+      || ((left.agent_turn || 0) - (right.agent_turn || 0)));
+  const stackToolExecutions = (stackToolExecutionRows as any[])
+    .map(normalizeStackToolExecution)
+    .map((tool) => trimTraceEvidence(tool, {
+      arguments: 'tool.arguments',
+      raw_arguments: 'tool.raw_arguments',
+      result: 'tool.result',
+      metadata: 'tool.metadata'
+    }));
+  const stackItems = (Array.isArray(stackItemRows) ? stackItemRows as any[] : [])
+    .map((item) => trimTraceEvidence(item, {
+      content: 'stack_item.content',
+      metadata: 'stack_item.metadata'
+    }));
+  const spanRecords: TraceSpanDto[] = [];
+  const rootSpanId = `trace-root:${traceId || runId}`;
+
+  const rootStartedAt = [
+    ...stackSlices.map((slice) => slice.started_at),
+    ...stackToolExecutions.map((tool) => tool.started_at),
+    ...stackItems.map((item) => toIsoString(item.createdAt ?? item.created_at))
+  ].filter(Boolean).sort()[0] || null;
+  const rootEndedAt = [
+    ...stackSlices.map((slice) => slice.completed_at),
+    ...stackToolExecutions.map((tool) => tool.completed_at),
+    ...stackItems.map((item) => toIsoString(item.updatedAt ?? item.updated_at ?? item.createdAt ?? item.created_at))
+  ].filter(Boolean).sort().slice(-1)[0] || rootStartedAt;
+  const rootStatus = [...stackSlices, ...stackToolExecutions].some((row) => row.status === 'error') ? 'error' : 'ok';
+
+  spanRecords.push(createSpan({
+    span_id: rootSpanId,
+    parent_span_id: null,
+    trace_id: traceId || runId || 'xiaoni-stack-trace',
+    conversation_id: null,
+    name: 'xiaoni.stack_trace',
+    kind: 'internal',
+    status_code: rootStatus,
+    status_message: null,
+    started_at: rootStartedAt,
+    ended_at: rootEndedAt,
+    duration_ms: getDurationMs(rootStartedAt, rootEndedAt),
+    summary: safePreview(`Xiaoni stack trace ${traceId || runId}`),
+    attributes: {
+      'semantic.role': 'trace_root',
+      'semantic.display_name': 'Xiaoni Stack Trace',
+      'trace.id': traceId || null,
+      'trace.run_id': runId || null
+    },
+    input: null,
+    output: {
+      stack_slice_count: stackSlices.length,
+      tool_execution_count: stackToolExecutions.length,
+      stack_item_count: stackItems.length
+    },
+    evidence: {
+      trace_id: traceId || null,
+      run_id: runId || null
+    },
+    events: [],
+    links: [],
+    confidence: 'observed',
+    source_ref: traceId || runId
+  }));
+
+  const stackSliceSpanIdBySliceId = new Map<string, string>();
+  stackSlices.forEach((slice) => {
+    const spanId = `stack-slice:${slice.slice_id}`;
+    if (slice.slice_id) {
+      stackSliceSpanIdBySliceId.set(slice.slice_id, spanId);
+    }
+    const providerCall = normalizeStackSliceProviderCall(slice);
+    const hasProviderRequest = hasProviderWirePayload(providerCall);
+    spanRecords.push(createSpan({
+      span_id: spanId,
+      parent_span_id: rootSpanId,
+      trace_id: traceId || runId || 'xiaoni-stack-trace',
+      conversation_id: null,
+      name: 'llm.request_slice',
+      kind: 'client',
+      status_code: slice.status,
+      status_message: null,
+      started_at: slice.started_at,
+      ended_at: slice.completed_at,
+      duration_ms: slice.duration_ms,
+      summary: safePreview(slice.canonical_response || slice.raw_response || slice.output_items),
+      attributes: {
+        'semantic.role': 'generation',
+        'semantic.actor': 'xiaoni',
+        'semantic.display_name': `${slice.model_provider || 'model'} / ${slice.model_name || 'unknown'}`,
+        'stack.slice_id': slice.slice_id,
+        'stack.input_start_index': slice.input_start_index,
+        'stack.input_end_index': slice.input_end_index,
+        'stack.output_start_index': slice.output_start_index,
+        'stack.output_end_index': slice.output_end_index,
+        'llm.model_name': slice.model_name,
+        'llm.model_provider': slice.model_provider,
+        'llm.llm_call_id': slice.llm_call_id,
+        'usage.input_tokens': slice.input_tokens,
+        'usage.output_tokens': slice.output_tokens,
+        'trace.agent_turn': slice.agent_turn,
+        'provider.request_count': hasProviderRequest ? 1 : 0,
+        'provider.hosts': hasProviderRequest ? [syntheticProviderHost(providerCall)] : []
+      },
+      input: {
+        canonical_request: slice.canonical_request,
+        wire_request: slice.wire_request,
+        input_range: {
+          start: slice.input_start_index,
+          end: slice.input_end_index
+        }
+      },
+      output: {
+        canonical_response: slice.canonical_response,
+        wire_response: slice.wire_response,
+        raw_response: slice.raw_response,
+        output_items: slice.output_items,
+        token_usage: slice.token_usage
+      },
+      evidence: {
+        ...slice,
+        stack_items: stackItems.filter((item) => (item.llmRequestSliceId || item.llm_request_slice_id) === slice.slice_id),
+        synthetic_provider_request: hasProviderRequest
+          ? {
+              span_id: buildSyntheticProviderRequestSpanId(providerCall),
+              source: 'llm_request_slices.wire_request/wire_response',
+              slice_id: providerCall.slice_id || null,
+              llm_call_id: providerCall.llm_call_id || null,
+              wire_provider_format: providerCall.wire_provider_format || null
+            }
+          : null
+      },
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: slice.slice_id
+    }));
+
+    if (hasProviderRequest) {
+      spanRecords.push(buildStackProviderRequestSpan({
+        providerCall,
+        parentSpanId: spanId,
+        traceId: traceId || runId || 'xiaoni-stack-trace',
+        conversationId: null,
+        agentTurn: slice.agent_turn
+      }));
+    }
+  });
+
+  stackToolExecutions.forEach((tool) => {
+    const spanId = tool.tool_call_id ? `tool-call:${tool.tool_call_id}` : `tool-exec:${tool.execution_id || tool.id}`;
+    spanRecords.push(createSpan({
+      span_id: spanId,
+      parent_span_id: (tool.llm_request_slice_id && stackSliceSpanIdBySliceId.get(tool.llm_request_slice_id))
+        || rootSpanId,
+      trace_id: traceId || runId || 'xiaoni-stack-trace',
+      conversation_id: null,
+      name: 'tool.execution',
+      kind: 'internal',
+      status_code: tool.status,
+      status_message: tool.error_message || null,
+      started_at: tool.started_at,
+      ended_at: tool.completed_at,
+      duration_ms: tool.duration_ms,
+      summary: safePreview(tool.result || tool.error_message || tool.arguments),
+      attributes: {
+        'semantic.role': 'invocation',
+        'semantic.capability': tool.tool_name,
+        'semantic.display_name': tool.tool_name,
+        'tool.name': tool.tool_name,
+        'tool.side_effect': tool.side_effect,
+        'tool.execution_id': tool.execution_id,
+        'stack.slice_id': tool.llm_request_slice_id,
+        'stack.call_item_id': tool.stack_call_item_id,
+        'stack.output_item_id': tool.stack_output_item_id,
+        'trace.agent_turn': tool.agent_turn
+      },
+      input: {
+        arguments: tool.arguments,
+        raw_arguments: tool.raw_arguments
+      },
+      output: {
+        result: tool.result,
+        error_message: tool.error_message
+      },
+      evidence: tool,
+      events: [],
+      links: [],
+      confidence: 'observed',
+      source_ref: tool.execution_id || tool.id
+    }));
+  });
+
+  spanRecords.push(createSpan({
+    span_id: `terminal:${traceId || runId}`,
+    parent_span_id: rootSpanId,
+    trace_id: traceId || runId || 'xiaoni-stack-trace',
+    conversation_id: null,
+    name: 'terminal.outcome',
+    kind: 'consumer',
+    status_code: rootStatus,
+    status_message: null,
+    started_at: rootEndedAt,
+    ended_at: rootEndedAt,
+    duration_ms: getDurationMs(rootStartedAt, rootEndedAt),
+    summary: safePreview(rootStatus === 'error' ? 'Stack trace contains failed span' : 'Stack trace completed'),
+    attributes: {
+      'semantic.role': 'terminal'
+    },
+    input: {
+      started_at: rootStartedAt,
+      ended_at: rootEndedAt
+    },
+    output: {
+      status: rootStatus
+    },
+    evidence: {
+      trace_id: traceId || null,
+      run_id: runId || null
+    },
+    events: [],
+    links: [],
+    confidence: 'derived',
+    source_ref: traceId || runId
+  }));
+
+  assignTreeMetadata(spanRecords, rootSpanId);
+  const orderedSpans = [...spanRecords].sort((left, right) => left.sort_key.localeCompare(right.sort_key));
+  const firstErrorSpan = orderedSpans.find((span) => span.status_code === 'error') || null;
+  const bottleneckSpan = [...orderedSpans]
+    .filter((span) => typeof span.duration_ms === 'number')
+    .sort((left, right) => (right.duration_ms || 0) - (left.duration_ms || 0))[0] || null;
+  const dataQuality = {
+    trace_headers_propagated: 'missing',
+    llm_logs_complete: stackSlices.length === 0 ? 'missing' : (stackSlices.every((slice) => slice.started_at && slice.completed_at) ? 'complete' : 'partial'),
+    tool_logs_complete: stackToolExecutions.length === 0 ? 'missing' : (stackToolExecutions.every((tool) => tool.started_at) ? 'complete' : 'partial'),
+    http_logs_complete: 'missing',
+    timeline_complete: 'partial',
+    identity_trace_lite: 'missing',
+    agent_stack_complete: stackSlices.length > 0 || stackItems.length > 0 ? 'complete' : 'missing'
+  };
+  const tokenSummary = stackSlices.reduce((summary, call) => {
+    const inputTokens = toNumber(call.token_usage?.input_tokens ?? call.input_tokens) ?? 0;
+    const outputTokens = toNumber(call.token_usage?.output_tokens ?? call.output_tokens) ?? 0;
+    const cachedInputTokens = extractCachedInputTokens(call.token_usage);
+    return {
+      input_tokens: summary.input_tokens + inputTokens,
+      output_tokens: summary.output_tokens + outputTokens,
+      total_tokens: summary.total_tokens + inputTokens + outputTokens,
+      cached_input_tokens: summary.cached_input_tokens + cachedInputTokens
+    };
+  }, {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    cached_input_tokens: 0
+  });
+
+  return {
+    conversation_id: null,
+    batch_id: null,
+    trace: {
+      trace_id: traceId || runId || 'xiaoni-stack-trace',
+      root_span_id: rootSpanId,
+      status: rootStatus,
+      started_at: rootStartedAt,
+      ended_at: rootEndedAt,
+      duration_ms: getDurationMs(rootStartedAt, rootEndedAt),
+      span_count: orderedSpans.length,
+      error_count: orderedSpans.filter((span) => span.status_code === 'error').length,
+      summary: safePreview(`Xiaoni stack trace ${traceId || runId}`),
+      first_error: firstErrorSpan ? {
+        span_id: firstErrorSpan.span_id,
+        title: firstErrorSpan.name,
+        summary: firstErrorSpan.summary
+      } : null,
+      bottleneck: bottleneckSpan ? {
+        span_id: bottleneckSpan.span_id,
+        title: bottleneckSpan.name,
+        duration_ms: bottleneckSpan.duration_ms
+      } : null,
+      token_summary: tokenSummary
+    },
+    spans: orderedSpans,
+    raw_evidence: {
+      conversation: null,
+      websocket_logs: [],
+      timeline_events: [],
+      llm_calls: [],
+      tool_calls: [],
+      http_logs: [],
+      agent_stack_items: stackItems,
+      llm_request_slices: stackSlices,
+      tool_executions: stackToolExecutions,
+      llm_jobs: [],
+      queue_messages: [],
+      runtime_identity_activation_traces: [],
+      identity_evidence_refs: []
+    },
+    data_quality: {
+      ...dataQuality,
+      overall: Object.values(dataQuality).every((value) => value === 'complete') ? 'complete' : 'partial'
+    }
+  };
 }
 
 export async function buildConversationTracePayload(
@@ -2701,5 +3188,171 @@ export async function buildConversationTraceSpanDetail(
   }
 
   logger.debug('Trace span detail not required for span', { conversationId, traceId, spanId });
+  return null;
+}
+
+export async function buildStackTraceSpanDetail(
+  logger: winston.Logger,
+  target: StackTraceTarget,
+  spanId: string
+): Promise<TraceSpanDetailDto | null> {
+  const traceId = firstNonEmptyString(target.traceId);
+  const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const baseLookup = {
+    identityKey: 'xiaoni',
+    ...(traceId ? { traceId } : {}),
+    ...(runId ? { runId } : {})
+  };
+
+  try {
+    if (spanId.startsWith('stack-slice:')) {
+      const sliceId = spanId.slice('stack-slice:'.length);
+      const rows = await listLlmRequestSlices({
+        ...baseLookup,
+        sliceId,
+        limit: 1
+      }) as any[];
+      const row = rows[0] as any;
+      if (!row) {
+        return null;
+      }
+      const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+      return {
+        input: {
+          canonical_request: slice.canonical_request,
+          wire_request: slice.wire_request,
+          input_range: {
+            start: slice.input_start_index,
+            end: slice.input_end_index
+          }
+        },
+        output: {
+          canonical_response: slice.canonical_response,
+          wire_response: slice.wire_response,
+          raw_response: slice.raw_response,
+          output_items: slice.output_items,
+          token_usage: slice.token_usage
+        },
+        evidence: slice
+      };
+    }
+
+    if (spanId.startsWith('tool-call:')) {
+      const toolCallId = spanId.slice('tool-call:'.length);
+      const rows = await listToolExecutions({
+        ...baseLookup,
+        toolCallId,
+        limit: 1
+      }) as any[];
+      const row = rows[0] as any;
+      if (!row) {
+        return null;
+      }
+      const tool = normalizeStackToolExecution(row);
+      return {
+        input: {
+          arguments: tool.arguments,
+          raw_arguments: tool.raw_arguments
+        },
+        output: {
+          result: tool.result,
+          error_message: tool.error_message
+        },
+        evidence: tool
+      };
+    }
+
+    if (spanId.startsWith('llm-call:')) {
+      const llmCallId = spanId.slice('llm-call:'.length);
+      const rows = await listLlmRequestSlices({
+        ...baseLookup,
+        llmCallId,
+        limit: 1
+      }) as any[];
+      const row = rows[0] as any;
+      if (!row) {
+        return null;
+      }
+      const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+      return {
+        input: {
+          canonical_request: slice.canonical_request,
+          wire_request: slice.wire_request,
+          input_range: {
+            start: slice.input_start_index,
+            end: slice.input_end_index
+          }
+        },
+        output: {
+          canonical_response: slice.canonical_response,
+          wire_response: slice.wire_response,
+          raw_response: slice.raw_response,
+          output_items: slice.output_items,
+          token_usage: slice.token_usage
+        },
+        evidence: slice
+      };
+    }
+
+    const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
+    if (syntheticProviderRequest) {
+      const lookupId = syntheticProviderRequest.llmCallId || syntheticProviderRequest.sliceId;
+      if (!lookupId) {
+        return null;
+      }
+      const rows = await listLlmRequestSlices({
+        ...baseLookup,
+        ...(syntheticProviderRequest.llmCallId ? { llmCallId: lookupId } : { sliceId: lookupId }),
+        limit: 1
+      }) as any[];
+      const row = rows[0] as any;
+      if (!row) {
+        return null;
+      }
+      const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+      const providerCall = normalizeStackSliceProviderCall(slice);
+      if (!hasProviderWirePayload(providerCall)) {
+        return null;
+      }
+      return {
+        input: {
+          headers: null,
+          body: providerCall.wire_request,
+          raw_body: providerCall.wire_request_raw_text || null,
+          method: 'POST',
+          upstream_url: null,
+          body_source: 'llm_request_slices.wire_request'
+        },
+        output: {
+          status_code: providerCall.error_message ? null : 200,
+          headers: null,
+          body: providerCall.wire_response,
+          raw_body: providerCall.wire_response_raw_text || null,
+          body_format: 'json',
+          body_source: 'llm_request_slices.wire_response',
+          error_message: providerCall.error_message
+        },
+        evidence: {
+          synthetic: true,
+          source: 'llm_request_slices.wire_request/wire_response',
+          slice_id: providerCall.slice_id || null,
+          llm_call_id: providerCall.llm_call_id || null,
+          model_provider: providerCall.model_provider || null,
+          wire_provider_format: providerCall.wire_provider_format || null,
+          request_format_version: providerCall.request_format_version || null
+        }
+      };
+    }
+  } catch (error) {
+    logger.warn('Stack trace span detail query failed', {
+      error: error instanceof Error ? error.message : String(error),
+      traceId,
+      runId,
+      spanId
+    });
+    return null;
+  }
+
+  logger.debug('Stack trace span detail not required for span', { traceId, runId, spanId });
   return null;
 }

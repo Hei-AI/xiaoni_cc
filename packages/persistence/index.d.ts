@@ -1634,6 +1634,9 @@ export type XiaoniActionStreamItem = Omit<XiaoniActivityFeedItem, 'runId' | 'sta
     internalExecutionLeaseId: string;
     traceId: string | null;
     spanId: string | null;
+    llmRequestSliceId?: string | null;
+    toolCallId?: string | null;
+    stackItemId?: string | null;
   } | null;
 };
 export type XiaoniActionEventTraceTarget = {
@@ -1641,6 +1644,9 @@ export type XiaoniActionEventTraceTarget = {
   traceId: string | null;
   spanId: string | null;
   internalExecutionLeaseId: string | null;
+  llmRequestSliceId?: string | null;
+  toolCallId?: string | null;
+  stackItemId?: string | null;
 };
 export type XiaoniActivityTimeFilters = {
   range?: string;
