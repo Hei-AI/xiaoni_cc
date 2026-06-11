@@ -6,7 +6,10 @@ provider evidence，但不能再被写成新的概念来源。
 
 ## Core Model
 
-小腻不是一组离散客服请求，而是一条连续 agent loop：
+小腻不是一组离散客服请求，而是一条连续 agent loop。工程上只有一个主 runtime
+入口：`AgentLoopService.processNextRuntimeTick()`。外层 `runQueueWorkerLoop()` 只是
+时钟调度器，不能拥有 queue claim 语义；Notify Bucket 的 pick、recovery
+self-continuation 合成、autonomous runtime notify 合成都发生在 runtime tick 内部。
 
 ```text
 system prompt
@@ -20,42 +23,91 @@ agent_stack_items[0..n]
 ```
 
 `final_answer` 不是终止条件。它只是模型本轮没有更多工具调用的输出形态；如果小腻
-仍然活着，当前连续 loop 的下一轮必须先追加真实 notify 或普通 `self_continuation`
-runtime input，再继续发下一次模型请求。
-不要为了 `final_answer` 额外制造专用 prompt reminder。
+仍然活着，当前 active tick 会直接追加普通 `self_continuation` runtime input，
+再继续发下一次模型请求。真实 notify 只能由 `processNextRuntimeTick()` 在 runtime
+loop 内 pick；不能让外层 worker 或旧处理入口提前把 queue message 变成一次独立
+agent run。不要为了 `final_answer` 额外制造专用 prompt reminder。
+
+当前实现边界：
+
+```mermaid
+flowchart TD
+  A[runQueueWorkerLoop timer] --> B[AgentLoopService.processNextRuntimeTick]
+  B --> C{Notify Bucket has pending notify?}
+  C -- yes --> D[claim notify]
+  C -- no, recovery expired --> E[enqueue and claim self_continuation notify]
+  C -- no, autonomous due --> F[enqueue and claim autonomous runtime notify]
+  D --> G[append runtime_input for picked notify]
+  E --> G
+  F --> G
+  G --> H[resolve stable system prompt once per service lifetime]
+  H --> I[build requestInput from stack window + appended runtime input]
+  I --> J{active model slice loop}
+  J --> K[POST provider with same system prompt and appended requestInput]
+  K --> L[append response.output_items to stack and requestInput]
+  L --> M{tool calls?}
+  M -- yes --> N[invoke tools]
+  N --> O[append function_call_output to stack and requestInput]
+  O --> J
+  M -- no --> P{phase is final_answer?}
+  P -- yes --> Q[append normal self_continuation runtime_input]
+  Q --> J
+  P -- no --> R[finish runtime tick]
+  J -. compression pressure .-> S[compress_core_memory succeeds]
+  S --> T[rebuild compressed window]
+  T --> J
+```
 
 目标伪代码：
 
 ```ts
-const request = [system_prompt, init_developer_msg]
+async function runXiaoniRuntime() {
+  const runtimePrompt = await resolveStableRuntimePromptOnce()
+  const stableDeveloperHead = buildStableDeveloperHeadOnce()
 
-while (xiaoni_alive) {
-  const notify = pickNotify()
-  if (notify) request.push(render_system_reminder(notify))
-
-  const response = post_llm(request)
-  appendStackItems(response.output_items)
-  request.push(...response.output_items)
-
-  const toolCalls = parse_tool_calls(response.output_items)
-  if (toolCalls.length > 0) {
-    for (const call of toolCalls) {
-      const result = invoke(call)
-      const output = function_call_output(call.id, result)
-      appendStackItems([output])
-      request.push(output)
+  while (xiaoni_alive) {
+    const notify = await pickNotifyOrSyntheticRuntimeTick()
+    if (!notify) {
+      await sleep(idleInterval)
+      continue
     }
-    continue
-  }
 
-  if (phase(response.output_items) === "final_answer") {
-    const reminder = renderSelfContinuationReminder()
-    appendStackItems([reminder])
-    request.push(reminder)
-    continue
-  }
+    const requestInput = buildRequestInputFromStackWindow({
+      runtimePrompt,
+      stableDeveloperHead,
+      currentRuntimeInput: renderNotifyAsRuntimeInput(notify)
+    })
 
-  continue
+    const appendLoopInputItems = (items) => {
+      appendStackItems(items)
+      requestInput.push(...items)
+    }
+
+    while (xiaoni_alive) {
+      const response = post_llm({
+        instructions: runtimePrompt.systemPrompt,
+        input: requestInput
+      })
+
+      appendLoopInputItems(response.output_items)
+
+      const toolCalls = parse_tool_calls(response.output_items)
+      if (toolCalls.length > 0) {
+        for (const call of toolCalls) {
+          const result = invoke(call)
+          appendLoopInputItems([function_call_output(call.id, result)])
+        }
+        continue
+      }
+
+      if (phase(response.output_items) === "final_answer") {
+        appendLoopInputItems([renderSelfContinuationReminder()])
+        continue
+      }
+
+      continue
+    }
+  }
 }
 ```
 
@@ -159,9 +211,13 @@ request =
 规则：
 
 - 只 append 模型可回放输出，不 append 整个 provider envelope。
-- 同一条 queue message 的 continuous loop 中，固定 `system prompt` 和稳定 developer
-  前缀只在 loop 外组装一次；普通下一片只追加模型 output、tool output 和 runtime
-  reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
+- `system prompt` 按 `AgentLoopService` 生命周期稳定解析一次；普通 notify 不会把
+  prompt 文件重新读一遍。稳定 developer 能力头属于固定前缀，不是 queue message
+  的一部分。
+- `processNextRuntimeTick()` 是 queue/notify 的唯一消费入口；不存在可公开调用的
+  旧式单条 queue message 处理兼容入口。
+- active model slice 中只追加模型 output、tool output 和 `self_continuation` / 状态类
+  runtime reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
 - `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
@@ -240,8 +296,9 @@ node --test packages/persistence/__tests__/*.test.js
 
 - 一个 LLM response 的 output items 按顺序追加到 `agent_stack_items`。
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
-- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；下一轮必须由
-  普通 self continuation 或真实 notify 作为 runtime input 推进。
+- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；同一 active
+  loop 直接 append 普通 `self_continuation` runtime input 推进。真实 notify 属于
+  后续 runtime tick pick 的新 notify，不在当前 active model-slice while 中重新 pick。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

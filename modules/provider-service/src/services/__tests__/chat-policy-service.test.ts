@@ -29,7 +29,7 @@ test('policy state treats receive as the hard parent switch', async () => {
   });
 });
 
-test('missing policy rows keep receive enabled and message delivery disabled by default', async () => {
+test('missing policy rows keep IM entry and internal delivery enabled by default', async () => {
   const service = new ChatPolicyService();
   (service as any).prisma = {
     privateChatSetting: {
@@ -46,7 +46,7 @@ test('missing policy rows keep receive enabled and message delivery disabled by 
     exists: false,
     isEnabled: true,
     continuousLearningEnabled: false,
-    autoReplyEnabled: false
+    autoReplyEnabled: true
   });
 });
 

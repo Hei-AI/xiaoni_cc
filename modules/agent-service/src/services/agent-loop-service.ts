@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
+import type { AgentRecoveryWindowProjection } from '@qq-bot/persistence';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
@@ -203,6 +204,18 @@ type CanonicalAgentTurnRequest = {
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
   runtimePausePollMs?: number;
+};
+
+export type AgentRuntimeTickParams = {
+  workerId: string;
+  idleIntervalMs: number;
+  pollIntervalMs: number;
+  autonomousRuntimeEnabled?: boolean;
+  autonomousRuntimeSliceIntervalMs?: number;
+  getActiveRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
+  getLatestRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
+  onRecoveryWindowError?: (error: unknown) => void;
+  onAutonomousRuntimeSliceError?: (error: unknown) => void;
 };
 
 function sleep(ms: number) {
@@ -3809,6 +3822,7 @@ function buildAgentInclude(modelName: string, parameters: AgentModelParameters):
 
 export class AgentLoopService {
   private readonly responseActionRouter = new ResponseActionRouter();
+  private stableRuntimePrompt: ResolvedAgentRuntimePrompt | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -3878,7 +3892,72 @@ export class AgentLoopService {
     }
   }
 
-  async processQueueMessage(queueMessage: QueueMessageRecord) {
+  private async resolveStableRuntimePrompt(payload: QueueMessageRecord['payload']) {
+    if (!this.stableRuntimePrompt) {
+      this.stableRuntimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+    }
+    return this.stableRuntimePrompt;
+  }
+
+  async processNextRuntimeTick(params: AgentRuntimeTickParams) {
+    let queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+    if (!queueMessage) {
+      const activeRecovery = params.getActiveRecoveryWindow
+        ? await params.getActiveRecoveryWindow().catch((error) => {
+            params.onRecoveryWindowError?.(error);
+            return null;
+          })
+        : null;
+      const remainingMs = Number(activeRecovery?.remainingMs || 0);
+      if (Number.isFinite(remainingMs) && remainingMs > 0) {
+        return Math.max(200, Math.min(remainingMs, params.idleIntervalMs));
+      }
+
+      const latestRecovery = params.getLatestRecoveryWindow
+        ? await params.getLatestRecoveryWindow().catch((error) => {
+            params.onRecoveryWindowError?.(error);
+            return null;
+          })
+        : null;
+      if (
+        latestRecovery
+        && latestRecovery.active !== true
+        && latestRecovery.continuationQueued !== true
+      ) {
+        const enqueued = await this.store.enqueueSelfContinuationForRecovery(latestRecovery);
+        if (enqueued) {
+          queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+          if (queueMessage) {
+            await this.processRuntimeNotify(queueMessage);
+            return params.pollIntervalMs;
+          }
+        }
+      }
+
+      if (params.autonomousRuntimeEnabled !== false) {
+        const enqueued = await this.store.enqueueAutonomousRuntimeSlice({
+          minIntervalMs: params.autonomousRuntimeSliceIntervalMs
+        }).catch((error) => {
+          params.onAutonomousRuntimeSliceError?.(error);
+          return false;
+        });
+        if (enqueued) {
+          queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+          if (queueMessage) {
+            await this.processRuntimeNotify(queueMessage);
+            return params.pollIntervalMs;
+          }
+        }
+      }
+
+      return params.idleIntervalMs;
+    }
+
+    await this.processRuntimeNotify(queueMessage);
+    return params.pollIntervalMs;
+  }
+
+  private async processRuntimeNotify(queueMessage: QueueMessageRecord) {
     const startedAt = Date.now();
     const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -3974,7 +4053,7 @@ export class AgentLoopService {
       });
       historyCount = history.length;
 
-      runtimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+      runtimePrompt = await this.resolveStableRuntimePrompt(payload);
       await this.ensureRuntimeIdentityRoot(payload, runtimePrompt);
       runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
       const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);

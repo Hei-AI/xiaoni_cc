@@ -9,28 +9,67 @@
 
 QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`，收口在 `packages/persistence/inbound-inbox.js` 和 `packages/persistence/qq-usage.js`。小腻只有在模型主动选择 `$qq-usage` 时，才通过 `agent-service /api/internal/qq-usage` 读取 inbox/window。
 
-聊天对象的 `auto_reply_enabled` 是 provider-service 侧硬边界。`auto_reply_enabled=false` 时，QQ 正文仍写入 `agent_inbound_messages`，但不写 `phone_notification` 到 Notify Bucket，也就不会因为这条 QQ 消息唤醒主 loop。
+聊天对象的 IM 入口 `is_enabled` 是 provider-service 侧硬边界。`is_enabled=false` 时，QQ 正文仍写入 `agent_inbound_messages`，但不写 `phone_notification` 到 Notify Bucket，也就不会因为这条 QQ 消息唤醒主 loop。`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关。
 
-主 loop 由 `agent-service` 承载。一次 slice 的主链路是：
+主 loop 由 `agent-service` 承载。`runQueueWorkerLoop()` 只是时钟调度器：
+它定期调用 `AgentLoopService.processNextRuntimeTick()`，但不拥有 queue claim
+语义。`processNextRuntimeTick()` 是小腻 runtime 的外部入口；它在 loop 内部
+从 Notify Bucket pick notify，必要时合成 recovery self-continuation 或
+autonomous runtime notify，然后把 notify 追加成当前 runtime input。notify 是
+门铃，不是认知边界，也不是 prompt 重新组装边界。
+
+一次 runtime tick 的主链路是：
 
 ```text
-loop tick
-  -> build fixed system / developer prefix
-  -> append agent_stack_items window
-  -> pick Notify Bucket event if available
-  -> render current reminder as runtime_input stack item
+runQueueWorkerLoop
+  -> AgentLoopService.processNextRuntimeTick()
+  -> claim one notify from Notify Bucket
+  -> if none and recovery expired: enqueue self_continuation notify, then claim it
+  -> if none and autonomous runtime is due: enqueue self_continuation notify, then claim it
+  -> append picked notify as runtime_input
+  -> reuse stable system prompt resolved for this AgentLoopService lifetime
+  -> build requestInput from append-only stack window + current runtime input
   -> record llm_request_slices input range
   -> POST provider-service /api/internal/agent/execute
   -> provider-service codex-provider / OpenAI
   -> append response.output_items into agent_stack_items
   -> if function_call: dispatch tools and append function_call_output
-  -> if final_answer and no tool: append normal self_continuation input, then continue
-  -> next loop
+  -> if final_answer and no tool: append normal self_continuation input to same requestInput
+  -> next provider request inside the same active runtime tick
 ```
 
-同一条 queue message 的 active loop 不在普通下一片重组固定前缀；`system prompt`
-和稳定 developer head 在 loop 外组装一次。后续模型片只追加 response output、tool
-output 或 runtime reminder。P0 上下文压缩完成后可以重组窗口，因为那是显式压缩。
+`system prompt` 是 runtime service 生命周期内的稳定前缀：`AgentLoopService`
+第一次需要模型请求时解析一次，后续 notify 不会重新读取 prompt 文件。稳定 developer
+能力头是固定 request head；普通下一片只追加 response output、tool output 或 runtime
+reminder。P0 上下文压缩完成后可以重组窗口，因为那是显式压缩。
+
+```mermaid
+sequenceDiagram
+  participant W as runQueueWorkerLoop
+  participant L as AgentLoopService.processNextRuntimeTick
+  participant P as provider-service
+  participant S as agent_stack_items
+
+  W->>L: tick
+  L->>L: claim notify / synthesize self_continuation
+  L->>S: append runtime_input for picked notify
+  L->>L: resolve stable runtimePrompt once per service lifetime
+  L->>L: build requestInput from stack window + appended runtime input
+  loop active model slices
+    L->>P: canonical request(systemPrompt, requestInput)
+    P-->>L: response.output_items
+    L->>S: append output_items
+    alt tool calls
+      L->>L: execute tools
+      L->>S: append function_call_output
+      L->>L: requestInput.push(function_call_output)
+    else final_answer without tools
+      L->>S: append self_continuation runtime_input
+      L->>L: requestInput.push(self_continuation)
+    end
+  end
+  L-->>W: next poll delay
+```
 
 目标事实源见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。迁移期旧 transcript、LLM/tool
 审计表可以继续作为兼容投影或审计来源，但不要再把它们写成小腻连续认知的概念来源。
@@ -39,12 +78,15 @@ output 或 runtime reminder。P0 上下文压缩完成后可以重组窗口，�
 
 | 来源 | 写入内容 | 当前代码入口 |
 | --- | --- | --- |
-| NapCat QQ message | `auto_reply_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
+| NapCat QQ message | `is_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | self continuation | `self_continuation`，空闲且未休息时维持连续主 loop。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
-写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，等待主 loop 在后续 slice 里 pick。事件一旦被 pick，就从 `pending` 变成 `consumed`：门铃已经进入上下文，后续模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
+写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，
+等待 `AgentLoopService.processNextRuntimeTick()` 在 runtime loop 内 pick。事件一旦
+被 pick，就从 `pending` 变成 `consumed`：门铃已经进入当前处理事务，后续同一
+active tick 的模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
 
 ## QQ Inbox
 
@@ -54,8 +96,8 @@ QQ 入站链路分成两步：
 NapCat
   -> provider-service normalize inbound
   -> persist QQ body into agent_inbound_messages
-  -> if auto_reply_enabled=true: enqueue phone_notification into Notify Bucket
-  -> if auto_reply_enabled=false: timeline skip, no Notify Bucket row
+  -> if is_enabled=true: enqueue phone_notification into Notify Bucket
+  -> if is_enabled=false: timeline skip, no Notify Bucket row
 ```
 
 `agent_inbound_messages` 是 QQ app 的正文 inbox/window。`phone_notification` 是状态栏通知。小腻看到通知，不等于已经打开 QQ 正文。
@@ -95,7 +137,8 @@ canonical_response
   -> no function_call
   -> append response output items
   -> do not append final-answer-specific reminder
-  -> append normal self_continuation developer reminder before the next model slice
+  -> append normal self_continuation developer reminder to the same requestInput
+  -> send the next provider request inside the same active runtime tick
 ```
 
 当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
@@ -108,7 +151,7 @@ canonical_response
 | QQ reply | `agent-service -> provider-service -> NapCat`。 | delivery state、trace、conversation item 写回持久层。 |
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
-| image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，下一轮仍由 Step 5 pick。 |
+| image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `processNextRuntimeTick()` pick。 |
 | `final_answer` | 无外部工具分发；如果没有工具调用，先追加模型 output item，再追加普通 `self_continuation` runtime input 进入下一轮模型切片。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；如果继续切片，原始 Notify 不会重新作为当前输入。 |
 
@@ -149,7 +192,7 @@ provider-service 和 agent-service 里的 store/service 类只能做适配和编
 
 - QQ 入站正文是否落库：看 `agent_inbound_messages` 和 provider-service 入站日志。
 - Notify Bucket 是否写入：看 `agent_queue_messages` 的 `source`、`dedupe_key`、`status`、`available_at`。
-- `auto_reply_enabled=0` 是否生效：看 provider-service timeline 的 `phone_notification/enqueue` 是否为 `eventPhase=skip`、`reason=auto_reply_disabled`，并确认 `agent_queue_messages` 没有对应 pending `phone_notification`。
+- IM 入口关闭是否生效：看 provider-service timeline 的 `phone_notification/enqueue` 是否为 `eventPhase=skip`、`reason=auto_reply_disabled`，并确认 `agent_queue_messages` 没有对应 pending `phone_notification`。这里的 reason 是历史兼容命名，当前由 `is_enabled=0` 派生。
 - 主 loop 是否消费：看 agent-service worker 日志、目标 `agent_stack_items` / `llm_request_slices`、`agent_queue_messages` consumed 状态和 action stream trace。
 - `$qq-usage` 看不到内容：先查 `agent-service /api/internal/qq-usage`，再查 `packages/persistence/qq-usage.js` 查询条件。
 - 图片理解上下文或 base64 膨胀异常：查 `inspect_image_placeholder` 的 `image_vision_fork_no_persist` 请求、`agent_media_assets` 观察记录和 `<image id="...">` tool output；不要把 traffic / replay 里的 base64 当作正常长期产物。

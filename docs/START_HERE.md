@@ -25,7 +25,7 @@
 ## Common Mistakes
 - 不要因为 `agent-service` 在 compose 里，就把它当成管理端入口；它是 QQ 行为判断和后台 runtime 入口。
 - 不要把 `exec_command` 误认为在 `agent-service` 本容器里直接执行；当前 compose 配置下它走独立的 `xiaoni-executor`。
-- 不要把 provider 侧 participation 继续理解成完整“是否说话”的总决策器；它只保留硬边界和观测层。当前 `auto_reply_enabled=0` 会硬拦截 `phone_notification` 入 Notify Bucket，主行为判断仍在 `agent-service` runtime。
+- 不要把 provider 侧 participation 继续理解成完整“是否说话”的总决策器；它只保留硬边界和观测层。当前聊天对象 `is_enabled=0` 会硬拦截 `phone_notification` 入 Notify Bucket，`auto_reply_enabled` 只保留兼容/派生字段，主行为判断仍在 `agent-service` runtime。
 - 不要再把旧的 conversation timeline、provider replay 或 `/api/runs` 当成当前调试主入口；现在看的是由 agent stack / tool / life facts 投影的小腻行动流。`agent_runs` 只作为内部 run / trace join key。
 - 完成判定统一回到 `AGENTS.md` 的 `Done Means`，不要在这里脑补另一套交付标准。
 - 不要把 `embedding-server` 当对外服务；对外是 `provider-service /v1/*`。

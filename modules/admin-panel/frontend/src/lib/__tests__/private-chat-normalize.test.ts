@@ -13,7 +13,6 @@ describe('private chat normalization', () => {
       success_rate: '90.0' as unknown as number,
       avg_response_time: '5250ms',
       is_enabled: 1,
-      auto_reply_enabled: 1,
       user_notes: undefined,
     })).toMatchObject({
       total_conversations: 10,

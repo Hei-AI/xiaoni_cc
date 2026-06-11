@@ -54,7 +54,7 @@ describe('chat settings routes', () => {
     });
   });
 
-  it('keeps private chat toggle normalization behavior unchanged', async () => {
+  it('mirrors private chat IM entry into internal delivery state', async () => {
     const database = createDatabaseMock();
     database.upsertPrivateChatSettings.mockResolvedValue(true);
     database.getPrivateChatSettingById
@@ -63,7 +63,7 @@ describe('chat settings routes', () => {
         username: 'tester',
         is_enabled: 1,
         continuous_learning_enabled: 1,
-        auto_reply_enabled: 0,
+        auto_reply_enabled: 1,
         transcript_compact_offset: 6,
         welcome_message: null,
         user_notes: null,
@@ -75,7 +75,7 @@ describe('chat settings routes', () => {
         username: 'tester',
         is_enabled: 1,
         continuous_learning_enabled: 1,
-        auto_reply_enabled: 0,
+        auto_reply_enabled: 1,
         transcript_compact_offset: 6,
         welcome_message: null,
         user_notes: null,
@@ -90,12 +90,12 @@ describe('chat settings routes', () => {
     expect(response.status).toBe(200);
     expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
       is_enabled: 1,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
     });
     expect(response.body.data).toMatchObject({
       user_id: 456,
       is_enabled: 1,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
     });
   });
 
@@ -119,6 +119,7 @@ describe('chat settings routes', () => {
         direct_force_im_trigger_enabled: 1,
         im_receive_enabled: 1,
         agent_im_entry_enabled: 1,
+        auto_reply_enabled: 1,
       });
     } finally {
       if (previousDirectIds === undefined) {
@@ -149,7 +150,7 @@ describe('chat settings routes', () => {
             avg_response_time: '0ms',
             is_enabled: 0,
             continuous_learning_enabled: 0,
-            auto_reply_enabled: 0,
+            auto_reply_enabled: 1,
           },
         ])
         .mockResolvedValueOnce([{ total: '1' }]);
@@ -163,6 +164,7 @@ describe('chat settings routes', () => {
         direct_force_im_trigger_enabled: 1,
         im_receive_enabled: 1,
         agent_im_entry_enabled: 1,
+        auto_reply_enabled: 1,
       });
       expect(database.executeQuery).toHaveBeenNthCalledWith(
         1,
@@ -279,61 +281,39 @@ describe('chat settings routes', () => {
     expect(privateResponse.body.error).toBe('No valid fields to update');
   });
 
-  it('allows enabling group auto reply without a prompt binding', async () => {
+  it('rejects direct group auto reply updates because delivery is derived from IM entry', async () => {
     const database = createDatabaseMock();
-    database.upsertGroupChatSettings.mockResolvedValue(true);
-    database.getGroupChatSettingById.mockResolvedValue({
-      group_id: 123,
-      auto_reply_enabled: 1,
-      agent_prompt_id: null,
-    });
 
     const response = await request(createApp(database))
       .put('/api/group-chats/123/settings')
       .send({ auto_reply_enabled: true });
 
-    expect(response.status).toBe(200);
-    expect(database.upsertGroupChatSettings).toHaveBeenCalledWith(123, {
-      auto_reply_enabled: 1,
-    });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('No valid fields to update');
+    expect(database.upsertGroupChatSettings).not.toHaveBeenCalled();
   });
 
-  it('allows enabling private auto reply without a prompt binding', async () => {
+  it('rejects direct private auto reply updates because delivery is derived from IM entry', async () => {
     const database = createDatabaseMock();
-    database.upsertPrivateChatSettings.mockResolvedValue(true);
-    database.getPrivateChatSettingById.mockResolvedValue({
-      user_id: 456,
-      auto_reply_enabled: 1,
-      agent_prompt_id: null,
-    });
 
     const response = await request(createApp(database))
       .put('/api/private-chats/456/settings')
       .send({ auto_reply_enabled: true });
 
-    expect(response.status).toBe(200);
-    expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
-      auto_reply_enabled: 1,
-    });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('No valid fields to update');
+    expect(database.upsertPrivateChatSettings).not.toHaveBeenCalled();
   });
 
   it('ignores private prompt binding fields in settings updates', async () => {
     const database = createDatabaseMock();
-    database.upsertPrivateChatSettings.mockResolvedValue(true);
-    database.getPrivateChatSettingById.mockResolvedValue({
-      user_id: 456,
-      auto_reply_enabled: 1,
-      agent_prompt_id: null,
-    });
-
     const response = await request(createApp(database))
       .put('/api/private-chats/456/settings')
       .send({ auto_reply_enabled: true, agent_prompt_id: 'prompt-456' });
 
-    expect(response.status).toBe(200);
-    expect(database.upsertPrivateChatSettings).toHaveBeenCalledWith(456, {
-      auto_reply_enabled: 1,
-    });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe('No valid fields to update');
+    expect(database.upsertPrivateChatSettings).not.toHaveBeenCalled();
   });
 
   it('clears child switches when receive is disabled', () => {
@@ -344,7 +324,7 @@ describe('chat settings routes', () => {
         auto_reply_enabled: true,
       },
       {
-        allowedFields: ['is_enabled', 'auto_reply_enabled'],
+        allowedFields: ['is_enabled'],
       }
     )).toEqual({
       sanitizedUpdates: {

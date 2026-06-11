@@ -6,7 +6,6 @@ type MessageType = 'private' | 'group';
 
 type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
-  auto_reply_enabled: number | bigint | null;
 };
 
 export type PolicyState = {
@@ -86,7 +85,7 @@ export class ChatPolicyService {
             group_id: BigInt(params.groupId),
             is_enabled: 1,
             continuous_learning_enabled: 0,
-            auto_reply_enabled: 0,
+            auto_reply_enabled: 1,
             last_activity: new Date()
           },
           update: {
@@ -102,7 +101,7 @@ export class ChatPolicyService {
           user_id: BigInt(params.userId),
           is_enabled: 1,
           continuous_learning_enabled: 0,
-          auto_reply_enabled: 0,
+          auto_reply_enabled: 1,
           last_activity: new Date()
         },
         update: {
@@ -127,18 +126,17 @@ export class ChatPolicyService {
         exists: false,
         isEnabled: true,
         continuousLearningEnabled: false,
-        autoReplyEnabled: false
+        autoReplyEnabled: true
       };
     }
 
     const isEnabled = Boolean(row.is_enabled);
-    const autoReplyEnabled = isEnabled && Boolean(row.auto_reply_enabled);
 
     return {
       exists: true,
       isEnabled,
       continuousLearningEnabled: false,
-      autoReplyEnabled
+      autoReplyEnabled: isEnabled
     };
   }
 
@@ -150,8 +148,7 @@ export class ChatPolicyService {
     const row = await this.prisma.groupChatSetting.findUnique({
       where: { group_id: BigInt(groupId) },
       select: {
-        is_enabled: true,
-        auto_reply_enabled: true
+        is_enabled: true
       }
     });
 
@@ -162,8 +159,7 @@ export class ChatPolicyService {
     const row = await this.prisma.privateChatSetting.findUnique({
       where: { user_id: BigInt(userId) },
       select: {
-        is_enabled: true,
-        auto_reply_enabled: true
+        is_enabled: true
       }
     });
 

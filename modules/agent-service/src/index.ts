@@ -5,7 +5,6 @@ import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
-import { processNextAgentQueueItem } from './services/agent-queue-worker';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
@@ -86,9 +85,7 @@ async function pollQueueOnce() {
 
   workerBusy = true;
   try {
-    return await processNextAgentQueueItem({
-      store,
-      loopService,
+    return await loopService.processNextRuntimeTick({
       workerId: agentConfig.workerId,
       idleIntervalMs: agentConfig.idleIntervalMs,
       pollIntervalMs: agentConfig.pollIntervalMs,

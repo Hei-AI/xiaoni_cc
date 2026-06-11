@@ -42,7 +42,7 @@
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
 - 小腻 Notify Bucket、QQ inbox、主 loop 和动作分发架构：
   - `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md`
-- 小腻 auto reply 硬开关、`final_answer` 连续 loop 语义、图片理解 fork 和 base64 持久化边界：
+- 小腻 IM 入口硬开关、`final_answer` 连续 loop 语义、图片理解 fork 和 base64 持久化边界：
   - `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`
 - 路线图：
   - `docs/ROADMAP.md`
@@ -56,7 +56,9 @@
 - Raw Trace provider payload 事实源：`docs/XIAONI_AGENT_STACK_LEDGER.md` 的 `llm_request_slices`；它不是独立行动流主卡片。
 - runtime 硬开关、final answer 连续推进和图片理解事实源：
   `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`。
-- Prompt 正文事实源：`docs/xiaoni_prompt/`。`agent-service` 通过 mtime/size 检查实时重读这些文件；
+- Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 的 `system_prompt.md` 按
+  `AgentLoopService` 进程生命周期稳定解析一次，改动后需要重启 `agent-service`
+  才进入主 prompt；runtime reminder 模板在对应 reminder 追加时读取。
   `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 只保留加载入口。
 - 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /
   START_HERE、agent stack ledger、主 prompt 和活跃模块代码为准。

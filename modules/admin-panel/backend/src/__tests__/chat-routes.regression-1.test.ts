@@ -25,7 +25,7 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
 }
 
 describe('chat settings route regressions', () => {
-  it('does not require prompt binding when rendering private auto-reply settings', async () => {
+  it('derives rendered private delivery state from the IM entry setting', async () => {
     const database = createDatabaseMock();
     database.executeQuery
       .mockResolvedValueOnce([
@@ -41,7 +41,7 @@ describe('chat settings route regressions', () => {
           avg_response_time: '0ms',
           is_enabled: 1,
           continuous_learning_enabled: 1,
-          auto_reply_enabled: 0,
+          auto_reply_enabled: 1,
           transcript_compact_offset: 6,
           user_notes: null,
           agent_prompt_id: null,
@@ -54,7 +54,7 @@ describe('chat settings route regressions', () => {
           username: 'stale-user',
           is_enabled: 1,
           continuous_learning_enabled: 1,
-          auto_reply_enabled: 0,
+          auto_reply_enabled: 1,
           welcome_message: null,
           user_notes: null,
           transcript_compact_offset: 6,
@@ -74,11 +74,11 @@ describe('chat settings route regressions', () => {
     expect(detailResponse.status).toBe(200);
     expect(listResponse.body.data[0]).toMatchObject({
       user_id: 999999991,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
     });
     expect(detailResponse.body.data.user_settings).toMatchObject({
       user_id: 999999991,
-      auto_reply_enabled: 0,
+      auto_reply_enabled: 1,
     });
   });
 });

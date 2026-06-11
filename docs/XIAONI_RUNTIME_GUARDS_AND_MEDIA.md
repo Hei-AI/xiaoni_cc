@@ -1,6 +1,6 @@
 # Xiaoni Runtime Guards And Media
 
-本文档记录小腻主 runtime 里三类容易混淆的边界：QQ 自动回复开关、
+本文档记录小腻主 runtime 里三类容易混淆的边界：QQ IM 入口开关、
 `final_answer` 后续推进、图片理解 fork。它是当前代码契约的说明页，不记录
 旧方案。
 
@@ -9,13 +9,13 @@
 | 领域 | 当前契约 | 代码入口 |
 | --- | --- | --- |
 | QQ 入站正文 | 始终先落 `agent_inbound_messages`，作为 QQ app inbox/window。 | `modules/provider-service/src/services/inbound-inbox-service.ts` |
-| `auto_reply_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
+| IM 入口 `is_enabled` | 为 `false` 时硬拦截 `phone_notification` 入 Notify Bucket；不代表删除 inbox 正文。`auto_reply_enabled` 只保留为兼容/派生字段。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | `phone_notification` | 只含状态栏摘要，不含 QQ 正文；小腻必须主动用 `$qq-usage` 才能看到正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
 | `final_answer` continuous loop | 模型返回 `final_answer` 且无 tool call 时，只表示本轮没有更多工具；不产生 final-answer 专用 prompt reminder，但同一连续 loop 的下一片必须追加普通 `self_continuation` developer reminder。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片理解 | `inspect_image_placeholder` 复用当前主 agent request，追加图片 base64 fork，返回文本观察。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 | 图片观察输出 | 主 agent 只收到 `<image id="...">含义是: ...</image>`；base64 不进入长期 replay。 | `modules/agent-service/src/services/agent-loop-service.ts` |
 
-## Auto Reply Hard Gate
+## IM Entry Hard Gate
 
 QQ 入站链路分两层：
 
@@ -24,22 +24,24 @@ NapCat
   -> provider-service normalize inbound
   -> write body into agent_inbound_messages
   -> check chat policy
-  -> if auto_reply_enabled=true: enqueue phone_notification
-  -> if auto_reply_enabled=false: skip phone_notification enqueue
+  -> if is_enabled=true: enqueue phone_notification
+  -> if is_enabled=false: skip phone_notification enqueue
 ```
 
-`auto_reply_enabled=0` 是当前聊天对象的 runtime 硬禁言入口。它不影响消息落
-inbox，也不删除后续人工排障可见性；它只阻止主 loop 被这条 QQ 消息唤醒。
+`is_enabled=0` 是当前聊天对象的 IM 入口硬边界。它不影响消息落 inbox，也不
+删除后续人工排障可见性；它只阻止主 loop 被这条 QQ 消息唤醒。`auto_reply_enabled`
+不再作为独立可配置投递开关，只作为兼容/派生字段随 IM 入口同步。
 
 排障时看三处：
 
 1. `agent_inbound_messages` 是否有正文。
 2. timeline 的 `phone_notification/routing` 是否为 `decision=skip`、
-   `reason=auto_reply_disabled`。
+   `reason=auto_reply_disabled`；这里的 reason 是历史兼容命名，当前值由
+   IM 入口 `is_enabled` 派生。
 3. `agent_queue_messages` 是否没有对应 `phone_notification` pending row。
 
 `agent_runtime_control.enabled=false` 是全局 runtime worker 暂停；它和
-`auto_reply_enabled=0` 是两层不同开关。前者让 agent-service 不跑主 loop，
+`is_enabled=0` 是两层不同开关。前者让 agent-service 不跑主 loop，
 后者让 provider-service 不把某个聊天的新消息写入 Notify Bucket。
 
 ## Final Answer Continuation

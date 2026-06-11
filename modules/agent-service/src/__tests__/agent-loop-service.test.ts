@@ -179,6 +179,10 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
+async function processRuntimeNotifyForTest(service: AgentLoopService, queueMessage: unknown) {
+  await (service as any).processRuntimeNotify(queueMessage);
+}
+
 function createConversationTurn(overrides: Partial<{
   id: number;
   userId: number;
@@ -3138,7 +3142,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   }) as typeof fetch;
 
   try {
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3530,7 +3534,7 @@ test('send_in_group with a single message sends it once through executeTool', as
   }]);
 });
 
-test('processQueueMessage fails without a bound prompt and does not call the provider', async () => {
+test('runtime notify fails without a bound prompt and does not call the provider', async () => {
   const queueMessage = {
     id: 'run-queue-1',
     traceId: 'trace-1',
@@ -3592,7 +3596,7 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
   }) as typeof fetch;
 
   try {
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3619,7 +3623,7 @@ test('processQueueMessage fails without a bound prompt and does not call the pro
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
 });
 
-test('processQueueMessage persists delivered assistant transcript items with final phase on success', async () => {
+test('runtime notify persists delivered assistant transcript items with final phase on success', async () => {
   const queueMessage = {
     id: 'run-queue-success',
     traceId: 'trace-success',
@@ -3743,7 +3747,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   }) as typeof fetch;
 
   try {
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3838,7 +3842,7 @@ test('processQueueMessage persists delivered assistant transcript items with fin
   }]);
 });
 
-test('processQueueMessage keeps going after no tool call until Xiaoni chooses recover_energy', async () => {
+test('runtime notify keeps going after no tool call until Xiaoni chooses recover_energy', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-recover',
     traceId: 'trace-no-tool-recover',
@@ -3957,7 +3961,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
@@ -3984,7 +3988,7 @@ test('processQueueMessage keeps going after no tool call until Xiaoni chooses re
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('processQueueMessage keeps final_answer in the stack and continues until a terminal action', async () => {
+test('runtime notify keeps final_answer in the stack and continues until a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4084,7 +4088,7 @@ test('processQueueMessage keeps final_answer in the stack and continues until a 
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.equal(promptResolveCount, 1);
@@ -4103,7 +4107,7 @@ test('processQueueMessage keeps final_answer in the stack and continues until a 
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
-test('processQueueMessage waits before the next model slice when runtime control is disabled', async () => {
+test('runtime notify waits before the next model slice when runtime control is disabled', async () => {
   const queueMessage = {
     id: 'run-queue-runtime-paused',
     traceId: 'trace-runtime-paused',
@@ -4195,7 +4199,7 @@ test('processQueueMessage waits before the next model slice when runtime control
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(turns, 2);
   assert.equal(runtimeChecks, 3);
@@ -4218,7 +4222,7 @@ test('processQueueMessage waits before the next model slice when runtime control
   );
 });
 
-test('processQueueMessage continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
+test('runtime notify continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-unbounded-loop',
     traceId: 'trace-unbounded-loop',
@@ -4308,7 +4312,7 @@ test('processQueueMessage continues past the historical max turn count until Xia
 
   agentConfig.maxTurns = historicalMaxTurns;
   try {
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
   } finally {
     agentConfig.maxTurns = originalMaxTurns;
   }
@@ -4324,7 +4328,7 @@ test('processQueueMessage continues past the historical max turn count until Xia
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
-test('processQueueMessage does not allow request_image_task to swallow the visible group reply', async () => {
+test('runtime notify does not allow request_image_task to swallow the visible group reply', async () => {
   const payload = createQueuePayload();
   payload.traceId = 'trace-image-task-followup';
   payload.runId = 'run-image-task-followup';
@@ -4510,7 +4514,7 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
       };
     };
 
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
 
     assert.equal(turn, 3);
     assert.equal(storeCalls.createConversation.length, 1);
@@ -4531,7 +4535,7 @@ test('processQueueMessage does not allow request_image_task to swallow the visib
   }
 });
 
-test('processQueueMessage does not auto-send image task status after queuing', async () => {
+test('runtime notify does not auto-send image task status after queuing', async () => {
   const queueMessage = {
     id: 'run-queue-image-task-no-auto-send',
     traceId: 'trace-image-task-no-auto-send',
@@ -4643,7 +4647,7 @@ test('processQueueMessage does not auto-send image task status after queuing', a
       };
     };
 
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
 
     assert.equal(turn, 2);
     assert.equal(storeCalls.createRuntimeTask.length, 1);
@@ -4658,7 +4662,7 @@ test('processQueueMessage does not auto-send image task status after queuing', a
   }
 });
 
-test('processQueueMessage stores partially delivered assistant transcript as commentary on failure', async () => {
+test('runtime notify stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',
     traceId: 'trace-failure',
@@ -4765,7 +4769,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
     throw new Error('recover_energy failed');
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'failed');
@@ -4791,7 +4795,7 @@ test('processQueueMessage stores partially delivered assistant transcript as com
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-failure']);
 });
 
-test('processQueueMessage completes when the model stops emitting tool calls after a delivered reply', async () => {
+test('runtime notify completes when the model stops emitting tool calls after a delivered reply', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-after-delivery',
     traceId: 'trace-no-tool-after-delivery',
@@ -4897,7 +4901,7 @@ test('processQueueMessage completes when the model stops emitting tool calls aft
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.equal(storeCalls.failQueueMessage.length, 0);
@@ -4911,7 +4915,7 @@ test('processQueueMessage completes when the model stops emitting tool calls aft
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
-test('processQueueMessage allows multiple visible deliveries within the same run', async () => {
+test('runtime notify allows multiple visible deliveries within the same run', async () => {
   const queueMessage = {
     id: 'run-queue-multi-delivery',
     traceId: 'trace-multi-delivery',
@@ -5039,7 +5043,7 @@ test('processQueueMessage allows multiple visible deliveries within the same run
     };
   };
 
-  await service.processQueueMessage(queueMessage as any);
+  await processRuntimeNotifyForTest(service, queueMessage as any);
 
   assert.equal(turn, 3);
   assert.equal(executeToolCalls, 2);
@@ -5337,7 +5341,7 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(promptTexts.some((t: string) => isPhoneNotificationReminderContent(t)), true);
 });
 
-test('processQueueMessage preserves global OS context during self continuation', async () => {
+test('runtime notify preserves global OS context during self continuation', async () => {
   const queueMessage = {
     id: 'run-self-continuation',
     traceId: 'trace-self-continuation',
@@ -5437,7 +5441,7 @@ test('processQueueMessage preserves global OS context during self continuation',
   }) as typeof fetch;
 
   try {
-    await service.processQueueMessage(queueMessage as any);
+    await processRuntimeNotifyForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
