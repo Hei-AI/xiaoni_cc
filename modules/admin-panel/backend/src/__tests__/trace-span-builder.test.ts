@@ -337,6 +337,7 @@ describe('buildStackTracePayload', () => {
       wireRequest: { model: 'gpt-5.4-mini' },
       canonicalResponse: { output_text: 'hi' },
       wireResponse: { id: 'resp-1' },
+      rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
       tokenUsage: { input_tokens: 10, output_tokens: 20 },
       requestFormatVersion: 'openresponse/v1',
       wireProviderFormat: 'codex/responses',
@@ -374,7 +375,10 @@ describe('buildStackTracePayload', () => {
       headers: {
         'content-type': 'application/json'
       },
-      body: { id: 'resp-1' }
+      body: { id: 'resp-1' },
+      raw_body: JSON.stringify({
+        output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }]
+      })
     });
   });
 });

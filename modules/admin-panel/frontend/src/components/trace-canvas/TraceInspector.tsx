@@ -372,9 +372,18 @@ function TraceInspectorSurface({
                   headersHeightClassName="h-[16rem] xl:h-[min(34vh,20rem)]"
                   defaultHeadersOpen
                   bodyNotice={outputPayloadMeta.bodySource === 'sse_complete'
-                    ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整流见 Output tab 的 Raw Output。'
+                    ? '当前 Body 展示的是 SSE 最终完成态 JSON；增量事件与完整原始响应见下方 Raw Response。'
                     : undefined}
                 />
+                {outputPayloadMeta.rawBody ? (
+                  <StructuredDataViewer
+                    title="Raw Response"
+                    value={outputPayloadMeta.rawBody}
+                    emptyLabel="无原始响应体"
+                    heightClassName="h-[20rem] xl:h-[min(42vh,24rem)]"
+                    rawText
+                  />
+                ) : null}
               </div>
             ) : (
               <StructuredDataViewer

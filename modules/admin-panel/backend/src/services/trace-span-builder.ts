@@ -406,7 +406,10 @@ function normalizeLlmCall(call: any, options?: TracePayloadTrimOptions) {
   };
   if (options?.includeRawWireText) {
     normalized.wire_request_raw_text = rawJsonText(call.wire_request_raw_text, rawJsonText(call.wire_request));
-    normalized.wire_response_raw_text = rawJsonText(call.wire_response_raw_text, rawJsonText(call.wire_response));
+    normalized.wire_response_raw_text = rawJsonText(
+      call.wire_response_raw_text,
+      rawJsonText(rawResponse, rawJsonText(call.wire_response))
+    );
   }
   return normalized;
 }
@@ -454,7 +457,7 @@ function normalizeStackLlmSlice(slice: any, options?: TracePayloadTrimOptions) {
     ...(options?.includeRawWireText
       ? {
           wire_request_raw_text: rawJsonText(slice.wireRequest ?? slice.wire_request),
-          wire_response_raw_text: rawJsonText(slice.wireResponse ?? slice.wire_response)
+          wire_response_raw_text: rawJsonText(rawResponse, rawJsonText(slice.wireResponse ?? slice.wire_response))
         }
       : {})
   };
