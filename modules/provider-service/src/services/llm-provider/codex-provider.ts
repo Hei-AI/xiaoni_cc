@@ -309,23 +309,44 @@ export class CodexProvider extends OpenAIProvider {
       ...(sessionId && !traceHeaders['x-client-request-id'] ? { 'x-client-request-id': sessionId } : {}),
       ...traceHeaders
     };
+    const requestUrl = `${normalizedBaseUrl}${normalizedPath}`;
+    const requestHeaders = {
+      Authorization: `Bearer ${apiKey}`,
+      ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
+      originator: 'openclaw',
+      'User-Agent': this.buildUserAgent(),
+      'OpenAI-Beta': 'responses=experimental',
+      accept: 'text/event-stream',
+      'content-type': 'application/json',
+      ...this.defaultHeaders,
+      ...codexTraceHeaders
+    };
 
     try {
-      const response = await fetch(`${normalizedBaseUrl}${normalizedPath}`, {
+      this.recordWireExchange({
+        requestHeaders: this.sanitizeWireHeaders(requestHeaders),
+        requestUrl,
+        responseHeaders: null,
+        responseStatus: null,
+        responseStatusText: null
+      });
+
+      const response = await fetch(requestUrl, {
         method: 'POST',
         signal: controller.signal,
         body: JSON.stringify(payload),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
-          originator: 'openclaw',
-          'User-Agent': this.buildUserAgent(),
-          'OpenAI-Beta': 'responses=experimental',
-          accept: 'text/event-stream',
-          'content-type': 'application/json',
-          ...this.defaultHeaders,
-          ...codexTraceHeaders
-        }
+        headers: requestHeaders
+      });
+      this.recordWireExchange({
+        requestHeaders: this.sanitizeWireHeaders(requestHeaders),
+        requestUrl,
+        responseHeaders: this.sanitizeWireHeaders(
+          response.headers && typeof response.headers.entries === 'function'
+            ? Object.fromEntries(response.headers.entries())
+            : response.headers || {}
+        ),
+        responseStatus: response.status,
+        responseStatusText: response.statusText || null
       });
 
       if (!response.ok) {

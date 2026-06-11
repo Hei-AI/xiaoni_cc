@@ -717,6 +717,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const runId = firstString(input.runId, input.run_id);
     const itemKind = firstString(input.itemKind, input.item_kind);
     const toolCallId = firstString(input.toolCallId, input.tool_call_id);
+    const llmRequestSliceId = firstString(input.llmRequestSliceId, input.llm_request_slice_id);
     const eventId = firstString(input.eventId, input.event_id);
     if (traceId) {
       clauses.push('trace_id = ?');
@@ -733,6 +734,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     if (toolCallId) {
       clauses.push('tool_call_id = ?');
       params.push(toolCallId);
+    }
+    if (llmRequestSliceId) {
+      clauses.push('llm_request_slice_id = ?');
+      params.push(llmRequestSliceId);
     }
     if (eventId) {
       clauses.push('event_id = ?');
@@ -851,6 +856,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const runId = firstString(input.runId, input.run_id);
     const toolCallId = firstString(input.toolCallId, input.tool_call_id);
     const executionId = firstString(input.executionId, input.execution_id);
+    const llmRequestSliceId = firstString(input.llmRequestSliceId, input.llm_request_slice_id);
     if (traceId) {
       clauses.push('trace_id = ?');
       params.push(traceId);
@@ -866,6 +872,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     if (executionId) {
       clauses.push('execution_id = ?');
       params.push(executionId);
+    }
+    if (llmRequestSliceId) {
+      clauses.push('llm_request_slice_id = ?');
+      params.push(llmRequestSliceId);
     }
     if (input.conversationId || input.conversation_id) {
       clauses.push('conversation_id = ?');

@@ -142,6 +142,18 @@ async function resolveActionEventTraceTarget(
   return await findXiaoniActionEventTraceTarget(eventId) as ActionEventTraceTarget | null;
 }
 
+function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
+  if (target.llmRequestSliceId || target.toolCallId || target.stackItemId) {
+    return true;
+  }
+
+  const spanId = target.spanId || '';
+  return spanId.startsWith('stack-slice:')
+    || spanId.startsWith('tool-call:')
+    || spanId.startsWith('tool-output:')
+    || spanId.startsWith('provider-request:wire:');
+}
+
 export function createAgentRuntimeRoutes(database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
@@ -215,7 +227,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         });
       }
 
-      const payload = target.conversationId
+      const payload = target.conversationId && !shouldUseStackTrace(target)
         ? await buildConversationTracePayload(database, logger, target.conversationId)
         : await buildStackTracePayload(logger, target);
       if (!payload) {
@@ -260,7 +272,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       }
 
       const spanId = decodeEventId(req.params.spanId);
-      const detail = target.conversationId
+      const detail = target.conversationId && !shouldUseStackTrace(target)
         ? await buildConversationTraceSpanDetail(database, logger, target.conversationId, spanId)
         : await buildStackTraceSpanDetail(logger, target, spanId);
       if (!detail) {

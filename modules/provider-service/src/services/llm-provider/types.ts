@@ -239,8 +239,13 @@ export interface LLMProviderTextResult {
   rawResponse: any;
   canonicalRequest: OpenResponseCreateRequest;
   wireRequest: any;
+  wireRequestHeaders?: Record<string, unknown> | null;
+  wireRequestUrl?: string | null;
   canonicalResponse: OpenResponseResource;
   wireResponse: any;
+  wireResponseHeaders?: Record<string, unknown> | null;
+  wireResponseStatus?: number | null;
+  wireResponseStatusText?: string | null;
   requestFormatVersion: string;
   wireProviderFormat: string;
   usage: LLMProviderUsage;
@@ -254,8 +259,13 @@ export interface LLMProviderContentResult {
   rawResponse: any;
   canonicalRequest: OpenResponseCreateRequest;
   wireRequest: any;
+  wireRequestHeaders?: Record<string, unknown> | null;
+  wireRequestUrl?: string | null;
   canonicalResponse: OpenResponseResource;
   wireResponse: any;
+  wireResponseHeaders?: Record<string, unknown> | null;
+  wireResponseStatus?: number | null;
+  wireResponseStatusText?: string | null;
   requestFormatVersion: string;
   wireProviderFormat: string;
   usage: LLMProviderUsage;

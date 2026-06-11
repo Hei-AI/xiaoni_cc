@@ -47,15 +47,18 @@ describe('agent runtime action event trace routes', () => {
     jest.clearAllMocks();
   });
 
-  it('resolves an LLM request action event to its conversation trace', async () => {
+  it('resolves an LLM request action event to its focused stack trace even after conversation attach', async () => {
     const database = createDatabaseMock();
     (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
       traceId: 'trace-1',
       conversationId: '42',
       spanId: 'stack-slice:slice_abc',
-      internalExecutionLeaseId: 'lease-1'
+      internalExecutionLeaseId: 'lease-1',
+      llmRequestSliceId: 'slice_abc',
+      toolCallId: null,
+      stackItemId: '1204'
     });
-    (buildConversationTracePayload as jest.Mock).mockResolvedValueOnce({
+    (buildStackTracePayload as jest.Mock).mockResolvedValueOnce({
       conversation_id: '42',
       batch_id: null,
       trace: { trace_id: 'trace-1', status: 'ok' },
@@ -71,7 +74,16 @@ describe('agent runtime action event trace routes', () => {
     expect(response.body.success).toBe(true);
     expect(database.executeQuery).not.toHaveBeenCalled();
     expect(findXiaoniActionEventTraceTarget).toHaveBeenCalledWith('llm-slice:slice_abc');
-    expect(buildConversationTracePayload).toHaveBeenCalledWith(expect.anything(), expect.anything(), '42');
+    expect(buildConversationTracePayload).not.toHaveBeenCalled();
+    expect(buildStackTracePayload).toHaveBeenCalledWith(expect.anything(), {
+      traceId: 'trace-1',
+      conversationId: '42',
+      spanId: 'stack-slice:slice_abc',
+      internalExecutionLeaseId: 'lease-1',
+      llmRequestSliceId: 'slice_abc',
+      toolCallId: null,
+      stackItemId: '1204'
+    });
     expect(response.body.data.action_event).toEqual({
       event_id: 'llm-slice:slice_abc',
       focus_span_id: 'stack-slice:slice_abc',
@@ -79,15 +91,18 @@ describe('agent runtime action event trace routes', () => {
     });
   });
 
-  it('loads span detail through the action event route', async () => {
+  it('loads focused stack span detail through the action event route after conversation attach', async () => {
     const database = createDatabaseMock();
     (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
       traceId: 'trace-1',
       conversationId: '42',
       spanId: 'stack-slice:slice_abc',
-      internalExecutionLeaseId: 'lease-1'
+      internalExecutionLeaseId: 'lease-1',
+      llmRequestSliceId: 'slice_abc',
+      toolCallId: null,
+      stackItemId: '1204'
     });
-    (buildConversationTraceSpanDetail as jest.Mock).mockResolvedValueOnce({
+    (buildStackTraceSpanDetail as jest.Mock).mockResolvedValueOnce({
       input: { raw_body: '{"model":"gpt"}' },
       output: { raw_body: '{"type":"response"}' },
       evidence: { synthetic: true }
@@ -98,10 +113,18 @@ describe('agent runtime action event trace routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
-    expect(buildConversationTraceSpanDetail).toHaveBeenCalledWith(
+    expect(buildConversationTraceSpanDetail).not.toHaveBeenCalled();
+    expect(buildStackTraceSpanDetail).toHaveBeenCalledWith(
       expect.anything(),
-      expect.anything(),
-      '42',
+      {
+        traceId: 'trace-1',
+        conversationId: '42',
+        spanId: 'stack-slice:slice_abc',
+        internalExecutionLeaseId: 'lease-1',
+        llmRequestSliceId: 'slice_abc',
+        toolCallId: null,
+        stackItemId: '1204'
+      },
       'provider-request:wire:llm_abc'
     );
     expect(response.body.data.input.raw_body).toBe('{"model":"gpt"}');

@@ -234,7 +234,12 @@ type ProviderAgentResponse = {
   };
   canonical_request?: Record<string, unknown>;
   wire_request?: Record<string, unknown>;
+  wire_request_headers?: Record<string, unknown> | null;
+  wire_request_url?: string | null;
   wire_response?: Record<string, unknown>;
+  wire_response_headers?: Record<string, unknown> | null;
+  wire_response_status?: number | null;
+  wire_response_status_text?: string | null;
   raw_response?: Record<string, unknown>;
   usage?: Record<string, unknown>;
   usage_details?: Record<string, unknown>;
@@ -4139,7 +4144,12 @@ export class AgentLoopService {
             : null,
           metadata: {
             prompt_name: runtimePrompt.promptName,
-            has_tool_call: outputItems.some((item) => item.type === 'function_call')
+            has_tool_call: outputItems.some((item) => item.type === 'function_call'),
+            provider_request_headers: modelResult.wire_request_headers || null,
+            provider_request_url: modelResult.wire_request_url || null,
+            provider_response_headers: modelResult.wire_response_headers || null,
+            provider_response_status: modelResult.wire_response_status ?? null,
+            provider_response_status_text: modelResult.wire_response_status_text || null
           }
         });
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);

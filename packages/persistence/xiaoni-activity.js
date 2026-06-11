@@ -747,8 +747,78 @@ function summarizeAgentStackToolExecution(row) {
   };
 }
 
+function cachedInputTokensFromUsage(tokenUsage = {}) {
+  return Number(
+    tokenUsage.cached_input_tokens
+    || tokenUsage.cachedInputTokens
+    || tokenUsage.input_tokens_details?.cached_tokens
+    || tokenUsage.inputTokensDetails?.cachedTokens
+    || tokenUsage.prompt_tokens_details?.cached_tokens
+    || tokenUsage.promptTokensDetails?.cachedTokens
+    || tokenUsage.raw_usage?.input_tokens_details?.cached_tokens
+    || tokenUsage.rawUsage?.inputTokensDetails?.cachedTokens
+    || 0
+  ) || 0;
+}
+
+function providerRequestSpanIdForSlice(sliceId, llmCallId) {
+  if (llmCallId) {
+    return `provider-request:wire:${llmCallId}`;
+  }
+  return sliceId ? `provider-request:slice:${encodeURIComponent(sliceId)}` : null;
+}
+
+function tokenSummaryFromLlmSliceRow(row) {
+  const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
+  const inputTokens = Number(
+    tokenUsage.input_tokens
+    || tokenUsage.inputTokens
+    || tokenUsage.prompt_tokens
+    || tokenUsage.promptTokens
+    || 0
+  ) || 0;
+  const outputTokens = Number(
+    tokenUsage.output_tokens
+    || tokenUsage.outputTokens
+    || tokenUsage.completion_tokens
+    || tokenUsage.completionTokens
+    || 0
+  ) || 0;
+  const cachedInputTokens = cachedInputTokensFromUsage(tokenUsage);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    llmRequestSliceId: sliceId || null,
+    llmCallId,
+    providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId)
+  };
+}
+
+function attachLlmTokenMetadata(item, tokenSummaryBySliceId) {
+  const sliceId = firstString(item.metadata?.llmRequestSliceId, item.metadata?.llm_request_slice_id);
+  const tokenSummary = sliceId ? tokenSummaryBySliceId.get(sliceId) : null;
+  if (!tokenSummary) {
+    return item;
+  }
+  return {
+    ...item,
+    metadata: {
+      ...item.metadata,
+      inputTokens: item.metadata?.inputTokens ?? tokenSummary.inputTokens,
+      cachedInputTokens: item.metadata?.cachedInputTokens ?? tokenSummary.cachedInputTokens,
+      outputTokens: item.metadata?.outputTokens ?? tokenSummary.outputTokens,
+      llmCallId: item.metadata?.llmCallId ?? tokenSummary.llmCallId,
+      providerRequestSpanId: item.metadata?.providerRequestSpanId ?? tokenSummary.providerRequestSpanId
+    }
+  };
+}
+
 function summarizeLlmRequestSlice(row) {
   const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
+  const tokenSummary = tokenSummaryFromLlmSliceRow(row);
   const canonicalRequest = normalizeJsonObject(row.canonicalRequest ?? row.canonical_request, {});
   const wireRequest = normalizeJsonObject(row.wireRequest ?? row.wire_request, null);
   const canonicalResponse = normalizeJsonObject(row.canonicalResponse ?? row.canonical_response, null);
@@ -756,20 +826,8 @@ function summarizeLlmRequestSlice(row) {
   const outputItems = Array.isArray(row.outputItems)
     ? row.outputItems
     : normalizeJsonObject(row.output_items, []);
-  const inputTokens = Number(
-    tokenUsage.input_tokens
-    || tokenUsage.inputTokens
-    || tokenUsage.prompt_tokens
-    || tokenUsage.promptTokens
-    || 0
-  );
-  const outputTokens = Number(
-    tokenUsage.output_tokens
-    || tokenUsage.outputTokens
-    || tokenUsage.completion_tokens
-    || tokenUsage.completionTokens
-    || 0
-  );
+  const inputTokens = tokenSummary.inputTokens;
+  const outputTokens = tokenSummary.outputTokens;
   const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
   const llmCallId = firstString(row.llmCallId, row.llm_call_id);
   const provider = firstString(row.wireProviderFormat, row.wire_provider_format, row.modelProvider, row.model_provider, 'provider');
@@ -812,7 +870,9 @@ function summarizeLlmRequestSlice(row) {
       requestFormatVersion: row.requestFormatVersion || row.request_format_version || null,
       processingTimeMs: Number(row.processingTimeMs || row.processing_time_ms || 0) || null,
       inputTokens,
+      cachedInputTokens: tokenSummary.cachedInputTokens,
       outputTokens,
+      providerRequestSpanId: tokenSummary.providerRequestSpanId,
       completedAt: normalizeDate(row.completedAt || row.completed_at),
       errorMessage: row.errorMessage || row.error_message || null,
       providerRequestPreview: truncateText(rawJsonText(requestPayload) || '', 1200),
@@ -1385,7 +1445,9 @@ function createXiaoniActivityPersistence({
       conversationId: row.conversationId,
       traceId: row.traceId,
       runId: row.runId,
-      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`
+      spanId: row.toolCallId ? `tool-call:${row.toolCallId}` : `tool-exec:${row.id || row.executionId}`,
+      toolCallId: row.toolCallId,
+      llmRequestSliceId: row.llmRequestSliceId
     });
   }
 
@@ -1645,9 +1707,50 @@ function createXiaoniActivityPersistence({
       const normalizedAgentStackToolRows = Array.isArray(agentStackToolRows)
         ? agentStackToolRows
         : [];
-      const normalizedLlmRequestSliceRows = Array.isArray(llmRequestSliceRows)
+      let normalizedLlmRequestSliceRows = Array.isArray(llmRequestSliceRows)
         ? llmRequestSliceRows
         : [];
+      if (actionStreamProjection && typeof listLlmRequestSlices === 'function') {
+        const knownSliceIds = new Set(
+          normalizedLlmRequestSliceRows
+            .map((row) => firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id))
+            .filter(Boolean)
+        );
+        const referencedSliceIds = new Set([
+          ...normalizedAgentStackRows.map((row) => firstString(row.llmRequestSliceId, row.llm_request_slice_id)),
+          ...normalizedAgentStackToolRows.map((row) => firstString(row.llmRequestSliceId, row.llm_request_slice_id))
+        ].filter(Boolean));
+        const missingSliceIds = Array.from(referencedSliceIds)
+          .filter((sliceId) => !knownSliceIds.has(sliceId))
+          .slice(0, perSourceLimit);
+        if (missingSliceIds.length > 0) {
+          const focusedSliceRows = await Promise.all(missingSliceIds.map((sliceId) => listLlmRequestSlices({
+            identityKey,
+            sliceId,
+            summaryOnly: true,
+            limit: 1
+          }, config).catch(() => [])));
+          normalizedLlmRequestSliceRows = dedupeFeedItems([
+            ...normalizedLlmRequestSliceRows.map((row) => ({
+              id: firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id),
+              timestamp: normalizeDate(row.createdAt || row.created_at || row.completedAt || row.completed_at),
+              row
+            })),
+            ...focusedSliceRows.flat().map((row) => ({
+              id: firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id),
+              timestamp: normalizeDate(row.createdAt || row.created_at || row.completedAt || row.completed_at),
+              row
+            }))
+          ]).map((entry) => entry.row).filter(Boolean);
+        }
+      }
+      const tokenSummaryBySliceId = new Map();
+      normalizedLlmRequestSliceRows.forEach((row) => {
+        const tokenSummary = tokenSummaryFromLlmSliceRow(row);
+        if (tokenSummary.llmRequestSliceId) {
+          tokenSummaryBySliceId.set(tokenSummary.llmRequestSliceId, tokenSummary);
+        }
+      });
 
       const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
@@ -1660,6 +1763,7 @@ function createXiaoniActivityPersistence({
         ...queueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs)),
         ...autonomousQueueItems.map((row) => summarizeQueueMessage(row, staleProcessingMs))
       ])
+        .map((item) => attachLlmTokenMetadata(item, tokenSummaryBySliceId))
         .filter((item) => item.timestamp)
         .filter((item) => itemMatchesTimeWindow(item, timeWindow));
       const items = (actionStreamProjection

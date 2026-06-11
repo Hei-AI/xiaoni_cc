@@ -586,7 +586,7 @@ const SENSITIVE_HEADER_NAMES = new Set([
   'proxy-authorization'
 ]);
 
-function redactSensitiveHeaders(headers: Record<string, string | string[]> | null | undefined): Record<string, string | string[]> | null {
+function redactSensitiveHeaders(headers: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
   if (!headers) {
     return null;
   }
@@ -876,6 +876,7 @@ function buildCliProxyApiSpanDetail(call: any, logger: winston.Logger): TraceSpa
 
 function normalizeStackSliceProviderCall(slice: any) {
   const metadata = slice.metadata && typeof slice.metadata === 'object' ? slice.metadata : {};
+  const providerResponseStatus = toNumber(metadata.provider_response_status ?? metadata.wire_response_status);
   return {
     id: slice.slice_id || slice.id,
     slice_id: slice.slice_id || null,
@@ -893,6 +894,19 @@ function normalizeStackSliceProviderCall(slice: any) {
     wire_request: slice.wire_request,
     canonical_response: slice.canonical_response,
     wire_response: slice.wire_response,
+    request_headers: parseJsonField<any>(metadata.provider_request_headers ?? metadata.wire_request_headers, null),
+    request_url: typeof metadata.provider_request_url === 'string'
+      ? metadata.provider_request_url
+      : typeof metadata.wire_request_url === 'string'
+        ? metadata.wire_request_url
+        : null,
+    response_headers: parseJsonField<any>(metadata.provider_response_headers ?? metadata.wire_response_headers, null),
+    response_status: providerResponseStatus,
+    response_status_text: typeof metadata.provider_response_status_text === 'string'
+      ? metadata.provider_response_status_text
+      : typeof metadata.wire_response_status_text === 'string'
+        ? metadata.wire_response_status_text
+        : null,
     input_tokens: slice.input_tokens,
     output_tokens: slice.output_tokens,
     token_usage: slice.token_usage,
@@ -911,6 +925,11 @@ function normalizeStackSliceProviderCall(slice: any) {
 
 function hasProviderWirePayload(providerCall: any): boolean {
   return providerCall?.wire_request !== null && providerCall?.wire_request !== undefined;
+}
+
+function canRepresentProviderRequest(providerCall: any): boolean {
+  return hasProviderWirePayload(providerCall)
+    || Boolean(providerCall?.llm_call_id || providerCall?.slice_id || providerCall?.id);
 }
 
 function buildStackProviderRequestSpan(params: {
@@ -938,10 +957,10 @@ function buildStackProviderRequestSpan(params: {
       'semantic.role': 'provider_request',
       'semantic.display_name': `POST ${syntheticProviderHost(providerCall)}`,
       'http.method': 'POST',
-      'http.url': null,
+      'http.url': providerCall.request_url || null,
       'http.host': syntheticProviderHost(providerCall),
       'http.path': syntheticProviderPath(providerCall),
-      'http.status_code': providerCall.error_message ? null : 200,
+      'http.status_code': providerCall.response_status ?? (providerCall.error_message ? null : 200),
       'trace.llm_call_id': providerCall.llm_call_id || null,
       'trace.agent_turn': providerCall.agent_turn ?? params.agentTurn ?? null,
       'provider.api_type': providerCall.wire_provider_format || providerCall.model_provider || null,
@@ -950,16 +969,16 @@ function buildStackProviderRequestSpan(params: {
       'stack.slice_id': providerCall.slice_id || null
     },
     input: {
-      headers: null,
+      headers: redactSensitiveHeaders(providerCall.request_headers),
       body: providerCall.wire_request,
       raw_body: providerCall.wire_request_raw_text || null,
       method: 'POST',
-      upstream_url: null,
+      upstream_url: providerCall.request_url || null,
       body_source: 'llm_request_slices.wire_request'
     },
     output: {
-      status_code: providerCall.error_message ? null : 200,
-      headers: null,
+      status_code: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+      headers: redactSensitiveHeaders(providerCall.response_headers),
       body: providerCall.wire_response,
       raw_body: providerCall.wire_response_raw_text || null,
       body_format: 'json',
@@ -975,7 +994,12 @@ function buildStackProviderRequestSpan(params: {
       wire_provider_format: providerCall.wire_provider_format || null,
       request_format_version: providerCall.request_format_version || null,
       request_body: providerCall.wire_request,
+      request_headers: redactSensitiveHeaders(providerCall.request_headers),
+      request_url: providerCall.request_url || null,
       response_body: providerCall.wire_response,
+      response_headers: redactSensitiveHeaders(providerCall.response_headers),
+      response_status: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+      response_status_text: providerCall.response_status_text || null,
       duration_ms: providerCall.duration_ms,
       request_timestamp: providerCall.started_at,
       response_timestamp: providerCall.completed_at
@@ -1416,17 +1440,17 @@ async function listStackTraceRows<T>(
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
   const queries: Promise<T[]>[] = [];
 
-  if (runId) {
-    queries.push(listFn({
-      identityKey: 'xiaoni',
-      runId,
-      chronological: true,
-      limit
-    }));
-  } else if (traceId) {
+  if (traceId) {
     queries.push(listFn({
       identityKey: 'xiaoni',
       traceId,
+      chronological: true,
+      limit
+    }));
+  } else if (runId) {
+    queries.push(listFn({
+      identityKey: 'xiaoni',
+      runId,
       chronological: true,
       limit
     }));
@@ -1455,8 +1479,19 @@ export async function buildStackTracePayload(
 ) {
   const traceId = firstNonEmptyString(target.traceId, target.internalExecutionLeaseId);
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
-  const focusedSliceId = firstNonEmptyString(target.llmRequestSliceId);
-  const focusedToolCallId = firstNonEmptyString(target.toolCallId);
+  const spanId = firstNonEmptyString(target.spanId);
+  let focusedSliceId = firstNonEmptyString(target.llmRequestSliceId);
+  let focusedToolCallId = firstNonEmptyString(target.toolCallId);
+  if (!focusedToolCallId && (spanId?.startsWith('tool-call:') || spanId?.startsWith('tool-output:'))) {
+    focusedToolCallId = spanId.split(':').slice(1).join(':');
+  }
+  if (!focusedSliceId && spanId?.startsWith('stack-slice:')) {
+    focusedSliceId = spanId.slice('stack-slice:'.length);
+  }
+  if (!focusedSliceId && spanId) {
+    const syntheticProviderRequest = parseSyntheticProviderRequestSpanId(spanId);
+    focusedSliceId = syntheticProviderRequest?.sliceId || focusedSliceId;
+  }
   if (!traceId && !runId && !focusedSliceId && !focusedToolCallId) {
     return null;
   }
@@ -1467,33 +1502,56 @@ export async function buildStackTracePayload(
 
   if (focusedSliceId || focusedToolCallId) {
     try {
-      const [focusedSlices, focusedTools, focusedItems] = await Promise.all([
-        focusedSliceId
-          ? listLlmRequestSlices({
-            identityKey: 'xiaoni',
-            sliceId: focusedSliceId,
-            summaryOnly: true,
-            limit: 1
-          }) as Promise<any[]>
-          : Promise.resolve([]),
-        focusedToolCallId
-          ? listToolExecutions({
-            identityKey: 'xiaoni',
-            toolCallId: focusedToolCallId,
-            limit: 10
-          }) as Promise<any[]>
-          : Promise.resolve([]),
+      const focusedTools = focusedToolCallId
+        ? await listToolExecutions({
+          identityKey: 'xiaoni',
+          toolCallId: focusedToolCallId,
+          chronological: true,
+          limit: 10
+        }) as any[]
+        : [];
+      const sliceIds = new Set<string>();
+      if (focusedSliceId) {
+        sliceIds.add(focusedSliceId);
+      }
+      focusedTools.forEach((tool) => {
+        const sliceId = firstNonEmptyString(tool?.llmRequestSliceId, tool?.llm_request_slice_id);
+        if (sliceId) {
+          sliceIds.add(sliceId);
+        }
+      });
+
+      const [focusedSlices, sliceTools, toolItems, sliceItems] = await Promise.all([
+        Promise.all(Array.from(sliceIds).map((sliceId) => listLlmRequestSlices({
+          identityKey: 'xiaoni',
+          sliceId,
+          summaryOnly: true,
+          limit: 1
+        }) as Promise<any[]>)).then((rows) => rows.flat()),
+        Promise.all(Array.from(sliceIds).map((sliceId) => listToolExecutions({
+          identityKey: 'xiaoni',
+          llmRequestSliceId: sliceId,
+          chronological: true,
+          limit: 20
+        }) as Promise<any[]>)).then((rows) => rows.flat()),
         focusedToolCallId
           ? listAgentStackItems({
             identityKey: 'xiaoni',
             toolCallId: focusedToolCallId,
+            chronological: true,
             limit: 20
           }) as Promise<any[]>
-          : Promise.resolve([])
+          : Promise.resolve([]),
+        Promise.all(Array.from(sliceIds).map((sliceId) => listAgentStackItems({
+          identityKey: 'xiaoni',
+          llmRequestSliceId: sliceId,
+          chronological: true,
+          limit: 50
+        }) as Promise<any[]>)).then((rows) => rows.flat())
       ]);
-      stackSliceRows = focusedSlices;
-      stackToolExecutionRows = focusedTools;
-      stackItemRows = focusedItems;
+      stackSliceRows = dedupeBy(focusedSlices, (row) => row?.sliceId || row?.slice_id || row?.id);
+      stackToolExecutionRows = dedupeBy([...focusedTools, ...sliceTools], (row) => row?.executionId || row?.execution_id || row?.id);
+      stackItemRows = dedupeBy([...toolItems, ...sliceItems], (row) => row?.id || row?.eventId || row?.event_id);
     } catch (error) {
       logger.warn('Trace query failed: focused Xiaoni stack trace', {
         error: error instanceof Error ? error.message : String(error),
@@ -1619,7 +1677,7 @@ export async function buildStackTracePayload(
       stackSliceSpanIdBySliceId.set(slice.slice_id, spanId);
     }
     const providerCall = normalizeStackSliceProviderCall(slice);
-    const hasProviderRequest = hasProviderWirePayload(providerCall);
+    const hasProviderRequest = canRepresentProviderRequest(providerCall);
     spanRecords.push(createSpan({
       span_id: spanId,
       parent_span_id: rootSpanId,
@@ -2432,7 +2490,7 @@ export async function buildConversationTracePayload(
       stackSliceSpanIdBySliceId.set(slice.slice_id, spanId);
     }
     const providerCall = normalizeStackSliceProviderCall(slice);
-    const hasProviderRequest = hasProviderWirePayload(providerCall);
+    const hasProviderRequest = canRepresentProviderRequest(providerCall);
     spanRecords.push(createSpan({
       span_id: spanId,
       parent_span_id: turnSpanIdByTurn.get(slice.agent_turn ?? 1) || rootSpanId,
@@ -3099,16 +3157,16 @@ export async function buildConversationTraceSpanDetail(
     }
     return {
       input: {
-        headers: null,
+        headers: redactSensitiveHeaders(providerCall.request_headers),
         body: providerCall.wire_request,
         raw_body: providerCall.wire_request_raw_text || null,
         method: 'POST',
-        upstream_url: null,
+        upstream_url: providerCall.request_url || null,
         body_source: 'llm_request_slices.wire_request'
       },
       output: {
-        status_code: providerCall.error_message ? null : 200,
-        headers: null,
+        status_code: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+        headers: redactSensitiveHeaders(providerCall.response_headers),
         body: providerCall.wire_response,
         raw_body: providerCall.wire_response_raw_text || null,
         body_format: 'json',
@@ -3122,7 +3180,12 @@ export async function buildConversationTraceSpanDetail(
         llm_call_id: providerCall.llm_call_id || null,
         model_provider: providerCall.model_provider || null,
         wire_provider_format: providerCall.wire_provider_format || null,
-        request_format_version: providerCall.request_format_version || null
+        request_format_version: providerCall.request_format_version || null,
+        request_headers: redactSensitiveHeaders(providerCall.request_headers),
+        request_url: providerCall.request_url || null,
+        response_headers: redactSensitiveHeaders(providerCall.response_headers),
+        response_status: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+        response_status_text: providerCall.response_status_text || null
       }
     };
   }
@@ -3316,16 +3379,16 @@ export async function buildStackTraceSpanDetail(
       }
       return {
         input: {
-          headers: null,
+          headers: redactSensitiveHeaders(providerCall.request_headers),
           body: providerCall.wire_request,
           raw_body: providerCall.wire_request_raw_text || null,
           method: 'POST',
-          upstream_url: null,
+          upstream_url: providerCall.request_url || null,
           body_source: 'llm_request_slices.wire_request'
         },
         output: {
-          status_code: providerCall.error_message ? null : 200,
-          headers: null,
+          status_code: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+          headers: redactSensitiveHeaders(providerCall.response_headers),
           body: providerCall.wire_response,
           raw_body: providerCall.wire_response_raw_text || null,
           body_format: 'json',
@@ -3339,7 +3402,12 @@ export async function buildStackTraceSpanDetail(
           llm_call_id: providerCall.llm_call_id || null,
           model_provider: providerCall.model_provider || null,
           wire_provider_format: providerCall.wire_provider_format || null,
-          request_format_version: providerCall.request_format_version || null
+          request_format_version: providerCall.request_format_version || null,
+          request_headers: redactSensitiveHeaders(providerCall.request_headers),
+          request_url: providerCall.request_url || null,
+          response_headers: redactSensitiveHeaders(providerCall.response_headers),
+          response_status: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+          response_status_text: providerCall.response_status_text || null
         }
       };
     }

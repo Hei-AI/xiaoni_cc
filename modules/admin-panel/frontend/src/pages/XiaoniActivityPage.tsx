@@ -50,6 +50,9 @@ interface XiaoniActivityFeedItem {
     internalExecutionLeaseId: string;
     traceId: string | null;
     spanId: string | null;
+    llmRequestSliceId?: string | null;
+    toolCallId?: string | null;
+    stackItemId?: string | null;
   } | null;
   tone: ActivityTone;
   metadata: Record<string, unknown>;
@@ -294,6 +297,19 @@ function formatPayloadSize(requestBytes: string | null, responseBytes: string | 
   return requestBytes || responseBytes;
 }
 
+function formatTokenCount(value: number | null) {
+  if (value === null || value < 0) {
+    return null;
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return String(value);
+}
+
 function timelineGroups(items: XiaoniActivityFeedItem[]) {
   const groups: Array<{ day: string; items: XiaoniActivityFeedItem[] }> = [];
   for (const item of items) {
@@ -447,6 +463,10 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
   const providerFormat = metadataText(item.metadata, 'providerFormat');
   const payloadSize = formatPayloadSize(providerRequestBytes, providerResponseBytes);
   const spanId = metadataText(item.metadata, 'spanId');
+  const providerRequestSpanId = metadataText(item.metadata, 'providerRequestSpanId');
+  const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
+  const cachedInputTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
+  const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
   const actionTracePreview = metadataText(item.metadata, 'actionTracePreview');
   const budgetSnapshotPreview = metadataText(item.metadata, 'budgetSnapshotPreview');
   const payloadPreview = metadataText(item.metadata, 'payloadPreview');
@@ -500,13 +520,24 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
               variant="outline"
               size="sm"
               className="shrink-0"
-              onClick={() => navigate(`/xiaoni/action-stream/events/${encodeURIComponent(item.eventId || item.id)}/trace${traceTarget.spanId ? `?spanId=${encodeURIComponent(traceTarget.spanId)}` : ''}`)}
+              onClick={() => {
+                const focusSpanId = providerRequestSpanId || traceTarget.spanId;
+                navigate(`/xiaoni/action-stream/events/${encodeURIComponent(item.eventId || item.id)}/trace${focusSpanId ? `?spanId=${encodeURIComponent(focusSpanId)}` : ''}`);
+              }}
             >
               <Waypoints className="mr-2 h-4 w-4" />
               Raw Trace
             </Button>
           ) : null}
         </div>
+
+        {inputTokens || cachedInputTokens || outputTokens ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {inputTokens ? <StatusPill tone="neutral">Input {inputTokens}</StatusPill> : null}
+            {cachedInputTokens ? <StatusPill tone={cachedInputTokens === '0' ? 'neutral' : 'success'}>Cache {cachedInputTokens}</StatusPill> : null}
+            {outputTokens ? <StatusPill tone="neutral">Output {outputTokens}</StatusPill> : null}
+          </div>
+        ) : null}
 
         {item.body ? (
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>

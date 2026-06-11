@@ -29,8 +29,42 @@ type OpenAIProviderOptions = {
   defaultHeaders?: Record<string, string>;
 };
 
+type WireExchangeMetadata = {
+  requestHeaders: Record<string, unknown> | null;
+  requestUrl: string | null;
+  responseHeaders: Record<string, unknown> | null;
+  responseStatus: number | null;
+  responseStatusText: string | null;
+};
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'x-api-key',
+  'api-key',
+  'openai-api-key',
+  'proxy-authorization',
+  'chatgpt-account-id'
+]);
+
 function isPlainObject(value: unknown): value is Record<string, any> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeHeaderRecord(headers: unknown): Record<string, unknown> {
+  if (!headers || typeof headers !== 'object') {
+    return {};
+  }
+
+  const entries = typeof (headers as any).toJSON === 'function'
+    ? Object.entries((headers as any).toJSON())
+    : Object.entries(headers as Record<string, unknown>);
+
+  return Object.fromEntries(entries.map(([key, value]) => [
+    key,
+    SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[redacted]' : value
+  ]));
 }
 
 function withNullableType(schema: Record<string, any>): Record<string, any> {
@@ -88,6 +122,7 @@ export class OpenAIProvider implements LLMProvider {
   protected readonly timeoutMs?: number;
   protected readonly defaultHeaders: Record<string, string>;
   protected readonly moduleLogger = logger.createModuleLogger('llm-provider-openai');
+  protected lastWireExchange: WireExchangeMetadata | null = null;
 
   constructor(aiConfig: AIConfig, options: OpenAIProviderOptions = {}) {
     this.id = options.id || 'openai';
@@ -116,8 +151,13 @@ export class OpenAIProvider implements LLMProvider {
       rawResponse: contentResult.rawResponse,
       canonicalRequest: contentResult.canonicalRequest,
       wireRequest: contentResult.wireRequest,
+      wireRequestHeaders: contentResult.wireRequestHeaders,
+      wireRequestUrl: contentResult.wireRequestUrl,
       canonicalResponse: contentResult.canonicalResponse,
       wireResponse: contentResult.wireResponse,
+      wireResponseHeaders: contentResult.wireResponseHeaders,
+      wireResponseStatus: contentResult.wireResponseStatus,
+      wireResponseStatusText: contentResult.wireResponseStatusText,
       requestFormatVersion: contentResult.requestFormatVersion,
       wireProviderFormat: contentResult.wireProviderFormat,
       usage: contentResult.usage
@@ -142,6 +182,7 @@ export class OpenAIProvider implements LLMProvider {
         providerConfig?.performance.timeout || this.timeoutMs,
         buildTraceHeaders(input.context)
       );
+      const wireExchange = this.lastWireExchange;
 
       const text = extractTextFromOpenAIResponse(response);
       const processingTimeMs = Date.now() - callStartTime;
@@ -173,8 +214,13 @@ export class OpenAIProvider implements LLMProvider {
         rawResponse: cloneValue(response),
         canonicalRequest: cloneValue(input.request),
         wireRequest: cloneValue(payload),
+        wireRequestHeaders: wireExchange?.requestHeaders || null,
+        wireRequestUrl: wireExchange?.requestUrl || null,
         canonicalResponse,
         wireResponse: cloneValue(response),
+        wireResponseHeaders: wireExchange?.responseHeaders || null,
+        wireResponseStatus: wireExchange?.responseStatus ?? null,
+        wireResponseStatusText: wireExchange?.responseStatusText || null,
         requestFormatVersion: 'openresponse/v1',
         wireProviderFormat: `${this.id}/responses`,
         usage: {
@@ -308,8 +354,9 @@ export class OpenAIProvider implements LLMProvider {
     timeoutMs?: number,
     traceHeaders: Record<string, string> = {}
   ): Promise<any> {
+    const requestUrl = `${baseUrl}${responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`}`;
     const requestConfig: AxiosRequestConfig = {
-      url: `${baseUrl}${responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`}`,
+      url: requestUrl,
       method: 'post',
       timeout: timeoutMs || 30000,
       data: payload,
@@ -321,8 +368,44 @@ export class OpenAIProvider implements LLMProvider {
       }
     };
 
-    const response = await axios(requestConfig);
-    return response.data;
+    this.lastWireExchange = {
+      requestHeaders: normalizeHeaderRecord(requestConfig.headers),
+      requestUrl,
+      responseHeaders: null,
+      responseStatus: null,
+      responseStatusText: null
+    };
+
+    try {
+      const response = await axios(requestConfig);
+      this.lastWireExchange = {
+        requestHeaders: normalizeHeaderRecord(requestConfig.headers),
+        requestUrl,
+        responseHeaders: normalizeHeaderRecord(response.headers),
+        responseStatus: response.status,
+        responseStatusText: response.statusText || null
+      };
+      return response.data;
+    } catch (error: any) {
+      if (error?.response) {
+        this.lastWireExchange = {
+          requestHeaders: normalizeHeaderRecord(requestConfig.headers),
+          requestUrl,
+          responseHeaders: normalizeHeaderRecord(error.response.headers),
+          responseStatus: error.response.status ?? null,
+          responseStatusText: error.response.statusText || null
+        };
+      }
+      throw error;
+    }
+  }
+
+  protected recordWireExchange(metadata: WireExchangeMetadata): void {
+    this.lastWireExchange = metadata;
+  }
+
+  protected sanitizeWireHeaders(headers: unknown): Record<string, unknown> {
+    return normalizeHeaderRecord(headers);
   }
 
   protected async resolveApiKey(): Promise<string> {

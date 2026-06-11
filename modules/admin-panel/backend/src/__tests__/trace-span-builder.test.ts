@@ -318,6 +318,65 @@ describe('buildStackTracePayload', () => {
       toolCallId: 'call-1'
     }));
   });
+
+  it('loads stack-only provider request detail with headers from slice metadata', async () => {
+    (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
+      id: '11',
+      sliceId: 'slice-1',
+      llmCallId: 'llm-call-1',
+      traceId: 'trace-1',
+      runId: 'run-1',
+      conversationId: null,
+      agentTurn: 1,
+      createdAt: '2026-03-28T10:00:01.000Z',
+      completedAt: '2026-03-28T10:00:03.000Z',
+      status: 'completed',
+      modelName: 'gpt-5.4-mini',
+      modelProvider: 'codex',
+      canonicalRequest: { model: 'gpt-5.4-mini' },
+      wireRequest: { model: 'gpt-5.4-mini' },
+      canonicalResponse: { output_text: 'hi' },
+      wireResponse: { id: 'resp-1' },
+      tokenUsage: { input_tokens: 10, output_tokens: 20 },
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'codex/responses',
+      processingTimeMs: 2000,
+      metadata: {
+        provider_request_headers: {
+          Authorization: 'Bearer secret',
+          'x-trace-id': 'trace-1'
+        },
+        provider_request_url: 'http://provider.local/responses',
+        provider_response_headers: {
+          'content-type': 'application/json'
+        },
+        provider_response_status: 201,
+        provider_response_status_text: 'Created'
+      }
+    }]);
+
+    const detail = await buildStackTraceSpanDetail(
+      createLogger(),
+      { traceId: 'trace-1', internalExecutionLeaseId: 'run-1' },
+      'provider-request:wire:slice-1'
+    );
+
+    expect(detail?.input).toMatchObject({
+      headers: {
+        Authorization: '[redacted]',
+        'x-trace-id': 'trace-1'
+      },
+      upstream_url: 'http://provider.local/responses',
+      body: { model: 'gpt-5.4-mini' }
+    });
+    expect(detail?.output).toMatchObject({
+      status_code: 201,
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: { id: 'resp-1' }
+    });
+  });
 });
 
 describe('buildConversationTraceSpanDetail', () => {
