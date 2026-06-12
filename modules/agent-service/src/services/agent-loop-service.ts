@@ -1349,6 +1349,35 @@ function formatRuntimeEnergy(value: number) {
   return Number.isFinite(value) ? value.toFixed(3) : '0.000';
 }
 
+const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
+const EAST8_TIME_PREFIX_PATTERN = /^\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]\n?/;
+
+function padTwoDigits(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+export function formatEast8Timestamp(now: Date = new Date()) {
+  const timestamp = now instanceof Date ? now.getTime() : Number.NaN;
+  const date = new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + EAST8_OFFSET_MS);
+  return [
+    `${date.getUTCFullYear()}-${padTwoDigits(date.getUTCMonth() + 1)}-${padTwoDigits(date.getUTCDate())}`,
+    `${padTwoDigits(date.getUTCHours())}:${padTwoDigits(date.getUTCMinutes())}:${padTwoDigits(date.getUTCSeconds())}`,
+    'UTC+08:00'
+  ].join(' ');
+}
+
+export function prefixRuntimeTextWithEast8Time(text: string, now: Date = new Date()) {
+  const normalized = String(text || '').trim();
+  if (!normalized || EAST8_TIME_PREFIX_PATTERN.test(normalized)) {
+    return normalized;
+  }
+  return `[当前时间 东八区: ${formatEast8Timestamp(now)}]\n${normalized}`;
+}
+
+function stripRuntimeTextEast8TimePrefix(text: string) {
+  return String(text || '').trim().replace(EAST8_TIME_PREFIX_PATTERN, '').trim();
+}
+
 function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -1387,7 +1416,7 @@ function renderRecoverEnergyCompletedReminder(input: {
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
 }) {
   const recoveredDelta = input.recoveredEnergy.energy - input.recoveredEnergy.startEnergy;
-  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('recover_energy_completed_reminder.md', {
+  return formatSystemReminderBlock(renderPromptSnippet('recover_energy_completed_reminder.md', {
     DURATION_MINUTES: input.durationMinutes,
     ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
     MAX_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.maxEnergy),
@@ -1401,7 +1430,7 @@ function renderRecoverEnergyRejectedReminder(input: {
   energy: number;
   maxEnergy: number;
 }) {
-  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('recover_energy_rejected_reminder.md', {
+  return formatSystemReminderBlock(renderPromptSnippet('recover_energy_rejected_reminder.md', {
     REJECT_REASON: input.reason,
     ENERGY: formatRuntimeEnergy(input.energy),
     MAX_ENERGY: formatRuntimeEnergy(input.maxEnergy)
@@ -2282,6 +2311,31 @@ function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>,
   ].join('\n');
 }
 
+function formatSystemReminderBlock(body: string) {
+  return formatTaggedBlock('system_reminder', {}, prefixRuntimeTextWithEast8Time(body));
+}
+
+function extractTaggedBlockBody(content: string, tagName: string) {
+  const normalized = String(content || '').trim();
+  const pattern = new RegExp(`^<${tagName}(?:\\s[^>]*)?>\\n?([\\s\\S]*?)\\n?</${tagName}>$`);
+  const match = normalized.match(pattern);
+  return match ? match[1].trim() : normalized;
+}
+
+function prefixTaggedBlockBodyWithEast8Time(content: string, tagName: string) {
+  const normalized = String(content || '').trim();
+  const pattern = new RegExp(`^(<${tagName}(?:\\s[^>]*)?>)\\n?([\\s\\S]*?)\\n?(</${tagName}>)$`);
+  const match = normalized.match(pattern);
+  if (!match) {
+    return prefixRuntimeTextWithEast8Time(normalized);
+  }
+  return [
+    match[1],
+    prefixRuntimeTextWithEast8Time(match[2]),
+    match[3]
+  ].join('\n');
+}
+
 function renderPromptChatType(chatType: string | null | undefined) {
   const normalized = typeof chatType === 'string' ? chatType.trim().toLowerCase() : '';
   if (normalized === 'group' || normalized === '群聊') {
@@ -2446,7 +2500,7 @@ function renderTranscriptItemForRuntimeContext(
 }
 
 function renderSelfContinuationReminder() {
-  return formatTaggedBlock('system_reminder', {}, readPromptSnippet('self_continuation_reminder.md'));
+  return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
@@ -2465,13 +2519,15 @@ function shouldAllowSelfContinuationOnTerminalFinalAnswer(
 }
 
 function hasSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputItem[]): boolean {
-  const expectedReminder = renderSelfContinuationReminder();
+  const expectedReminderBody = readPromptSnippet('self_continuation_reminder.md').trim();
   return items.some((item, index) => (
     index > 0
     && isAssistantFinalAnswerInputItem(items[index - 1])
     && item.type === 'message'
     && item.role === 'developer'
-    && flattenMessageContent(item.content).trim() === expectedReminder
+    && stripRuntimeTextEast8TimePrefix(
+      extractTaggedBlockBody(flattenMessageContent(item.content), 'system_reminder')
+    ) === expectedReminderBody
   ));
 }
 
@@ -2536,7 +2592,7 @@ function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   const notification = queueMessage.phoneNotification;
   const unreadDelta = Number((notification?.unreadDelta ?? queueMessage.messages.length) || 1);
   const directCueLines = buildPhoneNotificationDirectCueLines(queueMessage);
-  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('phone_notification_reminder.md', {
+  return formatSystemReminderBlock(renderPromptSnippet('phone_notification_reminder.md', {
     UNREAD_DELTA: unreadDelta,
     DIRECT_CUE_LINES: directCueLines.length > 0
       ? directCueLines.join('\n')
@@ -2563,7 +2619,7 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
     .split('\n')
     .filter((line) => line.trim().length > 0)
     .join('\n');
-  return formatTaggedBlock('system_reminder', {}, body);
+  return formatSystemReminderBlock(body);
 }
 
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
@@ -2577,7 +2633,7 @@ function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
 
 function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   const reminder = getSystemReminderText(queueMessage);
-  return formatTaggedBlock('system_reminder', {}, reminder || readPromptSnippet('system_reminder_fallback.md'));
+  return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
 }
 
 export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
@@ -2603,7 +2659,7 @@ function buildCoreMemoryCompressionReminder(input: {
   void input.contextSessionKey;
   void input.readCutoffAfterConversationId;
   const item = buildDeveloperInputItem([
-    formatTaggedBlock('system_reminder', {}, renderPromptSnippet('core_memory_pressure_reminder.md', {
+    formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
       COMPRESS_CORE_MEMORY_TOOL: TOOL_NAMES.compressCoreMemory
     }))
@@ -3813,9 +3869,9 @@ export function applyToolResultToLoopInput(
     output: toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
       ? toolResult.codex_output
       : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
-        ? toolResult.output_xml
+        ? prefixRuntimeTextWithEast8Time(toolResult.output_xml)
         : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
-          ? toolResult.system_reminder
+          ? prefixTaggedBlockBodyWithEast8Time(toolResult.system_reminder, 'system_reminder')
           : JSON.stringify(structuredToolResult)
   }];
   if (runtimeEnergy && usesNativeToolOutput && toolCall.name !== TOOL_NAMES.recoverEnergy) {
@@ -7751,7 +7807,9 @@ function buildLoopSelfContinuationStackItem(params: {
   turn: number;
   inputItem: OpenResponseInputItem;
 }) {
-  const reminder = renderSelfContinuationReminder();
+  const reminder = params.inputItem.type === 'message'
+    ? flattenMessageContent(params.inputItem.content)
+    : renderSelfContinuationReminder();
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
     itemKind: 'runtime_input',

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, formatEast8Timestamp, prefixRuntimeTextWithEast8Time, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -55,6 +55,7 @@ const DIRECT_ALLOWED_TOOLS = [
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL
 ];
+const EAST8_TIME_PREFIX_PATTERN = /\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]/;
 
 async function withExecutorUrl<T>(url: string, fn: () => Promise<T>): Promise<T> {
   const original = agentConfig.xiaoniExecutorUrl;
@@ -411,6 +412,7 @@ function getMessageContent(item: unknown) {
 function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
+    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]',
     '有新的未读qq消息（1 条）。你有空愿意的话可以用 qq-usage 打开看。',
     '==',
     '以下只展示有人明确喊你的信息',
@@ -428,6 +430,20 @@ function isImageTaskNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
     && content.includes('图片生成任务:');
 }
+
+test('runtime text timestamp helpers format East-8 time and avoid double prefixes', () => {
+  const now = new Date('2026-06-12T14:51:11.000Z');
+
+  assert.equal(formatEast8Timestamp(now), '2026-06-12 22:51:11 UTC+08:00');
+  assert.equal(
+    prefixRuntimeTextWithEast8Time('醒了。', now),
+    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'
+  );
+  assert.equal(
+    prefixRuntimeTextWithEast8Time('[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。', now),
+    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'
+  );
+});
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {
   const loopInput = buildInitialInput([
@@ -648,6 +664,7 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
       ? continuation.inputItems[0].output
       : '';
     assert.match(output, /^Chunk ID:/);
+    assert.doesNotMatch(output, EAST8_TIME_PREFIX_PATTERN);
     assert.match(output, /Process exited without an exit code/);
     assert.match(output, /ENOENT|not\/a\/real-shell/);
     const stateItem = continuation.inputItems[1];
@@ -1223,6 +1240,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
 
   assert.ok(finalAnswerIndex >= 0);
   assert.equal(reminderIndex, finalAnswerIndex + 1);
+  assert.match(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
 });
 
 test('buildInitialInput drops unpaired stored tool calls across turns', () => {
@@ -1261,6 +1279,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
   assert.match(currentPrompt, /<system_reminder>/);
+  assert.match(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
   assert.match(currentPrompt, /有新的未读qq消息/);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentPrompt, /session_key=/);
@@ -1302,6 +1321,32 @@ test('buildInitialInput suppresses deleted final-answer prompt reminders', () =>
   )), false);
 });
 
+test('buildInitialInput prefixes ordinary system reminders with East-8 current time', () => {
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = '该压缩记忆了。';
+  payload.rawBody = '该压缩记忆了。';
+  payload.systemReminder = {
+    reminder: '该压缩记忆了。',
+    reason: 'manual',
+    createdAt: '2026-06-12T14:51:11.000Z'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: '该压缩记忆了。'
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
+  assert.match(rendered, /该压缩记忆了。/);
+});
+
 test('buildInitialInput renders completed image tasks as task notifications', () => {
   const payload = createQueuePayload();
   payload.source = 'image_task_notification';
@@ -1338,6 +1383,7 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   const rendered = loopInput.map(getMessageContent).join('\n');
 
   assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
   assert.match(rendered, /图片生成任务:task-image-1 已完成/);
   assert.match(rendered, /图片ID: task_artifact_1/);
   assert.match(rendered, /图片路径: \/xiaoni-runtime\/picture\/task_artifact_1\.png/);
@@ -1561,6 +1607,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
 
   assert.equal(currentTurnItems.length, 1);
+  assert.match(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
   assert.match(getMessageContent(currentTurnItems[0]), /有新的未读qq消息/);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
@@ -5155,13 +5202,45 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
 
   assert.equal(continuation.forcedVisibleReply, null);
   assert.equal(continuation.inputItems.length, 1);
-  assert.deepEqual(continuation.inputItems[0], {
-    type: 'function_call_output',
-    call_id: 'call-2',
-    output: '<system_reminder>醒了。</system_reminder>'
-  });
+  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
+  assert.equal(continuation.inputItems[0]?.call_id, 'call-2');
+  const output = String(continuation.inputItems[0]?.output || '');
+  assert.match(output, /^<system_reminder>\n/);
+  assert.match(output, EAST8_TIME_PREFIX_PATTERN);
+  assert.match(output, /醒了。/);
+  assert.match(output, /<\/system_reminder>$/);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
+});
+
+test('applyToolResultToLoopInput prefixes inspect_image text output but not JSON callbacks', () => {
+  const inspectContinuation = applyToolResultToLoopInput({
+    callId: 'call-inspect',
+    name: INSPECT_IMAGE_TOOL,
+    rawArguments: '{"image_id":"img-1"}'
+  }, {
+    output_xml: '<image id="img-1">含义是: 一只猫</image>'
+  });
+
+  assert.equal(inspectContinuation.inputItems[0]?.type, 'function_call_output');
+  const inspectOutput = String(inspectContinuation.inputItems[0]?.output || '');
+  assert.match(inspectOutput, EAST8_TIME_PREFIX_PATTERN);
+  assert.match(inspectOutput, /<image id="img-1">含义是: 一只猫<\/image>/);
+
+  const jsonContinuation = applyToolResultToLoopInput({
+    callId: 'call-image-task-json',
+    name: IMAGE_TASK_TOOL,
+    rawArguments: '{"prompt":"猫"}'
+  }, {
+    queued: true,
+    status_text: '图片任务已排队'
+  });
+
+  const jsonReplay = jsonContinuation.inputItems[0];
+  assert.equal(jsonReplay?.type, 'function_call_output');
+  const jsonOutput = String(jsonReplay && jsonReplay.type === 'function_call_output' ? jsonReplay.output : '');
+  assert.doesNotMatch(jsonOutput, EAST8_TIME_PREFIX_PATTERN);
+  assert.equal(JSON.parse(jsonOutput).status_text, '图片任务已排队');
 });
 
 test('legacy speech tool aliases are rejected instead of dispatching', async () => {
@@ -5296,6 +5375,7 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
   assert.match(String(result.system_reminder), /<system_reminder>/);
+  assert.match(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
   assert.match(String(result.system_reminder), /无法入睡/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
 });
@@ -5328,6 +5408,7 @@ test('recover_energy can still sleep when current energy is below full', async (
   assert.equal(result.energy_before, 0.5);
   assert.equal(result.energy, 0.75);
   assert.match(String(result.system_reminder), /<system_reminder>/);
+  assert.match(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
   assert.match(String(result.system_reminder), /躯体苏醒/);
 });
 
@@ -5666,6 +5747,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   assert.equal(upsertCalls.length, 0);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
   assert.match(JSON.stringify(plan.summarySourceInput), /当前压力:/);
+  assert.match(JSON.stringify(plan.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
 
