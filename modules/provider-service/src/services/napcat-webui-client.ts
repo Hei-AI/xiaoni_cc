@@ -122,7 +122,7 @@ export class NapcatWebuiClient {
 
   async checkLoginStatus(): Promise<NapcatWebuiLoginStatus> {
     const credential = await this.ensureCredential();
-    const response = await this.httpClient.get<NapcatWebuiResponse<LoginStatusData>>('/QQLogin/CheckLoginStatus', {
+    const response = await this.httpClient.post<NapcatWebuiResponse<LoginStatusData>>('/api/QQLogin/CheckLoginStatus', {}, {
       headers: {
         Authorization: `Bearer ${credential}`
       }
@@ -133,7 +133,7 @@ export class NapcatWebuiClient {
 
   async requestLoginQrcode(): Promise<NapcatWebuiLoginStatus> {
     const credential = await this.ensureCredential();
-    const response = await this.httpClient.post<NapcatWebuiResponse<LoginQrcodeData>>('/QQLogin/GetQQLoginQrcode', {}, {
+    const response = await this.httpClient.post<NapcatWebuiResponse<LoginQrcodeData>>('/api/QQLogin/GetQQLoginQrcode', {}, {
       headers: {
         Authorization: `Bearer ${credential}`
       }
@@ -164,7 +164,7 @@ export class NapcatWebuiClient {
       return this.credential;
     }
 
-    const response = await this.httpClient.post<NapcatWebuiResponse<AuthLoginData>>('/auth/login', {
+    const response = await this.httpClient.post<NapcatWebuiResponse<AuthLoginData>>('/api/auth/login', {
       hash: generateNapcatWebuiPasswordHash(this.token)
     });
     const data = ensureSuccessfulPayload(response.data, 'NapCat WebUI authentication failed');
