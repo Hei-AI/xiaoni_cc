@@ -43,6 +43,7 @@
 
 ## Team Collaboration
 - 修改代码前必须确认当前目录是本任务专用的 git worktree；不要直接在多人共享主工作区改代码。开始前用 `git status --short --branch` 和 `git worktree list` 确认位置，不确定就先切到或新建任务 worktree。
+- 任务 worktree 完成后默认要通过 PR、merge 或 cherry-pick 合回目标分支；废弃、实验或对照用 worktree 必须在协同记录里明确标记，避免后续被整分支或整文件误合入。
 - 重启、构建或部署 `docker-compose.yml` 托管服务前，必须先确认没有其他 Codex 同事正在对同一服务执行重启、构建或部署。先看当前协同记录或交接说明，再用 `docker compose ps` 确认服务状态；发现有人在操作时先等待或协调，不要并行重启同一服务。
 - 重启时只操作当前任务需要的目标服务；除非用户明确要求，不要顺手重启整套主栈。
 
