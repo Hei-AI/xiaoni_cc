@@ -9,9 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 AGENTS = ROOT / "AGENTS.md"
 DOCS_INDEX = ROOT / "docs" / "INDEX.md"
-EXEC_PLANS_README = ROOT / "docs" / "exec-plans" / "README.md"
-ACTIVE_PLANS_DIR = ROOT / "docs" / "exec-plans" / "active"
-COMPLETED_PLANS_DIR = ROOT / "docs" / "exec-plans" / "completed"
 
 PATH_RE = re.compile(r"`((?:docs|README\.md|DOCKER\.md)[^`]*)`")
 MAX_AGENTS_LINES = 100
@@ -41,9 +38,6 @@ def main() -> int:
 
     ensure(AGENTS.exists(), "missing AGENTS.md", errors)
     ensure(DOCS_INDEX.exists(), "missing docs/INDEX.md", errors)
-    ensure(EXEC_PLANS_README.exists(), "missing docs/exec-plans/README.md", errors)
-    ensure(ACTIVE_PLANS_DIR.is_dir(), "missing docs/exec-plans/active/", errors)
-    ensure(COMPLETED_PLANS_DIR.is_dir(), "missing docs/exec-plans/completed/", errors)
 
     if errors:
         print("\n".join(f"ERROR: {error}" for error in errors))
@@ -77,17 +71,6 @@ def main() -> int:
     ensure(
         docs_agent_files == indexed_agent_files,
         "docs/INDEX.md must list every docs/AGENTS_*.md file exactly once",
-        errors,
-    )
-
-    required_index_refs = {
-        "docs/exec-plans/active/",
-        "docs/exec-plans/completed/",
-        "docs/exec-plans/README.md",
-    }
-    ensure(
-        required_index_refs.issubset({match.group(1) for match in PATH_RE.finditer(docs_index_text)}),
-        "docs/INDEX.md must reference exec-plans active/, completed/, and README.md",
         errors,
     )
 

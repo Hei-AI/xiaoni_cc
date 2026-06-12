@@ -18,7 +18,7 @@
 .
 ├── docker-compose.yml
 ├── docker-compose.napcat.yml
-├── database/
+├── database/postgres/init.sql
 ├── docs/
 ├── modules/
 │   ├── admin-panel/
@@ -139,6 +139,7 @@ python3 scripts/start_modules.py status
 - `scripts/module_pids.json` 是本地 `start_modules.py` 写出的 PID 状态，不提交。
 - NapCat 登录二维码和各类截图文件属于登录/排障产物，不提交。
 - 临时探针、compact memory 导出和 smoke 产物放在 `tmp/`，不提交。
+- `database/` 只保留 compose `init-db` 使用的 PostgreSQL 初始化脚本；历史 MySQL schema、迁移和直连检查脚本不再维护。
 
 ## 文档
 

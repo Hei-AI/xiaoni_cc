@@ -50,6 +50,7 @@
 - 仓库文档是可追溯真相源；聊天、口头说明、临时记录都不算交付
 - 整个项目文档默认遵循渐进式披露：入口文档只放判断、边界和下一跳；细节放到被链接的专项文档，不在多个入口重复展开
 - 真实密钥、token、调试认证信息统一从 `/home/liahua/.qqbot-local/` 读取；`.env.docker.example` 只是模板，不能回填真实 secret
+- `database/` 只保留 compose `init-db` 用的 PostgreSQL 初始化脚本；不要恢复历史 MySQL schema、migration、直连检查脚本或根目录一次性探针
 - 复杂任务不要只靠聊天上下文推进；优先使用 gstack 工作流，不要再把仓库内 execution plan 当成默认进度跟踪机制
 - 浏览网页、站点 QA、截图、交互验证时，默认优先使用 gstack 的 `$browse`
 - 涉及 OpenAI 产品、API、模型选择或官方文档查询时，默认优先使用 `$openai-docs`

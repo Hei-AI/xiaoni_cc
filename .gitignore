@@ -19,8 +19,7 @@ backend/build/
 # Runtime data
 backend/runtime/
 backend/database/mysql_data/
-database/mysql_data/*
-!database/mysql_data/.gitkeep
+database/mysql_data/
 modules/qqbot-core/resources/napcat_qq_data/*
 !modules/qqbot-core/resources/napcat_qq_data/.gitkeep
 resource/napcat_config/*.json
@@ -31,6 +30,9 @@ resource/napcat_qq_data/*
 scripts/module_pids.json
 屏幕截图 *.png
 Screenshot *.png
+ai_studio_*.png
+aistudio_*.png
+NUL
 
 # Dependencies
 node_modules/
