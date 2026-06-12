@@ -56,6 +56,7 @@
   `docs/XIAONI_AGENT_STACK_LEDGER.md`.
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例；不要塞动态状态、工具列表、skill 列表或 cost。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果、工程提醒、动态能力列表和 cost 都属于 runtime input / developer context，不要回填进 system prompt。工程在主 loop 输入开头追加一次 developer `<CAPABILITIES>`，列出工具、skill 和 cost。
+- `agent-service` 会对 `docs/xiaoni_prompt/*.md` 做内容 fingerprint 轮询；文件内容变化后只设置 runtime prompt reload 标记，当前 frame 不被打断，下一轮 loop 边界清空 `stableRuntimePrompt` 并重新读取 system prompt。`prompt_cache_key` 仍保持 `xiaoni:global`，不要把 prompt 版本塞进 cache key；需要审计时看新 slice 的 request payload。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
   `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。不要用工程术语解释它。
 - `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
@@ -81,7 +82,8 @@
 - `final_answer` 不是 loop break。模型返回 `phase=final_answer` 且没有工具调用时，不追加 final-answer 专用 prompt reminder，也不提前写 self continuation；完整 no-notify 伪代码只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
-- `compress_core_memory(text)` 是压力专用工具。普通请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把当前请求的 `tool_choice.allowed_tools` 临时限制为 `compress_core_memory`；不要依赖 prompt XML 属性检测。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
+- `compress_core_memory(text)` 是压力专用工具。普通主请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才为后台 `core_memory_compression_fork` 追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把 fork 请求的 `tool_choice.allowed_tools` 限制为 `exec_command` + `compress_core_memory`；主 loop 不等待 fork 完成，继续用当前安全 input 跑。工具成功后，工程把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff；不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
+- 主 loop 重建 prompt-visible 历史时，先读取 `xiaoni:global` 的 read cutoff，再用它作为 `listRecentTurns(afterConversationId)` 的 DB 边界；不能先无条件拉最近 201 条再把已压缩历史交给预算层过滤。超过 cutoff 后的新历史达到压缩阈值时才触发下一次 count-based compression。
 
 ## Memory And Search Routing
 

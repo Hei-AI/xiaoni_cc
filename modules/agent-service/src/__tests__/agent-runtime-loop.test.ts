@@ -296,3 +296,67 @@ test('stable runtime prompt resolves once for the AgentLoopService lifetime', as
   assert.equal(first.systemPrompt, 'system:run-1');
   assert.equal(second.systemPrompt, 'system:run-1');
 });
+
+test('stable runtime prompt reloads after explicit invalidation', async () => {
+  let resolveCount = 0;
+  const service = new AgentLoopService({} as any, {
+    resolveForQueueMessage: async () => {
+      resolveCount += 1;
+      return createRuntimePrompt(`system:${resolveCount}`);
+    }
+  });
+
+  const first = await (service as any).resolveStableRuntimePrompt({ runId: 'run-1' } as QueueMessagePayload);
+  const invalidated = service.invalidateStableRuntimePrompt('test');
+  const second = await (service as any).resolveStableRuntimePrompt({ runId: 'run-2' } as QueueMessagePayload);
+
+  assert.equal(invalidated, true);
+  assert.equal(resolveCount, 2);
+  assert.equal(first.systemPrompt, 'system:1');
+  assert.equal(second.systemPrompt, 'system:2');
+});
+
+test('runtime loop applies prompt reload request before the next frame', async () => {
+  let resolveCount = 0;
+  let frameCount = 0;
+  let stopped = false;
+  let reloadRequested = false;
+  const promptsSeen: string[] = [];
+  const queueMessage = createQueueMessage('reload-run');
+  const service = new AgentLoopService({
+    claimNextQueueMessage: async () => queueMessage
+  } as any, {
+    resolveForQueueMessage: async () => {
+      resolveCount += 1;
+      return createRuntimePrompt(`system:${resolveCount}`);
+    }
+  });
+
+  (service as any).processRuntimeFrame = async (message: QueueMessageRecord) => {
+    const prompt = await (service as any).resolveStableRuntimePrompt(message.payload);
+    promptsSeen.push(prompt.systemPrompt);
+    frameCount += 1;
+    if (frameCount === 1) {
+      reloadRequested = true;
+      return;
+    }
+    stopped = true;
+  };
+
+  await service.runRuntimeLoop({
+    workerId: 'worker-1',
+    idleIntervalMs: 2000,
+    isStopping: () => stopped,
+    shouldReloadRuntimePrompt: () => {
+      const value = reloadRequested;
+      reloadRequested = false;
+      return value;
+    },
+    sleepMs: async () => {
+      throw new Error('runtime loop should not sleep in this test');
+    }
+  });
+
+  assert.deepEqual(promptsSeen, ['system:1', 'system:2']);
+  assert.equal(resolveCount, 2);
+});

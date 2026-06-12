@@ -6,6 +6,7 @@ import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
+import { XiaoniPromptDirectoryWatcher } from './prompts/xiaoni-prompt-directory-watcher';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
@@ -23,6 +24,7 @@ let workerBusy = false;
 let taskWorkerBusy = false;
 let runtimeEnabled = true;
 let lastProcessingRecoveryAt = 0;
+let promptReloadRequested = false;
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -127,6 +129,26 @@ async function isRuntimeEnabled() {
   }
 }
 
+function consumePromptReloadRequest() {
+  if (!promptReloadRequested) {
+    return false;
+  }
+  promptReloadRequested = false;
+  return true;
+}
+
+const promptDirectoryWatcher = new XiaoniPromptDirectoryWatcher({
+  logger: moduleLogger,
+  onChange: (change) => {
+    promptReloadRequested = true;
+    moduleLogger.info('Xiaoni prompt files changed; scheduling runtime prompt reload', {
+      fingerprint: change.fingerprint.slice(0, 12),
+      file_count: change.fileCount,
+      files: change.files
+    });
+  }
+});
+
 async function runTaskWorkerLoop() {
   while (!stopping) {
     const delayMs = await pollTaskQueueOnce();
@@ -142,12 +164,14 @@ async function shutdown(signal: string) {
   }
   stopping = true;
   moduleLogger.info('Shutting down agent service', { signal });
+  promptDirectoryWatcher.stop();
   await store.close().catch(() => undefined);
   process.exit(0);
 }
 
 async function start() {
   await store.initialize();
+  promptDirectoryWatcher.start();
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Agent service listening', {
       host: serverConfig.host,
@@ -158,6 +182,7 @@ async function start() {
     workerId: agentConfig.workerId,
     idleIntervalMs: agentConfig.idleIntervalMs,
     isStopping: () => stopping,
+    shouldReloadRuntimePrompt: consumePromptReloadRequest,
     recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
     onBusyChange: (busy) => {
       workerBusy = busy;

@@ -165,13 +165,16 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     contextSessionKey: 'xiaoni:global'
   });
 
-  const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');
+  const mainRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');
+  const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.summarySourceInput, 'group');
   const pressureToolNames = (pressureRequest.tools ?? []).map((tool: any) => getToolName(tool));
   const compressTool = (pressureRequest.tools ?? []).find((tool: any) => getToolName(tool) === COMPRESS_CORE_MEMORY_TOOL) as any;
 
-  assert.match(JSON.stringify(plan.requestInput), /脑容量达到极限/);
-  assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
-  assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
+  assert.equal(getAllowedToolNames(mainRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+  assert.match(JSON.stringify(plan.summarySourceInput), /当前压力:/);
+  assert.doesNotMatch(JSON.stringify(plan.summarySourceInput), /source=\\?"core_memory_pressure\\?"/);
+  assert.doesNotMatch(JSON.stringify(plan.summarySourceInput), /required_tool=\\?"compress_core_memory\\?"/);
   assert.deepEqual(getAllowedToolNames(pressureRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
   assert.ok(pressureToolNames.includes(COMPRESS_CORE_MEMORY_TOOL));
   assert.deepEqual(compressTool?.function?.parameters?.required, ['text']);

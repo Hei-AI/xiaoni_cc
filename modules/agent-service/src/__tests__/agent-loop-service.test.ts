@@ -5518,6 +5518,108 @@ test('no-notify continuation preserves global OS context during recover_energy t
   );
 });
 
+test('runtime frame fetches global history after persisted read cutoff', async () => {
+  const queueMessage = {
+    id: 'run-runtime-loop-cutoff',
+    traceId: 'trace-runtime-loop-cutoff',
+    batchId: 'batch-runtime-loop-cutoff',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [],
+    payload: createRuntimeLoopPayload()
+  };
+  const listRecentTurnsCalls: any[] = [];
+  let cutoffReadCount = 0;
+  const store = {
+    createLlmJob: async () => 'job-runtime-loop-cutoff',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async (params: any) => {
+      listRecentTurnsCalls.push(params);
+      return [createConversationTurn({
+        id: 172,
+        userId: 85178516,
+        groupId: null,
+        sessionKey: 'private:85178516',
+        userMessage: 'cutoff 之后的新历史',
+        aiResponse: '我记得。'
+      })];
+    },
+    getSessionReadCutoffState: async (sessionKey: string) => {
+      cutoffReadCount += 1;
+      assert.equal(sessionKey, 'xiaoni:global');
+      return {
+        sessionKey: 'xiaoni:global',
+        readCutoffAfterConversationId: 171,
+        lastContextWindowTokens: 400000,
+        lastTargetBudgetTokens: 280000,
+        lastHardBudgetTokens: 380000,
+        contextSummary: '171 之前的历史已经压缩。',
+        pendingProactiveShare: null,
+        pendingProactiveShareAge: 0,
+        updatedAt: null
+      };
+    },
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
+    createConversation: async () => 2002,
+    ensureXiaoniIdentityRoot: async () => ({ root: { id: 1 }, event: { id: 2 }, created: false }),
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any, {
+    recoverEnergySleepMs: async () => {}
+  });
+
+  (service as any).executeAgentTurn = async () => ({
+    success: true,
+    llm_call_id: 'llm-runtime-loop-cutoff',
+    canonical_response: {
+      output: [{
+        type: 'function_call',
+        call_id: 'call-runtime-loop-cutoff',
+        name: RECOVER_ENERGY_TOOL,
+        arguments: JSON.stringify({
+          reason: '测试 cutoff 后历史读取。',
+          duration_minutes: 30,
+          xiaoni_os: 'cutoff 后历史已进入上下文。'
+        })
+      }]
+    }
+  });
+
+  await processRuntimeFrameForTest(service, queueMessage as any, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
+
+  assert.equal(cutoffReadCount, 1);
+  assert.deepEqual(listRecentTurnsCalls[0], {
+    userId: 303,
+    groupId: null,
+    afterConversationId: 171,
+    scope: 'global',
+    limit: 201
+  });
+});
+
 test('buildContextBudgetPlan injects core-memory pressure at 200 turns before advancing cutoff', async () => {
   const upsertCalls: any[] = [];
   const service = new AgentLoopService({
@@ -5562,16 +5664,20 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
     lastHardBudgetTokens: 380000
   });
   assert.equal(upsertCalls.length, 0);
-  assert.match(JSON.stringify(plan.requestInput), /脑容量达到极限/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
+  assert.match(JSON.stringify(plan.summarySourceInput), /当前压力:/);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
   assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
-  assert.deepEqual(getAllowedToolNames(request.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
+  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+
+  const compressionRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.summarySourceInput, 'direct');
+  assert.deepEqual(getAllowedToolNames(compressionRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
 
   const alternateToolChoiceRequest = {
-    ...request,
+    ...compressionRequest,
     tool_choice: {
       type: 'allowed_tools',
       mode: 'required',
@@ -5587,12 +5693,12 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   };
   assert.equal(
     JSON.stringify(withoutToolChoice(alternateToolChoiceRequest)),
-    JSON.stringify(withoutToolChoice(request)),
+    JSON.stringify(withoutToolChoice(compressionRequest)),
     'changing only tool_choice must not mutate prompt/input/tools/cache-key request prefix fields'
   );
 });
 
-test('core memory compression runs in an isolated fork before the main agent request', async () => {
+test('core memory compression runs in an isolated background fork alongside the main agent request', async () => {
   const queueMessage = {
     id: 'run-compression-fork',
     traceId: 'trace-compression-fork',
@@ -5696,9 +5802,23 @@ test('core memory compression runs in an isolated fork before the main agent req
 
   const forkRequests: any[] = [];
   const mainRequests: any[] = [];
+  let releaseForkTurn: () => void = () => undefined;
+  const forkTurnGate = new Promise<void>((resolve) => {
+    releaseForkTurn = resolve;
+  });
+  const waitFor = async (predicate: () => boolean, label: string) => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (predicate()) {
+        return;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+    assert.fail(label);
+  };
   (service as any).executeCoreMemoryCompressionForkTurn = async (canonicalRequest: any, _payload: any, _runtimePrompt: any, forkTurn: number) => {
     forkRequests.push(canonicalRequest);
     if (forkTurn === 1) {
+      await forkTurnGate;
       return {
         success: true,
         llm_call_id: 'llm-compress-fork-1',
@@ -5760,26 +5880,58 @@ test('core memory compression runs in an isolated fork before the main agent req
     scheduledCompressionWriters.push(params);
   };
 
-  await processRuntimeFrameForTest(service, queueMessage as any, {
+  const framePromise = processRuntimeFrameForTest(service, queueMessage as any, {
     queueBacked: false,
     triggerInputMode: 'suppress_current_trigger',
     appendRuntimeInputStackItem: false,
     logQueueLifecycle: false
   });
+  await waitFor(() => forkRequests.length === 1, 'background compression fork did not start');
+  await framePromise;
 
-  assert.equal(forkRequests.length, 2);
   assert.equal(mainRequests.length, 1);
+  assert.equal(forkRequests.length, 1);
   assert.equal(forkRuns.length, 1);
-  assert.equal(completedForkRuns.length, 1);
+  assert.equal(completedForkRuns.length, 0);
   assert.equal(forkRuns[0]?.status, 'running');
-  assert.equal(completedForkRuns[0]?.status, 'completed');
   assert.equal(forkRuns[0]?.metadata?.no_main_stack_persist, true);
-  assert.equal(completedForkRuns[0]?.summaryText, '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。');
   assert.equal(forkRequests[0]?.store, false);
   assert.equal(forkRequests[0]?.metadata?.core_memory_compression_fork, 'true');
   assert.equal(forkRequests[0]?.metadata?.no_persist, 'true');
   assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
   assert.deepEqual(forkRequests[0]?.tools, mainRequests[0]?.tools);
+
+  const firstForkText = (forkRequests[0]?.input || []).map(getMessageContent).join('\n');
+  assert.match(firstForkText, /躯体警告|当前压力:/);
+  assert.match(firstForkText, /global history 1(?!\d)/);
+  assert.match(firstForkText, /global history 201/);
+
+  const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
+  assert.doesNotMatch(mainText, /<小腻近况>|压缩后的近况/);
+  assert.doesNotMatch(mainText, /躯体警告|当前压力:/);
+  assert.doesNotMatch(mainText, /call-archive|call-compress|archived to \/tmp\/xiaoni-memory\.md/);
+  assert.match(mainText, /global history 1(?!\d)/);
+  assert.match(mainText, /global history 171/);
+  assert.match(mainText, /global history 201/);
+
+  assert.equal(conversations.length, 1);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 201);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 201);
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.execution_mode, 'compression_fork_background');
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.status, 'scheduled');
+  assert.doesNotMatch(JSON.stringify(conversations[0]?.rawResponse?.responses_replay_items || []), /call-archive|call-compress|archived/);
+  assert.doesNotMatch(JSON.stringify(mainStackItems), /call-archive|call-compress|archived/);
+  assert.equal(scheduledCompressionWriters.length, 1);
+  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.length, 171);
+  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.[0]?.id, 1);
+  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.at(-1)?.id, 171);
+
+  releaseForkTurn();
+  await waitFor(() => completedForkRuns.length === 1, 'background compression fork did not complete');
+
+  assert.equal(forkRequests.length, 2);
+  assert.equal(completedForkRuns[0]?.status, 'completed');
+  assert.equal(completedForkRuns[0]?.summaryText, '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。');
   assert.equal(forkSlices.length, 2);
   assert.equal(forkSlices[0]?.canonicalRequest?.store, false);
   assert.equal(forkSlices[0]?.metadata?.no_main_stack_persist, true);
@@ -5792,15 +5944,9 @@ test('core memory compression runs in an isolated fork before the main agent req
   assert.match(JSON.stringify(forkItems), /call-archive/);
   assert.match(JSON.stringify(forkItems), /call-compress/);
   assert.match(JSON.stringify(forkItems), /archived to \/tmp\/xiaoni-memory\.md/);
-
-  const firstForkText = (forkRequests[0]?.input || []).map(getMessageContent).join('\n');
-  assert.match(firstForkText, /脑容量即将崩塌|物理极限/);
-  assert.match(firstForkText, /global history 1(?!\d)/);
-  assert.match(firstForkText, /global history 201/);
   const secondForkText = JSON.stringify(forkRequests[1]?.input || []);
   assert.match(secondForkText, /call-archive/);
   assert.match(secondForkText, /archived to \/tmp\/xiaoni-memory\.md/);
-
   assert.deepEqual(summaryWrites, [{
     sessionKey: 'xiaoni:global',
     contextSummary: '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。'
@@ -5812,28 +5958,6 @@ test('core memory compression runs in an isolated fork before the main agent req
     lastTargetBudgetTokens: 280000,
     lastHardBudgetTokens: 380000
   }]);
-
-  const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
-  assert.match(mainText, /<小腻近况>/);
-  assert.match(mainText, /压缩后的近况/);
-  assert.doesNotMatch(mainText, /脑容量即将崩塌|物理极限/);
-  assert.doesNotMatch(mainText, /call-archive|call-compress|archived to \/tmp\/xiaoni-memory\.md/);
-  assert.doesNotMatch(mainText, /global history 1(?!\d)/);
-  assert.doesNotMatch(mainText, /global history 171/);
-  assert.match(mainText, /global history 172/);
-  assert.match(mainText, /global history 201/);
-
-  assert.equal(conversations.length, 1);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 30);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 30);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.execution_mode, 'compression_fork');
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.fork_tool_call_count, 2);
-  assert.doesNotMatch(JSON.stringify(conversations[0]?.rawResponse?.responses_replay_items || []), /call-archive|call-compress|archived/);
-  assert.doesNotMatch(JSON.stringify(mainStackItems), /call-archive|call-compress|archived/);
-  assert.equal(scheduledCompressionWriters.length, 1);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.length, 171);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.[0]?.id, 1);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.at(-1)?.id, 171);
   assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end'), true);
 });
 
