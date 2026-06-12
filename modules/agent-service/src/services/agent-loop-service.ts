@@ -210,12 +210,9 @@ type AgentRuntimeIterationParams = {
   workerId: string;
   idleIntervalMs: number;
   pollIntervalMs: number;
-  autonomousRuntimeEnabled?: boolean;
-  autonomousRuntimeSliceIntervalMs?: number;
   getActiveRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
   getLatestRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
   onRecoveryWindowError?: (error: unknown) => void;
-  onAutonomousRuntimeSliceError?: (error: unknown) => void;
 };
 
 export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
@@ -226,6 +223,13 @@ export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
   onRuntimeLoopError?: (error: unknown) => void;
   sleepMs?: (ms: number) => Promise<void>;
   bootstrapPromptPayload?: QueueMessageRecord['payload'];
+};
+
+type ProcessRuntimeFrameOptions = {
+  queueBacked?: boolean;
+  triggerInputMode?: RuntimeTriggerInputMode;
+  appendRuntimeInputStackItem?: boolean;
+  logQueueLifecycle?: boolean;
 };
 
 function sleep(ms: number) {
@@ -497,6 +501,55 @@ function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
     },
     inboundContext,
     messages: []
+  };
+}
+
+function buildRuntimeLoopFrameQueueMessage(): QueueMessageRecord {
+  const now = new Date();
+  const id = uuidv4().slice(0, 8);
+  const frameId = `runtime_${now.getTime()}_${id}`;
+  const bootstrapPayload = buildRuntimeBootstrapPromptPayload();
+  const payload: QueueMessageRecord['payload'] = {
+    ...bootstrapPayload,
+    traceId: `runtrace_${frameId}`,
+    runId: frameId,
+    batchId: `runtime_batch_${now.getTime()}_${id}`,
+    source: 'runtime_loop',
+    receivedAt: now.toISOString(),
+    rawPayload: {
+      source: 'runtime_loop'
+    },
+    inboundContext: {
+      ...bootstrapPayload.inboundContext,
+      Timestamp: now.getTime(),
+      Surface: 'runtime_loop'
+    }
+  };
+
+  return {
+    id: frameId,
+    traceId: payload.traceId,
+    batchId: payload.batchId,
+    status: 'processing',
+    attempts: 0,
+    createdAt: now.toISOString(),
+    queueMessageIds: [],
+    payload
+  };
+}
+
+function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}): {
+  queueBacked: boolean;
+  triggerInputMode: RuntimeTriggerInputMode;
+  appendRuntimeInputStackItem: boolean;
+  logQueueLifecycle: boolean;
+} {
+  const queueBacked = options.queueBacked !== false;
+  return {
+    queueBacked,
+    triggerInputMode: options.triggerInputMode ?? (queueBacked ? 'fresh_trigger' : 'suppress_current_trigger'),
+    appendRuntimeInputStackItem: options.appendRuntimeInputStackItem ?? queueBacked,
+    logQueueLifecycle: options.logQueueLifecycle ?? queueBacked
   };
 }
 
@@ -4036,36 +4089,27 @@ export class AgentLoopService {
         if (enqueued) {
           queueMessage = await this.store.claimNextQueueMessage(params.workerId);
           if (queueMessage) {
-            await this.processRuntimeNotify(queueMessage);
+            await this.processRuntimeFrame(queueMessage);
             return params.pollIntervalMs;
           }
         }
       }
 
-      if (params.autonomousRuntimeEnabled !== false) {
-        const enqueued = await this.store.enqueueAutonomousRuntimeSlice({
-          minIntervalMs: params.autonomousRuntimeSliceIntervalMs
-        }).catch((error) => {
-          params.onAutonomousRuntimeSliceError?.(error);
-          return false;
-        });
-        if (enqueued) {
-          queueMessage = await this.store.claimNextQueueMessage(params.workerId);
-          if (queueMessage) {
-            await this.processRuntimeNotify(queueMessage);
-            return params.pollIntervalMs;
-          }
-        }
-      }
-
-      return params.idleIntervalMs;
+      await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
+        queueBacked: false,
+        triggerInputMode: 'suppress_current_trigger',
+        appendRuntimeInputStackItem: false,
+        logQueueLifecycle: false
+      });
+      return params.pollIntervalMs;
     }
 
-    await this.processRuntimeNotify(queueMessage);
+    await this.processRuntimeFrame(queueMessage);
     return params.pollIntervalMs;
   }
 
-  private async processRuntimeNotify(queueMessage: QueueMessageRecord) {
+  private async processRuntimeFrame(queueMessage: QueueMessageRecord, frameOptions: ProcessRuntimeFrameOptions = {}) {
+    const options = normalizeRuntimeFrameOptions(frameOptions);
     const startedAt = Date.now();
     const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
@@ -4115,20 +4159,22 @@ export class AgentLoopService {
       coreMemoryCompression: null
     };
 
-    await this.store.logTimelineEvent({
-      traceId: payload.traceId,
-      eventType: 'queue',
-      eventName: 'dequeue',
-      eventPhase: 'start',
-      metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId, queue_message_ids: queueMessage.queueMessageIds, worker_id: agentConfig.workerId }
-    });
-    await this.store.logTimelineEvent({
-      traceId: payload.traceId,
-      eventType: 'queue',
-      eventName: 'dequeue',
-      eventPhase: 'end',
-      metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId, queue_message_ids: queueMessage.queueMessageIds, worker_id: agentConfig.workerId }
-    });
+    if (options.logQueueLifecycle) {
+      await this.store.logTimelineEvent({
+        traceId: payload.traceId,
+        eventType: 'queue',
+        eventName: 'dequeue',
+        eventPhase: 'start',
+        metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId, queue_message_ids: queueMessage.queueMessageIds, worker_id: agentConfig.workerId }
+      });
+      await this.store.logTimelineEvent({
+        traceId: payload.traceId,
+        eventType: 'queue',
+        eventName: 'dequeue',
+        eventPhase: 'end',
+        metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId, queue_message_ids: queueMessage.queueMessageIds, worker_id: agentConfig.workerId }
+      });
+    }
     await this.store.logTimelineEvent({
       traceId: payload.traceId,
       eventType: 'decision',
@@ -4190,7 +4236,7 @@ export class AgentLoopService {
         runtimeIdentityFacts,
         developerContextBlock,
         contextSessionKey,
-        triggerInputMode: 'fresh_trigger'
+        triggerInputMode: options.triggerInputMode
       });
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
@@ -4210,19 +4256,21 @@ export class AgentLoopService {
       };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-      await this.appendAgentStackItemsSafe({
-        traceId: payload.traceId,
-        runId: queueMessage.id,
-        sourceType: 'agent_queue_messages',
-        sourceId: queueMessage.id,
-        items: [
-          buildRuntimeInputStackItem({
-            queueMessage: payload,
-            runId: queueMessage.id,
-            runtimePrompt
-          }) as Record<string, unknown>
-        ]
-      });
+      if (options.appendRuntimeInputStackItem) {
+        await this.appendAgentStackItemsSafe({
+          traceId: payload.traceId,
+          runId: queueMessage.id,
+          sourceType: options.queueBacked ? 'agent_queue_messages' : 'agent_runtime',
+          sourceId: queueMessage.id,
+          items: [
+            buildRuntimeInputStackItem({
+              queueMessage: payload,
+              runId: queueMessage.id,
+              runtimePrompt
+            }) as Record<string, unknown>
+          ]
+        });
+      }
 
       for (let turn = 1; !leaseRelease; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -4341,20 +4389,6 @@ export class AgentLoopService {
           turn,
           llmCallId: modelResult.llm_call_id || null
         });
-
-        if (!hasToolCall) {
-          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
-            leaseRelease = buildLeaseReleaseRecord({
-              reason: 'visible_delivery_committed',
-              detail: 'Visible delivery was already committed; this bounded model slice stopped without another tool call.',
-              outcome: 'model_slice_settled_after_visible_delivery',
-              noVisibleDelivery: false,
-              visibleDeliveryCommitted: true,
-              source: 'model:no_tool_after_visible_delivery'
-            });
-          }
-        }
 
         for (const replayItem of replayableOutputs) {
           appendLoopInputItems([replayItem.inputItem]);
@@ -4609,6 +4643,30 @@ export class AgentLoopService {
               }) as Record<string, unknown>
             ]
           });
+          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
+          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'visible_delivery_committed',
+              detail: 'Visible delivery was committed; this frame persisted the normal self_continuation reminder before yielding to the runtime loop.',
+              outcome: 'frame_yielded_after_visible_delivery',
+              noVisibleDelivery: false,
+              visibleDeliveryCommitted: true,
+              source: 'model:final_answer_after_visible_delivery'
+            });
+          }
+        }
+        if (!hasToolCall && !actionPlan.hasFinalAnswer && !leaseRelease) {
+          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
+          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'visible_delivery_committed',
+              detail: 'Visible delivery was already committed; this bounded model slice stopped without another replayable final_answer.',
+              outcome: 'frame_yielded_after_visible_delivery_without_final_answer',
+              noVisibleDelivery: false,
+              visibleDeliveryCommitted: true,
+              source: 'model:no_tool_after_visible_delivery'
+            });
+          }
         }
         if (leaseRelease) {
           await this.store.logTimelineEvent({
@@ -4722,20 +4780,22 @@ export class AgentLoopService {
       });
 
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
-      await this.store.settleQueueMessages(queueMessage.id, {
-        conversationId,
-        result: {
-          no_visible_delivery: leaseRelease.no_visible_delivery,
-          sent_messages: sentMessages,
-          xiaoni_os: persistedXiaoniOs,
-          pending_share: persistedPendingShare,
-          stored_feedback_reflection_ids: storedFeedbackReflectionIds,
-          model_request_slices: turnsExecuted,
-          lease_release: leaseRelease,
-          core_memory_compression: coreMemoryCompressionArtifact,
-          lease_release_reason: leaseRelease.reason
-        }
-      });
+      if (options.queueBacked) {
+        await this.store.settleQueueMessages(queueMessage.id, {
+          conversationId,
+          result: {
+            no_visible_delivery: leaseRelease.no_visible_delivery,
+            sent_messages: sentMessages,
+            xiaoni_os: persistedXiaoniOs,
+            pending_share: persistedPendingShare,
+            stored_feedback_reflection_ids: storedFeedbackReflectionIds,
+            model_request_slices: turnsExecuted,
+            lease_release: leaseRelease,
+            core_memory_compression: coreMemoryCompressionArtifact,
+            lease_release_reason: leaseRelease.reason
+          }
+        });
+      }
       const recoveredEnergy = leaseRelease.rest_started;
       const presenceOutcome = sentMessages.length > 0 ? 'replied' : 'silent';
       if (presenceContext) {
@@ -4755,15 +4815,17 @@ export class AgentLoopService {
           });
         }
       }
-      await this.store.releaseExecutionLease(queueMessage.id, {
-        status: 'settled',
-        leaseRelease,
-        noVisibleDelivery: leaseRelease.no_visible_delivery,
-        finalResponse,
-        sentMessages,
-        modelRequestSlices: turnsExecuted,
-        conversationId
-      });
+      if (options.queueBacked) {
+        await this.store.releaseExecutionLease(queueMessage.id, {
+          status: 'settled',
+          leaseRelease,
+          noVisibleDelivery: leaseRelease.no_visible_delivery,
+          finalResponse,
+          sentMessages,
+          modelRequestSlices: turnsExecuted,
+          conversationId
+        });
+      }
       await this.store.updateLlmJob(jobId, {
         status: 'settled',
         finalResponse,
@@ -4880,7 +4942,9 @@ export class AgentLoopService {
         }
       });
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
-      await this.store.failQueueMessage(queueMessage.id, message, conversationId);
+      if (options.queueBacked) {
+        await this.store.failQueueMessage(queueMessage.id, message, conversationId);
+      }
       if (presenceContext) {
         const sidecarRecorder = (this.store as RuntimeStore & {
           recordPresenceSidecar?: RuntimeStore['recordPresenceSidecar'];
@@ -4898,16 +4962,18 @@ export class AgentLoopService {
           });
         }
       }
-      await this.store.releaseExecutionLease(queueMessage.id, {
-        status: 'failed',
-        leaseRelease,
-        noVisibleDelivery: leaseRelease.no_visible_delivery,
-        finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null,
-        sentMessages,
-        modelRequestSlices: turnsExecuted,
-        errorMessage: message,
-        conversationId
-      });
+      if (options.queueBacked) {
+        await this.store.releaseExecutionLease(queueMessage.id, {
+          status: 'failed',
+          leaseRelease,
+          noVisibleDelivery: leaseRelease.no_visible_delivery,
+          finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null,
+          sentMessages,
+          modelRequestSlices: turnsExecuted,
+          errorMessage: message,
+          conversationId
+        });
+      }
       await this.store.updateLlmJob(jobId, {
         status: 'failed',
         errorMessage: message,
@@ -7403,7 +7469,7 @@ type FunctionCallOutputReplayInputItem = Extract<OpenResponseInputItem, { type: 
   output: string;
 };
 
-function isAssistantMessageReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'message' }> {
+function isMessageReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'message' }> {
   if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'message') {
     return false;
   }
@@ -7411,18 +7477,20 @@ function isAssistantMessageReplayItem(value: unknown): value is Extract<OpenResp
     role?: unknown;
     content?: unknown;
   };
-  return item.role === 'assistant'
+  return (item.role === 'assistant' || item.role === 'developer')
     && (typeof item.content === 'string' && item.content.trim().length > 0
       || Array.isArray(item.content) && flattenMessageContent(item.content as OpenResponseInputContentPart[]).trim().length > 0);
 }
 
-function normalizeAssistantMessageReplayInputItem(
+function normalizeMessageReplayInputItem(
   item: Extract<OpenResponseInputItem, { type: 'message' }>
 ): Extract<OpenResponseInputItem, { type: 'message' }> {
   return buildMessageInputItem(
-    'assistant',
+    item.role === 'developer' ? 'developer' : 'assistant',
     [flattenMessageContent(item.content).trim()],
-    item.phase === 'final_answer' ? 'final_answer' : 'commentary'
+    item.role === 'assistant'
+      ? item.phase === 'final_answer' ? 'final_answer' : 'commentary'
+      : undefined
   ) as Extract<OpenResponseInputItem, { type: 'message' }>;
 }
 
@@ -7477,8 +7545,8 @@ function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null
   if (isReasoningReplayItem(item)) {
     return normalizeReasoningReplayInputItem(item);
   }
-  if (isAssistantMessageReplayItem(item)) {
-    return normalizeAssistantMessageReplayInputItem(item);
+  if (isMessageReplayItem(item)) {
+    return normalizeMessageReplayInputItem(item);
   }
   if (isFunctionCallReplayItem(item)) {
     return normalizeFunctionCallReplayInputItem(item);

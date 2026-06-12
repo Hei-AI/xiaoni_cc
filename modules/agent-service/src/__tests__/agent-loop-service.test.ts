@@ -179,8 +179,8 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
-async function processRuntimeNotifyForTest(service: AgentLoopService, queueMessage: unknown) {
-  await (service as any).processRuntimeNotify(queueMessage);
+async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown) {
+  await (service as any).processRuntimeFrame(queueMessage);
 }
 
 function createConversationTurn(overrides: Partial<{
@@ -3142,7 +3142,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   }) as typeof fetch;
 
   try {
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3534,7 +3534,7 @@ test('send_in_group with a single message sends it once through executeTool', as
   }]);
 });
 
-test('runtime notify fails without a bound prompt and does not call the provider', async () => {
+test('runtime frame fails without a bound prompt and does not call the provider', async () => {
   const queueMessage = {
     id: 'run-queue-1',
     traceId: 'trace-1',
@@ -3596,7 +3596,7 @@ test('runtime notify fails without a bound prompt and does not call the provider
   }) as typeof fetch;
 
   try {
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3623,7 +3623,7 @@ test('runtime notify fails without a bound prompt and does not call the provider
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
 });
 
-test('runtime notify persists delivered assistant transcript items with final phase on success', async () => {
+test('runtime frame persists delivered assistant transcript items with final phase on success', async () => {
   const queueMessage = {
     id: 'run-queue-success',
     traceId: 'trace-success',
@@ -3747,7 +3747,7 @@ test('runtime notify persists delivered assistant transcript items with final ph
   }) as typeof fetch;
 
   try {
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3842,7 +3842,7 @@ test('runtime notify persists delivered assistant transcript items with final ph
   }]);
 });
 
-test('runtime notify keeps going after no tool call until Xiaoni chooses recover_energy', async () => {
+test('runtime frame keeps going after no tool call until Xiaoni chooses recover_energy', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-recover',
     traceId: 'trace-no-tool-recover',
@@ -3961,7 +3961,7 @@ test('runtime notify keeps going after no tool call until Xiaoni chooses recover
     };
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
@@ -3988,7 +3988,7 @@ test('runtime notify keeps going after no tool call until Xiaoni chooses recover
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('runtime notify keeps final_answer in the stack and continues until a terminal action', async () => {
+test('runtime frame keeps final_answer in the stack and continues until a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4088,7 +4088,7 @@ test('runtime notify keeps final_answer in the stack and continues until a termi
     };
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.equal(promptResolveCount, 1);
@@ -4107,7 +4107,7 @@ test('runtime notify keeps final_answer in the stack and continues until a termi
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
-test('runtime notify waits before the next model slice when runtime control is disabled', async () => {
+test('runtime frame waits before the next model slice when runtime control is disabled', async () => {
   const queueMessage = {
     id: 'run-queue-runtime-paused',
     traceId: 'trace-runtime-paused',
@@ -4199,7 +4199,7 @@ test('runtime notify waits before the next model slice when runtime control is d
     };
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turns, 2);
   assert.equal(runtimeChecks, 3);
@@ -4222,7 +4222,7 @@ test('runtime notify waits before the next model slice when runtime control is d
   );
 });
 
-test('runtime notify continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
+test('runtime frame continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
   const queueMessage = {
     id: 'run-queue-unbounded-loop',
     traceId: 'trace-unbounded-loop',
@@ -4312,7 +4312,7 @@ test('runtime notify continues past the historical max turn count until Xiaoni c
 
   agentConfig.maxTurns = historicalMaxTurns;
   try {
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
   } finally {
     agentConfig.maxTurns = originalMaxTurns;
   }
@@ -4328,7 +4328,7 @@ test('runtime notify continues past the historical max turn count until Xiaoni c
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
-test('runtime notify does not allow request_image_task to swallow the visible group reply', async () => {
+test('runtime frame does not allow request_image_task to swallow the visible group reply', async () => {
   const payload = createQueuePayload();
   payload.traceId = 'trace-image-task-followup';
   payload.runId = 'run-image-task-followup';
@@ -4514,7 +4514,7 @@ test('runtime notify does not allow request_image_task to swallow the visible gr
       };
     };
 
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
 
     assert.equal(turn, 3);
     assert.equal(storeCalls.createConversation.length, 1);
@@ -4535,7 +4535,7 @@ test('runtime notify does not allow request_image_task to swallow the visible gr
   }
 });
 
-test('runtime notify does not auto-send image task status after queuing', async () => {
+test('runtime frame does not auto-send image task status after queuing', async () => {
   const queueMessage = {
     id: 'run-queue-image-task-no-auto-send',
     traceId: 'trace-image-task-no-auto-send',
@@ -4647,7 +4647,7 @@ test('runtime notify does not auto-send image task status after queuing', async 
       };
     };
 
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
 
     assert.equal(turn, 2);
     assert.equal(storeCalls.createRuntimeTask.length, 1);
@@ -4662,7 +4662,7 @@ test('runtime notify does not auto-send image task status after queuing', async 
   }
 });
 
-test('runtime notify stores partially delivered assistant transcript as commentary on failure', async () => {
+test('runtime frame stores partially delivered assistant transcript as commentary on failure', async () => {
   const queueMessage = {
     id: 'run-queue-failure',
     traceId: 'trace-failure',
@@ -4769,7 +4769,7 @@ test('runtime notify stores partially delivered assistant transcript as commenta
     throw new Error('recover_energy failed');
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'failed');
@@ -4795,7 +4795,7 @@ test('runtime notify stores partially delivered assistant transcript as commenta
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-failure']);
 });
 
-test('runtime notify completes when the model stops emitting tool calls after a delivered reply', async () => {
+test('runtime frame completes when the model stops emitting tool calls after a delivered reply', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-after-delivery',
     traceId: 'trace-no-tool-after-delivery',
@@ -4886,7 +4886,9 @@ test('runtime notify completes when the model stops emitting tool calls after a 
       canonical_response: {
         output: [{
           type: 'message',
-          content: [{ type: 'output_text', text: '' }]
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '收住。' }]
         }]
       }
     };
@@ -4901,7 +4903,7 @@ test('runtime notify completes when the model stops emitting tool calls after a 
     };
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
   assert.equal(storeCalls.failQueueMessage.length, 0);
@@ -4912,10 +4914,19 @@ test('runtime notify completes when the model stops emitting tool calls after a 
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['先发一条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
+      item?.type === 'message'
+        && item?.role === 'developer'
+        && JSON.stringify(item.content).includes('<system_reminder>')
+    ),
+    true
+  );
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
-test('runtime notify allows multiple visible deliveries within the same run', async () => {
+test('runtime frame allows multiple visible deliveries within the same run', async () => {
   const queueMessage = {
     id: 'run-queue-multi-delivery',
     traceId: 'trace-multi-delivery',
@@ -5026,7 +5037,9 @@ test('runtime notify allows multiple visible deliveries within the same run', as
       canonical_response: {
         output: [{
           type: 'message',
-          content: [{ type: 'output_text', text: '' }]
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '留白。' }]
         }]
       }
     };
@@ -5043,7 +5056,7 @@ test('runtime notify allows multiple visible deliveries within the same run', as
     };
   };
 
-  await processRuntimeNotifyForTest(service, queueMessage as any);
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 3);
   assert.equal(executeToolCalls, 2);
@@ -5060,7 +5073,15 @@ test('runtime notify allows multiple visible deliveries within the same run', as
   );
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'model_slice_settled_after_visible_delivery');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
+      item?.type === 'message'
+        && item?.role === 'developer'
+        && JSON.stringify(item.content).includes('<system_reminder>')
+    ),
+    true
+  );
   assert.equal(storeCalls.completeAgentStackToolExecution.length, 2);
   assert.equal(storeCalls.completeAgentStackToolExecution.some((call) => call.result?.blocked_transition), false);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, [
@@ -5341,7 +5362,7 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(promptTexts.some((t: string) => isPhoneNotificationReminderContent(t)), true);
 });
 
-test('runtime notify preserves global OS context during self continuation', async () => {
+test('runtime frame preserves global OS context during self continuation', async () => {
   const queueMessage = {
     id: 'run-self-continuation',
     traceId: 'trace-self-continuation',
@@ -5441,7 +5462,7 @@ test('runtime notify preserves global OS context during self continuation', asyn
   }) as typeof fetch;
 
   try {
-    await processRuntimeNotifyForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any);
   } finally {
     globalThis.fetch = originalFetch;
   }

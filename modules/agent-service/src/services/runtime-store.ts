@@ -55,7 +55,6 @@ import {
   createAgentMemoryReflection,
   ensureAgentMemorySchema,
   incrementRelationshipTrust,
-  enqueueAgentQueueMessage,
   claimNextAgentQueueMessage,
   settleAgentQueueMessages,
   failAgentQueueMessage,
@@ -1778,48 +1777,6 @@ export class RuntimeStore {
       payload,
       sqlAdapter: this.sql
     }, databaseConfig);
-  }
-
-  async enqueueAutonomousRuntimeSlice(input: { minIntervalMs?: number } = {}): Promise<boolean> {
-    const now = new Date();
-    const minIntervalMs = Math.max(200, Number(input.minIntervalMs || agentConfig.autonomousRuntimeSliceIntervalMs || agentConfig.idleIntervalMs));
-    const bucket = Math.floor(now.getTime() / minIntervalMs);
-    const id = uuidv4().slice(0, 8);
-    const traceId = `selftrace_${Date.now()}_${id}`;
-    const messageSid = `self-continuation:autonomous:${bucket}`;
-    const accountId = agentConfig.botAccountId || '1129974489';
-    const payload = buildSelfContinuationPayload({
-      now,
-      traceId,
-      messageSid,
-      accountId,
-      reason: 'autonomous_runtime_slice',
-      rawPayload: {
-        interval_ms: minIntervalMs,
-        schedule_bucket: bucket
-      }
-    });
-    const result = await enqueueAgentQueueMessage({
-      message: {
-        traceId,
-        source: 'self_continuation',
-        messageSid,
-        dedupeKey: messageSid,
-        chatType: 'direct',
-        sessionKey: 'xiaoni:global',
-        peerId: accountId,
-        peerName: '小腻',
-        senderId: accountId,
-        senderName: '小腻',
-        accountId,
-        bodyForAgent: '',
-        rawPayload: payload.rawPayload,
-        inboundContext: payload.inboundContext
-      },
-      payload,
-      availableAt: now
-    }, databaseConfig);
-    return result.status === 'pending' && result.attempts === 0;
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

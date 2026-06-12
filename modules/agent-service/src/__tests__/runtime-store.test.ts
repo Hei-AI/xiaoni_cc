@@ -848,7 +848,7 @@ test('listRecentTurns preserves raw response replay snapshot without recovering 
   assert.equal(queries.some((sql) => sql.includes('legacy_tool_audit_table')), false);
 });
 
-test('listRecentTurns can read the global append stream for autonomous runtime slices', async () => {
+test('listRecentTurns can read the global append stream for runtime loop frames', async () => {
   const conversationQueries: Array<{ sql: string; params?: unknown[] }> = [];
   const store = createStoreWithQuery(async (sql, params) => {
     if (sql.includes('FROM conversations')) {

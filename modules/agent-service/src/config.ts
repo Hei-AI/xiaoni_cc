@@ -93,11 +93,6 @@ export const agentConfig = {
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
   pollIntervalMs: queuePollIntervalMs,
   idleIntervalMs: queueIdleIntervalMs,
-  autonomousRuntimeEnabled: readBooleanEnv('AGENT_AUTONOMOUS_RUNTIME_ENABLED', true),
-  autonomousRuntimeSliceIntervalMs: Math.max(
-    200,
-    Number.parseInt(process.env.AGENT_AUTONOMOUS_RUNTIME_SLICE_INTERVAL_MS || '', 10) || queueIdleIntervalMs
-  ),
   processingRecoveryStaleMs: Math.max(
     5 * 60 * 1000,
     Number.parseInt(process.env.AGENT_PROCESSING_RECOVERY_STALE_MS || '', 10) || (mainAgentTurnTimeoutMs * 2)

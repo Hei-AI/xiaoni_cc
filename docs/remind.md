@@ -136,7 +136,7 @@
 
 `image_task_follow_up` 不再作为独立 `<system_reminder>` 设计。`request_image_task` 本身是 tool call，tool output 已经返回 `queued`、`task_id`、`task_type`、`status_text`，其中 `status_text` 会告诉小腻任务正在进行、完成后会以 notify 通知。agent loop 不再额外追加“底层动作确认 / 你还没有对聊天框里的人开口说话”提醒；是否还需要对聊天对象补一句，应由当前对话策略和发言工具自然决定。
 
-final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能释放/结束连续主 loop；如果当前 active loop 继续推进且没有真实 notify，就在下一次模型切片前追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。这不是 `final_answer_idle` / `final_answer_turn_control`，也不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
+final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能把 self continuation 丢掉；如果当前 loop 继续推进且没有真实 notify，就在下一次模型切片前追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。这个 developer item 必须进入 `responses_replay_items` / 后续 request input，不能在 replay 过滤时只保留 assistant message 和 reasoning。它不是 `final_answer_idle` / `final_answer_turn_control`，也不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
 
 `self_continuation` 只保留一个 prompt-facing 模板。当前 fresh trigger 如果已经渲染 `self_continuation`，就不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
 

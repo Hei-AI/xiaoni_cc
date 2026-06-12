@@ -9,8 +9,9 @@ provider evidence，但不能再被写成新的概念来源。
 小腻不是一组离散客服请求，而是一条连续 agent loop。工程上只有一个主 runtime
 入口：`AgentLoopService.runRuntimeLoop()`。`agent-service` 的 `index.ts` 只负责启动
 这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick、
-recovery self-continuation 合成、autonomous runtime notify 合成都发生在 runtime
-loop 内部。
+recovery self-continuation 合成都发生在 runtime loop 内部。空闲时不再合成
+autonomous queue notify，而是由 runtime loop 创建不落 `agent_queue_messages` 的
+`runtime_loop` frame，继续按同一套 stack window 组装模型请求。
 
 ```text
 system prompt
@@ -26,8 +27,8 @@ agent_stack_items[0..n]
 `final_answer` 不是终止条件。它只是模型本轮没有更多工具调用的输出形态；如果小腻
 仍然活着，当前 active model loop 会直接追加普通 `self_continuation` runtime input，
 再继续发下一次模型请求。真实 notify 只能由 `AgentLoopService.runRuntimeLoop()` 在
-runtime loop 内 pick；不能让外层 worker 或旧处理入口提前把 queue message 变成一次
-独立 agent run。不要为了 `final_answer` 额外制造专用 prompt reminder。
+runtime loop 内 pick；没有 notify 也不能 sleep 掉本轮认知，而是用 `runtime_loop`
+frame 继续发模型请求。不要为了 `final_answer` 额外制造专用 prompt reminder。
 
 当前实现边界：
 
@@ -41,11 +42,10 @@ flowchart TD
   D -- yes --> F{Notify Bucket has pending notify?}
   F -- yes --> G[claim notify]
   F -- no, recovery expired --> H[enqueue and claim self_continuation notify]
-  F -- no, autonomous due --> I[enqueue and claim autonomous runtime notify]
-  F -- no work --> E
+  F -- no notify --> I[create runtime_loop frame without queue row]
   G --> J[append runtime_input for picked notify]
   H --> J
-  I --> J
+  I --> K
   J --> K[build requestInput from stack window + appended runtime input]
   K --> L{active model slice loop}
   L --> M[POST provider with same system prompt and appended requestInput]
@@ -71,16 +71,19 @@ async function runXiaoniRuntime() {
   const stableDeveloperHead = buildStableDeveloperHeadOnce()
 
   while (xiaoni_alive) {
-    const notify = await pickNotifyOrSyntheticRuntimeTick()
-    if (!notify) {
-      await sleep(idleInterval)
+    await waitUntilRuntimeEnabled()
+    if (recoverEnergyStillActive()) {
+      await sleepUntilRecoveryWindowEnds()
       continue
     }
+
+    const notify = await pickNotify()
+    const currentRuntimeInput = notify ? renderNotifyAsRuntimeInput(notify) : null
 
     const requestInput = buildRequestInputFromStackWindow({
       runtimePrompt,
       stableDeveloperHead,
-      currentRuntimeInput: renderNotifyAsRuntimeInput(notify)
+      currentRuntimeInput
     })
 
     const appendLoopInputItems = (items) => {
@@ -167,6 +170,10 @@ stack 作为本轮 `runtime_input`，但不能写成 QQ 正文或 assistant 历�
 
 Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_request`、
 `raw_response` 和本次 slice 覆盖的 stack item 范围。
+
+`llm_request_slices` 是完整 provider evidence，不是后续上下文 replay。后续请求要
+吃到哪些模型可见 item 由 runtime replay / stack window 决定；其中 developer role 的
+普通 `self_continuation` 也必须可回放，不能只保留 assistant output 和 reasoning。
 
 ### `tool_executions`
 
@@ -301,9 +308,11 @@ node --test packages/persistence/__tests__/*.test.js
 
 - 一个 LLM response 的 output items 按顺序追加到 `agent_stack_items`。
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
-- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；同一 active
-  loop 直接 append 普通 `self_continuation` runtime input 推进。真实 notify 属于
-  后续 runtime loop iteration pick 的新 notify，不在当前 active model-slice while 中重新 pick。
+- 没有 Notify Bucket row 时，runtime loop 仍创建 `runtime_loop` frame 并发起模型
+  slice；它不会写入或结算 `agent_queue_messages`。
+- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；直接 append 普通
+  `self_continuation` developer reminder，并确保该 developer item 进入
+  `responses_replay_items`，后续模型请求能真实看到它。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

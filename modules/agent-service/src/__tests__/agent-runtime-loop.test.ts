@@ -52,22 +52,27 @@ function createRecoveryWindow(overrides: Partial<AgentRecoveryWindowProjection> 
   };
 }
 
-function stubRuntimeNotify(service: AgentLoopService, processed: QueueMessageRecord[]) {
-  (service as any).processRuntimeNotify = async (message: QueueMessageRecord) => {
-    processed.push(message);
+type ProcessedRuntimeFrame = {
+  message: QueueMessageRecord;
+  options: Record<string, unknown>;
+};
+
+function stubRuntimeFrame(service: AgentLoopService, processed: ProcessedRuntimeFrame[]) {
+  (service as any).processRuntimeFrame = async (message: QueueMessageRecord, options: Record<string, unknown> = {}) => {
+    processed.push({ message, options });
   };
 }
 
 test('runtime iteration claims and processes queued notify inside AgentLoopService', async () => {
   const queueMessage = createQueueMessage();
-  const processed: QueueMessageRecord[] = [];
+  const processed: ProcessedRuntimeFrame[] = [];
   const service = new AgentLoopService({
     claimNextQueueMessage: async (workerId: string) => {
       assert.equal(workerId, 'worker-1');
       return queueMessage;
     }
   } as any);
-  stubRuntimeNotify(service, processed);
+  stubRuntimeFrame(service, processed);
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
@@ -79,21 +84,19 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
   });
 
   assert.equal(delay, 1000);
-  assert.deepEqual(processed, [queueMessage]);
+  assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
+  assert.deepEqual(processed.map((item) => item.options), [{}]);
 });
 
 test('runtime iteration waits for active recovery instead of enqueuing a new notify', async () => {
-  const processed: QueueMessageRecord[] = [];
+  const processed: ProcessedRuntimeFrame[] = [];
   const service = new AgentLoopService({
     claimNextQueueMessage: async () => null,
     enqueueSelfContinuationForRecovery: async () => {
       throw new Error('should not enqueue during active recovery');
     },
-    enqueueAutonomousRuntimeSlice: async () => {
-      throw new Error('should not enqueue autonomous slice during active recovery');
-    }
   } as any);
-  stubRuntimeNotify(service, processed);
+  stubRuntimeFrame(service, processed);
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
@@ -111,7 +114,7 @@ test('runtime iteration waits for active recovery instead of enqueuing a new not
 
 test('runtime iteration creates and processes recovery self continuation notify', async () => {
   const queueMessage = createQueueMessage('run-recovery');
-  const processed: QueueMessageRecord[] = [];
+  const processed: ProcessedRuntimeFrame[] = [];
   const calls: string[] = [];
   let claimCount = 0;
   const service = new AgentLoopService({
@@ -125,7 +128,7 @@ test('runtime iteration creates and processes recovery self continuation notify'
       return true;
     }
   } as any);
-  stubRuntimeNotify(service, processed);
+  stubRuntimeFrame(service, processed);
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
@@ -137,44 +140,44 @@ test('runtime iteration creates and processes recovery self continuation notify'
 
   assert.equal(delay, 1000);
   assert.deepEqual(calls, ['claim', 'enqueue:9', 'claim']);
-  assert.deepEqual(processed, [queueMessage]);
+  assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
 });
 
-test('runtime iteration creates and processes autonomous runtime notify when idle', async () => {
-  const queueMessage = createQueueMessage('run-autonomous');
-  const processed: QueueMessageRecord[] = [];
+test('runtime iteration processes a runtime_loop frame when there is no notify', async () => {
+  const processed: ProcessedRuntimeFrame[] = [];
   const calls: string[] = [];
-  let claimCount = 0;
   const service = new AgentLoopService({
     claimNextQueueMessage: async () => {
       calls.push('claim');
-      claimCount += 1;
-      return claimCount === 1 ? null : queueMessage;
-    },
-    enqueueAutonomousRuntimeSlice: async (input: { minIntervalMs?: number }) => {
-      calls.push(`enqueue:${input.minIntervalMs}`);
-      return true;
+      return null;
     }
   } as any);
-  stubRuntimeNotify(service, processed);
+  stubRuntimeFrame(service, processed);
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
     pollIntervalMs: 1000,
-    autonomousRuntimeSliceIntervalMs: 2500,
     getActiveRecoveryWindow: async () => null,
     getLatestRecoveryWindow: async () => null
   });
 
   assert.equal(delay, 1000);
-  assert.deepEqual(calls, ['claim', 'enqueue:2500', 'claim']);
-  assert.deepEqual(processed, [queueMessage]);
+  assert.deepEqual(calls, ['claim']);
+  assert.equal(processed.length, 1);
+  assert.equal(processed[0]?.message.payload.source, 'runtime_loop');
+  assert.equal(processed[0]?.message.queueMessageIds.length, 0);
+  assert.deepEqual(processed[0]?.options, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
 });
 
 test('runtime loop owns the forever loop and sleeps between iterations', async () => {
   const queueMessage = createQueueMessage('run-loop');
-  const processed: QueueMessageRecord[] = [];
+  const processed: ProcessedRuntimeFrame[] = [];
   const events: string[] = [];
   let stopped = false;
   const service = new AgentLoopService({
@@ -185,13 +188,12 @@ test('runtime loop owns the forever loop and sleeps between iterations', async (
       return true;
     }
   });
-  stubRuntimeNotify(service, processed);
+  stubRuntimeFrame(service, processed);
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
     pollIntervalMs: 1000,
-    autonomousRuntimeEnabled: false,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       events.push('recover-stale-leases');
@@ -208,7 +210,7 @@ test('runtime loop owns the forever loop and sleeps between iterations', async (
     }
   });
 
-  assert.deepEqual(processed, [queueMessage]);
+  assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
   assert.deepEqual(events, [
     'recover-stale-leases',
     'runtime-enabled',
@@ -238,12 +240,12 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
       return true;
     }
   });
+  stubRuntimeFrame(service, []);
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
     pollIntervalMs: 1000,
-    autonomousRuntimeEnabled: false,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       events.push('recover-stale-leases');
@@ -264,7 +266,7 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
     'busy:true',
     'claim',
     'busy:false',
-    'sleep:2000'
+    'sleep:1000'
   ]);
 });
 
@@ -308,12 +310,12 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
   const service = new AgentLoopService({
     claimNextQueueMessage: async () => null
   } as any);
+  stubRuntimeFrame(service, []);
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
     pollIntervalMs: 1000,
-    autonomousRuntimeEnabled: false,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       throw new Error('recovery failed');
@@ -329,7 +331,7 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
 
   assert.deepEqual(events, [
     'recovery failed',
-    'sleep:2000'
+    'sleep:1000'
   ]);
 });
 

@@ -37,7 +37,6 @@ app.get('/health', async (_req, res) => {
     worker_busy: workerBusy,
     task_worker_busy: taskWorkerBusy,
     runtime_enabled: runtimeEnabled,
-    autonomous_runtime_enabled: agentConfig.autonomousRuntimeEnabled,
     timestamp: new Date().toISOString()
   });
 });
@@ -159,8 +158,6 @@ async function start() {
     workerId: agentConfig.workerId,
     idleIntervalMs: agentConfig.idleIntervalMs,
     pollIntervalMs: agentConfig.pollIntervalMs,
-    autonomousRuntimeEnabled: agentConfig.autonomousRuntimeEnabled,
-    autonomousRuntimeSliceIntervalMs: agentConfig.autonomousRuntimeSliceIntervalMs,
     isStopping: () => stopping,
     recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
     getActiveRecoveryWindow: () => getActiveAgentRecoveryWindow({
@@ -177,11 +174,6 @@ async function start() {
     },
     onRecoveryWindowError: (error) => {
       moduleLogger.warn('Failed to check Xiaoni active recovery window', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-    },
-    onAutonomousRuntimeSliceError: (error) => {
-      moduleLogger.warn('Failed to enqueue Xiaoni autonomous runtime slice', {
         error: error instanceof Error ? error.message : String(error)
       });
     },

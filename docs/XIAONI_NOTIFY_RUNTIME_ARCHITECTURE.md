@@ -14,8 +14,9 @@ QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`�
 主 loop 由 `agent-service` 承载，但 `index.ts` 只负责启动
 `AgentLoopService.runRuntimeLoop()`。runtime 自己持有 `while alive` 循环：
 它在 loop 内部从 Notify Bucket pick notify，必要时合成 recovery
-self-continuation 或 autonomous runtime notify，然后把 notify 追加成当前 runtime
-input。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
+self-continuation。没有 notify 时不 sleep 掉本轮认知，而是创建不落
+`agent_queue_messages` 的 `runtime_loop` frame，直接用当前 stack/window 继续组装
+模型请求。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
 
 一次 runtime loop iteration 的主链路是：
 
@@ -25,11 +26,10 @@ AgentLoopService.runRuntimeLoop()
   -> check runtime control
   -> claim one notify from Notify Bucket
   -> if none and recovery expired: enqueue self_continuation notify, then claim it
-  -> if none and autonomous runtime is due: enqueue self_continuation notify, then claim it
-  -> if none: sleep idleInterval inside runtime loop
-  -> append picked notify as runtime_input
+  -> if none: create runtime_loop frame without writing a queue row
+  -> append picked notify as runtime_input when a notify exists
   -> reuse stable system prompt resolved before the main while
-  -> build requestInput from append-only stack window + current runtime input
+  -> build requestInput from append-only stack window + optional current runtime input
   -> record llm_request_slices input range
   -> POST provider-service /api/internal/agent/execute
   -> provider-service codex-provider / OpenAI
@@ -54,9 +54,11 @@ sequenceDiagram
   L->>L: resolve stable runtimePrompt via runtime_bootstrap
   L->>L: while alive
   L->>L: check runtime control
-  L->>L: claim notify / synthesize self_continuation
-  L->>S: append runtime_input for picked notify
-  L->>L: build requestInput from stack window + appended runtime input
+  L->>L: claim notify or create runtime_loop frame
+  opt picked notify
+    L->>S: append runtime_input for picked notify
+  end
+  L->>L: build requestInput from stack window + optional runtime input
   loop active model slices
     L->>P: canonical request(systemPrompt, requestInput)
     P-->>L: response.output_items
@@ -70,7 +72,7 @@ sequenceDiagram
       L->>L: requestInput.push(self_continuation)
     end
   end
-  L->>L: sleep when no work or after iteration delay
+  L->>L: sleep iteration delay between frames
 ```
 
 目标事实源见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。迁移期旧 transcript、LLM/tool
@@ -81,14 +83,15 @@ sequenceDiagram
 | 来源 | 写入内容 | 当前代码入口 |
 | --- | --- | --- |
 | NapCat QQ message | `is_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
-| self continuation | `self_continuation`，空闲且未休息时维持连续主 loop。 | `modules/agent-service/src/services/runtime-store.ts` |
+| self continuation | `self_continuation`，用于 `recover_energy` 恢复后唤醒；`final_answer` 后的普通自续 reminder 在当前 loop 内直接 append，不写 Notify Bucket。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
 写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，
 等待 `AgentLoopService.runRuntimeLoop()` 在 runtime loop 内 pick。事件一旦
-被 pick，就从 `pending` 变成 `consumed`：门铃已经进入当前处理事务，后续同一
-active model loop 的模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
+被 pick，就从 `pending` 变成 `consumed`：门铃已经进入当前处理事务，后续模型切片
+不再重新渲染这条事件为当前输入。没有门铃时的 `runtime_loop` frame 不是 notify，
+不会写入或结算 `agent_queue_messages`。
 
 ## QQ Inbox
 
@@ -140,10 +143,20 @@ canonical_response
   -> append response output items
   -> do not append final-answer-specific reminder
   -> append normal self_continuation developer reminder to the same requestInput
-  -> send the next provider request inside the same active model loop
+  -> keep that developer reminder in responses_replay_items for the next request
 ```
 
 当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
+
+这里有两层记录不要混淆：
+
+- `llm_request_slices.canonical_request` / `wire_request` / `wire_response` 是完整
+  provider evidence，由 provider-service / codex-provider 返回，agent-service 只落库保存。
+  Trace detail 查这一层，不做 replay 过滤。
+- `responses_replay_items` 是 agent-service 为后续请求保存的 model-visible replay。
+  它只保存能重新喂给模型的 item；`final_answer` 后追加的普通 `self_continuation`
+  是 `developer` role，也必须保留在这里。否则下一次 request 重新组装时会看不到这条
+  `<system_reminder>`。
 
 ## 动作分发
 
