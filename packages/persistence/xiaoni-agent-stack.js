@@ -648,6 +648,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 metadata
               )
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              ON CONFLICT (event_id) DO UPDATE SET
+                updated_at = agent_stack_items.updated_at
               RETURNING *
             `,
             [

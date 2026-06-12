@@ -60,17 +60,20 @@
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
   `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。不要用工程术语解释它。
 - `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
-  `web_search` 之后、低精力提醒、负精力后的完整恢复、休息中被连续 @ 打断时
-  append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数，恢复计算按 `max(0, energy)`。
-- 当工程检测到 `raw_energy < 0` 时，`recover_energy` 的恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
+  `web_search` 之后、低精力提醒、负精力后的恢复、休息中被连续 @ 打断或 clock 醒来时
+  append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数；恢复曲线、最大恢复时间和 clock 语义看 `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
+- 当工程检测到 `raw_energy < 0` 时，私聊、群 @ 和 clock 都不能强行叫醒；但 recovery session
+  仍有最大恢复时间，达到 hard cap 后必须结算。
 - hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 developer role `<STATE>`，让模型看到搜索后的精力变化。`exec_command` 和 `inspect_image_placeholder` 这类不能安全 JSON 包装的本地执行路径也保留原始输出，并由工程额外追加 body-only `<STATE>`；结构化 JSON tool callback 则直接在 output JSON 中回传 `energy_cost`、`energy`、`max_energy`。
 - prompt-facing 恢复工具只有 `recover_energy`。`rest_period` /
   `sleep_period` 可作为历史/internal 事件留存，但不能作为面向模型的双工具
   契约。
-- `recover_energy` 是普通 function tool。模型调用后，工程在 tool handler 内等待到
-  `duration_minutes` 对应时间再返回醒来的 `function_call_output`；如果工程拒绝休息，
-  也直接返回同一个 tool call 的拒绝 callback。不要用 `release_lease` 字段吞掉
-  callback，也不要 enqueue 恢复用 `self_continuation` notify。
+- `recover_energy` 是普通 function tool。模型主动调用后，工程接受时创建持久化 recovery
+  session；醒来、被打断或 clock 到点后，仍通过同一个 tool call 返回
+  `function_call_output`。如果工程拒绝休息，也直接返回同一个 tool call 的拒绝 callback。
+  runtime 强制休息没有原始 tool call，醒来后通过 runtime_input system reminder 恢复。
+  不要用 `release_lease` 字段吞掉 callback，也不要 enqueue 恢复用 `self_continuation`
+  notify。
 - developer block 必须追加支持的
   tools、skills 和成本，当前用 `<CAPABILITIES>` 承载并放在主 loop 输入开头。skill 只有在 `SKILL.md` 声明 `## Runtime Cost` /
   `energy_cost: <number>` 时才列入；当前本地 skill 默认 / 兜底成本统一按 `0.002` 展示，缺 cost 的 skill 不列入并产生 operator

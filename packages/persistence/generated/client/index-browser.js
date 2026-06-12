@@ -155,6 +155,46 @@ exports.Prisma.AgentQueueMessageScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.AgentRecoverySessionScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  initiator: 'initiator',
+  status: 'status',
+  wake_cause: 'wake_cause',
+  reason: 'reason',
+  xiaoni_os: 'xiaoni_os',
+  clock_minutes: 'clock_minutes',
+  clock_due_at: 'clock_due_at',
+  clock_fired_at: 'clock_fired_at',
+  clock_deferred_at: 'clock_deferred_at',
+  started_at: 'started_at',
+  ended_at: 'ended_at',
+  last_checked_at: 'last_checked_at',
+  tool_execution_id: 'tool_execution_id',
+  llm_request_slice_id: 'llm_request_slice_id',
+  llm_call_id: 'llm_call_id',
+  tool_call_id: 'tool_call_id',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  conversation_id: 'conversation_id',
+  queue_message_id: 'queue_message_id',
+  wake_count_start_queue_message_id: 'wake_count_start_queue_message_id',
+  last_wake_counted_queue_message_id: 'last_wake_counted_queue_message_id',
+  wake_call_count: 'wake_call_count',
+  wake_required_count: 'wake_required_count',
+  start_pressure: 'start_pressure',
+  current_pressure: 'current_pressure',
+  start_energy: 'start_energy',
+  current_energy: 'current_energy',
+  max_energy: 'max_energy',
+  planned_natural_wake_at: 'planned_natural_wake_at',
+  hard_wake_at: 'hard_wake_at',
+  result: 'result',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.AgentSessionLifeStateScalarFieldEnum = {
   identity_key: 'identity_key',
   last_active_at: 'last_active_at',
@@ -1277,6 +1317,7 @@ exports.Prisma.NullsOrder = {
 
 exports.Prisma.ModelName = {
   AgentQueueMessage: 'AgentQueueMessage',
+  AgentRecoverySession: 'AgentRecoverySession',
   AgentSessionLifeState: 'AgentSessionLifeState',
   AgentSessionGroupState: 'AgentSessionGroupState',
   AgentSharePoolItem: 'AgentSharePoolItem',
