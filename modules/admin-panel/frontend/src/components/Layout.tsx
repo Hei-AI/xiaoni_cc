@@ -30,6 +30,7 @@ import {
   ImagePlus,
   Loader2,
   Menu,
+  Moon,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
@@ -223,6 +224,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           description: 'provider、tool、消息和状态事件',
           active: location.pathname === '/xiaoni-action-stream'
             || location.pathname === '/xiaoni-activity',
+        },
+        {
+          href: '/xiaoni-recovery',
+          label: '小腻休息',
+          icon: Moon,
+          description: 'recover_energy 休眠与唤醒',
+          active: location.pathname.startsWith('/xiaoni-recovery'),
         },
       ],
     },

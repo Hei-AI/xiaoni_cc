@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { XiaoniActivityPage } from './pages/XiaoniActivityPage';
+import { XiaoniRecoveryPage } from './pages/XiaoniRecoveryPage';
 import { XiaoniRuntimeSettingsPage } from './pages/XiaoniRuntimeSettingsPage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
@@ -63,6 +64,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/xiaoni-action-stream" element={<XiaoniActivityPage />} />
+              <Route path="/xiaoni-recovery" element={<XiaoniRecoveryPage />} />
               <Route path="/xiaoni-runtime-settings" element={<XiaoniRuntimeSettingsPage />} />
               <Route path="/xiaoni-activity" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/dashboard" element={<Navigate to="/xiaoni-action-stream" replace />} />

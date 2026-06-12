@@ -1,6 +1,7 @@
 import express from 'express';
 import request from 'supertest';
 import winston from 'winston';
+import axios from 'axios';
 import { createAgentRuntimeRoutes } from '../routes/agent-runtime-routes';
 import {
   buildConversationTracePayload,
@@ -10,13 +11,19 @@ import {
   buildStackTraceSpanDetail,
   buildStackRawProviderTrace
 } from '../services/trace-span-builder';
-import { findXiaoniActionEventTraceTarget } from '@qq-bot/persistence';
+import {
+  findXiaoniActionEventTraceTarget,
+  listAgentRecoverySessions
+} from '@qq-bot/persistence';
+
+jest.mock('axios');
 
 jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentMediaAssets: jest.fn(),
+  listAgentRecoverySessions: jest.fn(),
   listAgentTasks: jest.fn()
 }));
 
@@ -45,6 +52,59 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
   app.use('/api', createAgentRuntimeRoutes(database as never, createLogger()));
   return app;
 }
+
+describe('agent runtime recovery session routes', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('lists recover energy sessions and exposes the active session', async () => {
+    const database = createDatabaseMock();
+    (axios.get as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: 'healthy',
+        service: 'agent-service',
+        worker_busy: false,
+        task_worker_busy: false,
+        presence_tick_busy: false,
+        runtime_enabled: true,
+        timestamp: '2026-06-13T00:00:00.000Z'
+      }
+    });
+    (listAgentRecoverySessions as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 88,
+        identityKey: 'xiaoni',
+        status: 'active',
+        reason: '累了',
+        startedAt: '2026-06-13T00:00:00.000Z'
+      },
+      {
+        id: 87,
+        identityKey: 'xiaoni',
+        status: 'completed',
+        reason: '自然醒',
+        startedAt: '2026-06-12T23:00:00.000Z'
+      }
+    ]);
+
+    const response = await request(createApp(database))
+      .get('/api/agent-runtime/recovery-sessions?identity_key=xiaoni&status=all&limit=40');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(listAgentRecoverySessions).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      status: 'all',
+      limit: 40
+    });
+    expect(response.body.data.active.id).toBe(88);
+    expect(response.body.data.sessions).toHaveLength(2);
+    expect(response.body.data.runtime.live).toBe(true);
+    expect(database.executeQuery).not.toHaveBeenCalled();
+  });
+});
 
 describe('agent runtime action event trace routes', () => {
   beforeEach(() => {

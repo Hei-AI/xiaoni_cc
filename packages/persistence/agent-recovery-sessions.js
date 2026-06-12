@@ -318,6 +318,33 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
     });
   }
 
+  async function listAgentRecoverySessions(input = {}, config = {}) {
+    await ensureAgentRecoverySessionSchema(input, config);
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const status = firstString(input.status);
+    const limit = Math.max(1, Math.min(normalizeInteger(input.limit, 30) || 30, 100));
+    const where = ['identity_key = ?'];
+    const params = [identityKey];
+    if (status && status !== 'all') {
+      where.push('status = ?');
+      params.push(status);
+    }
+    params.push(limit);
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM agent_recovery_sessions
+          WHERE ${where.join(' AND ')}
+          ORDER BY started_at DESC, id DESC
+          LIMIT ?
+        `,
+        params
+      );
+      return rows.map(normalizeRecoverySessionRow);
+    });
+  }
+
   async function listAgentRecoveryWakeNotifications(input = {}, config = {}) {
     await ensureAgentRecoverySessionSchema(input, config);
     const afterId = normalizeBigIntId(input.afterQueueMessageId ?? input.after_queue_message_id ?? 0) || 0n;
@@ -422,6 +449,7 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
     getAgentRecoveryQueueHighWatermark,
     createAgentRecoverySession,
     getActiveAgentRecoverySession,
+    listAgentRecoverySessions,
     listAgentRecoveryWakeNotifications,
     updateAgentRecoverySessionProgress,
     finalizeAgentRecoverySession
