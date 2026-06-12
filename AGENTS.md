@@ -41,6 +41,11 @@
 - 部署、认证、token、本机访问问题：先看 `docs/AGENTS_SECRETS_LOCAL_STATE.md`，再看 `scripts/deploy-admin-public.sh`、`scripts/start_modules.py`
 - 默认规则：只修真实生效的层，不要围绕错误契约继续堆适配层
 
+## Team Collaboration
+- 修改代码前必须确认当前目录是本任务专用的 git worktree；不要直接在多人共享主工作区改代码。开始前用 `git status --short --branch` 和 `git worktree list` 确认位置，不确定就先切到或新建任务 worktree。
+- 重启、构建或部署 `docker-compose.yml` 托管服务前，必须先确认没有其他 Codex 同事正在对同一服务执行重启、构建或部署。先看当前协同记录或交接说明，再用 `docker compose ps` 确认服务状态；发现有人在操作时先等待或协调，不要并行重启同一服务。
+- 重启时只操作当前任务需要的目标服务；除非用户明确要求，不要顺手重启整套主栈。
+
 ## Development Rules
 - 根目录不是 npm workspace；新增依赖只加到对应模块
 - 所有 PostgreSQL 持久化读写必须统一收口到 `packages/persistence`；禁止把查询、写入、事务逻辑散落在模块内路由、页面服务或临时脚本里
