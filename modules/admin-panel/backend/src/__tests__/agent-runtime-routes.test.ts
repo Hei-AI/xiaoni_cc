@@ -13,6 +13,7 @@ import {
 } from '../services/trace-span-builder';
 import {
   findXiaoniActionEventTraceTarget,
+  getXiaoniLlmUsageTimeline,
   listAgentRecoverySessions
 } from '@qq-bot/persistence';
 
@@ -21,6 +22,7 @@ jest.mock('axios');
 jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
+  getXiaoniLlmUsageTimeline: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentRecoverySessions: jest.fn(),
@@ -109,6 +111,81 @@ describe('agent runtime recovery session routes', () => {
 describe('agent runtime action event trace routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('loads Xiaoni LLM usage timeline with bucket and time filters', async () => {
+    const database = createDatabaseMock();
+    (getXiaoniLlmUsageTimeline as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      generatedAt: '2026-06-13T00:00:00.000Z',
+      timezone: 'Asia/Shanghai',
+      requestedBucket: 'hour',
+      bucket: 'hour',
+      maxPoints: 500,
+      downsampled: false,
+      warnings: [],
+      window: {
+        startTime: '2026-06-12T16:00:00.000Z',
+        endTime: '2026-06-12T18:00:00.000Z'
+      },
+      dataBounds: {
+        firstAt: '2026-06-12T16:00:00.000Z',
+        lastAt: '2026-06-12T18:00:00.000Z'
+      },
+      summary: {
+        callCount: 2,
+        inputTokens: 100,
+        cachedTokens: 40,
+        outputTokens: 20,
+        totalTokens: 120,
+        cacheRatio: 0.4,
+        peakInputTokens: 80,
+        peakOutputTokens: 15
+      },
+      points: [],
+      peaks: [],
+      overlays: {
+        eventDensity: [],
+        toolDensity: [],
+        runtimeBands: [],
+        compressionForkBands: [],
+        searchHits: []
+      },
+      miniMap: null
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream/llm-usage')
+      .query({
+        range: 'custom',
+        start_time: '2026-06-13T00:00:00+08:00',
+        end_time: '2026-06-13T02:00:00+08:00',
+        bucket: 'hour',
+        max_points: '500',
+        include_peaks: '1',
+        include_overlays: 'compression_fork'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.bucket).toBe('hour');
+    expect(response.body.data.filters).toEqual({
+      range: 'custom',
+      startTime: '2026-06-12T16:00:00.000Z',
+      endTime: '2026-06-12T18:00:00.000Z'
+    });
+    expect(getXiaoniLlmUsageTimeline).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      range: 'custom',
+      startTime: new Date('2026-06-13T00:00:00+08:00'),
+      endTime: new Date('2026-06-13T02:00:00+08:00'),
+      bucket: 'hour',
+      maxPoints: 500,
+      includePeaks: true,
+      includeMiniMap: false,
+      includeOverlays: 'compression_fork',
+      searchQuery: null
+    });
   });
 
   it('resolves an LLM request action event to its focused stack trace even after conversation attach', async () => {

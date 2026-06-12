@@ -2,6 +2,17 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceArea,
+  ReferenceDot,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
   Activity,
   AlertTriangle,
   Bot,
@@ -11,7 +22,6 @@ import {
   Image,
   Loader2,
   MessageCircle,
-  Radio,
   RefreshCw,
   Search,
   Sparkles,
@@ -21,16 +31,17 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
+import { PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
-import { cn, formatDateOnly, formatIsoOffset, formatTimeOnly, formatTimestamp } from '@/lib/utils';
+import { cn, formatDateOnly, formatDateTimeCompact, formatIsoOffset, formatTimeOnly, formatTimestamp, parseTimestampValue } from '@/lib/utils';
 
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom' | 'all';
+type UsageBucket = 'call' | 'hour' | 'day' | 'month';
 
 interface XiaoniActivityFeedItem {
   id: string;
@@ -149,6 +160,118 @@ interface XiaoniActivityFeed {
   compressionForkTimeline?: CompressionForkTimeline;
 }
 
+interface XiaoniLlmUsagePoint {
+  key: string;
+  timestamp: string;
+  bucketStart: string | null;
+  bucketEnd: string | null;
+  callCount: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheRatio: number | null;
+  sourceKind?: string | null;
+  forkRunId?: string | null;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  llmCallId: string | null;
+  traceId: string | null;
+  topEvent: {
+    eventId: string;
+    llmRequestSliceId: string;
+    sourceKind?: string | null;
+    forkRunId?: string | null;
+    timestamp: string | null;
+    inputTokens: number;
+    cachedTokens: number;
+    outputTokens: number;
+  } | null;
+}
+
+interface XiaoniLlmUsagePeak {
+  timestamp: string;
+  label: string;
+  severity: 'info' | 'warning' | string;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  reason: string;
+}
+
+interface XiaoniLlmUsageSearchHit {
+  timestamp: string;
+  label: string;
+  severity: 'info' | 'warning' | string;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  llmCallId: string | null;
+  traceId: string | null;
+  sourceKind?: string | null;
+  forkRunId?: string | null;
+  field: string | null;
+  query: string;
+  snippet: string | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+}
+
+interface XiaoniLlmUsageTimeline {
+  identityKey: string;
+  generatedAt: string;
+  timezone: string;
+  requestedBucket: UsageBucket;
+  bucket: UsageBucket;
+  maxPoints: number;
+  downsampled: boolean;
+  warnings: string[];
+  window: {
+    startTime: string | null;
+    endTime: string | null;
+  };
+  dataBounds: {
+    firstAt: string | null;
+    lastAt: string | null;
+  };
+  summary: {
+    callCount: number;
+    inputTokens: number;
+    cachedTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheRatio: number | null;
+    peakInputTokens: number;
+    peakOutputTokens: number;
+  };
+  points: XiaoniLlmUsagePoint[];
+  peaks: XiaoniLlmUsagePeak[];
+  overlays?: {
+    eventDensity?: unknown[];
+    toolDensity?: unknown[];
+    runtimeBands?: unknown[];
+    compressionForkBands?: unknown[];
+    searchHits?: XiaoniLlmUsageSearchHit[];
+  };
+  filters?: {
+    range?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+  };
+}
+
+interface UsageChartPoint extends XiaoniLlmUsagePoint {
+  timestampMs: number;
+  chartLabel: string;
+}
+
+interface UsageTooltipProps {
+  active?: boolean;
+  label?: string | number;
+  payload?: Array<{
+    payload?: UsageChartPoint;
+  }>;
+}
+
 interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -232,6 +355,13 @@ const TIME_RANGE_OPTIONS: Array<{ value: TimeRange; label: string }> = [
   { value: 'custom', label: '自定义' },
 ];
 
+const USAGE_BUCKET_OPTIONS: Array<{ value: UsageBucket; label: string }> = [
+  { value: 'call', label: '每次' },
+  { value: 'hour', label: '小时' },
+  { value: 'day', label: '天' },
+  { value: 'month', label: '月' },
+];
+
 const TIME_RANGE_DURATION_MS: Partial<Record<TimeRange, number>> = {
   '1h': 60 * 60 * 1000,
   '6h': 6 * 60 * 60 * 1000,
@@ -246,8 +376,18 @@ function coerceTimeRange(value: string | null): TimeRange {
     : '24h';
 }
 
+function coerceUsageBucket(value: string | null): UsageBucket {
+  return USAGE_BUCKET_OPTIONS.some((option) => option.value === value)
+    ? value as UsageBucket
+    : 'call';
+}
+
 function timeRangeLabel(value: TimeRange) {
   return TIME_RANGE_OPTIONS.find((option) => option.value === value)?.label || value;
+}
+
+function usageBucketLabel(value: UsageBucket) {
+  return USAGE_BUCKET_OPTIONS.find((option) => option.value === value)?.label || value;
 }
 
 function formatDateTimeLocal(date: Date) {
@@ -265,6 +405,25 @@ function defaultCustomWindow(sourceRange: TimeRange) {
     startTime: formatDateTimeLocal(new Date(now.getTime() - durationMs)),
     endTime: formatDateTimeLocal(now),
   };
+}
+
+function localInputFromIso(value?: string | null) {
+  if (!value) {
+    return '';
+  }
+  const formatted = formatIsoOffset(value, { fallback: '' });
+  if (!formatted) {
+    return '';
+  }
+  return formatted.slice(0, 19);
+}
+
+function formatUsageAxis(value: string | number) {
+  return formatDateTimeCompact(value, { fallback: String(value) }).slice(5, 16);
+}
+
+function formatTokenAxis(value: number) {
+  return formatTokenCount(Number.isFinite(value) ? value : 0) || '0';
 }
 
 function statusTone(value?: string | null): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
@@ -340,18 +499,6 @@ function sourceLabel(source: string) {
   }
 }
 
-function runtimeBusyLabel(runtime: RuntimeSnapshot | undefined) {
-  if (!runtime?.live) {
-    return 'offline';
-  }
-  const busy = [
-    runtime.workerBusy && 'action',
-    runtime.taskWorkerBusy && 'task',
-    runtime.presenceTickBusy && 'presence',
-  ].filter(Boolean);
-  return busy.length ? busy.join(' / ') : 'idle';
-}
-
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -416,6 +563,87 @@ function formatDurationMs(value: number | null | undefined) {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function parseTimestampMs(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+  const parsed = parseTimestampValue(value)?.getTime();
+  return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
+}
+
+function readUsageChartPoint(state: unknown): UsageChartPoint | null {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+  const payload = (state as { activePayload?: Array<{ payload?: UsageChartPoint }> }).activePayload;
+  return payload?.[0]?.payload || null;
+}
+
+function readUsageChartTimestampMs(state: unknown): number | null {
+  const point = readUsageChartPoint(state);
+  if (point) {
+    return point.timestampMs;
+  }
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+  const activeLabel = (state as { activeLabel?: string | number }).activeLabel;
+  const parsed = typeof activeLabel === 'number' ? activeLabel : Number(activeLabel);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readUsageChartPointerRatio(state: unknown): number | null {
+  if (!state || typeof state !== 'object') {
+    return null;
+  }
+  const payload = state as {
+    activeCoordinate?: { x?: number };
+    chartX?: number;
+    offset?: { left?: number; width?: number };
+  };
+  const offsetLeft = typeof payload.offset?.left === 'number' ? payload.offset.left : 0;
+  const offsetWidth = typeof payload.offset?.width === 'number' ? payload.offset.width : null;
+  if (!offsetWidth || offsetWidth <= 0) {
+    return null;
+  }
+  const x = typeof payload.chartX === 'number'
+    ? payload.chartX
+    : typeof payload.activeCoordinate?.x === 'number'
+      ? payload.activeCoordinate.x
+      : null;
+  if (x === null) {
+    return null;
+  }
+  return clampTimestamp((x - offsetLeft) / offsetWidth, 0, 1);
+}
+
+function readUsageChartSelectionPoint(state: unknown, domain: [number, number]) {
+  const ratio = readUsageChartPointerRatio(state);
+  if (ratio !== null) {
+    return {
+      timestampMs: domain[0] + (domain[1] - domain[0]) * ratio,
+      isAtNowEdge: ratio >= 0.985,
+    };
+  }
+  const timestampMs = readUsageChartTimestampMs(state);
+  if (timestampMs === null) {
+    return null;
+  }
+  const span = Math.max(1, domain[1] - domain[0]);
+  return {
+    timestampMs,
+    isAtNowEdge: timestampMs >= domain[1] - span * 0.015,
+  };
+}
+
+function clampTimestamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function eventElementId(eventId: string) {
+  return `xiaoni-event-${encodeURIComponent(eventId)}`;
+}
+
 function timelineGroups(items: XiaoniActivityFeedItem[]) {
   const groups: Array<{ day: string; items: XiaoniActivityFeedItem[] }> = [];
   for (const item of items) {
@@ -428,77 +656,6 @@ function timelineGroups(items: XiaoniActivityFeedItem[]) {
     }
   }
   return groups;
-}
-
-function RuntimeStrip({
-  feed,
-  isLoading,
-}: {
-  feed: XiaoniActivityFeed | undefined;
-  isLoading: boolean;
-}) {
-  const runtime = feed?.current.runtime;
-  const busyLabel = runtimeBusyLabel(runtime);
-  const queue = feed?.current.queue;
-  const tasks = feed?.current.tasks;
-  const backgroundActions = feed?.current.backgroundActions;
-  const autonomy = feed?.current.autonomy;
-  const latestTool = feed?.items.find((item) => item.source === 'tool_execution');
-  const activeBackground = (tasks?.pending || 0) + (tasks?.running || 0);
-  const historicalBackground = (backgroundActions?.settled || 0) + (backgroundActions?.failed || 0) + (backgroundActions?.planned || 0) + (backgroundActions?.running || 0);
-  const lifeState = feed?.current.lifeState as {
-    explanation?: { summary?: unknown };
-    projection?: { state?: Record<string, unknown> };
-  } | null | undefined;
-  const stateSummary = typeof lifeState?.explanation?.summary === 'string' ? lifeState.explanation.summary : null;
-
-  return (
-    <section className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-        <div className="flex items-center gap-2">
-          <Radio className="h-4 w-4 text-primary" />
-          <span className="text-muted-foreground">当前</span>
-          {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : (
-            <StatusPill tone={runtime?.live && busyLabel === 'idle' ? 'success' : runtime?.live ? 'warning' : 'danger'}>
-              {busyLabel}
-            </StatusPill>
-          )}
-        </div>
-        <span className="text-muted-foreground">
-          小腻服务 {runtime?.timestamp ? formatTimestamp(runtime.timestamp) : runtime?.errorMessage || 'pending'}
-        </span>
-        <span className="text-muted-foreground">
-          最近 tool <span className="font-medium text-foreground">{latestTool?.kind || '-'}</span>
-        </span>
-        <span className="text-muted-foreground">
-          queue <span className="font-medium text-foreground">{(queue?.pending || 0) + (queue?.running || 0)}</span>
-          {queue?.staleRunning ? <span className="ml-1 text-amber-700">stale {queue.staleRunning}</span> : null}
-        </span>
-        <span className="text-muted-foreground">
-          background <span className="font-medium text-foreground">{activeBackground}</span>
-        </span>
-        <span className="text-muted-foreground">
-          stream <span className="font-medium text-foreground">{feed?.current.latestActivityAt ? formatTimestamp(feed.current.latestActivityAt) : '-'}</span>
-        </span>
-        <span className="text-muted-foreground">
-          手机通知 <span className="font-medium text-foreground">{autonomy?.latestPhoneNotificationAt ? formatTimestamp(autonomy.latestPhoneNotificationAt) : '-'}</span>
-        </span>
-        <span className="text-muted-foreground">
-          history <span className="font-medium text-foreground">{historicalBackground}</span>
-        </span>
-        <span className="text-muted-foreground">
-          runner <span className="font-medium text-foreground">{autonomy?.liveSelfActionRunner ? 'live' : 'off'}</span>
-        </span>
-      </div>
-      {stateSummary ? (
-        <div className="mt-2 truncate text-xs text-muted-foreground">
-          state <span className="font-medium text-foreground">{stateSummary}</span>
-        </div>
-      ) : null}
-    </section>
-  );
 }
 
 function TimeRangeControls({
@@ -555,8 +712,498 @@ function TimeRangeControls({
   );
 }
 
-function CompressionForkEventRow({ event }: { event: CompressionForkEvent }) {
+function UsageTooltip({ active, payload, label }: UsageTooltipProps) {
+  if (!active) {
+    return null;
+  }
+  const point = payload?.[0]?.payload;
+  if (!point) {
+    return null;
+  }
+  const labelText = typeof label === 'number'
+    ? formatDateTimeCompact(label)
+    : formatDateTimeCompact(point.timestamp, { fallback: String(label || '-') });
+
+  return (
+    <div className="max-w-72 rounded-lg border border-border bg-background/95 p-3 text-xs shadow-lg">
+      <div className="font-mono font-semibold text-foreground">{labelText}</div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+        <span className="text-muted-foreground">Input</span>
+        <span className="text-right font-medium text-sky-700">{formatTokenCount(point.inputTokens) || '0'}</span>
+        <span className="text-muted-foreground">Cached</span>
+        <span className="text-right font-medium text-emerald-700">{formatTokenCount(point.cachedTokens) || '0'}</span>
+        <span className="text-muted-foreground">Output</span>
+        <span className="text-right font-medium text-violet-700">{formatTokenCount(point.outputTokens) || '0'}</span>
+        <span className="text-muted-foreground">Calls</span>
+        <span className="text-right font-medium text-foreground">{point.callCount}</span>
+      </div>
+      {point.anchorEventId ? (
+        <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">{point.anchorEventId}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function XiaoniUsageObservatory({
+  timeline,
+  bucket,
+  searchQuery,
+  isLoading,
+  isFetching,
+  onBucketChange,
+  onSearchQueryChange,
+  onSelectWindow,
+  onFocusPoint,
+}: {
+  timeline: XiaoniLlmUsageTimeline | undefined;
+  bucket: UsageBucket;
+  searchQuery: string;
+  isLoading: boolean;
+  isFetching: boolean;
+  onBucketChange: (bucket: UsageBucket) => void;
+  onSearchQueryChange: (query: string) => void;
+  onSelectWindow: (startTime: Date, endTime: Date, options?: { endIsNow?: boolean }) => void;
+  onFocusPoint: (point: XiaoniLlmUsagePoint) => void;
+}) {
+  const [selectionStartMs, setSelectionStartMs] = React.useState<number | null>(null);
+  const [selectionEndMs, setSelectionEndMs] = React.useState<number | null>(null);
+  const [selectionStartIsNow, setSelectionStartIsNow] = React.useState(false);
+  const [selectionEndIsNow, setSelectionEndIsNow] = React.useState(false);
+  const [transientWindowMs, setTransientWindowMs] = React.useState<[number, number] | null>(null);
+  const [searchDraft, setSearchDraft] = React.useState(searchQuery);
+  const chartShellRef = React.useRef<HTMLDivElement | null>(null);
+  const suppressNextClickRef = React.useRef(false);
+  const wheelCommitTimerRef = React.useRef<number | null>(null);
+  const pendingWheelWindowRef = React.useRef<[number, number] | null>(null);
+  const chartPoints = React.useMemo<UsageChartPoint[]>(() => (
+    (timeline?.points || [])
+      .map((point) => {
+        const timestampMs = parseTimestampMs(point.timestamp);
+        return timestampMs === null
+          ? null
+          : {
+              ...point,
+              timestampMs,
+              chartLabel: formatDateTimeCompact(point.timestamp),
+            };
+      })
+      .filter((point): point is UsageChartPoint => point !== null)
+  ), [timeline?.points]);
+  const maxTotalTokens = React.useMemo(() => Math.max(1, ...chartPoints.map((point) => point.totalTokens)), [chartPoints]);
+  const miniMapPoints = React.useMemo(() => {
+    if (chartPoints.length <= 160) {
+      return chartPoints;
+    }
+    const stride = Math.ceil(chartPoints.length / 160);
+    return chartPoints.filter((_point, index) => index % stride === 0);
+  }, [chartPoints]);
+  const resolvedWindowStartMs = parseTimestampMs(timeline?.window.startTime);
+  const resolvedWindowEndMs = parseTimestampMs(timeline?.window.endTime);
+  const domainStartMs = resolvedWindowStartMs || chartPoints[0]?.timestampMs || Date.now() - TIME_RANGE_DURATION_MS['24h']!;
+  const domainEndMs = resolvedWindowEndMs || Date.now();
+  const chartDomain: [number, number] = domainStartMs === domainEndMs
+    ? [domainStartMs - 60_000, domainEndMs + 60_000]
+    : transientWindowMs || [domainStartMs, domainEndMs];
+  const fullStartMs = parseTimestampMs(timeline?.dataBounds.firstAt) || chartDomain[0];
+  const fullEndMs = Math.max(parseTimestampMs(timeline?.dataBounds.lastAt) || chartDomain[1], domainEndMs);
+  const windowStartMs = resolvedWindowStartMs || chartDomain[0];
+  const windowEndMs = resolvedWindowEndMs || chartDomain[1];
+  const visibleStartMs = transientWindowMs?.[0] || windowStartMs;
+  const visibleEndMs = transientWindowMs?.[1] || windowEndMs;
+  const visibleWarnings = (timeline?.warnings || []).filter((warning) => !warning.endsWith('_not_enabled'));
+  const activeSelectionStart = selectionStartMs !== null && selectionEndMs !== null
+    ? Math.min(selectionStartMs, selectionEndMs)
+    : null;
+  const activeSelectionEnd = selectionStartMs !== null && selectionEndMs !== null
+    ? Math.max(selectionStartMs, selectionEndMs)
+    : null;
+  const peakDots = React.useMemo(() => (
+    (timeline?.peaks || [])
+      .map((peak) => {
+        const timestampMs = parseTimestampMs(peak.timestamp);
+        if (timestampMs === null) {
+          return null;
+        }
+        const point = chartPoints.find((entry) => entry.anchorEventId === peak.anchorEventId || entry.llmRequestSliceId === peak.llmRequestSliceId)
+          || chartPoints.reduce<UsageChartPoint | null>((best, entry) => {
+            if (!best) {
+              return entry;
+            }
+            return Math.abs(entry.timestampMs - timestampMs) < Math.abs(best.timestampMs - timestampMs) ? entry : best;
+          }, null);
+        if (!point) {
+          return null;
+        }
+        return {
+          peak,
+          x: point.timestampMs,
+          y: peak.reason.includes('output') ? point.outputTokens : point.inputTokens,
+          point,
+        };
+      })
+      .filter((entry): entry is { peak: XiaoniLlmUsagePeak; x: number; y: number; point: UsageChartPoint } => entry !== null)
+  ), [chartPoints, timeline?.peaks]);
+  const searchHitDots = React.useMemo(() => (
+    (timeline?.overlays?.searchHits || [])
+      .map((hit) => {
+        const timestampMs = parseTimestampMs(hit.timestamp);
+        if (timestampMs === null) {
+          return null;
+        }
+        const point = chartPoints.find((entry) => entry.anchorEventId === hit.anchorEventId || entry.llmRequestSliceId === hit.llmRequestSliceId)
+          || chartPoints.reduce<UsageChartPoint | null>((best, entry) => {
+            if (!best) {
+              return entry;
+            }
+            return Math.abs(entry.timestampMs - timestampMs) < Math.abs(best.timestampMs - timestampMs) ? entry : best;
+          }, null);
+        if (!point) {
+          return null;
+        }
+        return {
+          hit,
+          x: point.timestampMs,
+          y: Math.max(1, hit.inputTokens || point.inputTokens, hit.cachedTokens || point.cachedTokens, hit.outputTokens || point.outputTokens),
+          point,
+        };
+      })
+      .filter((entry): entry is { hit: XiaoniLlmUsageSearchHit; x: number; y: number; point: UsageChartPoint } => entry !== null)
+  ), [chartPoints, timeline?.overlays?.searchHits]);
+
+  React.useEffect(() => {
+    setSearchDraft(searchQuery);
+  }, [searchQuery]);
+
+  React.useEffect(() => {
+    setTransientWindowMs(null);
+  }, [timeline?.window.startTime, timeline?.window.endTime]);
+
+  React.useEffect(() => () => {
+    if (wheelCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelCommitTimerRef.current);
+    }
+  }, []);
+
+  const commitWheelWindow = React.useCallback((nextStart: number, nextEnd: number, endIsNow = false) => {
+    pendingWheelWindowRef.current = [nextStart, nextEnd];
+    if (wheelCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelCommitTimerRef.current);
+    }
+    wheelCommitTimerRef.current = window.setTimeout(() => {
+      const pending = pendingWheelWindowRef.current;
+      wheelCommitTimerRef.current = null;
+      pendingWheelWindowRef.current = null;
+      if (pending) {
+        onSelectWindow(new Date(pending[0]), new Date(pending[1]), { endIsNow });
+      }
+    }, 260);
+  }, [onSelectWindow]);
+
+  const submitSearch = React.useCallback(() => {
+    onSearchQueryChange(searchDraft.trim());
+  }, [onSearchQueryChange, searchDraft]);
+
+  const handleMouseDown = React.useCallback((state: unknown) => {
+    const selectionPoint = readUsageChartSelectionPoint(state, chartDomain);
+    if (!selectionPoint) {
+      return;
+    }
+    setSelectionStartMs(selectionPoint.timestampMs);
+    setSelectionEndMs(selectionPoint.timestampMs);
+    setSelectionStartIsNow(selectionPoint.isAtNowEdge);
+    setSelectionEndIsNow(selectionPoint.isAtNowEdge);
+  }, [chartDomain]);
+
+  const handleMouseMove = React.useCallback((state: unknown) => {
+    if (selectionStartMs === null) {
+      return;
+    }
+    const selectionPoint = readUsageChartSelectionPoint(state, chartDomain);
+    if (selectionPoint) {
+      setSelectionEndMs(selectionPoint.timestampMs);
+      setSelectionEndIsNow(selectionPoint.isAtNowEdge);
+    }
+  }, [chartDomain, selectionStartMs]);
+
+  const clearSelection = React.useCallback(() => {
+    setSelectionStartMs(null);
+    setSelectionEndMs(null);
+    setSelectionStartIsNow(false);
+    setSelectionEndIsNow(false);
+  }, []);
+
+  const handleMouseUp = React.useCallback(() => {
+    if (selectionStartMs === null || selectionEndMs === null) {
+      clearSelection();
+      return;
+    }
+    const startMs = Math.min(selectionStartMs, selectionEndMs);
+    const endMs = Math.max(selectionStartMs, selectionEndMs);
+    clearSelection();
+    if (endMs - startMs < 1000) {
+      return;
+    }
+    const endIsNow = selectionStartMs >= selectionEndMs ? selectionStartIsNow : selectionEndIsNow;
+    suppressNextClickRef.current = true;
+    window.setTimeout(() => {
+      suppressNextClickRef.current = false;
+    }, 0);
+    onSelectWindow(new Date(startMs), new Date(endMs), { endIsNow });
+  }, [clearSelection, onSelectWindow, selectionEndIsNow, selectionEndMs, selectionStartIsNow, selectionStartMs]);
+
+  const handleClick = React.useCallback((state: unknown) => {
+    if (suppressNextClickRef.current) {
+      return;
+    }
+    const point = readUsageChartPoint(state);
+    if (point?.anchorEventId) {
+      onFocusPoint(point);
+    }
+  }, [onFocusPoint]);
+
+  const handleWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (!timeline || fullEndMs <= fullStartMs) {
+      return;
+    }
+    event.preventDefault();
+    const rect = chartShellRef.current?.getBoundingClientRect();
+    const ratio = rect && rect.width > 0
+      ? clampTimestamp((event.clientX - rect.left) / rect.width, 0, 1)
+      : 0.5;
+    const currentDuration = Math.max(60_000, visibleEndMs - visibleStartMs);
+    const factor = event.deltaY < 0 ? 0.72 : 1.28;
+    const maxDuration = Math.max(60_000, fullEndMs - fullStartMs);
+    const nextDuration = clampTimestamp(currentDuration * factor, 60_000, maxDuration);
+    const anchorMs = visibleStartMs + currentDuration * ratio;
+    let nextStart = anchorMs - nextDuration * ratio;
+    let nextEnd = nextStart + nextDuration;
+    if (nextStart < fullStartMs) {
+      nextStart = fullStartMs;
+      nextEnd = nextStart + nextDuration;
+    }
+    if (nextEnd > fullEndMs) {
+      nextEnd = fullEndMs;
+      nextStart = nextEnd - nextDuration;
+    }
+    setTransientWindowMs([nextStart, nextEnd]);
+    commitWheelWindow(nextStart, nextEnd, nextEnd >= domainEndMs - 1000);
+  }, [commitWheelWindow, domainEndMs, fullEndMs, fullStartMs, timeline, visibleEndMs, visibleStartMs]);
+
+  const empty = !isLoading && chartPoints.length === 0;
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">LLM Cost</h2>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {timeline?.bucket ? `${usageBucketLabel(timeline.bucket)} 汇聚` : usageBucketLabel(bucket)}
+            {timeline?.downsampled ? ' · 自动降采样' : ''}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {USAGE_BUCKET_OPTIONS.map((option) => (
+            <Button
+              key={option.value}
+              variant={bucket === option.value ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => onBucketChange(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="rounded-md border border-border bg-background p-2">
+          <div className="text-[11px] text-muted-foreground">Input</div>
+          <div className="mt-1 truncate text-sm font-semibold text-sky-700">{formatTokenCount(timeline?.summary.inputTokens ?? 0) || '0'}</div>
+        </div>
+        <div className="rounded-md border border-border bg-background p-2">
+          <div className="text-[11px] text-muted-foreground">Cached</div>
+          <div className="mt-1 truncate text-sm font-semibold text-emerald-700">{formatTokenCount(timeline?.summary.cachedTokens ?? 0) || '0'}</div>
+        </div>
+        <div className="rounded-md border border-border bg-background p-2">
+          <div className="text-[11px] text-muted-foreground">Output</div>
+          <div className="mt-1 truncate text-sm font-semibold text-violet-700">{formatTokenCount(timeline?.summary.outputTokens ?? 0) || '0'}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                submitSearch();
+              }
+            }}
+            placeholder="搜索 request / response"
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+        <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={submitSearch}>
+          叠层
+        </Button>
+        {searchQuery ? (
+          <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => onSearchQueryChange('')}>
+            清除
+          </Button>
+        ) : null}
+      </div>
+
+      <div
+        ref={chartShellRef}
+        className="mt-4 h-[320px] rounded-md border border-border bg-background p-2"
+        onWheel={handleWheel}
+      >
+        {isLoading && !timeline ? (
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            加载 usage...
+          </div>
+        ) : empty ? (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">暂无 LLM token 记录</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              data={chartPoints}
+              margin={{ top: 22, right: 12, bottom: 6, left: 0 }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onClick={handleClick}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="timestampMs"
+                type="number"
+                domain={chartDomain}
+                tickFormatter={formatUsageAxis}
+                tick={{ fontSize: 11 }}
+                stroke="hsl(var(--muted-foreground))"
+              />
+              <YAxis
+                tickFormatter={formatTokenAxis}
+                tick={{ fontSize: 11 }}
+                width={42}
+                stroke="hsl(var(--muted-foreground))"
+              />
+              <ChartTooltip content={(props) => <UsageTooltip {...(props as UsageTooltipProps)} />} />
+              {activeSelectionStart !== null && activeSelectionEnd !== null ? (
+                <ReferenceArea x1={activeSelectionStart} x2={activeSelectionEnd} strokeOpacity={0.35} fill="#38bdf8" fillOpacity={0.12} />
+              ) : null}
+              <Line type="monotone" dataKey="inputTokens" name="Input" stroke="#0284c7" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+              <Line type="monotone" dataKey="cachedTokens" name="Cached" stroke="#059669" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+              <Line type="monotone" dataKey="outputTokens" name="Output" stroke="#7c3aed" strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+              {peakDots.map(({ peak, x, y }) => (
+                <ReferenceDot
+                  key={`${peak.reason}:${x}`}
+                  x={x}
+                  y={y}
+                  r={4}
+                  fill={peak.severity === 'warning' ? '#d97706' : '#0ea5e9'}
+                  stroke="white"
+                  label={{ value: peak.label, position: 'top', fontSize: 11, fill: '#334155' }}
+                />
+              ))}
+              {searchHitDots.map(({ hit, x, y }) => (
+                <ReferenceDot
+                  key={`search:${hit.llmRequestSliceId || hit.anchorEventId || hit.timestamp}`}
+                  x={x}
+                  y={y}
+                  r={3}
+                  fill="#f59e0b"
+                  stroke="white"
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>mini-map</span>
+          <span>{timeline?.summary.callCount ?? 0} calls{searchHitDots.length ? ` · ${searchHitDots.length} hits` : ''}</span>
+        </div>
+        <div className="flex h-10 items-end gap-px rounded-md border border-border bg-background px-1 py-1">
+          {miniMapPoints.length ? miniMapPoints.map((point) => (
+            <button
+              key={`mini-${point.key}`}
+              type="button"
+              aria-label={point.chartLabel}
+              className={cn(
+                'min-w-[2px] flex-1 rounded-t transition-colors hover:bg-sky-600',
+                searchHitDots.some(({ point: hitPoint }) => hitPoint.key === point.key)
+                  ? 'bg-amber-500/80'
+                  : 'bg-sky-400/70'
+              )}
+              style={{ height: `${Math.max(8, Math.round((point.totalTokens / maxTotalTokens) * 100))}%` }}
+              onClick={() => onFocusPoint(point)}
+            />
+          )) : (
+            <div className="h-full flex-1" />
+          )}
+        </div>
+      </div>
+
+      {peakDots.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {peakDots.map(({ peak, point }) => (
+            <button
+              key={`peak-${peak.reason}-${peak.timestamp}`}
+              type="button"
+              className="rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => onFocusPoint(point)}
+            >
+              {peak.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {searchHitDots.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {searchHitDots.slice(0, 8).map(({ hit, point }) => (
+            <button
+              key={`hit-${hit.llmRequestSliceId || hit.timestamp}`}
+              type="button"
+              className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800 hover:bg-amber-100"
+              onClick={() => onFocusPoint(point)}
+              title={hit.snippet || hit.field || undefined}
+            >
+              {hit.field || 'search'} · {formatDateTimeCompact(hit.timestamp).slice(5, 16)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {visibleWarnings.length ? (
+        <div className="mt-3 space-y-1 text-xs text-amber-700">
+          {visibleWarnings.slice(0, 3).map((warning) => (
+            <div key={warning}>{warning.replace(/_/g, ' ')}</div>
+          ))}
+        </div>
+      ) : null}
+
+      {isFetching && timeline ? (
+        <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          更新中
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function CompressionForkEventRow({ event, isFocused }: { event: CompressionForkEvent; isFocused: boolean }) {
   const tone = toneClasses[event.tone] ? event.tone : 'neutral';
+  const eventId = event.eventId || event.id;
   const providerFormat = metadataText(event.metadata, 'providerFormat');
   const inputTokens = formatTokenCount(metadataNumber(event.metadata, 'inputTokens'));
   const cachedInputTokens = formatTokenCount(metadataNumber(event.metadata, 'cachedInputTokens'));
@@ -586,8 +1233,16 @@ function CompressionForkEventRow({ event }: { event: CompressionForkEvent }) {
           <Waypoints className="h-3.5 w-3.5" />
         )}
       </div>
-      <div className="border-b border-cyan-100 pb-3 last:border-b-0">
+      <div
+        id={eventElementId(eventId)}
+        data-event-id={eventId}
+        className={cn(
+          'border-b border-cyan-100 pb-3 last:border-b-0',
+          isFocused && 'rounded-lg ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
+          {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
           <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
           <StatusPill tone="neutral">{sourceLabel(event.source)}</StatusPill>
           {event.status ? <StatusPill tone={statusTone(event.status)}>{statusLabel(event.status)}</StatusPill> : null}
@@ -623,7 +1278,7 @@ function CompressionForkEventRow({ event }: { event: CompressionForkEvent }) {
   );
 }
 
-function CompressionForkTimelineRail({ timeline }: { timeline?: CompressionForkTimeline }) {
+function CompressionForkTimelineRail({ timeline, focusEventId }: { timeline?: CompressionForkTimeline; focusEventId?: string }) {
   const runs = timeline?.runs || [];
   if (!runs.length) {
     return null;
@@ -649,6 +1304,7 @@ function CompressionForkTimelineRail({ timeline }: { timeline?: CompressionForkT
       <div className="mt-4 space-y-4">
         {runs.map((run) => {
           const duration = formatDurationMs(run.durationMs);
+          const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
           return (
             <article key={run.id} className="rounded-lg border border-cyan-200/80 bg-background/85 p-4 shadow-sm">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -676,18 +1332,30 @@ function CompressionForkTimelineRail({ timeline }: { timeline?: CompressionForkT
                 </div>
               </div>
 
-              <div className="relative mt-4">
-                <div className="absolute bottom-3 left-3 top-3 w-px bg-cyan-200" />
-                <div className="space-y-3">
-                  {run.events.length ? (
-                    run.events.map((event) => (
-                      <CompressionForkEventRow key={event.id} event={event} />
-                    ))
-                  ) : (
-                    <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
-                  )}
+              <details className="mt-4 border-t border-cyan-200 pt-3" open={runHasFocus || undefined}>
+                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  fork steps
+                </summary>
+                <div className="relative mt-4">
+                  <div className="absolute bottom-3 left-3 top-3 w-px bg-cyan-200" />
+                  <div className="space-y-3">
+                    {run.events.length ? (
+                      run.events.map((event) => {
+                        const eventId = event.eventId || event.id;
+                        return (
+                          <CompressionForkEventRow
+                            key={event.id}
+                            event={event}
+                            isFocused={Boolean(focusEventId && eventId === focusEventId)}
+                          />
+                        );
+                      })
+                    ) : (
+                      <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </details>
             </article>
           );
         })}
@@ -852,18 +1520,21 @@ function RawTraceDialog({
 function TimelineEvent({
   item,
   isLatest,
+  isFocused,
   onOpenRawTrace,
 }: {
   item: XiaoniActivityFeedItem;
   isLatest: boolean;
+  isFocused: boolean;
   onOpenRawTrace: (target: RawTraceTarget) => void;
 }) {
   const navigate = useNavigate();
   const tone = toneClasses[item.tone] ? item.tone : 'neutral';
   const eventKind = item.eventKind || item.kind;
   const occurredAt = item.occurredAt || item.timestamp;
+  const itemEventId = item.eventId || item.id;
   const inContextPreview = metadataText(item.metadata, 'inContextPreview');
-  const toolArgumentsPreview = metadataText(item.metadata, 'toolArgumentsPreview');
+  const toolArgumentsPreview = metadataText(item.metadata, 'toolArgumentsPreview') || metadataText(item.metadata, 'argumentsPreview');
   const toolResultPreview = metadataText(item.metadata, 'toolResultPreview');
   const responsePreview = metadataText(item.metadata, 'responsePreview');
   const providerRequestBytes = formatBytes(metadataNumber(item.metadata, 'providerRequestBytes'));
@@ -884,10 +1555,19 @@ function TimelineEvent({
   const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
   const traceTarget = item.traceTarget || null;
   const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
+  const isStackToolPayload = item.source === 'llm_stack_item' && (item.kind === 'function_call' || item.kind === 'function_call_output');
+  const shouldHideBodyInToolDetails = Boolean(isStackToolPayload && (toolArgumentsPreview || toolResultPreview));
+  const shouldCollapseBody = Boolean(item.body && !shouldHideBodyInToolDetails && (
+    item.body.length > 420
+    || toolArgumentsPreview
+    || toolResultPreview
+    || hasActionTrace
+  ));
 
   return (
     <div className="relative md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6">
       <div className="hidden pt-4 text-right md:block">
+        <time className="block font-mono text-xs font-semibold leading-5 text-foreground">{formatDateOnly(occurredAt)}</time>
         <time className="block font-mono text-sm font-semibold text-foreground">{formatTimeOnly(occurredAt)}</time>
         <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{sourceLabel(item.source)}</div>
       </div>
@@ -901,13 +1581,22 @@ function TimelineEvent({
         {itemIcon(item)}
       </div>
 
-      <article className={cn('ml-12 rounded-lg border p-4 shadow-sm md:ml-0', toneClasses[tone])}>
+      <article
+        id={eventElementId(itemEventId)}
+        data-event-id={itemEventId}
+        className={cn(
+          'ml-12 rounded-lg border p-4 shadow-sm transition-shadow md:ml-0',
+          toneClasses[tone],
+          isFocused && 'ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           {isLatest ? <StatusPill tone="info">latest</StatusPill> : null}
+          {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
           <StatusPill tone="neutral">{sourceLabel(item.source)}</StatusPill>
           <StatusPill tone="neutral">{eventKind.replace(/_/g, ' ')}</StatusPill>
           {item.status ? <StatusPill tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusPill> : null}
-          <time className="text-xs text-muted-foreground md:hidden">{formatTimestamp(occurredAt)}</time>
+          <time className="text-xs text-muted-foreground md:hidden">{formatDateTimeCompact(occurredAt)}</time>
         </div>
 
         <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -951,18 +1640,25 @@ function TimelineEvent({
           </div>
         ) : null}
 
-        {item.body ? (
+        {item.body && shouldHideBodyInToolDetails ? null : item.body && shouldCollapseBody ? (
+          <details className="mt-3 border-t border-border/70 pt-3">
+            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              body
+            </summary>
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
+          </details>
+        ) : item.body ? (
           <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
         ) : null}
 
         {item.source === 'llm_request' && responsePreview ? (
-          <section className="mt-4 border-t border-border/70 pt-3">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <details className="mt-4 border-t border-border/70 pt-3">
+            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               <Bot className="h-3.5 w-3.5" />
               <span>LLM response</span>
-            </div>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/90">{responsePreview}</pre>
-          </section>
+            </summary>
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/90">{responsePreview}</pre>
+          </details>
         ) : null}
 
         {inContextPreview ? (
@@ -976,16 +1672,19 @@ function TimelineEvent({
         ) : null}
 
         {toolArgumentsPreview || toolResultPreview || (responsePreview && item.source !== 'llm_request') ? (
-          <section className="mt-4 border-t border-border/70 pt-3">
+          <details className="mt-4 border-t border-border/70 pt-3">
+            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              tool args / result
+            </summary>
             <div className="grid gap-3 lg:grid-cols-2">
               {toolArgumentsPreview ? (
-                <div className="min-w-0">
+                <div className="mt-2 min-w-0">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">tool args</div>
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{toolArgumentsPreview}</pre>
                 </div>
               ) : null}
               {toolResultPreview ? (
-                <div className="min-w-0">
+                <div className="mt-2 min-w-0">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">tool result</div>
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{toolResultPreview}</pre>
                 </div>
@@ -999,18 +1698,18 @@ function TimelineEvent({
                 </details>
               ) : null}
             </div>
-          </section>
+          </details>
         ) : null}
 
         {hasActionTrace ? (
-          <section className="mt-4 border-t border-border/70 pt-3">
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <details className="mt-4 border-t border-border/70 pt-3">
+            <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               <Waypoints className="h-3.5 w-3.5" />
               <span>action trace</span>
               {sourceActionId ? <span className="font-mono normal-case tracking-normal">{sourceActionId}</span> : null}
-            </div>
+            </summary>
             {decisionLlmCallId || searchLlmCallId ? (
-              <div className="mb-3 flex flex-wrap gap-2">
+              <div className="mb-3 mt-3 flex flex-wrap gap-2">
                 {decisionLlmCallId ? (
                   <Button variant="outline" size="sm" onClick={() => navigate(`/traffic?llm_call_id=${encodeURIComponent(decisionLlmCallId)}`)}>
                     <Waypoints className="mr-2 h-4 w-4" />
@@ -1025,7 +1724,7 @@ function TimelineEvent({
                 ) : null}
               </div>
             ) : null}
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
               {interestCandidatesPreview ? (
                 <div className="min-w-0">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">interest candidates</div>
@@ -1051,7 +1750,7 @@ function TimelineEvent({
                 </div>
               ) : null}
             </div>
-          </section>
+          </details>
         ) : null}
       </article>
     </div>
@@ -1061,6 +1760,10 @@ function TimelineEvent({
 export const XiaoniActivityPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const timeRange = coerceTimeRange(searchParams.get('range'));
+  const usageBucket = coerceUsageBucket(searchParams.get('bucket'));
+  const usageSearch = searchParams.get('usage_search') || '';
+  const focusEvent = searchParams.get('focus_event') || '';
+  const focusSlice = searchParams.get('focus_slice') || '';
   const startTime = searchParams.get('start_time') || '';
   const endTime = searchParams.get('end_time') || '';
   const [rawTraceTarget, setRawTraceTarget] = React.useState<RawTraceTarget | null>(null);
@@ -1068,10 +1771,10 @@ export const XiaoniActivityPage: React.FC = () => {
     data: feed,
     isLoading,
     isFetching,
-    error,
-    refetch,
+    error: feedError,
+    refetch: refetchFeed,
   } = useQuery<XiaoniActivityFeed>({
-    queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime],
+    queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime, focusEvent, focusSlice],
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: '80',
@@ -1085,6 +1788,12 @@ export const XiaoniActivityPage: React.FC = () => {
           params.set('end_time', formatIsoOffset(endTime, { fallback: endTime }));
         }
       }
+      if (focusEvent) {
+        params.set('focus_event', focusEvent);
+      }
+      if (focusSlice) {
+        params.set('focus_slice', focusSlice);
+      }
       const response = await fetch(`/api/xiaoni/action-stream?${params}`);
       const payload = await response.json() as ApiResponse<XiaoniActivityFeed>;
       if (!response.ok || !payload.success) {
@@ -1093,6 +1802,43 @@ export const XiaoniActivityPage: React.FC = () => {
       return payload.data;
     },
     refetchInterval: 10000,
+  });
+  const {
+    data: usageTimeline,
+    isLoading: isUsageLoading,
+    isFetching: isUsageFetching,
+    error: usageError,
+    refetch: refetchUsage,
+  } = useQuery<XiaoniLlmUsageTimeline>({
+    queryKey: ['xiaoni-llm-usage', timeRange, startTime, endTime, usageBucket, usageSearch],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        range: timeRange,
+        bucket: usageBucket,
+        max_points: '1200',
+        include_peaks: '1',
+        include_minimap: '1',
+      });
+      if (timeRange === 'custom') {
+        if (startTime) {
+          params.set('start_time', formatIsoOffset(startTime, { fallback: startTime }));
+        }
+        if (endTime) {
+          params.set('end_time', formatIsoOffset(endTime, { fallback: endTime }));
+        }
+      }
+      if (usageSearch.trim()) {
+        params.set('include_overlays', 'search');
+        params.set('search_q', usageSearch.trim());
+      }
+      const response = await fetch(`/api/xiaoni/action-stream/llm-usage?${params}`);
+      const payload = await response.json() as ApiResponse<XiaoniLlmUsageTimeline>;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || 'Failed to load LLM usage');
+      }
+      return payload.data;
+    },
+    refetchInterval: usageSearch.trim() ? false : 10000,
   });
 
   const groups = React.useMemo(() => timelineGroups(feed?.items || []), [feed?.items]);
@@ -1142,23 +1888,89 @@ export const XiaoniActivityPage: React.FC = () => {
     }
   }, []);
 
-  return (
-    <PageShell className="max-w-6xl">
-      <PageHeader
-        eyebrow="Xiaoni Action Stream"
-        title="小腻行动流"
-        description="按时间线展示小腻看到的消息、调用的工具、发出的内容、休息状态、后台行动和 Compress Fork。"
-        icon={<Activity className="h-5 w-5" />}
-        badge={feed ? <PageHeaderBadge>{feed.items.length} Events · {forkCount} Forks · {rangeBadge}</PageHeaderBadge> : null}
-        actions={
-          <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-            <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
-            刷新
-          </Button>
-        }
-      />
+  const handleUsageBucketChange = React.useCallback((nextBucket: UsageBucket) => {
+    updateSearchParam((nextParams) => {
+      nextParams.set('bucket', nextBucket);
+    });
+  }, [updateSearchParam]);
 
-      <RuntimeStrip feed={feed} isLoading={isLoading} />
+  const handleUsageSearchChange = React.useCallback((nextQuery: string) => {
+    updateSearchParam((nextParams) => {
+      const trimmed = nextQuery.trim();
+      if (trimmed) {
+        nextParams.set('usage_search', trimmed);
+      } else {
+        nextParams.delete('usage_search');
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleUsageWindowSelect = React.useCallback((nextStartTime: Date, nextEndTime: Date, options?: { endIsNow?: boolean }) => {
+    updateSearchParam((nextParams) => {
+      nextParams.set('range', 'custom');
+      nextParams.set('start_time', localInputFromIso(nextStartTime.toISOString()));
+      if (options?.endIsNow) {
+        nextParams.delete('end_time');
+      } else {
+        nextParams.set('end_time', localInputFromIso(nextEndTime.toISOString()));
+      }
+      nextParams.delete('focus_event');
+      nextParams.delete('focus_slice');
+    });
+  }, [updateSearchParam]);
+
+  const handleUsagePointFocus = React.useCallback((point: XiaoniLlmUsagePoint) => {
+    updateSearchParam((nextParams) => {
+      if (point.anchorEventId) {
+        nextParams.set('focus_event', point.anchorEventId);
+      }
+      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork') {
+        nextParams.set('focus_slice', point.llmRequestSliceId);
+      } else {
+        nextParams.delete('focus_slice');
+      }
+    });
+  }, [updateSearchParam]);
+
+  React.useEffect(() => {
+    if (!focusEvent || !feed) {
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      document.getElementById(eventElementId(focusEvent))?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 80);
+    return () => window.clearTimeout(handle);
+  }, [feed, focusEvent]);
+
+  return (
+    <PageShell className="w-full max-w-none space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {feed ? <PageHeaderBadge>{feed.items.length} Events · {forkCount} Forks · {rangeBadge}</PageHeaderBadge> : null}
+          {isLoading ? <StatusPill tone="neutral">loading</StatusPill> : null}
+          {feed?.current.runtime ? (
+            <StatusPill tone={feed.current.runtime.live ? 'success' : 'warning'}>
+              runtime {feed.current.runtime.status || 'unknown'}
+            </StatusPill>
+          ) : null}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void refetchFeed();
+            void refetchUsage();
+          }}
+          disabled={isFetching || isUsageFetching}
+        >
+          <RefreshCw className={cn('mr-2 h-4 w-4', (isFetching || isUsageFetching) && 'animate-spin')} />
+          刷新
+        </Button>
+      </div>
+
       <TimeRangeControls
         range={timeRange}
         startTime={startTime}
@@ -1167,47 +1979,70 @@ export const XiaoniActivityPage: React.FC = () => {
         onCustomTimeChange={handleCustomTimeChange}
       />
 
-      {feed ? <CompressionForkTimelineRail timeline={feed.compressionForkTimeline} /> : null}
-
-      {error ? (
-        <ErrorState description={error instanceof Error ? error.message : '加载小腻行动流失败'} onRetry={() => void refetch()} />
-      ) : null}
-
-      {isLoading && !feed ? (
-        <div className="flex h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-7 w-7 animate-spin text-primary" />
-          加载行动流...
+      <XiaoniUsageObservatory
+        timeline={usageTimeline}
+        bucket={usageBucket}
+        searchQuery={usageSearch}
+        isLoading={isUsageLoading}
+        isFetching={isUsageFetching}
+        onBucketChange={handleUsageBucketChange}
+        onSearchQueryChange={handleUsageSearchChange}
+        onSelectWindow={handleUsageWindowSelect}
+        onFocusPoint={handleUsagePointFocus}
+      />
+      {usageError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {usageError instanceof Error ? usageError.message : '加载 LLM usage 失败'}
         </div>
       ) : null}
 
-      {feed && feed.items.length === 0 && forkCount === 0 ? (
-        <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无行动事件" description="还没有小腻行动流记录。" />
-      ) : null}
+      <main className="min-w-0 space-y-6">
+        {feed ? <CompressionForkTimelineRail timeline={feed.compressionForkTimeline} focusEventId={focusEvent || undefined} /> : null}
 
-      {feed && feed.items.length > 0 ? (
-        <div className="relative">
-          <div className="absolute bottom-0 left-6 top-0 w-px bg-border md:left-[7.875rem]" />
-          <div className="space-y-6">
-            {groups.map((group, groupIndex) => (
-              <section key={group.day} className="relative space-y-4">
-                <div className="sticky top-0 z-20 ml-12 flex md:ml-[9.5rem]">
-                  <div className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
-                    {group.day}
-                  </div>
-                </div>
-                {group.items.map((item, itemIndex) => (
-                  <TimelineEvent
-                    key={item.id}
-                    item={item}
-                    isLatest={groupIndex === 0 && itemIndex === 0}
-                    onOpenRawTrace={setRawTraceTarget}
-                  />
-                ))}
-              </section>
-            ))}
+        {feedError ? (
+          <ErrorState description={feedError instanceof Error ? feedError.message : '加载小腻行动流失败'} onRetry={() => void refetchFeed()} />
+        ) : null}
+
+        {isLoading && !feed ? (
+          <div className="flex h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
+            <Loader2 className="h-7 w-7 animate-spin text-primary" />
+            加载行动流...
           </div>
-        </div>
-      ) : null}
+        ) : null}
+
+        {feed && feed.items.length === 0 && forkCount === 0 ? (
+          <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无行动事件" description="还没有小腻行动流记录。" />
+        ) : null}
+
+        {feed && feed.items.length > 0 ? (
+          <div className="relative">
+            <div className="absolute bottom-0 left-6 top-0 w-px bg-border md:left-[7.875rem]" />
+            <div className="space-y-6">
+              {groups.map((group, groupIndex) => (
+                <section key={group.day} className="relative space-y-4">
+                  <div className="sticky top-0 z-20 ml-12 flex md:ml-[9.5rem]">
+                    <div className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
+                      {group.day}
+                    </div>
+                  </div>
+                  {group.items.map((item, itemIndex) => {
+                    const itemEventId = item.eventId || item.id;
+                    return (
+                      <TimelineEvent
+                        key={item.id}
+                        item={item}
+                        isLatest={groupIndex === 0 && itemIndex === 0}
+                        isFocused={focusEvent === itemEventId || Boolean(item.metadata.focused)}
+                        onOpenRawTrace={setRawTraceTarget}
+                      />
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </main>
 
       <RawTraceDialog target={rawTraceTarget} onOpenChange={handleRawTraceOpenChange} />
     </PageShell>

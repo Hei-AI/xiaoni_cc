@@ -4,6 +4,7 @@ import winston from 'winston';
 import {
   getXiaoniActionStream,
   getXiaoniActivityFeed,
+  getXiaoniLlmUsageTimeline,
   findXiaoniActionEventTraceTarget,
   getAgentRuntimeControl,
   listAgentMediaAssets,
@@ -138,6 +139,21 @@ function serializeActionStreamTimeFilter(filter: ReturnType<typeof resolveAction
   };
 }
 
+function parseQueryBoolean(value: unknown, fallback = false): boolean {
+  const raw = firstQueryString(value);
+  if (!raw) {
+    return fallback;
+  }
+  return !['0', 'false', 'no', 'off'].includes(raw.toLowerCase());
+}
+
+function parseUsageBucket(value: unknown): 'call' | 'hour' | 'day' | 'month' {
+  const raw = firstQueryString(value);
+  return raw === 'hour' || raw === 'day' || raw === 'month' || raw === 'call'
+    ? raw
+    : 'call';
+}
+
 async function resolveActionEventTraceTarget(
   rawEventId: string
 ): Promise<ActionEventTraceTarget | null> {
@@ -190,7 +206,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           identityKey,
           limit,
           startTime: timeFilter.startTime,
-          endTime: timeFilter.endTime
+          endTime: timeFilter.endTime,
+          focusEvent: firstQueryString(req.query.focus_event ?? req.query.focusEvent),
+          focusSlice: firstQueryString(req.query.focus_slice ?? req.query.focusSlice)
         }),
         loadRuntimeSnapshot()
       ]);
@@ -214,6 +232,43 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load Xiaoni action stream',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/xiaoni/action-stream/llm-usage', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const timeFilter = resolveActionStreamTimeFilter(req.query);
+      const maxPoints = Math.max(100, Math.min(2000, Number.parseInt(String(req.query.max_points || req.query.maxPoints || '1200'), 10) || 1200));
+      const timeline = await getXiaoniLlmUsageTimeline({
+        identityKey,
+        range: timeFilter.range,
+        startTime: timeFilter.startTime,
+        endTime: timeFilter.endTime,
+        bucket: parseUsageBucket(req.query.bucket),
+        maxPoints,
+        includePeaks: parseQueryBoolean(req.query.include_peaks ?? req.query.includePeaks, true),
+        includeMiniMap: parseQueryBoolean(req.query.include_minimap ?? req.query.includeMiniMap, false),
+        includeOverlays: firstQueryString(req.query.include_overlays ?? req.query.includeOverlays) ?? undefined,
+        searchQuery: firstQueryString(req.query.search_q ?? req.query.searchQuery)
+      });
+
+      res.json({
+        success: true,
+        data: {
+          ...timeline,
+          filters: serializeActionStreamTimeFilter(timeFilter)
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni LLM usage timeline',
         timestamp: new Date().toISOString()
       });
     }

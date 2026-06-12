@@ -16,7 +16,7 @@ function getShiftedUtcDate(value: Date) {
   return new Date(value.getTime() + EAST8_OFFSET_MS);
 }
 
-function parseTimestampValue(value?: string | Date | number | null): Date | null {
+export function parseTimestampValue(value?: string | Date | number | null): Date | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
@@ -134,6 +134,21 @@ export function formatDateOnly(
   }
 
   return date.toLocaleDateString(locale, { timeZone });
+}
+
+export function formatDateTimeCompact(
+  value?: string | Date | number | null,
+  options?: {
+    fallback?: string;
+  }
+): string {
+  const date = parseTimestampValue(value);
+  if (!date) {
+    return options?.fallback ?? '-';
+  }
+
+  const shifted = getShiftedUtcDate(date);
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
 }
 
 export function formatTimeOnly(
