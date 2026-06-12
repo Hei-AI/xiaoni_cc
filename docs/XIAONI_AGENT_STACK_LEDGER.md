@@ -9,10 +9,12 @@ provider evidence，但不能再被写成新的概念来源。
 小腻不是一组离散客服请求，而是一条连续 agent loop。工程上只有一个主 runtime
 入口：`AgentLoopService.runRuntimeLoop()`。`agent-service` 的 `index.ts` 只负责启动
 这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick
-发生在 runtime loop 内部。空闲时不再合成
-autonomous queue notify，而是由 runtime loop 创建不落 `agent_queue_messages` 的
-`runtime_loop` frame，继续按同一套 stack window 组装模型请求。成功处理一帧后没有
-固定 interval，下一轮立即回到主 `while` 顶部先 pick notify。
+发生在 runtime loop 内部。空闲时不再合成 autonomous queue notify。没有 notify
+时，runtime loop 按同一套 stack window 组装一份候选 request；只有这份候选
+request 真正最后一个 input item 是 `assistant final_answer`，才追加普通
+`self_continuation` developer reminder。尾项不是 `final_answer` 时不追加 reminder，
+直接用候选 request 发起本次模型 slice。成功处理一个真实 slice 后没有固定 interval，
+下一轮立即回到主 `while` 顶部先 pick notify。
 
 ```text
 system prompt
@@ -28,8 +30,8 @@ agent_stack_items[0..n]
 `final_answer` 不是主 runtime 的终止条件。它只是模型本 slice 没有更多工具调用的
 输出形态；当前 frame 只记录这个 `final_answer` 并 yield 回
 `AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。下一次 runtime iteration 会先重新
-pick notify；只有没有 notify 且 request window 末尾仍是 `final_answer` 时，`runtime_loop`
-frame 才追加普通 `self_continuation` runtime input 作为下一步行动提示。不要为了
+pick notify；只有没有 notify 且候选 requestInput 末尾仍是 `assistant final_answer` 时，
+runtime 才追加普通 `self_continuation` runtime input 作为下一步行动提示。不要为了
 `final_answer` 额外制造专用 prompt reminder，也不要在同一个 frame 里内部连打下一次模型。
 
 当前实现边界：
@@ -43,13 +45,13 @@ flowchart TD
   E --> D
   D -- yes --> F{Notify Bucket has pending notify?}
   F -- yes --> G[claim notify]
-  F -- no notify --> I[create runtime_loop frame without queue row]
+  F -- no notify --> I[build candidate requestInput without self_continuation]
   G --> J[append runtime_input for picked notify]
-  I --> Q{request window ended with final_answer?}
+  J --> K[build requestInput from stack window + appended runtime input]
+  I --> Q{last input item is assistant final_answer?}
   Q -- yes --> W[append normal self_continuation runtime_input]
   Q -- no --> K
   W --> K
-  J --> K[build requestInput from stack window + appended runtime input]
   K --> L[POST provider once with same system prompt and assembled requestInput]
   L --> M[append response.output_items to stack and replay]
   M --> N{tool calls?}
@@ -87,6 +89,11 @@ async function runXiaoniRuntime() {
     const appendLoopInputItems = (items) => {
       appendStackItems(items)
       requestInput.push(...items)
+    }
+
+    if (!notify && isAssistantFinalAnswer(last(requestInput))) {
+      const reminder = buildSelfContinuationDeveloperReminder()
+      appendLoopInputItems([reminder])
     }
 
     const response = post_llm({
@@ -221,8 +228,9 @@ request =
   旧式单条 queue message 处理兼容入口。单轮 iteration 只是 service 内部实现细节。
 - 单次 runtime iteration 只发起一个 provider model slice；slice 内只追加模型 output
   和同一响应产生的 tool output。`final_answer` 后不在当前 frame 追加
-  `self_continuation`；下一轮如果没有 notify 且 request window 末尾仍是
-  `final_answer`，才在新 request 中追加。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
+  `self_continuation`；下一轮如果没有 notify，先组装未追加 self continuation 的候选
+  requestInput，只有最后一个 input item 仍是 `assistant final_answer`，才在新 request
+  中追加；否则不追加 reminder，直接用候选 request 发起本次模型 slice。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
 - `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
@@ -301,12 +309,14 @@ node --test packages/persistence/__tests__/*.test.js
 
 - 一个 LLM response 的 output items 按顺序追加到 `agent_stack_items`。
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
-- 没有 Notify Bucket row 时，runtime loop 仍创建 `runtime_loop` frame 并发起模型
-  slice；它不会写入或结算 `agent_queue_messages`。
+- 没有 Notify Bucket row 时，runtime loop 先组装候选 requestInput；尾项是
+  `assistant final_answer` 才追加 `self_continuation`，尾项不是 `final_answer` 时不追加
+  reminder，直接用候选 request 发起本次模型 slice。它不会写入或结算
+  `agent_queue_messages`，也不会伪造当前 QQ 输入。
 - `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder，也不提前写入
-  `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且 request window
-  末尾仍是 `final_answer`，才追加普通 `self_continuation` developer reminder，后续模型
-  请求能真实看到它。
+  `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且候选 requestInput
+  最后一个 input item 仍是 `assistant final_answer`，才追加普通 `self_continuation`
+  developer reminder，后续模型请求能真实看到它。
 - `recover_energy` 不写 `release_lease` tool result，不 enqueue 恢复用
   `self_continuation` notify；成功休息和工程拒绝都必须作为该 tool call 的
   `function_call_output` 进入 replay。

@@ -4093,7 +4093,7 @@ test('runtime frame records final_answer without eager self continuation when qu
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
 });
 
-test('runtime_loop frame inserts self continuation after prior final_answer when no notify is picked', async () => {
+test('no-notify continuation inserts self continuation after prior final_answer', async () => {
   const priorTurn = createConversationTurn({
     id: 1998,
     userMessage: '',
@@ -4149,7 +4149,9 @@ test('runtime_loop frame inserts self continuation after prior final_answer when
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
   let capturedInput: any[] = [];
+  let executeAgentTurnCalled = false;
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    executeAgentTurnCalled = true;
     capturedInput = canonicalRequest.input || [];
     return {
       success: true,
@@ -4180,7 +4182,86 @@ test('runtime_loop frame inserts self continuation after prior final_answer when
   ));
   assert.ok(finalAnswerIndex >= 0);
   assert.equal(reminderIndex, finalAnswerIndex + 1);
+  assert.equal(executeAgentTurnCalled, true);
   assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<system_reminder>'), false);
+});
+
+test('no-notify continuation calls model without self continuation when request does not end with final_answer', async () => {
+  const queueMessage = {
+    id: 'runtime-no-notify-no-final',
+    traceId: 'trace-runtime-no-notify-no-final',
+    batchId: 'batch-runtime-no-notify-no-final',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [],
+    payload: {
+      ...createQueuePayload(),
+      source: 'runtime_loop',
+      messages: []
+    }
+  };
+  const storeCalls: Record<string, any[]> = {
+    createLlmJob: [],
+    createConversation: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    createLlmJob: async (params: any) => {
+      storeCalls.createLlmJob.push(params);
+      return 'job-runtime-no-notify-no-final';
+    },
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2002;
+    },
+    attachConversationIdToTrace: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  let capturedInput: any[] = [];
+  let executeAgentTurnCalled = false;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedInput = canonicalRequest.input || [];
+    executeAgentTurnCalled = true;
+    return {
+      success: true,
+      llm_call_id: 'llm-runtime-no-notify-no-final',
+      canonical_response: {
+        output: []
+      }
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
+
+  assert.equal(executeAgentTurnCalled, true);
+  assert.equal(storeCalls.createLlmJob.length, 1);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(capturedInput.some((item: any) =>
+    item?.type === 'message'
+      && item?.role === 'developer'
+      && getMessageContent(item).includes('<system_reminder>')
+  ), false);
 });
 
 test('runtime frame waits before its single model slice when runtime control is disabled', async () => {
@@ -5300,7 +5381,7 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(promptTexts.some((t: string) => isPhoneNotificationReminderContent(t)), true);
 });
 
-test('runtime_loop frame preserves global OS context during autonomous recover tool call', async () => {
+test('no-notify continuation preserves global OS context during recover_energy tool call', async () => {
   const queueMessage = {
     id: 'run-runtime-loop-recover',
     traceId: 'trace-runtime-loop-recover',
@@ -5333,7 +5414,13 @@ test('runtime_loop frame preserves global OS context during autonomous recover t
         aiResponse: '可以。我会挑那种真有触动的句子说。',
         items: [],
         rawResponse: {
-          xiaoni_os: '刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。'
+          xiaoni_os: '刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。',
+          responses_replay_items: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '可以。我会挑那种真有触动的句子说。' }]
+          }]
         }
       }];
     },

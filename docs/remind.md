@@ -135,9 +135,9 @@
 
 `image_task_follow_up` 不再作为独立 `<system_reminder>` 设计。`request_image_task` 本身是 tool call，tool output 已经返回 `queued`、`task_id`、`task_type`、`status_text`，其中 `status_text` 会告诉小腻任务正在进行、完成后会以 notify 通知。agent loop 不再额外追加“底层动作确认 / 你还没有对聊天框里的人开口说话”提醒；是否还需要对聊天对象补一句，应由当前对话策略和发言工具自然决定。
 
-final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能把 self continuation 丢掉，但不能在当前 frame 里提前写进 replay。正确边界是：当前 frame 只记录 `final_answer` 并 yield 回 runtime 主 `while`；下一轮先 pick notify，如果没有 notify 且 request window 末尾仍是 `final_answer`，再追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。这个 developer item 属于本轮 request input，不是上一轮 `responses_replay_items`，也不是 `final_answer_idle` / `final_answer_turn_control`，不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
+final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能把 self continuation 丢掉，但不能在当前 frame 里提前写进 replay。正确边界是：当前 frame 只记录 `final_answer` 并 yield 回 runtime 主 `while`；下一轮先 pick notify，如果没有 notify，就先组装未追加 self continuation 的候选 requestInput，并检查真正要发给模型的最后一个 input item；只有这个尾项仍是 `assistant final_answer`，才追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。尾项不是 `assistant final_answer` 时只是不追加 `self_continuation`，不代表跳过本次模型调用。这个 developer item 属于本轮 request input，不是上一轮 `responses_replay_items`，也不是 `final_answer_idle` / `final_answer_turn_control`，不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
 
-`self_continuation` 只保留一个 prompt-facing 模板，但不再作为 Notify Bucket / fresh trigger 生产。它只在下一轮没有 notify 可 pick，且 request window 末尾仍是 `final_answer` 时，由本轮 request 组装逻辑追加。不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
+`self_continuation` 只保留一个 prompt-facing 模板，但不再作为 Notify Bucket / fresh trigger 生产。它只在下一轮没有 notify 可 pick，且候选 requestInput 最后一个 input item 仍是 `assistant final_answer` 时，由本轮 request 组装逻辑追加。不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
 
 `phone_notification` / `image_task_notification` / `system_reminder` / 无 notify 场景追加的 `self_continuation` 这类 runtime reminder 只属于当前输入，不是 QQ 正文，也不是 assistant 历史。代码侧不得把它们写入 `conversation_items`，也不得把它们写入 `conversations.user_message` 作为可回放内容；目标实现中它们作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，后续 prompt history 只保留真实 QQ 正文、assistant 可见投递、tool result / response replay 和必要记忆。
 
@@ -152,7 +152,7 @@ final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=f
 | `core_memory_pressure` | 保留 | 作为最高优先级体感提醒；`source`、`required_tool`、`context_session_key` 等工程字段留在代码侧，强制 `compress_core_memory` 由代码侧 tool choice / marker 控制。 |
 | `phone_notification` | 保留 | 作为 QQ 状态栏余光；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，只告诉小腻有未读和明确喊她的摘要，具体内容仍需 `qq-usage` 打开；不再输出 `<PHONE_NOTIFICATION ... />`，也不再走独立 current-processing reminder 通道双写解释。 |
 | `image_task_notification` | 保留 | 作为图片任务完成后的真实 notify；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，不再输出 `<IMAGE_TASK_NOTIFICATION ... />` 或双写解释。prompt-facing 只保留行动所需线索：`task_id`、任务类型、图片 ID、图片路径和目标描述；trace/run、创建时间、图片 bytes、原始 prompt 等排障细节留在 DB / trace。 |
-| `self_continuation` | 保留 | 作为无 notify 且 request window 末尾是 `final_answer` 时的自主继续模板；不再覆盖休息恢复，也不作为 queue fresh trigger。 |
+| `self_continuation` | 保留 | 作为无 notify 且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时的自主继续模板；不再覆盖休息恢复，也不作为 queue fresh trigger。 |
 | `consciousness_tick` / `presence_tick` | 删除 | 旧 producer 已无当前生产方；不再做当前 runtime 契约。 |
 | `already_picked` / `runtime_event_snapshot` | 删除 | 防重放是工程状态；当前用 `suppress_current_trigger`，不进 LLM context。 |
 | `emit_unread_meaning` / `turn_control` | 删除 | 当前 main loop 不暴露 `emit_unread_meaning`；旧分支只保留执行解析兼容。 |
@@ -206,7 +206,7 @@ nick_name(id) @了你 N次, 最新消息是: {} (摘要前20个字)]
 目标: 用户想要的图片用途</system_reminder>
 ```
 
-**状态：** 当前没有 notify 可 pick，且 request window 末尾仍是 `final_answer`，runtime 在本轮 request 中追加普通 `self_continuation`。
+**状态：** 当前没有 notify 可 pick，且候选 requestInput 最后一个 input item 仍是 `assistant final_answer`，runtime 在本轮 request 中追加普通 `self_continuation`。
 
 **模板：`self_continuation`**
 

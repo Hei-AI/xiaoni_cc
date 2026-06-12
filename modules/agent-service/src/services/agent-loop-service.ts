@@ -4028,17 +4028,7 @@ export class AgentLoopService {
     const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
-    const jobId = await this.store.createLlmJob({
-      traceId: payload.traceId,
-      sessionId: payload.sessionKey,
-      agentType: 'chat_bot',
-      metadata: {
-        run_id: queueMessage.id,
-        batch_id: queueMessage.batchId,
-        queue_message_ids: queueMessage.queueMessageIds,
-        source: payload.source
-      }
-    });
+    let jobId: string | null = null;
 
     let conversationId: number | null = null;
     let turnsExecuted = 0;
@@ -4089,14 +4079,26 @@ export class AgentLoopService {
         metadata: { run_id: queueMessage.id, batch_id: queueMessage.batchId, queue_message_ids: queueMessage.queueMessageIds, worker_id: agentConfig.workerId }
       });
     }
-    await this.store.logTimelineEvent({
-      traceId: payload.traceId,
-      eventType: 'decision',
-      eventName: 'execution_lease',
-      eventPhase: 'start',
-      metadata: { internal_execution_lease_id: queueMessage.id, batch_id: queueMessage.batchId }
-    });
-
+    if (options.queueBacked) {
+      jobId = await this.store.createLlmJob({
+        traceId: payload.traceId,
+        sessionId: payload.sessionKey,
+        agentType: 'chat_bot',
+        metadata: {
+          run_id: queueMessage.id,
+          batch_id: queueMessage.batchId,
+          queue_message_ids: queueMessage.queueMessageIds,
+          source: payload.source
+        }
+      });
+      await this.store.logTimelineEvent({
+        traceId: payload.traceId,
+        eventType: 'decision',
+        eventName: 'execution_lease',
+        eventPhase: 'start',
+        metadata: { internal_execution_lease_id: queueMessage.id, batch_id: queueMessage.batchId }
+      });
+    }
     let loopContinuation: OpenResponseInputItem[] = [];
 
     try {
@@ -4122,8 +4124,8 @@ export class AgentLoopService {
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
-      runtimePrompt = await this.resolveStableRuntimePrompt(payload);
-      await this.ensureRuntimeIdentityRoot(payload, runtimePrompt);
+      const resolvedRuntimePrompt = await this.resolveStableRuntimePrompt(payload);
+      runtimePrompt = resolvedRuntimePrompt;
       runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
       const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);
       {
@@ -4143,17 +4145,45 @@ export class AgentLoopService {
       const developerContextBlock = [
         baseDeveloperContextBlock
       ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
-      budgetPlan = await this.buildContextBudgetPlan({
+      const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
         history,
         queueMessage: payload,
-        runtimePrompt,
+        runtimePrompt: resolvedRuntimePrompt,
         loopContinuation,
         runtimeIdentityFacts,
         developerContextBlock,
         contextSessionKey,
         triggerInputMode: options.triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer: allowSelfContinuationOnTerminalFinalAnswer
+        appendSelfContinuationOnTerminalFinalAnswer
       });
+      budgetPlan = await buildBudgetPlan(false);
+      if (allowSelfContinuationOnTerminalFinalAnswer) {
+        const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
+        if (isAssistantFinalAnswerInputItem(lastInputItem)) {
+          budgetPlan = await buildBudgetPlan(true);
+        }
+      }
+      await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
+      if (!jobId) {
+        jobId = await this.store.createLlmJob({
+          traceId: payload.traceId,
+          sessionId: payload.sessionKey,
+          agentType: 'chat_bot',
+          metadata: {
+            run_id: queueMessage.id,
+            batch_id: queueMessage.batchId,
+            queue_message_ids: queueMessage.queueMessageIds,
+            source: payload.source
+          }
+        });
+        await this.store.logTimelineEvent({
+          traceId: payload.traceId,
+          eventType: 'decision',
+          eventName: 'execution_lease',
+          eventPhase: 'start',
+          metadata: { internal_execution_lease_id: queueMessage.id, batch_id: queueMessage.batchId }
+        });
+      }
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
       const evictedTurns: ConversationTurn[] = budgetPlan.cutoffRecomputed && budgetPlan.readCutoffAfterConversationId !== null
@@ -4733,12 +4763,14 @@ export class AgentLoopService {
           conversationId
         });
       }
-      await this.store.updateLlmJob(jobId, {
-        status: 'settled',
-        finalResponse,
-        totalTurns: turnsExecuted,
-        conversationId
-      });
+      if (jobId) {
+        await this.store.updateLlmJob(jobId, {
+          status: 'settled',
+          finalResponse,
+          totalTurns: turnsExecuted,
+          conversationId
+        });
+      }
       if (sentMessages.length === 0 && leaseRelease.reason !== 'runtime_frame_yielded') {
         await this.recordNoVisibleDeliveryLifeEvent(payload, queueMessage.id, presenceOutcome, leaseRelease, turnsExecuted, conversationId);
       }
@@ -4881,13 +4913,15 @@ export class AgentLoopService {
           conversationId
         });
       }
-      await this.store.updateLlmJob(jobId, {
-        status: 'failed',
-        errorMessage: message,
-        totalTurns: turnsExecuted,
-        conversationId,
-        finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null
-      });
+      if (jobId) {
+        await this.store.updateLlmJob(jobId, {
+          status: 'failed',
+          errorMessage: message,
+          totalTurns: turnsExecuted,
+          conversationId,
+          finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null
+        });
+      }
       await this.store.logTimelineEvent({
         traceId: payload.traceId,
         eventType: 'decision',

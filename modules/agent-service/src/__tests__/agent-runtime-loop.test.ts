@@ -54,17 +54,17 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
   } as any);
   stubRuntimeFrame(service, processed);
 
-  const delay = await (service as any).processRuntimeIteration({
+  const processedResult = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
     idleIntervalMs: 2000
   });
 
-  assert.equal(delay, undefined);
+  assert.equal(processedResult, undefined);
   assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
   assert.deepEqual(processed.map((item) => item.options), [{}]);
 });
 
-test('runtime iteration processes a runtime_loop frame when there is no notify', async () => {
+test('runtime iteration delegates no-notify continuation evaluation to the runtime frame path', async () => {
   const processed: ProcessedRuntimeFrame[] = [];
   const calls: string[] = [];
   const service = new AgentLoopService({
@@ -73,14 +73,16 @@ test('runtime iteration processes a runtime_loop frame when there is no notify',
       return null;
     }
   } as any);
-  stubRuntimeFrame(service, processed);
+  (service as any).processRuntimeFrame = async (message: QueueMessageRecord, options: Record<string, unknown> = {}) => {
+    processed.push({ message, options });
+  };
 
-  const delay = await (service as any).processRuntimeIteration({
+  const processedResult = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
     idleIntervalMs: 2000
   });
 
-  assert.equal(delay, undefined);
+  assert.equal(processedResult, undefined);
   assert.deepEqual(calls, ['claim']);
   assert.equal(processed.length, 1);
   assert.equal(processed[0]?.message.payload.source, 'runtime_loop');
@@ -250,7 +252,7 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
   ]);
 });
 
-test('runtime loop sleeps only after runtime iteration errors', async () => {
+test('runtime loop sleeps after runtime iteration errors', async () => {
   const events: string[] = [];
   let stopped = false;
   const service = new AgentLoopService({

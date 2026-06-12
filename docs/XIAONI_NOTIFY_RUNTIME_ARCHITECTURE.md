@@ -13,10 +13,13 @@ QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`�
 
 主 loop 由 `agent-service` 承载，但 `index.ts` 只负责启动
 `AgentLoopService.runRuntimeLoop()`。runtime 自己持有 `while alive` 循环：
-它在 loop 内部从 Notify Bucket pick notify。没有 notify 时不 sleep 掉本轮认知，而是创建不落
-`agent_queue_messages` 的 `runtime_loop` frame，直接用当前 stack/window 继续组装
-模型请求。成功处理一帧后不做固定 poll interval；下一轮立即回到主 `while` 顶部先
-pick notify。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
+它在 loop 内部从 Notify Bucket pick notify。没有 notify 时，runtime 先用当前
+stack/window 组装一份未追加 `self_continuation` 的候选 request，并检查这份候选
+request 真正最后一个 input item。只有尾项是 `assistant final_answer`，才追加普通
+`self_continuation` developer reminder；尾项不是 `final_answer` 时不追加 reminder，
+直接用候选 request 发起本次模型 slice。成功处理一个真实 slice 后不做固定 poll
+interval；下一轮立即回到主 `while` 顶部先 pick notify。notify 是门铃，不是认知边界，
+也不是 prompt 重新组装边界。
 
 一次 runtime loop iteration 的主链路是：
 
@@ -25,10 +28,10 @@ AgentLoopService.runRuntimeLoop()
   -> resolve stable system prompt once from runtime_bootstrap before the main while
   -> check runtime control
   -> claim one notify from Notify Bucket
-  -> if none: create runtime_loop frame without writing a queue row
   -> append picked notify as runtime_input when a notify exists
   -> reuse stable system prompt resolved before the main while
-  -> build requestInput from append-only stack window + optional current runtime input
+  -> build candidate requestInput from append-only stack window + optional current runtime input
+  -> if no notify and candidate requestInput ends with assistant final_answer: append normal self_continuation developer input
   -> record llm_request_slices input range
   -> POST provider-service /api/internal/agent/execute
   -> provider-service codex-provider / OpenAI
@@ -37,7 +40,6 @@ AgentLoopService.runRuntimeLoop()
      (recover_energy waits inside the tool handler, or returns rejection immediately)
   -> if final_answer and no tool: yield; do not eagerly append self_continuation
   -> next loop first tries to pick notify
-  -> if no notify and request window still ends with final_answer: append normal self_continuation developer input
   -> settle/yield this frame, then immediately return to the top of the main while
 ```
 
@@ -56,14 +58,14 @@ sequenceDiagram
   L->>L: resolve stable runtimePrompt via runtime_bootstrap
   L->>L: while alive
   L->>L: check runtime control
-  L->>L: claim notify or create runtime_loop frame
+  L->>L: claim notify
   opt picked notify
     L->>S: append runtime_input for picked notify
   end
-  opt no picked notify and previous request window ended with final_answer
+  L->>L: build candidate requestInput
+  opt no notify and candidate requestInput ends with assistant final_answer
     L->>S: append self_continuation runtime_input for this request
   end
-  L->>L: build requestInput from stack window + optional runtime input
   L->>P: canonical request(systemPrompt, requestInput)
   P-->>L: response.output_items
   L->>S: append output_items
@@ -90,8 +92,9 @@ sequenceDiagram
 写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，
 等待 `AgentLoopService.runRuntimeLoop()` 在 runtime loop 内 pick。事件一旦
 被 pick，就从 `pending` 变成 `consumed`：门铃已经进入当前处理事务，后续 runtime iteration
-不再重新渲染这条事件为当前输入。没有门铃时的 `runtime_loop` frame 不是 notify，
-不会写入或结算 `agent_queue_messages`。
+不再重新渲染这条事件为当前输入。没有门铃时的候选 continuation 检查不是 notify，
+不会写入或结算 `agent_queue_messages`；如果候选 request 尾项不是 `assistant final_answer`，
+就不追加 `self_continuation`，直接用候选 request 发起本次模型 slice。
 
 ## QQ Inbox
 
@@ -145,7 +148,9 @@ canonical_response
   -> do not append final-answer-specific reminder
   -> yield to runtime main while
   -> next iteration picks notify first
-  -> if no notify is picked and request window still ends with final_answer, append normal self_continuation developer reminder to the new request
+  -> if no notify is picked, build candidate requestInput without self continuation
+  -> if candidate requestInput ends with assistant final_answer, append normal self_continuation developer reminder to the new request
+  -> otherwise send the candidate request as-is, without self_continuation
 ```
 
 当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
@@ -158,8 +163,9 @@ canonical_response
 - `responses_replay_items` 是 agent-service 为后续请求保存的 model-visible replay。
   它只保存能重新喂给模型的模型输出和工具输出；`final_answer` 后的普通
   `self_continuation` 不是提前写入上一帧 replay，而是在下一轮确认没有 notify 可 pick、
-  且 request window 末尾仍是 `final_answer` 时，作为 `developer` role `<system_reminder>`
-  插入本轮 request。
+  且候选 requestInput 最后一个 input item 仍是 `assistant final_answer` 时，作为
+  `developer` role `<system_reminder>` 插入本轮 request；尾项不是 `final_answer` 时
+  不追加 reminder，直接用候选 request 发起本次模型 slice。
 
 ## 动作分发
 
@@ -171,7 +177,7 @@ canonical_response
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `runRuntimeLoop()` iteration pick。 |
 | `recover_energy` | `agent-service` tool handler 内执行。成功时等待 `duration_minutes` 对应时长，醒来后返回 `<system_reminder>` 形式的 `function_call_output`；工程拒绝时立即返回拒绝原因。 | 不写 `release_lease` tool result，不 enqueue 恢复 self-continuation notify。 |
-| `final_answer` | 无外部工具分发；如果没有工具调用，只追加模型 output item 并 yield。下一轮先 pick notify；没有 notify 且 request window 末尾仍是 `final_answer` 时，才追加普通 `self_continuation` runtime input。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
+| `final_answer` | 无外部工具分发；如果没有工具调用，只追加模型 output item 并 yield。下一轮先 pick notify；没有 notify 时先组装候选 requestInput，只有尾项仍是 `assistant final_answer` 时才追加普通 `self_continuation` runtime input；否则不追加 reminder，直接用候选 request 发起本次模型 slice。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；后续 iteration 重新从主 while 顶部 pick notify，原始 Notify 不会重新作为当前输入。 |
 
 ## 图片理解 Fork
