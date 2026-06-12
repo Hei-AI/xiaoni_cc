@@ -204,7 +204,6 @@ type AgentLoopServiceOptions = {
 type AgentRuntimeIterationParams = {
   workerId: string;
   idleIntervalMs: number;
-  pollIntervalMs: number;
 };
 
 export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
@@ -3995,18 +3994,15 @@ export class AgentLoopService {
       }
 
       params.onBusyChange?.(true);
-      let delayMs = params.idleIntervalMs;
       try {
-        delayMs = await this.processRuntimeIteration(params);
+        await this.processRuntimeIteration(params);
       } catch (error) {
         params.onRuntimeLoopError?.(error);
-        delayMs = params.idleIntervalMs;
+        if (!shouldStop()) {
+          await wait(params.idleIntervalMs);
+        }
       } finally {
         params.onBusyChange?.(false);
-      }
-
-      if (!shouldStop()) {
-        await wait(delayMs);
       }
     }
   }
@@ -4020,11 +4016,10 @@ export class AgentLoopService {
         appendRuntimeInputStackItem: false,
         logQueueLifecycle: false
       });
-      return params.pollIntervalMs;
+      return;
     }
 
     await this.processRuntimeFrame(queueMessage);
-    return params.pollIntervalMs;
   }
 
   private async processRuntimeFrame(queueMessage: QueueMessageRecord, frameOptions: ProcessRuntimeFrameOptions = {}) {

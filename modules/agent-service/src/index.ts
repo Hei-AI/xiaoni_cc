@@ -104,7 +104,7 @@ async function pollTaskQueueOnce() {
   taskWorkerBusy = true;
   try {
     const processed = await taskWorkerService.processNext(`${agentConfig.workerId}:task`);
-    return processed ? agentConfig.pollIntervalMs : agentConfig.idleIntervalMs;
+    return processed ? 0 : agentConfig.idleIntervalMs;
   } catch (error) {
     moduleLogger.error('Agent task queue poll failed', {
       error: error instanceof Error ? error.message : String(error)
@@ -130,7 +130,7 @@ async function isRuntimeEnabled() {
 async function runTaskWorkerLoop() {
   while (!stopping) {
     const delayMs = await pollTaskQueueOnce();
-    if (!stopping) {
+    if (!stopping && delayMs > 0) {
       await wait(delayMs);
     }
   }
@@ -157,7 +157,6 @@ async function start() {
   void wait(200).then(() => loopService.runRuntimeLoop({
     workerId: agentConfig.workerId,
     idleIntervalMs: agentConfig.idleIntervalMs,
-    pollIntervalMs: agentConfig.pollIntervalMs,
     isStopping: () => stopping,
     recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
     onBusyChange: (busy) => {

@@ -11,7 +11,8 @@ provider evidence，但不能再被写成新的概念来源。
 这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick
 发生在 runtime loop 内部。空闲时不再合成
 autonomous queue notify，而是由 runtime loop 创建不落 `agent_queue_messages` 的
-`runtime_loop` frame，继续按同一套 stack window 组装模型请求。
+`runtime_loop` frame，继续按同一套 stack window 组装模型请求。成功处理一帧后没有
+固定 interval，下一轮立即回到主 `while` 顶部先 pick notify。
 
 ```text
 system prompt
@@ -103,6 +104,7 @@ async function runXiaoniRuntime() {
       }
     }
 
+    // no fixed sleep/poll interval between successful frames
     continue
   }
 }
@@ -309,7 +311,8 @@ node --test packages/persistence/__tests__/*.test.js
   `self_continuation` notify；成功休息和工程拒绝都必须作为该 tool call 的
   `function_call_output` 进入 replay。
 - 单个 runtime iteration / frame 只允许一次 provider model slice；工具结果或
-  `final_answer` 后必须 yield 回主 `while` 顶部重新 pick notify。
+  `final_answer` 后必须 yield 回主 `while` 顶部重新 pick notify；成功帧之间没有
+  固定 sleep/poll interval。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

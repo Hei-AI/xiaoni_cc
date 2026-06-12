@@ -56,11 +56,10 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
-    idleIntervalMs: 2000,
-    pollIntervalMs: 1000
+    idleIntervalMs: 2000
   });
 
-  assert.equal(delay, 1000);
+  assert.equal(delay, undefined);
   assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
   assert.deepEqual(processed.map((item) => item.options), [{}]);
 });
@@ -78,11 +77,10 @@ test('runtime iteration processes a runtime_loop frame when there is no notify',
 
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
-    idleIntervalMs: 2000,
-    pollIntervalMs: 1000
+    idleIntervalMs: 2000
   });
 
-  assert.equal(delay, 1000);
+  assert.equal(delay, undefined);
   assert.deepEqual(calls, ['claim']);
   assert.equal(processed.length, 1);
   assert.equal(processed[0]?.message.payload.source, 'runtime_loop');
@@ -95,7 +93,7 @@ test('runtime iteration processes a runtime_loop frame when there is no notify',
   });
 });
 
-test('runtime loop owns the forever loop and sleeps between iterations', async () => {
+test('runtime loop owns the forever loop without sleeping between successful frames', async () => {
   const queueMessage = createQueueMessage('run-loop');
   const processed: ProcessedRuntimeFrame[] = [];
   const events: string[] = [];
@@ -108,12 +106,14 @@ test('runtime loop owns the forever loop and sleeps between iterations', async (
       return true;
     }
   });
-  stubRuntimeFrame(service, processed);
+  (service as any).processRuntimeFrame = async (message: QueueMessageRecord, options: Record<string, unknown> = {}) => {
+    processed.push({ message, options });
+    stopped = true;
+  };
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       events.push('recover-stale-leases');
@@ -126,7 +126,6 @@ test('runtime loop owns the forever loop and sleeps between iterations', async (
     },
     sleepMs: async (ms) => {
       events.push(`sleep:${ms}`);
-      stopped = true;
     }
   });
 
@@ -136,8 +135,7 @@ test('runtime loop owns the forever loop and sleeps between iterations', async (
     'runtime-enabled',
     'enabled:true',
     'busy:true',
-    'busy:false',
-    'sleep:1000'
+    'busy:false'
   ]);
 });
 
@@ -160,12 +158,13 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
       return true;
     }
   });
-  stubRuntimeFrame(service, []);
+  (service as any).processRuntimeFrame = async () => {
+    stopped = true;
+  };
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       events.push('recover-stale-leases');
@@ -175,7 +174,6 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
     },
     sleepMs: async (ms) => {
       events.push(`sleep:${ms}`);
-      stopped = true;
     }
   });
 
@@ -185,8 +183,7 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
     'runtime-enabled',
     'busy:true',
     'claim',
-    'busy:false',
-    'sleep:1000'
+    'busy:false'
   ]);
 });
 
@@ -204,7 +201,6 @@ test('runtime loop does not claim notify while runtime control is disabled', asy
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
     isStopping: () => stopped,
     onBusyChange: (busy) => {
       events.push(`busy:${busy}`);
@@ -230,16 +226,43 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
   const service = new AgentLoopService({
     claimNextQueueMessage: async () => null
   } as any);
-  stubRuntimeFrame(service, []);
+  (service as any).processRuntimeFrame = async () => {
+    stopped = true;
+  };
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
     isStopping: () => stopped,
     recoverStaleProcessingLeases: async () => {
       throw new Error('recovery failed');
     },
+    onRuntimeLoopError: (error) => {
+      events.push(error instanceof Error ? error.message : String(error));
+    },
+    sleepMs: async (ms) => {
+      events.push(`sleep:${ms}`);
+    }
+  });
+
+  assert.deepEqual(events, [
+    'recovery failed'
+  ]);
+});
+
+test('runtime loop sleeps only after runtime iteration errors', async () => {
+  const events: string[] = [];
+  let stopped = false;
+  const service = new AgentLoopService({
+    claimNextQueueMessage: async () => {
+      throw new Error('claim failed');
+    }
+  } as any);
+
+  await service.runRuntimeLoop({
+    workerId: 'worker-1',
+    idleIntervalMs: 2000,
+    isStopping: () => stopped,
     onRuntimeLoopError: (error) => {
       events.push(error instanceof Error ? error.message : String(error));
     },
@@ -250,8 +273,8 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
   });
 
   assert.deepEqual(events, [
-    'recovery failed',
-    'sleep:1000'
+    'claim failed',
+    'sleep:2000'
   ]);
 });
 

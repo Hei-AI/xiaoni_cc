@@ -15,7 +15,8 @@ QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`�
 `AgentLoopService.runRuntimeLoop()`。runtime 自己持有 `while alive` 循环：
 它在 loop 内部从 Notify Bucket pick notify。没有 notify 时不 sleep 掉本轮认知，而是创建不落
 `agent_queue_messages` 的 `runtime_loop` frame，直接用当前 stack/window 继续组装
-模型请求。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
+模型请求。成功处理一帧后不做固定 poll interval；下一轮立即回到主 `while` 顶部先
+pick notify。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
 
 一次 runtime loop iteration 的主链路是：
 
@@ -37,7 +38,7 @@ AgentLoopService.runRuntimeLoop()
   -> if final_answer and no tool: yield; do not eagerly append self_continuation
   -> next loop first tries to pick notify
   -> if no notify and request window still ends with final_answer: append normal self_continuation developer input
-  -> settle/yield this frame, then return to the top of the main while
+  -> settle/yield this frame, then immediately return to the top of the main while
 ```
 
 `system prompt` 是 runtime service 生命周期内的稳定前缀：`AgentLoopService`
@@ -73,7 +74,6 @@ sequenceDiagram
     L->>L: yield without eager self_continuation
   end
   L->>L: settle/yield frame and return to while top
-  L->>L: sleep iteration delay between frames
 ```
 
 目标事实源见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。迁移期旧 transcript、LLM/tool

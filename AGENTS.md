@@ -28,7 +28,7 @@
 - `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
-- `modules/agent-service`：后台 agent loop / runtime service，`AgentLoopService.runRuntimeLoop()` 在 loop 内消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，空闲时会创建不落 queue 的 `runtime_loop` frame，维持小腻的连续主 loop；单个 runtime iteration / frame 只发起一次 provider model slice，工具结果写入 replay 后回到主 `while` 顶部重新 pick notify；如果没有 notify 且 request window 末尾是 `final_answer`，`runtime_loop` 组装下一次请求时才追加普通 `self_continuation` `<system_reminder>`；`recover_energy` 是普通工具执行，工程在 tool handler 内等待到休息结束或直接拒绝，并把结果作为 `function_call_output` 返回
+- `modules/agent-service`：后台 agent loop / runtime service，`AgentLoopService.runRuntimeLoop()` 在 loop 内消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，空闲时会创建不落 queue 的 `runtime_loop` frame，维持小腻的连续主 loop；单个 runtime iteration / frame 只发起一次 provider model slice，工具结果写入 replay 后回到主 `while` 顶部重新 pick notify，成功帧之间没有固定 sleep/poll interval；如果没有 notify 且 request window 末尾是 `final_answer`，`runtime_loop` 组装下一次请求时才追加普通 `self_continuation` `<system_reminder>`；`recover_energy` 是普通工具执行，工程在 tool handler 内等待到休息结束或直接拒绝，并把结果作为 `function_call_output` 返回
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
 - 其余入口统一去 `docs/INDEX.md`
 

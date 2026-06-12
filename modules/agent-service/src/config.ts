@@ -66,7 +66,6 @@ export const databaseConfig = {
 };
 
 const mainAgentTurnTimeoutMs = Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '120000', 10));
-const queuePollIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_POLL_INTERVAL_MS || '1000', 10));
 const queueIdleIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10));
 
 export const agentConfig = {
@@ -91,7 +90,6 @@ export const agentConfig = {
   webSearchContextSize: readWebSearchContextSize(),
   webSearchExternalAccess: readBooleanEnv('AGENT_WEB_SEARCH_EXTERNAL_ACCESS', true),
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
-  pollIntervalMs: queuePollIntervalMs,
   idleIntervalMs: queueIdleIntervalMs,
   processingRecoveryStaleMs: Math.max(
     5 * 60 * 1000,
