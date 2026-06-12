@@ -14,8 +14,10 @@ import { DatabaseManager } from '../services/database';
 import {
   buildConversationTracePayload,
   buildConversationTraceSpanDetail,
+  buildConversationRawProviderTrace,
   buildStackTracePayload,
-  buildStackTraceSpanDetail
+  buildStackTraceSpanDetail,
+  buildStackRawProviderTrace
 } from '../services/trace-span-builder';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
@@ -297,6 +299,57 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: 'Failed to fetch Xiaoni action event trace span detail',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/xiaoni/action-stream/events/:eventId/raw-trace', async (req, res) => {
+    try {
+      const target = await resolveActionEventTraceTarget(req.params.eventId);
+      if (!target) {
+        return res.status(404).json({
+          success: false,
+          error: 'Action event raw trace not found',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const requestedSpanId = firstQueryString(req.query.spanId);
+      const spanId = decodeEventId(requestedSpanId || target.spanId || '');
+      const rawTrace = target.conversationId && !shouldUseStackTrace(target)
+        ? await buildConversationRawProviderTrace(database, logger, target.conversationId, spanId)
+        : await buildStackRawProviderTrace(logger, target, spanId);
+      if (!rawTrace) {
+        return res.status(404).json({
+          success: false,
+          error: 'Action event raw trace not available',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        success: true,
+        data: {
+          ...rawTrace,
+          action_event: {
+            event_id: decodeEventId(req.params.eventId),
+            focus_span_id: spanId || target.spanId,
+            trace_id: target.traceId
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logger.error('Failed to fetch Xiaoni action event raw trace', {
+        error,
+        eventId: req.params.eventId,
+        spanId: req.query.spanId
+      });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch Xiaoni action event raw trace',
         timestamp: new Date().toISOString()
       });
     }

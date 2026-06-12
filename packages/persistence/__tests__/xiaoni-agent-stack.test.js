@@ -483,6 +483,59 @@ test('listLlmRequestSlices summaryOnly avoids selecting large request and respon
   assert.deepEqual(rows[0].outputItems, []);
 });
 
+test('listLlmRequestSlices rawTraceOnly selects only provider exchange payload columns', async () => {
+  const sql = createMockSql();
+  sql.rows.slice.push({
+    id: 30,
+    slice_id: 'llm-1',
+    llm_call_id: 'llm-1',
+    identity_key: 'xiaoni',
+    input_start_index: null,
+    input_end_index: null,
+    input_stack_item_ids: [],
+    output_start_index: null,
+    output_end_index: null,
+    canonical_request: {},
+    wire_request: { model: 'gpt-test', input: ['hello'] },
+    canonical_response: null,
+    wire_response: { id: 'resp-1' },
+    raw_response: { id: 'resp-1', output: [] },
+    output_items: [],
+    status: 'completed',
+    token_usage: { input_tokens: 10, output_tokens: 3 },
+    trace_id: 'trace-1',
+    run_id: 'run-1',
+    conversation_id: null,
+    agent_turn: 1,
+    model_name: 'gpt-test',
+    model_provider: 'codex',
+    request_format_version: 'responses/v1',
+    wire_provider_format: 'openai/responses',
+    processing_time_ms: 123,
+    metadata: {
+      provider_request_headers: { 'content-type': 'application/json' },
+      provider_response_headers: { 'content-type': 'text/event-stream' }
+    },
+    created_at: '2026-06-11T00:00:00.000Z',
+    completed_at: '2026-06-11T00:00:01.000Z',
+    updated_at: '2026-06-11T00:00:01.000Z'
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const rows = await persistence.listLlmRequestSlices({ rawTraceOnly: true, limit: 1 });
+  const query = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('FROM llm_request_slices'));
+
+  assert.ok(query);
+  assert.match(query.sql, /wire_request/);
+  assert.match(query.sql, /wire_response/);
+  assert.match(query.sql, /raw_response/);
+  assert.match(query.sql, /metadata/);
+  assert.match(query.sql, /NULL::jsonb AS canonical_response/);
+  assert.doesNotMatch(query.sql, /SELECT \*/);
+  assert.deepEqual(rows[0].wireRequest, { model: 'gpt-test', input: ['hello'] });
+  assert.deepEqual(rows[0].rawResponse, { id: 'resp-1', output: [] });
+});
+
 test('recordToolExecution and completeToolExecution link tool result callback stack item', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });

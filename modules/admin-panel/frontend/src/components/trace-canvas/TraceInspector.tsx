@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useXiaoniActionEventTraceSpanDetail } from '@/hooks/useXiaoniActionTrace';
 import { summarizeProviderRequestInputBody } from '@/lib/trace-provider-request-summary';
 import { cn, formatTimestamp } from '@/lib/utils';
 import { TraceInspectorSection, TraceWaterfallRow } from '@/types';
@@ -103,45 +102,6 @@ function isProviderRequestNode(node: TraceWaterfallRow | null): node is TraceWat
   return Boolean(node && node.semanticRole === 'provider_request');
 }
 
-function hasDeferredTracePayload(value: unknown): boolean {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const queue: unknown[] = [value];
-  const visited = new Set<unknown>();
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || typeof current !== 'object' || visited.has(current)) {
-      continue;
-    }
-
-    visited.add(current);
-
-    if (!Array.isArray(current) && (current as Record<string, unknown>).__trace_payload_truncated) {
-      return true;
-    }
-
-    if (Array.isArray(current)) {
-      queue.push(...current);
-      continue;
-    }
-
-    queue.push(...Object.values(current as Record<string, unknown>));
-  }
-
-  return false;
-}
-
-function canLazyLoadSpanDetail(spanId: string): boolean {
-  return spanId.startsWith('llm-call:') || spanId.startsWith('provider-request:') || spanId.startsWith('http:');
-}
-
-function shouldAlwaysLoadSpanDetail(node: TraceWaterfallRow | null): boolean {
-  return Boolean(node && node.semanticRole === 'provider_request' && node.spanId.startsWith('provider-request:wire:'));
-}
-
 function ProviderRequestInputSummaryNotice({ body }: { body: unknown }) {
   const summary = React.useMemo(() => summarizeProviderRequestInputBody(body), [body]);
   if (!summary) {
@@ -185,7 +145,6 @@ function ProviderRequestInputSummaryNotice({ body }: { body: unknown }) {
 }
 
 interface TraceInspectorSurfaceProps {
-  eventId?: string;
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
   activeTab: InspectorTab;
@@ -204,7 +163,6 @@ interface TraceInspectorSurfaceProps {
 }
 
 function TraceInspectorSurface({
-  eventId,
   node,
   metadataBadges,
   activeTab,
@@ -225,13 +183,6 @@ function TraceInspectorSurface({
   const inputSection = node ? getSection(node, 'input') : null;
   const outputSection = node ? getSection(node, 'output') : null;
   const evidenceSection = node ? getSection(node, 'evidence') : null;
-  const hasDeferredSection = [inputSection?.value, outputSection?.value, evidenceSection?.value].some(hasDeferredTracePayload);
-  const needsDeferredDetail = Boolean(
-    node
-      && canLazyLoadSpanDetail(node.spanId)
-      && (hasDeferredSection || shouldAlwaysLoadSpanDetail(node))
-  );
-  const spanDetailQuery = useXiaoniActionEventTraceSpanDetail(eventId || null, needsDeferredDetail ? node?.spanId || null : null);
 
   if (!node) {
     return (
@@ -243,9 +194,9 @@ function TraceInspectorSurface({
     );
   }
 
-  const resolvedInputValue = spanDetailQuery.data?.input ?? inputSection?.value;
-  const resolvedOutputValue = spanDetailQuery.data?.output ?? outputSection?.value;
-  const resolvedEvidenceValue = spanDetailQuery.data?.evidence ?? evidenceSection?.value;
+  const resolvedInputValue = inputSection?.value;
+  const resolvedOutputValue = outputSection?.value;
+  const resolvedEvidenceValue = evidenceSection?.value;
   const inputPayload = readHttpPayload(resolvedInputValue);
   const inputPayloadMeta = readHttpPayloadMeta(resolvedInputValue);
   const outputPayload = readHttpPayload(resolvedOutputValue);
@@ -326,18 +277,6 @@ function TraceInspectorSurface({
         <div className="mt-5 rounded-2xl border border-border bg-background/80 p-4 text-sm leading-6 text-foreground/85">
           {node.summary}
         </div>
-
-        {hasDeferredSection || shouldAlwaysLoadSpanDetail(node) ? (
-          <div className="mt-3 text-xs text-muted-foreground">
-            {!canLazyLoadSpanDetail(node.spanId)
-              ? '该节点包含裁剪预览；请切到具体 LLM 或 provider span 查看完整 payload。'
-              : spanDetailQuery.isLoading
-              ? '正在按需加载请求详情...'
-              : spanDetailQuery.error
-                ? '请求详情加载失败，当前展示的是 trace 初始 payload。'
-                : '已按需加载请求详情。'}
-          </div>
-        ) : null}
 
         {node.meta.length > 0 ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -467,7 +406,6 @@ function TraceInspectorSurface({
 }
 
 interface TraceInspectorPanelProps {
-  eventId?: string;
   node: TraceWaterfallRow | null;
   metadataBadges: string[];
   className?: string;
@@ -481,7 +419,6 @@ interface TraceInspectorPanelProps {
 }
 
 export function TraceInspectorPanel({
-  eventId,
   node,
   metadataBadges,
   className,
@@ -586,7 +523,6 @@ export function TraceInspectorPanel({
         </Card>
       ) : (
         <TraceInspectorSurface
-          eventId={eventId}
           node={node}
           metadataBadges={metadataBadges}
           activeTab={activeTab}
@@ -608,7 +544,6 @@ export function TraceInspectorPanel({
         ? createPortal(
             <div data-floating-inspector="true" className="fixed z-[80]" style={floatingStyle}>
               <TraceInspectorSurface
-                eventId={eventId}
                 node={node}
                 metadataBadges={metadataBadges}
                 activeTab={activeTab}
@@ -634,7 +569,6 @@ export function TraceInspectorPanel({
 }
 
 interface TraceInspectorSheetProps {
-  eventId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   node: TraceWaterfallRow | null;
@@ -647,7 +581,6 @@ interface TraceInspectorSheetProps {
 }
 
 export function TraceInspectorSheet({
-  eventId,
   open,
   onOpenChange,
   node,
@@ -667,7 +600,6 @@ export function TraceInspectorSheet({
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
           <TraceInspectorPanel
-            eventId={eventId}
             node={node}
             metadataBadges={metadataBadges}
             allowFloating={false}

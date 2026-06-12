@@ -11,7 +11,8 @@ import {
   buildConversationTracePayload,
   buildConversationTraceSpanDetail,
   buildStackTracePayload,
-  buildStackTraceSpanDetail
+  buildStackTraceSpanDetail,
+  buildStackRawProviderTrace
 } from '../services/trace-span-builder';
 
 jest.mock('@qq-bot/persistence', () => ({
@@ -380,6 +381,67 @@ describe('buildStackTracePayload', () => {
         output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }]
       })
     });
+  });
+
+  it('loads raw provider exchange without fetching full span detail evidence', async () => {
+    (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
+      id: '11',
+      sliceId: 'slice-1',
+      llmCallId: 'llm-call-1',
+      traceId: 'trace-1',
+      runId: 'run-1',
+      conversationId: null,
+      agentTurn: 1,
+      createdAt: '2026-03-28T10:00:01.000Z',
+      completedAt: '2026-03-28T10:00:03.000Z',
+      status: 'completed',
+      modelName: 'gpt-5.4-mini',
+      modelProvider: 'codex',
+      wireRequest: { model: 'gpt-5.4-mini', input: ['hello'] },
+      wireResponse: { id: 'resp-1' },
+      rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
+      tokenUsage: { input_tokens: 10, output_tokens: 20 },
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'codex/responses',
+      processingTimeMs: 2000,
+      metadata: {
+        provider_request_headers: {
+          Authorization: 'Bearer secret',
+          'x-trace-id': 'trace-1'
+        },
+        provider_request_url: 'http://provider.local/responses',
+        provider_response_headers: {
+          'content-type': 'application/json'
+        },
+        provider_response_status: 201,
+        provider_response_status_text: 'Created'
+      }
+    }]);
+
+    const rawTrace = await buildStackRawProviderTrace(
+      createLogger(),
+      { traceId: 'trace-1', internalExecutionLeaseId: 'run-1', llmRequestSliceId: 'slice-1' },
+      'provider-request:wire:llm-call-1'
+    );
+
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: 'trace-1',
+      runId: 'run-1',
+      llmCallId: 'llm-call-1',
+      rawTraceOnly: true,
+      limit: 1
+    }));
+    expect(rawTrace?.request.headers).toEqual({
+      Authorization: '[redacted]',
+      'x-trace-id': 'trace-1'
+    });
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.4-mini', input: ['hello'] }));
+    expect(rawTrace?.response.status_code).toBe(201);
+    expect(rawTrace?.response.headers).toEqual({ 'content-type': 'application/json' });
+    expect(rawTrace?.response.body).toBe(JSON.stringify({
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }]
+    }));
+    expect(rawTrace?.source).toBe('llm_request_slices.provider_exchange');
   });
 });
 

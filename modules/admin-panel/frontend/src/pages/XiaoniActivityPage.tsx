@@ -18,12 +18,15 @@ import {
   Waypoints,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PageHeader, PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
 import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
+import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { cn, formatDateOnly, formatIsoOffset, formatTimeOnly, formatTimestamp } from '@/lib/utils';
 
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
@@ -150,6 +153,55 @@ interface ApiResponse<T> {
   success: boolean;
   data: T;
   error?: string;
+}
+
+interface RawTraceTarget {
+  eventId: string;
+  spanId: string | null;
+  title: string;
+  subtitle?: string | null;
+}
+
+interface RawTraceExchangeSide {
+  headers: Record<string, unknown> | null;
+  body: string | null;
+  bytes: number;
+  body_format: string;
+  body_source: string;
+}
+
+interface RawTraceRequestSide extends RawTraceExchangeSide {
+  method: string;
+  upstream_url: string | null;
+}
+
+interface RawTraceResponseSide extends RawTraceExchangeSide {
+  status_code: number | null;
+  status_text: string | null;
+  error_message: string | null;
+}
+
+interface RawTraceData {
+  span_id: string | null;
+  trace_id: string | null;
+  conversation_id: string | null;
+  slice_id: string | null;
+  llm_call_id: string | null;
+  source: string;
+  model_name: string | null;
+  model_provider: string | null;
+  request_format_version: string | null;
+  wire_provider_format: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  request: RawTraceRequestSide;
+  response: RawTraceResponseSide;
+  action_event?: {
+    event_id: string;
+    focus_span_id: string | null;
+    trace_id: string | null;
+  };
 }
 
 const toneClasses: Record<string, string> = {
@@ -329,6 +381,10 @@ function formatPayloadSize(requestBytes: string | null, responseBytes: string | 
     return `${requestBytes} -> ${responseBytes}`;
   }
   return requestBytes || responseBytes;
+}
+
+function formatRawTraceBytes(value: number | null | undefined) {
+  return formatBytes(typeof value === 'number' ? value : null) || '0 B';
 }
 
 function formatTokenCount(value: number | null) {
@@ -640,7 +696,168 @@ function CompressionForkTimelineRail({ timeline }: { timeline?: CompressionForkT
   );
 }
 
-function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLatest: boolean }) {
+async function fetchRawTrace(target: RawTraceTarget): Promise<RawTraceData> {
+  const params = new URLSearchParams();
+  if (target.spanId) {
+    params.set('spanId', target.spanId);
+  }
+  const query = params.toString();
+  const response = await fetch(
+    `/api/xiaoni/action-stream/events/${encodeURIComponent(target.eventId)}/raw-trace${query ? `?${query}` : ''}`
+  );
+  const payload = await response.json() as ApiResponse<RawTraceData>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to load raw trace');
+  }
+  return payload.data;
+}
+
+function RawTraceExchangePane({
+  kind,
+  data,
+}: {
+  kind: 'request' | 'response';
+  data: RawTraceRequestSide | RawTraceResponseSide;
+}) {
+  const isRequest = kind === 'request';
+  const meta = [
+    isRequest ? (data as RawTraceRequestSide).method : null,
+    !isRequest && (data as RawTraceResponseSide).status_code !== null ? `HTTP ${(data as RawTraceResponseSide).status_code}` : null,
+    !isRequest && (data as RawTraceResponseSide).status_text ? (data as RawTraceResponseSide).status_text : null,
+    data.body_format,
+    formatRawTraceBytes(data.bytes),
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {meta.map((item) => (
+          <StatusPill key={item} tone="neutral">{item}</StatusPill>
+        ))}
+        {isRequest && (data as RawTraceRequestSide).upstream_url ? (
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{(data as RawTraceRequestSide).upstream_url}</span>
+        ) : null}
+        {!isRequest && (data as RawTraceResponseSide).error_message ? (
+          <StatusPill tone="danger">{(data as RawTraceResponseSide).error_message}</StatusPill>
+        ) : null}
+      </div>
+
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]">
+        <StructuredDataViewer
+          title={isRequest ? 'Request Headers' : 'Response Headers'}
+          value={data.headers}
+          emptyLabel={isRequest ? '无请求头' : '无响应头'}
+          heightClassName="h-[18rem] xl:h-[calc(100vh-17rem)]"
+        />
+        <StructuredDataViewer
+          title={isRequest ? 'Request Body' : 'Response Body'}
+          value={data.body}
+          emptyLabel={isRequest ? '无请求体' : '无响应体'}
+          heightClassName="h-[calc(100vh-24rem)] min-h-[24rem] xl:h-[calc(100vh-17rem)]"
+          rawText
+          notice={<span className="font-mono">{data.body_source}</span>}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RawTraceDialog({
+  target,
+  onOpenChange,
+}: {
+  target: RawTraceTarget | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const rawTraceQuery = useQuery<RawTraceData>({
+    queryKey: ['xiaoni-action-stream-raw-trace', target?.eventId || null, target?.spanId || null],
+    queryFn: () => {
+      if (!target) {
+        throw new Error('Missing raw trace target');
+      }
+      return fetchRawTrace(target);
+    },
+    enabled: Boolean(target),
+    staleTime: 0,
+  });
+
+  const data = rawTraceQuery.data;
+  const headerBadges = data
+    ? [
+        data.model_name,
+        data.model_provider,
+        data.wire_provider_format,
+        data.request_format_version,
+        data.llm_call_id ? `llm ${data.llm_call_id}` : null,
+        data.slice_id ? `slice ${data.slice_id}` : null,
+      ].filter(Boolean) as string[]
+    : [];
+
+  return (
+    <Dialog open={Boolean(target)} onOpenChange={onOpenChange}>
+      <DialogContent className="h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[96rem] gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <DialogTitle className="truncate">{target?.title || 'Raw Trace'}</DialogTitle>
+              <DialogDescription className="mt-2 break-all font-mono">
+                {target?.spanId || data?.span_id || data?.action_event?.focus_span_id || 'provider exchange'}
+              </DialogDescription>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {headerBadges.map((item) => (
+                <StatusPill key={item} tone="neutral">{item}</StatusPill>
+              ))}
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
+          {rawTraceQuery.isLoading ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+              加载 raw trace...
+            </div>
+          ) : null}
+
+          {rawTraceQuery.error ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <ErrorState
+                description={rawTraceQuery.error instanceof Error ? rawTraceQuery.error.message : '加载 raw trace 失败'}
+                onRetry={() => void rawTraceQuery.refetch()}
+              />
+            </div>
+          ) : null}
+
+          {data ? (
+            <Tabs defaultValue="request" className="flex min-h-0 flex-1 flex-col">
+              <TabsList className="shrink-0">
+                <TabsTrigger value="request">Request</TabsTrigger>
+                <TabsTrigger value="response">Response</TabsTrigger>
+              </TabsList>
+              <TabsContent value="request" className="mt-4 flex min-h-0 flex-1 flex-col">
+                <RawTraceExchangePane kind="request" data={data.request} />
+              </TabsContent>
+              <TabsContent value="response" className="mt-4 flex min-h-0 flex-1 flex-col">
+                <RawTraceExchangePane kind="response" data={data.response} />
+              </TabsContent>
+            </Tabs>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TimelineEvent({
+  item,
+  isLatest,
+  onOpenRawTrace,
+}: {
+  item: XiaoniActivityFeedItem;
+  isLatest: boolean;
+  onOpenRawTrace: (target: RawTraceTarget) => void;
+}) {
   const navigate = useNavigate();
   const tone = toneClasses[item.tone] ? item.tone : 'neutral';
   const eventKind = item.eventKind || item.kind;
@@ -706,14 +923,18 @@ function TimelineEvent({ item, isLatest }: { item: XiaoniActivityFeedItem; isLat
             </div>
           </div>
 
-          {traceTarget?.internalExecutionLeaseId && (item.eventId || item.id) ? (
+          {traceTarget && (item.eventId || item.id) ? (
             <Button
               variant="outline"
               size="sm"
               className="shrink-0"
               onClick={() => {
-                const focusSpanId = providerRequestSpanId || traceTarget.spanId;
-                navigate(`/xiaoni/action-stream/events/${encodeURIComponent(item.eventId || item.id)}/trace${focusSpanId ? `?spanId=${encodeURIComponent(focusSpanId)}` : ''}`);
+                onOpenRawTrace({
+                  eventId: item.eventId || item.id,
+                  spanId: providerRequestSpanId || traceTarget.spanId || spanId,
+                  title: item.title,
+                  subtitle: item.traceId,
+                });
               }}
             >
               <Waypoints className="mr-2 h-4 w-4" />
@@ -842,6 +1063,7 @@ export const XiaoniActivityPage: React.FC = () => {
   const timeRange = coerceTimeRange(searchParams.get('range'));
   const startTime = searchParams.get('start_time') || '';
   const endTime = searchParams.get('end_time') || '';
+  const [rawTraceTarget, setRawTraceTarget] = React.useState<RawTraceTarget | null>(null);
   const {
     data: feed,
     isLoading,
@@ -914,6 +1136,12 @@ export const XiaoniActivityPage: React.FC = () => {
     });
   }, [updateSearchParam]);
 
+  const handleRawTraceOpenChange = React.useCallback((open: boolean) => {
+    if (!open) {
+      setRawTraceTarget(null);
+    }
+  }, []);
+
   return (
     <PageShell className="max-w-6xl">
       <PageHeader
@@ -972,6 +1200,7 @@ export const XiaoniActivityPage: React.FC = () => {
                     key={item.id}
                     item={item}
                     isLatest={groupIndex === 0 && itemIndex === 0}
+                    onOpenRawTrace={setRawTraceTarget}
                   />
                 ))}
               </section>
@@ -979,6 +1208,8 @@ export const XiaoniActivityPage: React.FC = () => {
           </div>
         </div>
       ) : null}
+
+      <RawTraceDialog target={rawTraceTarget} onOpenChange={handleRawTraceOpenChange} />
     </PageShell>
   );
 };

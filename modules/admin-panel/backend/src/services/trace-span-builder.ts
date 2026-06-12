@@ -66,6 +66,43 @@ interface TraceSpanDetailDto {
   evidence: unknown;
 }
 
+interface RawTraceExchangeSideDto {
+  headers: Record<string, unknown> | null;
+  body: string | null;
+  bytes: number;
+  body_format: string;
+  body_source: string;
+}
+
+interface RawTraceRequestDto extends RawTraceExchangeSideDto {
+  method: string;
+  upstream_url: string | null;
+}
+
+interface RawTraceResponseDto extends RawTraceExchangeSideDto {
+  status_code: number | null;
+  status_text: string | null;
+  error_message: string | null;
+}
+
+interface RawProviderTraceDto {
+  span_id: string | null;
+  trace_id: string | null;
+  conversation_id: string | null;
+  slice_id: string | null;
+  llm_call_id: string | null;
+  source: string;
+  model_name: string | null;
+  model_provider: string | null;
+  request_format_version: string | null;
+  wire_provider_format: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+  request: RawTraceRequestDto;
+  response: RawTraceResponseDto;
+}
+
 interface StackTraceTarget {
   conversationId?: string | null;
   traceId?: string | null;
@@ -139,6 +176,23 @@ function rawJsonText(value: any, fallback: string | null = null): string | null 
   } catch (_error) {
     return String(value);
   }
+}
+
+function inferRawTextFormat(value: string | null): string {
+  if (!value) {
+    return 'empty';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'empty';
+  }
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return 'json';
+  }
+  if (trimmed.startsWith('event:') || trimmed.startsWith('data:')) {
+    return 'sse';
+  }
+  return 'text';
 }
 
 function normalizeIdentityEvidenceRef(row: any) {
@@ -897,6 +951,7 @@ function normalizeStackSliceProviderCall(slice: any) {
     wire_request: slice.wire_request,
     canonical_response: slice.canonical_response,
     wire_response: slice.wire_response,
+    raw_response: slice.raw_response,
     request_headers: parseJsonField<any>(metadata.provider_request_headers ?? metadata.wire_request_headers, null),
     request_url: typeof metadata.provider_request_url === 'string'
       ? metadata.provider_request_url
@@ -928,6 +983,55 @@ function normalizeStackSliceProviderCall(slice: any) {
 
 function hasProviderWirePayload(providerCall: any): boolean {
   return providerCall?.wire_request !== null && providerCall?.wire_request !== undefined;
+}
+
+function buildRawProviderTraceFromProviderCall(
+  providerCall: any,
+  spanId: string | null,
+  source: string
+): RawProviderTraceDto {
+  const requestBody = providerCall.wire_request_raw_text || rawJsonText(providerCall.wire_request);
+  const responseBody = providerCall.wire_response_raw_text || rawJsonText(
+    providerCall.raw_response,
+    rawJsonText(providerCall.wire_response)
+  );
+
+  return {
+    span_id: spanId,
+    trace_id: providerCall.trace_id || null,
+    conversation_id: providerCall.conversation_id || null,
+    slice_id: providerCall.slice_id || null,
+    llm_call_id: providerCall.llm_call_id || null,
+    source,
+    model_name: providerCall.model_name || null,
+    model_provider: providerCall.model_provider || null,
+    request_format_version: providerCall.request_format_version || null,
+    wire_provider_format: providerCall.wire_provider_format || null,
+    started_at: providerCall.started_at || null,
+    completed_at: providerCall.completed_at || null,
+    duration_ms: providerCall.duration_ms ?? null,
+    request: {
+      method: 'POST',
+      upstream_url: providerCall.request_url || null,
+      headers: redactSensitiveHeaders(providerCall.request_headers),
+      body: requestBody,
+      bytes: estimateJsonBytes(requestBody),
+      body_format: inferRawTextFormat(requestBody),
+      body_source: 'llm_request_slices.wire_request'
+    },
+    response: {
+      status_code: providerCall.response_status ?? (providerCall.error_message ? null : 200),
+      status_text: providerCall.response_status_text || null,
+      headers: redactSensitiveHeaders(providerCall.response_headers),
+      body: responseBody,
+      bytes: estimateJsonBytes(responseBody),
+      body_format: inferRawTextFormat(responseBody),
+      body_source: providerCall.raw_response !== null && providerCall.raw_response !== undefined
+        ? 'llm_request_slices.raw_response'
+        : 'llm_request_slices.wire_response',
+      error_message: providerCall.error_message || null
+    }
+  };
 }
 
 function canRepresentProviderRequest(providerCall: any): boolean {
@@ -3255,6 +3359,149 @@ export async function buildConversationTraceSpanDetail(
 
   logger.debug('Trace span detail not required for span', { conversationId, traceId, spanId });
   return null;
+}
+
+function buildRawProviderTraceFromSpanDetail(
+  detail: TraceSpanDetailDto,
+  spanId: string | null,
+  source: string
+): RawProviderTraceDto | null {
+  const input = detail.input && typeof detail.input === 'object' ? detail.input as Record<string, any> : {};
+  const output = detail.output && typeof detail.output === 'object' ? detail.output as Record<string, any> : {};
+  const requestBody = input.raw_body || rawJsonText(input.body ?? input.wire_request ?? input.canonical_request);
+  const responseBody = output.raw_body || rawJsonText(
+    output.raw_response,
+    rawJsonText(output.body ?? output.wire_response ?? output.canonical_response)
+  );
+
+  if (!requestBody && !responseBody && !input.headers && !output.headers) {
+    return null;
+  }
+
+  return {
+    span_id: spanId,
+    trace_id: null,
+    conversation_id: null,
+    slice_id: typeof output.slice_id === 'string' ? output.slice_id : null,
+    llm_call_id: typeof output.llm_call_id === 'string' ? output.llm_call_id : null,
+    source,
+    model_name: null,
+    model_provider: null,
+    request_format_version: null,
+    wire_provider_format: null,
+    started_at: null,
+    completed_at: null,
+    duration_ms: null,
+    request: {
+      method: typeof input.method === 'string' ? input.method : 'POST',
+      upstream_url: typeof input.upstream_url === 'string' ? input.upstream_url : null,
+      headers: redactSensitiveHeaders(input.headers),
+      body: requestBody,
+      bytes: estimateJsonBytes(requestBody),
+      body_format: inferRawTextFormat(requestBody),
+      body_source: typeof input.body_source === 'string' ? input.body_source : 'span_detail.input'
+    },
+    response: {
+      status_code: toNumber(output.status_code),
+      status_text: typeof output.status_text === 'string' ? output.status_text : null,
+      headers: redactSensitiveHeaders(output.headers),
+      body: responseBody,
+      bytes: estimateJsonBytes(responseBody),
+      body_format: typeof output.body_format === 'string' ? output.body_format : inferRawTextFormat(responseBody),
+      body_source: typeof output.body_source === 'string' ? output.body_source : 'span_detail.output',
+      error_message: typeof output.error_message === 'string' ? output.error_message : null
+    }
+  };
+}
+
+export async function buildConversationRawProviderTrace(
+  database: DatabaseManager,
+  logger: winston.Logger,
+  conversationId: string,
+  spanId: string
+): Promise<RawProviderTraceDto | null> {
+  if (!spanId) {
+    return null;
+  }
+  const detail = await buildConversationTraceSpanDetail(database, logger, conversationId, spanId);
+  return detail ? buildRawProviderTraceFromSpanDetail(detail, spanId, 'conversation_trace_span_detail') : null;
+}
+
+function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): { llmCallId?: string; sliceId?: string } | null {
+  const syntheticProviderRequest = spanId ? parseSyntheticProviderRequestSpanId(spanId) : null;
+  if (syntheticProviderRequest?.llmCallId) {
+    return { llmCallId: syntheticProviderRequest.llmCallId };
+  }
+  if (syntheticProviderRequest?.sliceId) {
+    return { sliceId: syntheticProviderRequest.sliceId };
+  }
+  if (spanId.startsWith('stack-slice:')) {
+    return { sliceId: spanId.slice('stack-slice:'.length) };
+  }
+  if (spanId.startsWith('llm-call:')) {
+    return { llmCallId: spanId.slice('llm-call:'.length) };
+  }
+  if (target.llmRequestSliceId) {
+    return { sliceId: target.llmRequestSliceId };
+  }
+  const targetSpanId = target.spanId || '';
+  if (targetSpanId && targetSpanId !== spanId) {
+    return resolveStackRawTraceLookup({ ...target, spanId: null }, targetSpanId);
+  }
+  return null;
+}
+
+export async function buildStackRawProviderTrace(
+  logger: winston.Logger,
+  target: StackTraceTarget,
+  spanId: string
+): Promise<RawProviderTraceDto | null> {
+  const lookup = resolveStackRawTraceLookup(target, spanId);
+  if (!lookup) {
+    return null;
+  }
+
+  const traceId = firstNonEmptyString(target.traceId);
+  const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const baseLookup = {
+    identityKey: 'xiaoni',
+    ...(traceId ? { traceId } : {}),
+    ...(runId ? { runId } : {})
+  };
+
+  try {
+    const rows = await listLlmRequestSlices({
+      ...baseLookup,
+      ...lookup,
+      rawTraceOnly: true,
+      limit: 1
+    }) as any[];
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+
+    const slice = normalizeStackLlmSlice(row, { includeRawWireText: true });
+    const providerCall = normalizeStackSliceProviderCall(slice);
+    if (!hasProviderWirePayload(providerCall)) {
+      return null;
+    }
+
+    return buildRawProviderTraceFromProviderCall(
+      providerCall,
+      spanId || target.spanId || null,
+      'llm_request_slices.provider_exchange'
+    );
+  } catch (error) {
+    logger.warn('Stack raw provider trace query failed', {
+      error: error instanceof Error ? error.message : String(error),
+      traceId,
+      runId,
+      spanId,
+      lookup
+    });
+    return null;
+  }
 }
 
 export async function buildStackTraceSpanDetail(

@@ -4,7 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { XiaoniActivityPage } from './pages/XiaoniActivityPage';
 import { XiaoniRuntimeSettingsPage } from './pages/XiaoniRuntimeSettingsPage';
-import { ActionEventTracePage } from './pages/ActionEventTracePage';
 import { GroupManagementPage } from './pages/GroupManagementPage';
 import { PrivateChatManagementPage } from './pages/PrivateChatManagementPage';
 import { PromptManagementPage } from './pages/PromptManagementPage';
@@ -69,7 +68,7 @@ function App() {
               <Route path="/dashboard" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/conversations" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/conversation/:conversationId/timeline" element={<ConversationTimelineRedirect />} />
-              <Route path="/xiaoni/action-stream/events/:eventId/trace" element={<ActionEventTracePage />} />
+              <Route path="/xiaoni/action-stream/events/:eventId/trace" element={<Navigate to="/xiaoni-action-stream" replace />} />
               <Route path="/groups" element={<GroupManagementPage />} />
               <Route path="/groups/:groupId" element={<Navigate to="/groups" replace />} />
               <Route path="/private-chats" element={<PrivateChatManagementPage />} />

@@ -222,8 +222,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           icon: Activity,
           description: 'provider、tool、消息和状态事件',
           active: location.pathname === '/xiaoni-action-stream'
-            || location.pathname === '/xiaoni-activity'
-            || location.pathname.startsWith('/xiaoni/action-stream/events/'),
+            || location.pathname === '/xiaoni-activity',
         },
       ],
     },

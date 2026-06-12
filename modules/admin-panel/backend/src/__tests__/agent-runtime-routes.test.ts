@@ -5,8 +5,10 @@ import { createAgentRuntimeRoutes } from '../routes/agent-runtime-routes';
 import {
   buildConversationTracePayload,
   buildConversationTraceSpanDetail,
+  buildConversationRawProviderTrace,
   buildStackTracePayload,
-  buildStackTraceSpanDetail
+  buildStackTraceSpanDetail,
+  buildStackRawProviderTrace
 } from '../services/trace-span-builder';
 import { findXiaoniActionEventTraceTarget } from '@qq-bot/persistence';
 
@@ -21,8 +23,10 @@ jest.mock('@qq-bot/persistence', () => ({
 jest.mock('../services/trace-span-builder', () => ({
   buildConversationTracePayload: jest.fn(),
   buildConversationTraceSpanDetail: jest.fn(),
+  buildConversationRawProviderTrace: jest.fn(),
   buildStackTracePayload: jest.fn(),
-  buildStackTraceSpanDetail: jest.fn()
+  buildStackTraceSpanDetail: jest.fn(),
+  buildStackRawProviderTrace: jest.fn()
 }));
 
 function createLogger(): winston.Logger {
@@ -128,6 +132,80 @@ describe('agent runtime action event trace routes', () => {
       'provider-request:wire:llm_abc'
     );
     expect(response.body.data.input.raw_body).toBe('{"model":"gpt"}');
+  });
+
+  it('loads raw provider exchange through the narrow raw trace route', async () => {
+    const database = createDatabaseMock();
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
+      traceId: 'trace-1',
+      conversationId: '42',
+      spanId: 'stack-slice:slice_abc',
+      internalExecutionLeaseId: 'lease-1',
+      llmRequestSliceId: 'slice_abc',
+      toolCallId: null,
+      stackItemId: '1204'
+    });
+    (buildStackRawProviderTrace as jest.Mock).mockResolvedValueOnce({
+      span_id: 'provider-request:wire:llm_abc',
+      trace_id: 'trace-1',
+      conversation_id: '42',
+      slice_id: 'slice_abc',
+      llm_call_id: 'llm_abc',
+      source: 'llm_request_slices.provider_exchange',
+      model_name: 'gpt-test',
+      model_provider: 'codex',
+      request_format_version: 'responses/v1',
+      wire_provider_format: 'openai/responses',
+      started_at: '2026-06-13T00:00:00.000Z',
+      completed_at: '2026-06-13T00:00:01.000Z',
+      duration_ms: 1000,
+      request: {
+        method: 'POST',
+        upstream_url: 'https://example.test/v1/responses',
+        headers: { 'content-type': 'application/json' },
+        body: '{"model":"gpt"}',
+        bytes: 15,
+        body_format: 'json',
+        body_source: 'llm_request_slices.wire_request'
+      },
+      response: {
+        status_code: 200,
+        status_text: 'OK',
+        headers: { 'content-type': 'text/event-stream' },
+        body: '{"type":"response"}',
+        bytes: 19,
+        body_format: 'json',
+        body_source: 'llm_request_slices.raw_response',
+        error_message: null
+      }
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream/events/llm-slice%3Aslice_abc/raw-trace?spanId=provider-request%3Awire%3Allm_abc');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(buildConversationRawProviderTrace).not.toHaveBeenCalled();
+    expect(buildStackRawProviderTrace).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        traceId: 'trace-1',
+        conversationId: '42',
+        spanId: 'stack-slice:slice_abc',
+        internalExecutionLeaseId: 'lease-1',
+        llmRequestSliceId: 'slice_abc',
+        toolCallId: null,
+        stackItemId: '1204'
+      },
+      'provider-request:wire:llm_abc'
+    );
+    expect(buildStackTracePayload).not.toHaveBeenCalled();
+    expect(buildStackTraceSpanDetail).not.toHaveBeenCalled();
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.data.request.headers['content-type']).toBe('application/json');
+    expect(response.body.data.request.body).toBe('{"model":"gpt"}');
+    expect(response.body.data.response.headers['content-type']).toBe('text/event-stream');
+    expect(response.body.data.response.body).toBe('{"type":"response"}');
   });
 
   it('resolves a life action event to its conversation trace', async () => {

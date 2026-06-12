@@ -1428,7 +1428,41 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
     const summaryOnly = input.summaryOnly === true || input.summary_only === true;
-    const selectColumns = summaryOnly
+    const rawTraceOnly = input.rawTraceOnly === true || input.raw_trace_only === true;
+    const selectColumns = rawTraceOnly
+      ? `
+          id,
+          slice_id,
+          llm_call_id,
+          identity_key,
+          NULL::bigint AS input_start_index,
+          NULL::bigint AS input_end_index,
+          '[]'::jsonb AS input_stack_item_ids,
+          NULL::bigint AS output_start_index,
+          NULL::bigint AS output_end_index,
+          '{}'::jsonb AS canonical_request,
+          wire_request,
+          NULL::jsonb AS canonical_response,
+          wire_response,
+          raw_response,
+          '[]'::jsonb AS output_items,
+          status,
+          token_usage,
+          trace_id,
+          run_id,
+          conversation_id,
+          agent_turn,
+          model_name,
+          model_provider,
+          request_format_version,
+          wire_provider_format,
+          processing_time_ms,
+          metadata,
+          created_at,
+          completed_at,
+          updated_at
+        `
+      : summaryOnly
       ? `
           id,
           slice_id,
