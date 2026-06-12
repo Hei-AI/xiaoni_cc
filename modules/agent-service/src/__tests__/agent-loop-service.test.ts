@@ -658,7 +658,12 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
       callId: 'call-exec-missing-shell',
       name: EXEC_COMMAND_TOOL,
       rawArguments: '{"cmd":"printf unreachable","shell":"/not/a/real-shell"}'
-    }, result);
+    }, result, {
+      loopInput: [],
+      speakingToolName: GROUP_REPLY_TOOL,
+      hasVisibleReply: false,
+      runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
+    });
     assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
     assert.equal(continuation.inputItems[0]?.call_id, 'call-exec-missing-shell');
     const output = typeof continuation.inputItems[0]?.output === 'string'
@@ -671,8 +676,8 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     const stateItem = continuation.inputItems[1];
     assert.equal(stateItem?.type, 'message');
     assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
-    assert.match(getMessageContent(stateItem), /energy=0.998/);
-    assert.match(getMessageContent(stateItem), /max_energy=1.000/);
+    assert.match(getMessageContent(stateItem), /0.910/);
+    assert.match(getMessageContent(stateItem), /1.000/);
   });
 });
 
@@ -2903,6 +2908,11 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
     rawArguments: '{"message":"我们出去玩吧"}'
   }, {
     sent_messages: ['我们出去玩吧']
+  }, {
+    loopInput,
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: true,
+    runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
   });
 
   assert.equal(continuation.forcedVisibleReply, null);
@@ -2914,7 +2924,7 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   const output = JSON.parse(String(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : '{}'));
   assert.deepEqual(output.sent_messages, ['我们出去玩吧']);
   assert.equal(output.energy_cost, 0.015);
-  assert.equal(output.energy, 0.985);
+  assert.equal(output.energy, 0.91);
   assert.equal(output.max_energy, 1);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
@@ -2935,7 +2945,8 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
-    hasVisibleReply: false
+    hasVisibleReply: false,
+    runtimeEnergyState: { energy: 0.88, maxEnergy: 1 }
   });
 
   assert.equal(continuation.inputItems.length, 1);
@@ -2945,18 +2956,23 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
   assert.match(String(output.status_text), /生图任务:task-image-queued 正在进行中/);
   assert.equal(output.energy_cost, 0.03);
-  assert.equal(output.energy, 0.97);
+  assert.equal(output.energy, 0.88);
   assert.equal(output.max_energy, 1);
   assert.equal(continuation.forcedVisibleReply, null);
 });
 
-test('applyToolResultToLoopInput carries energy forward from prior JSON tool output', () => {
+test('applyToolResultToLoopInput uses fresh runtime energy instead of prior JSON tool output', () => {
   const first = applyToolResultToLoopInput({
     callId: 'call-send-first',
     name: PRIVATE_REPLY_TOOL,
     rawArguments: '{"message":"先说一句"}'
   }, {
     sent_messages: ['先说一句']
+  }, {
+    loopInput: [],
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: true,
+    runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
   });
   const loopInput = [
     ...buildInitialInput([], createQueuePayload(), createRuntimePrompt()),
@@ -2973,14 +2989,15 @@ test('applyToolResultToLoopInput carries energy forward from prior JSON tool out
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
-    hasVisibleReply: false
+    hasVisibleReply: false,
+    runtimeEnergyState: { energy: 0.73, maxEnergy: 1 }
   });
 
   const replay = second.inputItems[0];
   assert.equal(replay?.type, 'function_call_output');
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
   assert.equal(output.energy_cost, 0.03);
-  assert.equal(output.energy, 0.955);
+  assert.equal(output.energy, 0.73);
   assert.equal(output.max_energy, 1);
 });
 
@@ -5304,21 +5321,24 @@ test('buildTurnStateReminder injects low-energy STATE from runtime context', () 
 
   assert.ok(reminder);
   assert.match(getMessageContent(reminder!), /<STATE/);
-  assert.match(getMessageContent(reminder!), /energy=0.140/);
-  assert.match(getMessageContent(reminder!), /max_energy=1.000/);
+  assert.match(getMessageContent(reminder!), /0.140/);
+  assert.match(getMessageContent(reminder!), /1.000/);
   assert.doesNotMatch(getMessageContent(reminder!), /trigger=|note=/);
 });
 
-test('buildTurnStateReminder injects explicit runtime STATE directives', () => {
-  const reminder = buildTurnStateReminder('<xiaoni_runtime_state trigger="web_search" energy="0.920" max_energy="1" note="after search" />');
+test('buildTurnStateReminder uses fresh runtime energy over directive values', () => {
+  const reminder = buildTurnStateReminder(
+    '<xiaoni_runtime_state trigger="web_search" energy="0.140" max_energy="1" note="after search" />',
+    { energy: 0.92, maxEnergy: 1 }
+  );
 
   assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /energy=0.920/);
-  assert.match(getMessageContent(reminder!), /max_energy=1.000/);
-  assert.doesNotMatch(getMessageContent(reminder!), /trigger=|after search|note=/);
+  assert.match(getMessageContent(reminder!), /0.920/);
+  assert.match(getMessageContent(reminder!), /1.000/);
+  assert.doesNotMatch(getMessageContent(reminder!), /0.140|trigger=|after search|note=/);
 });
 
-test('applyToolResultToLoopInput appends web_search STATE after hosted search', () => {
+test('applyToolResultToLoopInput appends web_search STATE from fresh runtime energy', () => {
   const continuation = applyToolResultToLoopInput(
     { name: WEB_SEARCH_TOOL, callId: 'call-search', rawArguments: '{}' },
     { result: 'found' },
@@ -5332,15 +5352,17 @@ test('applyToolResultToLoopInput appends web_search STATE after hosted search', 
         }
       ],
       speakingToolName: GROUP_REPLY_TOOL,
-      hasVisibleReply: false
+      hasVisibleReply: false,
+      runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
     }
   );
 
-  const stateItem = continuation.inputItems.find((item) => getMessageContent(item).includes('energy=0.420'));
+  const stateItem = continuation.inputItems.find((item) => getMessageContent(item).includes('0.910'));
   assert.ok(stateItem);
   assert.equal(stateItem?.type, 'message');
   assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
-  assert.match(getMessageContent(stateItem), /energy=0.420/);
+  assert.match(getMessageContent(stateItem), /0.910/);
+  assert.doesNotMatch(getMessageContent(stateItem), /0.420/);
   assert.doesNotMatch(getMessageContent(stateItem), /trigger=|note=/);
 });
 

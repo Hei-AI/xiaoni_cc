@@ -148,6 +148,7 @@ type ToolContinuationContext = {
   loopInput: OpenResponseInputItem[];
   speakingToolName: string;
   hasVisibleReply: boolean;
+  runtimeEnergyState?: RuntimeEnergyState | null;
 };
 
 type ToolExecutionContext = {
@@ -158,6 +159,12 @@ type RuntimeStateTrigger =
   | 'action_tool_threshold'
   | 'web_search'
   | 'low_energy_reminder';
+
+export type RuntimeEnergyState = {
+  energy: number;
+  maxEnergy: number;
+  lastWakeAt?: string | null;
+};
 
 type DeliveredAssistantMessage = {
   content: string;
@@ -1494,67 +1501,11 @@ export function buildRuntimeStateBlock(input: {
 }) {
   const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
   const energy = normalizeRuntimeEnergy(input.energy, maxEnergy);
-  const body = [
-    `energy=${formatRuntimeEnergy(energy)}`,
-    `max_energy=${formatRuntimeEnergy(maxEnergy)}`
-  ].filter(Boolean).join('\n');
+  const body = renderPromptSnippet('runtime_state.md', {
+    ENERGY: formatRuntimeEnergy(energy),
+    MAX_ENERGY: formatRuntimeEnergy(maxEnergy)
+  });
   return formatTaggedBlock('STATE', {}, body);
-}
-
-function parseRuntimeStateFromFunctionOutput(output: string) {
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return null;
-    }
-    const record = parsed as Record<string, unknown>;
-    const energy = normalizeRuntimeEnergy(record.energy, Number.NaN);
-    const maxEnergy = normalizeRuntimeEnergy(record.max_energy ?? record.maxEnergy, RUNTIME_MAX_ENERGY);
-    if (!Number.isFinite(energy)) {
-      return null;
-    }
-    return {
-      energy,
-      maxEnergy: Math.max(0.001, maxEnergy)
-    };
-  } catch {
-    return null;
-  }
-}
-
-function extractLatestRuntimeState(loopInput: OpenResponseInputItem[]) {
-  for (let index = loopInput.length - 1; index >= 0; index -= 1) {
-    const item = loopInput[index];
-    if (item.type === 'function_call_output') {
-      const state = parseRuntimeStateFromFunctionOutput(String(item.output || ''));
-      if (state) {
-        return state;
-      }
-      continue;
-    }
-    if (item.type !== 'message') {
-      continue;
-    }
-    const content = flattenMessageContent(item.content);
-    const stateEnergy = content.match(/<STATE\b[^>]*\benergy="(-?\d+(?:\.\d+)?)"/)
-      || content.match(/<STATE\b[\s\S]*?(?:^|\n)energy=(-?\d+(?:\.\d+)?)/m);
-    if (stateEnergy) {
-      const stateMaxEnergy = content.match(/<STATE\b[^>]*\bmax_energy="(-?\d+(?:\.\d+)?)"/)
-        || content.match(/<STATE\b[\s\S]*?(?:^|\n)max_energy=(-?\d+(?:\.\d+)?)/m);
-      return {
-        energy: Number(stateEnergy[1]),
-        maxEnergy: Math.max(0.001, normalizeRuntimeEnergy(stateMaxEnergy?.[1], RUNTIME_MAX_ENERGY))
-      };
-    }
-  }
-  return {
-    energy: RUNTIME_MAX_ENERGY,
-    maxEnergy: RUNTIME_MAX_ENERGY
-  };
-}
-
-function extractLatestRuntimeEnergy(loopInput: OpenResponseInputItem[]) {
-  return extractLatestRuntimeState(loopInput).energy;
 }
 
 function extractRuntimeStateDirective(developerContextBlock: string | null | undefined) {
@@ -2691,16 +2642,27 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
 }
 
-export function buildTurnStateReminder(developerContextBlock: string | null | undefined): OpenResponseInputItem | null {
+export function buildTurnStateReminder(
+  developerContextBlock: string | null | undefined,
+  runtimeEnergyState: RuntimeEnergyState | null = null
+): OpenResponseInputItem | null {
   const directive = extractRuntimeStateDirective(developerContextBlock);
   if (!directive) {
     return null;
   }
+  const runtimeEnergy = runtimeEnergyState?.energy;
+  const runtimeMaxEnergy = runtimeEnergyState?.maxEnergy;
+  const energy = Number.isFinite(runtimeEnergy)
+    ? Number(runtimeEnergy)
+    : directive.energy;
+  const maxEnergy = Number.isFinite(runtimeMaxEnergy)
+    ? Math.max(0.001, Number(runtimeMaxEnergy))
+    : directive.maxEnergy;
   return buildDeveloperInputItem([
     buildRuntimeStateBlock({
       trigger: directive.trigger,
-      energy: directive.energy,
-      maxEnergy: directive.maxEnergy,
+      energy,
+      maxEnergy,
       note: directive.note
     })
   ]);
@@ -3886,17 +3848,19 @@ function parseFeedbackReflectionCandidate(value: unknown): FeedbackReflectionCan
   };
 }
 
-function buildToolRuntimeEnergyResult(toolName: string, loopInput: OpenResponseInputItem[]) {
+function buildToolRuntimeEnergyResult(toolName: string, runtimeEnergyState?: RuntimeEnergyState | null) {
   const cost = RUNTIME_TOOL_COSTS[toolName];
   if (!Number.isFinite(cost)) {
     return null;
   }
-  const currentState = extractLatestRuntimeState(loopInput);
-  const nextEnergy = normalizeRuntimeEnergy(currentState.energy - cost, currentState.maxEnergy);
+  const energy = normalizeRuntimeEnergy(runtimeEnergyState?.energy, Number.NaN);
+  const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(runtimeEnergyState?.maxEnergy, RUNTIME_MAX_ENERGY));
   return {
     energy_cost: Number(cost),
-    energy: nextEnergy,
-    max_energy: currentState.maxEnergy
+    ...(Number.isFinite(energy) ? {
+      energy,
+      max_energy: maxEnergy
+    } : {})
   };
 }
 
@@ -3905,7 +3869,7 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
-  const runtimeEnergy = buildToolRuntimeEnergyResult(toolCall.name, context?.loopInput ?? []);
+  const runtimeEnergy = buildToolRuntimeEnergyResult(toolCall.name, context?.runtimeEnergyState ?? null);
   const usesNativeToolOutput = toolCall.name === 'web_search'
     || (toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string')
     || (toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string')
@@ -3929,7 +3893,13 @@ export function applyToolResultToLoopInput(
           ? prefixTaggedBlockBodyWithEast8Time(toolResult.system_reminder, 'system_reminder')
           : JSON.stringify(structuredToolResult)
   }];
-  if (runtimeEnergy && usesNativeToolOutput && toolCall.name !== TOOL_NAMES.recoverEnergy) {
+  if (
+    runtimeEnergy
+    && typeof runtimeEnergy.energy === 'number'
+    && typeof runtimeEnergy.max_energy === 'number'
+    && usesNativeToolOutput
+    && toolCall.name !== TOOL_NAMES.recoverEnergy
+  ) {
     inputItems.push(buildDeveloperInputItem([
       buildRuntimeStateBlock({
         trigger: toolCall.name === 'web_search' ? 'web_search' : 'action_tool_threshold',
@@ -4213,7 +4183,7 @@ export class AgentLoopService {
 
     let session = await store.getActiveAgentRecoverySession.call(this.store);
     if (!session) {
-      const energyState = await this.getCurrentEnergyStateForRecovery(buildRuntimeLoopFrameQueueMessage().payload).catch(() => null);
+      const energyState = await this.getCurrentRuntimeEnergyState(buildRuntimeLoopFrameQueueMessage().payload).catch(() => null);
       const pressure = energyState ? 1 - (energyState.energy / Math.max(0.001, energyState.maxEnergy)) : 0;
       if (!energyState || pressure < DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure || typeof store.createAgentRecoverySession !== 'function') {
         return { status: 'none', inputItems: [] };
@@ -4616,6 +4586,7 @@ export class AgentLoopService {
       runtimePrompt = resolvedRuntimePrompt;
       runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
       const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);
+      const initialRuntimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
       {
         const presenceLoader = (this.store as RuntimeStore & {
           buildPresenceContext?: RuntimeStore['buildPresenceContext'];
@@ -4640,6 +4611,7 @@ export class AgentLoopService {
         loopContinuation,
         runtimeIdentityFacts,
         developerContextBlock,
+        runtimeEnergyState: initialRuntimeEnergyState,
         contextSessionKey,
         cutoffState,
         triggerInputMode: options.triggerInputMode,
@@ -4977,10 +4949,12 @@ export class AgentLoopService {
               deliveredMessages.push(...extractDeliveredAssistantMessages(toolResult));
             }
 
+            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
             const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
               loopInput: requestInput,
               speakingToolName: payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
-              hasVisibleReply: deliveredMessages.length > 0
+              hasVisibleReply: deliveredMessages.length > 0,
+              runtimeEnergyState
             });
             const toolOutputStackRows = await this.appendAgentStackItemsSafe({
               traceId: payload.traceId,
@@ -5068,6 +5042,7 @@ export class AgentLoopService {
                 contextSummary: compressedContextSummary,
                 pendingProactiveShare: budgetPlan.pendingProactiveShare,
                 developerContextBlock,
+                runtimeEnergyState,
                 triggerInputMode: 'suppress_current_trigger'
               });
             }
@@ -6143,6 +6118,7 @@ export class AgentLoopService {
     loopContinuation: OpenResponseInputItem[];
     runtimeIdentityFacts: RuntimeIdentityFactProjection[];
     developerContextBlock?: string | null;
+    runtimeEnergyState?: RuntimeEnergyState | null;
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
@@ -6178,6 +6154,7 @@ export class AgentLoopService {
         contextSummary,
         pendingProactiveShare,
         developerContextBlock: params.developerContextBlock ?? null,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
         triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       });
@@ -6206,6 +6183,7 @@ export class AgentLoopService {
         contextSummary,
         pendingProactiveShare,
         developerContextBlock: params.developerContextBlock ?? null,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
         triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       });
@@ -6248,6 +6226,7 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
@@ -6289,6 +6268,7 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
@@ -6310,6 +6290,7 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
@@ -6871,10 +6852,12 @@ export class AgentLoopService {
                   no_traffic_persist: true
                 }
               });
+              const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
               const continuation = applyToolResultToLoopInput(toolCall, commit.toolResult, {
                 loopInput: forkInput,
                 speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
-                hasVisibleReply: false
+                hasVisibleReply: false,
+                runtimeEnergyState
               });
               if (continuation.forcedVisibleReply) {
                 throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
@@ -6927,10 +6910,12 @@ export class AgentLoopService {
               return commit;
             }
 
+            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
             const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
               loopInput: forkInput,
               speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
-              hasVisibleReply: false
+              hasVisibleReply: false,
+              runtimeEnergyState
             });
             if (continuation.forcedVisibleReply) {
               throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
@@ -7107,7 +7092,7 @@ export class AgentLoopService {
         return this.requestImageTask(toolCall.args, queueMessage);
       }
       case TOOL_NAMES.recoverEnergy: {
-        const energyState = await this.getCurrentEnergyStateForRecovery(queueMessage);
+        const energyState = await this.getCurrentRuntimeEnergyState(queueMessage);
         const now = new Date();
         const gate = energyState
           ? shouldAcceptVoluntaryRecovery({
@@ -7187,7 +7172,7 @@ export class AgentLoopService {
     }
   }
 
-  private async getCurrentEnergyStateForRecovery(queueMessage: QueueMessageRecord['payload']) {
+  private async getCurrentRuntimeEnergyState(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeEnergyState | null> {
     const reader = (this.store as RuntimeStore & {
       getCurrentXiaoniEnergyState?: RuntimeStore['getCurrentXiaoniEnergyState'];
     }).getCurrentXiaoniEnergyState;
@@ -7997,11 +7982,12 @@ function buildLoopRequestInput(params: {
   contextSummary?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
+  runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
 }) {
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null),
     ...params.loopContinuation
   ];
 }
@@ -8032,6 +8018,7 @@ async function recomputeReadCutoffToTarget(params: {
   contextSummary?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
+  runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
 }) {
@@ -8049,7 +8036,9 @@ async function recomputeReadCutoffToTarget(params: {
         loopContinuation: params.loopContinuation,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary: params.contextSummary,
+        pendingProactiveShare: params.pendingProactiveShare,
         developerContextBlock: params.developerContextBlock,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
         triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       })
@@ -8067,7 +8056,9 @@ async function recomputeReadCutoffToTarget(params: {
         loopContinuation: params.loopContinuation,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary: params.contextSummary,
+        pendingProactiveShare: params.pendingProactiveShare,
         developerContextBlock: params.developerContextBlock,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
         triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       })
@@ -8090,6 +8081,7 @@ async function recomputeReadCutoffToTarget(params: {
       contextSummary: params.contextSummary,
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     }),
@@ -8316,7 +8308,8 @@ export function buildInitialInput(
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null,
   triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
-  appendSelfContinuationOnTerminalFinalAnswer = false
+  appendSelfContinuationOnTerminalFinalAnswer = false,
+  runtimeEnergyState: RuntimeEnergyState | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -8409,7 +8402,7 @@ export function buildInitialInput(
       content: developerContextParts.dynamicContext
     });
   }
-  const turnStateReminder = buildTurnStateReminder(developerContextBlock);
+  const turnStateReminder = buildTurnStateReminder(developerContextBlock, runtimeEnergyState);
   if (turnStateReminder) {
     items.push(turnStateReminder);
   }
