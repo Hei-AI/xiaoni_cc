@@ -13,6 +13,7 @@ import {
 } from '../services/trace-span-builder';
 import {
   findXiaoniActionEventTraceTarget,
+  getXiaoniActionStream,
   listAgentRecoverySessions
 } from '@qq-bot/persistence';
 
@@ -88,6 +89,22 @@ describe('agent runtime recovery session routes', () => {
         startedAt: '2026-06-12T23:00:00.000Z'
       }
     ]);
+    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
+      current: {
+        latestActivityAt: '2026-06-13T00:00:00.000Z',
+        lifeState: {
+          projection: {
+            state: {
+              energy: 0.87,
+              actionCost: 0.13
+            }
+          },
+          explanation: {
+            summary: '当前精力=0.87'
+          }
+        }
+      }
+    });
 
     const response = await request(createApp(database))
       .get('/api/agent-runtime/recovery-sessions?identity_key=xiaoni&status=all&limit=40');
@@ -99,9 +116,15 @@ describe('agent runtime recovery session routes', () => {
       status: 'all',
       limit: 40
     });
+    expect(getXiaoniActionStream).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      limit: 1
+    });
     expect(response.body.data.active.id).toBe(88);
     expect(response.body.data.sessions).toHaveLength(2);
+    expect(response.body.data.current.lifeState.projection.state.energy).toBe(0.87);
     expect(response.body.data.runtime.live).toBe(true);
+    expect(response.body.data.current.runtime.live).toBe(true);
     expect(database.executeQuery).not.toHaveBeenCalled();
   });
 });

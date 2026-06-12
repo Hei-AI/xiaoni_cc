@@ -67,12 +67,39 @@ type RuntimeSnapshot = {
   errorMessage: string | null;
 };
 
+type LifeStateSnapshot = {
+  projection?: {
+    version?: string | null;
+    generatedAt?: string | null;
+    state?: {
+      energy?: number | null;
+      actionCost?: number | null;
+    };
+  };
+  explanation?: {
+    summary?: string | null;
+    generatedAt?: string | null;
+  };
+  reducedThroughEventId?: string | null;
+  reducedThroughOccurredAt?: string | null;
+  projectionVersion?: string | null;
+  projectionUpdatedAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type CurrentRecoveryState = {
+  latestActivityAt: string | null;
+  lifeState: LifeStateSnapshot | null;
+  runtime?: RuntimeSnapshot;
+};
+
 type RecoverySessionsPayload = {
   identityKey: string;
   status: string;
   limit: number;
   active: RecoverySession | null;
   sessions: RecoverySession[];
+  current?: CurrentRecoveryState;
   runtime: RuntimeSnapshot;
 };
 
@@ -89,11 +116,15 @@ function formatNumber(value: number | null | undefined, digits = 3) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '-';
 }
 
+function formatEnergyValue(energy: number | null | undefined, maxEnergy: number | null | undefined = 1) {
+  return `${formatNumber(energy)}/${formatNumber(maxEnergy || 1)}`;
+}
+
 function formatEnergy(session: RecoverySession | null | undefined) {
   if (!session) {
     return '-';
   }
-  return `${formatNumber(session.currentEnergy)}/${formatNumber(session.maxEnergy)}`;
+  return formatEnergyValue(session.currentEnergy, session.maxEnergy);
 }
 
 function formatDuration(startedAt: string | null, endedAt: string | null) {
@@ -198,14 +229,30 @@ export const XiaoniRecoveryPage: React.FC = () => {
   const payload = query.data;
   const active = payload?.active || null;
   const sessions = payload?.sessions || [];
-  const runtimeLive = payload?.runtime?.live;
+  const current = payload?.current || null;
+  const runtime = current?.runtime || payload?.runtime;
+  const runtimeLive = runtime?.live;
+  const lifeState = current?.lifeState || null;
+  const projectedState = lifeState?.projection?.state || {};
+  const projectedEnergy = typeof projectedState.energy === 'number' && Number.isFinite(projectedState.energy)
+    ? projectedState.energy
+    : null;
+  const projectedActionCost = typeof projectedState.actionCost === 'number' && Number.isFinite(projectedState.actionCost)
+    ? projectedState.actionCost
+    : null;
+  const currentEnergy = typeof active?.currentEnergy === 'number' && Number.isFinite(active.currentEnergy)
+    ? active.currentEnergy
+    : projectedEnergy;
+  const currentMaxEnergy = active?.maxEnergy || 1;
+  const stateSummary = lifeState?.explanation?.summary || null;
+  const projectionUpdatedAt = lifeState?.projectionUpdatedAt || lifeState?.projection?.generatedAt || lifeState?.updatedAt || null;
 
   return (
     <PageShell>
       <PageHeader
         eyebrow="Recover Energy"
         title="小腻休息"
-        description="查看 recover_energy 的当前休眠会话、醒来原因、闹钟状态和被喊醒计数。"
+        description="查看小腻当前精力投影、recover_energy 休眠会话、醒来原因、闹钟状态和被喊醒计数。"
         icon={<Moon className="h-5 w-5" />}
         badge={
           <StatusPill tone={active ? 'warning' : runtimeLive ? 'success' : 'danger'}>
@@ -227,20 +274,27 @@ export const XiaoniRecoveryPage: React.FC = () => {
         />
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           label="当前状态"
           value={active ? '休息中' : '清醒'}
-          detail={active ? `已休息 ${formatDuration(active.startedAt, null)}` : '没有 active recovery session'}
+          detail={active ? `已休息 ${formatDuration(active.startedAt, null)}` : `最近活动 ${formatTimestamp(current?.latestActivityAt, { fallback: '-' })}`}
           icon={<Moon className="h-4 w-4" />}
           tone={active ? 'warning' : 'success'}
         />
         <MetricCard
           label="当前精力"
-          value={formatEnergy(active)}
-          detail={active ? `起始 ${formatNumber(active.startEnergy)}` : 'active session 为空'}
+          value={formatEnergyValue(currentEnergy, currentMaxEnergy)}
+          detail={active ? `起始 ${formatNumber(active.startEnergy)}` : `投影 ${formatTimestamp(projectionUpdatedAt, { fallback: '-' })}`}
           icon={<BatteryMedium className="h-4 w-4" />}
-          tone={active && (active.currentEnergy ?? 0) < 0 ? 'danger' : 'default'}
+          tone={(currentEnergy ?? 1) < 0 ? 'danger' : 'default'}
+        />
+        <MetricCard
+          label="行动负荷"
+          value={formatNumber(projectedActionCost)}
+          detail={stateSummary || lifeState?.projectionVersion || lifeState?.projection?.version || '生命状态投影'}
+          icon={<Clock3 className="h-4 w-4" />}
+          tone={(projectedActionCost ?? 0) > 0.8 ? 'warning' : 'default'}
         />
         <MetricCard
           label="Clock"
@@ -257,6 +311,47 @@ export const XiaoniRecoveryPage: React.FC = () => {
           tone={active && active.wakeRequiredCount && active.wakeCallCount >= active.wakeRequiredCount ? 'danger' : 'default'}
         />
       </div>
+
+      <SectionPanel
+        title="当前生命状态"
+        description="来自 agent_session_life_states 的投影；没有 active sleep 时，当前精力仍然从这里读取。"
+        icon={<BatteryMedium className="h-4 w-4 text-primary" />}
+      >
+        {lifeState ? (
+          <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <div className="text-muted-foreground">精力</div>
+              <div className="mt-1 font-medium text-foreground">{formatEnergyValue(projectedEnergy, 1)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">行动负荷</div>
+              <div className="mt-1 font-medium text-foreground">{formatNumber(projectedActionCost)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">投影版本</div>
+              <div className="mt-1 truncate font-medium text-foreground" title={lifeState.projectionVersion || lifeState.projection?.version || undefined}>
+                {lifeState.projectionVersion || lifeState.projection?.version || '-'}
+              </div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">更新时间</div>
+              <div className="mt-1 font-medium text-foreground">{formatTimestamp(projectionUpdatedAt, { fallback: '-' })}</div>
+            </div>
+            {stateSummary ? (
+              <div className="md:col-span-2 xl:col-span-4">
+                <div className="text-muted-foreground">摘要</div>
+                <div className="mt-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-foreground">{stateSummary}</div>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyState
+            icon={<BatteryMedium className="h-8 w-8" />}
+            title="暂无生命状态投影"
+            description="agent_session_life_states 还没有返回小腻的当前精力。"
+          />
+        )}
+      </SectionPanel>
 
       <SectionPanel
         title="当前休息会话"
