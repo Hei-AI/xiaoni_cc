@@ -35,7 +35,9 @@ AgentLoopService.runRuntimeLoop()
   -> provider-service codex-provider / OpenAI
   -> append response.output_items into agent_stack_items
   -> if function_call: dispatch tools and append function_call_output
-  -> if final_answer and no tool: append normal self_continuation developer input to replay
+  -> if final_answer and no tool: yield; do not eagerly append self_continuation
+  -> next loop first tries to pick notify
+  -> if no notify and request window still ends with final_answer: append normal self_continuation developer input
   -> settle/yield this frame, then return to the top of the main while
 ```
 
@@ -58,6 +60,9 @@ sequenceDiagram
   opt picked notify
     L->>S: append runtime_input for picked notify
   end
+  opt no picked notify and previous request window ended with final_answer
+    L->>S: append self_continuation runtime_input for this request
+  end
   L->>L: build requestInput from stack window + optional runtime input
   L->>P: canonical request(systemPrompt, requestInput)
   P-->>L: response.output_items
@@ -66,7 +71,7 @@ sequenceDiagram
     L->>L: execute tools from this provider response
     L->>S: append function_call_output
   else final_answer without tools
-    L->>S: append self_continuation runtime_input for replay
+    L->>L: yield without eager self_continuation
   end
   L->>L: settle/yield frame and return to while top
   L->>L: sleep iteration delay between frames
@@ -140,8 +145,9 @@ canonical_response
   -> no function_call
   -> append response output items
   -> do not append final-answer-specific reminder
-  -> append normal self_continuation developer reminder to responses_replay_items
-  -> keep that developer reminder in responses_replay_items for the next request
+  -> yield to runtime main while
+  -> next iteration picks notify first
+  -> if no notify is picked and request window still ends with final_answer, append normal self_continuation developer reminder to the new request
 ```
 
 当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
@@ -152,9 +158,10 @@ canonical_response
   provider evidence，由 provider-service / codex-provider 返回，agent-service 只落库保存。
   Trace detail 查这一层，不做 replay 过滤。
 - `responses_replay_items` 是 agent-service 为后续请求保存的 model-visible replay。
-  它只保存能重新喂给模型的 item；`final_answer` 后追加的普通 `self_continuation`
-  是 `developer` role，也必须保留在这里。否则下一次 request 重新组装时会看不到这条
-  `<system_reminder>`。
+  它只保存能重新喂给模型的模型输出和工具输出；`final_answer` 后的普通
+  `self_continuation` 不是提前写入上一帧 replay，而是在下一轮确认没有 notify 可 pick、
+  且 request window 末尾仍是 `final_answer` 时，作为 `developer` role `<system_reminder>`
+  插入本轮 request。
 
 ## 动作分发
 
@@ -165,7 +172,7 @@ canonical_response
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `runRuntimeLoop()` iteration pick。 |
-| `final_answer` | 无外部工具分发；如果没有工具调用，先追加模型 output item，再追加普通 `self_continuation` runtime input 进入 replay，frame 随即 yield。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
+| `final_answer` | 无外部工具分发；如果没有工具调用，只追加模型 output item 并 yield。下一轮先 pick notify；没有 notify 且 request window 末尾仍是 `final_answer` 时，才追加普通 `self_continuation` runtime input。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；后续 iteration 重新从主 while 顶部 pick notify，原始 Notify 不会重新作为当前输入。 |
 
 ## 图片理解 Fork

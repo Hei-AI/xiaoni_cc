@@ -25,11 +25,11 @@ agent_stack_items[0..n]
 ```
 
 `final_answer` 不是主 runtime 的终止条件。它只是模型本 slice 没有更多工具调用的
-输出形态；如果小腻仍然活着，当前 frame 会追加普通 `self_continuation` runtime
-input 到 replay，然后 yield 回 `AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。
-下一次 runtime iteration 会先重新 pick notify；没有 notify 且没有休息窗口时，再用
-`runtime_loop` frame 继续发模型请求。不要为了 `final_answer` 额外制造专用 prompt
-reminder，也不要在同一个 frame 里内部连打下一次模型。
+输出形态；当前 frame 只记录这个 `final_answer` 并 yield 回
+`AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。下一次 runtime iteration 会先重新
+pick notify；只有没有 notify 且 request window 末尾仍是 `final_answer` 时，`runtime_loop`
+frame 才追加普通 `self_continuation` runtime input 作为下一步行动提示。不要为了
+`final_answer` 额外制造专用 prompt reminder，也不要在同一个 frame 里内部连打下一次模型。
 
 当前实现边界：
 
@@ -46,7 +46,10 @@ flowchart TD
   F -- no notify --> I[create runtime_loop frame without queue row]
   G --> J[append runtime_input for picked notify]
   H --> J
-  I --> K
+  I --> Q{request window ended with final_answer?}
+  Q -- yes --> W[append normal self_continuation runtime_input]
+  Q -- no --> K
+  W --> K
   J --> K[build requestInput from stack window + appended runtime input]
   K --> L[POST provider once with same system prompt and assembled requestInput]
   L --> M[append response.output_items to stack and replay]
@@ -55,7 +58,7 @@ flowchart TD
   O --> P[append function_call_output to stack and replay]
   P --> V[yield frame]
   N -- no --> R{phase is final_answer?}
-  R -- yes --> S[append normal self_continuation runtime_input to replay]
+  R -- yes --> S[yield without eager self_continuation]
   S --> V
   R -- no --> V
   V --> D
@@ -306,12 +309,12 @@ node --test packages/persistence/__tests__/*.test.js
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
 - 没有 Notify Bucket row 时，runtime loop 仍创建 `runtime_loop` frame 并发起模型
   slice；它不会写入或结算 `agent_queue_messages`。
-- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；直接 append 普通
-  `self_continuation` developer reminder，并确保该 developer item 进入
-  `responses_replay_items`，后续模型请求能真实看到它。
+- `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder，也不提前写入
+  `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且 request window
+  末尾仍是 `final_answer`，才追加普通 `self_continuation` developer reminder，后续模型
+  请求能真实看到它。
 - 单个 runtime iteration / frame 只允许一次 provider model slice；工具结果或
-  `final_answer` 后的 reminder 写入 replay 后必须 yield 回主 `while` 顶部重新
-  pick notify。
+  `final_answer` 后必须 yield 回主 `while` 顶部重新 pick notify。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

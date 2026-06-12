@@ -179,8 +179,8 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
-async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown) {
-  await (service as any).processRuntimeFrame(queueMessage);
+async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown, options: Record<string, unknown> = {}) {
+  await (service as any).processRuntimeFrame(queueMessage, options);
 }
 
 function createConversationTurn(overrides: Partial<{
@@ -1196,6 +1196,50 @@ test('buildInitialInput replays stored assistant messages across turns', () => {
   assert.ok(assistantItem);
   assert.equal(assistantItem.phase, 'commentary');
   assert.equal(assistantItem.content[0]?.type, 'output_text');
+});
+
+test('buildInitialInput appends self continuation after terminal final_answer only when requested', () => {
+  const turn = createConversationTurn({
+    id: 47,
+    userMessage: '',
+    aiResponse: null
+  });
+  turn.rawResponse = {
+    responses_replay_items: [
+      {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{
+          type: 'output_text',
+          text: '留白。'
+        }]
+      }
+    ]
+  };
+
+  const withoutReminder = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', false);
+  assert.equal(withoutReminder.some((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('<system_reminder>')
+  )), false);
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true);
+  const finalAnswerIndex = loopInput.findIndex((item: any) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && item.phase === 'final_answer'
+    && getMessageContent(item).includes('留白')
+  ));
+  const reminderIndex = loopInput.findIndex((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('<system_reminder>')
+  ));
+
+  assert.ok(finalAnswerIndex >= 0);
+  assert.equal(reminderIndex, finalAnswerIndex + 1);
 });
 
 test('buildInitialInput drops unpaired stored tool calls across turns', () => {
@@ -3961,7 +4005,7 @@ test('runtime frame yields after a no-tool model slice without synthetic follow-
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('runtime frame appends final_answer self continuation and yields to the main loop', async () => {
+test('runtime frame records final_answer without eager self continuation when queue-backed', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4045,31 +4089,118 @@ test('runtime frame appends final_answer self continuation and yields to the mai
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'self_continuation_appended');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'final_answer_yielded');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, null);
-  assert.equal(
-    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
-      item?.type === 'message'
-        && item?.role === 'assistant'
-        && item?.phase === 'final_answer'
-        && JSON.stringify(item.content).includes('这条时间戳还是刚才那一尾')
-    ),
-    true
+  const replayItems = storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || [];
+  const finalAnswerReplayIndex = replayItems.findIndex((item: any) =>
+    item?.type === 'message'
+      && item?.role === 'assistant'
+      && item?.phase === 'final_answer'
+      && JSON.stringify(item.content).includes('这条时间戳还是刚才那一尾')
   );
-  assert.equal(
-    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
-      item?.type === 'message'
-        && item?.role === 'developer'
-        && JSON.stringify(item.content).includes('<system_reminder>')
-    ),
-    true
+  const reminderReplayIndex = replayItems.findIndex((item: any) =>
+    item?.type === 'message'
+      && item?.role === 'developer'
+      && JSON.stringify(item.content).includes('<system_reminder>')
   );
+  assert.ok(finalAnswerReplayIndex >= 0);
+  assert.equal(reminderReplayIndex, -1);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
   assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
+});
+
+test('runtime_loop frame inserts self continuation after prior final_answer when no notify is picked', async () => {
+  const priorTurn = createConversationTurn({
+    id: 1998,
+    userMessage: '',
+    aiResponse: null
+  });
+  priorTurn.rawResponse = {
+    responses_replay_items: [{
+      type: 'message',
+      role: 'assistant',
+      phase: 'final_answer',
+      content: [{ type: 'output_text', text: '留白。' }]
+    }]
+  };
+  const queueMessage = {
+    id: 'runtime-no-notify-after-final',
+    traceId: 'trace-runtime-no-notify-after-final',
+    batchId: 'batch-runtime-no-notify-after-final',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [],
+    payload: {
+      ...createQueuePayload(),
+      source: 'runtime_loop',
+      messages: []
+    }
+  };
+  const storeCalls: Record<string, any[]> = {
+    createConversation: []
+  };
+  const store = {
+    createLlmJob: async () => 'job-runtime-no-notify-after-final',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [priorTurn],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2000;
+    },
+    attachConversationIdToTrace: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  let capturedInput: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedInput = canonicalRequest.input || [];
+    return {
+      success: true,
+      llm_call_id: 'llm-runtime-no-notify-after-final',
+      canonical_response: {
+        output: []
+      }
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
+
+  const finalAnswerIndex = capturedInput.findIndex((item: any) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && item.phase === 'final_answer'
+    && getMessageContent(item).includes('留白')
+  ));
+  const reminderIndex = capturedInput.findIndex((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('<system_reminder>')
+  ));
+  assert.ok(finalAnswerIndex >= 0);
+  assert.equal(reminderIndex, finalAnswerIndex + 1);
+  assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<system_reminder>'), false);
 });
 
 test('runtime frame waits before its single model slice when runtime control is disabled', async () => {

@@ -2484,6 +2484,28 @@ function buildSelfContinuationInputItem(): OpenResponseInputItem {
   return buildDeveloperInputItem([renderSelfContinuationReminder()]);
 }
 
+function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined): boolean {
+  return Boolean(item && item.type === 'message' && item.role === 'assistant' && item.phase === 'final_answer');
+}
+
+function shouldAllowSelfContinuationOnTerminalFinalAnswer(
+  options: ReturnType<typeof normalizeRuntimeFrameOptions>
+): boolean {
+  return !options.queueBacked
+    && options.triggerInputMode === 'suppress_current_trigger';
+}
+
+function hasSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputItem[]): boolean {
+  const expectedReminder = renderSelfContinuationReminder();
+  return items.some((item, index) => (
+    index > 0
+    && isAssistantFinalAnswerInputItem(items[index - 1])
+    && item.type === 'message'
+    && item.role === 'developer'
+    && flattenMessageContent(item.content).trim() === expectedReminder
+  ));
+}
+
 function isPhoneNotificationDirectCueMessage(
   queueMessage: QueueMessageRecord['payload'],
   message: QueueBatchMessage
@@ -4207,6 +4229,7 @@ export class AgentLoopService {
         limit: GLOBAL_PROMPT_HISTORY_LIMIT
       });
       historyCount = history.length;
+      const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
       runtimePrompt = await this.resolveStableRuntimePrompt(payload);
       await this.ensureRuntimeIdentityRoot(payload, runtimePrompt);
@@ -4237,7 +4260,8 @@ export class AgentLoopService {
         runtimeIdentityFacts,
         developerContextBlock,
         contextSessionKey,
-        triggerInputMode: options.triggerInputMode
+        triggerInputMode: options.triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer: allowSelfContinuationOnTerminalFinalAnswer
       });
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
@@ -4268,6 +4292,22 @@ export class AgentLoopService {
               queueMessage: payload,
               runId: queueMessage.id,
               runtimePrompt
+            }) as Record<string, unknown>
+          ]
+        });
+      }
+      if (hasSelfContinuationAfterAssistantFinalAnswer(requestInput)) {
+        await this.appendAgentStackItemsSafe({
+          traceId: payload.traceId,
+          runId: queueMessage.id,
+          sourceType: 'agent_runtime',
+          sourceId: queueMessage.id,
+          items: [
+            buildLoopSelfContinuationStackItem({
+              queueMessage: payload,
+              runId: queueMessage.id,
+              turn: 1,
+              inputItem: buildSelfContinuationInputItem()
             }) as Record<string, unknown>
           ]
         });
@@ -4621,35 +4661,6 @@ export class AgentLoopService {
             throw error;
           }
         }
-        if (!hasToolCall && actionPlan.hasFinalAnswer && !leaseRelease) {
-          const selfContinuationInputItem = buildSelfContinuationInputItem();
-          appendLoopInputItems([selfContinuationInputItem]);
-          await this.appendAgentStackItemsSafe({
-            traceId: payload.traceId,
-            runId: queueMessage.id,
-            sourceType: 'agent_runtime',
-            sourceId: queueMessage.id,
-            items: [
-              buildLoopSelfContinuationStackItem({
-                queueMessage: payload,
-                runId: queueMessage.id,
-                turn,
-                inputItem: selfContinuationInputItem
-              }) as Record<string, unknown>
-            ]
-          });
-          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-          if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
-            leaseRelease = buildLeaseReleaseRecord({
-              reason: 'visible_delivery_committed',
-              detail: 'Visible delivery was committed; this frame persisted the normal self_continuation reminder before yielding to the runtime loop.',
-              outcome: 'frame_yielded_after_visible_delivery',
-              noVisibleDelivery: false,
-              visibleDeliveryCommitted: true,
-              source: 'model:final_answer_after_visible_delivery'
-            });
-          }
-        }
         if (!hasToolCall && !actionPlan.hasFinalAnswer && !leaseRelease) {
           deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
           if (deliveryState.deliveryPhase !== 'reasoning_open' && deliveredMessages.length > 0) {
@@ -4674,7 +4685,7 @@ export class AgentLoopService {
               : hasToolCall
                 ? 'tool_outputs_appended'
                 : actionPlan.hasFinalAnswer
-                  ? 'self_continuation_appended'
+                  ? 'final_answer_yielded'
                   : 'model_slice_yielded',
             noVisibleDelivery: deliveredMessages.length === 0,
             visibleDeliveryCommitted: deliveredMessages.length > 0,
@@ -5710,6 +5721,7 @@ export class AgentLoopService {
     developerContextBlock?: string | null;
     contextSessionKey?: string;
     triggerInputMode?: RuntimeTriggerInputMode;
+    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -5739,7 +5751,8 @@ export class AgentLoopService {
         contextSummary,
         pendingProactiveShare,
         developerContextBlock: params.developerContextBlock ?? null,
-        triggerInputMode
+        triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       });
       const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
@@ -5761,7 +5774,8 @@ export class AgentLoopService {
         contextSummary,
         pendingProactiveShare,
         developerContextBlock: params.developerContextBlock ?? null,
-        triggerInputMode
+        triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       });
       const estimate = await estimateLoopInputTokens({
         modelName: params.runtimePrompt.modelName,
@@ -5807,7 +5821,8 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
-      triggerInputMode
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
     const initialEstimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
@@ -5847,7 +5862,8 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
-      triggerInputMode
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
 
     const compressionLoopContinuation = [
@@ -5867,7 +5883,8 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
-      triggerInputMode
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
     const compressionEstimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
@@ -6957,9 +6974,10 @@ function buildLoopRequestInput(params: {
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
   triggerInputMode?: RuntimeTriggerInputMode;
+  appendSelfContinuationOnTerminalFinalAnswer?: boolean;
 }) {
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger'),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false),
     ...params.loopContinuation
   ];
 }
@@ -6991,6 +7009,7 @@ async function recomputeReadCutoffToTarget(params: {
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
   triggerInputMode?: RuntimeTriggerInputMode;
+  appendSelfContinuationOnTerminalFinalAnswer?: boolean;
 }) {
   let retainedHistory: ConversationTurn[] = [];
   let readCutoffAfterConversationId: number | null = params.history.length > 0
@@ -7007,7 +7026,8 @@ async function recomputeReadCutoffToTarget(params: {
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary: params.contextSummary,
         developerContextBlock: params.developerContextBlock,
-        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
+        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       })
   });
 
@@ -7024,7 +7044,8 @@ async function recomputeReadCutoffToTarget(params: {
         runtimeIdentityFacts: params.runtimeIdentityFacts,
         contextSummary: params.contextSummary,
         developerContextBlock: params.developerContextBlock,
-        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
+        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       })
     });
     if (candidateEstimate.inputTokens > params.targetBudgetTokens) {
@@ -7045,7 +7066,8 @@ async function recomputeReadCutoffToTarget(params: {
       contextSummary: params.contextSummary,
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
-      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger'
+      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     }),
     retainedHistory,
     readCutoffAfterConversationId,
@@ -7267,7 +7289,8 @@ export function buildInitialInput(
   contextSummary: string | null = null,
   pendingProactiveShare: string | null = null,
   developerContextBlock: string | null = null,
-  triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger'
+  triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
+  appendSelfContinuationOnTerminalFinalAnswer = false
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -7290,7 +7313,19 @@ export function buildInitialInput(
     items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
-  for (const turn of history) {
+  const appendReplayItems = (turn: ConversationTurn, turnIndex: number) => {
+    const replayItems = buildTurnResponseReplayItems(turn);
+    items.push(...replayItems);
+    if (
+      appendSelfContinuationOnTerminalFinalAnswer
+      && turnIndex === history.length - 1
+      && isAssistantFinalAnswerInputItem(replayItems[replayItems.length - 1])
+    ) {
+      items.push(buildSelfContinuationInputItem());
+    }
+  };
+
+  for (const [turnIndex, turn] of history.entries()) {
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
       : [];
@@ -7320,7 +7355,7 @@ export function buildInitialInput(
         items.push(buildAssistantCommentaryInputItem([osText]));
         osAttached = true;
       }
-      items.push(...buildTurnResponseReplayItems(turn));
+      appendReplayItems(turn, turnIndex);
       continue;
     }
 
@@ -7335,7 +7370,7 @@ export function buildInitialInput(
       items.push(buildAssistantCommentaryInputItem([osText]));
     }
 
-    items.push(...buildTurnResponseReplayItems(turn));
+    appendReplayItems(turn, turnIndex);
   }
 
   if (triggerInputMode === 'fresh_trigger') {
