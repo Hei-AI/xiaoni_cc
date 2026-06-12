@@ -44,7 +44,53 @@ model AgentQueueMessage {
   @@index([status, available_at, id], map: "idx_agent_queue_pending_available")
   @@index([session_key, status, available_at, id], map: "idx_agent_queue_session_pending")
   @@index([trace_id, created_at, id], map: "idx_agent_queue_trace_created")
+  @@index([source, id], map: "idx_agent_queue_phone_notification_source_id")
   @@map("agent_queue_messages")
+}
+
+model AgentRecoverySession {
+  id                                  BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key                        String    @default("xiaoni") @db.VarChar(191)
+  initiator                           String    @db.VarChar(32)
+  status                              String    @default("active") @db.VarChar(32)
+  wake_cause                          String?   @db.VarChar(64)
+  reason                              String?
+  xiaoni_os                           String?
+  clock_minutes                       Int?
+  clock_due_at                        DateTime? @db.Timestamp(3)
+  clock_fired_at                      DateTime? @db.Timestamp(3)
+  clock_deferred_at                   DateTime? @db.Timestamp(3)
+  started_at                          DateTime  @default(now()) @db.Timestamp(3)
+  ended_at                            DateTime? @db.Timestamp(3)
+  last_checked_at                     DateTime? @db.Timestamp(3)
+  tool_execution_id                   String?   @db.VarChar(191)
+  llm_request_slice_id                String?   @db.VarChar(191)
+  llm_call_id                         String?   @db.VarChar(128)
+  tool_call_id                        String?   @db.VarChar(191)
+  trace_id                            String?   @db.VarChar(128)
+  run_id                              String?   @db.VarChar(128)
+  conversation_id                     BigInt?   @db.BigInt
+  queue_message_id                    String?   @db.VarChar(128)
+  wake_count_start_queue_message_id   BigInt?   @db.BigInt
+  last_wake_counted_queue_message_id  BigInt?   @db.BigInt
+  wake_call_count                     Int       @default(0)
+  wake_required_count                 Int?
+  start_pressure                      Float?
+  current_pressure                    Float?
+  start_energy                        Float?
+  current_energy                      Float?
+  max_energy                          Float     @default(1)
+  planned_natural_wake_at             DateTime? @db.Timestamp(3)
+  hard_wake_at                        DateTime? @db.Timestamp(3)
+  result                              Json      @default("{}")
+  metadata                            Json      @default("{}")
+  created_at                          DateTime  @default(now()) @db.Timestamp(3)
+  updated_at                          DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, status, started_at, id], map: "idx_agent_recovery_sessions_identity_status")
+  @@index([status, hard_wake_at, id], map: "idx_agent_recovery_sessions_status_due")
+  @@index([tool_call_id], map: "idx_agent_recovery_sessions_tool_call")
+  @@map("agent_recovery_sessions")
 }
 
 model AgentSessionLifeState {

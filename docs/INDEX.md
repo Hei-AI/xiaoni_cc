@@ -26,6 +26,8 @@
 - 小腻主 prompt 正文与 prompt-facing 模板：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
   - `docs/xiaoni_prompt/`
+- 小腻 `recover_energy` tool、精力恢复曲线、clock、睡眠唤醒和重启恢复：
+  - `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
 - `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：
@@ -53,7 +55,9 @@
 - Raw Trace provider payload 事实源：`provider-service` / Codex Provider 写入的 `llm_request_slices`；它不是独立行动流主卡片。
 - Runtime loop、Notify Bucket、QQ inbox、IM 硬开关、`final_answer` 连续推进、
   图片理解 fork、recover_energy callback 和行动流事实源统一看
-  `docs/XIAONI_AGENT_STACK_LEDGER.md`。不要再为这些主题新增重复架构页。
+  `docs/XIAONI_AGENT_STACK_LEDGER.md`；`recover_energy` 的 tool 参数、clock、
+  精力曲线和睡眠唤醒细节看 `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
+  不要再为这些主题新增重复架构页。
 - Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 的 `system_prompt.md` 按
   `AgentLoopService` 进程生命周期稳定解析一次，改动后需要重启 `agent-service`
   才进入主 prompt；runtime reminder 模板在对应 reminder 追加时读取。

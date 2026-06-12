@@ -38,6 +38,15 @@ import {
   isReplayableToolCall
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
+import {
+  DEFAULT_RECOVER_ENERGY_POLICY,
+  computeRequiredSleepPressure,
+  estimateHardWakeAt,
+  estimateNaturalWakeAt,
+  normalizeRecoverEnergyClock,
+  projectRecoverySession,
+  shouldAcceptVoluntaryRecovery
+} from './recover-energy-policy';
 
 type OpenResponseInputItem =
   | {
@@ -198,7 +207,6 @@ type CanonicalAgentTurnRequest = {
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
   runtimePausePollMs?: number;
-  recoverEnergySleepMs?: (ms: number) => Promise<void>;
 };
 
 type AgentRuntimeIterationParams = {
@@ -222,6 +230,7 @@ type ProcessRuntimeFrameOptions = {
   triggerInputMode?: RuntimeTriggerInputMode;
   appendRuntimeInputStackItem?: boolean;
   logQueueLifecycle?: boolean;
+  initialLoopContinuation?: OpenResponseInputItem[];
 };
 
 function sleep(ms: number) {
@@ -451,7 +460,6 @@ export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 const RUNTIME_MAX_ENERGY = 1;
-const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
 
 function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
   const receivedAt = new Date().toISOString();
@@ -543,13 +551,15 @@ function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}):
   triggerInputMode: RuntimeTriggerInputMode;
   appendRuntimeInputStackItem: boolean;
   logQueueLifecycle: boolean;
+  initialLoopContinuation: OpenResponseInputItem[];
 } {
   const queueBacked = options.queueBacked !== false;
   return {
     queueBacked,
     triggerInputMode: options.triggerInputMode ?? (queueBacked ? 'fresh_trigger' : 'suppress_current_trigger'),
     appendRuntimeInputStackItem: options.appendRuntimeInputStackItem ?? queueBacked,
-    logQueueLifecycle: options.logQueueLifecycle ?? queueBacked
+    logQueueLifecycle: options.logQueueLifecycle ?? queueBacked,
+    initialLoopContinuation: options.initialLoopContinuation ?? []
   };
 }
 
@@ -817,26 +827,26 @@ const RECOVER_ENERGY_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.recoverEnergy,
-    description: '主动休息恢复精力；这是唯一面向小腻的恢复工具。休息多久只能根据当前可见的 <STATE energy/max_energy>、自己的疲惫感和还想不想继续来选；没看到当前精力时不要假装知道。',
+    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 时，身体本能会在精力恢复后让你自然醒。clock 仅仅代表你心里定下的闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；但如果你透支得太狠，身体出于自我保护会屏蔽闹钟，直到恢复到及格线以上才会让你醒来。注意：身体有自己的节律，如果你当前精力充沛却频繁试图强行闭眼休息，你根本睡不着，潜意识会直接拒绝这次休眠（导致失眠）。',
     parameters: {
       type: 'object',
       properties: {
         reason: {
           type: 'string',
-          description: '为什么现在选择休息。'
-        },
-        duration_minutes: {
-          type: 'integer',
-          minimum: 5,
-          maximum: 120,
-          description: '准备休息多久，5 到 120 分钟。当前实现按实际休息时长线性恢复：从 max(0, 当前精力) 往 max_energy 恢复；当前精力可以低于 0，但恢复起点按 0 算；120 分钟表示完全恢复。'
+          description: '此刻决定休息的真实原因。记录你当下的感受（比如“冲浪太久累了”或“觉得无聊睡一觉”），绝对不要写“睡30分钟”这种计划时长的废话。'
         },
         xiaoni_os: {
           type: 'string',
-          description: '休息前留给之后的自己看的私密备注：为什么撑不住、之后还想记得什么、还想不想继续。不发给任何人。'
+          description: '睡前留给自己的私密备忘：醒来后想接着干嘛、有什么未完成的执念，或者单纯是对当下疲惫状态的吐槽。这只是你的脑内残影，绝不会发给任何人。'
+        },
+        clock: {
+          type: 'integer',
+          minimum: 5,
+          maximum: 120,
+          description: '可选。给自己定的闹钟（可以是几分钟，也可以是几十分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，顺其自然睡到自然醒。'
         }
       },
-      required: ['reason', 'duration_minutes', 'xiaoni_os'],
+      required: ['reason', 'xiaoni_os'],
       additionalProperties: false
     }
   }
@@ -1274,6 +1284,21 @@ function renderPromptSnippet(fileName: string, variables: Record<string, string 
   return renderXiaoniPromptTemplate(fileName, variables).trimEnd();
 }
 
+function renderPromptTemplateText(template: string, variables: Record<string, string | number | null | undefined> = {}) {
+  return template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (match, key) => {
+    const value = variables[key];
+    return value === null || value === undefined ? match : String(value);
+  });
+}
+
+function removePlaceholderOnlyLines(template: string, placeholders: string[]) {
+  const placeholderLines = new Set(placeholders.map((placeholder) => `{{${placeholder}}}`));
+  return template
+    .split('\n')
+    .filter((line) => !placeholderLines.has(line.trim()))
+    .join('\n');
+}
+
 function buildSkillsInstructions() {
   return renderPromptSnippet('skills_instructions.md', {
     XIAONI_SKILL_ROOT
@@ -1383,12 +1408,6 @@ function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function normalizeRecoverEnergyDurationMinutes(value: unknown, fallback = 120) {
-  const numeric = Number(value);
-  const duration = Number.isFinite(numeric) ? numeric : fallback;
-  return Math.max(5, Math.min(120, Math.round(duration)));
-}
-
 export function recoverRuntimeEnergy(input: {
   rawEnergy: number;
   elapsedMs: number;
@@ -1397,31 +1416,59 @@ export function recoverRuntimeEnergy(input: {
   const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
   const rawEnergy = normalizeRuntimeEnergy(input.rawEnergy, maxEnergy);
   const elapsedMs = Math.max(0, normalizeRuntimeEnergy(input.elapsedMs, 0));
-  const startEnergy = Math.max(0, rawEnergy);
-  const recoveredEnergy = Math.min(maxEnergy, startEnergy + ((elapsedMs / RUNTIME_FULL_RECOVERY_MS) * maxEnergy));
+  const projected = projectRecoverySession({
+    startEnergy: rawEnergy,
+    maxEnergy,
+    startedAt: new Date(0),
+    now: new Date(elapsedMs)
+  });
   return {
     rawEnergyBefore: rawEnergy,
-    startEnergy,
-    energy: recoveredEnergy,
+    startEnergy: rawEnergy,
+    energy: projected.energy,
     maxEnergy,
     debt: rawEnergy < 0 ? Math.abs(rawEnergy) : 0,
     elapsedMs,
-    fullRecoveryMs: RUNTIME_FULL_RECOVERY_MS
+    fullRecoveryMs: DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes * 60 * 1000,
+    pressure: projected.pressure,
+    startPressure: projected.startPressure
   };
 }
 
 function renderRecoverEnergyCompletedReminder(input: {
   reason: string | null;
-  durationMinutes: number;
+  xiaoniOs?: string | null;
+  wakeCause?: string | null;
+  sleepMinutes: number;
+  wakeCallCount?: number | null;
+  wakeRequiredCount?: number | null;
+  clockMinutes?: number | null;
+  clockDeferredMinutes?: number | null;
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
 }) {
-  const recoveredDelta = input.recoveredEnergy.energy - input.recoveredEnergy.startEnergy;
-  return formatSystemReminderBlock(renderPromptSnippet('recover_energy_completed_reminder.md', {
-    DURATION_MINUTES: input.durationMinutes,
+  const wakeCause = input.wakeCause || 'natural';
+  const template = wakeCause === 'private_or_mention_threshold'
+    ? 'recover_energy_interrupted_reminder.md'
+    : wakeCause === 'clock'
+      ? 'recover_energy_clock_reminder.md'
+      : wakeCause === 'clock_deferred'
+        ? 'recover_energy_clock_deferred_reminder.md'
+        : wakeCause === 'hard_cap'
+          ? 'recover_energy_forced_completed_reminder.md'
+          : 'recover_energy_completed_reminder.md';
+  return formatSystemReminderBlock(renderPromptSnippet(template, {
     ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
     MAX_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.maxEnergy),
-    RECOVERED_ENERGY: formatRuntimeEnergy(recoveredDelta),
-    REASON_LINE: input.reason ? `休息前原因：${input.reason}` : ''
+    START_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.startEnergy),
+    CURRENT_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
+    SLEEP_MINUTES: Math.max(0, Math.round(input.sleepMinutes)),
+    WAKE_CAUSE: wakeCause,
+    WAKE_CALL_COUNT: input.wakeCallCount ?? 0,
+    WAKE_REQUIRED_COUNT: typeof input.wakeRequiredCount === 'number' && Number.isFinite(input.wakeRequiredCount) ? input.wakeRequiredCount : '无穷',
+    CLOCK_MINUTES: input.clockMinutes ?? '',
+    CLOCK_DEFERRED_MINUTES: input.clockDeferredMinutes ?? 0,
+    REASON: input.reason || '',
+    XIAONI_OS: input.xiaoniOs || ''
   }));
 }
 
@@ -2451,7 +2498,7 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
-const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:))/i;
+const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:|视线边缘：状态栏闪烁|视觉感知：造物出炉))/i;
 
 function isHistoricalNotificationSnapshot(
   item: ConversationTranscriptItem,
@@ -2608,17 +2655,25 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
   const pictureId = notification?.pictureId || queueMessage.rawPayload?.picture_id;
   const picturePath = notification?.picturePath || queueMessage.rawPayload?.picture_path;
   const targetDescription = notification?.targetDescription || queueMessage.rawPayload?.target_description;
-  const body = renderPromptSnippet('image_task_notification.md', {
+  const variables = {
     TASK_ID: String(taskId),
     TASK_RESULT: taskStatus === 'completed' ? '已完成' : String(taskStatus),
     TASK_TYPE_LINE: taskType ? `任务类型: ${taskType}` : '',
     PICTURE_ID_LINE: pictureId ? `图片ID: ${pictureId}` : '',
     PICTURE_PATH_LINE: picturePath ? `图片路径: ${picturePath}` : '',
     TARGET_DESCRIPTION_LINE: targetDescription ? `目标: ${targetDescription}` : ''
-  })
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .join('\n');
+  };
+  const emptyOptionalPlaceholders = [
+    taskType ? null : 'TASK_TYPE_LINE',
+    pictureId ? null : 'PICTURE_ID_LINE',
+    picturePath ? null : 'PICTURE_PATH_LINE',
+    targetDescription ? null : 'TARGET_DESCRIPTION_LINE'
+  ].filter((value): value is string => typeof value === 'string');
+  const template = removePlaceholderOnlyLines(
+    readPromptSnippet('image_task_notification.md'),
+    emptyOptionalPlaceholders
+  );
+  const body = renderPromptTemplateText(template, variables).trimEnd();
   return formatSystemReminderBlock(body);
 }
 
@@ -4109,6 +4164,22 @@ export class AgentLoopService {
   }
 
   private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
+    const recoveryAction = await this.reconcileActiveRecoverySession(params);
+    if (recoveryAction.status === 'active') {
+      await sleep(params.idleIntervalMs);
+      return;
+    }
+    if (recoveryAction.status === 'settled') {
+      await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
+        queueBacked: false,
+        triggerInputMode: 'suppress_current_trigger',
+        appendRuntimeInputStackItem: false,
+        logQueueLifecycle: false,
+        initialLoopContinuation: recoveryAction.inputItems
+      });
+      return;
+    }
+
     let queueMessage = await this.store.claimNextQueueMessage(params.workerId);
     if (!queueMessage) {
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
@@ -4121,6 +4192,321 @@ export class AgentLoopService {
     }
 
     await this.processRuntimeFrame(queueMessage);
+  }
+
+  private async reconcileActiveRecoverySession(_params: AgentRuntimeIterationParams): Promise<{
+    status: 'none' | 'active' | 'settled';
+    inputItems: OpenResponseInputItem[];
+  }> {
+    const store = this.store as RuntimeStore & {
+      getActiveAgentRecoverySession?: RuntimeStore['getActiveAgentRecoverySession'];
+      listAgentRecoveryWakeNotifications?: RuntimeStore['listAgentRecoveryWakeNotifications'];
+      updateAgentRecoverySessionProgress?: RuntimeStore['updateAgentRecoverySessionProgress'];
+      finalizeAgentRecoverySession?: RuntimeStore['finalizeAgentRecoverySession'];
+      createAgentRecoverySession?: RuntimeStore['createAgentRecoverySession'];
+      recordRecoverySessionLifeEvent?: RuntimeStore['recordRecoverySessionLifeEvent'];
+    };
+
+    if (typeof store.getActiveAgentRecoverySession !== 'function') {
+      return { status: 'none', inputItems: [] };
+    }
+
+    let session = await store.getActiveAgentRecoverySession.call(this.store);
+    if (!session) {
+      const energyState = await this.getCurrentEnergyStateForRecovery(buildRuntimeLoopFrameQueueMessage().payload).catch(() => null);
+      const pressure = energyState ? 1 - (energyState.energy / Math.max(0.001, energyState.maxEnergy)) : 0;
+      if (!energyState || pressure < DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure || typeof store.createAgentRecoverySession !== 'function') {
+        return { status: 'none', inputItems: [] };
+      }
+      const startedAt = new Date();
+      const naturalWakeAt = estimateNaturalWakeAt({
+        startEnergy: energyState.energy,
+        maxEnergy: energyState.maxEnergy,
+        startedAt
+      });
+      session = await store.createAgentRecoverySession.call(this.store, {
+        initiator: 'runtime_forced',
+        reason: '精力已经透支，工程强制进入休息恢复。',
+        xiaoniOs: null,
+        startedAt,
+        startEnergy: energyState.energy,
+        currentEnergy: energyState.energy,
+        maxEnergy: energyState.maxEnergy,
+        startPressure: pressure,
+        currentPressure: pressure,
+        plannedNaturalWakeAt: naturalWakeAt,
+        hardWakeAt: estimateHardWakeAt(startedAt),
+        metadata: {
+          source: 'runtime_forced_recovery',
+          forced_sleep_pressure: DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure
+        }
+      });
+      moduleLogger.warn('Started forced Xiaoni recovery session', {
+        recoverySessionId: session?.id,
+        energy: energyState.energy,
+        pressure
+      });
+      return { status: 'active', inputItems: [] };
+    }
+
+    const lastCountedId = Math.max(
+      Number(session.lastWakeCountedQueueMessageId || 0),
+      Number(session.wakeCountStartQueueMessageId || 0)
+    );
+    const wakeRows = typeof store.listAgentRecoveryWakeNotifications === 'function'
+      ? await store.listAgentRecoveryWakeNotifications.call(this.store, {
+          afterQueueMessageId: lastCountedId,
+          limit: 250
+        }).catch((error) => {
+          moduleLogger.warn('Failed to scan recovery wake notifications', {
+            recoverySessionId: session?.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return [];
+        })
+      : [];
+    const wakeIncrement = wakeRows.reduce((sum, row) => sum + Math.max(0, Number(row.wakeCount || 0)), 0);
+    const lastWakeCountedId = wakeRows.length > 0
+      ? Math.max(...wakeRows.map((row) => Number(row.id || 0)))
+      : lastCountedId;
+    const wakeCallCount = Math.max(0, Number(session.wakeCallCount || 0)) + wakeIncrement;
+    const projection = projectRecoverySession({
+      startEnergy: Number(session.startEnergy ?? session.currentEnergy ?? 0),
+      maxEnergy: Number(session.maxEnergy || 1),
+      startedAt: session.startedAt || new Date(),
+      now: new Date(),
+      clockDueAt: session.clockDueAt,
+      clockDeferredAt: session.clockDeferredAt,
+      wakeCallCount
+    });
+    const clockDeferredAt = projection.clockShouldDefer && !session.clockDeferredAt ? new Date() : null;
+
+    if (!projection.shouldWake) {
+      if (typeof store.updateAgentRecoverySessionProgress === 'function') {
+        await store.updateAgentRecoverySessionProgress.call(this.store, {
+          id: session.id,
+          wakeCallCount,
+          wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
+          lastWakeCountedQueueMessageId: lastWakeCountedId,
+          currentPressure: projection.pressure,
+          currentEnergy: projection.energy,
+          clockDeferredAt,
+          lastCheckedAt: new Date()
+        }).catch((error) => {
+          moduleLogger.warn('Failed to update recovery progress', {
+            recoverySessionId: session?.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
+      }
+      return { status: 'active', inputItems: [] };
+    }
+
+    const toolResult = this.buildRecoverySessionResult(session, projection, {
+      wakeCallCount,
+      lastWakeCountedQueueMessageId: lastWakeCountedId
+    });
+    const inputItems = await this.settleRecoverySession(session, toolResult, projection, {
+      wakeCallCount,
+      lastWakeCountedQueueMessageId: lastWakeCountedId
+    });
+    if (inputItems.length === 0) {
+      return { status: 'active', inputItems: [] };
+    }
+    if (typeof store.recordRecoverySessionLifeEvent === 'function') {
+      await store.recordRecoverySessionLifeEvent.call(this.store, session, toolResult).catch((error) => {
+        moduleLogger.warn('Failed to record recovery session life event', {
+          recoverySessionId: session?.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+    return { status: 'settled', inputItems };
+  }
+
+  private buildRecoverySessionResult(
+    session: {
+      id: number;
+      reason: string | null;
+      xiaoniOs: string | null;
+      clockMinutes: number | null;
+      clockDueAt: string | null;
+      clockDeferredAt: string | null;
+      startedAt: string | null;
+      startEnergy: number | null;
+      maxEnergy: number;
+    },
+    projection: ReturnType<typeof projectRecoverySession>,
+    counts: {
+      wakeCallCount: number;
+      lastWakeCountedQueueMessageId: number;
+    }
+  ) {
+    const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
+    const elapsedMs = Math.max(0, Date.now() - startedAt.getTime());
+    const recoveredEnergy = {
+      rawEnergyBefore: Number(session.startEnergy ?? projection.energy),
+      startEnergy: Number(session.startEnergy ?? projection.energy),
+      energy: projection.energy,
+      maxEnergy: Number(session.maxEnergy || 1),
+      debt: Number(session.startEnergy ?? 0) < 0 ? Math.abs(Number(session.startEnergy ?? 0)) : 0,
+      elapsedMs,
+      fullRecoveryMs: DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes * 60 * 1000,
+      pressure: projection.pressure,
+      startPressure: projection.startPressure
+    };
+    const clockDeferredMinutes = session.clockDueAt && session.clockDeferredAt
+      ? Math.max(0, Math.round((Date.now() - new Date(session.clockDueAt).getTime()) / 60000))
+      : 0;
+    return {
+      recovered: true,
+      rest_rejected: false,
+      recovery_session_id: session.id,
+      reason: session.reason,
+      xiaoni_os: session.xiaoniOs,
+      wake_cause: projection.wakeCause,
+      sleep_minutes: Math.max(0, Math.round(projection.elapsedMinutes)),
+      clock_minutes: session.clockMinutes,
+      energy_before: recoveredEnergy.rawEnergyBefore,
+      energy_start: recoveredEnergy.startEnergy,
+      energy: recoveredEnergy.energy,
+      max_energy: recoveredEnergy.maxEnergy,
+      recovered_energy: recoveredEnergy.energy - recoveredEnergy.startEnergy,
+      energy_debt: recoveredEnergy.debt,
+      pressure: projection.pressure,
+      start_pressure: projection.startPressure,
+      wake_call_count: counts.wakeCallCount,
+      wake_required_count: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
+      last_wake_counted_queue_message_id: counts.lastWakeCountedQueueMessageId,
+      energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
+      system_reminder: renderRecoverEnergyCompletedReminder({
+        reason: session.reason,
+        xiaoniOs: session.xiaoniOs,
+        wakeCause: projection.wakeCause,
+        sleepMinutes: projection.elapsedMinutes,
+        wakeCallCount: counts.wakeCallCount,
+        wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
+        clockMinutes: session.clockMinutes,
+        clockDeferredMinutes,
+        recoveredEnergy
+      })
+    };
+  }
+
+  private async settleRecoverySession(
+    session: {
+      id: number;
+      initiator: string;
+      toolCallId: string | null;
+      toolExecutionId: string | null;
+      llmRequestSliceId: string | null;
+      traceId: string | null;
+      runId: string | null;
+      metadata?: Record<string, unknown>;
+    },
+    toolResult: Record<string, unknown>,
+    projection: ReturnType<typeof projectRecoverySession>,
+    counts: {
+      wakeCallCount: number;
+      lastWakeCountedQueueMessageId: number;
+    }
+  ): Promise<OpenResponseInputItem[]> {
+    const store = this.store as RuntimeStore & {
+      finalizeAgentRecoverySession?: RuntimeStore['finalizeAgentRecoverySession'];
+    };
+    const now = new Date();
+    const isVoluntary = session.initiator === 'recover_energy_tool' && typeof session.toolCallId === 'string' && session.toolCallId.length > 0;
+    const sessionMetadata = session.metadata && typeof session.metadata === 'object' ? session.metadata : {};
+    const rawToolArgs = sessionMetadata.tool_args && typeof sessionMetadata.tool_args === 'object' && !Array.isArray(sessionMetadata.tool_args)
+      ? sessionMetadata.tool_args as Record<string, unknown>
+      : {};
+    const rawArguments = typeof sessionMetadata.raw_arguments === 'string'
+      ? sessionMetadata.raw_arguments
+      : JSON.stringify(rawToolArgs);
+    const inputItems: OpenResponseInputItem[] = isVoluntary
+      ? [{
+          type: 'function_call',
+          call_id: session.toolCallId!,
+          name: TOOL_NAMES.recoverEnergy,
+          arguments: rawArguments
+        }, {
+          type: 'function_call_output',
+          call_id: session.toolCallId!,
+          output: prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')
+        }]
+      : [buildDeveloperInputItem([prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')]) as OpenResponseInputItem];
+
+    if (isVoluntary) {
+      const toolCall: AgentToolCall = {
+        callId: session.toolCallId!,
+        name: TOOL_NAMES.recoverEnergy,
+        args: rawToolArgs,
+        rawArguments
+      };
+      const rows = await this.appendAgentStackItemsSafe({
+        traceId: session.traceId || `recovery:${session.id}`,
+        runId: session.runId || `recovery:${session.id}`,
+        sourceType: 'agent_recovery_sessions',
+        sourceId: String(session.id),
+        llmRequestSliceId: session.llmRequestSliceId || null,
+        items: buildToolResultStackItems({
+          toolCall,
+          toolResult,
+          continuationItems: inputItems,
+          llmRequestSliceId: session.llmRequestSliceId || `recovery:${session.id}`
+        }) as Array<Record<string, unknown>>
+      });
+      if (session.toolExecutionId) {
+        await this.completeAgentStackToolExecutionSafe({
+          executionId: session.toolExecutionId,
+          status: 'completed',
+          result: toolResult,
+          stackOutputItemId: (rows[0] as { id?: string | number } | undefined)?.id || null
+        });
+      }
+    } else {
+      await this.appendAgentStackItemsSafe({
+        traceId: session.traceId || `recovery:${session.id}`,
+        runId: session.runId || `recovery:${session.id}`,
+        sourceType: 'agent_recovery_sessions',
+        sourceId: String(session.id),
+        items: [{
+          eventId: `stack:recovery-session:${session.id}:runtime-reminder`,
+          itemKind: 'runtime_input',
+          role: 'developer',
+          phase: null,
+          content: {
+            source: 'agent_recovery_sessions',
+            recovery_session_id: session.id,
+            input_items: inputItems,
+            system_reminder: toolResult.system_reminder || null
+          },
+          visibility: 'model_visible',
+          metadata: {
+            wake_cause: projection.wakeCause,
+            initiator: session.initiator
+          }
+        }]
+      });
+    }
+
+    if (typeof store.finalizeAgentRecoverySession === 'function') {
+      await store.finalizeAgentRecoverySession.call(this.store, {
+        id: session.id,
+        status: 'completed',
+        wakeCause: projection.wakeCause,
+        endedAt: now,
+        clockFiredAt: projection.clockDue ? now : null,
+        wakeCallCount: counts.wakeCallCount,
+        wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
+        lastWakeCountedQueueMessageId: counts.lastWakeCountedQueueMessageId,
+        currentPressure: projection.pressure,
+        currentEnergy: projection.energy,
+        result: toolResult
+      });
+    }
+
+    return inputItems;
   }
 
   private async processRuntimeFrame(queueMessage: QueueMessageRecord, frameOptions: ProcessRuntimeFrameOptions = {}) {
@@ -4200,7 +4586,7 @@ export class AgentLoopService {
         metadata: { internal_execution_lease_id: queueMessage.id, batch_id: queueMessage.batchId }
       });
     }
-    let loopContinuation: OpenResponseInputItem[] = [];
+    let loopContinuation: OpenResponseInputItem[] = [...options.initialLoopContinuation];
 
     try {
       const recorder = (this.store as RuntimeStore & {
@@ -4482,6 +4868,70 @@ export class AgentLoopService {
               compressedContextSummary = commit.text;
             }
             const toolResult = rawToolResult;
+            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovery_session_requested === true) {
+              const creator = (this.store as RuntimeStore & {
+                createAgentRecoverySession?: RuntimeStore['createAgentRecoverySession'];
+              }).createAgentRecoverySession;
+              if (typeof creator !== 'function') {
+                throw new Error('recover_energy requires recovery session persistence');
+              }
+              const startedAt = typeof toolResult.started_at === 'string' ? new Date(toolResult.started_at) : new Date();
+              const clockDueAt = typeof toolResult.clock_due_at === 'string' ? new Date(toolResult.clock_due_at) : null;
+              await creator.call(this.store, {
+                initiator: 'recover_energy_tool',
+                reason: typeof toolResult.reason === 'string' ? toolResult.reason : null,
+                xiaoniOs: typeof toolResult.xiaoni_os === 'string' ? toolResult.xiaoni_os : null,
+                clockMinutes: typeof toolResult.clock_minutes === 'number' ? toolResult.clock_minutes : null,
+                clockDueAt,
+                startedAt,
+                toolExecutionId: stackToolExecutionId,
+                llmRequestSliceId: sliceId,
+                llmCallId: modelResult.llm_call_id || null,
+                toolCallId: toolCall.callId,
+                traceId: payload.traceId,
+                runId: queueMessage.id,
+                queueMessageId: queueMessage.id,
+                startEnergy: typeof toolResult.energy_start === 'number' ? toolResult.energy_start : null,
+                currentEnergy: typeof toolResult.energy === 'number' ? toolResult.energy : null,
+                maxEnergy: typeof toolResult.max_energy === 'number' ? toolResult.max_energy : RUNTIME_MAX_ENERGY,
+                startPressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
+                currentPressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
+                plannedNaturalWakeAt: typeof toolResult.planned_natural_wake_at === 'string' ? new Date(toolResult.planned_natural_wake_at) : null,
+                hardWakeAt: typeof toolResult.hard_wake_at === 'string' ? new Date(toolResult.hard_wake_at) : estimateHardWakeAt(startedAt),
+                metadata: {
+                  model_name: runtimePrompt.modelName,
+                  session_key: payload.sessionKey,
+                  chat_type: payload.chatType,
+                  peer_name: payload.peerName || null,
+                  required_pressure: toolResult.required_pressure ?? null,
+                  tool_args: toolCall.args,
+                  raw_arguments: toolCall.rawArguments
+                }
+              });
+              if (typeof toolResult.xiaoni_os === 'string' && toolResult.xiaoni_os.trim().length > 0) {
+                persistedXiaoniOs = toolResult.xiaoni_os.trim();
+              }
+              leaseRelease = buildLeaseReleaseRecord({
+                reason: 'runtime_frame_yielded',
+                detail: 'recover_energy session started; tool callback will be appended when recovery settles.',
+                outcome: 'recover_energy_session_started',
+                noVisibleDelivery: true,
+                visibleDeliveryCommitted: false,
+                source: 'tool:recover_energy'
+              });
+              await this.store.logTimelineEvent({
+                traceId: payload.traceId,
+                eventType: 'decision',
+                eventName: 'recover_energy_session_started',
+                eventPhase: null,
+                metadata: {
+                  tool_call_id: toolCall.callId,
+                  tool_execution_id: stackToolExecutionId,
+                  clock_minutes: toolResult.clock_minutes ?? null
+                }
+              });
+              break;
+            }
             if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovered === true) {
               const recoveryRecorder = (this.store as RuntimeStore & {
                 recordRecoverEnergyLifeEvent?: RuntimeStore['recordRecoverEnergyLifeEvent'];
@@ -6658,14 +7108,25 @@ export class AgentLoopService {
       }
       case TOOL_NAMES.recoverEnergy: {
         const energyState = await this.getCurrentEnergyStateForRecovery(queueMessage);
-        if (energyState && energyState.energy >= energyState.maxEnergy - 0.001) {
-          const reason = '你已经精力充沛了, 不能再睡觉了, 去找点事做';
+        const now = new Date();
+        const gate = energyState
+          ? shouldAcceptVoluntaryRecovery({
+              energy: energyState.energy,
+              maxEnergy: energyState.maxEnergy,
+              lastWakeAt: energyState.lastWakeAt ?? null,
+              now
+            })
+          : null;
+        if (energyState && gate && !gate.accepted) {
+          const reason = `现在还没到可以休息的线：当前精力 ${formatRuntimeEnergy(energyState.energy)}/${formatRuntimeEnergy(energyState.maxEnergy)}，刚醒不久或精力还够时很难再次入睡。`;
           return {
             recovered: false,
             rest_rejected: true,
             reason,
             energy: energyState.energy,
             max_energy: energyState.maxEnergy,
+            pressure: gate.pressure,
+            required_pressure: gate.requiredPressure,
             energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
             system_reminder: renderRecoverEnergyRejectedReminder({
               reason,
@@ -6677,35 +7138,32 @@ export class AgentLoopService {
               : null
           };
         }
-        const durationMinutes = normalizeRecoverEnergyDurationMinutes(toolCall.args.duration_minutes ?? toolCall.args.durationMinutes);
-        const durationMs = durationMinutes * 60 * 1000;
         const reason = typeof toolCall.args.reason === 'string' && toolCall.args.reason.trim()
           ? toolCall.args.reason.trim()
           : null;
-        await (this.options.recoverEnergySleepMs ?? sleep)(durationMs);
-        const recovered = recoverRuntimeEnergy({
-          rawEnergy: energyState?.energy ?? 0,
-          elapsedMs: durationMs,
-          maxEnergy: energyState?.maxEnergy ?? RUNTIME_MAX_ENERGY
-        });
+        const clockMinutes = normalizeRecoverEnergyClock(toolCall.args.clock);
+        const startEnergy = energyState?.energy ?? 0;
+        const maxEnergy = energyState?.maxEnergy ?? RUNTIME_MAX_ENERGY;
+        const startedAt = now;
+        const naturalWakeAt = estimateNaturalWakeAt({ startEnergy, maxEnergy, startedAt });
+        const hardWakeAt = estimateHardWakeAt(startedAt);
         return {
-          recovered: true,
+          recovered: false,
+          recovery_session_requested: true,
           rest_rejected: false,
           reason,
-          duration_minutes: durationMinutes,
-          duration_ms: durationMs,
-          energy_before: recovered.rawEnergyBefore,
-          energy_start: recovered.startEnergy,
-          energy: recovered.energy,
-          max_energy: recovered.maxEnergy,
-          recovered_energy: recovered.energy - recovered.startEnergy,
-          energy_debt: recovered.debt,
+          clock_minutes: clockMinutes,
+          clock_due_at: clockMinutes ? new Date(startedAt.getTime() + (clockMinutes * 60 * 1000)).toISOString() : null,
+          started_at: startedAt.toISOString(),
+          planned_natural_wake_at: naturalWakeAt.toISOString(),
+          hard_wake_at: hardWakeAt.toISOString(),
+          energy_before: startEnergy,
+          energy_start: startEnergy,
+          energy: startEnergy,
+          max_energy: maxEnergy,
+          pressure: gate?.pressure ?? (1 - (startEnergy / Math.max(0.001, maxEnergy))),
+          required_pressure: gate?.requiredPressure ?? null,
           energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
-          system_reminder: renderRecoverEnergyCompletedReminder({
-            reason,
-            durationMinutes,
-            recoveredEnergy: recovered
-          }),
           xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
             ? toolCall.args.xiaoni_os.trim()
             : null
@@ -6740,7 +7198,11 @@ export class AgentLoopService {
       const state = await reader.call(this.store);
       const energy = normalizeRuntimeEnergy(state?.energy, RUNTIME_MAX_ENERGY);
       const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(state?.maxEnergy, RUNTIME_MAX_ENERGY));
-      return { energy, maxEnergy };
+      return {
+        energy,
+        maxEnergy,
+        lastWakeAt: typeof state?.lastWakeAt === 'string' ? state.lastWakeAt : null
+      };
     } catch (error) {
       moduleLogger.warn('Failed to read Xiaoni energy before recover_energy', {
         traceId: queueMessage.traceId,
@@ -8055,7 +8517,16 @@ function normalizeReasoningReplayInputItem(item: Extract<OpenResponseInputItem, 
 
 function normalizeResponseInputItems(items: OpenResponseInputItem[]): OpenResponseInputItem[] {
   const normalizedItems: OpenResponseInputItem[] = [];
+  const seenFunctionCallIds = new Set<string>();
   for (const item of items) {
+    if (item.type === 'function_call') {
+      if (seenFunctionCallIds.has(item.call_id)) {
+        continue;
+      }
+      seenFunctionCallIds.add(item.call_id);
+      normalizedItems.push(item);
+      continue;
+    }
     if (item.type !== 'reasoning') {
       normalizedItems.push(item);
       continue;

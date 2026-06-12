@@ -12,7 +12,11 @@ Edit the prompt files directly:
 - `docs/xiaoni_prompt/image_task_notification.md`: image task completion reminder template.
 - `docs/xiaoni_prompt/system_reminder_fallback.md`: fallback body for empty system reminders.
 - `docs/xiaoni_prompt/core_memory_pressure_reminder.md`: core-memory pressure reminder body.
-- `docs/xiaoni_prompt/recover_energy_completed_reminder.md`: recover_energy success callback body.
+- `docs/xiaoni_prompt/recover_energy_completed_reminder.md`: recover_energy natural wake callback body.
+- `docs/xiaoni_prompt/recover_energy_interrupted_reminder.md`: recover_energy private/group mention wake callback body.
+- `docs/xiaoni_prompt/recover_energy_clock_reminder.md`: recover_energy clock wake callback body.
+- `docs/xiaoni_prompt/recover_energy_clock_deferred_reminder.md`: recover_energy deferred clock wake callback body.
+- `docs/xiaoni_prompt/recover_energy_forced_completed_reminder.md`: forced/runtime recovery completion reminder.
 - `docs/xiaoni_prompt/recover_energy_rejected_reminder.md`: recover_energy rejection callback body.
 
 The agent-service loader checks file `mtime` and size before each read, but the

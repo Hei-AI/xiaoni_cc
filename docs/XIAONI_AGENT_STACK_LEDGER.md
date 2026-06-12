@@ -160,11 +160,16 @@ inbox，但不会写 `phone_notification` 到 Notify Bucket，因此不会因为
 
 ### Tool Callback Boundaries
 
-`recover_energy` 是普通工具执行。成功休息时，工程在 tool handler 内等待到
-`duration_minutes` 到点，再把“休息结束”的 `<system_reminder>` 文本作为同一个
-tool call 的 `function_call_output.output` 返回；工程拒绝休息时，也立即通过同一个
-tool call 返回拒绝原因。不要写 `release_lease` tool result，也不要 enqueue 恢复用
-`self_continuation` notify。
+`recover_energy` 是普通工具执行，但不再由 tool handler 内同步等待固定时长。模型主动调用
+`recover_energy` 且工程接受时，工程创建持久化 recovery session；醒来、被打断或 clock 到点后，
+仍把 `<system_reminder>` 文本作为同一个 tool call 的 `function_call_output.output`
+返回。工程拒绝休息时，也立即通过同一个 tool call 返回拒绝原因。不要写
+`release_lease` tool result，也不要 enqueue 恢复用 `self_continuation` notify。
+
+runtime 因精力透支自动强制休息时没有原始 tool call，不能伪造
+`function_call_output`；醒来后通过 runtime_input `<system_reminder>` 恢复。`recover_energy`
+的 tool 参数、clock、恢复曲线、旁路唤醒计数和最大恢复时间统一看
+`docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
 
 ## Tables
 
@@ -243,7 +248,7 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | `tool_call_id` | OpenAI function call id。 |
 | `tool_name` | 工具名。 |
 | `arguments` | 模型给出的参数。 |
-| `result` | runtime 回传给模型的 `function_call_output.output`。`recover_energy` 成功休息或被工程拒绝时，也必须作为同一个 tool call 的 `function_call_output` 返回；不得通过 `release_lease` 之类字段吞掉 callback 或另起恢复 notify。 |
+| `result` | runtime 回传给模型的 `function_call_output.output`。模型主动调用 `recover_energy` 后成功休息、被打断、clock 醒来或被工程拒绝时，也必须作为同一个 tool call 的 `function_call_output` 返回；不得通过 `release_lease` 之类字段吞掉 callback 或另起恢复 notify。runtime 强制休息没有原始 tool call，醒来后走 runtime_input system reminder。 |
 | `status` | `completed`、`failed`、`timeout`。 |
 | `side_effect` | 是否产生 QQ 发言、读 inbox、文件写入、任务入队等副作用。 |
 | `created_at` / `completed_at` | 执行时间。 |
@@ -377,8 +382,9 @@ node --test packages/persistence/__tests__/*.test.js
   最后一个 input item 仍是 `assistant final_answer`，才追加普通 `self_continuation`
   developer reminder，后续模型请求能真实看到它。
 - `recover_energy` 不写 `release_lease` tool result，不 enqueue 恢复用
-  `self_continuation` notify；成功休息和工程拒绝都必须作为该 tool call 的
-  `function_call_output` 进入 replay。
+  `self_continuation` notify；模型主动调用后的成功休息、被打断、clock 醒来和工程拒绝
+  都必须作为该 tool call 的 `function_call_output` 进入 replay。runtime 强制休息没有
+  tool call，醒来后追加 runtime_input system reminder。
 - 单个 runtime iteration / frame 只允许一次 provider model slice；工具结果或
   `final_answer` 后必须 yield 回主 `while` 顶部重新 pick notify；成功帧之间没有
   固定 sleep/poll interval。
