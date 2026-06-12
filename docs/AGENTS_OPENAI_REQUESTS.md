@@ -61,16 +61,19 @@
 - `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
   `web_search` 之后、低精力提醒、负精力后的完整恢复、休息中被连续 @ 打断时
   append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数，恢复计算按 `max(0, energy)`。
-- 当工程检测到 `raw_energy < 0` 时，强制等待 `2h` 后再恢复。恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
+- 当工程检测到 `raw_energy < 0` 时，`recover_energy` 的恢复曲线以实际休息时长计算，但负数精力的恢复起点按 `0` 处理；`120` 分钟达到满恢复。
 - hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 developer role `<STATE>`，让模型看到搜索后的精力变化。`exec_command` 和 `inspect_image_placeholder` 这类不能安全 JSON 包装的本地执行路径也保留原始输出，并由工程额外追加 body-only `<STATE>`；结构化 JSON tool callback 则直接在 output JSON 中回传 `energy_cost`、`energy`、`max_energy`。
 - prompt-facing 恢复工具只有 `recover_energy`。`rest_period` /
   `sleep_period` 可作为历史/internal 事件留存，但不能作为面向模型的双工具
   契约。
+- `recover_energy` 是普通 function tool。模型调用后，工程在 tool handler 内等待到
+  `duration_minutes` 对应时间再返回醒来的 `function_call_output`；如果工程拒绝休息，
+  也直接返回同一个 tool call 的拒绝 callback。不要用 `release_lease` 字段吞掉
+  callback，也不要 enqueue 恢复用 `self_continuation` notify。
 - developer block 必须追加支持的
   tools、skills 和成本，当前用 `<CAPABILITIES>` 承载并放在主 loop 输入开头。skill 只有在 `SKILL.md` 声明 `## Runtime Cost` /
   `energy_cost: <number>` 时才列入；当前本地 skill 默认 / 兜底成本统一按 `0.002` 展示，缺 cost 的 skill 不列入并产生 operator
   warning。小腻可以通过 skill 维护流程调整 cost；修改必须审计旧值、新值、原因和关联 trace。
-- 小腻休息中不把消息正文给模型。工程只统计 unread metadata 和连续直接 @ 次数；连续直接 @ 达到 3 次及以上才打断休息，并在后续上下文追加说明被多次 @ 打断和恢复后精力的 `<STATE>`。
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
 - 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
 - Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；这些 prompt-facing runtime reminder 使用 `developer` role，`phone_notification` 和 `image_task_notification` 都使用 body-only `<system_reminder>` 模板，不暴露 `<PHONE_NOTIFICATION>` / `<IMAGE_TASK_NOTIFICATION>` 或 queue trace 属性。后续同一连续 loop 的模型切片只保留 stack/tool state，不再把同一条 Notify 重新渲染成当前事件，也不追加 `already_picked` 快照。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
@@ -89,7 +92,7 @@
 - semantic assertions 必须保留 `scope`、`owners`、`directed_to`、`evidence_summary` 和 `xiaoni_relevance`。能识别说话人、回复对象或 @ 对象时，禁止把事实写成“群里/有人/大家”。
 - reflections 必须从已经落库的 observations 抽象，优先写 `person_pattern`、`dyad_pattern`、`self_continuity`、`xiaoni_perception`；只有证据真的覆盖多人时才写 `group_norm`。`self_continuity_note` 说明这条记忆如何帮助小腻保持自己，不写“少说/换口吻/接梗/避免解答腔”这类行为指令。
 - 群聊内部梗、别的小群/私聊里可能发生过的内容不能猜。当前上下文没有投影到相关记忆时，要少说、问群友来源，或沉默；公开事实、新鲜资料和互联网实体优先走 `web_search`。
-- 当前小腻只有一条连续主 runtime stream，不存在第二套 presence/self-action runner。QQ 输入只以 `phone_notification` 感官事件形式进入 prompt，正文必须由模型主动通过 `$qq-usage` 打开 QQ 后才可见；空闲且未处于 `recover_energy` 休息窗口时，`agent-service` 会创建 `self_continuation` 内部 runtime slice，而不是补旧 `consciousness_tick` / `presence_tick`。连续性目标来自模型 response output items、tool result、状态与记忆被保存为 `agent_stack_items`，并由 `llm_request_slices` 记录每次真实请求。整个小腻主 loop 只有 `xiaoni:global` 一条 prompt-facing history / context summary / read-cutoff / prompt cache key；`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
+- 当前小腻只有一条连续主 runtime stream，不存在第二套 presence/self-action runner。QQ 输入只以 `phone_notification` 感官事件形式进入 prompt，正文必须由模型主动通过 `$qq-usage` 打开 QQ 后才可见；空闲时 `agent-service` 会创建不落 queue 的 `runtime_loop` frame，而不是补旧 `consciousness_tick` / `presence_tick`，也不生产 `self_continuation` queue trigger。连续性目标来自模型 response output items、tool result、状态与记忆被保存为 `agent_stack_items`，并由 `llm_request_slices` 记录每次真实请求。整个小腻主 loop 只有 `xiaoni:global` 一条 prompt-facing history / context summary / read-cutoff / prompt cache key；`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和 QQ app 未读游标，不形成任何 QQ 维度 prompt history/cache key。如果产生“想回头分享”的残留，只能写进 `xiaoni_os` 字段并渲染成 `<xiaoni_os>` 供后续上下文或压缩摘要延续；旧 `<小腻的OS>` 只兼容读取。只有真实 `web_search` trace 能使用“查到 / 刚看到”这类来源措辞；代码里禁止写固定兴趣、动机或读书 seed 来伪装自发。
 
 ## Local Request Captures
 

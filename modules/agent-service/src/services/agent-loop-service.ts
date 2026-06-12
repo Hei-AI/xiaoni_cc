@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
-import type { AgentRecoveryWindowProjection } from '@qq-bot/persistence';
 import { agentConfig } from '../config';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
@@ -130,7 +129,6 @@ type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
 
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
-  leaseRelease: LeaseReleaseRecord | null;
   forcedVisibleReply: {
     toolName: string;
     args: Record<string, unknown>;
@@ -150,9 +148,7 @@ type ToolExecutionContext = {
 type RuntimeStateTrigger =
   | 'action_tool_threshold'
   | 'web_search'
-  | 'low_energy_reminder'
-  | 'forced_full_recovery'
-  | 'rest_interrupted';
+  | 'low_energy_reminder';
 
 type DeliveredAssistantMessage = {
   content: string;
@@ -163,19 +159,16 @@ type LeaseReleaseReason =
   | 'visible_delivery_committed'
   | 'no_visible_delivery_observed'
   | 'runtime_frame_yielded'
-  | 'rest_started'
   | 'runtime_error'
   | 'prompt_binding_error';
 
 type LeaseReleaseRecord = {
-  release_lease: true;
   event_kind: 'lease_released';
   reason: LeaseReleaseReason;
   detail: string | null;
   outcome: string | null;
   no_visible_delivery: boolean;
   visible_delivery_committed: boolean;
-  rest_started: boolean;
   source: string;
   tool_result?: Record<string, unknown>;
 };
@@ -205,15 +198,13 @@ type CanonicalAgentTurnRequest = {
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
   runtimePausePollMs?: number;
+  recoverEnergySleepMs?: (ms: number) => Promise<void>;
 };
 
 type AgentRuntimeIterationParams = {
   workerId: string;
   idleIntervalMs: number;
   pollIntervalMs: number;
-  getActiveRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
-  getLatestRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
-  onRecoveryWindowError?: (error: unknown) => void;
 };
 
 export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
@@ -452,7 +443,6 @@ const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 const RUNTIME_MAX_ENERGY = 1;
 const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
-const RESTING_DIRECT_MENTION_RESUME_THRESHOLD = 3;
 
 function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
   const receivedAt = new Date().toISOString();
@@ -1382,29 +1372,31 @@ export function recoverRuntimeEnergy(input: {
   };
 }
 
-export function resolveForcedFullRecovery(input: {
-  rawEnergy: number;
-  maxEnergy?: number;
+function renderRecoverEnergyCompletedReminder(input: {
+  reason: string | null;
+  durationMinutes: number;
+  recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
 }) {
-  const rawEnergy = normalizeRuntimeEnergy(input.rawEnergy, RUNTIME_MAX_ENERGY);
-  if (rawEnergy >= 0) {
-    return null;
-  }
-  const recovered = recoverRuntimeEnergy({
-    rawEnergy,
-    elapsedMs: RUNTIME_FULL_RECOVERY_MS,
-    maxEnergy: input.maxEnergy
-  });
-  return {
-    waitMs: RUNTIME_FULL_RECOVERY_MS,
-    stateBlock: buildRuntimeStateBlock({
-      trigger: 'forced_full_recovery',
-      energy: recovered.energy,
-      maxEnergy: recovered.maxEnergy,
-      debt: recovered.debt,
-      note: '之前已经透支到 0 以下；恢复从 0 开始算，120 分钟才会完全恢复。'
-    })
-  };
+  const recoveredDelta = input.recoveredEnergy.energy - input.recoveredEnergy.startEnergy;
+  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('recover_energy_completed_reminder.md', {
+    DURATION_MINUTES: input.durationMinutes,
+    ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
+    MAX_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.maxEnergy),
+    RECOVERED_ENERGY: formatRuntimeEnergy(recoveredDelta),
+    REASON_LINE: input.reason ? `休息前原因：${input.reason}` : ''
+  }));
+}
+
+function renderRecoverEnergyRejectedReminder(input: {
+  reason: string;
+  energy: number;
+  maxEnergy: number;
+}) {
+  return formatTaggedBlock('system_reminder', {}, renderPromptSnippet('recover_energy_rejected_reminder.md', {
+    REJECT_REASON: input.reason,
+    ENERGY: formatRuntimeEnergy(input.energy),
+    MAX_ENERGY: formatRuntimeEnergy(input.maxEnergy)
+  }));
 }
 
 export function buildRuntimeStateBlock(input: {
@@ -1514,51 +1506,8 @@ function normalizeRuntimeStateTrigger(value: unknown): RuntimeStateTrigger | nul
   return value === 'action_tool_threshold'
     || value === 'web_search'
     || value === 'low_energy_reminder'
-    || value === 'forced_full_recovery'
-    || value === 'rest_interrupted'
     ? value
     : null;
-}
-
-export function resolveRestInterruptionFromUnreadMetadata(input: {
-  rawEnergy: number;
-  restingSince: Date | string | number;
-  now: Date | string | number;
-  messages: Array<Pick<QueueBatchMessage, 'wasMentioned'> | { inboundContext?: { WasMentioned?: boolean } }>;
-  maxEnergy?: number;
-}) {
-  const since = new Date(input.restingSince);
-  const now = new Date(input.now);
-  const elapsedMs = Number.isNaN(since.getTime()) || Number.isNaN(now.getTime())
-    ? 0
-    : Math.max(0, now.getTime() - since.getTime());
-  const directMentionCount = input.messages.reduce((count, message) => {
-    const mentioned = ('wasMentioned' in message && message.wasMentioned)
-      || ('inboundContext' in message && message.inboundContext?.WasMentioned);
-    return count + (mentioned ? 1 : 0);
-  }, 0);
-  const recovered = recoverRuntimeEnergy({
-    rawEnergy: input.rawEnergy,
-    elapsedMs,
-    maxEnergy: input.maxEnergy
-  });
-  return {
-    shouldResume: directMentionCount >= RESTING_DIRECT_MENTION_RESUME_THRESHOLD,
-    unreadCount: input.messages.length,
-    directMentionCount,
-    messageBodiesExposed: false,
-    recoveredEnergy: recovered.energy,
-    stateBlock: directMentionCount >= RESTING_DIRECT_MENTION_RESUME_THRESHOLD
-      ? buildRuntimeStateBlock({
-          trigger: 'rest_interrupted',
-          energy: recovered.energy,
-          maxEnergy: recovered.maxEnergy,
-          recovered: recovered.energy - recovered.startEnergy,
-          debt: recovered.debt,
-          note: `休息中收到 ${directMentionCount} 次直接 @，按实际休息时长结算当前精力。`
-        })
-      : null
-  };
 }
 
 function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
@@ -2168,19 +2117,16 @@ function buildLeaseReleaseRecord(params: {
   outcome?: string | null;
   noVisibleDelivery: boolean;
   visibleDeliveryCommitted: boolean;
-  restStarted?: boolean;
   source: string;
   toolResult?: Record<string, unknown>;
 }): LeaseReleaseRecord {
   return {
-    release_lease: true,
     event_kind: 'lease_released',
     reason: params.reason,
     detail: params.detail ?? null,
     outcome: params.outcome ?? null,
     no_visible_delivery: params.noVisibleDelivery,
     visible_delivery_committed: params.visibleDeliveryCommitted,
-    rest_started: Boolean(params.restStarted),
     source: params.source,
     ...(params.toolResult ? { tool_result: params.toolResult } : {})
   };
@@ -3825,30 +3771,11 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
-  if (toolResult.release_lease === true) {
-    const reason = toolResult.lease_release_reason === 'rest_started'
-      ? 'rest_started'
-      : 'visible_delivery_committed';
-    return {
-      inputItems: [],
-      leaseRelease: buildLeaseReleaseRecord({
-        reason,
-        detail: typeof toolResult.reason === 'string' ? toolResult.reason : null,
-        outcome: typeof toolResult.outcome === 'string' ? toolResult.outcome : null,
-        noVisibleDelivery: reason === 'rest_started',
-        visibleDeliveryCommitted: context?.hasVisibleReply ?? false,
-        restStarted: reason === 'rest_started',
-        source: `tool:${toolCall.name}`,
-        toolResult
-      }),
-      forcedVisibleReply: null
-    };
-  }
-
   const runtimeEnergy = buildToolRuntimeEnergyResult(toolCall.name, context?.loopInput ?? []);
   const usesNativeToolOutput = toolCall.name === 'web_search'
     || (toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string')
-    || (toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string');
+    || (toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string')
+    || (toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string');
   const structuredToolResult = runtimeEnergy && !usesNativeToolOutput
     ? {
         ...toolResult,
@@ -3864,9 +3791,11 @@ export function applyToolResultToLoopInput(
       ? toolResult.codex_output
       : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
         ? toolResult.output_xml
-        : JSON.stringify(structuredToolResult)
+        : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
+          ? toolResult.system_reminder
+          : JSON.stringify(structuredToolResult)
   }];
-  if (runtimeEnergy && usesNativeToolOutput) {
+  if (runtimeEnergy && usesNativeToolOutput && toolCall.name !== TOOL_NAMES.recoverEnergy) {
     inputItems.push(buildDeveloperInputItem([
       buildRuntimeStateBlock({
         trigger: toolCall.name === 'web_search' ? 'web_search' : 'action_tool_threshold',
@@ -3877,7 +3806,6 @@ export function applyToolResultToLoopInput(
   }
   return {
     inputItems,
-    leaseRelease: null,
     forcedVisibleReply: null
   };
 }
@@ -4086,38 +4014,6 @@ export class AgentLoopService {
   private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
     let queueMessage = await this.store.claimNextQueueMessage(params.workerId);
     if (!queueMessage) {
-      const activeRecovery = params.getActiveRecoveryWindow
-        ? await params.getActiveRecoveryWindow().catch((error) => {
-            params.onRecoveryWindowError?.(error);
-            return null;
-          })
-        : null;
-      const remainingMs = Number(activeRecovery?.remainingMs || 0);
-      if (Number.isFinite(remainingMs) && remainingMs > 0) {
-        return Math.max(200, Math.min(remainingMs, params.idleIntervalMs));
-      }
-
-      const latestRecovery = params.getLatestRecoveryWindow
-        ? await params.getLatestRecoveryWindow().catch((error) => {
-            params.onRecoveryWindowError?.(error);
-            return null;
-          })
-        : null;
-      if (
-        latestRecovery
-        && latestRecovery.active !== true
-        && latestRecovery.continuationQueued !== true
-      ) {
-        const enqueued = await this.store.enqueueSelfContinuationForRecovery(latestRecovery);
-        if (enqueued) {
-          queueMessage = await this.store.claimNextQueueMessage(params.workerId);
-          if (queueMessage) {
-            await this.processRuntimeFrame(queueMessage);
-            return params.pollIntervalMs;
-          }
-        }
-      }
-
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
         queueBacked: false,
         triggerInputMode: 'suppress_current_trigger',
@@ -4507,7 +4403,7 @@ export class AgentLoopService {
               });
             }
             const toolResult = rawToolResult;
-            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.release_lease === true) {
+            if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovered === true) {
               const recoveryRecorder = (this.store as RuntimeStore & {
                 recordRecoverEnergyLifeEvent?: RuntimeStore['recordRecoverEnergyLifeEvent'];
               }).recordRecoverEnergyLifeEvent;
@@ -4628,10 +4524,6 @@ export class AgentLoopService {
                 source: `tool:${continuation.forcedVisibleReply.toolName}`,
                 toolResult: forcedToolResult
               });
-              break;
-            }
-            if (continuation.leaseRelease) {
-              leaseRelease = continuation.leaseRelease;
               break;
             }
             if (continuation.inputItems.length > 0) {
@@ -4817,7 +4709,6 @@ export class AgentLoopService {
           }
         });
       }
-      const recoveredEnergy = leaseRelease.rest_started;
       const presenceOutcome = sentMessages.length > 0 ? 'replied' : 'silent';
       if (presenceContext) {
         const sidecarRecorder = (this.store as RuntimeStore & {
@@ -4853,7 +4744,7 @@ export class AgentLoopService {
         totalTurns: turnsExecuted,
         conversationId
       });
-      if (sentMessages.length === 0 && !recoveredEnergy && leaseRelease.reason !== 'runtime_frame_yielded') {
+      if (sentMessages.length === 0 && leaseRelease.reason !== 'runtime_frame_yielded') {
         await this.recordNoVisibleDeliveryLifeEvent(payload, queueMessage.id, presenceOutcome, leaseRelease, turnsExecuted, conversationId);
       }
       await this.store.logTimelineEvent({
@@ -6118,28 +6009,53 @@ export class AgentLoopService {
       case TOOL_NAMES.recoverEnergy: {
         const energyState = await this.getCurrentEnergyStateForRecovery(queueMessage);
         if (energyState && energyState.energy >= energyState.maxEnergy - 0.001) {
+          const reason = '你已经精力充沛了, 不能再睡觉了, 去找点事做';
           return {
             recovered: false,
             rest_rejected: true,
-            reason: '你已经精力充沛了, 不能再睡觉了 ,去找点事做',
+            reason,
             energy: energyState.energy,
             max_energy: energyState.maxEnergy,
             energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
+            system_reminder: renderRecoverEnergyRejectedReminder({
+              reason,
+              energy: energyState.energy,
+              maxEnergy: energyState.maxEnergy
+            }),
             xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
               ? toolCall.args.xiaoni_os.trim()
               : null
           };
         }
         const durationMinutes = normalizeRecoverEnergyDurationMinutes(toolCall.args.duration_minutes ?? toolCall.args.durationMinutes);
+        const durationMs = durationMinutes * 60 * 1000;
+        const reason = typeof toolCall.args.reason === 'string' && toolCall.args.reason.trim()
+          ? toolCall.args.reason.trim()
+          : null;
+        await (this.options.recoverEnergySleepMs ?? sleep)(durationMs);
+        const recovered = recoverRuntimeEnergy({
+          rawEnergy: energyState?.energy ?? 0,
+          elapsedMs: durationMs,
+          maxEnergy: energyState?.maxEnergy ?? RUNTIME_MAX_ENERGY
+        });
         return {
-          release_lease: true,
-          lease_release_reason: 'rest_started',
-          event_kind: 'rest_started',
           recovered: true,
-          reason: typeof toolCall.args.reason === 'string' ? toolCall.args.reason : null,
+          rest_rejected: false,
+          reason,
           duration_minutes: durationMinutes,
-          duration_ms: durationMinutes * 60 * 1000,
+          duration_ms: durationMs,
+          energy_before: recovered.rawEnergyBefore,
+          energy_start: recovered.startEnergy,
+          energy: recovered.energy,
+          max_energy: recovered.maxEnergy,
+          recovered_energy: recovered.energy - recovered.startEnergy,
+          energy_debt: recovered.debt,
           energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
+          system_reminder: renderRecoverEnergyCompletedReminder({
+            reason,
+            durationMinutes,
+            recoveredEnergy: recovered
+          }),
           xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
             ? toolCall.args.xiaoni_os.trim()
             : null
@@ -6951,15 +6867,8 @@ function isDeletedFinalAnswerReminderPayload(queueMessage: QueueMessageRecord['p
   return reason === 'final_answer_idle' || reason === 'final_answer_turn_control';
 }
 
-function isSelfContinuationPayload(queueMessage: QueueMessageRecord['payload']) {
-  return queueMessage.source === 'self_continuation'
-    || Boolean(queueMessage.selfContinuation)
-    || queueMessage.inboundContext?.Surface === 'self_continuation';
-}
-
 function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['payload']) {
-  return isSelfContinuationPayload(queueMessage)
-    || isPhoneNotificationPayload(queueMessage)
+  return isPhoneNotificationPayload(queueMessage)
     || isImageTaskNotificationPayload(queueMessage)
     || isSystemReminderPayload(queueMessage);
 }
@@ -7649,14 +7558,11 @@ function buildCurrentTurnInputItems(
   if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
     return [];
   }
-  const isRuntimeReminder = isSelfContinuationPayload(queueMessage)
-    || isSystemReminderPayload(queueMessage)
+  const isRuntimeReminder = isSystemReminderPayload(queueMessage)
     || isImageTaskNotificationPayload(queueMessage)
     || isPhoneNotificationPayload(queueMessage);
   const currentMessages = [
-    isSelfContinuationPayload(queueMessage)
-      ? renderSelfContinuationReminder()
-      : isSystemReminderPayload(queueMessage)
+    isSystemReminderPayload(queueMessage)
       ? renderSystemReminder(queueMessage)
       : isImageTaskNotificationPayload(queueMessage)
       ? renderImageTaskNotification(queueMessage)
@@ -7683,9 +7589,6 @@ function buildCurrentTurnInputItems(
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
-  if (isSelfContinuationPayload(queueMessage)) {
-    return '';
-  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return renderPhoneNotification(queueMessage);
   }
@@ -7707,9 +7610,6 @@ function renderConversationStorageUserMessage(queueMessage: QueueMessageRecord['
 }
 
 function classifyRuntimeStreamInput(queueMessage: QueueMessageRecord['payload']) {
-  if (isSelfContinuationPayload(queueMessage)) {
-    return 'self_continuation';
-  }
   if (isPhoneNotificationPayload(queueMessage)) {
     return 'sensory_event';
   }

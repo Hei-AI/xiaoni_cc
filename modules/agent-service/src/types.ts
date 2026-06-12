@@ -135,13 +135,6 @@ export type QueueMessagePayload = {
     targetChatType?: ChatType;
     targetAccountId?: string;
   };
-  selfContinuation?: {
-    identityKey: string;
-    reason: 'recovery_complete' | string;
-    recoveryEventId?: string | null;
-    recoverUntil?: string | null;
-    createdAt: string;
-  };
   systemReminder?: {
     reminder: string;
     reason: string;

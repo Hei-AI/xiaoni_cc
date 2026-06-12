@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, recoverRuntimeEnergy, resolveForcedFullRecovery, resolveRestInterruptionFromUnreadMetadata, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
@@ -295,16 +295,16 @@ function createDirectQueuePayload(): QueueMessagePayload {
   };
 }
 
-function createSelfContinuationQueuePayload(): QueueMessagePayload {
+function createRuntimeLoopPayload(): QueueMessagePayload {
   const payload = createQueuePayload();
   return {
     ...payload,
-    source: 'self_continuation',
+    source: 'runtime_loop',
     chatType: 'direct',
     sessionKey: 'xiaoni:global',
-    peerId: '303',
+    peerId: 'xiaoni',
     peerName: '小腻',
-    senderId: '303',
+    senderId: payload.accountId,
     senderName: '小腻',
     bodyForAgent: '',
     rawBody: '',
@@ -312,20 +312,20 @@ function createSelfContinuationQueuePayload(): QueueMessagePayload {
     wasMentioned: false,
     phoneNotification: undefined,
     messages: [],
+    rawPayload: {
+      source: 'runtime_loop'
+    },
     inboundContext: {
+      ...payload.inboundContext,
       Body: '',
       BodyForAgent: '',
       BodyForCommands: '',
+      RawBody: '',
+      CommandBody: '',
       NativeChannelId: 'xiaoni:global',
-      Surface: 'self_continuation',
+      Surface: 'runtime_loop',
+      WasMentioned: false,
       CommandAuthorized: false
-    },
-    selfContinuation: {
-      identityKey: 'xiaoni',
-      reason: 'recovery_complete',
-      recoveryEventId: '9',
-      recoverUntil: '2026-06-06T12:39:51.000Z',
-      createdAt: '2026-06-06T12:39:51.000Z'
     }
   };
 }
@@ -690,23 +690,6 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   assert.ok(digestIndex < currentMessageIndex);
   assert.match(contents[digestIndex], /上一段近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);
-});
-
-test('buildInitialInput treats self continuation as an internal life slice without QQ input', () => {
-  const selfPayload = createSelfContinuationQueuePayload();
-  const loopInput = buildInitialInput([], selfPayload, createRuntimePrompt());
-  const currentTurnRendered = loopInput
-    .filter((item: any) => item.role === 'user' || item.role === 'assistant' || item.role === 'developer')
-    .map(getMessageContent)
-    .join('\n');
-
-  assert.equal(loopInput.some((item: any) => item.role === 'user'), false);
-  assert.doesNotMatch(currentTurnRendered, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(currentTurnRendered, /<INPUT_MESSAGE/);
-  assert.doesNotMatch(currentTurnRendered, /当前输入来自内部调度切片/);
-  assert.doesNotMatch(currentTurnRendered, /连续生命切片/);
-  assert.match(currentTurnRendered, /外界很安静/);
-  assert.match(currentTurnRendered, /recover_energy/);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -2349,7 +2332,6 @@ test('compress_core_memory preserves caller text and lets the loop continue', as
     rawArguments: '{"text":"记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。"}'
   }, result);
 
-  assert.equal(continuation.leaseRelease, null);
   assert.equal(continuation.forcedVisibleReply, null);
   assert.equal(continuation.inputItems.length, 1);
   assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
@@ -2870,7 +2852,6 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
     sent_messages: ['我们出去玩吧']
   });
 
-  assert.equal(continuation.leaseRelease, null);
   assert.equal(continuation.forcedVisibleReply, null);
   assert.equal(continuation.inputItems.length, 1);
   loopInput.push(...continuation.inputItems);
@@ -2904,7 +2885,6 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
     hasVisibleReply: false
   });
 
-  assert.equal(continuation.leaseRelease, null);
   assert.equal(continuation.inputItems.length, 1);
   const replay = continuation.inputItems[0];
   assert.equal(replay?.type, 'function_call_output');
@@ -5073,13 +5053,16 @@ test('runtime frame allows multiple visible deliveries within the same provider 
   assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'blocked_transition'), false);
 });
 
-test('applyToolResultToLoopInput releases the lease when a tool result requests release', () => {
+test('applyToolResultToLoopInput replays recover_energy system reminder as function output', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  const leaseReleaseResult = {
-    release_lease: true,
-    lease_release_reason: 'rest_started',
+  const recoverResult = {
+    recovered: true,
     reason: 'done',
-    outcome: 'rest_started',
+    duration_minutes: 30,
+    duration_ms: 30 * 60 * 1000,
+    energy: 0.75,
+    max_energy: 1,
+    system_reminder: '<system_reminder>醒了。</system_reminder>',
     xiaoni_os: '不接，把边界记下来。'
   };
 
@@ -5087,23 +5070,14 @@ test('applyToolResultToLoopInput releases the lease when a tool result requests 
     callId: 'call-2',
     name: RECOVER_ENERGY_TOOL,
     rawArguments: '{"reason":"done","outcome":"complete","xiaoni_os":"不接，把边界记下来。"}'
-  }, leaseReleaseResult);
+  }, recoverResult);
 
-  assert.deepEqual(continuation, {
-    inputItems: [],
-    leaseRelease: {
-      release_lease: true,
-      event_kind: 'lease_released',
-      reason: 'rest_started',
-      detail: 'done',
-      outcome: 'rest_started',
-      no_visible_delivery: true,
-      visible_delivery_committed: false,
-      rest_started: true,
-      source: 'tool:recover_energy',
-      tool_result: leaseReleaseResult
-    },
-    forcedVisibleReply: null
+  assert.equal(continuation.forcedVisibleReply, null);
+  assert.equal(continuation.inputItems.length, 1);
+  assert.deepEqual(continuation.inputItems[0], {
+    type: 'function_call_output',
+    call_id: 'call-2',
+    output: '<system_reminder>醒了。</system_reminder>'
   });
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
@@ -5213,10 +5187,6 @@ test('runtime energy recovery starts negative debt from zero and reaches full in
   assert.equal(negative.energy, 0.5);
   const full = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 2 * 60 * 60 * 1000 });
   assert.equal(full.energy, 1);
-  const forced = resolveForcedFullRecovery({ rawEnergy: -0.01 });
-  assert.equal(forced?.waitMs, 2 * 60 * 60 * 1000);
-  assert.match(String(forced?.stateBlock), /energy=1.000/);
-  assert.doesNotMatch(String(forced?.stateBlock), /trigger=|note=|debt=|recovered=/);
 });
 
 test('recover_energy refuses to sleep when Xiaoni is already full energy', async () => {
@@ -5241,19 +5211,24 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.equal(result.release_lease, undefined);
   assert.equal(result.recovered, false);
   assert.equal(result.rest_rejected, true);
-  assert.equal(result.reason, '你已经精力充沛了, 不能再睡觉了 ,去找点事做');
+  assert.equal(result.reason, '你已经精力充沛了, 不能再睡觉了, 去找点事做');
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
+  assert.match(String(result.system_reminder), /<system_reminder>/);
+  assert.match(String(result.system_reminder), /recover_energy 没有执行/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
 });
 
 test('recover_energy can still sleep when current energy is below full', async () => {
+  const slept: number[] = [];
   const service = new AgentLoopService({
     getCurrentXiaoniEnergyState: async () => ({
       energy: 0.5,
       maxEnergy: 1
     })
-  } as any);
+  } as any, undefined, {
+    recoverEnergySleepMs: async (ms) => { slept.push(ms); }
+  });
 
   const result = await (service as any).executeTool({
     callId: 'call-recover-low',
@@ -5265,31 +5240,14 @@ test('recover_energy can still sleep when current energy is below full', async (
     rawArguments: '{}'
   }, createQueuePayload());
 
-  assert.equal(result.release_lease, true);
-  assert.equal(result.lease_release_reason, 'rest_started');
+  assert.equal(result.release_lease, undefined);
   assert.equal(result.recovered, true);
   assert.equal(result.duration_ms, 30 * 60 * 1000);
-});
-
-test('rest interruption uses unread metadata only and resumes after three direct mentions', () => {
-  const result = resolveRestInterruptionFromUnreadMetadata({
-    rawEnergy: -0.2,
-    restingSince: '2026-03-28T08:00:00.000Z',
-    now: '2026-03-28T09:00:00.000Z',
-    messages: [
-      { wasMentioned: true },
-      { wasMentioned: true },
-      { inboundContext: { WasMentioned: true } },
-      { wasMentioned: false }
-    ]
-  });
-
-  assert.equal(result.shouldResume, true);
-  assert.equal(result.directMentionCount, 3);
-  assert.equal(result.unreadCount, 4);
-  assert.equal(result.messageBodiesExposed, false);
-  assert.match(String(result.stateBlock), /energy=0.500/);
-  assert.doesNotMatch(String(result.stateBlock), /trigger=|note=|debt=|recovered=/);
+  assert.deepEqual(slept, [30 * 60 * 1000]);
+  assert.equal(result.energy_before, 0.5);
+  assert.equal(result.energy, 0.75);
+  assert.match(String(result.system_reminder), /<system_reminder>/);
+  assert.match(String(result.system_reminder), /休息结束/);
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
@@ -5342,16 +5300,16 @@ test('buildInitialInput does not inject legacy pending_share blocks', () => {
   assert.equal(promptTexts.some((t: string) => isPhoneNotificationReminderContent(t)), true);
 });
 
-test('runtime frame preserves global OS context during self continuation', async () => {
+test('runtime_loop frame preserves global OS context during autonomous recover tool call', async () => {
   const queueMessage = {
-    id: 'run-self-continuation',
-    traceId: 'trace-self-continuation',
-    batchId: 'batch-self-continuation',
+    id: 'run-runtime-loop-recover',
+    traceId: 'trace-runtime-loop-recover',
+    batchId: 'batch-runtime-loop-recover',
     status: 'processing',
     attempts: 1,
     createdAt: '2026-03-28T08:00:00.000Z',
-    queueMessageIds: [1],
-    payload: createSelfContinuationQueuePayload()
+    queueMessageIds: [],
+    payload: createRuntimeLoopPayload()
   };
   const listRecentTurnsCalls: any[] = [];
   const storeCalls: Record<string, any[]> = {
@@ -5361,7 +5319,7 @@ test('runtime frame preserves global OS context during self continuation', async
   let renderedModelInput = '';
 
   const store = {
-    createLlmJob: async () => 'job-self-continuation-global',
+    createLlmJob: async () => 'job-runtime-loop-recover',
     logTimelineEvent: async () => {},
     listRecentTurns: async (params: any) => {
       listRecentTurnsCalls.push(params);
@@ -5405,17 +5363,19 @@ test('runtime frame preserves global OS context during self continuation', async
 
   const service = new AgentLoopService(store, {
     resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any);
+  } as any, {
+    recoverEnergySleepMs: async () => {}
+  });
 
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     renderedModelInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
-      llm_call_id: 'llm-self-continuation-global',
+      llm_call_id: 'llm-runtime-loop-recover',
       canonical_response: {
         output: [{
           type: 'function_call',
-          call_id: 'call-self-continuation-global',
+          call_id: 'call-runtime-loop-recover',
           name: RECOVER_ENERGY_TOOL,
           arguments: JSON.stringify({
             reason: '测试全局 OS 是否进入上下文，当前没有外部目标，先休息。',
@@ -5438,11 +5398,16 @@ test('runtime frame preserves global OS context during self continuation', async
       });
     }
     outboundSendFetchCalled = true;
-    throw new Error(`recover-only self continuation test must not call outbound QQ endpoints: ${urlString}`);
+    throw new Error(`recover-only runtime_loop test must not call outbound QQ endpoints: ${urlString}`);
   }) as typeof fetch;
 
   try {
-    await processRuntimeFrameForTest(service, queueMessage as any);
+    await processRuntimeFrameForTest(service, queueMessage as any, {
+      queueBacked: false,
+      triggerInputMode: 'suppress_current_trigger',
+      appendRuntimeInputStackItem: false,
+      logQueueLifecycle: false
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -5454,8 +5419,16 @@ test('runtime frame preserves global OS context during self continuation', async
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
   assert.match(renderedModelInput, /253631878/);
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.xiaoni_os, '全局近况已被看见。');
+  assert.equal(storeCalls.settleQueueMessages.length, 0);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '全局近况已被看见。');
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
+      item?.type === 'function_call_output'
+        && String(item.output).includes('休息结束')
+    ),
+    true
+  );
 });
 
 test('buildContextBudgetPlan injects core-memory pressure at 200 turns before advancing cutoff', async () => {
@@ -5479,7 +5452,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
 
   const plan = await (service as any).buildContextBudgetPlan({
     history,
-    queueMessage: createSelfContinuationQueuePayload(),
+    queueMessage: createRuntimeLoopPayload(),
     runtimePrompt: createRuntimePrompt(),
     loopContinuation: [],
     runtimeIdentityFacts: [],

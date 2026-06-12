@@ -11,7 +11,7 @@
 
 ## Runtime Truth
 - 当前 QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看 QQ 未读时，读的是 `agent_inbound_messages` 的 inbox/window，不是 `agent_queue_messages`
-- 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 是 Notify Bucket 的持久化门铃，承载 `phone_notification`、`self_continuation`、`image_task_completed`、`system_reminder` 等触发。被主 loop pick 后即视为 consumed，不是小腻的 QQ app 未读列表、认知边界或长期运行凭证
+- 当前 agent loop 宿主仍是 `agent-service`；`agent_queue_messages` 是 Notify Bucket 的持久化门铃，承载 `phone_notification`、`image_task_completed`、`system_reminder` 等外部/工程触发。被主 loop pick 后即视为 consumed，不是小腻的 QQ app 未读列表、认知边界或长期运行凭证；`self_continuation` 不再作为 queue trigger 生产，只有无 notify 且 request window 末尾是 `final_answer` 时才在本次 request 组装里追加普通 `<system_reminder>`
 - 当前底层重构的事实源是追加式 Xiaoni agent stack：目标 `agent_stack_items` 记录连续可回放上下文，`llm_request_slices` 记录真实 LLM 请求和 provider wire payload，`tool_executions` 记录工具执行；行动流是这些事实的投影。旧 `llm_call_logs`、`tool_execution_logs`、provider replay ledger 已移除并由 schema ensure drop。细节看 `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - 聊天对象的 IM 入口 `is_enabled=0` 是 provider-service 侧硬开关：仍写入 QQ inbox，但不写 `phone_notification` 到 Notify Bucket，因此不会唤醒主 loop；`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关
 - QQ 发言出站链路：`agent-service -> provider-service -> NapCat`
@@ -28,7 +28,7 @@
 - `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
-- `modules/agent-service`：后台 agent loop / runtime service，`AgentLoopService.runRuntimeLoop()` 在 loop 内消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，空闲且未休息时会创建不落 queue 的 `runtime_loop` frame，维持小腻的连续主 loop；单个 runtime iteration / frame 只发起一次 provider model slice，工具结果写入 replay 后回到主 `while` 顶部重新 pick notify；如果没有 notify 且 request window 末尾是 `final_answer`，`runtime_loop` 组装下一次请求时才追加普通 `self_continuation` `<system_reminder>`
+- `modules/agent-service`：后台 agent loop / runtime service，`AgentLoopService.runRuntimeLoop()` 在 loop 内消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，空闲时会创建不落 queue 的 `runtime_loop` frame，维持小腻的连续主 loop；单个 runtime iteration / frame 只发起一次 provider model slice，工具结果写入 replay 后回到主 `while` 顶部重新 pick notify；如果没有 notify 且 request window 末尾是 `final_answer`，`runtime_loop` 组装下一次请求时才追加普通 `self_continuation` `<system_reminder>`；`recover_energy` 是普通工具执行，工程在 tool handler 内等待到休息结束或直接拒绝，并把结果作为 `function_call_output` 返回
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
 - 其余入口统一去 `docs/INDEX.md`
 

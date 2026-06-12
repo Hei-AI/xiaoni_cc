@@ -60,7 +60,6 @@ import {
   failAgentQueueMessage,
   ensureAgentRuntimeSchema,
   recoverStaleProcessingLeases as recoverStaleProcessingLeasesPersistence,
-  enqueueSelfContinuationQueueMessage,
   releaseExecutionLease as releaseExecutionLeasePersistence,
   getExecutionLeaseDeliveryState as getExecutionLeaseDeliveryStatePersistence,
   markLeaseVisibleDeliveryCommitted as markLeaseVisibleDeliveryCommittedPersistence,
@@ -78,7 +77,6 @@ import {
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
-  type AgentRecoveryWindowProjection,
   type QqUsageThreadList,
   type QqUsageThreadWindow,
   type QqUsageUnreadSummary,
@@ -130,75 +128,6 @@ type AgentLifeStateRow = {
   projection_version?: string | null;
   projection_updated_at?: Date | string | null;
 };
-
-type SelfContinuationReason = 'autonomous_runtime_slice' | 'recovery_complete' | string;
-
-function buildSelfContinuationPayload(input: {
-  now: Date;
-  traceId: string;
-  messageSid: string;
-  accountId: string;
-  reason: SelfContinuationReason;
-  rawPayload?: Record<string, unknown>;
-  recoveryEventId?: string | null;
-  recoverUntil?: string | null;
-}): QueueMessagePayload {
-  const nowIso = input.now.toISOString();
-  const inboundContext = {
-    Body: '',
-    BodyForAgent: '',
-    BodyForCommands: '',
-    RawBody: '',
-    CommandBody: '',
-    SessionKey: 'xiaoni:global',
-    AccountId: input.accountId,
-    MessageSid: input.messageSid,
-    ChatType: 'direct',
-    ConversationLabel: '小腻全局 runtime',
-    SenderName: '小腻',
-    SenderId: input.accountId,
-    Timestamp: Math.floor(input.now.getTime() / 1000),
-    Provider: 'internal',
-    Surface: 'self_continuation',
-    WasMentioned: false,
-    NativeChannelId: 'xiaoni:global',
-    CommandAuthorized: false
-  };
-
-  return {
-    traceId: input.traceId,
-    runId: '',
-    batchId: '',
-    source: 'self_continuation',
-    chatType: 'direct',
-    sessionKey: 'xiaoni:global',
-    peerId: input.accountId,
-    peerName: '小腻',
-    senderId: input.accountId,
-    senderName: '小腻',
-    accountId: input.accountId,
-    bodyForAgent: '',
-    rawBody: '',
-    commandBody: '',
-    wasMentioned: false,
-    receivedAt: nowIso,
-    messageTimestamp: nowIso,
-    rawPayload: {
-      kind: 'self_continuation',
-      reason: input.reason,
-      ...input.rawPayload
-    },
-    inboundContext,
-    messages: [],
-    selfContinuation: {
-      identityKey: 'xiaoni',
-      reason: input.reason,
-      recoveryEventId: input.recoveryEventId ?? null,
-      recoverUntil: input.recoverUntil ?? null,
-      createdAt: nowIso
-    }
-  };
-}
 
 function toValidDate(value: Date | string | null | undefined): Date | null {
   if (!value) {
@@ -1740,43 +1669,6 @@ export class RuntimeStore {
 
   async createRuntimeTask(input: Record<string, unknown>) {
     return createAgentTask(input, databaseConfig);
-  }
-
-  async enqueueSelfContinuationForRecovery(recoveryWindow: AgentRecoveryWindowProjection): Promise<boolean> {
-    const now = new Date();
-    const eventId = typeof recoveryWindow.eventId === 'string' && recoveryWindow.eventId.trim()
-      ? recoveryWindow.eventId.trim()
-      : 'unknown';
-    const dedupeKey = recoveryWindow.continuationDedupeKey || `self_continuation:recovery:${eventId}`;
-    const id = uuidv4().slice(0, 8);
-    const messageSid = `self-continuation:recovery:${eventId}`;
-    const traceId = `selftrace_${Date.now()}_${id}`;
-    const accountId = agentConfig.botAccountId || '1129974489';
-    const payload = buildSelfContinuationPayload({
-      now,
-      traceId,
-      accountId,
-      messageSid,
-      reason: 'recovery_complete',
-      recoveryEventId: recoveryWindow.eventId ?? null,
-      recoverUntil: recoveryWindow.recoverUntil ?? null,
-      rawPayload: {
-        recovery_event_id: recoveryWindow.eventId ?? null,
-        recover_until: recoveryWindow.recoverUntil ?? null,
-        previous_run_id: recoveryWindow.runId ?? null,
-        previous_trace_id: recoveryWindow.traceId ?? null
-      }
-    });
-    return enqueueSelfContinuationQueueMessage({
-      traceId,
-      messageSid,
-      dedupeKey,
-      accountId,
-      rawPayload: payload.rawPayload,
-      inboundContext: payload.inboundContext,
-      payload,
-      sqlAdapter: this.sql
-    }, databaseConfig);
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

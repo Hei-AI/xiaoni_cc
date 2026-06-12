@@ -1,5 +1,5 @@
 import express from 'express';
-import { getActiveAgentRecoveryWindow, getAgentRuntimeControl, getLatestAgentRecoveryWindow } from '@qq-bot/persistence';
+import { getAgentRuntimeControl } from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
@@ -160,22 +160,11 @@ async function start() {
     pollIntervalMs: agentConfig.pollIntervalMs,
     isStopping: () => stopping,
     recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
-    getActiveRecoveryWindow: () => getActiveAgentRecoveryWindow({
-      identityKey: 'xiaoni'
-    }, databaseConfig),
-    getLatestRecoveryWindow: () => getLatestAgentRecoveryWindow({
-      identityKey: 'xiaoni'
-    }, databaseConfig),
     onBusyChange: (busy) => {
       workerBusy = busy;
     },
     onRuntimeEnabledChange: (enabled) => {
       runtimeEnabled = enabled;
-    },
-    onRecoveryWindowError: (error) => {
-      moduleLogger.warn('Failed to check Xiaoni active recovery window', {
-        error: error instanceof Error ? error.message : String(error)
-      });
     },
     onRuntimeLoopError: (error) => {
       moduleLogger.error('Agent runtime loop failed', {

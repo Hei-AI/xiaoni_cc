@@ -124,7 +124,6 @@
 | P0 | 上下文窗口触发强制压缩 | `core_memory_pressure` |
 | P1 | 当前 fresh trigger 是 QQ 状态栏通知 | `phone_notification` |
 | P1 | 当前 fresh trigger 是图片任务完成通知 | `image_task_notification` |
-| P1 | 当前 fresh trigger 是 `self_continuation` | `self_continuation` |
 
 不再把 legacy `consciousness_tick` / `presence_tick` 作为当前 runtime 契约；agent loop 不再为它们提供 prompt-facing 当前输入、picked snapshot 或专用 reminder 分支。旧历史字段和旧事件只能作为持久层兼容数据读取。
 
@@ -138,13 +137,13 @@
 
 final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=final_answer` 后不能把 self continuation 丢掉，但不能在当前 frame 里提前写进 replay。正确边界是：当前 frame 只记录 `final_answer` 并 yield 回 runtime 主 `while`；下一轮先 pick notify，如果没有 notify 且 request window 末尾仍是 `final_answer`，再追加普通 `self_continuation` 模板，使用 `developer` role 的 `<system_reminder>`。这个 developer item 属于本轮 request input，不是上一轮 `responses_replay_items`，也不是 `final_answer_idle` / `final_answer_turn_control`，不允许把“不要复述上一条 final_answer”这类专用文字塞回 LLM context。
 
-`self_continuation` 只保留一个 prompt-facing 模板。当前 fresh trigger 如果已经渲染 `self_continuation`，就不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
+`self_continuation` 只保留一个 prompt-facing 模板，但不再作为 Notify Bucket / fresh trigger 生产。它只在下一轮没有 notify 可 pick，且 request window 末尾仍是 `final_answer` 时，由本轮 request 组装逻辑追加。不要再额外追加“当前连续生命切片已经进入上下文 / 后续轮次是在同一段自续行动中推进 / 不代表有新的 QQ 正文或新的通知”这类工程解释；这些判断应留在 triggerInputMode / queue 状态里。
 
-`phone_notification` / `image_task_notification` / `system_reminder` / `self_continuation` 这类 runtime reminder 只属于当前输入，不是 QQ 正文，也不是 assistant 历史。代码侧不得把它们写入 `conversation_items`，也不得把它们写入 `conversations.user_message` 作为可回放内容；目标实现中它们作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，后续 prompt history 只保留真实 QQ 正文、assistant 可见投递、tool result / response replay 和必要记忆。
+`phone_notification` / `image_task_notification` / `system_reminder` / 无 notify 场景追加的 `self_continuation` 这类 runtime reminder 只属于当前输入，不是 QQ 正文，也不是 assistant 历史。代码侧不得把它们写入 `conversation_items`，也不得把它们写入 `conversations.user_message` 作为可回放内容；目标实现中它们作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，后续 prompt history 只保留真实 QQ 正文、assistant 可见投递、tool result / response replay 和必要记忆。
 
 `<CAPABILITIES>` 是能力成本表，放在开头 developer context，保留每个 tool / skill 的 `energy_cost`。普通结构化 wrapped tool 的执行结果由 runtime 在 JSON `function_call_output.output` 中回传 `energy_cost`、`energy`、`max_energy`，不靠额外 `<system_reminder>` 给小腻解释；后续 runtime iteration 会从上一条 JSON tool output 继续读取最新 `energy`。`exec_command` 固定基础消耗为 `energy_cost=0.002`；本地 skill 当前默认 / 兜底也按 `0.002` 展示，未来如需按 skill 精细扣费，需要先把 skill execution 从命令输出里拆成可识别事件。
 
-`<STATE>` 是状态感知，不是 reminder，也不是能力成本表；它只用于 runtime 不好包进普通 JSON tool callback 的消耗动作，例如 hosted `web_search`、`exec_command` 和图片观察 XML 输出。它进入上下文时同样使用 `developer` role，prompt-facing 内容只保留小腻能体感理解的 `energy` / `max_energy` 数值。`trigger`、`note`、`action_tool_threshold`、`web_search`、`low_energy_reminder`、`forced_full_recovery`、`rest_interrupted` 这类工程事件名和说明留在代码侧。
+`<STATE>` 是状态感知，不是 reminder，也不是能力成本表；它只用于 runtime 不好包进普通 JSON tool callback 的消耗动作，例如 hosted `web_search`、`exec_command` 和图片观察 XML 输出。它进入上下文时同样使用 `developer` role，prompt-facing 内容只保留小腻能体感理解的 `energy` / `max_energy` 数值。`trigger`、`note`、`action_tool_threshold`、`web_search`、`low_energy_reminder` 这类工程事件名和说明留在代码侧。
 
 ### 初版模板审计对照
 
@@ -153,7 +152,7 @@ final-answer 专用 prompt reminder 不再作为 prompt-facing 契约。`phase=f
 | `core_memory_pressure` | 保留 | 作为最高优先级体感提醒；`source`、`required_tool`、`context_session_key` 等工程字段留在代码侧，强制 `compress_core_memory` 由代码侧 tool choice / marker 控制。 |
 | `phone_notification` | 保留 | 作为 QQ 状态栏余光；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，只告诉小腻有未读和明确喊她的摘要，具体内容仍需 `qq-usage` 打开；不再输出 `<PHONE_NOTIFICATION ... />`，也不再走独立 current-processing reminder 通道双写解释。 |
 | `image_task_notification` | 保留 | 作为图片任务完成后的真实 notify；当前 fresh trigger 直接渲染单一 `<system_reminder>` 模板，不再输出 `<IMAGE_TASK_NOTIFICATION ... />` 或双写解释。prompt-facing 只保留行动所需线索：`task_id`、任务类型、图片 ID、图片路径和目标描述；trace/run、创建时间、图片 bytes、原始 prompt 等排障细节留在 DB / trace。 |
-| `self_continuation` | 保留 | 作为当前内部自主切片唯一 prompt-facing 模板；覆盖休息恢复后的 fresh trigger，以及无 notify 且 request window 末尾是 `final_answer` 时的自主继续。 |
+| `self_continuation` | 保留 | 作为无 notify 且 request window 末尾是 `final_answer` 时的自主继续模板；不再覆盖休息恢复，也不作为 queue fresh trigger。 |
 | `consciousness_tick` / `presence_tick` | 删除 | 旧 producer 已无当前生产方；不再做当前 runtime 契约。 |
 | `already_picked` / `runtime_event_snapshot` | 删除 | 防重放是工程状态；当前用 `suppress_current_trigger`，不进 LLM context。 |
 | `emit_unread_meaning` / `turn_control` | 删除 | 当前 main loop 不暴露 `emit_unread_meaning`；旧分支只保留执行解析兼容。 |
@@ -207,7 +206,7 @@ nick_name(id) @了你 N次, 最新消息是: {} (摘要前20个字)]
 目标: 用户想要的图片用途</system_reminder>
 ```
 
-**状态：** 当前 fresh trigger 是真实 `self_continuation`，包括空队列自主切片和 `recover_energy` 结束后的恢复切片。
+**状态：** 当前没有 notify 可 pick，且 request window 末尾仍是 `final_answer`，runtime 在本轮 request 中追加普通 `self_continuation`。
 
 **模板：`self_continuation`**
 

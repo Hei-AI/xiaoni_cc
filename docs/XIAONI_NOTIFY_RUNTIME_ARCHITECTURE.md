@@ -13,8 +13,7 @@ QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`�
 
 主 loop 由 `agent-service` 承载，但 `index.ts` 只负责启动
 `AgentLoopService.runRuntimeLoop()`。runtime 自己持有 `while alive` 循环：
-它在 loop 内部从 Notify Bucket pick notify，必要时合成 recovery
-self-continuation。没有 notify 时不 sleep 掉本轮认知，而是创建不落
+它在 loop 内部从 Notify Bucket pick notify。没有 notify 时不 sleep 掉本轮认知，而是创建不落
 `agent_queue_messages` 的 `runtime_loop` frame，直接用当前 stack/window 继续组装
 模型请求。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
 
@@ -25,7 +24,6 @@ AgentLoopService.runRuntimeLoop()
   -> resolve stable system prompt once from runtime_bootstrap before the main while
   -> check runtime control
   -> claim one notify from Notify Bucket
-  -> if none and recovery expired: enqueue self_continuation notify, then claim it
   -> if none: create runtime_loop frame without writing a queue row
   -> append picked notify as runtime_input when a notify exists
   -> reuse stable system prompt resolved before the main while
@@ -35,6 +33,7 @@ AgentLoopService.runRuntimeLoop()
   -> provider-service codex-provider / OpenAI
   -> append response.output_items into agent_stack_items
   -> if function_call: dispatch tools and append function_call_output
+     (recover_energy waits inside the tool handler, or returns rejection immediately)
   -> if final_answer and no tool: yield; do not eagerly append self_continuation
   -> next loop first tries to pick notify
   -> if no notify and request window still ends with final_answer: append normal self_continuation developer input
@@ -85,7 +84,6 @@ sequenceDiagram
 | 来源 | 写入内容 | 当前代码入口 |
 | --- | --- | --- |
 | NapCat QQ message | `is_enabled=true` 时写 `phone_notification`，只含通知摘要，不含 QQ 正文。 | `modules/provider-service/src/services/inbound-agent-trigger-service.ts` |
-| self continuation | `self_continuation`，用于 `recover_energy` 恢复后唤醒；`final_answer` 后的普通自续 reminder 在当前 frame 内 append 到 replay，不写 Notify Bucket。 | `modules/agent-service/src/services/runtime-store.ts` |
 | image task completion | `image_task_completed` completion notify，下一轮仍由主 loop pick。 | `modules/agent-service/src/services/agent-task-worker-service.ts` |
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
@@ -172,6 +170,7 @@ canonical_response
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
 | image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `runRuntimeLoop()` iteration pick。 |
+| `recover_energy` | `agent-service` tool handler 内执行。成功时等待 `duration_minutes` 对应时长，醒来后返回 `<system_reminder>` 形式的 `function_call_output`；工程拒绝时立即返回拒绝原因。 | 不写 `release_lease` tool result，不 enqueue 恢复 self-continuation notify。 |
 | `final_answer` | 无外部工具分发；如果没有工具调用，只追加模型 output item 并 yield。下一轮先 pick notify；没有 notify 且 request window 末尾仍是 `final_answer` 时，才追加普通 `self_continuation` runtime input。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；后续 iteration 重新从主 while 顶部 pick notify，原始 Notify 不会重新作为当前输入。 |
 

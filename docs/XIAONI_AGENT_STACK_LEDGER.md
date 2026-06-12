@@ -8,8 +8,8 @@ provider evidence，但不能再被写成新的概念来源。
 
 小腻不是一组离散客服请求，而是一条连续 agent loop。工程上只有一个主 runtime
 入口：`AgentLoopService.runRuntimeLoop()`。`agent-service` 的 `index.ts` 只负责启动
-这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick、
-recovery self-continuation 合成都发生在 runtime loop 内部。空闲时不再合成
+这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick
+发生在 runtime loop 内部。空闲时不再合成
 autonomous queue notify，而是由 runtime loop 创建不落 `agent_queue_messages` 的
 `runtime_loop` frame，继续按同一套 stack window 组装模型请求。
 
@@ -42,10 +42,8 @@ flowchart TD
   E --> D
   D -- yes --> F{Notify Bucket has pending notify?}
   F -- yes --> G[claim notify]
-  F -- no, recovery expired --> H[enqueue and claim self_continuation notify]
   F -- no notify --> I[create runtime_loop frame without queue row]
   G --> J[append runtime_input for picked notify]
-  H --> J
   I --> Q{request window ended with final_answer?}
   Q -- yes --> W[append normal self_continuation runtime_input]
   Q -- no --> K
@@ -76,11 +74,6 @@ async function runXiaoniRuntime() {
 
   while (xiaoni_alive) {
     await waitUntilRuntimeEnabled()
-    if (recoverEnergyStillActive()) {
-      await sleepUntilRecoveryWindowEnds()
-      continue
-    }
-
     const notify = await pickNotify()
     const currentRuntimeInput = notify ? renderNotifyAsRuntimeInput(notify) : null
 
@@ -108,8 +101,6 @@ async function runXiaoniRuntime() {
         const result = invoke(call)
         appendLoopInputItems([function_call_output(call.id, result)])
       }
-    } else if (phase(response.output_items) === "final_answer") {
-      appendLoopInputItems([renderSelfContinuationReminder()])
     }
 
     continue
@@ -144,7 +135,7 @@ Prisma Client 表达。业务模块只调用 persistence helper，不直接拼 S
 
 `system_prompt` 和稳定 developer prompt 不作为普通行动卡写入 stack；它们属于 request
 assembly 固定前缀。`phone_notification`、`image_task_notification`、
-`self_continuation`、`core_memory_pressure` 这类 reminder 只属于当前输入，可写入
+无 notify 场景追加的 `self_continuation`、`core_memory_pressure` 这类 reminder 只属于当前输入，可写入
 stack 作为本轮 `runtime_input`，但不能写成 QQ 正文或 assistant 历史。
 
 ### `llm_request_slices`
@@ -170,8 +161,8 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 `raw_response` 和本次 slice 覆盖的 stack item 范围。
 
 `llm_request_slices` 是完整 provider evidence，不是后续上下文 replay。后续请求要
-吃到哪些模型可见 item 由 runtime replay / stack window 决定；其中 developer role 的
-普通 `self_continuation` 也必须可回放，不能只保留 assistant output 和 reasoning。
+吃到哪些模型可见 item 由 runtime replay / stack window 决定；其中无 notify 场景追加的
+普通 `self_continuation` 必须进入本轮 request，不能只保留 assistant output 和 reasoning。
 
 ### `tool_executions`
 
@@ -184,7 +175,7 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | `tool_call_id` | OpenAI function call id。 |
 | `tool_name` | 工具名。 |
 | `arguments` | 模型给出的参数。 |
-| `result` | runtime 回传给模型的 `function_call_output.output`。 |
+| `result` | runtime 回传给模型的 `function_call_output.output`。`recover_energy` 成功休息或被工程拒绝时，也必须作为同一个 tool call 的 `function_call_output` 返回；不得通过 `release_lease` 之类字段吞掉 callback 或另起恢复 notify。 |
 | `status` | `completed`、`failed`、`timeout`。 |
 | `side_effect` | 是否产生 QQ 发言、读 inbox、文件写入、任务入队等副作用。 |
 | `created_at` / `completed_at` | 执行时间。 |
@@ -226,9 +217,10 @@ request =
   重新读一遍。稳定 developer 能力头属于固定前缀，不是 queue message 的一部分。
 - `AgentLoopService.runRuntimeLoop()` 是 queue/notify 的唯一消费入口；不存在可公开调用的
   旧式单条 queue message 处理兼容入口。单轮 iteration 只是 service 内部实现细节。
-- 单次 runtime iteration 只发起一个 provider model slice；slice 内只追加模型 output、
-  同一响应产生的 tool output，以及 `final_answer` 后的 `self_continuation` /
-  状态类 runtime reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
+- 单次 runtime iteration 只发起一个 provider model slice；slice 内只追加模型 output
+  和同一响应产生的 tool output。`final_answer` 后不在当前 frame 追加
+  `self_continuation`；下一轮如果没有 notify 且 request window 末尾仍是
+  `final_answer`，才在新 request 中追加。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
 - `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
@@ -242,7 +234,7 @@ request =
 
 应该生成卡片：
 
-- `runtime_input`：真实 notify、self continuation、记忆压力等当前输入。
+- `runtime_input`：真实 notify、无 notify final_answer 后的 self continuation、记忆压力等当前输入。
 - `function_call`：模型请求工具。
 - `function_call_output` / `tool_executions`：工具实际执行结果。
 - `visible_delivery`：QQ 发言、图片发送等外界可见动作。
@@ -313,6 +305,9 @@ node --test packages/persistence/__tests__/*.test.js
   `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且 request window
   末尾仍是 `final_answer`，才追加普通 `self_continuation` developer reminder，后续模型
   请求能真实看到它。
+- `recover_energy` 不写 `release_lease` tool result，不 enqueue 恢复用
+  `self_continuation` notify；成功休息和工程拒绝都必须作为该 tool call 的
+  `function_call_output` 进入 replay。
 - 单个 runtime iteration / frame 只允许一次 provider model slice；工具结果或
   `final_answer` 后必须 yield 回主 `while` 顶部重新 pick notify。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。

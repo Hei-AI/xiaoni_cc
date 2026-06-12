@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentRecoveryWindowProjection } from '@qq-bot/persistence';
 import { AgentLoopService } from '../services/agent-loop-service';
 import type { ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload, QueueMessageRecord } from '../types';
@@ -33,25 +32,6 @@ function createRuntimePrompt(systemPrompt: string): ResolvedAgentRuntimePrompt {
   };
 }
 
-function createRecoveryWindow(overrides: Partial<AgentRecoveryWindowProjection> = {}): AgentRecoveryWindowProjection {
-  return {
-    active: false,
-    identityKey: 'xiaoni',
-    eventId: '9',
-    eventKind: 'recover_energy',
-    occurredAt: '2026-06-06T00:00:00.000Z',
-    recoverUntil: '2026-06-06T00:00:10.000Z',
-    remainingMs: 0,
-    durationMs: 10_000,
-    reason: null,
-    traceId: 'trace-recovery',
-    runId: 'run-recovery',
-    continuationDedupeKey: 'self_continuation:recovery:9',
-    continuationQueued: false,
-    ...overrides
-  };
-}
-
 type ProcessedRuntimeFrame = {
   message: QueueMessageRecord;
   options: Record<string, unknown>;
@@ -77,70 +57,12 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
-    getActiveRecoveryWindow: async () => {
-      throw new Error('should not check recovery when queued notify exists');
-    }
+    pollIntervalMs: 1000
   });
 
   assert.equal(delay, 1000);
   assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
   assert.deepEqual(processed.map((item) => item.options), [{}]);
-});
-
-test('runtime iteration waits for active recovery instead of enqueuing a new notify', async () => {
-  const processed: ProcessedRuntimeFrame[] = [];
-  const service = new AgentLoopService({
-    claimNextQueueMessage: async () => null,
-    enqueueSelfContinuationForRecovery: async () => {
-      throw new Error('should not enqueue during active recovery');
-    },
-  } as any);
-  stubRuntimeFrame(service, processed);
-
-  const delay = await (service as any).processRuntimeIteration({
-    workerId: 'worker-1',
-    idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
-    getActiveRecoveryWindow: async () => createRecoveryWindow({
-      active: true,
-      remainingMs: 750
-    })
-  });
-
-  assert.equal(delay, 750);
-  assert.deepEqual(processed, []);
-});
-
-test('runtime iteration creates and processes recovery self continuation notify', async () => {
-  const queueMessage = createQueueMessage('run-recovery');
-  const processed: ProcessedRuntimeFrame[] = [];
-  const calls: string[] = [];
-  let claimCount = 0;
-  const service = new AgentLoopService({
-    claimNextQueueMessage: async () => {
-      calls.push('claim');
-      claimCount += 1;
-      return claimCount === 1 ? null : queueMessage;
-    },
-    enqueueSelfContinuationForRecovery: async (recoveryWindow: unknown) => {
-      calls.push(`enqueue:${(recoveryWindow as { eventId?: string }).eventId}`);
-      return true;
-    }
-  } as any);
-  stubRuntimeFrame(service, processed);
-
-  const delay = await (service as any).processRuntimeIteration({
-    workerId: 'worker-1',
-    idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
-    getActiveRecoveryWindow: async () => null,
-    getLatestRecoveryWindow: async () => createRecoveryWindow()
-  });
-
-  assert.equal(delay, 1000);
-  assert.deepEqual(calls, ['claim', 'enqueue:9', 'claim']);
-  assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
 });
 
 test('runtime iteration processes a runtime_loop frame when there is no notify', async () => {
@@ -157,9 +79,7 @@ test('runtime iteration processes a runtime_loop frame when there is no notify',
   const delay = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
     idleIntervalMs: 2000,
-    pollIntervalMs: 1000,
-    getActiveRecoveryWindow: async () => null,
-    getLatestRecoveryWindow: async () => null
+    pollIntervalMs: 1000
   });
 
   assert.equal(delay, 1000);
