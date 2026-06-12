@@ -21,14 +21,15 @@ agent_stack_items[0..n]
   -> post provider
   -> append response.output_items
   -> append function_call_output for each invoked tool
-  -> next model loop iteration
+  -> yield to the next runtime loop iteration
 ```
 
-`final_answer` 不是终止条件。它只是模型本轮没有更多工具调用的输出形态；如果小腻
-仍然活着，当前 active model loop 会直接追加普通 `self_continuation` runtime input，
-再继续发下一次模型请求。真实 notify 只能由 `AgentLoopService.runRuntimeLoop()` 在
-runtime loop 内 pick；没有 notify 也不能 sleep 掉本轮认知，而是用 `runtime_loop`
-frame 继续发模型请求。不要为了 `final_answer` 额外制造专用 prompt reminder。
+`final_answer` 不是主 runtime 的终止条件。它只是模型本 slice 没有更多工具调用的
+输出形态；如果小腻仍然活着，当前 frame 会追加普通 `self_continuation` runtime
+input 到 replay，然后 yield 回 `AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。
+下一次 runtime iteration 会先重新 pick notify；没有 notify 且没有休息窗口时，再用
+`runtime_loop` frame 继续发模型请求。不要为了 `final_answer` 额外制造专用 prompt
+reminder，也不要在同一个 frame 里内部连打下一次模型。
 
 当前实现边界：
 
@@ -47,20 +48,20 @@ flowchart TD
   H --> J
   I --> K
   J --> K[build requestInput from stack window + appended runtime input]
-  K --> L{active model slice loop}
-  L --> M[POST provider with same system prompt and appended requestInput]
-  M --> N[append response.output_items to stack and requestInput]
-  N --> O{tool calls?}
-  O -- yes --> P[invoke tools]
-  P --> Q[append function_call_output to stack and requestInput]
-  Q --> L
-  O -- no --> R{phase is final_answer?}
-  R -- yes --> S[append normal self_continuation runtime_input]
-  S --> L
-  R -- no --> D
+  K --> L[POST provider once with same system prompt and assembled requestInput]
+  L --> M[append response.output_items to stack and replay]
+  M --> N{tool calls?}
+  N -- yes --> O[invoke tools from this provider response]
+  O --> P[append function_call_output to stack and replay]
+  P --> V[yield frame]
+  N -- no --> R{phase is final_answer?}
+  R -- yes --> S[append normal self_continuation runtime_input to replay]
+  S --> V
+  R -- no --> V
+  V --> D
   L -. compression pressure .-> T[compress_core_memory succeeds]
   T --> U[rebuild compressed window]
-  U --> L
+  U --> V
 ```
 
 目标伪代码：
@@ -80,7 +81,7 @@ async function runXiaoniRuntime() {
     const notify = await pickNotify()
     const currentRuntimeInput = notify ? renderNotifyAsRuntimeInput(notify) : null
 
-    const requestInput = buildRequestInputFromStackWindow({
+    let requestInput = buildRequestInputFromStackWindow({
       runtimePrompt,
       stableDeveloperHead,
       currentRuntimeInput
@@ -91,30 +92,24 @@ async function runXiaoniRuntime() {
       requestInput.push(...items)
     }
 
-    while (xiaoni_alive) {
-      const response = post_llm({
-        instructions: runtimePrompt.systemPrompt,
-        input: requestInput
-      })
+    const response = post_llm({
+      instructions: runtimePrompt.systemPrompt,
+      input: requestInput
+    })
 
-      appendLoopInputItems(response.output_items)
+    appendLoopInputItems(response.output_items)
 
-      const toolCalls = parse_tool_calls(response.output_items)
-      if (toolCalls.length > 0) {
-        for (const call of toolCalls) {
-          const result = invoke(call)
-          appendLoopInputItems([function_call_output(call.id, result)])
-        }
-        continue
+    const toolCalls = parse_tool_calls(response.output_items)
+    if (toolCalls.length > 0) {
+      for (const call of toolCalls) {
+        const result = invoke(call)
+        appendLoopInputItems([function_call_output(call.id, result)])
       }
-
-      if (phase(response.output_items) === "final_answer") {
-        appendLoopInputItems([renderSelfContinuationReminder()])
-        continue
-      }
-
-      continue
+    } else if (phase(response.output_items) === "final_answer") {
+      appendLoopInputItems([renderSelfContinuationReminder()])
     }
+
+    continue
   }
 }
 ```
@@ -228,8 +223,9 @@ request =
   重新读一遍。稳定 developer 能力头属于固定前缀，不是 queue message 的一部分。
 - `AgentLoopService.runRuntimeLoop()` 是 queue/notify 的唯一消费入口；不存在可公开调用的
   旧式单条 queue message 处理兼容入口。单轮 iteration 只是 service 内部实现细节。
-- active model slice 中只追加模型 output、tool output 和 `self_continuation` / 状态类
-  runtime reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
+- 单次 runtime iteration 只发起一个 provider model slice；slice 内只追加模型 output、
+  同一响应产生的 tool output，以及 `final_answer` 后的 `self_continuation` /
+  状态类 runtime reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
 - `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
@@ -313,6 +309,9 @@ node --test packages/persistence/__tests__/*.test.js
 - `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；直接 append 普通
   `self_continuation` developer reminder，并确保该 developer item 进入
   `responses_replay_items`，后续模型请求能真实看到它。
+- 单个 runtime iteration / frame 只允许一次 provider model slice；工具结果或
+  `final_answer` 后的 reminder 写入 replay 后必须 yield 回主 `while` 顶部重新
+  pick notify。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

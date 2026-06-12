@@ -162,6 +162,7 @@ type DeliveredAssistantMessage = {
 type LeaseReleaseReason =
   | 'visible_delivery_committed'
   | 'no_visible_delivery_observed'
+  | 'runtime_frame_yielded'
   | 'rest_started'
   | 'runtime_error'
   | 'prompt_binding_error';
@@ -4272,19 +4273,13 @@ export class AgentLoopService {
         });
       }
 
-      for (let turn = 1; !leaseRelease; turn += 1) {
+      {
+        const turn = 1;
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         turnsExecuted = turn;
-        const currentTurnEstimate = turn > 1
-          ? await estimateLoopInputTokens({
-              modelName: runtimePrompt.modelName,
-              queueMessage: payload,
-              loopInput: requestInput
-            })
-          : null;
         const turnBudgetRecord: ContextBudgetTurnRecord = {
           turn,
-          estimatedInputTokens: currentTurnEstimate?.inputTokens ?? budgetPlan.estimatedInputTokens,
+          estimatedInputTokens: budgetPlan.estimatedInputTokens,
           actualInputTokens: null,
           actualOutputTokens: null,
           actualTotalTokens: null,
@@ -4296,8 +4291,8 @@ export class AgentLoopService {
           contextWindowTokens: budgetPlan.contextWindowTokens,
           targetBudgetTokens: budgetPlan.targetBudgetTokens,
           hardBudgetTokens: budgetPlan.hardBudgetTokens,
-          tokenizerEncoding: currentTurnEstimate?.encoding ?? budgetPlan.tokenizerEncoding,
-          tokenizerSource: currentTurnEstimate?.source ?? budgetPlan.tokenizerSource,
+          tokenizerEncoding: budgetPlan.tokenizerEncoding,
+          tokenizerSource: budgetPlan.tokenizerSource,
           cutoffRecomputed: turn === 1 ? budgetPlan.cutoffRecomputed : false
         };
         contextBudgetTurns.push(turnBudgetRecord);
@@ -4668,17 +4663,32 @@ export class AgentLoopService {
             });
           }
         }
-        if (leaseRelease) {
-          await this.store.logTimelineEvent({
-            traceId: payload.traceId,
-            eventType: 'decision',
-            eventName: 'lease_released',
-            eventPhase: null,
-            metadata: leaseRelease
+        if (!leaseRelease) {
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: deliveredMessages.length > 0 ? 'visible_delivery_committed' : 'runtime_frame_yielded',
+            detail: deliveredMessages.length > 0
+              ? 'Visible delivery was committed; this frame yielded to the runtime loop without another model call.'
+              : 'One runtime frame completed one model slice; control returns to the main runtime loop before any further model call.',
+            outcome: deliveredMessages.length > 0
+              ? 'frame_yielded_after_visible_delivery'
+              : hasToolCall
+                ? 'tool_outputs_appended'
+                : actionPlan.hasFinalAnswer
+                  ? 'self_continuation_appended'
+                  : 'model_slice_yielded',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: deliveredMessages.length > 0 ? 'runtime:visible_delivery_frame_yield' : 'runtime:frame_yield'
           });
-          break;
         }
 
+        await this.store.logTimelineEvent({
+          traceId: payload.traceId,
+          eventType: 'decision',
+          eventName: 'lease_released',
+          eventPhase: null,
+          metadata: leaseRelease
+        });
       }
 
       const sentMessages = deliveredMessages.map((message) => message.content);
@@ -4832,7 +4842,7 @@ export class AgentLoopService {
         totalTurns: turnsExecuted,
         conversationId
       });
-      if (sentMessages.length === 0 && !recoveredEnergy) {
+      if (sentMessages.length === 0 && !recoveredEnergy && leaseRelease.reason !== 'runtime_frame_yielded') {
         await this.recordNoVisibleDeliveryLifeEvent(payload, queueMessage.id, presenceOutcome, leaseRelease, turnsExecuted, conversationId);
       }
       await this.store.logTimelineEvent({

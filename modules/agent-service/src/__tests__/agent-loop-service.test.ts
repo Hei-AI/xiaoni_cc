@@ -3810,9 +3810,9 @@ test('runtime frame persists delivered assistant transcript items with final pha
   );
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['第一条', '第二条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
   assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.runtime_stream, {
     stream_key: 'xiaoni:global',
     context_session_key: 'xiaoni:global',
@@ -3821,7 +3821,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
     sensory_input: true,
     append_strategy: 'responses_replay_items',
     response_replay_item_count: storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.length,
-    model_request_slices: 2
+    model_request_slices: 1
   });
   assert.deepEqual(
     storeCalls.createConversation[0]?.rawResponse?.runtime_stream,
@@ -3842,7 +3842,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
   }]);
 });
 
-test('runtime frame keeps going after no tool call until Xiaoni chooses recover_energy', async () => {
+test('runtime frame yields after a no-tool model slice without synthetic follow-up input', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-recover',
     traceId: 'trace-no-tool-recover',
@@ -3929,66 +3929,39 @@ test('runtime frame keeps going after no tool call until Xiaoni chooses recover_
   } as any);
 
   let turn = 0;
-  let secondTurnInput = '';
-  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+  (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-no-tool',
-        canonical_response: {
-          output: []
-        }
-      };
-    }
-
-    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
     return {
       success: true,
-      llm_call_id: 'llm-recover',
+      llm_call_id: 'llm-no-tool',
       canonical_response: {
-        output: [{
-          type: 'function_call',
-          call_id: 'call-recover',
-          name: RECOVER_ENERGY_TOOL,
-          arguments: JSON.stringify({
-            reason: '精力不够，自己选择休息。',
-            duration_minutes: 30,
-            xiaoni_os: '先休息，之后再看。'
-          })
-        }]
+        output: []
       }
     };
   };
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 2);
-  assert.doesNotMatch(secondTurnInput, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(secondTurnInput, /source="phone_notification"/);
-  assert.doesNotMatch(secondTurnInput, /status="already_picked"/);
-  assert.doesNotMatch(secondTurnInput, /<runtime_event_snapshot/);
-  assert.doesNotMatch(secondTurnInput, /没有调用任何工具/);
-  assert.doesNotMatch(secondTurnInput, /不要用.+没有工具调用.+表达沉默或结束/);
+  assert.equal(turn, 1);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 0);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.detail, '精力不够，自己选择休息。');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先休息，之后再看。');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'model_slice_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, null);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.xiaoni_os, '先休息，之后再看。');
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.xiaoni_os, null);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent[0]?.toolName, RECOVER_ENERGY_TOOL);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'settled');
 });
 
-test('runtime frame keeps final_answer in the stack and continues until a terminal action', async () => {
+test('runtime frame appends final_answer self continuation and yields to the main loop', async () => {
   const queueMessage = {
     id: 'run-queue-final-answer-control',
     traceId: 'trace-final-answer-control',
@@ -4049,40 +4022,17 @@ test('runtime frame keeps final_answer in the stack and continues until a termin
   } as any);
 
   let turn = 0;
-  let secondTurnInput = '';
-  let secondTurnInstructions = '';
-  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+  (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-final-answer-control-1',
-        canonical_response: {
-          output: [{
-            type: 'message',
-            role: 'assistant',
-            phase: 'final_answer',
-            content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
-          }]
-        }
-      };
-    }
-
-    secondTurnInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
-    secondTurnInstructions = String(canonicalRequest.instructions || '');
     return {
       success: true,
-      llm_call_id: 'llm-final-answer-control-2',
+      llm_call_id: 'llm-final-answer-control-1',
       canonical_response: {
         output: [{
-          type: 'function_call',
-          call_id: 'call-final-answer-then-recover',
-          name: RECOVER_ENERGY_TOOL,
-          arguments: JSON.stringify({
-            reason: 'final_answer 不是终止信号，下一轮自己选择休息。',
-            duration_minutes: 5,
-            xiaoni_os: 'final_answer 已进入可回放 stack，当前 lease 由 recover_energy 收束。'
-          })
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '这条时间戳还是刚才那一尾，没 @。我不继续滚了。' }]
         }]
       }
     };
@@ -4090,24 +4040,39 @@ test('runtime frame keeps final_answer in the stack and continues until a termin
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 2);
+  assert.equal(turn, 1);
   assert.equal(promptResolveCount, 1);
-  assert.equal(secondTurnInstructions, 'stable prompt resolved once for this queue message');
-  assert.match(secondTurnInput, /这条时间戳还是刚才那一尾/);
-  assert.match(secondTurnInput, /外界很安静，没有新消息或弹窗/);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, 'final_answer 已进入可回放 stack，当前 lease 由 recover_energy 收束。');
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'self_continuation_appended');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, null);
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
+      item?.type === 'message'
+        && item?.role === 'assistant'
+        && item?.phase === 'final_answer'
+        && JSON.stringify(item.content).includes('这条时间戳还是刚才那一尾')
+    ),
+    true
+  );
+  assert.equal(
+    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
+      item?.type === 'message'
+        && item?.role === 'developer'
+        && JSON.stringify(item.content).includes('<system_reminder>')
+    ),
+    true
+  );
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
 });
 
-test('runtime frame waits before the next model slice when runtime control is disabled', async () => {
+test('runtime frame waits before its single model slice when runtime control is disabled', async () => {
   const queueMessage = {
     id: 'run-queue-runtime-paused',
     traceId: 'trace-runtime-paused',
@@ -4161,7 +4126,7 @@ test('runtime frame waits before the next model slice when runtime control is di
   } as any, {
     isRuntimeEnabled: async () => {
       runtimeChecks += 1;
-      return runtimeChecks !== 2;
+      return runtimeChecks !== 1;
     },
     runtimePausePollMs: 50
   });
@@ -4169,24 +4134,6 @@ test('runtime frame waits before the next model slice when runtime control is di
   let turns = 0;
   (service as any).executeAgentTurn = async () => {
     turns += 1;
-    if (turns === 2) {
-      return {
-        success: true,
-        llm_call_id: 'llm-runtime-resumed',
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-runtime-resumed-recover',
-            name: RECOVER_ENERGY_TOOL,
-            arguments: JSON.stringify({
-              reason: '暂停恢复后继续原来的 loop，然后自己休息。',
-              duration_minutes: 5,
-              xiaoni_os: '工程暂停只是等了一下。'
-            })
-          }]
-        }
-      };
-    }
     return {
       success: true,
       llm_call_id: `llm-runtime-paused-${turns}`,
@@ -4201,16 +4148,16 @@ test('runtime frame waits before the next model slice when runtime control is di
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turns, 2);
-  assert.equal(runtimeChecks, 3);
+  assert.equal(turns, 1);
+  assert.equal(runtimeChecks, 2);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
   assert.equal(
     storeCalls.logTimelineEvent.some((event) => event.eventName === 'runtime_paused' && event.eventPhase === 'start'),
@@ -4222,7 +4169,7 @@ test('runtime frame waits before the next model slice when runtime control is di
   );
 });
 
-test('runtime frame continues past the historical max turn count until Xiaoni chooses a terminal action', async () => {
+test('runtime frame ignores the historical max turn count because it owns one model slice', async () => {
   const queueMessage = {
     id: 'run-queue-unbounded-loop',
     traceId: 'trace-unbounded-loop',
@@ -4280,24 +4227,6 @@ test('runtime frame continues past the historical max turn count until Xiaoni ch
   let turns = 0;
   (service as any).executeAgentTurn = async () => {
     turns += 1;
-    if (turns > historicalMaxTurns + 2) {
-      return {
-        success: true,
-        llm_call_id: `llm-unbounded-terminal-${turns}`,
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-unbounded-recover',
-            name: RECOVER_ENERGY_TOOL,
-            arguments: JSON.stringify({
-              reason: '模型自己决定休息，工程没有按 slice 上限截断。',
-              duration_minutes: 5,
-              xiaoni_os: '连续输出已经自然收束。'
-            })
-          }]
-        }
-      };
-    }
     return {
       success: true,
       llm_call_id: `llm-unbounded-loop-${turns}`,
@@ -4317,18 +4246,18 @@ test('runtime frame continues past the historical max turn count until Xiaoni ch
     agentConfig.maxTurns = originalMaxTurns;
   }
 
-  assert.equal(turns, historicalMaxTurns + 3);
+  assert.equal(turns, 1);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'rest_started');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, historicalMaxTurns + 3);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
 });
 
-test('runtime frame does not allow request_image_task to swallow the visible group reply', async () => {
+test('runtime frame does not allow request_image_task to swallow a same-slice visible group reply', async () => {
   const payload = createQueuePayload();
   payload.traceId = 'trace-image-task-followup';
   payload.runId = 'run-image-task-followup';
@@ -4466,12 +4395,12 @@ test('runtime frame does not allow request_image_task to swallow the visible gro
     let turn = 0;
     (service as any).executeAgentTurn = async () => {
       turn += 1;
-      if (turn === 1) {
-        return {
-          success: true,
-          llm_call_id: 'llm-image-task-1',
-          canonical_response: {
-            output: [{
+      return {
+        success: true,
+        llm_call_id: 'llm-image-task-1',
+        canonical_response: {
+          output: [
+            {
               type: 'function_call',
               call_id: 'call-image-task',
               name: IMAGE_TASK_TOOL,
@@ -4479,16 +4408,8 @@ test('runtime frame does not allow request_image_task to swallow the visible gro
                 prompt: '一张很普通的蓝天白云头像图',
                 target_description: '群聊里用于头像的普通蓝天白云图'
               })
-            }]
-          }
-        };
-      }
-      if (turn === 2) {
-        return {
-          success: true,
-          llm_call_id: 'llm-image-task-2',
-          canonical_response: {
-            output: [{
+            },
+            {
               type: 'function_call',
               call_id: 'call-image-status-reply-2',
               name: GROUP_REPLY_TOOL,
@@ -4497,26 +4418,15 @@ test('runtime frame does not allow request_image_task to swallow the visible gro
                 messages: ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。'],
                 xiaoni_os: '图片任务已提交，但对群里的可见回复由我自己决定措辞。'
               })
-            }]
-          }
-        };
-      }
-
-      return {
-        success: true,
-        llm_call_id: 'llm-image-task-3',
-        canonical_response: {
-          output: [{
-            type: 'message',
-            content: [{ type: 'output_text', text: '' }]
-          }]
+            }
+          ]
         }
       };
     };
 
     await processRuntimeFrameForTest(service, queueMessage as any);
 
-    assert.equal(turn, 3);
+    assert.equal(turn, 1);
     assert.equal(storeCalls.createConversation.length, 1);
     assert.equal(storeCalls.createConversation[0]?.aiResponse, '图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。');
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。']);
@@ -4612,35 +4522,17 @@ test('runtime frame does not auto-send image task status after queuing', async (
     let turn = 0;
     (service as any).executeAgentTurn = async () => {
       turn += 1;
-      if (turn === 1) {
-        return {
-          success: true,
-          llm_call_id: 'llm-image-task-no-auto-send-1',
-          canonical_response: {
-            output: [{
-              type: 'function_call',
-              call_id: 'call-image-task-no-auto-send',
-              name: IMAGE_TASK_TOOL,
-              arguments: JSON.stringify({
-                prompt: '一张很普通的蓝天白云头像图',
-                target_description: '群聊里用于头像的普通蓝天白云图'
-              })
-            }]
-          }
-        };
-      }
       return {
         success: true,
-        llm_call_id: 'llm-image-task-no-auto-send-2',
+        llm_call_id: 'llm-image-task-no-auto-send-1',
         canonical_response: {
           output: [{
             type: 'function_call',
-            call_id: 'call-recover-after-image-task',
-            name: RECOVER_ENERGY_TOOL,
+            call_id: 'call-image-task-no-auto-send',
+            name: IMAGE_TASK_TOOL,
             arguments: JSON.stringify({
-              reason: '生图任务已进入后台，等完成通知。',
-              duration_minutes: 5,
-              xiaoni_os: '生图任务 task-image-no-auto-send 正在后台进行，完成后会通知我。'
+              prompt: '一张很普通的蓝天白云头像图',
+              target_description: '群聊里用于头像的普通蓝天白云图'
             })
           }]
         }
@@ -4649,12 +4541,12 @@ test('runtime frame does not auto-send image task status after queuing', async (
 
     await processRuntimeFrameForTest(service, queueMessage as any);
 
-    assert.equal(turn, 2);
+    assert.equal(turn, 1);
     assert.equal(storeCalls.createRuntimeTask.length, 1);
     assert.equal(storeCalls.createConversation.length, 1);
     assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, []);
-    assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'rest_started');
+    assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, []);
     assert.deepEqual(fetchCalls, []);
   } finally {
@@ -4729,31 +4621,24 @@ test('runtime frame stores partially delivered assistant transcript as commentar
   let turn = 0;
   (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-failure-1',
-        canonical_response: {
-          output: [{
+    return {
+      success: true,
+      llm_call_id: 'llm-failure-1',
+      canonical_response: {
+        output: [
+          {
             type: 'function_call',
             call_id: 'call-send-failure',
             name: GROUP_REPLY_TOOL,
             arguments: JSON.stringify({ group_id: 101, message: '先发一条' })
-          }]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      llm_call_id: 'llm-failure-2',
-      canonical_response: {
-        output: [{
-          type: 'function_call',
-          call_id: 'call-finish-failure',
-          name: RECOVER_ENERGY_TOOL,
-          arguments: JSON.stringify({ reason: 'done', duration_minutes: 5, xiaoni_os: 'pause' })
-        }]
+          },
+          {
+            type: 'function_call',
+            call_id: 'call-finish-failure',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: JSON.stringify({ reason: 'done', duration_minutes: 5, xiaoni_os: 'pause' })
+          }
+        ]
       }
     };
   };
@@ -4771,6 +4656,7 @@ test('runtime frame stores partially delivered assistant transcript as commentar
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
+  assert.equal(turn, 1);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'failed');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
@@ -4795,7 +4681,7 @@ test('runtime frame stores partially delivered assistant transcript as commentar
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-failure']);
 });
 
-test('runtime frame completes when the model stops emitting tool calls after a delivered reply', async () => {
+test('runtime frame yields after a delivered reply without another model slice', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-after-delivery',
     traceId: 'trace-no-tool-after-delivery',
@@ -4865,30 +4751,15 @@ test('runtime frame completes when the model stops emitting tool calls after a d
   let turn = 0;
   (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-delivered-1',
-        canonical_response: {
-          output: [{
-            type: 'function_call',
-            call_id: 'call-send-delivered',
-            name: GROUP_REPLY_TOOL,
-            arguments: JSON.stringify({ group_id: 101, message: '先发一条' })
-          }]
-        }
-      };
-    }
-
     return {
       success: true,
-      llm_call_id: 'llm-delivered-2',
+      llm_call_id: 'llm-delivered-1',
       canonical_response: {
         output: [{
-          type: 'message',
-          role: 'assistant',
-          phase: 'final_answer',
-          content: [{ type: 'output_text', text: '收住。' }]
+          type: 'function_call',
+          call_id: 'call-send-delivered',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ group_id: 101, message: '先发一条' })
         }]
       }
     };
@@ -4905,7 +4776,7 @@ test('runtime frame completes when the model stops emitting tool calls after a d
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 2);
+  assert.equal(turn, 1);
   assert.equal(storeCalls.failQueueMessage.length, 0);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
@@ -4921,12 +4792,12 @@ test('runtime frame completes when the model stops emitting tool calls after a d
         && item?.role === 'developer'
         && JSON.stringify(item.content).includes('<system_reminder>')
     ),
-    true
+    false
   );
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
-test('runtime frame allows multiple visible deliveries within the same run', async () => {
+test('runtime frame allows multiple visible deliveries within the same provider slice', async () => {
   const queueMessage = {
     id: 'run-queue-multi-delivery',
     traceId: 'trace-multi-delivery',
@@ -5001,46 +4872,24 @@ test('runtime frame allows multiple visible deliveries within the same run', asy
   let executeToolCalls = 0;
   (service as any).executeAgentTurn = async () => {
     turn += 1;
-    if (turn === 1) {
-      return {
-        success: true,
-        llm_call_id: 'llm-multi-delivery-1',
-        canonical_response: {
-          output: [{
+    return {
+      success: true,
+      llm_call_id: 'llm-multi-delivery-1',
+      canonical_response: {
+        output: [
+          {
             type: 'function_call',
             call_id: 'call-send-multi-delivery-1',
             name: GROUP_REPLY_TOOL,
             arguments: JSON.stringify({ group_id: 101, message: '第一条' })
-          }]
-        }
-      };
-    }
-
-    if (turn === 2) {
-      return {
-        success: true,
-        llm_call_id: 'llm-multi-delivery-2',
-        canonical_response: {
-          output: [{
+          },
+          {
             type: 'function_call',
             call_id: 'call-send-multi-delivery-2',
             name: GROUP_REPLY_TOOL,
             arguments: JSON.stringify({ group_id: 101, message: '第二条' })
-          }]
-        }
-      };
-    }
-
-    return {
-      success: true,
-      llm_call_id: 'llm-multi-delivery-3',
-      canonical_response: {
-        output: [{
-          type: 'message',
-          role: 'assistant',
-          phase: 'final_answer',
-          content: [{ type: 'output_text', text: '留白。' }]
-        }]
+          }
+        ]
       }
     };
   };
@@ -5058,7 +4907,7 @@ test('runtime frame allows multiple visible deliveries within the same run', asy
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 3);
+  assert.equal(turn, 1);
   assert.equal(executeToolCalls, 2);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
@@ -5080,7 +4929,7 @@ test('runtime frame allows multiple visible deliveries within the same run', asy
         && item?.role === 'developer'
         && JSON.stringify(item.content).includes('<system_reminder>')
     ),
-    true
+    false
   );
   assert.equal(storeCalls.completeAgentStackToolExecution.length, 2);
   assert.equal(storeCalls.completeAgentStackToolExecution.some((call) => call.result?.blocked_transition), false);
