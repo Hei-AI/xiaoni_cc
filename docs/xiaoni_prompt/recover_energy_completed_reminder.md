@@ -1,5 +1,3 @@
-你已经休息结束了。
-这次休息了 {{DURATION_MINUTES}} 分钟。
-当前 energy={{ENERGY}}，max_energy={{MAX_ENERGY}}，本次恢复={{RECOVERED_ENERGY}}。
+【躯体苏醒】你刚刚休息了 {{DURATION_MINUTES}} 分钟。体力得到了补充（恢复了 {{RECOVERED_ENERGY}}，当前精力：{{ENERGY}}/{{MAX_ENERGY}}）。
 {{REASON_LINE}}
-这是 recover_energy 的工具回调，不是新的 QQ 通知。
+这不是外界的消息打扰，只是你自然醒来的生理感应。伸个懒腰，看看接下来想干嘛吧。

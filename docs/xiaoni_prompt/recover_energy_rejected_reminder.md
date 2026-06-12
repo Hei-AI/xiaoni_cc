@@ -1,4 +1,3 @@
-recover_energy 没有执行。
-工程拒绝原因：{{REJECT_REASON}}
-当前 energy={{ENERGY}}，max_energy={{MAX_ENERGY}}。
-这是 recover_energy 的工具回调。
+【无法入睡】你试图闭上眼睛休息，但身体或环境拒绝了这次休眠（感知到的阻碍：{{REJECT_REASON}}）。
+当前精力依然是：{{ENERGY}}/{{MAX_ENERGY}}。
+既然睡不着，就别强求了。顺着现在的感觉，去干点别的事情吧。

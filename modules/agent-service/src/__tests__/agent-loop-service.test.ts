@@ -5215,7 +5215,7 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
   assert.match(String(result.system_reminder), /<system_reminder>/);
-  assert.match(String(result.system_reminder), /recover_energy 没有执行/);
+  assert.match(String(result.system_reminder), /无法入睡/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
 });
 
@@ -5247,7 +5247,7 @@ test('recover_energy can still sleep when current energy is below full', async (
   assert.equal(result.energy_before, 0.5);
   assert.equal(result.energy, 0.75);
   assert.match(String(result.system_reminder), /<system_reminder>/);
-  assert.match(String(result.system_reminder), /休息结束/);
+  assert.match(String(result.system_reminder), /躯体苏醒/);
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
@@ -5425,7 +5425,7 @@ test('runtime_loop frame preserves global OS context during autonomous recover t
   assert.equal(
     storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
       item?.type === 'function_call_output'
-        && String(item.output).includes('休息结束')
+        && String(item.output).includes('躯体苏醒')
     ),
     true
   );
