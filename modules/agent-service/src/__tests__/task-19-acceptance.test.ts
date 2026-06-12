@@ -13,6 +13,7 @@ import type { QueueMessagePayload } from '../types';
 import type { ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
+const EXEC_COMMAND_TOOL = 'exec_command';
 
 function readSystemPromptBody() {
   const repoRoot = resolve(__dirname, '../../../..');
@@ -171,7 +172,7 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
   assert.match(JSON.stringify(plan.requestInput), /脑容量达到极限/);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
-  assert.deepEqual(getAllowedToolNames(pressureRequest.tool_choice), [COMPRESS_CORE_MEMORY_TOOL]);
+  assert.deepEqual(getAllowedToolNames(pressureRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
   assert.ok(pressureToolNames.includes(COMPRESS_CORE_MEMORY_TOOL));
   assert.deepEqual(compressTool?.function?.parameters?.required, ['text']);
   assert.equal(compressTool?.function?.parameters?.additionalProperties, false);

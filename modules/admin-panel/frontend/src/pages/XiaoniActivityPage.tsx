@@ -58,6 +58,33 @@ interface XiaoniActivityFeedItem {
   metadata: Record<string, unknown>;
 }
 
+interface CompressionForkEvent extends XiaoniActivityFeedItem {}
+
+interface CompressionForkRun {
+  id: string;
+  forkRunId: string;
+  source: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  status: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  traceId: string | null;
+  runId: string | null;
+  conversationId?: string | null;
+  readCutoffAfterConversationId?: string | null;
+  previousReadCutoffAfterConversationId?: string | null;
+  eventCount: number;
+  events: CompressionForkEvent[];
+  metadata: Record<string, unknown>;
+}
+
+interface CompressionForkTimeline {
+  runs: CompressionForkRun[];
+}
+
 interface RuntimeSnapshot {
   live: boolean;
   status: string;
@@ -116,6 +143,7 @@ interface XiaoniActivityFeed {
     runtime: RuntimeSnapshot;
   };
   items: XiaoniActivityFeedItem[];
+  compressionForkTimeline?: CompressionForkTimeline;
 }
 
 interface ApiResponse<T> {
@@ -249,6 +277,12 @@ function sourceLabel(source: string) {
       return 'media';
     case 'queue_message':
       return 'queue';
+    case 'compression_fork_llm_request':
+      return 'fork LLM';
+    case 'compression_fork_item':
+      return 'fork stack';
+    case 'compression_fork_tool_execution':
+      return 'fork tool';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -308,6 +342,22 @@ function formatTokenCount(value: number | null) {
     return `${(value / 1_000).toFixed(1)}K`;
   }
   return String(value);
+}
+
+function formatDurationMs(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  if (value < 1000) {
+    return `${value}ms`;
+  }
+  if (value < 60_000) {
+    const seconds = value / 1000;
+    return `${seconds < 10 ? seconds.toFixed(1) : seconds.toFixed(0)}s`;
+  }
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value % 60_000) / 1000);
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
 function timelineGroups(items: XiaoniActivityFeedItem[]) {
@@ -444,6 +494,147 @@ function TimeRangeControls({
             />
           </div>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CompressionForkEventRow({ event }: { event: CompressionForkEvent }) {
+  const tone = toneClasses[event.tone] ? event.tone : 'neutral';
+  const providerFormat = metadataText(event.metadata, 'providerFormat');
+  const inputTokens = formatTokenCount(metadataNumber(event.metadata, 'inputTokens'));
+  const cachedInputTokens = formatTokenCount(metadataNumber(event.metadata, 'cachedInputTokens'));
+  const outputTokens = formatTokenCount(metadataNumber(event.metadata, 'outputTokens'));
+  const toolArgumentsPreview = metadataText(event.metadata, 'toolArgumentsPreview') || metadataText(event.metadata, 'argumentsPreview');
+  const toolResultPreview = metadataText(event.metadata, 'toolResultPreview');
+  const providerResponsePreview = metadataText(event.metadata, 'providerResponsePreview');
+  const payloadPreview = metadataText(event.metadata, 'payloadPreview');
+  const previewEntries = [
+    toolArgumentsPreview ? ['tool args', toolArgumentsPreview] as const : null,
+    toolResultPreview ? ['tool result', toolResultPreview] as const : null,
+    providerResponsePreview ? ['LLM response', providerResponsePreview] as const : null,
+    payloadPreview ? ['payload', payloadPreview] as const : null,
+  ].filter(Boolean) as Array<readonly [string, string]>;
+
+  return (
+    <div className="relative pl-9">
+      <div
+        className={cn(
+          'absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background',
+          iconClasses[tone]
+        )}
+      >
+        {event.source === 'compression_fork_llm_request' ? (
+          <Activity className="h-3.5 w-3.5" />
+        ) : (
+          <Waypoints className="h-3.5 w-3.5" />
+        )}
+      </div>
+      <div className="border-b border-cyan-100 pb-3 last:border-b-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
+          <StatusPill tone="neutral">{sourceLabel(event.source)}</StatusPill>
+          {event.status ? <StatusPill tone={statusTone(event.status)}>{statusLabel(event.status)}</StatusPill> : null}
+          {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
+        </div>
+        <div className="mt-1 min-w-0">
+          <div className="break-words text-sm font-semibold leading-5 text-foreground">{event.title}</div>
+          {event.body ? (
+            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{event.body}</p>
+          ) : null}
+        </div>
+        {inputTokens || cachedInputTokens || outputTokens ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {inputTokens ? <StatusPill tone="neutral">Input {inputTokens}</StatusPill> : null}
+            {cachedInputTokens ? <StatusPill tone={cachedInputTokens === '0' ? 'neutral' : 'success'}>Cache {cachedInputTokens}</StatusPill> : null}
+            {outputTokens ? <StatusPill tone="neutral">Output {outputTokens}</StatusPill> : null}
+          </div>
+        ) : null}
+        {previewEntries.length ? (
+          <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            {previewEntries.map(([label, value]) => (
+              <details key={label} className="min-w-0">
+                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  {label}
+                </summary>
+                <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/80">{value}</pre>
+              </details>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CompressionForkTimelineRail({ timeline }: { timeline?: CompressionForkTimeline }) {
+  const runs = timeline?.runs || [];
+  if (!runs.length) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-lg border border-cyan-200 bg-cyan-50/40 px-4 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+            <Waypoints className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Compress Fork</h2>
+            <div className="text-xs text-muted-foreground">
+              {runs[0]?.startedAt ? formatTimestamp(runs[0].startedAt) : '-'}
+            </div>
+          </div>
+        </div>
+        <StatusPill tone="info">{runs.length} Forks</StatusPill>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        {runs.map((run) => {
+          const duration = formatDurationMs(run.durationMs);
+          return (
+            <article key={run.id} className="rounded-lg border border-cyan-200/80 bg-background/85 p-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone={statusTone(run.status)}>{statusLabel(run.status) || 'fork'}</StatusPill>
+                    {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
+                    <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
+                  </div>
+                  <h3 className="mt-2 break-words text-base font-semibold leading-6 text-foreground">{run.title}</h3>
+                  {run.body ? (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{run.body}</p>
+                  ) : null}
+                </div>
+                <div className="shrink-0 text-left text-xs text-muted-foreground lg:text-right">
+                  <div>
+                    <span className="font-medium text-foreground">start</span> {formatTimestamp(run.startedAt)}
+                  </div>
+                  <div>
+                    <span className="font-medium text-foreground">end</span> {run.completedAt ? formatTimestamp(run.completedAt) : 'running'}
+                  </div>
+                  {run.readCutoffAfterConversationId ? (
+                    <div className="font-mono">cutoff {run.previousReadCutoffAfterConversationId || '-'} - {run.readCutoffAfterConversationId}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="relative mt-4">
+                <div className="absolute bottom-3 left-3 top-3 w-px bg-cyan-200" />
+                <div className="space-y-3">
+                  {run.events.length ? (
+                    run.events.map((event) => (
+                      <CompressionForkEventRow key={event.id} event={event} />
+                    ))
+                  ) : (
+                    <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -683,6 +874,7 @@ export const XiaoniActivityPage: React.FC = () => {
   });
 
   const groups = React.useMemo(() => timelineGroups(feed?.items || []), [feed?.items]);
+  const forkCount = feed?.compressionForkTimeline?.runs.length || 0;
   const rangeBadge = timeRange === 'custom'
     ? [startTime || '开始', endTime || '现在'].join(' - ')
     : timeRangeLabel(timeRange);
@@ -723,13 +915,13 @@ export const XiaoniActivityPage: React.FC = () => {
   }, [updateSearchParam]);
 
   return (
-    <PageShell className="max-w-4xl">
+    <PageShell className="max-w-6xl">
       <PageHeader
         eyebrow="Xiaoni Action Stream"
         title="小腻行动流"
-        description="按时间线展示小腻看到的消息、调用的工具、发出的内容、休息状态和后台行动。"
+        description="按时间线展示小腻看到的消息、调用的工具、发出的内容、休息状态、后台行动和 Compress Fork。"
         icon={<Activity className="h-5 w-5" />}
-        badge={feed ? <PageHeaderBadge>{feed.items.length} Events · {rangeBadge}</PageHeaderBadge> : null}
+        badge={feed ? <PageHeaderBadge>{feed.items.length} Events · {forkCount} Forks · {rangeBadge}</PageHeaderBadge> : null}
         actions={
           <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
@@ -747,6 +939,8 @@ export const XiaoniActivityPage: React.FC = () => {
         onCustomTimeChange={handleCustomTimeChange}
       />
 
+      {feed ? <CompressionForkTimelineRail timeline={feed.compressionForkTimeline} /> : null}
+
       {error ? (
         <ErrorState description={error instanceof Error ? error.message : '加载小腻行动流失败'} onRetry={() => void refetch()} />
       ) : null}
@@ -758,7 +952,7 @@ export const XiaoniActivityPage: React.FC = () => {
         </div>
       ) : null}
 
-      {feed && feed.items.length === 0 ? (
+      {feed && feed.items.length === 0 && forkCount === 0 ? (
         <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无行动事件" description="还没有小腻行动流记录。" />
       ) : null}
 

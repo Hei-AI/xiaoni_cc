@@ -167,6 +167,26 @@ function buildSqlTimePredicate(expressions, timeWindow) {
   };
 }
 
+function buildSqlForkRunOverlapPredicate(timeWindow) {
+  if (!hasTimeWindow(timeWindow)) {
+    return { clause: '', params: [] };
+  }
+  const clauses = [];
+  const params = [];
+  if (timeWindow.startTime) {
+    clauses.push('COALESCE(completed_at, started_at, created_at) >= ?');
+    params.push(timeWindow.startTime);
+  }
+  if (timeWindow.endTime) {
+    clauses.push('COALESCE(started_at, created_at) <= ?');
+    params.push(timeWindow.endTime);
+  }
+  return {
+    clause: clauses.join(' AND '),
+    params
+  };
+}
+
 function itemMatchesTimeWindow(item, timeWindow) {
   if (!hasTimeWindow(timeWindow)) {
     return true;
@@ -884,6 +904,290 @@ function summarizeLlmRequestSlice(row) {
   };
 }
 
+function summarizeCompressionForkSlice(row) {
+  const base = summarizeLlmRequestSlice(row);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  return {
+    ...base,
+    id: `compression-fork-slice:${sliceId || row.id}`,
+    source: 'compression_fork_llm_request',
+    kind: 'fork_llm_request_slice',
+    title: 'Fork LLM 请求',
+    actorName: '小腻 Fork',
+    metadata: {
+      ...base.metadata,
+      forkRunId,
+      spanId: sliceId ? `compression-fork-slice:${sliceId}` : `compression-fork-slice-row:${row.id}`,
+      parentSpanId: forkRunId ? `compression-fork:${forkRunId}` : null,
+      wirePayloadSource: 'core_memory_compression_fork_slices'
+    }
+  };
+}
+
+function summarizeCompressionForkItem(row) {
+  const content = normalizeJsonObject(row.content, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const itemKind = row.itemKind || row.item_kind || 'fork_item';
+  const toolName = firstString(content.name, metadata.tool_name, metadata.toolName);
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id, content.call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const isToolCall = itemKind === 'function_call';
+  const isToolOutput = itemKind === 'function_call_output';
+  const isRuntimeInput = itemKind === 'runtime_input';
+  const isAssistantOutput = itemKind === 'assistant_output';
+  const body = isToolCall
+    ? firstString(content.arguments, previewJson(content.arguments), metadata.argumentsPreview)
+    : isToolOutput
+      ? firstString(content.output, previewJson(content.output))
+      : isRuntimeInput
+        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        : previewResponseItemText(content);
+  const itemId = firstString(row.id === null || typeof row.id === 'undefined' ? null : String(row.id), row.eventId, row.event_id);
+  const spanId = isToolCall && toolCallId
+    ? `compression-fork-tool-call:${toolCallId}`
+    : isToolOutput && toolCallId
+      ? `compression-fork-tool-output:${toolCallId}`
+      : llmSliceId
+        ? `compression-fork-slice:${llmSliceId}`
+        : `compression-fork-item:${itemId || row.item_index}`;
+
+  return {
+    id: `compression-fork-item:${itemId || row.item_index}`,
+    source: 'compression_fork_item',
+    kind: isToolCall
+      ? 'function_call'
+      : isToolOutput
+        ? 'function_call_output'
+        : isAssistantOutput
+          ? firstString(row.phase, content.phase, 'assistant_message')
+          : itemKind,
+    title: isToolCall
+      ? `Fork 请求工具: ${toolName || 'tool'}`
+      : isToolOutput
+        ? `Fork 工具结果: ${toolName || toolCallId || 'tool'}`
+        : isRuntimeInput
+          ? 'Fork 当前输入'
+          : row.phase === 'final_answer' || content.phase === 'final_answer'
+            ? 'Fork 模型输出: final_answer'
+            : 'Fork 模型输出',
+    body: truncateText(body, 420),
+    status: null,
+    actor: isRuntimeInput ? 'system' : 'xiaoni',
+    actorName: isRuntimeInput ? 'Runtime' : '小腻 Fork',
+    timestamp: eventTimestamp(row.createdAt || row.created_at),
+    sessionKey: firstString(content.session_key, metadata.session_key),
+    peerName: firstString(content.peer_name, metadata.peer_name),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
+    tone: isToolOutput ? 'success' : isToolCall ? 'xiaoni' : isRuntimeInput ? 'info' : 'info',
+    metadata: {
+      forkRunId,
+      forkItemId: itemId,
+      forkItemEventId: row.eventId || row.event_id || null,
+      itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      forkSource: 'core_memory_compression_fork_items',
+      llmRequestSliceId: llmSliceId,
+      llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
+      spanId,
+      parentSpanId: llmSliceId
+        ? `compression-fork-slice:${llmSliceId}`
+        : forkRunId
+          ? `compression-fork:${forkRunId}`
+          : null,
+      outputItemType: firstString(content.type, itemKind),
+      outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
+      toolCallId,
+      toolName,
+      messagePhase: firstString(row.phase, content.phase),
+      argumentsPreview: isToolCall ? truncateText(firstString(content.arguments, previewJson(content.arguments)), 1200) : null,
+      toolResultPreview: isToolOutput ? previewJson(content.output) : null,
+      payloadPreview: isRuntimeInput ? previewJson(content) : null
+    }
+  };
+}
+
+function summarizeCompressionForkToolExecution(row) {
+  const args = normalizeJsonObject(row.arguments);
+  const result = normalizeJsonObject(row.result);
+  const body = firstString(
+    result.status_text,
+    result.output_xml,
+    result.text,
+    Array.isArray(result.sent_messages) ? result.sent_messages.join('\n') : null,
+    result.reason,
+    result.outcome,
+    args.query,
+    args.message,
+    row.errorMessage,
+    row.error_message
+  );
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const executionId = firstString(row.executionId, row.execution_id) || String(row.id || '');
+  return {
+    id: `compression-fork-tool:${executionId}`,
+    source: 'compression_fork_tool_execution',
+    kind: firstString(row.toolName, row.tool_name, 'tool'),
+    title: `Fork tool: ${firstString(row.toolName, row.tool_name, 'tool')}`,
+    body: truncateText(body, 420),
+    status: row.status || null,
+    actor: 'xiaoni',
+    actorName: '小腻 Fork',
+    timestamp: eventTimestamp(row.startedAt || row.started_at || row.createdAt || row.created_at),
+    sessionKey: firstString(row.metadata?.session_key, row.metadata?.sessionKey),
+    peerName: firstString(row.metadata?.peer_name, row.metadata?.peerName),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
+    tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : 'warning',
+    metadata: {
+      forkRunId,
+      executionId,
+      toolCallId,
+      llmRequestSliceId: llmSliceId,
+      spanId: toolCallId ? `compression-fork-tool-call:${toolCallId}` : `compression-fork-tool:${row.id}`,
+      parentSpanId: llmSliceId
+        ? `compression-fork-slice:${llmSliceId}`
+        : forkRunId
+          ? `compression-fork:${forkRunId}`
+          : null,
+      agentTurn: Number(row.agentTurn || row.agent_turn || 0) || null,
+      toolArgumentsPreview: previewJson(args),
+      rawArgumentsPreview: truncateText(row.rawArguments || row.raw_arguments || '', 1200),
+      toolResultPreview: previewJson(result),
+      errorMessage: row.errorMessage || row.error_message || null,
+      sideEffect: Boolean(row.sideEffect ?? row.side_effect)
+    }
+  };
+}
+
+function compareTimelineEvents(left, right) {
+  const leftTime = new Date(left.timestamp).getTime();
+  const rightTime = new Date(right.timestamp).getTime();
+  if (leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  return String(left.id || '').localeCompare(String(right.id || ''));
+}
+
+function summarizeCompressionForkRun(row, events) {
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+  const artifact = normalizeJsonObject(row.artifact, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const startedAt = eventTimestamp(row.startedAt || row.started_at || row.createdAt || row.created_at);
+  const completedAt = normalizeDate(row.completedAt || row.completed_at);
+  const startedMs = new Date(startedAt).getTime();
+  const completedMs = completedAt ? new Date(completedAt).getTime() : NaN;
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(completedMs)
+    ? Math.max(0, completedMs - startedMs)
+    : null;
+  const eventList = [...events].sort(compareTimelineEvents);
+  return {
+    id: `compression-fork:${forkRunId}`,
+    forkRunId,
+    source: 'core_memory_compression_fork',
+    kind: 'core_memory_compression_fork',
+    title: 'Compress Fork',
+    body: truncateText(firstString(row.error_message, row.errorMessage, row.summary_text, row.summaryText, artifact.summary_text), 520),
+    status: row.status || null,
+    startedAt,
+    completedAt,
+    durationMs,
+    traceId: row.traceId || row.trace_id || null,
+    runId: row.runId || row.run_id || null,
+    conversationId: row.conversationId || row.conversation_id || null,
+    readCutoffAfterConversationId: row.readCutoffAfterConversationId || row.read_cutoff_after_conversation_id || null,
+    previousReadCutoffAfterConversationId: row.previousReadCutoffAfterConversationId || row.previous_read_cutoff_after_conversation_id || null,
+    eventCount: eventList.length,
+    events: normalizeValue(eventList),
+    metadata: normalizeValue({
+      forkRunId,
+      contextSessionKey: row.contextSessionKey || row.context_session_key || null,
+      artifact,
+      metadata,
+      errorMessage: row.errorMessage || row.error_message || null,
+      createdAt: normalizeDate(row.createdAt || row.created_at),
+      updatedAt: normalizeDate(row.updatedAt || row.updated_at)
+    })
+  };
+}
+
+async function loadCoreMemoryCompressionForkTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+}) {
+  const forkLimit = clampLimit(limit, 30, 120);
+  const overlapPredicate = buildSqlForkRunOverlapPredicate(timeWindow);
+  try {
+    const runRows = await sql.query(`
+      SELECT *
+      FROM core_memory_compression_fork_runs
+      WHERE identity_key = ?
+      ${overlapPredicate.clause ? `AND ${overlapPredicate.clause}` : ''}
+      ORDER BY COALESCE(started_at, created_at) DESC, id DESC
+      LIMIT ?
+    `, [identityKey, ...overlapPredicate.params, forkLimit]);
+    const forkRunIds = runRows
+      .map((row) => firstString(row.forkRunId, row.fork_run_id))
+      .filter(Boolean);
+    if (forkRunIds.length === 0) {
+      return { runs: [] };
+    }
+    const placeholders = forkRunIds.map(() => '?').join(', ');
+    const [sliceRows, itemRows, toolRows] = await Promise.all([
+      sql.query(`
+        SELECT *
+        FROM core_memory_compression_fork_slices
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
+      `, forkRunIds),
+      sql.query(`
+        SELECT *
+        FROM core_memory_compression_fork_items
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, item_index ASC, id ASC
+      `, forkRunIds),
+      sql.query(`
+        SELECT *
+        FROM core_memory_compression_fork_tool_executions
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, started_at ASC, id ASC
+      `, forkRunIds)
+    ]);
+    const eventsByForkRunId = new Map(forkRunIds.map((forkRunId) => [forkRunId, []]));
+    for (const row of sliceRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeCompressionForkSlice(row));
+      }
+    }
+    for (const row of itemRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeCompressionForkItem(row));
+      }
+    }
+    for (const row of toolRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeCompressionForkToolExecution(row));
+      }
+    }
+
+    return {
+      runs: runRows.map((row) => {
+        const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+        return summarizeCompressionForkRun(row, eventsByForkRunId.get(forkRunId) || []);
+      })
+    };
+  } catch {
+    return { runs: [] };
+  }
+}
+
 function summarizeTask(row) {
   const artifactCount = Array.isArray(row.artifacts) ? row.artifacts.length : 0;
   const body = row.error_message
@@ -1590,7 +1894,8 @@ function createXiaoniActivityPersistence({
         agentStackToolRows,
         queueStats,
         digitalStats,
-        taskStats
+        taskStats,
+        compressionForkTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
           where: { identity_key: identityKey }
@@ -1694,7 +1999,12 @@ function createXiaoniActivityPersistence({
           prisma.agentTask.count({ where: { status: 'processing' } }),
           prisma.agentTask.count({ where: { status: 'completed' } }),
           prisma.agentTask.count({ where: { status: 'failed' } })
-        ])
+        ]),
+        loadCoreMemoryCompressionForkTimeline(sql, {
+          identityKey,
+          timeWindow,
+          limit: Math.max(30, Math.ceil(perSourceLimit / 2))
+        })
       ]);
 
       const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));
@@ -1818,7 +2128,8 @@ function createXiaoniActivityPersistence({
             failed: taskStats[3]
           }
         },
-        items: normalizeValue(items)
+        items: normalizeValue(items),
+        compressionForkTimeline: normalizeValue(compressionForkTimeline)
       };
     } finally {
       await sql.close();
@@ -1849,7 +2160,8 @@ function createXiaoniActivityPersistence({
         ...normalizeActionStreamCurrent(feed.current),
         latestActivityAt: items[0]?.timestamp || null
       },
-      items: items.map(normalizeActionStreamItem)
+      items: items.map(normalizeActionStreamItem),
+      compressionForkTimeline: feed.compressionForkTimeline || { runs: [] }
     };
   }
 

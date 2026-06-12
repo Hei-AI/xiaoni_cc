@@ -16,6 +16,12 @@ import {
   updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
   recordToolExecution as recordToolExecutionPersistence,
   completeToolExecution as completeAgentStackToolExecutionPersistence,
+  recordCoreMemoryCompressionForkRun as recordCoreMemoryCompressionForkRunPersistence,
+  completeCoreMemoryCompressionForkRun as completeCoreMemoryCompressionForkRunPersistence,
+  appendCoreMemoryCompressionForkItems as appendCoreMemoryCompressionForkItemsPersistence,
+  recordCoreMemoryCompressionForkSlice as recordCoreMemoryCompressionForkSlicePersistence,
+  recordCoreMemoryCompressionForkToolExecution as recordCoreMemoryCompressionForkToolExecutionPersistence,
+  completeCoreMemoryCompressionForkToolExecution as completeCoreMemoryCompressionForkToolExecutionPersistence,
   attachConversationIdToAgentStackByTrace,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
@@ -1872,6 +1878,134 @@ export class RuntimeStore {
     stackOutputItemId?: string | number | null;
   }) {
     return completeAgentStackToolExecutionPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordCoreMemoryCompressionForkRun(params: {
+    forkRunId: string;
+    contextSessionKey?: string | null;
+    status: string;
+    traceId: string;
+    runId: string;
+    conversationId?: number | null;
+    readCutoffAfterConversationId?: number | null;
+    previousReadCutoffAfterConversationId?: number | null;
+    summaryText?: string | null;
+    artifact?: Record<string, unknown>;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordCoreMemoryCompressionForkRunPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async completeCoreMemoryCompressionForkRun(params: {
+    forkRunId: string;
+    status: string;
+    summaryText?: string | null;
+    artifact?: Record<string, unknown>;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return completeCoreMemoryCompressionForkRunPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async appendCoreMemoryCompressionForkItems(params: {
+    forkRunId: string;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
+    llmRequestSliceId?: string | null;
+    items: Array<Record<string, unknown>>;
+  }) {
+    return appendCoreMemoryCompressionForkItemsPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordCoreMemoryCompressionForkSlice(params: {
+    forkRunId: string;
+    sliceId: string;
+    llmCallId?: string | null;
+    inputStartIndex?: number | null;
+    inputEndIndex?: number | null;
+    inputStackItemIds?: Array<string | number>;
+    outputStartIndex?: number | null;
+    outputEndIndex?: number | null;
+    canonicalRequest?: Record<string, unknown>;
+    wireRequest?: Record<string, unknown> | null;
+    canonicalResponse?: Record<string, unknown> | null;
+    wireResponse?: Record<string, unknown> | null;
+    rawResponse?: Record<string, unknown> | null;
+    outputItems?: Array<Record<string, unknown>>;
+    status?: string;
+    tokenUsage?: Record<string, unknown>;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    agentTurn?: number | null;
+    modelName?: string | null;
+    modelProvider?: string | null;
+    requestFormatVersion?: string | null;
+    wireProviderFormat?: string | null;
+    processingTimeMs?: number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordCoreMemoryCompressionForkSlicePersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordCoreMemoryCompressionForkToolExecution(params: {
+    forkRunId: string;
+    executionId: string;
+    llmRequestSliceId?: string | null;
+    llmCallId?: string | null;
+    toolCallId: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    rawArguments?: string | null;
+    result?: Record<string, unknown>;
+    status: string;
+    errorMessage?: string | null;
+    sideEffect?: boolean;
+    traceId: string;
+    runId: string;
+    conversationId?: number | null;
+    agentTurn: number;
+    stackCallItemId?: string | number | null;
+    stackOutputItemId?: string | number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordCoreMemoryCompressionForkToolExecutionPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async completeCoreMemoryCompressionForkToolExecution(params: {
+    executionId: string;
+    status: string;
+    result?: Record<string, unknown>;
+    errorMessage?: string | null;
+    stackOutputItemId?: string | number | null;
+  }) {
+    return completeCoreMemoryCompressionForkToolExecutionPersistence({
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);

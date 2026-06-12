@@ -8,11 +8,17 @@ function createMockSql() {
   const calls = [];
   const rows = {
     stackHead: [{ stack_index: 7 }],
+    forkHead: [{ item_index: 2 }],
     stackInsert: [],
     slice: [],
-    tool: []
+    tool: [],
+    forkRun: [],
+    forkItem: [],
+    forkSlice: [],
+    forkTool: []
   };
   let stackId = 10;
+  let forkItemId = 70;
   const executor = {
     calls,
     rows,
@@ -27,6 +33,170 @@ function createMockSql() {
       }
       if (sql.includes('MAX(stack_index)')) {
         return rows.stackHead;
+      }
+      if (sql.includes('MAX(item_index)')) {
+        return rows.forkHead;
+      }
+      if (sql.includes('INSERT INTO core_memory_compression_fork_runs')) {
+        const row = {
+          id: 60,
+          fork_run_id: params[0],
+          identity_key: params[1],
+          context_session_key: params[2],
+          status: params[3],
+          trace_id: params[4],
+          run_id: params[5],
+          conversation_id: params[6],
+          read_cutoff_after_conversation_id: params[7],
+          previous_read_cutoff_after_conversation_id: params[8],
+          summary_text: params[9],
+          artifact: JSON.parse(params[10]),
+          error_message: params[11],
+          metadata: JSON.parse(params[12]),
+          started_at: params[13] || '2026-06-11T00:00:00.000Z',
+          completed_at: params[14],
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.forkRun.push(row);
+        return [row];
+      }
+      if (sql.includes('UPDATE core_memory_compression_fork_runs')) {
+        const existing = rows.forkRun.find((row) => row.fork_run_id === params[6]) || rows.forkRun[0];
+        const row = {
+          ...(existing || {
+            id: 60,
+            fork_run_id: params[6],
+            identity_key: 'xiaoni',
+            context_session_key: 'xiaoni:global',
+            trace_id: 'trace-1',
+            run_id: 'run-1',
+            conversation_id: null,
+            read_cutoff_after_conversation_id: null,
+            previous_read_cutoff_after_conversation_id: null,
+            created_at: '2026-06-11T00:00:00.000Z'
+          }),
+          status: params[0],
+          summary_text: params[1] || existing?.summary_text || null,
+          artifact: JSON.parse(params[2]),
+          error_message: params[3],
+          metadata: JSON.parse(params[4]),
+          completed_at: params[5] || '2026-06-11T00:00:01.000Z',
+          updated_at: '2026-06-11T00:00:01.000Z'
+        };
+        rows.forkRun = rows.forkRun.filter((entry) => entry.fork_run_id !== row.fork_run_id);
+        rows.forkRun.push(row);
+        return [row];
+      }
+      if (sql.includes('INSERT INTO core_memory_compression_fork_items')) {
+        const row = {
+          id: forkItemId++,
+          event_id: params[0],
+          fork_run_id: params[1],
+          identity_key: params[2],
+          item_index: params[3],
+          item_kind: params[4],
+          role: params[5],
+          phase: params[6],
+          provider_item_id: params[7],
+          tool_call_id: params[8],
+          llm_request_slice_id: params[9],
+          content: JSON.parse(params[10]),
+          visibility: params[11],
+          source_type: params[12],
+          source_id: params[13],
+          trace_id: params[14],
+          run_id: params[15],
+          conversation_id: params[16],
+          metadata: JSON.parse(params[17]),
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.forkItem.push(row);
+        return [row];
+      }
+      if (sql.includes('INSERT INTO core_memory_compression_fork_slices')) {
+        const row = {
+          id: 80,
+          slice_id: params[0],
+          fork_run_id: params[1],
+          llm_call_id: params[2],
+          identity_key: params[3],
+          input_start_index: params[4],
+          input_end_index: params[5],
+          input_stack_item_ids: JSON.parse(params[6]),
+          output_start_index: params[7],
+          output_end_index: params[8],
+          canonical_request: JSON.parse(params[9]),
+          wire_request: params[10] ? JSON.parse(params[10]) : null,
+          canonical_response: params[11] ? JSON.parse(params[11]) : null,
+          wire_response: params[12] ? JSON.parse(params[12]) : null,
+          raw_response: params[13] ? JSON.parse(params[13]) : null,
+          output_items: JSON.parse(params[14]),
+          status: params[15],
+          token_usage: JSON.parse(params[16]),
+          trace_id: params[17],
+          run_id: params[18],
+          conversation_id: params[19],
+          agent_turn: params[20],
+          model_name: params[21],
+          model_provider: params[22],
+          request_format_version: params[23],
+          wire_provider_format: params[24],
+          processing_time_ms: params[25],
+          metadata: JSON.parse(params[26]),
+          completed_at: params[27],
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.forkSlice.push(row);
+        return [row];
+      }
+      if (sql.includes('INSERT INTO core_memory_compression_fork_tool_executions')) {
+        const row = {
+          id: 90,
+          execution_id: params[0],
+          fork_run_id: params[1],
+          identity_key: params[2],
+          llm_request_slice_id: params[3],
+          llm_call_id: params[4],
+          tool_call_id: params[5],
+          tool_name: params[6],
+          arguments: JSON.parse(params[7]),
+          raw_arguments: params[8],
+          result: JSON.parse(params[9]),
+          status: params[10],
+          error_message: params[11],
+          side_effect: params[12],
+          trace_id: params[13],
+          run_id: params[14],
+          conversation_id: params[15],
+          agent_turn: params[16],
+          stack_call_item_id: params[17],
+          stack_output_item_id: params[18],
+          metadata: JSON.parse(params[19]),
+          created_at: '2026-06-11T00:00:00.000Z',
+          started_at: '2026-06-11T00:00:00.000Z',
+          completed_at: params[21],
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.forkTool.push(row);
+        return [row];
+      }
+      if (sql.includes('UPDATE core_memory_compression_fork_tool_executions')) {
+        const existing = rows.forkTool.find((row) => row.execution_id === params[5]) || rows.forkTool[0];
+        const row = {
+          ...existing,
+          status: params[0],
+          result: JSON.parse(params[1]),
+          error_message: params[2],
+          stack_output_item_id: params[3],
+          completed_at: params[4] || '2026-06-11T00:00:01.000Z',
+          updated_at: '2026-06-11T00:00:01.000Z'
+        };
+        rows.forkTool = rows.forkTool.filter((entry) => entry.execution_id !== row.execution_id);
+        rows.forkTool.push(row);
+        return [row];
       }
       if (sql.includes('INSERT INTO agent_stack_items')) {
         const row = {
@@ -153,7 +323,7 @@ function createMockSql() {
   return executor;
 }
 
-test('ensureXiaoniAgentStackSchema creates stack, slice, tool, and compaction tables', async () => {
+test('ensureXiaoniAgentStackSchema creates stack, slice, tool, compaction, and fork ledger tables', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -164,6 +334,10 @@ test('ensureXiaoniAgentStackSchema creates stack, slice, tool, and compaction ta
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS llm_request_slices/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS tool_executions/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS stack_compactions/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_runs/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_items/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_slices/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_tool_executions/);
 });
 
 test('appendAgentStackItems assigns monotonic identity-local stack indexes', async () => {
@@ -340,6 +514,91 @@ test('recordToolExecution and completeToolExecution link tool result callback st
   assert.equal(completed.status, 'completed');
   assert.equal(completed.stackOutputItemId, '11');
   assert.equal(completed.result.stdout, '/tmp');
+});
+
+test('core memory compression fork ledger stores run, slice, items, and tool execution outside main stack', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const run = await persistence.recordCoreMemoryCompressionForkRun({
+    forkRunId: 'fork-1',
+    contextSessionKey: 'xiaoni:global',
+    status: 'running',
+    traceId: 'trace-1',
+    runId: 'run-1',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: 99,
+    metadata: { no_main_stack_persist: true }
+  });
+  const itemRows = await persistence.appendCoreMemoryCompressionForkItems({
+    forkRunId: 'fork-1',
+    traceId: 'trace-1',
+    runId: 'run-1',
+    sourceType: 'core_memory_compression_fork_slices',
+    sourceId: 'fork-slice-1',
+    llmRequestSliceId: 'fork-slice-1',
+    items: [
+      { itemKind: 'function_call', role: 'assistant', toolCallId: 'call-1', content: { type: 'function_call' } },
+      { itemKind: 'function_call_output', role: 'tool', toolCallId: 'call-1', content: { type: 'function_call_output' } }
+    ]
+  });
+  const slice = await persistence.recordCoreMemoryCompressionForkSlice({
+    forkRunId: 'fork-1',
+    sliceId: 'fork-slice-1',
+    llmCallId: 'llm-fork-1',
+    canonicalRequest: { input: [{ role: 'developer' }] },
+    canonicalResponse: { output: [{ type: 'function_call', call_id: 'call-1' }] },
+    outputItems: [{ type: 'function_call', call_id: 'call-1' }],
+    outputStartIndex: 3,
+    outputEndIndex: 4,
+    status: 'completed',
+    tokenUsage: { total_tokens: 21 },
+    traceId: 'trace-1',
+    runId: 'run-1',
+    agentTurn: 1,
+    modelName: 'gpt-test'
+  });
+  const runningTool = await persistence.recordCoreMemoryCompressionForkToolExecution({
+    forkRunId: 'fork-1',
+    executionId: 'fork-tool-1',
+    llmRequestSliceId: 'fork-slice-1',
+    llmCallId: 'llm-fork-1',
+    toolCallId: 'call-1',
+    toolName: 'exec_command',
+    arguments: { cmd: 'pwd' },
+    rawArguments: '{"cmd":"pwd"}',
+    status: 'running',
+    sideEffect: true,
+    traceId: 'trace-1',
+    runId: 'run-1',
+    agentTurn: 1,
+    stackCallItemId: itemRows[0].id
+  });
+  const completedTool = await persistence.completeCoreMemoryCompressionForkToolExecution({
+    executionId: 'fork-tool-1',
+    status: 'completed',
+    result: { stdout: '/tmp' },
+    stackOutputItemId: itemRows[1].id
+  });
+  const completedRun = await persistence.completeCoreMemoryCompressionForkRun({
+    forkRunId: 'fork-1',
+    status: 'completed',
+    summaryText: '压缩后的近况',
+    artifact: { fork_turn_count: 1 },
+    metadata: { fork_tool_call_count: 1 }
+  });
+
+  assert.equal(run.forkRunId, 'fork-1');
+  assert.equal(run.readCutoffAfterConversationId, '171');
+  assert.equal(itemRows.length, 2);
+  assert.equal(itemRows[0].itemIndex, 3);
+  assert.equal(itemRows[0].forkRunId, 'fork-1');
+  assert.equal(slice.forkRunId, 'fork-1');
+  assert.equal(slice.outputItems[0].call_id, 'call-1');
+  assert.equal(runningTool.forkRunId, 'fork-1');
+  assert.equal(completedTool.stackOutputItemId, itemRows[1].id);
+  assert.equal(completedRun.summaryText, '压缩后的近况');
+  assert.equal(sql.rows.stackInsert.length, 0);
 });
 
 test('attachConversationIdToAgentStackByTrace updates stack, slices, and tool executions', async () => {

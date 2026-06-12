@@ -318,6 +318,14 @@ type ContextBudgetPlan = {
   } | null;
 };
 
+type CoreMemoryCompressionPlan = NonNullable<ContextBudgetPlan['coreMemoryCompression']>;
+
+type CoreMemoryCompressionCommit = {
+  text: string;
+  artifact: Record<string, unknown>;
+  toolResult: Record<string, unknown>;
+};
+
 
 type UnreadMeaningTopicContext = {
   hasTopic: boolean;
@@ -437,6 +445,7 @@ const GLOBAL_PROMPT_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS = 3;
+const CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS = 6;
 const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
@@ -1533,6 +1542,7 @@ function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
 function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
   if (hasCoreMemoryCompressionReminder(loopInput)) {
     return buildAllowedToolsToolChoice([
+      { type: 'function', name: TOOL_NAMES.execCommand },
       { type: 'function', name: TOOL_NAMES.compressCoreMemory }
     ]);
   }
@@ -1590,11 +1600,8 @@ export function buildCanonicalAgentTurnRequest(
     ? firstItem.content
     : undefined;
   const instructions = baseInstructions;
-  const coreMemoryCompressionRequired = hasCoreMemoryCompressionReminder(loopInput);
   const tools = selectMainLoopToolDefinitions(modelName);
-  const toolChoice = coreMemoryCompressionRequired
-    ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.compressCoreMemory }])
-    : resolveMainLoopToolChoice(loopInput);
+  const toolChoice = resolveMainLoopToolChoice(loopInput);
 
   return {
     model: modelName,
@@ -1631,6 +1638,22 @@ function buildMainAgentCanonicalRequest(
 
 function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
   return JSON.parse(JSON.stringify(request)) as CanonicalAgentTurnRequest;
+}
+
+function buildCoreMemoryCompressionForkRequest(
+  baseRequest: CanonicalAgentTurnRequest,
+  forkTurn: number
+): CanonicalAgentTurnRequest {
+  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  forkRequest.parallel_tool_calls = false;
+  forkRequest.store = false;
+  forkRequest.metadata = {
+    ...(forkRequest.metadata || {}),
+    core_memory_compression_fork: 'true',
+    fork_turn: String(forkTurn),
+    no_persist: 'true'
+  };
+  return forkRequest;
 }
 
 function buildImageVisionForkRequest(
@@ -4157,10 +4180,12 @@ export class AgentLoopService {
         triggerInputMode: options.triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer
       });
+      let appendSelfContinuationOnTerminalFinalAnswer = false;
       budgetPlan = await buildBudgetPlan(false);
       if (allowSelfContinuationOnTerminalFinalAnswer) {
         const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
         if (isAssistantFinalAnswerInputItem(lastInputItem)) {
+          appendSelfContinuationOnTerminalFinalAnswer = true;
           budgetPlan = await buildBudgetPlan(true);
         }
       }
@@ -4194,6 +4219,47 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
+      if (budgetPlan.coreMemoryCompression) {
+        const compression = budgetPlan.coreMemoryCompression;
+        const compressionCommit = await this.runCoreMemoryCompressionFork({
+          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
+          queueMessage: payload,
+          runtimePrompt,
+          compression,
+          contextSessionKey
+        });
+        coreMemoryCompressionArtifact = compressionCommit.artifact;
+        const postCompressionRetainedHistory = applyReadCutoffAfterConversationId(
+          budgetPlan.retainedHistory,
+          compression.readCutoffAfterConversationId
+        );
+        requestInput = buildLoopRequestInput({
+          history: postCompressionRetainedHistory,
+          queueMessage: payload,
+          runtimePrompt,
+          loopContinuation,
+          runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
+          contextSummary: compressionCommit.text,
+          pendingProactiveShare: budgetPlan.pendingProactiveShare,
+          developerContextBlock,
+          triggerInputMode: options.triggerInputMode,
+          appendSelfContinuationOnTerminalFinalAnswer
+        });
+        const postCompressionEstimate = await estimateLoopInputTokens({
+          modelName: runtimePrompt.modelName,
+          queueMessage: payload,
+          loopInput: requestInput
+        });
+        budgetPlan = {
+          ...budgetPlan,
+          requestInput,
+          retainedHistory: postCompressionRetainedHistory,
+          contextSummary: compressionCommit.text,
+          estimatedInputTokens: postCompressionEstimate.inputTokens,
+          tokenizerEncoding: postCompressionEstimate.encoding,
+          tokenizerSource: postCompressionEstimate.source
+        };
+      }
       const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
         if (items.length === 0) {
           return;
@@ -4352,51 +4418,20 @@ export class AgentLoopService {
             });
             let compressedContextSummary: string | null = null;
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
-              const text = typeof rawToolResult.text === 'string' && rawToolResult.text.trim()
-                ? rawToolResult.text.trim()
-                : null;
-              if (!text) {
-                throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
-              }
-              const compression = budgetPlan.coreMemoryCompression;
-              const compressionSessionKey = compression?.contextSessionKey ?? contextSessionKey;
-              await this.store.upsertSessionContextSummary({
-                sessionKey: compressionSessionKey,
-                contextSummary: text
+              const commit = await this.commitCoreMemoryCompression({
+                rawToolResult,
+                toolCall,
+                compression: budgetPlan.coreMemoryCompression,
+                contextSessionKey,
+                sourceResponseId: modelResult.llm_call_id || null,
+                metadata: {
+                  trace_id: payload.traceId,
+                  execution_mode: 'main_loop'
+                }
               });
-              if (compression) {
-                await this.store.upsertSessionReadCutoffState({
-                  sessionKey: compression.contextSessionKey,
-                  readCutoffAfterConversationId: compression.readCutoffAfterConversationId,
-                  lastContextWindowTokens: compression.lastContextWindowTokens,
-                  lastTargetBudgetTokens: compression.lastTargetBudgetTokens,
-                  lastHardBudgetTokens: compression.lastHardBudgetTokens
-                });
-              }
-              coreMemoryCompressionArtifact = {
-                tool_name: toolCall.name,
-                context_session_key: compressionSessionKey,
-                read_cutoff_after_conversation_id: compression?.readCutoffAfterConversationId ?? null,
-                previous_read_cutoff_after_conversation_id: compression?.previousReadCutoffAfterConversationId ?? null,
-                source_response_id: modelResult.llm_call_id || null,
-                tool_call_id: toolCall.callId,
-                text_length: text.length
-              };
-              rawToolResult = {
-                ...rawToolResult,
-                context_summary_written: true,
-                read_cutoff_written: Boolean(compression),
-                context_session_key: compressionSessionKey,
-                read_cutoff_after_conversation_id: compression?.readCutoffAfterConversationId ?? null
-              };
-              compressedContextSummary = text;
-              await this.store.logTimelineEvent({
-                traceId: payload.traceId,
-                eventType: 'memory',
-                eventName: 'core_memory_compressed',
-                eventPhase: null,
-                metadata: coreMemoryCompressionArtifact
-              });
+              coreMemoryCompressionArtifact = commit.artifact;
+              rawToolResult = commit.toolResult;
+              compressedContextSummary = commit.text;
             }
             const toolResult = rawToolResult;
             if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovered === true) {
@@ -5936,6 +5971,532 @@ export class AgentLoopService {
     }
   }
 
+  private async recordCoreMemoryCompressionForkRunSafe(params: Parameters<RuntimeStore['recordCoreMemoryCompressionForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordCoreMemoryCompressionForkRun?: RuntimeStore['recordCoreMemoryCompressionForkRun'];
+    }).recordCoreMemoryCompressionForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record core memory compression fork run', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeCoreMemoryCompressionForkRunSafe(params: Parameters<RuntimeStore['completeCoreMemoryCompressionForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeCoreMemoryCompressionForkRun?: RuntimeStore['completeCoreMemoryCompressionForkRun'];
+    }).completeCoreMemoryCompressionForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete core memory compression fork run', {
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async appendCoreMemoryCompressionForkItemsSafe(params: Parameters<RuntimeStore['appendCoreMemoryCompressionForkItems']>[0]) {
+    const appender = (this.store as RuntimeStore & {
+      appendCoreMemoryCompressionForkItems?: RuntimeStore['appendCoreMemoryCompressionForkItems'];
+    }).appendCoreMemoryCompressionForkItems;
+    if (typeof appender !== 'function' || params.items.length === 0) {
+      return [];
+    }
+    try {
+      return await appender.call(this.store, params) as Array<Record<string, unknown>>;
+    } catch (error) {
+      moduleLogger.warn('Failed to append core memory compression fork items', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        itemCount: params.items.length,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  private async recordCoreMemoryCompressionForkSliceSafe(params: Parameters<RuntimeStore['recordCoreMemoryCompressionForkSlice']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordCoreMemoryCompressionForkSlice?: RuntimeStore['recordCoreMemoryCompressionForkSlice'];
+    }).recordCoreMemoryCompressionForkSlice;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record core memory compression fork slice', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        sliceId: params.sliceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async recordCoreMemoryCompressionForkToolExecutionSafe(params: Parameters<RuntimeStore['recordCoreMemoryCompressionForkToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordCoreMemoryCompressionForkToolExecution?: RuntimeStore['recordCoreMemoryCompressionForkToolExecution'];
+    }).recordCoreMemoryCompressionForkToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record core memory compression fork tool execution', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        toolCallId: params.toolCallId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeCoreMemoryCompressionForkToolExecutionSafe(params: Parameters<RuntimeStore['completeCoreMemoryCompressionForkToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeCoreMemoryCompressionForkToolExecution?: RuntimeStore['completeCoreMemoryCompressionForkToolExecution'];
+    }).completeCoreMemoryCompressionForkToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete core memory compression fork tool execution', {
+        executionId: params.executionId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async commitCoreMemoryCompression(params: {
+    rawToolResult: Record<string, unknown>;
+    toolCall: AgentToolCall;
+    compression: CoreMemoryCompressionPlan | null;
+    contextSessionKey: string;
+    sourceResponseId: string | null;
+    metadata?: Record<string, unknown>;
+  }): Promise<CoreMemoryCompressionCommit> {
+    const text = typeof params.rawToolResult.text === 'string' && params.rawToolResult.text.trim()
+      ? params.rawToolResult.text.trim()
+      : null;
+    if (!text) {
+      throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
+    }
+
+    const compressionSessionKey = params.compression?.contextSessionKey ?? params.contextSessionKey;
+    await this.store.upsertSessionContextSummary({
+      sessionKey: compressionSessionKey,
+      contextSummary: text
+    });
+    if (params.compression) {
+      await this.store.upsertSessionReadCutoffState({
+        sessionKey: params.compression.contextSessionKey,
+        readCutoffAfterConversationId: params.compression.readCutoffAfterConversationId,
+        lastContextWindowTokens: params.compression.lastContextWindowTokens,
+        lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
+        lastHardBudgetTokens: params.compression.lastHardBudgetTokens
+      });
+    }
+
+    const artifact = {
+      tool_name: params.toolCall.name,
+      context_session_key: compressionSessionKey,
+      read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
+      previous_read_cutoff_after_conversation_id: params.compression?.previousReadCutoffAfterConversationId ?? null,
+      source_response_id: params.sourceResponseId,
+      tool_call_id: params.toolCall.callId,
+      text_length: text.length,
+      ...(params.metadata || {})
+    };
+    const toolResult = {
+      ...params.rawToolResult,
+      context_summary_written: true,
+      read_cutoff_written: Boolean(params.compression),
+      context_session_key: compressionSessionKey,
+      read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null
+    };
+    await this.store.logTimelineEvent({
+      traceId: String(params.metadata?.trace_id || ''),
+      eventType: 'memory',
+      eventName: 'core_memory_compressed',
+      eventPhase: null,
+      metadata: artifact
+    });
+    return {
+      text,
+      artifact,
+      toolResult
+    };
+  }
+
+  private async runCoreMemoryCompressionFork(params: {
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    compression: CoreMemoryCompressionPlan;
+    contextSessionKey: string;
+  }): Promise<CoreMemoryCompressionCommit> {
+    const forkRunId = `core-memory-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+    const allowedToolNames = new Set<string>([
+      TOOL_NAMES.execCommand,
+      TOOL_NAMES.compressCoreMemory
+    ]);
+    let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    let forkToolCallCount = 0;
+    const baseForkMetadata = {
+      context_session_key: params.compression.contextSessionKey,
+      read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
+      previous_read_cutoff_after_conversation_id: params.compression.previousReadCutoffAfterConversationId,
+      no_main_stack_persist: true,
+      no_traffic_persist: true
+    };
+
+    await this.recordCoreMemoryCompressionForkRunSafe({
+      forkRunId,
+      contextSessionKey: params.compression.contextSessionKey,
+      status: 'running',
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      readCutoffAfterConversationId: params.compression.readCutoffAfterConversationId,
+      previousReadCutoffAfterConversationId: params.compression.previousReadCutoffAfterConversationId,
+      metadata: baseForkMetadata
+    });
+
+    await this.store.logTimelineEvent({
+      traceId: params.queueMessage.traceId,
+      eventType: 'memory',
+      eventName: 'core_memory_compression_fork',
+      eventPhase: 'start',
+      metadata: {
+        fork_run_id: forkRunId,
+        context_session_key: params.compression.contextSessionKey,
+        read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
+        no_main_stack_persist: true
+      }
+    });
+
+    try {
+      for (let forkTurn = 1; forkTurn <= CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS; forkTurn += 1) {
+        const forkRequest = buildCoreMemoryCompressionForkRequest(params.baseRequest, forkTurn);
+        forkRequest.input = normalizeResponseInputItems(forkInput);
+        await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+        const modelResult = await this.executeCoreMemoryCompressionForkTurn(
+          forkRequest,
+          params.queueMessage,
+          params.runtimePrompt,
+          forkTurn
+        );
+        const forkSliceId = modelResult.llm_request_slice_id
+          || modelResult.llm_call_id
+          || `core-memory-fork-slice:${forkRunId}:${forkTurn}`;
+        const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        const outputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
+          forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'core_memory_compression_fork_slices',
+          sourceId: forkSliceId,
+          llmRequestSliceId: forkSliceId,
+          items: buildModelOutputStackItems(outputItems, forkSliceId) as Array<Record<string, unknown>>
+        });
+        const outputItemIndexes = outputRows
+          .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+          .filter((value) => Number.isFinite(value));
+        const toolCallForkItemIdByCallId = new Map<string, string | number>();
+        for (const row of outputRows) {
+          const toolCallId = typeof (row as { toolCallId?: unknown }).toolCallId === 'string'
+            ? (row as { toolCallId: string }).toolCallId
+            : null;
+          const itemKind = typeof (row as { itemKind?: unknown }).itemKind === 'string'
+            ? (row as { itemKind: string }).itemKind
+            : null;
+          const id = (row as { id?: unknown }).id;
+          if (toolCallId && itemKind === 'function_call' && (typeof id === 'string' || typeof id === 'number')) {
+            toolCallForkItemIdByCallId.set(toolCallId, id);
+          }
+        }
+        await this.recordCoreMemoryCompressionForkSliceSafe({
+          forkRunId,
+          sliceId: forkSliceId,
+          llmCallId: modelResult.llm_call_id || null,
+          inputStartIndex: null,
+          inputEndIndex: null,
+          inputStackItemIds: [],
+          outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
+          outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
+          canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+          wireRequest: modelResult.wire_request || null,
+          canonicalResponse: modelResult.canonical_response || null,
+          wireResponse: modelResult.wire_response || null,
+          rawResponse: modelResult.raw_response || null,
+          outputItems,
+          status: modelResult.success ? 'completed' : 'failed',
+          tokenUsage: modelResult.usage || {},
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          agentTurn: forkTurn,
+          modelName: modelResult.model || params.runtimePrompt.modelName,
+          modelProvider: modelResult.provider || null,
+          requestFormatVersion: modelResult.request_format_version || null,
+          wireProviderFormat: modelResult.wire_provider_format || null,
+          processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+          metadata: {
+            ...baseForkMetadata,
+            fork_run_id: forkRunId,
+            fork_turn: forkTurn,
+            execution_mode: 'compression_fork'
+          }
+        });
+
+        const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
+        if (!actionPlan.hasToolCall) {
+          throw new Error(`${TOOL_NAMES.compressCoreMemory} fork yielded without a tool call`);
+        }
+
+        for (const replayItem of actionPlan.replayableOutputs) {
+          forkInput.push(replayItem.inputItem);
+          if (!isReplayableToolCall(replayItem)) {
+            continue;
+          }
+
+          const toolCall = replayItem.toolCall;
+          if (!allowedToolNames.has(toolCall.name)) {
+            throw new Error(`${TOOL_NAMES.compressCoreMemory} fork tried unsupported tool: ${toolCall.name}`);
+          }
+          forkToolCallCount += 1;
+          const forkToolExecutionId = `core-memory-fork-tool:${forkRunId}:${toolCall.callId}`;
+          await this.recordCoreMemoryCompressionForkToolExecutionSafe({
+            forkRunId,
+            executionId: forkToolExecutionId,
+            llmRequestSliceId: forkSliceId,
+            llmCallId: modelResult.llm_call_id || null,
+            toolCallId: toolCall.callId,
+            toolName: toolCall.name,
+            arguments: toolCall.args,
+            rawArguments: toolCall.rawArguments,
+            status: 'running',
+            sideEffect: isToolCallSideEffecting(toolCall),
+            traceId: params.queueMessage.traceId,
+            runId: params.queueMessage.runId,
+            agentTurn: forkTurn,
+            stackCallItemId: toolCallForkItemIdByCallId.get(toolCall.callId) || null,
+            metadata: {
+              ...baseForkMetadata,
+              fork_turn: forkTurn,
+              model_name: params.runtimePrompt.modelName,
+              session_key: params.queueMessage.sessionKey,
+              chat_type: params.queueMessage.chatType,
+              peer_name: params.queueMessage.peerName || null
+            }
+          });
+
+          try {
+            const rawToolResult = await this.executeTool(toolCall, params.queueMessage, {
+              currentCanonicalRequest: forkRequest
+            });
+
+            if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
+              const commit = await this.commitCoreMemoryCompression({
+                rawToolResult,
+                toolCall,
+                compression: params.compression,
+                contextSessionKey: params.contextSessionKey,
+                sourceResponseId: modelResult.llm_call_id || null,
+                metadata: {
+                  trace_id: params.queueMessage.traceId,
+                  execution_mode: 'compression_fork',
+                  fork_run_id: forkRunId,
+                  fork_turn_count: forkTurn,
+                  fork_tool_call_count: forkToolCallCount,
+                  no_main_stack_persist: true,
+                  no_traffic_persist: true
+                }
+              });
+              const continuation = applyToolResultToLoopInput(toolCall, commit.toolResult, {
+                loopInput: forkInput,
+                speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+                hasVisibleReply: false
+              });
+              if (continuation.forcedVisibleReply) {
+                throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
+              }
+              const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
+                forkRunId,
+                traceId: params.queueMessage.traceId,
+                runId: params.queueMessage.runId,
+                sourceType: 'core_memory_compression_fork_tool_executions',
+                sourceId: forkToolExecutionId,
+                llmRequestSliceId: forkSliceId,
+                items: buildToolResultStackItems({
+                  toolCall,
+                  toolResult: commit.toolResult,
+                  continuationItems: continuation.inputItems,
+                  llmRequestSliceId: forkSliceId
+                }) as Array<Record<string, unknown>>
+              });
+              await this.completeCoreMemoryCompressionForkToolExecutionSafe({
+                executionId: forkToolExecutionId,
+                status: 'completed',
+                result: commit.toolResult,
+                stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
+              });
+              await this.completeCoreMemoryCompressionForkRunSafe({
+                forkRunId,
+                status: 'completed',
+                summaryText: commit.text,
+                artifact: commit.artifact,
+                metadata: {
+                  ...baseForkMetadata,
+                  fork_turn_count: forkTurn,
+                  fork_tool_call_count: forkToolCallCount
+                }
+              });
+              await this.store.logTimelineEvent({
+                traceId: params.queueMessage.traceId,
+                eventType: 'memory',
+                eventName: 'core_memory_compression_fork',
+                eventPhase: 'end',
+                metadata: {
+                  status: 'completed',
+                  fork_run_id: forkRunId,
+                  context_session_key: params.compression.contextSessionKey,
+                  read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
+                  fork_turn_count: forkTurn,
+                  fork_tool_call_count: forkToolCallCount
+                }
+              });
+              return commit;
+            }
+
+            const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
+              loopInput: forkInput,
+              speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+              hasVisibleReply: false
+            });
+            if (continuation.forcedVisibleReply) {
+              throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
+            }
+            const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
+              forkRunId,
+              traceId: params.queueMessage.traceId,
+              runId: params.queueMessage.runId,
+              sourceType: 'core_memory_compression_fork_tool_executions',
+              sourceId: forkToolExecutionId,
+              llmRequestSliceId: forkSliceId,
+              items: buildToolResultStackItems({
+                toolCall,
+                toolResult: rawToolResult,
+                continuationItems: continuation.inputItems,
+                llmRequestSliceId: forkSliceId
+              }) as Array<Record<string, unknown>>
+            });
+            await this.completeCoreMemoryCompressionForkToolExecutionSafe({
+              executionId: forkToolExecutionId,
+              status: 'completed',
+              result: rawToolResult,
+              stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
+            });
+            forkInput.push(...continuation.inputItems);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.completeCoreMemoryCompressionForkToolExecutionSafe({
+              executionId: forkToolExecutionId,
+              status: 'failed',
+              result: {},
+              errorMessage: message
+            });
+            throw error;
+          }
+        }
+      }
+
+      throw new Error(`${TOOL_NAMES.compressCoreMemory} fork exceeded ${CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS} turns without compression`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.completeCoreMemoryCompressionForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        errorMessage: message,
+        metadata: {
+          ...baseForkMetadata,
+          fork_tool_call_count: forkToolCallCount
+        }
+      });
+      await this.store.logTimelineEvent({
+        traceId: params.queueMessage.traceId,
+        eventType: 'memory',
+        eventName: 'core_memory_compression_fork',
+        eventPhase: 'end',
+        metadata: {
+          status: 'failed',
+          fork_run_id: forkRunId,
+          error_message: message,
+          fork_tool_call_count: forkToolCallCount
+        }
+      });
+      throw error;
+    }
+  }
+
+  private async executeCoreMemoryCompressionForkTurn(
+    canonicalRequest: CanonicalAgentTurnRequest,
+    queueMessage: QueueMessageRecord['payload'],
+    runtimePrompt: ResolvedAgentRuntimePrompt,
+    forkTurn: number
+  ) {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
+      },
+      body: JSON.stringify({
+        trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId,
+        agent_turn: forkTurn,
+        agent_type: 'chat_bot',
+        prompt_name: runtimePrompt.promptName,
+        executionMode: 'core_memory_compression_fork_no_persist',
+        model: runtimePrompt.modelName,
+        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+        canonicalRequest
+      })
+    });
+
+    const payload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || `Provider compression fork execute failed with ${response.status}`);
+    }
+
+    return payload;
+  }
+
   private async executeAgentTurn(
     canonicalRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload'],
@@ -6829,12 +7390,15 @@ export class AgentLoopService {
   }
 }
 
-function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
-  const readCutoffAfterConversationId = cutoffState?.readCutoffAfterConversationId;
+function applyReadCutoffAfterConversationId(history: ConversationTurn[], readCutoffAfterConversationId: number | null | undefined) {
   if (typeof readCutoffAfterConversationId !== 'number' || !Number.isFinite(readCutoffAfterConversationId)) {
     return history.slice();
   }
   return history.filter((turn) => turn.id > readCutoffAfterConversationId);
+}
+
+function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
+  return applyReadCutoffAfterConversationId(history, cutoffState?.readCutoffAfterConversationId);
 }
 
 function isTransientProviderExecutionError(error: unknown) {

@@ -28,6 +28,18 @@ function createPersistence(overrides = {}) {
   };
   const sqlAdapter = () => ({
     query: async (statement) => {
+      if (statement.includes('FROM core_memory_compression_fork_runs')) {
+        return overrides.compressionForkRuns || [];
+      }
+      if (statement.includes('FROM core_memory_compression_fork_slices')) {
+        return overrides.compressionForkSlices || [];
+      }
+      if (statement.includes('FROM core_memory_compression_fork_items')) {
+        return overrides.compressionForkItems || [];
+      }
+      if (statement.includes('FROM core_memory_compression_fork_tool_executions')) {
+        return overrides.compressionForkToolRows || [];
+      }
       if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('phone_notification')")) {
         return overrides.autonomousQueueRows || [];
       }
@@ -396,6 +408,125 @@ test('Xiaoni action stream projects stack tool requests without provider replay 
   assert.equal(stackItem.metadata.stackSource, 'agent_stack_items');
   assert.equal(stackItem.metadata.argumentsPreview, '{"cmd":"date"}');
   assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
+});
+
+test('Xiaoni action stream returns compression fork overlay without polluting main items', async () => {
+  const persistence = createPersistence({
+    agentStackRows: [{
+      id: '101',
+      eventId: 'stack:trace_codex_stream:call_exec',
+      identityKey: 'xiaoni',
+      stackIndex: 20,
+      itemKind: 'function_call',
+      toolCallId: 'call_exec',
+      llmRequestSliceId: 'slice_codex_stream',
+      content: {
+        type: 'function_call',
+        call_id: 'call_exec',
+        name: 'exec_command',
+        arguments: '{"cmd":"date"}'
+      },
+      traceId: 'trace_codex_stream',
+      runId: 'run_internal_lease_1',
+      createdAt: '2026-06-05T10:04:00.000Z',
+      metadata: {
+        output_item_index: 0
+      }
+    }],
+    compressionForkRuns: [{
+      id: '1',
+      fork_run_id: 'core_memory_fork_1',
+      identity_key: 'xiaoni',
+      context_session_key: 'core-memory:xiaoni',
+      status: 'completed',
+      trace_id: 'trace_codex_stream',
+      run_id: 'run_internal_lease_1',
+      read_cutoff_after_conversation_id: '200',
+      previous_read_cutoff_after_conversation_id: '100',
+      summary_text: '新的小腻近况',
+      artifact: { read_cutoff_after_conversation_id: '200' },
+      metadata: { trigger: 'core_memory_pressure' },
+      started_at: '2026-06-05T10:05:00.000Z',
+      completed_at: '2026-06-05T10:05:12.000Z',
+      created_at: '2026-06-05T10:05:00.000Z',
+      updated_at: '2026-06-05T10:05:12.000Z'
+    }],
+    compressionForkSlices: [{
+      id: '2',
+      slice_id: 'fork_slice_1',
+      fork_run_id: 'core_memory_fork_1',
+      llm_call_id: 'fork_llm_1',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      token_usage: { input_tokens: 1000, output_tokens: 200 },
+      trace_id: 'trace_codex_stream',
+      run_id: 'run_internal_lease_1',
+      agent_turn: 1,
+      model_name: 'gpt-5.5',
+      model_provider: 'codex-local',
+      wire_provider_format: 'codex-local/responses',
+      canonical_request: { input: [{ role: 'user', content: 'compress' }] },
+      wire_response: { id: 'resp_fork' },
+      output_items: [{ type: 'function_call', name: 'exec_command' }],
+      created_at: '2026-06-05T10:05:01.000Z',
+      completed_at: '2026-06-05T10:05:03.000Z'
+    }],
+    compressionForkItems: [{
+      id: '3',
+      event_id: 'compression-fork:core_memory_fork_1:item:1',
+      fork_run_id: 'core_memory_fork_1',
+      identity_key: 'xiaoni',
+      item_index: '1',
+      item_kind: 'function_call',
+      tool_call_id: 'fork_call_exec',
+      llm_request_slice_id: 'fork_slice_1',
+      content: {
+        type: 'function_call',
+        call_id: 'fork_call_exec',
+        name: 'exec_command',
+        arguments: '{"cmd":"date"}'
+      },
+      trace_id: 'trace_codex_stream',
+      run_id: 'run_internal_lease_1',
+      metadata: { output_item_index: 0 },
+      created_at: '2026-06-05T10:05:04.000Z'
+    }],
+    compressionForkToolRows: [{
+      id: '4',
+      execution_id: 'fork_tool_exec_1',
+      fork_run_id: 'core_memory_fork_1',
+      identity_key: 'xiaoni',
+      llm_request_slice_id: 'fork_slice_1',
+      tool_call_id: 'fork_call_exec',
+      tool_name: 'exec_command',
+      arguments: { cmd: 'date' },
+      result: { text: 'Fri Jun 5 10:05:05 UTC 2026' },
+      status: 'completed',
+      trace_id: 'trace_codex_stream',
+      run_id: 'run_internal_lease_1',
+      started_at: '2026-06-05T10:05:05.000Z',
+      completed_at: '2026-06-05T10:05:06.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const forkRun = stream.compressionForkTimeline.runs[0];
+
+  assert.ok(forkRun);
+  assert.equal(forkRun.forkRunId, 'core_memory_fork_1');
+  assert.equal(forkRun.startedAt, '2026-06-05T10:05:00.000Z');
+  assert.equal(forkRun.completedAt, '2026-06-05T10:05:12.000Z');
+  assert.equal(forkRun.durationMs, 12000);
+  assert.equal(forkRun.readCutoffAfterConversationId, '200');
+  assert.deepEqual(forkRun.events.map((item) => item.source), [
+    'compression_fork_llm_request',
+    'compression_fork_item',
+    'compression_fork_tool_execution'
+  ]);
+  assert.equal(forkRun.events[1].title, 'Fork 请求工具: exec_command');
+  assert.match(forkRun.events[2].metadata.toolResultPreview, /Fri Jun 5/);
+  assert.equal(stream.items.some((item) => item.id.startsWith('compression-fork:')), false);
+  assert.equal(stream.items.some((item) => item.source.startsWith('compression_fork')), false);
 });
 
 test('Xiaoni action stream filters primary cards before applying the display limit', async () => {
