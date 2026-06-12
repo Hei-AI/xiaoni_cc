@@ -230,6 +230,7 @@ function sleep(ms: number) {
 type ProviderAgentResponse = {
   success: boolean;
   llm_call_id?: string;
+  llm_request_slice_id?: string;
   response?: string;
   model?: string;
   provider?: string;
@@ -4265,10 +4266,15 @@ export class AgentLoopService {
           payload,
           payload.traceId,
           turn,
-          runtimePrompt
+          runtimePrompt,
+          {
+            runId: queueMessage.id,
+            inputStartIndex,
+            inputEndIndex: inputEndIndex > 0 ? inputEndIndex : null
+          }
         );
         attachActualUsageToTurnBudget(turnBudgetRecord, modelResult);
-        const sliceId = modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
+        const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         const outputStackRows = await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
@@ -4294,47 +4300,12 @@ export class AgentLoopService {
             toolCallStackItemIdByCallId.set(toolCallId, id);
           }
         }
-        await this.recordLlmRequestSliceSafe({
+        await this.updateLlmRequestSliceStackLinksSafe({
           sliceId,
-          llmCallId: modelResult.llm_call_id || null,
-          traceId: payload.traceId,
-          runId: queueMessage.id,
-          agentTurn: turn,
           inputStartIndex,
           inputEndIndex: inputEndIndex > 0 ? inputEndIndex : null,
           outputStartIndex: outputStackIndexes.length > 0 ? Math.min(...outputStackIndexes) : null,
-          outputEndIndex: outputStackIndexes.length > 0 ? Math.max(...outputStackIndexes) : null,
-          canonicalRequest: currentCanonicalRequest as unknown as Record<string, unknown>,
-          wireRequest: modelResult.wire_request || null,
-          canonicalResponse: modelResult.canonical_response || null,
-          wireResponse: modelResult.wire_response || null,
-          rawResponse: modelResult.raw_response || null,
-          outputItems,
-          status: 'completed',
-          tokenUsage: {
-            input_tokens: modelResult.usage?.input_tokens ?? null,
-            output_tokens: modelResult.usage?.output_tokens ?? null,
-            total_tokens: modelResult.usage?.total_tokens ?? modelResult.usage_details?.total_tokens ?? null,
-            cached_input_tokens: modelResult.usage_details?.cached_input_tokens ?? null,
-            reasoning_tokens: modelResult.usage_details?.reasoning_tokens ?? null,
-            raw_usage: modelResult.usage_details?.raw_usage ?? {}
-          },
-          modelName: modelResult.model || runtimePrompt.modelName,
-          modelProvider: modelResult.provider || null,
-          requestFormatVersion: modelResult.request_format_version || null,
-          wireProviderFormat: modelResult.wire_provider_format || null,
-          processingTimeMs: typeof modelResult.performance?.processing_time_ms === 'number'
-            ? modelResult.performance.processing_time_ms
-            : null,
-          metadata: {
-            prompt_name: runtimePrompt.promptName,
-            has_tool_call: outputItems.some((item) => item.type === 'function_call'),
-            provider_request_headers: modelResult.wire_request_headers || null,
-            provider_request_url: modelResult.wire_request_url || null,
-            provider_response_headers: modelResult.wire_response_headers || null,
-            provider_response_status: modelResult.wire_response_status ?? null,
-            provider_response_status_text: modelResult.wire_response_status_text || null
-          }
+          outputEndIndex: outputStackIndexes.length > 0 ? Math.max(...outputStackIndexes) : null
         });
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
@@ -5907,20 +5878,17 @@ export class AgentLoopService {
     }
   }
 
-  private async recordLlmRequestSliceSafe(params: Parameters<RuntimeStore['recordLlmRequestSlice']>[0]) {
-    const recorder = (this.store as RuntimeStore & {
-      recordLlmRequestSlice?: RuntimeStore['recordLlmRequestSlice'];
-    }).recordLlmRequestSlice;
-    if (typeof recorder !== 'function') {
+  private async updateLlmRequestSliceStackLinksSafe(params: Parameters<RuntimeStore['updateLlmRequestSliceStackLinks']>[0]) {
+    const updater = (this.store as RuntimeStore & {
+      updateLlmRequestSliceStackLinks?: RuntimeStore['updateLlmRequestSliceStackLinks'];
+    }).updateLlmRequestSliceStackLinks;
+    if (typeof updater !== 'function') {
       return null;
     }
     try {
-      return await recorder.call(this.store, params);
+      return await updater.call(this.store, params);
     } catch (error) {
-      moduleLogger.warn('Failed to record Xiaoni LLM request slice', {
-        traceId: params.traceId,
-        runId: params.runId,
-        llmCallId: params.llmCallId,
+      moduleLogger.warn('Failed to update Xiaoni LLM request slice stack links', {
         sliceId: params.sliceId,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -5973,7 +5941,13 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     traceId: string,
     turn: number,
-    runtimePrompt: ResolvedAgentRuntimePrompt
+    runtimePrompt: ResolvedAgentRuntimePrompt,
+    sliceContext: {
+      runId: string;
+      inputStartIndex?: number | null;
+      inputEndIndex?: number | null;
+      inputStackItemIds?: Array<string | number>;
+    } = { runId: traceId, inputStartIndex: null, inputEndIndex: null }
   ) {
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
       method: 'POST',
@@ -5982,11 +5956,15 @@ export class AgentLoopService {
       },
       body: JSON.stringify({
         trace_id: traceId,
+        run_id: sliceContext.runId,
         agent_turn: turn,
         agent_type: 'chat_bot',
         prompt_name: runtimePrompt.promptName,
         model: runtimePrompt.modelName,
         parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+        input_start_index: sliceContext.inputStartIndex ?? null,
+        input_end_index: sliceContext.inputEndIndex ?? null,
+        input_stack_item_ids: sliceContext.inputStackItemIds || [],
         canonicalRequest
       })
     });

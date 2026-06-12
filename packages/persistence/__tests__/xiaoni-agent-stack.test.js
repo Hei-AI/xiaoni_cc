@@ -90,6 +90,23 @@ function createMockSql() {
         rows.slice.push(row);
         return [row];
       }
+      if (sql.includes('UPDATE llm_request_slices')) {
+        const existing = rows.slice.find((row) => row.slice_id === params[6]) || rows.slice[0];
+        if (!existing) {
+          return [];
+        }
+        const row = {
+          ...existing,
+          input_start_index: params[0] ?? existing.input_start_index,
+          input_end_index: params[1] ?? existing.input_end_index,
+          input_stack_item_ids: params[2] ? JSON.parse(params[3]) : existing.input_stack_item_ids,
+          output_start_index: params[4] ?? existing.output_start_index,
+          output_end_index: params[5] ?? existing.output_end_index,
+          updated_at: '2026-06-11T00:00:02.000Z'
+        };
+        rows.slice = rows.slice.map((entry) => entry.slice_id === row.slice_id ? row : entry);
+        return [row];
+      }
       if (sql.includes('FROM llm_request_slices')) {
         return rows.slice;
       }
@@ -200,6 +217,50 @@ test('recordLlmRequestSlice stores canonical request and output item range', asy
   assert.equal(slice.outputEndIndex, 10);
   assert.equal(slice.outputItems[0].call_id, 'call-1');
   assert.equal(slice.tokenUsage.input_tokens, 10);
+});
+
+test('updateLlmRequestSliceStackLinks only updates stack indexes without rewriting provider payloads', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordLlmRequestSlice({
+    sliceId: 'llm-provider-owned',
+    llmCallId: 'llm-provider-owned',
+    canonicalRequest: { input: [{ role: 'developer', content: 'keep' }] },
+    wireRequest: { model: 'gpt-test', input: ['wire'] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    wireResponse: { id: 'resp-1', output: [] },
+    rawResponse: { id: 'resp-1' },
+    outputItems: [{ type: 'message' }],
+    status: 'completed',
+    tokenUsage: { total_tokens: 13 },
+    traceId: 'trace-1',
+    runId: 'run-1',
+    agentTurn: 1,
+    modelName: 'gpt-test',
+    modelProvider: 'codex'
+  });
+
+  const linked = await persistence.updateLlmRequestSliceStackLinks({
+    sliceId: 'llm-provider-owned',
+    inputStartIndex: 1,
+    inputEndIndex: 8,
+    inputStackItemIds: [1, 2, 3],
+    outputStartIndex: 9,
+    outputEndIndex: 10
+  });
+  const update = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('UPDATE llm_request_slices'));
+
+  assert.ok(update);
+  assert.doesNotMatch(update.sql, /canonical_request/);
+  assert.doesNotMatch(update.sql, /wire_request/);
+  assert.doesNotMatch(update.sql, /wire_response/);
+  assert.equal(linked.inputStartIndex, 1);
+  assert.equal(linked.outputEndIndex, 10);
+  assert.deepEqual(linked.inputStackItemIds, [1, 2, 3]);
+  assert.deepEqual(linked.canonicalRequest, { input: [{ role: 'developer', content: 'keep' }] });
+  assert.deepEqual(linked.wireRequest, { model: 'gpt-test', input: ['wire'] });
+  assert.deepEqual(linked.wireResponse, { id: 'resp-1', output: [] });
 });
 
 test('listLlmRequestSlices summaryOnly avoids selecting large request and response payloads', async () => {

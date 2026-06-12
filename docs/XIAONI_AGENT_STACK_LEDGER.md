@@ -20,9 +20,10 @@ request 真正最后一个 input item 是 `assistant final_answer`，才追加�
 system prompt
 developer prompt
 agent_stack_items[0..n]
-  -> assemble llm_request_slices[n]
-  -> post provider
+  -> agent-service assemble canonical request
+  -> provider-service / Codex Provider post provider and record llm_request_slices[n]
   -> append response.output_items
+  -> agent-service backfill slice stack indexes only
   -> append function_call_output for each invoked tool
   -> yield to the next runtime loop iteration
 ```
@@ -52,8 +53,9 @@ flowchart TD
   Q -- yes --> W[append normal self_continuation runtime_input]
   Q -- no --> K
   W --> K
-  K --> L[POST provider once with same system prompt and assembled requestInput]
-  L --> M[append response.output_items to stack and replay]
+  K --> L[POST provider-service once with same system prompt and assembled requestInput]
+  L --> X[provider-service / Codex Provider records canonical + wire request/response on llm_request_slices]
+  X --> M[append response.output_items to stack and replay]
   M --> N{tool calls?}
   N -- yes --> O[invoke tools from this provider response]
   O --> P[append function_call_output to stack and replay]
@@ -96,12 +98,13 @@ async function runXiaoniRuntime() {
       appendLoopInputItems([reminder])
     }
 
-    const response = post_llm({
+    const response = provider_service_post_llm_and_record_slice({
       instructions: runtimePrompt.systemPrompt,
       input: requestInput
     })
 
     appendLoopInputItems(response.output_items)
+    backfillSliceStackIndexes(response.llm_request_slice_id)
 
     const toolCalls = parse_tool_calls(response.output_items)
     if (toolCalls.length > 0) {
@@ -198,13 +201,23 @@ stack 作为本轮 `runtime_input`，但不能写成 QQ 正文或 assistant 历�
 每次真实 LLM 请求都记录为一个 slice。slice 不是小腻的认知边界，只是审计和 trace
 边界。
 
+完整 request / response 记录的所有权在 `provider-service`。`agent-service` 负责组装
+provider-neutral canonical request，并把 `run_id`、`agent_turn`、本次读取的 stack
+范围传给 `provider-service /api/internal/agent/execute`；`provider-service` 调用
+Codex/OpenAI provider 后，由 provider-service 内的记录入口把 `canonical_request`、
+`wire_request`、`canonical_response`、`wire_response`、`raw_response`、usage 和 provider
+metadata 写入 `llm_request_slices`。`agent-service` 收到模型输出后只追加
+`agent_stack_items`，再回填该 slice 的 `output_start_index` / `output_end_index` 等
+stack link 字段；它不再写完整 request / response payload。
+
 | Field | Meaning |
 | --- | --- |
 | `id` | slice id。 |
 | `identity_key` | `xiaoni`。 |
 | `input_start_index` / `input_end_index` | 本次 request 读取的 stack 闭区间。 |
-| `canonical_request` | 组装后的 provider-neutral request。 |
-| `wire_request` | 实际发给 provider 的请求，敏感字段需脱敏或隔离存储。 |
+| `canonical_request` | `agent-service` 组装、`provider-service` 落库的 provider-neutral request。 |
+| `wire_request` | Codex/OpenAI provider 实际发出的请求，敏感字段需脱敏或隔离存储。 |
+| `wire_response` | Codex/OpenAI provider 实际收到的响应。 |
 | `raw_response` | provider 原始响应。 |
 | `output_items` | 模型可回放输出 item。 |
 | `status` | `completed`、`failed`、`cancelled`。 |
@@ -314,7 +327,7 @@ execution，但结果必须回到相关 LLM slice、stack item 或行动卡上�
 ```text
 function_call card
   -> agent_stack_items(function_call)
-  -> llm_request_slices
+  -> provider-service records llm_request_slices
   -> provider wire payload on llm_request_slices
 
 tool result card

@@ -33,6 +33,7 @@
 - 不要把 `agent_queue_messages` 当成 QQ 未读 inbox。它只是 Notify Bucket 的持久化门铃；被 pick 后即视为 consumed，QQ 正文在 `agent_inbound_messages`，只有模型主动用 `$qq-usage` 时才会通过 `agent-service /api/internal/qq-usage` 读取。
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
 - 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` / `presence_tick` 敲钟。当前目标只有一条连续主 runtime stream；完整契约只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`，prompt-facing reminder 模板索引看 `docs/remind.md`。
+- 不要把完整 LLM request/response 记录归到 `agent-service`；`agent-service` 只组装 canonical request 和回填 stack link，provider wire payload 由 `provider-service` / Codex Provider 写入 `llm_request_slices`。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再恢复或参考历史 MySQL schema/migration/直连探针；当前真实数据库以 `packages/persistence`、Prisma schema 和 `database/postgres/init.sql` 为准。

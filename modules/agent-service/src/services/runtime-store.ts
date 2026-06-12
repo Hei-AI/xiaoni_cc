@@ -13,7 +13,7 @@ import {
   ensureXiaoniAgentStackSchema,
   getAgentStackHead as getAgentStackHeadPersistence,
   appendAgentStackItems as appendAgentStackItemsPersistence,
-  recordLlmRequestSlice as recordLlmRequestSlicePersistence,
+  updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
   recordToolExecution as recordToolExecutionPersistence,
   completeToolExecution as completeAgentStackToolExecutionPersistence,
   attachConversationIdToAgentStackByTrace,
@@ -1822,34 +1822,15 @@ export class RuntimeStore {
     }, databaseConfig);
   }
 
-  async recordLlmRequestSlice(params: {
+  async updateLlmRequestSliceStackLinks(params: {
     sliceId: string;
-    llmCallId?: string | null;
-    traceId: string;
-    runId: string;
-    conversationId?: number | null;
-    agentTurn: number;
     inputStartIndex?: number | null;
     inputEndIndex?: number | null;
     inputStackItemIds?: Array<string | number>;
     outputStartIndex?: number | null;
     outputEndIndex?: number | null;
-    canonicalRequest: Record<string, unknown>;
-    wireRequest?: Record<string, unknown> | null;
-    canonicalResponse?: Record<string, unknown> | null;
-    wireResponse?: Record<string, unknown> | null;
-    rawResponse?: Record<string, unknown> | null;
-    outputItems: unknown[];
-    status: string;
-    tokenUsage?: Record<string, unknown>;
-    modelName?: string | null;
-    modelProvider?: string | null;
-    requestFormatVersion?: string | null;
-    wireProviderFormat?: string | null;
-    processingTimeMs?: number | null;
-    metadata?: Record<string, unknown>;
   }) {
-    return recordLlmRequestSlicePersistence({
+    return updateLlmRequestSliceStackLinksPersistence({
       identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql

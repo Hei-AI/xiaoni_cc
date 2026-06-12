@@ -19,10 +19,14 @@ type DebugPayload = {
 
 type AgentExecutePayload = DebugPayload & {
   trace_id?: string;
+  run_id?: string;
   agent_turn?: number;
   agent_type?: string;
   prompt_name?: string;
   llm_call_id?: string;
+  input_start_index?: number | null;
+  input_end_index?: number | null;
+  input_stack_item_ids?: Array<string | number>;
 };
 
 function normalizeStringArray(value: unknown): string[] | undefined {
@@ -223,7 +227,7 @@ async function executeProviderRequest(
 	    promptName: payload.prompt_name,
 	    replayIdentityKey: persistLlmCall ? 'xiaoni' : 'xiaoni-internal',
 	    sessionId: normalizeString(requestMetadata.session_id ?? requestMetadata.session_key),
-	    turnId: normalizeString(requestMetadata.turn_id ?? requestMetadata.run_id),
+	    turnId: normalizeString(payload.run_id ?? requestMetadata.turn_id ?? requestMetadata.run_id),
 	    sandbox: normalizeString(requestMetadata.sandbox) || 'none'
 	  };
 	  const startedAt = Date.now();
@@ -239,20 +243,32 @@ async function executeProviderRequest(
     ? computeContextThresholds(contextPolicy, request.max_output_tokens)
     : null;
 
+  let recordedSlice: Awaited<ReturnType<typeof runtimeStoreService.recordLlmCall>> | null = null;
   if (persistLlmCall) {
-    await runtimeStoreService.recordLlmCall({
+    recordedSlice = await runtimeStoreService.recordLlmCall({
       traceId: payload.trace_id,
+      runId: payload.run_id,
       conversationId: payload.conversation_id,
       llmCallId,
       agentTurn: payload.agent_turn,
       agentType: payload.agent_type,
       promptName: payload.prompt_name,
+      inputStartIndex: payload.input_start_index ?? null,
+      inputEndIndex: payload.input_end_index ?? null,
+      inputStackItemIds: Array.isArray(payload.input_stack_item_ids) ? payload.input_stack_item_ids : [],
       modelName: result.modelName,
       modelProvider: result.provider,
       canonicalRequest: result.canonicalRequest as Record<string, unknown>,
       wireRequest: result.wireRequest as Record<string, unknown>,
+      wireRequestHeaders: result.wireRequestHeaders || null,
+      wireRequestUrl: result.wireRequestUrl || null,
       canonicalResponse: result.canonicalResponse as Record<string, unknown>,
       wireResponse: result.wireResponse as Record<string, unknown>,
+      wireResponseHeaders: result.wireResponseHeaders || null,
+      wireResponseStatus: result.wireResponseStatus ?? null,
+      wireResponseStatusText: result.wireResponseStatusText || null,
+      rawResponse: result.rawResponse as Record<string, unknown>,
+      outputItems: Array.isArray(result.canonicalResponse?.output) ? result.canonicalResponse.output : [],
       effectiveUnifiedConfig: config as unknown as Record<string, unknown>,
       processedResponse: result.text,
       usage: {
@@ -267,6 +283,7 @@ async function executeProviderRequest(
   return {
     success: true,
     llm_call_id: llmCallId,
+    llm_request_slice_id: recordedSlice?.sliceId || llmCallId,
     response: result.text,
     thinking: '',
     model: result.modelName,

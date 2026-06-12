@@ -583,6 +583,45 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function updateLlmRequestSliceStackLinks(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const sliceId = firstString(input.sliceId, input.slice_id, input.llmCallId, input.llm_call_id);
+    if (!sliceId) {
+      return null;
+    }
+    const inputStackItemIdsValue = input.inputStackItemIds ?? input.input_stack_item_ids;
+    const shouldUpdateInputStackItemIds = Array.isArray(inputStackItemIdsValue);
+    const inputStackItemIds = shouldUpdateInputStackItemIds
+      ? normalizeJsonArray(inputStackItemIdsValue, [])
+      : [];
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          UPDATE llm_request_slices
+          SET
+            input_start_index = COALESCE(?, input_start_index),
+            input_end_index = COALESCE(?, input_end_index),
+            input_stack_item_ids = CASE WHEN ? THEN ?::jsonb ELSE input_stack_item_ids END,
+            output_start_index = COALESCE(?, output_start_index),
+            output_end_index = COALESCE(?, output_end_index),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE slice_id = ?
+          RETURNING *
+        `,
+        [
+          normalizeInteger(input.inputStartIndex ?? input.input_start_index),
+          normalizeInteger(input.inputEndIndex ?? input.input_end_index),
+          shouldUpdateInputStackItemIds,
+          JSON.stringify(inputStackItemIds),
+          normalizeInteger(input.outputStartIndex ?? input.output_start_index),
+          normalizeInteger(input.outputEndIndex ?? input.output_end_index),
+          sliceId
+        ]
+      );
+      return normalizeLlmSliceRow(rows[0]);
+    });
+  }
+
   async function recordToolExecution(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const executionId = buildToolExecutionId(input);
@@ -940,6 +979,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItem,
     appendAgentStackItems,
     recordLlmRequestSlice,
+    updateLlmRequestSliceStackLinks,
     recordToolExecution,
     completeToolExecution,
     listAgentStackItems,

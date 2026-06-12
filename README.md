@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、inbox 写入、IM 入口硬开关和内部 loop 触发队列入口
-- `agent-service`: 主 agent loop runtime，消费内部触发队列、组装连续 stack ledger 上的 LLM request slice、执行工具和 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；runtime 伪代码和边界见 `docs/XIAONI_AGENT_STACK_LEDGER.md`
+- `agent-service`: 主 agent loop runtime，消费内部触发队列、组装连续 stack ledger 上的 canonical LLM request、执行工具和 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；完整 request/response slice 由 `provider-service` 记录，runtime 伪代码和边界见 `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - `xiaoni-executor`: 小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、小腻行动流、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻行动流”看她当前在做什么
@@ -55,7 +55,7 @@ NapCat -> provider-service
 - `xiaoni-executor` 负责执行小腻的 `exec_command`，默认把 `/app` 映射到 `/workspace/qq_bot`，并把 session、审计日志和 git archive 写入 `/home/liahua/.qqbot-local/xiaoni-runtime`。
 - 小腻主 prompt 只有一套，维护在 `docs/xiaoni_prompt/`；主 runtime 的 `system prompt` 按 `AgentLoopService` 进程生命周期稳定解析一次，改 prompt 文件后需要重启 `agent-service` 才进入主 prompt。runtime reminder 模板在对应 reminder 追加时读取。群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - 小腻看 QQ 未读时走 `$qq-usage`：模型通过 `exec_command` 调用 `modules/agent-service/skills/qq-usage` 脚本，脚本请求 `agent-service /api/internal/qq-usage`，底层读取 `agent_inbound_messages` 的 thread list / conversation window。当前 `open_inbox` 最多展示 10 个 thread，`focus_thread` / `scroll_thread` 每次最多展示 10 条消息。清角标通过 `put_qq_away` 写回 inbox read state。
-- 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态、可见投递与必要记忆按顺序追加进目标 `agent_stack_items`，每次真实 LLM 调用记录为 `llm_request_slices`。当前 loop 伪代码、no-notify 语义、`final_answer` 连续推进、`recover_energy` callback、QQ inbox/Notify Bucket 边界和图片理解 fork 统一看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。主 prompt 和 reminder 模板事实源是 `docs/xiaoni_prompt/`，模板索引看 `docs/remind.md`。
+- 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态、可见投递与必要记忆按顺序追加进目标 `agent_stack_items`。每次真实 LLM 调用由 `agent-service` 组装 canonical request，`provider-service` / Codex Provider 负责发出 provider 请求并把完整 canonical/wire request/response 记录为 `llm_request_slices`，`agent-service` 只回填 slice 对应的 stack index。当前 loop 伪代码、no-notify 语义、`final_answer` 连续推进、`recover_energy` callback、QQ inbox/Notify Bucket 边界和图片理解 fork 统一看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。主 prompt 和 reminder 模板事实源是 `docs/xiaoni_prompt/`，模板索引看 `docs/remind.md`。
 - provider 侧 participation 保留为硬安全边界和观测事件；其中聊天对象 `is_enabled=0` 会硬拦截 `phone_notification` 入桶。主行为判断仍在 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。当前对话历史里的旧 `<小腻的OS>` 按历史真相保留，不做 DB 迁移，并随已读历史一起参与上下文窗口管理。`<小腻近况>` 当前由 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
@@ -104,7 +104,7 @@ docker compose ps
 - Playground case library、Raw Trace / Conversation 导入、Provider 请求 payload 查看
 - QQ 未读导航排障时，看 `agent_inbound_messages`、`$qq-usage` 输出和 `agent-service /api/internal/qq-usage`；不要把 `agent_queue_messages` 当成小腻 QQ app 未读列表。小腻 loop 排障时，目标优先看 `agent_stack_items`、`llm_request_slices`、`tool_executions`、`agent_life_events`、`agent_session_context_windows`；旧 runtime audit / provider replay 表已移除。
 - 如果聊天对象关闭 IM 入口后小腻仍被 QQ 消息唤醒，先查 provider-service timeline 里 `phone_notification/routing` 与 `phone_notification/enqueue` 是否被 chat policy 跳过，再查 `agent_queue_messages` 是否仍出现对应 pending row。
-- Trace 里的 provider 请求证据来自 `llm_request_slices.wire_request/wire_response`；traffic / MITM / CLIProxyAPI 日志只补证据和 detail。目标 LLM request stack 和完整 request/response 审计源是 `llm_request_slices`，主行动流的模型工具请求卡从 `agent_stack_items` 派生。
+- Trace 里的 provider 请求证据来自 `llm_request_slices.wire_request/wire_response`；这些完整 request/response 由 `provider-service` / Codex Provider 记录，traffic / MITM / CLIProxyAPI 日志只补证据和 detail。目标 LLM request stack 和完整 request/response 审计源是 `llm_request_slices`，主行动流的模型工具请求卡从 `agent_stack_items` 派生。
 - Image Lab 生成 / 编辑 / prompt assistant
 - Codex local provider 使用 `/root/.qqbot-local/codex-auth-profiles/auth-profiles.json` 作为运行态 OAuth profile store；只在 profile 缺失时从只读 `/root/.codex/auth.json` bootstrap，刷新只写 auth-profiles，不改写 auth.json
 - Traffic 只记录 Codex 限额信号，不做账号切换，也不改写 auth.json

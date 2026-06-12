@@ -35,7 +35,8 @@
 ## Runtime And Operations
 - Xiaoni agent stack ledger、LLM request slices、tool executions 和行动流投影：
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
-- Codex Provider replay evidence、成功-only 写入和 Raw Trace provider payload：
+- Provider-service / Codex Provider 完整 request/response 记录和 Raw Trace provider payload：
+  - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - `xiaoni-executor` 命令执行服务：
   - `docs/AGENTS_XIAONI_EXECUTOR.md`
 - 小腻主 prompt 文件和 runtime reminder 模板索引：
@@ -49,7 +50,7 @@
 - `xiaoni-executor` 事实源：`docs/AGENTS_XIAONI_EXECUTOR.md`。
 - Agent stack ledger、LLM request assembly、行动流投影和 trace detail 目标事实源：
   `docs/XIAONI_AGENT_STACK_LEDGER.md`。
-- Raw Trace provider payload 事实源：`docs/XIAONI_AGENT_STACK_LEDGER.md` 的 `llm_request_slices`；它不是独立行动流主卡片。
+- Raw Trace provider payload 事实源：`provider-service` / Codex Provider 写入的 `llm_request_slices`；它不是独立行动流主卡片。
 - Runtime loop、Notify Bucket、QQ inbox、IM 硬开关、`final_answer` 连续推进、
   图片理解 fork、recover_energy callback 和行动流事实源统一看
   `docs/XIAONI_AGENT_STACK_LEDGER.md`。不要再为这些主题新增重复架构页。

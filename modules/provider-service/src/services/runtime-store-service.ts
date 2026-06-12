@@ -3,6 +3,7 @@ import {
   enqueueAgentQueueMessage,
   ensureAgentRuntimeSchema,
   logRuntimeTimelineEvent,
+  recordLlmRequestSlice,
   attachConversationIdToRuntimeTrace,
   type SqlAdapter
 } from '@qq-bot/persistence';
@@ -69,17 +70,31 @@ export class RuntimeStoreService {
 
   async recordLlmCall(params: {
     traceId?: string;
+    runId?: string;
     conversationId?: unknown;
+    sliceId?: string;
     llmCallId?: string;
     agentTurn?: number;
     agentType?: string;
     promptName?: string;
+    inputStartIndex?: number | null;
+    inputEndIndex?: number | null;
+    inputStackItemIds?: Array<string | number>;
+    outputStartIndex?: number | null;
+    outputEndIndex?: number | null;
     modelName: string;
     modelProvider: string;
     canonicalRequest: Record<string, unknown>;
     wireRequest: Record<string, unknown>;
+    wireRequestHeaders?: Record<string, unknown> | null;
+    wireRequestUrl?: string | null;
     canonicalResponse: Record<string, unknown>;
     wireResponse: Record<string, unknown>;
+    wireResponseHeaders?: Record<string, unknown> | null;
+    wireResponseStatus?: number | null;
+    wireResponseStatusText?: string | null;
+    rawResponse?: Record<string, unknown> | null;
+    outputItems?: unknown[];
     effectiveUnifiedConfig: Record<string, unknown>;
     processedResponse: string;
     usage: {
@@ -95,7 +110,59 @@ export class RuntimeStoreService {
     wireProviderFormat: string;
     errorMessage?: string | null;
   }) {
-    void params;
+    const outputItems = Array.isArray(params.outputItems)
+      ? params.outputItems
+      : Array.isArray((params.canonicalResponse as { output?: unknown }).output)
+        ? (params.canonicalResponse as { output: unknown[] }).output
+        : [];
+    const status = params.errorMessage ? 'failed' : 'completed';
+    return recordLlmRequestSlice({
+      identityKey: 'xiaoni',
+      sliceId: params.sliceId || params.llmCallId,
+      llmCallId: params.llmCallId || null,
+      traceId: params.traceId || null,
+      runId: params.runId || null,
+      conversationId: params.conversationId ?? null,
+      agentTurn: params.agentTurn ?? null,
+      inputStartIndex: params.inputStartIndex ?? null,
+      inputEndIndex: params.inputEndIndex ?? null,
+      inputStackItemIds: params.inputStackItemIds || [],
+      outputStartIndex: params.outputStartIndex ?? null,
+      outputEndIndex: params.outputEndIndex ?? null,
+      canonicalRequest: params.canonicalRequest,
+      wireRequest: params.wireRequest,
+      canonicalResponse: params.canonicalResponse,
+      wireResponse: params.wireResponse,
+      rawResponse: params.rawResponse || null,
+      outputItems,
+      status,
+      tokenUsage: {
+        input_tokens: params.usage.inputTokens ?? null,
+        output_tokens: params.usage.outputTokens ?? null,
+        total_tokens: params.usage.totalTokens ?? null,
+        cached_input_tokens: params.usage.cachedInputTokens ?? null,
+        reasoning_tokens: params.usage.reasoningTokens ?? null,
+        raw_usage: params.usage.rawUsage || {}
+      },
+      modelName: params.modelName,
+      modelProvider: params.modelProvider,
+      requestFormatVersion: params.requestFormatVersion,
+      wireProviderFormat: params.wireProviderFormat,
+      processingTimeMs: params.usage.processingTimeMs ?? null,
+      metadata: {
+        agent_type: params.agentType || null,
+        prompt_name: params.promptName || null,
+        effective_unified_config: params.effectiveUnifiedConfig,
+        processed_response: params.processedResponse,
+        provider_request_headers: params.wireRequestHeaders || null,
+        provider_request_url: params.wireRequestUrl || null,
+        provider_response_headers: params.wireResponseHeaders || null,
+        provider_response_status: params.wireResponseStatus ?? null,
+        provider_response_status_text: params.wireResponseStatusText || null,
+        error_message: params.errorMessage || null,
+        recorded_by: 'provider-service'
+      }
+    }, databaseConfig);
   }
 
   async attachConversationIdToTrace(traceId: string, conversationId: unknown) {
