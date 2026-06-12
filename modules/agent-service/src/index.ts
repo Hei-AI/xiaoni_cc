@@ -71,53 +71,6 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function pollQueueOnce() {
-  if (stopping || workerBusy) {
-    return agentConfig.idleIntervalMs;
-  }
-
-  await recoverStaleProcessingLeasesPeriodically();
-
-  runtimeEnabled = await isRuntimeEnabled();
-  if (!runtimeEnabled) {
-    return agentConfig.idleIntervalMs;
-  }
-
-  workerBusy = true;
-  try {
-    return await loopService.processNextRuntimeTick({
-      workerId: agentConfig.workerId,
-      idleIntervalMs: agentConfig.idleIntervalMs,
-      pollIntervalMs: agentConfig.pollIntervalMs,
-      autonomousRuntimeEnabled: agentConfig.autonomousRuntimeEnabled,
-      autonomousRuntimeSliceIntervalMs: agentConfig.autonomousRuntimeSliceIntervalMs,
-      getActiveRecoveryWindow: () => getActiveAgentRecoveryWindow({
-        identityKey: 'xiaoni'
-      }, databaseConfig),
-      getLatestRecoveryWindow: () => getLatestAgentRecoveryWindow({
-        identityKey: 'xiaoni'
-      }, databaseConfig),
-      onRecoveryWindowError: (error) => {
-        moduleLogger.warn('Failed to check Xiaoni active recovery window', {
-          error: error instanceof Error ? error.message : String(error)
-        });
-      },
-      onAutonomousRuntimeSliceError: (error) => {
-        moduleLogger.warn('Failed to enqueue Xiaoni autonomous runtime slice', {
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    });
-  } catch (error) {
-    moduleLogger.error('Agent queue poll failed', {
-      error: error instanceof Error ? error.message : String(error)
-    });
-    return agentConfig.idleIntervalMs;
-  } finally {
-    workerBusy = false;
-  }
-}
-
 async function recoverStaleProcessingLeasesPeriodically() {
   const now = Date.now();
   const minIntervalMs = Math.max(30_000, Math.min(agentConfig.processingRecoveryStaleMs, 60_000));
@@ -129,22 +82,13 @@ async function recoverStaleProcessingLeasesPeriodically() {
     staleMs: agentConfig.processingRecoveryStaleMs,
     reason: 'agent_service_periodic_recovery'
   }).catch((error) => {
-    moduleLogger.warn('Failed to recover stale processing runs during queue polling', {
+    moduleLogger.warn('Failed to recover stale processing runs during runtime loop', {
       error: error instanceof Error ? error.message : String(error)
     });
     return null;
   });
   if (recovered && (recovered.failedRuns > 0 || recovered.settledRuns > 0 || recovered.failedQueueMessages > 0 || recovered.settledQueueMessages > 0)) {
-    moduleLogger.warn('Recovered stale processing runs during queue polling', recovered);
-  }
-}
-
-async function runQueueWorkerLoop() {
-  while (!stopping) {
-    const delayMs = await pollQueueOnce();
-    if (!stopping) {
-      await wait(delayMs);
-    }
+    moduleLogger.warn('Recovered stale processing runs during runtime loop', recovered);
   }
 }
 
@@ -211,7 +155,42 @@ async function start() {
       port: serverConfig.port
     });
   });
-  void wait(200).then(() => runQueueWorkerLoop());
+  void wait(200).then(() => loopService.runRuntimeLoop({
+    workerId: agentConfig.workerId,
+    idleIntervalMs: agentConfig.idleIntervalMs,
+    pollIntervalMs: agentConfig.pollIntervalMs,
+    autonomousRuntimeEnabled: agentConfig.autonomousRuntimeEnabled,
+    autonomousRuntimeSliceIntervalMs: agentConfig.autonomousRuntimeSliceIntervalMs,
+    isStopping: () => stopping,
+    recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
+    getActiveRecoveryWindow: () => getActiveAgentRecoveryWindow({
+      identityKey: 'xiaoni'
+    }, databaseConfig),
+    getLatestRecoveryWindow: () => getLatestAgentRecoveryWindow({
+      identityKey: 'xiaoni'
+    }, databaseConfig),
+    onBusyChange: (busy) => {
+      workerBusy = busy;
+    },
+    onRuntimeEnabledChange: (enabled) => {
+      runtimeEnabled = enabled;
+    },
+    onRecoveryWindowError: (error) => {
+      moduleLogger.warn('Failed to check Xiaoni active recovery window', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    },
+    onAutonomousRuntimeSliceError: (error) => {
+      moduleLogger.warn('Failed to enqueue Xiaoni autonomous runtime slice', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    },
+    onRuntimeLoopError: (error) => {
+      moduleLogger.error('Agent runtime loop failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }));
   void wait(500).then(() => runTaskWorkerLoop());
 }
 

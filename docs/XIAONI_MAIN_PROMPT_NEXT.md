@@ -15,7 +15,8 @@ Edit the prompt files directly:
 
 The agent-service loader checks file `mtime` and size before each read, but the
 main Xiaoni runtime intentionally resolves the stable system prompt once per
-`AgentLoopService` process lifetime. Prompt file edits therefore take effect
-after the agent-service process is restarted. Runtime reminder templates are
-read when the corresponding reminder is appended, unless a caller explicitly
-caches that template.
+`AgentLoopService` process lifetime, from `runtime_bootstrap` before the main
+runtime `while` starts. Prompt file edits therefore take effect after the
+agent-service process is restarted. Runtime reminder templates are read when the
+corresponding reminder is appended, unless a caller explicitly caches that
+template.

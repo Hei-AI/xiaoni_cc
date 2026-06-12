@@ -11,23 +11,24 @@ QQ 正文不在 Notify Bucket。QQ 入站正文存在 `agent_inbound_messages`�
 
 聊天对象的 IM 入口 `is_enabled` 是 provider-service 侧硬边界。`is_enabled=false` 时，QQ 正文仍写入 `agent_inbound_messages`，但不写 `phone_notification` 到 Notify Bucket，也就不会因为这条 QQ 消息唤醒主 loop。`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关。
 
-主 loop 由 `agent-service` 承载。`runQueueWorkerLoop()` 只是时钟调度器：
-它定期调用 `AgentLoopService.processNextRuntimeTick()`，但不拥有 queue claim
-语义。`processNextRuntimeTick()` 是小腻 runtime 的外部入口；它在 loop 内部
-从 Notify Bucket pick notify，必要时合成 recovery self-continuation 或
-autonomous runtime notify，然后把 notify 追加成当前 runtime input。notify 是
-门铃，不是认知边界，也不是 prompt 重新组装边界。
+主 loop 由 `agent-service` 承载，但 `index.ts` 只负责启动
+`AgentLoopService.runRuntimeLoop()`。runtime 自己持有 `while alive` 循环：
+它在 loop 内部从 Notify Bucket pick notify，必要时合成 recovery
+self-continuation 或 autonomous runtime notify，然后把 notify 追加成当前 runtime
+input。notify 是门铃，不是认知边界，也不是 prompt 重新组装边界。
 
-一次 runtime tick 的主链路是：
+一次 runtime loop iteration 的主链路是：
 
 ```text
-runQueueWorkerLoop
-  -> AgentLoopService.processNextRuntimeTick()
+AgentLoopService.runRuntimeLoop()
+  -> resolve stable system prompt once from runtime_bootstrap before the main while
+  -> check runtime control
   -> claim one notify from Notify Bucket
   -> if none and recovery expired: enqueue self_continuation notify, then claim it
   -> if none and autonomous runtime is due: enqueue self_continuation notify, then claim it
+  -> if none: sleep idleInterval inside runtime loop
   -> append picked notify as runtime_input
-  -> reuse stable system prompt resolved for this AgentLoopService lifetime
+  -> reuse stable system prompt resolved before the main while
   -> build requestInput from append-only stack window + current runtime input
   -> record llm_request_slices input range
   -> POST provider-service /api/internal/agent/execute
@@ -35,25 +36,26 @@ runQueueWorkerLoop
   -> append response.output_items into agent_stack_items
   -> if function_call: dispatch tools and append function_call_output
   -> if final_answer and no tool: append normal self_continuation input to same requestInput
-  -> next provider request inside the same active runtime tick
+  -> next provider request inside the same active model loop
 ```
 
 `system prompt` 是 runtime service 生命周期内的稳定前缀：`AgentLoopService`
-第一次需要模型请求时解析一次，后续 notify 不会重新读取 prompt 文件。稳定 developer
-能力头是固定 request head；普通下一片只追加 response output、tool output 或 runtime
-reminder。P0 上下文压缩完成后可以重组窗口，因为那是显式压缩。
+启动 runtime loop 时用 `runtime_bootstrap` 在主 `while` 前解析一次，后续 notify
+不会重新读取 prompt 文件。稳定 developer 能力头是固定 request head；普通下一片只
+追加 response output、tool output 或 runtime reminder。P0 上下文压缩完成后可以
+重组窗口，因为那是显式压缩。
 
 ```mermaid
 sequenceDiagram
-  participant W as runQueueWorkerLoop
-  participant L as AgentLoopService.processNextRuntimeTick
+  participant L as AgentLoopService.runRuntimeLoop
   participant P as provider-service
   participant S as agent_stack_items
 
-  W->>L: tick
+  L->>L: resolve stable runtimePrompt via runtime_bootstrap
+  L->>L: while alive
+  L->>L: check runtime control
   L->>L: claim notify / synthesize self_continuation
   L->>S: append runtime_input for picked notify
-  L->>L: resolve stable runtimePrompt once per service lifetime
   L->>L: build requestInput from stack window + appended runtime input
   loop active model slices
     L->>P: canonical request(systemPrompt, requestInput)
@@ -68,7 +70,7 @@ sequenceDiagram
       L->>L: requestInput.push(self_continuation)
     end
   end
-  L-->>W: next poll delay
+  L->>L: sleep when no work or after iteration delay
 ```
 
 目标事实源见 `docs/XIAONI_AGENT_STACK_LEDGER.md`。迁移期旧 transcript、LLM/tool
@@ -84,9 +86,9 @@ sequenceDiagram
 | future presence / system reminder | 仍应写同一个 bucket。 | `packages/persistence/agent-queue.js` |
 
 写入方不直接塞 prompt，也不直接改小腻当前认知。它们只把事件放进同一个 bucket，
-等待 `AgentLoopService.processNextRuntimeTick()` 在 runtime loop 内 pick。事件一旦
+等待 `AgentLoopService.runRuntimeLoop()` 在 runtime loop 内 pick。事件一旦
 被 pick，就从 `pending` 变成 `consumed`：门铃已经进入当前处理事务，后续同一
-active tick 的模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
+active model loop 的模型切片不再从 Notify Bucket 重新 pick 或重新渲染这条事件为当前输入。
 
 ## QQ Inbox
 
@@ -138,7 +140,7 @@ canonical_response
   -> append response output items
   -> do not append final-answer-specific reminder
   -> append normal self_continuation developer reminder to the same requestInput
-  -> send the next provider request inside the same active runtime tick
+  -> send the next provider request inside the same active model loop
 ```
 
 当前 active loop 不再追加 final-answer 专用 prompt reminder。历史同类 queue row 如果仍存在，也不再作为普通内部 `system_reminder` 渲染进 prompt；它只保留为持久层历史事实。
@@ -151,7 +153,7 @@ canonical_response
 | QQ reply | `agent-service -> provider-service -> NapCat`。 | delivery state、trace、conversation item 写回持久层。 |
 | `exec_command` | `agent-service -> xiaoni-executor`。 | stdout/stderr/session result 作为 tool output 进入后续 request。 |
 | `inspect_image_placeholder` | `agent-service` 复用当前主 agent request 发起 image vision fork；图片 base64 只进入 no-persist fork。 | 返回 `<image id="...">含义是: ...</image>`，该文本作为工具结果进入后续 request。 |
-| image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `processNextRuntimeTick()` pick。 |
+| image/provider task | `agent-service` 发起 task；完成后 task worker 存图并 enqueue completion notify。 | completion 回写 Notify Bucket，由后续 `runRuntimeLoop()` iteration pick。 |
 | `final_answer` | 无外部工具分发；如果没有工具调用，先追加模型 output item，再追加普通 `self_continuation` runtime input 进入下一轮模型切片。 | 不追加 final-answer 专用 follow-up reminder；只使用 `self_continuation` 模板。 |
 | message / silent | 无外部工具分发。 | 只保存 transcript / replay / trace；如果继续切片，原始 Notify 不会重新作为当前输入。 |
 
@@ -193,7 +195,7 @@ provider-service 和 agent-service 里的 store/service 类只能做适配和编
 - QQ 入站正文是否落库：看 `agent_inbound_messages` 和 provider-service 入站日志。
 - Notify Bucket 是否写入：看 `agent_queue_messages` 的 `source`、`dedupe_key`、`status`、`available_at`。
 - IM 入口关闭是否生效：看 provider-service timeline 的 `phone_notification/enqueue` 是否为 `eventPhase=skip`、`reason=auto_reply_disabled`，并确认 `agent_queue_messages` 没有对应 pending `phone_notification`。这里的 reason 是历史兼容命名，当前由 `is_enabled=0` 派生。
-- 主 loop 是否消费：看 agent-service worker 日志、目标 `agent_stack_items` / `llm_request_slices`、`agent_queue_messages` consumed 状态和 action stream trace。
+- 主 loop 是否消费：看 agent-service runtime 日志、目标 `agent_stack_items` / `llm_request_slices`、`agent_queue_messages` consumed 状态和 action stream trace。
 - `$qq-usage` 看不到内容：先查 `agent-service /api/internal/qq-usage`，再查 `packages/persistence/qq-usage.js` 查询条件。
 - 图片理解上下文或 base64 膨胀异常：查 `inspect_image_placeholder` 的 `image_vision_fork_no_persist` 请求、`agent_media_assets` 观察记录和 `<image id="...">` tool output；不要把 traffic / replay 里的 base64 当作正常长期产物。
 - 模型请求或 provider 响应异常：查 `llm_request_slices`、provider-service `/api/internal/agent/execute` 和 codex-provider trace。

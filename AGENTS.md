@@ -28,7 +28,7 @@
 - `modules/xiaoni-executor`：小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `modules/admin-panel/backend`：管理端 API，承接 runs、conversations、queue、prompt、playground、traffic replay、runtime status
 - `modules/admin-panel/frontend`：React + Vite 管理端 UI，默认走 `admin-panel/backend`
-- `modules/agent-service`：后台 agent loop / runtime worker，消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻的连续主 loop
+- `modules/agent-service`：后台 agent loop / runtime service，`AgentLoopService.runRuntimeLoop()` 在 loop 内消费 Notify Bucket 触发、执行主 agent run、路由模型 response action、维护 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；当前没有旧式固定 presence runner，但空闲且未休息时会创建 `self_continuation` 内部 runtime slice，维持小腻的连续主 loop
 - `packages/persistence`：共享 PostgreSQL 持久化层；所有共享表和业务持久化读写都必须收口到这里
 - 其余入口统一去 `docs/INDEX.md`
 

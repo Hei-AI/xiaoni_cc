@@ -7,9 +7,10 @@ provider evidence，但不能再被写成新的概念来源。
 ## Core Model
 
 小腻不是一组离散客服请求，而是一条连续 agent loop。工程上只有一个主 runtime
-入口：`AgentLoopService.processNextRuntimeTick()`。外层 `runQueueWorkerLoop()` 只是
-时钟调度器，不能拥有 queue claim 语义；Notify Bucket 的 pick、recovery
-self-continuation 合成、autonomous runtime notify 合成都发生在 runtime tick 内部。
+入口：`AgentLoopService.runRuntimeLoop()`。`agent-service` 的 `index.ts` 只负责启动
+这个 runtime，不再拥有 queue polling / queue claim 语义；Notify Bucket 的 pick、
+recovery self-continuation 合成、autonomous runtime notify 合成都发生在 runtime
+loop 内部。
 
 ```text
 system prompt
@@ -19,43 +20,47 @@ agent_stack_items[0..n]
   -> post provider
   -> append response.output_items
   -> append function_call_output for each invoked tool
-  -> next loop tick
+  -> next model loop iteration
 ```
 
 `final_answer` 不是终止条件。它只是模型本轮没有更多工具调用的输出形态；如果小腻
-仍然活着，当前 active tick 会直接追加普通 `self_continuation` runtime input，
-再继续发下一次模型请求。真实 notify 只能由 `processNextRuntimeTick()` 在 runtime
-loop 内 pick；不能让外层 worker 或旧处理入口提前把 queue message 变成一次独立
-agent run。不要为了 `final_answer` 额外制造专用 prompt reminder。
+仍然活着，当前 active model loop 会直接追加普通 `self_continuation` runtime input，
+再继续发下一次模型请求。真实 notify 只能由 `AgentLoopService.runRuntimeLoop()` 在
+runtime loop 内 pick；不能让外层 worker 或旧处理入口提前把 queue message 变成一次
+独立 agent run。不要为了 `final_answer` 额外制造专用 prompt reminder。
 
 当前实现边界：
 
 ```mermaid
 flowchart TD
-  A[runQueueWorkerLoop timer] --> B[AgentLoopService.processNextRuntimeTick]
-  B --> C{Notify Bucket has pending notify?}
-  C -- yes --> D[claim notify]
-  C -- no, recovery expired --> E[enqueue and claim self_continuation notify]
-  C -- no, autonomous due --> F[enqueue and claim autonomous runtime notify]
-  D --> G[append runtime_input for picked notify]
-  E --> G
-  F --> G
-  G --> H[resolve stable system prompt once per service lifetime]
-  H --> I[build requestInput from stack window + appended runtime input]
-  I --> J{active model slice loop}
-  J --> K[POST provider with same system prompt and appended requestInput]
-  K --> L[append response.output_items to stack and requestInput]
-  L --> M{tool calls?}
-  M -- yes --> N[invoke tools]
-  N --> O[append function_call_output to stack and requestInput]
-  O --> J
-  M -- no --> P{phase is final_answer?}
-  P -- yes --> Q[append normal self_continuation runtime_input]
-  Q --> J
-  P -- no --> R[finish runtime tick]
-  J -. compression pressure .-> S[compress_core_memory succeeds]
-  S --> T[rebuild compressed window]
-  T --> J
+  A[agent-service start] --> B[AgentLoopService.runRuntimeLoop]
+  B --> C[resolve stable system prompt once via runtime_bootstrap]
+  C --> D{runtime enabled?}
+  D -- no --> E[sleep idleInterval]
+  E --> D
+  D -- yes --> F{Notify Bucket has pending notify?}
+  F -- yes --> G[claim notify]
+  F -- no, recovery expired --> H[enqueue and claim self_continuation notify]
+  F -- no, autonomous due --> I[enqueue and claim autonomous runtime notify]
+  F -- no work --> E
+  G --> J[append runtime_input for picked notify]
+  H --> J
+  I --> J
+  J --> K[build requestInput from stack window + appended runtime input]
+  K --> L{active model slice loop}
+  L --> M[POST provider with same system prompt and appended requestInput]
+  M --> N[append response.output_items to stack and requestInput]
+  N --> O{tool calls?}
+  O -- yes --> P[invoke tools]
+  P --> Q[append function_call_output to stack and requestInput]
+  Q --> L
+  O -- no --> R{phase is final_answer?}
+  R -- yes --> S[append normal self_continuation runtime_input]
+  S --> L
+  R -- no --> D
+  L -. compression pressure .-> T[compress_core_memory succeeds]
+  T --> U[rebuild compressed window]
+  U --> L
 ```
 
 目标伪代码：
@@ -211,11 +216,11 @@ request =
 规则：
 
 - 只 append 模型可回放输出，不 append 整个 provider envelope。
-- `system prompt` 按 `AgentLoopService` 生命周期稳定解析一次；普通 notify 不会把
-  prompt 文件重新读一遍。稳定 developer 能力头属于固定前缀，不是 queue message
-  的一部分。
-- `processNextRuntimeTick()` 是 queue/notify 的唯一消费入口；不存在可公开调用的
-  旧式单条 queue message 处理兼容入口。
+- `system prompt` 按 `AgentLoopService` 生命周期稳定解析一次；`runRuntimeLoop()`
+  进入主 `while` 前用 `runtime_bootstrap` 预热，普通 notify 不会把 prompt 文件
+  重新读一遍。稳定 developer 能力头属于固定前缀，不是 queue message 的一部分。
+- `AgentLoopService.runRuntimeLoop()` 是 queue/notify 的唯一消费入口；不存在可公开调用的
+  旧式单条 queue message 处理兼容入口。单轮 iteration 只是 service 内部实现细节。
 - active model slice 中只追加模型 output、tool output 和 `self_continuation` / 状态类
   runtime reminder。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
@@ -298,7 +303,7 @@ node --test packages/persistence/__tests__/*.test.js
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
 - `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder；同一 active
   loop 直接 append 普通 `self_continuation` runtime input 推进。真实 notify 属于
-  后续 runtime tick pick 的新 notify，不在当前 active model-slice while 中重新 pick。
+  后续 runtime loop iteration pick 的新 notify，不在当前 active model-slice while 中重新 pick。
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。

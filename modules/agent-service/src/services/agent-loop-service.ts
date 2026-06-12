@@ -206,7 +206,7 @@ type AgentLoopServiceOptions = {
   runtimePausePollMs?: number;
 };
 
-export type AgentRuntimeTickParams = {
+type AgentRuntimeIterationParams = {
   workerId: string;
   idleIntervalMs: number;
   pollIntervalMs: number;
@@ -216,6 +216,16 @@ export type AgentRuntimeTickParams = {
   getLatestRecoveryWindow?: () => Promise<AgentRecoveryWindowProjection | null>;
   onRecoveryWindowError?: (error: unknown) => void;
   onAutonomousRuntimeSliceError?: (error: unknown) => void;
+};
+
+export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
+  isStopping?: () => boolean;
+  recoverStaleProcessingLeases?: () => Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
+  onRuntimeEnabledChange?: (enabled: boolean) => void;
+  onRuntimeLoopError?: (error: unknown) => void;
+  sleepMs?: (ms: number) => Promise<void>;
+  bootstrapPromptPayload?: QueueMessageRecord['payload'];
 };
 
 function sleep(ms: number) {
@@ -438,6 +448,57 @@ const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
 const RUNTIME_MAX_ENERGY = 1;
 const RUNTIME_FULL_RECOVERY_MS = 2 * 60 * 60 * 1000;
 const RESTING_DIRECT_MENTION_RESUME_THRESHOLD = 3;
+
+function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
+  const receivedAt = new Date().toISOString();
+  const botAccountId = agentConfig.botAccountId;
+  const inboundContext: QueueMessageRecord['payload']['inboundContext'] = {
+    Body: '',
+    BodyForAgent: '',
+    BodyForCommands: '',
+    RawBody: '',
+    CommandBody: '',
+    From: botAccountId,
+    To: botAccountId,
+    SessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    AccountId: botAccountId,
+    ChatType: 'direct',
+    ConversationLabel: XIAONI_IDENTITY_KEY,
+    SenderName: XIAONI_IDENTITY_KEY,
+    SenderId: botAccountId,
+    Timestamp: Date.now(),
+    Provider: 'runtime',
+    Surface: 'runtime_bootstrap',
+    WasMentioned: false,
+    NativeChannelId: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    CommandAuthorized: false
+  };
+
+  return {
+    traceId: 'runtime_bootstrap',
+    runId: 'runtime_bootstrap',
+    batchId: 'runtime_bootstrap',
+    source: 'runtime_bootstrap',
+    chatType: 'direct',
+    sessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    peerId: XIAONI_IDENTITY_KEY,
+    peerName: XIAONI_IDENTITY_KEY,
+    senderId: botAccountId,
+    senderName: XIAONI_IDENTITY_KEY,
+    accountId: botAccountId,
+    bodyForAgent: '',
+    rawBody: '',
+    commandBody: '',
+    wasMentioned: false,
+    receivedAt,
+    messageTimestamp: null,
+    rawPayload: {
+      source: 'runtime_bootstrap'
+    },
+    inboundContext,
+    messages: []
+  };
+}
 
 const TOOL_NAMES = {
   unreadMeaning: 'emit_unread_meaning',
@@ -3899,7 +3960,54 @@ export class AgentLoopService {
     return this.stableRuntimePrompt;
   }
 
-  async processNextRuntimeTick(params: AgentRuntimeTickParams) {
+  async runRuntimeLoop(params: AgentRuntimeLoopParams) {
+    const shouldStop = params.isStopping ?? (() => false);
+    const wait = params.sleepMs ?? sleep;
+    const bootstrapPromptPayload = params.bootstrapPromptPayload ?? buildRuntimeBootstrapPromptPayload();
+
+    while (!shouldStop() && !this.stableRuntimePrompt) {
+      try {
+        await this.resolveStableRuntimePrompt(bootstrapPromptPayload);
+      } catch (error) {
+        params.onRuntimeLoopError?.(error);
+        if (!shouldStop()) {
+          await wait(params.idleIntervalMs);
+        }
+      }
+    }
+
+    while (!shouldStop()) {
+      try {
+        await params.recoverStaleProcessingLeases?.();
+      } catch (error) {
+        params.onRuntimeLoopError?.(error);
+      }
+
+      const runtimeEnabled = await this.isRuntimeEnabledForLoop();
+      params.onRuntimeEnabledChange?.(runtimeEnabled);
+      if (!runtimeEnabled) {
+        await wait(params.idleIntervalMs);
+        continue;
+      }
+
+      params.onBusyChange?.(true);
+      let delayMs = params.idleIntervalMs;
+      try {
+        delayMs = await this.processRuntimeIteration(params);
+      } catch (error) {
+        params.onRuntimeLoopError?.(error);
+        delayMs = params.idleIntervalMs;
+      } finally {
+        params.onBusyChange?.(false);
+      }
+
+      if (!shouldStop()) {
+        await wait(delayMs);
+      }
+    }
+  }
+
+  private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
     let queueMessage = await this.store.claimNextQueueMessage(params.workerId);
     if (!queueMessage) {
       const activeRecovery = params.getActiveRecoveryWindow

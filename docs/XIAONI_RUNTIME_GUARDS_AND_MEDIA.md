@@ -40,7 +40,7 @@ NapCat
    IM 入口 `is_enabled` 派生。
 3. `agent_queue_messages` 是否没有对应 `phone_notification` pending row。
 
-`agent_runtime_control.enabled=false` 是全局 runtime worker 暂停；它和
+`agent_runtime_control.enabled=false` 是全局 runtime loop 暂停；它和
 `is_enabled=0` 是两层不同开关。前者让 agent-service 不跑主 loop，
 后者让 provider-service 不把某个聊天的新消息写入 Notify Bucket。
 
