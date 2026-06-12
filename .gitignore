@@ -2,6 +2,7 @@
 .idea/
 .vscode/
 .playwright-mcp/
+.claude/
 *.iml
 out/
 gen/
@@ -24,7 +25,6 @@ modules/qqbot-core/resources/napcat_qq_data/*
 !modules/qqbot-core/resources/napcat_qq_data/.gitkeep
 resource/napcat_config/*.json
 !resource/napcat_config/napcat.json
-!resource/napcat_config/webui.json
 resource/napcat_qq_data/*
 !resource/napcat_qq_data/.gitkeep
 scripts/module_pids.json
@@ -76,6 +76,7 @@ coverage/
 *.tmp
 *.temp
 tmp/
+.tmp/
 **/qq-log*
 models/embedding-server/
 .gstack/
