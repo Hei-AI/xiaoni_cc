@@ -874,6 +874,120 @@ export type XiaoniCoreMemoryCompressionForkSlice = XiaoniLlmRequestSlice & {
 export type XiaoniCoreMemoryCompressionForkToolExecution = XiaoniToolExecution & {
   forkRunId: string;
 };
+export type XiaoniLlmUsageBucket = 'call' | 'hour' | 'day' | 'month';
+export type XiaoniLlmUsageTimelineInput = XiaoniAgentStackPersistenceCallInput & {
+  identityKey?: string;
+  identity_key?: string;
+  range?: string;
+  startTime?: string | Date | null;
+  start_time?: string | Date | null;
+  endTime?: string | Date | null;
+  end_time?: string | Date | null;
+  bucket?: XiaoniLlmUsageBucket | string;
+  usageBucket?: XiaoniLlmUsageBucket | string;
+  usage_bucket?: XiaoniLlmUsageBucket | string;
+  maxPoints?: number;
+  max_points?: number;
+  includePeaks?: boolean;
+  include_peaks?: boolean;
+  includeMiniMap?: boolean;
+  include_minimap?: boolean;
+  includeOverlays?: string;
+  include_overlays?: string;
+  searchQuery?: string | null;
+  search_q?: string | null;
+};
+export type XiaoniLlmUsagePoint = {
+  key: string;
+  timestamp: string | null;
+  bucketStart: string | null;
+  bucketEnd: string | null;
+  callCount: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheRatio: number | null;
+  sourceKind: string | null;
+  forkRunId: string | null;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  llmCallId: string | null;
+  traceId: string | null;
+  topEvent: {
+    eventId: string;
+    llmRequestSliceId: string;
+    sourceKind: string | null;
+    forkRunId: string | null;
+    timestamp: string | null;
+    inputTokens: number;
+    cachedTokens: number;
+    outputTokens: number;
+  } | null;
+};
+export type XiaoniLlmUsagePeak = {
+  timestamp: string | null;
+  label: string;
+  severity: string;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  reason: string;
+};
+export type XiaoniLlmUsageSearchHit = {
+  timestamp: string | null;
+  label: string;
+  severity: string;
+  anchorEventId: string | null;
+  llmRequestSliceId: string | null;
+  llmCallId: string | null;
+  traceId: string | null;
+  sourceKind: string | null;
+  forkRunId: string | null;
+  field: string | null;
+  query: string;
+  snippet: string | null;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+};
+export type XiaoniLlmUsageTimelineResult = {
+  identityKey: string;
+  generatedAt: string;
+  timezone: string;
+  requestedBucket: XiaoniLlmUsageBucket;
+  bucket: XiaoniLlmUsageBucket;
+  maxPoints: number;
+  downsampled: boolean;
+  warnings: string[];
+  window: {
+    startTime: string | null;
+    endTime: string | null;
+  };
+  dataBounds: {
+    firstAt: string | null;
+    lastAt: string | null;
+  };
+  summary: {
+    callCount: number;
+    inputTokens: number;
+    cachedTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    cacheRatio: number | null;
+    peakInputTokens: number;
+    peakOutputTokens: number;
+  };
+  points: XiaoniLlmUsagePoint[];
+  peaks: XiaoniLlmUsagePeak[];
+  overlays: {
+    eventDensity: unknown[];
+    toolDensity: unknown[];
+    runtimeBands: unknown[];
+    compressionForkBands: unknown[];
+    searchHits: XiaoniLlmUsageSearchHit[];
+  };
+  miniMap: unknown;
+};
 export type XiaoniAgentStackPersistenceApi = {
   ensureXiaoniAgentStackSchema(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
@@ -891,6 +1005,7 @@ export type XiaoniAgentStackPersistenceApi = {
   completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+  getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
   listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
   findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
   attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
@@ -915,6 +1030,7 @@ export function recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgent
 export function completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
 export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
 export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
 export function attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;

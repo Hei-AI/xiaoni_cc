@@ -1,6 +1,25 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const {
+  STORAGE_TIMEZONE,
+  parseInstantValue,
+} = require('./time');
+
+const USAGE_BUCKETS = new Set(['call', 'hour', 'day', 'month']);
+const DEFAULT_USAGE_MAX_POINTS = 1200;
+const MIN_USAGE_MAX_POINTS = 100;
+const MAX_USAGE_MAX_POINTS = 2000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const EAST8_OFFSET_MS = 8 * HOUR_MS;
+const USAGE_SEARCH_MAX_WINDOW_MS = 30 * DAY_MS;
+const USAGE_SEARCH_MAX_HITS = 120;
+const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
+const USAGE_ROLLUP_VERSION = 2;
+const USAGE_ROLLUP_STATE_KEY = '*';
+const USAGE_SOURCE_MAIN = 'main';
+const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
 
 function normalizeDate(value) {
   if (!value) {
@@ -106,6 +125,370 @@ function normalizeBoolean(value) {
 function normalizeInteger(value, fallback = null) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function usageTokenSql(alias = 'token_usage') {
+  const field = `${alias}::jsonb`;
+  return {
+    input: `COALESCE(
+      NULLIF(${field}->>'input_tokens', '')::numeric,
+      NULLIF(${field}->>'inputTokens', '')::numeric,
+      NULLIF(${field}->>'prompt_tokens', '')::numeric,
+      NULLIF(${field}->>'promptTokens', '')::numeric,
+      0
+    )`,
+    cached: `COALESCE(
+      NULLIF(${field}->>'cached_input_tokens', '')::numeric,
+      NULLIF(${field}->>'cachedInputTokens', '')::numeric,
+      NULLIF(${field}#>>'{input_tokens_details,cached_tokens}', '')::numeric,
+      NULLIF(${field}#>>'{inputTokensDetails,cachedTokens}', '')::numeric,
+      NULLIF(${field}#>>'{prompt_tokens_details,cached_tokens}', '')::numeric,
+      NULLIF(${field}#>>'{promptTokensDetails,cachedTokens}', '')::numeric,
+      NULLIF(${field}#>>'{raw_usage,input_tokens_details,cached_tokens}', '')::numeric,
+      NULLIF(${field}#>>'{rawUsage,inputTokensDetails,cachedTokens}', '')::numeric,
+      0
+    )`,
+    output: `COALESCE(
+      NULLIF(${field}->>'output_tokens', '')::numeric,
+      NULLIF(${field}->>'outputTokens', '')::numeric,
+      NULLIF(${field}->>'completion_tokens', '')::numeric,
+      NULLIF(${field}->>'completionTokens', '')::numeric,
+      0
+    )`
+  };
+}
+
+function parseUsageDate(value) {
+  if (!value) {
+    return null;
+  }
+  const parsed = value instanceof Date ? value : parseInstantValue(String(value));
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+}
+
+function normalizeUsageWindow(input = {}, dataBounds = {}) {
+  const warnings = [];
+  let startTime = parseUsageDate(input.startTime ?? input.start_time);
+  let endTime = parseUsageDate(input.endTime ?? input.end_time);
+  const now = new Date();
+
+  if ((input.startTime || input.start_time) && !startTime) {
+    warnings.push('invalid_start_time_ignored');
+  }
+  if ((input.endTime || input.end_time) && !endTime) {
+    warnings.push('invalid_end_time_ignored');
+  }
+
+  if (startTime && !endTime) {
+    endTime = now;
+    warnings.push('partial_custom_end_time_defaulted');
+  }
+  if (!startTime && endTime) {
+    startTime = new Date(endTime.getTime() - DAY_MS);
+    warnings.push('partial_custom_start_time_defaulted');
+  }
+
+  if (!startTime && dataBounds.firstAt) {
+    startTime = parseUsageDate(dataBounds.firstAt);
+  }
+  if (!endTime && dataBounds.lastAt) {
+    endTime = parseUsageDate(dataBounds.lastAt);
+  }
+
+  if (startTime && endTime && startTime.getTime() > endTime.getTime()) {
+    const nextStart = endTime;
+    endTime = startTime;
+    startTime = nextStart;
+    warnings.push('time_window_swapped');
+  }
+
+  return { startTime, endTime, warnings };
+}
+
+function startOfEast8DayMs(value) {
+  const shifted = value.getTime() + EAST8_OFFSET_MS;
+  const day = new Date(shifted);
+  return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate()) - EAST8_OFFSET_MS;
+}
+
+function countUsageBuckets(startTime, endTime, bucket) {
+  if (!startTime || !endTime) {
+    return 0;
+  }
+  const startMs = startTime.getTime();
+  const endMs = endTime.getTime();
+  if (endMs < startMs) {
+    return 0;
+  }
+  if (bucket === 'hour') {
+    return Math.max(1, Math.ceil((endMs - startMs) / HOUR_MS) + 1);
+  }
+  if (bucket === 'day') {
+    const startDay = startOfEast8DayMs(startTime);
+    const endDay = startOfEast8DayMs(endTime);
+    return Math.max(1, Math.floor((endDay - startDay) / DAY_MS) + 1);
+  }
+  if (bucket === 'month') {
+    const startShifted = new Date(startTime.getTime() + EAST8_OFFSET_MS);
+    const endShifted = new Date(endTime.getTime() + EAST8_OFFSET_MS);
+    return Math.max(1, (endShifted.getUTCFullYear() - startShifted.getUTCFullYear()) * 12 + endShifted.getUTCMonth() - startShifted.getUTCMonth() + 1);
+  }
+  return 0;
+}
+
+function resolveUsageBucket({ requestedBucket, totalCount, startTime, endTime, maxPoints, warnings }) {
+  if (requestedBucket === 'call' && totalCount <= maxPoints) {
+    return 'call';
+  }
+  if (requestedBucket === 'call') {
+    warnings.push('call_bucket_too_dense');
+  }
+  const ordered = requestedBucket === 'month'
+    ? ['month']
+    : requestedBucket === 'day'
+      ? ['day', 'month']
+      : requestedBucket === 'hour'
+        ? ['hour', 'day', 'month']
+        : ['hour', 'day', 'month'];
+  for (const bucket of ordered) {
+    if (countUsageBuckets(startTime, endTime, bucket) <= maxPoints) {
+      return bucket;
+    }
+  }
+  warnings.push('month_bucket_too_dense');
+  return 'month';
+}
+
+function bucketSqlExpression(bucket) {
+  if (bucket === 'hour') {
+    return {
+      start: "date_trunc('hour', created_at)",
+      end: "date_trunc('hour', created_at) + INTERVAL '1 hour'"
+    };
+  }
+  if (bucket === 'day') {
+    return {
+      start: "date_trunc('day', created_at)",
+      end: "date_trunc('day', created_at) + INTERVAL '1 day'"
+    };
+  }
+  return {
+    start: "date_trunc('month', created_at)",
+    end: "date_trunc('month', created_at) + INTERVAL '1 month'"
+  };
+}
+
+function buildUsageTimeWhere(startTime, endTime) {
+  const clauses = [];
+  const params = [];
+  if (startTime) {
+    clauses.push('created_at >= ?::timestamp');
+    params.push(startTime);
+  }
+  if (endTime) {
+    clauses.push('created_at <= ?::timestamp');
+    params.push(endTime);
+  }
+  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', params };
+}
+
+function buildUsageRollupWhere(startTime, endTime) {
+  const clauses = [];
+  const params = [];
+  if (startTime) {
+    clauses.push('bucket_end >= ?::timestamp');
+    params.push(startTime);
+  }
+  if (endTime) {
+    clauses.push('bucket_start <= ?::timestamp');
+    params.push(endTime);
+  }
+  return { clause: clauses.length ? `AND ${clauses.join(' AND ')}` : '', params };
+}
+
+function normalizeUsagePoint(row, bucket) {
+  const inputTokens = normalizeNumber(row.input_tokens);
+  const cachedTokens = normalizeNumber(row.cached_tokens);
+  const outputTokens = normalizeNumber(row.output_tokens);
+  const totalTokens = inputTokens + outputTokens;
+  const callCount = normalizeNumber(row.call_count, bucket === 'call' ? 1 : 0);
+  const bucketStart = normalizeDate(row.bucket_start || row.timestamp);
+  const bucketEnd = normalizeDate(row.bucket_end || row.timestamp);
+  const llmRequestSliceId = firstString(row.llm_request_slice_id, row.slice_id);
+  const topSliceId = firstString(row.top_llm_request_slice_id, llmRequestSliceId);
+  const sourceKind = firstString(row.source_kind, USAGE_SOURCE_MAIN);
+  const forkRunId = firstString(row.fork_run_id);
+  const topSourceKind = firstString(row.top_source_kind, sourceKind);
+  const topForkRunId = firstString(row.top_fork_run_id, forkRunId);
+  const anchorEventId = usageAnchorEventId(topSliceId, topSourceKind);
+  const topInputTokens = normalizeNumber(row.top_input_tokens, inputTokens);
+  const topCachedTokens = normalizeNumber(row.top_cached_tokens, cachedTokens);
+  const topOutputTokens = normalizeNumber(row.top_output_tokens, outputTokens);
+  const topTimestamp = normalizeDate(row.top_timestamp || row.timestamp || row.bucket_start);
+  const timestamp = bucket === 'call'
+    ? normalizeDate(row.timestamp || row.bucket_start)
+    : bucketStart;
+  return {
+    key: firstString(row.key) || `${bucket}:${timestamp}`,
+    timestamp,
+    bucketStart,
+    bucketEnd,
+    callCount,
+    inputTokens,
+    cachedTokens,
+    outputTokens,
+    totalTokens,
+    cacheRatio: inputTokens > 0 ? cachedTokens / inputTokens : null,
+    sourceKind,
+    forkRunId,
+    anchorEventId,
+    llmRequestSliceId: topSliceId,
+    llmCallId: firstString(row.top_llm_call_id, row.llm_call_id),
+    traceId: firstString(row.top_trace_id, row.trace_id),
+    topEvent: topSliceId ? {
+      eventId: anchorEventId,
+      llmRequestSliceId: topSliceId,
+      sourceKind: topSourceKind,
+      forkRunId: topForkRunId,
+      timestamp: topTimestamp,
+      inputTokens: topInputTokens,
+      cachedTokens: topCachedTokens,
+      outputTokens: topOutputTokens
+    } : null
+  };
+}
+
+function summarizeUsagePoints(points) {
+  const summary = points.reduce((acc, point) => {
+    acc.callCount += point.callCount;
+    acc.inputTokens += point.inputTokens;
+    acc.cachedTokens += point.cachedTokens;
+    acc.outputTokens += point.outputTokens;
+    acc.totalTokens += point.totalTokens;
+    acc.peakInputTokens = Math.max(acc.peakInputTokens, point.topEvent?.inputTokens ?? point.inputTokens);
+    acc.peakOutputTokens = Math.max(acc.peakOutputTokens, point.topEvent?.outputTokens ?? point.outputTokens);
+    return acc;
+  }, {
+    callCount: 0,
+    inputTokens: 0,
+    cachedTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cacheRatio: null,
+    peakInputTokens: 0,
+    peakOutputTokens: 0
+  });
+  summary.cacheRatio = summary.inputTokens > 0 ? summary.cachedTokens / summary.inputTokens : null;
+  return summary;
+}
+
+function normalizeUsageSearchQuery(value) {
+  const query = firstString(value);
+  if (!query) {
+    return null;
+  }
+  return query.slice(0, 120);
+}
+
+function normalizeUsageSearchHit(row, query) {
+  const sliceId = firstString(row.llm_request_slice_id, row.slice_id);
+  const sourceKind = firstString(row.source_kind, USAGE_SOURCE_MAIN);
+  const forkRunId = firstString(row.fork_run_id);
+  return {
+    timestamp: normalizeDate(row.timestamp || row.created_at),
+    label: firstString(row.label) || query,
+    severity: 'info',
+    anchorEventId: usageAnchorEventId(sliceId, sourceKind),
+    llmRequestSliceId: sliceId,
+    llmCallId: firstString(row.llm_call_id),
+    traceId: firstString(row.trace_id),
+    sourceKind,
+    forkRunId,
+    field: firstString(row.match_field),
+    query,
+    snippet: firstString(row.snippet),
+    inputTokens: normalizeNumber(row.input_tokens),
+    cachedTokens: normalizeNumber(row.cached_tokens),
+    outputTokens: normalizeNumber(row.output_tokens)
+  };
+}
+
+function usageAnchorEventId(sliceId, sourceKind) {
+  if (!sliceId) {
+    return null;
+  }
+  if (sourceKind === USAGE_SOURCE_COMPRESSION_FORK) {
+    return `compression-fork-slice:${sliceId}`;
+  }
+  return `llm-slice:${sliceId}`;
+}
+
+function usageRollupBucketColumn(bucket) {
+  if (bucket === 'hour') {
+    return 'hour_bucket_start';
+  }
+  if (bucket === 'day') {
+    return 'day_bucket_start';
+  }
+  return 'month_bucket_start';
+}
+
+function usageRollupBucketIntervalSql(bucket) {
+  if (bucket === 'hour') {
+    return "INTERVAL '1 hour'";
+  }
+  if (bucket === 'day') {
+    return "INTERVAL '1 day'";
+  }
+  return "INTERVAL '1 month'";
+}
+
+function usageRollupSourceFromSliceSelectSql(sourceKind = USAGE_SOURCE_MAIN) {
+  const tokenSql = usageTokenSql('token_usage');
+  const tableName = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+    ? 'core_memory_compression_fork_slices'
+    : 'llm_request_slices';
+  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+    ? 'fork_run_id'
+    : 'NULL::varchar AS fork_run_id';
+  return `
+    SELECT
+      slice_id,
+      ?::varchar AS source_kind,
+      ${forkRunIdSelect},
+      identity_key,
+      llm_call_id,
+      trace_id,
+      created_at,
+      date_trunc('hour', created_at) AS hour_bucket_start,
+      date_trunc('day', created_at) AS day_bucket_start,
+      date_trunc('month', created_at) AS month_bucket_start,
+      ${tokenSql.input} AS input_tokens,
+      ${tokenSql.cached} AS cached_tokens,
+      ${tokenSql.output} AS output_tokens
+    FROM ${tableName}
+  `;
+}
+
+function usageRollupSourceFromAllSlicesSelectSql() {
+  return `
+    ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_MAIN)}
+    UNION ALL
+    ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_COMPRESSION_FORK)}
+  `;
 }
 
 function normalizeStackRow(row) {
@@ -354,6 +737,433 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     }
   }
 
+  async function rebuildLlmUsageRollupBucket(executor, bucket) {
+    const bucketColumn = usageRollupBucketColumn(bucket);
+    const bucketInterval = usageRollupBucketIntervalSql(bucket);
+    await executor.query(
+      `
+        WITH ranked AS (
+          SELECT
+            identity_key,
+            ${bucketColumn} AS bucket_start,
+            slice_id,
+            source_kind,
+            fork_run_id,
+            llm_call_id,
+            trace_id,
+            created_at,
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+            ROW_NUMBER() OVER (
+              PARTITION BY identity_key, ${bucketColumn}
+              ORDER BY (input_tokens + output_tokens) DESC, created_at ASC, slice_id ASC
+            ) AS bucket_rank
+          FROM llm_usage_rollup_sources
+        ),
+        aggregated AS (
+          SELECT
+            identity_key,
+            ?::varchar AS bucket,
+            bucket_start,
+            bucket_start + ${bucketInterval} AS bucket_end,
+            COUNT(*) AS call_count,
+            SUM(input_tokens) AS input_tokens,
+            SUM(cached_tokens) AS cached_tokens,
+            SUM(output_tokens) AS output_tokens,
+            MAX(CASE WHEN bucket_rank = 1 THEN slice_id END) AS top_llm_request_slice_id,
+            MAX(CASE WHEN bucket_rank = 1 THEN source_kind END) AS top_source_kind,
+            MAX(CASE WHEN bucket_rank = 1 THEN fork_run_id END) AS top_fork_run_id,
+            MAX(CASE WHEN bucket_rank = 1 THEN llm_call_id END) AS top_llm_call_id,
+            MAX(CASE WHEN bucket_rank = 1 THEN trace_id END) AS top_trace_id,
+            MAX(CASE WHEN bucket_rank = 1 THEN created_at END) AS top_timestamp,
+            MAX(CASE WHEN bucket_rank = 1 THEN input_tokens END) AS top_input_tokens,
+            MAX(CASE WHEN bucket_rank = 1 THEN cached_tokens END) AS top_cached_tokens,
+            MAX(CASE WHEN bucket_rank = 1 THEN output_tokens END) AS top_output_tokens
+          FROM ranked
+          GROUP BY identity_key, bucket_start
+        )
+        INSERT INTO llm_usage_rollups (
+          identity_key,
+          bucket,
+          bucket_start,
+          bucket_end,
+          call_count,
+          input_tokens,
+          cached_tokens,
+          output_tokens,
+          top_llm_request_slice_id,
+          top_source_kind,
+          top_fork_run_id,
+          top_llm_call_id,
+          top_trace_id,
+          top_timestamp,
+          top_input_tokens,
+          top_cached_tokens,
+          top_output_tokens
+        )
+        SELECT
+          identity_key,
+          bucket,
+          bucket_start,
+          bucket_end,
+          call_count,
+          input_tokens,
+          cached_tokens,
+          output_tokens,
+          top_llm_request_slice_id,
+          top_source_kind,
+          top_fork_run_id,
+          top_llm_call_id,
+          top_trace_id,
+          top_timestamp,
+          COALESCE(top_input_tokens, 0),
+          COALESCE(top_cached_tokens, 0),
+          COALESCE(top_output_tokens, 0)
+        FROM aggregated
+        ON CONFLICT (identity_key, bucket, bucket_start) DO UPDATE SET
+          bucket_end = EXCLUDED.bucket_end,
+          call_count = EXCLUDED.call_count,
+          input_tokens = EXCLUDED.input_tokens,
+          cached_tokens = EXCLUDED.cached_tokens,
+          output_tokens = EXCLUDED.output_tokens,
+          top_llm_request_slice_id = EXCLUDED.top_llm_request_slice_id,
+          top_source_kind = EXCLUDED.top_source_kind,
+          top_fork_run_id = EXCLUDED.top_fork_run_id,
+          top_llm_call_id = EXCLUDED.top_llm_call_id,
+          top_trace_id = EXCLUDED.top_trace_id,
+          top_timestamp = EXCLUDED.top_timestamp,
+          top_input_tokens = EXCLUDED.top_input_tokens,
+          top_cached_tokens = EXCLUDED.top_cached_tokens,
+          top_output_tokens = EXCLUDED.top_output_tokens,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [bucket]
+    );
+  }
+
+  async function initializeLlmUsageRollupsIfNeeded(sql) {
+    const initializeWithExecutor = async (executor) => {
+      if (typeof executor.query === 'function') {
+        await executor.query('SELECT pg_advisory_xact_lock(hashtext(?))', ['llm_usage_rollups:init']).catch(() => []);
+      }
+      await executor.query(
+        `
+          INSERT INTO llm_usage_rollup_state (identity_key, version, updated_at)
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT (identity_key) DO NOTHING
+        `,
+        [USAGE_ROLLUP_STATE_KEY, USAGE_ROLLUP_VERSION]
+      );
+      const stateRows = await executor.query(
+        'SELECT initialized_at, version FROM llm_usage_rollup_state WHERE identity_key = ? FOR UPDATE',
+        [USAGE_ROLLUP_STATE_KEY]
+      );
+      if (stateRows[0]?.initialized_at && normalizeNumber(stateRows[0]?.version) >= USAGE_ROLLUP_VERSION) {
+        return false;
+      }
+
+      await executor.execute('DELETE FROM llm_usage_rollups');
+      await executor.execute('DELETE FROM llm_usage_rollup_sources');
+      const sourceSelectSql = usageRollupSourceFromAllSlicesSelectSql();
+      await executor.query(
+        `
+          INSERT INTO llm_usage_rollup_sources (
+            slice_id,
+            source_kind,
+            fork_run_id,
+            identity_key,
+            llm_call_id,
+            trace_id,
+            created_at,
+            hour_bucket_start,
+            day_bucket_start,
+            month_bucket_start,
+            input_tokens,
+            cached_tokens,
+            output_tokens
+          )
+          ${sourceSelectSql}
+          ON CONFLICT (slice_id) DO UPDATE SET
+            source_kind = EXCLUDED.source_kind,
+            fork_run_id = EXCLUDED.fork_run_id,
+            identity_key = EXCLUDED.identity_key,
+            llm_call_id = EXCLUDED.llm_call_id,
+            trace_id = EXCLUDED.trace_id,
+            created_at = EXCLUDED.created_at,
+            hour_bucket_start = EXCLUDED.hour_bucket_start,
+            day_bucket_start = EXCLUDED.day_bucket_start,
+            month_bucket_start = EXCLUDED.month_bucket_start,
+            input_tokens = EXCLUDED.input_tokens,
+            cached_tokens = EXCLUDED.cached_tokens,
+            output_tokens = EXCLUDED.output_tokens,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK]
+      );
+      for (const bucket of USAGE_ROLLUP_BUCKETS) {
+        await rebuildLlmUsageRollupBucket(executor, bucket);
+      }
+      await executor.query(
+        `
+          UPDATE llm_usage_rollup_state
+          SET
+            version = ?,
+            initialized_at = CURRENT_TIMESTAMP,
+            source_max_id = GREATEST(
+              COALESCE((SELECT MAX(id) FROM llm_request_slices), 0),
+              COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0)
+            ),
+            source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE identity_key = ?
+        `,
+        [USAGE_ROLLUP_VERSION, USAGE_ROLLUP_STATE_KEY]
+      );
+      return true;
+    };
+
+    if (typeof sql.withTransaction === 'function') {
+      return sql.withTransaction(initializeWithExecutor);
+    }
+    return initializeWithExecutor(sql);
+  }
+
+  async function refreshLlmUsageRollupTop(executor, source, bucket) {
+    const bucketColumn = usageRollupBucketColumn(bucket);
+    const bucketStart = source[bucketColumn];
+    const identityKey = firstString(source.identity_key, source.identityKey);
+    if (!bucketStart || !identityKey) {
+      return;
+    }
+    const topRows = await executor.query(
+      `
+        SELECT
+          slice_id,
+          source_kind,
+          fork_run_id,
+          llm_call_id,
+          trace_id,
+          created_at,
+          input_tokens,
+          cached_tokens,
+          output_tokens
+        FROM llm_usage_rollup_sources
+        WHERE identity_key = ?
+          AND ${bucketColumn} = ?::timestamp
+        ORDER BY (input_tokens + output_tokens) DESC, created_at ASC, slice_id ASC
+        LIMIT 1
+      `,
+      [identityKey, bucketStart]
+    );
+    const top = topRows[0];
+    if (!top) {
+      await executor.query(
+        `
+          UPDATE llm_usage_rollups
+          SET
+            top_llm_request_slice_id = NULL,
+            top_source_kind = NULL,
+            top_fork_run_id = NULL,
+            top_llm_call_id = NULL,
+            top_trace_id = NULL,
+            top_timestamp = NULL,
+            top_input_tokens = 0,
+            top_cached_tokens = 0,
+            top_output_tokens = 0,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE identity_key = ?
+            AND bucket = ?
+            AND bucket_start = ?::timestamp
+        `,
+        [identityKey, bucket, bucketStart]
+      );
+      return;
+    }
+    await executor.query(
+      `
+        UPDATE llm_usage_rollups
+        SET
+          top_llm_request_slice_id = ?,
+          top_source_kind = ?,
+          top_fork_run_id = ?,
+          top_llm_call_id = ?,
+          top_trace_id = ?,
+          top_timestamp = ?::timestamp,
+          top_input_tokens = ?,
+          top_cached_tokens = ?,
+          top_output_tokens = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE identity_key = ?
+          AND bucket = ?
+          AND bucket_start = ?::timestamp
+      `,
+      [
+        top.slice_id,
+        top.source_kind,
+        top.fork_run_id,
+        top.llm_call_id,
+        top.trace_id,
+        normalizeDate(top.created_at),
+        normalizeNumber(top.input_tokens),
+        normalizeNumber(top.cached_tokens),
+        normalizeNumber(top.output_tokens),
+        identityKey,
+        bucket,
+        bucketStart
+      ]
+    );
+  }
+
+  async function applyLlmUsageRollupContribution(executor, source, direction) {
+    const sign = direction === 'subtract' ? -1 : 1;
+    const identityKey = firstString(source.identity_key, source.identityKey);
+    if (!identityKey) {
+      return;
+    }
+    const inputTokens = normalizeNumber(source.input_tokens) * sign;
+    const cachedTokens = normalizeNumber(source.cached_tokens) * sign;
+    const outputTokens = normalizeNumber(source.output_tokens) * sign;
+    for (const bucket of USAGE_ROLLUP_BUCKETS) {
+      const bucketColumn = usageRollupBucketColumn(bucket);
+      const bucketStart = source[bucketColumn];
+      if (!bucketStart) {
+        continue;
+      }
+      const bucketInterval = usageRollupBucketIntervalSql(bucket);
+      await executor.query(
+        `
+          INSERT INTO llm_usage_rollups (
+            identity_key,
+            bucket,
+            bucket_start,
+            bucket_end,
+            call_count,
+            input_tokens,
+            cached_tokens,
+            output_tokens
+          )
+          VALUES (?, ?, ?::timestamp, ?::timestamp + ${bucketInterval}, ?, ?, ?, ?)
+          ON CONFLICT (identity_key, bucket, bucket_start) DO UPDATE SET
+            bucket_end = EXCLUDED.bucket_end,
+            call_count = llm_usage_rollups.call_count + EXCLUDED.call_count,
+            input_tokens = llm_usage_rollups.input_tokens + EXCLUDED.input_tokens,
+            cached_tokens = llm_usage_rollups.cached_tokens + EXCLUDED.cached_tokens,
+            output_tokens = llm_usage_rollups.output_tokens + EXCLUDED.output_tokens,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        [identityKey, bucket, bucketStart, bucketStart, sign, inputTokens, cachedTokens, outputTokens]
+      );
+      await executor.execute(
+        `
+          DELETE FROM llm_usage_rollups
+          WHERE identity_key = ?
+            AND bucket = ?
+            AND bucket_start = ?::timestamp
+            AND call_count <= 0
+        `,
+        [identityKey, bucket, bucketStart]
+      );
+      await refreshLlmUsageRollupTop(executor, source, bucket);
+    }
+  }
+
+  async function syncLlmUsageRollupForSlice(executor, sliceId, sourceKind = USAGE_SOURCE_MAIN) {
+    if (!sliceId) {
+      return;
+    }
+    const previousRows = await executor.query(
+      'SELECT * FROM llm_usage_rollup_sources WHERE slice_id = ? FOR UPDATE',
+      [sliceId]
+    );
+    const previous = previousRows[0] || null;
+    if (previous) {
+      await applyLlmUsageRollupContribution(executor, previous, 'subtract');
+    }
+
+    const sourceSelectSql = usageRollupSourceFromSliceSelectSql(sourceKind);
+    const currentRows = await executor.query(
+      `
+        ${sourceSelectSql}
+        WHERE slice_id = ?
+        LIMIT 1
+      `,
+      [sourceKind, sliceId]
+    );
+    const current = currentRows[0] || null;
+    if (!current) {
+      if (previous) {
+        await executor.execute('DELETE FROM llm_usage_rollup_sources WHERE slice_id = ?', [sliceId]);
+      }
+      return;
+    }
+
+    await executor.query(
+      `
+        INSERT INTO llm_usage_rollup_sources (
+          slice_id,
+          source_kind,
+          fork_run_id,
+          identity_key,
+          llm_call_id,
+          trace_id,
+          created_at,
+          hour_bucket_start,
+          day_bucket_start,
+          month_bucket_start,
+          input_tokens,
+          cached_tokens,
+          output_tokens
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?::timestamp, ?::timestamp, ?::timestamp, ?::timestamp, ?, ?, ?)
+        ON CONFLICT (slice_id) DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          fork_run_id = EXCLUDED.fork_run_id,
+          identity_key = EXCLUDED.identity_key,
+          llm_call_id = EXCLUDED.llm_call_id,
+          trace_id = EXCLUDED.trace_id,
+          created_at = EXCLUDED.created_at,
+          hour_bucket_start = EXCLUDED.hour_bucket_start,
+          day_bucket_start = EXCLUDED.day_bucket_start,
+          month_bucket_start = EXCLUDED.month_bucket_start,
+          input_tokens = EXCLUDED.input_tokens,
+          cached_tokens = EXCLUDED.cached_tokens,
+          output_tokens = EXCLUDED.output_tokens,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [
+        current.slice_id,
+        current.source_kind,
+        current.fork_run_id,
+        current.identity_key,
+        current.llm_call_id,
+        current.trace_id,
+        normalizeDate(current.created_at),
+        normalizeDate(current.hour_bucket_start),
+        normalizeDate(current.day_bucket_start),
+        normalizeDate(current.month_bucket_start),
+        normalizeNumber(current.input_tokens),
+        normalizeNumber(current.cached_tokens),
+        normalizeNumber(current.output_tokens)
+      ]
+    );
+    await applyLlmUsageRollupContribution(executor, current, 'add');
+    const sourceTable = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+      ? 'core_memory_compression_fork_slices'
+      : 'llm_request_slices';
+    await executor.query(
+      `
+        UPDATE llm_usage_rollup_state
+        SET
+          source_max_id = GREATEST(source_max_id, COALESCE((SELECT id FROM ${sourceTable} WHERE slice_id = ?), 0)),
+          source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE identity_key = ?
+      `,
+      [sliceId, USAGE_ROLLUP_STATE_KEY]
+    );
+  }
+
   async function ensureXiaoniAgentStackSchema(input = {}, config = {}) {
     await withSql(input, config, async (sql) => {
       await executeDdls(sql, [
@@ -413,6 +1223,63 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMP(3),
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
+        `
+          CREATE TABLE IF NOT EXISTS llm_usage_rollup_sources (
+            slice_id VARCHAR(191) PRIMARY KEY,
+            source_kind VARCHAR(32) NOT NULL DEFAULT 'main',
+            fork_run_id VARCHAR(191),
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            llm_call_id VARCHAR(128),
+            trace_id VARCHAR(128),
+            created_at TIMESTAMP(3) NOT NULL,
+            hour_bucket_start TIMESTAMP(3) NOT NULL,
+            day_bucket_start TIMESTAMP(3) NOT NULL,
+            month_bucket_start TIMESTAMP(3) NOT NULL,
+            input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            output_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
+        `
+          CREATE TABLE IF NOT EXISTS llm_usage_rollups (
+            id BIGSERIAL PRIMARY KEY,
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            bucket VARCHAR(16) NOT NULL,
+            bucket_start TIMESTAMP(3) NOT NULL,
+            bucket_end TIMESTAMP(3) NOT NULL,
+            call_count BIGINT NOT NULL DEFAULT 0,
+            input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            output_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            top_llm_request_slice_id VARCHAR(191),
+            top_source_kind VARCHAR(32),
+            top_fork_run_id VARCHAR(191),
+            top_llm_call_id VARCHAR(128),
+            top_trace_id VARCHAR(128),
+            top_timestamp TIMESTAMP(3),
+            top_input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            top_cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            top_output_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
+            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(identity_key, bucket, bucket_start)
+          )
+        `,
+        "ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'main'",
+        'ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS fork_run_id VARCHAR(191)',
+        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_source_kind VARCHAR(32)',
+        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_fork_run_id VARCHAR(191)',
+        `
+          CREATE TABLE IF NOT EXISTS llm_usage_rollup_state (
+            identity_key VARCHAR(191) PRIMARY KEY,
+            version INTEGER NOT NULL DEFAULT 1,
+            initialized_at TIMESTAMP(3),
+            source_max_id BIGINT NOT NULL DEFAULT 0,
+            source_count BIGINT NOT NULL DEFAULT 0,
             updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
@@ -576,6 +1443,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_identity_time ON llm_request_slices (identity_key, created_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_trace ON llm_request_slices (trace_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_llm_call ON llm_request_slices (llm_call_id)',
+        'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_identity_time ON llm_usage_rollup_sources (identity_key, created_at, slice_id)',
+        'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_hour ON llm_usage_rollup_sources (identity_key, hour_bucket_start)',
+        'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_day ON llm_usage_rollup_sources (identity_key, day_bucket_start)',
+        'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_month ON llm_usage_rollup_sources (identity_key, month_bucket_start)',
+        'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollups_identity_bucket_time ON llm_usage_rollups (identity_key, bucket, bucket_start)',
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_trace ON tool_executions (trace_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_tool_call ON tool_executions (tool_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_slice ON tool_executions (llm_request_slice_id)',
@@ -589,6 +1461,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_call ON core_memory_compression_fork_tool_executions (tool_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_slice ON core_memory_compression_fork_tool_executions (llm_request_slice_id)'
       ]);
+      await initializeLlmUsageRollupsIfNeeded(sql);
     });
   }
 
@@ -698,98 +1571,105 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const sliceId = buildSliceId(input);
     const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
     return withSql(input, config, async (sql) => {
-      const rows = await sql.query(
-        `
-          INSERT INTO llm_request_slices (
-            slice_id,
-            llm_call_id,
-            identity_key,
-            input_start_index,
-            input_end_index,
-            input_stack_item_ids,
-            output_start_index,
-            output_end_index,
-            canonical_request,
-            wire_request,
-            canonical_response,
-            wire_response,
-            raw_response,
-            output_items,
-            status,
-            token_usage,
-            trace_id,
-            run_id,
-            conversation_id,
-            agent_turn,
-            model_name,
-            model_provider,
-            request_format_version,
-            wire_provider_format,
-            processing_time_ms,
-            metadata,
-            completed_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamp)
-          ON CONFLICT (slice_id) DO UPDATE SET
-            llm_call_id = EXCLUDED.llm_call_id,
-            input_start_index = EXCLUDED.input_start_index,
-            input_end_index = EXCLUDED.input_end_index,
-            input_stack_item_ids = EXCLUDED.input_stack_item_ids,
-            output_start_index = EXCLUDED.output_start_index,
-            output_end_index = EXCLUDED.output_end_index,
-            canonical_request = EXCLUDED.canonical_request,
-            wire_request = EXCLUDED.wire_request,
-            canonical_response = EXCLUDED.canonical_response,
-            wire_response = EXCLUDED.wire_response,
-            raw_response = EXCLUDED.raw_response,
-            output_items = EXCLUDED.output_items,
-            status = EXCLUDED.status,
-            token_usage = EXCLUDED.token_usage,
-            trace_id = EXCLUDED.trace_id,
-            run_id = EXCLUDED.run_id,
-            conversation_id = EXCLUDED.conversation_id,
-            agent_turn = EXCLUDED.agent_turn,
-            model_name = EXCLUDED.model_name,
-            model_provider = EXCLUDED.model_provider,
-            request_format_version = EXCLUDED.request_format_version,
-            wire_provider_format = EXCLUDED.wire_provider_format,
-            processing_time_ms = EXCLUDED.processing_time_ms,
-            metadata = EXCLUDED.metadata,
-            completed_at = COALESCE(EXCLUDED.completed_at, llm_request_slices.completed_at),
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `,
-        [
-          sliceId,
-          firstString(input.llmCallId, input.llm_call_id),
-          firstString(input.identityKey, input.identity_key, 'xiaoni'),
-          normalizeInteger(input.inputStartIndex ?? input.input_start_index),
-          normalizeInteger(input.inputEndIndex ?? input.input_end_index),
-          JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
-          normalizeInteger(input.outputStartIndex ?? input.output_start_index),
-          normalizeInteger(input.outputEndIndex ?? input.output_end_index),
-          JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
-          input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
-          input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
-          input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
-          input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
-          JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
-          firstString(input.status, 'completed'),
-          JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
-          firstString(input.traceId, input.trace_id),
-          firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
-          normalizeInteger(input.agentTurn ?? input.agent_turn),
-          firstString(input.modelName, input.model_name),
-          firstString(input.modelProvider, input.model_provider),
-          firstString(input.requestFormatVersion, input.request_format_version),
-          firstString(input.wireProviderFormat, input.wire_provider_format),
-          normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
-          JSON.stringify(normalizeJsonObject(input.metadata, {})),
-          normalizeDate(completedAt)
-        ]
-      );
-      return normalizeLlmSliceRow(rows[0]);
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO llm_request_slices (
+              slice_id,
+              llm_call_id,
+              identity_key,
+              input_start_index,
+              input_end_index,
+              input_stack_item_ids,
+              output_start_index,
+              output_end_index,
+              canonical_request,
+              wire_request,
+              canonical_response,
+              wire_response,
+              raw_response,
+              output_items,
+              status,
+              token_usage,
+              trace_id,
+              run_id,
+              conversation_id,
+              agent_turn,
+              model_name,
+              model_provider,
+              request_format_version,
+              wire_provider_format,
+              processing_time_ms,
+              metadata,
+              completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamp)
+            ON CONFLICT (slice_id) DO UPDATE SET
+              llm_call_id = EXCLUDED.llm_call_id,
+              input_start_index = EXCLUDED.input_start_index,
+              input_end_index = EXCLUDED.input_end_index,
+              input_stack_item_ids = EXCLUDED.input_stack_item_ids,
+              output_start_index = EXCLUDED.output_start_index,
+              output_end_index = EXCLUDED.output_end_index,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              conversation_id = EXCLUDED.conversation_id,
+              agent_turn = EXCLUDED.agent_turn,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              request_format_version = EXCLUDED.request_format_version,
+              wire_provider_format = EXCLUDED.wire_provider_format,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata,
+              completed_at = COALESCE(EXCLUDED.completed_at, llm_request_slices.completed_at),
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+          `,
+          [
+            sliceId,
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            normalizeInteger(input.inputStartIndex ?? input.input_start_index),
+            normalizeInteger(input.inputEndIndex ?? input.input_end_index),
+            JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
+            normalizeInteger(input.outputStartIndex ?? input.output_start_index),
+            normalizeInteger(input.outputEndIndex ?? input.output_end_index),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeBigIntId(input.conversationId ?? input.conversation_id),
+            normalizeInteger(input.agentTurn ?? input.agent_turn),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider),
+            firstString(input.requestFormatVersion, input.request_format_version),
+            firstString(input.wireProviderFormat, input.wire_provider_format),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {})),
+            normalizeDate(completedAt)
+          ]
+        );
+        await syncLlmUsageRollupForSlice(executor, sliceId);
+        return normalizeLlmSliceRow(rows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
     });
   }
 
@@ -1135,101 +2015,108 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const sliceId = buildSliceId(input);
     const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
     return withSql(input, config, async (sql) => {
-      const rows = await sql.query(
-        `
-          INSERT INTO core_memory_compression_fork_slices (
-            slice_id,
-            fork_run_id,
-            llm_call_id,
-            identity_key,
-            input_start_index,
-            input_end_index,
-            input_stack_item_ids,
-            output_start_index,
-            output_end_index,
-            canonical_request,
-            wire_request,
-            canonical_response,
-            wire_response,
-            raw_response,
-            output_items,
-            status,
-            token_usage,
-            trace_id,
-            run_id,
-            conversation_id,
-            agent_turn,
-            model_name,
-            model_provider,
-            request_format_version,
-            wire_provider_format,
-            processing_time_ms,
-            metadata,
-            completed_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamp)
-          ON CONFLICT (slice_id) DO UPDATE SET
-            fork_run_id = EXCLUDED.fork_run_id,
-            llm_call_id = EXCLUDED.llm_call_id,
-            input_start_index = EXCLUDED.input_start_index,
-            input_end_index = EXCLUDED.input_end_index,
-            input_stack_item_ids = EXCLUDED.input_stack_item_ids,
-            output_start_index = EXCLUDED.output_start_index,
-            output_end_index = EXCLUDED.output_end_index,
-            canonical_request = EXCLUDED.canonical_request,
-            wire_request = EXCLUDED.wire_request,
-            canonical_response = EXCLUDED.canonical_response,
-            wire_response = EXCLUDED.wire_response,
-            raw_response = EXCLUDED.raw_response,
-            output_items = EXCLUDED.output_items,
-            status = EXCLUDED.status,
-            token_usage = EXCLUDED.token_usage,
-            trace_id = EXCLUDED.trace_id,
-            run_id = EXCLUDED.run_id,
-            conversation_id = EXCLUDED.conversation_id,
-            agent_turn = EXCLUDED.agent_turn,
-            model_name = EXCLUDED.model_name,
-            model_provider = EXCLUDED.model_provider,
-            request_format_version = EXCLUDED.request_format_version,
-            wire_provider_format = EXCLUDED.wire_provider_format,
-            processing_time_ms = EXCLUDED.processing_time_ms,
-            metadata = EXCLUDED.metadata,
-            completed_at = COALESCE(EXCLUDED.completed_at, core_memory_compression_fork_slices.completed_at),
-            updated_at = CURRENT_TIMESTAMP
-          RETURNING *
-        `,
-        [
-          sliceId,
-          forkRunId,
-          firstString(input.llmCallId, input.llm_call_id),
-          firstString(input.identityKey, input.identity_key, 'xiaoni'),
-          normalizeInteger(input.inputStartIndex ?? input.input_start_index),
-          normalizeInteger(input.inputEndIndex ?? input.input_end_index),
-          JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
-          normalizeInteger(input.outputStartIndex ?? input.output_start_index),
-          normalizeInteger(input.outputEndIndex ?? input.output_end_index),
-          JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
-          input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
-          input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
-          input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
-          input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
-          JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
-          firstString(input.status, 'completed'),
-          JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
-          firstString(input.traceId, input.trace_id),
-          firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
-          normalizeInteger(input.agentTurn ?? input.agent_turn),
-          firstString(input.modelName, input.model_name),
-          firstString(input.modelProvider, input.model_provider),
-          firstString(input.requestFormatVersion, input.request_format_version),
-          firstString(input.wireProviderFormat, input.wire_provider_format),
-          normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
-          JSON.stringify(normalizeJsonObject(input.metadata, {})),
-          normalizeDate(completedAt)
-        ]
-      );
-      return normalizeCompressionForkSliceRow(rows[0]);
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO core_memory_compression_fork_slices (
+              slice_id,
+              fork_run_id,
+              llm_call_id,
+              identity_key,
+              input_start_index,
+              input_end_index,
+              input_stack_item_ids,
+              output_start_index,
+              output_end_index,
+              canonical_request,
+              wire_request,
+              canonical_response,
+              wire_response,
+              raw_response,
+              output_items,
+              status,
+              token_usage,
+              trace_id,
+              run_id,
+              conversation_id,
+              agent_turn,
+              model_name,
+              model_provider,
+              request_format_version,
+              wire_provider_format,
+              processing_time_ms,
+              metadata,
+              completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamp)
+            ON CONFLICT (slice_id) DO UPDATE SET
+              fork_run_id = EXCLUDED.fork_run_id,
+              llm_call_id = EXCLUDED.llm_call_id,
+              input_start_index = EXCLUDED.input_start_index,
+              input_end_index = EXCLUDED.input_end_index,
+              input_stack_item_ids = EXCLUDED.input_stack_item_ids,
+              output_start_index = EXCLUDED.output_start_index,
+              output_end_index = EXCLUDED.output_end_index,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              conversation_id = EXCLUDED.conversation_id,
+              agent_turn = EXCLUDED.agent_turn,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              request_format_version = EXCLUDED.request_format_version,
+              wire_provider_format = EXCLUDED.wire_provider_format,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata,
+              completed_at = COALESCE(EXCLUDED.completed_at, core_memory_compression_fork_slices.completed_at),
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+          `,
+          [
+            sliceId,
+            forkRunId,
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            normalizeInteger(input.inputStartIndex ?? input.input_start_index),
+            normalizeInteger(input.inputEndIndex ?? input.input_end_index),
+            JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
+            normalizeInteger(input.outputStartIndex ?? input.output_start_index),
+            normalizeInteger(input.outputEndIndex ?? input.output_end_index),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeBigIntId(input.conversationId ?? input.conversation_id),
+            normalizeInteger(input.agentTurn ?? input.agent_turn),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider),
+            firstString(input.requestFormatVersion, input.request_format_version),
+            firstString(input.wireProviderFormat, input.wire_provider_format),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {})),
+            normalizeDate(completedAt)
+          ]
+        );
+        await syncLlmUsageRollupForSlice(executor, sliceId, USAGE_SOURCE_COMPRESSION_FORK);
+        return normalizeCompressionForkSliceRow(rows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
     });
   }
 
@@ -1504,6 +2391,345 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function getXiaoniLlmUsageTimeline(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const maxPoints = clampNumber(input.maxPoints ?? input.max_points, MIN_USAGE_MAX_POINTS, MAX_USAGE_MAX_POINTS, DEFAULT_USAGE_MAX_POINTS);
+    const requestedBucketInput = firstString(input.bucket, input.usageBucket, input.usage_bucket, 'call');
+    let requestedBucket = USAGE_BUCKETS.has(requestedBucketInput) ? requestedBucketInput : 'call';
+    let bucketSeed = requestedBucket;
+    const warnings = [];
+    if (requestedBucket !== requestedBucketInput) {
+      warnings.push('invalid_bucket_defaulted');
+    }
+
+    return withSql(input, config, async (sql) => {
+      const boundsRows = await sql.query(
+        `
+          SELECT
+            MIN(created_at) AS first_at,
+            MAX(created_at) AS last_at,
+            COUNT(*) AS total_count
+          FROM llm_usage_rollup_sources
+          WHERE identity_key = ?
+        `,
+        [identityKey]
+      );
+      const bounds = boundsRows[0] || {};
+      const dataBounds = {
+        firstAt: normalizeDate(bounds.first_at),
+        lastAt: normalizeDate(bounds.last_at)
+      };
+      const { startTime, endTime, warnings: windowWarnings } = normalizeUsageWindow(input, dataBounds);
+      warnings.push(...windowWarnings);
+
+      if (!dataBounds.firstAt || !dataBounds.lastAt || !startTime || !endTime) {
+        return {
+          identityKey,
+          generatedAt: new Date().toISOString(),
+          timezone: STORAGE_TIMEZONE,
+          requestedBucket,
+          bucket: requestedBucket,
+          maxPoints,
+          downsampled: false,
+          warnings,
+          window: {
+            startTime: normalizeDate(startTime),
+            endTime: normalizeDate(endTime)
+          },
+          dataBounds,
+          summary: summarizeUsagePoints([]),
+          points: [],
+          peaks: [],
+          overlays: {
+            eventDensity: [],
+            toolDensity: [],
+            runtimeBands: [],
+            compressionForkBands: [],
+            searchHits: []
+          },
+          miniMap: null
+        };
+      }
+
+      if ((input.range || input.timeRange || input.time_range) === 'all' && requestedBucket === 'call') {
+        bucketSeed = countUsageBuckets(startTime, endTime, 'day') <= maxPoints ? 'day' : 'month';
+        warnings.push('all_range_bucket_escalated');
+      }
+
+      const timeWhere = buildUsageTimeWhere(startTime, endTime);
+      const countRows = await sql.query(
+        `
+          SELECT COUNT(*) AS total_count
+          FROM llm_usage_rollup_sources
+          WHERE identity_key = ?
+          ${timeWhere.clause}
+        `,
+        [identityKey, ...timeWhere.params]
+      );
+      const totalCount = normalizeNumber(countRows[0]?.total_count);
+      const bucket = resolveUsageBucket({
+        requestedBucket: bucketSeed,
+        totalCount,
+        startTime,
+        endTime,
+        maxPoints,
+        warnings
+      });
+      const tokenSql = usageTokenSql('token_usage');
+      const downsampled = bucket !== requestedBucket || totalCount > maxPoints && requestedBucket === 'call';
+      let rawPoints = [];
+
+      if (bucket === 'call') {
+        rawPoints = await sql.query(
+          `
+            SELECT
+              CONCAT(source_kind, ':', slice_id) AS key,
+              created_at AS timestamp,
+              created_at AS bucket_start,
+              created_at AS bucket_end,
+              1 AS call_count,
+              input_tokens,
+              cached_tokens,
+              output_tokens,
+              source_kind,
+              fork_run_id,
+              slice_id AS llm_request_slice_id,
+              llm_call_id,
+              trace_id,
+              slice_id AS top_llm_request_slice_id,
+              source_kind AS top_source_kind,
+              fork_run_id AS top_fork_run_id,
+              llm_call_id AS top_llm_call_id,
+              trace_id AS top_trace_id,
+              created_at AS top_timestamp,
+              input_tokens AS top_input_tokens,
+              cached_tokens AS top_cached_tokens,
+              output_tokens AS top_output_tokens
+            FROM llm_usage_rollup_sources
+            WHERE identity_key = ?
+            ${timeWhere.clause}
+            ORDER BY created_at ASC, slice_id ASC
+            LIMIT ?
+          `,
+          [identityKey, ...timeWhere.params, maxPoints]
+        );
+      } else {
+        const rollupWhere = buildUsageRollupWhere(startTime, endTime);
+        rawPoints = await sql.query(
+          `
+            SELECT
+              CONCAT(?::text, ':', bucket_start::text) AS key,
+              bucket_start AS timestamp,
+              bucket_start,
+              bucket_end,
+              call_count,
+              input_tokens,
+              cached_tokens,
+              output_tokens,
+              top_llm_request_slice_id,
+              top_source_kind,
+              top_fork_run_id,
+              top_llm_call_id,
+              top_trace_id,
+              top_timestamp,
+              top_input_tokens,
+              top_cached_tokens,
+              top_output_tokens
+            FROM llm_usage_rollups
+            WHERE identity_key = ?
+              AND bucket = ?
+              ${rollupWhere.clause}
+            ORDER BY bucket_start ASC
+            LIMIT ?
+          `,
+          [bucket, identityKey, bucket, ...rollupWhere.params, maxPoints]
+        );
+      }
+
+      const points = rawPoints.map((row) => normalizeUsagePoint(row, bucket));
+      const summary = summarizeUsagePoints(points);
+      const peaks = [];
+      if (points.length > 0 && (input.includePeaks === true || input.include_peaks === true)) {
+        const byInput = [...points].sort((left, right) => (right.topEvent?.inputTokens ?? right.inputTokens) - (left.topEvent?.inputTokens ?? left.inputTokens))[0];
+        const byOutput = [...points].sort((left, right) => (right.topEvent?.outputTokens ?? right.outputTokens) - (left.topEvent?.outputTokens ?? left.outputTokens))[0];
+        const seen = new Set();
+        for (const [reason, point, labelValue] of [
+          ['largest_input_tokens', byInput, byInput?.topEvent?.inputTokens ?? byInput?.inputTokens],
+          ['largest_output_tokens', byOutput, byOutput?.topEvent?.outputTokens ?? byOutput?.outputTokens]
+        ]) {
+          const key = `${reason}:${point?.anchorEventId || point?.key}`;
+          if (!point || seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          peaks.push({
+            timestamp: point.topEvent?.timestamp || point.timestamp,
+            label: `${Math.round(labelValue || 0)} ${reason === 'largest_input_tokens' ? 'input' : 'output'}`,
+            severity: labelValue > 100_000 ? 'warning' : 'info',
+            anchorEventId: point.anchorEventId,
+            llmRequestSliceId: point.llmRequestSliceId,
+            reason
+          });
+        }
+      }
+
+      const includeOverlays = firstString(input.includeOverlays, input.include_overlays) || '';
+      const searchQuery = normalizeUsageSearchQuery(input.searchQuery ?? input.search_q);
+      let searchHits = [];
+      if (searchQuery) {
+        const searchWindowMs = endTime.getTime() - startTime.getTime();
+        if (searchWindowMs > USAGE_SEARCH_MAX_WINDOW_MS) {
+          warnings.push('search_overlay_window_too_wide');
+        } else {
+          const pattern = `%${searchQuery}%`;
+          const searchLimit = Math.min(USAGE_SEARCH_MAX_HITS, Math.max(25, Math.floor(maxPoints / 2)));
+          const searchRows = await sql.query(
+            `
+              WITH searchable AS (
+                SELECT
+                  slice_id,
+                  ?::varchar AS source_kind,
+                  NULL::varchar AS fork_run_id,
+                  llm_call_id,
+                  trace_id,
+                  created_at,
+                  token_usage,
+                  canonical_request,
+                  wire_request,
+                  canonical_response,
+                  wire_response,
+                  raw_response,
+                  output_items,
+                  metadata
+                FROM llm_request_slices
+                WHERE identity_key = ?
+                ${timeWhere.clause}
+                UNION ALL
+                SELECT
+                  slice_id,
+                  ?::varchar AS source_kind,
+                  fork_run_id,
+                  llm_call_id,
+                  trace_id,
+                  created_at,
+                  token_usage,
+                  canonical_request,
+                  wire_request,
+                  canonical_response,
+                  wire_response,
+                  raw_response,
+                  output_items,
+                  metadata
+                FROM core_memory_compression_fork_slices
+                WHERE identity_key = ?
+                ${timeWhere.clause}
+              )
+              SELECT
+                slice_id AS llm_request_slice_id,
+                source_kind,
+                fork_run_id,
+                llm_call_id,
+                trace_id,
+                created_at AS timestamp,
+                ${tokenSql.input} AS input_tokens,
+                ${tokenSql.cached} AS cached_tokens,
+                ${tokenSql.output} AS output_tokens,
+                CASE
+                  WHEN canonical_request::text ILIKE ? THEN 'canonical_request'
+                  WHEN COALESCE(wire_request::text, '') ILIKE ? THEN 'wire_request'
+                  WHEN COALESCE(canonical_response::text, '') ILIKE ? THEN 'canonical_response'
+                  WHEN COALESCE(wire_response::text, '') ILIKE ? THEN 'wire_response'
+                  WHEN COALESCE(raw_response::text, '') ILIKE ? THEN 'raw_response'
+                  WHEN COALESCE(output_items::text, '') ILIKE ? THEN 'output_items'
+                  WHEN COALESCE(metadata::text, '') ILIKE ? THEN 'metadata'
+                  ELSE source_kind
+                END AS match_field,
+                LEFT(CONCAT_WS(
+                  ' ',
+                  canonical_request::text,
+                  COALESCE(wire_request::text, ''),
+                  COALESCE(canonical_response::text, ''),
+                  COALESCE(wire_response::text, ''),
+                  COALESCE(raw_response::text, ''),
+                  COALESCE(output_items::text, ''),
+                  COALESCE(metadata::text, '')
+                ), 280) AS snippet
+              FROM searchable
+              WHERE
+                canonical_request::text ILIKE ?
+                OR COALESCE(wire_request::text, '') ILIKE ?
+                OR COALESCE(canonical_response::text, '') ILIKE ?
+                OR COALESCE(wire_response::text, '') ILIKE ?
+                OR COALESCE(raw_response::text, '') ILIKE ?
+                OR COALESCE(output_items::text, '') ILIKE ?
+                OR COALESCE(metadata::text, '') ILIKE ?
+              ORDER BY created_at ASC, source_kind ASC, slice_id ASC
+              LIMIT ?
+            `,
+            [
+              USAGE_SOURCE_MAIN,
+              identityKey,
+              ...timeWhere.params,
+              USAGE_SOURCE_COMPRESSION_FORK,
+              identityKey,
+              ...timeWhere.params,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              pattern,
+              searchLimit
+            ]
+          );
+          searchHits = searchRows.map((row) => normalizeUsageSearchHit(row, searchQuery));
+          if (!includeOverlays.includes('search')) {
+            warnings.push('search_overlay_included_without_flag');
+          }
+        }
+      }
+      if (includeOverlays.includes('compression_fork')) {
+        warnings.push('compression_fork_overlay_not_enabled');
+      }
+
+      return {
+        identityKey,
+        generatedAt: new Date().toISOString(),
+        timezone: STORAGE_TIMEZONE,
+        requestedBucket,
+        bucket,
+        maxPoints,
+        downsampled,
+        warnings,
+        window: {
+          startTime: normalizeDate(startTime),
+          endTime: normalizeDate(endTime)
+        },
+        dataBounds,
+        summary,
+        points,
+        peaks,
+        overlays: {
+          eventDensity: [],
+          toolDensity: [],
+          runtimeBands: [],
+          compressionForkBands: [],
+          searchHits
+        },
+        miniMap: null
+      };
+    });
+  }
+
   async function listToolExecutions(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const clauses = ['identity_key = ?'];
@@ -1608,6 +2834,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     completeCoreMemoryCompressionForkToolExecution,
     listAgentStackItems,
     listLlmRequestSlices,
+    getXiaoniLlmUsageTimeline,
     listToolExecutions,
     findAgentStackItemByEventId,
     attachConversationIdToAgentStackByTrace

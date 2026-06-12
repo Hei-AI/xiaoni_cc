@@ -337,6 +337,55 @@ exports.Prisma.LlmRequestSliceScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.LlmUsageRollupSourceScalarFieldEnum = {
+  slice_id: 'slice_id',
+  source_kind: 'source_kind',
+  fork_run_id: 'fork_run_id',
+  identity_key: 'identity_key',
+  llm_call_id: 'llm_call_id',
+  trace_id: 'trace_id',
+  created_at: 'created_at',
+  hour_bucket_start: 'hour_bucket_start',
+  day_bucket_start: 'day_bucket_start',
+  month_bucket_start: 'month_bucket_start',
+  input_tokens: 'input_tokens',
+  cached_tokens: 'cached_tokens',
+  output_tokens: 'output_tokens',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.LlmUsageRollupScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  bucket: 'bucket',
+  bucket_start: 'bucket_start',
+  bucket_end: 'bucket_end',
+  call_count: 'call_count',
+  input_tokens: 'input_tokens',
+  cached_tokens: 'cached_tokens',
+  output_tokens: 'output_tokens',
+  top_llm_request_slice_id: 'top_llm_request_slice_id',
+  top_source_kind: 'top_source_kind',
+  top_fork_run_id: 'top_fork_run_id',
+  top_llm_call_id: 'top_llm_call_id',
+  top_trace_id: 'top_trace_id',
+  top_timestamp: 'top_timestamp',
+  top_input_tokens: 'top_input_tokens',
+  top_cached_tokens: 'top_cached_tokens',
+  top_output_tokens: 'top_output_tokens',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.LlmUsageRollupStateScalarFieldEnum = {
+  identity_key: 'identity_key',
+  version: 'version',
+  initialized_at: 'initialized_at',
+  source_max_id: 'source_max_id',
+  source_count: 'source_count',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.ToolExecutionScalarFieldEnum = {
   id: 'id',
   execution_id: 'execution_id',
@@ -1286,6 +1335,9 @@ exports.Prisma.ModelName = {
   AgentLifeEvent: 'AgentLifeEvent',
   AgentStackItem: 'AgentStackItem',
   LlmRequestSlice: 'LlmRequestSlice',
+  LlmUsageRollupSource: 'LlmUsageRollupSource',
+  LlmUsageRollup: 'LlmUsageRollup',
+  LlmUsageRollupState: 'LlmUsageRollupState',
   ToolExecution: 'ToolExecution',
   CoreMemoryCompressionForkRun: 'CoreMemoryCompressionForkRun',
   CoreMemoryCompressionForkItem: 'CoreMemoryCompressionForkItem',

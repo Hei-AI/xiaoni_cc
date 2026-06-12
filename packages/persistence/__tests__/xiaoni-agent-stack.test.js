@@ -15,7 +15,9 @@ function createMockSql() {
     forkRun: [],
     forkItem: [],
     forkSlice: [],
-    forkTool: []
+    forkTool: [],
+    rollupSource: [],
+    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 2 }]
   };
   let stackId = 10;
   let forkItemId = 70;
@@ -29,6 +31,22 @@ function createMockSql() {
     query: async (sql, params = []) => {
       calls.push({ kind: 'query', sql, params });
       if (sql.includes('pg_advisory_xact_lock')) {
+        return [];
+      }
+      if (sql.includes('INSERT INTO llm_usage_rollup_state')) {
+        if (!rows.rollupState.length) {
+          rows.rollupState.push({ initialized_at: null, version: params[1] || 1 });
+        }
+        return [];
+      }
+      if (sql.includes('SELECT initialized_at') && sql.includes('FROM llm_usage_rollup_state')) {
+        return rows.rollupState;
+      }
+      if (sql.includes('UPDATE llm_usage_rollup_state')) {
+        rows.rollupState = [{
+          initialized_at: '2026-06-11T00:00:02.000Z',
+          version: sql.includes('version = ?') ? (params[0] || 2) : (rows.rollupState[0]?.version || 2)
+        }];
         return [];
       }
       if (sql.includes('MAX(stack_index)')) {
@@ -260,6 +278,57 @@ function createMockSql() {
         rows.slice.push(row);
         return [row];
       }
+      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('WHERE slice_id = ?')) {
+        const sourceKind = params[0];
+        const sliceId = params[1];
+        const sourceRows = sourceKind === 'compression_fork' ? rows.forkSlice : rows.slice;
+        const row = sourceRows.find((entry) => entry.slice_id === sliceId);
+        if (!row) {
+          return [];
+        }
+        return [{
+          slice_id: row.slice_id,
+          source_kind: sourceKind,
+          fork_run_id: sourceKind === 'compression_fork' ? row.fork_run_id : null,
+          identity_key: row.identity_key,
+          llm_call_id: row.llm_call_id,
+          trace_id: row.trace_id,
+          created_at: row.created_at,
+          hour_bucket_start: row.created_at,
+          day_bucket_start: row.created_at,
+          month_bucket_start: row.created_at,
+          input_tokens: row.token_usage.input_tokens || row.token_usage.inputTokens || row.token_usage.prompt_tokens || 0,
+          cached_tokens: row.token_usage.cached_input_tokens || row.token_usage.cachedInputTokens || 0,
+          output_tokens: row.token_usage.output_tokens || row.token_usage.outputTokens || row.token_usage.completion_tokens || 0
+        }];
+      }
+      if (sql.includes('SELECT * FROM llm_usage_rollup_sources')) {
+        return rows.rollupSource.filter((row) => row.slice_id === params[0]);
+      }
+      if (sql.includes('INSERT INTO llm_usage_rollup_sources')) {
+        const row = {
+          slice_id: params[0],
+          source_kind: params[1],
+          fork_run_id: params[2],
+          identity_key: params[3],
+          llm_call_id: params[4],
+          trace_id: params[5],
+          created_at: params[6],
+          hour_bucket_start: params[7],
+          day_bucket_start: params[8],
+          month_bucket_start: params[9],
+          input_tokens: params[10],
+          cached_tokens: params[11],
+          output_tokens: params[12],
+          updated_at: '2026-06-11T00:00:02.000Z'
+        };
+        rows.rollupSource = rows.rollupSource.filter((entry) => entry.slice_id !== row.slice_id);
+        rows.rollupSource.push(row);
+        return [row];
+      }
+      if (sql.includes('FROM llm_usage_rollup_sources')) {
+        return rows.rollupSource;
+      }
       if (sql.includes('UPDATE llm_request_slices')) {
         const existing = rows.slice.find((row) => row.slice_id === params[6]) || rows.slice[0];
         if (!existing) {
@@ -391,6 +460,7 @@ test('recordLlmRequestSlice stores canonical request and output item range', asy
   assert.equal(slice.outputEndIndex, 10);
   assert.equal(slice.outputItems[0].call_id, 'call-1');
   assert.equal(slice.tokenUsage.input_tokens, 10);
+  assert.ok(sql.rows.rollupSource.some((row) => row.slice_id === 'llm-1' && row.source_kind === 'main'));
 });
 
 test('updateLlmRequestSliceStackLinks only updates stack indexes without rewriting provider payloads', async () => {
@@ -552,7 +622,7 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
     outputStartIndex: 3,
     outputEndIndex: 4,
     status: 'completed',
-    tokenUsage: { total_tokens: 21 },
+    tokenUsage: { input_tokens: 18, cached_input_tokens: 6, output_tokens: 3 },
     traceId: 'trace-1',
     runId: 'run-1',
     agentTurn: 1,
@@ -595,6 +665,7 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
   assert.equal(itemRows[0].forkRunId, 'fork-1');
   assert.equal(slice.forkRunId, 'fork-1');
   assert.equal(slice.outputItems[0].call_id, 'call-1');
+  assert.ok(sql.rows.rollupSource.some((row) => row.slice_id === 'fork-slice-1' && row.source_kind === 'compression_fork' && row.fork_run_id === 'fork-1'));
   assert.equal(runningTool.forkRunId, 'fork-1');
   assert.equal(completedTool.stackOutputItemId, itemRows[1].id);
   assert.equal(completedRun.summaryText, '压缩后的近况');
@@ -616,4 +687,247 @@ test('attachConversationIdToAgentStackByTrace updates stack, slices, and tool ex
   assert.ok(updates.some((call) => call.sql.includes('agent_stack_items')));
   assert.ok(updates.some((call) => call.sql.includes('llm_request_slices')));
   assert.ok(updates.some((call) => call.sql.includes('tool_executions')));
+});
+
+function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows = [] } = {}) {
+  const calls = [];
+  return {
+    calls,
+    execute: async (sql, params = []) => {
+      calls.push({ kind: 'execute', sql, params });
+      return 1;
+    },
+    query: async (sql, params = []) => {
+      calls.push({ kind: 'query', sql, params });
+      if (sql.includes('MIN(created_at) AS first_at') && sql.includes('FROM llm_usage_rollup_sources')) {
+        return [{
+          first_at: '2026-06-13T00:00:00.000+08:00',
+          last_at: '2026-06-13T01:00:00.000+08:00',
+          total_count: totalCount
+        }];
+      }
+      if (sql.includes('SELECT initialized_at') && sql.includes('FROM llm_usage_rollup_state')) {
+        return [{ initialized_at: '2026-06-13T00:00:00.000+08:00', version: 2 }];
+      }
+      if (sql.includes('SELECT COUNT(*) AS total_count') && sql.includes('FROM llm_usage_rollup_sources')) {
+        return [{ total_count: totalCount }];
+      }
+      if (sql.includes('AS match_field')) {
+        return searchRows;
+      }
+      if (sql.includes('FROM llm_usage_rollup_sources') || sql.includes('FROM llm_usage_rollups')) {
+        return pointRows;
+      }
+      return [];
+    },
+    close: async () => {}
+  };
+}
+
+test('getXiaoniLlmUsageTimeline returns per-call token points with anchors and peaks', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 2,
+    pointRows: [
+      {
+        key: 'slice-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        llm_request_slice_id: 'slice-1',
+        llm_call_id: 'llm-1',
+        trace_id: 'trace-1',
+        top_llm_request_slice_id: 'slice-1',
+        top_llm_call_id: 'llm-1',
+        top_trace_id: 'trace-1',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 1000,
+        top_cached_tokens: 200,
+        top_output_tokens: 50
+      },
+      {
+        key: 'slice-2',
+        timestamp: '2026-06-13T00:20:00.000+08:00',
+        bucket_start: '2026-06-13T00:20:00.000+08:00',
+        bucket_end: '2026-06-13T00:20:00.000+08:00',
+        call_count: 1,
+        input_tokens: 400,
+        cached_tokens: 100,
+        output_tokens: 300,
+        llm_request_slice_id: 'slice-2',
+        llm_call_id: 'llm-2',
+        trace_id: 'trace-2',
+        top_llm_request_slice_id: 'slice-2',
+        top_llm_call_id: 'llm-2',
+        top_trace_id: 'trace-2',
+        top_timestamp: '2026-06-13T00:20:00.000+08:00',
+        top_input_tokens: 400,
+        top_cached_tokens: 100,
+        top_output_tokens: 300
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    includePeaks: true
+  });
+
+  assert.equal(timeline.bucket, 'call');
+  assert.equal(timeline.points.length, 2);
+  assert.equal(timeline.points[0].anchorEventId, 'llm-slice:slice-1');
+  assert.equal(timeline.summary.inputTokens, 1400);
+  assert.equal(timeline.summary.cachedTokens, 300);
+  assert.equal(timeline.summary.outputTokens, 350);
+  assert.equal(timeline.summary.totalTokens, 1750);
+  assert.equal(timeline.summary.cacheRatio, 300 / 1400);
+  assert.ok(timeline.peaks.some((peak) => peak.reason === 'largest_input_tokens' && peak.anchorEventId === 'llm-slice:slice-1'));
+});
+
+test('getXiaoniLlmUsageTimeline auto-escalates dense call ranges to buckets', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 3000,
+    pointRows: [
+      {
+        key: 'hour:2026-06-13 00:00:00',
+        timestamp: '2026-06-13T00:00:00.000+08:00',
+        bucket_start: '2026-06-13T00:00:00.000+08:00',
+        bucket_end: '2026-06-13T01:00:00.000+08:00',
+        call_count: 3000,
+        input_tokens: 9000,
+        cached_tokens: 3000,
+        output_tokens: 1200,
+        top_llm_request_slice_id: 'slice-peak',
+        top_llm_call_id: 'llm-peak',
+        top_trace_id: 'trace-peak',
+        top_timestamp: '2026-06-13T00:30:00.000+08:00',
+        top_input_tokens: 5000,
+        top_cached_tokens: 1000,
+        top_output_tokens: 500
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100
+  });
+
+  assert.equal(timeline.requestedBucket, 'call');
+  assert.equal(timeline.bucket, 'hour');
+  assert.equal(timeline.downsampled, true);
+  assert.ok(timeline.warnings.includes('call_bucket_too_dense'));
+  assert.equal(timeline.points[0].topEvent.eventId, 'llm-slice:slice-peak');
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM llm_usage_rollups')));
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('AND bucket = ?') && call.params.includes('hour')));
+});
+
+test('getXiaoniLlmUsageTimeline includes compression fork slices with fork anchors', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'compression_fork:fork-slice-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 1800,
+        cached_tokens: 600,
+        output_tokens: 90,
+        source_kind: 'compression_fork',
+        fork_run_id: 'fork-1',
+        llm_request_slice_id: 'fork-slice-1',
+        llm_call_id: 'llm-fork-1',
+        trace_id: 'trace-fork-1',
+        top_llm_request_slice_id: 'fork-slice-1',
+        top_source_kind: 'compression_fork',
+        top_fork_run_id: 'fork-1',
+        top_llm_call_id: 'llm-fork-1',
+        top_trace_id: 'trace-fork-1',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 1800,
+        top_cached_tokens: 600,
+        top_output_tokens: 90
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100
+  });
+
+  assert.equal(timeline.points.length, 1);
+  assert.equal(timeline.points[0].sourceKind, 'compression_fork');
+  assert.equal(timeline.points[0].forkRunId, 'fork-1');
+  assert.equal(timeline.points[0].anchorEventId, 'compression-fork-slice:fork-slice-1');
+  assert.equal(timeline.points[0].topEvent.eventId, 'compression-fork-slice:fork-slice-1');
+  assert.equal(timeline.summary.inputTokens, 1800);
+});
+
+test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'slice-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        llm_request_slice_id: 'slice-1',
+        llm_call_id: 'llm-1',
+        trace_id: 'trace-1',
+        top_llm_request_slice_id: 'slice-1',
+        top_llm_call_id: 'llm-1',
+        top_trace_id: 'trace-1',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 1000,
+        top_cached_tokens: 200,
+        top_output_tokens: 50
+      }
+    ],
+    searchRows: [
+      {
+        llm_request_slice_id: 'slice-1',
+        llm_call_id: 'llm-1',
+        trace_id: 'trace-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        match_field: 'wire_response',
+        snippet: '{"output":"needle"}'
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    includeOverlays: 'search',
+    searchQuery: 'needle'
+  });
+
+  assert.equal(timeline.overlays.searchHits.length, 1);
+  assert.equal(timeline.overlays.searchHits[0].anchorEventId, 'llm-slice:slice-1');
+  assert.equal(timeline.overlays.searchHits[0].field, 'wire_response');
+  assert.equal(timeline.overlays.searchHits[0].query, 'needle');
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('AS match_field') && call.params.includes('%needle%')));
 });

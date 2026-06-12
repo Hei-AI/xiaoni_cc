@@ -277,6 +277,67 @@ model LlmRequestSlice {
   @@map("llm_request_slices")
 }
 
+model LlmUsageRollupSource {
+  slice_id           String   @id @db.VarChar(191)
+  source_kind        String   @default("main") @db.VarChar(32)
+  fork_run_id        String?  @db.VarChar(191)
+  identity_key       String   @default("xiaoni") @db.VarChar(191)
+  llm_call_id        String?  @db.VarChar(128)
+  trace_id           String?  @db.VarChar(128)
+  created_at         DateTime @db.Timestamp(3)
+  hour_bucket_start  DateTime @db.Timestamp(3)
+  day_bucket_start   DateTime @db.Timestamp(3)
+  month_bucket_start DateTime @db.Timestamp(3)
+  input_tokens       Decimal  @default(0) @db.Decimal(20, 0)
+  cached_tokens      Decimal  @default(0) @db.Decimal(20, 0)
+  output_tokens      Decimal  @default(0) @db.Decimal(20, 0)
+  updated_at         DateTime @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, created_at, slice_id], map: "idx_llm_usage_rollup_sources_identity_time")
+  @@index([identity_key, hour_bucket_start], map: "idx_llm_usage_rollup_sources_hour")
+  @@index([identity_key, day_bucket_start], map: "idx_llm_usage_rollup_sources_day")
+  @@index([identity_key, month_bucket_start], map: "idx_llm_usage_rollup_sources_month")
+  @@map("llm_usage_rollup_sources")
+}
+
+model LlmUsageRollup {
+  id                       BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key             String   @default("xiaoni") @db.VarChar(191)
+  bucket                   String   @db.VarChar(16)
+  bucket_start             DateTime @db.Timestamp(3)
+  bucket_end               DateTime @db.Timestamp(3)
+  call_count               BigInt   @default(0) @db.BigInt
+  input_tokens             Decimal  @default(0) @db.Decimal(20, 0)
+  cached_tokens            Decimal  @default(0) @db.Decimal(20, 0)
+  output_tokens            Decimal  @default(0) @db.Decimal(20, 0)
+  top_llm_request_slice_id String?  @db.VarChar(191)
+  top_source_kind          String?  @db.VarChar(32)
+  top_fork_run_id          String?  @db.VarChar(191)
+  top_llm_call_id          String?  @db.VarChar(128)
+  top_trace_id             String?  @db.VarChar(128)
+  top_timestamp            DateTime? @db.Timestamp(3)
+  top_input_tokens         Decimal  @default(0) @db.Decimal(20, 0)
+  top_cached_tokens        Decimal  @default(0) @db.Decimal(20, 0)
+  top_output_tokens        Decimal  @default(0) @db.Decimal(20, 0)
+  created_at               DateTime @default(now()) @db.Timestamp(3)
+  updated_at               DateTime @updatedAt @db.Timestamp(3)
+
+  @@unique([identity_key, bucket, bucket_start], map: "llm_usage_rollups_identity_bucket_start_key")
+  @@index([identity_key, bucket, bucket_start], map: "idx_llm_usage_rollups_identity_bucket_time")
+  @@map("llm_usage_rollups")
+}
+
+model LlmUsageRollupState {
+  identity_key   String    @id @db.VarChar(191)
+  version        Int       @default(1)
+  initialized_at DateTime? @db.Timestamp(3)
+  source_max_id  BigInt    @default(0) @db.BigInt
+  source_count   BigInt    @default(0) @db.BigInt
+  updated_at     DateTime  @updatedAt @db.Timestamp(3)
+
+  @@map("llm_usage_rollup_state")
+}
+
 model ToolExecution {
   id                   BigInt    @id @default(autoincrement()) @db.BigInt
   execution_id         String    @unique @db.VarChar(191)

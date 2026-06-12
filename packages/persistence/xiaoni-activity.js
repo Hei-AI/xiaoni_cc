@@ -1541,6 +1541,25 @@ function parseActionEventId(eventId) {
   return key ? { prefix, key } : null;
 }
 
+function focusedLlmSliceIdFromInput(input = {}) {
+  const explicitSlice = firstString(input.focusSlice, input.focus_slice, input.llmRequestSliceId, input.llm_request_slice_id);
+  if (explicitSlice) {
+    return explicitSlice;
+  }
+  const focusEvent = firstString(input.focusEvent, input.focus_event);
+  const parsed = parseActionEventId(focusEvent);
+  if (!parsed) {
+    return null;
+  }
+  if (parsed.prefix === 'llm-slice') {
+    return parsed.key;
+  }
+  if (parsed.prefix === 'llm') {
+    return parsed.key;
+  }
+  return null;
+}
+
 function normalizeTraceTarget(input = {}) {
   const traceId = firstString(input.traceId, input.trace_id);
   const runId = firstString(input.runId, input.run_id, input.internalExecutionLeaseId, input.internal_execution_lease_id);
@@ -2139,6 +2158,7 @@ function createXiaoniActivityPersistence({
   async function getXiaoniActionStream(input = {}, config = {}) {
     const timeWindow = resolveTimeWindow(input);
     const limit = clampLimit(input.limit, 80, 200);
+    const focusedSliceId = focusedLlmSliceIdFromInput(input);
     const feed = await getXiaoniActivityFeed({
       ...input,
       limit,
@@ -2150,6 +2170,29 @@ function createXiaoniActivityPersistence({
       .filter((item) => itemMatchesTimeWindow(item, timeWindow))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, limit);
+    let focusedItem = null;
+    if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !items.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
+      const focusedRows = await listLlmRequestSlices({
+        identityKey: feed.identityKey,
+        sliceId: focusedSliceId,
+        summaryOnly: true,
+        limit: 1
+      }, config).catch(() => []);
+      const focusedRow = Array.isArray(focusedRows) ? focusedRows[0] : null;
+      if (focusedRow) {
+        const summarized = summarizeLlmRequestSlice(focusedRow);
+        focusedItem = {
+          ...summarized,
+          metadata: {
+            ...summarized.metadata,
+            focused: true
+          }
+        };
+      }
+    }
+    const normalizedItems = dedupeFeedItems(focusedItem ? [...items, focusedItem] : items)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .map(normalizeActionStreamItem);
 
     return {
       identityKey: feed.identityKey,
@@ -2160,7 +2203,8 @@ function createXiaoniActivityPersistence({
         ...normalizeActionStreamCurrent(feed.current),
         latestActivityAt: items[0]?.timestamp || null
       },
-      items: items.map(normalizeActionStreamItem),
+      focusedEventId: focusedItem?.id || null,
+      items: normalizedItems,
       compressionForkTimeline: feed.compressionForkTimeline || { runs: [] }
     };
   }
