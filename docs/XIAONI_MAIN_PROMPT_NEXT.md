@@ -12,6 +12,8 @@ Edit the prompt files directly:
 - `docs/xiaoni_prompt/image_task_notification.md`: image task completion reminder template.
 - `docs/xiaoni_prompt/system_reminder_fallback.md`: fallback body for empty system reminders.
 - `docs/xiaoni_prompt/core_memory_pressure_reminder.md`: core-memory pressure reminder body.
+- `docs/xiaoni_prompt/recover_energy_completed_reminder.md`: recover_energy success callback body.
+- `docs/xiaoni_prompt/recover_energy_rejected_reminder.md`: recover_energy rejection callback body.
 
 The agent-service loader checks file `mtime` and size before each read, but the
 main Xiaoni runtime intentionally resolves the stable system prompt once per

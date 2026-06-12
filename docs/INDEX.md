@@ -38,12 +38,8 @@
 - Codex Provider replay evidence、成功-only 写入和 Raw Trace provider payload：
 - `xiaoni-executor` 命令执行服务：
   - `docs/AGENTS_XIAONI_EXECUTOR.md`
-- 小腻主 prompt、连续 loop、手机通知和 QQ 使用边界：
+- 小腻主 prompt 文件和 runtime reminder 模板索引：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
-- 小腻 Notify Bucket、QQ inbox、主 loop 和动作分发架构：
-  - `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md`
-- 小腻 IM 入口硬开关、`final_answer` 连续 loop 语义、图片理解 fork 和 base64 持久化边界：
-  - `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 脚本入口：
@@ -54,8 +50,9 @@
 - Agent stack ledger、LLM request assembly、行动流投影和 trace detail 目标事实源：
   `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - Raw Trace provider payload 事实源：`docs/XIAONI_AGENT_STACK_LEDGER.md` 的 `llm_request_slices`；它不是独立行动流主卡片。
-- runtime 硬开关、final answer 连续推进和图片理解事实源：
-  `docs/XIAONI_RUNTIME_GUARDS_AND_MEDIA.md`。
+- Runtime loop、Notify Bucket、QQ inbox、IM 硬开关、`final_answer` 连续推进、
+  图片理解 fork、recover_energy callback 和行动流事实源统一看
+  `docs/XIAONI_AGENT_STACK_LEDGER.md`。不要再为这些主题新增重复架构页。
 - Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 的 `system_prompt.md` 按
   `AgentLoopService` 进程生命周期稳定解析一次，改动后需要重启 `agent-service`
   才进入主 prompt；runtime reminder 模板在对应 reminder 追加时读取。

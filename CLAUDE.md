@@ -205,11 +205,9 @@ Available skills:
 | 前端页面 / 交互 / 生产前端 | `docs/AGENTS_FRONTEND.md` |
 | 后端接口 / 队列 / 数据库 | `docs/AGENTS_BACKEND_DATA.md` |
 | 配置 / 部署 / 认证 / 密钥 | `docs/AGENTS_SECRETS_LOCAL_STATE.md` |
-| 小腻 Notify Bucket / QQ inbox / 主 loop / 动作分发 | `docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md` |
-| action replay / Raw Trace / provider 请求骨架 | `docs/XIAONI_REPLAY_LEDGER.md` |
-| 小腻主 prompt / 连续 loop / 手机通知边界 | `docs/XIAONI_MAIN_PROMPT_NEXT.md` |
+| 小腻主 loop / Notify Bucket / QQ inbox / Raw Trace / action stack | `docs/XIAONI_AGENT_STACK_LEDGER.md` |
+| 小腻主 prompt / runtime reminder 模板 | `docs/XIAONI_MAIN_PROMPT_NEXT.md`、`docs/remind.md` |
 | Xiaoni exec_command / session / git archive | `docs/AGENTS_XIAONI_EXECUTOR.md` |
-| 小腻当前 runtime 状态图 | `docs/XIAONI_RUNTIME_STATE_DIAGRAM.md` |
 | embeddings | `docs/AGENTS_EMBEDDINGS.md` |
 | git / PR | `docs/AGENTS_GIT_PR.md` |
 | 路线图 | `docs/ROADMAP.md` |

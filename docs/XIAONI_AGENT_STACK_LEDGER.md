@@ -117,6 +117,52 @@ async function runXiaoniRuntime() {
 }
 ```
 
+## Runtime Boundaries
+
+这些边界只在本文维护。不要再为同一套 runtime 另起架构说明页。
+
+### Notify Bucket And QQ Inbox
+
+`Notify Bucket` 是概念桶，当前持久化承载是 `agent_queue_messages`。它只表示
+“有一个门铃等待主 runtime pick”，不表示小腻长期占用这条通知，也不是 QQ app
+未读列表。QQ 正文始终先落 `agent_inbound_messages`；小腻只有主动使用
+`$qq-usage` 时，才通过 `agent-service /api/internal/qq-usage` 读取 inbox/window。
+
+聊天对象的 IM 入口 `is_enabled=0` 是 provider-service 侧硬开关：QQ 正文仍写入
+inbox，但不会写 `phone_notification` 到 Notify Bucket，因此不会因为这条 QQ 消息
+唤醒主 loop。`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关。
+
+### Prompt-Facing Runtime Input
+
+`phone_notification`、`image_task_notification`、普通 `system_reminder`、无 notify
+场景追加的 `self_continuation` 都是当前输入，不是 QQ 正文，也不是 assistant 历史。
+它们可以作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，但不得写入
+`conversation_items` 或 `conversations.user_message`。
+
+当前 prompt-facing reminder 模板只维护在 `docs/xiaoni_prompt/`，索引看
+`docs/remind.md`。不要在本文、README 或其它文档复制模板正文。
+
+### Image Vision Fork
+
+`inspect_image_placeholder` 不是 provider-service 的无上下文图片摘要器。当前实现复用
+小腻主 agent 上下文发起一次 no-persist vision fork：请求里可以短暂携带图片 base64，
+但 base64 不进入长期 replay、traffic 骨架或 `agent_stack_items`。主 loop 后续只继承
+文本观察：
+
+```xml
+<image id="...">含义是: ...</image>
+```
+
+如果之后需要重新看同一张图，模型应再次调用 `inspect_image_placeholder(image_id)`。
+
+### Tool Callback Boundaries
+
+`recover_energy` 是普通工具执行。成功休息时，工程在 tool handler 内等待到
+`duration_minutes` 到点，再把“休息结束”的 `<system_reminder>` 文本作为同一个
+tool call 的 `function_call_output.output` 返回；工程拒绝休息时，也立即通过同一个
+tool call 返回拒绝原因。不要写 `release_lease` tool result，也不要 enqueue 恢复用
+`self_continuation` notify。
+
 ## Tables
 
 所有共享读写必须收口到 `packages/persistence`，并优先用 Prisma schema /

@@ -10,7 +10,7 @@
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md`、`docs/XIAONI_NOTIFY_RUNTIME_ARCHITECTURE.md` 和 `docs/INDEX.md` 的最小下一跳；当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
+- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md` 和 `docs/INDEX.md` 的最小下一跳；当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
 - 想排查小腻本地命令执行、长命令 session、git archive 或 Docker socket，直接看 `docs/AGENTS_XIAONI_EXECUTOR.md` 和 `modules/xiaoni-executor`。
 - 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
 - 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
@@ -32,7 +32,7 @@
 - 不要默认前端直连 `provider-service`；默认是前端 -> admin backend。
 - 不要把 `agent_queue_messages` 当成 QQ 未读 inbox。它只是 Notify Bucket 的持久化门铃；被 pick 后即视为 consumed，QQ 正文在 `agent_inbound_messages`，只有模型主动用 `$qq-usage` 时才会通过 `agent-service /api/internal/qq-usage` 读取。
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
-- 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` / `presence_tick` 敲钟。当前目标只有一条连续主 runtime stream：QQ 消息变成 `phone_notification` 当前感官输入；模型 response、tool result、真实 QQ 正文、状态和记忆进入追加式 agent stack；`final_answer` 不是终止条件，也不产生专用 prompt reminder。是否打开 QQ、是否发言、是否继续做别的，都由同一条 loop 自己决定。完整契约看 `docs/XIAONI_AGENT_STACK_LEDGER.md` 和 `docs/remind.md`。
+- 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` / `presence_tick` 敲钟。当前目标只有一条连续主 runtime stream；完整契约只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`，prompt-facing reminder 模板索引看 `docs/remind.md`。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再参考 `database/` 里的历史 MySQL 文档；当前真实数据库以 PostgreSQL 初始化脚本和 `packages/persistence` 为准。
