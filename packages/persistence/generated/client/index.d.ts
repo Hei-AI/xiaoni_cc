@@ -19,6 +19,11 @@ export type PrismaPromise<T> = $Public.PrismaPromise<T>
  */
 export type AgentQueueMessage = $Result.DefaultSelection<Prisma.$AgentQueueMessagePayload>
 /**
+ * Model AgentRecoverySession
+ *
+ */
+export type AgentRecoverySession = $Result.DefaultSelection<Prisma.$AgentRecoverySessionPayload>
+/**
  * Model AgentSessionLifeState
  *
  */
@@ -411,6 +416,16 @@ export class PrismaClient<
     * ```
     */
   get agentQueueMessage(): Prisma.AgentQueueMessageDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.agentRecoverySession`: Exposes CRUD operations for the **AgentRecoverySession** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more AgentRecoverySessions
+    * const agentRecoverySessions = await prisma.agentRecoverySession.findMany()
+    * ```
+    */
+  get agentRecoverySession(): Prisma.AgentRecoverySessionDelegate<ExtArgs, ClientOptions>;
 
   /**
    * `prisma.agentSessionLifeState`: Exposes CRUD operations for the **AgentSessionLifeState** model.
@@ -1383,6 +1398,7 @@ export namespace Prisma {
 
   export const ModelName: {
     AgentQueueMessage: 'AgentQueueMessage',
+    AgentRecoverySession: 'AgentRecoverySession',
     AgentSessionLifeState: 'AgentSessionLifeState',
     AgentSessionGroupState: 'AgentSessionGroupState',
     AgentSharePoolItem: 'AgentSharePoolItem',
@@ -1454,7 +1470,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "stackCompaction" | "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
+      modelProps: "agentQueueMessage" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "stackCompaction" | "groupChatSetting" | "privateChatSetting" | "agentInboundMessage" | "httpTrafficLog" | "conversationItem" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -1529,6 +1545,80 @@ export namespace Prisma {
           count: {
             args: Prisma.AgentQueueMessageCountArgs<ExtArgs>
             result: $Utils.Optional<AgentQueueMessageCountAggregateOutputType> | number
+          }
+        }
+      }
+      AgentRecoverySession: {
+        payload: Prisma.$AgentRecoverySessionPayload<ExtArgs>
+        fields: Prisma.AgentRecoverySessionFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.AgentRecoverySessionFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.AgentRecoverySessionFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          findFirst: {
+            args: Prisma.AgentRecoverySessionFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.AgentRecoverySessionFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          findMany: {
+            args: Prisma.AgentRecoverySessionFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>[]
+          }
+          create: {
+            args: Prisma.AgentRecoverySessionCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          createMany: {
+            args: Prisma.AgentRecoverySessionCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.AgentRecoverySessionCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>[]
+          }
+          delete: {
+            args: Prisma.AgentRecoverySessionDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          update: {
+            args: Prisma.AgentRecoverySessionUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          deleteMany: {
+            args: Prisma.AgentRecoverySessionDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.AgentRecoverySessionUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.AgentRecoverySessionUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>[]
+          }
+          upsert: {
+            args: Prisma.AgentRecoverySessionUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$AgentRecoverySessionPayload>
+          }
+          aggregate: {
+            args: Prisma.AgentRecoverySessionAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateAgentRecoverySession>
+          }
+          groupBy: {
+            args: Prisma.AgentRecoverySessionGroupByArgs<ExtArgs>
+            result: $Utils.Optional<AgentRecoverySessionGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.AgentRecoverySessionCountArgs<ExtArgs>
+            result: $Utils.Optional<AgentRecoverySessionCountAggregateOutputType> | number
           }
         }
       }
@@ -5551,6 +5641,7 @@ export namespace Prisma {
   }
   export type GlobalOmitConfig = {
     agentQueueMessage?: AgentQueueMessageOmit
+    agentRecoverySession?: AgentRecoverySessionOmit
     agentSessionLifeState?: AgentSessionLifeStateOmit
     agentSessionGroupState?: AgentSessionGroupStateOmit
     agentSharePoolItem?: AgentSharePoolItemOmit
@@ -7278,6 +7369,1487 @@ export namespace Prisma {
      * Omit specific fields from the AgentQueueMessage
      */
     omit?: AgentQueueMessageOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model AgentRecoverySession
+   */
+
+  export type AggregateAgentRecoverySession = {
+    _count: AgentRecoverySessionCountAggregateOutputType | null
+    _avg: AgentRecoverySessionAvgAggregateOutputType | null
+    _sum: AgentRecoverySessionSumAggregateOutputType | null
+    _min: AgentRecoverySessionMinAggregateOutputType | null
+    _max: AgentRecoverySessionMaxAggregateOutputType | null
+  }
+
+  export type AgentRecoverySessionAvgAggregateOutputType = {
+    id: number | null
+    clock_minutes: number | null
+    conversation_id: number | null
+    wake_count_start_queue_message_id: number | null
+    last_wake_counted_queue_message_id: number | null
+    wake_call_count: number | null
+    wake_required_count: number | null
+    start_pressure: number | null
+    current_pressure: number | null
+    start_energy: number | null
+    current_energy: number | null
+    max_energy: number | null
+  }
+
+  export type AgentRecoverySessionSumAggregateOutputType = {
+    id: bigint | null
+    clock_minutes: number | null
+    conversation_id: bigint | null
+    wake_count_start_queue_message_id: bigint | null
+    last_wake_counted_queue_message_id: bigint | null
+    wake_call_count: number | null
+    wake_required_count: number | null
+    start_pressure: number | null
+    current_pressure: number | null
+    start_energy: number | null
+    current_energy: number | null
+    max_energy: number | null
+  }
+
+  export type AgentRecoverySessionMinAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    initiator: string | null
+    status: string | null
+    wake_cause: string | null
+    reason: string | null
+    xiaoni_os: string | null
+    clock_minutes: number | null
+    clock_due_at: Date | null
+    clock_fired_at: Date | null
+    clock_deferred_at: Date | null
+    started_at: Date | null
+    ended_at: Date | null
+    last_checked_at: Date | null
+    tool_execution_id: string | null
+    llm_request_slice_id: string | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    trace_id: string | null
+    run_id: string | null
+    conversation_id: bigint | null
+    queue_message_id: string | null
+    wake_count_start_queue_message_id: bigint | null
+    last_wake_counted_queue_message_id: bigint | null
+    wake_call_count: number | null
+    wake_required_count: number | null
+    start_pressure: number | null
+    current_pressure: number | null
+    start_energy: number | null
+    current_energy: number | null
+    max_energy: number | null
+    planned_natural_wake_at: Date | null
+    hard_wake_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentRecoverySessionMaxAggregateOutputType = {
+    id: bigint | null
+    identity_key: string | null
+    initiator: string | null
+    status: string | null
+    wake_cause: string | null
+    reason: string | null
+    xiaoni_os: string | null
+    clock_minutes: number | null
+    clock_due_at: Date | null
+    clock_fired_at: Date | null
+    clock_deferred_at: Date | null
+    started_at: Date | null
+    ended_at: Date | null
+    last_checked_at: Date | null
+    tool_execution_id: string | null
+    llm_request_slice_id: string | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    trace_id: string | null
+    run_id: string | null
+    conversation_id: bigint | null
+    queue_message_id: string | null
+    wake_count_start_queue_message_id: bigint | null
+    last_wake_counted_queue_message_id: bigint | null
+    wake_call_count: number | null
+    wake_required_count: number | null
+    start_pressure: number | null
+    current_pressure: number | null
+    start_energy: number | null
+    current_energy: number | null
+    max_energy: number | null
+    planned_natural_wake_at: Date | null
+    hard_wake_at: Date | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type AgentRecoverySessionCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    initiator: number
+    status: number
+    wake_cause: number
+    reason: number
+    xiaoni_os: number
+    clock_minutes: number
+    clock_due_at: number
+    clock_fired_at: number
+    clock_deferred_at: number
+    started_at: number
+    ended_at: number
+    last_checked_at: number
+    tool_execution_id: number
+    llm_request_slice_id: number
+    llm_call_id: number
+    tool_call_id: number
+    trace_id: number
+    run_id: number
+    conversation_id: number
+    queue_message_id: number
+    wake_count_start_queue_message_id: number
+    last_wake_counted_queue_message_id: number
+    wake_call_count: number
+    wake_required_count: number
+    start_pressure: number
+    current_pressure: number
+    start_energy: number
+    current_energy: number
+    max_energy: number
+    planned_natural_wake_at: number
+    hard_wake_at: number
+    result: number
+    metadata: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type AgentRecoverySessionAvgAggregateInputType = {
+    id?: true
+    clock_minutes?: true
+    conversation_id?: true
+    wake_count_start_queue_message_id?: true
+    last_wake_counted_queue_message_id?: true
+    wake_call_count?: true
+    wake_required_count?: true
+    start_pressure?: true
+    current_pressure?: true
+    start_energy?: true
+    current_energy?: true
+    max_energy?: true
+  }
+
+  export type AgentRecoverySessionSumAggregateInputType = {
+    id?: true
+    clock_minutes?: true
+    conversation_id?: true
+    wake_count_start_queue_message_id?: true
+    last_wake_counted_queue_message_id?: true
+    wake_call_count?: true
+    wake_required_count?: true
+    start_pressure?: true
+    current_pressure?: true
+    start_energy?: true
+    current_energy?: true
+    max_energy?: true
+  }
+
+  export type AgentRecoverySessionMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    initiator?: true
+    status?: true
+    wake_cause?: true
+    reason?: true
+    xiaoni_os?: true
+    clock_minutes?: true
+    clock_due_at?: true
+    clock_fired_at?: true
+    clock_deferred_at?: true
+    started_at?: true
+    ended_at?: true
+    last_checked_at?: true
+    tool_execution_id?: true
+    llm_request_slice_id?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    trace_id?: true
+    run_id?: true
+    conversation_id?: true
+    queue_message_id?: true
+    wake_count_start_queue_message_id?: true
+    last_wake_counted_queue_message_id?: true
+    wake_call_count?: true
+    wake_required_count?: true
+    start_pressure?: true
+    current_pressure?: true
+    start_energy?: true
+    current_energy?: true
+    max_energy?: true
+    planned_natural_wake_at?: true
+    hard_wake_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentRecoverySessionMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    initiator?: true
+    status?: true
+    wake_cause?: true
+    reason?: true
+    xiaoni_os?: true
+    clock_minutes?: true
+    clock_due_at?: true
+    clock_fired_at?: true
+    clock_deferred_at?: true
+    started_at?: true
+    ended_at?: true
+    last_checked_at?: true
+    tool_execution_id?: true
+    llm_request_slice_id?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    trace_id?: true
+    run_id?: true
+    conversation_id?: true
+    queue_message_id?: true
+    wake_count_start_queue_message_id?: true
+    last_wake_counted_queue_message_id?: true
+    wake_call_count?: true
+    wake_required_count?: true
+    start_pressure?: true
+    current_pressure?: true
+    start_energy?: true
+    current_energy?: true
+    max_energy?: true
+    planned_natural_wake_at?: true
+    hard_wake_at?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type AgentRecoverySessionCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    initiator?: true
+    status?: true
+    wake_cause?: true
+    reason?: true
+    xiaoni_os?: true
+    clock_minutes?: true
+    clock_due_at?: true
+    clock_fired_at?: true
+    clock_deferred_at?: true
+    started_at?: true
+    ended_at?: true
+    last_checked_at?: true
+    tool_execution_id?: true
+    llm_request_slice_id?: true
+    llm_call_id?: true
+    tool_call_id?: true
+    trace_id?: true
+    run_id?: true
+    conversation_id?: true
+    queue_message_id?: true
+    wake_count_start_queue_message_id?: true
+    last_wake_counted_queue_message_id?: true
+    wake_call_count?: true
+    wake_required_count?: true
+    start_pressure?: true
+    current_pressure?: true
+    start_energy?: true
+    current_energy?: true
+    max_energy?: true
+    planned_natural_wake_at?: true
+    hard_wake_at?: true
+    result?: true
+    metadata?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type AgentRecoverySessionAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentRecoverySession to aggregate.
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     *
+     * Determine the order of AgentRecoverySessions to fetch.
+     */
+    orderBy?: AgentRecoverySessionOrderByWithRelationInput | AgentRecoverySessionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     *
+     * Sets the start position
+     */
+    cursor?: AgentRecoverySessionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Take `±n` AgentRecoverySessions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Skip the first `n` AgentRecoverySessions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     *
+     * Count returned AgentRecoverySessions
+    **/
+    _count?: true | AgentRecoverySessionCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     *
+     * Select which fields to average
+    **/
+    _avg?: AgentRecoverySessionAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     *
+     * Select which fields to sum
+    **/
+    _sum?: AgentRecoverySessionSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     *
+     * Select which fields to find the minimum value
+    **/
+    _min?: AgentRecoverySessionMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     *
+     * Select which fields to find the maximum value
+    **/
+    _max?: AgentRecoverySessionMaxAggregateInputType
+  }
+
+  export type GetAgentRecoverySessionAggregateType<T extends AgentRecoverySessionAggregateArgs> = {
+        [P in keyof T & keyof AggregateAgentRecoverySession]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateAgentRecoverySession[P]>
+      : GetScalarType<T[P], AggregateAgentRecoverySession[P]>
+  }
+
+
+
+
+  export type AgentRecoverySessionGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: AgentRecoverySessionWhereInput
+    orderBy?: AgentRecoverySessionOrderByWithAggregationInput | AgentRecoverySessionOrderByWithAggregationInput[]
+    by: AgentRecoverySessionScalarFieldEnum[] | AgentRecoverySessionScalarFieldEnum
+    having?: AgentRecoverySessionScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: AgentRecoverySessionCountAggregateInputType | true
+    _avg?: AgentRecoverySessionAvgAggregateInputType
+    _sum?: AgentRecoverySessionSumAggregateInputType
+    _min?: AgentRecoverySessionMinAggregateInputType
+    _max?: AgentRecoverySessionMaxAggregateInputType
+  }
+
+  export type AgentRecoverySessionGroupByOutputType = {
+    id: bigint
+    identity_key: string
+    initiator: string
+    status: string
+    wake_cause: string | null
+    reason: string | null
+    xiaoni_os: string | null
+    clock_minutes: number | null
+    clock_due_at: Date | null
+    clock_fired_at: Date | null
+    clock_deferred_at: Date | null
+    started_at: Date
+    ended_at: Date | null
+    last_checked_at: Date | null
+    tool_execution_id: string | null
+    llm_request_slice_id: string | null
+    llm_call_id: string | null
+    tool_call_id: string | null
+    trace_id: string | null
+    run_id: string | null
+    conversation_id: bigint | null
+    queue_message_id: string | null
+    wake_count_start_queue_message_id: bigint | null
+    last_wake_counted_queue_message_id: bigint | null
+    wake_call_count: number
+    wake_required_count: number | null
+    start_pressure: number | null
+    current_pressure: number | null
+    start_energy: number | null
+    current_energy: number | null
+    max_energy: number
+    planned_natural_wake_at: Date | null
+    hard_wake_at: Date | null
+    result: JsonValue
+    metadata: JsonValue
+    created_at: Date
+    updated_at: Date
+    _count: AgentRecoverySessionCountAggregateOutputType | null
+    _avg: AgentRecoverySessionAvgAggregateOutputType | null
+    _sum: AgentRecoverySessionSumAggregateOutputType | null
+    _min: AgentRecoverySessionMinAggregateOutputType | null
+    _max: AgentRecoverySessionMaxAggregateOutputType | null
+  }
+
+  type GetAgentRecoverySessionGroupByPayload<T extends AgentRecoverySessionGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<AgentRecoverySessionGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof AgentRecoverySessionGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], AgentRecoverySessionGroupByOutputType[P]>
+            : GetScalarType<T[P], AgentRecoverySessionGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type AgentRecoverySessionSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    initiator?: boolean
+    status?: boolean
+    wake_cause?: boolean
+    reason?: boolean
+    xiaoni_os?: boolean
+    clock_minutes?: boolean
+    clock_due_at?: boolean
+    clock_fired_at?: boolean
+    clock_deferred_at?: boolean
+    started_at?: boolean
+    ended_at?: boolean
+    last_checked_at?: boolean
+    tool_execution_id?: boolean
+    llm_request_slice_id?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    conversation_id?: boolean
+    queue_message_id?: boolean
+    wake_count_start_queue_message_id?: boolean
+    last_wake_counted_queue_message_id?: boolean
+    wake_call_count?: boolean
+    wake_required_count?: boolean
+    start_pressure?: boolean
+    current_pressure?: boolean
+    start_energy?: boolean
+    current_energy?: boolean
+    max_energy?: boolean
+    planned_natural_wake_at?: boolean
+    hard_wake_at?: boolean
+    result?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentRecoverySession"]>
+
+  export type AgentRecoverySessionSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    initiator?: boolean
+    status?: boolean
+    wake_cause?: boolean
+    reason?: boolean
+    xiaoni_os?: boolean
+    clock_minutes?: boolean
+    clock_due_at?: boolean
+    clock_fired_at?: boolean
+    clock_deferred_at?: boolean
+    started_at?: boolean
+    ended_at?: boolean
+    last_checked_at?: boolean
+    tool_execution_id?: boolean
+    llm_request_slice_id?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    conversation_id?: boolean
+    queue_message_id?: boolean
+    wake_count_start_queue_message_id?: boolean
+    last_wake_counted_queue_message_id?: boolean
+    wake_call_count?: boolean
+    wake_required_count?: boolean
+    start_pressure?: boolean
+    current_pressure?: boolean
+    start_energy?: boolean
+    current_energy?: boolean
+    max_energy?: boolean
+    planned_natural_wake_at?: boolean
+    hard_wake_at?: boolean
+    result?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentRecoverySession"]>
+
+  export type AgentRecoverySessionSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    initiator?: boolean
+    status?: boolean
+    wake_cause?: boolean
+    reason?: boolean
+    xiaoni_os?: boolean
+    clock_minutes?: boolean
+    clock_due_at?: boolean
+    clock_fired_at?: boolean
+    clock_deferred_at?: boolean
+    started_at?: boolean
+    ended_at?: boolean
+    last_checked_at?: boolean
+    tool_execution_id?: boolean
+    llm_request_slice_id?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    conversation_id?: boolean
+    queue_message_id?: boolean
+    wake_count_start_queue_message_id?: boolean
+    last_wake_counted_queue_message_id?: boolean
+    wake_call_count?: boolean
+    wake_required_count?: boolean
+    start_pressure?: boolean
+    current_pressure?: boolean
+    start_energy?: boolean
+    current_energy?: boolean
+    max_energy?: boolean
+    planned_natural_wake_at?: boolean
+    hard_wake_at?: boolean
+    result?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["agentRecoverySession"]>
+
+  export type AgentRecoverySessionSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    initiator?: boolean
+    status?: boolean
+    wake_cause?: boolean
+    reason?: boolean
+    xiaoni_os?: boolean
+    clock_minutes?: boolean
+    clock_due_at?: boolean
+    clock_fired_at?: boolean
+    clock_deferred_at?: boolean
+    started_at?: boolean
+    ended_at?: boolean
+    last_checked_at?: boolean
+    tool_execution_id?: boolean
+    llm_request_slice_id?: boolean
+    llm_call_id?: boolean
+    tool_call_id?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    conversation_id?: boolean
+    queue_message_id?: boolean
+    wake_count_start_queue_message_id?: boolean
+    last_wake_counted_queue_message_id?: boolean
+    wake_call_count?: boolean
+    wake_required_count?: boolean
+    start_pressure?: boolean
+    current_pressure?: boolean
+    start_energy?: boolean
+    current_energy?: boolean
+    max_energy?: boolean
+    planned_natural_wake_at?: boolean
+    hard_wake_at?: boolean
+    result?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type AgentRecoverySessionOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "initiator" | "status" | "wake_cause" | "reason" | "xiaoni_os" | "clock_minutes" | "clock_due_at" | "clock_fired_at" | "clock_deferred_at" | "started_at" | "ended_at" | "last_checked_at" | "tool_execution_id" | "llm_request_slice_id" | "llm_call_id" | "tool_call_id" | "trace_id" | "run_id" | "conversation_id" | "queue_message_id" | "wake_count_start_queue_message_id" | "last_wake_counted_queue_message_id" | "wake_call_count" | "wake_required_count" | "start_pressure" | "current_pressure" | "start_energy" | "current_energy" | "max_energy" | "planned_natural_wake_at" | "hard_wake_at" | "result" | "metadata" | "created_at" | "updated_at", ExtArgs["result"]["agentRecoverySession"]>
+
+  export type $AgentRecoverySessionPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "AgentRecoverySession"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      identity_key: string
+      initiator: string
+      status: string
+      wake_cause: string | null
+      reason: string | null
+      xiaoni_os: string | null
+      clock_minutes: number | null
+      clock_due_at: Date | null
+      clock_fired_at: Date | null
+      clock_deferred_at: Date | null
+      started_at: Date
+      ended_at: Date | null
+      last_checked_at: Date | null
+      tool_execution_id: string | null
+      llm_request_slice_id: string | null
+      llm_call_id: string | null
+      tool_call_id: string | null
+      trace_id: string | null
+      run_id: string | null
+      conversation_id: bigint | null
+      queue_message_id: string | null
+      wake_count_start_queue_message_id: bigint | null
+      last_wake_counted_queue_message_id: bigint | null
+      wake_call_count: number
+      wake_required_count: number | null
+      start_pressure: number | null
+      current_pressure: number | null
+      start_energy: number | null
+      current_energy: number | null
+      max_energy: number
+      planned_natural_wake_at: Date | null
+      hard_wake_at: Date | null
+      result: Prisma.JsonValue
+      metadata: Prisma.JsonValue
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["agentRecoverySession"]>
+    composites: {}
+  }
+
+  type AgentRecoverySessionGetPayload<S extends boolean | null | undefined | AgentRecoverySessionDefaultArgs> = $Result.GetResult<Prisma.$AgentRecoverySessionPayload, S>
+
+  type AgentRecoverySessionCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<AgentRecoverySessionFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: AgentRecoverySessionCountAggregateInputType | true
+    }
+
+  export interface AgentRecoverySessionDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['AgentRecoverySession'], meta: { name: 'AgentRecoverySession' } }
+    /**
+     * Find zero or one AgentRecoverySession that matches the filter.
+     * @param {AgentRecoverySessionFindUniqueArgs} args - Arguments to find a AgentRecoverySession
+     * @example
+     * // Get one AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends AgentRecoverySessionFindUniqueArgs>(args: SelectSubset<T, AgentRecoverySessionFindUniqueArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one AgentRecoverySession that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {AgentRecoverySessionFindUniqueOrThrowArgs} args - Arguments to find a AgentRecoverySession
+     * @example
+     * // Get one AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends AgentRecoverySessionFindUniqueOrThrowArgs>(args: SelectSubset<T, AgentRecoverySessionFindUniqueOrThrowArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentRecoverySession that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionFindFirstArgs} args - Arguments to find a AgentRecoverySession
+     * @example
+     * // Get one AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends AgentRecoverySessionFindFirstArgs>(args?: SelectSubset<T, AgentRecoverySessionFindFirstArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first AgentRecoverySession that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionFindFirstOrThrowArgs} args - Arguments to find a AgentRecoverySession
+     * @example
+     * // Get one AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends AgentRecoverySessionFindFirstOrThrowArgs>(args?: SelectSubset<T, AgentRecoverySessionFindFirstOrThrowArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more AgentRecoverySessions that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all AgentRecoverySessions
+     * const agentRecoverySessions = await prisma.agentRecoverySession.findMany()
+     *
+     * // Get first 10 AgentRecoverySessions
+     * const agentRecoverySessions = await prisma.agentRecoverySession.findMany({ take: 10 })
+     *
+     * // Only select the `id`
+     * const agentRecoverySessionWithIdOnly = await prisma.agentRecoverySession.findMany({ select: { id: true } })
+     *
+     */
+    findMany<T extends AgentRecoverySessionFindManyArgs>(args?: SelectSubset<T, AgentRecoverySessionFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a AgentRecoverySession.
+     * @param {AgentRecoverySessionCreateArgs} args - Arguments to create a AgentRecoverySession.
+     * @example
+     * // Create one AgentRecoverySession
+     * const AgentRecoverySession = await prisma.agentRecoverySession.create({
+     *   data: {
+     *     // ... data to create a AgentRecoverySession
+     *   }
+     * })
+     *
+     */
+    create<T extends AgentRecoverySessionCreateArgs>(args: SelectSubset<T, AgentRecoverySessionCreateArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many AgentRecoverySessions.
+     * @param {AgentRecoverySessionCreateManyArgs} args - Arguments to create many AgentRecoverySessions.
+     * @example
+     * // Create many AgentRecoverySessions
+     * const agentRecoverySession = await prisma.agentRecoverySession.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *
+     */
+    createMany<T extends AgentRecoverySessionCreateManyArgs>(args?: SelectSubset<T, AgentRecoverySessionCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many AgentRecoverySessions and returns the data saved in the database.
+     * @param {AgentRecoverySessionCreateManyAndReturnArgs} args - Arguments to create many AgentRecoverySessions.
+     * @example
+     * // Create many AgentRecoverySessions
+     * const agentRecoverySession = await prisma.agentRecoverySession.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *
+     * // Create many AgentRecoverySessions and only return the `id`
+     * const agentRecoverySessionWithIdOnly = await prisma.agentRecoverySession.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     *
+     */
+    createManyAndReturn<T extends AgentRecoverySessionCreateManyAndReturnArgs>(args?: SelectSubset<T, AgentRecoverySessionCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a AgentRecoverySession.
+     * @param {AgentRecoverySessionDeleteArgs} args - Arguments to delete one AgentRecoverySession.
+     * @example
+     * // Delete one AgentRecoverySession
+     * const AgentRecoverySession = await prisma.agentRecoverySession.delete({
+     *   where: {
+     *     // ... filter to delete one AgentRecoverySession
+     *   }
+     * })
+     *
+     */
+    delete<T extends AgentRecoverySessionDeleteArgs>(args: SelectSubset<T, AgentRecoverySessionDeleteArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one AgentRecoverySession.
+     * @param {AgentRecoverySessionUpdateArgs} args - Arguments to update one AgentRecoverySession.
+     * @example
+     * // Update one AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     *
+     */
+    update<T extends AgentRecoverySessionUpdateArgs>(args: SelectSubset<T, AgentRecoverySessionUpdateArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more AgentRecoverySessions.
+     * @param {AgentRecoverySessionDeleteManyArgs} args - Arguments to filter AgentRecoverySessions to delete.
+     * @example
+     * // Delete a few AgentRecoverySessions
+     * const { count } = await prisma.agentRecoverySession.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     *
+     */
+    deleteMany<T extends AgentRecoverySessionDeleteManyArgs>(args?: SelectSubset<T, AgentRecoverySessionDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentRecoverySessions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many AgentRecoverySessions
+     * const agentRecoverySession = await prisma.agentRecoverySession.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     *
+     */
+    updateMany<T extends AgentRecoverySessionUpdateManyArgs>(args: SelectSubset<T, AgentRecoverySessionUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more AgentRecoverySessions and returns the data updated in the database.
+     * @param {AgentRecoverySessionUpdateManyAndReturnArgs} args - Arguments to update many AgentRecoverySessions.
+     * @example
+     * // Update many AgentRecoverySessions
+     * const agentRecoverySession = await prisma.agentRecoverySession.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *
+     * // Update zero or more AgentRecoverySessions and only return the `id`
+     * const agentRecoverySessionWithIdOnly = await prisma.agentRecoverySession.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     *
+     */
+    updateManyAndReturn<T extends AgentRecoverySessionUpdateManyAndReturnArgs>(args: SelectSubset<T, AgentRecoverySessionUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one AgentRecoverySession.
+     * @param {AgentRecoverySessionUpsertArgs} args - Arguments to update or create a AgentRecoverySession.
+     * @example
+     * // Update or create a AgentRecoverySession
+     * const agentRecoverySession = await prisma.agentRecoverySession.upsert({
+     *   create: {
+     *     // ... data to create a AgentRecoverySession
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the AgentRecoverySession we want to update
+     *   }
+     * })
+     */
+    upsert<T extends AgentRecoverySessionUpsertArgs>(args: SelectSubset<T, AgentRecoverySessionUpsertArgs<ExtArgs>>): Prisma__AgentRecoverySessionClient<$Result.GetResult<Prisma.$AgentRecoverySessionPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of AgentRecoverySessions.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionCountArgs} args - Arguments to filter AgentRecoverySessions to count.
+     * @example
+     * // Count the number of AgentRecoverySessions
+     * const count = await prisma.agentRecoverySession.count({
+     *   where: {
+     *     // ... the filter for the AgentRecoverySessions we want to count
+     *   }
+     * })
+    **/
+    count<T extends AgentRecoverySessionCountArgs>(
+      args?: Subset<T, AgentRecoverySessionCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], AgentRecoverySessionCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a AgentRecoverySession.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends AgentRecoverySessionAggregateArgs>(args: Subset<T, AgentRecoverySessionAggregateArgs>): Prisma.PrismaPromise<GetAgentRecoverySessionAggregateType<T>>
+
+    /**
+     * Group by AgentRecoverySession.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {AgentRecoverySessionGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     *
+    **/
+    groupBy<
+      T extends AgentRecoverySessionGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: AgentRecoverySessionGroupByArgs['orderBy'] }
+        : { orderBy?: AgentRecoverySessionGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, AgentRecoverySessionGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetAgentRecoverySessionGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the AgentRecoverySession model
+   */
+  readonly fields: AgentRecoverySessionFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for AgentRecoverySession.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__AgentRecoverySessionClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the AgentRecoverySession model
+   */
+  interface AgentRecoverySessionFieldRefs {
+    readonly id: FieldRef<"AgentRecoverySession", 'BigInt'>
+    readonly identity_key: FieldRef<"AgentRecoverySession", 'String'>
+    readonly initiator: FieldRef<"AgentRecoverySession", 'String'>
+    readonly status: FieldRef<"AgentRecoverySession", 'String'>
+    readonly wake_cause: FieldRef<"AgentRecoverySession", 'String'>
+    readonly reason: FieldRef<"AgentRecoverySession", 'String'>
+    readonly xiaoni_os: FieldRef<"AgentRecoverySession", 'String'>
+    readonly clock_minutes: FieldRef<"AgentRecoverySession", 'Int'>
+    readonly clock_due_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly clock_fired_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly clock_deferred_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly started_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly ended_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly last_checked_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly tool_execution_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly llm_request_slice_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly llm_call_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly tool_call_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly trace_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly run_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly conversation_id: FieldRef<"AgentRecoverySession", 'BigInt'>
+    readonly queue_message_id: FieldRef<"AgentRecoverySession", 'String'>
+    readonly wake_count_start_queue_message_id: FieldRef<"AgentRecoverySession", 'BigInt'>
+    readonly last_wake_counted_queue_message_id: FieldRef<"AgentRecoverySession", 'BigInt'>
+    readonly wake_call_count: FieldRef<"AgentRecoverySession", 'Int'>
+    readonly wake_required_count: FieldRef<"AgentRecoverySession", 'Int'>
+    readonly start_pressure: FieldRef<"AgentRecoverySession", 'Float'>
+    readonly current_pressure: FieldRef<"AgentRecoverySession", 'Float'>
+    readonly start_energy: FieldRef<"AgentRecoverySession", 'Float'>
+    readonly current_energy: FieldRef<"AgentRecoverySession", 'Float'>
+    readonly max_energy: FieldRef<"AgentRecoverySession", 'Float'>
+    readonly planned_natural_wake_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly hard_wake_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly result: FieldRef<"AgentRecoverySession", 'Json'>
+    readonly metadata: FieldRef<"AgentRecoverySession", 'Json'>
+    readonly created_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+    readonly updated_at: FieldRef<"AgentRecoverySession", 'DateTime'>
+  }
+
+
+  // Custom InputTypes
+  /**
+   * AgentRecoverySession findUnique
+   */
+  export type AgentRecoverySessionFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentRecoverySession to fetch.
+     */
+    where: AgentRecoverySessionWhereUniqueInput
+  }
+
+  /**
+   * AgentRecoverySession findUniqueOrThrow
+   */
+  export type AgentRecoverySessionFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentRecoverySession to fetch.
+     */
+    where: AgentRecoverySessionWhereUniqueInput
+  }
+
+  /**
+   * AgentRecoverySession findFirst
+   */
+  export type AgentRecoverySessionFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentRecoverySession to fetch.
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     *
+     * Determine the order of AgentRecoverySessions to fetch.
+     */
+    orderBy?: AgentRecoverySessionOrderByWithRelationInput | AgentRecoverySessionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     *
+     * Sets the position for searching for AgentRecoverySessions.
+     */
+    cursor?: AgentRecoverySessionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Take `±n` AgentRecoverySessions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Skip the first `n` AgentRecoverySessions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     *
+     * Filter by unique combinations of AgentRecoverySessions.
+     */
+    distinct?: AgentRecoverySessionScalarFieldEnum | AgentRecoverySessionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentRecoverySession findFirstOrThrow
+   */
+  export type AgentRecoverySessionFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentRecoverySession to fetch.
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     *
+     * Determine the order of AgentRecoverySessions to fetch.
+     */
+    orderBy?: AgentRecoverySessionOrderByWithRelationInput | AgentRecoverySessionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     *
+     * Sets the position for searching for AgentRecoverySessions.
+     */
+    cursor?: AgentRecoverySessionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Take `±n` AgentRecoverySessions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Skip the first `n` AgentRecoverySessions.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     *
+     * Filter by unique combinations of AgentRecoverySessions.
+     */
+    distinct?: AgentRecoverySessionScalarFieldEnum | AgentRecoverySessionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentRecoverySession findMany
+   */
+  export type AgentRecoverySessionFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter, which AgentRecoverySessions to fetch.
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     *
+     * Determine the order of AgentRecoverySessions to fetch.
+     */
+    orderBy?: AgentRecoverySessionOrderByWithRelationInput | AgentRecoverySessionOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     *
+     * Sets the position for listing AgentRecoverySessions.
+     */
+    cursor?: AgentRecoverySessionWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Take `±n` AgentRecoverySessions from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     *
+     * Skip the first `n` AgentRecoverySessions.
+     */
+    skip?: number
+    distinct?: AgentRecoverySessionScalarFieldEnum | AgentRecoverySessionScalarFieldEnum[]
+  }
+
+  /**
+   * AgentRecoverySession create
+   */
+  export type AgentRecoverySessionCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * The data needed to create a AgentRecoverySession.
+     */
+    data: XOR<AgentRecoverySessionCreateInput, AgentRecoverySessionUncheckedCreateInput>
+  }
+
+  /**
+   * AgentRecoverySession createMany
+   */
+  export type AgentRecoverySessionCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many AgentRecoverySessions.
+     */
+    data: AgentRecoverySessionCreateManyInput | AgentRecoverySessionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentRecoverySession createManyAndReturn
+   */
+  export type AgentRecoverySessionCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * The data used to create many AgentRecoverySessions.
+     */
+    data: AgentRecoverySessionCreateManyInput | AgentRecoverySessionCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * AgentRecoverySession update
+   */
+  export type AgentRecoverySessionUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * The data needed to update a AgentRecoverySession.
+     */
+    data: XOR<AgentRecoverySessionUpdateInput, AgentRecoverySessionUncheckedUpdateInput>
+    /**
+     * Choose, which AgentRecoverySession to update.
+     */
+    where: AgentRecoverySessionWhereUniqueInput
+  }
+
+  /**
+   * AgentRecoverySession updateMany
+   */
+  export type AgentRecoverySessionUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update AgentRecoverySessions.
+     */
+    data: XOR<AgentRecoverySessionUpdateManyMutationInput, AgentRecoverySessionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentRecoverySessions to update
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * Limit how many AgentRecoverySessions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentRecoverySession updateManyAndReturn
+   */
+  export type AgentRecoverySessionUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * The data used to update AgentRecoverySessions.
+     */
+    data: XOR<AgentRecoverySessionUpdateManyMutationInput, AgentRecoverySessionUncheckedUpdateManyInput>
+    /**
+     * Filter which AgentRecoverySessions to update
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * Limit how many AgentRecoverySessions to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentRecoverySession upsert
+   */
+  export type AgentRecoverySessionUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * The filter to search for the AgentRecoverySession to update in case it exists.
+     */
+    where: AgentRecoverySessionWhereUniqueInput
+    /**
+     * In case the AgentRecoverySession found by the `where` argument doesn't exist, create a new AgentRecoverySession with this data.
+     */
+    create: XOR<AgentRecoverySessionCreateInput, AgentRecoverySessionUncheckedCreateInput>
+    /**
+     * In case the AgentRecoverySession was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<AgentRecoverySessionUpdateInput, AgentRecoverySessionUncheckedUpdateInput>
+  }
+
+  /**
+   * AgentRecoverySession delete
+   */
+  export type AgentRecoverySessionDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
+    /**
+     * Filter which AgentRecoverySession to delete.
+     */
+    where: AgentRecoverySessionWhereUniqueInput
+  }
+
+  /**
+   * AgentRecoverySession deleteMany
+   */
+  export type AgentRecoverySessionDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which AgentRecoverySessions to delete
+     */
+    where?: AgentRecoverySessionWhereInput
+    /**
+     * Limit how many AgentRecoverySessions to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * AgentRecoverySession without action
+   */
+  export type AgentRecoverySessionDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the AgentRecoverySession
+     */
+    select?: AgentRecoverySessionSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the AgentRecoverySession
+     */
+    omit?: AgentRecoverySessionOmit<ExtArgs> | null
   }
 
 
@@ -71383,6 +72955,49 @@ export namespace Prisma {
   export type AgentQueueMessageScalarFieldEnum = (typeof AgentQueueMessageScalarFieldEnum)[keyof typeof AgentQueueMessageScalarFieldEnum]
 
 
+  export const AgentRecoverySessionScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    initiator: 'initiator',
+    status: 'status',
+    wake_cause: 'wake_cause',
+    reason: 'reason',
+    xiaoni_os: 'xiaoni_os',
+    clock_minutes: 'clock_minutes',
+    clock_due_at: 'clock_due_at',
+    clock_fired_at: 'clock_fired_at',
+    clock_deferred_at: 'clock_deferred_at',
+    started_at: 'started_at',
+    ended_at: 'ended_at',
+    last_checked_at: 'last_checked_at',
+    tool_execution_id: 'tool_execution_id',
+    llm_request_slice_id: 'llm_request_slice_id',
+    llm_call_id: 'llm_call_id',
+    tool_call_id: 'tool_call_id',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    conversation_id: 'conversation_id',
+    queue_message_id: 'queue_message_id',
+    wake_count_start_queue_message_id: 'wake_count_start_queue_message_id',
+    last_wake_counted_queue_message_id: 'last_wake_counted_queue_message_id',
+    wake_call_count: 'wake_call_count',
+    wake_required_count: 'wake_required_count',
+    start_pressure: 'start_pressure',
+    current_pressure: 'current_pressure',
+    start_energy: 'start_energy',
+    current_energy: 'current_energy',
+    max_energy: 'max_energy',
+    planned_natural_wake_at: 'planned_natural_wake_at',
+    hard_wake_at: 'hard_wake_at',
+    result: 'result',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type AgentRecoverySessionScalarFieldEnum = (typeof AgentRecoverySessionScalarFieldEnum)[keyof typeof AgentRecoverySessionScalarFieldEnum]
+
+
   export const AgentSessionLifeStateScalarFieldEnum: {
     identity_key: 'identity_key',
     last_active_at: 'last_active_at',
@@ -72960,6 +74575,220 @@ export namespace Prisma {
     result?: JsonNullableWithAggregatesFilter<"AgentQueueMessage">
     created_at?: DateTimeWithAggregatesFilter<"AgentQueueMessage"> | Date | string
     updated_at?: DateTimeWithAggregatesFilter<"AgentQueueMessage"> | Date | string
+  }
+
+  export type AgentRecoverySessionWhereInput = {
+    AND?: AgentRecoverySessionWhereInput | AgentRecoverySessionWhereInput[]
+    OR?: AgentRecoverySessionWhereInput[]
+    NOT?: AgentRecoverySessionWhereInput | AgentRecoverySessionWhereInput[]
+    id?: BigIntFilter<"AgentRecoverySession"> | bigint | number
+    identity_key?: StringFilter<"AgentRecoverySession"> | string
+    initiator?: StringFilter<"AgentRecoverySession"> | string
+    status?: StringFilter<"AgentRecoverySession"> | string
+    wake_cause?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    reason?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    xiaoni_os?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    clock_minutes?: IntNullableFilter<"AgentRecoverySession"> | number | null
+    clock_due_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    clock_fired_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    clock_deferred_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    started_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+    ended_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    last_checked_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    tool_execution_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    llm_request_slice_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    llm_call_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    tool_call_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    trace_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    run_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    conversation_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    queue_message_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    wake_count_start_queue_message_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    last_wake_counted_queue_message_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    wake_call_count?: IntFilter<"AgentRecoverySession"> | number
+    wake_required_count?: IntNullableFilter<"AgentRecoverySession"> | number | null
+    start_pressure?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    current_pressure?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    start_energy?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    current_energy?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    max_energy?: FloatFilter<"AgentRecoverySession"> | number
+    planned_natural_wake_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    hard_wake_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    result?: JsonFilter<"AgentRecoverySession">
+    metadata?: JsonFilter<"AgentRecoverySession">
+    created_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+    updated_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+  }
+
+  export type AgentRecoverySessionOrderByWithRelationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    initiator?: SortOrder
+    status?: SortOrder
+    wake_cause?: SortOrderInput | SortOrder
+    reason?: SortOrderInput | SortOrder
+    xiaoni_os?: SortOrderInput | SortOrder
+    clock_minutes?: SortOrderInput | SortOrder
+    clock_due_at?: SortOrderInput | SortOrder
+    clock_fired_at?: SortOrderInput | SortOrder
+    clock_deferred_at?: SortOrderInput | SortOrder
+    started_at?: SortOrder
+    ended_at?: SortOrderInput | SortOrder
+    last_checked_at?: SortOrderInput | SortOrder
+    tool_execution_id?: SortOrderInput | SortOrder
+    llm_request_slice_id?: SortOrderInput | SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    conversation_id?: SortOrderInput | SortOrder
+    queue_message_id?: SortOrderInput | SortOrder
+    wake_count_start_queue_message_id?: SortOrderInput | SortOrder
+    last_wake_counted_queue_message_id?: SortOrderInput | SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrderInput | SortOrder
+    start_pressure?: SortOrderInput | SortOrder
+    current_pressure?: SortOrderInput | SortOrder
+    start_energy?: SortOrderInput | SortOrder
+    current_energy?: SortOrderInput | SortOrder
+    max_energy?: SortOrder
+    planned_natural_wake_at?: SortOrderInput | SortOrder
+    hard_wake_at?: SortOrderInput | SortOrder
+    result?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentRecoverySessionWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    AND?: AgentRecoverySessionWhereInput | AgentRecoverySessionWhereInput[]
+    OR?: AgentRecoverySessionWhereInput[]
+    NOT?: AgentRecoverySessionWhereInput | AgentRecoverySessionWhereInput[]
+    identity_key?: StringFilter<"AgentRecoverySession"> | string
+    initiator?: StringFilter<"AgentRecoverySession"> | string
+    status?: StringFilter<"AgentRecoverySession"> | string
+    wake_cause?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    reason?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    xiaoni_os?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    clock_minutes?: IntNullableFilter<"AgentRecoverySession"> | number | null
+    clock_due_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    clock_fired_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    clock_deferred_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    started_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+    ended_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    last_checked_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    tool_execution_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    llm_request_slice_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    llm_call_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    tool_call_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    trace_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    run_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    conversation_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    queue_message_id?: StringNullableFilter<"AgentRecoverySession"> | string | null
+    wake_count_start_queue_message_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    last_wake_counted_queue_message_id?: BigIntNullableFilter<"AgentRecoverySession"> | bigint | number | null
+    wake_call_count?: IntFilter<"AgentRecoverySession"> | number
+    wake_required_count?: IntNullableFilter<"AgentRecoverySession"> | number | null
+    start_pressure?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    current_pressure?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    start_energy?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    current_energy?: FloatNullableFilter<"AgentRecoverySession"> | number | null
+    max_energy?: FloatFilter<"AgentRecoverySession"> | number
+    planned_natural_wake_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    hard_wake_at?: DateTimeNullableFilter<"AgentRecoverySession"> | Date | string | null
+    result?: JsonFilter<"AgentRecoverySession">
+    metadata?: JsonFilter<"AgentRecoverySession">
+    created_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+    updated_at?: DateTimeFilter<"AgentRecoverySession"> | Date | string
+  }, "id">
+
+  export type AgentRecoverySessionOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    initiator?: SortOrder
+    status?: SortOrder
+    wake_cause?: SortOrderInput | SortOrder
+    reason?: SortOrderInput | SortOrder
+    xiaoni_os?: SortOrderInput | SortOrder
+    clock_minutes?: SortOrderInput | SortOrder
+    clock_due_at?: SortOrderInput | SortOrder
+    clock_fired_at?: SortOrderInput | SortOrder
+    clock_deferred_at?: SortOrderInput | SortOrder
+    started_at?: SortOrder
+    ended_at?: SortOrderInput | SortOrder
+    last_checked_at?: SortOrderInput | SortOrder
+    tool_execution_id?: SortOrderInput | SortOrder
+    llm_request_slice_id?: SortOrderInput | SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    tool_call_id?: SortOrderInput | SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    conversation_id?: SortOrderInput | SortOrder
+    queue_message_id?: SortOrderInput | SortOrder
+    wake_count_start_queue_message_id?: SortOrderInput | SortOrder
+    last_wake_counted_queue_message_id?: SortOrderInput | SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrderInput | SortOrder
+    start_pressure?: SortOrderInput | SortOrder
+    current_pressure?: SortOrderInput | SortOrder
+    start_energy?: SortOrderInput | SortOrder
+    current_energy?: SortOrderInput | SortOrder
+    max_energy?: SortOrder
+    planned_natural_wake_at?: SortOrderInput | SortOrder
+    hard_wake_at?: SortOrderInput | SortOrder
+    result?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: AgentRecoverySessionCountOrderByAggregateInput
+    _avg?: AgentRecoverySessionAvgOrderByAggregateInput
+    _max?: AgentRecoverySessionMaxOrderByAggregateInput
+    _min?: AgentRecoverySessionMinOrderByAggregateInput
+    _sum?: AgentRecoverySessionSumOrderByAggregateInput
+  }
+
+  export type AgentRecoverySessionScalarWhereWithAggregatesInput = {
+    AND?: AgentRecoverySessionScalarWhereWithAggregatesInput | AgentRecoverySessionScalarWhereWithAggregatesInput[]
+    OR?: AgentRecoverySessionScalarWhereWithAggregatesInput[]
+    NOT?: AgentRecoverySessionScalarWhereWithAggregatesInput | AgentRecoverySessionScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"AgentRecoverySession"> | bigint | number
+    identity_key?: StringWithAggregatesFilter<"AgentRecoverySession"> | string
+    initiator?: StringWithAggregatesFilter<"AgentRecoverySession"> | string
+    status?: StringWithAggregatesFilter<"AgentRecoverySession"> | string
+    wake_cause?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    reason?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    xiaoni_os?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    clock_minutes?: IntNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    clock_due_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    clock_fired_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    clock_deferred_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    started_at?: DateTimeWithAggregatesFilter<"AgentRecoverySession"> | Date | string
+    ended_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    last_checked_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    tool_execution_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    llm_request_slice_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    llm_call_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    tool_call_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    trace_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    conversation_id?: BigIntNullableWithAggregatesFilter<"AgentRecoverySession"> | bigint | number | null
+    queue_message_id?: StringNullableWithAggregatesFilter<"AgentRecoverySession"> | string | null
+    wake_count_start_queue_message_id?: BigIntNullableWithAggregatesFilter<"AgentRecoverySession"> | bigint | number | null
+    last_wake_counted_queue_message_id?: BigIntNullableWithAggregatesFilter<"AgentRecoverySession"> | bigint | number | null
+    wake_call_count?: IntWithAggregatesFilter<"AgentRecoverySession"> | number
+    wake_required_count?: IntNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    start_pressure?: FloatNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    current_pressure?: FloatNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    start_energy?: FloatNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    current_energy?: FloatNullableWithAggregatesFilter<"AgentRecoverySession"> | number | null
+    max_energy?: FloatWithAggregatesFilter<"AgentRecoverySession"> | number
+    planned_natural_wake_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    hard_wake_at?: DateTimeNullableWithAggregatesFilter<"AgentRecoverySession"> | Date | string | null
+    result?: JsonWithAggregatesFilter<"AgentRecoverySession">
+    metadata?: JsonWithAggregatesFilter<"AgentRecoverySession">
+    created_at?: DateTimeWithAggregatesFilter<"AgentRecoverySession"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"AgentRecoverySession"> | Date | string
   }
 
   export type AgentSessionLifeStateWhereInput = {
@@ -79429,6 +81258,286 @@ export namespace Prisma {
     conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
     error_message?: NullableStringFieldUpdateOperationsInput | string | null
     result?: NullableJsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentRecoverySessionCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    initiator: string
+    status?: string
+    wake_cause?: string | null
+    reason?: string | null
+    xiaoni_os?: string | null
+    clock_minutes?: number | null
+    clock_due_at?: Date | string | null
+    clock_fired_at?: Date | string | null
+    clock_deferred_at?: Date | string | null
+    started_at?: Date | string
+    ended_at?: Date | string | null
+    last_checked_at?: Date | string | null
+    tool_execution_id?: string | null
+    llm_request_slice_id?: string | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    conversation_id?: bigint | number | null
+    queue_message_id?: string | null
+    wake_count_start_queue_message_id?: bigint | number | null
+    last_wake_counted_queue_message_id?: bigint | number | null
+    wake_call_count?: number
+    wake_required_count?: number | null
+    start_pressure?: number | null
+    current_pressure?: number | null
+    start_energy?: number | null
+    current_energy?: number | null
+    max_energy?: number
+    planned_natural_wake_at?: Date | string | null
+    hard_wake_at?: Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentRecoverySessionUncheckedCreateInput = {
+    id?: bigint | number
+    identity_key?: string
+    initiator: string
+    status?: string
+    wake_cause?: string | null
+    reason?: string | null
+    xiaoni_os?: string | null
+    clock_minutes?: number | null
+    clock_due_at?: Date | string | null
+    clock_fired_at?: Date | string | null
+    clock_deferred_at?: Date | string | null
+    started_at?: Date | string
+    ended_at?: Date | string | null
+    last_checked_at?: Date | string | null
+    tool_execution_id?: string | null
+    llm_request_slice_id?: string | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    conversation_id?: bigint | number | null
+    queue_message_id?: string | null
+    wake_count_start_queue_message_id?: bigint | number | null
+    last_wake_counted_queue_message_id?: bigint | number | null
+    wake_call_count?: number
+    wake_required_count?: number | null
+    start_pressure?: number | null
+    current_pressure?: number | null
+    start_energy?: number | null
+    current_energy?: number | null
+    max_energy?: number
+    planned_natural_wake_at?: Date | string | null
+    hard_wake_at?: Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentRecoverySessionUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    initiator?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    wake_cause?: NullableStringFieldUpdateOperationsInput | string | null
+    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    xiaoni_os?: NullableStringFieldUpdateOperationsInput | string | null
+    clock_minutes?: NullableIntFieldUpdateOperationsInput | number | null
+    clock_due_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_fired_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_deferred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    ended_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_checked_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    tool_execution_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    queue_message_id?: NullableStringFieldUpdateOperationsInput | string | null
+    wake_count_start_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_wake_counted_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    wake_call_count?: IntFieldUpdateOperationsInput | number
+    wake_required_count?: NullableIntFieldUpdateOperationsInput | number | null
+    start_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    start_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    max_energy?: FloatFieldUpdateOperationsInput | number
+    planned_natural_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    hard_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentRecoverySessionUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    initiator?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    wake_cause?: NullableStringFieldUpdateOperationsInput | string | null
+    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    xiaoni_os?: NullableStringFieldUpdateOperationsInput | string | null
+    clock_minutes?: NullableIntFieldUpdateOperationsInput | number | null
+    clock_due_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_fired_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_deferred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    ended_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_checked_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    tool_execution_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    queue_message_id?: NullableStringFieldUpdateOperationsInput | string | null
+    wake_count_start_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_wake_counted_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    wake_call_count?: IntFieldUpdateOperationsInput | number
+    wake_required_count?: NullableIntFieldUpdateOperationsInput | number | null
+    start_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    start_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    max_energy?: FloatFieldUpdateOperationsInput | number
+    planned_natural_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    hard_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentRecoverySessionCreateManyInput = {
+    id?: bigint | number
+    identity_key?: string
+    initiator: string
+    status?: string
+    wake_cause?: string | null
+    reason?: string | null
+    xiaoni_os?: string | null
+    clock_minutes?: number | null
+    clock_due_at?: Date | string | null
+    clock_fired_at?: Date | string | null
+    clock_deferred_at?: Date | string | null
+    started_at?: Date | string
+    ended_at?: Date | string | null
+    last_checked_at?: Date | string | null
+    tool_execution_id?: string | null
+    llm_request_slice_id?: string | null
+    llm_call_id?: string | null
+    tool_call_id?: string | null
+    trace_id?: string | null
+    run_id?: string | null
+    conversation_id?: bigint | number | null
+    queue_message_id?: string | null
+    wake_count_start_queue_message_id?: bigint | number | null
+    last_wake_counted_queue_message_id?: bigint | number | null
+    wake_call_count?: number
+    wake_required_count?: number | null
+    start_pressure?: number | null
+    current_pressure?: number | null
+    start_energy?: number | null
+    current_energy?: number | null
+    max_energy?: number
+    planned_natural_wake_at?: Date | string | null
+    hard_wake_at?: Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type AgentRecoverySessionUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    initiator?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    wake_cause?: NullableStringFieldUpdateOperationsInput | string | null
+    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    xiaoni_os?: NullableStringFieldUpdateOperationsInput | string | null
+    clock_minutes?: NullableIntFieldUpdateOperationsInput | number | null
+    clock_due_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_fired_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_deferred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    ended_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_checked_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    tool_execution_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    queue_message_id?: NullableStringFieldUpdateOperationsInput | string | null
+    wake_count_start_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_wake_counted_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    wake_call_count?: IntFieldUpdateOperationsInput | number
+    wake_required_count?: NullableIntFieldUpdateOperationsInput | number | null
+    start_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    start_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    max_energy?: FloatFieldUpdateOperationsInput | number
+    planned_natural_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    hard_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type AgentRecoverySessionUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    identity_key?: StringFieldUpdateOperationsInput | string
+    initiator?: StringFieldUpdateOperationsInput | string
+    status?: StringFieldUpdateOperationsInput | string
+    wake_cause?: NullableStringFieldUpdateOperationsInput | string | null
+    reason?: NullableStringFieldUpdateOperationsInput | string | null
+    xiaoni_os?: NullableStringFieldUpdateOperationsInput | string | null
+    clock_minutes?: NullableIntFieldUpdateOperationsInput | number | null
+    clock_due_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_fired_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    clock_deferred_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    started_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    ended_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    last_checked_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    tool_execution_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_request_slice_id?: NullableStringFieldUpdateOperationsInput | string | null
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    tool_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    conversation_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    queue_message_id?: NullableStringFieldUpdateOperationsInput | string | null
+    wake_count_start_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    last_wake_counted_queue_message_id?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    wake_call_count?: IntFieldUpdateOperationsInput | number
+    wake_required_count?: NullableIntFieldUpdateOperationsInput | number | null
+    start_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_pressure?: NullableFloatFieldUpdateOperationsInput | number | null
+    start_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    current_energy?: NullableFloatFieldUpdateOperationsInput | number | null
+    max_energy?: FloatFieldUpdateOperationsInput | number
+    planned_natural_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    hard_wake_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    result?: JsonNullValueInput | InputJsonValue
+    metadata?: JsonNullValueInput | InputJsonValue
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
   }
@@ -87482,6 +89591,233 @@ export namespace Prisma {
     _max?: NestedJsonNullableFilter<$PrismaModel>
   }
 
+  export type IntNullableFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type FloatNullableFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableFilter<$PrismaModel> | number | null
+  }
+
+  export type FloatFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatFilter<$PrismaModel> | number
+  }
+
+  export type AgentRecoverySessionCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    initiator?: SortOrder
+    status?: SortOrder
+    wake_cause?: SortOrder
+    reason?: SortOrder
+    xiaoni_os?: SortOrder
+    clock_minutes?: SortOrder
+    clock_due_at?: SortOrder
+    clock_fired_at?: SortOrder
+    clock_deferred_at?: SortOrder
+    started_at?: SortOrder
+    ended_at?: SortOrder
+    last_checked_at?: SortOrder
+    tool_execution_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    conversation_id?: SortOrder
+    queue_message_id?: SortOrder
+    wake_count_start_queue_message_id?: SortOrder
+    last_wake_counted_queue_message_id?: SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrder
+    start_pressure?: SortOrder
+    current_pressure?: SortOrder
+    start_energy?: SortOrder
+    current_energy?: SortOrder
+    max_energy?: SortOrder
+    planned_natural_wake_at?: SortOrder
+    hard_wake_at?: SortOrder
+    result?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentRecoverySessionAvgOrderByAggregateInput = {
+    id?: SortOrder
+    clock_minutes?: SortOrder
+    conversation_id?: SortOrder
+    wake_count_start_queue_message_id?: SortOrder
+    last_wake_counted_queue_message_id?: SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrder
+    start_pressure?: SortOrder
+    current_pressure?: SortOrder
+    start_energy?: SortOrder
+    current_energy?: SortOrder
+    max_energy?: SortOrder
+  }
+
+  export type AgentRecoverySessionMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    initiator?: SortOrder
+    status?: SortOrder
+    wake_cause?: SortOrder
+    reason?: SortOrder
+    xiaoni_os?: SortOrder
+    clock_minutes?: SortOrder
+    clock_due_at?: SortOrder
+    clock_fired_at?: SortOrder
+    clock_deferred_at?: SortOrder
+    started_at?: SortOrder
+    ended_at?: SortOrder
+    last_checked_at?: SortOrder
+    tool_execution_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    conversation_id?: SortOrder
+    queue_message_id?: SortOrder
+    wake_count_start_queue_message_id?: SortOrder
+    last_wake_counted_queue_message_id?: SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrder
+    start_pressure?: SortOrder
+    current_pressure?: SortOrder
+    start_energy?: SortOrder
+    current_energy?: SortOrder
+    max_energy?: SortOrder
+    planned_natural_wake_at?: SortOrder
+    hard_wake_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentRecoverySessionMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    initiator?: SortOrder
+    status?: SortOrder
+    wake_cause?: SortOrder
+    reason?: SortOrder
+    xiaoni_os?: SortOrder
+    clock_minutes?: SortOrder
+    clock_due_at?: SortOrder
+    clock_fired_at?: SortOrder
+    clock_deferred_at?: SortOrder
+    started_at?: SortOrder
+    ended_at?: SortOrder
+    last_checked_at?: SortOrder
+    tool_execution_id?: SortOrder
+    llm_request_slice_id?: SortOrder
+    llm_call_id?: SortOrder
+    tool_call_id?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    conversation_id?: SortOrder
+    queue_message_id?: SortOrder
+    wake_count_start_queue_message_id?: SortOrder
+    last_wake_counted_queue_message_id?: SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrder
+    start_pressure?: SortOrder
+    current_pressure?: SortOrder
+    start_energy?: SortOrder
+    current_energy?: SortOrder
+    max_energy?: SortOrder
+    planned_natural_wake_at?: SortOrder
+    hard_wake_at?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type AgentRecoverySessionSumOrderByAggregateInput = {
+    id?: SortOrder
+    clock_minutes?: SortOrder
+    conversation_id?: SortOrder
+    wake_count_start_queue_message_id?: SortOrder
+    last_wake_counted_queue_message_id?: SortOrder
+    wake_call_count?: SortOrder
+    wake_required_count?: SortOrder
+    start_pressure?: SortOrder
+    current_pressure?: SortOrder
+    start_energy?: SortOrder
+    current_energy?: SortOrder
+    max_energy?: SortOrder
+  }
+
+  export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | IntFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
+    lt?: number | IntFieldRefInput<$PrismaModel>
+    lte?: number | IntFieldRefInput<$PrismaModel>
+    gt?: number | IntFieldRefInput<$PrismaModel>
+    gte?: number | IntFieldRefInput<$PrismaModel>
+    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedIntNullableFilter<$PrismaModel>
+    _min?: NestedIntNullableFilter<$PrismaModel>
+    _max?: NestedIntNullableFilter<$PrismaModel>
+  }
+
+  export type FloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedFloatNullableFilter<$PrismaModel>
+    _min?: NestedFloatNullableFilter<$PrismaModel>
+    _max?: NestedFloatNullableFilter<$PrismaModel>
+  }
+
+  export type FloatWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedFloatFilter<$PrismaModel>
+    _min?: NestedFloatFilter<$PrismaModel>
+    _max?: NestedFloatFilter<$PrismaModel>
+  }
+
   export type AgentSessionGroupStateListRelationFilter = {
     every?: AgentSessionGroupStateWhereInput
     some?: AgentSessionGroupStateWhereInput
@@ -87587,17 +89923,6 @@ export namespace Prisma {
     updated_at?: SortOrder
   }
 
-  export type FloatFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel>
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatFilter<$PrismaModel> | number
-  }
-
   export type AgentShareItemUsageListRelationFilter = {
     every?: AgentShareItemUsageWhereInput
     some?: AgentShareItemUsageWhereInput
@@ -87655,22 +89980,6 @@ export namespace Prisma {
     id?: SortOrder
     effort_cost?: SortOrder
     base_heat?: SortOrder
-  }
-
-  export type FloatWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel>
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
-    _count?: NestedIntFilter<$PrismaModel>
-    _avg?: NestedFloatFilter<$PrismaModel>
-    _sum?: NestedFloatFilter<$PrismaModel>
-    _min?: NestedFloatFilter<$PrismaModel>
-    _max?: NestedFloatFilter<$PrismaModel>
   }
 
   export type AgentSharePoolItemScalarRelationFilter = {
@@ -88046,17 +90355,6 @@ export namespace Prisma {
     conversation_id?: SortOrder
   }
 
-  export type IntNullableFilter<$PrismaModel = never> = {
-    equals?: number | IntFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    lt?: number | IntFieldRefInput<$PrismaModel>
-    lte?: number | IntFieldRefInput<$PrismaModel>
-    gt?: number | IntFieldRefInput<$PrismaModel>
-    gte?: number | IntFieldRefInput<$PrismaModel>
-    not?: NestedIntNullableFilter<$PrismaModel> | number | null
-  }
-
   export type LlmRequestSliceCountOrderByAggregateInput = {
     id?: SortOrder
     slice_id?: SortOrder
@@ -88158,22 +90456,6 @@ export namespace Prisma {
     conversation_id?: SortOrder
     agent_turn?: SortOrder
     processing_time_ms?: SortOrder
-  }
-
-  export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: number | IntFieldRefInput<$PrismaModel> | null
-    in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    notIn?: number[] | ListIntFieldRefInput<$PrismaModel> | null
-    lt?: number | IntFieldRefInput<$PrismaModel>
-    lte?: number | IntFieldRefInput<$PrismaModel>
-    gt?: number | IntFieldRefInput<$PrismaModel>
-    gte?: number | IntFieldRefInput<$PrismaModel>
-    not?: NestedIntNullableWithAggregatesFilter<$PrismaModel> | number | null
-    _count?: NestedIntNullableFilter<$PrismaModel>
-    _avg?: NestedFloatNullableFilter<$PrismaModel>
-    _sum?: NestedIntNullableFilter<$PrismaModel>
-    _min?: NestedIntNullableFilter<$PrismaModel>
-    _max?: NestedIntNullableFilter<$PrismaModel>
   }
 
   export type BoolFilter<$PrismaModel = never> = {
@@ -91410,6 +93692,30 @@ export namespace Prisma {
     divide?: bigint | number
   }
 
+  export type NullableIntFieldUpdateOperationsInput = {
+    set?: number | null
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
+  }
+
+  export type NullableFloatFieldUpdateOperationsInput = {
+    set?: number | null
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
+  }
+
+  export type FloatFieldUpdateOperationsInput = {
+    set?: number
+    increment?: number
+    decrement?: number
+    multiply?: number
+    divide?: number
+  }
+
   export type AgentSessionGroupStateCreateNestedManyWithoutLife_stateInput = {
     create?: XOR<AgentSessionGroupStateCreateWithoutLife_stateInput, AgentSessionGroupStateUncheckedCreateWithoutLife_stateInput> | AgentSessionGroupStateCreateWithoutLife_stateInput[] | AgentSessionGroupStateUncheckedCreateWithoutLife_stateInput[]
     connectOrCreate?: AgentSessionGroupStateCreateOrConnectWithoutLife_stateInput | AgentSessionGroupStateCreateOrConnectWithoutLife_stateInput[]
@@ -91480,14 +93786,6 @@ export namespace Prisma {
     connect?: AgentShareItemUsageWhereUniqueInput | AgentShareItemUsageWhereUniqueInput[]
   }
 
-  export type FloatFieldUpdateOperationsInput = {
-    set?: number
-    increment?: number
-    decrement?: number
-    multiply?: number
-    divide?: number
-  }
-
   export type AgentShareItemUsageUpdateManyWithoutItemNestedInput = {
     create?: XOR<AgentShareItemUsageCreateWithoutItemInput, AgentShareItemUsageUncheckedCreateWithoutItemInput> | AgentShareItemUsageCreateWithoutItemInput[] | AgentShareItemUsageUncheckedCreateWithoutItemInput[]
     connectOrCreate?: AgentShareItemUsageCreateOrConnectWithoutItemInput | AgentShareItemUsageCreateOrConnectWithoutItemInput[]
@@ -91528,14 +93826,6 @@ export namespace Prisma {
     upsert?: AgentSharePoolItemUpsertWithoutUsagesInput
     connect?: AgentSharePoolItemWhereUniqueInput
     update?: XOR<XOR<AgentSharePoolItemUpdateToOneWithWhereWithoutUsagesInput, AgentSharePoolItemUpdateWithoutUsagesInput>, AgentSharePoolItemUncheckedUpdateWithoutUsagesInput>
-  }
-
-  export type NullableIntFieldUpdateOperationsInput = {
-    set?: number | null
-    increment?: number
-    decrement?: number
-    multiply?: number
-    divide?: number
   }
 
   export type BoolFieldUpdateOperationsInput = {
@@ -92214,22 +94504,6 @@ export namespace Prisma {
     not?: InputJsonValue | JsonFieldRefInput<$PrismaModel> | JsonNullValueFilter
   }
 
-  export type NestedFloatWithAggregatesFilter<$PrismaModel = never> = {
-    equals?: number | FloatFieldRefInput<$PrismaModel>
-    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
-    lt?: number | FloatFieldRefInput<$PrismaModel>
-    lte?: number | FloatFieldRefInput<$PrismaModel>
-    gt?: number | FloatFieldRefInput<$PrismaModel>
-    gte?: number | FloatFieldRefInput<$PrismaModel>
-    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
-    _count?: NestedIntFilter<$PrismaModel>
-    _avg?: NestedFloatFilter<$PrismaModel>
-    _sum?: NestedFloatFilter<$PrismaModel>
-    _min?: NestedFloatFilter<$PrismaModel>
-    _max?: NestedFloatFilter<$PrismaModel>
-  }
-
   export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
     equals?: number | IntFieldRefInput<$PrismaModel> | null
     in?: number[] | ListIntFieldRefInput<$PrismaModel> | null
@@ -92244,6 +94518,38 @@ export namespace Prisma {
     _sum?: NestedIntNullableFilter<$PrismaModel>
     _min?: NestedIntNullableFilter<$PrismaModel>
     _max?: NestedIntNullableFilter<$PrismaModel>
+  }
+
+  export type NestedFloatNullableWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel> | null
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel> | null
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatNullableWithAggregatesFilter<$PrismaModel> | number | null
+    _count?: NestedIntNullableFilter<$PrismaModel>
+    _avg?: NestedFloatNullableFilter<$PrismaModel>
+    _sum?: NestedFloatNullableFilter<$PrismaModel>
+    _min?: NestedFloatNullableFilter<$PrismaModel>
+    _max?: NestedFloatNullableFilter<$PrismaModel>
+  }
+
+  export type NestedFloatWithAggregatesFilter<$PrismaModel = never> = {
+    equals?: number | FloatFieldRefInput<$PrismaModel>
+    in?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    notIn?: number[] | ListFloatFieldRefInput<$PrismaModel>
+    lt?: number | FloatFieldRefInput<$PrismaModel>
+    lte?: number | FloatFieldRefInput<$PrismaModel>
+    gt?: number | FloatFieldRefInput<$PrismaModel>
+    gte?: number | FloatFieldRefInput<$PrismaModel>
+    not?: NestedFloatWithAggregatesFilter<$PrismaModel> | number
+    _count?: NestedIntFilter<$PrismaModel>
+    _avg?: NestedFloatFilter<$PrismaModel>
+    _sum?: NestedFloatFilter<$PrismaModel>
+    _min?: NestedFloatFilter<$PrismaModel>
+    _max?: NestedFloatFilter<$PrismaModel>
   }
 
   export type NestedBoolFilter<$PrismaModel = never> = {

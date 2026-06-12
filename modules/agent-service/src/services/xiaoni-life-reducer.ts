@@ -5,7 +5,7 @@ import {
   type PresenceLifeState
 } from './presence-context';
 
-export const XIAONI_LIFE_PROJECTION_VERSION = 'xiaoni-life-v1';
+export const XIAONI_LIFE_PROJECTION_VERSION = 'xiaoni-life-v2-recovery-curve';
 
 type LifeProjectionAnchors = {
   serviceStartedAt: string | null;
@@ -103,6 +103,13 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+function clampNonNegative(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, value);
+}
+
 function toDate(value: Date | string | null | undefined): Date | null {
   if (!value) {
     return null;
@@ -177,7 +184,7 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
         boredomOffset: 0,
         rewardAttraction: clamp01(previous.state.rewardAttraction),
         attention: clamp01(previous.state.attention),
-        actionCost: clamp01(previous.state.actionCost),
+        actionCost: clampNonNegative(previous.state.actionCost),
         materialEventCount: previous.counters?.materialEventCount || 0,
         contributors: []
       }
@@ -249,7 +256,7 @@ function resolveActionCost(eventKind: string, eventCost: number) {
 function applyActionCost(state: ReducerInternalState, eventKind: string, eventCost: number) {
   const resolvedCost = resolveActionCost(eventKind, eventCost);
   if (resolvedCost > 0) {
-    state.actionCost = clamp01(state.actionCost + resolvedCost);
+    state.actionCost = clampNonNegative(state.actionCost + resolvedCost);
   }
   return resolvedCost;
 }
@@ -322,17 +329,22 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
         : `空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
-      state.actionCost = clamp01(state.actionCost - 0.1);
+      state.actionCost = clampNonNegative(state.actionCost - 0.1);
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
       rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.10');
       break;
     case 'sleep_period':
-      state.actionCost = 0;
+      if (typeof payload.energy === 'number') {
+        const maxEnergy = Math.max(0.001, numberValue(payload.max_energy, 1));
+        state.actionCost = clampNonNegative(1 - (payload.energy / maxEnergy));
+      } else {
+        state.actionCost = 0;
+      }
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, '刚才记录了一次休息恢复，恢复后累计行动成本重置为 0.00');
+      rememberContributor(state, event, `刚才记录了一次休息恢复，恢复后累计行动成本=${formatCost(state.actionCost)}`);
       break;
     default:
       applyActionCost(state, event.eventKind, actionCost);
@@ -353,9 +365,9 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
   const reducedThroughEvent = orderedEvents[orderedEvents.length - 1] || null;
   const hoursSinceBoredomReset = hoursBetween(input.now, state.lastBoredomResetAt);
   const boredom = clamp01(state.boredomOffset + (hoursSinceBoredomReset / 3));
-  const actionCost = clamp01(state.actionCost);
+  const actionCost = clampNonNegative(state.actionCost);
   const fatigue = actionCost;
-  const energy = clamp01(1 - fatigue);
+  const energy = 1 - fatigue;
   const rewardAttraction = clamp01(state.rewardAttraction);
   const sharingDesire = clamp01((boredom * 0.52) + (rewardAttraction * 0.28) + (energy * 0.2) - (fatigue * 0.08));
   const enqueuedAt = state.lastPresenceTickEnqueuedAt;

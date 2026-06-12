@@ -10,6 +10,7 @@ import {
   ensureAgentTaskSchema,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
+  ensureAgentRecoverySessionSchema,
   ensureXiaoniAgentStackSchema,
   getAgentStackHead as getAgentStackHeadPersistence,
   appendAgentStackItems as appendAgentStackItemsPersistence,
@@ -56,6 +57,11 @@ import {
   createAgentPresenceStateSidecar,
   listAgentLifeEvents,
   recordAgentLifeEvent,
+  createAgentRecoverySession as createAgentRecoverySessionPersistence,
+  getActiveAgentRecoverySession as getActiveAgentRecoverySessionPersistence,
+  listAgentRecoveryWakeNotifications as listAgentRecoveryWakeNotificationsPersistence,
+  updateAgentRecoverySessionProgress as updateAgentRecoverySessionProgressPersistence,
+  finalizeAgentRecoverySession as finalizeAgentRecoverySessionPersistence,
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
   createAgentMemoryReflection,
@@ -83,6 +89,8 @@ import {
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
+  type AgentRecoverySessionProjection,
+  type AgentRecoveryWakeNotificationProjection,
   type QqUsageThreadList,
   type QqUsageThreadWindow,
   type QqUsageUnreadSummary,
@@ -1215,6 +1223,7 @@ export class RuntimeStore {
     await ensureAgentTaskSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
+    await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
     await ensureAgentMemorySchema(databaseConfig);
     await ensureAgentLifeState('xiaoni', databaseConfig);
     await this.refreshXiaoniLifeProjection(new Date()).catch((error) => {
@@ -1239,8 +1248,48 @@ export class RuntimeStore {
     const { projection } = await this.refreshXiaoniLifeProjection(now);
     return {
       energy: Number(projection.state.energy),
-      maxEnergy: 1
+      maxEnergy: 1,
+      lastWakeAt: projection.anchors.lastRestAt || null
     };
+  }
+
+  async createAgentRecoverySession(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection> {
+    return createAgentRecoverySessionPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async getActiveAgentRecoverySession(): Promise<AgentRecoverySessionProjection | null> {
+    return getActiveAgentRecoverySessionPersistence({
+      identityKey: 'xiaoni',
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async listAgentRecoveryWakeNotifications(params: {
+    afterQueueMessageId?: number | string | bigint | null;
+    limit?: number;
+  }): Promise<AgentRecoveryWakeNotificationProjection[]> {
+    return listAgentRecoveryWakeNotificationsPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async updateAgentRecoverySessionProgress(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
+    return updateAgentRecoverySessionProgressPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async finalizeAgentRecoverySession(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
+    return finalizeAgentRecoverySessionPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
   }
 
   async recordPresenceUserMessage(queueMessage: QueueMessagePayload) {
@@ -1520,6 +1569,55 @@ export class RuntimeStore {
     await this.refreshXiaoniLifeProjection(now).catch((error) => {
       moduleLogger.warn('Failed to refresh Xiaoni life projection after recover_energy', {
         traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
+  async recordRecoverySessionLifeEvent(
+    session: {
+      id: number;
+      initiator: string;
+      reason: string | null;
+      xiaoniOs: string | null;
+      traceId: string | null;
+      runId: string | null;
+      startedAt: string | null;
+    },
+    toolResult: Record<string, unknown>
+  ) {
+    const now = new Date();
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'sleep_period',
+      occurredAt: now,
+      surface: 'runtime_recovery',
+      runId: session.runId || undefined,
+      traceId: session.traceId || undefined,
+      actorType: 'xiaoni',
+      actorId: 'xiaoni',
+      visibility: 'self_private',
+      actionCost: 0,
+      payload: {
+        recovery_session_id: session.id,
+        initiator: session.initiator,
+        reason: typeof toolResult.reason === 'string' ? toolResult.reason : session.reason,
+        xiaoni_os: typeof toolResult.xiaoni_os === 'string' ? toolResult.xiaoni_os : session.xiaoniOs,
+        sleep_minutes: typeof toolResult.sleep_minutes === 'number' ? toolResult.sleep_minutes : null,
+        wake_cause: typeof toolResult.wake_cause === 'string' ? toolResult.wake_cause : null,
+        wake_call_count: typeof toolResult.wake_call_count === 'number' ? toolResult.wake_call_count : null,
+        wake_required_count: typeof toolResult.wake_required_count === 'number' ? toolResult.wake_required_count : null,
+        energy_before: typeof toolResult.energy_before === 'number' ? toolResult.energy_before : null,
+        energy: typeof toolResult.energy === 'number' ? toolResult.energy : null,
+        max_energy: typeof toolResult.max_energy === 'number' ? toolResult.max_energy : 1,
+        pressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
+        recovery_policy: 'recover_energy_curve_session'
+      },
+      dedupeKey: `sleep_period:recovery_session:${session.id}`
+    });
+    await this.refreshXiaoniLifeProjection(now).catch((error) => {
+      moduleLogger.warn('Failed to refresh Xiaoni life projection after recovery session', {
+        recoverySessionId: session.id,
         error: error instanceof Error ? error.message : String(error)
       });
     });

@@ -15,6 +15,7 @@ const { createInboundInboxPersistence } = require('./inbound-inbox');
 const { createAgentRuntimePersistence } = require('./agent-runtime');
 const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAgentLifeEventPersistence } = require('./agent-life-events');
+const { createAgentRecoverySessionPersistence } = require('./agent-recovery-sessions');
 const { createXiaoniAgentStackPersistence } = require('./xiaoni-agent-stack');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const { createAbExperimentPersistence } = require('./ab-experiment');
@@ -445,6 +446,10 @@ const agentLifeEventPersistence = createAgentLifeEventPersistence({
   createSqlAdapter
 });
 
+const agentRecoverySessionPersistence = createAgentRecoverySessionPersistence({
+  createSqlAdapter
+});
+
 const xiaoniAgentStackPersistence = createXiaoniAgentStackPersistence({
   createSqlAdapter
 });
@@ -508,6 +513,7 @@ module.exports = {
   ...agentRuntimePersistence,
   ...agentPresencePersistence,
   ...agentLifeEventPersistence,
+  ...agentRecoverySessionPersistence,
   ...xiaoniAgentStackPersistence,
   ...xiaoniActivityPersistence,
   ...abExperimentPersistence,

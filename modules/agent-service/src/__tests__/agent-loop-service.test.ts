@@ -413,9 +413,10 @@ function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
     '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]',
-    '有新的未读qq消息（1 条）。你有空愿意的话可以用 qq-usage 打开看。',
-    '==',
-    '以下只展示有人明确喊你的信息',
+    '【视线边缘：状态栏闪烁】',
+    '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
+    '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
+    '（以下是透过白噪音、明确指名道姓喊你的动静）：',
     '{Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
     '</system_reminder>'
   ].join('\n');
@@ -423,12 +424,12 @@ function expectedCurrentInputMessage() {
 
 function isPhoneNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('有新的未读qq消息');
+    && content.includes('【视线边缘：状态栏闪烁】');
 }
 
 function isImageTaskNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('图片生成任务:');
+    && content.includes('【视觉感知：造物出炉】');
 }
 
 test('runtime text timestamp helpers format East-8 time and avoid double prefixes', () => {
@@ -1280,7 +1281,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
   assert.match(currentPrompt, /<system_reminder>/);
   assert.match(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(currentPrompt, /有新的未读qq消息/);
+  assert.match(currentPrompt, /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentPrompt, /session_key=/);
   assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
@@ -1384,10 +1385,15 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
 
   assert.match(rendered, /<system_reminder>/);
   assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(rendered, /图片生成任务:task-image-1 已完成/);
+  assert.match(rendered, /视觉感知：造物出炉/);
+  assert.match(rendered, /生成状态：已完成/);
+  assert.match(rendered, /任务锚点: task-image-1/);
+  assert.match(rendered, /生成状态：已完成）。\n\n\[造物档案\]/);
   assert.match(rendered, /图片ID: task_artifact_1/);
   assert.match(rendered, /图片路径: \/xiaoni-runtime\/picture\/task_artifact_1\.png/);
+  assert.match(rendered, /目标: 一张测试图\n\n这不是外界别人发给你的消息/);
   assert.doesNotMatch(rendered, /<IMAGE_TASK_NOTIFICATION/);
+  assert.doesNotMatch(rendered, /\{\{(?:TASK_TYPE_LINE|PICTURE_ID_LINE|PICTURE_PATH_LINE|TARGET_DESCRIPTION_LINE)\}\}/);
   assert.doesNotMatch(rendered, /picture_bytes|source_trace_id|source_run_id|created_at/);
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
@@ -1416,7 +1422,7 @@ test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread 
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
   assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
-  assert.match(rendered, /有新的未读qq消息/);
+  assert.match(rendered, /视线边缘：状态栏闪烁/);
   assert.match(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, /latest_preview|messages/);
   assert.doesNotMatch(rendered, /手机状态栏出现了 QQ 通知/);
@@ -1469,7 +1475,7 @@ test('buildInitialInput keeps mentioned group batches as phone notifications onl
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /有新的未读qq消息/);
+  assert.match(rendered, /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(rendered, /前面普通未读/);
   assert.match(rendered, /@小腻 看到前面了吗/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="群聊"/);
@@ -1516,7 +1522,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /有新的未读qq消息/);
+  assert.match(rendered, /视线边缘：状态栏闪烁/);
   assert.match(rendered, /Alice\(@202\).*发来 2 条消息/);
   assert.match(rendered, /第二条私聊/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
@@ -1608,7 +1614,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
 
   assert.equal(currentTurnItems.length, 1);
   assert.match(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(currentTurnItems[0]), /有新的未读qq消息/);
+  assert.match(getMessageContent(currentTurnItems[0]), /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
@@ -1647,8 +1653,8 @@ test('buildInitialInput does not replay historical notification snapshots as cur
   ));
 
   assert.equal(phoneNotificationItems.length, 1);
-  assert.match(getMessageContent(phoneNotificationItems[0]), /有新的未读qq消息（3 条）/);
-  assert.doesNotMatch(rendered, /有新的未读qq消息（1 条）/);
+  assert.match(getMessageContent(phoneNotificationItems[0]), /堆积了 3 条新动静/);
+  assert.doesNotMatch(rendered, /堆积了 1 条新动静/);
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
 
@@ -1673,7 +1679,7 @@ test('buildInitialInput suppresses already-picked notification context', () => {
     .join('\n');
 
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(rendered, /有新的未读qq消息/);
+  assert.doesNotMatch(rendered, /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(rendered, /<runtime_event_snapshot/);
   assert.doesNotMatch(rendered, /source="phone_notification"/);
   assert.doesNotMatch(rendered, /status="already_picked"/);
@@ -1744,7 +1750,7 @@ test('buildInitialInput does not project accepted identity facts into runtime in
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
   const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
-  assert.match(getMessageContent(currentInputItem), /有新的未读qq消息/);
+  assert.match(getMessageContent(currentInputItem), /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
   assert.equal((currentInputItem as any)?.role, 'developer');
 });
@@ -3168,7 +3174,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
           name: RECOVER_ENERGY_TOOL,
           arguments: JSON.stringify({
             reason: '看完图后先停一下。',
-            duration_minutes: 5,
+            clock: 5,
             xiaoni_os: '已经通过视觉 fork 看过 asset-img-123。'
           })
         }]
@@ -4875,7 +4881,7 @@ test('runtime frame stores partially delivered assistant transcript as commentar
             type: 'function_call',
             call_id: 'call-finish-failure',
             name: RECOVER_ENERGY_TOOL,
-            arguments: JSON.stringify({ reason: 'done', duration_minutes: 5, xiaoni_os: 'pause' })
+            arguments: JSON.stringify({ reason: 'done', clock: 5, xiaoni_os: 'pause' })
           }
         ]
       }
@@ -5186,8 +5192,8 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
   const recoverResult = {
     recovered: true,
     reason: 'done',
-    duration_minutes: 30,
-    duration_ms: 30 * 60 * 1000,
+    clock_minutes: 30,
+    sleep_minutes: 30,
     energy: 0.75,
     max_energy: 1,
     system_reminder: '<system_reminder>醒了。</system_reminder>',
@@ -5338,15 +5344,17 @@ test('applyToolResultToLoopInput appends web_search STATE after hosted search', 
   assert.doesNotMatch(getMessageContent(stateItem), /trigger=|note=/);
 });
 
-test('runtime energy recovery starts negative debt from zero and reaches full in two hours', () => {
+test('runtime energy recovery follows bounded pressure curve from negative debt', () => {
   const positive = recoverRuntimeEnergy({ rawEnergy: 0.25, elapsedMs: 60 * 60 * 1000 });
-  assert.equal(positive.energy, 0.75);
+  assert.ok(positive.energy > 0.5);
+  assert.ok(positive.energy < 1);
   const negative = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 60 * 60 * 1000 });
-  assert.equal(negative.startEnergy, 0);
+  assert.equal(negative.startEnergy, -0.35);
   assert.equal(negative.debt, 0.35);
-  assert.equal(negative.energy, 0.5);
-  const full = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 2 * 60 * 60 * 1000 });
-  assert.equal(full.energy, 1);
+  assert.ok(negative.energy > -0.35);
+  const hardCap = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 3 * 60 * 60 * 1000 });
+  assert.ok(hardCap.energy > 0.8);
+  assert.ok(hardCap.energy < 1);
 });
 
 test('recover_energy refuses to sleep when Xiaoni is already full energy', async () => {
@@ -5362,7 +5370,6 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
     name: RECOVER_ENERGY_TOOL,
     args: {
       reason: '我想继续睡',
-      duration_minutes: 30,
       xiaoni_os: '其实已经不累了。'
     },
     rawArguments: '{}'
@@ -5371,45 +5378,188 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.equal(result.release_lease, undefined);
   assert.equal(result.recovered, false);
   assert.equal(result.rest_rejected, true);
-  assert.equal(result.reason, '你已经精力充沛了, 不能再睡觉了, 去找点事做');
+  assert.match(result.reason, /还没到可以休息的线/);
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
   assert.match(String(result.system_reminder), /<system_reminder>/);
   assert.match(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(String(result.system_reminder), /无法入睡/);
+  assert.match(String(result.system_reminder), /失眠|睡不着/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
 });
 
 test('recover_energy can still sleep when current energy is below full', async () => {
-  const slept: number[] = [];
   const service = new AgentLoopService({
     getCurrentXiaoniEnergyState: async () => ({
       energy: 0.5,
       maxEnergy: 1
     })
-  } as any, undefined, {
-    recoverEnergySleepMs: async (ms) => { slept.push(ms); }
-  });
+  } as any);
 
   const result = await (service as any).executeTool({
     callId: 'call-recover-low',
     name: RECOVER_ENERGY_TOOL,
     args: {
       reason: '真的累了',
-      duration_minutes: 30
+      xiaoni_os: '睡醒继续。',
+      clock: 30
     },
     rawArguments: '{}'
   }, createQueuePayload());
 
   assert.equal(result.release_lease, undefined);
-  assert.equal(result.recovered, true);
-  assert.equal(result.duration_ms, 30 * 60 * 1000);
-  assert.deepEqual(slept, [30 * 60 * 1000]);
+  assert.equal(result.recovery_session_requested, true);
+  assert.equal(result.recovered, false);
+  assert.equal(result.clock_minutes, 30);
   assert.equal(result.energy_before, 0.5);
-  assert.equal(result.energy, 0.75);
-  assert.match(String(result.system_reminder), /<system_reminder>/);
-  assert.match(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(String(result.system_reminder), /躯体苏醒/);
+  assert.equal(result.energy, 0.5);
+  assert.equal(result.xiaoni_os, '睡醒继续。');
+});
+
+test('runtime iteration does not claim queue messages while recovery session is active', async () => {
+  const storeCalls: Record<string, any[]> = {
+    listAgentRecoveryWakeNotifications: [],
+    updateAgentRecoverySessionProgress: [],
+    claimNextQueueMessage: []
+  };
+  const activeSession = {
+    id: 301,
+    initiator: 'recover_energy_tool',
+    reason: '透支了，先休息。',
+    xiaoniOs: '先断开。',
+    clockMinutes: 5,
+    clockDueAt: new Date(Date.now() - 60_000).toISOString(),
+    clockDeferredAt: null,
+    startedAt: new Date().toISOString(),
+    startEnergy: -0.2,
+    currentEnergy: -0.2,
+    maxEnergy: 1,
+    wakeCountStartQueueMessageId: 100,
+    lastWakeCountedQueueMessageId: 100,
+    wakeCallCount: 1
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => activeSession,
+    listAgentRecoveryWakeNotifications: async (params: any) => {
+      storeCalls.listAgentRecoveryWakeNotifications.push(params);
+      return [
+        { id: 101, wakeCount: 1 },
+        { id: 102, wakeCount: 2 }
+      ];
+    },
+    updateAgentRecoverySessionProgress: async (params: any) => {
+      storeCalls.updateAgentRecoverySessionProgress.push(params);
+      return activeSession;
+    },
+    claimNextQueueMessage: async () => {
+      storeCalls.claimNextQueueMessage.push({});
+      return null;
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-recovery-active',
+    idleIntervalMs: 0
+  });
+
+  assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+  assert.deepEqual(storeCalls.listAgentRecoveryWakeNotifications[0], {
+    afterQueueMessageId: 100,
+    limit: 250
+  });
+  assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.id, 301);
+  assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.wakeCallCount, 4);
+  assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.lastWakeCountedQueueMessageId, 102);
+  assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.clockDeferredAt instanceof Date);
+});
+
+test('runtime iteration settles persisted recovery session after restart with original tool callback', async () => {
+  const storeCalls: Record<string, any[]> = {
+    appendAgentStackItems: [],
+    completeAgentStackToolExecution: [],
+    finalizeAgentRecoverySession: [],
+    recordRecoverySessionLifeEvent: [],
+    claimNextQueueMessage: []
+  };
+  const activeSession = {
+    id: 302,
+    initiator: 'recover_energy_tool',
+    reason: '睡醒继续看消息。',
+    xiaoniOs: '醒来后先看有没有要紧事。',
+    clockMinutes: 30,
+    clockDueAt: null,
+    clockDeferredAt: null,
+    startedAt: new Date(Date.now() - (181 * 60 * 1000)).toISOString(),
+    startEnergy: -0.25,
+    currentEnergy: -0.25,
+    maxEnergy: 1,
+    toolCallId: 'call-recover-restart',
+    toolExecutionId: 'tool:run-restart:call-recover-restart',
+    llmRequestSliceId: 'slice-restart',
+    llmCallId: 'llm-restart',
+    traceId: 'trace-restart',
+    runId: 'run-restart',
+    wakeCountStartQueueMessageId: 200,
+    lastWakeCountedQueueMessageId: 200,
+    wakeCallCount: 0,
+    metadata: {
+      tool_args: {
+        reason: '睡醒继续看消息。',
+        clock: 30,
+        xiaoni_os: '醒来后先看有没有要紧事。'
+      },
+      raw_arguments: '{"reason":"睡醒继续看消息。","clock":30,"xiaoni_os":"醒来后先看有没有要紧事。"}'
+    }
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => activeSession,
+    listAgentRecoveryWakeNotifications: async () => [],
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return [{ id: 'stack-output-restart' }];
+    },
+    completeAgentStackToolExecution: async (params: any) => {
+      storeCalls.completeAgentStackToolExecution.push(params);
+      return null;
+    },
+    finalizeAgentRecoverySession: async (params: any) => {
+      storeCalls.finalizeAgentRecoverySession.push(params);
+      return { ...activeSession, status: 'completed' };
+    },
+    recordRecoverySessionLifeEvent: async (session: any, toolResult: any) => {
+      storeCalls.recordRecoverySessionLifeEvent.push({ session, toolResult });
+    },
+    claimNextQueueMessage: async () => {
+      storeCalls.claimNextQueueMessage.push({});
+      return null;
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  const frames: any[] = [];
+  (service as any).processRuntimeFrame = async (queueMessage: any, options: any) => {
+    frames.push({ queueMessage, options });
+  };
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-recovery-settle',
+    idleIntervalMs: 0
+  });
+
+  assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+  assert.equal(storeCalls.finalizeAgentRecoverySession[0]?.id, 302);
+  assert.equal(storeCalls.finalizeAgentRecoverySession[0]?.wakeCause, 'hard_cap');
+  assert.equal(storeCalls.completeAgentStackToolExecution[0]?.executionId, 'tool:run-restart:call-recover-restart');
+  assert.equal(storeCalls.completeAgentStackToolExecution[0]?.status, 'completed');
+  assert.equal(storeCalls.recordRecoverySessionLifeEvent[0]?.toolResult?.recovery_session_id, 302);
+  assert.equal(storeCalls.appendAgentStackItems[0]?.sourceType, 'agent_recovery_sessions');
+  assert.equal(storeCalls.appendAgentStackItems[0]?.sourceId, '302');
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0]?.options?.queueBacked, false);
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-restart');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.type, 'function_call_output');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.call_id, 'call-recover-restart');
+  assert.match(String(frames[0]?.options?.initialLoopContinuation?.[1]?.output), /<system_reminder>/);
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
@@ -5476,7 +5626,8 @@ test('no-notify continuation preserves global OS context during recover_energy t
   const listRecentTurnsCalls: any[] = [];
   const storeCalls: Record<string, any[]> = {
     createConversation: [],
-    settleQueueMessages: []
+    settleQueueMessages: [],
+    createAgentRecoverySession: []
   };
   let renderedModelInput = '';
 
@@ -5526,14 +5677,16 @@ test('no-notify continuation preserves global OS context during recover_energy t
     attachConversationIdToTrace: async () => {},
     settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     releaseExecutionLease: async () => {},
-    updateLlmJob: async () => {}
+    updateLlmJob: async () => {},
+    createAgentRecoverySession: async (params: any) => {
+      storeCalls.createAgentRecoverySession.push(params);
+      return { id: 77 };
+    }
   } as any;
 
   const service = new AgentLoopService(store, {
     resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any, {
-    recoverEnergySleepMs: async () => {}
-  });
+  } as any);
 
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     renderedModelInput = (canonicalRequest.input || []).map(getMessageContent).join('\n');
@@ -5547,7 +5700,7 @@ test('no-notify continuation preserves global OS context during recover_energy t
           name: RECOVER_ENERGY_TOOL,
           arguments: JSON.stringify({
             reason: '测试全局 OS 是否进入上下文，当前没有外部目标，先休息。',
-            duration_minutes: 30,
+            clock: 30,
             xiaoni_os: '全局近况已被看见。'
           })
         }]
@@ -5590,12 +5743,21 @@ test('no-notify continuation preserves global OS context during recover_energy t
   assert.equal(storeCalls.settleQueueMessages.length, 0);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '全局近况已被看见。');
+  assert.equal(storeCalls.createAgentRecoverySession.length, 1);
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.toolCallId, 'call-runtime-loop-recover');
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.clockMinutes, 30);
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.xiaoniOs, '全局近况已被看见。');
+  assert.deepEqual(storeCalls.createAgentRecoverySession[0]?.metadata?.tool_args, {
+    reason: '测试全局 OS 是否进入上下文，当前没有外部目标，先休息。',
+    clock: 30,
+    xiaoni_os: '全局近况已被看见。'
+  });
   assert.equal(
     storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
       item?.type === 'function_call_output'
         && String(item.output).includes('躯体苏醒')
     ),
-    true
+    false
   );
 });
 
@@ -5658,14 +5820,13 @@ test('runtime frame fetches global history after persisted read cutoff', async (
     attachConversationIdToTrace: async () => {},
     settleQueueMessages: async () => {},
     releaseExecutionLease: async () => {},
-    updateLlmJob: async () => {}
+    updateLlmJob: async () => {},
+    createAgentRecoverySession: async () => ({ id: 78 })
   } as any;
 
   const service = new AgentLoopService(store, {
     resolveForQueueMessage: async () => createRuntimePrompt()
-  } as any, {
-    recoverEnergySleepMs: async () => {}
-  });
+  } as any);
 
   (service as any).executeAgentTurn = async () => ({
     success: true,
@@ -5677,7 +5838,7 @@ test('runtime frame fetches global history after persisted read cutoff', async (
         name: RECOVER_ENERGY_TOOL,
         arguments: JSON.stringify({
           reason: '测试 cutoff 后历史读取。',
-          duration_minutes: 30,
+          clock: 30,
           xiaoni_os: 'cutoff 后历史已进入上下文。'
         })
       }]
@@ -6120,9 +6281,10 @@ test('recover_energy is exposed without prompt-facing rest_period or sleep_perio
   assert.ok(!toolNames.includes('rest_period'));
   assert.ok(!toolNames.includes('sleep_period'));
   const recoverTool = (request.tools ?? []).find((tool: any) => getToolName(tool) === RECOVER_ENERGY_TOOL) as any;
-  assert.deepEqual(recoverTool?.function?.parameters?.required, ['reason', 'duration_minutes', 'xiaoni_os']);
-  assert.equal(recoverTool?.function?.parameters?.properties?.duration_minutes?.minimum, 5);
-  assert.equal(recoverTool?.function?.parameters?.properties?.duration_minutes?.maximum, 120);
+  assert.deepEqual(recoverTool?.function?.parameters?.required, ['reason', 'xiaoni_os']);
+  assert.equal(recoverTool?.function?.parameters?.properties?.clock?.minimum, 5);
+  assert.equal(recoverTool?.function?.parameters?.properties?.clock?.maximum, 120);
+  assert.equal(recoverTool?.function?.parameters?.properties?.duration_minutes, undefined);
 });
 
 test('qq_usage stays a skill and does not expose navigation as OpenAI tools', () => {
