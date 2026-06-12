@@ -118,6 +118,10 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
       if (statement.includes('FROM agent_recovery_sessions') && statement.includes("status = 'active'")) {
         return activeRow ? [activeRow] : [];
       }
+      if (statement.includes('FROM agent_recovery_sessions') && statement.includes('ORDER BY started_at DESC')) {
+        assert.deepEqual(params, ['xiaoni', 'active', 20]);
+        return activeRow ? [activeRow] : [];
+      }
       if (statement.includes('FROM agent_queue_messages') && statement.includes("source = 'phone_notification'")) {
         assert.deepEqual(params, [42n, 100]);
         return [{
@@ -206,6 +210,14 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
 
   const active = await persistence.getActiveAgentRecoverySession();
   assert.equal(active.id, 88);
+
+  const sessions = await persistence.listAgentRecoverySessions({
+    identityKey: 'xiaoni',
+    status: 'active',
+    limit: 20
+  });
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].id, 88);
 
   const wakeRows = await persistence.listAgentRecoveryWakeNotifications({
     afterQueueMessageId: 42,

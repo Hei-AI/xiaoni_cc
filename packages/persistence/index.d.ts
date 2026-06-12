@@ -1897,6 +1897,7 @@ export function ensureAgentRecoverySessionSchema(input?: Record<string, unknown>
 export function getAgentRecoveryQueueHighWatermark(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<number>;
 export function createAgentRecoverySession(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection>;
 export function getActiveAgentRecoverySession(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
+export function listAgentRecoverySessions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection[]>;
 export function listAgentRecoveryWakeNotifications(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWakeNotificationProjection[]>;
 export function updateAgentRecoverySessionProgress(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
 export function finalizeAgentRecoverySession(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;

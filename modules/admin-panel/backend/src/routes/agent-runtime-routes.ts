@@ -7,6 +7,7 @@ import {
   findXiaoniActionEventTraceTarget,
   getAgentRuntimeControl,
   listAgentMediaAssets,
+  listAgentRecoverySessions,
   listAgentTasks,
   updateAgentRuntimeControl,
 } from '@qq-bot/persistence';
@@ -431,6 +432,40 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load Xiaoni activity feed',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/agent-runtime/recovery-sessions', async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(100, Number.parseInt(String(req.query.limit || '30'), 10) || 30));
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const status = typeof req.query.status === 'string' && req.query.status.trim()
+        ? req.query.status.trim()
+        : 'all';
+      const [sessions, runtime] = await Promise.all([
+        listAgentRecoverySessions({ identityKey, status, limit }),
+        loadRuntimeSnapshot()
+      ]);
+      res.json({
+        success: true,
+        data: {
+          identityKey,
+          status,
+          limit,
+          active: Array.isArray(sessions) ? sessions.find((session: any) => session.status === 'active') || null : null,
+          sessions,
+          runtime
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to list recovery sessions',
         timestamp: new Date().toISOString()
       });
     }
