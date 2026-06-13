@@ -876,6 +876,34 @@ export type XiaoniCoreMemoryCompressionForkSlice = XiaoniLlmRequestSlice & {
 export type XiaoniCoreMemoryCompressionForkToolExecution = XiaoniToolExecution & {
   forkRunId: string;
 };
+export type XiaoniImageVisionForkRun = {
+  id: string | null;
+  forkRunId: string;
+  identityKey: string;
+  status: string | null;
+  traceId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  assetId: string | null;
+  imageId: string | null;
+  mediaTag: string | null;
+  observationId: string | null;
+  description: string | null;
+  artifact: Record<string, unknown>;
+  errorMessage: string | null;
+  metadata: Record<string, unknown>;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+export type XiaoniImageVisionForkItem = Omit<XiaoniAgentStackItem, 'stackIndex'> & {
+  forkRunId: string;
+  itemIndex: number;
+};
+export type XiaoniImageVisionForkSlice = XiaoniLlmRequestSlice & {
+  forkRunId: string;
+};
 export type XiaoniLlmUsageBucket = 'call' | 'hour' | 'day' | 'month';
 export type XiaoniLlmUsageTimelineInput = XiaoniAgentStackPersistenceCallInput & {
   identityKey?: string;
@@ -1005,6 +1033,10 @@ export type XiaoniAgentStackPersistenceApi = {
   recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
   recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
   completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
+  recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
+  completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
+  appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
+  recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
   getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
@@ -1030,6 +1062,10 @@ export function appendCoreMemoryCompressionForkItems(input?: XiaoniAgentStackPer
 export function recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
 export function recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
 export function completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
+export function recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
+export function completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
+export function appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
+export function recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
 export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;

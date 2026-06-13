@@ -2230,6 +2230,42 @@ function createXiaoniActivityPersistence({
     }
   }
 
+  async function resolveImageVisionForkSliceTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM image_vision_fork_slices
+          WHERE identity_key = ?
+            AND (slice_id = ? OR llm_call_id = ? OR id::text = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const sliceId = firstString(row.slice_id, row.llm_call_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+      const llmCallId = firstString(row.llm_call_id);
+      return normalizeTraceTarget({
+        sourceKind: 'image_vision_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: providerRequestSpanIdForSlice(sliceId, llmCallId) || (sliceId ? `image-vision-fork-slice:${sliceId}` : null),
+        llmRequestSliceId: sliceId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function resolveCompressionForkItemTraceTarget(key, config = {}) {
     const sql = createSqlAdapter(config);
     try {
@@ -2416,6 +2452,10 @@ function createXiaoniActivityPersistence({
 
     if (parsed.prefix === 'compression-fork-slice') {
       return enrichTraceTarget(await resolveCompressionForkSliceTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'image-vision-fork-slice') {
+      return enrichTraceTarget(await resolveImageVisionForkSliceTraceTarget(parsed.key, config), config);
     }
 
     if (parsed.prefix === 'compression-fork-item') {

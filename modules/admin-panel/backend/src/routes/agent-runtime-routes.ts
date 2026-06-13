@@ -193,7 +193,7 @@ async function resolveActionEventTraceTarget(
 }
 
 function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
-  if (target.sourceKind === 'compression_fork') {
+  if (target.sourceKind === 'compression_fork' || target.sourceKind === 'image_vision_fork') {
     return true;
   }
 
@@ -206,6 +206,7 @@ function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
     || spanId.startsWith('tool-call:')
     || spanId.startsWith('tool-output:')
     || spanId.startsWith('compression-fork-')
+    || spanId.startsWith('image-vision-fork-')
     || spanId.startsWith('provider-request:wire:');
 }
 

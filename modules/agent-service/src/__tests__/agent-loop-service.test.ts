@@ -3269,7 +3269,11 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
     releaseExecutionLease: [],
     updateLlmJob: [],
     completeAgentStackToolExecution: [],
-    recordMediaObservation: []
+    recordMediaObservation: [],
+    recordImageVisionForkRun: [],
+    completeImageVisionForkRun: [],
+    appendImageVisionForkItems: [],
+    recordImageVisionForkSlice: []
   };
 
   const store = {
@@ -3307,6 +3311,28 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
     recordMediaObservation: async (params: any) => {
       storeCalls.recordMediaObservation.push(params);
       return { id: 'obs-new', ...params };
+    },
+    recordImageVisionForkRun: async (params: any) => {
+      storeCalls.recordImageVisionForkRun.push(params);
+      return { id: 'image-fork-run-row', ...params };
+    },
+    completeImageVisionForkRun: async (params: any) => {
+      storeCalls.completeImageVisionForkRun.push(params);
+      return { id: 'image-fork-run-row', ...params };
+    },
+    appendImageVisionForkItems: async (params: any) => {
+      storeCalls.appendImageVisionForkItems.push(params);
+      return params.items.map((item: any, index: number) => ({
+        id: `image-fork-item-${index + 1}`,
+        itemIndex: index + 1,
+        itemKind: item.itemKind,
+        toolCallId: item.toolCallId || null,
+        ...item
+      }));
+    },
+    recordImageVisionForkSlice: async (params: any) => {
+      storeCalls.recordImageVisionForkSlice.push(params);
+      return { id: 'image-fork-slice-row', ...params };
     },
     getExecutionLeaseDeliveryState: async () => ({
       deliveryPhase: 'reasoning_open',
@@ -3395,7 +3421,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
         })
       } as Response;
     }
-    if (String(url).endsWith('/api/internal/agent/execute')) {
+    if (String(url).endsWith('/api/internal/llm/debug')) {
       return {
         ok: true,
         json: async () => ({
@@ -3404,7 +3430,33 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
           model: 'gpt-5.4-mini',
           provider: 'openai',
           llm_call_id: 'llm-image-fork',
-          llm_request_slice_id: 'llm-image-fork'
+          llm_request_slice_id: 'llm-image-fork',
+          canonical_request: parsed?.canonicalRequest,
+          wire_request: { model: parsed?.model, input: [{ type: 'wire_input' }] },
+          canonical_response: {
+            output: [{
+              id: 'msg-image-fork',
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: '这是一只猫' }]
+            }]
+          },
+          wire_response: { id: 'resp-image-fork' },
+          raw_response: { id: 'resp-image-fork', output_text: '这是一只猫' },
+          usage: {
+            input_tokens: 1234,
+            output_tokens: 56,
+            total_tokens: 1290
+          },
+          usage_details: {
+            cached_input_tokens: 1200,
+            reasoning_tokens: 7
+          },
+          request_format_version: 'responses-v1',
+          wire_provider_format: 'openai-responses',
+          performance: {
+            processing_time_ms: 321
+          }
         })
       } as Response;
     }
@@ -3418,7 +3470,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   }
 
   const materializeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/media/materialize-image'));
-  const executeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/agent/execute'));
+  const executeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/llm/debug'));
   assert.equal(materializeCalls.length, 1);
   assert.equal(executeCalls.length, 1);
   assert.equal(fetchCalls.some((call) => call.url.includes('/api/internal/media/inspect')), false);
@@ -3472,8 +3524,34 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.equal(storeCalls.recordMediaObservation.length, 1);
   assert.equal(storeCalls.recordMediaObservation[0]?.assetId, imageAssetId);
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
+  assert.match(storeCalls.recordMediaObservation[0]?.metadata?.fork_run_id, /^image-vision-fork:/);
   assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.llm_request_slice_id, 'llm-image-fork');
   assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.provider_raw_trace_persisted, true);
+  assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.fork, 'image_vision_fork');
+
+  assert.equal(storeCalls.recordImageVisionForkRun.length, 1);
+  assert.match(storeCalls.recordImageVisionForkRun[0]?.forkRunId, /^image-vision-fork:/);
+  assert.equal(storeCalls.recordImageVisionForkRun[0]?.status, 'running');
+  assert.equal(storeCalls.recordImageVisionForkRun[0]?.assetId, imageAssetId);
+  assert.equal(storeCalls.appendImageVisionForkItems.length, 1);
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.llmRequestSliceId, 'llm-image-fork');
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.content?.content?.[0]?.text, '这是一只猫');
+  assert.equal(storeCalls.recordImageVisionForkSlice.length, 1);
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.forkRunId, storeCalls.recordImageVisionForkRun[0]?.forkRunId);
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.sliceId, 'llm-image-fork');
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.canonicalRequest, forkRequest);
+  assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.tokenUsage, {
+    input_tokens: 1234,
+    output_tokens: 56,
+    total_tokens: 1290,
+    cached_input_tokens: 1200,
+    reasoning_tokens: 7,
+    raw_usage: null
+  });
+  assert.equal(storeCalls.completeImageVisionForkRun.length, 1);
+  assert.equal(storeCalls.completeImageVisionForkRun[0]?.forkRunId, storeCalls.recordImageVisionForkRun[0]?.forkRunId);
+  assert.equal(storeCalls.completeImageVisionForkRun[0]?.status, 'completed');
+  assert.equal(storeCalls.completeImageVisionForkRun[0]?.observationId, 'obs-new');
 
   const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === imageAssetId);
   assert.ok(inspectLog);
