@@ -296,12 +296,29 @@ def print_result(result):
 
 
 def build_call(args):
+    if args.command == "tool":
+        return args.tool_name, json.loads(args.arguments_json)
     if args.command == "status":
         return "browser_tabs", {"action": "list"}
     if args.command == "tabs":
         return "browser_tabs", {"action": "list"}
+    if args.command == "tab-new":
+        return "browser_tabs", {"action": "new"}
+    if args.command == "tab-select":
+        return "browser_tabs", {"action": "select", "index": args.index}
+    if args.command == "tab-close":
+        payload = {"action": "close"}
+        if args.index is not None:
+            payload["index"] = args.index
+        return "browser_tabs", payload
+    if args.command == "close":
+        return "browser_close", {}
+    if args.command == "resize":
+        return "browser_resize", {"width": args.width, "height": args.height}
     if args.command == "goto":
         return "browser_navigate", {"url": args.url}
+    if args.command == "back":
+        return "browser_navigate_back", {}
     if args.command == "snapshot":
         payload = {}
         if args.filename:
@@ -322,6 +339,47 @@ def build_call(args):
         return "browser_press_key", {"key": args.key}
     if args.command == "hover":
         return "browser_hover", {"target": args.target, "element": args.element or args.target}
+    if args.command == "drag":
+        return "browser_drag", {"startTarget": args.start, "endTarget": args.end}
+    if args.command == "select":
+        return "browser_select_option", {"target": args.target, "values": [args.value], "element": args.element or args.target}
+    if args.command == "upload":
+        return "browser_file_upload", {"paths": args.paths}
+    if args.command == "drop":
+        payload = {"target": args.target, "element": args.element or args.target}
+        if args.paths:
+            payload["paths"] = args.paths
+        if args.data_json:
+            payload["data"] = json.loads(args.data_json)
+        return "browser_drop", payload
+    if args.command == "dialog-accept":
+        payload = {"accept": True}
+        if args.prompt:
+            payload["promptText"] = args.prompt
+        return "browser_handle_dialog", payload
+    if args.command == "dialog-dismiss":
+        return "browser_handle_dialog", {"accept": False}
+    if args.command == "console":
+        payload = {"level": args.level, "all": args.all}
+        if args.filename:
+            payload["filename"] = args.filename
+        return "browser_console_messages", payload
+    if args.command == "requests":
+        payload = {"includeStatic": args.include_static}
+        if args.filename:
+            payload["filename"] = args.filename
+        return "browser_network_requests", payload
+    if args.command == "request":
+        return "browser_network_request", {"index": args.index}
+    if args.command == "wait":
+        payload = {}
+        if args.text:
+            payload["text"] = args.text
+        if args.time:
+            payload["time"] = args.time
+        return "browser_wait_for", payload
+    if args.command == "run-code":
+        return "browser_run_code_unsafe", {"code": args.code}
     if args.command == "eval":
         return "browser_evaluate", {"function": args.function}
     raise AssertionError(args.command)
@@ -331,6 +389,16 @@ def op_to_call(op):
     ns = argparse.Namespace(command=op.get("cmd") or op.get("command"))
     if ns.command == "goto":
         ns.url = op["url"]
+    elif ns.command == "tool":
+        ns.tool_name = op["tool"]
+        ns.arguments_json = json.dumps(op.get("arguments", {}), ensure_ascii=False)
+    elif ns.command in ("tab-new", "close", "back", "dialog-dismiss"):
+        pass
+    elif ns.command in ("tab-select", "tab-close"):
+        ns.index = op.get("index")
+    elif ns.command == "resize":
+        ns.width = int(op["width"])
+        ns.height = int(op["height"])
     elif ns.command == "snapshot":
         ns.filename = op.get("filename")
     elif ns.command == "screenshot":
@@ -339,6 +407,22 @@ def op_to_call(op):
     elif ns.command in ("click", "hover"):
         ns.target = op["target"]
         ns.element = op.get("element")
+    elif ns.command == "drag":
+        ns.start = op["start"]
+        ns.end = op["end"]
+    elif ns.command == "select":
+        ns.target = op["target"]
+        ns.value = op["value"]
+        ns.element = op.get("element")
+    elif ns.command == "upload":
+        ns.paths = op["paths"]
+    elif ns.command == "drop":
+        ns.target = op["target"]
+        ns.element = op.get("element")
+        ns.paths = op.get("paths")
+        ns.data_json = json.dumps(op["data"], ensure_ascii=False) if "data" in op else None
+    elif ns.command == "dialog-accept":
+        ns.prompt = op.get("prompt")
     elif ns.command == "fill":
         ns.target = op["target"]
         ns.text = op["text"]
@@ -347,6 +431,20 @@ def op_to_call(op):
         ns.text = op["text"]
     elif ns.command == "press":
         ns.key = op["key"]
+    elif ns.command == "console":
+        ns.level = op.get("level", "info")
+        ns.all = bool(op.get("all", False))
+        ns.filename = op.get("filename")
+    elif ns.command == "requests":
+        ns.include_static = bool(op.get("includeStatic") or op.get("include_static") or False)
+        ns.filename = op.get("filename")
+    elif ns.command == "request":
+        ns.index = int(op["index"])
+    elif ns.command == "wait":
+        ns.text = op.get("text")
+        ns.time = op.get("time")
+    elif ns.command == "run-code":
+        ns.code = op["code"]
     elif ns.command == "eval":
         ns.function = op["function"]
     elif ns.command in ("status", "tabs"):
@@ -360,10 +458,23 @@ def op_to_call(op):
 def main(argv):
     parser = argparse.ArgumentParser(description="Control Xiaoni's host Chrome through the Playwright bridge.")
     sub = parser.add_subparsers(dest="command", required=True)
+    raw = sub.add_parser("tool")
+    raw.add_argument("tool_name")
+    raw.add_argument("arguments_json")
     sub.add_parser("status")
     sub.add_parser("tabs")
+    sub.add_parser("tab-new")
+    tab_select = sub.add_parser("tab-select")
+    tab_select.add_argument("index", type=int)
+    tab_close = sub.add_parser("tab-close")
+    tab_close.add_argument("index", nargs="?", type=int)
+    sub.add_parser("close")
+    resize = sub.add_parser("resize")
+    resize.add_argument("width", type=int)
+    resize.add_argument("height", type=int)
     goto = sub.add_parser("goto")
     goto.add_argument("url")
+    sub.add_parser("back")
     snapshot = sub.add_parser("snapshot")
     snapshot.add_argument("filename", nargs="?")
     screenshot = sub.add_parser("screenshot")
@@ -383,6 +494,37 @@ def main(argv):
     hover = sub.add_parser("hover")
     hover.add_argument("target")
     hover.add_argument("element", nargs="?")
+    drag = sub.add_parser("drag")
+    drag.add_argument("start")
+    drag.add_argument("end")
+    select = sub.add_parser("select")
+    select.add_argument("target")
+    select.add_argument("value")
+    select.add_argument("element", nargs="?")
+    upload = sub.add_parser("upload")
+    upload.add_argument("paths", nargs="+")
+    drop = sub.add_parser("drop")
+    drop.add_argument("target")
+    drop.add_argument("--element")
+    drop.add_argument("--paths", nargs="+")
+    drop.add_argument("--data-json")
+    dialog_accept = sub.add_parser("dialog-accept")
+    dialog_accept.add_argument("prompt", nargs="?")
+    sub.add_parser("dialog-dismiss")
+    console = sub.add_parser("console")
+    console.add_argument("level", nargs="?", default="info", choices=["error", "warning", "info", "debug"])
+    console.add_argument("--all", action="store_true")
+    console.add_argument("--filename")
+    requests = sub.add_parser("requests")
+    requests.add_argument("--include-static", action="store_true")
+    requests.add_argument("--filename")
+    request = sub.add_parser("request")
+    request.add_argument("index", type=int)
+    wait = sub.add_parser("wait")
+    wait.add_argument("--text")
+    wait.add_argument("--time", type=float)
+    run_code = sub.add_parser("run-code")
+    run_code.add_argument("code")
     ev = sub.add_parser("eval")
     ev.add_argument("function")
     seq = sub.add_parser("sequence")

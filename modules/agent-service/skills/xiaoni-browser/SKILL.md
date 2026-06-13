@@ -1,11 +1,11 @@
 ---
 name: xiaoni-browser
-description: Use Xiaoni's headed host Chrome browser with the logged-in Profile 2 through the Playwright Extension bridge. Use when Xiaoni needs to open websites, inspect pages, click or fill UI, take screenshots, verify authenticated browser state, or debug a page with the operator's existing Chrome login session.
+description: "Use Xiaoni's headed host Chrome browser with the logged-in Profile 2 through a patched Playwright CLI bridge. Use when Xiaoni needs broad browser automation: opening websites, inspecting pages, clicking/filling UI, tabs, screenshots, network/console inspection, storage/cookies, tracing/video, or debugging a page with the operator's existing Chrome login session."
 ---
 
 # Xiaoni Browser
 
-Use this skill to control the operator's visible host Chrome profile through the Playwright Extension bridge.
+Use this skill to control the operator's visible host Chrome profile through patched official `playwright-cli`.
 
 ## Runtime Cost
 
@@ -17,60 +17,68 @@ energy_cost: 0.004
 
 - Browser profile: host Chrome `Profile 2`.
 - Extension id: `mmlmfjhmonkocbjadbfplnigmagldckm`.
-- Bridge endpoint from the WSL host: `http://localhost:9978/mcp`.
-- Your `exec_command` runs inside `qqbot-xiaoni-executor`, so use the script below instead of calling localhost directly.
-- The script uses `docker run --network host` when needed so it can reach the host bridge from the executor container.
+- Host CLI install: `C:\temp\xiaoni-playwright-cli`.
+- Host bridge: `http://127.0.0.1:9977/run` or `http://172.18.0.1:9977/run` from executor containers. A test bridge may also run on `9976`.
+- Your `exec_command` runs inside `qqbot-xiaoni-executor`, so call the bridge client below instead of running `playwright-cli` directly.
 
-## Commands
+## Start Or Reattach
 
-Run commands from any directory:
+The host bridge must already be running. If the browser session is not attached:
 
 ```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py status
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py tabs
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py goto https://example.com
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py snapshot
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py screenshot xiaoni-browser-example.png
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host attach --extension=chrome
 ```
 
-Common interactions:
+The attach command may briefly show the Playwright Extension connect page. Immediately navigate away:
 
 ```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py click e6
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py fill e12 "hello"
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py type "hello"
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py press Enter
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py eval "() => document.title"
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host goto https://example.com
 ```
 
-For multi-step interaction with element refs, prefer one `sequence` command so refs stay valid:
+## Use Official Playwright CLI Commands
+
+Pass normal `playwright-cli` arguments after `--`:
 
 ```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.py sequence '[{"cmd":"goto","url":"https://example.com"},{"cmd":"snapshot"},{"cmd":"click","target":"e6","element":"Learn more"},{"cmd":"snapshot"}]'
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host snapshot
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host click e6
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host fill e12 "hello"
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host screenshot
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host tab-list
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host requests
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host console warning
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host run-code "async (page) => await page.title()"
+```
+
+Show the full official command surface:
+
+```bash
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- --help
 ```
 
 ## Workflow
 
-1. Start with `goto URL` or one `sequence` command. A new browser session briefly opens the extension connect page, then the command should immediately navigate away.
-2. Use `snapshot` to get element refs such as `e6`.
-3. Use refs with `click`, `fill`, or `hover`.
-4. Use `screenshot name.png` when visual evidence matters.
-5. Use `status`, `tabs`, `snapshot`, `screenshot`, `click`, `fill`, `type`, `press`, `hover`, and `eval` only after a browser session already exists; these commands check the cached session and do not create a new one.
-
-Run browser commands serially. Do not run two `xiaoni_browser.py` commands in parallel against the same browser session. Use `sequence` when an action depends on refs from the immediately previous snapshot.
+1. Use `attach --extension=chrome` only when `xiaoni-host` is missing or detached.
+2. Use `goto URL` right after a new attach so the browser does not stay on `chrome-extension://.../connect.html`.
+3. Use `snapshot` to get refs such as `e6`.
+4. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
+5. Prefer one session name: `-s=xiaoni-host`.
 
 ## Boundaries
 
 - This controls the operator's real visible browser. Avoid destructive account actions unless the operator explicitly asked for them.
-- Only `goto` and `sequence` may create a new browser bridge session. Other commands must reuse the cached session so they do not open the extension connect page unexpectedly.
-- Do not close all browser tabs as cleanup. Use `tabs` to inspect first.
-- Do not paste secrets from page content into QQ unless the operator explicitly asks.
-- Screenshot filenames are saved by the host Playwright bridge, not inside `/xiaoni-runtime`. Use a relative filename such as `page.png`, not an absolute Xiaoni runtime path.
-- The `chrome-extension://mml.../connect.html` page is the Playwright Extension handshake page. It appears when a new session is created. Avoid using `status` as the first command if you do not want to leave the browser on that page.
-- If a command returns `XIAONI_BROWSER_ERROR`, treat the reason as the real boundary. The bridge may be down, the extension may be disconnected, or the helper Docker image may be unavailable.
+- `cookie-list`, storage commands, and request/response body commands can expose sensitive credentials. Do not run or repeat their output unless it is necessary and explicitly requested.
+- Do not close all browser tabs as cleanup. Inspect with `tab-list` first.
+- The `chrome-extension://mml.../connect.html` page is the Playwright Extension handshake page. It appears when a new session is created. Run `goto` immediately after attach.
 
-## Expected Failures
+## Host Bridge Maintenance
 
-- `Access is only allowed at localhost:9978`: use the script; do not curl the endpoint directly from the executor.
-- `Extension connection timeout`: the host Playwright MCP process is running but the Chrome extension is not connected. Ask the operator to restart the bridge or open the Playwright Extension profile.
-- `Cannot reach Playwright bridge`: the host bridge on `9978` is not running.
+If the bridge is down, ask the operator or host Codex to start it on the WSL host:
+
+```bash
+setsid python3 /home/liahua/IdeaProject/qq_bot/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli_bridge.py \
+  --host 0.0.0.0 --port 9977 \
+  > /tmp/xiaoni-playwright-cli-bridge.log 2>&1 < /dev/null &
+```
+
+The bridge only forwards commands to patched host `playwright-cli`; it does not implement browser automation itself.
