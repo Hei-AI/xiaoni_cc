@@ -2625,6 +2625,7 @@ function createXiaoniActivityPersistence({
         `, [...phoneQueueTimePredicate.params, perSourceLimit]),
         typeof listLlmRequestSlices === 'function'
           ? listLlmRequestSlices({
+            sqlAdapter: sql,
             identityKey,
             limit: perSourceLimit,
             summaryOnly: actionStreamProjection,
@@ -2635,6 +2636,7 @@ function createXiaoniActivityPersistence({
         typeof listAgentStackItems === 'function'
           ? (actionStreamProjection
             ? Promise.all(['runtime_input', 'function_call', 'function_call_output'].map((itemKind) => listAgentStackItems({
+              sqlAdapter: sql,
               identityKey,
               itemKind,
               limit: perSourceLimit,
@@ -2642,6 +2644,7 @@ function createXiaoniActivityPersistence({
               endTime: timeWindow.endTime
             }, config))).then((rows) => rows.flat()).catch(() => [])
             : listAgentStackItems({
+              sqlAdapter: sql,
               identityKey,
               limit: perSourceLimit,
               startTime: timeWindow.startTime,
@@ -2650,6 +2653,7 @@ function createXiaoniActivityPersistence({
           : [],
         typeof listToolExecutions === 'function'
           ? listToolExecutions({
+            sqlAdapter: sql,
             identityKey,
             limit: perSourceLimit,
             startTime: timeWindow.startTime,
@@ -2714,6 +2718,7 @@ function createXiaoniActivityPersistence({
           .slice(0, perSourceLimit);
         if (missingSliceIds.length > 0) {
           const focusedSliceRows = await Promise.all(missingSliceIds.map((sliceId) => listLlmRequestSlices({
+            sqlAdapter: sql,
             identityKey,
             sliceId,
             summaryOnly: true,

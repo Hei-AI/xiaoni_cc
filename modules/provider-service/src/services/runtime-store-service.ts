@@ -80,7 +80,7 @@ export class RuntimeStoreService {
       user: databaseConfig.user,
       password: databaseConfig.password,
       database: databaseConfig.database,
-      connectionLimit: 8,
+      connectionLimit: databaseConfig.connectionLimit,
       applicationName: 'provider-service'
     });
   }

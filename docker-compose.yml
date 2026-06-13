@@ -21,7 +21,7 @@ services:
   postgres:
     image: postgres:16
     container_name: qqbot-postgres
-    command: ["postgres", "-c", "timezone=Asia/Shanghai"]
+    command: ["postgres", "-c", "timezone=Asia/Shanghai", "-c", "max_connections=200"]
     environment:
       POSTGRES_DB: qqbot_db
       POSTGRES_USER: qqbot_user
@@ -83,7 +83,7 @@ services:
       - LOG_LEVEL=info
       - TZ=Asia/Shanghai
       - DB_TIMEZONE=Asia/Shanghai
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&connection_limit=5&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user
@@ -170,7 +170,7 @@ services:
       - LOG_LEVEL=info
       - TZ=Asia/Shanghai
       - DB_TIMEZONE=Asia/Shanghai
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&connection_limit=5&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user
@@ -215,7 +215,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - DB_TIMEZONE=Asia/Shanghai
-      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai
+      - DATABASE_URL=postgresql://qqbot_user:qqbot_password@qqbot-postgres:5432/qqbot_db?schema=public&connection_limit=5&options=-c%20timezone%3DAsia%2FShanghai
       - DB_HOST=qqbot-postgres
       - DB_PORT=5432
       - DB_USER=qqbot_user

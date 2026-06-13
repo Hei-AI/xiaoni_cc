@@ -50,6 +50,29 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
   });
 });
 
+test('getAgentRuntimeControl reuses one SQL adapter for schema ensure and read', async () => {
+  let created = 0;
+  let closed = 0;
+  const { persistence } = createPersistence({
+    rows: [[]],
+    createSqlAdapter: () => {
+      created += 1;
+      return {
+        execute: async () => 0,
+        query: async () => [],
+        close: async () => {
+          closed += 1;
+        }
+      };
+    }
+  });
+
+  await persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+
+  assert.equal(created, 1);
+  assert.equal(closed, 1);
+});
+
 test('updateAgentRuntimeControl persists disabled state', async () => {
   const updatedAt = new Date('2026-06-06T12:00:00.000Z');
   const { queries, persistence } = createPersistence({

@@ -11,16 +11,20 @@ function normalizeRuntimeControl(row) {
 function createAgentRuntimeControlPersistence(deps) {
   const { createSqlAdapter } = deps;
 
+  async function ensureAgentRuntimeControlSchemaWithSql(sql) {
+    await sql.execute(`
+      CREATE TABLE IF NOT EXISTS agent_runtime_control (
+        identity_key VARCHAR(191) PRIMARY KEY,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
   async function ensureAgentRuntimeControlSchema(config = {}) {
     const sql = createSqlAdapter(config);
     try {
-      await sql.execute(`
-        CREATE TABLE IF NOT EXISTS agent_runtime_control (
-          identity_key VARCHAR(191) PRIMARY KEY,
-          enabled BOOLEAN NOT NULL DEFAULT TRUE,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+      await ensureAgentRuntimeControlSchemaWithSql(sql);
     } finally {
       await sql.close();
     }
@@ -32,7 +36,7 @@ function createAgentRuntimeControlPersistence(deps) {
       : 'xiaoni';
     const sql = createSqlAdapter(config);
     try {
-      await ensureAgentRuntimeControlSchema(config);
+      await ensureAgentRuntimeControlSchemaWithSql(sql);
       const rows = await sql.query(
         `
           SELECT identity_key, enabled, updated_at
@@ -55,7 +59,7 @@ function createAgentRuntimeControlPersistence(deps) {
     const enabled = input.enabled !== false;
     const sql = createSqlAdapter(config);
     try {
-      await ensureAgentRuntimeControlSchema(config);
+      await ensureAgentRuntimeControlSchemaWithSql(sql);
       const rows = await sql.query(
         `
           INSERT INTO agent_runtime_control (identity_key, enabled, updated_at)

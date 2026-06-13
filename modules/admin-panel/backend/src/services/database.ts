@@ -9,6 +9,7 @@ interface DatabaseConfig {
   password: string;
   database: string;
   timezone: string;
+  connectionLimit?: number;
 }
 
 interface ConversationData {
@@ -78,7 +79,7 @@ export class DatabaseManager {
         user: this.config.user,
         password: this.config.password,
         database: this.config.database,
-        connectionLimit: 10,
+        connectionLimit: this.config.connectionLimit || 5,
         applicationName: 'admin-backend'
       });
       this.prisma = getPrismaClient({
@@ -90,7 +91,7 @@ export class DatabaseManager {
         database: this.config.database
       });
 
-      this.logger.info('Database connection pool initialized (Admin Backend)', { connectionLimit: 10 });
+      this.logger.info('Database connection pool initialized (Admin Backend)', { connectionLimit: this.config.connectionLimit || 5 });
     } catch (error) {
       this.logger.error('Error creating connection pool', { error });
       this.sql = null;

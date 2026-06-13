@@ -38,43 +38,62 @@ function createPersistence(overrides = {}) {
       count: async () => 0
     }
   };
-  const sqlAdapter = () => ({
-    query: async (statement) => {
-      if (statement.includes('FROM core_memory_compression_fork_runs')) {
-        return overrides.compressionForkRuns || [];
-      }
-      if (statement.includes('FROM core_memory_compression_fork_slices')) {
-        return overrides.compressionForkSlices || [];
-      }
-      if (statement.includes('FROM core_memory_compression_fork_items')) {
-        return overrides.compressionForkItems || [];
-      }
-      if (statement.includes('FROM core_memory_compression_fork_tool_executions')) {
-        return overrides.compressionForkToolRows || [];
-      }
-      if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('phone_notification')")) {
-        return overrides.autonomousQueueRows || [];
-      }
-      if (statement.includes('FROM agent_queue_messages')) {
-        return overrides.queueRows || [];
-      }
-      return [];
-    },
-    close: async () => undefined
-  });
+  const sqlAdapter = () => {
+    const adapter = {
+      query: async (statement) => {
+        if (statement.includes('FROM core_memory_compression_fork_runs')) {
+          return overrides.compressionForkRuns || [];
+        }
+        if (statement.includes('FROM core_memory_compression_fork_slices')) {
+          return overrides.compressionForkSlices || [];
+        }
+        if (statement.includes('FROM core_memory_compression_fork_items')) {
+          return overrides.compressionForkItems || [];
+        }
+        if (statement.includes('FROM core_memory_compression_fork_tool_executions')) {
+          return overrides.compressionForkToolRows || [];
+        }
+        if (statement.includes('FROM agent_queue_messages') && statement.includes("source IN ('phone_notification')")) {
+          return overrides.autonomousQueueRows || [];
+        }
+        if (statement.includes('FROM agent_queue_messages')) {
+          return overrides.queueRows || [];
+        }
+        return [];
+      },
+      close: async () => undefined
+    };
+    if (typeof overrides.onSqlAdapterCreate === 'function') {
+      overrides.onSqlAdapterCreate(adapter);
+    }
+    return adapter;
+  };
   return createXiaoniActivityPersistence({
     getPrismaClient: () => prisma,
     createSqlAdapter: sqlAdapter,
-    listLlmRequestSlices: async (input = {}) => (overrides.llmRequestSliceRows || overrides.llmRows || [])
-      .slice(0, input.limit || 100),
+    listLlmRequestSlices: async (input = {}) => {
+      if (typeof overrides.onListLlmRequestSlices === 'function') {
+        overrides.onListLlmRequestSlices(input);
+      }
+      return (overrides.llmRequestSliceRows || overrides.llmRows || [])
+        .slice(0, input.limit || 100);
+    },
     listAgentStackItems: async (input = {}) => {
+      if (typeof overrides.onListAgentStackItems === 'function') {
+        overrides.onListAgentStackItems(input);
+      }
       const rows = overrides.agentStackRows || [];
       const itemKind = input.itemKind || input.item_kind || null;
       return rows
         .filter((row) => !itemKind || row.itemKind === itemKind || row.item_kind === itemKind)
         .slice(0, input.limit || 100);
     },
-    listToolExecutions: async (input = {}) => (overrides.agentStackToolRows || []).slice(0, input.limit || 100),
+    listToolExecutions: async (input = {}) => {
+      if (typeof overrides.onListToolExecutions === 'function') {
+        overrides.onListToolExecutions(input);
+      }
+      return (overrides.agentStackToolRows || []).slice(0, input.limit || 100);
+    },
     findAgentStackItemByEventId: async (eventId) => (overrides.agentStackRows || []).find((row) => row.eventId === eventId) || null
   });
 }
@@ -268,6 +287,36 @@ test('Xiaoni action stream keeps visible actions without duplicating settled pho
   assert.equal(stream.items[0].traceTarget.traceId, 'runtrace_1');
   assert.equal(stream.current.autonomy.latestPhoneNotificationAt, '2026-05-31T14:28:56.395+08:00');
   assert.equal(stream.current.latestActivityAt, '2026-05-31T06:29:10.000Z');
+});
+
+test('Xiaoni action stream reuses its SQL adapter for stack projection fan-out', async () => {
+  const createdAdapters = [];
+  const projectionInputs = {
+    slices: [],
+    stack: [],
+    tools: []
+  };
+  const persistence = createPersistence({
+    onSqlAdapterCreate: (adapter) => createdAdapters.push(adapter),
+    onListLlmRequestSlices: (input) => projectionInputs.slices.push(input),
+    onListAgentStackItems: (input) => projectionInputs.stack.push(input),
+    onListToolExecutions: (input) => projectionInputs.tools.push(input)
+  });
+
+  await persistence.getXiaoniActionStream({ limit: 5 });
+
+  assert.equal(createdAdapters.length, 1);
+  assert.ok(createdAdapters[0]);
+  assert.ok(projectionInputs.slices.length >= 1);
+  assert.equal(projectionInputs.stack.length, 3);
+  assert.ok(projectionInputs.tools.length >= 1);
+  for (const input of [
+    ...projectionInputs.slices,
+    ...projectionInputs.stack,
+    ...projectionInputs.tools
+  ]) {
+    assert.equal(input.sqlAdapter, createdAdapters[0]);
+  }
 });
 
 test('Xiaoni activity feed hides operator-only self-action LLM prompts', async () => {

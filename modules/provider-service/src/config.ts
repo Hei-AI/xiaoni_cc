@@ -54,13 +54,15 @@ export const databaseConfig = {
     port: Number.parseInt(process.env.DB_PORT || '5432', 10),
     user: process.env.DB_USER || 'qqbot_user',
     password: process.env.DB_PASSWORD || 'qqbot_password',
-    database: process.env.DB_NAME || 'qqbot_db'
+    database: process.env.DB_NAME || 'qqbot_db',
+    connectionLimit: Number.parseInt(process.env.DB_CONNECTION_LIMIT || '5', 10)
   }),
   host: process.env.DB_HOST || 'qqbot-postgres',
   port: Number.parseInt(process.env.DB_PORT || '5432', 10),
   user: process.env.DB_USER || 'qqbot_user',
   password: process.env.DB_PASSWORD || 'qqbot_password',
   database: process.env.DB_NAME || 'qqbot_db',
+  connectionLimit: Number.parseInt(process.env.DB_CONNECTION_LIMIT || '5', 10),
   timezone: process.env.DB_TIMEZONE || STORAGE_TIMEZONE
 };
 

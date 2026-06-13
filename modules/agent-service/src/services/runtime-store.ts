@@ -1154,7 +1154,7 @@ export class RuntimeStore {
       user: databaseConfig.user,
       password: databaseConfig.password,
       database: databaseConfig.database,
-      connectionLimit: 8,
+      connectionLimit: databaseConfig.connectionLimit,
       applicationName: 'agent-service'
     });
   }

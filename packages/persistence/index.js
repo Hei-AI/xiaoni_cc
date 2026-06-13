@@ -44,7 +44,11 @@ function buildDatabaseUrl(config = {}) {
   const password = encodeURIComponent(config.password || process.env.DB_PASSWORD || 'qqbot_password');
   const database = encodeURIComponent(config.database || process.env.DB_NAME || 'qqbot_db');
   const timezoneOption = encodeURIComponent(`-c timezone=${STORAGE_TIMEZONE}`);
-  return `postgresql://${user}:${password}@${host}:${port}/${database}?schema=public&options=${timezoneOption}`;
+  const connectionLimit = Number.parseInt(String(config.connectionLimit || process.env.DB_CONNECTION_LIMIT || ''), 10);
+  const connectionLimitOption = Number.isFinite(connectionLimit) && connectionLimit > 0
+    ? `&connection_limit=${connectionLimit}`
+    : '';
+  return `postgresql://${user}:${password}@${host}:${port}/${database}?schema=public${connectionLimitOption}&options=${timezoneOption}`;
 }
 
 function resolveDatabaseUrl(config = {}) {
