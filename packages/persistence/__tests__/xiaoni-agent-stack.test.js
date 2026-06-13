@@ -16,6 +16,9 @@ function createMockSql() {
     forkItem: [],
     forkSlice: [],
     forkTool: [],
+    imageForkRun: [],
+    imageForkItem: [],
+    imageForkSlice: [],
     rollupSource: [],
     rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 2 }]
   };
@@ -281,7 +284,11 @@ function createMockSql() {
       if (sql.includes("date_trunc('hour', created_at)") && sql.includes('WHERE slice_id = ?')) {
         const sourceKind = params[0];
         const sliceId = params[1];
-        const sourceRows = sourceKind === 'compression_fork' ? rows.forkSlice : rows.slice;
+        const sourceRows = sourceKind === 'compression_fork'
+          ? rows.forkSlice
+          : sourceKind === 'image_vision_fork'
+            ? rows.imageForkSlice
+            : rows.slice;
         const row = sourceRows.find((entry) => entry.slice_id === sliceId);
         if (!row) {
           return [];
@@ -289,7 +296,7 @@ function createMockSql() {
         return [{
           slice_id: row.slice_id,
           source_kind: sourceKind,
-          fork_run_id: sourceKind === 'compression_fork' ? row.fork_run_id : null,
+          fork_run_id: sourceKind === 'compression_fork' || sourceKind === 'image_vision_fork' ? row.fork_run_id : null,
           identity_key: row.identity_key,
           llm_call_id: row.llm_call_id,
           trace_id: row.trace_id,
@@ -392,7 +399,7 @@ function createMockSql() {
   return executor;
 }
 
-test('ensureXiaoniAgentStackSchema creates stack, slice, tool, compaction, and fork ledger tables', async () => {
+test('ensureXiaoniAgentStackSchema creates main, compression fork, and image fork ledger tables', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -407,6 +414,9 @@ test('ensureXiaoniAgentStackSchema creates stack, slice, tool, compaction, and f
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_items/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_slices/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_tool_executions/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_runs/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_items/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_slices/);
 });
 
 test('appendAgentStackItems assigns monotonic identity-local stack indexes', async () => {
@@ -728,7 +738,7 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
   assert.equal(sql.rows.stackInsert.length, 0);
 });
 
-test('attachConversationIdToAgentStackByTrace updates stack, slices, and tool executions', async () => {
+test('attachConversationIdToAgentStackByTrace updates main stack, tools, and image fork rows', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -737,12 +747,15 @@ test('attachConversationIdToAgentStackByTrace updates stack, slices, and tool ex
     conversationId: '42'
   });
 
-  assert.equal(count, 3);
+  assert.equal(count, 6);
   const updates = sql.calls.filter((call) => call.kind === 'execute' && call.sql.includes('UPDATE '));
-  assert.equal(updates.length, 3);
+  assert.equal(updates.length, 6);
   assert.ok(updates.some((call) => call.sql.includes('agent_stack_items')));
   assert.ok(updates.some((call) => call.sql.includes('llm_request_slices')));
   assert.ok(updates.some((call) => call.sql.includes('tool_executions')));
+  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_runs')));
+  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_items')));
+  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_slices')));
 });
 
 function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows = [] } = {}) {
@@ -930,6 +943,52 @@ test('getXiaoniLlmUsageTimeline includes compression fork slices with fork ancho
   assert.equal(timeline.points[0].anchorEventId, 'compression-fork-slice:fork-slice-1');
   assert.equal(timeline.points[0].topEvent.eventId, 'compression-fork-slice:fork-slice-1');
   assert.equal(timeline.summary.inputTokens, 1800);
+});
+
+test('getXiaoniLlmUsageTimeline includes image vision fork slices with fork anchors', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'image_vision_fork:image-slice-1',
+        timestamp: '2026-06-13T00:12:00.000+08:00',
+        bucket_start: '2026-06-13T00:12:00.000+08:00',
+        bucket_end: '2026-06-13T00:12:00.000+08:00',
+        call_count: 1,
+        input_tokens: 2200,
+        cached_tokens: 2100,
+        output_tokens: 70,
+        source_kind: 'image_vision_fork',
+        fork_run_id: 'image-fork-1',
+        llm_request_slice_id: 'image-slice-1',
+        llm_call_id: 'llm-image-1',
+        trace_id: 'trace-image-1',
+        top_llm_request_slice_id: 'image-slice-1',
+        top_source_kind: 'image_vision_fork',
+        top_fork_run_id: 'image-fork-1',
+        top_llm_call_id: 'llm-image-1',
+        top_trace_id: 'trace-image-1',
+        top_timestamp: '2026-06-13T00:12:00.000+08:00',
+        top_input_tokens: 2200,
+        top_cached_tokens: 2100,
+        top_output_tokens: 70
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100
+  });
+
+  assert.equal(timeline.points.length, 1);
+  assert.equal(timeline.points[0].sourceKind, 'image_vision_fork');
+  assert.equal(timeline.points[0].forkRunId, 'image-fork-1');
+  assert.equal(timeline.points[0].anchorEventId, 'image-vision-fork-slice:image-slice-1');
+  assert.equal(timeline.points[0].topEvent.eventId, 'image-vision-fork-slice:image-slice-1');
+  assert.equal(timeline.summary.cachedTokens, 2100);
 });
 
 test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => {

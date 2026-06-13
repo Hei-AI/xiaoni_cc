@@ -23,6 +23,10 @@ import {
   recordCoreMemoryCompressionForkSlice as recordCoreMemoryCompressionForkSlicePersistence,
   recordCoreMemoryCompressionForkToolExecution as recordCoreMemoryCompressionForkToolExecutionPersistence,
   completeCoreMemoryCompressionForkToolExecution as completeCoreMemoryCompressionForkToolExecutionPersistence,
+  recordImageVisionForkRun as recordImageVisionForkRunPersistence,
+  completeImageVisionForkRun as completeImageVisionForkRunPersistence,
+  appendImageVisionForkItems as appendImageVisionForkItemsPersistence,
+  recordImageVisionForkSlice as recordImageVisionForkSlicePersistence,
   attachConversationIdToAgentStackByTrace,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
@@ -2065,6 +2069,95 @@ export class RuntimeStore {
     metadata?: Record<string, unknown>;
   }) {
     return recordCoreMemoryCompressionForkSlicePersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordImageVisionForkRun(params: {
+    forkRunId: string;
+    status: string;
+    traceId: string;
+    runId: string;
+    conversationId?: number | null;
+    assetId?: string | null;
+    imageId?: string | null;
+    mediaTag?: string | null;
+    observationId?: number | string | null;
+    description?: string | null;
+    artifact?: Record<string, unknown>;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordImageVisionForkRunPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async completeImageVisionForkRun(params: {
+    forkRunId: string;
+    status: string;
+    observationId?: number | string | null;
+    description?: string | null;
+    artifact?: Record<string, unknown>;
+    errorMessage?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return completeImageVisionForkRunPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async appendImageVisionForkItems(params: {
+    forkRunId: string;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    sourceType?: string | null;
+    sourceId?: string | null;
+    llmRequestSliceId?: string | null;
+    items: Array<Record<string, unknown>>;
+  }) {
+    return appendImageVisionForkItemsPersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordImageVisionForkSlice(params: {
+    forkRunId: string;
+    sliceId: string;
+    llmCallId?: string | null;
+    inputStartIndex?: number | null;
+    inputEndIndex?: number | null;
+    inputStackItemIds?: Array<string | number>;
+    outputStartIndex?: number | null;
+    outputEndIndex?: number | null;
+    canonicalRequest?: Record<string, unknown>;
+    wireRequest?: Record<string, unknown> | null;
+    canonicalResponse?: Record<string, unknown> | null;
+    wireResponse?: Record<string, unknown> | null;
+    rawResponse?: Record<string, unknown> | null;
+    outputItems?: Array<Record<string, unknown>>;
+    status?: string;
+    tokenUsage?: Record<string, unknown>;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    agentTurn?: number | null;
+    modelName?: string | null;
+    modelProvider?: string | null;
+    requestFormatVersion?: string | null;
+    wireProviderFormat?: string | null;
+    processingTimeMs?: number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordImageVisionForkSlicePersistence({
       identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql

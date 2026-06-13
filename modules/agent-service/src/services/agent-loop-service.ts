@@ -1744,6 +1744,11 @@ function buildImageVisionForkCallId(imageId: string): string {
     : `call_img_${digest}`;
 }
 
+function buildImageVisionForkRunId(runId: string | null | undefined, imageId: string): string {
+  const digest = createHash('sha256').update(`${runId || 'run'}:${imageId}`).digest('hex').slice(0, 16);
+  return `image-vision-fork:${runId || 'run'}:${digest}:${uuidv4().slice(0, 8)}`;
+}
+
 function buildImageObservationXml(imageId: string, description: string) {
   return `<image id="${escapeTagAttribute(imageId)}">含义是: ${escapeTaggedText(description)}</image>`;
 }
@@ -6613,6 +6618,88 @@ export class AgentLoopService {
     }
   }
 
+  private async recordImageVisionForkRunSafe(params: Parameters<RuntimeStore['recordImageVisionForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordImageVisionForkRun?: RuntimeStore['recordImageVisionForkRun'];
+    }).recordImageVisionForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record image vision fork run', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeImageVisionForkRunSafe(params: Parameters<RuntimeStore['completeImageVisionForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeImageVisionForkRun?: RuntimeStore['completeImageVisionForkRun'];
+    }).completeImageVisionForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete image vision fork run', {
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async appendImageVisionForkItemsSafe(params: Parameters<RuntimeStore['appendImageVisionForkItems']>[0]) {
+    const appender = (this.store as RuntimeStore & {
+      appendImageVisionForkItems?: RuntimeStore['appendImageVisionForkItems'];
+    }).appendImageVisionForkItems;
+    if (typeof appender !== 'function' || params.items.length === 0) {
+      return [];
+    }
+    try {
+      return await appender.call(this.store, params) as Array<Record<string, unknown>>;
+    } catch (error) {
+      moduleLogger.warn('Failed to append image vision fork items', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        itemCount: params.items.length,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  private async recordImageVisionForkSliceSafe(params: Parameters<RuntimeStore['recordImageVisionForkSlice']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordImageVisionForkSlice?: RuntimeStore['recordImageVisionForkSlice'];
+    }).recordImageVisionForkSlice;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record image vision fork slice', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        sliceId: params.sliceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private async recordCoreMemoryCompressionForkToolExecutionSafe(params: Parameters<RuntimeStore['recordCoreMemoryCompressionForkToolExecution']>[0]) {
     const recorder = (this.store as RuntimeStore & {
       recordCoreMemoryCompressionForkToolExecution?: RuntimeStore['recordCoreMemoryCompressionForkToolExecution'];
@@ -7558,29 +7645,107 @@ export class AgentLoopService {
     }
 
     const forkRequest = buildImageVisionForkRequest(baseRequest, materialized.dataUrl, assetId);
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [NO_TRAFFIC_PERSIST_HEADER]: '1'
-      },
-      body: JSON.stringify({
-        trace_id: queueMessage.traceId,
-        run_id: queueMessage.runId,
-        executionMode: 'image_vision_fork',
-        model: forkRequest.model,
-        canonicalRequest: forkRequest
-      })
+    const forkRunId = buildImageVisionForkRunId(queueMessage.runId, assetId);
+    await this.recordImageVisionForkRunSafe({
+      forkRunId,
+      status: 'running',
+      traceId: queueMessage.traceId,
+      runId: queueMessage.runId,
+      assetId,
+      imageId: assetId,
+      mediaTag: asset.media_tag || mediaTag || null,
+      metadata: {
+        execution_mode: 'image_vision_fork',
+        reason: typeof args.reason === 'string' ? args.reason : null
+      }
     });
-    const payload = await response.json() as { success?: boolean; error?: string; response?: string; model?: string; provider?: string; llm_call_id?: string; llm_request_slice_id?: string };
-    if (!response.ok || payload.success === false) {
-      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
+
+    let payload: ProviderAgentResponse;
+    let description = '';
+    let forkSliceId = '';
+    try {
+      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [NO_TRAFFIC_PERSIST_HEADER]: '1'
+        },
+        body: JSON.stringify({
+          trace_id: queueMessage.traceId,
+          run_id: queueMessage.runId,
+          executionMode: 'image_vision_fork',
+          model: forkRequest.model,
+          canonicalRequest: forkRequest
+        })
+      });
+      payload = await response.json() as ProviderAgentResponse;
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
+      }
+
+      forkSliceId = payload.llm_request_slice_id
+        || payload.llm_call_id
+        || `image-vision-fork-slice:${forkRunId}`;
+      description = typeof payload.response === 'string' && payload.response.trim()
+        ? payload.response.trim()
+        : '图片已读取，但没有得到有效描述。';
+      const outputItems = extractCanonicalResponseOutputItems(payload);
+      const outputRows = await this.appendImageVisionForkItemsSafe({
+        forkRunId,
+        traceId: queueMessage.traceId,
+        runId: queueMessage.runId,
+        sourceType: 'image_vision_fork_slices',
+        sourceId: forkSliceId,
+        llmRequestSliceId: forkSliceId,
+        items: buildModelOutputStackItems(outputItems, forkSliceId) as Array<Record<string, unknown>>
+      });
+      const outputItemIndexes = outputRows
+        .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+        .filter((value) => Number.isFinite(value));
+      await this.recordImageVisionForkSliceSafe({
+        forkRunId,
+        sliceId: forkSliceId,
+        llmCallId: payload.llm_call_id || null,
+        inputStartIndex: null,
+        inputEndIndex: null,
+        inputStackItemIds: [],
+        outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
+        outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
+        canonicalRequest: (payload.canonical_request || forkRequest) as Record<string, unknown>,
+        wireRequest: payload.wire_request || null,
+        canonicalResponse: payload.canonical_response || null,
+        wireResponse: payload.wire_response || null,
+        rawResponse: payload.raw_response || null,
+        outputItems,
+        status: payload.success ? 'completed' : 'failed',
+        tokenUsage: buildProviderTokenUsage(payload),
+        traceId: queueMessage.traceId,
+        runId: queueMessage.runId,
+        modelName: payload.model || forkRequest.model || null,
+        modelProvider: payload.provider || null,
+        requestFormatVersion: payload.request_format_version || null,
+        wireProviderFormat: payload.wire_provider_format || null,
+        processingTimeMs: typeof payload.performance?.processing_time_ms === 'number' ? payload.performance.processing_time_ms : null,
+        metadata: {
+          execution_mode: 'image_vision_fork',
+          asset_id: assetId,
+          media_tag: asset.media_tag || mediaTag || null
+        }
+      });
+    } catch (error) {
+      await this.completeImageVisionForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        metadata: {
+          execution_mode: 'image_vision_fork',
+          asset_id: assetId
+        }
+      });
+      throw error;
     }
 
-    const description = typeof payload.response === 'string' && payload.response.trim()
-      ? payload.response.trim()
-      : '图片已读取，但没有得到有效描述。';
-    await this.store.recordMediaObservation({
+    const observation = await this.store.recordMediaObservation({
       assetId,
       observer: 'xiaoni',
       description,
@@ -7588,11 +7753,30 @@ export class AgentLoopService {
       metadata: {
         trace_id: queueMessage.traceId,
         run_id: queueMessage.runId || null,
+        fork_run_id: forkRunId,
         llm_call_id: payload.llm_call_id || null,
-        llm_request_slice_id: payload.llm_request_slice_id || payload.llm_call_id || null,
+        llm_request_slice_id: forkSliceId || null,
         provider_raw_trace_persisted: true,
-        fork: 'main_agent_context_vision',
+        fork: 'image_vision_fork',
         reason: typeof args.reason === 'string' ? args.reason : null
+      }
+    });
+    await this.completeImageVisionForkRunSafe({
+      forkRunId,
+      status: 'completed',
+      observationId: typeof (observation as { id?: unknown } | null)?.id === 'string'
+        ? (observation as { id: string }).id
+        : null,
+      description,
+      artifact: {
+        description,
+        llm_request_slice_id: forkSliceId || null,
+        llm_call_id: payload.llm_call_id || null
+      },
+      metadata: {
+        execution_mode: 'image_vision_fork',
+        asset_id: assetId,
+        media_tag: asset.media_tag || mediaTag || null
       }
     });
 
@@ -8215,6 +8399,15 @@ async function recomputeReadCutoffToTarget(params: {
 function readOptionalNumber(value: unknown) {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildProviderTokenUsage(modelResult: ProviderAgentResponse) {
+  return {
+    ...(modelResult.usage || {}),
+    cached_input_tokens: readOptionalNumber(modelResult.usage_details?.cached_input_tokens) || 0,
+    reasoning_tokens: readOptionalNumber(modelResult.usage_details?.reasoning_tokens) || 0,
+    raw_usage: modelResult.usage_details?.raw_usage || null
+  };
 }
 
 function attachActualUsageToTurnBudget(

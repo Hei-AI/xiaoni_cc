@@ -20,6 +20,7 @@ const USAGE_ROLLUP_VERSION = 2;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
+const USAGE_SOURCE_IMAGE_VISION_FORK = 'image_vision_fork';
 
 function normalizeDate(value) {
   if (!value) {
@@ -433,6 +434,9 @@ function usageAnchorEventId(sliceId, sourceKind) {
   if (sourceKind === USAGE_SOURCE_COMPRESSION_FORK) {
     return `compression-fork-slice:${sliceId}`;
   }
+  if (sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) {
+    return `image-vision-fork-slice:${sliceId}`;
+  }
   return `llm-slice:${sliceId}`;
 }
 
@@ -460,8 +464,10 @@ function usageRollupSourceFromSliceSelectSql(sourceKind = USAGE_SOURCE_MAIN) {
   const tokenSql = usageTokenSql('token_usage');
   const tableName = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
     ? 'core_memory_compression_fork_slices'
-    : 'llm_request_slices';
-  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+    : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+      ? 'image_vision_fork_slices'
+      : 'llm_request_slices';
+  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
     ? 'fork_run_id'
     : 'NULL::varchar AS fork_run_id';
   return `
@@ -488,6 +494,8 @@ function usageRollupSourceFromAllSlicesSelectSql() {
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_MAIN)}
     UNION ALL
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_COMPRESSION_FORK)}
+    UNION ALL
+    ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_IMAGE_VISION_FORK)}
   `;
 }
 
@@ -679,6 +687,47 @@ function normalizeCompressionForkToolExecutionRow(row) {
   } : null;
 }
 
+function normalizeImageVisionForkRunRow(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id === null || typeof row.id === 'undefined' ? null : String(row.id),
+    forkRunId: row.fork_run_id,
+    identityKey: row.identity_key,
+    status: row.status || null,
+    traceId: row.trace_id || null,
+    runId: row.run_id || null,
+    conversationId: row.conversation_id === null || typeof row.conversation_id === 'undefined'
+      ? null
+      : String(row.conversation_id),
+    assetId: row.asset_id || null,
+    imageId: row.image_id || null,
+    mediaTag: row.media_tag || null,
+    observationId: row.observation_id || null,
+    description: row.description || null,
+    artifact: normalizeJsonObject(row.artifact, {}),
+    errorMessage: row.error_message || null,
+    metadata: normalizeJsonObject(row.metadata, {}),
+    startedAt: normalizeDate(row.started_at),
+    completedAt: normalizeDate(row.completed_at),
+    createdAt: normalizeDate(row.created_at),
+    updatedAt: normalizeDate(row.updated_at)
+  };
+}
+
+function normalizeImageVisionForkItemRow(row) {
+  return normalizeCompressionForkItemRow(row);
+}
+
+function normalizeImageVisionForkSliceRow(row) {
+  const normalized = normalizeLlmSliceRow(row);
+  return normalized ? {
+    ...normalized,
+    forkRunId: row.fork_run_id
+  } : null;
+}
+
 function buildStackEventId(identityKey, item, indexHint) {
   return firstString(item.eventId, item.event_id)
     || `stack:${identityKey}:${Date.now()}:${indexHint}:${randomUUID().slice(0, 8)}`;
@@ -689,9 +738,19 @@ function buildCompressionForkItemEventId(forkRunId, item, indexHint) {
     || `fork-stack:${forkRunId}:${indexHint}:${randomUUID().slice(0, 8)}`;
 }
 
+function buildImageVisionForkItemEventId(forkRunId, item, indexHint) {
+  return firstString(item.eventId, item.event_id)
+    || `image-fork-stack:${forkRunId}:${indexHint}:${randomUUID().slice(0, 8)}`;
+}
+
 function buildCompressionForkRunId(input) {
   return firstString(input.forkRunId, input.fork_run_id)
     || `core-memory-fork:${firstString(input.runId, input.run_id, 'run')}:${randomUUID().slice(0, 8)}`;
+}
+
+function buildImageVisionForkRunId(input) {
+  return firstString(input.forkRunId, input.fork_run_id)
+    || `image-vision-fork:${firstString(input.runId, input.run_id, 'run')}:${firstString(input.assetId, input.asset_id, input.imageId, input.image_id, randomUUID().slice(0, 8))}`;
 }
 
 function buildSliceId(input) {
@@ -904,7 +963,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             output_tokens = EXCLUDED.output_tokens,
             updated_at = CURRENT_TIMESTAMP
         `,
-        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK]
+        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK, USAGE_SOURCE_IMAGE_VISION_FORK]
       );
       for (const bucket of USAGE_ROLLUP_BUCKETS) {
         await rebuildLlmUsageRollupBucket(executor, bucket);
@@ -917,7 +976,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             initialized_at = CURRENT_TIMESTAMP,
             source_max_id = GREATEST(
               COALESCE((SELECT MAX(id) FROM llm_request_slices), 0),
-              COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0)
+              COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0),
+              COALESCE((SELECT MAX(id) FROM image_vision_fork_slices), 0)
             ),
             source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
             updated_at = CURRENT_TIMESTAMP
@@ -1155,7 +1215,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     await applyLlmUsageRollupContribution(executor, current, 'add');
     const sourceTable = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
       ? 'core_memory_compression_fork_slices'
-      : 'llm_request_slices';
+      : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+        ? 'image_vision_fork_slices'
+        : 'llm_request_slices';
     await executor.query(
       `
         UPDATE llm_usage_rollup_state
@@ -1440,6 +1502,90 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        `
+          CREATE TABLE IF NOT EXISTS image_vision_fork_runs (
+            id BIGSERIAL PRIMARY KEY,
+            fork_run_id VARCHAR(191) NOT NULL UNIQUE,
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            status VARCHAR(32) NOT NULL DEFAULT 'running',
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            conversation_id BIGINT,
+            asset_id VARCHAR(64),
+            image_id VARCHAR(64),
+            media_tag VARCHAR(191),
+            observation_id VARCHAR(64),
+            description TEXT,
+            artifact JSONB NOT NULL DEFAULT '{}'::jsonb,
+            error_message TEXT,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP(3),
+            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
+        `
+          CREATE TABLE IF NOT EXISTS image_vision_fork_items (
+            id BIGSERIAL PRIMARY KEY,
+            event_id VARCHAR(191) NOT NULL UNIQUE,
+            fork_run_id VARCHAR(191) NOT NULL,
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            item_index BIGINT NOT NULL,
+            item_kind VARCHAR(64) NOT NULL,
+            role VARCHAR(32),
+            phase VARCHAR(32),
+            provider_item_id VARCHAR(191),
+            tool_call_id VARCHAR(191),
+            llm_request_slice_id VARCHAR(191),
+            content JSONB NOT NULL DEFAULT '{}'::jsonb,
+            visibility VARCHAR(32) NOT NULL DEFAULT 'model_visible',
+            source_type VARCHAR(64),
+            source_id VARCHAR(191),
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            conversation_id BIGINT,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(fork_run_id, item_index)
+          )
+        `,
+        `
+          CREATE TABLE IF NOT EXISTS image_vision_fork_slices (
+            id BIGSERIAL PRIMARY KEY,
+            slice_id VARCHAR(191) NOT NULL UNIQUE,
+            fork_run_id VARCHAR(191) NOT NULL,
+            llm_call_id VARCHAR(128),
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            input_start_index BIGINT,
+            input_end_index BIGINT,
+            input_stack_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+            output_start_index BIGINT,
+            output_end_index BIGINT,
+            canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
+            wire_request JSONB,
+            canonical_response JSONB,
+            wire_response JSONB,
+            raw_response JSONB,
+            output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status VARCHAR(32) NOT NULL DEFAULT 'completed',
+            token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            conversation_id BIGINT,
+            agent_turn INTEGER,
+            model_name VARCHAR(191),
+            model_provider VARCHAR(64),
+            request_format_version VARCHAR(64),
+            wire_provider_format VARCHAR(128),
+            processing_time_ms INTEGER,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP(3),
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_identity_index ON agent_stack_items (identity_key, stack_index DESC)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_trace ON agent_stack_items (trace_id, stack_index)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_run ON agent_stack_items (run_id, stack_index)',
@@ -1464,7 +1610,13 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_slices_run_turn ON core_memory_compression_fork_slices (fork_run_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_run_time ON core_memory_compression_fork_tool_executions (fork_run_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_call ON core_memory_compression_fork_tool_executions (tool_call_id)',
-        'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_slice ON core_memory_compression_fork_tool_executions (llm_request_slice_id)'
+        'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_tool_slice ON core_memory_compression_fork_tool_executions (llm_request_slice_id)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_runs_trace ON image_vision_fork_runs (trace_id, started_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_runs_run ON image_vision_fork_runs (run_id, started_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_runs_asset ON image_vision_fork_runs (asset_id, started_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_run_index ON image_vision_fork_items (fork_run_id, item_index)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_slice ON image_vision_fork_items (llm_request_slice_id)',
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_slices_run_turn ON image_vision_fork_slices (fork_run_id, agent_turn, id)'
       ]);
       await initializeLlmUsageRollupsIfNeeded(sql);
     });
@@ -2127,6 +2279,307 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function recordImageVisionForkRun(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const forkRunId = buildImageVisionForkRunId(input);
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          INSERT INTO image_vision_fork_runs (
+            fork_run_id,
+            identity_key,
+            status,
+            trace_id,
+            run_id,
+            conversation_id,
+            asset_id,
+            image_id,
+            media_tag,
+            observation_id,
+            description,
+            artifact,
+            error_message,
+            metadata,
+            started_at,
+            completed_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamp, CURRENT_TIMESTAMP), ?::timestamp)
+          ON CONFLICT (fork_run_id) DO UPDATE SET
+            status = EXCLUDED.status,
+            trace_id = COALESCE(EXCLUDED.trace_id, image_vision_fork_runs.trace_id),
+            run_id = COALESCE(EXCLUDED.run_id, image_vision_fork_runs.run_id),
+            conversation_id = COALESCE(EXCLUDED.conversation_id, image_vision_fork_runs.conversation_id),
+            asset_id = COALESCE(EXCLUDED.asset_id, image_vision_fork_runs.asset_id),
+            image_id = COALESCE(EXCLUDED.image_id, image_vision_fork_runs.image_id),
+            media_tag = COALESCE(EXCLUDED.media_tag, image_vision_fork_runs.media_tag),
+            observation_id = COALESCE(EXCLUDED.observation_id, image_vision_fork_runs.observation_id),
+            description = COALESCE(EXCLUDED.description, image_vision_fork_runs.description),
+            artifact = EXCLUDED.artifact,
+            error_message = EXCLUDED.error_message,
+            metadata = EXCLUDED.metadata,
+            completed_at = COALESCE(EXCLUDED.completed_at, image_vision_fork_runs.completed_at),
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING *
+        `,
+        [
+          forkRunId,
+          firstString(input.identityKey, input.identity_key, 'xiaoni'),
+          firstString(input.status, 'running'),
+          firstString(input.traceId, input.trace_id),
+          firstString(input.runId, input.run_id),
+          normalizeBigIntId(input.conversationId ?? input.conversation_id),
+          firstString(input.assetId, input.asset_id),
+          firstString(input.imageId, input.image_id),
+          firstString(input.mediaTag, input.media_tag),
+          firstString(input.observationId, input.observation_id),
+          firstString(input.description),
+          JSON.stringify(normalizeJsonObject(input.artifact, {})),
+          firstString(input.errorMessage, input.error_message),
+          JSON.stringify(normalizeJsonObject(input.metadata, {})),
+          normalizeDate(input.startedAt || input.started_at),
+          normalizeDate(input.completedAt || input.completed_at || (firstString(input.status) === 'completed' || firstString(input.status) === 'failed' ? new Date() : null))
+        ]
+      );
+      return normalizeImageVisionForkRunRow(rows[0]);
+    });
+  }
+
+  async function completeImageVisionForkRun(input = {}, config = {}) {
+    const forkRunId = firstString(input.forkRunId, input.fork_run_id);
+    if (!forkRunId) {
+      return null;
+    }
+    await ensureXiaoniAgentStackSchema(input, config);
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          UPDATE image_vision_fork_runs
+          SET status = ?,
+              observation_id = COALESCE(?, observation_id),
+              description = COALESCE(?, description),
+              artifact = ?::jsonb,
+              error_message = ?,
+              metadata = ?::jsonb,
+              completed_at = COALESCE(?::timestamp, CURRENT_TIMESTAMP),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE fork_run_id = ?
+          RETURNING *
+        `,
+        [
+          firstString(input.status, 'completed'),
+          firstString(input.observationId, input.observation_id),
+          firstString(input.description),
+          JSON.stringify(normalizeJsonObject(input.artifact, {})),
+          firstString(input.errorMessage, input.error_message),
+          JSON.stringify(normalizeJsonObject(input.metadata, {})),
+          normalizeDate(input.completedAt || input.completed_at),
+          forkRunId
+        ]
+      );
+      return normalizeImageVisionForkRunRow(rows[0]);
+    });
+  }
+
+  async function appendImageVisionForkItems(input = {}, config = {}) {
+    const rawItems = Array.isArray(input.items)
+      ? input.items
+      : input.item
+        ? [input.item]
+        : [];
+    const forkRunId = firstString(input.forkRunId, input.fork_run_id);
+    if (!forkRunId || rawItems.length === 0) {
+      return [];
+    }
+    await ensureXiaoniAgentStackSchema(input, config);
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+
+    return withSql(input, config, async (sql) => {
+      const appendWithExecutor = async (executor) => {
+        if (typeof executor.query === 'function') {
+          await executor.query('SELECT pg_advisory_xact_lock(hashtext(?))', [`image_vision_fork_items:${forkRunId}`]).catch(() => []);
+        }
+        const headRows = await executor.query(
+          'SELECT COALESCE(MAX(item_index), 0) AS item_index FROM image_vision_fork_items WHERE fork_run_id = ?',
+          [forkRunId]
+        );
+        let nextIndex = Number(headRows[0]?.item_index || 0) + 1;
+        const rows = [];
+        for (const item of rawItems) {
+          const row = await executor.query(
+            `
+              INSERT INTO image_vision_fork_items (
+                event_id,
+                fork_run_id,
+                identity_key,
+                item_index,
+                item_kind,
+                role,
+                phase,
+                provider_item_id,
+                tool_call_id,
+                llm_request_slice_id,
+                content,
+                visibility,
+                source_type,
+                source_id,
+                trace_id,
+                run_id,
+                conversation_id,
+                metadata
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              RETURNING *
+            `,
+            [
+              buildImageVisionForkItemEventId(forkRunId, item, nextIndex),
+              forkRunId,
+              identityKey,
+              nextIndex,
+              firstString(item.itemKind, item.item_kind, item.kind, 'assistant_output'),
+              firstString(item.role),
+              firstString(item.phase),
+              firstString(item.providerItemId, item.provider_item_id, item.id),
+              firstString(item.toolCallId, item.tool_call_id, item.call_id),
+              firstString(item.llmRequestSliceId, item.llm_request_slice_id, input.llmRequestSliceId, input.llm_request_slice_id),
+              JSON.stringify(normalizeValue(item.content ?? item.payload ?? {})),
+              firstString(item.visibility, input.visibility, 'model_visible'),
+              firstString(item.sourceType, item.source_type, input.sourceType, input.source_type),
+              firstString(item.sourceId, item.source_id, input.sourceId, input.source_id),
+              firstString(item.traceId, item.trace_id, input.traceId, input.trace_id),
+              firstString(item.runId, item.run_id, input.runId, input.run_id),
+              normalizeBigIntId(item.conversationId ?? item.conversation_id ?? input.conversationId ?? input.conversation_id),
+              JSON.stringify(normalizeJsonObject(item.metadata, {}))
+            ]
+          );
+          nextIndex += 1;
+          if (row[0]) {
+            rows.push(row[0]);
+          }
+        }
+        return rows.map(normalizeImageVisionForkItemRow).filter(Boolean);
+      };
+
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(appendWithExecutor);
+      }
+      return appendWithExecutor(sql);
+    });
+  }
+
+  async function recordImageVisionForkSlice(input = {}, config = {}) {
+    const forkRunId = firstString(input.forkRunId, input.fork_run_id);
+    if (!forkRunId) {
+      return null;
+    }
+    await ensureXiaoniAgentStackSchema(input, config);
+    const sliceId = buildSliceId(input);
+    const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
+    return withSql(input, config, async (sql) => {
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO image_vision_fork_slices (
+              slice_id,
+              fork_run_id,
+              llm_call_id,
+              identity_key,
+              input_start_index,
+              input_end_index,
+              input_stack_item_ids,
+              output_start_index,
+              output_end_index,
+              canonical_request,
+              wire_request,
+              canonical_response,
+              wire_response,
+              raw_response,
+              output_items,
+              status,
+              token_usage,
+              trace_id,
+              run_id,
+              conversation_id,
+              agent_turn,
+              model_name,
+              model_provider,
+              request_format_version,
+              wire_provider_format,
+              processing_time_ms,
+              metadata,
+              completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamp)
+            ON CONFLICT (slice_id) DO UPDATE SET
+              fork_run_id = EXCLUDED.fork_run_id,
+              llm_call_id = EXCLUDED.llm_call_id,
+              input_start_index = EXCLUDED.input_start_index,
+              input_end_index = EXCLUDED.input_end_index,
+              input_stack_item_ids = EXCLUDED.input_stack_item_ids,
+              output_start_index = EXCLUDED.output_start_index,
+              output_end_index = EXCLUDED.output_end_index,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              conversation_id = EXCLUDED.conversation_id,
+              agent_turn = EXCLUDED.agent_turn,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              request_format_version = EXCLUDED.request_format_version,
+              wire_provider_format = EXCLUDED.wire_provider_format,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata,
+              completed_at = COALESCE(EXCLUDED.completed_at, image_vision_fork_slices.completed_at),
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+          `,
+          [
+            sliceId,
+            forkRunId,
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            normalizeInteger(input.inputStartIndex ?? input.input_start_index),
+            normalizeInteger(input.inputEndIndex ?? input.input_end_index),
+            JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
+            normalizeInteger(input.outputStartIndex ?? input.output_start_index),
+            normalizeInteger(input.outputEndIndex ?? input.output_end_index),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeBigIntId(input.conversationId ?? input.conversation_id),
+            normalizeInteger(input.agentTurn ?? input.agent_turn),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider),
+            firstString(input.requestFormatVersion, input.request_format_version),
+            firstString(input.wireProviderFormat, input.wire_provider_format),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {})),
+            normalizeDate(completedAt)
+          ]
+        );
+        await syncLlmUsageRollupForSlice(executor, sliceId, USAGE_SOURCE_IMAGE_VISION_FORK);
+        return normalizeImageVisionForkSliceRow(rows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
+    });
+  }
+
   async function recordCoreMemoryCompressionForkToolExecution(input = {}, config = {}) {
     const forkRunId = firstString(input.forkRunId, input.fork_run_id);
     if (!forkRunId) {
@@ -2323,14 +2776,19 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
     const summaryOnly = input.summaryOnly === true || input.summary_only === true;
     const rawTraceOnly = input.rawTraceOnly === true || input.raw_trace_only === true;
-    const sourceKind = firstString(input.sourceKind, input.source_kind) === USAGE_SOURCE_COMPRESSION_FORK
+    const requestedSourceKind = firstString(input.sourceKind, input.source_kind);
+    const sourceKind = requestedSourceKind === USAGE_SOURCE_COMPRESSION_FORK
       ? USAGE_SOURCE_COMPRESSION_FORK
-      : USAGE_SOURCE_MAIN;
+      : requestedSourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+        ? USAGE_SOURCE_IMAGE_VISION_FORK
+        : USAGE_SOURCE_MAIN;
     const tableName = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
       ? 'core_memory_compression_fork_slices'
-      : 'llm_request_slices';
+      : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+        ? 'image_vision_fork_slices'
+        : 'llm_request_slices';
     const sourceKindSelect = `'${sourceKind}'::varchar AS source_kind`;
-    const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+    const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
       ? 'fork_run_id'
       : 'NULL::varchar AS fork_run_id';
     const selectColumns = rawTraceOnly
@@ -2404,7 +2862,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           completed_at,
           updated_at
         `
-      : sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+      : sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
         ? `*, ${sourceKindSelect}`
         : `*, ${sourceKindSelect}, ${forkRunIdSelect}`;
     const traceId = firstString(input.traceId, input.trace_id);
@@ -2428,7 +2886,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('slice_id = ?');
       params.push(sliceId);
     }
-    if (sourceKind === USAGE_SOURCE_COMPRESSION_FORK && forkRunId) {
+    if ((sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) && forkRunId) {
       clauses.push('fork_run_id = ?');
       params.push(forkRunId);
     }
@@ -2876,7 +3334,19 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'UPDATE tool_executions SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
         [conversationId, traceId]
       );
-      return updatedStack + updatedSlices + updatedTools;
+      const updatedImageForkRuns = await sql.execute(
+        'UPDATE image_vision_fork_runs SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
+        [conversationId, traceId]
+      );
+      const updatedImageForkItems = await sql.execute(
+        'UPDATE image_vision_fork_items SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
+        [conversationId, traceId]
+      );
+      const updatedImageForkSlices = await sql.execute(
+        'UPDATE image_vision_fork_slices SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
+        [conversationId, traceId]
+      );
+      return updatedStack + updatedSlices + updatedTools + updatedImageForkRuns + updatedImageForkItems + updatedImageForkSlices;
     });
   }
 
@@ -2895,6 +3365,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     recordCoreMemoryCompressionForkSlice,
     recordCoreMemoryCompressionForkToolExecution,
     completeCoreMemoryCompressionForkToolExecution,
+    recordImageVisionForkRun,
+    completeImageVisionForkRun,
+    appendImageVisionForkItems,
+    recordImageVisionForkSlice,
     listAgentStackItems,
     listLlmRequestSlices,
     getXiaoniLlmUsageTimeline,

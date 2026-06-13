@@ -703,6 +703,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
         metadata: {
           trace_id: 'trace_vision_1',
           llm_call_id: 'vision_llm_1',
+          provider_raw_trace_persisted: true,
           reason: 'image_inspect'
         },
         created_at: '2026-06-05T10:05:01.000Z'

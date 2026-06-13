@@ -2443,7 +2443,7 @@ export const XiaoniActivityPage: React.FC = () => {
       if (point.anchorEventId) {
         nextParams.set('focus_event', point.anchorEventId);
       }
-      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork') {
+      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'image_vision_fork') {
         nextParams.set('focus_slice', point.llmRequestSliceId);
       } else {
         nextParams.delete('focus_slice');
