@@ -313,8 +313,6 @@ function mapConversationItem(row) {
     itemIndex: Number(row.item_index),
     source: row.source === 'delivery'
       || row.source === 'presence_action'
-      || row.source === 'legacy_user_message'
-      || row.source === 'legacy_ai_response'
       ? row.source
       : 'inbound_batch',
     deliveryMessageId: row.delivery_message_id === null ? null : Number(row.delivery_message_id),

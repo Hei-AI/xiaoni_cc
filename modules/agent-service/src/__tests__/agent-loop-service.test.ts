@@ -456,7 +456,20 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
       sessionKey: 'qq:group:101',
       userMessage: '昨天有什么好玩的',
       aiResponse: '可以去看电影',
-      items: []
+      items: [{
+        id: 11,
+        conversationId: 1,
+        sessionKey: 'qq:group:101',
+        role: 'user',
+        phase: null,
+        content: '昨天有什么好玩的',
+        groupIndex: 0,
+        itemIndex: 0,
+        source: 'inbound_batch',
+        deliveryMessageId: null,
+        runId: 'run-history',
+        traceId: 'trace-history'
+      }]
     }
   ], createQueuePayload());
 
@@ -691,7 +704,20 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
       sessionKey: 'qq:group:101',
       userMessage: '昨天有什么好玩的',
       aiResponse: '可以去看电影',
-      items: []
+      items: [{
+        id: 11,
+        conversationId: 1,
+        sessionKey: 'qq:group:101',
+        role: 'user',
+        phase: null,
+        content: '昨天有什么好玩的',
+        groupIndex: 0,
+        itemIndex: 0,
+        source: 'inbound_batch',
+        deliveryMessageId: null,
+        runId: 'run-history',
+        traceId: 'trace-history'
+      }]
     }],
     createQueuePayload(),
     createRuntimePrompt(),
@@ -699,7 +725,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
     '上一段近况：小腻刚被提醒不要公式化接话，正在把上下文压缩改成纯文本时报。'
   );
   const contents = loopInput.map(getMessageContent);
-  const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('legacy_user_message'));
+  const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('昨天有什么好玩的'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
   const digestItem = loopInput[digestIndex] as any;
   const currentMessageIndex = contents.findIndex(isPhoneNotificationReminderContent);
@@ -713,6 +739,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   assert.ok(digestIndex < currentMessageIndex);
   assert.match(contents[digestIndex], /上一段近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);
+  assert.equal(contents.some((content) => content.includes('legacy_user_message')), false);
 });
 
 test('buildCanonicalAgentTurnRequest does not include previous_response_id', () => {
@@ -2042,7 +2069,7 @@ test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () =>
   assert.match(getMessageContent(osItem), /我对她会更放松一点/);
 });
 
-test('buildInitialInput appends standalone xiaoni_os when the latest turn was silent', () => {
+test('buildInitialInput does not synthesize xiaoni_os from lease release details', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2079,11 +2106,13 @@ test('buildInitialInput appends standalone xiaoni_os when the latest turn was si
     }
   ], createQueuePayload());
 
-  const standaloneOsItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<xiaoni_os>'));
-  assert.ok(standaloneOsItem);
-  assert.match(getMessageContent(standaloneOsItem), /<xiaoni_os>/);
-  assert.match(getMessageContent(standaloneOsItem), /刚才我没有可见发言/);
-  assert.match(getMessageContent(standaloneOsItem), /我插进去会显得多余/);
+  const assistantCommentary = loopInput
+    .filter((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary')
+    .map(getMessageContent)
+    .join('\n');
+  assert.doesNotMatch(assistantCommentary, /<xiaoni_os>/);
+  assert.doesNotMatch(assistantCommentary, /刚才我没有可见发言/);
+  assert.doesNotMatch(assistantCommentary, /我插进去会显得多余/);
 });
 
 test('buildInitialInput preserves xiaoni_os from non-latest history turns', () => {

@@ -8352,24 +8352,6 @@ export function buildInitialInput(
     let osAttached = false;
 
     if (transcriptItems.length === 0) {
-      if (turn.userMessage) {
-        items.push(buildUserSceneInputItem([
-          formatTaggedBlock('INPUT_MESSAGE', {
-            source: 'legacy_user_message',
-            conversation_id: turn.id,
-            session_key: turn.sessionKey ?? undefined
-          }, turn.userMessage)
-        ]));
-      }
-      if (turn.aiResponse) {
-        items.push(buildAssistantFinalInputItem([
-          renderAssistantOutputMessage({
-            accountId: queueMessage.accountId,
-            content: turn.aiResponse,
-            source: 'legacy_ai_response'
-          })
-        ]));
-      }
       if (osText) {
         items.push(buildAssistantCommentaryInputItem([osText]));
         osAttached = true;
@@ -8437,16 +8419,6 @@ function buildTurnOs(turn: ConversationTurn) {
   const rawXiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
     ? String((rawResponse as Record<string, unknown>).xiaoni_os)
     : '';
-  const leaseRelease = (rawResponse as Record<string, unknown>).lease_release;
-  const leaseReleaseObject = leaseRelease && typeof leaseRelease === 'object'
-    ? leaseRelease as Record<string, unknown>
-    : {};
-  const leaseDetail = typeof leaseReleaseObject.detail === 'string'
-    ? leaseReleaseObject.detail.trim()
-    : '';
-  const leaseReason = typeof (rawResponse as Record<string, unknown>).lease_release_reason === 'string'
-    ? String((rawResponse as Record<string, unknown>).lease_release_reason).trim()
-    : (typeof leaseReleaseObject.reason === 'string' ? leaseReleaseObject.reason.trim() : '');
   const sentMessages = Array.isArray((rawResponse as Record<string, unknown>).sent_messages)
     ? ((rawResponse as Record<string, unknown>).sent_messages as unknown[])
         .map((item) => typeof item === 'string' ? item.trim() : '')
@@ -8462,14 +8434,6 @@ function buildTurnOs(turn: ConversationTurn) {
     return [
       '<xiaoni_os>',
       xiaoniOs,
-      '</xiaoni_os>'
-    ].join('\n');
-  }
-
-  if ((leaseDetail || leaseReason) && !turn.aiResponse && sentMessages.length === 0) {
-    return [
-      '<xiaoni_os>',
-      `刚才我没有可见发言。${leaseDetail || leaseReason}`,
       '</xiaoni_os>'
     ].join('\n');
   }

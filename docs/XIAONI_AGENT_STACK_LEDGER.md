@@ -142,6 +142,12 @@ inbox，但不会写 `phone_notification` 到 Notify Bucket，因此不会因为
 它们可以作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，但不得写入
 `conversation_items` 或 `conversations.user_message`。
 
+`lease_release`、`lease_release_reason`、token usage、runtime frame yield detail 等字段
+只属于工程审计和 trace 解释，不能投影成 prompt-facing assistant commentary。历史上
+曾经把无可见发言的 lease detail 包装成 `<xiaoni_os>`；当前契约禁止这类合成。
+后续 request 里能出现的 `<xiaoni_os>` 只能来自模型显式写入的
+`raw_response.xiaoni_os`，并且仍要经过 spoken-turn / tactical-state 过滤。
+
 当前 prompt-facing reminder 模板只维护在 `docs/xiaoni_prompt/`，索引看
 `docs/remind.md`。不要在本文、README 或其它文档复制模板正文。
 
@@ -297,8 +303,11 @@ request =
   中追加；否则不追加 reminder，直接用候选 request 发起本次模型 slice。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
-- `conversation_items` 可以在迁移期继续作为 transcript 兼容投影，但不再是主 loop
-  request assembly 的概念事实源。
+- `conversation_items` 可以在迁移期继续作为 transcript 投影，但不再是主 loop
+  request assembly 的概念事实源。没有 `conversation_items` 时，不得从
+  `conversations.user_message` / `conversations.ai_response` 回退合成历史 input；
+  缺失结构化 transcript 就只保留明确可回放的 `responses_replay_items`、stack window
+  和当前 runtime input。
 - `xiaoni:global` 仍是主 loop 的 identity / prompt cache / summary key；
   `qq:direct:*` / `qq:group:*` 只做投递目标和 QQ app 未读游标 metadata。
 
@@ -391,3 +400,6 @@ node --test packages/persistence/__tests__/*.test.js
 - 行动流不会把 provider request、token usage 或 lease 事件当成普通行动卡。
 - Trace detail 能从行动卡回到 stack item、LLM slice、tool execution 和可选
   provider evidence。
+- `buildInitialInput` 不会从 `lease_release` / `lease_release_reason` 合成
+  `<xiaoni_os>`，也不会从空 `conversation_items` 的旧 `conversations.user_message` /
+  `conversations.ai_response` 字段合成历史 prompt input。

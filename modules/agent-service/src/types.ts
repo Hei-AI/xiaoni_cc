@@ -170,9 +170,7 @@ export type ConversationTranscriptSource =
   | 'sensory_event'
   | 'self_continuation'
   | 'presence_action'
-  | 'delivery'
-  | 'legacy_user_message'
-  | 'legacy_ai_response';
+  | 'delivery';
 
 export type ConversationTranscriptItem = {
   id: number | null;
