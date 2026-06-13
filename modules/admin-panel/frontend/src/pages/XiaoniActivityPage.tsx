@@ -327,6 +327,27 @@ interface RawTraceTarget {
   subtitle?: string | null;
 }
 
+function rawTraceSpanIdForSource(
+  source: string | null | undefined,
+  providerRawTraceAvailable: boolean,
+  providerRequestSpanId: string | null,
+  traceTargetSpanId: string | null | undefined,
+  spanId: string | null
+): string | null {
+  if (!providerRawTraceAvailable) {
+    return null;
+  }
+  if (
+    source !== 'llm_request'
+    && source !== 'compression_fork_llm_request'
+    && source !== 'image_vision_fork_observation'
+    && source !== 'task'
+  ) {
+    return null;
+  }
+  return providerRequestSpanId || traceTargetSpanId || spanId || null;
+}
+
 interface RawTraceExchangeSide {
   headers: Record<string, unknown> | null;
   body: string | null;
@@ -570,6 +591,11 @@ function metadataNumber(metadata: Record<string, unknown>, key: string): number 
   const value = metadata[key];
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function metadataBoolean(metadata: Record<string, unknown>, key: string): boolean {
+  const value = metadata[key];
+  return value === true || value === 'true';
 }
 
 function formatBytes(value: number | null) {
@@ -1437,6 +1463,7 @@ function CompressionForkEventRow({
   const providerFormat = metadataText(event.metadata, 'providerFormat');
   const spanId = metadataText(event.metadata, 'spanId');
   const providerRequestSpanId = metadataText(event.metadata, 'providerRequestSpanId');
+  const providerRawTraceAvailable = metadataBoolean(event.metadata, 'providerRawTraceAvailable');
   const traceTarget = event.traceTarget || null;
   const inputTokens = formatTokenCount(metadataNumber(event.metadata, 'inputTokens'));
   const cachedInputTokens = formatTokenCount(metadataNumber(event.metadata, 'cachedInputTokens'));
@@ -1445,6 +1472,7 @@ function CompressionForkEventRow({
   const toolResultPreview = metadataText(event.metadata, 'toolResultPreview');
   const providerResponsePreview = metadataText(event.metadata, 'providerResponsePreview');
   const payloadPreview = metadataText(event.metadata, 'payloadPreview');
+  const rawTraceSpanId = rawTraceSpanIdForSource(event.source, providerRawTraceAvailable, providerRequestSpanId, traceTarget?.spanId, spanId);
   const previewEntries = [
     toolArgumentsPreview ? ['tool args', toolArgumentsPreview] as const : null,
     toolResultPreview ? ['tool result', toolResultPreview] as const : null,
@@ -1484,7 +1512,7 @@ function CompressionForkEventRow({
             ])}
             {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
           </div>
-          {traceTarget ? (
+          {traceTarget && rawTraceSpanId ? (
             <Button
               variant="outline"
               size="sm"
@@ -1492,7 +1520,7 @@ function CompressionForkEventRow({
               onClick={() => {
                 onOpenRawTrace({
                   eventId,
-                  spanId: providerRequestSpanId || traceTarget.spanId || spanId,
+                  spanId: rawTraceSpanId,
                   title: event.title,
                   subtitle: event.traceId,
                 });
@@ -1939,6 +1967,8 @@ function TimelineEvent({
   const searchLlmCallId = metadataText(item.metadata, 'searchLlmCallId');
   const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
   const traceTarget = item.traceTarget || null;
+  const providerRawTraceAvailable = metadataBoolean(item.metadata, 'providerRawTraceAvailable');
+  const rawTraceSpanId = rawTraceSpanIdForSource(item.source, providerRawTraceAvailable, providerRequestSpanId, traceTarget?.spanId, spanId);
   const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
   const isStackToolPayload = item.source === 'llm_stack_item' && (item.kind === 'function_call' || item.kind === 'function_call_output');
   const shouldHideBodyInToolDetails = Boolean(isStackToolPayload && (toolArgumentsPreview || toolResultPreview));
@@ -2006,7 +2036,7 @@ function TimelineEvent({
             </div>
           </div>
 
-          {traceTarget && (item.eventId || item.id) ? (
+          {traceTarget && rawTraceSpanId && (item.eventId || item.id) ? (
             <Button
               variant="outline"
               size="sm"
@@ -2014,7 +2044,7 @@ function TimelineEvent({
               onClick={() => {
                 onOpenRawTrace({
                   eventId: item.eventId || item.id,
-                  spanId: providerRequestSpanId || traceTarget.spanId || spanId,
+                  spanId: rawTraceSpanId,
                   title: item.title,
                   subtitle: item.traceId,
                 });

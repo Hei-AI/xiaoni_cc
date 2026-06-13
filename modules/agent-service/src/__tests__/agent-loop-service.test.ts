@@ -3249,7 +3249,7 @@ test('materializeImageAsset prefers storage_uri over expiring source_locator', a
   assert.equal(calls[0]?.body?.source_locator, 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png');
 });
 
-test('inspect_image_placeholder runs a no-persist main-context vision fork by image id', async () => {
+test('inspect_image_placeholder runs a persisted main-context vision fork by image id', async () => {
   const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
   const imageAssetId = 'media_40b42858b9edee2525910a13195ae1d5843ee26450af81bb';
   const queueMessage = {
@@ -3395,7 +3395,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
         })
       } as Response;
     }
-    if (String(url).endsWith('/api/internal/llm/debug')) {
+    if (String(url).endsWith('/api/internal/agent/execute')) {
       return {
         ok: true,
         json: async () => ({
@@ -3403,7 +3403,8 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
           response: '这是一只猫',
           model: 'gpt-5.4-mini',
           provider: 'openai',
-          llm_call_id: 'llm-image-fork'
+          llm_call_id: 'llm-image-fork',
+          llm_request_slice_id: 'llm-image-fork'
         })
       } as Response;
     }
@@ -3417,15 +3418,17 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   }
 
   const materializeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/media/materialize-image'));
-  const debugCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/llm/debug'));
+  const executeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/agent/execute'));
   assert.equal(materializeCalls.length, 1);
-  assert.equal(debugCalls.length, 1);
+  assert.equal(executeCalls.length, 1);
   assert.equal(fetchCalls.some((call) => call.url.includes('/api/internal/media/inspect')), false);
   assert.equal(materializeCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
-  assert.equal(debugCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
+  assert.equal(executeCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
+  assert.equal(executeCalls[0]?.body?.executionMode, 'image_vision_fork');
+  assert.equal(executeCalls[0]?.body?.run_id, queueMessage.payload.runId);
 
   const mainRequest = mainRequests[0];
-  const forkRequest = debugCalls[0]?.body?.canonicalRequest;
+  const forkRequest = executeCalls[0]?.body?.canonicalRequest;
   assert.ok(mainRequest);
   assert.ok(forkRequest);
   assert.deepEqual(forkRequest.input.slice(0, -3), mainRequest.input);
@@ -3469,6 +3472,8 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.equal(storeCalls.recordMediaObservation.length, 1);
   assert.equal(storeCalls.recordMediaObservation[0]?.assetId, imageAssetId);
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
+  assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.llm_request_slice_id, 'llm-image-fork');
+  assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.provider_raw_trace_persisted, true);
 
   const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === imageAssetId);
   assert.ok(inspectLog);

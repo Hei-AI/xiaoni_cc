@@ -1731,7 +1731,7 @@ function buildImageVisionForkRequest(
     ...(forkRequest.metadata || {}),
     image_vision_fork: 'true',
     image_id: imageId,
-    no_persist: 'true'
+    raw_trace_persisted: 'true'
   };
   return forkRequest;
 }
@@ -7558,7 +7558,7 @@ export class AgentLoopService {
     }
 
     const forkRequest = buildImageVisionForkRequest(baseRequest, materialized.dataUrl, assetId);
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -7566,12 +7566,13 @@ export class AgentLoopService {
       },
       body: JSON.stringify({
         trace_id: queueMessage.traceId,
-        executionMode: 'image_vision_fork_no_persist',
+        run_id: queueMessage.runId,
+        executionMode: 'image_vision_fork',
         model: forkRequest.model,
         canonicalRequest: forkRequest
       })
     });
-    const payload = await response.json() as { success?: boolean; error?: string; response?: string; model?: string; provider?: string; llm_call_id?: string };
+    const payload = await response.json() as { success?: boolean; error?: string; response?: string; model?: string; provider?: string; llm_call_id?: string; llm_request_slice_id?: string };
     if (!response.ok || payload.success === false) {
       throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
     }
@@ -7586,7 +7587,10 @@ export class AgentLoopService {
       sourceModel: payload.model || null,
       metadata: {
         trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId || null,
         llm_call_id: payload.llm_call_id || null,
+        llm_request_slice_id: payload.llm_request_slice_id || payload.llm_call_id || null,
+        provider_raw_trace_persisted: true,
         fork: 'main_agent_context_vision',
         reason: typeof args.reason === 'string' ? args.reason : null
       }

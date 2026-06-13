@@ -5,7 +5,8 @@ import {
   listTraceTrafficLogs,
   listAgentStackItems,
   listLlmRequestSlices,
-  listToolExecutions
+  listToolExecutions,
+  getAgentTaskById
 } from '@qq-bot/persistence';
 import {
   buildConversationTracePayload,
@@ -22,6 +23,7 @@ jest.mock('@qq-bot/persistence', () => ({
   listAgentStackItems: jest.fn(),
   listLlmRequestSlices: jest.fn(),
   listToolExecutions: jest.fn(),
+  getAgentTaskById: jest.fn(),
   parseInstantValue: jest.fn((value: unknown) => {
     if (!value) {
       return null;
@@ -499,6 +501,68 @@ describe('buildStackTracePayload', () => {
     }));
     expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.4-mini', input: ['compress'] }));
     expect(rawTrace?.source).toBe('core_memory_compression_fork_slices.provider_exchange');
+  });
+
+  it('loads raw provider exchange from image task results', async () => {
+    (getAgentTaskById as jest.Mock).mockResolvedValueOnce({
+      id: 'task-image-1',
+      source_trace_id: 'trace-image',
+      result_json: {
+        model: 'gpt-image-2',
+        provider_exchange: {
+          operation: 'generation',
+          provider: 'codex',
+          model: 'gpt-image-2',
+          started_at: '2026-03-28T10:00:01.000Z',
+          completed_at: '2026-03-28T10:00:04.000Z',
+          duration_ms: 3000,
+          request_format_version: 'image-provider/v1',
+          wire_provider_format: 'codex/responses',
+          request: {
+            method: 'POST',
+            upstream_url: 'https://chatgpt.com/backend-api/codex/responses',
+            headers: {
+              Authorization: 'Bearer secret',
+              accept: 'text/event-stream'
+            },
+            body: {
+              model: 'gpt-5.4-mini',
+              tools: [{ type: 'image_generation', model: 'gpt-image-2' }]
+            },
+            body_format: 'json',
+            body_source: 'image_provider.codex_responses_request'
+          },
+          response: {
+            status_code: 200,
+            headers: {
+              'content-type': 'text/event-stream'
+            },
+            body: 'data: {"type":"response.completed"}',
+            body_format: 'sse',
+            body_source: 'image_provider.codex_responses_sse'
+          }
+        }
+      }
+    });
+
+    const rawTrace = await buildStackRawProviderTrace(
+      createLogger(),
+      { sourceKind: 'image_task', forkRunId: 'task-image-1' },
+      'provider-request:image-task:task-image-1'
+    );
+
+    expect(getAgentTaskById).toHaveBeenCalledWith('task-image-1');
+    expect(rawTrace?.source).toBe('agent_tasks.result_json.provider_exchange');
+    expect(rawTrace?.request.headers).toEqual({
+      Authorization: '[redacted]',
+      accept: 'text/event-stream'
+    });
+    expect(rawTrace?.request.body).toBe(JSON.stringify({
+      model: 'gpt-5.4-mini',
+      tools: [{ type: 'image_generation', model: 'gpt-image-2' }]
+    }));
+    expect(rawTrace?.response.status_code).toBe(200);
+    expect(rawTrace?.response.body).toBe('data: {"type":"response.completed"}');
   });
 });
 

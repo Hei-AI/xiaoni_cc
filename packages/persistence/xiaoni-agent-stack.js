@@ -540,6 +540,9 @@ function normalizeLlmSliceRow(row) {
     canonicalResponse: normalizeJsonObject(row.canonical_response, null),
     wireResponse: normalizeJsonObject(row.wire_response, null),
     rawResponse: normalizeJsonObject(row.raw_response, null),
+    providerRawTraceAvailable: row.provider_raw_trace_available === null || typeof row.provider_raw_trace_available === 'undefined'
+      ? null
+      : row.provider_raw_trace_available === true || row.provider_raw_trace_available === 'true',
     outputItems: normalizeJsonArray(row.output_items, []),
     status: row.status || null,
     tokenUsage: normalizeJsonObject(row.token_usage, {}),
@@ -2380,6 +2383,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           output_end_index,
           '{}'::jsonb AS canonical_request,
           NULL::jsonb AS wire_request,
+          wire_request IS NOT NULL AS provider_raw_trace_available,
           NULL::jsonb AS canonical_response,
           NULL::jsonb AS wire_response,
           NULL::jsonb AS raw_response,

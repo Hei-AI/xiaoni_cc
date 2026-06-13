@@ -9,6 +9,7 @@ import {
 import {
   ImageEditRequest,
   ImageGenerateRequest,
+  ImageProviderExchange,
   ImageProviderResult,
   NormalizedImageFile,
   NormalizedImageOptions
@@ -50,6 +51,26 @@ type ImageRequestKind = 'generation' | 'edit';
 type CodexImageError = {
   message: string;
   code?: string;
+};
+
+const PROVIDER_EXCHANGE_SYMBOL = Symbol('qqbot.imageProviderExchange');
+
+type ImageResponseWithExchange = Record<string, any> & {
+  [PROVIDER_EXCHANGE_SYMBOL]?: ImageProviderExchange;
+};
+
+type ProviderRequestTraceContext = {
+  operation: ImageRequestKind;
+  provider: ImageTransport['mode'];
+  model: string;
+  startedAt: string;
+  method: 'POST';
+  upstreamUrl: string;
+  requestHeaders: Record<string, string>;
+  requestBody: unknown;
+  requestBodyFormat: string;
+  requestBodySource: string;
+  wireProviderFormat: string;
 };
 
 export class OpenAIImageProvider {
@@ -172,14 +193,29 @@ export class OpenAIImageProvider {
   private async postJsonPath(transport: ImageTransport, path: string, payload: Record<string, unknown>) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const upstreamUrl = `${transport.baseUrl}${this.normalizePath(path)}`;
+    const headers = this.buildHeaders(transport, true);
+    const startedAt = new Date().toISOString();
     try {
-      const response = await fetch(`${transport.baseUrl}${this.normalizePath(path)}`, {
+      const response = await fetch(upstreamUrl, {
         method: 'POST',
-        headers: this.buildHeaders(transport, true),
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal
       });
-      return await this.parseResponse(response, transport);
+      return await this.parseResponse(response, transport, {
+        operation: 'generation',
+        provider: transport.mode,
+        model: String(payload.model || 'gpt-image-2'),
+        startedAt,
+        method: 'POST',
+        upstreamUrl,
+        requestHeaders: headers,
+        requestBody: payload,
+        requestBodyFormat: 'json',
+        requestBodySource: 'image_provider.request_json',
+        wireProviderFormat: `${transport.mode}/images`
+      });
     } catch (error) {
       this.throwIfAbortError(error, `${transport.mode === 'codex' ? 'Codex' : 'OpenAI'} Image API`);
       throw error;
@@ -197,14 +233,29 @@ export class OpenAIImageProvider {
   private async postFormPath(transport: ImageTransport, path: string, form: FormData) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const upstreamUrl = `${transport.baseUrl}${this.normalizePath(path)}`;
+    const headers = this.buildHeaders(transport, false);
+    const startedAt = new Date().toISOString();
     try {
-      const response = await fetch(`${transport.baseUrl}${this.normalizePath(path)}`, {
+      const response = await fetch(upstreamUrl, {
         method: 'POST',
-        headers: this.buildHeaders(transport, false),
+        headers,
         body: form,
         signal: controller.signal
       });
-      return await this.parseResponse(response, transport);
+      return await this.parseResponse(response, transport, {
+        operation: 'edit',
+        provider: transport.mode,
+        model: 'gpt-image-2',
+        startedAt,
+        method: 'POST',
+        upstreamUrl,
+        requestHeaders: headers,
+        requestBody: this.summarizeFormData(form),
+        requestBodyFormat: 'form-data-summary',
+        requestBodySource: 'image_provider.request_form',
+        wireProviderFormat: `${transport.mode}/images`
+      });
     } catch (error) {
       this.throwIfAbortError(error, `${transport.mode === 'codex' ? 'Codex' : 'OpenAI'} Image API`);
       throw error;
@@ -228,11 +279,18 @@ export class OpenAIImageProvider {
     for (let index = 0; index < count; index += 1) {
       results.push(await this.postSingleCodexResponse(transport, singleOptions, images, mask));
     }
+    const firstExchange = results
+      .map((result) => this.getProviderExchange(result))
+      .find(Boolean) || null;
 
-    return {
+    const combined = {
       data: results.flatMap((result) => result.data || []),
       usage: results.map((result) => result.usage).filter(Boolean)
     };
+    if (firstExchange) {
+      this.attachProviderExchange(combined, firstExchange);
+    }
+    return combined;
   }
 
   private async postSingleCodexResponse(
@@ -269,14 +327,30 @@ export class OpenAIImageProvider {
   ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const payload = this.buildCodexResponsesPayload(options, images, mask);
+    const upstreamUrl = `${transport.baseUrl}${transport.responsesPath || this.codexResponsesPath}`;
+    const headers = this.buildHeaders(transport, true, 'text/event-stream');
+    const startedAt = new Date().toISOString();
     try {
-      const response = await fetch(`${transport.baseUrl}${transport.responsesPath || this.codexResponsesPath}`, {
+      const response = await fetch(upstreamUrl, {
         method: 'POST',
-        headers: this.buildHeaders(transport, true, 'text/event-stream'),
-        body: JSON.stringify(this.buildCodexResponsesPayload(options, images, mask)),
+        headers,
+        body: JSON.stringify(payload),
         signal: controller.signal
       });
-      return await this.parseCodexResponsesResponse(response);
+      return await this.parseCodexResponsesResponse(response, {
+        operation: images.length > 0 || mask ? 'edit' : 'generation',
+        provider: transport.mode,
+        model: String(payload.model || 'gpt-5.4-mini'),
+        startedAt,
+        method: 'POST',
+        upstreamUrl,
+        requestHeaders: headers,
+        requestBody: payload,
+        requestBodyFormat: 'json',
+        requestBodySource: 'image_provider.codex_responses_request',
+        wireProviderFormat: 'codex/responses'
+      });
     } catch (error) {
       this.throwIfAbortError(error, 'Codex Image API');
       throw error;
@@ -332,8 +406,9 @@ export class OpenAIImageProvider {
     throw lastError || new ImageProviderError(`No ${kind} endpoint path is configured for image provider`, 503);
   }
 
-  private async parseResponse(response: any, transport: ImageTransport) {
+  private async parseResponse(response: any, transport: ImageTransport, traceContext?: ProviderRequestTraceContext) {
     const text = await response.text();
+    const completedAt = new Date().toISOString();
     let json: any = null;
     if (text) {
       try {
@@ -354,11 +429,21 @@ export class OpenAIImageProvider {
       throw new ImageProviderError('OpenAI Image API returned an invalid response', 502);
     }
 
+    if (traceContext) {
+      this.attachProviderExchange(json, this.buildProviderExchange(traceContext, response, completedAt, {
+        body: json,
+        rawBody: text,
+        bodyFormat: 'json',
+        bodySource: 'image_provider.response_json'
+      }));
+    }
+
     return json;
   }
 
-  private async parseCodexResponsesResponse(response: any) {
+  private async parseCodexResponsesResponse(response: any, traceContext?: ProviderRequestTraceContext) {
     const text = await response.text();
+    const completedAt = new Date().toISOString();
     const events = this.parseSsePayload(text);
 
     if (!response.ok) {
@@ -385,13 +470,22 @@ export class OpenAIImageProvider {
     }
 
     const completed = [...events].reverse().find((event) => event?.type === 'response.completed');
-    return {
+    const result = {
       data: imageItems.map((item) => ({
         b64_json: item.result,
         revised_prompt: typeof item.revised_prompt === 'string' ? item.revised_prompt : undefined
       })),
       ...(completed?.response?.usage ? { usage: completed.response.usage } : {})
     };
+    if (traceContext) {
+      this.attachProviderExchange(result, this.buildProviderExchange(traceContext, response, completedAt, {
+        body: text,
+        rawBody: text,
+        bodyFormat: 'sse',
+        bodySource: 'image_provider.codex_responses_sse'
+      }));
+    }
+    return result;
   }
 
   private buildResult(response: any, options: NormalizedImageOptions): ImageProviderResult {
@@ -403,8 +497,130 @@ export class OpenAIImageProvider {
     return {
       model: options.model,
       images,
-      ...(response?.usage ? { usage: response.usage } : {})
+      ...(response?.usage ? { usage: response.usage } : {}),
+      ...(this.getProviderExchange(response) ? { provider_exchange: this.getProviderExchange(response) || null } : {})
     };
+  }
+
+  private attachProviderExchange<T extends Record<string, any>>(payload: T, exchange: ImageProviderExchange): T {
+    Object.defineProperty(payload, PROVIDER_EXCHANGE_SYMBOL, {
+      value: exchange,
+      enumerable: false,
+      configurable: false
+    });
+    return payload;
+  }
+
+  private getProviderExchange(payload: any): ImageProviderExchange | null {
+    return payload && typeof payload === 'object'
+      ? payload[PROVIDER_EXCHANGE_SYMBOL] || null
+      : null;
+  }
+
+  private buildProviderExchange(
+    context: ProviderRequestTraceContext,
+    response: any,
+    completedAt: string,
+    responseBody: {
+      body: unknown;
+      rawBody: string | null;
+      bodyFormat: string;
+      bodySource: string;
+    }
+  ): ImageProviderExchange {
+    const startedMs = new Date(context.startedAt).getTime();
+    const completedMs = new Date(completedAt).getTime();
+    return {
+      operation: context.operation,
+      provider: context.provider,
+      model: context.model,
+      started_at: context.startedAt,
+      completed_at: completedAt,
+      duration_ms: Number.isFinite(startedMs) && Number.isFinite(completedMs)
+        ? Math.max(0, completedMs - startedMs)
+        : 0,
+      request: {
+        method: context.method,
+        upstream_url: context.upstreamUrl,
+        headers: this.redactHeaders(context.requestHeaders),
+        body: context.requestBody,
+        body_format: context.requestBodyFormat,
+        body_source: context.requestBodySource
+      },
+      response: {
+        status_code: typeof response?.status === 'number' ? response.status : null,
+        status_text: typeof response?.statusText === 'string' ? response.statusText : null,
+        headers: this.redactHeaders(this.headersToRecord(response?.headers)),
+        body: responseBody.body,
+        raw_body: responseBody.rawBody,
+        body_format: responseBody.bodyFormat,
+        body_source: responseBody.bodySource,
+        error_message: null
+      },
+      request_format_version: 'image-provider/v1',
+      wire_provider_format: context.wireProviderFormat
+    };
+  }
+
+  private headersToRecord(headers: any): Record<string, string> {
+    const result: Record<string, string> = {};
+    if (!headers) {
+      return result;
+    }
+    if (typeof headers.forEach === 'function') {
+      headers.forEach((value: string, key: string) => {
+        result[key] = String(value);
+      });
+      return result;
+    }
+    if (typeof headers.entries === 'function') {
+      for (const [key, value] of headers.entries()) {
+        result[String(key)] = String(value);
+      }
+      return result;
+    }
+    if (typeof headers === 'object') {
+      for (const [key, value] of Object.entries(headers)) {
+        result[key] = Array.isArray(value) ? value.join(', ') : String(value);
+      }
+    }
+    return result;
+  }
+
+  private redactHeaders(headers: Record<string, unknown> | null | undefined): Record<string, unknown> | null {
+    if (!headers || typeof headers !== 'object') {
+      return null;
+    }
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      const lower = key.toLowerCase();
+      result[key] = lower === 'authorization'
+        || lower === 'cookie'
+        || lower === 'set-cookie'
+        || lower.includes('token')
+        || lower.includes('api-key')
+        ? '[redacted]'
+        : value;
+    }
+    return result;
+  }
+
+  private summarizeFormData(form: FormData): Record<string, unknown> {
+    const fields: Record<string, unknown[]> = {};
+    for (const [key, value] of form.entries()) {
+      const item = value instanceof File
+        ? {
+            filename: value.name,
+            mime_type: value.type || null,
+            bytes: value.size
+          }
+        : String(value);
+      if (!fields[key]) {
+        fields[key] = [];
+      }
+      fields[key].push(item);
+    }
+    return { fields };
   }
 
   private async resolveTransport(forceRefresh = false): Promise<ImageTransport> {

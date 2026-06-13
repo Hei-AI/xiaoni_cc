@@ -56,6 +56,7 @@ type ImageProviderPayload = {
     images?: ImageProviderImage[];
     model?: string;
     usage?: unknown;
+    provider_exchange?: unknown;
   };
 };
 
@@ -159,6 +160,7 @@ export class AgentTaskWorkerService {
         model: providerPayload.data?.model || null,
         image_count: images.length,
         usage: providerPayload.data?.usage || null,
+        provider_exchange: providerPayload.data?.provider_exchange || null,
         xiaoni_picture: {
           picture_id: storedPicture.picture_id,
           filename: storedPicture.filename,

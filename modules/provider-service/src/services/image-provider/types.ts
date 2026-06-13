@@ -56,8 +56,37 @@ export type NormalizedImageResult = {
   bytes_estimate?: number;
 };
 
+export type ImageProviderExchangeSide = {
+  headers?: Record<string, unknown> | null;
+  body?: unknown;
+  raw_body?: string | null;
+  body_format?: string;
+  body_source?: string;
+};
+
+export type ImageProviderExchange = {
+  operation: 'generation' | 'edit';
+  provider: 'openai' | 'codex' | string;
+  model: string;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  request: ImageProviderExchangeSide & {
+    method: 'POST';
+    upstream_url: string;
+  };
+  response: ImageProviderExchangeSide & {
+    status_code: number | null;
+    status_text?: string | null;
+    error_message?: string | null;
+  };
+  request_format_version?: string;
+  wire_provider_format?: string;
+};
+
 export type ImageProviderResult = {
   model: 'gpt-image-2';
   images: NormalizedImageResult[];
   usage?: unknown;
+  provider_exchange?: ImageProviderExchange | null;
 };

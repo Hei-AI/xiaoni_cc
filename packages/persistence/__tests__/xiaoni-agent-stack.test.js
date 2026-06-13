@@ -521,6 +521,7 @@ test('listLlmRequestSlices summaryOnly avoids selecting large request and respon
     output_end_index: 10,
     canonical_request: {},
     wire_request: null,
+    provider_raw_trace_available: true,
     canonical_response: null,
     wire_response: null,
     raw_response: null,
@@ -548,8 +549,10 @@ test('listLlmRequestSlices summaryOnly avoids selecting large request and respon
 
   assert.ok(query);
   assert.match(query.sql, /NULL::jsonb AS wire_request/);
+  assert.match(query.sql, /wire_request IS NOT NULL AS provider_raw_trace_available/);
   assert.doesNotMatch(query.sql, /SELECT \*/);
   assert.equal(rows[0].wireRequest, null);
+  assert.equal(rows[0].providerRawTraceAvailable, true);
   assert.deepEqual(rows[0].outputItems, []);
 });
 

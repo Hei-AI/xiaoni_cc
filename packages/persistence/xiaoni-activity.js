@@ -857,13 +857,19 @@ function attachLlmTokenMetadata(item, tokenSummaryBySliceId) {
 function summarizeLlmRequestSlice(row) {
   const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
   const tokenSummary = tokenSummaryFromLlmSliceRow(row);
-  const canonicalRequest = normalizeJsonObject(row.canonicalRequest ?? row.canonical_request, {});
-  const wireRequest = normalizeJsonObject(row.wireRequest ?? row.wire_request, null);
-  const canonicalResponse = normalizeJsonObject(row.canonicalResponse ?? row.canonical_response, null);
-  const wireResponse = normalizeJsonObject(row.wireResponse ?? row.wire_response, null);
+  const canonicalRequest = parseJsonValue(row.canonicalRequest ?? row.canonical_request, {});
+  const wireRequest = parseJsonValue(row.wireRequest ?? row.wire_request, null);
+  const canonicalResponse = parseJsonValue(row.canonicalResponse ?? row.canonical_response, null);
+  const wireResponse = parseJsonValue(row.wireResponse ?? row.wire_response, null);
+  const rowProviderRawTraceAvailable = row.providerRawTraceAvailable ?? row.provider_raw_trace_available;
+  const providerRawTraceAvailable = typeof rowProviderRawTraceAvailable === 'boolean'
+    ? rowProviderRawTraceAvailable
+    : rowProviderRawTraceAvailable === 'true'
+      ? true
+      : wireRequest !== null && typeof wireRequest !== 'undefined';
   const outputItems = Array.isArray(row.outputItems)
     ? row.outputItems
-    : normalizeJsonObject(row.output_items, []);
+    : parseJsonValue(row.output_items, []);
   const inputTokens = tokenSummary.inputTokens;
   const outputTokens = tokenSummary.outputTokens;
   const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
@@ -911,6 +917,7 @@ function summarizeLlmRequestSlice(row) {
       cachedInputTokens: tokenSummary.cachedInputTokens,
       outputTokens,
       providerRequestSpanId: tokenSummary.providerRequestSpanId,
+      providerRawTraceAvailable,
       completedAt: normalizeDate(row.completedAt || row.completed_at),
       errorMessage: row.errorMessage || row.error_message || null,
       providerRequestPreview: truncateText(rawJsonText(requestPayload) || '', 1200),
@@ -1235,6 +1242,10 @@ async function loadCoreMemoryCompressionForkTimeline(sql, {
 
 function summarizeTask(row) {
   const artifactCount = Array.isArray(row.artifacts) ? row.artifacts.length : 0;
+  const resultJson = normalizeJsonObject(row.result_json, {});
+  const providerExchange = normalizeJsonObject(resultJson.provider_exchange || resultJson.providerExchange, null);
+  const providerRawTraceAvailable = Boolean(providerExchange?.request || providerExchange?.response);
+  const providerRequestSpanId = providerRawTraceAvailable ? `provider-request:image-task:${row.id}` : null;
   const body = row.error_message
     ? row.error_message
     : firstString(row.target_description, row.prompt, artifactCount ? `${artifactCount} artifact(s)` : null);
@@ -1252,6 +1263,13 @@ function summarizeTask(row) {
     peerName: row.peer_name || null,
     runId: row.source_run_id || null,
     traceId: row.source_trace_id || null,
+    traceTarget: providerRawTraceAvailable ? normalizeTraceTarget({
+      traceId: row.source_trace_id,
+      runId: row.source_run_id,
+      spanId: providerRequestSpanId,
+      sourceKind: 'image_task',
+      forkRunId: row.id
+    }) : null,
     tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : row.status === 'processing' ? 'warning' : 'info',
     metadata: {
       taskId: row.id,
@@ -1259,7 +1277,9 @@ function summarizeTask(row) {
       attempts: Number(row.attempts || 0),
       completedAt: normalizeDate(row.completed_at),
       claimedAt: normalizeDate(row.claimed_at),
-      artifactCount
+      artifactCount,
+      providerRawTraceAvailable,
+      providerRequestSpanId
     }
   };
 }
@@ -1271,11 +1291,19 @@ function imageVisionObservationMetadata(observation) {
 function imageVisionObservationTraceTarget(row, observation) {
   const metadata = imageVisionObservationMetadata(observation);
   const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId);
-  if (!llmCallId) {
+  const explicitSliceId = firstString(metadata.llm_request_slice_id, metadata.llmRequestSliceId);
+  const sliceId = firstString(explicitSliceId, llmCallId);
+  const hasProviderRawTrace = metadata.provider_raw_trace_persisted === true
+    || metadata.providerRawTracePersisted === true
+    || Boolean(explicitSliceId && metadata.no_persist !== true && metadata.noPersist !== true);
+  if (!llmCallId || !hasProviderRawTrace) {
     return null;
   }
   return normalizeTraceTarget({
-    spanId: providerRequestSpanIdForSlice(null, llmCallId)
+    traceId: firstString(metadata.trace_id, metadata.traceId, row?.trace_id),
+    runId: firstString(metadata.run_id, metadata.runId),
+    spanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
+    llmRequestSliceId: sliceId
   });
 }
 
@@ -1321,8 +1349,11 @@ function summarizeMedia(row) {
 function summarizeImageVisionForkObservation(row, observation, index) {
   const metadata = imageVisionObservationMetadata(observation);
   const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId);
+  const llmRequestSliceId = firstString(metadata.llm_request_slice_id, metadata.llmRequestSliceId, llmCallId);
   const traceId = firstString(metadata.trace_id, metadata.traceId, row.trace_id);
+  const runId = firstString(metadata.run_id, metadata.runId);
   const traceTarget = imageVisionObservationTraceTarget(row, observation);
+  const providerRawTraceAvailable = Boolean(traceTarget);
   const observationId = observation?.id === null || typeof observation?.id === 'undefined'
     ? `${row.id}:${index}`
     : String(observation.id);
@@ -1338,7 +1369,7 @@ function summarizeImageVisionForkObservation(row, observation, index) {
     timestamp: eventTimestamp(observation?.created_at || row.created_at),
     sessionKey: row.session_key || null,
     peerName: row.peer_name || null,
-    runId: traceId || null,
+    runId: runId || traceId || null,
     traceId,
     tone: 'info',
     traceTarget,
@@ -1350,10 +1381,12 @@ function summarizeImageVisionForkObservation(row, observation, index) {
       observationId,
       sourceModel: observation?.source_model || null,
       llmCallId,
+      llmRequestSliceId,
       spanId: traceTarget?.spanId || null,
       providerRequestSpanId: traceTarget?.spanId || null,
+      providerRawTraceAvailable,
       reason: firstString(metadata.reason),
-      noPersist: true
+      noPersist: !providerRawTraceAvailable
     }
   };
 }
@@ -2326,10 +2359,15 @@ function createXiaoniActivityPersistence({
       if (!row) {
         return null;
       }
+      const resultJson = normalizeJsonObject(row.result_json, {});
+      const providerExchange = normalizeJsonObject(resultJson.provider_exchange || resultJson.providerExchange, null);
+      const providerRawTraceAvailable = Boolean(providerExchange?.request || providerExchange?.response);
       return enrichTraceTarget(normalizeTraceTarget({
         traceId: row.source_trace_id,
         runId: row.source_run_id,
-        spanId: `task:${row.id}`
+        spanId: providerRawTraceAvailable ? `provider-request:image-task:${row.id}` : `task:${row.id}`,
+        sourceKind: providerRawTraceAvailable ? 'image_task' : null,
+        forkRunId: providerRawTraceAvailable ? row.id : null
       }), config);
     }
 

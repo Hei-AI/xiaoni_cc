@@ -9,6 +9,7 @@ import {
   listAgentStackItems,
   listLlmRequestSlices,
   listToolExecutions,
+  getAgentTaskById,
   parseInstantValue,
   serializeTimestampForApi
 } from '@qq-bot/persistence';
@@ -1034,6 +1035,94 @@ function buildRawProviderTraceFromProviderCall(
       error_message: providerCall.error_message || null
     }
   };
+}
+
+function buildRawProviderTraceFromImageProviderExchange(
+  exchange: any,
+  task: any,
+  spanId: string | null
+): RawProviderTraceDto | null {
+  if (!exchange || typeof exchange !== 'object') {
+    return null;
+  }
+  const request = exchange.request && typeof exchange.request === 'object' ? exchange.request : {};
+  const response = exchange.response && typeof exchange.response === 'object' ? exchange.response : {};
+  if (!request.body && !request.raw_body && !response.body && !response.raw_body) {
+    return null;
+  }
+  const requestBody = typeof request.raw_body === 'string'
+    ? request.raw_body
+    : rawJsonText(request.body);
+  const responseBody = typeof response.raw_body === 'string'
+    ? response.raw_body
+    : rawJsonText(response.body);
+
+  return {
+    span_id: spanId,
+    trace_id: task?.source_trace_id || task?.sourceTraceId || null,
+    conversation_id: null,
+    slice_id: task?.id || null,
+    llm_call_id: null,
+    source: 'agent_tasks.result_json.provider_exchange',
+    model_name: exchange.model || task?.result_json?.model || task?.resultJson?.model || null,
+    model_provider: exchange.provider || null,
+    request_format_version: exchange.request_format_version || null,
+    wire_provider_format: exchange.wire_provider_format || null,
+    started_at: exchange.started_at || null,
+    completed_at: exchange.completed_at || null,
+    duration_ms: exchange.duration_ms ?? null,
+    request: {
+      method: typeof request.method === 'string' ? request.method : 'POST',
+      upstream_url: typeof request.upstream_url === 'string' ? request.upstream_url : null,
+      headers: redactSensitiveHeaders(request.headers),
+      body: requestBody,
+      bytes: estimateJsonBytes(requestBody),
+      body_format: typeof request.body_format === 'string' ? request.body_format : inferRawTextFormat(requestBody),
+      body_source: typeof request.body_source === 'string' ? request.body_source : 'agent_tasks.result_json.provider_exchange.request'
+    },
+    response: {
+      status_code: toNumber(response.status_code),
+      status_text: typeof response.status_text === 'string' ? response.status_text : null,
+      headers: redactSensitiveHeaders(response.headers),
+      body: responseBody,
+      bytes: estimateJsonBytes(responseBody),
+      body_format: typeof response.body_format === 'string' ? response.body_format : inferRawTextFormat(responseBody),
+      body_source: typeof response.body_source === 'string' ? response.body_source : 'agent_tasks.result_json.provider_exchange.response',
+      error_message: typeof response.error_message === 'string' ? response.error_message : null
+    }
+  };
+}
+
+async function buildImageTaskRawProviderTrace(
+  logger: winston.Logger,
+  target: StackTraceTarget,
+  spanId: string
+): Promise<RawProviderTraceDto | null> {
+  const spanTaskId = spanId.startsWith('provider-request:image-task:')
+    ? decodeURIComponent(spanId.slice('provider-request:image-task:'.length))
+    : null;
+  const taskId = firstNonEmptyString(target.forkRunId, spanTaskId);
+  if (!taskId) {
+    return null;
+  }
+
+  try {
+    const task = await getAgentTaskById(taskId) as any;
+    const resultJson = task?.result_json && typeof task.result_json === 'object'
+      ? task.result_json
+      : task?.resultJson && typeof task.resultJson === 'object'
+        ? task.resultJson
+        : {};
+    const exchange = resultJson.provider_exchange || resultJson.providerExchange || null;
+    return buildRawProviderTraceFromImageProviderExchange(exchange, task, spanId || `provider-request:image-task:${taskId}`);
+  } catch (error) {
+    logger.warn('Image task raw provider trace query failed', {
+      error: error instanceof Error ? error.message : String(error),
+      taskId,
+      spanId
+    });
+    return null;
+  }
 }
 
 function canRepresentProviderRequest(providerCall: any): boolean {
@@ -3461,6 +3550,10 @@ export async function buildStackRawProviderTrace(
   target: StackTraceTarget,
   spanId: string
 ): Promise<RawProviderTraceDto | null> {
+  if (firstNonEmptyString(target.sourceKind) === 'image_task' || spanId.startsWith('provider-request:image-task:')) {
+    return buildImageTaskRawProviderTrace(logger, target, spanId);
+  }
+
   const lookup = resolveStackRawTraceLookup(target, spanId);
   if (!lookup) {
     return null;
