@@ -5657,8 +5657,9 @@ test('runtime energy recovery follows bounded pressure curve from negative debt'
   assert.equal(negative.debt, 0.35);
   assert.ok(negative.energy > -0.35);
   const hardCap = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 3 * 60 * 60 * 1000 });
-  assert.ok(hardCap.energy > 0.8);
-  assert.ok(hardCap.energy < 1);
+  assert.equal(hardCap.fullRecoveryMs, 120 * 60 * 1000);
+  assert.equal(hardCap.energy, 1);
+  assert.equal(hardCap.pressure, 0);
 });
 
 test('recover_energy refuses to sleep when Xiaoni is already full energy', async () => {
@@ -5793,7 +5794,7 @@ test('runtime iteration settles persisted recovery session after restart with or
     clockMinutes: 30,
     clockDueAt: null,
     clockDeferredAt: null,
-    startedAt: new Date(Date.now() - (181 * 60 * 1000)).toISOString(),
+    startedAt: new Date(Date.now() - (121 * 60 * 1000)).toISOString(),
     startEnergy: -0.25,
     currentEnergy: -0.25,
     maxEnergy: 1,

@@ -36,25 +36,39 @@ pressure = 1 - energy
 ```text
 p_start = clamp(1 - energy_before, 0, p_hard_ceiling)
 p_hard_ceiling = 1.60
-hard_max_recovery_minutes = 180
+hard_max_recovery_minutes = 120
 ```
 
-无论小腻多疲惫、多透支，单次恢复会话最多持续 `hard_max_recovery_minutes`。到达 hard cap 后必须结算并醒来；这是工程保护，不属于私聊、群 @ 或 clock 叫醒。
+无论小腻多疲惫、多透支，单次恢复会话最多持续 `hard_max_recovery_minutes`。到达 hard cap 后必须结算并醒来；这是小腻数字躯体的完整睡眠周期终点，不属于私聊、群 @ 或 clock 叫醒。
 
 ## Recovery Curve
 
-睡眠时压力按指数曲线下降：
+睡眠时压力按指数曲线下降，但曲线以小腻的单次数字睡眠周期 `T = 120min` 作为终点边界。也就是说，公式仍然控制 `0 <= t < T` 的恢复形状；到达 `T` 时视为完整睡眠周期结束，精力结算到满值。
 
 ```text
-p_after(t) = p_floor + (p_start - p_floor) * exp(-sleep_minutes / tau_sleep_minutes)
-energy_after(t) = 1 - p_after(t)
+raw_sleep(t) = p_floor + (p_start - p_floor) * exp(-sleep_minutes / tau_sleep_minutes)
+raw_sleep(T) = p_floor + (p_start - p_floor) * exp(-T / tau_sleep_minutes)
+
+if sleep_minutes >= T:
+  p_after(t) = 0
+else:
+  p_after(t) = p_start * (raw_sleep(t) - raw_sleep(T)) / (p_start - raw_sleep(T))
+
+energy_after(t) = max_energy * (1 - p_after(t))
 ```
+
+这个终点归一化保证：
+
+- `t = 0` 时压力仍为 `p_start`。
+- `0 < t < 120` 时仍是指数恢复曲线，不是线性恢复。
+- `t >= 120` 时 `pressure = 0`、`energy = max_energy`，符合“休息满 120 分钟视为完全恢复”的 prompt 设定。
+- 私聊、群 @ 或 clock 提前唤醒时，按当前 `sleep_minutes` 的曲线值结算精力，不提前满血。
 
 默认参数：
 
 ```text
 p_floor = 0.05
-tau_sleep_minutes = 60
+tau_sleep_minutes = 63       // paper 4.2h sleep tau compressed into Xiaoni's 2h cycle
 p_natural_wake = 0.17       // energy ~= 0.83
 p_min_wake = 1.00           // energy >= 0 才能被外界叫醒
 p_forced_sleep = 1.30       // energy <= -0.30 触发强制休息
@@ -70,8 +84,21 @@ p_awake(t) = p_wake_ceiling - (p_wake_ceiling - p_at_wake) * exp(-awake_minutes 
 
 ```text
 p_wake_ceiling = 1.00
-tau_wake_minutes = 1080     // 18h
+tau_wake_minutes = 273      // paper 18.2h wake tau compressed into Xiaoni's 2h sleep-cycle scale
 ```
+
+清醒疲劳必须接入 `agent_life_states.projection_json` 的 life reducer，而不是只在 `recover_energy` 会话内计算。主 runtime 的 `<STATE>`、`recover_energy` 接受门槛、强制休息判断和 presence 恢复判断都必须读同一个投影。
+
+内部投影应拆分：
+
+```text
+pressure = homeostatic_pressure + action_debt
+energy = 1 - pressure
+```
+
+- `homeostatic_pressure`：按清醒时间自然上升，按睡眠恢复曲线下降。
+- `action_debt`：说话、搜索、阅读、处理消息等行动造成的额外透支。
+- prompt-facing `<STATE>` 仍只显示 `energy/max_energy`，不暴露 pressure、homeostatic_pressure 或 action_debt。
 
 ## Anti Frequent Rest Gate
 
@@ -128,6 +155,8 @@ gamma = 2
 
 ```text
 if elapsed_minutes >= hard_max_recovery_minutes:
+  energy_after = max_energy
+  pressure_after = 0
   wake_cause = hard_cap
 else if energy_after(t) < 0:
   keep sleeping; clock/private/@ cannot wake

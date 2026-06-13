@@ -72,7 +72,7 @@ function normalizeWallClockString(value) {
   }
 
   const [, year, month, day, hour, minute, second, fraction = '0'] = match;
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}.${pad(fraction.slice(0, 3), 3)}`;
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}.${fraction.slice(0, 3).padEnd(3, '0')}`;
 }
 
 function parseWallClockWithOffset(value, offsetMinutes) {
@@ -148,6 +148,48 @@ function parseStoredTimestamp(value) {
   }
 
   return parseWallClockWithOffset(normalized, STORAGE_OFFSET_MINUTES);
+}
+
+function formatUtcWallClock(value) {
+  return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())} ${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}:${pad(value.getUTCSeconds())}.${pad(value.getUTCMilliseconds(), 3)}`;
+}
+
+function parseTimestampWithoutTimezone(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return parseWallClockWithOffset(formatUtcWallClock(value), STORAGE_OFFSET_MINUTES);
+  }
+
+  if (typeof value !== 'string') {
+    return parseInstantValue(value);
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (hasExplicitTimezone(trimmed)) {
+    return parseInstantValue(trimmed);
+  }
+
+  const normalized = normalizeWallClockString(trimmed);
+  if (!normalized) {
+    return parseInstantValue(trimmed);
+  }
+
+  return parseWallClockWithOffset(normalized, STORAGE_OFFSET_MINUTES);
+}
+
+function serializeTimestampWithoutTimezoneForApi(value) {
+  const instant = parseTimestampWithoutTimezone(value);
+  if (!instant) {
+    return value ?? null;
+  }
+  return formatEast8IsoOffset(instant);
 }
 
 function serializeTimestampForStorage(value) {
@@ -227,8 +269,10 @@ module.exports = {
   TIMESTAMPTZ_OID,
   parseInstantValue,
   parseStoredTimestamp,
+  parseTimestampWithoutTimezone,
   serializeTimestampForStorage,
   serializeTimestampForApi,
+  serializeTimestampWithoutTimezoneForApi,
   normalizeTimestampField,
   normalizeRowTimestampFields,
   prepareSqlParameter,

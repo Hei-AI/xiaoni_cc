@@ -188,7 +188,9 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
     attention: 1,
     rewardAttraction: 0.3,
     restPressure: 1,
-    actionCost: 1
+    actionCost: 1,
+    homeostaticPressure: 0,
+    actionDebt: 1
   };
 
   assert.deepEqual(resolvePresenceRecoveryEvent(tiredState, new Date('2026-05-31T00:30:00.000Z')), {

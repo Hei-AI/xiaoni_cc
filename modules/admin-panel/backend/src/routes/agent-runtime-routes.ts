@@ -254,6 +254,12 @@ function eventPayload(event: any): Record<string, unknown> {
     : {};
 }
 
+function isCorrectedZeroSleepEvent(payload: Record<string, unknown>) {
+  const sleepMinutes = finiteNumber(payload.sleep_minutes ?? payload.sleepMinutes);
+  return (payload.timestamp_corrected === true || payload.wake_cause === 'timestamp_corrected')
+    && (sleepMinutes === null || sleepMinutes <= 0);
+}
+
 function resolveTimelineStart(sessions: any[]) {
   const firstSessionAt = sessions
     .map((session) => toValidDate(session?.startedAt))
@@ -394,8 +400,22 @@ function buildEnergyTimeline({
     const payload = eventPayload(event);
     if (event.eventKind === 'sleep_period') {
       const eventEnergy = normalizeEnergy(payload.energy, payload.max_energy ?? 1);
-      actionCost = eventEnergy === null ? 0 : clamp01(1 - eventEnergy);
-      addPoint({ ...item, label: '休息恢复' }, 1 - actionCost);
+      if (isCorrectedZeroSleepEvent(payload)) {
+        if (eventEnergy !== null) {
+          actionCost = clamp01(1 - eventEnergy);
+          addPoint({ ...item, label: '恢复记录修正' }, eventEnergy);
+        }
+        continue;
+      }
+      if (eventEnergy !== null) {
+        actionCost = clamp01(1 - eventEnergy);
+        addPoint({ ...item, label: '休息恢复' }, eventEnergy);
+        continue;
+      }
+      if (actionCost !== null) {
+        actionCost = clamp01(actionCost - 0.2);
+        addPoint({ ...item, label: '休息恢复' }, 1 - actionCost);
+      }
       continue;
     }
 

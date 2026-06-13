@@ -18,11 +18,11 @@ export type RecoverEnergyPolicy = {
 
 export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   pressureFloor: 0.05,
-  sleepTauMinutes: 60,
-  wakeTauMinutes: 18 * 60,
+  sleepTauMinutes: 63,
+  wakeTauMinutes: 273,
   wakePressureCeiling: 1,
   hardPressureCeiling: 1.6,
-  hardMaxRecoveryMinutes: 180,
+  hardMaxRecoveryMinutes: 120,
   naturalWakePressure: 0.17,
   minimumWakeEnergy: 0,
   forcedSleepPressure: 1.3,
@@ -35,6 +35,7 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
 };
 
 const MINUTE_MS = 60 * 1000;
+const EPSILON = 1e-9;
 
 function finiteNumber(value: unknown, fallback: number) {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -78,7 +79,20 @@ export function computeSleepPressureAfterMinutes(input: {
   const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
   const startPressure = clampNumber(input.startPressure, 0, policy.hardPressureCeiling);
   const elapsedMinutes = Math.max(0, finiteNumber(input.elapsedMinutes, 0));
-  return policy.pressureFloor + ((startPressure - policy.pressureFloor) * Math.exp(-elapsedMinutes / policy.sleepTauMinutes));
+  const fullCycleMinutes = Math.max(0.001, policy.hardMaxRecoveryMinutes);
+  const cappedElapsedMinutes = Math.min(elapsedMinutes, fullCycleMinutes);
+  if (cappedElapsedMinutes >= fullCycleMinutes || startPressure <= 0) {
+    return 0;
+  }
+
+  const rawPressure = policy.pressureFloor + ((startPressure - policy.pressureFloor) * Math.exp(-cappedElapsedMinutes / policy.sleepTauMinutes));
+  const rawPressureAtFullCycle = policy.pressureFloor + ((startPressure - policy.pressureFloor) * Math.exp(-fullCycleMinutes / policy.sleepTauMinutes));
+  const denominator = startPressure - rawPressureAtFullCycle;
+  if (Math.abs(denominator) < EPSILON) {
+    return clampNumber(startPressure * (1 - (cappedElapsedMinutes / fullCycleMinutes)), 0, startPressure);
+  }
+  const pressure = startPressure * ((rawPressure - rawPressureAtFullCycle) / denominator);
+  return clampNumber(pressure, 0, startPressure);
 }
 
 export function computeAwakePressureAfterMinutes(input: {
@@ -221,13 +235,22 @@ export function estimateNaturalWakeAt(input: {
   if (startPressure <= policy.naturalWakePressure) {
     return input.startedAt;
   }
-  const numerator = startPressure - policy.pressureFloor;
-  const denominator = policy.naturalWakePressure - policy.pressureFloor;
-  const minutes = denominator > 0 && numerator > denominator
-    ? policy.sleepTauMinutes * Math.log(numerator / denominator)
-    : policy.hardMaxRecoveryMinutes;
-  const boundedMinutes = Math.min(minutes, policy.hardMaxRecoveryMinutes);
-  return new Date(input.startedAt.getTime() + (boundedMinutes * MINUTE_MS));
+  let low = 0;
+  let high = policy.hardMaxRecoveryMinutes;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (low + high) / 2;
+    const pressure = computeSleepPressureAfterMinutes({
+      startPressure,
+      elapsedMinutes: mid,
+      policy
+    });
+    if (pressure <= policy.naturalWakePressure) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+  return new Date(input.startedAt.getTime() + (high * MINUTE_MS));
 }
 
 export function estimateHardWakeAt(startedAt: Date, policy: RecoverEnergyPolicy = DEFAULT_RECOVER_ENERGY_POLICY) {
