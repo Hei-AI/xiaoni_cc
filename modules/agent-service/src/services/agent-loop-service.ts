@@ -609,7 +609,9 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
   'skill-creator': 0.002,
   'qq-usage': 0.002,
-  'qq-send-image': 0.002
+  'qq-send-image': 0.002,
+  'xiaoni-site': 0.002,
+  'xiaoni-browser': 0.004
 };
 
 const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
