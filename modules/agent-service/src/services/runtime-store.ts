@@ -1760,9 +1760,8 @@ export class RuntimeStore {
     }, databaseConfig);
   }
 
-  async getMediaAssetById(sessionKey: string, assetId: string) {
+  async getMediaAssetById(_sessionKey: string, assetId: string) {
     return getAgentMediaAssetById({
-      sessionKey,
       id: assetId
     }, databaseConfig);
   }

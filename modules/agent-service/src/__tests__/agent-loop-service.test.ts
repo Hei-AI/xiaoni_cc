@@ -3104,6 +3104,92 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
 });
 
+test('requestImageTask resolves hash media ids globally before tag lookup', async () => {
+  const createdTasks: any[] = [];
+  const idLookups: Array<{ sessionKey: string; assetId: string }> = [];
+  const service = new AgentLoopService({
+    getMediaAssetById: async (sessionKey: string, assetId: string) => {
+      idLookups.push({ sessionKey, assetId });
+      return {
+        id: assetId,
+        session_key: 'qq:direct:1129974489:3994058476',
+        media_tag: 'image_1',
+        media_type: 'image'
+      };
+    },
+    getMediaAssetByTag: async () => {
+      throw new Error('hash media id should not fall back to session tag lookup');
+    },
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-edit-global-media';
+    }
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '把这张图改成水彩风格',
+    target_description: '基于原图改水彩',
+    source_media_tags: ['media_abcdef123456'],
+    xiaoni_os: '用户给的是全局媒体资产 ID。'
+  }, createQueuePayload());
+
+  assert.deepEqual(idLookups, [{
+    sessionKey: 'qq:group:101',
+    assetId: 'media_abcdef123456'
+  }]);
+  assert.equal(createdTasks[0]?.taskType, 'image_edit');
+  assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, ['media_abcdef123456']);
+  assert.equal(result.task_type, 'image_edit');
+});
+
+test('materializeImageAsset prefers storage_uri over expiring source_locator', async () => {
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: any[] = [];
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          data_url: 'data:image/png;base64,AA==',
+          mime_type: 'image/png'
+        }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).materializeImageAsset({
+      id: 'media_abcdef123456',
+      storage_uri: 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png',
+      source_locator: 'https://multimedia.nt.qq.com.cn/download?expired=1',
+      mime_type: 'image/png',
+      metadata: {
+        executor_path: '/xiaoni-runtime/media/inbound/hash.png'
+      }
+    });
+
+    assert.deepEqual(result, {
+      dataUrl: 'data:image/png;base64,AA==',
+      mimeType: 'image/png',
+      executorPath: '/xiaoni-runtime/media/inbound/hash.png'
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/media/materialize-image`);
+  assert.equal(calls[0]?.body?.source_locator, 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png');
+});
+
 test('inspect_image_placeholder runs a no-persist main-context vision fork by image id', async () => {
   const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
   const queueMessage = {

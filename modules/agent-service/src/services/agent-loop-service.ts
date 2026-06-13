@@ -607,6 +607,7 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
 };
 
 const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
+const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 
 const EXEC_COMMAND_DESCRIPTION = [
@@ -7427,12 +7428,9 @@ export class AgentLoopService {
       throw new Error(`${TOOL_NAMES.inspectImage} requires image_id or media_tag`);
     }
 
-    const assetReaderById = (this.store as RuntimeStore & {
-      getMediaAssetById?: RuntimeStore['getMediaAssetById'];
-    }).getMediaAssetById;
-    const asset = imageId && typeof assetReaderById === 'function'
-      ? await assetReaderById.call(this.store, queueMessage.sessionKey, imageId)
-      : await this.store.getMediaAssetByTag(queueMessage.sessionKey, mediaTag);
+    const asset = imageId
+      ? await this.resolveMediaAssetForToolReference(queueMessage, imageId, { globalId: true })
+      : await this.resolveMediaAssetForToolReference(queueMessage, mediaTag, { globalId: false });
     if (!asset) {
       throw new Error(`${TOOL_NAMES.inspectImage} could not find the requested image placeholder`);
     }
@@ -7447,7 +7445,22 @@ export class AgentLoopService {
       throw new Error(`${TOOL_NAMES.inspectImage} requires current main-agent request context`);
     }
 
-    const materialized = await this.materializeImageAsset(asset);
+    let materialized: { dataUrl: string | null; mimeType: string | null; executorPath: string | null };
+    try {
+      materialized = await this.materializeImageAsset(asset);
+    } catch (error) {
+      const description = '这张图片的原始文件现在不可读取，可能是 QQ 临时图片链接已经过期。需要对方重新发图，或提供新的可读取图片。';
+      const outputXml = buildImageObservationXml(assetId, description);
+      return {
+        image_id: assetId,
+        media_tag: asset.media_tag || mediaTag || null,
+        inspected: false,
+        description,
+        output_xml: outputXml,
+        executor_path: null,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
     if (!materialized.dataUrl) {
       const description = '这张图片目前只有占位符，没有可读取的图片数据。';
       const outputXml = buildImageObservationXml(assetId, description);
@@ -7456,7 +7469,8 @@ export class AgentLoopService {
         media_tag: asset.media_tag || mediaTag || null,
         inspected: false,
         description,
-        output_xml: outputXml
+        output_xml: outputXml,
+        executor_path: materialized.executorPath
       };
     }
 
@@ -7501,28 +7515,93 @@ export class AgentLoopService {
       media_tag: asset.media_tag || mediaTag || null,
       inspected: true,
       description,
-      output_xml: outputXml
+      output_xml: outputXml,
+      executor_path: materialized.executorPath
     };
+  }
+
+  private async resolveMediaAssetForToolReference(
+    queueMessage: QueueMessageRecord['payload'],
+    requestedReference: string,
+    options: { globalId: boolean }
+  ) {
+    const reference = typeof requestedReference === 'string' && requestedReference.trim()
+      ? requestedReference.trim()
+      : '';
+    if (!reference) {
+      return null;
+    }
+
+    const assetReaderById = (this.store as RuntimeStore & {
+      getMediaAssetById?: RuntimeStore['getMediaAssetById'];
+    }).getMediaAssetById;
+    if (typeof assetReaderById === 'function' && (options.globalId || MEDIA_ASSET_ID_PATTERN.test(reference))) {
+      return assetReaderById.call(this.store, queueMessage.sessionKey, reference);
+    }
+
+    const exact = await this.store.getMediaAssetByTag(queueMessage.sessionKey, reference);
+    if (exact) {
+      return exact;
+    }
+
+    const normalized = reference.toLowerCase();
+    const contextualAssets = [];
+    for (const message of queueMessage.messages) {
+      const assets = Array.isArray(message.inboundContext.MediaAssets)
+        ? message.inboundContext.MediaAssets
+        : [];
+      contextualAssets.push(...assets);
+    }
+
+    const candidate = contextualAssets.find((asset) => {
+      const mediaTag = typeof asset.mediaTag === 'string' ? asset.mediaTag.toLowerCase() : '';
+      const assetId = typeof asset.id === 'string' ? asset.id.toLowerCase() : '';
+      const placeholder = typeof asset.placeholder === 'string' ? asset.placeholder.toLowerCase() : '';
+      const fileName = typeof asset.fileName === 'string' ? asset.fileName.toLowerCase() : '';
+      return normalized === assetId
+        || normalized === mediaTag
+        || normalized === `file:${fileName}`
+        || normalized === fileName
+        || Boolean(fileName && normalized.includes(fileName))
+        || Boolean(placeholder && normalized === placeholder);
+    });
+    if (candidate?.id && typeof assetReaderById === 'function') {
+      return assetReaderById.call(this.store, queueMessage.sessionKey, candidate.id);
+    }
+    if (candidate?.mediaTag) {
+      return this.store.getMediaAssetByTag(queueMessage.sessionKey, candidate.mediaTag);
+    }
+
+    return null;
   }
 
   private async materializeImageAsset(asset: Record<string, unknown>) {
     const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata)
       ? asset.metadata as Record<string, unknown>
       : {};
-    const sourceLocator = typeof asset.source_locator === 'string' && asset.source_locator.trim()
-      ? asset.source_locator.trim()
-      : typeof asset.sourceLocator === 'string' && asset.sourceLocator.trim()
-        ? asset.sourceLocator.trim()
-        : typeof asset.storage_uri === 'string' && asset.storage_uri.trim()
-          ? asset.storage_uri.trim()
-          : typeof asset.storageUri === 'string' && asset.storageUri.trim()
-            ? asset.storageUri.trim()
+    const executorPath = typeof metadata.executor_path === 'string' && metadata.executor_path.trim()
+      ? metadata.executor_path.trim()
+      : typeof metadata.executorPath === 'string' && metadata.executorPath.trim()
+        ? metadata.executorPath.trim()
+        : typeof asset.executor_path === 'string' && asset.executor_path.trim()
+          ? asset.executor_path.trim()
+          : typeof asset.executorPath === 'string' && asset.executorPath.trim()
+            ? asset.executorPath.trim()
+            : null;
+    const sourceLocator = typeof asset.storage_uri === 'string' && asset.storage_uri.trim()
+      ? asset.storage_uri.trim()
+      : typeof asset.storageUri === 'string' && asset.storageUri.trim()
+        ? asset.storageUri.trim()
+        : typeof asset.source_locator === 'string' && asset.source_locator.trim()
+          ? asset.source_locator.trim()
+          : typeof asset.sourceLocator === 'string' && asset.sourceLocator.trim()
+            ? asset.sourceLocator.trim()
             : '';
     const fileId = typeof metadata.file_id === 'string' && metadata.file_id.trim()
       ? metadata.file_id.trim()
       : '';
     if (!sourceLocator && !fileId) {
-      return { dataUrl: null as string | null, mimeType: null as string | null };
+      return { dataUrl: null as string | null, mimeType: null as string | null, executorPath };
     }
 
     const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/media/materialize-image`, {
@@ -7556,7 +7635,8 @@ export class AgentLoopService {
       : null;
     return {
       dataUrl,
-      mimeType: typeof payload.data?.mime_type === 'string' ? payload.data.mime_type : null
+      mimeType: typeof payload.data?.mime_type === 'string' ? payload.data.mime_type : null,
+      executorPath
     };
   }
 
@@ -7580,7 +7660,9 @@ export class AgentLoopService {
       : [];
     const mediaAssets = [];
     for (const mediaTag of sourceMediaTags) {
-      const asset = await this.resolveMediaAssetForTask(queueMessage, mediaTag);
+      const asset = await this.resolveMediaAssetForToolReference(queueMessage, mediaTag, {
+        globalId: MEDIA_ASSET_ID_PATTERN.test(mediaTag)
+      });
       if (asset) {
         mediaAssets.push(asset);
       }
@@ -7639,56 +7721,6 @@ export class AgentLoopService {
       xiaoni_os: xiaoniOs,
       status_text: `生图任务:${taskId || 'unknown'} 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的`
     };
-  }
-
-  private async resolveMediaAssetForTask(
-    queueMessage: QueueMessageRecord['payload'],
-    requestedTag: string
-  ) {
-    const assetReaderById = (this.store as RuntimeStore & {
-      getMediaAssetById?: RuntimeStore['getMediaAssetById'];
-    }).getMediaAssetById;
-    if (typeof assetReaderById === 'function') {
-      const byId = await assetReaderById.call(this.store, queueMessage.sessionKey, requestedTag);
-      if (byId) {
-        return byId;
-      }
-    }
-
-    const exact = await this.store.getMediaAssetByTag(queueMessage.sessionKey, requestedTag);
-    if (exact) {
-      return exact;
-    }
-
-    const normalized = requestedTag.toLowerCase();
-    const contextualAssets = [];
-    for (const message of queueMessage.messages) {
-      const assets = Array.isArray(message.inboundContext.MediaAssets)
-        ? message.inboundContext.MediaAssets
-        : [];
-      contextualAssets.push(...assets);
-    }
-
-    const candidate = contextualAssets.find((asset) => {
-      const mediaTag = typeof asset.mediaTag === 'string' ? asset.mediaTag.toLowerCase() : '';
-      const assetId = typeof asset.id === 'string' ? asset.id.toLowerCase() : '';
-      const placeholder = typeof asset.placeholder === 'string' ? asset.placeholder.toLowerCase() : '';
-      const fileName = typeof asset.fileName === 'string' ? asset.fileName.toLowerCase() : '';
-      return normalized === assetId
-        || normalized === mediaTag
-        || normalized === `file:${fileName}`
-        || normalized === fileName
-        || Boolean(fileName && normalized.includes(fileName))
-        || Boolean(placeholder && normalized === placeholder);
-    });
-    if (candidate?.id && typeof assetReaderById === 'function') {
-      return assetReaderById.call(this.store, queueMessage.sessionKey, candidate.id);
-    }
-    if (candidate?.mediaTag) {
-      return this.store.getMediaAssetByTag(queueMessage.sessionKey, candidate.mediaTag);
-    }
-
-    return null;
   }
 
   private async sendMessage(

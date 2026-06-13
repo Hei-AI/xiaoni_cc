@@ -49,3 +49,91 @@ test('AgentTaskWorkerService falls back to generation for image_edit tasks witho
     globalThis.fetch = originalFetch;
   }
 });
+
+test('AgentTaskWorkerService resolves image_edit sources by global media asset id', async () => {
+  const lookups: any[] = [];
+  const service = new AgentTaskWorkerService({
+    getMediaAssetById: async (params: any) => {
+      lookups.push(params);
+      return {
+        id: params.id,
+        media_tag: 'image_1',
+        media_type: 'image',
+        mime_type: 'image/png',
+        storage_uri: 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png',
+        source_locator: 'https://multimedia.nt.qq.com.cn/download?expired=1',
+        metadata: {
+          file_name: 'hash.png'
+        }
+      };
+    },
+    listMediaAssets: async () => {
+      throw new Error('global media id should resolve without session asset listing');
+    }
+  } as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({
+      url: String(url),
+      body
+    });
+    if (String(url).endsWith('/api/internal/media/materialize-image')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            data_url: 'data:image/png;base64,AA==',
+            mime_type: 'image/png',
+            filename: 'hash.png'
+          }
+        })
+      } as Response;
+    }
+    if (String(url).endsWith('/api/internal/image/edit')) {
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: {
+            images: [{
+              data_url: 'data:image/png;base64,BB==',
+              mime_type: 'image/png'
+            }]
+          }
+        })
+      } as Response;
+    }
+    throw new Error(`Unexpected fetch: ${String(url)}`);
+  }) as typeof fetch;
+
+  try {
+    const payload = await (service as any).callImageProvider({
+      id: 'task-global-source-edit',
+      task_type: 'image_edit',
+      session_key: 'xiaoni:global',
+      chat_type: 'direct',
+      peer_id: '3994058476',
+      prompt: '把这张图改成水彩风格',
+      source_media_asset_ids: ['media_abcdef123456']
+    });
+
+    assert.equal(payload.data.images.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.deepEqual(lookups, [{ id: 'media_abcdef123456' }]);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/media/materialize-image`);
+  assert.equal(calls[0]?.body?.source_locator, 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png');
+  assert.equal(calls[1]?.url, `${agentConfig.providerServiceUrl}/api/internal/image/edit`);
+  assert.deepEqual(calls[1]?.body?.images, [{
+    data_url: 'data:image/png;base64,AA==',
+    mime_type: 'image/png',
+    filename: 'hash.png'
+  }]);
+});

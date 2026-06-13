@@ -113,6 +113,11 @@ export interface InboundMediaAsset {
   mediaType: 'image' | 'audio' | 'video' | 'file' | string;
   mimeType?: string;
   locator?: string;
+  storageUri?: string;
+  executorPath?: string;
+  storagePath?: string;
+  contentHash?: string;
+  bytes?: number;
   messageSid?: string;
   fileId?: string;
   fileName?: string;

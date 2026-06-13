@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import {
   ensureAgentMediaSchema,
   ensureIdentityLineageSchema,
@@ -38,7 +38,7 @@ import {
   type ProviderMessageType,
   type SimpleQueueSimulationPayload,
 } from './services/simple-queue-simulation-context';
-import { FinalizedInboundContext, InboxMessageRecord } from './types';
+import { FinalizedInboundContext, InboxMessageRecord, InboundMediaAsset } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
 import {
   applyForcedInboundAgentQueuePolicy,
@@ -55,6 +55,18 @@ const app = express();
 const moduleLogger = logger.createModuleLogger('provider-service');
 const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs/runtime-assets';
 const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
+const XIAONI_RUNTIME_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
+const INBOUND_MEDIA_ASSET_ROOT = (process.env.PROVIDER_INBOUND_MEDIA_ASSET_ROOT || path.join(XIAONI_RUNTIME_ROOT, 'media', 'inbound')).replace(/\/+$/, '');
+const INBOUND_MEDIA_ASSET_BASE_URL = (process.env.PROVIDER_INBOUND_MEDIA_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
+const INBOUND_MEDIA_EXECUTOR_PATH_ROOT = (process.env.PROVIDER_INBOUND_MEDIA_EXECUTOR_PATH_ROOT || INBOUND_MEDIA_ASSET_ROOT).replace(/\/+$/, '');
+const inboundMediaMaxBytes = Number(process.env.PROVIDER_INBOUND_MEDIA_MAX_BYTES || 25 * 1024 * 1024);
+const INBOUND_MEDIA_MAX_BYTES = Number.isFinite(inboundMediaMaxBytes) && inboundMediaMaxBytes > 0
+  ? inboundMediaMaxBytes
+  : 25 * 1024 * 1024;
+const inboundMediaFetchTimeoutMs = Number(process.env.PROVIDER_INBOUND_MEDIA_FETCH_TIMEOUT_MS || 10_000);
+const INBOUND_MEDIA_FETCH_TIMEOUT_MS = Number.isFinite(inboundMediaFetchTimeoutMs) && inboundMediaFetchTimeoutMs > 0
+  ? inboundMediaFetchTimeoutMs
+  : 10_000;
 const NAPCAT_QQ_DATA_ROOT = process.env.NAPCAT_QQ_DATA_ROOT || '/app/napcat-qq-data';
 const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
 const embeddingService = new EmbeddingService(aiConfig);
@@ -314,17 +326,247 @@ async function fetchImageAsDataUrl(url: string, mimeType?: string | null) {
   };
 }
 
-function ensureInboundMediaAssetIds(inboundContext: FinalizedInboundContext) {
+function normalizeMimeType(value?: string | null) {
+  const normalized = (value || '').split(';')[0].trim().toLowerCase();
+  if (!normalized || normalized === 'image/*') {
+    return null;
+  }
+  return normalized === 'image/jpg' ? 'image/jpeg' : normalized;
+}
+
+function extensionFromMimeType(value?: string | null) {
+  switch (normalizeMimeType(value)) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'audio/mpeg':
+      return 'mp3';
+    case 'audio/ogg':
+      return 'ogg';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return 'wav';
+    case 'video/mp4':
+      return 'mp4';
+    case 'application/pdf':
+      return 'pdf';
+    case 'text/plain':
+      return 'txt';
+    default:
+      return null;
+  }
+}
+
+function extensionFromName(value?: string | null) {
+  const extension = path.extname(value || '').replace(/^\./, '').toLowerCase();
+  return /^[a-z0-9]{1,8}$/.test(extension) ? extension : null;
+}
+
+function inferStoredMediaExtension(mimeType?: string | null, fileName?: string | null, locator?: string | null) {
+  return extensionFromMimeType(mimeType)
+    || extensionFromName(fileName)
+    || extensionFromName(locator)
+    || 'bin';
+}
+
+function inferStoredMediaMimeType(filename: string) {
+  switch (path.extname(filename).toLowerCase()) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.mp3':
+      return 'audio/mpeg';
+    case '.ogg':
+      return 'audio/ogg';
+    case '.wav':
+      return 'audio/wav';
+    case '.mp4':
+      return 'video/mp4';
+    case '.pdf':
+      return 'application/pdf';
+    case '.txt':
+      return 'text/plain';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+function buildInboundMediaExecutorPath(filename: string) {
+  return `${INBOUND_MEDIA_EXECUTOR_PATH_ROOT}/${filename}`;
+}
+
+function parseMediaDataUrl(value: string) {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+  return {
+    mimeType: normalizeMimeType(match[1]) || 'application/octet-stream',
+    buffer: Buffer.from(match[2].replace(/\s+/g, ''), 'base64')
+  };
+}
+
+function assertInboundMediaSize(buffer: Buffer, source: string) {
+  if (buffer.length > INBOUND_MEDIA_MAX_BYTES) {
+    throw new Error(`Inbound media from ${source} exceeds ${INBOUND_MEDIA_MAX_BYTES} bytes`);
+  }
+}
+
+async function fetchMediaAsBuffer(url: string, mimeType?: string | null) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INBOUND_MEDIA_FETCH_TIMEOUT_MS);
+  timeout.unref?.();
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch media source: ${response.status}`);
+    }
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (Number.isFinite(contentLength) && contentLength > INBOUND_MEDIA_MAX_BYTES) {
+      throw new Error(`Inbound media source exceeds ${INBOUND_MEDIA_MAX_BYTES} bytes`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    assertInboundMediaSize(buffer, url);
+    return {
+      buffer,
+      mimeType: normalizeMimeType(response.headers.get('content-type')) || normalizeMimeType(mimeType),
+      filename: path.basename(new URL(url).pathname) || null
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readNapcatFileAsBuffer(filePath: string, filename?: string | null, mimeType?: string | null) {
+  const hostPath = mapNapcatContainerPath(filePath);
+  const buffer = await fs.readFile(hostPath);
+  assertInboundMediaSize(buffer, filePath);
+  return {
+    buffer,
+    mimeType: normalizeMimeType(mimeType) || sniffImageMimeType(buffer, inferImageMimeTypeFromName(filename || filePath)),
+    filename: filename || path.basename(filePath)
+  };
+}
+
+async function resolveInboundMediaBytes(asset: InboundMediaAsset) {
+  const fileId = typeof asset.fileId === 'string' && asset.fileId.trim() ? asset.fileId.trim() : '';
+  let fileError: unknown = null;
+  if (fileId) {
+    try {
+      const fileInfo = await napcatClient.getFile(fileId);
+      const filePath = typeof fileInfo?.file === 'string' && fileInfo.file.trim()
+        ? fileInfo.file.trim()
+        : typeof fileInfo?.url === 'string' && fileInfo.url.trim()
+          ? fileInfo.url.trim()
+          : '';
+      if (filePath && /^https?:\/\//i.test(filePath)) {
+        return fetchMediaAsBuffer(filePath, asset.mimeType);
+      }
+      if (filePath) {
+        return readNapcatFileAsBuffer(filePath, asset.fileName || fileInfo?.file_name, asset.mimeType);
+      }
+    } catch (error) {
+      fileError = error;
+    }
+  }
+
+  const locator = typeof asset.locator === 'string' && asset.locator.trim() ? asset.locator.trim() : '';
+  if (locator.startsWith('data:')) {
+    const parsed = parseMediaDataUrl(locator);
+    if (!parsed) {
+      throw new Error('Unsupported media data URL');
+    }
+    assertInboundMediaSize(parsed.buffer, 'data_url');
+    return {
+      buffer: parsed.buffer,
+      mimeType: parsed.mimeType,
+      filename: asset.fileName || null
+    };
+  }
+  if (/^https?:\/\//i.test(locator)) {
+    return fetchMediaAsBuffer(locator, asset.mimeType);
+  }
+  if (locator.startsWith(NAPCAT_QQ_CONTAINER_ROOT + '/')) {
+    return readNapcatFileAsBuffer(locator, asset.fileName, asset.mimeType);
+  }
+
+  if (fileError instanceof Error) {
+    throw fileError;
+  }
+  throw new Error('Inbound media asset has no readable locator');
+}
+
+async function materializeInboundMediaAsset(asset: InboundMediaAsset) {
+  const resolved = await resolveInboundMediaBytes(asset);
+  const detectedImageMimeType = sniffImageMimeType(resolved.buffer, resolved.mimeType || asset.mimeType);
+  const mimeType = detectedImageMimeType || normalizeMimeType(resolved.mimeType) || normalizeMimeType(asset.mimeType) || 'application/octet-stream';
+  const contentHash = createHash('sha256').update(resolved.buffer).digest('hex');
+  const extension = inferStoredMediaExtension(mimeType, asset.fileName || resolved.filename, asset.locator);
+  const filename = `${contentHash}.${extension}`;
+  const storagePath = path.join(INBOUND_MEDIA_ASSET_ROOT, filename);
+  await fs.mkdir(INBOUND_MEDIA_ASSET_ROOT, { recursive: true });
+  try {
+    await fs.writeFile(storagePath, resolved.buffer, { flag: 'wx' });
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')) {
+      throw error;
+    }
+  }
+  return {
+    id: `media_${contentHash.slice(0, 48)}`,
+    storageUri: `${INBOUND_MEDIA_ASSET_BASE_URL}/api/internal/media-assets/${encodeURIComponent(filename)}`,
+    storagePath,
+    executorPath: buildInboundMediaExecutorPath(filename),
+    contentHash,
+    bytes: resolved.buffer.length,
+    mimeType,
+    filename
+  };
+}
+
+async function prepareInboundMediaAssets(inboundContext: FinalizedInboundContext) {
   const mediaAssets = Array.isArray(inboundContext.MediaAssets) ? inboundContext.MediaAssets : [];
   for (const asset of mediaAssets) {
     if (!asset || typeof asset !== 'object') {
       continue;
     }
-    if (typeof asset.id === 'string' && asset.id.trim()) {
-      asset.id = asset.id.trim();
-      continue;
+    try {
+      const materialized = await materializeInboundMediaAsset(asset);
+      asset.id = materialized.id;
+      asset.storageUri = materialized.storageUri;
+      asset.storagePath = materialized.storagePath;
+      asset.executorPath = materialized.executorPath;
+      asset.contentHash = materialized.contentHash;
+      asset.bytes = materialized.bytes;
+      asset.mimeType = materialized.mimeType;
+      if (!asset.fileName) {
+        asset.fileName = materialized.filename;
+      }
+    } catch (error) {
+      moduleLogger.warn('Failed to materialize inbound media asset', {
+        mediaTag: asset.mediaTag,
+        mediaType: asset.mediaType,
+        locator: asset.locator || null,
+        fileId: asset.fileId || null,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      if (typeof asset.id === 'string' && asset.id.trim()) {
+        asset.id = asset.id.trim();
+      } else {
+        asset.id = `media_${Date.now()}_${randomUUID().slice(0, 8)}`;
+      }
     }
-    asset.id = `media_${Date.now()}_${randomUUID().slice(0, 8)}`;
   }
 }
 
@@ -352,13 +594,19 @@ async function persistInboundMediaAssets(inboundContext: FinalizedInboundContext
     mediaType: asset.mediaType,
     mimeType: asset.mimeType,
     sourceLocator: asset.locator,
+    storageUri: asset.storageUri,
     metadata: {
       provider: inboundContext.Provider || null,
       surface: inboundContext.Surface || null,
       placeholder: asset.placeholder,
       file_id: asset.fileId || null,
       file_name: asset.fileName || null,
-      file_size: asset.fileSize || null
+      file_size: asset.fileSize || null,
+      content_hash: asset.contentHash || null,
+      bytes: asset.bytes || null,
+      storage_uri: asset.storageUri || null,
+      provider_storage_path: asset.storagePath || null,
+      executor_path: asset.executorPath || null
     }
   })));
 }
@@ -676,7 +924,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   if (!inboundContext) {
     return { accepted: false, reason: 'invalid_message' as const };
   }
-  ensureInboundMediaAssetIds(inboundContext);
+  await prepareInboundMediaAssets(inboundContext);
 
   const result = await inboxService.ingestIncomingMessage({
     inboundContext,
@@ -1060,6 +1308,21 @@ app.get('/api/internal/runtime-assets/:filename', async (req, res) => {
           : 'image/png';
     res.type(mimeType);
     res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(await fs.readFile(filePath));
+  } catch {
+    res.status(404).end();
+  }
+});
+
+app.get('/api/internal/media-assets/:filename', async (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename || '');
+    if (!filename) {
+      return res.status(404).end();
+    }
+    const filePath = path.join(INBOUND_MEDIA_ASSET_ROOT, filename);
+    res.type(inferStoredMediaMimeType(filename));
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.send(await fs.readFile(filePath));
   } catch {
     res.status(404).end();
@@ -1641,7 +1904,7 @@ app.post('/api/inbox/simulate', async (req, res) => {
       });
     }
 
-    ensureInboundMediaAssetIds(finalizedContext);
+    await prepareInboundMediaAssets(finalizedContext);
     const result = await inboxService.ingestIncomingMessage({
       inboundContext: finalizedContext,
       rawPayload: (req.body?.rawPayload && typeof req.body.rawPayload === 'object' && !Array.isArray(req.body.rawPayload))
