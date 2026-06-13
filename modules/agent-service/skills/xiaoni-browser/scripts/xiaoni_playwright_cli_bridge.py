@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
+import re
 import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9977
-POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-CLI_SCRIPT = "C:\\temp\\xiaoni-playwright-cli\\xiaoni-playwright-cli.ps1"
+NODE_EXE = "/mnt/c/Program Files/nodejs/node.exe"
+CLI_SCRIPT_WIN = "C:\\temp\\xiaoni-playwright-cli\\node_modules\\@playwright\\cli\\playwright-cli.js"
+CLI_SCRIPT_WSL = "/mnt/c/temp/xiaoni-playwright-cli/xiaoni-playwright-cli.ps1"
+INSTALL_DIR_WSL = "/mnt/c/temp/xiaoni-playwright-cli"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -34,8 +38,12 @@ class Handler(BaseHTTPRequestHandler):
                 timeout_seconds = min(timeout_seconds, 15)
             try:
                 completed = subprocess.run(
-                    [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_SCRIPT, *args],
+                    [NODE_EXE, CLI_SCRIPT_WIN, *args],
+                    cwd=INSTALL_DIR_WSL,
+                    env=_windows_cli_env(),
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=timeout_seconds,
@@ -88,6 +96,17 @@ def _decode_timeout_output(value):
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _windows_cli_env():
+    env = os.environ.copy()
+    if os.path.exists(CLI_SCRIPT_WSL):
+        with open(CLI_SCRIPT_WSL, "r", encoding="utf-8-sig") as handle:
+            for line in handle:
+                match = re.match(r'\s*\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"', line)
+                if match:
+                    env[match.group(1)] = match.group(2)
+    return env
 
 
 if __name__ == "__main__":
