@@ -245,6 +245,17 @@ def call_tool(tool_name, arguments):
     return call_with_transport(tool_name, arguments)
 
 
+def call_existing_session_only(tool_name, arguments):
+    session_id = read_session_id()
+    if not session_id:
+        raise RuntimeError("no cached browser session; run goto or sequence to connect and immediately navigate")
+    try:
+        return call_with_transport(tool_name, arguments, session_id)
+    except Exception as error:
+        clear_session_id()
+        raise RuntimeError(f"cached browser session is no longer valid: {error}")
+
+
 def call_sequence(calls):
     session_id = read_session_id()
     if not os.path.exists("/var/run/docker.sock"):
@@ -393,6 +404,8 @@ def main(argv):
             return 1
     tool_name, arguments = build_call(args)
     try:
+        if args.command == "status":
+            return print_result(call_existing_session_only(tool_name, arguments))
         return print_result(call_tool(tool_name, arguments))
     except Exception as error:
         print(f"XIAONI_BROWSER_ERROR {error}", file=sys.stderr)

@@ -51,11 +51,11 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.
 
 ## Workflow
 
-1. Start with `status`. It should report the MCP server and browser tabs.
-2. Use `goto URL` to open a page.
-3. Use `snapshot` to get element refs such as `e6`.
-4. Use refs with `click`, `fill`, or `hover`.
-5. Use `screenshot name.png` when visual evidence matters.
+1. Start with `goto URL` or one `sequence` command. A new browser session briefly opens the extension connect page, then the command should immediately navigate away.
+2. Use `snapshot` to get element refs such as `e6`.
+3. Use refs with `click`, `fill`, or `hover`.
+4. Use `screenshot name.png` when visual evidence matters.
+5. Use `status` only after a browser session already exists; it checks the cached session and does not create a new one.
 
 Run browser commands serially. Do not run two `xiaoni_browser.py` commands in parallel against the same browser session. Use `sequence` when an action depends on refs from the immediately previous snapshot.
 
@@ -65,6 +65,7 @@ Run browser commands serially. Do not run two `xiaoni_browser.py` commands in pa
 - Do not close all browser tabs as cleanup. Use `tabs` to inspect first.
 - Do not paste secrets from page content into QQ unless the operator explicitly asks.
 - Screenshot filenames are saved by the host Playwright bridge, not inside `/xiaoni-runtime`. Use a relative filename such as `page.png`, not an absolute Xiaoni runtime path.
+- The `chrome-extension://mml.../connect.html` page is the Playwright Extension handshake page. It appears when a new session is created. Avoid using `status` as the first command if you do not want to leave the browser on that page.
 - If a command returns `XIAONI_BROWSER_ERROR`, treat the reason as the real boundary. The bridge may be down, the extension may be disconnected, or the helper Docker image may be unavailable.
 
 ## Expected Failures
