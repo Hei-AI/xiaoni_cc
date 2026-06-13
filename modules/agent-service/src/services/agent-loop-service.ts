@@ -7755,14 +7755,30 @@ export class AgentLoopService {
       ? args.media_tag.trim()
       : '';
     if (!imageId && !mediaTag) {
-      throw new Error(`${TOOL_NAMES.inspectImage} requires image_id or media_tag`);
+      const description = '没有提供 image_id 或 media_tag。不能猜图片 id；只能使用当前上下文明确给出的图片ID。';
+      return {
+        image_id: null,
+        media_tag: null,
+        inspected: false,
+        description,
+        output_xml: buildImageObservationXml('missing-image-reference', description)
+      };
     }
 
     const asset = imageId
       ? await this.resolveMediaAssetForToolReference(queueMessage, imageId, { globalId: true })
       : await this.resolveMediaAssetForToolReference(queueMessage, mediaTag, { globalId: false });
     if (!asset) {
-      throw new Error(`${TOOL_NAMES.inspectImage} could not find the requested image placeholder`);
+      const reference = imageId || mediaTag;
+      const referenceKind = imageId ? 'image_id' : 'media_tag';
+      const description = `这个 ${referenceKind} 不存在：${reference}。不能猜图片 id；只能使用当前上下文明确给出的图片ID。`;
+      return {
+        image_id: imageId || null,
+        media_tag: mediaTag || null,
+        inspected: false,
+        description,
+        output_xml: buildImageObservationXml(reference, description)
+      };
     }
 
     const assetId = typeof asset.id === 'string' && asset.id.trim() ? asset.id.trim() : imageId;

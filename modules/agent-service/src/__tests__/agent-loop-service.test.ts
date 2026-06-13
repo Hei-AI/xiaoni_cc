@@ -3249,6 +3249,28 @@ test('materializeImageAsset prefers storage_uri over expiring source_locator', a
   assert.equal(calls[0]?.body?.source_locator, 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png');
 });
 
+test('inspect_image_placeholder returns a recoverable message for a missing image id', async () => {
+  const service = new AgentLoopService({
+    getMediaAssetById: async () => null,
+    getMediaAssetByTag: async () => null
+  } as any);
+
+  const result = await (service as any).inspectImagePlaceholder(
+    {
+      image_id: 'missing-image-id',
+      reason: '想看图。'
+    },
+    createQueuePayload(),
+    {}
+  );
+
+  assert.equal(result.inspected, false);
+  assert.equal(result.image_id, 'missing-image-id');
+  assert.match(result.description, /这个 image_id 不存在：missing-image-id/);
+  assert.match(result.description, /不能猜图片 id/);
+  assert.match(result.output_xml, /<image id="missing-image-id">/);
+});
+
 test('inspect_image_placeholder runs a persisted main-context vision fork by image id', async () => {
   const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
   const imageAssetId = 'media_40b42858b9edee2525910a13195ae1d5843ee26450af81bb';
