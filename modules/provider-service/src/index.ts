@@ -56,9 +56,8 @@ const moduleLogger = logger.createModuleLogger('provider-service');
 const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs/runtime-assets';
 const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
 const XIAONI_RUNTIME_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
-const INBOUND_MEDIA_ASSET_ROOT = (process.env.PROVIDER_INBOUND_MEDIA_ASSET_ROOT || path.join(XIAONI_RUNTIME_ROOT, 'media', 'inbound')).replace(/\/+$/, '');
+const INBOUND_MEDIA_ASSET_ROOT = path.join(XIAONI_RUNTIME_ROOT, 'media', 'inbound').replace(/\/+$/, '');
 const INBOUND_MEDIA_ASSET_BASE_URL = (process.env.PROVIDER_INBOUND_MEDIA_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
-const INBOUND_MEDIA_EXECUTOR_PATH_ROOT = (process.env.PROVIDER_INBOUND_MEDIA_EXECUTOR_PATH_ROOT || INBOUND_MEDIA_ASSET_ROOT).replace(/\/+$/, '');
 const inboundMediaMaxBytes = Number(process.env.PROVIDER_INBOUND_MEDIA_MAX_BYTES || 25 * 1024 * 1024);
 const INBOUND_MEDIA_MAX_BYTES = Number.isFinite(inboundMediaMaxBytes) && inboundMediaMaxBytes > 0
   ? inboundMediaMaxBytes
@@ -402,10 +401,6 @@ function inferStoredMediaMimeType(filename: string) {
   }
 }
 
-function buildInboundMediaExecutorPath(filename: string) {
-  return `${INBOUND_MEDIA_EXECUTOR_PATH_ROOT}/${filename}`;
-}
-
 function parseMediaDataUrl(value: string) {
   const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(value.trim());
   if (!match) {
@@ -527,7 +522,7 @@ async function materializeInboundMediaAsset(asset: InboundMediaAsset) {
     id: `media_${contentHash.slice(0, 48)}`,
     storageUri: `${INBOUND_MEDIA_ASSET_BASE_URL}/api/internal/media-assets/${encodeURIComponent(filename)}`,
     storagePath,
-    executorPath: buildInboundMediaExecutorPath(filename),
+    executorPath: storagePath,
     contentHash,
     bytes: resolved.buffer.length,
     mimeType,
