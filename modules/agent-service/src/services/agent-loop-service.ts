@@ -7058,7 +7058,7 @@ export class AgentLoopService {
           rawResponse: modelResult.raw_response || null,
           outputItems,
           status: modelResult.success ? 'completed' : 'failed',
-          tokenUsage: modelResult.usage || {},
+          tokenUsage: buildProviderTokenUsage(modelResult),
           traceId: params.queueMessage.traceId,
           runId: params.queueMessage.runId,
           agentTurn: forkTurn,

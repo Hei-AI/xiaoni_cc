@@ -6515,6 +6515,20 @@ test('core memory compression runs in an isolated background fork alongside the 
       return {
         success: true,
         llm_call_id: 'llm-compress-fork-1',
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 20,
+          total_tokens: 1020
+        },
+        usage_details: {
+          cached_input_tokens: 900,
+          reasoning_tokens: 3,
+          raw_usage: {
+            input_tokens_details: {
+              cached_tokens: 900
+            }
+          }
+        },
         canonical_response: {
           output: [{
             type: 'function_call',
@@ -6531,6 +6545,20 @@ test('core memory compression runs in an isolated background fork alongside the 
     return {
       success: true,
       llm_call_id: 'llm-compress-fork-2',
+      usage: {
+        input_tokens: 1200,
+        output_tokens: 30,
+        total_tokens: 1230
+      },
+      usage_details: {
+        cached_input_tokens: 1100,
+        reasoning_tokens: 5,
+        raw_usage: {
+          input_tokens_details: {
+            cached_tokens: 1100
+          }
+        }
+      },
       canonical_response: {
         output: [{
           type: 'function_call',
@@ -6628,7 +6656,31 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(forkSlices.length, 2);
   assert.equal(forkSlices[0]?.canonicalRequest?.store, false);
   assert.equal(forkSlices[0]?.metadata?.no_main_stack_persist, true);
+  assert.deepEqual(forkSlices[0]?.tokenUsage, {
+    input_tokens: 1000,
+    output_tokens: 20,
+    total_tokens: 1020,
+    cached_input_tokens: 900,
+    reasoning_tokens: 3,
+    raw_usage: {
+      input_tokens_details: {
+        cached_tokens: 900
+      }
+    }
+  });
   assert.equal(forkSlices[1]?.metadata?.fork_turn, 2);
+  assert.deepEqual(forkSlices[1]?.tokenUsage, {
+    input_tokens: 1200,
+    output_tokens: 30,
+    total_tokens: 1230,
+    cached_input_tokens: 1100,
+    reasoning_tokens: 5,
+    raw_usage: {
+      input_tokens_details: {
+        cached_tokens: 1100
+      }
+    }
+  });
   assert.equal(forkTools.length, 2);
   assert.deepEqual(forkTools.map((entry) => entry.toolName), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
   assert.equal(completedForkTools.length, 2);
