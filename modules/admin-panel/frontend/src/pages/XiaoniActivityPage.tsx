@@ -37,6 +37,7 @@ import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
+import { calculateUsageChartWheelWindow } from '@/lib/usage-chart-wheel';
 import { cn, formatDateOnly, formatDateTimeCompact, formatIsoOffset, formatTimeOnly, formatTimestamp, parseTimestampValue } from '@/lib/utils';
 
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
@@ -824,6 +825,7 @@ function XiaoniUsageObservatory({
   const [selectionEndIsNow, setSelectionEndIsNow] = React.useState(false);
   const [transientWindowMs, setTransientWindowMs] = React.useState<[number, number] | null>(null);
   const [searchDraft, setSearchDraft] = React.useState(searchQuery);
+  const [wheelZoomActive, setWheelZoomActive] = React.useState(false);
   const chartShellRef = React.useRef<HTMLDivElement | null>(null);
   const suppressNextClickRef = React.useRef(false);
   const wheelCommitTimerRef = React.useRef<number | null>(null);
@@ -1014,33 +1016,41 @@ function XiaoniUsageObservatory({
     }
   }, [onFocusPoint]);
 
+  const handleChartShellClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || suppressNextClickRef.current) {
+      return;
+    }
+    chartShellRef.current?.focus({ preventScroll: true });
+    setWheelZoomActive(true);
+  }, []);
+
   const handleWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     if (!timeline || fullEndMs <= fullStartMs) {
       return;
     }
-    event.preventDefault();
     const rect = chartShellRef.current?.getBoundingClientRect();
     const ratio = rect && rect.width > 0
       ? clampTimestamp((event.clientX - rect.left) / rect.width, 0, 1)
       : 0.5;
-    const currentDuration = Math.max(60_000, visibleEndMs - visibleStartMs);
-    const factor = event.deltaY < 0 ? 0.72 : 1.28;
-    const maxDuration = Math.max(60_000, fullEndMs - fullStartMs);
-    const nextDuration = clampTimestamp(currentDuration * factor, 60_000, maxDuration);
-    const anchorMs = visibleStartMs + currentDuration * ratio;
-    let nextStart = anchorMs - nextDuration * ratio;
-    let nextEnd = nextStart + nextDuration;
-    if (nextStart < fullStartMs) {
-      nextStart = fullStartMs;
-      nextEnd = nextStart + nextDuration;
+    const nextWindow = calculateUsageChartWheelWindow({
+      isActive: wheelZoomActive,
+      deltaY: event.deltaY,
+      pointerRatio: ratio,
+      domainEndMs,
+      fullStartMs,
+      fullEndMs,
+      visibleStartMs,
+      visibleEndMs,
+    });
+
+    if (!nextWindow) {
+      return;
     }
-    if (nextEnd > fullEndMs) {
-      nextEnd = fullEndMs;
-      nextStart = nextEnd - nextDuration;
-    }
-    setTransientWindowMs([nextStart, nextEnd]);
-    commitWheelWindow(nextStart, nextEnd, nextEnd >= domainEndMs - 1000);
-  }, [commitWheelWindow, domainEndMs, fullEndMs, fullStartMs, timeline, visibleEndMs, visibleStartMs]);
+
+    event.preventDefault();
+    setTransientWindowMs([nextWindow.startMs, nextWindow.endMs]);
+    commitWheelWindow(nextWindow.startMs, nextWindow.endMs, nextWindow.endIsNow);
+  }, [commitWheelWindow, domainEndMs, fullEndMs, fullStartMs, timeline, visibleEndMs, visibleStartMs, wheelZoomActive]);
 
   const empty = !isLoading && chartPoints.length === 0;
 
@@ -1111,7 +1121,19 @@ function XiaoniUsageObservatory({
 
       <div
         ref={chartShellRef}
-        className="mt-4 h-[320px] rounded-md border border-border bg-background p-2"
+        tabIndex={0}
+        role="region"
+        aria-label="LLM Cost chart"
+        className={cn(
+          'mt-4 h-[320px] rounded-md border border-border bg-background p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/25',
+          wheelZoomActive && 'border-primary/50 ring-2 ring-primary/15'
+        )}
+        onClickCapture={handleChartShellClick}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setWheelZoomActive(false);
+          }
+        }}
         onWheel={handleWheel}
       >
         {isLoading && !timeline ? (
