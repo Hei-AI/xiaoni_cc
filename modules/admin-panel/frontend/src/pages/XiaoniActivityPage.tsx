@@ -33,6 +33,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PageHeaderBadge } from '@/components/console/PageHeader';
 import { PageShell } from '@/components/console/PageShell';
@@ -42,6 +44,13 @@ import { ErrorState } from '@/components/console/ErrorState';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { calculateUsageChartWheelWindow } from '@/lib/usage-chart-wheel';
 import { cn, formatDateOnly, formatDateTimeCompact, formatIsoOffset, formatTimeOnly, formatTimestamp, parseTimestampValue } from '@/lib/utils';
+import {
+  ACTION_STREAM_REFRESH_OPTIONS,
+  ActionStreamRefreshValue,
+  coerceActionStreamRefresh,
+  DEFAULT_ACTION_STREAM_REFRESH,
+  getActionStreamRefreshInterval,
+} from '@/lib/xiaoni-action-stream-refresh';
 import {
   ActionStreamTagOption,
   mergeSelectedActionStreamTags,
@@ -2239,6 +2248,8 @@ export const XiaoniActivityPage: React.FC = () => {
   const usageBucket = coerceUsageBucket(searchParams.get('bucket'));
   const usageSearch = searchParams.get('usage_search') || '';
   const actionTagParam = searchParams.get('tags') || '';
+  const refreshValue = coerceActionStreamRefresh(searchParams.get('refresh'));
+  const refreshInterval = getActionStreamRefreshInterval(refreshValue);
   const selectedActionTags = React.useMemo(() => parseActionStreamTagParam(actionTagParam), [actionTagParam]);
   const selectedActionTagParam = React.useMemo(() => serializeActionStreamTags(selectedActionTags), [selectedActionTags]);
   const focusEvent = searchParams.get('focus_event') || '';
@@ -2296,7 +2307,7 @@ export const XiaoniActivityPage: React.FC = () => {
         ? lastPage.pagination.nextCursor
         : undefined
     ),
-    refetchInterval: 10000,
+    refetchInterval: refreshInterval,
   });
   const feed = React.useMemo(() => mergeActionStreamPages(feedPages?.pages || []), [feedPages?.pages]);
   const {
@@ -2334,7 +2345,7 @@ export const XiaoniActivityPage: React.FC = () => {
       }
       return payload.data;
     },
-    refetchInterval: usageSearch.trim() ? false : 10000,
+    refetchInterval: usageSearch.trim() ? false : refreshInterval,
   });
 
   const mainItems = React.useMemo(() => (feed?.items || []).filter((item) => !isImageVisionForkMainItem(item)), [feed?.items]);
@@ -2400,6 +2411,22 @@ export const XiaoniActivityPage: React.FC = () => {
       } else {
         nextParams.delete('usage_search');
       }
+    });
+  }, [updateSearchParam]);
+
+  const handleRefreshEnabledChange = React.useCallback((enabled: boolean) => {
+    updateSearchParam((nextParams) => {
+      if (enabled) {
+        nextParams.set('refresh', DEFAULT_ACTION_STREAM_REFRESH);
+      } else {
+        nextParams.set('refresh', 'off');
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleRefreshIntervalChange = React.useCallback((nextValue: ActionStreamRefreshValue) => {
+    updateSearchParam((nextParams) => {
+      nextParams.set('refresh', nextValue);
     });
   }, [updateSearchParam]);
 
@@ -2490,18 +2517,44 @@ export const XiaoniActivityPage: React.FC = () => {
             </StatusPill>
           ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void refetchFeed();
-            void refetchUsage();
-          }}
-          disabled={isFetching || isUsageFetching}
-        >
-          <RefreshCw className={cn('mr-2 h-4 w-4', (isFetching || isUsageFetching) && 'animate-spin')} />
-          刷新
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm shadow-sm">
+            <Switch
+              checked={refreshValue !== 'off'}
+              onCheckedChange={handleRefreshEnabledChange}
+              aria-label="自动刷新"
+            />
+            <span className="whitespace-nowrap text-muted-foreground">自动刷新</span>
+            <Select
+              value={refreshValue === 'off' ? DEFAULT_ACTION_STREAM_REFRESH : refreshValue}
+              onValueChange={(value) => handleRefreshIntervalChange(value as ActionStreamRefreshValue)}
+              disabled={refreshValue === 'off'}
+            >
+              <SelectTrigger className="h-7 w-[82px] border-border bg-background px-2 py-1 text-xs shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ACTION_STREAM_REFRESH_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void refetchFeed();
+              void refetchUsage();
+            }}
+            disabled={isFetching || isUsageFetching}
+          >
+            <RefreshCw className={cn('mr-2 h-4 w-4', (isFetching || isUsageFetching) && 'animate-spin')} />
+            刷新
+          </Button>
+        </div>
       </div>
 
       <TimeRangeControls
