@@ -221,6 +221,126 @@ function inferImageMimeTypeFromName(value?: string | null) {
   return null;
 }
 
+function countImageInputs(value: any) {
+  const images = Array.isArray(value?.images)
+    ? value.images
+    : typeof value?.image !== 'undefined'
+      ? Array.isArray(value.image) ? value.image : [value.image]
+      : [];
+  return images.length;
+}
+
+function buildImageUsageRequestSnapshot(operation: 'generate' | 'edit', body: any) {
+  return {
+    operation,
+    prompt: typeof body?.prompt === 'string' ? body.prompt : null,
+    model: typeof body?.model === 'string' ? body.model : null,
+    size: typeof body?.size === 'string' ? body.size : null,
+    quality: typeof body?.quality === 'string' ? body.quality : null,
+    format: typeof body?.format === 'string' ? body.format : null,
+    background: typeof body?.background === 'string' ? body.background : null,
+    output_compression: typeof body?.output_compression === 'number' ? body.output_compression : null,
+    n: typeof body?.n === 'number' ? body.n : null,
+    input_image_count: operation === 'edit' ? countImageInputs(body) : 0,
+    has_mask: operation === 'edit' ? typeof body?.mask !== 'undefined' : false
+  };
+}
+
+function buildImageUsageResponseSnapshot(data: any) {
+  const images = Array.isArray(data?.images) ? data.images : [];
+  return {
+    provider: data?.provider || null,
+    model: data?.model || null,
+    image_count: images.length,
+    revised_prompts: images
+      .map((image: any) => typeof image?.revised_prompt === 'string' ? image.revised_prompt : null)
+      .filter(Boolean),
+    usage: data?.usage || null
+  };
+}
+
+async function recordCodexImageProviderUsage(operation: 'generate' | 'edit', body: any, data: any) {
+  if (data?.provider !== 'codex') {
+    return;
+  }
+  const outputItems = Array.isArray(data?.images)
+    ? data.images.map((image: any, index: number) => ({
+      type: 'image_generation_result',
+      index,
+      mime_type: image?.mime_type || null,
+      format: image?.format || null,
+      revised_prompt: image?.revised_prompt || null,
+      bytes_estimate: image?.bytes_estimate || null
+    }))
+    : [];
+  await runtimeStoreService.recordCodexProviderUsageEvent({
+    eventId: `codex-provider:image-${operation}:${Date.now()}:${randomUUID().slice(0, 8)}`,
+    sourceKind: operation === 'edit' ? 'image_edit' : 'image_generation',
+    sourceId: typeof body?.run_id === 'string' ? body.run_id : null,
+    identityKey: 'xiaoni',
+    modelName: data?.model || 'gpt-image-2',
+    modelProvider: 'codex',
+    canonicalRequest: buildImageUsageRequestSnapshot(operation, body),
+    canonicalResponse: buildImageUsageResponseSnapshot(data),
+    outputItems,
+    usage: data?.usage || {},
+    requestFormatVersion: 'image-provider/v1',
+    wireProviderFormat: 'codex/responses:image_generation',
+    metadata: {
+      operation,
+      provider_endpoint: `/api/internal/image/${operation}`
+    }
+  }).catch((error) => {
+    moduleLogger.warn('Failed to record Codex image provider usage event', {
+      operation,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+}
+
+async function recordCodexImagePromptAssistantUsage(body: any, data: any) {
+  if (data?.provider !== 'codex') {
+    return;
+  }
+  await runtimeStoreService.recordCodexProviderUsageEvent({
+    eventId: data?.llmCallId ? `codex-provider:${data.llmCallId}` : undefined,
+    sourceKind: 'image_prompt_assistant',
+    identityKey: 'xiaoni',
+    llmCallId: typeof data?.llmCallId === 'string' ? data.llmCallId : undefined,
+    modelName: typeof data?.modelName === 'string' ? data.modelName : undefined,
+    modelProvider: 'codex',
+    canonicalRequest: {
+      operation: 'prompt_assistant',
+      prompt: typeof body?.prompt === 'string' ? body.prompt : null,
+      mode: body?.mode === 'edit' ? 'edit' : 'generate',
+      size: typeof body?.size === 'string' ? body.size : null,
+      quality: typeof body?.quality === 'string' ? body.quality : null,
+      format: typeof body?.format === 'string' ? body.format : null,
+      reference_image_count: Array.isArray(body?.referenceImages) ? body.referenceImages.length : 0
+    },
+    canonicalResponse: {
+      final_prompt: typeof data?.finalPrompt === 'string' ? data.finalPrompt : null,
+      detected_use_case: data?.detectedUseCase || null,
+      warnings: Array.isArray(data?.warnings) ? data.warnings : []
+    },
+    outputItems: [{
+      type: 'image_prompt_assistant_result',
+      detected_use_case: data?.detectedUseCase || null
+    }],
+    usage: data?.usage || {},
+    requestFormatVersion: data?.requestFormatVersion || 'image-prompt-assistant/v1',
+    wireProviderFormat: data?.wireProviderFormat || 'codex/responses',
+    metadata: {
+      operation: 'prompt_assistant',
+      provider_endpoint: '/api/internal/image/prompt-assistant'
+    }
+  }).catch((error) => {
+    moduleLogger.warn('Failed to record Codex image prompt assistant usage event', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+}
+
 function sniffImageMimeType(buffer: Buffer, fallback?: string | null) {
   if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
     return 'image/png';
@@ -1498,6 +1618,7 @@ app.post('/api/internal/agent/execute', async (req, res) => {
 app.post('/api/internal/image/generate', async (req, res) => {
   try {
     const data = await imageProvider.generate(req.body || {});
+    await recordCodexImageProviderUsage('generate', req.body || {}, data);
     res.json({
       success: true,
       data,
@@ -1520,6 +1641,7 @@ app.post('/api/internal/image/generate', async (req, res) => {
 app.post('/api/internal/image/edit', async (req, res) => {
   try {
     const data = await imageProvider.edit(req.body || {});
+    await recordCodexImageProviderUsage('edit', req.body || {}, data);
     res.json({
       success: true,
       data,
@@ -1542,6 +1664,7 @@ app.post('/api/internal/image/edit', async (req, res) => {
 app.post('/api/internal/image/prompt-assistant', async (req, res) => {
   try {
     const data = await imagePromptAssistant.compose(req.body || {});
+    await recordCodexImagePromptAssistantUsage(req.body || {}, data);
     res.json({
       success: true,
       data,

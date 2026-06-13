@@ -904,6 +904,34 @@ export type XiaoniImageVisionForkItem = Omit<XiaoniAgentStackItem, 'stackIndex'>
 export type XiaoniImageVisionForkSlice = XiaoniLlmRequestSlice & {
   forkRunId: string;
 };
+export type XiaoniCodexProviderUsageEvent = {
+  id: string | null;
+  eventId: string;
+  sourceKind: string;
+  sourceId: string | null;
+  identityKey: string;
+  llmCallId: string | null;
+  traceId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  canonicalRequest: Record<string, unknown>;
+  wireRequest: Record<string, unknown> | null;
+  canonicalResponse: Record<string, unknown> | null;
+  wireResponse: Record<string, unknown> | null;
+  rawResponse: Record<string, unknown> | null;
+  outputItems: unknown[];
+  status: string | null;
+  tokenUsage: Record<string, unknown>;
+  modelName: string | null;
+  modelProvider: string | null;
+  requestFormatVersion: string | null;
+  wireProviderFormat: string | null;
+  processingTimeMs: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string | null;
+  completedAt: string | null;
+  updatedAt: string | null;
+};
 export type XiaoniLlmUsageBucket = 'call' | 'hour' | 'day' | 'month';
 export type XiaoniLlmUsageTimelineInput = XiaoniAgentStackPersistenceCallInput & {
   identityKey?: string;
@@ -1024,6 +1052,7 @@ export type XiaoniAgentStackPersistenceApi = {
   appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
   appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
+  recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
   updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
   recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
   completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
@@ -1053,6 +1082,7 @@ export function getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, 
 export function appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
 export function appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
+export function recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
 export function updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
 export function recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
 export function completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;

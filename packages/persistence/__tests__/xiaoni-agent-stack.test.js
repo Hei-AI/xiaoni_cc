@@ -19,8 +19,9 @@ function createMockSql() {
     imageForkRun: [],
     imageForkItem: [],
     imageForkSlice: [],
+    providerEvent: [],
     rollupSource: [],
-    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 2 }]
+    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 3 }]
   };
   let stackId = 10;
   let forkItemId = 70;
@@ -281,6 +282,61 @@ function createMockSql() {
         rows.slice.push(row);
         return [row];
       }
+      if (sql.includes('INSERT INTO codex_provider_usage_events')) {
+        const row = {
+          id: 120,
+          event_id: params[0],
+          source_kind: params[1],
+          source_id: params[2],
+          identity_key: params[3],
+          llm_call_id: params[4],
+          trace_id: params[5],
+          run_id: params[6],
+          conversation_id: params[7],
+          canonical_request: JSON.parse(params[8]),
+          wire_request: params[9] ? JSON.parse(params[9]) : null,
+          canonical_response: params[10] ? JSON.parse(params[10]) : null,
+          wire_response: params[11] ? JSON.parse(params[11]) : null,
+          raw_response: params[12] ? JSON.parse(params[12]) : null,
+          output_items: JSON.parse(params[13]),
+          status: params[14],
+          token_usage: JSON.parse(params[15]),
+          model_name: params[16],
+          model_provider: params[17],
+          request_format_version: params[18],
+          wire_provider_format: params[19],
+          processing_time_ms: params[20],
+          metadata: JSON.parse(params[21]),
+          created_at: params[22] || '2026-06-11T00:00:00.000Z',
+          completed_at: params[23],
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.providerEvent = rows.providerEvent.filter((entry) => entry.event_id !== row.event_id);
+        rows.providerEvent.push(row);
+        return [row];
+      }
+      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('FROM codex_provider_usage_events') && sql.includes('WHERE event_id = ?')) {
+        const eventId = params[0];
+        const row = rows.providerEvent.find((entry) => entry.event_id === eventId);
+        if (!row) {
+          return [];
+        }
+        return [{
+          slice_id: row.event_id,
+          source_kind: row.source_kind,
+          fork_run_id: row.source_id,
+          identity_key: row.identity_key,
+          llm_call_id: row.llm_call_id,
+          trace_id: row.trace_id,
+          created_at: row.created_at,
+          hour_bucket_start: row.created_at,
+          day_bucket_start: row.created_at,
+          month_bucket_start: row.created_at,
+          input_tokens: row.token_usage.input_tokens || row.token_usage.inputTokens || row.token_usage.prompt_tokens || 0,
+          cached_tokens: row.token_usage.cached_input_tokens || row.token_usage.cachedInputTokens || 0,
+          output_tokens: row.token_usage.output_tokens || row.token_usage.outputTokens || row.token_usage.completion_tokens || 0
+        }];
+      }
       if (sql.includes("date_trunc('hour', created_at)") && sql.includes('WHERE slice_id = ?')) {
         const sourceKind = params[0];
         const sliceId = params[1];
@@ -408,6 +464,7 @@ test('ensureXiaoniAgentStackSchema creates main, compression fork, and image for
   const ddl = sql.calls.filter((call) => call.kind === 'execute').map((call) => call.sql).join('\n');
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS agent_stack_items/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS llm_request_slices/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS codex_provider_usage_events/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS tool_executions/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS stack_compactions/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS core_memory_compression_fork_runs/);
@@ -471,6 +528,37 @@ test('recordLlmRequestSlice stores canonical request and output item range', asy
   assert.equal(slice.outputItems[0].call_id, 'call-1');
   assert.equal(slice.tokenUsage.input_tokens, 10);
   assert.ok(sql.rows.rollupSource.some((row) => row.slice_id === 'llm-1' && row.source_kind === 'main'));
+});
+
+test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usage rollups', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const event = await persistence.recordCodexProviderUsageEvent({
+    eventId: 'codex-provider:vision-1',
+    sourceKind: 'image_vision_fork',
+    sourceId: 'media-observation-1',
+    llmCallId: 'vision-1',
+    traceId: 'trace-vision',
+    runId: 'run-vision',
+    canonicalRequest: { input: [{ type: 'message', content: 'describe image' }] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 33, cached_input_tokens: 12, output_tokens: 7 },
+    modelName: 'gpt-5.4-mini',
+    modelProvider: 'codex'
+  });
+
+  assert.equal(event.eventId, 'codex-provider:vision-1');
+  assert.equal(event.sourceKind, 'image_vision_fork');
+  assert.equal(event.sourceId, 'media-observation-1');
+  assert.ok(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'codex-provider:vision-1'
+    && row.source_kind === 'image_vision_fork'
+    && row.fork_run_id === 'media-observation-1'
+    && row.input_tokens === 33
+    && row.output_tokens === 7
+  ));
 });
 
 test('updateLlmRequestSliceStackLinks only updates stack indexes without rewriting provider payloads', async () => {
@@ -747,15 +835,16 @@ test('attachConversationIdToAgentStackByTrace updates main stack, tools, and ima
     conversationId: '42'
   });
 
-  assert.equal(count, 6);
+  assert.equal(count, 7);
   const updates = sql.calls.filter((call) => call.kind === 'execute' && call.sql.includes('UPDATE '));
-  assert.equal(updates.length, 6);
+  assert.equal(updates.length, 7);
   assert.ok(updates.some((call) => call.sql.includes('agent_stack_items')));
   assert.ok(updates.some((call) => call.sql.includes('llm_request_slices')));
   assert.ok(updates.some((call) => call.sql.includes('tool_executions')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_runs')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_items')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_slices')));
+  assert.ok(updates.some((call) => call.sql.includes('codex_provider_usage_events')));
 });
 
 function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows = [] } = {}) {
@@ -776,7 +865,7 @@ function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows
         }];
       }
       if (sql.includes('SELECT initialized_at') && sql.includes('FROM llm_usage_rollup_state')) {
-        return [{ initialized_at: '2026-06-13T00:00:00.000+08:00', version: 2 }];
+        return [{ initialized_at: '2026-06-13T00:00:00.000+08:00', version: 3 }];
       }
       if (sql.includes('SELECT COUNT(*) AS total_count') && sql.includes('FROM llm_usage_rollup_sources')) {
         return [{ total_count: totalCount }];
@@ -991,6 +1080,52 @@ test('getXiaoniLlmUsageTimeline includes image vision fork slices with fork anch
   assert.equal(timeline.summary.cachedTokens, 2100);
 });
 
+test('getXiaoniLlmUsageTimeline includes Codex Provider image events', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'image_generation:codex-provider:image-generate-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 120,
+        cached_tokens: 20,
+        output_tokens: 40,
+        source_kind: 'image_generation',
+        fork_run_id: 'image-run-1',
+        llm_request_slice_id: 'codex-provider:image-generate-1',
+        llm_call_id: null,
+        trace_id: 'trace-image-1',
+        top_llm_request_slice_id: 'codex-provider:image-generate-1',
+        top_source_kind: 'image_generation',
+        top_fork_run_id: 'image-run-1',
+        top_llm_call_id: null,
+        top_trace_id: 'trace-image-1',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 120,
+        top_cached_tokens: 20,
+        top_output_tokens: 40
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100
+  });
+
+  assert.equal(timeline.points.length, 1);
+  assert.equal(timeline.points[0].sourceKind, 'image_generation');
+  assert.equal(timeline.points[0].forkRunId, 'image-run-1');
+  assert.equal(timeline.points[0].anchorEventId, 'codex-provider:image-generate-1');
+  assert.equal(timeline.summary.inputTokens, 120);
+  assert.equal(timeline.summary.outputTokens, 40);
+});
+
 test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => {
   const sql = createUsageTimelineSqlMock({
     totalCount: 1,
@@ -1045,4 +1180,63 @@ test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => 
   assert.equal(timeline.overlays.searchHits[0].field, 'wire_response');
   assert.equal(timeline.overlays.searchHits[0].query, 'needle');
   assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('AS match_field') && call.params.includes('%needle%')));
+});
+
+test('getXiaoniLlmUsageTimeline searches Codex Provider usage events', async () => {
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'image_vision_fork:codex-provider:vision-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 33,
+        cached_tokens: 12,
+        output_tokens: 7,
+        source_kind: 'image_vision_fork',
+        fork_run_id: 'media-observation-1',
+        llm_request_slice_id: 'codex-provider:vision-1',
+        trace_id: 'trace-vision',
+        top_llm_request_slice_id: 'codex-provider:vision-1',
+        top_source_kind: 'image_vision_fork',
+        top_fork_run_id: 'media-observation-1',
+        top_trace_id: 'trace-vision',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 33,
+        top_cached_tokens: 12,
+        top_output_tokens: 7
+      }
+    ],
+    searchRows: [
+      {
+        llm_request_slice_id: 'codex-provider:vision-1',
+        source_kind: 'image_vision_fork',
+        fork_run_id: 'media-observation-1',
+        llm_call_id: 'vision-1',
+        trace_id: 'trace-vision',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        input_tokens: 33,
+        cached_tokens: 12,
+        output_tokens: 7,
+        match_field: 'canonical_request',
+        snippet: '{"content":"image_vision_fork needle"}'
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    includeOverlays: 'search',
+    searchQuery: 'image_vision_fork'
+  });
+
+  assert.equal(timeline.overlays.searchHits.length, 1);
+  assert.equal(timeline.overlays.searchHits[0].sourceKind, 'image_vision_fork');
+  assert.equal(timeline.overlays.searchHits[0].anchorEventId, 'codex-provider:vision-1');
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM codex_provider_usage_events')));
 });
