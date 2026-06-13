@@ -143,6 +143,8 @@ services:
       - "127.0.0.1:8093:8093"
     environment:
       - HTTP_PORT=8093
+      - XIAONI_SITE_PORT=3458
+      - XIAONI_SITE_ROOT=/xiaoni-runtime/site/xiaoni-home/dist
       - TZ=Asia/Shanghai
       - WORKSPACE_ROOT=/workspace/qq_bot
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime

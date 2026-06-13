@@ -42,11 +42,12 @@ COPY modules/xiaoni-executor/package.json ./
 COPY --from=build /opt/xiaoni-executor/node_modules ./node_modules
 COPY --from=build /opt/xiaoni-executor/dist ./dist
 COPY modules/xiaoni-executor/scripts/xiaoni-session /usr/local/bin/xiaoni-session
-RUN chmod +x /usr/local/bin/xiaoni-session \
+COPY modules/xiaoni-executor/scripts/start-xiaoni-executor /usr/local/bin/start-xiaoni-executor
+RUN chmod +x /usr/local/bin/xiaoni-session /usr/local/bin/start-xiaoni-executor \
   && mkdir -p /workspace /xiaoni-runtime \
   && ln -sfn /workspace/qq_bot /app
-EXPOSE 8093
+EXPOSE 8093 3458
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "const port=process.env.HTTP_PORT||'8093';fetch('http://127.0.0.1:' + port + '/health',{cache:'no-store'}).then(res=>{if(!res.ok){process.exit(1);}return res.text();}).then(()=>process.exit(0)).catch(()=>process.exit(1));"
 ENTRYPOINT ["tini", "--"]
-CMD ["node", "dist/index.js"]
+CMD ["start-xiaoni-executor"]

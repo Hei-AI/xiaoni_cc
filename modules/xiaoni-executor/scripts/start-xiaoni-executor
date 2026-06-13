@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_root="${XIAONI_RUNTIME_ROOT:-/xiaoni-runtime}"
+site_port="${XIAONI_SITE_PORT:-3458}"
+configured_site_root="${XIAONI_SITE_ROOT:-$runtime_root/site/xiaoni-home/dist}"
+log_file="$runtime_root/xiaoni-site.log"
+
+mkdir -p "$runtime_root"
+
+site_root="$configured_site_root"
+if [ ! -f "$site_root/index.html" ]; then
+  site_root="/tmp/xiaoni-site-placeholder"
+  mkdir -p "$site_root"
+  cat > "$site_root/index.html" <<'HTML'
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>xiaoni site not built</title>
+  </head>
+  <body>
+    <main>
+      <h1>xiaoni site not built</h1>
+      <p>No index.html was found at the configured XIAONI_SITE_ROOT.</p>
+    </main>
+  </body>
+</html>
+HTML
+fi
+
+(
+  cd "$site_root"
+  exec python3 -m http.server "$site_port" --bind 0.0.0.0
+) > "$log_file" 2>&1 &
+site_pid=$!
+
+node dist/index.js &
+executor_pid=$!
+
+shutdown() {
+  kill "$executor_pid" "$site_pid" 2>/dev/null || true
+  wait "$executor_pid" "$site_pid" 2>/dev/null || true
+}
+
+trap shutdown INT TERM
+
+wait -n "$executor_pid" "$site_pid"
+status=$?
+shutdown
+exit "$status"
