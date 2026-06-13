@@ -19,7 +19,19 @@ function createPersistence(overrides = {}) {
       count: async () => 0
     },
     agentMediaAsset: {
-      findMany: async () => []
+      findMany: async () => overrides.mediaAssets || [],
+      findUnique: async ({ where }) => (overrides.mediaAssets || []).find((row) => row.id === where.id) || null
+    },
+    agentMediaObservation: {
+      findUnique: async ({ where }) => {
+        for (const asset of overrides.mediaAssets || []) {
+          const observation = (asset.observations || []).find((row) => row.id === where.id);
+          if (observation) {
+            return { ...observation, asset };
+          }
+        }
+        return null;
+      }
     },
     agentQueueMessage: {
       findMany: async () => [],
@@ -523,10 +535,64 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
     'compression_fork_item',
     'compression_fork_tool_execution'
   ]);
+  assert.equal(forkRun.events[0].traceTarget.sourceKind, 'compression_fork');
+  assert.equal(forkRun.events[0].traceTarget.forkRunId, 'core_memory_fork_1');
+  assert.equal(forkRun.events[0].metadata.providerRequestSpanId, 'provider-request:wire:fork_llm_1');
+  assert.equal(forkRun.events[1].traceTarget.toolCallId, 'fork_call_exec');
+  assert.equal(forkRun.events[2].traceTarget.llmRequestSliceId, 'fork_slice_1');
   assert.equal(forkRun.events[1].title, 'Fork 请求工具: exec_command');
   assert.match(forkRun.events[2].metadata.toolResultPreview, /Fri Jun 5/);
   assert.equal(stream.items.some((item) => item.id.startsWith('compression-fork:')), false);
   assert.equal(stream.items.some((item) => item.source.startsWith('compression_fork')), false);
+
+  const resolved = await persistence.findXiaoniActionEventTraceTarget('compression-fork-slice:fork_slice_1');
+  assert.equal(resolved.sourceKind, 'compression_fork');
+  assert.equal(resolved.forkRunId, 'core_memory_fork_1');
+  assert.equal(resolved.llmRequestSliceId, 'fork_slice_1');
+  assert.equal(resolved.spanId, 'provider-request:wire:fork_llm_1');
+});
+
+test('Xiaoni action stream projects image vision fork observations outside main items', async () => {
+  const persistence = createPersistence({
+    mediaAssets: [{
+      id: 'media_vision_1',
+      media_type: 'image',
+      media_tag: 'image:abc',
+      source_locator: 'napcat://image/abc',
+      trace_id: 'trace_vision_1',
+      session_key: 'group:1040740258',
+      peer_name: '群 1040740258',
+      sender_id: '123',
+      sender_name: 'Alice',
+      created_at: '2026-06-05T10:04:59.000Z',
+      observations: [{
+        id: 'obs_vision_1',
+        asset_id: 'media_vision_1',
+        observer: 'xiaoni',
+        description: '图里有一张白板和两个人。',
+        source_model: 'gpt-5.1',
+        metadata: {
+          trace_id: 'trace_vision_1',
+          llm_call_id: 'vision_llm_1',
+          reason: 'image_inspect'
+        },
+        created_at: '2026-06-05T10:05:01.000Z'
+      }]
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const forkRun = stream.imageVisionForkTimeline.runs[0];
+
+  assert.ok(forkRun);
+  assert.equal(forkRun.forkRunId, 'image-vision:media_vision_1');
+  assert.equal(forkRun.source, 'image_vision_fork');
+  assert.equal(forkRun.events[0].source, 'image_vision_fork_observation');
+  assert.equal(forkRun.events[0].traceTarget.spanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
+
+  const resolved = await persistence.findXiaoniActionEventTraceTarget('image-vision-fork:obs_vision_1');
+  assert.equal(resolved.spanId, 'provider-request:wire:vision_llm_1');
 });
 
 test('Xiaoni action stream filters primary cards before applying the display limit', async () => {

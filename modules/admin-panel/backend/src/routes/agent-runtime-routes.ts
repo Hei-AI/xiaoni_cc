@@ -54,6 +54,8 @@ type ActionEventTraceTarget = {
   llmRequestSliceId?: string | null;
   toolCallId?: string | null;
   stackItemId?: string | null;
+  sourceKind?: string | null;
+  forkRunId?: string | null;
 };
 
 async function probeAgentService(): Promise<AgentProbeResult> {
@@ -162,6 +164,10 @@ async function resolveActionEventTraceTarget(
 }
 
 function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
+  if (target.sourceKind === 'compression_fork') {
+    return true;
+  }
+
   if (target.llmRequestSliceId || target.toolCallId || target.stackItemId) {
     return true;
   }
@@ -170,6 +176,7 @@ function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
   return spanId.startsWith('stack-slice:')
     || spanId.startsWith('tool-call:')
     || spanId.startsWith('tool-output:')
+    || spanId.startsWith('compression-fork-')
     || spanId.startsWith('provider-request:wire:');
 }
 

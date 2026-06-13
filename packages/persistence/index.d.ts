@@ -813,6 +813,8 @@ export type XiaoniLlmRequestSlice = {
   requestFormatVersion: string | null;
   wireProviderFormat: string | null;
   processingTimeMs: number | null;
+  sourceKind: string | null;
+  forkRunId: string | null;
   metadata: Record<string, unknown>;
   createdAt: string | null;
   completedAt: string | null;
