@@ -111,6 +111,8 @@ interface StackTraceTarget {
   llmRequestSliceId?: string | null;
   toolCallId?: string | null;
   stackItemId?: string | null;
+  sourceKind?: string | null;
+  forkRunId?: string | null;
 }
 
 const TRACE_PAYLOAD_MAX_INLINE_BYTES = 16 * 1024;
@@ -3438,6 +3440,9 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   if (spanId.startsWith('stack-slice:')) {
     return { sliceId: spanId.slice('stack-slice:'.length) };
   }
+  if (spanId.startsWith('compression-fork-slice:')) {
+    return { sliceId: spanId.slice('compression-fork-slice:'.length) };
+  }
   if (spanId.startsWith('llm-call:')) {
     return { llmCallId: spanId.slice('llm-call:'.length) };
   }
@@ -3463,10 +3468,14 @@ export async function buildStackRawProviderTrace(
 
   const traceId = firstNonEmptyString(target.traceId);
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const sourceKind = firstNonEmptyString(target.sourceKind);
+  const forkRunId = firstNonEmptyString(target.forkRunId);
   const baseLookup = {
     identityKey: 'xiaoni',
     ...(traceId ? { traceId } : {}),
-    ...(runId ? { runId } : {})
+    ...(runId ? { runId } : {}),
+    ...(sourceKind ? { sourceKind } : {}),
+    ...(forkRunId ? { forkRunId } : {})
   };
 
   try {
@@ -3490,7 +3499,9 @@ export async function buildStackRawProviderTrace(
     return buildRawProviderTraceFromProviderCall(
       providerCall,
       spanId || target.spanId || null,
-      'llm_request_slices.provider_exchange'
+      sourceKind === 'compression_fork'
+        ? 'core_memory_compression_fork_slices.provider_exchange'
+        : 'llm_request_slices.provider_exchange'
     );
   } catch (error) {
     logger.warn('Stack raw provider trace query failed', {

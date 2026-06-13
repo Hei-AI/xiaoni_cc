@@ -443,6 +443,63 @@ describe('buildStackTracePayload', () => {
     }));
     expect(rawTrace?.source).toBe('llm_request_slices.provider_exchange');
   });
+
+  it('loads raw provider exchange from compression fork slices', async () => {
+    (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
+      id: '21',
+      sliceId: 'fork-slice-1',
+      llmCallId: 'fork-llm-call-1',
+      traceId: 'trace-1',
+      runId: 'run-1',
+      forkRunId: 'fork-run-1',
+      sourceKind: 'compression_fork',
+      conversationId: null,
+      agentTurn: 1,
+      createdAt: '2026-03-28T10:00:01.000Z',
+      completedAt: '2026-03-28T10:00:03.000Z',
+      status: 'completed',
+      modelName: 'gpt-5.4-mini',
+      modelProvider: 'codex',
+      wireRequest: { model: 'gpt-5.4-mini', input: ['compress'] },
+      wireResponse: { id: 'resp-fork-1' },
+      rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'compressed' }] }] },
+      tokenUsage: { input_tokens: 100, output_tokens: 20 },
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'codex/responses',
+      processingTimeMs: 2000,
+      metadata: {
+        provider_request_headers: {
+          Authorization: 'Bearer secret',
+          'x-trace-id': 'trace-1'
+        },
+        provider_response_status: 200
+      }
+    }]);
+
+    const rawTrace = await buildStackRawProviderTrace(
+      createLogger(),
+      {
+        traceId: 'trace-1',
+        internalExecutionLeaseId: 'run-1',
+        llmRequestSliceId: 'fork-slice-1',
+        sourceKind: 'compression_fork',
+        forkRunId: 'fork-run-1'
+      },
+      'compression-fork-slice:fork-slice-1'
+    );
+
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: 'trace-1',
+      runId: 'run-1',
+      sourceKind: 'compression_fork',
+      forkRunId: 'fork-run-1',
+      sliceId: 'fork-slice-1',
+      rawTraceOnly: true,
+      limit: 1
+    }));
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.4-mini', input: ['compress'] }));
+    expect(rawTrace?.source).toBe('core_memory_compression_fork_slices.provider_exchange');
+  });
 });
 
 describe('buildConversationTraceSpanDetail', () => {

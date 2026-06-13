@@ -67,6 +67,8 @@ interface XiaoniActivityFeedItem {
     llmRequestSliceId?: string | null;
     toolCallId?: string | null;
     stackItemId?: string | null;
+    sourceKind?: string | null;
+    forkRunId?: string | null;
   } | null;
   tone: ActivityTone;
   metadata: Record<string, unknown>;
@@ -98,6 +100,11 @@ interface CompressionForkRun {
 interface CompressionForkTimeline {
   runs: CompressionForkRun[];
 }
+
+type ForkAgentRun = CompressionForkRun & {
+  forkKind?: string;
+  agentLabel?: string;
+};
 
 interface RuntimeSnapshot {
   live: boolean;
@@ -158,6 +165,7 @@ interface XiaoniActivityFeed {
   };
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: CompressionForkTimeline;
+  imageVisionForkTimeline?: CompressionForkTimeline;
 }
 
 interface XiaoniLlmUsagePoint {
@@ -465,6 +473,7 @@ function itemIcon(item: XiaoniActivityFeedItem) {
   if (item.source === 'digital_action') return <Search className="h-4 w-4" />;
   if (item.source === 'task') return <Sparkles className="h-4 w-4" />;
   if (item.source === 'media_observation') return <Image className="h-4 w-4" />;
+  if (item.source === 'image_vision_fork_observation') return <Image className="h-4 w-4" />;
   if (item.source === 'queue_message') return <Clock3 className="h-4 w-4" />;
   if (item.kind === 'qq_message_seen') return <Eye className="h-4 w-4" />;
   if (['send_in_group', 'send_in_private', 'qq_self_message'].includes(item.kind)) return <MessageCircle className="h-4 w-4" />;
@@ -494,6 +503,10 @@ function sourceLabel(source: string) {
       return 'fork stack';
     case 'compression_fork_tool_execution':
       return 'fork tool';
+    case 'image_vision_fork':
+      return 'vision fork';
+    case 'image_vision_fork_observation':
+      return 'vision step';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -656,6 +669,46 @@ function timelineGroups(items: XiaoniActivityFeedItem[]) {
     }
   }
   return groups;
+}
+
+function isImageVisionForkMainItem(item: XiaoniActivityFeedItem) {
+  return item.source === 'media_observation' && item.metadata?.forkKind === 'image_vision';
+}
+
+function forkKindForRun(run: CompressionForkRun) {
+  const metadataKind = typeof run.metadata?.forkKind === 'string' ? run.metadata.forkKind : null;
+  if (metadataKind) {
+    return metadataKind;
+  }
+  return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
+}
+
+function forkAgentLabel(forkKind: string) {
+  if (forkKind === 'image_vision') {
+    return 'Image Vision Fork';
+  }
+  return 'Memory Compress Fork';
+}
+
+function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
+  const compressionRuns = (feed?.compressionForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  const imageVisionRuns = (feed?.imageVisionForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  return [...compressionRuns, ...imageVisionRuns]
+    .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
 function TimeRangeControls({
@@ -1201,10 +1254,21 @@ function XiaoniUsageObservatory({
   );
 }
 
-function CompressionForkEventRow({ event, isFocused }: { event: CompressionForkEvent; isFocused: boolean }) {
+function CompressionForkEventRow({
+  event,
+  isFocused,
+  onOpenRawTrace,
+}: {
+  event: CompressionForkEvent;
+  isFocused: boolean;
+  onOpenRawTrace: (target: RawTraceTarget) => void;
+}) {
   const tone = toneClasses[event.tone] ? event.tone : 'neutral';
   const eventId = event.eventId || event.id;
   const providerFormat = metadataText(event.metadata, 'providerFormat');
+  const spanId = metadataText(event.metadata, 'spanId');
+  const providerRequestSpanId = metadataText(event.metadata, 'providerRequestSpanId');
+  const traceTarget = event.traceTarget || null;
   const inputTokens = formatTokenCount(metadataNumber(event.metadata, 'inputTokens'));
   const cachedInputTokens = formatTokenCount(metadataNumber(event.metadata, 'cachedInputTokens'));
   const outputTokens = formatTokenCount(metadataNumber(event.metadata, 'outputTokens'));
@@ -1241,12 +1305,32 @@ function CompressionForkEventRow({ event, isFocused }: { event: CompressionForkE
           isFocused && 'rounded-lg ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
         )}
       >
-        <div className="flex flex-wrap items-center gap-2">
-          {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
-          <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
-          <StatusPill tone="neutral">{sourceLabel(event.source)}</StatusPill>
-          {event.status ? <StatusPill tone={statusTone(event.status)}>{statusLabel(event.status)}</StatusPill> : null}
-          {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
+            <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
+            <StatusPill tone="neutral">{sourceLabel(event.source)}</StatusPill>
+            {event.status ? <StatusPill tone={statusTone(event.status)}>{statusLabel(event.status)}</StatusPill> : null}
+            {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
+          </div>
+          {traceTarget ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              onClick={() => {
+                onOpenRawTrace({
+                  eventId,
+                  spanId: providerRequestSpanId || traceTarget.spanId || spanId,
+                  title: event.title,
+                  subtitle: event.traceId,
+                });
+              }}
+            >
+              <Waypoints className="mr-1.5 h-3.5 w-3.5" />
+              Raw Trace
+            </Button>
+          ) : null}
         </div>
         <div className="mt-1 min-w-0">
           <div className="break-words text-sm font-semibold leading-5 text-foreground">{event.title}</div>
@@ -1278,21 +1362,32 @@ function CompressionForkEventRow({ event, isFocused }: { event: CompressionForkE
   );
 }
 
-function CompressionForkTimelineRail({ timeline, focusEventId }: { timeline?: CompressionForkTimeline; focusEventId?: string }) {
-  const runs = timeline?.runs || [];
+function ForkAgentTimelineRail({
+  runs,
+  focusEventId,
+  onOpenRawTrace,
+}: {
+  runs: ForkAgentRun[];
+  focusEventId?: string;
+  onOpenRawTrace: (target: RawTraceTarget) => void;
+}) {
   if (!runs.length) {
-    return null;
+    return (
+      <aside className="rounded-lg border border-dashed border-border bg-muted/25 px-4 py-5 text-sm text-muted-foreground">
+        暂无 Fork agent 事件
+      </aside>
+    );
   }
 
   return (
-    <section className="rounded-lg border border-cyan-200 bg-cyan-50/40 px-4 py-4">
+    <section className="rounded-lg border border-border bg-card px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground">
             <Waypoints className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Compress Fork</h2>
+            <h2 className="text-sm font-semibold text-foreground">Fork Agents</h2>
             <div className="text-xs text-muted-foreground">
               {runs[0]?.startedAt ? formatTimestamp(runs[0].startedAt) : '-'}
             </div>
@@ -1305,21 +1400,29 @@ function CompressionForkTimelineRail({ timeline, focusEventId }: { timeline?: Co
         {runs.map((run) => {
           const duration = formatDurationMs(run.durationMs);
           const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
+          const forkKind = run.forkKind || forkKindForRun(run);
+          const isImageVision = forkKind === 'image_vision';
           return (
-            <article key={run.id} className="rounded-lg border border-cyan-200/80 bg-background/85 p-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <article key={run.id} className="rounded-lg border border-border bg-background p-4 shadow-sm">
+              <div className="flex flex-col gap-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill tone={isImageVision ? 'info' : 'neutral'}>{run.agentLabel || forkAgentLabel(forkKind)}</StatusPill>
                     <StatusPill tone={statusTone(run.status)}>{statusLabel(run.status) || 'fork'}</StatusPill>
                     {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
                     <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
                   </div>
-                  <h3 className="mt-2 break-words text-base font-semibold leading-6 text-foreground">{run.title}</h3>
+                  <div className="mt-2 flex items-start gap-2">
+                    <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', isImageVision ? 'bg-sky-100 text-sky-700' : 'bg-cyan-100 text-cyan-700')}>
+                      {isImageVision ? <Image className="h-3.5 w-3.5" /> : <Waypoints className="h-3.5 w-3.5" />}
+                    </span>
+                    <h3 className="min-w-0 break-words text-base font-semibold leading-6 text-foreground">{run.title}</h3>
+                  </div>
                   {run.body ? (
                     <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{run.body}</p>
                   ) : null}
                 </div>
-                <div className="shrink-0 text-left text-xs text-muted-foreground lg:text-right">
+                <div className="shrink-0 text-left text-xs text-muted-foreground">
                   <div>
                     <span className="font-medium text-foreground">start</span> {formatTimestamp(run.startedAt)}
                   </div>
@@ -1332,12 +1435,12 @@ function CompressionForkTimelineRail({ timeline, focusEventId }: { timeline?: Co
                 </div>
               </div>
 
-              <details className="mt-4 border-t border-cyan-200 pt-3" open={runHasFocus || undefined}>
+              <details className="mt-4 border-t border-border pt-3" open={runHasFocus || undefined}>
                 <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   fork steps
                 </summary>
                 <div className="relative mt-4">
-                  <div className="absolute bottom-3 left-3 top-3 w-px bg-cyan-200" />
+                  <div className="absolute bottom-3 left-3 top-3 w-px bg-border" />
                   <div className="space-y-3">
                     {run.events.length ? (
                       run.events.map((event) => {
@@ -1347,6 +1450,7 @@ function CompressionForkTimelineRail({ timeline, focusEventId }: { timeline?: Co
                             key={event.id}
                             event={event}
                             isFocused={Boolean(focusEventId && eventId === focusEventId)}
+                            onOpenRawTrace={onOpenRawTrace}
                           />
                         );
                       })
@@ -1522,11 +1626,13 @@ function TimelineEvent({
   isLatest,
   isFocused,
   onOpenRawTrace,
+  laneLayout = false,
 }: {
   item: XiaoniActivityFeedItem;
   isLatest: boolean;
   isFocused: boolean;
   onOpenRawTrace: (target: RawTraceTarget) => void;
+  laneLayout?: boolean;
 }) {
   const navigate = useNavigate();
   const tone = toneClasses[item.tone] ? item.tone : 'neutral';
@@ -1565,8 +1671,8 @@ function TimelineEvent({
   ));
 
   return (
-    <div className="relative md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6">
-      <div className="hidden pt-4 text-right md:block">
+    <div className={cn('relative', !laneLayout && 'md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6')}>
+      <div className={cn('hidden pt-4 text-right md:block', laneLayout && 'md:hidden')}>
         <time className="block font-mono text-xs font-semibold leading-5 text-foreground">{formatDateOnly(occurredAt)}</time>
         <time className="block font-mono text-sm font-semibold text-foreground">{formatTimeOnly(occurredAt)}</time>
         <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{sourceLabel(item.source)}</div>
@@ -1575,7 +1681,8 @@ function TimelineEvent({
       <div
         className={cn(
           'absolute left-3 top-5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background md:left-[7.875rem]',
-          iconClasses[tone]
+          iconClasses[tone],
+          laneLayout && 'hidden'
         )}
       >
         {itemIcon(item)}
@@ -1586,17 +1693,23 @@ function TimelineEvent({
         data-event-id={itemEventId}
         className={cn(
           'ml-12 rounded-lg border p-4 shadow-sm transition-shadow md:ml-0',
+          laneLayout && 'ml-0',
           toneClasses[tone],
           isFocused && 'ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
         )}
       >
         <div className="flex flex-wrap items-center gap-2">
+          {laneLayout ? (
+            <span className={cn('flex h-6 w-6 items-center justify-center rounded-full', iconClasses[tone])}>
+              {itemIcon(item)}
+            </span>
+          ) : null}
           {isLatest ? <StatusPill tone="info">latest</StatusPill> : null}
           {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
           <StatusPill tone="neutral">{sourceLabel(item.source)}</StatusPill>
           <StatusPill tone="neutral">{eventKind.replace(/_/g, ' ')}</StatusPill>
           {item.status ? <StatusPill tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusPill> : null}
-          <time className="text-xs text-muted-foreground md:hidden">{formatDateTimeCompact(occurredAt)}</time>
+          <time className={cn('text-xs text-muted-foreground', !laneLayout && 'md:hidden')}>{formatDateTimeCompact(occurredAt)}</time>
         </div>
 
         <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
@@ -1841,8 +1954,10 @@ export const XiaoniActivityPage: React.FC = () => {
     refetchInterval: usageSearch.trim() ? false : 10000,
   });
 
-  const groups = React.useMemo(() => timelineGroups(feed?.items || []), [feed?.items]);
-  const forkCount = feed?.compressionForkTimeline?.runs.length || 0;
+  const mainItems = React.useMemo(() => (feed?.items || []).filter((item) => !isImageVisionForkMainItem(item)), [feed?.items]);
+  const groups = React.useMemo(() => timelineGroups(mainItems), [mainItems]);
+  const forkRuns = React.useMemo(() => buildForkAgentRuns(feed), [feed]);
+  const forkCount = forkRuns.length;
   const rangeBadge = timeRange === 'custom'
     ? [startTime || '开始', endTime || '现在'].join(' - ')
     : timeRangeLabel(timeRange);
@@ -1949,7 +2064,7 @@ export const XiaoniActivityPage: React.FC = () => {
     <PageShell className="w-full max-w-none space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          {feed ? <PageHeaderBadge>{feed.items.length} Events · {forkCount} Forks · {rangeBadge}</PageHeaderBadge> : null}
+          {feed ? <PageHeaderBadge>{mainItems.length} Main · {forkCount} Forks · {rangeBadge}</PageHeaderBadge> : null}
           {isLoading ? <StatusPill tone="neutral">loading</StatusPill> : null}
           {feed?.current.runtime ? (
             <StatusPill tone={feed.current.runtime.live ? 'success' : 'warning'}>
@@ -1996,9 +2111,7 @@ export const XiaoniActivityPage: React.FC = () => {
         </div>
       ) : null}
 
-      <main className="min-w-0 space-y-6">
-        {feed ? <CompressionForkTimelineRail timeline={feed.compressionForkTimeline} focusEventId={focusEvent || undefined} /> : null}
-
+      <main className="min-w-0">
         {feedError ? (
           <ErrorState description={feedError instanceof Error ? feedError.message : '加载小腻行动流失败'} onRetry={() => void refetchFeed()} />
         ) : null}
@@ -2010,35 +2123,56 @@ export const XiaoniActivityPage: React.FC = () => {
           </div>
         ) : null}
 
-        {feed && feed.items.length === 0 && forkCount === 0 ? (
+        {feed && mainItems.length === 0 && forkCount === 0 ? (
           <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无行动事件" description="还没有小腻行动流记录。" />
         ) : null}
 
-        {feed && feed.items.length > 0 ? (
-          <div className="relative">
-            <div className="absolute bottom-0 left-6 top-0 w-px bg-border md:left-[7.875rem]" />
-            <div className="space-y-6">
-              {groups.map((group, groupIndex) => (
-                <section key={group.day} className="relative space-y-4">
-                  <div className="sticky top-0 z-20 ml-12 flex md:ml-[9.5rem]">
-                    <div className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
-                      {group.day}
-                    </div>
-                  </div>
-                  {group.items.map((item, itemIndex) => {
-                    const itemEventId = item.eventId || item.id;
-                    return (
-                      <TimelineEvent
-                        key={item.id}
-                        item={item}
-                        isLatest={groupIndex === 0 && itemIndex === 0}
-                        isFocused={focusEvent === itemEventId || Boolean(item.metadata.focused)}
-                        onOpenRawTrace={setRawTraceTarget}
-                      />
-                    );
-                  })}
-                </section>
-              ))}
+        {feed && (mainItems.length > 0 || forkCount > 0) ? (
+          <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
+            <div className="order-2 min-w-0 xl:order-1">
+              <ForkAgentTimelineRail
+                runs={forkRuns}
+                focusEventId={focusEvent || undefined}
+                onOpenRawTrace={setRawTraceTarget}
+              />
+            </div>
+
+            <div className="relative order-1 hidden min-h-[24rem] xl:order-2 xl:block">
+              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+              <div className="sticky top-4 z-10 mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background shadow-sm">
+                <Clock3 className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+
+            <div className="order-1 min-w-0 space-y-6 xl:order-3">
+              {mainItems.length > 0 ? (
+                <div className="space-y-6">
+                  {groups.map((group, groupIndex) => (
+                    <section key={group.day} className="relative space-y-4">
+                      <div className="sticky top-0 z-20 flex">
+                        <div className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
+                          {group.day}
+                        </div>
+                      </div>
+                      {group.items.map((item, itemIndex) => {
+                        const itemEventId = item.eventId || item.id;
+                        return (
+                          <TimelineEvent
+                            key={item.id}
+                            item={item}
+                            isLatest={groupIndex === 0 && itemIndex === 0}
+                            isFocused={focusEvent === itemEventId || Boolean(item.metadata.focused)}
+                            onOpenRawTrace={setRawTraceTarget}
+                            laneLayout
+                          />
+                        );
+                      })}
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无主 Agent 事件" description="当前时间范围里只有 fork agent 事件。" />
+              )}
             </div>
           </div>
         ) : null}

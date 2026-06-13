@@ -817,6 +817,24 @@ function tokenSummaryFromLlmSliceRow(row) {
   };
 }
 
+function buildCompressionForkTraceTarget(row, {
+  forkRunId,
+  spanId,
+  llmRequestSliceId,
+  toolCallId
+} = {}) {
+  return normalizeTraceTarget({
+    sourceKind: 'compression_fork',
+    forkRunId: firstString(forkRunId, row?.forkRunId, row?.fork_run_id),
+    conversationId: row?.conversationId || row?.conversation_id || null,
+    traceId: row?.traceId || row?.trace_id || null,
+    runId: row?.runId || row?.run_id || null,
+    spanId,
+    llmRequestSliceId,
+    toolCallId
+  });
+}
+
 function attachLlmTokenMetadata(item, tokenSummaryBySliceId) {
   const sliceId = firstString(item.metadata?.llmRequestSliceId, item.metadata?.llm_request_slice_id);
   const tokenSummary = sliceId ? tokenSummaryBySliceId.get(sliceId) : null;
@@ -907,7 +925,9 @@ function summarizeLlmRequestSlice(row) {
 function summarizeCompressionForkSlice(row) {
   const base = summarizeLlmRequestSlice(row);
   const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
   const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const spanId = sliceId ? `compression-fork-slice:${sliceId}` : `compression-fork-slice-row:${row.id}`;
   return {
     ...base,
     id: `compression-fork-slice:${sliceId || row.id}`,
@@ -915,11 +935,18 @@ function summarizeCompressionForkSlice(row) {
     kind: 'fork_llm_request_slice',
     title: 'Fork LLM 请求',
     actorName: '小腻 Fork',
+    traceTarget: buildCompressionForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: sliceId
+    }),
     metadata: {
       ...base.metadata,
       forkRunId,
-      spanId: sliceId ? `compression-fork-slice:${sliceId}` : `compression-fork-slice-row:${row.id}`,
+      spanId,
       parentSpanId: forkRunId ? `compression-fork:${forkRunId}` : null,
+      sourceKind: 'compression_fork',
+      providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
       wirePayloadSource: 'core_memory_compression_fork_slices'
     }
   };
@@ -937,6 +964,7 @@ function summarizeCompressionForkItem(row) {
   const isToolOutput = itemKind === 'function_call_output';
   const isRuntimeInput = itemKind === 'runtime_input';
   const isAssistantOutput = itemKind === 'assistant_output';
+  const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId);
   const body = isToolCall
     ? firstString(content.arguments, previewJson(content.arguments), metadata.argumentsPreview)
     : isToolOutput
@@ -982,20 +1010,28 @@ function summarizeCompressionForkItem(row) {
     runId: row.runId || row.run_id || null,
     traceId: row.traceId || row.trace_id || null,
     tone: isToolOutput ? 'success' : isToolCall ? 'xiaoni' : isRuntimeInput ? 'info' : 'info',
+    traceTarget: buildCompressionForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: llmSliceId,
+      toolCallId
+    }),
     metadata: {
       forkRunId,
+      sourceKind: 'compression_fork',
       forkItemId: itemId,
       forkItemEventId: row.eventId || row.event_id || null,
       itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
       forkSource: 'core_memory_compression_fork_items',
       llmRequestSliceId: llmSliceId,
-      llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
+      llmCallId,
       spanId,
       parentSpanId: llmSliceId
         ? `compression-fork-slice:${llmSliceId}`
         : forkRunId
           ? `compression-fork:${forkRunId}`
           : null,
+      providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, llmCallId) : null,
       outputItemType: firstString(content.type, itemKind),
       outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
       toolCallId,
@@ -1027,6 +1063,7 @@ function summarizeCompressionForkToolExecution(row) {
   const toolCallId = firstString(row.toolCallId, row.tool_call_id);
   const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
   const executionId = firstString(row.executionId, row.execution_id) || String(row.id || '');
+  const spanId = toolCallId ? `compression-fork-tool-call:${toolCallId}` : `compression-fork-tool:${row.id}`;
   return {
     id: `compression-fork-tool:${executionId}`,
     source: 'compression_fork_tool_execution',
@@ -1042,17 +1079,25 @@ function summarizeCompressionForkToolExecution(row) {
     runId: row.runId || row.run_id || null,
     traceId: row.traceId || row.trace_id || null,
     tone: row.status === 'failed' ? 'danger' : row.status === 'completed' ? 'success' : 'warning',
+    traceTarget: buildCompressionForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: llmSliceId,
+      toolCallId
+    }),
     metadata: {
       forkRunId,
+      sourceKind: 'compression_fork',
       executionId,
       toolCallId,
       llmRequestSliceId: llmSliceId,
-      spanId: toolCallId ? `compression-fork-tool-call:${toolCallId}` : `compression-fork-tool:${row.id}`,
+      spanId,
       parentSpanId: llmSliceId
         ? `compression-fork-slice:${llmSliceId}`
         : forkRunId
           ? `compression-fork:${forkRunId}`
           : null,
+      providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, null) : null,
       agentTurn: Number(row.agentTurn || row.agent_turn || 0) || null,
       toolArgumentsPreview: previewJson(args),
       rawArgumentsPreview: truncateText(row.rawArguments || row.raw_arguments || '', 1200),
@@ -1219,9 +1264,26 @@ function summarizeTask(row) {
   };
 }
 
+function imageVisionObservationMetadata(observation) {
+  return normalizeJsonObject(observation?.metadata, {});
+}
+
+function imageVisionObservationTraceTarget(row, observation) {
+  const metadata = imageVisionObservationMetadata(observation);
+  const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId);
+  if (!llmCallId) {
+    return null;
+  }
+  return normalizeTraceTarget({
+    spanId: providerRequestSpanIdForSlice(null, llmCallId)
+  });
+}
+
 function summarizeMedia(row) {
   const observations = Array.isArray(row.observations) ? row.observations : [];
   const latestObservation = observations[0] || null;
+  const latestObservationMetadata = imageVisionObservationMetadata(latestObservation);
+  const latestTraceTarget = latestObservation ? imageVisionObservationTraceTarget(row, latestObservation) : null;
   return {
     id: `media:${row.id}`,
     source: 'media_observation',
@@ -1237,14 +1299,116 @@ function summarizeMedia(row) {
     runId: latestObservation?.metadata?.trace_id || null,
     traceId: row.trace_id || latestObservation?.metadata?.trace_id || null,
     tone: latestObservation ? 'info' : 'neutral',
+    traceTarget: latestTraceTarget,
     metadata: {
       mediaId: row.id,
       mediaTag: row.media_tag || null,
       sender: firstString(row.sender_name, row.sender_id),
       observationCount: observations.length,
-      sourceModel: latestObservation?.source_model || null
+      sourceModel: latestObservation?.source_model || null,
+      forkKind: latestObservation ? 'image_vision' : null,
+      imageVisionFork: Boolean(latestObservation),
+      observationId: latestObservation?.id === null || typeof latestObservation?.id === 'undefined'
+        ? null
+        : String(latestObservation.id),
+      llmCallId: firstString(latestObservationMetadata.llm_call_id, latestObservationMetadata.llmCallId),
+      reason: firstString(latestObservationMetadata.reason),
+      providerRequestSpanId: latestTraceTarget?.spanId || null
     }
   };
+}
+
+function summarizeImageVisionForkObservation(row, observation, index) {
+  const metadata = imageVisionObservationMetadata(observation);
+  const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId);
+  const traceId = firstString(metadata.trace_id, metadata.traceId, row.trace_id);
+  const traceTarget = imageVisionObservationTraceTarget(row, observation);
+  const observationId = observation?.id === null || typeof observation?.id === 'undefined'
+    ? `${row.id}:${index}`
+    : String(observation.id);
+  return {
+    id: `image-vision-fork:${observationId}`,
+    source: 'image_vision_fork_observation',
+    kind: 'image_vision_observation',
+    title: 'Vision Fork 看图',
+    body: truncateText(observation?.description || row.placeholder || row.source_locator, 420),
+    status: 'observed',
+    actor: observation?.observer || 'xiaoni',
+    actorName: observation?.observer || '小腻 Fork',
+    timestamp: eventTimestamp(observation?.created_at || row.created_at),
+    sessionKey: row.session_key || null,
+    peerName: row.peer_name || null,
+    runId: traceId || null,
+    traceId,
+    tone: 'info',
+    traceTarget,
+    metadata: {
+      forkKind: 'image_vision',
+      sourceKind: 'image_vision_fork',
+      mediaId: row.id,
+      mediaTag: row.media_tag || null,
+      observationId,
+      sourceModel: observation?.source_model || null,
+      llmCallId,
+      spanId: traceTarget?.spanId || null,
+      providerRequestSpanId: traceTarget?.spanId || null,
+      reason: firstString(metadata.reason),
+      noPersist: true
+    }
+  };
+}
+
+function buildImageVisionForkTimeline(mediaAssets) {
+  const runs = (Array.isArray(mediaAssets) ? mediaAssets : [])
+    .map((row) => {
+      const observations = Array.isArray(row.observations) ? row.observations : [];
+      if (observations.length === 0) {
+        return null;
+      }
+      const eventList = observations
+        .map((observation, index) => summarizeImageVisionForkObservation(row, observation, index))
+        .filter((event) => event.timestamp)
+        .sort(compareTimelineEvents);
+      if (eventList.length === 0) {
+        return null;
+      }
+      const startedAt = eventList[0].timestamp;
+      const completedAt = eventList[eventList.length - 1].timestamp;
+      const startedMs = new Date(startedAt).getTime();
+      const completedMs = new Date(completedAt).getTime();
+      const durationMs = Number.isFinite(startedMs) && Number.isFinite(completedMs)
+        ? Math.max(0, completedMs - startedMs)
+        : null;
+      const latestEvent = eventList[eventList.length - 1];
+      return {
+        id: `image-vision-fork:${row.id}`,
+        forkRunId: `image-vision:${row.id}`,
+        source: 'image_vision_fork',
+        kind: 'image_vision_fork',
+        title: 'Image Vision Fork',
+        body: truncateText(latestEvent.body || row.placeholder || row.source_locator, 520),
+        status: 'completed',
+        startedAt,
+        completedAt,
+        durationMs,
+        traceId: latestEvent.traceId || row.trace_id || null,
+        runId: latestEvent.runId || null,
+        conversationId: null,
+        eventCount: eventList.length,
+        events: normalizeValue(eventList),
+        metadata: normalizeValue({
+          forkKind: 'image_vision',
+          mediaId: row.id,
+          mediaTag: row.media_tag || null,
+          sender: firstString(row.sender_name, row.sender_id),
+          observationCount: observations.length,
+          noPersist: true
+        })
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
+  return { runs: normalizeValue(runs) };
 }
 
 function summarizeQueueMessage(row, staleCutoffMs) {
@@ -1427,6 +1591,9 @@ function isPrimaryActionStreamItem(item) {
   if (item.source === 'queue_message' && item.kind === 'phone_notification') {
     return false;
   }
+  if (item.source === 'media_observation' && item.metadata?.forkKind === 'image_vision') {
+    return false;
+  }
   return true;
 }
 
@@ -1567,6 +1734,8 @@ function normalizeTraceTarget(input = {}) {
   const llmRequestSliceId = firstString(input.llmRequestSliceId, input.llm_request_slice_id, input.sliceId, input.slice_id);
   const toolCallId = firstString(input.toolCallId, input.tool_call_id);
   const stackItemId = firstString(input.stackItemId, input.stack_item_id);
+  const sourceKind = firstString(input.sourceKind, input.source_kind);
+  const forkRunId = firstString(input.forkRunId, input.fork_run_id);
   const conversationId = input.conversationId === null || typeof input.conversationId === 'undefined'
     ? firstString(input.conversation_id)
     : String(input.conversationId);
@@ -1580,7 +1749,9 @@ function normalizeTraceTarget(input = {}) {
     internalExecutionLeaseId: runId || traceId || null,
     llmRequestSliceId: llmRequestSliceId || null,
     toolCallId: toolCallId || null,
-    stackItemId: stackItemId || null
+    stackItemId: stackItemId || null,
+    sourceKind: sourceKind || null,
+    forkRunId: forkRunId || null
   });
 }
 
@@ -1774,6 +1945,125 @@ function createXiaoniActivityPersistence({
     });
   }
 
+  async function resolveCompressionForkSliceTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM core_memory_compression_fork_slices
+          WHERE identity_key = ?
+            AND (slice_id = ? OR llm_call_id = ? OR id::text = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const sliceId = firstString(row.slice_id, row.llm_call_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+      const llmCallId = firstString(row.llm_call_id);
+      return normalizeTraceTarget({
+        sourceKind: 'compression_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: providerRequestSpanIdForSlice(sliceId, llmCallId) || (sliceId ? `compression-fork-slice:${sliceId}` : null),
+        llmRequestSliceId: sliceId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
+  async function resolveCompressionForkItemTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM core_memory_compression_fork_items
+          WHERE identity_key = ?
+            AND (id::text = ? OR event_id = ? OR tool_call_id = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const content = normalizeJsonObject(row.content, {});
+      const itemKind = row.item_kind || 'fork_item';
+      const toolCallId = firstString(row.tool_call_id, content.call_id);
+      const llmSliceId = firstString(row.llm_request_slice_id);
+      const spanId = itemKind === 'function_call' && toolCallId
+        ? `compression-fork-tool-call:${toolCallId}`
+        : itemKind === 'function_call_output' && toolCallId
+          ? `compression-fork-tool-output:${toolCallId}`
+          : llmSliceId
+            ? `compression-fork-slice:${llmSliceId}`
+            : `compression-fork-item:${row.id}`;
+      return normalizeTraceTarget({
+        sourceKind: 'compression_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId,
+        llmRequestSliceId: llmSliceId,
+        toolCallId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
+  async function resolveCompressionForkToolTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM core_memory_compression_fork_tool_executions
+          WHERE identity_key = ?
+            AND (id::text = ? OR execution_id = ? OR tool_call_id = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const toolCallId = firstString(row.tool_call_id);
+      const llmSliceId = firstString(row.llm_request_slice_id);
+      return normalizeTraceTarget({
+        sourceKind: 'compression_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: toolCallId ? `compression-fork-tool-call:${toolCallId}` : `compression-fork-tool:${row.id}`,
+        llmRequestSliceId: llmSliceId,
+        toolCallId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function findXiaoniActionEventTraceTarget(eventId, config = {}) {
     const parsed = parseActionEventId(eventId);
     if (!parsed) {
@@ -1838,6 +2128,17 @@ function createXiaoniActivityPersistence({
       }), config);
     }
 
+    if (parsed.prefix === 'image-vision-fork') {
+      const row = await prisma.agentMediaObservation.findUnique({
+        where: { id: parsed.key },
+        include: { asset: true }
+      });
+      if (!row) {
+        return null;
+      }
+      return enrichTraceTarget(imageVisionObservationTraceTarget(row.asset || {}, row), config);
+    }
+
     if (parsed.prefix === 'tool') {
       return enrichTraceTarget(await resolveToolActionTraceTarget(parsed.key, config), config);
     }
@@ -1857,6 +2158,18 @@ function createXiaoniActivityPersistence({
 
     if (parsed.prefix === 'tool-exec') {
       return enrichTraceTarget(await resolveToolExecutionActionTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'compression-fork-slice') {
+      return enrichTraceTarget(await resolveCompressionForkSliceTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'compression-fork-item') {
+      return enrichTraceTarget(await resolveCompressionForkItemTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'compression-fork-tool') {
+      return enrichTraceTarget(await resolveCompressionForkToolTraceTarget(parsed.key, config), config);
     }
 
     return null;
@@ -2080,6 +2393,7 @@ function createXiaoniActivityPersistence({
           tokenSummaryBySliceId.set(tokenSummary.llmRequestSliceId, tokenSummary);
         }
       });
+      const imageVisionForkTimeline = buildImageVisionForkTimeline(mediaAssets);
 
       const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
@@ -2148,7 +2462,8 @@ function createXiaoniActivityPersistence({
           }
         },
         items: normalizeValue(items),
-        compressionForkTimeline: normalizeValue(compressionForkTimeline)
+        compressionForkTimeline: normalizeValue(compressionForkTimeline),
+        imageVisionForkTimeline: normalizeValue(imageVisionForkTimeline)
       };
     } finally {
       await sql.close();
@@ -2205,7 +2520,8 @@ function createXiaoniActivityPersistence({
       },
       focusedEventId: focusedItem?.id || null,
       items: normalizedItems,
-      compressionForkTimeline: feed.compressionForkTimeline || { runs: [] }
+      compressionForkTimeline: feed.compressionForkTimeline || { runs: [] },
+      imageVisionForkTimeline: feed.imageVisionForkTimeline || { runs: [] }
     };
   }
 

@@ -554,6 +554,8 @@ function normalizeLlmSliceRow(row) {
     requestFormatVersion: row.request_format_version || null,
     wireProviderFormat: row.wire_provider_format || null,
     processingTimeMs: row.processing_time_ms === null || typeof row.processing_time_ms === 'undefined' ? null : Number(row.processing_time_ms),
+    sourceKind: row.source_kind || null,
+    forkRunId: row.fork_run_id || null,
     metadata: normalizeJsonObject(row.metadata, {}),
     createdAt: normalizeDate(row.created_at),
     completedAt: normalizeDate(row.completed_at),
@@ -2318,11 +2320,23 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
     const summaryOnly = input.summaryOnly === true || input.summary_only === true;
     const rawTraceOnly = input.rawTraceOnly === true || input.raw_trace_only === true;
+    const sourceKind = firstString(input.sourceKind, input.source_kind) === USAGE_SOURCE_COMPRESSION_FORK
+      ? USAGE_SOURCE_COMPRESSION_FORK
+      : USAGE_SOURCE_MAIN;
+    const tableName = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+      ? 'core_memory_compression_fork_slices'
+      : 'llm_request_slices';
+    const sourceKindSelect = `'${sourceKind}'::varchar AS source_kind`;
+    const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+      ? 'fork_run_id'
+      : 'NULL::varchar AS fork_run_id';
     const selectColumns = rawTraceOnly
       ? `
           id,
           slice_id,
           llm_call_id,
+          ${sourceKindSelect},
+          ${forkRunIdSelect},
           identity_key,
           NULL::bigint AS input_start_index,
           NULL::bigint AS input_end_index,
@@ -2356,6 +2370,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           id,
           slice_id,
           llm_call_id,
+          ${sourceKindSelect},
+          ${forkRunIdSelect},
           identity_key,
           input_start_index,
           input_end_index,
@@ -2384,11 +2400,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           completed_at,
           updated_at
         `
-      : '*';
+      : sourceKind === USAGE_SOURCE_COMPRESSION_FORK
+        ? `*, ${sourceKindSelect}`
+        : `*, ${sourceKindSelect}, ${forkRunIdSelect}`;
     const traceId = firstString(input.traceId, input.trace_id);
     const runId = firstString(input.runId, input.run_id);
     const llmCallId = firstString(input.llmCallId, input.llm_call_id);
     const sliceId = firstString(input.sliceId, input.slice_id);
+    const forkRunId = firstString(input.forkRunId, input.fork_run_id);
     if (traceId) {
       clauses.push('trace_id = ?');
       params.push(traceId);
@@ -2405,6 +2424,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('slice_id = ?');
       params.push(sliceId);
     }
+    if (sourceKind === USAGE_SOURCE_COMPRESSION_FORK && forkRunId) {
+      clauses.push('fork_run_id = ?');
+      params.push(forkRunId);
+    }
     if (input.conversationId || input.conversation_id) {
       clauses.push('conversation_id = ?');
       params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
@@ -2416,7 +2439,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       const rows = await sql.query(
         `
           SELECT ${selectColumns}
-          FROM llm_request_slices
+          FROM ${tableName}
           WHERE ${clauses.join(' AND ')}
           ORDER BY COALESCE(agent_turn, 0) ${input.chronological ? 'ASC' : 'DESC'}, created_at ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
           LIMIT ?
