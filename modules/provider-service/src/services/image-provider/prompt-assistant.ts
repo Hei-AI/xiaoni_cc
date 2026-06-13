@@ -20,6 +20,11 @@ export type ImagePromptAssistantRequest = {
 };
 
 export type ImagePromptAssistantResult = {
+  provider?: 'codex';
+  llmCallId?: string;
+  usage?: unknown;
+  requestFormatVersion?: string;
+  wireProviderFormat?: string;
   finalPrompt: string;
   detectedUseCase: ImagePromptUseCase;
   summary: string;
@@ -349,6 +354,13 @@ export class ImagePromptAssistantService {
       throw new Error('Image prompt assistant returned no structured tool result');
     }
 
-    return normalizeResult(parsed, patterns, result.modelName);
+    return {
+      ...normalizeResult(parsed, patterns, result.modelName),
+      provider: 'codex',
+      llmCallId: context.llmCallId,
+      usage: result.usage,
+      requestFormatVersion: result.requestFormatVersion,
+      wireProviderFormat: result.wireProviderFormat
+    };
   }
 }

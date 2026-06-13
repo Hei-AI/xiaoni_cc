@@ -323,6 +323,41 @@ model LlmRequestSlice {
   @@map("llm_request_slices")
 }
 
+model CodexProviderUsageEvent {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  event_id               String    @unique @db.VarChar(191)
+  source_kind            String    @default("codex_provider") @db.VarChar(32)
+  source_id              String?   @db.VarChar(191)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  conversation_id        BigInt?   @db.BigInt
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  request_format_version String?   @db.VarChar(64)
+  wire_provider_format   String?   @db.VarChar(128)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamp(3)
+  completed_at           DateTime? @db.Timestamp(3)
+  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+
+  @@index([identity_key, created_at, id], map: "idx_codex_provider_usage_identity_time")
+  @@index([source_kind, created_at, id], map: "idx_codex_provider_usage_source_time")
+  @@index([trace_id, id], map: "idx_codex_provider_usage_trace")
+  @@index([llm_call_id], map: "idx_codex_provider_usage_llm_call")
+  @@map("codex_provider_usage_events")
+}
+
 model LlmUsageRollupSource {
   slice_id           String   @id @db.VarChar(191)
   source_kind        String   @default("main") @db.VarChar(32)

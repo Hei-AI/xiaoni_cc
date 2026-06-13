@@ -16,10 +16,15 @@ const EAST8_OFFSET_MS = 8 * HOUR_MS;
 const USAGE_SEARCH_MAX_WINDOW_MS = 30 * DAY_MS;
 const USAGE_SEARCH_MAX_HITS = 120;
 const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
-const USAGE_ROLLUP_VERSION = 2;
+const USAGE_ROLLUP_VERSION = 3;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
+const USAGE_SOURCE_CODEX_PROVIDER = 'codex_provider';
+const USAGE_SOURCE_IMAGE_VISION_FORK = 'image_vision_fork';
+const USAGE_SOURCE_IMAGE_GENERATION = 'image_generation';
+const USAGE_SOURCE_IMAGE_EDIT = 'image_edit';
+const USAGE_SOURCE_IMAGE_PROMPT_ASSISTANT = 'image_prompt_assistant';
 
 function normalizeDate(value) {
   if (!value) {
@@ -433,6 +438,9 @@ function usageAnchorEventId(sliceId, sourceKind) {
   if (sourceKind === USAGE_SOURCE_COMPRESSION_FORK) {
     return `compression-fork-slice:${sliceId}`;
   }
+  if (sourceKind && sourceKind !== USAGE_SOURCE_MAIN) {
+    return sliceId.startsWith('codex-provider:') ? sliceId : `codex-provider:${sliceId}`;
+  }
   return `llm-slice:${sliceId}`;
 }
 
@@ -483,11 +491,34 @@ function usageRollupSourceFromSliceSelectSql(sourceKind = USAGE_SOURCE_MAIN) {
   `;
 }
 
+function usageRollupSourceFromCodexProviderSelectSql() {
+  const tokenSql = usageTokenSql('token_usage');
+  return `
+    SELECT
+      event_id AS slice_id,
+      source_kind,
+      source_id AS fork_run_id,
+      identity_key,
+      llm_call_id,
+      trace_id,
+      created_at,
+      date_trunc('hour', created_at) AS hour_bucket_start,
+      date_trunc('day', created_at) AS day_bucket_start,
+      date_trunc('month', created_at) AS month_bucket_start,
+      ${tokenSql.input} AS input_tokens,
+      ${tokenSql.cached} AS cached_tokens,
+      ${tokenSql.output} AS output_tokens
+    FROM codex_provider_usage_events
+  `;
+}
+
 function usageRollupSourceFromAllSlicesSelectSql() {
   return `
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_MAIN)}
     UNION ALL
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_COMPRESSION_FORK)}
+    UNION ALL
+    ${usageRollupSourceFromCodexProviderSelectSql()}
   `;
 }
 
@@ -668,6 +699,42 @@ function normalizeCompressionForkSliceRow(row) {
   } : null;
 }
 
+function normalizeCodexProviderUsageEventRow(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id === null || typeof row.id === 'undefined' ? null : String(row.id),
+    eventId: row.event_id || row.slice_id,
+    sourceKind: row.source_kind || USAGE_SOURCE_CODEX_PROVIDER,
+    sourceId: row.source_id || row.fork_run_id || null,
+    identityKey: row.identity_key,
+    llmCallId: row.llm_call_id || null,
+    traceId: row.trace_id || null,
+    runId: row.run_id || null,
+    conversationId: row.conversation_id === null || typeof row.conversation_id === 'undefined'
+      ? null
+      : String(row.conversation_id),
+    canonicalRequest: normalizeJsonObject(row.canonical_request, {}),
+    wireRequest: normalizeJsonObject(row.wire_request, null),
+    canonicalResponse: normalizeJsonObject(row.canonical_response, null),
+    wireResponse: normalizeJsonObject(row.wire_response, null),
+    rawResponse: normalizeJsonObject(row.raw_response, null),
+    outputItems: normalizeJsonArray(row.output_items, []),
+    status: row.status || null,
+    tokenUsage: normalizeJsonObject(row.token_usage, {}),
+    modelName: row.model_name || null,
+    modelProvider: row.model_provider || null,
+    requestFormatVersion: row.request_format_version || null,
+    wireProviderFormat: row.wire_provider_format || null,
+    processingTimeMs: row.processing_time_ms === null || typeof row.processing_time_ms === 'undefined' ? null : Number(row.processing_time_ms),
+    metadata: normalizeJsonObject(row.metadata, {}),
+    createdAt: normalizeDate(row.created_at),
+    completedAt: normalizeDate(row.completed_at),
+    updatedAt: normalizeDate(row.updated_at)
+  };
+}
+
 function normalizeCompressionForkToolExecutionRow(row) {
   const normalized = normalizeToolExecutionRow(row);
   return normalized ? {
@@ -689,6 +756,30 @@ function buildCompressionForkItemEventId(forkRunId, item, indexHint) {
 function buildCompressionForkRunId(input) {
   return firstString(input.forkRunId, input.fork_run_id)
     || `core-memory-fork:${firstString(input.runId, input.run_id, 'run')}:${randomUUID().slice(0, 8)}`;
+}
+
+function normalizeCodexProviderUsageSourceKind(value) {
+  const raw = firstString(value, USAGE_SOURCE_CODEX_PROVIDER);
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return (normalized || USAGE_SOURCE_CODEX_PROVIDER).slice(0, 32);
+}
+
+function buildCodexProviderUsageEventId(input = {}) {
+  const explicit = firstString(input.eventId, input.event_id, input.sliceId, input.slice_id);
+  if (explicit) {
+    return explicit.slice(0, 191);
+  }
+  const sourceKind = normalizeCodexProviderUsageSourceKind(input.sourceKind ?? input.source_kind);
+  const llmCallId = firstString(input.llmCallId, input.llm_call_id);
+  if (llmCallId) {
+    return `codex-provider:${llmCallId}`.slice(0, 191);
+  }
+  const sourceId = firstString(input.sourceId, input.source_id, input.runId, input.run_id, input.traceId, input.trace_id, 'event');
+  return `codex-provider:${sourceKind}:${sourceId}:${randomUUID().slice(0, 8)}`.slice(0, 191);
 }
 
 function buildSliceId(input) {
@@ -914,7 +1005,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             initialized_at = CURRENT_TIMESTAMP,
             source_max_id = GREATEST(
               COALESCE((SELECT MAX(id) FROM llm_request_slices), 0),
-              COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0)
+              COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0),
+              COALESCE((SELECT MAX(id) FROM codex_provider_usage_events), 0)
             ),
             source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
             updated_at = CURRENT_TIMESTAMP
@@ -1166,6 +1258,98 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     );
   }
 
+  async function syncLlmUsageRollupForCodexProviderEvent(executor, eventId) {
+    if (!eventId) {
+      return;
+    }
+    const previousRows = await executor.query(
+      'SELECT * FROM llm_usage_rollup_sources WHERE slice_id = ? FOR UPDATE',
+      [eventId]
+    );
+    const previous = previousRows[0] || null;
+    if (previous) {
+      await applyLlmUsageRollupContribution(executor, previous, 'subtract');
+    }
+
+    const currentRows = await executor.query(
+      `
+        ${usageRollupSourceFromCodexProviderSelectSql()}
+        WHERE event_id = ?
+        LIMIT 1
+      `,
+      [eventId]
+    );
+    const current = currentRows[0] || null;
+    if (!current) {
+      if (previous) {
+        await executor.execute('DELETE FROM llm_usage_rollup_sources WHERE slice_id = ?', [eventId]);
+      }
+      return;
+    }
+
+    await executor.query(
+      `
+        INSERT INTO llm_usage_rollup_sources (
+          slice_id,
+          source_kind,
+          fork_run_id,
+          identity_key,
+          llm_call_id,
+          trace_id,
+          created_at,
+          hour_bucket_start,
+          day_bucket_start,
+          month_bucket_start,
+          input_tokens,
+          cached_tokens,
+          output_tokens
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?::timestamp, ?::timestamp, ?::timestamp, ?::timestamp, ?, ?, ?)
+        ON CONFLICT (slice_id) DO UPDATE SET
+          source_kind = EXCLUDED.source_kind,
+          fork_run_id = EXCLUDED.fork_run_id,
+          identity_key = EXCLUDED.identity_key,
+          llm_call_id = EXCLUDED.llm_call_id,
+          trace_id = EXCLUDED.trace_id,
+          created_at = EXCLUDED.created_at,
+          hour_bucket_start = EXCLUDED.hour_bucket_start,
+          day_bucket_start = EXCLUDED.day_bucket_start,
+          month_bucket_start = EXCLUDED.month_bucket_start,
+          input_tokens = EXCLUDED.input_tokens,
+          cached_tokens = EXCLUDED.cached_tokens,
+          output_tokens = EXCLUDED.output_tokens,
+          updated_at = CURRENT_TIMESTAMP
+      `,
+      [
+        current.slice_id,
+        current.source_kind,
+        current.fork_run_id,
+        current.identity_key,
+        current.llm_call_id,
+        current.trace_id,
+        normalizeDate(current.created_at),
+        normalizeDate(current.hour_bucket_start),
+        normalizeDate(current.day_bucket_start),
+        normalizeDate(current.month_bucket_start),
+        normalizeNumber(current.input_tokens),
+        normalizeNumber(current.cached_tokens),
+        normalizeNumber(current.output_tokens)
+      ]
+    );
+    await applyLlmUsageRollupContribution(executor, current, 'add');
+    await executor.query(
+      `
+        UPDATE llm_usage_rollup_state
+        SET
+          source_max_id = GREATEST(source_max_id, COALESCE((SELECT id FROM codex_provider_usage_events WHERE event_id = ?), 0)),
+          source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
+          updated_at = CURRENT_TIMESTAMP
+        WHERE identity_key = ?
+      `,
+      [eventId, USAGE_ROLLUP_STATE_KEY]
+    );
+  }
+
   async function ensureXiaoniAgentStackSchema(input = {}, config = {}) {
     await withSql(input, config, async (sql) => {
       await executeDdls(sql, [
@@ -1246,6 +1430,38 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        `
+          CREATE TABLE IF NOT EXISTS codex_provider_usage_events (
+            id BIGSERIAL PRIMARY KEY,
+            event_id VARCHAR(191) NOT NULL UNIQUE,
+            source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider',
+            source_id VARCHAR(191),
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            llm_call_id VARCHAR(128),
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            conversation_id BIGINT,
+            canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
+            wire_request JSONB,
+            canonical_response JSONB,
+            wire_response JSONB,
+            raw_response JSONB,
+            output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status VARCHAR(32) NOT NULL DEFAULT 'completed',
+            token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+            model_name VARCHAR(191),
+            model_provider VARCHAR(64),
+            request_format_version VARCHAR(64),
+            wire_provider_format VARCHAR(128),
+            processing_time_ms INTEGER,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMP(3),
+            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
+        "ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider'",
+        'ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_id VARCHAR(191)',
         `
           CREATE TABLE IF NOT EXISTS llm_usage_rollups (
             id BIGSERIAL PRIMARY KEY,
@@ -1445,6 +1661,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_identity_time ON llm_request_slices (identity_key, created_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_trace ON llm_request_slices (trace_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_request_slices_llm_call ON llm_request_slices (llm_call_id)',
+        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_identity_time ON codex_provider_usage_events (identity_key, created_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_source_time ON codex_provider_usage_events (source_kind, created_at DESC, id DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_trace ON codex_provider_usage_events (trace_id, id)',
+        'CREATE INDEX IF NOT EXISTS idx_codex_provider_usage_llm_call ON codex_provider_usage_events (llm_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_identity_time ON llm_usage_rollup_sources (identity_key, created_at, slice_id)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_hour ON llm_usage_rollup_sources (identity_key, hour_bucket_start)',
         'CREATE INDEX IF NOT EXISTS idx_llm_usage_rollup_sources_day ON llm_usage_rollup_sources (identity_key, day_bucket_start)',
@@ -1669,6 +1889,105 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         );
         await syncLlmUsageRollupForSlice(executor, sliceId);
         return normalizeLlmSliceRow(rows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
+    });
+  }
+
+  async function recordCodexProviderUsageEvent(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const eventId = buildCodexProviderUsageEventId(input);
+    const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
+    const createdAt = input.createdAt || input.created_at || null;
+    return withSql(input, config, async (sql) => {
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO codex_provider_usage_events (
+              event_id,
+              source_kind,
+              source_id,
+              identity_key,
+              llm_call_id,
+              trace_id,
+              run_id,
+              conversation_id,
+              canonical_request,
+              wire_request,
+              canonical_response,
+              wire_response,
+              raw_response,
+              output_items,
+              status,
+              token_usage,
+              model_name,
+              model_provider,
+              request_format_version,
+              wire_provider_format,
+              processing_time_ms,
+              metadata,
+              created_at,
+              completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamp, CURRENT_TIMESTAMP), ?::timestamp)
+            ON CONFLICT (event_id) DO UPDATE SET
+              source_kind = EXCLUDED.source_kind,
+              source_id = EXCLUDED.source_id,
+              identity_key = EXCLUDED.identity_key,
+              llm_call_id = EXCLUDED.llm_call_id,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              conversation_id = EXCLUDED.conversation_id,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              request_format_version = EXCLUDED.request_format_version,
+              wire_provider_format = EXCLUDED.wire_provider_format,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata,
+              completed_at = COALESCE(EXCLUDED.completed_at, codex_provider_usage_events.completed_at),
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+          `,
+          [
+            eventId,
+            normalizeCodexProviderUsageSourceKind(input.sourceKind ?? input.source_kind),
+            firstString(input.sourceId, input.source_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeBigIntId(input.conversationId ?? input.conversation_id),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider, 'codex'),
+            firstString(input.requestFormatVersion, input.request_format_version),
+            firstString(input.wireProviderFormat, input.wire_provider_format),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {})),
+            normalizeDate(createdAt),
+            normalizeDate(completedAt)
+          ]
+        );
+        await syncLlmUsageRollupForCodexProviderEvent(executor, eventId);
+        return normalizeCodexProviderUsageEventRow(rows[0]);
       };
       if (typeof sql.withTransaction === 'function') {
         return sql.withTransaction(recordWithExecutor);
@@ -2683,6 +3002,25 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 FROM core_memory_compression_fork_slices
                 WHERE identity_key = ?
                 ${timeWhere.clause}
+                UNION ALL
+                SELECT
+                  event_id AS slice_id,
+                  source_kind,
+                  source_id AS fork_run_id,
+                  llm_call_id,
+                  trace_id,
+                  created_at,
+                  token_usage,
+                  canonical_request,
+                  wire_request,
+                  canonical_response,
+                  wire_response,
+                  raw_response,
+                  output_items,
+                  metadata
+                FROM codex_provider_usage_events
+                WHERE identity_key = ?
+                ${timeWhere.clause}
               )
               SELECT
                 slice_id AS llm_request_slice_id,
@@ -2731,6 +3069,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               identityKey,
               ...timeWhere.params,
               USAGE_SOURCE_COMPRESSION_FORK,
+              identityKey,
+              ...timeWhere.params,
               identityKey,
               ...timeWhere.params,
               pattern,
@@ -2872,7 +3212,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'UPDATE tool_executions SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
         [conversationId, traceId]
       );
-      return updatedStack + updatedSlices + updatedTools;
+      const updatedProviderEvents = await sql.execute(
+        'UPDATE codex_provider_usage_events SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
+        [conversationId, traceId]
+      );
+      return updatedStack + updatedSlices + updatedTools + updatedProviderEvents;
     });
   }
 
@@ -2882,6 +3226,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItem,
     appendAgentStackItems,
     recordLlmRequestSlice,
+    recordCodexProviderUsageEvent,
     updateLlmRequestSliceStackLinks,
     recordToolExecution,
     completeToolExecution,

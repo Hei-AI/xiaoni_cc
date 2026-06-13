@@ -103,11 +103,11 @@ export class OpenAIImageProvider {
     const transport = await this.resolveTransport();
     if (transport.mode === 'codex') {
       const response = await this.postCodexResponses(transport, options);
-      return this.buildResult(response, options);
+      return this.buildResult({ ...response, provider: transport.mode }, options);
     }
 
     const response = await this.postJson(transport, transport.generationPaths, this.buildImagePayload(options));
-    return this.buildResult(response, options);
+    return this.buildResult({ ...response, provider: transport.mode }, options);
   }
 
   async edit(input: ImageEditRequest): Promise<ImageProviderResult> {
@@ -124,11 +124,11 @@ export class OpenAIImageProvider {
     const transport = await this.resolveTransport();
     if (transport.mode === 'codex') {
       const response = await this.postCodexResponses(transport, options, images, mask);
-      return this.buildResult(response, options);
+      return this.buildResult({ ...response, provider: transport.mode }, options);
     }
 
     const response = await this.postForm(transport, transport.editPaths, () => this.buildEditForm(options, images, mask));
-    return this.buildResult(response, options);
+    return this.buildResult({ ...response, provider: transport.mode }, options);
   }
 
   buildImagePayload(options: NormalizedImageOptions): Record<string, unknown> {
@@ -401,6 +401,7 @@ export class OpenAIImageProvider {
     }
 
     return {
+      ...(response?.provider === 'openai' || response?.provider === 'codex' ? { provider: response.provider } : {}),
       model: options.model,
       images,
       ...(response?.usage ? { usage: response.usage } : {})

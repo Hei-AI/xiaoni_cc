@@ -57,6 +57,7 @@ export type NormalizedImageResult = {
 };
 
 export type ImageProviderResult = {
+  provider?: 'openai' | 'codex';
   model: 'gpt-image-2';
   images: NormalizedImageResult[];
   usage?: unknown;

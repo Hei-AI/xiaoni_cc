@@ -4,6 +4,9 @@ import { createProviderClient, resolveProviderId } from './llm-provider';
 import { computeContextThresholds, resolveModelContextPolicy } from './llm-provider/model-context-policy';
 import { OpenResponseCreateRequest, OpenResponseInputItem } from './llm-provider/types';
 import { runtimeStoreService } from './runtime-store-service';
+import { logger } from '../utils/logger';
+
+const moduleLogger = logger.createModuleLogger('provider-debug-service');
 
 type DebugPayload = {
   canonicalRequest?: Record<string, any>;
@@ -71,6 +74,26 @@ function normalizeInstructions(systemPrompt: string | undefined): string | undef
 
 function normalizeString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeUsageSourceKindFromExecutionMode(executionMode: string) {
+  if (executionMode === 'image_vision_fork_no_persist' || executionMode === 'image_vision_fork') {
+    return 'image_vision_fork';
+  }
+  return (executionMode || 'codex_provider')
+    .replace(/_no_persist$/u, '')
+    .replace(/[^a-z0-9_:-]+/giu, '_')
+    .replace(/_+/gu, '_')
+    .replace(/^_+|_+$/gu, '')
+    .toLowerCase()
+    .slice(0, 32) || 'codex_provider';
+}
+
+function identityKeyForProviderUsage(sourceKind: string, replayIdentityKey?: string) {
+  if (sourceKind === 'image_vision_fork') {
+    return 'xiaoni';
+  }
+  return replayIdentityKey || 'xiaoni-internal';
 }
 
 export function buildUnifiedConfig(
@@ -279,6 +302,47 @@ async function executeProviderRequest(
       wireProviderFormat: result.wireProviderFormat
     });
 	  }
+  if (!persistLlmCall && (result.provider === 'codex' || result.provider === 'codex-local')) {
+    const sourceKind = normalizeUsageSourceKindFromExecutionMode(executionMode);
+    await runtimeStoreService.recordCodexProviderUsageEvent({
+      sourceKind,
+      identityKey: identityKeyForProviderUsage(sourceKind, providerContext.replayIdentityKey),
+      traceId: payload.trace_id,
+      runId: payload.run_id,
+      conversationId: payload.conversation_id,
+      llmCallId,
+      modelName: result.modelName,
+      modelProvider: result.provider,
+      canonicalRequest: result.canonicalRequest as Record<string, unknown>,
+      wireRequest: result.wireRequest as Record<string, unknown>,
+      wireRequestHeaders: result.wireRequestHeaders || null,
+      wireRequestUrl: result.wireRequestUrl || null,
+      canonicalResponse: result.canonicalResponse as Record<string, unknown>,
+      wireResponse: result.wireResponse as Record<string, unknown>,
+      wireResponseHeaders: result.wireResponseHeaders || null,
+      wireResponseStatus: result.wireResponseStatus ?? null,
+      wireResponseStatusText: result.wireResponseStatusText || null,
+      rawResponse: result.rawResponse as Record<string, unknown>,
+      outputItems: Array.isArray(result.canonicalResponse?.output) ? result.canonicalResponse.output : [],
+      usage: {
+        ...result.usage,
+        processingTimeMs: result.usage.processingTimeMs || (finishedAt - startedAt)
+      },
+      requestFormatVersion: result.requestFormatVersion,
+      wireProviderFormat: result.wireProviderFormat,
+      processingTimeMs: result.usage.processingTimeMs || (finishedAt - startedAt),
+      metadata: {
+        execution_mode: executionMode,
+        config_override_applied: Boolean(configOverride)
+      }
+    }).catch((error) => {
+      moduleLogger.warn('Failed to record Codex provider usage event', {
+        sourceKind,
+        llmCallId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
 
   return {
     success: true,
