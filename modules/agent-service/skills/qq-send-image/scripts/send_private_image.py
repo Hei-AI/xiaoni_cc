@@ -52,6 +52,37 @@ def runtime_root():
     return Path(os.environ.get("XIAONI_RUNTIME_ROOT", DEFAULT_RUNTIME_ROOT)).expanduser()
 
 
+def configured_allowed_roots():
+    explicit = os.environ.get("QQ_SEND_IMAGE_ALLOWED_ROOTS", "").strip()
+    if explicit:
+        raw_roots = []
+        for chunk in explicit.replace(",", os.pathsep).split(os.pathsep):
+            root = chunk.strip()
+            if root:
+                raw_roots.append(root)
+    else:
+        raw_roots = [
+            str(runtime_root()),
+        ]
+
+    roots = []
+    seen = set()
+    for raw_root in raw_roots:
+        try:
+            root = Path(raw_root).expanduser().resolve(strict=True)
+        except FileNotFoundError:
+            continue
+        if not root.is_dir():
+            continue
+        marker = str(root)
+        if marker not in seen:
+            roots.append(root)
+            seen.add(marker)
+    if not roots:
+        raise ValueError("no readable image roots are configured")
+    return roots
+
+
 def max_bytes():
     raw = os.environ.get("QQ_SEND_IMAGE_MAX_BYTES", "").strip()
     if not raw:
@@ -74,18 +105,21 @@ def parse_user_id(value):
 
 
 def resolve_image_path(input_path):
-    root = runtime_root().resolve(strict=True)
+    roots = configured_allowed_roots()
     path = Path(input_path).expanduser()
     if not path.is_absolute():
-        path = root / path
+        path = roots[0] / path
     resolved = path.resolve(strict=True)
-    try:
-        resolved.relative_to(root)
-    except ValueError as exc:
-        raise ValueError(f"image_path must be under {root}") from exc
     if not resolved.is_file():
         raise ValueError("image_path must point to a file")
-    return resolved
+    for root in roots:
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            continue
+    allowed = ", ".join(str(root) for root in roots)
+    raise ValueError(f"image_path must be under one of the configured image roots: {allowed}")
 
 
 def sniff_mime(data):
@@ -140,9 +174,9 @@ def provider_post(payload):
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(description="Send a /xiaoni-runtime image to a QQ private chat.")
+    parser = argparse.ArgumentParser(description="Send a local Xiaoni runtime image to a QQ private chat.")
     parser.add_argument("user_id", help="QQ user id")
-    parser.add_argument("image_path", help="local image path under /xiaoni-runtime")
+    parser.add_argument("image_path", help="local image path under /xiaoni-runtime or an explicitly configured image root")
     parser.add_argument("--caption", default="", help="optional text to send after the image")
     args = parser.parse_args(argv)
 

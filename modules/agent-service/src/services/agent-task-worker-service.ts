@@ -2,6 +2,7 @@ import {
   addAgentTaskArtifacts,
   claimNextAgentTask,
   enqueueAgentQueueMessage,
+  getAgentMediaAssetById,
   listAgentMediaAssets,
   updateAgentTask,
 } from '@qq-bot/persistence';
@@ -58,6 +59,11 @@ type ImageProviderPayload = {
   };
 };
 
+type AgentTaskWorkerDependencies = {
+  getMediaAssetById?: typeof getAgentMediaAssetById;
+  listMediaAssets?: typeof listAgentMediaAssets;
+};
+
 type StoredExecutorPicture = {
   picture_id: string;
   filename: string;
@@ -93,6 +99,14 @@ function normalizeImageArtifacts(taskId: string, images: ImageProviderImage[]) {
 }
 
 export class AgentTaskWorkerService {
+  private readonly getMediaAssetById: typeof getAgentMediaAssetById;
+  private readonly listMediaAssets: typeof listAgentMediaAssets;
+
+  constructor(dependencies: AgentTaskWorkerDependencies = {}) {
+    this.getMediaAssetById = dependencies.getMediaAssetById || getAgentMediaAssetById;
+    this.listMediaAssets = dependencies.listMediaAssets || listAgentMediaAssets;
+  }
+
   async processNext(workerId: string) {
     const task = await claimNextAgentTask(workerId, databaseConfig) as AgentTaskRecord | null;
     if (!task) {
@@ -199,13 +213,29 @@ export class AgentTaskWorkerService {
     if (ids.size === 0) {
       return [];
     }
-    const assets = await listAgentMediaAssets({
-      sessionKey: task.session_key,
-      limit: 100
-    }, databaseConfig);
-    const sourceAssets = assets
-      .filter((asset: any) => ids.has(asset.id))
-      .filter((asset: AgentMediaAssetRecord) => this.isImageLikeAsset(asset));
+    const sourceAssets: AgentMediaAssetRecord[] = [];
+    const seenAssetIds = new Set<string>();
+    for (const id of ids) {
+      const asset = await this.getMediaAssetById({ id }, databaseConfig) as AgentMediaAssetRecord | null;
+      if (asset?.id && !seenAssetIds.has(asset.id) && this.isImageLikeAsset(asset)) {
+        sourceAssets.push(asset);
+        seenAssetIds.add(asset.id);
+      }
+    }
+
+    if (seenAssetIds.size < ids.size) {
+      const assets = await this.listMediaAssets({
+        sessionKey: task.session_key,
+        limit: 100
+      }, databaseConfig);
+      for (const asset of assets as AgentMediaAssetRecord[]) {
+        if (asset?.id && ids.has(asset.id) && !seenAssetIds.has(asset.id) && this.isImageLikeAsset(asset)) {
+          sourceAssets.push(asset);
+          seenAssetIds.add(asset.id);
+        }
+      }
+    }
+
     const images = [];
     for (const asset of sourceAssets) {
       const image = await this.materializeSourceImage(asset).catch((error) => {

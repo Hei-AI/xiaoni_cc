@@ -110,6 +110,7 @@ services:
       - EMBEDDING_NORMALIZE=2
       - GEMINI_CLI_OAUTH_CLIENT_ID=${GEMINI_CLI_OAUTH_CLIENT_ID:-}
       - GEMINI_CLI_OAUTH_CLIENT_SECRET=${GEMINI_CLI_OAUTH_CLIENT_SECRET:-}
+      - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
     depends_on:
       - postgres
       - embedding-server
@@ -122,6 +123,7 @@ services:
     volumes:
       - ./logs/provider-service:/app/logs
       - ./resource/napcat_qq_data:/app/napcat-qq-data:ro
+      - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
       - ${HOME}/.codex:/root/.codex:ro
       - ${HOME}/.qqbot-local/codex-auth-profiles:/root/.qqbot-local/codex-auth-profiles
       - ${HOME}/.gemini:/root/.gemini

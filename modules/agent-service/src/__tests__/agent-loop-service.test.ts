@@ -3104,8 +3104,95 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
 });
 
+test('requestImageTask resolves hash media ids globally before tag lookup', async () => {
+  const createdTasks: any[] = [];
+  const idLookups: Array<{ sessionKey: string; assetId: string }> = [];
+  const service = new AgentLoopService({
+    getMediaAssetById: async (sessionKey: string, assetId: string) => {
+      idLookups.push({ sessionKey, assetId });
+      return {
+        id: assetId,
+        session_key: 'qq:direct:1129974489:3994058476',
+        media_tag: 'image_1',
+        media_type: 'image'
+      };
+    },
+    getMediaAssetByTag: async () => {
+      throw new Error('hash media id should not fall back to session tag lookup');
+    },
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-edit-global-media';
+    }
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'edit',
+    prompt: '把这张图改成水彩风格',
+    target_description: '基于原图改水彩',
+    source_media_tags: ['media_abcdef123456'],
+    xiaoni_os: '用户给的是全局媒体资产 ID。'
+  }, createQueuePayload());
+
+  assert.deepEqual(idLookups, [{
+    sessionKey: 'qq:group:101',
+    assetId: 'media_abcdef123456'
+  }]);
+  assert.equal(createdTasks[0]?.taskType, 'image_edit');
+  assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, ['media_abcdef123456']);
+  assert.equal(result.task_type, 'image_edit');
+});
+
+test('materializeImageAsset prefers storage_uri over expiring source_locator', async () => {
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const calls: any[] = [];
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          data_url: 'data:image/png;base64,AA==',
+          mime_type: 'image/png'
+        }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).materializeImageAsset({
+      id: 'media_abcdef123456',
+      storage_uri: 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png',
+      source_locator: 'https://multimedia.nt.qq.com.cn/download?expired=1',
+      mime_type: 'image/png',
+      metadata: {
+        executor_path: '/xiaoni-runtime/media/inbound/hash.png'
+      }
+    });
+
+    assert.deepEqual(result, {
+      dataUrl: 'data:image/png;base64,AA==',
+      mimeType: 'image/png',
+      executorPath: '/xiaoni-runtime/media/inbound/hash.png'
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/media/materialize-image`);
+  assert.equal(calls[0]?.body?.source_locator, 'http://qqbot-provider-service:8091/api/internal/media-assets/hash.png');
+});
+
 test('inspect_image_placeholder runs a no-persist main-context vision fork by image id', async () => {
   const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
+  const imageAssetId = 'media_40b42858b9edee2525910a13195ae1d5843ee26450af81bb';
   const queueMessage = {
     id: 'run-queue-image-vision-fork',
     traceId: 'trace-image-vision-fork',
@@ -3203,7 +3290,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
             call_id: 'call-inspect-image',
             name: INSPECT_IMAGE_TOOL,
             arguments: JSON.stringify({
-              image_id: 'asset-img-123',
+              image_id: imageAssetId,
               reason: '需要真正看图才能接话。'
             })
           }]
@@ -3221,7 +3308,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
           arguments: JSON.stringify({
             reason: '看完图后先停一下。',
             clock: 5,
-            xiaoni_os: '已经通过视觉 fork 看过 asset-img-123。'
+            xiaoni_os: `已经通过视觉 fork 看过 ${imageAssetId}。`
           })
         }]
       }
@@ -3304,9 +3391,11 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.equal(visionCall?.type, 'function_call');
   assert.equal(visionCall?.name, 'inspect_image_placeholder');
   assert.deepEqual(JSON.parse(visionCall?.arguments), {
-    image_id: 'asset-img-123',
+    image_id: imageAssetId,
     detail: 'original'
   });
+  assert.equal(visionCall.call_id.length <= 64, true);
+  assert.doesNotMatch(visionCall.call_id, new RegExp(imageAssetId));
   assert.equal(visionOutput?.type, 'function_call_output');
   assert.equal(visionOutput?.call_id, visionCall?.call_id);
   assert.deepEqual(visionOutput?.output, [{
@@ -3319,14 +3408,14 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.match(JSON.stringify(visionOutput?.output), /data:image\/png;base64,QUJDREVGRw==/);
 
   assert.equal(storeCalls.recordMediaObservation.length, 1);
-  assert.equal(storeCalls.recordMediaObservation[0]?.assetId, 'asset-img-123');
+  assert.equal(storeCalls.recordMediaObservation[0]?.assetId, imageAssetId);
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
 
-  const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === 'asset-img-123');
+  const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === imageAssetId);
   assert.ok(inspectLog);
-  assert.equal(inspectLog.result.output_xml, '<image id="asset-img-123">含义是: 这是一只猫</image>');
+  assert.equal(inspectLog.result.output_xml, `<image id="${imageAssetId}">含义是: 这是一只猫</image>`);
   const replayText = JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []);
-  assert.match(replayText, /<image id=\\"asset-img-123\\">含义是: 这是一只猫<\/image>/);
+  assert.match(replayText, new RegExp(`<image id=\\\\"${imageAssetId}\\\\">含义是: 这是一只猫<\\/image>`));
   const persistedRuntimeText = JSON.stringify({
     toolLogs: storeCalls.completeAgentStackToolExecution,
     conversations: storeCalls.createConversation,
