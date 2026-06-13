@@ -7,6 +7,7 @@ import {
   getXiaoniLlmUsageTimeline,
   findXiaoniActionEventTraceTarget,
   getAgentRuntimeControl,
+  listAgentLifeEvents,
   listAgentMediaAssets,
   listAgentRecoverySessions,
   listAgentTasks,
@@ -178,6 +179,232 @@ function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
     || spanId.startsWith('tool-output:')
     || spanId.startsWith('compression-fork-')
     || spanId.startsWith('provider-request:wire:');
+}
+
+const DEFAULT_ACTION_COST_BY_EVENT_KIND: Record<string, number> = {
+  surface_visit: 0.01,
+  qq_message_seen: 0,
+  qq_self_message: 0,
+  send_in_group: 0.01,
+  silence_decision: 0.005,
+  web_search_result: 0,
+  pending_share_created: 0,
+  pending_share_consumed: 0.002,
+  presence_tick_evaluated: 0
+};
+
+function toValidDate(value: unknown): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function finiteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeEnergy(value: unknown, maxEnergy: unknown = 1): number | null {
+  const energy = finiteNumber(value);
+  if (energy === null) {
+    return null;
+  }
+  const max = Math.max(0.001, finiteNumber(maxEnergy) ?? 1);
+  return clamp01(energy / max);
+}
+
+function eventPayload(event: any): Record<string, unknown> {
+  return event?.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+    ? event.payload
+    : {};
+}
+
+function resolveTimelineStart(sessions: any[]) {
+  const firstSessionAt = sessions
+    .map((session) => toValidDate(session?.startedAt))
+    .filter((date): date is Date => Boolean(date))
+    .sort((left, right) => left.getTime() - right.getTime())[0];
+  return firstSessionAt || new Date(Date.now() - 24 * 60 * 60 * 1000);
+}
+
+function currentProjectionEnergy(current: any) {
+  return normalizeEnergy(current?.lifeState?.projection?.state?.energy, 1);
+}
+
+function currentProjectionTimestamp(current: any) {
+  return toValidDate(
+    current?.lifeState?.projectionUpdatedAt
+      || current?.lifeState?.projection?.generatedAt
+      || current?.lifeState?.updatedAt
+      || current?.latestActivityAt
+  );
+}
+
+function buildEnergyTimeline({
+  sessions,
+  events,
+  current
+}: {
+  sessions: any[];
+  events: any[];
+  current: any;
+}) {
+  const items: Array<{
+    timestamp: Date;
+    priority: number;
+    source: string;
+    kind: string;
+    label: string;
+    recoverySessionId?: number | null;
+    eventId?: string | null;
+    explicitEnergy?: number | null;
+    event?: any;
+  }> = [];
+
+  for (const session of sessions) {
+    const maxEnergy = session?.maxEnergy ?? 1;
+    const startedAt = toValidDate(session?.startedAt);
+    const startEnergy = normalizeEnergy(session?.startEnergy, maxEnergy);
+    if (startedAt && startEnergy !== null) {
+      items.push({
+        timestamp: startedAt,
+        priority: 0,
+        source: 'recovery_session',
+        kind: 'session_start',
+        label: '开始休息',
+        recoverySessionId: session.id,
+        explicitEnergy: startEnergy
+      });
+    }
+
+    const currentAt = toValidDate(session?.endedAt || session?.lastCheckedAt || session?.updatedAt);
+    const currentEnergy = normalizeEnergy(session?.currentEnergy, maxEnergy);
+    if (currentAt && currentEnergy !== null) {
+      items.push({
+        timestamp: currentAt,
+        priority: 2,
+        source: 'recovery_session',
+        kind: session.status === 'active' ? 'session_progress' : 'session_end',
+        label: session.status === 'active' ? '休息中' : '醒来',
+        recoverySessionId: session.id,
+        explicitEnergy: currentEnergy
+      });
+    }
+  }
+
+  for (const event of events) {
+    const timestamp = toValidDate(event?.occurredAt);
+    if (!timestamp) {
+      continue;
+    }
+    items.push({
+      timestamp,
+      priority: 1,
+      source: 'life_event',
+      kind: event.eventKind || 'life_event',
+      label: event.eventKind || 'life_event',
+      eventId: event.id || null,
+      event
+    });
+  }
+
+  const projectionAt = currentProjectionTimestamp(current);
+  const projectedEnergy = currentProjectionEnergy(current);
+  if (projectionAt && projectedEnergy !== null) {
+    items.push({
+      timestamp: projectionAt,
+      priority: 3,
+      source: 'life_projection',
+      kind: 'current_projection',
+      label: '当前投影',
+      explicitEnergy: projectedEnergy
+    });
+  }
+
+  items.sort((left, right) => {
+    const timeDelta = left.timestamp.getTime() - right.timestamp.getTime();
+    return timeDelta || left.priority - right.priority;
+  });
+
+  let actionCost: number | null = null;
+  const points: Array<Record<string, unknown>> = [];
+  const addPoint = (item: typeof items[number], energy: number) => {
+    const normalizedEnergy = clamp01(energy);
+    const timestampMs = item.timestamp.getTime();
+    points.push({
+      key: `${item.source}:${item.kind}:${item.recoverySessionId ?? item.eventId ?? timestampMs}:${points.length}`,
+      timestamp: item.timestamp.toISOString(),
+      timestampMs,
+      energy: normalizedEnergy,
+      actionCost: clamp01(1 - normalizedEnergy),
+      source: item.source,
+      kind: item.kind,
+      label: item.label,
+      recoverySessionId: item.recoverySessionId ?? null,
+      eventId: item.eventId ?? null
+    });
+  };
+
+  for (const item of items) {
+    if (typeof item.explicitEnergy === 'number') {
+      actionCost = clamp01(1 - item.explicitEnergy);
+      addPoint(item, item.explicitEnergy);
+      continue;
+    }
+
+    const event = item.event;
+    if (!event) {
+      continue;
+    }
+    const payload = eventPayload(event);
+    if (event.eventKind === 'sleep_period') {
+      const eventEnergy = normalizeEnergy(payload.energy, payload.max_energy ?? 1);
+      actionCost = eventEnergy === null ? 0 : clamp01(1 - eventEnergy);
+      addPoint({ ...item, label: '休息恢复' }, 1 - actionCost);
+      continue;
+    }
+
+    if (actionCost === null) {
+      continue;
+    }
+
+    if (event.eventKind === 'rest_period') {
+      actionCost = clamp01(actionCost - 0.1);
+      addPoint({ ...item, label: '短暂休息' }, 1 - actionCost);
+      continue;
+    }
+
+    const explicitCost = Math.max(0, finiteNumber(event.actionCost) ?? 0);
+    const resolvedCost = explicitCost > 0
+      ? explicitCost
+      : DEFAULT_ACTION_COST_BY_EVENT_KIND[event.eventKind] ?? 0;
+    if (resolvedCost > 0) {
+      actionCost = clamp01(actionCost + resolvedCost);
+      addPoint(item, 1 - actionCost);
+    }
+  }
+
+  const energies = points
+    .map((point) => finiteNumber(point.energy))
+    .filter((value): value is number => value !== null);
+  const latest = points[points.length - 1] || null;
+  return {
+    generatedAt: new Date().toISOString(),
+    points,
+    summary: {
+      pointCount: points.length,
+      minEnergy: energies.length ? Math.min(...energies) : null,
+      maxEnergy: energies.length ? Math.max(...energies) : null,
+      latestEnergy: latest ? latest.energy : null,
+      latestTimestamp: latest ? latest.timestamp : null
+    }
+  };
 }
 
 export function createAgentRuntimeRoutes(database: DatabaseManager, logger: winston.Logger) {
@@ -513,6 +740,22 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         getXiaoniActionStream({ identityKey, limit: 12 }),
         loadRuntimeSnapshot()
       ]);
+      const current = {
+        ...(activity && typeof activity === 'object' && 'current' in activity ? (activity as any).current : {}),
+        runtime
+      };
+      const energyTimelineStart = resolveTimelineStart(Array.isArray(sessions) ? sessions : []);
+      const energyEvents = await listAgentLifeEvents({
+        identityKey,
+        occurredAfter: energyTimelineStart,
+        chronological: true,
+        limit: 1000
+      });
+      const energyTimeline = buildEnergyTimeline({
+        sessions: Array.isArray(sessions) ? sessions : [],
+        events: Array.isArray(energyEvents) ? energyEvents : [],
+        current
+      });
       res.json({
         success: true,
         data: {
@@ -521,13 +764,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           limit,
           active: Array.isArray(sessions) ? sessions.find((session: any) => session.status === 'active') || null : null,
           sessions,
-          current: {
-            ...(activity && typeof activity === 'object' && 'current' in activity ? (activity as any).current : {}),
-            runtime
-          },
-          recentExperience: activity && typeof activity === 'object' && 'items' in activity && Array.isArray((activity as any).items)
-            ? (activity as any).items
-            : [],
+          current,
+          energyTimeline,
           runtime
         },
         timestamp: new Date().toISOString()

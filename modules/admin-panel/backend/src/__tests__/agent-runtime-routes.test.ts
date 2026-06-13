@@ -15,6 +15,7 @@ import {
   findXiaoniActionEventTraceTarget,
   getXiaoniActionStream,
   getXiaoniLlmUsageTimeline,
+  listAgentLifeEvents,
   listAgentRecoverySessions
 } from '@qq-bot/persistence';
 
@@ -25,6 +26,7 @@ jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActivityFeed: jest.fn(),
   getXiaoniLlmUsageTimeline: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
+  listAgentLifeEvents: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentRecoverySessions: jest.fn(),
   listAgentTasks: jest.fn()
@@ -81,20 +83,29 @@ describe('agent runtime recovery session routes', () => {
         identityKey: 'xiaoni',
         status: 'active',
         reason: '累了',
-        startedAt: '2026-06-13T00:00:00.000Z'
+        startedAt: '2026-06-13T00:00:00.000Z',
+        lastCheckedAt: '2026-06-13T00:05:00.000Z',
+        startEnergy: 0.62,
+        currentEnergy: 0.72,
+        maxEnergy: 1
       },
       {
         id: 87,
         identityKey: 'xiaoni',
         status: 'completed',
         reason: '自然醒',
-        startedAt: '2026-06-12T23:00:00.000Z'
+        startedAt: '2026-06-12T23:00:00.000Z',
+        endedAt: '2026-06-12T23:30:00.000Z',
+        startEnergy: 0.42,
+        currentEnergy: 0.92,
+        maxEnergy: 1
       }
     ]);
     (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
       current: {
         latestActivityAt: '2026-06-13T00:00:00.000Z',
         lifeState: {
+          projectionUpdatedAt: '2026-06-13T00:15:00.000Z',
           projection: {
             state: {
               energy: 0.87,
@@ -117,6 +128,16 @@ describe('agent runtime recovery session routes', () => {
         }
       ]
     });
+    (listAgentLifeEvents as jest.Mock).mockResolvedValueOnce([
+      {
+        id: '9200',
+        identityKey: 'xiaoni',
+        eventKind: 'surface_visit',
+        occurredAt: '2026-06-13T00:10:00.000Z',
+        actionCost: 0.01,
+        payload: {}
+      }
+    ]);
 
     const response = await request(createApp(database))
       .get('/api/agent-runtime/recovery-sessions?identity_key=xiaoni&status=all&limit=40');
@@ -132,11 +153,18 @@ describe('agent runtime recovery session routes', () => {
       identityKey: 'xiaoni',
       limit: 12
     });
+    expect(listAgentLifeEvents).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      occurredAfter: expect.any(Date),
+      chronological: true,
+      limit: 1000
+    });
     expect(response.body.data.active.id).toBe(88);
     expect(response.body.data.sessions).toHaveLength(2);
     expect(response.body.data.current.lifeState.projection.state.energy).toBe(0.87);
-    expect(response.body.data.recentExperience).toHaveLength(1);
-    expect(response.body.data.recentExperience[0].title).toBe('tool: recover_energy');
+    expect(response.body.data.recentExperience).toBeUndefined();
+    expect(response.body.data.energyTimeline.points.length).toBeGreaterThan(0);
+    expect(response.body.data.energyTimeline.summary.latestEnergy).toBe(0.87);
     expect(response.body.data.runtime.live).toBe(true);
     expect(response.body.data.current.runtime.live).toBe(true);
     expect(database.executeQuery).not.toHaveBeenCalled();

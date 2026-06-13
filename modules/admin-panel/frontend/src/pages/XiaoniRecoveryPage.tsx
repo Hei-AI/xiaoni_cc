@@ -1,6 +1,16 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, AlarmClock, BatteryMedium, Bell, Clock3, Moon, RefreshCw } from 'lucide-react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceDot,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { AlarmClock, BatteryMedium, Bell, Clock3, Moon, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -17,7 +27,7 @@ import { SectionPanel } from '@/components/console/SectionPanel';
 import { StatusPill } from '@/components/console/StatusPill';
 import { EmptyState } from '@/components/console/EmptyState';
 import { ErrorState } from '@/components/console/ErrorState';
-import { cn, formatTimestamp } from '@/lib/utils';
+import { cn, formatDateTimeCompact, formatTimestamp, parseTimestampValue } from '@/lib/utils';
 
 type ApiResponse<T> = {
   success: boolean;
@@ -57,20 +67,6 @@ type RecoverySession = {
   updatedAt: string | null;
 };
 
-type ExperienceItem = {
-  id: string;
-  source: string | null;
-  kind: string | null;
-  title: string | null;
-  body: string | null;
-  status?: string | null;
-  timestamp: string | null;
-  actorName?: string | null;
-  peerName?: string | null;
-  runId?: string | null;
-  traceId?: string | null;
-};
-
 type RuntimeSnapshot = {
   live: boolean;
   status: string;
@@ -107,6 +103,31 @@ type CurrentRecoveryState = {
   runtime?: RuntimeSnapshot;
 };
 
+type EnergyTimelinePoint = {
+  key?: string;
+  timestamp: string | null;
+  timestampMs?: number | null;
+  energy: number | null;
+  actionCost?: number | null;
+  source?: string | null;
+  kind?: string | null;
+  label?: string | null;
+  recoverySessionId?: number | null;
+  eventId?: string | null;
+};
+
+type EnergyTimeline = {
+  generatedAt: string | null;
+  points: EnergyTimelinePoint[];
+  summary?: {
+    pointCount?: number | null;
+    minEnergy?: number | null;
+    maxEnergy?: number | null;
+    latestEnergy?: number | null;
+    latestTimestamp?: string | null;
+  };
+};
+
 type RecoverySessionsPayload = {
   identityKey: string;
   status: string;
@@ -114,7 +135,7 @@ type RecoverySessionsPayload = {
   active: RecoverySession | null;
   sessions: RecoverySession[];
   current?: CurrentRecoveryState;
-  recentExperience?: ExperienceItem[];
+  energyTimeline?: EnergyTimeline;
   runtime: RuntimeSnapshot;
 };
 
@@ -195,38 +216,6 @@ function clockLabel(session: RecoverySession | null | undefined) {
   return `${session.clockMinutes}m`;
 }
 
-function experienceSourceLabel(item: ExperienceItem) {
-  if (item.source === 'tool_execution') {
-    return 'tool';
-  }
-  if (item.source === 'llm_request') {
-    return 'llm';
-  }
-  if (item.source === 'queue_message') {
-    return 'queue';
-  }
-  if (item.source === 'life_event') {
-    return 'life';
-  }
-  if (item.source === 'llm_stack_item') {
-    return 'stack';
-  }
-  return item.source || item.kind || 'event';
-}
-
-function experienceTone(item: ExperienceItem): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
-  if (item.status === 'failed' || item.kind?.includes('failed')) {
-    return 'danger';
-  }
-  if (item.status === 'processing' || item.status === 'running') {
-    return 'warning';
-  }
-  if (item.source === 'tool_execution' || item.source === 'llm_request') {
-    return 'info';
-  }
-  return 'neutral';
-}
-
 function SessionDetail({ session }: { session: RecoverySession }) {
   const details = [
     ['开始', formatTimestamp(session.startedAt, { fallback: '-' })],
@@ -266,6 +255,203 @@ function SessionDetail({ session }: { session: RecoverySession }) {
   );
 }
 
+type EnergyChartPoint = EnergyTimelinePoint & {
+  key: string;
+  timestamp: string;
+  timestampMs: number;
+  energy: number;
+  actionCost: number | null;
+  chartLabel: string;
+};
+
+function normalizeEnergyPoint(point: EnergyTimelinePoint, index: number): EnergyChartPoint | null {
+  const parsed = parseTimestampValue(point.timestamp);
+  const timestampMs = typeof point.timestampMs === 'number' && Number.isFinite(point.timestampMs)
+    ? point.timestampMs
+    : parsed?.getTime();
+  const energy = typeof point.energy === 'number' && Number.isFinite(point.energy)
+    ? Math.max(0, Math.min(1, point.energy))
+    : null;
+  if (!timestampMs || energy === null) {
+    return null;
+  }
+  const timestamp = parsed?.toISOString() || new Date(timestampMs).toISOString();
+  return {
+    ...point,
+    key: point.key || `${timestampMs}:${point.source || 'energy'}:${index}`,
+    timestamp,
+    timestampMs,
+    energy,
+    actionCost: typeof point.actionCost === 'number' && Number.isFinite(point.actionCost)
+      ? Math.max(0, Math.min(1, point.actionCost))
+      : null,
+    chartLabel: formatDateTimeCompact(timestamp)
+  };
+}
+
+function buildFallbackEnergyPoints({
+  sessions,
+  currentEnergy,
+  projectionUpdatedAt
+}: {
+  sessions: RecoverySession[];
+  currentEnergy: number | null;
+  projectionUpdatedAt: string | null;
+}): EnergyTimelinePoint[] {
+  const points: EnergyTimelinePoint[] = [];
+  [...sessions].reverse().forEach((session) => {
+    if (typeof session.startEnergy === 'number' && session.startedAt) {
+      const energy = session.maxEnergy ? session.startEnergy / session.maxEnergy : session.startEnergy;
+      points.push({
+        timestamp: session.startedAt,
+        energy,
+        actionCost: 1 - energy,
+        source: 'recovery_session',
+        kind: 'session_start',
+        label: '开始休息',
+        recoverySessionId: session.id
+      });
+    }
+    const currentAt = session.endedAt || session.lastCheckedAt || session.updatedAt;
+    if (typeof session.currentEnergy === 'number' && currentAt) {
+      const energy = session.maxEnergy ? session.currentEnergy / session.maxEnergy : session.currentEnergy;
+      points.push({
+        timestamp: currentAt,
+        energy,
+        actionCost: 1 - energy,
+        source: 'recovery_session',
+        kind: session.status === 'active' ? 'session_progress' : 'session_end',
+        label: session.status === 'active' ? '休息中' : '醒来',
+        recoverySessionId: session.id
+      });
+    }
+  });
+  if (typeof currentEnergy === 'number' && projectionUpdatedAt) {
+    points.push({
+      timestamp: projectionUpdatedAt,
+      energy: currentEnergy,
+      actionCost: 1 - currentEnergy,
+      source: 'life_projection',
+      kind: 'current_projection',
+      label: '当前投影'
+    });
+  }
+  return points;
+}
+
+function formatPercent(value: number | null | undefined, digits = 1) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : '-';
+}
+
+function formatEnergyAxis(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatEnergyTick(value: number) {
+  return formatDateTimeCompact(value);
+}
+
+function EnergyTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ payload?: EnergyChartPoint }>; label?: number | string }) {
+  if (!active) {
+    return null;
+  }
+  const point = payload?.[0]?.payload;
+  if (!point) {
+    return null;
+  }
+  const labelText = typeof label === 'number'
+    ? formatDateTimeCompact(label)
+    : point.chartLabel;
+  return (
+    <div className="max-w-72 rounded-lg border border-border bg-background/95 p-3 text-xs shadow-lg">
+      <div className="font-mono font-semibold text-foreground">{labelText}</div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+        <span className="text-muted-foreground">精力</span>
+        <span className="text-right font-medium text-sky-700">{formatPercent(point.energy)}</span>
+        <span className="text-muted-foreground">行动负荷</span>
+        <span className="text-right font-medium text-amber-700">{formatPercent(point.actionCost)}</span>
+        <span className="text-muted-foreground">来源</span>
+        <span className="truncate text-right font-medium text-foreground">{point.label || point.kind || point.source || '-'}</span>
+      </div>
+      {point.recoverySessionId || point.eventId ? (
+        <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">
+          {point.recoverySessionId ? `recovery #${point.recoverySessionId}` : point.eventId}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function EnergyTrendChart({ points, isLoading }: { points: EnergyChartPoint[]; isLoading: boolean }) {
+  const chartDomain = React.useMemo<[number, number]>(() => {
+    const first = points[0]?.timestampMs;
+    const last = points[points.length - 1]?.timestampMs;
+    if (!first || !last) {
+      const now = Date.now();
+      return [now - 60 * 60 * 1000, now];
+    }
+    if (first === last) {
+      return [first - 30 * 60 * 1000, last + 30 * 60 * 1000];
+    }
+    const padding = Math.max(5 * 60 * 1000, Math.round((last - first) * 0.04));
+    return [first - padding, last + padding];
+  }, [points]);
+  const latestPoint = points[points.length - 1] || null;
+
+  return (
+    <div className="h-[320px] rounded-md border border-border bg-background p-2">
+      {isLoading ? (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载精力...</div>
+      ) : points.length === 0 ? (
+        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">暂无精力点</div>
+      ) : (
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={points} margin={{ top: 22, right: 16, bottom: 6, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis
+              dataKey="timestampMs"
+              type="number"
+              domain={chartDomain}
+              tickFormatter={formatEnergyTick}
+              tick={{ fontSize: 11 }}
+              stroke="hsl(var(--muted-foreground))"
+            />
+            <YAxis
+              domain={[0, 1]}
+              ticks={[0, 0.25, 0.5, 0.75, 1]}
+              tickFormatter={formatEnergyAxis}
+              tick={{ fontSize: 11 }}
+              width={42}
+              stroke="hsl(var(--muted-foreground))"
+            />
+            <ChartTooltip content={(props) => <EnergyTooltip {...(props as any)} />} />
+            <Line
+              type="monotone"
+              dataKey="energy"
+              name="精力"
+              stroke="#0284c7"
+              strokeWidth={2}
+              dot={{ r: 3 }}
+              activeDot={{ r: 5 }}
+              isAnimationActive={false}
+            />
+            {latestPoint ? (
+              <ReferenceDot
+                x={latestPoint.timestampMs}
+                y={latestPoint.energy}
+                r={4}
+                fill="#0ea5e9"
+                stroke="white"
+                label={{ value: '当前', position: 'top', fontSize: 11, fill: '#334155' }}
+              />
+            ) : null}
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 export const XiaoniRecoveryPage: React.FC = () => {
   const query = useQuery({
     queryKey: ['xiaoni-recovery-sessions'],
@@ -276,7 +462,6 @@ export const XiaoniRecoveryPage: React.FC = () => {
   const payload = query.data;
   const active = payload?.active || null;
   const sessions = payload?.sessions || [];
-  const recentExperience = payload?.recentExperience || [];
   const current = payload?.current || null;
   const runtime = current?.runtime || payload?.runtime;
   const runtimeLive = runtime?.live;
@@ -294,6 +479,21 @@ export const XiaoniRecoveryPage: React.FC = () => {
   const currentMaxEnergy = active?.maxEnergy || 1;
   const stateSummary = lifeState?.explanation?.summary || null;
   const projectionUpdatedAt = lifeState?.projectionUpdatedAt || lifeState?.projection?.generatedAt || lifeState?.updatedAt || null;
+  const energyTimelinePoints = React.useMemo(() => {
+    const sourcePoints = payload?.energyTimeline?.points?.length
+      ? payload.energyTimeline.points
+      : buildFallbackEnergyPoints({ sessions, currentEnergy, projectionUpdatedAt });
+    return sourcePoints
+      .map(normalizeEnergyPoint)
+      .filter((point): point is EnergyChartPoint => Boolean(point))
+      .sort((left, right) => left.timestampMs - right.timestampMs);
+  }, [currentEnergy, payload?.energyTimeline?.points, projectionUpdatedAt, sessions]);
+  const minChartEnergy = energyTimelinePoints.length
+    ? Math.min(...energyTimelinePoints.map((point) => point.energy))
+    : null;
+  const maxChartEnergy = energyTimelinePoints.length
+    ? Math.max(...energyTimelinePoints.map((point) => point.energy))
+    : null;
 
   return (
     <PageShell>
@@ -402,40 +602,27 @@ export const XiaoniRecoveryPage: React.FC = () => {
       </SectionPanel>
 
       <SectionPanel
-        title="小腻的经历"
-        description="最近 action stream 事件，帮助判断她醒着时正在处理什么。"
-        icon={<Activity className="h-4 w-4 text-primary" />}
+        title="精力趋势"
+        description="单独使用 0% 到 100% 的精力轴；活动流和 token usage 仍在隔壁页面看。"
+        icon={<BatteryMedium className="h-4 w-4 text-primary" />}
       >
-        {recentExperience.length > 0 ? (
-          <div className="divide-y divide-border">
-            {recentExperience.map((item) => (
-              <div key={item.id} className="grid gap-2 py-3 md:grid-cols-[11rem_1fr]">
-                <div className="text-xs text-muted-foreground">
-                  {formatTimestamp(item.timestamp, { fallback: '-' })}
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <StatusPill tone={experienceTone(item)}>{experienceSourceLabel(item)}</StatusPill>
-                    <span className="min-w-0 truncate font-medium text-foreground" title={item.title || item.kind || undefined}>
-                      {item.title || item.kind || item.id}
-                    </span>
-                  </div>
-                  {item.body ? (
-                    <div className="line-clamp-2 text-sm leading-6 text-muted-foreground" title={item.body}>
-                      {item.body}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
+        <div className="space-y-3">
+          <EnergyTrendChart points={energyTimelinePoints} isLoading={query.isLoading} />
+          <div className="grid gap-2 text-sm md:grid-cols-3">
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+              <div className="text-muted-foreground">当前</div>
+              <div className="mt-1 font-medium text-foreground">{formatPercent(currentEnergy)}</div>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+              <div className="text-muted-foreground">最低</div>
+              <div className="mt-1 font-medium text-foreground">{formatPercent(minChartEnergy)}</div>
+            </div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+              <div className="text-muted-foreground">最高</div>
+              <div className="mt-1 font-medium text-foreground">{formatPercent(maxChartEnergy)}</div>
+            </div>
           </div>
-        ) : (
-          <EmptyState
-            icon={<Activity className="h-8 w-8" />}
-            title="暂无经历事件"
-            description="action stream 还没有返回小腻最近的经历。"
-          />
-        )}
+        </div>
       </SectionPanel>
 
       <SectionPanel
