@@ -1,5 +1,5 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CartesianGrid,
@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Bot,
   Calendar,
+  ChevronsDown,
   Clock3,
   Eye,
   Image,
@@ -52,6 +53,8 @@ import {
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom' | 'all';
 type UsageBucket = 'call' | 'hour' | 'day' | 'month';
+
+const ACTION_STREAM_PAGE_SIZE = 80;
 
 interface XiaoniActivityFeedItem {
   id: string;
@@ -196,6 +199,11 @@ interface XiaoniActivityFeed {
       failed: number;
     };
     runtime: RuntimeSnapshot;
+  };
+  pagination?: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
   };
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: CompressionForkTimeline;
@@ -820,6 +828,50 @@ function buildWorkflowTimelineEntries(
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed | undefined {
+  const firstPage = pages[0];
+  if (!firstPage) {
+    return undefined;
+  }
+  const itemsById = new Map<string, XiaoniActivityFeedItem>();
+  const compressionRunsById = new Map<string, CompressionForkRun>();
+  const imageVisionRunsById = new Map<string, CompressionForkRun>();
+
+  pages.forEach((page) => {
+    (page.items || []).forEach((item) => {
+      if (!itemsById.has(item.id)) {
+        itemsById.set(item.id, item);
+      }
+    });
+    (page.compressionForkTimeline?.runs || []).forEach((run) => {
+      if (!compressionRunsById.has(run.id)) {
+        compressionRunsById.set(run.id, run);
+      }
+    });
+    (page.imageVisionForkTimeline?.runs || []).forEach((run) => {
+      if (!imageVisionRunsById.has(run.id)) {
+        imageVisionRunsById.set(run.id, run);
+      }
+    });
+  });
+
+  const lastPage = pages[pages.length - 1] || firstPage;
+  return {
+    ...firstPage,
+    generatedAt: lastPage.generatedAt || firstPage.generatedAt,
+    pagination: lastPage.pagination,
+    items: Array.from(itemsById.values()),
+    compressionForkTimeline: {
+      ...(firstPage.compressionForkTimeline || {}),
+      runs: Array.from(compressionRunsById.values()),
+    },
+    imageVisionForkTimeline: {
+      ...(firstPage.imageVisionForkTimeline || {}),
+      runs: Array.from(imageVisionRunsById.values()),
+    },
+  };
 }
 
 function TimeRangeControls({
@@ -2194,19 +2246,27 @@ export const XiaoniActivityPage: React.FC = () => {
   const startTime = searchParams.get('start_time') || '';
   const endTime = searchParams.get('end_time') || '';
   const [rawTraceTarget, setRawTraceTarget] = React.useState<RawTraceTarget | null>(null);
+  const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const {
-    data: feed,
+    data: feedPages,
     isLoading,
     isFetching,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
     error: feedError,
     refetch: refetchFeed,
-  } = useQuery<XiaoniActivityFeed>({
+  } = useInfiniteQuery<XiaoniActivityFeed>({
     queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime, focusEvent, focusSlice, selectedActionTagParam],
-    queryFn: async () => {
+    initialPageParam: null,
+    queryFn: async ({ pageParam }) => {
       const params = new URLSearchParams({
-        limit: '80',
+        limit: String(ACTION_STREAM_PAGE_SIZE),
         range: timeRange,
       });
+      if (typeof pageParam === 'string' && pageParam) {
+        params.set('before_time', pageParam);
+      }
       if (timeRange === 'custom') {
         if (startTime) {
           params.set('start_time', formatIsoOffset(startTime, { fallback: startTime }));
@@ -2231,8 +2291,14 @@ export const XiaoniActivityPage: React.FC = () => {
       }
       return payload.data;
     },
+    getNextPageParam: (lastPage) => (
+      lastPage.pagination?.hasMore && lastPage.pagination.nextCursor
+        ? lastPage.pagination.nextCursor
+        : undefined
+    ),
     refetchInterval: 10000,
   });
+  const feed = React.useMemo(() => mergeActionStreamPages(feedPages?.pages || []), [feedPages?.pages]);
   const {
     data: usageTimeline,
     isLoading: isUsageLoading,
@@ -2386,6 +2452,20 @@ export const XiaoniActivityPage: React.FC = () => {
   }, [updateSearchParam]);
 
   React.useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasNextPage) {
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+    }, { rootMargin: '720px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, workflowEntries.length]);
+
+  React.useEffect(() => {
     if (!focusEvent || !feed) {
       return;
     }
@@ -2473,11 +2553,28 @@ export const XiaoniActivityPage: React.FC = () => {
         ) : null}
 
         {feed && (mainItems.length > 0 || forkCount > 0) ? (
-          <WorkflowTimeline
-            entries={workflowEntries}
-            focusEventId={focusEvent || undefined}
-            onOpenRawTrace={setRawTraceTarget}
-          />
+          <div className="space-y-4">
+            <WorkflowTimeline
+              entries={workflowEntries}
+              focusEventId={focusEvent || undefined}
+              onOpenRawTrace={setRawTraceTarget}
+            />
+            {hasNextPage ? (
+              <div className="flex justify-center border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  <ChevronsDown className={cn('mr-2 h-4 w-4', isFetchingNextPage && 'animate-bounce')} />
+                  {isFetchingNextPage ? '加载中' : '加载更多'}
+                </Button>
+                <div ref={loadMoreRef} className="h-px w-px" aria-hidden="true" />
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </main>
 

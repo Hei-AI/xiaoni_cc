@@ -463,6 +463,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         ? req.query.identity_key.trim()
         : 'xiaoni';
       const timeFilter = resolveActionStreamTimeFilter(req.query);
+      const beforeTime = parseQueryDate(req.query.before_time ?? req.query.beforeTime ?? req.query.before);
       const tags = parseQueryStringList(req.query.tags ?? req.query.tag);
       const [stream, runtime] = await Promise.all([
         getXiaoniActionStream({
@@ -470,6 +471,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           limit,
           startTime: timeFilter.startTime,
           endTime: timeFilter.endTime,
+          beforeTime,
           tags,
           focusEvent: firstQueryString(req.query.focus_event ?? req.query.focusEvent),
           focusSlice: firstQueryString(req.query.focus_slice ?? req.query.focusSlice)

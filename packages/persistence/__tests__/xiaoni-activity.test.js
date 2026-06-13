@@ -569,6 +569,62 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(resolved.spanId, 'provider-request:wire:fork_llm_1');
 });
 
+test('Xiaoni action stream paginates the merged main and fork timeline', async () => {
+  const persistence = createPersistence({
+    llmRequestSliceRows: [{
+      id: '10',
+      sliceId: 'slice_newer',
+      llmCallId: 'llm_newer',
+      identityKey: 'xiaoni',
+      status: 'completed',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      canonicalRequest: { input: [{ role: 'user', content: 'newer' }] },
+      wireResponse: { id: 'resp_newer' },
+      createdAt: '2026-06-05T10:04:00.000Z',
+      completedAt: '2026-06-05T10:04:01.000Z'
+    }],
+    agentStackRows: [{
+      id: '11',
+      eventId: 'stack:trace_old:call_old',
+      identityKey: 'xiaoni',
+      stackIndex: 21,
+      itemKind: 'function_call',
+      toolCallId: 'call_old',
+      llmRequestSliceId: 'slice_old',
+      content: {
+        type: 'function_call',
+        call_id: 'call_old',
+        name: 'exec_command',
+        arguments: '{"cmd":"pwd"}'
+      },
+      traceId: 'trace_old',
+      runId: 'run_old',
+      createdAt: '2026-06-05T10:03:00.000Z'
+    }],
+    compressionForkRuns: [{
+      id: '12',
+      fork_run_id: 'core_memory_fork_newest',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      summary_text: '最新 fork',
+      started_at: '2026-06-05T10:05:00.000Z',
+      completed_at: '2026-06-05T10:05:12.000Z',
+      created_at: '2026-06-05T10:05:00.000Z',
+      updated_at: '2026-06-05T10:05:12.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 2 });
+
+  assert.equal(stream.pagination.limit, 2);
+  assert.equal(stream.pagination.hasMore, true);
+  assert.equal(stream.pagination.nextCursor, '2026-06-05T10:04:00.000Z');
+  assert.deepEqual(stream.compressionForkTimeline.runs.map((run) => run.forkRunId), ['core_memory_fork_newest']);
+  assert.deepEqual(stream.items.map((item) => item.id), ['llm-slice:slice_newer']);
+});
+
 test('Xiaoni action stream filters tags before applying display limit', async () => {
   const noisyLlmSlices = Array.from({ length: 100 }, (_, index) => ({
     id: String(3000 + index),

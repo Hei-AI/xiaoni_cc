@@ -117,12 +117,21 @@ function resolveTimeWindow(input = {}) {
     || input.since
     || input.from
   );
-  const endTime = parseDateBoundary(
+  const explicitEndTime = parseDateBoundary(
     input.endTime
     || input.end_time
     || input.until
     || input.to
   );
+  const beforeTime = parseDateBoundary(
+    input.beforeTime
+    || input.before_time
+    || input.before
+  );
+  const cursorEndTime = beforeTime ? new Date(beforeTime.getTime() - 1) : null;
+  const endTime = explicitEndTime && cursorEndTime
+    ? new Date(Math.min(explicitEndTime.getTime(), cursorEndTime.getTime()))
+    : explicitEndTime || cursorEndTime;
   return { startTime, endTime };
 }
 
@@ -1295,7 +1304,7 @@ function imageVisionObservationTraceTarget(row, observation) {
   const sliceId = firstString(explicitSliceId, llmCallId);
   const hasProviderRawTrace = metadata.provider_raw_trace_persisted === true
     || metadata.providerRawTracePersisted === true
-    || Boolean(explicitSliceId && metadata.no_persist !== true && metadata.noPersist !== true);
+    || Boolean(sliceId && metadata.no_persist !== true && metadata.noPersist !== true);
   if (!llmCallId || !hasProviderRawTrace) {
     return null;
   }
@@ -1783,6 +1792,50 @@ function filterActionStreamForkRunsByTags(runs, selectedTags) {
       };
     })
     .filter(Boolean);
+}
+
+function actionStreamEntryTimestamp(entry) {
+  return entry.kind === 'fork' ? entry.run.startedAt : entry.item.timestamp;
+}
+
+function sortActionStreamEntries(left, right) {
+  const rightMs = new Date(actionStreamEntryTimestamp(right)).getTime() || 0;
+  const leftMs = new Date(actionStreamEntryTimestamp(left)).getTime() || 0;
+  if (rightMs !== leftMs) {
+    return rightMs - leftMs;
+  }
+  if (left.kind !== right.kind) {
+    return left.kind === 'fork' ? -1 : 1;
+  }
+  const leftId = left.kind === 'fork' ? left.run.id : left.item.id;
+  const rightId = right.kind === 'fork' ? right.run.id : right.item.id;
+  return String(leftId || '').localeCompare(String(rightId || ''));
+}
+
+function paginateActionStreamEntries(entries, limit) {
+  const ordered = entries
+    .filter((entry) => actionStreamEntryTimestamp(entry))
+    .sort(sortActionStreamEntries);
+  if (ordered.length <= limit) {
+    return {
+      visibleEntries: ordered,
+      hasMore: false,
+      nextCursor: null
+    };
+  }
+
+  const boundaryTimestamp = actionStreamEntryTimestamp(ordered[limit - 1]);
+  let visibleCount = limit;
+  while (visibleCount < ordered.length && actionStreamEntryTimestamp(ordered[visibleCount]) === boundaryTimestamp) {
+    visibleCount += 1;
+  }
+
+  const visibleEntries = ordered.slice(0, visibleCount);
+  return {
+    visibleEntries,
+    hasMore: visibleCount < ordered.length,
+    nextCursor: visibleCount < ordered.length ? actionStreamEntryTimestamp(visibleEntries[visibleEntries.length - 1]) : null
+  };
 }
 
 function actionStreamAvailableTags(items, forkRuns) {
@@ -2589,7 +2642,7 @@ function createXiaoniActivityPersistence({
         loadCoreMemoryCompressionForkTimeline(sql, {
           identityKey,
           timeWindow,
-          limit: Math.max(30, Math.ceil(perSourceLimit / 2))
+          limit: perSourceLimit
         })
       ]);
 
@@ -2729,7 +2782,7 @@ function createXiaoniActivityPersistence({
     const limit = clampLimit(input.limit, 80, 200);
     const focusedSliceId = focusedLlmSliceIdFromInput(input);
     const selectedTags = selectedActionStreamTagKeys(input);
-    const feedLimit = selectedTags.length ? Math.max(limit * 3, 300) : limit;
+    const feedLimit = selectedTags.length ? Math.max((limit + 1) * 3, 300) : limit + 1;
     const feed = await getXiaoniActivityFeed({
       ...input,
       limit: feedLimit,
@@ -2749,14 +2802,13 @@ function createXiaoniActivityPersistence({
       ...compressionForkRuns,
       ...imageVisionForkRuns
     ]);
-    const items = decoratedItems
+    const taggedItems = decoratedItems
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, limit);
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     let focusedItem = null;
-    if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !items.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
+    if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !taggedItems.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
         identityKey: feed.identityKey,
         sliceId: focusedSliceId,
@@ -2777,7 +2829,35 @@ function createXiaoniActivityPersistence({
         }
       }
     }
-    const normalizedItems = dedupeFeedItems(focusedItem ? [...items, focusedItem] : items)
+    const actionEntries = [
+      ...(focusedItem ? [focusedItem, ...taggedItems] : taggedItems).map((item) => ({
+        kind: 'main',
+        id: item.id,
+        item
+      })),
+      ...filteredCompressionForkRuns.map((run) => ({
+        kind: 'fork',
+        id: `compression-fork:${run.id}`,
+        run
+      })),
+      ...filteredImageVisionForkRuns.map((run) => ({
+        kind: 'fork',
+        id: `image-vision-fork:${run.id}`,
+        run
+      }))
+    ];
+    const { visibleEntries, hasMore, nextCursor } = paginateActionStreamEntries(actionEntries, limit);
+    const visibleMainItems = visibleEntries
+      .filter((entry) => entry.kind === 'main')
+      .map((entry) => entry.item);
+    const visibleForkRunIds = new Set(
+      visibleEntries
+        .filter((entry) => entry.kind === 'fork')
+        .map((entry) => entry.run.id)
+    );
+    const visibleCompressionForkRuns = filteredCompressionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const normalizedItems = dedupeFeedItems(visibleMainItems)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .map((item) => item.tags ? item : decorateActionStreamItem(item));
 
@@ -2789,20 +2869,25 @@ function createXiaoniActivityPersistence({
         ...feed.filters,
         tags: selectedTags
       },
+      pagination: {
+        limit,
+        hasMore,
+        nextCursor
+      },
       availableTags,
       current: {
         ...normalizeActionStreamCurrent(feed.current),
-        latestActivityAt: items[0]?.timestamp || null
+        latestActivityAt: taggedItems[0]?.timestamp || null
       },
       focusedEventId: focusedItem?.id || null,
       items: normalizedItems,
       compressionForkTimeline: {
         ...(feed.compressionForkTimeline || {}),
-        runs: filteredCompressionForkRuns
+        runs: visibleCompressionForkRuns
       },
       imageVisionForkTimeline: {
         ...(feed.imageVisionForkTimeline || {}),
-        runs: filteredImageVisionForkRuns
+        runs: visibleImageVisionForkRuns
       }
     };
   }
