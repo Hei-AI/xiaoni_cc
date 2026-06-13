@@ -1,6 +1,6 @@
 ---
 name: xiaoni-browser
-description: "Use Xiaoni's headed host Chrome browser with the logged-in Profile 2 through a patched official Playwright CLI extension bridge and Xiaoni-owned unpacked extension id. Use when Xiaoni needs broad browser automation: opening websites, inspecting pages, clicking/filling UI, tabs, screenshots, network/console inspection, storage/cookies, tracing/video, or debugging a page with the operator's existing Chrome login session."
+description: Control Xiaoni's headed host Chrome browser for navigation, page inspection, interaction, screenshots, tabs, console, network, storage, and authenticated web debugging.
 ---
 
 # Xiaoni Browser
@@ -31,6 +31,8 @@ The host bridge must already be running. Ensure the patched extension is install
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- ensure-extension
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host attach --extension=chrome
 ```
+
+`attach --extension=chrome` creates a daemon session. The bridge may stop waiting after a short timeout once stdout contains `Session ... created`; that is success. Continue with `tab-list`, `snapshot`, or `goto` instead of retrying attach.
 
 If attach opens a blocked `chrome-extension://.../connect.html` page, or if `ensure-extension` says Chrome is already running without the patched extension, ask the operator before restarting because it closes and reopens their visible Chrome. Then run:
 
@@ -72,9 +74,10 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 1. Run `ensure-extension`; if Chrome was already launched with the patched extension, attach with `--extension=chrome`.
 2. If attach fails or the browser shows the extension connect page, ask before `ensure-extension --restart` because it closes and reopens the operator's Chrome profile.
-3. Use `snapshot` to get refs such as `e6`.
-4. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
-5. Prefer one session name: `-s=xiaoni-host`.
+3. If attach reports `Session ... created` and mentions a timeout after session creation, treat it as attached and continue.
+4. Use `snapshot` to get refs such as `e6`.
+5. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
+6. Prefer one session name: `-s=xiaoni-host`.
 
 ## Boundaries
 

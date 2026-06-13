@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import subprocess
+import threading
+import time
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -41,6 +43,7 @@ if not EXTENSION_ID:
     alphabet = "abcdefghijklmnop"
     EXTENSION_ID = "".join(alphabet[byte >> 4] + alphabet[byte & 0x0F] for byte in digest[:16])
 EXTENSION_VERSION = "0.2.1"
+DEFAULT_EXTENSION_ATTACH_TIMEOUT_SECONDS = int(os.environ.get("XIAONI_PLAYWRIGHT_ATTACH_TIMEOUT_SECONDS", "15"))
 EXTENSION_DIR_WSL = os.environ.get("XIAONI_PLAYWRIGHT_EXTENSION_DIR_WSL", f"/mnt/c/temp/xiaoni-playwright-extension-{EXTENSION_ID}-{EXTENSION_VERSION}")
 EXTENSION_DIR_WIN = os.environ.get("XIAONI_PLAYWRIGHT_EXTENSION_DIR_WIN", f"C:\\temp\\xiaoni-playwright-extension-{EXTENSION_ID}-{EXTENSION_VERSION}")
 EXTENSION_CRX_URL = os.environ.get(
@@ -53,6 +56,8 @@ CLI_EXTENSION_FILES = [
     "/mnt/c/temp/xiaoni-playwright-cli/node_modules/playwright-core/lib/coreBundle.js",
     "/mnt/c/temp/xiaoni-playwright-cli/node_modules/playwright-core/lib/tools/utils/extension.js",
 ]
+ATTACH_PROCESSES = {}
+ATTACH_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -90,11 +95,19 @@ class Handler(BaseHTTPRequestHandler):
                     "stderr": "",
                 })
                 return
-            is_extension_attach = "attach" in args and any(arg.startswith("--extension") for arg in args)
-            timeout_seconds = int(payload.get("timeout_seconds") or 120)
-            if is_extension_attach:
-                timeout_seconds = min(timeout_seconds, 45)
+            is_extension_attach = _is_extension_attach(args)
+            timeout_seconds = _command_timeout_seconds(args, payload.get("timeout_seconds"))
             try:
+                if is_extension_attach:
+                    completed = _run_extension_attach(args, timeout_seconds)
+                    self._json(200, {
+                        "ok": completed["returncode"] == 0,
+                        "returncode": completed["returncode"],
+                        "stdout": completed["stdout"],
+                        "stderr": completed["stderr"],
+                        **({"timed_out": True} if completed.get("timed_out") else {}),
+                    })
+                    return
                 completed = subprocess.run(
                     [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
                     cwd=INSTALL_DIR_WSL,
@@ -115,12 +128,11 @@ class Handler(BaseHTTPRequestHandler):
             except subprocess.TimeoutExpired as error:
                 stdout = _decode_timeout_output(error.stdout)
                 stderr = _decode_timeout_output(error.stderr)
-                attach_created = is_extension_attach and "Session `" in stdout and " created" in stdout
                 self._json(200, {
-                    "ok": attach_created,
-                    "returncode": 0 if attach_created else 124,
+                    "ok": False,
+                    "returncode": 124,
                     "stdout": stdout,
-                    "stderr": stderr + ("\n[bridge] attach command timed out after session creation; continuing with daemon session.\n" if attach_created else ""),
+                    "stderr": stderr,
                     "timed_out": True,
                 })
         except Exception as error:
@@ -154,6 +166,114 @@ def _decode_timeout_output(value):
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
+
+
+def _is_extension_attach(args):
+    return "attach" in args and any(arg.startswith("--extension") for arg in args)
+
+
+def _command_timeout_seconds(args, requested_timeout):
+    timeout_seconds = int(requested_timeout or 120)
+    if _is_extension_attach(args):
+        attach_timeout = max(1, DEFAULT_EXTENSION_ATTACH_TIMEOUT_SECONDS)
+        return min(timeout_seconds, attach_timeout)
+    return timeout_seconds
+
+
+def _session_name(args):
+    for index, arg in enumerate(args):
+        if arg.startswith("-s="):
+            return arg.split("=", 1)[1] or "default"
+        if arg.startswith("--s="):
+            return arg.split("=", 1)[1] or "default"
+        if arg in ("-s", "--s") and index + 1 < len(args):
+            return args[index + 1] or "default"
+    return "default"
+
+
+def _stream_pipe(pipe, chunks):
+    try:
+        while True:
+            chunk = pipe.readline()
+            if not chunk:
+                break
+            chunks.append(chunk)
+    finally:
+        try:
+            pipe.close()
+        except Exception:
+            pass
+
+
+def _run_extension_attach(args, timeout_seconds):
+    session_name = _session_name(args)
+    with ATTACH_LOCK:
+        existing = ATTACH_PROCESSES.get(session_name)
+        if existing and existing.get("process") and existing["process"].poll() is None:
+            return {
+                "returncode": 0,
+                "stdout": f"### Session `{session_name}` already attached to `chrome`.\nRun commands with: playwright-cli --s={session_name} <command>\n",
+                "stderr": "",
+            }
+
+    process = subprocess.Popen(
+        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
+        cwd=INSTALL_DIR_WSL,
+        env=_windows_cli_env(),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout_chunks = []
+    stderr_chunks = []
+    stdout_thread = threading.Thread(target=_stream_pipe, args=(process.stdout, stdout_chunks), daemon=True)
+    stderr_thread = threading.Thread(target=_stream_pipe, args=(process.stderr, stderr_chunks), daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        stdout = "".join(stdout_chunks)
+        if f"Session `{session_name}` created" in stdout or ("Session `" in stdout and " created" in stdout):
+            with ATTACH_LOCK:
+                previous = ATTACH_PROCESSES.get(session_name)
+                if previous and previous.get("process") and previous["process"].poll() is None:
+                    previous["process"].terminate()
+                ATTACH_PROCESSES[session_name] = {
+                    "process": process,
+                    "stdout": stdout_chunks,
+                    "stderr": stderr_chunks,
+                }
+            return {
+                "returncode": 0,
+                "stdout": stdout + "\n[bridge] attach daemon is still running; continue with tab-list, snapshot, or goto.\n",
+                "stderr": "".join(stderr_chunks),
+            }
+        if process.poll() is not None:
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            return {
+                "returncode": process.returncode,
+                "stdout": "".join(stdout_chunks),
+                "stderr": "".join(stderr_chunks),
+            }
+        time.sleep(0.1)
+
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+    stdout_thread.join(timeout=1)
+    stderr_thread.join(timeout=1)
+    return {
+        "returncode": 124,
+        "stdout": "".join(stdout_chunks),
+        "stderr": "".join(stderr_chunks) + f"\n[bridge] attach command timed out before session `{session_name}` was created.\n",
+        "timed_out": True,
+    }
 
 
 def _windows_cli_env():
