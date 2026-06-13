@@ -137,3 +137,50 @@ test('AgentTaskWorkerService resolves image_edit sources by global media asset i
     filename: 'hash.png'
   }]);
 });
+
+test('AgentTaskWorkerService registers completed generated image as inspectable media asset', async () => {
+  const upserts: any[] = [];
+  const service = new AgentTaskWorkerService({
+    upsertMediaAssets: async (inputs: any[]) => {
+      upserts.push(...inputs);
+      return inputs;
+    }
+  } as any);
+
+  await (service as any).registerFirstPictureAsMediaAsset(
+    {
+      id: 'task-image-ready',
+      task_type: 'image_generate',
+      session_key: 'qq:group:101',
+      chat_type: 'group',
+      peer_id: '101',
+      peer_name: '测试群',
+      requester_sender_id: '85178516',
+      requester_sender_name: 'Li',
+      prompt: '一张测试图',
+      target_description: '给 Li 看的一张图',
+      source_trace_id: 'trace-source',
+      source_run_id: 'run-source'
+    },
+    {
+      id: 'task_artifact_1',
+      data_url: 'data:image/png;base64,AA==',
+      mime_type: 'image/png'
+    },
+    {
+      picture_id: 'task_artifact_1',
+      filename: 'task_artifact_1.png',
+      path: '/xiaoni-runtime/picture/task_artifact_1.png',
+      mime_type: 'image/png',
+      bytes: 10
+    }
+  );
+
+  assert.equal(upserts.length, 1);
+  assert.equal(upserts[0]?.id, 'task_artifact_1');
+  assert.equal(upserts[0]?.source, 'image_task');
+  assert.equal(upserts[0]?.sessionKey, 'xiaoni:global');
+  assert.equal(upserts[0]?.mediaTag, 'task_artifact_1');
+  assert.equal(upserts[0]?.sourceLocator, 'data:image/png;base64,AA==');
+  assert.equal(upserts[0]?.metadata?.executor_path, '/xiaoni-runtime/picture/task_artifact_1.png');
+});

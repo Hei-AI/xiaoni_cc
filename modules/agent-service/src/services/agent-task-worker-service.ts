@@ -5,6 +5,7 @@ import {
   getAgentMediaAssetById,
   listAgentMediaAssets,
   updateAgentTask,
+  upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
 import { randomUUID } from 'node:crypto';
 import { agentConfig, databaseConfig } from '../config';
@@ -63,6 +64,7 @@ type ImageProviderPayload = {
 type AgentTaskWorkerDependencies = {
   getMediaAssetById?: typeof getAgentMediaAssetById;
   listMediaAssets?: typeof listAgentMediaAssets;
+  upsertMediaAssets?: typeof upsertAgentMediaAssets;
 };
 
 type StoredExecutorPicture = {
@@ -102,10 +104,12 @@ function normalizeImageArtifacts(taskId: string, images: ImageProviderImage[]) {
 export class AgentTaskWorkerService {
   private readonly getMediaAssetById: typeof getAgentMediaAssetById;
   private readonly listMediaAssets: typeof listAgentMediaAssets;
+  private readonly upsertMediaAssets: typeof upsertAgentMediaAssets;
 
   constructor(dependencies: AgentTaskWorkerDependencies = {}) {
     this.getMediaAssetById = dependencies.getMediaAssetById || getAgentMediaAssetById;
     this.listMediaAssets = dependencies.listMediaAssets || listAgentMediaAssets;
+    this.upsertMediaAssets = dependencies.upsertMediaAssets || upsertAgentMediaAssets;
   }
 
   async processNext(workerId: string) {
@@ -151,6 +155,7 @@ export class AgentTaskWorkerService {
 
     const firstArtifact = artifacts[0] || {};
     const storedPicture = await this.storeFirstPictureForXiaoni(task, firstArtifact);
+    await this.registerFirstPictureAsMediaAsset(task, firstArtifact, storedPicture);
     await this.enqueuePictureReadyNotification(task, storedPicture);
 
     await updateAgentTask({
@@ -363,6 +368,47 @@ export class AgentTaskWorkerService {
       picturePath: payload.result.path
     });
     return payload.result;
+  }
+
+  private async registerFirstPictureAsMediaAsset(
+    task: AgentTaskRecord,
+    artifact: Record<string, unknown>,
+    picture: StoredExecutorPicture
+  ) {
+    const artifactId = firstNonEmptyString(artifact.id, picture.picture_id);
+    const dataUrl = firstNonEmptyString(artifact.data_url);
+    if (!artifactId || !dataUrl) {
+      return;
+    }
+
+    await this.upsertMediaAssets([{
+      id: artifactId,
+      source: 'image_task',
+      traceId: task.source_trace_id || null,
+      sessionKey: 'xiaoni:global',
+      chatType: 'direct',
+      peerId: agentConfig.botAccountId || '1129974489',
+      peerName: '小腻 runtime',
+      senderId: 'image-task-worker',
+      senderName: '图片任务',
+      accountId: agentConfig.botAccountId || '1129974489',
+      messageSid: `image-task-completed:${task.id}:${picture.picture_id}`,
+      mediaTag: artifactId,
+      placeholder: '[Image]',
+      mediaType: 'image',
+      mimeType: firstNonEmptyString(artifact.mime_type, picture.mime_type) || 'image/png',
+      sourceLocator: dataUrl,
+      metadata: {
+        task_id: task.id,
+        task_type: task.task_type,
+        picture_id: picture.picture_id,
+        picture_path: picture.path,
+        executor_path: picture.path,
+        source_run_id: task.source_run_id || null,
+        target_description: task.target_description || null,
+        generated_by: 'agent-task-worker'
+      }
+    }], databaseConfig);
   }
 
   private async enqueuePictureReadyNotification(task: AgentTaskRecord, picture: StoredExecutorPicture) {
