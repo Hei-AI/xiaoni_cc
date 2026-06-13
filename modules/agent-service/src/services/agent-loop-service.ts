@@ -331,6 +331,10 @@ type ContextBudgetPlan = {
     contextSessionKey: string;
     readCutoffAfterConversationId: number | null;
     previousReadCutoffAfterConversationId: number | null;
+    compressionCoveredEndConversationId: number | null;
+    historyUserId: number;
+    historyGroupId: number | null;
+    historyScope: 'global';
     lastContextWindowTokens: number;
     lastTargetBudgetTokens: number;
     lastHardBudgetTokens: number;
@@ -343,6 +347,12 @@ type CoreMemoryCompressionCommit = {
   text: string;
   artifact: Record<string, unknown>;
   toolResult: Record<string, unknown>;
+};
+
+type CoreMemoryCompressionForkState = {
+  promise: Promise<CoreMemoryCompressionCommit>;
+  compression: CoreMemoryCompressionPlan;
+  startedAtMs: number;
 };
 
 
@@ -4081,7 +4091,7 @@ function buildAgentInclude(modelName: string, parameters: AgentModelParameters):
 export class AgentLoopService {
   private readonly responseActionRouter = new ResponseActionRouter();
   private stableRuntimePrompt: ResolvedAgentRuntimePrompt | null = null;
-  private readonly coreMemoryCompressionForks = new Map<string, Promise<CoreMemoryCompressionCommit>>();
+  private readonly coreMemoryCompressionForks = new Map<string, CoreMemoryCompressionForkState>();
 
   constructor(
     private readonly store: RuntimeStore,
@@ -4661,13 +4671,23 @@ export class AgentLoopService {
       }
       const contextSessionKey = GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
-      const history = await this.store.listRecentTurns({
+      const pendingCoreMemoryCompression = this.coreMemoryCompressionForks.get(contextSessionKey)?.compression ?? null;
+      const historyQuery: {
+        userId: number;
+        groupId: number | null;
+        afterConversationId: number | null;
+        scope: 'global';
+        limit?: number;
+      } = {
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        scope: 'global' as const,
-        limit: GLOBAL_PROMPT_HISTORY_LIMIT
-      });
+        scope: 'global' as const
+      };
+      if (!pendingCoreMemoryCompression) {
+        historyQuery.limit = GLOBAL_PROMPT_HISTORY_LIMIT;
+      }
+      const history = await this.store.listRecentTurns(historyQuery);
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
@@ -4703,6 +4723,7 @@ export class AgentLoopService {
         runtimeEnergyState: initialRuntimeEnergyState,
         contextSessionKey,
         cutoffState,
+        pendingCoreMemoryCompression,
         triggerInputMode: options.triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer
       });
@@ -6210,6 +6231,7 @@ export class AgentLoopService {
     runtimeEnergyState?: RuntimeEnergyState | null;
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
+    pendingCoreMemoryCompression?: CoreMemoryCompressionPlan | null;
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   }): Promise<ContextBudgetPlan> {
@@ -6229,11 +6251,57 @@ export class AgentLoopService {
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
+    const pendingCoreMemoryCompression = params.pendingCoreMemoryCompression ?? null;
+
+    if (pendingCoreMemoryCompression) {
+      const requestInput = buildLoopRequestInput({
+        history: initialRetainedHistory,
+        queueMessage: params.queueMessage,
+        runtimePrompt: params.runtimePrompt,
+        loopContinuation: params.loopContinuation,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        contextSummary,
+        pendingProactiveShare,
+        developerContextBlock: params.developerContextBlock ?? null,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
+        triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+      });
+      const estimate = await estimateLoopInputTokens({
+        modelName: params.runtimePrompt.modelName,
+        queueMessage: params.queueMessage,
+        loopInput: requestInput
+      });
+
+      return {
+        requestInput,
+        summarySourceInput: null,
+        retainedHistory: initialRetainedHistory,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        estimatedInputTokens: estimate.inputTokens,
+        contextWindowTokens,
+        targetBudgetTokens,
+        hardBudgetTokens,
+        tokenizerEncoding: estimate.encoding,
+        tokenizerSource: estimate.source,
+        cutoffRecomputed: false,
+        contextSummary,
+        pendingProactiveShare,
+        pendingProactiveShareAge,
+        coreMemoryCompression: pendingCoreMemoryCompression
+      };
+    }
 
     // Count-based compaction: when retained history exceeds HISTORY_COMPACT_AT turns,
     // evict everything except the most recent HISTORY_COMPACT_KEEP turns regardless of token budget.
     // This ensures context stays manageable and triggers summary generation at a human-scale frequency.
     if (initialRetainedHistory.length > HISTORY_COMPACT_AT) {
+      const historyTargets = resolveSessionTargets(params.queueMessage);
+      const compressionCoveredEndConversationId = initialRetainedHistory.length > 0
+        ? initialRetainedHistory[initialRetainedHistory.length - 1]!.id
+        : cutoffState?.readCutoffAfterConversationId ?? null;
       const requestInput = buildLoopRequestInput({
         history: initialRetainedHistory,
         queueMessage: params.queueMessage,
@@ -6299,6 +6367,10 @@ export class AgentLoopService {
           contextSessionKey,
           readCutoffAfterConversationId: newCutoffId,
           previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+          compressionCoveredEndConversationId,
+          historyUserId: historyTargets.userId,
+          historyGroupId: historyTargets.groupId,
+          historyScope: 'global',
           lastContextWindowTokens: contextWindowTokens ?? 0,
           lastTargetBudgetTokens: targetBudgetTokens ?? 0,
           lastHardBudgetTokens: hardBudgetTokens ?? 0
@@ -6362,6 +6434,10 @@ export class AgentLoopService {
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
 
+    const historyTargets = resolveSessionTargets(params.queueMessage);
+    const compressionCoveredEndConversationId = recomputed.retainedHistory.length > 0
+      ? recomputed.retainedHistory[recomputed.retainedHistory.length - 1]!.id
+      : cutoffState?.readCutoffAfterConversationId ?? null;
     const compressionLoopContinuation = [
       ...params.loopContinuation,
       buildCoreMemoryCompressionReminder({
@@ -6405,6 +6481,10 @@ export class AgentLoopService {
         contextSessionKey,
         readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
         previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        compressionCoveredEndConversationId,
+        historyUserId: historyTargets.userId,
+        historyGroupId: historyTargets.groupId,
+        historyScope: 'global',
         lastContextWindowTokens: contextWindowTokens,
         lastTargetBudgetTokens: targetBudgetTokens,
         lastHardBudgetTokens: hardBudgetTokens
@@ -6741,6 +6821,29 @@ export class AgentLoopService {
     }
   }
 
+  private async resolveCoreMemoryCompressionCommitCutoff(compression: CoreMemoryCompressionPlan): Promise<number | null> {
+    const coveredEndId = compression.compressionCoveredEndConversationId;
+    if (typeof coveredEndId !== 'number' || !Number.isFinite(coveredEndId)) {
+      return compression.readCutoffAfterConversationId;
+    }
+
+    const recentTail = await this.store.listRecentTurns({
+      userId: compression.historyUserId,
+      groupId: compression.historyGroupId,
+      afterConversationId: compression.previousReadCutoffAfterConversationId ?? null,
+      scope: compression.historyScope,
+      limit: HISTORY_COMPACT_KEEP + 1
+    });
+    const latestKeepCutoff = recentTail.length > HISTORY_COMPACT_KEEP
+      ? recentTail[0]!.id
+      : compression.readCutoffAfterConversationId;
+
+    if (typeof latestKeepCutoff !== 'number' || !Number.isFinite(latestKeepCutoff)) {
+      return Math.min(coveredEndId, compression.readCutoffAfterConversationId ?? coveredEndId);
+    }
+    return Math.min(latestKeepCutoff, coveredEndId);
+  }
+
   private async commitCoreMemoryCompression(params: {
     rawToolResult: Record<string, unknown>;
     toolCall: AgentToolCall;
@@ -6757,6 +6860,9 @@ export class AgentLoopService {
     }
 
     const compressionSessionKey = params.compression?.contextSessionKey ?? params.contextSessionKey;
+    const committedReadCutoffAfterConversationId = params.compression
+      ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
+      : null;
     await this.store.upsertSessionContextSummary({
       sessionKey: compressionSessionKey,
       contextSummary: text
@@ -6764,7 +6870,7 @@ export class AgentLoopService {
     if (params.compression) {
       await this.store.upsertSessionReadCutoffState({
         sessionKey: params.compression.contextSessionKey,
-        readCutoffAfterConversationId: params.compression.readCutoffAfterConversationId,
+        readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
         lastContextWindowTokens: params.compression.lastContextWindowTokens,
         lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
         lastHardBudgetTokens: params.compression.lastHardBudgetTokens
@@ -6774,8 +6880,10 @@ export class AgentLoopService {
     const artifact = {
       tool_name: params.toolCall.name,
       context_session_key: compressionSessionKey,
-      read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
+      read_cutoff_after_conversation_id: committedReadCutoffAfterConversationId,
+      planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
       previous_read_cutoff_after_conversation_id: params.compression?.previousReadCutoffAfterConversationId ?? null,
+      compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
       source_response_id: params.sourceResponseId,
       tool_call_id: params.toolCall.callId,
       text_length: text.length,
@@ -6786,7 +6894,9 @@ export class AgentLoopService {
       context_summary_written: true,
       read_cutoff_written: Boolean(params.compression),
       context_session_key: compressionSessionKey,
-      read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null
+      read_cutoff_after_conversation_id: committedReadCutoffAfterConversationId,
+      planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
+      compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null
     };
     await this.store.logTimelineEvent({
       traceId: String(params.metadata?.trace_id || ''),
@@ -6811,11 +6921,13 @@ export class AgentLoopService {
   }) {
     const key = params.compression.contextSessionKey || params.contextSessionKey;
     const existing = this.coreMemoryCompressionForks.get(key);
+    const compression = existing?.compression ?? params.compression;
     const artifact = {
       tool_name: TOOL_NAMES.compressCoreMemory,
       context_session_key: key,
-      read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
-      previous_read_cutoff_after_conversation_id: params.compression.previousReadCutoffAfterConversationId,
+      read_cutoff_after_conversation_id: compression.readCutoffAfterConversationId,
+      previous_read_cutoff_after_conversation_id: compression.previousReadCutoffAfterConversationId,
+      compression_covered_end_conversation_id: compression.compressionCoveredEndConversationId,
       execution_mode: 'compression_fork_background',
       status: existing ? 'already_running' : 'scheduled'
     };
@@ -6824,7 +6936,11 @@ export class AgentLoopService {
     }
 
     const fork = this.runCoreMemoryCompressionFork(params);
-    this.coreMemoryCompressionForks.set(key, fork);
+    this.coreMemoryCompressionForks.set(key, {
+      promise: fork,
+      compression: params.compression,
+      startedAtMs: Date.now()
+    });
     void fork.catch((error) => {
       moduleLogger.warn('Background core memory compression fork failed', {
         traceId: params.queueMessage.traceId,
@@ -6833,7 +6949,7 @@ export class AgentLoopService {
         error: error instanceof Error ? error.message : String(error)
       });
     }).finally(() => {
-      if (this.coreMemoryCompressionForks.get(key) === fork) {
+      if (this.coreMemoryCompressionForks.get(key)?.promise === fork) {
         this.coreMemoryCompressionForks.delete(key);
       }
     });

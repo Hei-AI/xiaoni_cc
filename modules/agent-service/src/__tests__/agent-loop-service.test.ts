@@ -6183,6 +6183,10 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
     contextSessionKey: 'xiaoni:global',
     readCutoffAfterConversationId: 171,
     previousReadCutoffAfterConversationId: null,
+    compressionCoveredEndConversationId: 201,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
     lastHardBudgetTokens: 380000
@@ -6223,6 +6227,165 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   );
 });
 
+test('runtime frame does not slide the read window while core memory compression is pending', async () => {
+  const queueMessage = {
+    id: 'run-compression-pending',
+    traceId: 'trace-compression-pending',
+    batchId: 'batch-compression-pending',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-06-12T00:00:00.000Z',
+    queueMessageIds: [],
+    payload: createRuntimeLoopPayload()
+  };
+  const history = Array.from({ length: 202 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `global history ${index + 1}`,
+    aiResponse: `global os ${index + 1}`
+  }));
+  const listRecentTurnsCalls: any[] = [];
+  const conversations: any[] = [];
+  const mainRequests: any[] = [];
+  const pendingCompression = {
+    required: true,
+    contextSessionKey: 'xiaoni:global',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: null,
+    compressionCoveredEndConversationId: 201,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  };
+  const store = {
+    createLlmJob: async () => 'job-compression-pending',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async (params: any = {}) => {
+      listRecentTurnsCalls.push(params);
+      if (typeof params.limit === 'number') {
+        return history.slice(-params.limit);
+      }
+      return history;
+    },
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    appendAgentStackItems: async () => [],
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
+    createConversation: async (params: any) => {
+      conversations.push(params);
+      return 9091;
+    },
+    ensureXiaoniIdentityRoot: async () => ({ root: { id: 1 }, event: { id: 2 }, created: false }),
+    attachConversationIdToTrace: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).coreMemoryCompressionForks.set('xiaoni:global', {
+    promise: new Promise(() => {}),
+    compression: pendingCompression,
+    startedAtMs: Date.now()
+  });
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    mainRequests.push(canonicalRequest);
+    return {
+      success: true,
+      llm_call_id: 'llm-compression-pending',
+      canonical_response: {
+        output: []
+      }
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
+
+  assert.deepEqual(listRecentTurnsCalls[0], {
+    userId: 303,
+    groupId: null,
+    afterConversationId: null,
+    scope: 'global'
+  });
+  assert.equal('limit' in listRecentTurnsCalls[0], false);
+  assert.equal(mainRequests.length, 1);
+  const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
+  assert.match(mainText, /global history 1(?!\d)/);
+  assert.match(mainText, /global history 202/);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 202);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 202);
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.status, 'already_running');
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.read_cutoff_after_conversation_id, 171);
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.compression_covered_end_conversation_id, 201);
+});
+
+test('core memory compression commit keeps appended turns beyond the fork coverage boundary', async () => {
+  const history = Array.from({ length: 231 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `global history ${index + 1}`,
+    aiResponse: `global os ${index + 1}`
+  }));
+  const listRecentTurnsCalls: any[] = [];
+  const service = new AgentLoopService({
+    listRecentTurns: async (params: any = {}) => {
+      listRecentTurnsCalls.push(params);
+      if (typeof params.limit === 'number') {
+        return history.slice(-params.limit);
+      }
+      return history;
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const cutoff = await (service as any).resolveCoreMemoryCompressionCommitCutoff({
+    required: true,
+    contextSessionKey: 'xiaoni:global',
+    readCutoffAfterConversationId: 170,
+    previousReadCutoffAfterConversationId: null,
+    compressionCoveredEndConversationId: 200,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+
+  assert.equal(cutoff, 200);
+  assert.deepEqual(listRecentTurnsCalls[0], {
+    userId: 303,
+    groupId: null,
+    afterConversationId: null,
+    scope: 'global',
+    limit: 31
+  });
+});
+
 test('core memory compression runs in an isolated background fork alongside the main agent request', async () => {
   const queueMessage = {
     id: 'run-compression-fork',
@@ -6260,7 +6423,12 @@ test('core memory compression runs in an isolated background fork alongside the 
   const store = {
     createLlmJob: async () => 'job-compression-fork',
     logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
-    listRecentTurns: async () => history,
+    listRecentTurns: async (params: any = {}) => {
+      if (typeof params.limit === 'number') {
+        return history.slice(-params.limit);
+      }
+      return history;
+    },
     getSessionReadCutoffState: async () => null,
     upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
     upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
