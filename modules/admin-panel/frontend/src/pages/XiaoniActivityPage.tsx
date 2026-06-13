@@ -107,6 +107,26 @@ type ForkAgentRun = CompressionForkRun & {
   agentLabel?: string;
 };
 
+interface ForkRunUsageSummary {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+}
+
+type WorkflowTimelineEntry =
+  | {
+      id: string;
+      kind: 'fork';
+      timestamp: string;
+      run: ForkAgentRun;
+    }
+  | {
+      id: string;
+      kind: 'main';
+      timestamp: string;
+      item: XiaoniActivityFeedItem;
+    };
+
 interface RuntimeSnapshot {
   live: boolean;
   status: string;
@@ -585,6 +605,24 @@ function parseTimestampMs(value?: string | null) {
   return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
 }
 
+function summarizeForkRunUsage(run: ForkAgentRun): ForkRunUsageSummary {
+  return run.events.reduce<ForkRunUsageSummary>((summary, event) => {
+    const inputTokens = metadataNumber(event.metadata, 'inputTokens') || 0;
+    const cachedInputTokens = metadataNumber(event.metadata, 'cachedInputTokens') || 0;
+    const outputTokens = metadataNumber(event.metadata, 'outputTokens') || 0;
+
+    return {
+      inputTokens: summary.inputTokens + inputTokens,
+      cachedInputTokens: summary.cachedInputTokens + cachedInputTokens,
+      outputTokens: summary.outputTokens + outputTokens,
+    };
+  }, {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+  });
+}
+
 function readUsageChartPoint(state: unknown): UsageChartPoint | null {
   if (!state || typeof state !== 'object') {
     return null;
@@ -658,20 +696,6 @@ function eventElementId(eventId: string) {
   return `xiaoni-event-${encodeURIComponent(eventId)}`;
 }
 
-function timelineGroups(items: XiaoniActivityFeedItem[]) {
-  const groups: Array<{ day: string; items: XiaoniActivityFeedItem[] }> = [];
-  for (const item of items) {
-    const day = formatDateOnly(item.timestamp);
-    const last = groups[groups.length - 1];
-    if (last?.day === day) {
-      last.items.push(item);
-    } else {
-      groups.push({ day, items: [item] });
-    }
-  }
-  return groups;
-}
-
 function isImageVisionForkMainItem(item: XiaoniActivityFeedItem) {
   return item.source === 'media_observation' && item.metadata?.forkKind === 'image_vision';
 }
@@ -710,6 +734,38 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
   });
   return [...compressionRuns, ...imageVisionRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
+}
+
+function buildWorkflowTimelineEntries(
+  mainItems: XiaoniActivityFeedItem[],
+  forkRuns: ForkAgentRun[]
+): WorkflowTimelineEntry[] {
+  const entries: WorkflowTimelineEntry[] = [
+    ...forkRuns.map((run) => ({
+      id: `fork:${run.id}`,
+      kind: 'fork' as const,
+      timestamp: run.startedAt,
+      run,
+    })),
+    ...mainItems.map((item) => ({
+      id: `main:${item.eventId || item.id}`,
+      kind: 'main' as const,
+      timestamp: item.occurredAt || item.timestamp,
+      item,
+    })),
+  ];
+
+  return entries.sort((left, right) => {
+    const rightMs = parseTimestampMs(right.timestamp) || 0;
+    const leftMs = parseTimestampMs(left.timestamp) || 0;
+    if (rightMs !== leftMs) {
+      return rightMs - leftMs;
+    }
+    if (left.kind !== right.kind) {
+      return left.kind === 'fork' ? -1 : 1;
+    }
+    return left.id.localeCompare(right.id);
+  });
 }
 
 function TimeRangeControls({
@@ -1384,109 +1440,216 @@ function CompressionForkEventRow({
   );
 }
 
-function ForkAgentTimelineRail({
-  runs,
+function ForkUsageMetric({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: string;
+  tone?: 'neutral' | 'info' | 'success';
+}) {
+  return (
+    <div className={cn(
+      'min-w-0 rounded-md border px-2.5 py-2',
+      tone === 'info' && 'border-sky-200 bg-sky-50/80',
+      tone === 'success' && 'border-emerald-200 bg-emerald-50/80',
+      tone === 'neutral' && 'border-border bg-muted/25'
+    )}>
+      <div className="truncate text-[10px] font-semibold uppercase text-muted-foreground">{label}</div>
+      <div className={cn(
+        'mt-0.5 truncate font-mono text-xs font-semibold',
+        tone === 'info' && 'text-sky-700',
+        tone === 'success' && 'text-emerald-700',
+        tone === 'neutral' && 'text-foreground'
+      )}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ForkAgentRunCard({
+  run,
   focusEventId,
   onOpenRawTrace,
 }: {
-  runs: ForkAgentRun[];
+  run: ForkAgentRun;
   focusEventId?: string;
   onOpenRawTrace: (target: RawTraceTarget) => void;
 }) {
-  if (!runs.length) {
-    return (
-      <aside className="rounded-lg border border-dashed border-border bg-muted/25 px-4 py-5 text-sm text-muted-foreground">
-        暂无 Fork agent 事件
-      </aside>
-    );
-  }
+  const duration = formatDurationMs(run.durationMs);
+  const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
+  const forkKind = run.forkKind || forkKindForRun(run);
+  const isImageVision = forkKind === 'image_vision';
+  const usage = summarizeForkRunUsage(run);
+  const inputValue = formatTokenCount(usage.inputTokens) || '0';
+  const cacheValue = formatTokenCount(usage.cachedInputTokens) || '0';
+  const outputValue = formatTokenCount(usage.outputTokens) || '0';
 
   return (
-    <section className="rounded-lg border border-border bg-card px-4 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground">
-            <Waypoints className="h-4 w-4" />
+    <article className={cn(
+      'rounded-lg border bg-card p-3 shadow-sm',
+      runHasFocus ? 'border-sky-300 ring-2 ring-sky-500 ring-offset-2 ring-offset-background' : 'border-border'
+    )}>
+      <div className="flex items-start gap-3">
+        <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full', isImageVision ? 'bg-sky-100 text-sky-700' : 'bg-cyan-100 text-cyan-700')}>
+          {isImageVision ? <Image className="h-4 w-4" /> : <Waypoints className="h-4 w-4" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={isImageVision ? 'info' : 'neutral'}>{run.agentLabel || forkAgentLabel(forkKind)}</StatusPill>
+            <StatusPill tone={statusTone(run.status)}>{statusLabel(run.status) || 'fork'}</StatusPill>
+            {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
+            <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
+            <time className="font-mono text-xs text-muted-foreground">{formatTimestamp(run.startedAt)}</time>
           </div>
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">Fork Agents</h2>
-            <div className="text-xs text-muted-foreground">
-              {runs[0]?.startedAt ? formatTimestamp(runs[0].startedAt) : '-'}
+          <h3 className="mt-2 truncate text-sm font-semibold leading-5 text-foreground">{run.title}</h3>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <ForkUsageMetric label="Input" value={inputValue} tone="info" />
+        <ForkUsageMetric label="Cache" value={cacheValue} tone={usage.cachedInputTokens > 0 ? 'success' : 'neutral'} />
+        <ForkUsageMetric label="Output" value={outputValue} />
+      </div>
+
+      <details className="mt-3 border-t border-border pt-3" open={runHasFocus || undefined}>
+        <summary className="cursor-pointer text-[11px] font-semibold uppercase text-muted-foreground">
+          fork details
+        </summary>
+        <div className="mt-3 space-y-3">
+          {run.body ? (
+            <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{run.body}</p>
+          ) : null}
+          <div className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <div>
+              <span className="font-medium text-foreground">start</span> {formatTimestamp(run.startedAt)}
+            </div>
+            <div>
+              <span className="font-medium text-foreground">end</span> {run.completedAt ? formatTimestamp(run.completedAt) : 'running'}
+            </div>
+            {run.readCutoffAfterConversationId ? (
+              <div className="font-mono">cutoff {run.previousReadCutoffAfterConversationId || '-'} - {run.readCutoffAfterConversationId}</div>
+            ) : null}
+          </div>
+          <div className="relative">
+            <div className="absolute bottom-3 left-3 top-3 w-px bg-border" />
+            <div className="space-y-3">
+              {run.events.length ? (
+                run.events.map((event) => {
+                  const eventId = event.eventId || event.id;
+                  return (
+                    <CompressionForkEventRow
+                      key={event.id}
+                      event={event}
+                      isFocused={Boolean(focusEventId && eventId === focusEventId)}
+                      onOpenRawTrace={onOpenRawTrace}
+                    />
+                  );
+                })
+              ) : (
+                <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
+              )}
             </div>
           </div>
         </div>
-        <StatusPill tone="info">{runs.length} Forks</StatusPill>
-      </div>
+      </details>
+    </article>
+  );
+}
 
-      <div className="mt-4 space-y-4">
-        {runs.map((run) => {
-          const duration = formatDurationMs(run.durationMs);
-          const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
-          const forkKind = run.forkKind || forkKindForRun(run);
-          const isImageVision = forkKind === 'image_vision';
-          return (
-            <article key={run.id} className="rounded-lg border border-border bg-background p-4 shadow-sm">
-              <div className="flex flex-col gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusPill tone={isImageVision ? 'info' : 'neutral'}>{run.agentLabel || forkAgentLabel(forkKind)}</StatusPill>
-                    <StatusPill tone={statusTone(run.status)}>{statusLabel(run.status) || 'fork'}</StatusPill>
-                    {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
-                    <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
-                  </div>
-                  <div className="mt-2 flex items-start gap-2">
-                    <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', isImageVision ? 'bg-sky-100 text-sky-700' : 'bg-cyan-100 text-cyan-700')}>
-                      {isImageVision ? <Image className="h-3.5 w-3.5" /> : <Waypoints className="h-3.5 w-3.5" />}
-                    </span>
-                    <h3 className="min-w-0 break-words text-base font-semibold leading-6 text-foreground">{run.title}</h3>
-                  </div>
-                  {run.body ? (
-                    <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{run.body}</p>
-                  ) : null}
-                </div>
-                <div className="shrink-0 text-left text-xs text-muted-foreground">
-                  <div>
-                    <span className="font-medium text-foreground">start</span> {formatTimestamp(run.startedAt)}
-                  </div>
-                  <div>
-                    <span className="font-medium text-foreground">end</span> {run.completedAt ? formatTimestamp(run.completedAt) : 'running'}
-                  </div>
-                  {run.readCutoffAfterConversationId ? (
-                    <div className="font-mono">cutoff {run.previousReadCutoffAfterConversationId || '-'} - {run.readCutoffAfterConversationId}</div>
-                  ) : null}
-                </div>
+function WorkflowTimelineCenter({
+  entry,
+}: {
+  entry: WorkflowTimelineEntry;
+}) {
+  const isFork = entry.kind === 'fork';
+  return (
+    <div className="relative hidden min-h-[3rem] justify-center xl:flex">
+      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+      <div className={cn(
+        'relative z-10 mt-3 flex h-9 w-9 items-center justify-center rounded-full border-2 border-background shadow-sm',
+        isFork ? 'bg-cyan-100 text-cyan-700' : 'bg-card text-muted-foreground'
+      )}>
+        {isFork ? <Waypoints className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowDayMarker({
+  day,
+}: {
+  day: string;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
+      <div className="hidden xl:block" />
+      <div className="relative flex justify-start xl:justify-center">
+        <div className="hidden absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border xl:block" />
+        <div className="relative z-10 rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
+          {day}
+        </div>
+      </div>
+      <div className="hidden xl:block" />
+    </div>
+  );
+}
+
+function WorkflowTimeline({
+  entries,
+  focusEventId,
+  onOpenRawTrace,
+}: {
+  entries: WorkflowTimelineEntry[];
+  focusEventId?: string;
+  onOpenRawTrace: (target: RawTraceTarget) => void;
+}) {
+  if (!entries.length) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4">
+      {entries.map((entry, index) => {
+        const day = formatDateOnly(entry.timestamp);
+        const previousDay = index > 0 ? formatDateOnly(entries[index - 1].timestamp) : null;
+        const showDay = day !== previousDay;
+        const mainEventId = entry.kind === 'main' ? entry.item.eventId || entry.item.id : null;
+
+        return (
+          <React.Fragment key={entry.id}>
+            {showDay ? <WorkflowDayMarker day={day} /> : null}
+            <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
+              <div className={cn('min-w-0', entry.kind !== 'fork' && 'hidden xl:block')}>
+                {entry.kind === 'fork' ? (
+                  <ForkAgentRunCard
+                    run={entry.run}
+                    focusEventId={focusEventId}
+                    onOpenRawTrace={onOpenRawTrace}
+                  />
+                ) : null}
               </div>
 
-              <details className="mt-4 border-t border-border pt-3" open={runHasFocus || undefined}>
-                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  fork steps
-                </summary>
-                <div className="relative mt-4">
-                  <div className="absolute bottom-3 left-3 top-3 w-px bg-border" />
-                  <div className="space-y-3">
-                    {run.events.length ? (
-                      run.events.map((event) => {
-                        const eventId = event.eventId || event.id;
-                        return (
-                          <CompressionForkEventRow
-                            key={event.id}
-                            event={event}
-                            isFocused={Boolean(focusEventId && eventId === focusEventId)}
-                            onOpenRawTrace={onOpenRawTrace}
-                          />
-                        );
-                      })
-                    ) : (
-                      <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
-                    )}
-                  </div>
-                </div>
-              </details>
-            </article>
-          );
-        })}
-      </div>
-    </section>
+              <WorkflowTimelineCenter entry={entry} />
+
+              <div className={cn('min-w-0', entry.kind !== 'main' && 'hidden xl:block')}>
+                {entry.kind === 'main' ? (
+                  <TimelineEvent
+                    item={entry.item}
+                    isLatest={index === 0}
+                    isFocused={focusEventId === mainEventId || Boolean(entry.item.metadata.focused)}
+                    onOpenRawTrace={onOpenRawTrace}
+                    laneLayout
+                  />
+                ) : null}
+              </div>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1976,8 +2139,8 @@ export const XiaoniActivityPage: React.FC = () => {
   });
 
   const mainItems = React.useMemo(() => (feed?.items || []).filter((item) => !isImageVisionForkMainItem(item)), [feed?.items]);
-  const groups = React.useMemo(() => timelineGroups(mainItems), [mainItems]);
   const forkRuns = React.useMemo(() => buildForkAgentRuns(feed), [feed]);
+  const workflowEntries = React.useMemo(() => buildWorkflowTimelineEntries(mainItems, forkRuns), [mainItems, forkRuns]);
   const forkCount = forkRuns.length;
   const rangeBadge = timeRange === 'custom'
     ? [startTime || '开始', endTime || '现在'].join(' - ')
@@ -2149,53 +2312,11 @@ export const XiaoniActivityPage: React.FC = () => {
         ) : null}
 
         {feed && (mainItems.length > 0 || forkCount > 0) ? (
-          <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
-            <div className="order-2 min-w-0 xl:order-1">
-              <ForkAgentTimelineRail
-                runs={forkRuns}
-                focusEventId={focusEvent || undefined}
-                onOpenRawTrace={setRawTraceTarget}
-              />
-            </div>
-
-            <div className="relative order-1 hidden min-h-[24rem] xl:order-2 xl:block">
-              <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
-              <div className="sticky top-4 z-10 mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background shadow-sm">
-                <Clock3 className="h-4 w-4 text-muted-foreground" />
-              </div>
-            </div>
-
-            <div className="order-1 min-w-0 space-y-6 xl:order-3">
-              {mainItems.length > 0 ? (
-                <div className="space-y-6">
-                  {groups.map((group, groupIndex) => (
-                    <section key={group.day} className="relative space-y-4">
-                      <div className="sticky top-0 z-20 flex">
-                        <div className="rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
-                          {group.day}
-                        </div>
-                      </div>
-                      {group.items.map((item, itemIndex) => {
-                        const itemEventId = item.eventId || item.id;
-                        return (
-                          <TimelineEvent
-                            key={item.id}
-                            item={item}
-                            isLatest={groupIndex === 0 && itemIndex === 0}
-                            isFocused={focusEvent === itemEventId || Boolean(item.metadata.focused)}
-                            onOpenRawTrace={setRawTraceTarget}
-                            laneLayout
-                          />
-                        );
-                      })}
-                    </section>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={<Bot className="h-10 w-10" />} title="暂无主 Agent 事件" description="当前时间范围里只有 fork agent 事件。" />
-              )}
-            </div>
-          </div>
+          <WorkflowTimeline
+            entries={workflowEntries}
+            focusEventId={focusEvent || undefined}
+            onOpenRawTrace={setRawTraceTarget}
+          />
         ) : null}
       </main>
 
