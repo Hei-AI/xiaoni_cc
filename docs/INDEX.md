@@ -43,6 +43,7 @@
   - `docs/AGENTS_XIAONI_EXECUTOR.md`
 - 小腻主 prompt 文件和 runtime reminder 模板索引：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
+  - `docs/remind.md`
 - 路线图：
   - `docs/ROADMAP.md`
 - 脚本入口：

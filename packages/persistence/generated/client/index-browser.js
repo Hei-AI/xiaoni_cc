@@ -155,6 +155,51 @@ exports.Prisma.AgentQueueMessageScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.AgentQqAttentionLeaseScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  surface: 'surface',
+  session_key: 'session_key',
+  chat_type: 'chat_type',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  account_id: 'account_id',
+  status: 'status',
+  score: 'score',
+  score_updated_at: 'score_updated_at',
+  half_life_seconds: 'half_life_seconds',
+  last_focused_at: 'last_focused_at',
+  last_seen_inbound_id: 'last_seen_inbound_id',
+  latest_window_inbound_id: 'latest_window_inbound_id',
+  last_reminder_at: 'last_reminder_at',
+  last_reminder_inbound_id: 'last_reminder_inbound_id',
+  reminder_count: 'reminder_count',
+  expires_at: 'expires_at',
+  closed_at: 'closed_at',
+  close_reason: 'close_reason',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  batch_id: 'batch_id',
+  tool_call_id: 'tool_call_id',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentQqAttentionReminderScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  session_key: 'session_key',
+  inbound_message_id: 'inbound_message_id',
+  queue_message_id: 'queue_message_id',
+  dedupe_key: 'dedupe_key',
+  attention_score: 'attention_score',
+  reason: 'reason',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.AgentRecoverySessionScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
@@ -1366,6 +1411,8 @@ exports.Prisma.NullsOrder = {
 
 exports.Prisma.ModelName = {
   AgentQueueMessage: 'AgentQueueMessage',
+  AgentQqAttentionLease: 'AgentQqAttentionLease',
+  AgentQqAttentionReminder: 'AgentQqAttentionReminder',
   AgentRecoverySession: 'AgentRecoverySession',
   AgentSessionLifeState: 'AgentSessionLifeState',
   AgentSessionGroupState: 'AgentSessionGroupState',
