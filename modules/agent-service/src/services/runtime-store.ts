@@ -131,6 +131,8 @@ import {
 } from '../types';
 
 const moduleLogger = logger.createModuleLogger('runtime-store');
+const LIFE_PROJECTION_EVENT_BATCH_LIMIT = 1000;
+const LIFE_PROJECTION_MAX_BATCHES = 50;
 
 type AgentLifeStateRow = {
   last_active_at?: Date | string | null;
@@ -1178,16 +1180,35 @@ export class RuntimeStore {
     const projectionIsCurrent = life.projection_version === XIAONI_LIFE_PROJECTION_VERSION;
     const previousProjection = projectionIsCurrent ? normalizeProjectionJson(life.projection_json) : null;
     const reducedThroughEventId = projectionIsCurrent ? projectionEventId(life.reduced_through_event_id) : null;
-    const reducedThroughOccurredAt = projectionIsCurrent ? toValidDate(life.reduced_through_occurred_at) : null;
-    const candidateEvents = await listAgentLifeEvents({
-      identityKey: 'xiaoni',
-      ...(reducedThroughOccurredAt ? { occurredAfter: reducedThroughOccurredAt } : {}),
-      chronological: true,
-      limit: 1000
-    }, databaseConfig) as AgentLifeEventProjection[];
-    const events = previousProjection
-      ? candidateEvents.filter((event) => eventOccurredAfterProjection(event, reducedThroughEventId, reducedThroughOccurredAt))
-      : candidateEvents;
+    const previousReducedThroughOccurredAt = toValidDate((previousProjection as XiaoniLifeStateProjection | null)?.reducedThroughOccurredAt);
+    const reducedThroughOccurredAt = projectionIsCurrent
+      ? (previousReducedThroughOccurredAt || toValidDate(life.reduced_through_occurred_at))
+      : null;
+    const events: AgentLifeEventProjection[] = [];
+    let cursorEventId = reducedThroughEventId;
+    let cursorOccurredAt = reducedThroughOccurredAt;
+    for (let batchIndex = 0; batchIndex < LIFE_PROJECTION_MAX_BATCHES; batchIndex += 1) {
+      const candidateEvents = await listAgentLifeEvents({
+        identityKey: 'xiaoni',
+        ...(cursorOccurredAt ? { occurredAfter: cursorOccurredAt } : {}),
+        ...(cursorEventId ? { afterEventId: String(cursorEventId) } : {}),
+        chronological: true,
+        limit: LIFE_PROJECTION_EVENT_BATCH_LIMIT
+      }, databaseConfig) as AgentLifeEventProjection[];
+      const batchEvents = previousProjection
+        ? candidateEvents.filter((event) => eventOccurredAfterProjection(event, cursorEventId, cursorOccurredAt))
+        : candidateEvents;
+      if (batchEvents.length === 0) {
+        break;
+      }
+      events.push(...batchEvents);
+      const lastEvent = batchEvents[batchEvents.length - 1];
+      cursorEventId = projectionEventId(lastEvent.id);
+      cursorOccurredAt = toValidDate(lastEvent.occurredAt) || cursorOccurredAt;
+      if (candidateEvents.length < LIFE_PROJECTION_EVENT_BATCH_LIMIT) {
+        break;
+      }
+    }
     const { projection, explanation } = reduceXiaoniLifeState({
       identityKey: 'xiaoni',
       now,

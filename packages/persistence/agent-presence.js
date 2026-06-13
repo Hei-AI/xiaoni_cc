@@ -1,13 +1,43 @@
 'use strict';
 
+const {
+  prepareTimestampWithoutTimezoneForPrisma,
+  serializeTimestampWithoutTimezoneForApi
+} = require('./time');
+
+const LIFE_STATE_TIMESTAMP_FIELDS = new Set([
+  'last_active_at',
+  'last_boredom_reset_at',
+  'last_sleep_at',
+  'service_started_at',
+  'last_presence_tick_enqueued_at',
+  'last_proactive_at',
+  'last_user_message_at',
+  'daily_proactive_date',
+  'reduced_through_occurred_at',
+  'projection_updated_at'
+]);
+
+const GROUP_STATE_TIMESTAMP_FIELDS = new Set([
+  'last_spoke_at',
+  'last_user_message_at'
+]);
+
 function normalizeDate(value) {
-  if (!value) {
-    return null;
+  return serializeTimestampWithoutTimezoneForApi(value);
+}
+
+function normalizeTimestampData(data, timestampFields) {
+  if (!data || typeof data !== 'object') {
+    return data;
   }
-  if (value instanceof Date) {
-    return value.toISOString();
+  const normalized = {};
+  for (const [key, value] of Object.entries(data)) {
+    normalized[key] = timestampFields.has(key) && value
+      ? prepareTimestampWithoutTimezoneForPrisma(value)
+      : value;
   }
-  return typeof value === 'string' ? value : String(value);
+  return normalized;
 }
 
 function normalizeJsonArray(value) {
@@ -172,12 +202,13 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
 
   async function ensureAgentLifeState(identityKey, config = {}) {
     const prisma = getClient(config);
+    const now = prepareTimestampWithoutTimezoneForPrisma(new Date());
     return prisma.agentSessionLifeState.upsert({
       where: { identity_key: String(identityKey || 'xiaoni') },
       create: {
         identity_key: String(identityKey || 'xiaoni'),
-        service_started_at: new Date(),
-        last_boredom_reset_at: new Date()
+        service_started_at: now,
+        last_boredom_reset_at: now
       },
       update: {}
     });
@@ -195,7 +226,7 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
     await ensureAgentLifeState(identityKey, config);
     return prisma.agentSessionLifeState.update({
       where: { identity_key: String(identityKey || 'xiaoni') },
-      data
+      data: normalizeTimestampData(data, LIFE_STATE_TIMESTAMP_FIELDS)
     });
   }
 
@@ -204,22 +235,24 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
     const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
     const sessionKey = String(input.sessionKey || input.session_key || '');
     await ensureAgentLifeState(identityKey, config);
+    const createData = normalizeTimestampData({
+      session_key: sessionKey,
+      identity_key: identityKey,
+      last_spoke_at: input.lastSpokeAt || input.last_spoke_at || null,
+      last_user_message_at: input.lastUserMessageAt || input.last_user_message_at || null
+    }, GROUP_STATE_TIMESTAMP_FIELDS);
+    const updateData = normalizeTimestampData({
+      ...(Object.prototype.hasOwnProperty.call(input, 'lastSpokeAt') || Object.prototype.hasOwnProperty.call(input, 'last_spoke_at')
+        ? { last_spoke_at: input.lastSpokeAt || input.last_spoke_at || null }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(input, 'lastUserMessageAt') || Object.prototype.hasOwnProperty.call(input, 'last_user_message_at')
+        ? { last_user_message_at: input.lastUserMessageAt || input.last_user_message_at || null }
+        : {})
+    }, GROUP_STATE_TIMESTAMP_FIELDS);
     return prisma.agentSessionGroupState.upsert({
       where: { session_key: sessionKey },
-      create: {
-        session_key: sessionKey,
-        identity_key: identityKey,
-        last_spoke_at: input.lastSpokeAt || input.last_spoke_at || null,
-        last_user_message_at: input.lastUserMessageAt || input.last_user_message_at || null
-      },
-      update: {
-        ...(Object.prototype.hasOwnProperty.call(input, 'lastSpokeAt') || Object.prototype.hasOwnProperty.call(input, 'last_spoke_at')
-          ? { last_spoke_at: input.lastSpokeAt || input.last_spoke_at || null }
-          : {}),
-        ...(Object.prototype.hasOwnProperty.call(input, 'lastUserMessageAt') || Object.prototype.hasOwnProperty.call(input, 'last_user_message_at')
-          ? { last_user_message_at: input.lastUserMessageAt || input.last_user_message_at || null }
-          : {})
-      }
+      create: createData,
+      update: updateData
     });
   }
 

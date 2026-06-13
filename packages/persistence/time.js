@@ -200,6 +200,34 @@ function serializeTimestampForStorage(value) {
   return formatEast8WallClock(instant);
 }
 
+function prepareTimestampWithoutTimezoneForPrisma(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : getShiftedUtcDate(value);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    if (hasExplicitTimezone(trimmed)) {
+      const instant = parseInstantValue(trimmed);
+      return instant ? getShiftedUtcDate(instant) : null;
+    }
+    const normalized = normalizeWallClockString(trimmed);
+    if (normalized) {
+      return new Date(`${normalized.replace(' ', 'T')}Z`);
+    }
+  }
+
+  const instant = parseInstantValue(value);
+  return instant ? getShiftedUtcDate(instant) : null;
+}
+
 function serializeTimestampForApi(value) {
   const instant = parseStoredTimestamp(value);
   if (!instant) {
@@ -273,6 +301,7 @@ module.exports = {
   serializeTimestampForStorage,
   serializeTimestampForApi,
   serializeTimestampWithoutTimezoneForApi,
+  prepareTimestampWithoutTimezoneForPrisma,
   normalizeTimestampField,
   normalizeRowTimestampFields,
   prepareSqlParameter,

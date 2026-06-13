@@ -3,6 +3,7 @@
 const {
   formatEast8IsoOffset,
   parseTimestampWithoutTimezone,
+  prepareTimestampWithoutTimezoneForPrisma,
   serializeTimestampWithoutTimezoneForApi
 } = require('./time');
 
@@ -38,6 +39,10 @@ const LIFE_EVENT_VISIBILITIES = new Set([
 
 function normalizeDate(value) {
   return serializeTimestampWithoutTimezoneForApi(value);
+}
+
+function normalizeTimestampInput(value) {
+  return prepareTimestampWithoutTimezoneForPrisma(value);
 }
 
 function normalizeJsonObject(value, fallback = {}) {
@@ -271,7 +276,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
     const data = {
       identity_key: String(input.identityKey || input.identity_key || 'xiaoni'),
       event_kind: normalizeEventKind(input.eventKind || input.event_kind),
-      occurred_at: input.occurredAt || input.occurred_at || new Date(),
+      occurred_at: normalizeTimestampInput(input.occurredAt || input.occurred_at || new Date()),
       surface: normalizeOptionalString(input.surface),
       chat_type: normalizeOptionalString(input.chatType || input.chat_type),
       session_key: normalizeOptionalString(input.sessionKey || input.session_key),
@@ -326,13 +331,24 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
     if (traceId) where.trace_id = traceId;
     if (eventKind) where.event_kind = eventKind;
     if (visibility) where.visibility = visibility;
-    if (input.occurredAfter || input.occurred_after || input.occurredBefore || input.occurred_before) {
+    const occurredAfter = normalizeTimestampInput(input.occurredAfter || input.occurred_after);
+    const occurredBefore = normalizeTimestampInput(input.occurredBefore || input.occurred_before);
+    const afterEventId = normalizeBigIntInput(input.afterEventId || input.after_event_id);
+    if (occurredAfter && afterEventId) {
+      where.OR = [
+        { occurred_at: { gt: occurredAfter } },
+        {
+          occurred_at: occurredAfter,
+          id: { gt: afterEventId }
+        }
+      ];
+    } else if (occurredAfter || occurredBefore) {
       where.occurred_at = {};
-      if (input.occurredAfter || input.occurred_after) {
-        where.occurred_at.gte = input.occurredAfter || input.occurred_after;
+      if (occurredAfter) {
+        where.occurred_at.gte = occurredAfter;
       }
-      if (input.occurredBefore || input.occurred_before) {
-        where.occurred_at.lte = input.occurredBefore || input.occurred_before;
+      if (occurredBefore) {
+        where.occurred_at.lte = occurredBefore;
       }
     }
     const chronological = input.chronological === true || input.order === 'asc';

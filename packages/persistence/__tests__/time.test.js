@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
+  prepareTimestampWithoutTimezoneForPrisma,
   parseTimestampWithoutTimezone,
   serializeTimestampForApi,
   serializeTimestampWithoutTimezoneForApi
@@ -28,5 +29,20 @@ test('serializeTimestampWithoutTimezoneForApi treats Date UTC fields as stored w
   assert.equal(
     parseTimestampWithoutTimezone(prismaTimestamp).toISOString(),
     '2026-06-13T13:52:16.211Z'
+  );
+});
+
+test('prepareTimestampWithoutTimezoneForPrisma stores instants as East-8 wall clock Dates', () => {
+  assert.equal(
+    prepareTimestampWithoutTimezoneForPrisma(new Date('2026-06-13T20:15:05.385Z')).toISOString(),
+    '2026-06-14T04:15:05.385Z'
+  );
+  assert.equal(
+    prepareTimestampWithoutTimezoneForPrisma('2026-06-14T04:15:05.385+08:00').toISOString(),
+    '2026-06-14T04:15:05.385Z'
+  );
+  assert.equal(
+    prepareTimestampWithoutTimezoneForPrisma('2026-06-14 04:15:05.385').toISOString(),
+    '2026-06-14T04:15:05.385Z'
   );
 });

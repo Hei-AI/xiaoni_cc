@@ -163,6 +163,38 @@ test('recordAgentLifeEvent accepts homeostasis projection event kinds', async ()
   ]);
 });
 
+test('recordAgentLifeEvent writes Date instants as East-8 timestamp wall clock', async () => {
+  let createPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        create: async (payload) => {
+          createPayload = payload;
+          return {
+            id: 1n,
+            identity_key: 'xiaoni',
+            event_kind: 'sleep_period',
+            visibility: 'self_private',
+            payload: {},
+            dedupe_key: 'sleep:wall-clock',
+            created_at: new Date('2026-06-13T20:15:05.385Z'),
+            ...payload.data
+          };
+        }
+      }
+    }
+  });
+
+  await persistence.recordAgentLifeEvent({
+    eventKind: 'sleep_period',
+    occurredAt: new Date('2026-06-13T20:15:05.385Z'),
+    visibility: 'self_private',
+    dedupeKey: 'sleep:wall-clock'
+  });
+
+  assert.equal(createPayload.data.occurred_at.toISOString(), '2026-06-14T04:15:05.385Z');
+});
+
 test('listAgentLifeEvents can read oldest-first batches for projection replay', async () => {
   let findPayload = null;
   const { persistence } = createPersistence({
@@ -194,6 +226,33 @@ test('listAgentLifeEvents can read oldest-first batches for projection replay', 
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
   assert.equal(rows[0].id, '1');
   assert.equal(rows[0].occurredAt, '2026-05-31T00:00:00.000+08:00');
+});
+
+test('listAgentLifeEvents can seek after a timestamp and id for projection catch-up', async () => {
+  let findPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async (payload) => {
+          findPayload = payload;
+          return [];
+        }
+      }
+    }
+  });
+
+  await persistence.listAgentLifeEvents({
+    identityKey: 'xiaoni',
+    occurredAfter: '2026-06-10T23:08:01.161+08:00',
+    afterEventId: '7794',
+    chronological: true,
+    limit: 1000
+  });
+
+  assert.equal(findPayload.where.OR[0].occurred_at.gt.toISOString(), '2026-06-10T23:08:01.161Z');
+  assert.equal(findPayload.where.OR[1].occurred_at.toISOString(), '2026-06-10T23:08:01.161Z');
+  assert.equal(findPayload.where.OR[1].id.gt, 7794n);
+  assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
 });
 
 test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window', async () => {

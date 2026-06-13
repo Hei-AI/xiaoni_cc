@@ -39,6 +39,30 @@ test('ensureAgentPresenceSchema keeps historical digital action table for archiv
   assert.ok(statements.some((statement) => statement.includes('projection_version VARCHAR(64)')));
 });
 
+test('updateAgentLifeState writes projection cursor timestamps as East-8 wall clock', async () => {
+  let updatePayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentSessionLifeState: {
+        upsert: async (payload) => payload.create,
+        update: async (payload) => {
+          updatePayload = payload;
+          return payload.data;
+        }
+      }
+    }
+  });
+
+  await persistence.updateAgentLifeState('xiaoni', {
+    reduced_through_event_id: 7794n,
+    reduced_through_occurred_at: new Date('2026-06-10T15:08:01.161Z'),
+    projection_updated_at: '2026-06-14T04:15:18.669+08:00'
+  });
+
+  assert.equal(updatePayload.data.reduced_through_occurred_at.toISOString(), '2026-06-10T23:08:01.161Z');
+  assert.equal(updatePayload.data.projection_updated_at.toISOString(), '2026-06-14T04:15:18.669Z');
+});
+
 test('createAgentSharePoolItem writes real web search residue with source boundary', async () => {
   let createPayload = null;
   const { persistence } = createPersistence({
