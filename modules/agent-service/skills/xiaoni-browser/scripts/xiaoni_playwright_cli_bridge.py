@@ -3,7 +3,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -13,6 +16,8 @@ NODE_EXE = "/mnt/c/Program Files/nodejs/node.exe"
 CLI_SCRIPT_WIN = "C:\\temp\\xiaoni-playwright-cli\\node_modules\\@playwright\\cli\\playwright-cli.js"
 CLI_SCRIPT_WSL = "/mnt/c/temp/xiaoni-playwright-cli/xiaoni-playwright-cli.ps1"
 INSTALL_DIR_WSL = "/mnt/c/temp/xiaoni-playwright-cli"
+RUNTIME_HOST_ROOT = os.environ.get("XIAONI_RUNTIME_HOST_ROOT", "/home/liahua/.qqbot-local/xiaoni-runtime")
+RUNTIME_CONTAINER_ROOT = os.environ.get("XIAONI_RUNTIME_CONTAINER_ROOT", "/xiaoni-runtime")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {
                     "ok": completed.returncode == 0,
                     "returncode": completed.returncode,
-                    "stdout": completed.stdout,
+                    "stdout": _augment_browser_artifacts(completed.stdout, args),
                     "stderr": completed.stderr,
                 })
             except subprocess.TimeoutExpired as error:
@@ -107,6 +112,47 @@ def _windows_cli_env():
                 if match:
                     env[match.group(1)] = match.group(2)
     return env
+
+
+def _augment_browser_artifacts(stdout, args):
+    if "screenshot" not in args:
+        return stdout
+    copied_paths = []
+    for raw_path in _extract_markdown_artifact_paths(stdout):
+        source_path = _resolve_cli_artifact_path(raw_path)
+        if not source_path or not source_path.exists() or source_path.suffix.lower() != ".png":
+            continue
+        copied_paths.append(_copy_to_runtime_picture_dir(source_path))
+    if not copied_paths:
+        return stdout
+    lines = ["", "### Xiaoni runtime artifacts"]
+    lines.extend(f"- {path}" for path in copied_paths)
+    return stdout.rstrip() + "\n" + "\n".join(lines) + "\n"
+
+
+def _extract_markdown_artifact_paths(stdout):
+    return re.findall(r"\]\(([^)\r\n]+\.(?:png|jpg|jpeg|webp))\)", stdout, flags=re.IGNORECASE)
+
+
+def _resolve_cli_artifact_path(raw_path):
+    normalized = raw_path.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        drive = normalized[0].lower()
+        return Path(f"/mnt/{drive}/{normalized[3:]}")
+    path = Path(normalized)
+    if path.is_absolute():
+        return path
+    return Path(INSTALL_DIR_WSL) / path
+
+
+def _copy_to_runtime_picture_dir(source_path):
+    picture_dir = Path(RUNTIME_HOST_ROOT) / "picture"
+    picture_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    destination_name = f"xiaoni-browser-{timestamp}-{source_path.name}"
+    destination = picture_dir / destination_name
+    shutil.copy2(source_path, destination)
+    return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"
 
 
 if __name__ == "__main__":

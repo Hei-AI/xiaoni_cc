@@ -50,6 +50,8 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host run-code "async (page) => await page.title()"
 ```
 
+When `screenshot` succeeds, the official CLI path is a host-side `.playwright-cli\...png` path. The bridge also copies the image into Xiaoni's shared runtime and prints a `### Xiaoni runtime artifacts` section. Use the `/xiaoni-runtime/picture/xiaoni-browser-...png` path from that section when you need Xiaoni to read, inspect, or send the image.
+
 Show the full official command surface:
 
 ```bash
