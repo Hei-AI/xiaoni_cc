@@ -32,7 +32,7 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host attach --extension=chrome
 ```
 
-`attach --extension=chrome` creates a daemon session. The bridge may stop waiting after a short timeout once stdout contains `Session ... created`; that is success. Continue with `tab-list`, `snapshot`, or `goto` instead of retrying attach.
+`attach --extension=chrome` creates a daemon session. The bridge only reports attach success after the official CLI's initial snapshot succeeds. If stdout contains `Session ... created` followed by `### Error`, treat the session as failed; run `tab-list` to confirm before relying on it.
 
 If attach opens a blocked `chrome-extension://.../connect.html` page, or if `ensure-extension` says Chrome is already running without the patched extension, ask the operator before restarting because it closes and reopens their visible Chrome. Then run:
 
@@ -74,7 +74,7 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 1. Run `ensure-extension`; if Chrome was already launched with the patched extension, attach with `--extension=chrome`.
 2. If attach fails or the browser shows the extension connect page, ask before `ensure-extension --restart` because it closes and reopens the operator's Chrome profile.
-3. If attach reports `Session ... created` and mentions a timeout after session creation, treat it as attached and continue.
+3. Treat attach as attached only when it reports `Session ... created` and also includes a successful `### Snapshot`/`### Result`, or when a follow-up `tab-list` succeeds.
 4. Use `snapshot` to get refs such as `e6`.
 5. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
 6. Prefer one session name: `-s=xiaoni-host`.

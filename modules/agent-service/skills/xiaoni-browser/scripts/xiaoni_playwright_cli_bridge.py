@@ -95,6 +95,7 @@ class Handler(BaseHTTPRequestHandler):
                     "stderr": "",
                 })
                 return
+            _ensure_cli_wrapper_exit_code()
             is_extension_attach = _is_extension_attach(args)
             timeout_seconds = _command_timeout_seconds(args, payload.get("timeout_seconds"))
             try:
@@ -172,6 +173,17 @@ def _is_extension_attach(args):
     return "attach" in args and any(arg.startswith("--extension") for arg in args)
 
 
+def _ensure_cli_wrapper_exit_code():
+    path = Path(CLI_SCRIPT_WSL)
+    if not path.exists():
+        return
+    text = path.read_text(encoding="utf-8-sig")
+    if "exit $LASTEXITCODE" in text:
+        return
+    newline = "\r\n" if "\r\n" in text else "\n"
+    path.write_text(text.rstrip() + newline + "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }" + newline, encoding="utf-8")
+
+
 def _command_timeout_seconds(args, requested_timeout):
     timeout_seconds = int(requested_timeout or 120)
     if _is_extension_attach(args):
@@ -236,28 +248,46 @@ def _run_extension_attach(args, timeout_seconds):
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         stdout = "".join(stdout_chunks)
-        if f"Session `{session_name}` created" in stdout or ("Session `" in stdout and " created" in stdout):
-            with ATTACH_LOCK:
-                previous = ATTACH_PROCESSES.get(session_name)
-                if previous and previous.get("process") and previous["process"].poll() is None:
-                    previous["process"].terminate()
-                ATTACH_PROCESSES[session_name] = {
-                    "process": process,
-                    "stdout": stdout_chunks,
-                    "stderr": stderr_chunks,
-                }
+        stderr = "".join(stderr_chunks)
+        if _attach_failed(stdout, stderr):
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+            return {
+                "returncode": process.returncode if process.returncode not in (None, 0) else 1,
+                "stdout": "".join(stdout_chunks),
+                "stderr": "".join(stderr_chunks),
+            }
+        if _attach_ready(stdout):
+            _remember_attach_process(session_name, process, stdout_chunks, stderr_chunks)
             return {
                 "returncode": 0,
-                "stdout": stdout + "\n[bridge] attach daemon is still running; continue with tab-list, snapshot, or goto.\n",
-                "stderr": "".join(stderr_chunks),
+                "stdout": stdout + "\n[bridge] attach daemon passed initial snapshot; continue with tab-list, snapshot, or goto.\n",
+                "stderr": stderr,
             }
         if process.poll() is not None:
             stdout_thread.join(timeout=1)
             stderr_thread.join(timeout=1)
+            stdout = "".join(stdout_chunks)
+            stderr = "".join(stderr_chunks)
+            if _attach_ready(stdout):
+                return {
+                    "returncode": 0,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                }
+            returncode = process.returncode
+            if _attach_failed(stdout, stderr) and returncode == 0:
+                returncode = 1
             return {
-                "returncode": process.returncode,
-                "stdout": "".join(stdout_chunks),
-                "stderr": "".join(stderr_chunks),
+                "returncode": returncode,
+                "stdout": stdout,
+                "stderr": stderr,
             }
         time.sleep(0.1)
 
@@ -271,12 +301,39 @@ def _run_extension_attach(args, timeout_seconds):
     return {
         "returncode": 124,
         "stdout": "".join(stdout_chunks),
-        "stderr": "".join(stderr_chunks) + f"\n[bridge] attach command timed out before session `{session_name}` was created.\n",
+        "stderr": "".join(stderr_chunks) + f"\n[bridge] attach command timed out before session `{session_name}` passed initial snapshot.\n",
         "timed_out": True,
     }
 
 
+def _attach_ready(stdout):
+    return "### Error" not in stdout and ("### Snapshot" in stdout or "### Result" in stdout)
+
+
+def _attach_failed(stdout, stderr):
+    text = f"{stdout}\n{stderr}"
+    return (
+        "### Error" in stdout
+        or "Could not start the session" in text
+        or "Target page, context or browser has been closed" in text
+        or "Error: Playwright Extension not found" in text
+    )
+
+
+def _remember_attach_process(session_name, process, stdout_chunks, stderr_chunks):
+    with ATTACH_LOCK:
+        previous = ATTACH_PROCESSES.get(session_name)
+        if previous and previous.get("process") and previous["process"].poll() is None:
+            previous["process"].terminate()
+        ATTACH_PROCESSES[session_name] = {
+            "process": process,
+            "stdout": stdout_chunks,
+            "stderr": stderr_chunks,
+        }
+
+
 def _windows_cli_env():
+    _ensure_cli_wrapper_exit_code()
     env = os.environ.copy()
     if os.path.exists(CLI_SCRIPT_WSL):
         with open(CLI_SCRIPT_WSL, "r", encoding="utf-8-sig") as handle:
