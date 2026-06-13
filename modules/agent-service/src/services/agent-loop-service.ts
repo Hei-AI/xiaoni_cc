@@ -1737,7 +1737,6 @@ function buildImageVisionForkRequest(
       }]
     }
   ];
-  forkRequest.tool_choice = 'none';
   forkRequest.parallel_tool_calls = false;
   forkRequest.store = false;
   forkRequest.metadata = {

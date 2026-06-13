@@ -3508,7 +3508,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(forkRequest.input.slice(0, -3), mainRequest.input);
   assert.equal(forkRequest.instructions, mainRequest.instructions);
   assert.deepEqual(forkRequest.tools, mainRequest.tools);
-  assert.equal(forkRequest.tool_choice, 'none');
+  assert.deepEqual(forkRequest.tool_choice, mainRequest.tool_choice);
   assert.equal(forkRequest.parallel_tool_calls, false);
   assert.equal(forkRequest.store, false);
 
