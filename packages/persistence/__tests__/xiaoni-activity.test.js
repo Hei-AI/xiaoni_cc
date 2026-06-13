@@ -75,7 +75,13 @@ function createPersistence(overrides = {}) {
       if (typeof overrides.onListLlmRequestSlices === 'function') {
         overrides.onListLlmRequestSlices(input);
       }
+      const sourceKind = input.sourceKind || input.source_kind || 'main';
+      const sliceId = input.sliceId || input.slice_id || null;
+      const llmCallId = input.llmCallId || input.llm_call_id || null;
       return (overrides.llmRequestSliceRows || overrides.llmRows || [])
+        .filter((row) => (row.sourceKind || row.source_kind || 'main') === sourceKind)
+        .filter((row) => !sliceId || row.sliceId === sliceId || row.slice_id === sliceId)
+        .filter((row) => !llmCallId || row.llmCallId === llmCallId || row.llm_call_id === llmCallId)
         .slice(0, input.limit || 100);
     },
     listAgentStackItems: async (input = {}) => {
@@ -731,7 +737,31 @@ test('Xiaoni action stream filters tags before applying display limit', async ()
 });
 
 test('Xiaoni action stream projects image vision fork observations outside main items', async () => {
+  const listSliceInputs = [];
   const persistence = createPersistence({
+    onListLlmRequestSlices: (input) => {
+      listSliceInputs.push(input);
+    },
+    llmRequestSliceRows: [{
+      id: 'vision-slice-row-1',
+      sliceId: 'vision_llm_1',
+      llmCallId: 'vision_llm_1',
+      sourceKind: 'image_vision_fork',
+      traceId: 'trace_vision_1',
+      runId: 'run_vision_1',
+      forkRunId: 'image-vision-fork:run_vision_1:media_vision_1',
+      modelName: 'gpt-5.1',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'openai-responses',
+      status: 'completed',
+      tokenUsage: {
+        input_tokens: 188786,
+        cached_input_tokens: 6656,
+        output_tokens: 206
+      },
+      createdAt: '2026-06-05T10:05:00.000Z',
+      completedAt: '2026-06-05T10:05:01.000Z'
+    }],
     mediaAssets: [{
       id: 'media_vision_1',
       media_type: 'image',
@@ -752,6 +782,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
         metadata: {
           trace_id: 'trace_vision_1',
           llm_call_id: 'vision_llm_1',
+          llm_request_slice_id: 'vision_llm_1',
           provider_raw_trace_persisted: true,
           reason: 'image_inspect'
         },
@@ -768,7 +799,14 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.equal(forkRun.source, 'image_vision_fork');
   assert.equal(forkRun.events[0].source, 'image_vision_fork_observation');
   assert.equal(forkRun.events[0].traceTarget.spanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(forkRun.events[0].metadata.inputTokens, 188786);
+  assert.equal(forkRun.events[0].metadata.cachedInputTokens, 6656);
+  assert.equal(forkRun.events[0].metadata.outputTokens, 206);
   assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
+  assert.equal(
+    listSliceInputs.some((input) => input.sliceId === 'vision_llm_1' && input.sourceKind === 'image_vision_fork'),
+    true
+  );
 
   const resolved = await persistence.findXiaoniActionEventTraceTarget('image-vision-fork:obs_vision_1');
   assert.equal(resolved.spanId, 'provider-request:wire:vision_llm_1');
