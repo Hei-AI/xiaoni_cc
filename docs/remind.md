@@ -11,8 +11,10 @@
 | `core_memory_pressure` | `docs/xiaoni_prompt/core_memory_pressure_reminder.md` | 上下文窗口触发强制压缩时，作为最高优先级当前输入。 |
 | `phone_notification` | `docs/xiaoni_prompt/phone_notification_reminder.md` | Notify Bucket pick 到 QQ 状态栏通知时。 |
 | `attention_lease` | `docs/xiaoni_prompt/attention_lease_reminder.md` | `$qq-usage` 主动查看某个 QQ 会话后，工程侧短期余光窗口内该会话又有新未读时。 |
+| `image_task_pending` | `docs/xiaoni_prompt/image_task_pending.md` | `request_image_task` 已排队但成品图片 id/path 尚不存在时，防止小腻盲猜路径或误判任务失败。 |
 | `image_task_notification` | `docs/xiaoni_prompt/image_task_notification.md` | 图片任务完成后由 task worker 写入 completion notify，再被主 loop pick。 |
 | `self_continuation` | `docs/xiaoni_prompt/self_continuation_reminder.md` | 没有 notify，且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时。 |
+| `core_memory_compression_fork_retry` | `docs/xiaoni_prompt/core_memory_compression_fork_retry_reminder.md` | compression fork 返回 `final_answer` 或未调用 `compress_core_memory` 时，作为 fork 内 retry reminder。 |
 | `system_reminder_fallback` | `docs/xiaoni_prompt/system_reminder_fallback.md` | 工程传入空白普通 system reminder 时的兜底正文。 |
 | `recover_energy_completed` | `docs/xiaoni_prompt/recover_energy_completed_reminder.md` | `recover_energy` 工具允许休息并自然醒后，作为同一个 tool call 的 callback 文本。 |
 | `recover_energy_interrupted` | `docs/xiaoni_prompt/recover_energy_interrupted_reminder.md` | `recover_energy` 休息期间被私聊或群 @ 累计达到动态阈值后，作为同一个 tool call 的 callback 文本。 |
@@ -41,6 +43,8 @@
   禁止放正文、preview、topic、sender latest body、`rawBody`、`bodyForAgent`、
   `sessionKey`、`threadKey`、`queueId`、`traceId` 或 `runId`。
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
+- `image_task_pending` 只允许说明任务仍在渲染中，且当前没有图片 id/path；如果此前盲猜路径导致发送失败，未来完成 notify 里的 id/path 会覆盖旧失败记忆。
+- `core_memory_compression_fork_retry` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<小腻近况>`。
 - `<CAPABILITIES>` 是能力成本表，不是 reminder。
 - `<STATE>` 是状态感知，不是 reminder；它只保留小腻能体感理解的状态值，工程事件名留在代码侧。
 

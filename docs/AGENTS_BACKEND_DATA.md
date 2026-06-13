@@ -21,7 +21,7 @@
 
 ## Current Focus
 - 当前管理端后端以 Xiaoni action stream 视角为准：优先看 `/api/xiaoni/action-stream`、chat settings、playground、traffic replay、runtime status；不要再把旧 `/api/runs` / `run-routes` 当成当前产品运行态入口。
-- 小腻 action stream 的目标主卡片不是 provider replay 列表：模型当前输入、工具请求、工具回调和可见投递来自 `agent_stack_items`，真实 LLM 请求和 provider wire payload 来自 `llm_request_slices`，工具执行结果来自 `tool_executions`，感知/发言/媒体/任务来自对应 life/media/task 表。旧 LLM/tool audit 表和 provider replay ledger 已移除。
+- 小腻 action stream 的主卡片不是 provider replay 列表：模型当前输入、工具请求、工具回调和可见投递来自 `agent_stack_items`，真实 LLM 请求和 provider wire payload 来自 `llm_request_slices`，工具执行结果来自 `tool_executions`，感知/发言/媒体/任务/fork 来自对应 life/media/task/fork 表。旧 LLM/tool audit 表和 provider replay ledger 已移除。
 - `agent_runs` 现在已经承载 delivery state，例如 `delivery_phase`、`delivery_commit_count`、`blocked_delivery_attempt_count`；它是内部 run / trace join key，不是小腻产品运行态。不要再把重复回复问题只当成 prompt 文案问题排查。
 - 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。
 - LLM stack 卡片的 Raw Trace 应聚焦对应 `llm_request_slices` span，span detail 返回完整 `canonical_request`、`wire_request`、`raw_response` 和覆盖的 stack range。provider span 只作为这个 LLM span 下的真实上游请求证据。
@@ -36,10 +36,10 @@
 
 ## Xiaoni Continuity Data Map
 
-- 小腻连续 loop 的目标事实源是 `docs/XIAONI_AGENT_STACK_LEDGER.md`：`agent_stack_items` 保存可回放 stack，`llm_request_slices` 保存每次真实 LLM 请求，`tool_executions` 保存工具调用和结果。新增共享读写必须先落到 `packages/persistence`，再由服务层编排。
+- 小腻连续 loop 的当前事实源是 `docs/XIAONI_AGENT_STACK_LEDGER.md`：`agent_stack_items` 保存可回放 stack，`llm_request_slices` 保存每次真实 LLM 请求，`tool_executions` 保存工具调用和结果。当前可操作 surface 看 `docs/XIAONI_RUNTIME_SURFACES.md`。新增共享读写必须先落到 `packages/persistence`，再由服务层编排。
 - `<小腻近况>` 当前仍在 `agent_session_context_windows.context_summary`，由压力触发的 `compress_core_memory(text)` 写入；普通请求可定义该工具，但只有压力请求的 `allowed_tools` 允许调用。
 - `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；小腻主 loop 统一只使用 `xiaoni:global` 作为 prompt-facing history / prompt cache / context summary / read-cutoff key。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。
-- `conversation_items` 在迁移期仍可作为 transcript 兼容投影；目标 request assembly 不再把它当成主事实源。queue、inbox、provider evidence、LLM call audit 和 tool execution audit 都不是 prompt history 的读时恢复来源，必须先回到 stack ledger 语义。
+- `conversation_items` 当前只作为 transcript 兼容投影；request assembly 不再把它当成主事实源。queue、inbox、provider evidence、旧 LLM call audit 和旧 tool execution audit 都不是 prompt history 的读时恢复来源，必须先回到 stack ledger 语义。
 - 上下文压缩后按 `agent_session_context_windows.context_summary` 加 `conversation_items` tail 组装 prompt-visible context。`read_cutoff_after_conversation_id` 推进到倒数第 30 条之前，读路径自然保留最后 30 条和之后新增 items；不要把最后 30 条复制插入第二次。
 - `agent_life_events` 是 homeostasis / presence projection 的事件真相源；当前不要把它误读成 `<小腻近况>` 或三层长期记忆的唯一 runtime recall 源。
 - `listAgentLifeEventsForPrompt()` 已存在，但返回的是 life-event rows，不是 prompt-safe memory digest。把它接进主 prompt 前必须先明确 visibility / redaction / boundary policy。

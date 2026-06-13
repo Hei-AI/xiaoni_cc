@@ -1,8 +1,9 @@
 # Xiaoni Agent Stack Ledger
 
-本文档是小腻主 loop、LLM 请求组装、行动流和 trace detail 的目标架构。
-它描述本轮底层重构要落地的事实源；迁移完成前，旧表可以继续作为兼容投影或
-provider evidence，但不能再被写成新的概念来源。
+本文档是小腻主 loop、LLM 请求组装、行动流和 trace detail 的当前事实源。
+旧 `llm_call_logs`、`tool_execution_logs` 和 provider replay ledger 已移除；
+当前排障、管理面和文档都必须从本页描述的 stack / slice / tool / life / fork
+事实出发。
 
 ## Core Model
 
@@ -162,15 +163,24 @@ QQ 正文，也不是 assistant 历史。
 ### Image Vision Fork
 
 `inspect_image_placeholder` 不是 provider-service 的无上下文图片摘要器。当前实现复用
-小腻主 agent 上下文发起一次 no-persist vision fork：请求里可以短暂携带图片 base64，
-但 base64 不进入长期 replay、traffic 骨架或 `agent_stack_items`。主 loop 后续只继承
-文本观察：
+小腻主 agent 上下文发起一次 no-persist image vision fork：请求里可以短暂携带图片
+base64，但 base64 不进入长期 replay、traffic 骨架或 `agent_stack_items`。fork 自己的
+run / item / slice / tool 记录写入 `image_vision_fork_*` 表，LLM 用量进入 usage timeline。
+主 loop 后续只继承文本观察：
 
 ```xml
 <image id="...">含义是: ...</image>
 ```
 
 如果之后需要重新看同一张图，模型应再次调用 `inspect_image_placeholder(image_id)`。
+
+### Image Tasks
+
+`request_image_task` 是异步任务。主 loop 收到排队结果时只知道 task id 和 pending 状态；
+此时使用 `docs/xiaoni_prompt/image_task_pending.md` 防止模型盲猜成品路径。任务完成后
+task worker 写入 `image_task_notification` notify，主 loop pick 后才把图片 id、本地路径
+和目标说明渲染给模型。图片 bytes、trace/run、原始 prompt 和 provider 参数留在 DB/trace，
+不进入 prompt-facing reminder。
 
 ### Tool Callback Boundaries
 
@@ -207,7 +217,7 @@ Prisma Client 表达。业务模块只调用 persistence helper，不直接拼 S
 | `tool_call_id` | function call / output 的稳定关联 id。 |
 | `content` | 可回放 payload。只保存 provider 可接受的 output item 或 runtime 定义的结构化 item。 |
 | `visibility` | `model_visible`、`trace_only`、`operator_only` 等。 |
-| `source_type` / `source_id` | 来源表和来源 id，便于迁移期 join。 |
+| `source_type` / `source_id` | 来源表和来源 id，便于兼容投影 join。 |
 | `created_at` | 追加时间。 |
 
 `system_prompt` 和稳定 developer prompt 不作为普通行动卡写入 stack；它们属于 request
@@ -283,6 +293,27 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | `method` | `compress_core_memory` 或未来官方 compaction。 |
 | `created_at` | 压缩时间。 |
 
+### Fork Ledgers
+
+后台 fork 不是主 loop 的新心智边界，但必须可审计、可在行动流中展示、可计入用量。
+
+| Table family | Purpose |
+| --- | --- |
+| `core_memory_compression_fork_runs/items/slices/tool_executions` | 上下文压力触发的记忆压缩 fork。fork 可重试；如果模型没有调用 `compress_core_memory` 而返回 `final_answer`，工程会按 retry reminder 再跑，成功后把 text 写入未来 `<小腻近况>`。 |
+| `image_vision_fork_runs/items/slices` | 图片理解 fork。保存 no-persist vision 请求的文字栈、输出和 usage；base64 不进入主 stack。 |
+| `codex_provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant 等非主 loop provider 用量事件。 |
+
+LLM usage observatory 会合并主 `llm_request_slices`、compression fork、image vision fork
+和 Codex provider usage。call bucket 太密时会自动下采样到 hour/day/month；搜索 overlay
+只用于定位证据，不改变主事实源。
+
+### Time Semantics
+
+PostgreSQL `TIMESTAMP(3)` 字段按东八区 wall clock 处理。共享序列化逻辑在
+`packages/persistence/time.js`：写 Prisma 前用 `prepareTimestampWithoutTimezoneForPrisma`，
+API 输出用 `serializeTimestampWithoutTimezoneForApi`。涉及 action stream、life projection、
+recover energy 和 usage timeline 的新时间字段必须复用该层，避免把存储时区误读成 UTC。
+
 ## Request Assembly
 
 每轮请求由固定前缀和 stack 窗口组成：
@@ -311,7 +342,7 @@ request =
   中追加；否则不追加 reminder，直接用候选 request 发起本次模型 slice。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
-- `conversation_items` 可以在迁移期继续作为 transcript 投影，但不再是主 loop
+- `conversation_items` 可以继续作为 transcript 兼容投影，但不再是主 loop
   request assembly 的概念事实源。没有 `conversation_items` 时，不得从
   `conversations.user_message` / `conversations.ai_response` 回退合成历史 input；
   缺失结构化 transcript 就只保留明确可回放的 `responses_replay_items`、stack window
@@ -364,17 +395,15 @@ visible delivery card
 如果 provider evidence 缺失，Trace 不伪造 provider payload；仍展示 stack、LLM slice
 和 tool execution 自身证据。
 
-## Migration Plan
+## Current Status
 
-1. 文档和 API contract 先收口到本文，停止把 provider replay 或旧 transcript ledger
-   描述成行动流事实源。
-2. 在 `packages/persistence` 增加 Prisma schema 和 helper：`agent_stack_items`、
-   `llm_request_slices`、`tool_executions`、`stack_compactions`。
-3. `agent-service` 主 loop 写 stack ledger；旧 runtime LLM/tool audit 表和 provider
-   replay ledger 已删除，schema ensure 会 drop 对应遗留表。
-4. 管理端行动流和 trace detail 改读 stack ledger；provider request / response
-   evidence 只从 `llm_request_slices` 读取。
-5. 清理旧 provider-first / run-first 查询和误导性文档，删除不再使用的兼容路径。
+- `agent-service` 主 loop 已写入 stack ledger；`agent-service/index.ts` 只启动 runtime。
+- `provider-service` / Codex Provider 负责记录完整 canonical / wire request / response。
+- 管理端行动流和 Raw Trace 从 stack item、LLM slice、tool execution、life/media/task
+  和 fork facts 投影，不再以 provider replay 或 run 列表为主卡片。
+- 旧 runtime LLM/tool audit 表和 provider replay ledger 已移除，schema ensure 会 drop
+  对应遗留表。不要新增读取或文档引用。
+- `conversation_items` 仍可作为 transcript 兼容投影，但不是主 request assembly 的事实源。
 
 ## Verification
 

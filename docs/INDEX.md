@@ -9,6 +9,8 @@
   - 管理端“小腻活动”
 - 小腻主 loop、LLM request 组装、行动流事实源和 trace detail：
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
+- 小腻当前运行面、Admin surface、本地 skills、prompt template 和数据归属：
+  - `docs/XIAONI_RUNTIME_SURFACES.md`
 - 前端页面、交互、生产前端问题：
   - `docs/AGENTS_FRONTEND.md`
 - 后端接口、队列、共享数据模型、数据库访问：
@@ -37,6 +39,8 @@
 ## Runtime And Operations
 - Xiaoni agent stack ledger、LLM request slices、tool executions 和行动流投影：
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
+- Xiaoni runtime surfaces、local skills、site/browser/image task/usage observability：
+  - `docs/XIAONI_RUNTIME_SURFACES.md`
 - Provider-service / Codex Provider 完整 request/response 记录和 Raw Trace provider payload：
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - `xiaoni-executor` 命令执行服务：
@@ -51,17 +55,18 @@
 
 ## Xiaoni Doc Status
 - `xiaoni-executor` 事实源：`docs/AGENTS_XIAONI_EXECUTOR.md`。
-- Agent stack ledger、LLM request assembly、行动流投影和 trace detail 目标事实源：
+- Agent stack ledger、LLM request assembly、行动流投影和 trace detail 当前事实源：
   `docs/XIAONI_AGENT_STACK_LEDGER.md`。
+- 当前可操作 surface 和本地 skill 清单事实源：`docs/XIAONI_RUNTIME_SURFACES.md`。
 - Raw Trace provider payload 事实源：`provider-service` / Codex Provider 写入的 `llm_request_slices`；它不是独立行动流主卡片。
 - Runtime loop、Notify Bucket、QQ inbox、IM 硬开关、`final_answer` 连续推进、
   图片理解 fork、recover_energy callback 和行动流事实源统一看
   `docs/XIAONI_AGENT_STACK_LEDGER.md`；`recover_energy` 的 tool 参数、clock、
   精力曲线和睡眠唤醒细节看 `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
   不要再为这些主题新增重复架构页。
-- Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 的 `system_prompt.md` 按
-  `AgentLoopService` 进程生命周期稳定解析一次，改动后需要重启 `agent-service`
-  才进入主 prompt；runtime reminder 模板在对应 reminder 追加时读取。
+- Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 启动时预热
+  `system_prompt.md`，prompt 文件变化后在 loop 边界清空稳定 prompt 并重读；
+  runtime reminder 模板在对应 reminder 追加时读取。
   `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 只保留加载入口。
 - 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /
   START_HERE、agent stack ledger、主 prompt 和活跃模块代码为准。

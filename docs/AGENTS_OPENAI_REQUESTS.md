@@ -81,7 +81,7 @@
 - 对当前上下文里的直接反馈、纠偏、批评或称赞，要作为当前行为校准信号处理；不要为同一批可见文本重新制造隐藏反馈事实。
 - 主聊天 loop 不再暴露超长结构化生活动作工具，也不暴露独立沉默工具。group/private 请求直接暴露行动工具，普通请求使用 `allowed_tools(mode=auto)`；life-only 只暴露内部工具和 `recover_energy`。
 - Notify 被 pick 后只作为门铃进入上下文。第一轮可以把 `phone_notification` / `system_reminder` / `image_task_notification` 渲染成当前输入；这些 prompt-facing runtime reminder 使用 `developer` role，`phone_notification` 和 `image_task_notification` 都使用 body-only `<system_reminder>` 模板，不暴露 `<PHONE_NOTIFICATION>` / `<IMAGE_TASK_NOTIFICATION>` 或 queue trace 属性。后续同一连续 loop 的模型切片只保留 stack/tool state，不再把同一条 Notify 重新渲染成当前事件，也不追加 `already_picked` 快照。模型仍然决定是否继续行动、打开 QQ、发言、沉默或休息。
-- Prompt-facing runtime reminder 是当前输入，不是会话正文或 assistant 历史。它们不写入 `conversation_items`，也不写入 `conversations.user_message`；目标写法是在 `agent_stack_items` 中作为 `runtime_input` 保留本轮事实。真实 QQ 正文、assistant 可见投递、tool callback / response output items 才进入后续可回放 stack。
+- Prompt-facing runtime reminder 是当前输入，不是会话正文或 assistant 历史。它们不写入 `conversation_items`，也不写入 `conversations.user_message`；当前写法是在 `agent_stack_items` 中作为 `runtime_input` 保留本轮事实。真实 QQ 正文、assistant 可见投递、tool callback / response output items 才进入后续可回放 stack。
 - `final_answer` 不是 loop break。模型返回 `phase=final_answer` 且没有工具调用时，不追加 final-answer 专用 prompt reminder，也不提前写 self continuation；完整 no-notify 伪代码只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。

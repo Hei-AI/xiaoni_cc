@@ -10,7 +10,7 @@
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md` 和 `docs/INDEX.md` 的最小下一跳；当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
+- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md`、`docs/XIAONI_RUNTIME_SURFACES.md` 和 `docs/INDEX.md` 的最小下一跳；当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
 - 想排查小腻本地命令执行、长命令 session、git archive 或 Docker socket，直接看 `docs/AGENTS_XIAONI_EXECUTOR.md` 和 `modules/xiaoni-executor`。
 - 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
 - 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
