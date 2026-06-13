@@ -1524,10 +1524,18 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
   const payload = createDirectQueuePayload();
   payload.bodyForAgent = '第一条私聊\n第二条私聊';
   payload.rawBody = '第一条私聊\n第二条私聊';
+  payload.senderId = 'qq';
+  payload.senderName = 'QQ';
   payload.messages[0].bodyForAgent = '第一条私聊';
   payload.messages[0].rawBody = '第一条私聊';
+  payload.messages[0].source = 'phone_notification';
+  payload.messages[0].senderId = 'qq';
+  payload.messages[0].senderName = 'QQ';
   payload.messages[0].inboundContext = {
     ...payload.messages[0].inboundContext,
+    Surface: 'phone_notification',
+    SenderId: '202',
+    SenderName: 'Alice',
     Body: '第一条私聊',
     BodyForAgent: '第一条私聊',
     BodyForCommands: '第一条私聊'
@@ -1537,10 +1545,16 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     queueMessageId: 2,
     messageId: 12,
     messageSid: 'sid-2',
+    source: 'phone_notification',
+    senderId: 'qq',
+    senderName: 'QQ',
     bodyForAgent: '第二条私聊',
     rawBody: '第二条私聊',
     inboundContext: {
       ...payload.messages[0].inboundContext,
+      Surface: 'phone_notification',
+      SenderId: '202',
+      SenderName: 'Alice',
       Body: '第二条私聊',
       BodyForAgent: '第二条私聊',
       BodyForCommands: '第二条私聊'
@@ -1556,6 +1570,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
 
   assert.match(rendered, /视线边缘：状态栏闪烁/);
   assert.match(rendered, /Alice\(@202\).*发来 2 条消息/);
+  assert.doesNotMatch(rendered, /QQ\(@qq\).*发来 2 条消息/);
   assert.match(rendered, /第二条私聊/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
   assert.doesNotMatch(rendered, /message_id="12" chat_type="私聊"/);

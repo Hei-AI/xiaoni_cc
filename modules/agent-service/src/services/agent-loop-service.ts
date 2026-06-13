@@ -2559,6 +2559,38 @@ function truncateNotificationSummary(text: string, maxChars = 20) {
     : normalized;
 }
 
+function resolvePhoneNotificationCueIdentity(
+  queueMessage: QueueMessageRecord['payload'],
+  message: QueueBatchMessage
+) {
+  const isNotificationMessage = message.source === 'phone_notification'
+    || message.inboundContext?.Surface === 'phone_notification';
+  if (!isNotificationMessage) {
+    return {
+      senderId: message.senderId,
+      senderName: message.senderName
+    };
+  }
+
+  const contextSenderId = typeof message.inboundContext?.SenderId === 'string'
+    ? message.inboundContext.SenderId.trim()
+    : '';
+  const contextSenderName = typeof message.inboundContext?.SenderName === 'string'
+    ? message.inboundContext.SenderName.trim()
+    : '';
+  const notificationPeerId = queueMessage.chatType === 'direct' && typeof queueMessage.phoneNotification?.peerId === 'string'
+    ? queueMessage.phoneNotification.peerId.trim()
+    : '';
+  const notificationPeerName = queueMessage.chatType === 'direct' && typeof queueMessage.phoneNotification?.peerName === 'string'
+    ? queueMessage.phoneNotification.peerName.trim()
+    : '';
+
+  return {
+    senderId: contextSenderId || notificationPeerId || message.senderId,
+    senderName: contextSenderName || notificationPeerName || message.senderName
+  };
+}
+
 function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['payload']) {
   const grouped = new Map<string, {
     senderId: string;
@@ -2571,10 +2603,11 @@ function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['
     if (!isPhoneNotificationDirectCueMessage(queueMessage, message)) {
       continue;
     }
-    const key = message.senderId || message.senderName || 'unknown';
+    const identity = resolvePhoneNotificationCueIdentity(queueMessage, message);
+    const key = identity.senderId || identity.senderName || 'unknown';
     const current = grouped.get(key) || {
-      senderId: message.senderId,
-      senderName: message.senderName,
+      senderId: identity.senderId,
+      senderName: identity.senderName,
       count: 0,
       latestSummary: ''
     };
