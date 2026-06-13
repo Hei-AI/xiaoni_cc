@@ -192,7 +192,7 @@ function assertPendingImageTaskContract(result: any, taskId: string) {
   assert.equal(result.wait_for_notification, true);
   assert.equal(result.do_not_infer_artifact_path, true);
   assert.match(result.status_text, /【视觉感知：造物孕育中】/);
-  assert.match(result.status_text, new RegExp(`造物锚点: ${taskId}`));
+  assert.match(result.status_text, new RegExp(`任务锚点: ${taskId}`));
   assert.match(result.status_text, /当前状态: 渲染进行中/);
   assert.match(result.status_text, /\*\*没有\*\*成品的图片 ID/);
   assert.match(result.status_text, /\*\*没有\*\*本地实体路径/);
@@ -3057,7 +3057,7 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
     completion_signal: 'image_task_notification',
     wait_for_notification: true,
     do_not_infer_artifact_path: true,
-    status_text: '【视觉感知：造物孕育中】\n造物锚点: task-image-queued\n当前状态: 渲染进行中\n现在没有**成品的图片 ID，也**没有**本地实体路径。'
+    status_text: '【视觉感知：造物孕育中】\n任务锚点: task-image-queued\n当前状态: 渲染进行中\n现在没有**成品的图片 ID，也**没有**本地实体路径。'
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
@@ -3071,7 +3071,7 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   assert.equal(replay && replay.type === 'function_call_output' ? replay.call_id : null, 'call-image-task');
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
   assert.match(String(output.status_text), /【视觉感知：造物孕育中】/);
-  assert.match(String(output.status_text), /造物锚点: task-image-queued/);
+  assert.match(String(output.status_text), /任务锚点: task-image-queued/);
   assert.equal(output.energy_cost, 0.03);
   assert.equal(output.energy, 0.88);
   assert.equal(output.max_energy, 1);
