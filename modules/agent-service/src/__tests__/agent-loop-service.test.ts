@@ -180,6 +180,26 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
+function assertPendingImageTaskContract(result: any, taskId: string) {
+  assert.equal(result.queued, true);
+  assert.equal(result.task_id, taskId);
+  assert.equal(result.task_status, 'pending');
+  assert.equal(result.artifact_available, false);
+  assert.equal(result.picture_id, null);
+  assert.equal(result.picture_path, null);
+  assert.equal(result.output_path, null);
+  assert.equal(result.completion_signal, 'image_task_notification');
+  assert.equal(result.wait_for_notification, true);
+  assert.equal(result.do_not_infer_artifact_path, true);
+  assert.match(result.status_text, /【视觉感知：造物孕育中】/);
+  assert.match(result.status_text, new RegExp(`造物锚点: ${taskId}`));
+  assert.match(result.status_text, /当前状态: 渲染进行中/);
+  assert.match(result.status_text, /\*\*没有\*\*成品的图片 ID/);
+  assert.match(result.status_text, /\*\*没有\*\*本地实体路径/);
+  assert.match(result.status_text, /绝对不要试图靠直觉、时间戳.*盲猜/);
+  assert.match(result.status_text, /必须等到你的感官真正收到“造物出炉”的明确通知/);
+}
+
 async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown, options: Record<string, unknown> = {}) {
   await (service as any).processRuntimeFrame(queueMessage, options);
 }
@@ -3029,7 +3049,15 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
     queued: true,
     task_id: 'task-image-queued',
     task_type: 'image_generate',
-    status_text: '生图任务:task-image-queued 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的'
+    task_status: 'pending',
+    artifact_available: false,
+    picture_id: null,
+    picture_path: null,
+    output_path: null,
+    completion_signal: 'image_task_notification',
+    wait_for_notification: true,
+    do_not_infer_artifact_path: true,
+    status_text: '【视觉感知：造物孕育中】\n造物锚点: task-image-queued\n当前状态: 渲染进行中\n现在没有**成品的图片 ID，也**没有**本地实体路径。'
   }, {
     loopInput,
     speakingToolName: GROUP_REPLY_TOOL,
@@ -3042,7 +3070,8 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   assert.equal(replay?.type, 'function_call_output');
   assert.equal(replay && replay.type === 'function_call_output' ? replay.call_id : null, 'call-image-task');
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
-  assert.match(String(output.status_text), /生图任务:task-image-queued 正在进行中/);
+  assert.match(String(output.status_text), /【视觉感知：造物孕育中】/);
+  assert.match(String(output.status_text), /造物锚点: task-image-queued/);
   assert.equal(output.energy_cost, 0.03);
   assert.equal(output.energy, 0.88);
   assert.equal(output.max_energy, 1);
@@ -3120,8 +3149,7 @@ test('requestImageTask normalizes edit without source image to image_generate', 
   });
   assert.equal(result.task_type, 'image_generate');
   assert.equal(result.requested_task_type, 'image_edit');
-  assert.equal(result.task_id, 'task-generate-from-edit');
-  assert.equal(result.status_text, '生图任务:task-generate-from-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
+  assertPendingImageTaskContract(result, 'task-generate-from-edit');
 });
 
 test('requestImageTask keeps image_edit when a source image resolves', async () => {
@@ -3159,8 +3187,7 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   });
   assert.equal(result.task_type, 'image_edit');
   assert.equal(result.requested_task_type, 'image_edit');
-  assert.equal(result.task_id, 'task-edit');
-  assert.equal(result.status_text, '生图任务:task-edit 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的');
+  assertPendingImageTaskContract(result, 'task-edit');
 });
 
 test('requestImageTask resolves hash media ids globally before tag lookup', async () => {
@@ -3200,6 +3227,7 @@ test('requestImageTask resolves hash media ids globally before tag lookup', asyn
   assert.equal(createdTasks[0]?.taskType, 'image_edit');
   assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, ['media_abcdef123456']);
   assert.equal(result.task_type, 'image_edit');
+  assertPendingImageTaskContract(result, 'task-edit-global-media');
 });
 
 test('materializeImageAsset prefers storage_uri over expiring source_locator', async () => {

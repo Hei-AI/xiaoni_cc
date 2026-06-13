@@ -2689,6 +2689,33 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
   return formatSystemReminderBlock(body);
 }
 
+function renderImageTaskPendingStatusText(params: {
+  taskId: string | null;
+  taskType: 'image_edit' | 'image_generate';
+  requestedTaskType: 'image_edit' | 'image_generate';
+  targetDescription: string | null;
+}) {
+  const requestedTaskTypeLine = params.requestedTaskType !== params.taskType
+    ? `请求类型: ${params.requestedTaskType}`
+    : '';
+  const targetDescriptionLine = params.targetDescription
+    ? `目标: ${params.targetDescription}`
+    : '';
+  const template = removePlaceholderOnlyLines(
+    readPromptSnippet('image_task_pending.md'),
+    [
+      requestedTaskTypeLine ? null : 'REQUESTED_TASK_TYPE_LINE',
+      targetDescriptionLine ? null : 'TARGET_DESCRIPTION_LINE'
+    ].filter((value): value is string => typeof value === 'string')
+  );
+  return renderPromptTemplateText(template, {
+    TASK_ID: params.taskId || 'unknown',
+    TASK_TYPE: params.taskType,
+    REQUESTED_TASK_TYPE_LINE: requestedTaskTypeLine,
+    TARGET_DESCRIPTION_LINE: targetDescriptionLine
+  }).trimEnd();
+}
+
 function buildAttentionLeaseCueLines(queueMessage: QueueMessageRecord['payload']) {
   const rawPayload = queueMessage.rawPayload || {};
   const unreadDelta = Number(rawPayload.unread_delta ?? rawPayload.unreadDelta ?? 1) || 1;
@@ -8157,15 +8184,31 @@ export class AgentLoopService {
       : typeof task?.id === 'string'
         ? task.id
         : null;
+    const taskType = operation === 'edit' ? 'image_edit' : 'image_generate';
+    const requestedTaskType = requestedOperation === 'edit' ? 'image_edit' : 'image_generate';
+    const statusText = renderImageTaskPendingStatusText({
+      taskId,
+      taskType,
+      requestedTaskType,
+      targetDescription
+    });
 
     return {
       queued: true,
       task_id: taskId,
-      task_type: operation === 'edit' ? 'image_edit' : 'image_generate',
-      requested_task_type: requestedOperation === 'edit' ? 'image_edit' : 'image_generate',
+      task_status: 'pending',
+      task_type: taskType,
+      requested_task_type: requestedTaskType,
       task_context: targetDescription,
+      artifact_available: false,
+      picture_id: null,
+      picture_path: null,
+      output_path: null,
+      completion_signal: 'image_task_notification',
+      wait_for_notification: true,
+      do_not_infer_artifact_path: true,
       xiaoni_os: xiaoniOs,
-      status_text: `生图任务:${taskId || 'unknown'} 正在进行中，当完成时会以 notify 的形式通知到你。你去忙你自己的`
+      status_text: statusText
     };
   }
 
