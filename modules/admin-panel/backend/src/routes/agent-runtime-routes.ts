@@ -508,8 +508,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const status = typeof req.query.status === 'string' && req.query.status.trim()
         ? req.query.status.trim()
         : 'all';
-      const [sessions, runtime] = await Promise.all([
+      const [sessions, activity, runtime] = await Promise.all([
         listAgentRecoverySessions({ identityKey, status, limit }),
+        getXiaoniActionStream({ identityKey, limit: 12 }),
         loadRuntimeSnapshot()
       ]);
       res.json({
@@ -520,6 +521,13 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           limit,
           active: Array.isArray(sessions) ? sessions.find((session: any) => session.status === 'active') || null : null,
           sessions,
+          current: {
+            ...(activity && typeof activity === 'object' && 'current' in activity ? (activity as any).current : {}),
+            runtime
+          },
+          recentExperience: activity && typeof activity === 'object' && 'items' in activity && Array.isArray((activity as any).items)
+            ? (activity as any).items
+            : [],
           runtime
         },
         timestamp: new Date().toISOString()
