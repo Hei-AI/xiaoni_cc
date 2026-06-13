@@ -1526,7 +1526,6 @@ function RawTraceExchangePane({
           value={data.body}
           emptyLabel={isRequest ? '无请求体' : '无响应体'}
           heightClassName="h-[calc(100vh-24rem)] min-h-[24rem] xl:h-[calc(100vh-17rem)]"
-          rawText
           notice={<span className="font-mono">{data.body_source}</span>}
         />
       </div>

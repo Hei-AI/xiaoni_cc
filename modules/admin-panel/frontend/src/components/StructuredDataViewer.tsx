@@ -14,7 +14,7 @@ interface StructuredDataViewerProps {
   rawText?: boolean;
 }
 
-function formatStructuredData(value: unknown, rawText = false): string {
+export function formatStructuredData(value: unknown, rawText = false): string {
   if (value === null || value === undefined) {
     return '';
   }
