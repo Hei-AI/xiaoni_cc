@@ -8,7 +8,11 @@ import { CodexProvider } from '../llm-provider/codex-provider';
 import { GeminiCliProvider } from '../llm-provider/gemini-cli-provider';
 import { OpenAIProvider } from '../llm-provider/openai-provider';
 import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../llm-provider/types';
-import { buildRequestFromMessages, buildUnifiedConfig } from '../provider-debug-service';
+import {
+  buildRequestFromMessages,
+  buildUnifiedConfig,
+  shouldRecordCodexProviderUsageEvent
+} from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
 
 class TestOpenAIProvider extends OpenAIProvider {
@@ -147,6 +151,38 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.tools[0]?.strict, true);
   assert.deepEqual(payload.tools[0]?.parameters?.required, ['reason', 'note']);
   assert.deepEqual(payload.tools[0]?.parameters?.properties?.note?.type, ['string', 'null']);
+});
+
+test('provider debug skips duplicate usage rows for core memory compression forks', () => {
+  assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: false,
+    provider: 'codex-local',
+    executionMode: 'core_memory_compression_fork_no_persist'
+  }), false);
+
+  assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: false,
+    provider: 'codex',
+    executionMode: 'core_memory_compression_fork'
+  }), false);
+
+  assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: false,
+    provider: 'codex-local',
+    executionMode: 'image_vision_fork'
+  }), false);
+
+  assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: false,
+    provider: 'codex-local',
+    executionMode: 'prompt_debug'
+  }), true);
+
+  assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: true,
+    provider: 'codex-local',
+    executionMode: 'agent_loop'
+  }), false);
 });
 
 test('OpenAI provider preserves function_call_output image content arrays', () => {

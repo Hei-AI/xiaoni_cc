@@ -517,6 +517,24 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       ${tokenSql.cached} AS cached_tokens,
       ${tokenSql.output} AS output_tokens
     FROM codex_provider_usage_events
+    WHERE NOT (
+      source_kind = 'core_memory_compression_fork'
+      AND llm_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM core_memory_compression_fork_slices
+        WHERE core_memory_compression_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+      )
+    )
+    AND NOT (
+      source_kind = 'image_vision_fork'
+      AND llm_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM image_vision_fork_slices
+        WHERE image_vision_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+      )
+    )
   `;
 }
 

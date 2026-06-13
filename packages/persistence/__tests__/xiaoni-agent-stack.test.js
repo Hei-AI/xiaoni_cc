@@ -205,6 +205,43 @@ function createMockSql() {
         rows.forkTool.push(row);
         return [row];
       }
+      if (sql.includes('INSERT INTO image_vision_fork_slices')) {
+        const row = {
+          id: 100,
+          slice_id: params[0],
+          fork_run_id: params[1],
+          llm_call_id: params[2],
+          identity_key: params[3],
+          input_start_index: params[4],
+          input_end_index: params[5],
+          input_stack_item_ids: JSON.parse(params[6]),
+          output_start_index: params[7],
+          output_end_index: params[8],
+          canonical_request: JSON.parse(params[9]),
+          wire_request: params[10] ? JSON.parse(params[10]) : null,
+          canonical_response: params[11] ? JSON.parse(params[11]) : null,
+          wire_response: params[12] ? JSON.parse(params[12]) : null,
+          raw_response: params[13] ? JSON.parse(params[13]) : null,
+          output_items: JSON.parse(params[14]),
+          status: params[15],
+          token_usage: JSON.parse(params[16]),
+          trace_id: params[17],
+          run_id: params[18],
+          conversation_id: params[19],
+          agent_turn: params[20],
+          model_name: params[21],
+          model_provider: params[22],
+          request_format_version: params[23],
+          wire_provider_format: params[24],
+          processing_time_ms: params[25],
+          metadata: JSON.parse(params[26]),
+          completed_at: params[27],
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.imageForkSlice.push(row);
+        return [row];
+      }
       if (sql.includes('UPDATE core_memory_compression_fork_tool_executions')) {
         const existing = rows.forkTool.find((row) => row.execution_id === params[5]) || rows.forkTool[0];
         const row = {
@@ -319,6 +356,20 @@ function createMockSql() {
         const eventId = params[0];
         const row = rows.providerEvent.find((entry) => entry.event_id === eventId);
         if (!row) {
+          return [];
+        }
+        if (
+          sql.includes("source_kind = 'core_memory_compression_fork'")
+          && row.source_kind === 'core_memory_compression_fork'
+          && rows.forkSlice.some((slice) => slice.llm_call_id === row.llm_call_id)
+        ) {
+          return [];
+        }
+        if (
+          sql.includes("source_kind = 'image_vision_fork'")
+          && row.source_kind === 'image_vision_fork'
+          && rows.imageForkSlice.some((slice) => slice.llm_call_id === row.llm_call_id)
+        ) {
           return [];
         }
         return [{
@@ -559,6 +610,89 @@ test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usag
     && row.input_tokens === 33
     && row.output_tokens === 7
   ));
+});
+
+test('recordCodexProviderUsageEvent skips rollup when compression fork slice owns the same llm call', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordCoreMemoryCompressionForkSlice({
+    forkRunId: 'fork-usage-owner',
+    sliceId: 'fork-slice-owner',
+    llmCallId: 'llm-compress-owned',
+    canonicalRequest: { input: [{ role: 'developer' }] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 1000, cached_input_tokens: 900, output_tokens: 20 },
+    traceId: 'trace-compress',
+    runId: 'run-compress',
+    agentTurn: 1,
+    modelName: 'gpt-test'
+  });
+
+  await persistence.recordCodexProviderUsageEvent({
+    eventId: 'codex-provider:llm-compress-owned',
+    sourceKind: 'core_memory_compression_fork',
+    llmCallId: 'llm-compress-owned',
+    traceId: 'trace-compress',
+    runId: 'run-compress',
+    canonicalRequest: { input: [{ type: 'message', content: 'compress' }] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 1000, cached_input_tokens: 900, output_tokens: 20 },
+    modelName: 'gpt-test',
+    modelProvider: 'codex'
+  });
+
+  assert.ok(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'fork-slice-owner'
+    && row.source_kind === 'compression_fork'
+    && row.cached_tokens === 900
+  ));
+  assert.equal(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'codex-provider:llm-compress-owned'
+  ), false);
+});
+
+test('recordCodexProviderUsageEvent skips rollup when image vision fork slice owns the same llm call', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordImageVisionForkSlice({
+    forkRunId: 'image-fork-usage-owner',
+    sliceId: 'image-fork-slice-owner',
+    llmCallId: 'llm-image-owned',
+    canonicalRequest: { input: [{ role: 'user' }] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 500, cached_input_tokens: 400, output_tokens: 50 },
+    traceId: 'trace-image',
+    runId: 'run-image',
+    modelName: 'gpt-test'
+  });
+
+  await persistence.recordCodexProviderUsageEvent({
+    eventId: 'codex-provider:llm-image-owned',
+    sourceKind: 'image_vision_fork',
+    llmCallId: 'llm-image-owned',
+    traceId: 'trace-image',
+    runId: 'run-image',
+    canonicalRequest: { input: [{ type: 'message', content: 'inspect image' }] },
+    canonicalResponse: { output: [{ type: 'message' }] },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 500, cached_input_tokens: 400, output_tokens: 50 },
+    modelName: 'gpt-test',
+    modelProvider: 'codex'
+  });
+
+  assert.ok(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'image-fork-slice-owner'
+    && row.source_kind === 'image_vision_fork'
+    && row.cached_tokens === 400
+  ));
+  assert.equal(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'codex-provider:llm-image-owned'
+  ), false);
 });
 
 test('updateLlmRequestSliceStackLinks only updates stack indexes without rewriting provider payloads', async () => {

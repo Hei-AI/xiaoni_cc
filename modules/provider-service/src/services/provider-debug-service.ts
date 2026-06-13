@@ -96,6 +96,28 @@ function identityKeyForProviderUsage(sourceKind: string, replayIdentityKey?: str
   return replayIdentityKey || 'xiaoni-internal';
 }
 
+export function shouldRecordCodexProviderUsageEvent(params: {
+  persistLlmCall: boolean;
+  provider: string;
+  executionMode: string;
+}) {
+  if (params.persistLlmCall) {
+    return false;
+  }
+  if (params.provider !== 'codex' && params.provider !== 'codex-local') {
+    return false;
+  }
+  if (
+    params.executionMode === 'core_memory_compression_fork_no_persist'
+    || params.executionMode === 'core_memory_compression_fork'
+    || params.executionMode === 'image_vision_fork_no_persist'
+    || params.executionMode === 'image_vision_fork'
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function buildUnifiedConfig(
   modelName: string,
   provider: ReturnType<typeof resolveProviderId>,
@@ -302,7 +324,11 @@ async function executeProviderRequest(
       wireProviderFormat: result.wireProviderFormat
     });
 	  }
-  if (!persistLlmCall && (result.provider === 'codex' || result.provider === 'codex-local')) {
+  if (shouldRecordCodexProviderUsageEvent({
+    persistLlmCall,
+    provider: result.provider,
+    executionMode
+  })) {
     const sourceKind = normalizeUsageSourceKindFromExecutionMode(executionMode);
     await runtimeStoreService.recordCodexProviderUsageEvent({
       sourceKind,
