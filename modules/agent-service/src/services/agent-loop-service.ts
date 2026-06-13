@@ -623,6 +623,7 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
 const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
+const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
 
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
@@ -2787,6 +2788,23 @@ function buildCoreMemoryCompressionReminder(input: {
     enumerable: false
   });
   return item;
+}
+
+function buildCoreMemoryCompressionForkRetryReminder(input: {
+  forkTurn: number;
+  reason: string;
+  retryCount: number;
+  maxRetries: number;
+}): OpenResponseInputItem {
+  return buildDeveloperInputItem([
+    formatSystemReminderBlock(renderPromptSnippet('core_memory_compression_fork_retry_reminder.md', {
+      FORK_TURN: input.forkTurn,
+      REASON: input.reason,
+      RETRY_COUNT: input.retryCount,
+      MAX_RETRIES: input.maxRetries,
+      COMPRESS_CORE_MEMORY_TOOL: TOOL_NAMES.compressCoreMemory
+    }))
+  ]);
 }
 
 function flattenMessageContent(content: string | OpenResponseInputContentPart[]) {
@@ -6972,6 +6990,8 @@ export class AgentLoopService {
     ]);
     let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
     let forkToolCallCount = 0;
+    let forkNoToolRetryCount = 0;
+    let forkNoToolRetryTotal = 0;
     const baseForkMetadata = {
       context_session_key: params.compression.contextSessionKey,
       read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
@@ -7079,8 +7099,25 @@ export class AgentLoopService {
 
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         if (!actionPlan.hasToolCall) {
-          throw new Error(`${TOOL_NAMES.compressCoreMemory} fork yielded without a tool call`);
+          forkNoToolRetryCount += 1;
+          forkNoToolRetryTotal += 1;
+          if (forkNoToolRetryCount > CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES) {
+            throw new Error(`${TOOL_NAMES.compressCoreMemory} fork yielded without a tool call`);
+          }
+          for (const replayItem of actionPlan.replayableOutputs) {
+            forkInput.push(replayItem.inputItem);
+          }
+          forkInput.push(buildCoreMemoryCompressionForkRetryReminder({
+            forkTurn,
+            retryCount: forkNoToolRetryCount,
+            maxRetries: CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES,
+            reason: actionPlan.hasFinalAnswer
+              ? `returned final_answer instead of ${TOOL_NAMES.compressCoreMemory}`
+              : `returned no callable tool; expected ${TOOL_NAMES.compressCoreMemory}`
+          }));
+          continue;
         }
+        forkNoToolRetryCount = 0;
 
         for (const replayItem of actionPlan.replayableOutputs) {
           forkInput.push(replayItem.inputItem);
@@ -7137,6 +7174,7 @@ export class AgentLoopService {
                   fork_run_id: forkRunId,
                   fork_turn_count: forkTurn,
                   fork_tool_call_count: forkToolCallCount,
+                  fork_no_tool_retry_count: forkNoToolRetryTotal,
                   no_main_stack_persist: true,
                   no_traffic_persist: true
                 }
@@ -7179,7 +7217,8 @@ export class AgentLoopService {
                 metadata: {
                   ...baseForkMetadata,
                   fork_turn_count: forkTurn,
-                  fork_tool_call_count: forkToolCallCount
+                  fork_tool_call_count: forkToolCallCount,
+                  fork_no_tool_retry_count: forkNoToolRetryTotal
                 }
               });
               await this.store.logTimelineEvent({
@@ -7193,7 +7232,8 @@ export class AgentLoopService {
                   context_session_key: params.compression.contextSessionKey,
                   read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
                   fork_turn_count: forkTurn,
-                  fork_tool_call_count: forkToolCallCount
+                  fork_tool_call_count: forkToolCallCount,
+                  fork_no_tool_retry_count: forkNoToolRetryTotal
                 }
               });
               return commit;
@@ -7251,7 +7291,8 @@ export class AgentLoopService {
         errorMessage: message,
         metadata: {
           ...baseForkMetadata,
-          fork_tool_call_count: forkToolCallCount
+          fork_tool_call_count: forkToolCallCount,
+          fork_no_tool_retry_count: forkNoToolRetryTotal
         }
       });
       await this.store.logTimelineEvent({
@@ -7263,7 +7304,8 @@ export class AgentLoopService {
           status: 'failed',
           fork_run_id: forkRunId,
           error_message: message,
-          fork_tool_call_count: forkToolCallCount
+          fork_tool_call_count: forkToolCallCount,
+          fork_no_tool_retry_count: forkNoToolRetryTotal
         }
       });
       throw error;
