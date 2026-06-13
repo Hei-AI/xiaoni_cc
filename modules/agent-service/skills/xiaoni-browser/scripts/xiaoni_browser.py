@@ -404,7 +404,7 @@ def main(argv):
             return 1
     tool_name, arguments = build_call(args)
     try:
-        if args.command == "status":
+        if args.command not in ("goto",):
             return print_result(call_existing_session_only(tool_name, arguments))
         return print_result(call_tool(tool_name, arguments))
     except Exception as error:

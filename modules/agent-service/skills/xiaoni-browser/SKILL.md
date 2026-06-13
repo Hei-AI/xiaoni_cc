@@ -55,13 +55,14 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_browser.
 2. Use `snapshot` to get element refs such as `e6`.
 3. Use refs with `click`, `fill`, or `hover`.
 4. Use `screenshot name.png` when visual evidence matters.
-5. Use `status` only after a browser session already exists; it checks the cached session and does not create a new one.
+5. Use `status`, `tabs`, `snapshot`, `screenshot`, `click`, `fill`, `type`, `press`, `hover`, and `eval` only after a browser session already exists; these commands check the cached session and do not create a new one.
 
 Run browser commands serially. Do not run two `xiaoni_browser.py` commands in parallel against the same browser session. Use `sequence` when an action depends on refs from the immediately previous snapshot.
 
 ## Boundaries
 
 - This controls the operator's real visible browser. Avoid destructive account actions unless the operator explicitly asked for them.
+- Only `goto` and `sequence` may create a new browser bridge session. Other commands must reuse the cached session so they do not open the extension connect page unexpectedly.
 - Do not close all browser tabs as cleanup. Use `tabs` to inspect first.
 - Do not paste secrets from page content into QQ unless the operator explicitly asks.
 - Screenshot filenames are saved by the host Playwright bridge, not inside `/xiaoni-runtime`. Use a relative filename such as `page.png`, not an absolute Xiaoni runtime path.
