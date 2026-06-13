@@ -6706,6 +6706,258 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end'), true);
 });
 
+test('core memory compression fork retries final_answer without tool call and then commits', async () => {
+  const queueMessage = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt();
+  const baseRequest = buildTestMainCanonicalRequest(buildInitialInput([], queueMessage), queueMessage, runtimePrompt);
+  const summaryWrites: any[] = [];
+  const cutoffWrites: any[] = [];
+  const timelineEvents: any[] = [];
+  const completedForkRuns: any[] = [];
+  const forkItems: any[] = [];
+  const forkSlices: any[] = [];
+  const forkTools: any[] = [];
+  const completedForkTools: any[] = [];
+  const forkRequests: any[] = [];
+  let forkItemIndex = 0;
+
+  const service = new AgentLoopService({
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
+    recordCoreMemoryCompressionForkRun: async (params: any) => ({ ...params, id: 'fork-run-row' }),
+    completeCoreMemoryCompressionForkRun: async (params: any) => {
+      completedForkRuns.push(params);
+      return { ...params, id: 'fork-run-row' };
+    },
+    appendCoreMemoryCompressionForkItems: async (params: any) => {
+      const rows = (params.items || []).map((item: any) => {
+        forkItemIndex += 1;
+        return {
+          ...item,
+          id: `fork-item-${forkItemIndex}`,
+          itemIndex: forkItemIndex,
+          toolCallId: item.toolCallId || null
+        };
+      });
+      forkItems.push({ ...params, rows });
+      return rows;
+    },
+    recordCoreMemoryCompressionForkSlice: async (params: any) => {
+      forkSlices.push(params);
+      return { ...params, id: 'fork-slice-row' };
+    },
+    recordCoreMemoryCompressionForkToolExecution: async (params: any) => {
+      forkTools.push(params);
+      return { ...params, id: 'fork-tool-row' };
+    },
+    completeCoreMemoryCompressionForkToolExecution: async (params: any) => {
+      completedForkTools.push(params);
+      return { ...params, id: 'fork-tool-row' };
+    },
+    upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
+    upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
+    listRecentTurns: async () => Array.from({ length: 31 }, (_, index) => createConversationTurn({
+      id: index + 171,
+      userId: 85178516,
+      groupId: null,
+      sessionKey: 'private:85178516',
+      userMessage: `global history ${index + 171}`,
+      aiResponse: `global os ${index + 171}`
+    }))
+  } as any, {
+    resolveForQueueMessage: async () => runtimePrompt
+  } as any);
+
+  (service as any).executeCoreMemoryCompressionForkTurn = async (canonicalRequest: any, _payload: any, _runtimePrompt: any, forkTurn: number) => {
+    forkRequests.push(canonicalRequest);
+    if (forkTurn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-no-tool-final-answer',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            status: 'completed',
+            content: [{
+              type: 'output_text',
+              text: '<xiaoni_os>我偏航成普通收尾了。</xiaoni_os>'
+            }]
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-compress-after-retry',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-compress-after-retry',
+          name: COMPRESS_CORE_MEMORY_TOOL,
+          arguments: JSON.stringify({
+            text: '压缩后的近况：纠偏后成功调用 compress_core_memory。'
+          })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async (toolCall: any) => {
+    assert.equal(toolCall.name, COMPRESS_CORE_MEMORY_TOOL);
+    return {
+      compressed: true,
+      text: String(toolCall.args.text || '').trim(),
+      outcome: 'core_memory_compressed'
+    };
+  };
+
+  const commit = await (service as any).runCoreMemoryCompressionFork({
+    baseRequest,
+    queueMessage,
+    runtimePrompt,
+    contextSessionKey: 'xiaoni:global',
+    compression: {
+      required: true,
+      contextSessionKey: 'xiaoni:global',
+      readCutoffAfterConversationId: 171,
+      previousReadCutoffAfterConversationId: null,
+      compressionCoveredEndConversationId: 200,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    }
+  });
+
+  assert.equal(commit.text, '压缩后的近况：纠偏后成功调用 compress_core_memory。');
+  assert.equal(forkRequests.length, 2);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /returned final_answer instead of compress_core_memory/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /潜意识警报/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /第 1 次/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /濒危极限：10 次/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /必须.*compress_core_memory/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /我偏航成普通收尾了/);
+  assert.equal(forkSlices.length, 2);
+  assert.equal(forkTools.length, 1);
+  assert.equal(forkTools[0]?.toolName, COMPRESS_CORE_MEMORY_TOOL);
+  assert.equal(completedForkTools[0]?.status, 'completed');
+  assert.equal(completedForkRuns[0]?.status, 'completed');
+  assert.equal(completedForkRuns[0]?.metadata?.fork_no_tool_retry_count, 1);
+  assert.deepEqual(summaryWrites, [{
+    sessionKey: 'xiaoni:global',
+    contextSummary: '压缩后的近况：纠偏后成功调用 compress_core_memory。'
+  }]);
+  assert.deepEqual(cutoffWrites, [{
+    sessionKey: 'xiaoni:global',
+    readCutoffAfterConversationId: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  }]);
+  assert.match(JSON.stringify(forkItems), /我偏航成普通收尾了/);
+  assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end' && event.metadata?.status === 'completed'), true);
+});
+
+test('core memory compression fork fails after ten no-tool retries', async () => {
+  const queueMessage = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt();
+  const baseRequest = buildTestMainCanonicalRequest(buildInitialInput([], queueMessage), queueMessage, runtimePrompt);
+  const summaryWrites: any[] = [];
+  const cutoffWrites: any[] = [];
+  const timelineEvents: any[] = [];
+  const completedForkRuns: any[] = [];
+  const forkRequests: any[] = [];
+  let forkItemIndex = 0;
+
+  const service = new AgentLoopService({
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
+    recordCoreMemoryCompressionForkRun: async (params: any) => ({ ...params, id: 'fork-run-row' }),
+    completeCoreMemoryCompressionForkRun: async (params: any) => {
+      completedForkRuns.push(params);
+      return { ...params, id: 'fork-run-row' };
+    },
+    appendCoreMemoryCompressionForkItems: async (params: any) => {
+      const rows = (params.items || []).map((item: any) => {
+        forkItemIndex += 1;
+        return {
+          ...item,
+          id: `fork-item-${forkItemIndex}`,
+          itemIndex: forkItemIndex,
+          toolCallId: item.toolCallId || null
+        };
+      });
+      return rows;
+    },
+    recordCoreMemoryCompressionForkSlice: async (params: any) => ({ ...params, id: 'fork-slice-row' }),
+    recordCoreMemoryCompressionForkToolExecution: async () => {
+      assert.fail('no tool execution should be recorded when the model never calls a tool');
+    },
+    completeCoreMemoryCompressionForkToolExecution: async () => {
+      assert.fail('no tool execution should complete when the model never calls a tool');
+    },
+    upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
+    upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); }
+  } as any, {
+    resolveForQueueMessage: async () => runtimePrompt
+  } as any);
+
+  (service as any).executeCoreMemoryCompressionForkTurn = async (canonicalRequest: any, _payload: any, _runtimePrompt: any, forkTurn: number) => {
+    forkRequests.push(canonicalRequest);
+    return {
+      success: true,
+      llm_call_id: `llm-no-tool-${forkTurn}`,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          status: 'completed',
+          content: [{
+            type: 'output_text',
+            text: `<xiaoni_os>still no tool ${forkTurn}</xiaoni_os>`
+          }]
+        }]
+      }
+    };
+  };
+
+  await assert.rejects(
+    () => (service as any).runCoreMemoryCompressionFork({
+      baseRequest,
+      queueMessage,
+      runtimePrompt,
+      contextSessionKey: 'xiaoni:global',
+      compression: {
+        required: true,
+        contextSessionKey: 'xiaoni:global',
+        readCutoffAfterConversationId: 171,
+        previousReadCutoffAfterConversationId: null,
+        compressionCoveredEndConversationId: 200,
+        historyUserId: 303,
+        historyGroupId: null,
+        historyScope: 'global',
+        lastContextWindowTokens: 400000,
+        lastTargetBudgetTokens: 280000,
+        lastHardBudgetTokens: 380000
+      }
+    }),
+    /compress_core_memory fork yielded without a tool call/
+  );
+
+  assert.equal(forkRequests.length, 11);
+  assert.match(JSON.stringify(forkRequests[10]?.input || []), /第 10 次/);
+  assert.match(JSON.stringify(forkRequests[10]?.input || []), /濒危极限：10 次/);
+  assert.equal(completedForkRuns.length, 1);
+  assert.equal(completedForkRuns[0]?.status, 'failed');
+  assert.equal(completedForkRuns[0]?.metadata?.fork_no_tool_retry_count, 11);
+  assert.equal(completedForkRuns[0]?.errorMessage, 'compress_core_memory fork yielded without a tool call');
+  assert.deepEqual(summaryWrites, []);
+  assert.deepEqual(cutoffWrites, []);
+  assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end' && event.metadata?.status === 'failed'), true);
+});
+
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
