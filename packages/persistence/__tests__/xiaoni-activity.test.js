@@ -419,6 +419,12 @@ test('Xiaoni action stream projects stack tool requests without provider replay 
   assert.equal(stackItem.metadata.internalExecutionLeaseId, 'run_internal_lease_1');
   assert.equal(stackItem.metadata.stackSource, 'agent_stack_items');
   assert.equal(stackItem.metadata.argumentsPreview, '{"cmd":"date"}');
+  assert.deepEqual(stackItem.tags.map((tag) => tag.key), [
+    'source:llm_stack_item',
+    'event:model_tool_request',
+    'tool:exec_command'
+  ]);
+  assert.equal(stream.availableTags.some((tag) => tag.key === 'event:model_tool_request' && tag.count === 1), true);
   assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
 });
 
@@ -530,11 +536,13 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(forkRun.completedAt, '2026-06-05T10:05:12.000Z');
   assert.equal(forkRun.durationMs, 12000);
   assert.equal(forkRun.readCutoffAfterConversationId, '200');
+  assert.equal(forkRun.tags.some((tag) => tag.key === 'source:core_memory_compression_fork'), true);
   assert.deepEqual(forkRun.events.map((item) => item.source), [
     'compression_fork_llm_request',
     'compression_fork_item',
     'compression_fork_tool_execution'
   ]);
+  assert.equal(forkRun.events[1].tags.some((tag) => tag.key === 'source:compression_fork_item'), true);
   assert.equal(forkRun.events[0].traceTarget.sourceKind, 'compression_fork');
   assert.equal(forkRun.events[0].traceTarget.forkRunId, 'core_memory_fork_1');
   assert.equal(forkRun.events[0].metadata.providerRequestSpanId, 'provider-request:wire:fork_llm_1');
@@ -545,11 +553,76 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(stream.items.some((item) => item.id.startsWith('compression-fork:')), false);
   assert.equal(stream.items.some((item) => item.source.startsWith('compression_fork')), false);
 
+  const filteredForkStream = await persistence.getXiaoniActionStream({
+    limit: 10,
+    tags: ['source:compression_fork_item']
+  });
+  const filteredForkRun = filteredForkStream.compressionForkTimeline.runs[0];
+  assert.ok(filteredForkRun);
+  assert.deepEqual(filteredForkRun.events.map((item) => item.source), ['compression_fork_item']);
+  assert.equal(filteredForkStream.items.some((item) => item.source.startsWith('compression_fork')), false);
+
   const resolved = await persistence.findXiaoniActionEventTraceTarget('compression-fork-slice:fork_slice_1');
   assert.equal(resolved.sourceKind, 'compression_fork');
   assert.equal(resolved.forkRunId, 'core_memory_fork_1');
   assert.equal(resolved.llmRequestSliceId, 'fork_slice_1');
   assert.equal(resolved.spanId, 'provider-request:wire:fork_llm_1');
+});
+
+test('Xiaoni action stream filters tags before applying display limit', async () => {
+  const noisyLlmSlices = Array.from({ length: 100 }, (_, index) => ({
+    id: String(3000 + index),
+    sliceId: `slice_noise_${index}`,
+    llmCallId: `llm_noise_${index}`,
+    traceId: `trace_noise_${index}`,
+    runId: `run_noise_${index}`,
+    agentTurn: 1,
+    modelName: 'gpt-5.5',
+    modelProvider: 'codex-local',
+    wireProviderFormat: 'codex-local/responses',
+    status: 'completed',
+    createdAt: new Date(Date.parse('2026-06-05T10:30:00.000Z') - index * 1000).toISOString(),
+    completedAt: new Date(Date.parse('2026-06-05T10:30:01.000Z') - index * 1000).toISOString(),
+    tokenUsage: { input_tokens: 10, output_tokens: 4 },
+    canonicalRequest: { input: [{ role: 'user', content: `noise ${index}` }] },
+    wireRequest: { model: 'gpt-5.5' },
+    wireResponse: { id: `resp_noise_${index}` }
+  }));
+  const persistence = createPersistence({
+    llmRequestSliceRows: noisyLlmSlices,
+    agentStackRows: [{
+      id: '101',
+      eventId: 'stack:trace_codex_stream:call_exec',
+      identityKey: 'xiaoni',
+      stackIndex: 20,
+      itemKind: 'function_call',
+      role: 'assistant',
+      phase: null,
+      toolCallId: 'call_exec',
+      llmRequestSliceId: 'slice_codex_stream',
+      content: {
+        type: 'function_call',
+        call_id: 'call_exec',
+        name: 'exec_command',
+        arguments: '{"cmd":"date"}'
+      },
+      traceId: 'trace_codex_stream',
+      runId: 'run_internal_lease_1',
+      createdAt: '2026-06-05T10:04:00.000Z',
+      metadata: {
+        output_item_index: 0
+      }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({
+    limit: 5,
+    tags: ['event:model_tool_request']
+  });
+
+  assert.deepEqual(stream.items.map((item) => item.id), ['stack:101']);
+  assert.deepEqual(stream.filters.tags, ['event:model_tool_request']);
+  assert.equal(stream.availableTags.some((tag) => tag.key === 'source:llm_request' && tag.count === 100), true);
 });
 
 test('Xiaoni action stream projects image vision fork observations outside main items', async () => {

@@ -25,7 +25,9 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Tags,
   Waypoints,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -39,6 +41,13 @@ import { ErrorState } from '@/components/console/ErrorState';
 import { StructuredDataViewer } from '@/components/StructuredDataViewer';
 import { calculateUsageChartWheelWindow } from '@/lib/usage-chart-wheel';
 import { cn, formatDateOnly, formatDateTimeCompact, formatIsoOffset, formatTimeOnly, formatTimestamp, parseTimestampValue } from '@/lib/utils';
+import {
+  ActionStreamTagOption,
+  mergeSelectedActionStreamTags,
+  parseActionStreamTagParam,
+  serializeActionStreamTags,
+  toggleActionStreamTag,
+} from '@/lib/xiaoni-action-stream-tags';
 
 type ActivityTone = 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
 type TimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'custom' | 'all';
@@ -73,6 +82,7 @@ interface XiaoniActivityFeedItem {
   } | null;
   tone: ActivityTone;
   metadata: Record<string, unknown>;
+  tags?: ActionStreamTagOption[];
 }
 
 interface CompressionForkEvent extends XiaoniActivityFeedItem {}
@@ -96,6 +106,7 @@ interface CompressionForkRun {
   eventCount: number;
   events: CompressionForkEvent[];
   metadata: Record<string, unknown>;
+  tags?: ActionStreamTagOption[];
 }
 
 interface CompressionForkTimeline {
@@ -147,7 +158,9 @@ interface XiaoniActivityFeed {
     range?: string;
     startTime?: string | null;
     endTime?: string | null;
+    tags?: string[];
   };
+  availableTags?: ActionStreamTagOption[];
   current: {
     latestActivityAt: string | null;
     lifeState: Record<string, unknown> | null;
@@ -533,6 +546,21 @@ function sourceLabel(source: string) {
   }
 }
 
+function actionTagTone(value?: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
+  return value === 'success' || value === 'warning' || value === 'danger' || value === 'info'
+    ? value
+    : 'neutral';
+}
+
+function actionTagPills(tags: ActionStreamTagOption[] | undefined, fallback: ActionStreamTagOption[]) {
+  const effectiveTags = tags?.length ? tags : fallback;
+  return effectiveTags.map((tag) => (
+    <StatusPill key={tag.key} tone={actionTagTone(tag.tone)}>
+      {tag.label}
+    </StatusPill>
+  ));
+}
+
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {
   const value = metadata[key];
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -817,6 +845,69 @@ function TimeRangeControls({
             />
           </div>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ActionStreamTagFilterControls({
+  availableTags,
+  selectedTags,
+  onToggleTag,
+  onClearTags,
+}: {
+  availableTags: ActionStreamTagOption[];
+  selectedTags: string[];
+  onToggleTag: (key: string) => void;
+  onClearTags: () => void;
+}) {
+  const tagOptions = React.useMemo(
+    () => mergeSelectedActionStreamTags(availableTags, selectedTags),
+    [availableTags, selectedTags]
+  );
+  if (!tagOptions.length) {
+    return null;
+  }
+  const selectedSet = new Set(selectedTags);
+
+  return (
+    <section className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Tags className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-semibold text-foreground">标签</span>
+          {selectedTags.length ? <StatusPill tone="info">已选 {selectedTags.length}</StatusPill> : null}
+        </div>
+        {selectedTags.length ? (
+          <Button variant="ghost" size="sm" className="h-8 self-start px-2 text-xs" onClick={onClearTags}>
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            清除
+          </Button>
+        ) : null}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {tagOptions.map((tag) => {
+          const selected = selectedSet.has(tag.key);
+          return (
+            <Button
+              key={tag.key}
+              type="button"
+              variant={selected ? 'default' : 'outline'}
+              size="sm"
+              aria-pressed={selected}
+              title={tag.key}
+              className="h-8 max-w-full px-2.5 text-xs"
+              onClick={() => onToggleTag(tag.key)}
+            >
+              <span className="truncate">{tag.label}</span>
+              {typeof tag.count === 'number' ? (
+                <span className={cn('ml-1.5 font-mono text-[10px]', selected ? 'text-primary-foreground/80' : 'text-muted-foreground')}>
+                  {tag.count}
+                </span>
+              ) : null}
+            </Button>
+          );
+        })}
       </div>
     </section>
   );
@@ -1387,8 +1478,10 @@ function CompressionForkEventRow({
           <div className="flex flex-wrap items-center gap-2">
             {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
             <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
-            <StatusPill tone="neutral">{sourceLabel(event.source)}</StatusPill>
-            {event.status ? <StatusPill tone={statusTone(event.status)}>{statusLabel(event.status)}</StatusPill> : null}
+            {actionTagPills(event.tags, [
+              { key: `source:${event.source}`, label: sourceLabel(event.source), tone: 'neutral' },
+              ...(event.status ? [{ key: `status:${event.status}`, label: statusLabel(event.status) || event.status, tone: statusTone(event.status) }] : []),
+            ])}
             {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
           </div>
           {traceTarget ? (
@@ -1498,8 +1591,10 @@ function ForkAgentRunCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusPill tone={isImageVision ? 'info' : 'neutral'}>{run.agentLabel || forkAgentLabel(forkKind)}</StatusPill>
-            <StatusPill tone={statusTone(run.status)}>{statusLabel(run.status) || 'fork'}</StatusPill>
+            {actionTagPills(run.tags, [
+              { key: `fork:${forkKind}`, label: run.agentLabel || forkAgentLabel(forkKind), tone: isImageVision ? 'info' : 'neutral' },
+              { key: `status:${run.status || 'fork'}`, label: statusLabel(run.status) || 'fork', tone: statusTone(run.status) },
+            ])}
             {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
             <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
             <time className="font-mono text-xs text-muted-foreground">{formatTimestamp(run.startedAt)}</time>
@@ -1890,9 +1985,11 @@ function TimelineEvent({
           ) : null}
           {isLatest ? <StatusPill tone="info">latest</StatusPill> : null}
           {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
-          <StatusPill tone="neutral">{sourceLabel(item.source)}</StatusPill>
-          <StatusPill tone="neutral">{eventKind.replace(/_/g, ' ')}</StatusPill>
-          {item.status ? <StatusPill tone={statusTone(item.status)}>{statusLabel(item.status)}</StatusPill> : null}
+          {actionTagPills(item.tags, [
+            { key: `source:${item.source}`, label: sourceLabel(item.source), tone: 'neutral' },
+            { key: `event:${eventKind}`, label: eventKind.replace(/_/g, ' '), tone: 'neutral' },
+            ...(item.status ? [{ key: `status:${item.status}`, label: statusLabel(item.status) || item.status, tone: statusTone(item.status) }] : []),
+          ])}
           <time className={cn('text-xs text-muted-foreground', !laneLayout && 'md:hidden')}>{formatDateTimeCompact(occurredAt)}</time>
         </div>
 
@@ -2059,6 +2156,9 @@ export const XiaoniActivityPage: React.FC = () => {
   const timeRange = coerceTimeRange(searchParams.get('range'));
   const usageBucket = coerceUsageBucket(searchParams.get('bucket'));
   const usageSearch = searchParams.get('usage_search') || '';
+  const actionTagParam = searchParams.get('tags') || '';
+  const selectedActionTags = React.useMemo(() => parseActionStreamTagParam(actionTagParam), [actionTagParam]);
+  const selectedActionTagParam = React.useMemo(() => serializeActionStreamTags(selectedActionTags), [selectedActionTags]);
   const focusEvent = searchParams.get('focus_event') || '';
   const focusSlice = searchParams.get('focus_slice') || '';
   const startTime = searchParams.get('start_time') || '';
@@ -2071,7 +2171,7 @@ export const XiaoniActivityPage: React.FC = () => {
     error: feedError,
     refetch: refetchFeed,
   } = useQuery<XiaoniActivityFeed>({
-    queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime, focusEvent, focusSlice],
+    queryKey: ['xiaoni-action-stream', timeRange, startTime, endTime, focusEvent, focusSlice, selectedActionTagParam],
     queryFn: async () => {
       const params = new URLSearchParams({
         limit: '80',
@@ -2090,6 +2190,9 @@ export const XiaoniActivityPage: React.FC = () => {
       }
       if (focusSlice) {
         params.set('focus_slice', focusSlice);
+      }
+      if (selectedActionTagParam) {
+        params.set('tags', selectedActionTagParam);
       }
       const response = await fetch(`/api/xiaoni/action-stream?${params}`);
       const payload = await response.json() as ApiResponse<XiaoniActivityFeed>;
@@ -2204,6 +2307,27 @@ export const XiaoniActivityPage: React.FC = () => {
     });
   }, [updateSearchParam]);
 
+  const handleActionTagToggle = React.useCallback((tagKey: string) => {
+    updateSearchParam((nextParams) => {
+      const nextTags = serializeActionStreamTags(toggleActionStreamTag(selectedActionTags, tagKey));
+      if (nextTags) {
+        nextParams.set('tags', nextTags);
+      } else {
+        nextParams.delete('tags');
+      }
+      nextParams.delete('focus_event');
+      nextParams.delete('focus_slice');
+    });
+  }, [selectedActionTags, updateSearchParam]);
+
+  const handleActionTagsClear = React.useCallback(() => {
+    updateSearchParam((nextParams) => {
+      nextParams.delete('tags');
+      nextParams.delete('focus_event');
+      nextParams.delete('focus_slice');
+    });
+  }, [updateSearchParam]);
+
   const handleUsageWindowSelect = React.useCallback((nextStartTime: Date, nextEndTime: Date, options?: { endIsNow?: boolean }) => {
     updateSearchParam((nextParams) => {
       nextParams.set('range', 'custom');
@@ -2276,6 +2400,13 @@ export const XiaoniActivityPage: React.FC = () => {
         endTime={endTime}
         onRangeChange={handleRangeChange}
         onCustomTimeChange={handleCustomTimeChange}
+      />
+
+      <ActionStreamTagFilterControls
+        availableTags={feed?.availableTags || []}
+        selectedTags={selectedActionTags}
+        onToggleTag={handleActionTagToggle}
+        onClearTags={handleActionTagsClear}
       />
 
       <XiaoniUsageObservatory

@@ -104,6 +104,34 @@ function firstQueryString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function parseQueryStringList(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of values) {
+    if (Array.isArray(entry)) {
+      for (const nested of parseQueryStringList(entry)) {
+        if (!seen.has(nested)) {
+          seen.add(nested);
+          result.push(nested);
+        }
+      }
+      continue;
+    }
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    for (const raw of entry.split(',')) {
+      const trimmed = raw.trim().toLowerCase();
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed);
+        result.push(trimmed);
+      }
+    }
+  }
+  return result;
+}
+
 function parseQueryDate(value: unknown): Date | null {
   const raw = firstQueryString(value);
   if (!raw) {
@@ -435,12 +463,14 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         ? req.query.identity_key.trim()
         : 'xiaoni';
       const timeFilter = resolveActionStreamTimeFilter(req.query);
+      const tags = parseQueryStringList(req.query.tags ?? req.query.tag);
       const [stream, runtime] = await Promise.all([
         getXiaoniActionStream({
           identityKey,
           limit,
           startTime: timeFilter.startTime,
           endTime: timeFilter.endTime,
+          tags,
           focusEvent: firstQueryString(req.query.focus_event ?? req.query.focusEvent),
           focusSlice: firstQueryString(req.query.focus_slice ?? req.query.focusSlice)
         }),
@@ -453,7 +483,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           ...stream,
           filters: {
             ...(typeof stream === 'object' && stream && 'filters' in stream ? (stream as Record<string, unknown>).filters as Record<string, unknown> : {}),
-            ...serializeActionStreamTimeFilter(timeFilter)
+            ...serializeActionStreamTimeFilter(timeFilter),
+            tags
           },
           current: {
             ...stream.current,

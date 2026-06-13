@@ -171,6 +171,71 @@ describe('agent runtime recovery session routes', () => {
   });
 });
 
+describe('agent runtime action stream route', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('passes multi-select tag filters to the Xiaoni action stream query', async () => {
+    const database = createDatabaseMock();
+    (axios.get as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: 'healthy',
+        service: 'agent-service',
+        worker_busy: false,
+        task_worker_busy: false,
+        presence_tick_busy: false,
+        runtime_enabled: true,
+        timestamp: '2026-06-13T00:00:00.000Z'
+      }
+    });
+    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      generatedAt: '2026-06-13T00:00:00.000Z',
+      streamKind: 'xiaoni_action_stream',
+      filters: {
+        tags: ['source:llm_request', 'event:model_tool_request', 'status:ok']
+      },
+      availableTags: [],
+      current: {
+        latestActivityAt: null
+      },
+      focusedEventId: null,
+      items: [],
+      compressionForkTimeline: { runs: [] },
+      imageVisionForkTimeline: { runs: [] }
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream')
+      .query({
+        range: 'custom',
+        start_time: '2026-06-13T00:00:00+08:00',
+        end_time: '2026-06-13T02:00:00+08:00',
+        tags: ['Source:LLM_Request,event:model_tool_request', 'status:ok']
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(getXiaoniActionStream).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      limit: 80,
+      startTime: new Date('2026-06-13T00:00:00+08:00'),
+      endTime: new Date('2026-06-13T02:00:00+08:00'),
+      tags: ['source:llm_request', 'event:model_tool_request', 'status:ok'],
+      focusEvent: null,
+      focusSlice: null
+    });
+    expect(response.body.data.filters).toEqual({
+      tags: ['source:llm_request', 'event:model_tool_request', 'status:ok'],
+      range: 'custom',
+      startTime: '2026-06-12T16:00:00.000Z',
+      endTime: '2026-06-12T18:00:00.000Z'
+    });
+  });
+});
+
 describe('agent runtime action event trace routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();

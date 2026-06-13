@@ -1572,6 +1572,222 @@ function normalizeActionStreamEventKind(item) {
   return item.kind || item.source || 'runtime_event';
 }
 
+function normalizeActionStreamTagKey(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function normalizeActionStreamTagInput(value) {
+  const values = Array.isArray(value) ? value : [value];
+  const keys = [];
+  const seen = new Set();
+  for (const entry of values) {
+    if (Array.isArray(entry)) {
+      for (const nested of normalizeActionStreamTagInput(entry)) {
+        if (!seen.has(nested)) {
+          seen.add(nested);
+          keys.push(nested);
+        }
+      }
+      continue;
+    }
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    for (const raw of entry.split(',')) {
+      const key = normalizeActionStreamTagKey(raw);
+      if (key && !seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    }
+  }
+  return keys;
+}
+
+function selectedActionStreamTagKeys(input = {}) {
+  return normalizeActionStreamTagInput(input.tags || input.tag || input.tagKeys || input.tag_keys);
+}
+
+function createActionStreamTag(key, label, tone = 'neutral') {
+  const normalizedKey = normalizeActionStreamTagKey(key);
+  if (!normalizedKey) {
+    return null;
+  }
+  return {
+    key: normalizedKey,
+    label: label || normalizedKey,
+    tone
+  };
+}
+
+function addActionStreamTag(tags, seen, key, label, tone = 'neutral') {
+  const tag = createActionStreamTag(key, label, tone);
+  if (!tag || seen.has(tag.key)) {
+    return;
+  }
+  seen.add(tag.key);
+  tags.push(tag);
+}
+
+function actionStreamItemTags(item) {
+  const tags = [];
+  const seen = new Set();
+  const source = firstString(item.source);
+  const eventKind = firstString(item.eventKind, normalizeActionStreamEventKind(item));
+  const status = firstString(item.status);
+  const forkKind = firstString(item.forkKind, item.metadata?.forkKind);
+  const toolName = firstString(item.metadata?.toolName, item.kind && item.source === 'tool_execution' ? item.kind : null);
+
+  if (source) {
+    addActionStreamTag(tags, seen, `source:${source}`, `source: ${sourceLabelForActionStreamTag(source)}`);
+  }
+  if (eventKind) {
+    addActionStreamTag(tags, seen, `event:${eventKind}`, `event: ${eventKind.replace(/_/g, ' ')}`);
+  }
+  if (status) {
+    addActionStreamTag(tags, seen, `status:${status}`, `status: ${status}`, status === 'ok' ? 'success' : status === 'failed' ? 'danger' : 'neutral');
+  }
+  if (forkKind) {
+    addActionStreamTag(tags, seen, `fork:${forkKind}`, `fork: ${forkKind === 'image_vision' ? 'Image Vision Fork' : forkKind.replace(/_/g, ' ')}`, 'info');
+  }
+  if (toolName) {
+    addActionStreamTag(tags, seen, `tool:${toolName}`, `tool: ${toolName.replace(/_/g, ' ')}`, 'neutral');
+  }
+
+  return tags;
+}
+
+function sourceLabelForActionStreamTag(source) {
+  switch (source) {
+    case 'life_event':
+      return 'life';
+    case 'tool_execution':
+      return 'tool';
+    case 'llm_request':
+      return 'LLM';
+    case 'llm_stack_item':
+      return 'stack';
+    case 'digital_action':
+      return 'history';
+    case 'media_observation':
+      return 'media';
+    case 'queue_message':
+      return 'queue';
+    case 'core_memory_compression_fork':
+      return 'Memory Compress Fork';
+    case 'compression_fork_llm_request':
+      return 'fork LLM';
+    case 'compression_fork_item':
+      return 'fork stack';
+    case 'compression_fork_tool_execution':
+      return 'fork tool';
+    case 'image_vision_fork':
+      return 'Image Vision Fork';
+    case 'image_vision_fork_observation':
+      return 'vision step';
+    default:
+      return source.replace(/_/g, ' ');
+  }
+}
+
+function decorateActionStreamItem(item) {
+  const normalized = normalizeActionStreamItem(item);
+  return {
+    ...normalized,
+    tags: actionStreamItemTags(normalized)
+  };
+}
+
+function decorateActionStreamForkRun(run) {
+  const forkKind = firstString(run.metadata?.forkKind, run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory');
+  const eventList = Array.isArray(run.events)
+    ? run.events.map((event) => decorateActionStreamItem({
+      ...event,
+      forkKind
+    }))
+    : [];
+  const normalizedRun = {
+    ...run,
+    forkKind,
+    status: normalizeActionStreamStatus(run.status),
+    events: eventList,
+    eventCount: eventList.length
+  };
+  return {
+    ...normalizedRun,
+    tags: actionStreamItemTags(normalizedRun)
+  };
+}
+
+function itemMatchesActionStreamTags(item, selectedTags) {
+  if (!selectedTags.length) {
+    return true;
+  }
+  const keys = new Set((item.tags || []).map((tag) => tag.key));
+  return selectedTags.some((tag) => keys.has(tag));
+}
+
+function filterActionStreamForkRunsByTags(runs, selectedTags) {
+  if (!selectedTags.length) {
+    return runs;
+  }
+  return runs
+    .map((run) => {
+      const runMatches = itemMatchesActionStreamTags(run, selectedTags);
+      if (runMatches) {
+        return run;
+      }
+      const matchingEvents = (run.events || []).filter((event) => itemMatchesActionStreamTags(event, selectedTags));
+      if (!matchingEvents.length) {
+        return null;
+      }
+      return {
+        ...run,
+        events: matchingEvents,
+        eventCount: matchingEvents.length
+      };
+    })
+    .filter(Boolean);
+}
+
+function actionStreamAvailableTags(items, forkRuns) {
+  const tagsByKey = new Map();
+  const addTags = (tags) => {
+    for (const tag of tags || []) {
+      if (!tag?.key) {
+        continue;
+      }
+      const existing = tagsByKey.get(tag.key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        tagsByKey.set(tag.key, {
+          key: tag.key,
+          label: tag.label || tag.key,
+          tone: tag.tone || 'neutral',
+          count: 1
+        });
+      }
+    }
+  };
+
+  items.forEach((item) => addTags(item.tags));
+  forkRuns.forEach((run) => {
+    addTags(run.tags);
+    (run.events || []).forEach((event) => addTags(event.tags));
+  });
+
+  return Array.from(tagsByKey.values())
+    .sort((left, right) => {
+      if (right.count !== left.count) {
+        return right.count - left.count;
+      }
+      return left.label.localeCompare(right.label);
+    });
+}
+
 const ACTION_STREAM_EXCLUDED_LIFE_KINDS = new Set([
   'no_visible_delivery_observed',
   'presence_tick_evaluated',
@@ -2474,17 +2690,33 @@ function createXiaoniActivityPersistence({
     const timeWindow = resolveTimeWindow(input);
     const limit = clampLimit(input.limit, 80, 200);
     const focusedSliceId = focusedLlmSliceIdFromInput(input);
+    const selectedTags = selectedActionStreamTagKeys(input);
+    const feedLimit = selectedTags.length ? Math.max(limit * 3, 300) : limit;
     const feed = await getXiaoniActivityFeed({
       ...input,
-      limit,
+      limit: feedLimit,
+      scanLimit: selectedTags.length ? feedLimit : input.scanLimit || input.scan_limit,
       actionStreamProjection: true
     }, config);
     const feedActionItems = feed.items.filter(isPrimaryActionStreamItem);
-    const items = dedupeFeedItems(feedActionItems)
+    const decoratedItems = dedupeFeedItems(feedActionItems)
       .filter((item) => item.timestamp)
       .filter((item) => itemMatchesTimeWindow(item, timeWindow))
+      .map(decorateActionStreamItem);
+    const compressionForkRuns = (feed.compressionForkTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
+    const imageVisionForkRuns = (feed.imageVisionForkTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
+    const availableTags = actionStreamAvailableTags(decoratedItems, [
+      ...compressionForkRuns,
+      ...imageVisionForkRuns
+    ]);
+    const items = decoratedItems
+      .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, limit);
+    const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
+    const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     let focusedItem = null;
     if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !items.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
@@ -2495,33 +2727,45 @@ function createXiaoniActivityPersistence({
       }, config).catch(() => []);
       const focusedRow = Array.isArray(focusedRows) ? focusedRows[0] : null;
       if (focusedRow) {
-        const summarized = summarizeLlmRequestSlice(focusedRow);
-        focusedItem = {
-          ...summarized,
-          metadata: {
-            ...summarized.metadata,
-            focused: true
-          }
-        };
+        const summarized = decorateActionStreamItem(summarizeLlmRequestSlice(focusedRow));
+        if (itemMatchesActionStreamTags(summarized, selectedTags)) {
+          focusedItem = {
+            ...summarized,
+            metadata: {
+              ...summarized.metadata,
+              focused: true
+            }
+          };
+        }
       }
     }
     const normalizedItems = dedupeFeedItems(focusedItem ? [...items, focusedItem] : items)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .map(normalizeActionStreamItem);
+      .map((item) => item.tags ? item : decorateActionStreamItem(item));
 
     return {
       identityKey: feed.identityKey,
       generatedAt: feed.generatedAt,
       streamKind: 'xiaoni_action_stream',
-      filters: feed.filters,
+      filters: {
+        ...feed.filters,
+        tags: selectedTags
+      },
+      availableTags,
       current: {
         ...normalizeActionStreamCurrent(feed.current),
         latestActivityAt: items[0]?.timestamp || null
       },
       focusedEventId: focusedItem?.id || null,
       items: normalizedItems,
-      compressionForkTimeline: feed.compressionForkTimeline || { runs: [] },
-      imageVisionForkTimeline: feed.imageVisionForkTimeline || { runs: [] }
+      compressionForkTimeline: {
+        ...(feed.compressionForkTimeline || {}),
+        runs: filteredCompressionForkRuns
+      },
+      imageVisionForkTimeline: {
+        ...(feed.imageVisionForkTimeline || {}),
+        runs: filteredImageVisionForkRuns
+      }
     };
   }
 
