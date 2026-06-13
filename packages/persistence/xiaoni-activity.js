@@ -1453,6 +1453,30 @@ function buildImageVisionForkTimeline(mediaAssets) {
   return { runs: normalizeValue(runs) };
 }
 
+function imageVisionForkSliceIdsFromTimeline(timeline) {
+  const sliceIds = new Set();
+  for (const run of Array.isArray(timeline?.runs) ? timeline.runs : []) {
+    for (const event of Array.isArray(run?.events) ? run.events : []) {
+      const sliceId = firstString(event?.metadata?.llmRequestSliceId, event?.metadata?.llm_request_slice_id);
+      if (sliceId) {
+        sliceIds.add(sliceId);
+      }
+    }
+  }
+  return sliceIds;
+}
+
+function attachImageVisionForkTokenMetadata(timeline, tokenSummaryBySliceId) {
+  return {
+    ...timeline,
+    runs: (Array.isArray(timeline?.runs) ? timeline.runs : []).map((run) => ({
+      ...run,
+      events: (Array.isArray(run?.events) ? run.events : [])
+        .map((event) => attachLlmTokenMetadata(event, tokenSummaryBySliceId))
+    }))
+  };
+}
+
 function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
@@ -2703,6 +2727,7 @@ function createXiaoniActivityPersistence({
       let normalizedLlmRequestSliceRows = Array.isArray(llmRequestSliceRows)
         ? llmRequestSliceRows
         : [];
+      const imageVisionForkTimeline = buildImageVisionForkTimeline(mediaAssets);
       if (actionStreamProjection && typeof listLlmRequestSlices === 'function') {
         const knownSliceIds = new Set(
           normalizedLlmRequestSliceRows
@@ -2716,14 +2741,27 @@ function createXiaoniActivityPersistence({
         const missingSliceIds = Array.from(referencedSliceIds)
           .filter((sliceId) => !knownSliceIds.has(sliceId))
           .slice(0, perSourceLimit);
-        if (missingSliceIds.length > 0) {
-          const focusedSliceRows = await Promise.all(missingSliceIds.map((sliceId) => listLlmRequestSlices({
-            sqlAdapter: sql,
-            identityKey,
-            sliceId,
-            summaryOnly: true,
-            limit: 1
-          }, config).catch(() => [])));
+        const imageVisionForkSliceIds = Array.from(imageVisionForkSliceIdsFromTimeline(imageVisionForkTimeline))
+          .filter((sliceId) => !knownSliceIds.has(sliceId))
+          .slice(0, perSourceLimit);
+        if (missingSliceIds.length > 0 || imageVisionForkSliceIds.length > 0) {
+          const focusedSliceRows = await Promise.all([
+            ...missingSliceIds.map((sliceId) => listLlmRequestSlices({
+              sqlAdapter: sql,
+              identityKey,
+              sliceId,
+              summaryOnly: true,
+              limit: 1
+            }, config).catch(() => [])),
+            ...imageVisionForkSliceIds.map((sliceId) => listLlmRequestSlices({
+              sqlAdapter: sql,
+              identityKey,
+              sliceId,
+              sourceKind: 'image_vision_fork',
+              summaryOnly: true,
+              limit: 1
+            }, config).catch(() => []))
+          ]);
           normalizedLlmRequestSliceRows = dedupeFeedItems([
             ...normalizedLlmRequestSliceRows.map((row) => ({
               id: firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id),
@@ -2745,7 +2783,7 @@ function createXiaoniActivityPersistence({
           tokenSummaryBySliceId.set(tokenSummary.llmRequestSliceId, tokenSummary);
         }
       });
-      const imageVisionForkTimeline = buildImageVisionForkTimeline(mediaAssets);
+      const imageVisionForkTimelineWithTokens = attachImageVisionForkTokenMetadata(imageVisionForkTimeline, tokenSummaryBySliceId);
 
       const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
@@ -2815,7 +2853,7 @@ function createXiaoniActivityPersistence({
         },
         items: normalizeValue(items),
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
-        imageVisionForkTimeline: normalizeValue(imageVisionForkTimeline)
+        imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithTokens)
       };
     } finally {
       await sql.close();
