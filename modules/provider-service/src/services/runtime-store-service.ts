@@ -2,6 +2,7 @@ import {
   createSqlAdapter,
   enqueueAgentQueueMessage,
   ensureAgentRuntimeSchema,
+  ensureQqAttentionLeaseSchema,
   logRuntimeTimelineEvent,
   recordLlmRequestSlice,
   attachConversationIdToRuntimeTrace,
@@ -209,6 +210,9 @@ export class RuntimeStoreService {
 
   private async ensureSchema() {
     await ensureAgentRuntimeSchema({
+      sqlAdapter: this.sql
+    }, databaseConfig);
+    await ensureQqAttentionLeaseSchema({
       sqlAdapter: this.sql
     }, databaseConfig);
   }

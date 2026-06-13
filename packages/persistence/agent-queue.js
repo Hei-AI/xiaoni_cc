@@ -93,6 +93,10 @@ function mapClaimedRun(input) {
     .map((row) => parseJson(row.payload, {}).phoneNotification)
     .filter(Boolean);
   const latestPhoneNotification = phoneNotifications[phoneNotifications.length - 1] || latestPayload.phoneNotification;
+  const systemReminders = input.rows
+    .map((row) => parseJson(row.payload, {}).systemReminder)
+    .filter(Boolean);
+  const latestSystemReminder = systemReminders[systemReminders.length - 1] || latestPayload.systemReminder;
   const phoneNotification = latestPhoneNotification
     ? {
         ...latestPhoneNotification,
@@ -122,6 +126,7 @@ function mapClaimedRun(input) {
     inboundContext: latest.inboundContext,
     messages,
     ...(phoneNotification ? { phoneNotification } : {}),
+    ...(latestSystemReminder ? { systemReminder: latestSystemReminder } : {}),
     ...(latestPayload.consciousnessTick ? { consciousnessTick: latestPayload.consciousnessTick } : {}),
     ...(latestPayload.presenceTick ? { presenceTick: latestPayload.presenceTick } : {}),
     ...(latestPayload.selfContinuation ? { selfContinuation: latestPayload.selfContinuation } : {})
@@ -242,11 +247,12 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
             FROM agent_queue_messages
             WHERE status = 'pending'
               AND session_key = ?
+              AND source = ?
               AND available_at <= NOW()
             ORDER BY available_at ASC, id ASC
             FOR UPDATE
           `,
-          [candidate.session_key]
+          [candidate.session_key, candidate.source]
         );
 
         if (rows.length === 0) {

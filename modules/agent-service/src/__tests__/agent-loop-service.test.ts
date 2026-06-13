@@ -1380,6 +1380,50 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
   assert.match(rendered, /该压缩记忆了。/);
 });
 
+test('buildInitialInput renders attention lease reminders from the prompt template', () => {
+  const legacyReminderText = 'legacy attention body should not enter model input';
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = legacyReminderText;
+  payload.rawBody = legacyReminderText;
+  payload.rawPayload = {
+    kind: 'attention_lease_reminder',
+    reason: 'attention_lease',
+    chat_type: 'group',
+    peer_id: '101',
+    peer_name: 'Test Group',
+    unread_delta: 3,
+    direct_mentions: 1,
+    session_key: 'qq:group:101',
+    trace_id: 'trace-should-stay-hidden'
+  };
+  payload.systemReminder = {
+    reminder: legacyReminderText,
+    reason: 'attention_lease',
+    createdAt: '2026-06-12T14:51:11.000Z'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: legacyReminderText
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.match(rendered, /<system_reminder>/);
+  assert.match(rendered, /意识牵连：正在消退的注意力残留/);
+  assert.match(rendered, /Test Group/);
+  assert.match(rendered, /3 条新动静/);
+  assert.match(rendered, /有人 @ 了你 1 次/);
+  assert.match(rendered, /focus_group 101/);
+  assert.doesNotMatch(rendered, new RegExp(legacyReminderText));
+  assert.doesNotMatch(rendered, /问问@Bob 今天玩什么/);
+  assert.doesNotMatch(rendered, /qq:group:101|trace-should-stay-hidden/);
+});
+
 test('buildInitialInput renders completed image tasks as task notifications', () => {
   const payload = createQueuePayload();
   payload.source = 'image_task_notification';

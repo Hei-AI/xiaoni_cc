@@ -2460,7 +2460,7 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
-const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:|视线边缘：状态栏闪烁|视觉感知：造物出炉))/i;
+const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:|视线边缘：状态栏闪烁|意识牵连：正在消退的注意力残留|视觉感知：造物出炉))/i;
 
 function isHistoricalNotificationSnapshot(
   item: ConversationTranscriptItem,
@@ -2639,6 +2639,43 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
   return formatSystemReminderBlock(body);
 }
 
+function buildAttentionLeaseCueLines(queueMessage: QueueMessageRecord['payload']) {
+  const rawPayload = queueMessage.rawPayload || {};
+  const unreadDelta = Number(rawPayload.unread_delta ?? rawPayload.unreadDelta ?? 1) || 1;
+  const directMentions = Number(rawPayload.direct_mentions ?? rawPayload.directMentions ?? 0) || 0;
+  const targetLine = queueMessage.chatType === 'direct'
+    ? `- 查看目标: focus_private ${queueMessage.peerId}`
+    : `- 查看目标: focus_group ${queueMessage.peerId}`;
+  const mentionLine = directMentions > 0
+    ? (queueMessage.chatType === 'direct'
+        ? `- 状态栏显示有人私聊了你 ${directMentions} 次`
+        : `- 状态栏显示有人 @ 了你 ${directMentions} 次`)
+    : '- 没有明确喊你的信息，只是这个会话有新动静';
+  return {
+    unreadDelta,
+    cueLines: [
+      `- 新未读 ${unreadDelta} 条`,
+      mentionLine,
+      targetLine
+    ].join('\n')
+  };
+}
+
+function renderAttentionLeaseReminder(queueMessage: QueueMessageRecord['payload']) {
+  const rawPayload = queueMessage.rawPayload || {};
+  const chatLabel = typeof rawPayload.chat_label === 'string' && rawPayload.chat_label.trim()
+    ? rawPayload.chat_label.trim()
+    : queueMessage.peerName
+      ? `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerName}`
+      : `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerId}`;
+  const { unreadDelta, cueLines } = buildAttentionLeaseCueLines(queueMessage);
+  return formatSystemReminderBlock(renderPromptSnippet('attention_lease_reminder.md', {
+    CHAT_LABEL: chatLabel,
+    UNREAD_DELTA: unreadDelta,
+    PERIPHERAL_CUE_LINES: cueLines
+  }));
+}
+
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
   const reminder = typeof queueMessage.systemReminder?.reminder === 'string' && queueMessage.systemReminder.reminder.trim()
     ? queueMessage.systemReminder.reminder.trim()
@@ -2649,6 +2686,9 @@ function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
 }
 
 function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
+  if ((queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'attention_lease') {
+    return renderAttentionLeaseReminder(queueMessage);
+  }
   const reminder = getSystemReminderText(queueMessage);
   return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
 }

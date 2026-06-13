@@ -39,6 +39,9 @@ import {
   listQqUsageThreadWindow,
   getQqUsageUnreadSummary,
   markQqUsageThreadRead,
+  renewQqAttentionLease,
+  closeQqAttentionLease,
+  ensureQqAttentionLeaseSchema,
   listFeedbackReflections,
   recordRuntimeIdentityActivationTrace,
   listSelfEvolutionStates,
@@ -1225,6 +1228,7 @@ export class RuntimeStore {
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
     await ensureAgentMemorySchema(databaseConfig);
+    await ensureQqAttentionLeaseSchema({ sqlAdapter: this.sql }, databaseConfig);
     await ensureAgentLifeState('xiaoni', databaseConfig);
     await this.refreshXiaoniLifeProjection(new Date()).catch((error) => {
       moduleLogger.warn('Failed to refresh Xiaoni life projection during startup', {
@@ -2300,6 +2304,34 @@ export class RuntimeStore {
     const accountId = String(latest.account_id || agentConfig.botAccountId || '1129974489');
     const now = new Date();
 
+    await renewQqAttentionLease({
+      threadKey: result.threadKey,
+      action,
+      chatType,
+      peerId,
+      peerName: latest.peer_name || null,
+      accountId,
+      latestMessageId: result.latestMessageId,
+      traceId: context.traceId || null,
+      runId: context.runId || null,
+      batchId: context.batchId || null,
+      toolCallId: context.toolCallId || null,
+      metadata: {
+        source: 'qq_usage',
+        action,
+        cursor_anchor: result.cursorAnchor || null,
+        earliest_message_id: result.earliestMessageId,
+        latest_message_id: result.latestMessageId,
+        window_unread_count: result.windowUnreadCount
+      }
+    }, databaseConfig).catch((error) => {
+      moduleLogger.warn('Failed to renew QQ attention lease', {
+        threadKey: result.threadKey,
+        action,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+
     await this.recordLifeEventSafe({
       identityKey: 'xiaoni',
       eventKind: 'surface_visit',
@@ -2380,9 +2412,21 @@ export class RuntimeStore {
   }
 
   async markQqUsageThreadRead(params: { threadKey?: string | null }): Promise<{ threadKey: string | null; clearedCount: number }> {
-    return markQqUsageThreadRead({
+    const result = await markQqUsageThreadRead({
       threadKey: params.threadKey || null
     }, databaseConfig);
+    if (result.threadKey) {
+      await closeQqAttentionLease({
+        threadKey: result.threadKey,
+        reason: 'put_away'
+      }, databaseConfig).catch((error) => {
+        moduleLogger.warn('Failed to close QQ attention lease', {
+          threadKey: result.threadKey,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+    return result;
   }
 
   async listRelevantFeedbackReflections(params: {

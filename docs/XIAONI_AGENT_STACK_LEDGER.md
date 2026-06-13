@@ -135,10 +135,18 @@ async function runXiaoniRuntime() {
 inbox，但不会写 `phone_notification` 到 Notify Bucket，因此不会因为这条 QQ 消息
 唤醒主 loop。`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关。
 
+`attention_lease` 是 QQ inbox 之上的工程侧短期余光窗口，不是长期订阅。只有
+`$qq-usage` 明确聚焦、滚动或跳转到某个会话后，才可续期该 `session_key` 的
+attention lease；`open_inbox` 只表示看列表，不给所有会话开 lease。窗口内该会话
+有新入站消息时，工程只可按 lease 状态 enqueue bodyless `system_reminder` 摘要；
+普通新消息不能续期，QQ 正文仍只能由模型再次主动使用 `$qq-usage` 读取。
+`is_enabled=0` 必须同时禁止 `phone_notification` 和 `attention_lease` reminder。
+
 ### Prompt-Facing Runtime Input
 
-`phone_notification`、`image_task_notification`、普通 `system_reminder`、无 notify
-场景追加的 `self_continuation` 都是当前输入，不是 QQ 正文，也不是 assistant 历史。
+`phone_notification`、`attention_lease`、`image_task_notification`、普通
+`system_reminder`、无 notify 场景追加的 `self_continuation` 都是当前输入，不是
+QQ 正文，也不是 assistant 历史。
 它们可以作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，但不得写入
 `conversation_items` 或 `conversations.user_message`。
 

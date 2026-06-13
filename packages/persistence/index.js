@@ -22,6 +22,7 @@ const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
 const { createQqUsagePersistence } = require('./qq-usage');
+const { createQqAttentionLeasePersistence } = require('./qq-attention-lease');
 const { createAgentRuntimeControlPersistence } = require('./agent-runtime-control');
 const {
   STORAGE_TIMEZONE,
@@ -481,6 +482,11 @@ const qqUsagePersistence = createQqUsagePersistence({
   getPrismaClient
 });
 
+const qqAttentionLeasePersistence = createQqAttentionLeasePersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const agentRuntimeControlPersistence = createAgentRuntimeControlPersistence({
   createSqlAdapter
 });
@@ -520,5 +526,6 @@ module.exports = {
   ...relationshipTrustPersistence,
   ...agentMemoryPersistence,
   ...qqUsagePersistence,
+  ...qqAttentionLeasePersistence,
   ...agentRuntimeControlPersistence
 };

@@ -48,6 +48,61 @@ model AgentQueueMessage {
   @@map("agent_queue_messages")
 }
 
+model AgentQqAttentionLease {
+  id                       BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key             String    @default("xiaoni") @db.VarChar(191)
+  surface                  String    @default("qq") @db.VarChar(32)
+  session_key              String    @db.VarChar(191)
+  chat_type                String    @db.VarChar(16)
+  peer_id                  String    @db.VarChar(191)
+  peer_name                String?   @db.VarChar(255)
+  account_id               String    @db.VarChar(191)
+  status                   String    @default("active") @db.VarChar(32)
+  score                    Float     @default(0)
+  score_updated_at         DateTime  @db.Timestamp(3)
+  half_life_seconds        Int       @default(480)
+  last_focused_at          DateTime  @db.Timestamp(3)
+  last_seen_inbound_id     BigInt?   @db.BigInt
+  latest_window_inbound_id BigInt?   @db.BigInt
+  last_reminder_at         DateTime? @db.Timestamp(3)
+  last_reminder_inbound_id BigInt?   @db.BigInt
+  reminder_count           Int       @default(0)
+  expires_at               DateTime  @db.Timestamp(3)
+  closed_at                DateTime? @db.Timestamp(3)
+  close_reason             String?   @db.VarChar(64)
+  trace_id                 String?   @db.VarChar(128)
+  run_id                   String?   @db.VarChar(128)
+  batch_id                 String?   @db.VarChar(128)
+  tool_call_id             String?   @db.VarChar(191)
+  metadata                 Json      @default("{}")
+  created_at               DateTime  @default(now()) @db.Timestamp(3)
+  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+
+  @@unique([identity_key, surface, session_key], map: "uniq_agent_qq_attention_leases_identity_surface_session")
+  @@index([identity_key, status, expires_at, score_updated_at, id], map: "idx_agent_qq_attention_leases_active_expiry")
+  @@index([session_key, status, expires_at], map: "idx_agent_qq_attention_leases_session_status")
+  @@index([trace_id], map: "idx_agent_qq_attention_leases_trace")
+  @@map("agent_qq_attention_leases")
+}
+
+model AgentQqAttentionReminder {
+  id                 BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key       String   @default("xiaoni") @db.VarChar(191)
+  session_key        String   @db.VarChar(191)
+  inbound_message_id BigInt   @db.BigInt
+  queue_message_id   BigInt?  @db.BigInt
+  dedupe_key         String   @unique @db.VarChar(255)
+  attention_score    Float
+  reason             String   @db.VarChar(64)
+  metadata           Json     @default("{}")
+  created_at         DateTime @default(now()) @db.Timestamp(3)
+  updated_at         DateTime @updatedAt @db.Timestamp(3)
+
+  @@unique([identity_key, session_key, inbound_message_id], map: "uniq_agent_qq_attention_reminders_identity_session_inbound")
+  @@index([session_key, created_at, id], map: "idx_agent_qq_attention_reminders_session_created")
+  @@map("agent_qq_attention_reminders")
+}
+
 model AgentRecoverySession {
   id                                 BigInt    @id @default(autoincrement()) @db.BigInt
   identity_key                       String    @default("xiaoni") @db.VarChar(191)

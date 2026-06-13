@@ -1198,6 +1198,26 @@ export function markQqUsageThreadRead(
   input?: { threadKey?: string | null },
   config?: DatabaseUrlConfig
 ): Promise<{ threadKey: string | null; clearedCount: number }>;
+export function ensureQqAttentionLeaseSchema(
+  input?: { sqlAdapter?: SqlAdapter },
+  config?: DatabaseUrlConfig
+): Promise<void>;
+export function renewQqAttentionLease(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<Record<string, unknown> | null>;
+export function closeQqAttentionLease(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<{ closedCount: number }>;
+export function maybeCreateQqAttentionReminder(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<Record<string, unknown>>;
+export function markQqAttentionReminderQueued(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<Record<string, unknown> | null>;
 export function createFeedbackEpisode(input: FeedbackEpisodeInput, config?: DatabaseUrlConfig): Promise<any>;
 export function listFeedbackEpisodes(
   filters?: {

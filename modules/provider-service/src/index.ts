@@ -5,6 +5,8 @@ import { createHash, randomUUID } from 'crypto';
 import {
   ensureAgentMediaSchema,
   ensureIdentityLineageSchema,
+  maybeCreateQqAttentionReminder,
+  markQqAttentionReminderQueued,
   ensureSelfEvolutionSchema,
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
@@ -896,18 +898,6 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     wasMentioned: false
   });
 
-  if (!effectivePolicy.isEnabled) {
-    return {
-      accepted: false,
-      reason: 'receive_disabled' as const,
-      policy: {
-        ...effectivePolicy,
-        allowed: false,
-        reason: 'receive_disabled' as const
-      }
-    };
-  }
-
   const traceId = inboxService.createTraceId('napcat');
   const expandedMessage = await expandForwardSegments(message);
   const inboundContext = buildNapcatInboundContext({
@@ -946,6 +936,32 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     chatType: inboundContext.ChatType,
     wasMentioned: inboundContext.WasMentioned === true
   });
+
+  if (!effectivePolicy.isEnabled) {
+    const learning = await runContinuousLearningIfEnabled({
+      policyState: policy,
+      inboxEventId: result.event.id,
+      inboundContext,
+      traceId: result.traceId,
+      inboxOnly: isInboxOnlyInboundMessage(result.event)
+    });
+    return {
+      accepted: true,
+      reason: 'receive_disabled' as const,
+      policy: {
+        ...effectivePolicy,
+        allowed: false,
+        reason: 'receive_disabled' as const
+      },
+      autoReply: {
+        attempted: false,
+        queued: false,
+        reason: 'receive_disabled'
+      },
+      learning,
+      ...result
+    };
+  }
 
   const autoReply = await processAutoReply({
     inboxEvent: result.event,
@@ -1055,9 +1071,102 @@ async function processAutoReply(params: {
     traceId: params.traceId,
     source: params.source
   }, runtimeStoreService);
+  const attentionReminder = await processAttentionLeaseReminder({
+    inboxEvent: params.inboxEvent,
+    traceId: params.traceId,
+    policyState: policy
+  });
   return {
     ...queueResult,
+    attentionReminder,
     participationDecision
+  };
+}
+
+async function processAttentionLeaseReminder(params: {
+  inboxEvent: Awaited<ReturnType<InboundInboxService['ingestIncomingMessage']>>['event'];
+  traceId: string;
+  policyState?: Awaited<ReturnType<ChatPolicyService['getPolicyState']>>;
+}) {
+  if (params.policyState?.isEnabled === false) {
+    return {
+      attempted: false,
+      queued: false,
+      reason: 'receive_disabled'
+    };
+  }
+  const prepared = await maybeCreateQqAttentionReminder({
+    inboundMessageId: params.inboxEvent.id,
+    policyState: params.policyState || null
+  }).catch(async (error: unknown) => {
+    await runtimeStoreService.logTimelineEvent({
+      traceId: params.traceId,
+      eventType: 'system_reminder',
+      eventName: 'attention_lease.evaluate',
+      eventPhase: 'error',
+      metadata: {
+        session_key: params.inboxEvent.sessionKey,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
+    return { shouldEnqueue: false, reason: 'error' };
+  }) as {
+    shouldEnqueue?: boolean;
+    reason?: string;
+    reminderId?: number;
+    score?: number;
+    message?: Parameters<typeof runtimeStoreService.enqueueSemanticMessage>[0];
+  };
+
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'system_reminder',
+    eventName: 'attention_lease.evaluate',
+    eventPhase: prepared.shouldEnqueue ? 'end' : 'skip',
+    metadata: {
+      session_key: params.inboxEvent.sessionKey,
+      reason: prepared.reason || null,
+      score: prepared.score ?? null
+    }
+  });
+
+  if (!prepared.shouldEnqueue || !prepared.message || !prepared.reminderId) {
+    return {
+      attempted: true,
+      queued: false,
+      reason: prepared.reason || 'not_eligible'
+    };
+  }
+
+  const queueResult = await runtimeStoreService.enqueueSemanticMessage(prepared.message);
+  await markQqAttentionReminderQueued({
+    reminderId: prepared.reminderId,
+    queueMessageId: queueResult.queueId
+  }).catch((error: unknown) => {
+    moduleLogger.warn('Failed to mark QQ attention reminder queued', {
+      reminderId: prepared.reminderId,
+      queueId: queueResult.queueId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  });
+  await runtimeStoreService.logTimelineEvent({
+    traceId: params.traceId,
+    eventType: 'system_reminder',
+    eventName: 'attention_lease.enqueue',
+    eventPhase: 'end',
+    metadata: {
+      session_key: params.inboxEvent.sessionKey,
+      queue_id: queueResult.queueId,
+      queue_status: queueResult.status,
+      reason: prepared.reason || 'attention_lease'
+    }
+  });
+  return {
+    attempted: true,
+    queued: true,
+    queueId: queueResult.queueId,
+    queueStatus: queueResult.status,
+    reason: prepared.reason || 'attention_lease'
   };
 }
 
@@ -1884,21 +1993,6 @@ app.post('/api/inbox/simulate', async (req, res) => {
       wasMentioned: finalizedContext.WasMentioned === true
     });
 
-    if (!effectivePolicy.isEnabled) {
-      return res.json({
-        success: true,
-        data: {
-          accepted: false,
-          reason: 'receive_disabled',
-          policy: {
-            ...effectivePolicy,
-            allowed: false,
-            reason: 'receive_disabled'
-          }
-        }
-      });
-    }
-
     await prepareInboundMediaAssets(finalizedContext);
     const result = await inboxService.ingestIncomingMessage({
       inboundContext: finalizedContext,
@@ -1917,6 +2011,36 @@ app.post('/api/inbox/simulate', async (req, res) => {
       groupId: targets.groupId
     });
     recordRelationshipLedgerAsync(finalizedContext, result.event.id);
+
+    if (!effectivePolicy.isEnabled) {
+      const learning = await runContinuousLearningIfEnabled({
+        policyState: policy,
+        inboxEventId: result.event.id,
+        inboundContext: finalizedContext,
+        traceId: result.traceId,
+        inboxOnly: isInboxOnlyInboundMessage(result.event)
+      });
+      return res.json({
+        success: true,
+        data: {
+          accepted: true,
+          reason: 'receive_disabled',
+          policy: {
+            ...effectivePolicy,
+            allowed: false,
+            reason: 'receive_disabled'
+          },
+          autoReply: {
+            attempted: false,
+            queued: false,
+            reason: 'receive_disabled'
+          },
+          learning,
+          ...result
+        }
+      });
+    }
+
     const rawPayload = (req.body?.rawPayload && typeof req.body.rawPayload === 'object' && !Array.isArray(req.body.rawPayload))
       ? req.body.rawPayload as Record<string, unknown>
       : { simulated: true, inboundContext: finalizedContext };

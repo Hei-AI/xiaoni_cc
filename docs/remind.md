@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | `core_memory_pressure` | `docs/xiaoni_prompt/core_memory_pressure_reminder.md` | 上下文窗口触发强制压缩时，作为最高优先级当前输入。 |
 | `phone_notification` | `docs/xiaoni_prompt/phone_notification_reminder.md` | Notify Bucket pick 到 QQ 状态栏通知时。 |
+| `attention_lease` | `docs/xiaoni_prompt/attention_lease_reminder.md` | `$qq-usage` 主动查看某个 QQ 会话后，工程侧短期余光窗口内该会话又有新未读时。 |
 | `image_task_notification` | `docs/xiaoni_prompt/image_task_notification.md` | 图片任务完成后由 task worker 写入 completion notify，再被主 loop pick。 |
 | `self_continuation` | `docs/xiaoni_prompt/self_continuation_reminder.md` | 没有 notify，且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时。 |
 | `system_reminder_fallback` | `docs/xiaoni_prompt/system_reminder_fallback.md` | 工程传入空白普通 system reminder 时的兜底正文。 |
@@ -34,6 +35,11 @@
 - runtime 强制休息没有原始 tool call，醒来后使用 runtime input `<system_reminder>`；不要伪造 `function_call_output`。
 - 自然文本型 tool callback 可以带同样的东八区时间前缀；结构化 JSON callback 必须继续保持合法 JSON。`exec_command.codex_output` 是终端 transcript，必须保持原样，不加该前缀。
 - `phone_notification` 只表示 QQ 状态栏余光；QQ 正文仍必须由模型主动通过 `$qq-usage` 读取。
+- `attention_lease` 是 `$qq-usage` 主动查看某个 QQ 会话后的短期余光提醒；它仍是
+  普通 `system_reminder` runtime input，不是 QQ 正文，不写 `conversation_items`。
+  模板变量只能使用会话名、未读数量、@/私聊次数和可执行的 `$qq-usage` 目标线索；
+  禁止放正文、preview、topic、sender latest body、`rawBody`、`bodyForAgent`、
+  `sessionKey`、`threadKey`、`queueId`、`traceId` 或 `runId`。
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
 - `<CAPABILITIES>` 是能力成本表，不是 reminder。
 - `<STATE>` 是状态感知，不是 reminder；它只保留小腻能体感理解的状态值，工程事件名留在代码侧。

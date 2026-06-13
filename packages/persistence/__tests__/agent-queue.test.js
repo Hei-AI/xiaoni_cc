@@ -65,7 +65,7 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
         return [rows[0]];
       }
       if (sql.includes('session_key = ?')) {
-        assert.deepEqual(params, ['qq:group:100']);
+        assert.deepEqual(params, ['qq:group:100', 'phone_notification']);
         return rows;
       }
       throw new Error(`Unexpected query: ${sql}`);
@@ -112,4 +112,57 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   assert.equal(consumedResult.worker_id, 'worker-1');
   assert.equal(typeof consumedResult.consumed_at, 'string');
   assert.deepEqual(executes[0].params.slice(-2), [10, 11]);
+});
+
+test('claimNextAgentQueueMessage does not batch different sources for one session', async () => {
+  const rows = [
+    createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10' }),
+    createQueueRow({
+      id: 11,
+      source: 'system_reminder',
+      message_sid: 'sid-11',
+      body_for_agent: '余光提醒',
+      payload: JSON.stringify({
+        messageId: 11,
+        rawBody: '余光提醒',
+        commandBody: '',
+        receivedAt: '2026-06-09T00:00:00.000Z',
+        systemReminder: {
+          reminder: '余光提醒',
+          reason: 'attention_lease',
+          createdAt: '2026-06-09T00:00:00.000Z'
+        }
+      })
+    })
+  ];
+  const tx = {
+    query: async (sql, params = []) => {
+      if (sql.includes('LIMIT 1') && sql.includes('SKIP LOCKED')) {
+        return [rows[0]];
+      }
+      if (sql.includes('session_key = ?')) {
+        assert.deepEqual(params, ['qq:group:100', 'phone_notification']);
+        return [rows[0]];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    insert: async () => ({ insertId: 1, affectedRows: 1 }),
+    execute: async () => 1
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => {
+      throw new Error('Prisma should not be used for claim');
+    },
+    createSqlAdapter: () => ({
+      withTransaction: async (callback) => callback(tx),
+      close: async () => undefined
+    })
+  });
+
+  const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
+
+  assert.ok(claimed);
+  assert.deepEqual(claimed.queueMessageIds, [10]);
+  assert.equal(claimed.payload.source, 'phone_notification');
+  assert.equal(claimed.payload.systemReminder, undefined);
 });
