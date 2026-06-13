@@ -193,6 +193,7 @@ test('listAgentLifeEvents can read oldest-first batches for projection replay', 
 
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
   assert.equal(rows[0].id, '1');
+  assert.equal(rows[0].occurredAt, '2026-05-31T00:00:00.000+08:00');
 });
 
 test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window', async () => {
@@ -224,7 +225,7 @@ test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window',
 
   const activeWindow = await persistence.getActiveAgentRecoveryWindow({
     identityKey: 'xiaoni',
-    now: new Date('2026-06-06T12:36:51.000Z')
+    now: new Date('2026-06-06T12:36:51.000+08:00')
   });
 
   assert.deepEqual(findPayload.where, {
@@ -233,7 +234,8 @@ test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window',
   });
   assert.equal(activeWindow.eventId, '9');
   assert.equal(activeWindow.eventKind, 'sleep_period');
-  assert.equal(activeWindow.recoverUntil, '2026-06-06T12:39:51.000Z');
+  assert.equal(activeWindow.occurredAt, '2026-06-06T12:34:51.000+08:00');
+  assert.equal(activeWindow.recoverUntil, '2026-06-06T12:39:51.000+08:00');
   assert.equal(activeWindow.remainingMs, 3 * 60 * 1000);
   assert.equal(activeWindow.reason, '先休息一下');
   assert.equal(activeWindow.traceId, 'trace-rest');
@@ -258,7 +260,7 @@ test('getActiveAgentRecoveryWindow ignores expired recovery events', async () =>
   });
 
   const activeWindow = await persistence.getActiveAgentRecoveryWindow({
-    now: new Date('2026-06-06T12:40:00.000Z')
+    now: new Date('2026-06-06T12:40:00.000+08:00')
   });
 
   assert.equal(activeWindow, null);
@@ -295,13 +297,13 @@ test('getLatestAgentRecoveryWindow returns expired window and continuation statu
   });
 
   const latestWindow = await persistence.getLatestAgentRecoveryWindow({
-    now: new Date('2026-06-06T12:40:00.000Z')
+    now: new Date('2026-06-06T12:40:00.000+08:00')
   });
 
   assert.equal(latestWindow.eventId, '11');
   assert.equal(latestWindow.active, false);
   assert.equal(latestWindow.remainingMs, 0);
-  assert.equal(latestWindow.recoverUntil, '2026-06-06T12:39:51.000Z');
+  assert.equal(latestWindow.recoverUntil, '2026-06-06T12:39:51.000+08:00');
   assert.equal(latestWindow.continuationDedupeKey, 'self_continuation:recovery:11');
   assert.equal(latestWindow.continuationQueued, false);
   assert.deepEqual(queueLookupPayload.where, {
@@ -331,7 +333,7 @@ test('getLatestAgentRecoveryWindow marks existing continuation queue', async () 
   });
 
   const latestWindow = await persistence.getLatestAgentRecoveryWindow({
-    now: new Date('2026-06-06T12:40:00.000Z')
+    now: new Date('2026-06-06T12:40:00.000+08:00')
   });
 
   assert.equal(latestWindow.continuationQueued, true);

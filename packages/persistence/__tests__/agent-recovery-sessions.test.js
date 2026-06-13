@@ -236,7 +236,7 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
   });
   assert.equal(updated.wakeCallCount, 3);
   assert.equal(updated.lastWakeCountedQueueMessageId, 45);
-  assert.equal(updated.clockDeferredAt, '2026-06-13T01:30:00.000Z');
+  assert.equal(updated.clockDeferredAt, '2026-06-13 09:30:00.000');
 
   const finalized = await persistence.finalizeAgentRecoverySession({
     id: created.id,
@@ -255,4 +255,64 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
   assert.equal(await persistence.getActiveAgentRecoverySession(), null);
 
   assert.ok(queries.some((entry) => entry.statement.includes('INSERT INTO agent_recovery_sessions')));
+});
+
+test('agent recovery sessions serialize Date timestamp parameters as storage wall clock', async () => {
+  const queryCalls = [];
+  const adapter = {
+    query: async (statement, params = []) => {
+      queryCalls.push({ statement, params });
+      if (statement.includes('pg_advisory_lock') || statement.includes('pg_advisory_unlock')) {
+        return [];
+      }
+      if (statement.includes('SELECT COALESCE(MAX(id), 0) AS id FROM agent_queue_messages')) {
+        return [{ id: 0n }];
+      }
+      if (statement.includes('INSERT INTO agent_recovery_sessions')) {
+        return [createSessionRow({
+          started_at: params[6],
+          clock_due_at: params[5],
+          planned_natural_wake_at: params[24],
+          hard_wake_at: params[25]
+        })];
+      }
+      if (statement.includes('SET status = ?')) {
+        return [createSessionRow({
+          status: params[0],
+          wake_cause: params[1],
+          ended_at: params[2],
+          clock_fired_at: params[3]
+        })];
+      }
+      throw new Error(`Unexpected query: ${statement}`);
+    },
+    execute: async () => 0,
+    withTransaction: async (callback) => callback(adapter)
+  };
+  const persistence = createAgentRecoverySessionPersistence({ sqlAdapter: adapter });
+  const startedAt = new Date('2026-06-13T05:52:16.209Z');
+  const endedAt = new Date('2026-06-13T08:52:16.209Z');
+
+  await persistence.createAgentRecoverySession({
+    startedAt,
+    clockDueAt: new Date('2026-06-13T06:52:16.209Z'),
+    plannedNaturalWakeAt: new Date('2026-06-13T07:52:16.209Z'),
+    hardWakeAt: endedAt
+  });
+  await persistence.finalizeAgentRecoverySession({
+    id: 88,
+    wakeCause: 'hard_cap',
+    endedAt,
+    clockFiredAt: endedAt,
+    result: { sleep_minutes: 180 }
+  });
+
+  const insertCall = queryCalls.find((entry) => entry.statement.includes('INSERT INTO agent_recovery_sessions'));
+  const finalizeCall = queryCalls.find((entry) => entry.statement.includes('SET status = ?'));
+  assert.equal(insertCall.params[6], '2026-06-13 13:52:16.209');
+  assert.equal(insertCall.params[5], '2026-06-13 14:52:16.209');
+  assert.equal(insertCall.params[24], '2026-06-13 15:52:16.209');
+  assert.equal(insertCall.params[25], '2026-06-13 16:52:16.209');
+  assert.equal(finalizeCall.params[2], '2026-06-13 16:52:16.209');
+  assert.equal(finalizeCall.params[3], '2026-06-13 16:52:16.209');
 });

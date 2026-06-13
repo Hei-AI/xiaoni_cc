@@ -163,6 +163,16 @@ function formatEnergy(session: RecoverySession | null | undefined) {
   return formatEnergyValue(session.currentEnergy, session.maxEnergy);
 }
 
+function formatDurationMinutes(minutes: number) {
+  const normalized = Math.max(0, Math.round(minutes));
+  if (normalized < 60) {
+    return `${normalized}m`;
+  }
+  const hours = Math.floor(normalized / 60);
+  const rest = normalized % 60;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
 function formatDuration(startedAt: string | null, endedAt: string | null) {
   if (!startedAt) {
     return '-';
@@ -173,12 +183,7 @@ function formatDuration(startedAt: string | null, endedAt: string | null) {
     return '-';
   }
   const minutes = Math.max(0, Math.round((ended - started) / 60000));
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+  return formatDurationMinutes(minutes);
 }
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {

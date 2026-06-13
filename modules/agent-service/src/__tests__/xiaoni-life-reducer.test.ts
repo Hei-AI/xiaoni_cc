@@ -6,6 +6,10 @@ import {
   XIAONI_LIFE_PROJECTION_VERSION
 } from '../services/xiaoni-life-reducer';
 
+function assertApprox(actual: number, expected: number, epsilon = 0.000001) {
+  assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} !== ${expected}`);
+}
+
 function event(overrides: Partial<AgentLifeEventProjection>): AgentLifeEventProjection {
   return {
     id: '1',
@@ -93,7 +97,7 @@ test('reduceXiaoniLifeState does not treat silence as boredom reset', () => {
   assert.doesNotMatch(result.explanation.summary, /无聊=|疲劳=|分享欲=|困倦压力=/);
 });
 
-test('action cost directly drives fatigue and rest or sleep restores it', () => {
+test('action debt contributes to fatigue while sleep event energy anchors recovery', () => {
   const now = new Date('2026-05-31T12:00:00.000Z');
   const tired = reduceXiaoniLifeState({
     now,
@@ -134,16 +138,102 @@ test('action cost directly drives fatigue and rest or sleep restores it', () => 
       event({
         id: '6',
         eventKind: 'sleep_period',
+        occurredAt: '2026-05-31T12:00:00.000Z',
+        payload: {
+          energy: 1,
+          max_energy: 1
+        }
+      })
+    ]
+  });
+
+  assert.equal(tired.projection.state.actionCost, 0.8);
+  assert.ok(tired.projection.state.fatigue > tired.projection.state.actionCost);
+  assert.equal(tired.projection.state.energy, 1 - tired.projection.state.fatigue);
+  assert.ok(rested.projection.state.fatigue < tired.projection.state.fatigue);
+  assert.equal(slept.projection.state.fatigue, 0);
+  assert.equal(slept.projection.state.energy, 1);
+});
+
+test('awake homeostatic pressure accumulates from last sleep anchor', () => {
+  const anchors = {
+    now: new Date('2026-05-31T08:00:00.000Z'),
+    serviceStartedAt: '2026-05-31T08:00:00.000Z',
+    lastSleepAt: '2026-05-31T08:00:00.000Z',
+    lastBoredomResetAt: '2026-05-31T08:00:00.000Z',
+    lastActiveAt: '2026-05-31T08:00:00.000Z'
+  };
+  const twoHours = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T10:00:00.000Z'),
+    legacyAnchors: anchors,
+    events: []
+  });
+  const fourHours = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T12:00:00.000Z'),
+    legacyAnchors: anchors,
+    events: []
+  });
+  const eightHours = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T16:00:00.000Z'),
+    legacyAnchors: anchors,
+    events: []
+  });
+
+  assert.ok(twoHours.projection.state.homeostaticPressure > 0.35);
+  assert.ok(fourHours.projection.state.homeostaticPressure > twoHours.projection.state.homeostaticPressure);
+  assert.ok(eightHours.projection.state.homeostaticPressure > fourHours.projection.state.homeostaticPressure);
+  assert.ok(twoHours.projection.state.energy > fourHours.projection.state.energy);
+  assert.ok(fourHours.projection.state.energy > eightHours.projection.state.energy);
+});
+
+test('projection resume advances awake pressure once without double counting', () => {
+  const anchors = {
+    now: new Date('2026-05-31T08:00:00.000Z'),
+    serviceStartedAt: '2026-05-31T08:00:00.000Z',
+    lastSleepAt: '2026-05-31T08:00:00.000Z',
+    lastBoredomResetAt: '2026-05-31T08:00:00.000Z',
+    lastActiveAt: '2026-05-31T08:00:00.000Z'
+  };
+  const first = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T10:00:00.000Z'),
+    legacyAnchors: anchors,
+    events: []
+  });
+  const resumed = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T12:00:00.000Z'),
+    previousProjection: first.projection,
+    events: []
+  });
+  const rebuilt = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T12:00:00.000Z'),
+    legacyAnchors: anchors,
+    events: []
+  });
+
+  assertApprox(resumed.projection.state.homeostaticPressure, rebuilt.projection.state.homeostaticPressure);
+  assertApprox(resumed.projection.state.energy, rebuilt.projection.state.energy);
+});
+
+test('legacy sleep event without explicit energy does not fake full recovery', () => {
+  const result = reduceXiaoniLifeState({
+    now: new Date('2026-05-31T10:00:00.000Z'),
+    events: [
+      event({
+        id: 'legacy-action',
+        eventKind: 'send_in_group',
+        occurredAt: '2026-05-31T09:00:00.000Z',
+        actionCost: 0.8
+      }),
+      event({
+        id: 'legacy-sleep',
+        eventKind: 'sleep_period',
         occurredAt: '2026-05-31T10:00:00.000Z'
       })
     ]
   });
 
-  assert.equal(tired.projection.state.fatigue, tired.projection.state.actionCost);
-  assert.equal(tired.projection.state.energy, 1 - tired.projection.state.actionCost);
-  assert.ok(rested.projection.state.fatigue < tired.projection.state.fatigue);
-  assert.equal(slept.projection.state.fatigue, 0);
-  assert.equal(slept.projection.state.energy, 1);
+  assert.ok(result.projection.state.fatigue > 0);
+  assert.ok(result.projection.state.energy < 1);
 });
 
 test('default speech accounting does not exhaust all energy for one group reply', () => {
@@ -164,7 +254,9 @@ test('default speech accounting does not exhaust all energy for one group reply'
   });
 
   assert.equal(result.projection.state.actionCost, 0.01);
-  assert.equal(result.projection.state.energy, 0.99);
+  assert.ok(result.projection.state.fatigue > result.projection.state.actionCost);
+  assert.ok(result.projection.state.energy < 0.99);
+  assert.ok(result.projection.state.energy > 0.7);
 });
 
 test('presence tick evaluation event drives cooldown only when enqueued', () => {

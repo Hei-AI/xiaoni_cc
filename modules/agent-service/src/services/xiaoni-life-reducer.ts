@@ -4,8 +4,14 @@ import {
   type PresenceAnchors,
   type PresenceLifeState
 } from './presence-context';
+import {
+  DEFAULT_RECOVER_ENERGY_POLICY,
+  clampNumber,
+  computeAwakePressureAfterMinutes,
+  energyToPressure
+} from './recover-energy-policy';
 
-export const XIAONI_LIFE_PROJECTION_VERSION = 'xiaoni-life-v2-recovery-curve';
+export const XIAONI_LIFE_PROJECTION_VERSION = 'xiaoni-life-v3-pressure-anchors';
 
 type LifeProjectionAnchors = {
   serviceStartedAt: string | null;
@@ -13,6 +19,7 @@ type LifeProjectionAnchors = {
   lastBoredomResetAt: string | null;
   lastRestAt: string | null;
   lastPresenceTickEnqueuedAt: string | null;
+  pressureUpdatedAt: string | null;
 };
 
 export type XiaoniLifeStateProjection = {
@@ -26,6 +33,8 @@ export type XiaoniLifeStateProjection = {
     rewardAttraction: number;
     restPressure: number;
     actionCost: number;
+    homeostaticPressure: number;
+    actionDebt: number;
   };
   anchors: LifeProjectionAnchors;
   counters: {
@@ -64,7 +73,9 @@ type ReducerInternalState = {
   boredomOffset: number;
   rewardAttraction: number;
   attention: number;
-  actionCost: number;
+  homeostaticPressure: number;
+  actionDebt: number;
+  pressureUpdatedAt: Date | null;
   materialEventCount: number;
   contributors: XiaoniLifeStateExplanation['contributors'];
 };
@@ -80,6 +91,7 @@ export type ReduceXiaoniLifeStateInput = {
 };
 
 const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
 
 // Historical life events may predate explicit actionCost writes. New events
 // should carry actionCost at the write site and use these values only as a
@@ -108,6 +120,10 @@ function clampNonNegative(value: number) {
     return 0;
   }
   return Math.max(0, value);
+}
+
+function clampPressure(value: number) {
+  return clampNumber(value, 0, DEFAULT_RECOVER_ENERGY_POLICY.hardPressureCeiling);
 }
 
 function toDate(value: Date | string | null | undefined): Date | null {
@@ -156,6 +172,10 @@ function numberValue(value: unknown, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function stateNumber(value: unknown, fallback = 0) {
+  return Number.isFinite(Number(value)) ? Number(value) : fallback;
+}
+
 function normalizeProjection(value: Record<string, unknown> | XiaoniLifeStateProjection | null | undefined): XiaoniLifeStateProjection | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -184,7 +204,13 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
         boredomOffset: 0,
         rewardAttraction: clamp01(previous.state.rewardAttraction),
         attention: clamp01(previous.state.attention),
-        actionCost: clampNonNegative(previous.state.actionCost),
+        homeostaticPressure: clampNumber(
+          stateNumber(previous.state.homeostaticPressure, Math.max(0, stateNumber(previous.state.sleepPressure, 0) - stateNumber(previous.state.actionCost, 0))),
+          0,
+          DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling
+        ),
+        actionDebt: clampPressure(stateNumber(previous.state.actionDebt, previous.state.actionCost)),
+        pressureUpdatedAt: toDate(previous.anchors.pressureUpdatedAt) || toDate(previous.generatedAt),
         materialEventCount: previous.counters?.materialEventCount || 0,
         contributors: []
       }
@@ -212,7 +238,9 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
       boredomOffset: legacyState ? legacyState.boredom * 0.25 : 0,
       rewardAttraction: legacyState ? legacyState.sharingDesire * 0.35 : 0.25,
       attention: 0.25,
-      actionCost: 0,
+      homeostaticPressure: 0,
+      actionDebt: 0,
+      pressureUpdatedAt: lastRestAt,
       materialEventCount: 0,
       contributors: []
     }
@@ -256,9 +284,42 @@ function resolveActionCost(eventKind: string, eventCost: number) {
 function applyActionCost(state: ReducerInternalState, eventKind: string, eventCost: number) {
   const resolvedCost = resolveActionCost(eventKind, eventCost);
   if (resolvedCost > 0) {
-    state.actionCost = clampNonNegative(state.actionCost + resolvedCost);
+    state.actionDebt = clampPressure(state.actionDebt + resolvedCost);
   }
   return resolvedCost;
+}
+
+function advanceAwakePressure(state: ReducerInternalState, at: Date | null) {
+  if (!at) {
+    return;
+  }
+  if (!state.pressureUpdatedAt) {
+    state.pressureUpdatedAt = at;
+    return;
+  }
+  const awakeMinutes = Math.max(0, (at.getTime() - state.pressureUpdatedAt.getTime()) / MINUTE_MS);
+  if (awakeMinutes <= 0) {
+    return;
+  }
+  state.homeostaticPressure = clampNumber(
+    computeAwakePressureAfterMinutes({
+      startPressure: state.homeostaticPressure,
+      awakeMinutes: awakeMinutes
+    }),
+    0,
+    DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling
+  );
+  state.pressureUpdatedAt = at;
+}
+
+function applySleepPressure(state: ReducerInternalState, pressure: number) {
+  const normalizedPressure = clampPressure(pressure);
+  state.homeostaticPressure = Math.min(normalizedPressure, DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling);
+  state.actionDebt = Math.max(0, normalizedPressure - state.homeostaticPressure);
+}
+
+function totalPressure(state: ReducerInternalState) {
+  return clampPressure(state.homeostaticPressure + state.actionDebt);
 }
 
 function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection) {
@@ -275,6 +336,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
 
   switch (event.eventKind) {
     case 'surface_visit':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention + 0.18);
       state.boredomOffset = clamp01(state.boredomOffset - 0.2);
@@ -284,6 +346,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       rememberContributor(state, event, `打开或进入会话，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'qq_message_seen':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention + 0.12);
       state.boredomOffset = clamp01(state.boredomOffset - 0.12);
@@ -293,6 +356,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       break;
     case 'qq_self_message':
     case 'send_in_group':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.15);
       state.boredomOffset = clamp01(state.boredomOffset - 0.25);
@@ -302,12 +366,14 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       rememberContributor(state, event, `已经开口，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'silence_decision':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       state.attention = clamp01(state.attention - 0.04);
       rememberContributor(state, event, `看过但选择沉默，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'web_search_result':
     case 'pending_share_created':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       state.rewardAttraction = clamp01(state.rewardAttraction + 0.18);
       state.boredomOffset = clamp01(state.boredomOffset - 0.05);
@@ -315,11 +381,13 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       rememberContributor(state, event, `产生可分享材料，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'pending_share_consumed':
+      advanceAwakePressure(state, occurredAt);
       state.rewardAttraction = clamp01(state.rewardAttraction - 0.12);
       applyActionCost(state, event.eventKind, actionCost);
       rememberContributor(state, event, `用掉一条可分享材料，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'presence_tick_evaluated':
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       if (payload.eligible === true && (payload.enqueued === true || payload.queue_id || payload.queueId)) {
         state.lastPresenceTickEnqueuedAt = occurredAt || state.lastPresenceTickEnqueuedAt;
@@ -329,24 +397,31 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
         : `空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
-      state.actionCost = clampNonNegative(state.actionCost - 0.1);
+      state.actionDebt = clampNonNegative(state.actionDebt - 0.1);
+      if (state.actionDebt === 0) {
+        state.homeostaticPressure = clampNonNegative(state.homeostaticPressure - 0.04);
+      }
       state.attention = clamp01(state.attention - 0.08);
       state.lastRestAt = occurredAt || state.lastRestAt;
+      state.pressureUpdatedAt = occurredAt || state.pressureUpdatedAt;
       rememberContributor(state, event, '刚才短暂休息了一会儿，行动成本恢复 0.10');
       break;
     case 'sleep_period':
       if (typeof payload.energy === 'number') {
         const maxEnergy = Math.max(0.001, numberValue(payload.max_energy, 1));
-        state.actionCost = clampNonNegative(1 - (payload.energy / maxEnergy));
+        applySleepPressure(state, energyToPressure(payload.energy, maxEnergy));
       } else {
-        state.actionCost = 0;
+        state.actionDebt = clampNonNegative(state.actionDebt - 0.2);
+        state.homeostaticPressure = clampNonNegative(state.homeostaticPressure - 0.08);
       }
       state.attention = clamp01(state.attention - 0.12);
       state.lastRestAt = occurredAt || state.lastRestAt;
       state.lastMeaningfulActivityAt = occurredAt || state.lastMeaningfulActivityAt;
-      rememberContributor(state, event, `刚才记录了一次休息恢复，恢复后累计行动成本=${formatCost(state.actionCost)}`);
+      state.pressureUpdatedAt = occurredAt || state.pressureUpdatedAt;
+      rememberContributor(state, event, `刚才记录了一次休息恢复，恢复后疲劳压力=${formatCost(totalPressure(state))}`);
       break;
     default:
+      advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);
       break;
   }
@@ -358,15 +433,21 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
 } {
   const { state, rebuiltFromEvents } = initialState(input);
   const orderedEvents = sortEvents(input.events || []);
+  const firstEventAt = toDate(orderedEvents[0]?.occurredAt);
+  if (rebuiltFromEvents && firstEventAt && (!state.pressureUpdatedAt || state.pressureUpdatedAt.getTime() > firstEventAt.getTime())) {
+    state.pressureUpdatedAt = firstEventAt;
+  }
   for (const event of orderedEvents) {
     applyEvent(state, event);
   }
+  advanceAwakePressure(state, input.now);
 
   const reducedThroughEvent = orderedEvents[orderedEvents.length - 1] || null;
   const hoursSinceBoredomReset = hoursBetween(input.now, state.lastBoredomResetAt);
   const boredom = clamp01(state.boredomOffset + (hoursSinceBoredomReset / 3));
-  const actionCost = clampNonNegative(state.actionCost);
-  const fatigue = actionCost;
+  const actionCost = clampNonNegative(state.actionDebt);
+  const homeostaticPressure = clampNumber(state.homeostaticPressure, 0, DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling);
+  const fatigue = totalPressure(state);
   const energy = 1 - fatigue;
   const rewardAttraction = clamp01(state.rewardAttraction);
   const sharingDesire = clamp01((boredom * 0.52) + (rewardAttraction * 0.28) + (energy * 0.2) - (fatigue * 0.08));
@@ -379,13 +460,15 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
     fatigue,
     energy,
     sharingDesire,
-    sleepPressure: actionCost,
+    sleepPressure: fatigue,
     cooldownActive,
     startupGraceActive,
     attention: clamp01(state.attention),
     rewardAttraction,
-    restPressure: actionCost,
-    actionCost
+    restPressure: fatigue,
+    actionCost,
+    homeostaticPressure,
+    actionDebt: actionCost
   };
 
   const projection: XiaoniLifeStateProjection = {
@@ -400,7 +483,8 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
       lastMeaningfulActivityAt: toIso(state.lastMeaningfulActivityAt),
       lastBoredomResetAt: toIso(state.lastBoredomResetAt),
       lastRestAt: toIso(state.lastRestAt),
-      lastPresenceTickEnqueuedAt: toIso(state.lastPresenceTickEnqueuedAt)
+      lastPresenceTickEnqueuedAt: toIso(state.lastPresenceTickEnqueuedAt),
+      pressureUpdatedAt: toIso(state.pressureUpdatedAt)
     },
     counters: {
       eventCount: (normalizeProjection(input.previousProjection || null)?.counters?.eventCount || 0) + orderedEvents.length,
@@ -418,7 +502,7 @@ export function reduceXiaoniLifeState(input: ReduceXiaoniLifeStateInput): {
     contributors: state.contributors.slice(-5).reverse(),
     meterDrivers: {
       boredom: `当前精力=${energy.toFixed(2)}`,
-      fatigue: `当前精力=${energy.toFixed(2)}，累计行动成本=${projectedState.actionCost.toFixed(2)}`,
+      fatigue: `当前精力=${energy.toFixed(2)}，自然疲劳=${projectedState.homeostaticPressure.toFixed(2)}，行动透支=${projectedState.actionDebt.toFixed(2)}`,
       sharingDesire: `当前精力=${energy.toFixed(2)}`,
       attention: `当前精力=${energy.toFixed(2)}`
     }

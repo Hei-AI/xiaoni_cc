@@ -1,5 +1,11 @@
 'use strict';
 
+const {
+  formatEast8IsoOffset,
+  parseTimestampWithoutTimezone,
+  serializeTimestampWithoutTimezoneForApi
+} = require('./time');
+
 const B1_EVENT_KINDS = new Set([
   'surface_visit',
   'phone_notification',
@@ -31,13 +37,7 @@ const LIFE_EVENT_VISIBILITIES = new Set([
 ]);
 
 function normalizeDate(value) {
-  if (!value) {
-    return null;
-  }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  return typeof value === 'string' ? value : String(value);
+  return serializeTimestampWithoutTimezoneForApi(value);
 }
 
 function normalizeJsonObject(value, fallback = {}) {
@@ -140,12 +140,16 @@ function normalizeLifeEvent(row) {
   };
 }
 
-function toDate(value) {
+function toInstantDate(value) {
   if (!value) {
     return null;
   }
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toStoredTimestampDate(value) {
+  return parseTimestampWithoutTimezone(value);
 }
 
 function normalizeRecoveryDurationMs(payload) {
@@ -167,8 +171,8 @@ function normalizeActiveRecoveryWindow(row, now) {
 }
 
 function normalizeRecoveryWindow(row, now) {
-  const occurredAt = toDate(row?.occurred_at);
-  const nowDate = toDate(now) || new Date();
+  const occurredAt = toStoredTimestampDate(row?.occurred_at);
+  const nowDate = toInstantDate(now) || new Date();
   const durationMs = normalizeRecoveryDurationMs(row?.payload);
   if (!occurredAt || durationMs <= 0) {
     return null;
@@ -182,8 +186,8 @@ function normalizeRecoveryWindow(row, now) {
     identityKey: row.identity_key,
     eventId,
     eventKind: row.event_kind,
-    occurredAt: occurredAt.toISOString(),
-    recoverUntil: recoverUntil.toISOString(),
+    occurredAt: formatEast8IsoOffset(occurredAt),
+    recoverUntil: formatEast8IsoOffset(recoverUntil),
     remainingMs: Math.max(0, remainingMs),
     durationMs,
     reason: normalizeOptionalString(payload.reason),
@@ -378,7 +382,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
   async function getActiveAgentRecoveryWindow(input = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
-    const now = toDate(input.now) || new Date();
+    const now = toInstantDate(input.now) || new Date();
     const rows = await prisma.agentLifeEvent.findMany({
       where: {
         identity_key: identityKey,
@@ -399,7 +403,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
   async function getLatestAgentRecoveryWindow(input = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = String(input.identityKey || input.identity_key || 'xiaoni');
-    const now = toDate(input.now) || new Date();
+    const now = toInstantDate(input.now) || new Date();
     const rows = await prisma.agentLifeEvent.findMany({
       where: {
         identity_key: identityKey,

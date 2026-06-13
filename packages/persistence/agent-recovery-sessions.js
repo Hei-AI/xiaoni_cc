@@ -1,11 +1,30 @@
 'use strict';
 
+const { serializeTimestampForStorage } = require('./time');
+
 function normalizeDate(value) {
   if (!value) {
     return null;
   }
   if (value instanceof Date) {
     return value.toISOString();
+  }
+  return typeof value === 'string' ? value : String(value);
+}
+
+function hasExplicitTimezone(value) {
+  return /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(value.trim());
+}
+
+function normalizeTimestampParam(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return serializeTimestampForStorage(value);
+  }
+  if (typeof value === 'string' && hasExplicitTimezone(value)) {
+    return serializeTimestampForStorage(value);
   }
   return typeof value === 'string' ? value : String(value);
 }
@@ -267,8 +286,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             firstString(input.reason),
             firstString(input.xiaoniOs, input.xiaoni_os),
             normalizeInteger(input.clockMinutes ?? input.clock_minutes),
-            normalizeDate(input.clockDueAt || input.clock_due_at),
-            normalizeDate(startedAt),
+            normalizeTimestampParam(input.clockDueAt || input.clock_due_at),
+            normalizeTimestampParam(startedAt),
             firstString(input.toolExecutionId, input.tool_execution_id),
             firstString(input.llmRequestSliceId, input.llm_request_slice_id),
             firstString(input.llmCallId, input.llm_call_id),
@@ -286,8 +305,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             normalizeNumber(input.startEnergy ?? input.start_energy),
             normalizeNumber(input.currentEnergy ?? input.current_energy ?? input.startEnergy ?? input.start_energy),
             normalizeNumber(input.maxEnergy ?? input.max_energy, 1),
-            normalizeDate(input.plannedNaturalWakeAt || input.planned_natural_wake_at),
-            normalizeDate(input.hardWakeAt || input.hard_wake_at),
+            normalizeTimestampParam(input.plannedNaturalWakeAt || input.planned_natural_wake_at),
+            normalizeTimestampParam(input.hardWakeAt || input.hard_wake_at),
             JSON.stringify(normalizeJsonObject(input.metadata, {}))
           ]
         );
@@ -392,8 +411,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
           normalizeBigIntId(input.lastWakeCountedQueueMessageId ?? input.last_wake_counted_queue_message_id),
           normalizeNumber(input.currentPressure ?? input.current_pressure),
           normalizeNumber(input.currentEnergy ?? input.current_energy),
-          normalizeDate(input.clockDeferredAt || input.clock_deferred_at),
-          normalizeDate(input.lastCheckedAt || input.last_checked_at),
+          normalizeTimestampParam(input.clockDeferredAt || input.clock_deferred_at),
+          normalizeTimestampParam(input.lastCheckedAt || input.last_checked_at),
           id
         ]
       );
@@ -429,8 +448,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
         [
           firstString(input.status, 'completed'),
           firstString(input.wakeCause, input.wake_cause),
-          normalizeDate(input.endedAt || input.ended_at),
-          normalizeDate(input.clockFiredAt || input.clock_fired_at),
+          normalizeTimestampParam(input.endedAt || input.ended_at),
+          normalizeTimestampParam(input.clockFiredAt || input.clock_fired_at),
           normalizeInteger(input.wakeCallCount ?? input.wake_call_count),
           normalizeInteger(input.wakeRequiredCount ?? input.wake_required_count),
           normalizeBigIntId(input.lastWakeCountedQueueMessageId ?? input.last_wake_counted_queue_message_id),

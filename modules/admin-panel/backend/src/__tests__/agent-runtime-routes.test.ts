@@ -95,10 +95,13 @@ describe('agent runtime recovery session routes', () => {
         status: 'completed',
         reason: '自然醒',
         startedAt: '2026-06-12T23:00:00.000Z',
-        endedAt: '2026-06-12T23:30:00.000Z',
+        endedAt: '2026-06-12T23:00:00.080Z',
         startEnergy: 0.42,
         currentEnergy: 0.92,
-        maxEnergy: 1
+        maxEnergy: 1,
+        result: {
+          sleep_minutes: 30
+        }
       }
     ]);
     (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
@@ -164,6 +167,15 @@ describe('agent runtime recovery session routes', () => {
     expect(response.body.data.current.lifeState.projection.state.energy).toBe(0.87);
     expect(response.body.data.recentExperience).toBeUndefined();
     expect(response.body.data.energyTimeline.points.length).toBeGreaterThan(0);
+    expect(response.body.data.energyTimeline.points).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'session_end',
+          recoverySessionId: 87,
+          timestamp: '2026-06-12T23:00:00.080Z'
+        })
+      ])
+    );
     expect(response.body.data.energyTimeline.summary.latestEnergy).toBe(0.87);
     expect(response.body.data.runtime.live).toBe(true);
     expect(response.body.data.current.runtime.live).toBe(true);
