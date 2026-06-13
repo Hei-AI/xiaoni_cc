@@ -3192,6 +3192,7 @@ test('materializeImageAsset prefers storage_uri over expiring source_locator', a
 
 test('inspect_image_placeholder runs a no-persist main-context vision fork by image id', async () => {
   const imageDataUrl = 'data:image/png;base64,QUJDREVGRw==';
+  const imageAssetId = 'media_40b42858b9edee2525910a13195ae1d5843ee26450af81bb';
   const queueMessage = {
     id: 'run-queue-image-vision-fork',
     traceId: 'trace-image-vision-fork',
@@ -3289,7 +3290,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
             call_id: 'call-inspect-image',
             name: INSPECT_IMAGE_TOOL,
             arguments: JSON.stringify({
-              image_id: 'asset-img-123',
+              image_id: imageAssetId,
               reason: '需要真正看图才能接话。'
             })
           }]
@@ -3307,7 +3308,7 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
           arguments: JSON.stringify({
             reason: '看完图后先停一下。',
             clock: 5,
-            xiaoni_os: '已经通过视觉 fork 看过 asset-img-123。'
+            xiaoni_os: `已经通过视觉 fork 看过 ${imageAssetId}。`
           })
         }]
       }
@@ -3390,9 +3391,11 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.equal(visionCall?.type, 'function_call');
   assert.equal(visionCall?.name, 'inspect_image_placeholder');
   assert.deepEqual(JSON.parse(visionCall?.arguments), {
-    image_id: 'asset-img-123',
+    image_id: imageAssetId,
     detail: 'original'
   });
+  assert.equal(visionCall.call_id.length <= 64, true);
+  assert.doesNotMatch(visionCall.call_id, new RegExp(imageAssetId));
   assert.equal(visionOutput?.type, 'function_call_output');
   assert.equal(visionOutput?.call_id, visionCall?.call_id);
   assert.deepEqual(visionOutput?.output, [{
@@ -3405,14 +3408,14 @@ test('inspect_image_placeholder runs a no-persist main-context vision fork by im
   assert.match(JSON.stringify(visionOutput?.output), /data:image\/png;base64,QUJDREVGRw==/);
 
   assert.equal(storeCalls.recordMediaObservation.length, 1);
-  assert.equal(storeCalls.recordMediaObservation[0]?.assetId, 'asset-img-123');
+  assert.equal(storeCalls.recordMediaObservation[0]?.assetId, imageAssetId);
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
 
-  const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === 'asset-img-123');
+  const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === imageAssetId);
   assert.ok(inspectLog);
-  assert.equal(inspectLog.result.output_xml, '<image id="asset-img-123">含义是: 这是一只猫</image>');
+  assert.equal(inspectLog.result.output_xml, `<image id="${imageAssetId}">含义是: 这是一只猫</image>`);
   const replayText = JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []);
-  assert.match(replayText, /<image id=\\"asset-img-123\\">含义是: 这是一只猫<\/image>/);
+  assert.match(replayText, new RegExp(`<image id=\\\\"${imageAssetId}\\\\">含义是: 这是一只猫<\\/image>`));
   const persistedRuntimeText = JSON.stringify({
     toolLogs: storeCalls.completeAgentStackToolExecution,
     conversations: storeCalls.createConversation,

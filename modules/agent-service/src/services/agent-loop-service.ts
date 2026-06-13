@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig } from '../config';
@@ -93,6 +94,7 @@ type OpenResponseInputContentPart =
     };
 
 const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
+const OPENAI_CALL_ID_MAX_LENGTH = 64;
 
 type OpenResponseToolDefinition = {
   type: 'function';
@@ -1690,7 +1692,7 @@ function buildImageVisionForkRequest(
   imageId: string
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
-  const imageVisionCallId = `call_image_vision_${imageId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  const imageVisionCallId = buildImageVisionForkCallId(imageId);
   forkRequest.input = [
     ...forkRequest.input,
     {
@@ -1732,6 +1734,14 @@ function buildImageVisionForkRequest(
     no_persist: 'true'
   };
   return forkRequest;
+}
+
+function buildImageVisionForkCallId(imageId: string): string {
+  const digest = createHash('sha256').update(imageId).digest('hex').slice(0, 32);
+  const callId = `call_image_vision_${digest}`;
+  return callId.length <= OPENAI_CALL_ID_MAX_LENGTH
+    ? callId
+    : `call_img_${digest}`;
 }
 
 function buildImageObservationXml(imageId: string, description: string) {
