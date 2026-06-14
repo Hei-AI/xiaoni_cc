@@ -1149,6 +1149,10 @@ export type AgentRuntimePersistenceApi = {
   createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
   getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
   upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
+    committed: boolean;
+    state: any | null;
+  }>;
   upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
@@ -1199,6 +1203,10 @@ export function listRecentConversationTurns(input?: AgentRuntimePersistenceCallI
 export function createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export function getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
 export function upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
+  committed: boolean;
+  state: any | null;
+}>;
 export function upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{

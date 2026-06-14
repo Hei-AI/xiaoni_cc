@@ -289,6 +289,23 @@ function mapExecutionLeaseDeliveryState(row) {
   };
 }
 
+function mapSessionReadCutoffState(row) {
+  if (!row) {
+    return null;
+  }
+  return {
+    sessionKey: row.session_key,
+    readCutoffAfterConversationId: row.read_cutoff_after_conversation_id === null ? null : Number(row.read_cutoff_after_conversation_id),
+    lastContextWindowTokens: row.last_context_window_tokens === null ? null : Number(row.last_context_window_tokens),
+    lastTargetBudgetTokens: row.last_target_budget_tokens === null ? null : Number(row.last_target_budget_tokens),
+    lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
+    contextSummary: row.context_summary ?? null,
+    pendingProactiveShare: row.pending_proactive_share ?? null,
+    pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
+    updatedAt: toIso(row.updated_at)
+  };
+}
+
 function toIso(value) {
   return serializeTimestampForApi(value);
 }
@@ -978,17 +995,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
       if (!row) {
         return null;
       }
-      return {
-        sessionKey: row.session_key,
-        readCutoffAfterConversationId: row.read_cutoff_after_conversation_id === null ? null : Number(row.read_cutoff_after_conversation_id),
-        lastContextWindowTokens: row.last_context_window_tokens === null ? null : Number(row.last_context_window_tokens),
-        lastTargetBudgetTokens: row.last_target_budget_tokens === null ? null : Number(row.last_target_budget_tokens),
-        lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
-        contextSummary: row.context_summary ?? null,
-        pendingProactiveShare: row.pending_proactive_share ?? null,
-        pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
-        updatedAt: toIso(row.updated_at)
-      };
+      return mapSessionReadCutoffState(row);
     });
   }
 
@@ -1021,6 +1028,102 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           input.lastHardBudgetTokens
         ]
       );
+    });
+  }
+
+  async function commitSessionContextSummaryAndReadCutoff(input = {}, config = {}) {
+    const sessionKey = typeof input.sessionKey === 'string' ? input.sessionKey : '';
+    const readCutoffAfterConversationId = toNumericConversationId(input.readCutoffAfterConversationId);
+    if (!sessionKey || readCutoffAfterConversationId === null) {
+      return {
+        committed: false,
+        state: null
+      };
+    }
+    const commitWithExecutor = async (executor) => {
+      if (typeof executor.query === 'function') {
+        await executor.query('SELECT pg_advisory_xact_lock(hashtext(?))', [`agent_session_context_windows:${sessionKey}`]).catch(() => []);
+      }
+      const existingRows = await executor.query(
+        `
+          SELECT
+            session_key,
+            read_cutoff_after_conversation_id,
+            last_context_window_tokens,
+            last_target_budget_tokens,
+            last_hard_budget_tokens,
+            context_summary,
+            pending_proactive_share,
+            pending_proactive_share_age,
+            updated_at
+          FROM agent_session_context_windows
+          WHERE session_key = ?
+          FOR UPDATE
+        `,
+        [sessionKey]
+      );
+      const existing = mapSessionReadCutoffState(existingRows[0]);
+      if (
+        existing?.readCutoffAfterConversationId !== null &&
+        typeof existing?.readCutoffAfterConversationId === 'number' &&
+        existing.readCutoffAfterConversationId >= readCutoffAfterConversationId
+      ) {
+        return {
+          committed: false,
+          state: existing
+        };
+      }
+      const rows = await executor.query(
+        `
+          INSERT INTO agent_session_context_windows (
+            session_key,
+            context_summary,
+            read_cutoff_after_conversation_id,
+            last_context_window_tokens,
+            last_target_budget_tokens,
+            last_hard_budget_tokens,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT (session_key)
+          DO UPDATE SET
+            context_summary = EXCLUDED.context_summary,
+            read_cutoff_after_conversation_id = EXCLUDED.read_cutoff_after_conversation_id,
+            last_context_window_tokens = EXCLUDED.last_context_window_tokens,
+            last_target_budget_tokens = EXCLUDED.last_target_budget_tokens,
+            last_hard_budget_tokens = EXCLUDED.last_hard_budget_tokens,
+            updated_at = CURRENT_TIMESTAMP
+          RETURNING
+            session_key,
+            read_cutoff_after_conversation_id,
+            last_context_window_tokens,
+            last_target_budget_tokens,
+            last_hard_budget_tokens,
+            context_summary,
+            pending_proactive_share,
+            pending_proactive_share_age,
+            updated_at
+        `,
+        [
+          sessionKey,
+          input.contextSummary,
+          readCutoffAfterConversationId,
+          input.lastContextWindowTokens,
+          input.lastTargetBudgetTokens,
+          input.lastHardBudgetTokens
+        ]
+      );
+      return {
+        committed: true,
+        state: mapSessionReadCutoffState(rows[0])
+      };
+    };
+
+    return withSql(input, config, async (sql) => {
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(commitWithExecutor);
+      }
+      return commitWithExecutor(sql);
     });
   }
 
@@ -1312,6 +1415,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     createConversationWithItems,
     getSessionReadCutoffState,
     upsertSessionReadCutoffState,
+    commitSessionContextSummaryAndReadCutoff,
     upsertProactiveShareState,
     upsertSessionContextSummary,
     loadSessionReplayState,

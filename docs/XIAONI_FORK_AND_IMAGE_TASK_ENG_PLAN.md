@@ -50,38 +50,45 @@ This was an engineering state-machine bug, not the main agent self-triggering co
    - The main agent should not care about compression pending/running state.
    - The main loop should read durable cutoff/summary and build its normal request.
 
-2. Remove `summarySourceInput ?? requestInput`.
-   - A compression fork must only be scheduled with `summarySourceInput`.
-   - If a plan has `coreMemoryCompression` but no `summarySourceInput`, refuse to schedule and log an engineering error.
+2. Split main-loop budget planning from compression checkpoint planning.
+   - `buildContextBudgetPlan()` only builds the main request from durable read cutoff and append-only history.
+   - `buildCoreMemoryCompressionCheckpoint()` owns planned cutoff, pressure reminder, and `summarySourceInput`.
+   - A compression fork is scheduled only from the checkpoint's `summarySourceInput`; there is no `summarySourceInput ?? requestInput` fallback.
 
 3. Keep compression fork `tools` equal to the stable workflow tools list.
    - Do not cut the tool schema.
    - Do narrow `tool_choice.allowed_tools.tools` to `exec_command` and `compress_core_memory`.
 
-4. Move duplicate/running/stale handling to persistence.
-   - The in-memory `coreMemoryCompressionForks` map can remain only as a local promise cache.
-   - The durable source of truth is `core_memory_compression_fork_runs`.
+4. Keep main-loop checkpoints serial, but model requests parallel.
+   - The main loop may synchronously read durable cutoff, build a compression checkpoint, and enqueue/start the fork.
+   - The compression fork provider request runs in the background; the main agent provider request must continue immediately and must not await compression completion.
 
-5. Reuse `core_memory_compression_fork_runs` as a lightweight claim surface without a schema migration.
-   - The current implementation records `compression_covered_end_conversation_id` in `metadata`.
-   - Before starting a fork, engineering checks for a recent `running` row with the same `context_session_key` and coverage end.
-   - A `running` row newer than 30 minutes is treated as active and prevents a duplicate fork.
-   - Older `running` rows are treated as stale by the scheduler and do not block retry.
+5. Treat `core_memory_compression_fork_runs` as audit/observability, not proof of a live provider request.
+   - The in-memory `coreMemoryCompressionForks` map dedupes only same-process duplicate starts.
+   - After service restart, a persisted `running` row does not prove that the provider request is still alive, so the main loop must not use it as active state.
+   - A future owner/heartbeat/lease can add cross-process claim semantics, but that is outside this fix.
 
-6. Optional later hardening: guard commit against late stale writers.
-   - Before writing `context_summary` and read cutoff, verify the fork is still the active running claim.
-   - If current cutoff already covers the fork range, mark the fork superseded/no-op and do not overwrite summary/cutoff.
+6. Keep the main-loop request window append-only on every frame.
+   - The main loop always reads `listRecentTurns(afterConversationId=durableReadCutoff)` without the sliding `limit=201`.
+   - `buildContextBudgetPlan()` never recomputes a planned cutoff and never emits compression artifacts.
+   - Planned cutoff exists only in the compression checkpoint/fork metadata until `compress_core_memory` succeeds and the durable cutoff is committed.
+   - This prevents provider prefix-cache churn and prevents unsummarized history from disappearing before the fork commits.
+
+7. Guard commit against late stale writers.
+   - Commit `context_summary` and read cutoff through one persistence operation guarded by a session-level advisory lock.
+   - Inside that locked operation, read the current durable cutoff and only write if the fork advances it.
+   - If the current durable cutoff already covers the fork's commit cutoff, mark the fork result `superseded` and do not overwrite summary/cutoff.
 
 No full transaction rollback of external side effects is required.
 
 ### Tests
 
-- Pending/race regression: no compression fork can start from ordinary `requestInput`.
-- Missing `summarySourceInput` regression: scheduling refuses instead of falling back.
-- Compression request contract: `tools` stays stable, `tool_choice.allowed_tools.tools` is `exec_command + compress_core_memory`.
-- Restart durability: a new service instance sees an existing recent running fork and does not schedule a duplicate.
-- Stale reclaim: expired running claim no longer blocks replacement.
-- Optional later hardening: older fork finishing after a newer cutoff is marked superseded/no-op and does not overwrite summary/cutoff.
+- Main budget regression: `buildContextBudgetPlan()` keeps the full append-only history, does not emit pressure, and does not expose `compress_core_memory` in `allowed_tools`.
+- Checkpoint regression: `buildCoreMemoryCompressionCheckpoint()` emits the pressure reminder and compression metadata; the fork request allows only `exec_command + compress_core_memory`.
+- Runtime regression: a compression checkpoint starts the fork in the background while the main provider request runs immediately, and no compression artifact leaks into the main conversation.
+- Query regression: runtime history reads use durable `afterConversationId` without `limit=201`.
+- Dedup regression: the scheduler dedupes only an in-process running fork.
+- Late writer regression: an older fork finishing after a newer durable cutoff is marked superseded/no-op and does not overwrite summary/cutoff; the production commit path writes summary+cutoff atomically.
 
 ## Image Vision Fork
 

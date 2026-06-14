@@ -312,6 +312,25 @@ type ContextBudgetTurnRecord = {
   cutoffRecomputed: boolean;
 };
 
+type CoreMemoryCompressionPlan = {
+  required: true;
+  contextSessionKey: string;
+  readCutoffAfterConversationId: number | null;
+  previousReadCutoffAfterConversationId: number | null;
+  compressionCoveredEndConversationId: number | null;
+  historyUserId: number;
+  historyGroupId: number | null;
+  historyScope: 'global';
+  lastContextWindowTokens: number;
+  lastTargetBudgetTokens: number;
+  lastHardBudgetTokens: number;
+};
+
+type CoreMemoryCompressionCheckpoint = {
+  compression: CoreMemoryCompressionPlan;
+  summarySourceInput: OpenResponseInputItem[];
+};
+
 type ContextBudgetPlan = {
   requestInput: OpenResponseInputItem[];
   summarySourceInput: OpenResponseInputItem[] | null;
@@ -329,22 +348,8 @@ type ContextBudgetPlan = {
   contextSummary: string | null;
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
-  coreMemoryCompression: {
-    required: true;
-    contextSessionKey: string;
-    readCutoffAfterConversationId: number | null;
-    previousReadCutoffAfterConversationId: number | null;
-    compressionCoveredEndConversationId: number | null;
-    historyUserId: number;
-    historyGroupId: number | null;
-    historyScope: 'global';
-    lastContextWindowTokens: number;
-    lastTargetBudgetTokens: number;
-    lastHardBudgetTokens: number;
-  } | null;
+  coreMemoryCompression: CoreMemoryCompressionPlan | null;
 };
-
-type CoreMemoryCompressionPlan = NonNullable<ContextBudgetPlan['coreMemoryCompression']>;
 
 type CoreMemoryCompressionCommit = {
   text: string;
@@ -473,7 +478,6 @@ const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
 const HISTORY_COMPACT_AT = 200;
 const HISTORY_COMPACT_KEEP = 30;
-const GLOBAL_PROMPT_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_WRITER_ENABLED = false;
@@ -4844,14 +4848,12 @@ export class AgentLoopService {
         groupId: number | null;
         afterConversationId: number | null;
         scope: 'global';
-        limit?: number;
       } = {
         userId: sessionIds.userId,
         groupId: sessionIds.groupId,
         afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
         scope: 'global' as const
       };
-      historyQuery.limit = GLOBAL_PROMPT_HISTORY_LIMIT;
       const history = await this.store.listRecentTurns(historyQuery);
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
@@ -4900,6 +4902,19 @@ export class AgentLoopService {
           budgetPlan = await buildBudgetPlan(true);
         }
       }
+      const coreMemoryCompressionCheckpoint = await this.buildCoreMemoryCompressionCheckpoint({
+        history,
+        queueMessage: payload,
+        runtimePrompt: resolvedRuntimePrompt,
+        loopContinuation,
+        runtimeIdentityFacts,
+        developerContextBlock,
+        runtimeEnergyState: initialRuntimeEnergyState,
+        contextSessionKey,
+        cutoffState,
+        triggerInputMode: options.triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer
+      });
       await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
       if (!jobId) {
         jobId = await this.store.createLlmJob({
@@ -4930,22 +4945,14 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
-      if (budgetPlan.coreMemoryCompression) {
-        if (!budgetPlan.summarySourceInput) {
-          moduleLogger.warn('Skipped core memory compression fork because summary source input is missing', {
-            traceId: payload.traceId,
-            contextSessionKey,
-            compression: budgetPlan.coreMemoryCompression
-          });
-        } else {
-          coreMemoryCompressionArtifact = await this.scheduleCoreMemoryCompressionFork({
-            baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.summarySourceInput, payload),
-            queueMessage: payload,
-            runtimePrompt,
-            compression: budgetPlan.coreMemoryCompression,
-            contextSessionKey
-          });
-        }
+      if (coreMemoryCompressionCheckpoint) {
+        await this.scheduleCoreMemoryCompressionFork({
+          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, coreMemoryCompressionCheckpoint.summarySourceInput, payload),
+          queueMessage: payload,
+          runtimePrompt,
+          compression: coreMemoryCompressionCheckpoint.compression,
+          contextSessionKey
+        });
       }
       const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
         if (items.length === 0) {
@@ -6448,35 +6455,82 @@ export class AgentLoopService {
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
-    // Count-based compaction: when retained history exceeds HISTORY_COMPACT_AT turns,
-    // evict everything except the most recent HISTORY_COMPACT_KEEP turns regardless of token budget.
-    // This ensures context stays manageable and triggers summary generation at a human-scale frequency.
+    const requestInput = buildLoopRequestInput({
+      history: initialRetainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      contextSummary,
+      pendingProactiveShare,
+      developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+    });
+    const estimate = await estimateLoopInputTokens({
+      modelName: params.runtimePrompt.modelName,
+      queueMessage: params.queueMessage,
+      loopInput: requestInput
+    });
+
+    return {
+      requestInput,
+      summarySourceInput: null,
+      retainedHistory: initialRetainedHistory,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      estimatedInputTokens: estimate.inputTokens,
+      contextWindowTokens,
+      targetBudgetTokens,
+      hardBudgetTokens,
+      tokenizerEncoding: estimate.encoding,
+      tokenizerSource: estimate.source,
+      cutoffRecomputed: false,
+      contextSummary,
+      pendingProactiveShare,
+      pendingProactiveShareAge,
+      coreMemoryCompression: null
+    };
+  }
+
+  private async buildCoreMemoryCompressionCheckpoint(params: {
+    history: ConversationTurn[];
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    loopContinuation: OpenResponseInputItem[];
+    runtimeIdentityFacts: RuntimeIdentityFactProjection[];
+    developerContextBlock?: string | null;
+    runtimeEnergyState?: RuntimeEnergyState | null;
+    contextSessionKey?: string;
+    cutoffState?: SessionReadCutoffState | null;
+    triggerInputMode?: RuntimeTriggerInputMode;
+    appendSelfContinuationOnTerminalFinalAnswer?: boolean;
+  }): Promise<CoreMemoryCompressionCheckpoint | null> {
+    const policy = resolveModelContextPolicy(
+      params.runtimePrompt.modelName,
+      params.runtimePrompt.parameters as Record<string, unknown> | undefined
+    );
+    const contextWindowTokens = policy?.contextWindowTokens ?? null;
+    const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
+    const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
+    const contextSessionKey = params.contextSessionKey || GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+    const cutoffState = Object.prototype.hasOwnProperty.call(params, 'cutoffState')
+      ? params.cutoffState ?? null
+      : await this.store.getSessionReadCutoffState(contextSessionKey);
+    const contextSummary = cutoffState?.contextSummary ?? null;
+    const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
+    const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
+    const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
+    const historyTargets = resolveSessionTargets(params.queueMessage);
+
     if (initialRetainedHistory.length > HISTORY_COMPACT_AT) {
-      const historyTargets = resolveSessionTargets(params.queueMessage);
       const compressionCoveredEndConversationId = initialRetainedHistory.length > 0
         ? initialRetainedHistory[initialRetainedHistory.length - 1]!.id
         : cutoffState?.readCutoffAfterConversationId ?? null;
-      const requestInput = buildLoopRequestInput({
-        history: initialRetainedHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary,
-        pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-      });
-      const estimate = await estimateLoopInputTokens({
-        modelName: params.runtimePrompt.modelName,
-        queueMessage: params.queueMessage,
-        loopInput: requestInput
-      });
       const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
       const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
-
       const compressionLoopContinuation = [
         ...params.loopContinuation,
         buildCoreMemoryCompressionReminder({
@@ -6485,7 +6539,7 @@ export class AgentLoopService {
           pressureSummary: `当前可读历史 ${initialRetainedHistory.length} 条，超过压缩阈值 ${HISTORY_COMPACT_AT}。`
         })
       ];
-      const compressionRequestInput = buildLoopRequestInput({
+      const summarySourceInput = buildLoopRequestInput({
         history: initialRetainedHistory,
         queueMessage: params.queueMessage,
         runtimePrompt: params.runtimePrompt,
@@ -6498,25 +6552,9 @@ export class AgentLoopService {
         triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
       });
-
       return {
-        requestInput,
-        summarySourceInput: compressionRequestInput,
-        retainedHistory: initialRetainedHistory,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: newCutoffId,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        estimatedInputTokens: estimate.inputTokens,
-        contextWindowTokens,
-        targetBudgetTokens,
-        hardBudgetTokens,
-        tokenizerEncoding: estimate.encoding,
-        tokenizerSource: estimate.source,
-        cutoffRecomputed: true,
-        contextSummary,
-        pendingProactiveShare,
-        pendingProactiveShareAge,
-        coreMemoryCompression: {
+        summarySourceInput,
+        compression: {
           required: true,
           contextSessionKey,
           readCutoffAfterConversationId: newCutoffId,
@@ -6532,6 +6570,9 @@ export class AgentLoopService {
       };
     }
 
+    if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
+      return null;
+    }
     const initialRequestInput = buildLoopRequestInput({
       history: initialRetainedHistory,
       queueMessage: params.queueMessage,
@@ -6550,27 +6591,8 @@ export class AgentLoopService {
       queueMessage: params.queueMessage,
       loopInput: initialRequestInput
     });
-
-    if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens || initialEstimate.inputTokens <= hardBudgetTokens) {
-      return {
-        requestInput: initialRequestInput,
-        summarySourceInput: null,
-        retainedHistory: initialRetainedHistory,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        estimatedInputTokens: initialEstimate.inputTokens,
-        contextWindowTokens,
-        targetBudgetTokens,
-        hardBudgetTokens,
-        tokenizerEncoding: initialEstimate.encoding,
-        tokenizerSource: initialEstimate.source,
-        cutoffRecomputed: false,
-        contextSummary,
-        pendingProactiveShare,
-        pendingProactiveShareAge,
-        coreMemoryCompression: null
-      };
+    if (initialEstimate.inputTokens <= hardBudgetTokens) {
+      return null;
     }
 
     const recomputed = await recomputeReadCutoffToTarget({
@@ -6587,8 +6609,6 @@ export class AgentLoopService {
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
-
-    const historyTargets = resolveSessionTargets(params.queueMessage);
     const compressionCoveredEndConversationId = recomputed.retainedHistory.length > 0
       ? recomputed.retainedHistory[recomputed.retainedHistory.length - 1]!.id
       : cutoffState?.readCutoffAfterConversationId ?? null;
@@ -6597,10 +6617,10 @@ export class AgentLoopService {
       buildCoreMemoryCompressionReminder({
         contextSessionKey,
         readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
-        pressureSummary: `预计输入 ${initialEstimate.inputTokens} tokens，超过 hard budget ${hardBudgetTokens}，必须先压缩核心记忆。`
+        pressureSummary: `预计输入 ${initialEstimate.inputTokens} tokens，超过 hard budget ${hardBudgetTokens}，必须压缩核心记忆。`
       })
     ];
-    const compressionRequestInput = buildLoopRequestInput({
+    const summarySourceInput = buildLoopRequestInput({
       history: recomputed.retainedHistory,
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
@@ -6614,23 +6634,8 @@ export class AgentLoopService {
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
     });
     return {
-      requestInput: recomputed.requestInput,
-      summarySourceInput: compressionRequestInput,
-      retainedHistory: recomputed.retainedHistory,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
-      previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      estimatedInputTokens: recomputed.estimatedInputTokens,
-      contextWindowTokens,
-      targetBudgetTokens,
-      hardBudgetTokens,
-      tokenizerEncoding: recomputed.tokenizerEncoding,
-      tokenizerSource: recomputed.tokenizerSource,
-      cutoffRecomputed: true,
-      contextSummary,
-      pendingProactiveShare,
-      pendingProactiveShareAge,
-      coreMemoryCompression: {
+      summarySourceInput,
+      compression: {
         required: true,
         contextSessionKey,
         readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
@@ -6804,25 +6809,6 @@ export class AgentLoopService {
       moduleLogger.warn('Failed to complete core memory compression fork run', {
         forkRunId: params.forkRunId,
         status: params.status,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      return null;
-    }
-  }
-
-  private async findActiveCoreMemoryCompressionForkRunSafe(params: Parameters<RuntimeStore['findActiveCoreMemoryCompressionForkRun']>[0]) {
-    const finder = (this.store as RuntimeStore & {
-      findActiveCoreMemoryCompressionForkRun?: RuntimeStore['findActiveCoreMemoryCompressionForkRun'];
-    }).findActiveCoreMemoryCompressionForkRun;
-    if (typeof finder !== 'function') {
-      return null;
-    }
-    try {
-      return await finder.call(this.store, params);
-    } catch (error) {
-      moduleLogger.warn('Failed to find active core memory compression fork run', {
-        contextSessionKey: params.contextSessionKey,
-        compressionCoveredEndConversationId: params.compressionCoveredEndConversationId,
         error: error instanceof Error ? error.message : String(error)
       });
       return null;
@@ -7036,11 +7022,90 @@ export class AgentLoopService {
     const committedReadCutoffAfterConversationId = params.compression
       ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
       : null;
-    await this.store.upsertSessionContextSummary({
-      sessionKey: compressionSessionKey,
-      contextSummary: text
-    });
-    if (params.compression) {
+    const buildSupersededCommit = async (currentReadCutoffAfterConversationId: number | null) => {
+      const artifact = {
+        tool_name: params.toolCall.name,
+        context_session_key: compressionSessionKey,
+        read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
+        planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
+        previous_read_cutoff_after_conversation_id: params.compression?.previousReadCutoffAfterConversationId ?? null,
+        compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
+        source_response_id: params.sourceResponseId,
+        tool_call_id: params.toolCall.callId,
+        text_length: text.length,
+        superseded: true,
+        superseded_reason: 'current_read_cutoff_already_covers_fork',
+        ...(params.metadata || {})
+      };
+      const toolResult = {
+        ...params.rawToolResult,
+        context_summary_written: false,
+        read_cutoff_written: false,
+        context_session_key: compressionSessionKey,
+        read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
+        planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
+        compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
+        superseded: true,
+        superseded_reason: 'current_read_cutoff_already_covers_fork'
+      };
+      await this.store.logTimelineEvent({
+        traceId: String(params.metadata?.trace_id || ''),
+        eventType: 'memory',
+        eventName: 'core_memory_compressed',
+        eventPhase: 'skip',
+        metadata: artifact
+      });
+      return {
+        text,
+        artifact,
+        toolResult
+      };
+    };
+
+    if (params.compression && committedReadCutoffAfterConversationId !== null) {
+      const atomicCommitter = (this.store as RuntimeStore & {
+        commitSessionContextSummaryAndReadCutoff?: RuntimeStore['commitSessionContextSummaryAndReadCutoff'];
+      }).commitSessionContextSummaryAndReadCutoff;
+      if (typeof atomicCommitter === 'function') {
+        const atomicCommit = await atomicCommitter.call(this.store, {
+          sessionKey: params.compression.contextSessionKey,
+          contextSummary: text,
+          readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
+          lastContextWindowTokens: params.compression.lastContextWindowTokens,
+          lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
+          lastHardBudgetTokens: params.compression.lastHardBudgetTokens
+        });
+        if (!atomicCommit.committed) {
+          return buildSupersededCommit(atomicCommit.state?.readCutoffAfterConversationId ?? null);
+        }
+      } else {
+        const currentCutoffState = await this.store.getSessionReadCutoffState(params.compression.contextSessionKey);
+        const currentReadCutoffAfterConversationId = currentCutoffState?.readCutoffAfterConversationId ?? null;
+        if (
+          currentReadCutoffAfterConversationId !== null &&
+          currentReadCutoffAfterConversationId >= committedReadCutoffAfterConversationId
+        ) {
+          return buildSupersededCommit(currentReadCutoffAfterConversationId);
+        }
+        await this.store.upsertSessionContextSummary({
+          sessionKey: compressionSessionKey,
+          contextSummary: text
+        });
+        await this.store.upsertSessionReadCutoffState({
+          sessionKey: params.compression.contextSessionKey,
+          readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
+          lastContextWindowTokens: params.compression.lastContextWindowTokens,
+          lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
+          lastHardBudgetTokens: params.compression.lastHardBudgetTokens
+        });
+      }
+    } else {
+      await this.store.upsertSessionContextSummary({
+        sessionKey: compressionSessionKey,
+        contextSummary: text
+      });
+    }
+    if (params.compression && committedReadCutoffAfterConversationId === null) {
       await this.store.upsertSessionReadCutoffState({
         sessionKey: params.compression.contextSessionKey,
         readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
@@ -7117,22 +7182,6 @@ export class AgentLoopService {
     if (existing) {
       return artifact;
     }
-    const activePersistedFork = typeof params.compression.compressionCoveredEndConversationId === 'number'
-      ? await this.findActiveCoreMemoryCompressionForkRunSafe({
-          contextSessionKey: key,
-          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId,
-          staleAfterMinutes: 30
-        })
-      : null;
-    if (activePersistedFork) {
-      return {
-        ...artifact,
-        status: 'already_running',
-        persisted_fork_run_id: activePersistedFork.forkRunId,
-        persisted_run_id: activePersistedFork.runId,
-        persisted_started_at: activePersistedFork.startedAt
-      };
-    }
 
     const fork = this.runCoreMemoryCompressionFork(params);
     this.coreMemoryCompressionForks.set(key, {
@@ -7175,6 +7224,13 @@ export class AgentLoopService {
       context_session_key: params.compression.contextSessionKey,
       read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
       previous_read_cutoff_after_conversation_id: params.compression.previousReadCutoffAfterConversationId,
+      compression_covered_end_conversation_id: params.compression.compressionCoveredEndConversationId,
+      history_user_id: params.compression.historyUserId,
+      history_group_id: params.compression.historyGroupId,
+      history_scope: params.compression.historyScope,
+      last_context_window_tokens: params.compression.lastContextWindowTokens,
+      last_target_budget_tokens: params.compression.lastTargetBudgetTokens,
+      last_hard_budget_tokens: params.compression.lastHardBudgetTokens,
       no_main_stack_persist: true,
       no_traffic_persist: true
     };
