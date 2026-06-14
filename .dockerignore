@@ -6,6 +6,8 @@ database/postgres_data
 models
 resource/napcat_qq_data
 modules/**/coverage
+**/__pycache__
+**/*.py[cod]
 modules/http-traffic-monitor/transparent-proxy/mitmproxy-data
 .env
 .env.*

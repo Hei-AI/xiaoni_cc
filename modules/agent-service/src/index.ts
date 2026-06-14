@@ -6,6 +6,7 @@ import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
+import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
 import { XiaoniPromptDirectoryWatcher } from './prompts/xiaoni-prompt-directory-watcher';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
@@ -19,6 +20,9 @@ const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
   botAccountId: agentConfig.botAccountId
 });
+const qqSendImageRuntime = new QqSendImageSkillRuntime(new QqSendImageService({
+  providerServiceUrl: agentConfig.providerServiceUrl
+}));
 
 let stopping = false;
 let workerBusy = false;
@@ -56,6 +60,31 @@ app.post('/api/internal/qq-usage', async (req, res) => {
     ? body.context as Record<string, unknown>
     : {};
   const result = await qqUsageRuntime.execute(action, args, {
+    traceId: optionalString(context.trace_id ?? context.traceId),
+    runId: optionalString(context.run_id ?? context.runId),
+    batchId: optionalString(context.batch_id ?? context.batchId),
+    toolCallId: optionalString(context.tool_call_id ?? context.toolCallId),
+    toolName: optionalString(context.tool_name ?? context.toolName),
+    sessionKey: optionalString(context.session_key ?? context.sessionKey)
+  });
+  res.json({
+    success: true,
+    result
+  });
+});
+
+app.post('/api/internal/qq-send-image', async (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+    ? req.body as Record<string, unknown>
+    : {};
+  const action = typeof body.action === 'string' ? body.action.trim() : '';
+  const args = body.args && typeof body.args === 'object' && !Array.isArray(body.args)
+    ? body.args as Record<string, unknown>
+    : {};
+  const context = body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+    ? body.context as Record<string, unknown>
+    : {};
+  const result = await qqSendImageRuntime.execute(action, args, {
     traceId: optionalString(context.trace_id ?? context.traceId),
     runId: optionalString(context.run_id ?? context.runId),
     batchId: optionalString(context.batch_id ?? context.batchId),

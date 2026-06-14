@@ -18,34 +18,34 @@ energy_cost: 0.002
 Use `exec_command` to run the local script. The script reads the image file from Xiaoni runtime, converts it to a safe data URL, and asks provider-service to send it through NapCat.
 
 ```bash
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/send_group_image.py 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/send_group_image.py 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/send_private_image.py 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/send_private_image.py 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
 ```
 
-- For `send_group_image.py`, first argument is the QQ group id, for example `123`.
-- For `send_private_image.py`, first argument is the other person's QQ user id, for example `85178516`.
-- Second argument: the exact local image path. It must be under `/xiaoni-runtime` unless the operator explicitly configured extra image roots.
+- `send_group group_id image_path` sends the image to a QQ group, for example group `123`.
+- `send_private user_id image_path` sends the image to a QQ private chat, for example user `85178516`.
+- `image_path` must be the exact local image path under `/xiaoni-runtime` unless the operator explicitly configured extra image roots.
 - `--caption` is optional. Omit it when you only want to send the image.
 - Successful sends include `message_id` when NapCat returns one, plus a local `status_key`.
 
 ## Check Status
 
-If the send command did not return a final `<QQ_IMAGE_SEND_RESULT ...>` or `<QQ_IMAGE_SEND_ERROR ...>`, use `check_image_send.py` with the same mode, target id, image path, and caption:
+If the send command returned a `message_id` or `status_key`, prefer checking by that value:
 
 ```bash
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check --message-id 123456
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check --status-key abc123
 ```
 
-If you already have a `message_id` or `status_key`, pass it too:
+If the send command did not return a final `<QQ_IMAGE_SEND_RESULT ...>` or `<QQ_IMAGE_SEND_ERROR ...>`, use `check` with the same mode, target id, image path, and caption:
 
 ```bash
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --message-id 123456
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/check_image_send.py private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --status-key abc123
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check group 123 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check private 85178516 /xiaoni-runtime/picture/task_artifact_1780760127856_0.png --caption "可选配文"
 ```
 
 The check result is `<QQ_IMAGE_SEND_STATUS ...>` with `status="sent"`, `status="failed"`, `status="pending"`, or `status="unknown"`.
