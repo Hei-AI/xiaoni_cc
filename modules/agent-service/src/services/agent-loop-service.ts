@@ -2738,25 +2738,47 @@ function renderImageTaskPendingStatusText(params: {
   }).trimEnd();
 }
 
-function buildAttentionLeaseCueLines(queueMessage: QueueMessageRecord['payload']) {
+function normalizeAttentionLeasePreview(value: unknown) {
+  return truncateNotificationSummary(typeof value === 'string' ? value : '', 20) || '无摘要';
+}
+
+function normalizeAttentionLeaseSenderLabel(queueMessage: QueueMessageRecord['payload']) {
+  const rawPayload = queueMessage.rawPayload || {};
+  const senderName = typeof rawPayload.source_sender_name === 'string' && rawPayload.source_sender_name.trim()
+    ? rawPayload.source_sender_name.trim()
+    : typeof rawPayload.latest_sender_name === 'string' && rawPayload.latest_sender_name.trim()
+      ? rawPayload.latest_sender_name.trim()
+      : '';
+  const senderId = typeof rawPayload.source_sender_id === 'string' && rawPayload.source_sender_id.trim()
+    ? rawPayload.source_sender_id.trim()
+    : typeof rawPayload.latest_sender_id === 'string' && rawPayload.latest_sender_id.trim()
+      ? rawPayload.latest_sender_id.trim()
+      : '';
+  if (senderName && senderId && senderName !== senderId) {
+    return `${senderName}(${senderId})`;
+  }
+  return senderName || senderId || queueMessage.senderName || queueMessage.senderId || '未知发送者';
+}
+
+function buildAttentionLeaseTemplateVariables(queueMessage: QueueMessageRecord['payload']) {
   const rawPayload = queueMessage.rawPayload || {};
   const unreadDelta = Number(rawPayload.unread_delta ?? rawPayload.unreadDelta ?? 1) || 1;
   const directMentions = Number(rawPayload.direct_mentions ?? rawPayload.directMentions ?? 0) || 0;
-  const targetLine = queueMessage.chatType === 'direct'
-    ? `- 查看目标: focus_private ${queueMessage.peerId}`
-    : `- 查看目标: focus_group ${queueMessage.peerId}`;
-  const mentionLine = directMentions > 0
-    ? (queueMessage.chatType === 'direct'
-        ? `- 状态栏显示有人私聊了你 ${directMentions} 次`
-        : `- 状态栏显示有人 @ 了你 ${directMentions} 次`)
-    : '- 没有明确喊你的信息，只是这个会话有新动静';
+  const focusTarget = typeof rawPayload.focus_target === 'string' && rawPayload.focus_target.trim()
+    ? rawPayload.focus_target.trim()
+    : queueMessage.chatType === 'direct'
+      ? `focus_private ${queueMessage.peerId}`
+      : `focus_group ${queueMessage.peerId}`;
+  const [focusTargetAction, ...focusTargetIdParts] = focusTarget.split(/\s+/);
   return {
-    unreadDelta,
-    cueLines: [
-      `- 新未读 ${unreadDelta} 条`,
-      mentionLine,
-      targetLine
-    ].join('\n')
+    UNREAD_DELTA: unreadDelta,
+    DIRECT_MENTION_COUNT: directMentions,
+    LATEST_SENDER_LABEL: normalizeAttentionLeaseSenderLabel(queueMessage),
+    LATEST_MESSAGE_PREVIEW: normalizeAttentionLeasePreview(
+      rawPayload.source_preview ?? rawPayload.latest_preview ?? queueMessage.rawBody ?? queueMessage.bodyForAgent
+    ),
+    FOCUS_TARGET_ACTION: focusTargetAction || (queueMessage.chatType === 'direct' ? 'focus_private' : 'focus_group'),
+    FOCUS_TARGET_ID: focusTargetIdParts.join(' ') || queueMessage.peerId
   };
 }
 
@@ -2767,11 +2789,9 @@ function renderAttentionLeaseReminder(queueMessage: QueueMessageRecord['payload'
     : queueMessage.peerName
       ? `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerName}`
       : `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerId}`;
-  const { unreadDelta, cueLines } = buildAttentionLeaseCueLines(queueMessage);
   return formatSystemReminderBlock(renderPromptSnippet('attention_lease_reminder.md', {
     CHAT_LABEL: chatLabel,
-    UNREAD_DELTA: unreadDelta,
-    PERIPHERAL_CUE_LINES: cueLines
+    ...buildAttentionLeaseTemplateVariables(queueMessage)
   }));
 }
 
