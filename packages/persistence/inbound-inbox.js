@@ -12,7 +12,7 @@ function effectiveUnreadPredicate(alias, lastReadExpression) {
             FROM ${TABLE_NAME} r
             WHERE r.session_key = ${alias}.session_key
               AND r.is_read = 1
-          )`}, '-infinity'::timestamp)`;
+          )`}, '-infinity'::timestamptz)`;
 }
 
 function normalizeIso(value) {

@@ -2,7 +2,10 @@
 'use strict';
 
 const path = require('path');
-const { Pool } = require(path.resolve(__dirname, '../../packages/persistence/node_modules/pg'));
+const { createRequire } = require('module');
+
+const persistenceRequire = createRequire(path.resolve(__dirname, '../../packages/persistence/package.json'));
+const { Pool } = persistenceRequire('pg');
 
 const TARGET_TABLES = [
   'agent_runtime_control',
@@ -118,8 +121,8 @@ function connectionString() {
   return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
 }
 
-async function loadTargetTables(client, allAppTables) {
-  if (!allAppTables) {
+async function loadTargetTables(client, runtimeTablesOnly) {
+  if (runtimeTablesOnly) {
     return TARGET_TABLES;
   }
 
@@ -222,7 +225,7 @@ async function migrateColumn(client, column, dryRun) {
 
 async function run() {
   const dryRun = !process.argv.includes('--apply');
-  const allAppTables = process.argv.includes('--all-app-tables');
+  const runtimeTablesOnly = process.argv.includes('--runtime-tables');
   const pool = new Pool({
     connectionString: connectionString(),
     max: 1,
@@ -233,7 +236,7 @@ async function run() {
   const client = await pool.connect();
   try {
     await client.query(`SET TIME ZONE 'Asia/Shanghai'`);
-    const targetTables = await loadTargetTables(client, allAppTables);
+    const targetTables = await loadTargetTables(client, runtimeTablesOnly);
     const columns = await loadColumns(client, targetTables);
     const grouped = new Map();
     for (const column of columns) {
@@ -244,7 +247,7 @@ async function run() {
 
     console.log(JSON.stringify({
       mode: dryRun ? 'dry-run' : 'apply',
-      scope: allAppTables ? 'all-app-tables' : 'default-runtime-tables',
+      scope: runtimeTablesOnly ? 'runtime-tables' : 'all-app-tables',
       timezone: 'Asia/Shanghai',
       targetTableCount: targetTables.length,
       timestampColumnCount: columns.length,

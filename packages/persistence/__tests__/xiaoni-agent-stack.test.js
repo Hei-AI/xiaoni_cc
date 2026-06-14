@@ -1200,6 +1200,49 @@ test('getXiaoniLlmUsageTimeline auto-escalates dense call ranges to buckets', as
   assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('AND bucket = ?') && call.params.includes('hour')));
 });
 
+test('getXiaoniLlmUsageTimeline preserves instant offsets in SQL time filters', async () => {
+  const sql = createUsageTimelineSqlMock({ totalCount: 1 });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    startTime: new Date('2026-06-14T01:17:37.945Z'),
+    endTime: new Date('2026-06-14T07:17:37.945Z')
+  });
+
+  const callPointQuery = sql.calls.find((call) => (
+    call.kind === 'query'
+    && call.sql.includes('FROM llm_usage_rollup_sources')
+    && call.sql.includes('ORDER BY created_at ASC')
+  ));
+  assert.ok(callPointQuery);
+  assert.match(callPointQuery.sql, /created_at >= \?::timestamptz/);
+  assert.match(callPointQuery.sql, /created_at <= \?::timestamptz/);
+  assert.doesNotMatch(callPointQuery.sql, /created_at >= \?::timestamp(?!tz)/);
+
+  const rollupSql = createUsageTimelineSqlMock({ totalCount: 3000 });
+  const rollupPersistence = createXiaoniAgentStackPersistence({ sqlAdapter: rollupSql });
+  await rollupPersistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    startTime: new Date('2026-06-14T01:17:37.945Z'),
+    endTime: new Date('2026-06-14T07:17:37.945Z')
+  });
+
+  const rollupPointQuery = rollupSql.calls.find((call) => (
+    call.kind === 'query'
+    && call.sql.includes('FROM llm_usage_rollups')
+    && call.sql.includes('ORDER BY bucket_start ASC')
+  ));
+  assert.ok(rollupPointQuery);
+  assert.match(rollupPointQuery.sql, /bucket_end >= \?::timestamptz/);
+  assert.match(rollupPointQuery.sql, /bucket_start <= \?::timestamptz/);
+  assert.doesNotMatch(rollupPointQuery.sql, /bucket_end >= \?::timestamp(?!tz)/);
+});
+
 test('getXiaoniLlmUsageTimeline includes compression fork slices with fork anchors', async () => {
   const sql = createUsageTimelineSqlMock({
     totalCount: 1,
