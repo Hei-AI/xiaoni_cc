@@ -215,6 +215,7 @@ type CanonicalAgentTurnRequest = {
 
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
+  onCoreMemoryCompressionCommitted?: (commit: CoreMemoryCompressionCommit) => void | Promise<void>;
   runtimePausePollMs?: number;
 };
 
@@ -6951,11 +6952,21 @@ export class AgentLoopService {
       eventPhase: null,
       metadata: artifact
     });
-    return {
+    const commit = {
       text,
       artifact,
       toolResult
     };
+    if (typeof this.options.onCoreMemoryCompressionCommitted === 'function') {
+      await Promise.resolve(this.options.onCoreMemoryCompressionCommitted(commit)).catch((error: unknown) => {
+        moduleLogger.warn('Failed to run post core-memory-compression hook', {
+          contextSessionKey: compressionSessionKey,
+          toolCallId: params.toolCall.callId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+    }
+    return commit;
   }
 
   private scheduleCoreMemoryCompressionFork(params: {
