@@ -5,6 +5,7 @@ import {
   rankFeedbackReflectionsForRecall,
   renderXiaoniLifeStateExplanation,
   resolvePresenceRecoveryEvent,
+  shouldDiscardLifeProjectionCursor,
   RuntimeStore
 } from '../services/runtime-store';
 import { deriveLifeState } from '../services/presence-context';
@@ -119,6 +120,41 @@ test('buildPresenceAnchorsFromLife preserves recent activity for presence anchor
   assert.equal(anchors.lastActiveAt, '2026-05-30T03:55:00.000Z');
   assert.equal(state.fatigue, 0);
   assert.equal(state.energy, 1);
+});
+
+test('buildPresenceAnchorsFromLife ignores future activity anchors', () => {
+  const now = new Date('2026-06-14T10:00:00.000Z');
+  const anchors = buildPresenceAnchorsFromLife({
+    service_started_at: '2026-06-14T00:00:00.000Z',
+    last_active_at: '2026-06-14T15:46:20.086Z',
+    last_boredom_reset_at: '2026-06-14T15:44:16.284Z',
+    last_sleep_at: '2026-06-14T09:05:40.000Z',
+    last_presence_tick_enqueued_at: null,
+    last_proactive_at: null,
+    last_user_message_at: '2026-06-14T15:44:16.284Z',
+    daily_proactive_count: 0
+  }, now);
+
+  assert.equal(anchors.lastActiveAt, null);
+  assert.equal(anchors.lastBoredomResetAt, null);
+  assert.equal(anchors.lastUserMessageAt, null);
+  assert.equal(anchors.lastSleepAt, '2026-06-14T09:05:40.000Z');
+});
+
+test('shouldDiscardLifeProjectionCursor flags migrated future projection cursors', () => {
+  const now = new Date('2026-06-14T10:00:00.000Z');
+
+  assert.equal(shouldDiscardLifeProjectionCursor({
+    reduced_through_occurred_at: '2026-06-14T15:46:20.086Z'
+  }, null, now), true);
+  assert.equal(shouldDiscardLifeProjectionCursor({
+    reduced_through_occurred_at: '2026-06-14T09:46:20.086Z'
+  }, {
+    reducedThroughOccurredAt: '2026-06-14T15:46:20.086Z'
+  }, now), true);
+  assert.equal(shouldDiscardLifeProjectionCursor({
+    reduced_through_occurred_at: '2026-06-14T09:46:20.086Z'
+  }, null, now), false);
 });
 
 test('recoverStaleProcessingLeases releases committed runs and fails abandoned runs', async () => {
@@ -301,7 +337,7 @@ test('recordQqUsageThreadSeen timestamps seen events at observation time with tr
     batchId: 'batch-qq-usage',
     toolCallId: 'call-exec',
     toolName: 'exec_command',
-    sessionKey: 'xiaoni:global'
+    sessionKey: 'xiaoni:test-global'
   });
 
   const seenEvent = lifeEvents.find((event) => event.eventKind === 'qq_message_seen');
@@ -312,7 +348,7 @@ test('recordQqUsageThreadSeen timestamps seen events at observation time with tr
   assert.equal(seenEvent.batchId, 'batch-qq-usage');
   assert.equal(seenEvent.payload.message_timestamp, '2026-06-06T03:07:45.000Z');
   assert.equal(seenEvent.payload.tool_call_id, 'call-exec');
-  assert.equal(seenEvent.payload.source_session_key, 'xiaoni:global');
+  assert.equal(seenEvent.payload.source_session_key, 'xiaoni:test-global');
 });
 
 test('visible group replies charge one bounded action cost without per-message double counting', async () => {

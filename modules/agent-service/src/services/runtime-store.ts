@@ -136,7 +136,7 @@ const moduleLogger = logger.createModuleLogger('runtime-store');
 const LIFE_PROJECTION_EVENT_BATCH_LIMIT = 1000;
 const LIFE_PROJECTION_MAX_BATCHES = 50;
 
-type AgentLifeStateRow = {
+export type AgentLifeStateRow = {
   last_active_at?: Date | string | null;
   service_started_at?: Date | string | null;
   last_boredom_reset_at?: Date | string | null;
@@ -162,6 +162,22 @@ function toValidDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function dateValueNotAfter(value: Date | string | null | undefined, now: Date) {
+  const date = toValidDate(value);
+  return date && date.getTime() <= now.getTime() ? value : null;
+}
+
+export function shouldDiscardLifeProjectionCursor(
+  life: Pick<AgentLifeStateRow, 'reduced_through_occurred_at'>,
+  previousProjection: Record<string, unknown> | null,
+  now: Date
+) {
+  const projectionCursor = toValidDate((previousProjection as Partial<XiaoniLifeStateProjection> | null)?.reducedThroughOccurredAt);
+  const storedCursor = toValidDate(life.reduced_through_occurred_at);
+  const cursor = projectionCursor || storedCursor;
+  return Boolean(cursor && cursor.getTime() > now.getTime());
+}
+
 function isSameUtcDate(left: Date | string | null | undefined, right: Date) {
   const leftDate = toValidDate(left);
   return Boolean(leftDate
@@ -176,13 +192,13 @@ export function buildPresenceAnchorsFromLife(life: AgentLifeStateRow, now: Date)
     : 0;
   return {
     now,
-    lastActiveAt: life.last_active_at ?? null,
-    serviceStartedAt: life.service_started_at ?? null,
-    lastBoredomResetAt: life.last_boredom_reset_at ?? null,
-    lastSleepAt: life.last_sleep_at ?? null,
-    lastPresenceTickEnqueuedAt: life.last_presence_tick_enqueued_at ?? null,
-    lastProactiveAt: life.last_proactive_at ?? null,
-    lastUserMessageAt: life.last_user_message_at ?? null,
+    lastActiveAt: dateValueNotAfter(life.last_active_at, now),
+    serviceStartedAt: dateValueNotAfter(life.service_started_at, now),
+    lastBoredomResetAt: dateValueNotAfter(life.last_boredom_reset_at, now),
+    lastSleepAt: dateValueNotAfter(life.last_sleep_at, now),
+    lastPresenceTickEnqueuedAt: dateValueNotAfter(life.last_presence_tick_enqueued_at, now),
+    lastProactiveAt: dateValueNotAfter(life.last_proactive_at, now),
+    lastUserMessageAt: dateValueNotAfter(life.last_user_message_at, now),
     dailyProactiveCount
   };
 }
@@ -1180,10 +1196,20 @@ export class RuntimeStore {
   private async refreshXiaoniLifeProjection(now = new Date()) {
     const life = (await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig)) as AgentLifeStateRow;
     const projectionIsCurrent = life.projection_version === XIAONI_LIFE_PROJECTION_VERSION;
-    const previousProjection = projectionIsCurrent ? normalizeProjectionJson(life.projection_json) : null;
-    const reducedThroughEventId = projectionIsCurrent ? projectionEventId(life.reduced_through_event_id) : null;
+    const storedProjection = projectionIsCurrent ? normalizeProjectionJson(life.projection_json) : null;
+    const discardProjectionCursor = projectionIsCurrent && shouldDiscardLifeProjectionCursor(life, storedProjection, now);
+    if (discardProjectionCursor) {
+      moduleLogger.warn('Discarding future Xiaoni life projection cursor before replay', {
+        identityKey: 'xiaoni',
+        reducedThroughEventId: life.reduced_through_event_id ? String(life.reduced_through_event_id) : null,
+        reducedThroughOccurredAt: life.reduced_through_occurred_at ? new Date(life.reduced_through_occurred_at).toISOString() : null,
+        now: now.toISOString()
+      });
+    }
+    const previousProjection = projectionIsCurrent && !discardProjectionCursor ? storedProjection : null;
+    const reducedThroughEventId = projectionIsCurrent && !discardProjectionCursor ? projectionEventId(life.reduced_through_event_id) : null;
     const previousReducedThroughOccurredAt = toValidDate((previousProjection as XiaoniLifeStateProjection | null)?.reducedThroughOccurredAt);
-    const reducedThroughOccurredAt = projectionIsCurrent
+    const reducedThroughOccurredAt = projectionIsCurrent && !discardProjectionCursor
       ? (previousReducedThroughOccurredAt || toValidDate(life.reduced_through_occurred_at))
       : null;
     const events: AgentLifeEventProjection[] = [];
@@ -1194,6 +1220,7 @@ export class RuntimeStore {
         identityKey: 'xiaoni',
         ...(cursorOccurredAt ? { occurredAfter: cursorOccurredAt } : {}),
         ...(cursorEventId ? { afterEventId: String(cursorEventId) } : {}),
+        occurredBefore: now,
         chronological: true,
         limit: LIFE_PROJECTION_EVENT_BATCH_LIMIT
       }, databaseConfig) as AgentLifeEventProjection[];

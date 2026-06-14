@@ -916,6 +916,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         ...(activity && typeof activity === 'object' && 'current' in activity ? (activity as any).current : {}),
         runtime
       };
+      const timelineNow = new Date();
       const energyTimelineStart = resolveTimelineStart(Array.isArray(sessions) ? sessions : []);
       const requestTimeFilter = {
         ...(requestFrom ? { startTime: requestFrom } : {}),
@@ -925,6 +926,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         listAgentLifeEvents({
           identityKey,
           occurredAfter: energyTimelineStart,
+          occurredBefore: timelineNow,
           chronological: true,
           limit: 1000
         }),

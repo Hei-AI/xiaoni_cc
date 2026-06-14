@@ -281,6 +281,7 @@ describe('agent runtime recovery session routes', () => {
     expect(listAgentLifeEvents).toHaveBeenCalledWith({
       identityKey: 'xiaoni',
       occurredAfter: expect.any(Date),
+      occurredBefore: expect.any(Date),
       chronological: true,
       limit: 1000
     });

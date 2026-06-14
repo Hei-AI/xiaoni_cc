@@ -255,6 +255,35 @@ test('listAgentLifeEvents can seek after a timestamp and id for projection catch
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
 });
 
+test('listAgentLifeEvents applies an upper bound while seeking after a projection cursor', async () => {
+  let findPayload = null;
+  const { persistence } = createPersistence({
+    prisma: {
+      agentLifeEvent: {
+        findMany: async (payload) => {
+          findPayload = payload;
+          return [];
+        }
+      }
+    }
+  });
+
+  await persistence.listAgentLifeEvents({
+    identityKey: 'xiaoni',
+    occurredAfter: '2026-06-14T16:00:00.000+08:00',
+    occurredBefore: '2026-06-14T18:00:00.000+08:00',
+    afterEventId: '12230',
+    chronological: true,
+    limit: 1000
+  });
+
+  assert.equal(findPayload.where.AND[0].OR[0].occurred_at.gt.toISOString(), '2026-06-14T08:00:00.000Z');
+  assert.equal(findPayload.where.AND[0].OR[1].occurred_at.toISOString(), '2026-06-14T08:00:00.000Z');
+  assert.equal(findPayload.where.AND[0].OR[1].id.gt, 12230n);
+  assert.equal(findPayload.where.AND[1].occurred_at.lte.toISOString(), '2026-06-14T10:00:00.000Z');
+  assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
+});
+
 test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window', async () => {
   let findPayload = null;
   const { persistence } = createPersistence({

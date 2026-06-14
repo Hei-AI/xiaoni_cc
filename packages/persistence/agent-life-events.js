@@ -336,13 +336,23 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
     const occurredBefore = normalizeTimestampInput(input.occurredBefore || input.occurred_before);
     const afterEventId = normalizeBigIntInput(input.afterEventId || input.after_event_id);
     if (occurredAfter && afterEventId) {
-      where.OR = [
-        { occurred_at: { gt: occurredAfter } },
-        {
-          occurred_at: occurredAfter,
-          id: { gt: afterEventId }
-        }
-      ];
+      const seekFilter = {
+        OR: [
+          { occurred_at: { gt: occurredAfter } },
+          {
+            occurred_at: occurredAfter,
+            id: { gt: afterEventId }
+          }
+        ]
+      };
+      if (occurredBefore) {
+        where.AND = [
+          seekFilter,
+          { occurred_at: { lte: occurredBefore } }
+        ];
+      } else {
+        where.OR = seekFilter.OR;
+      }
     } else if (occurredAfter || occurredBefore) {
       where.occurred_at = {};
       if (occurredAfter) {
