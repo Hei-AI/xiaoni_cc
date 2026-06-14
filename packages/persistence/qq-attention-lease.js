@@ -89,24 +89,24 @@ async function ensureQqAttentionLeaseSchemaWithSql(sql) {
       account_id VARCHAR(191) NOT NULL,
       status VARCHAR(32) NOT NULL DEFAULT 'active',
       score DOUBLE PRECISION NOT NULL DEFAULT 0,
-      score_updated_at TIMESTAMP(3) NOT NULL,
+      score_updated_at TIMESTAMPTZ(3) NOT NULL,
       half_life_seconds INTEGER NOT NULL DEFAULT 480,
-      last_focused_at TIMESTAMP(3) NOT NULL,
+      last_focused_at TIMESTAMPTZ(3) NOT NULL,
       last_seen_inbound_id BIGINT,
       latest_window_inbound_id BIGINT,
-      last_reminder_at TIMESTAMP(3),
+      last_reminder_at TIMESTAMPTZ(3),
       last_reminder_inbound_id BIGINT,
       reminder_count INTEGER NOT NULL DEFAULT 0,
-      expires_at TIMESTAMP(3) NOT NULL,
-      closed_at TIMESTAMP(3),
+      expires_at TIMESTAMPTZ(3) NOT NULL,
+      closed_at TIMESTAMPTZ(3),
       close_reason VARCHAR(64),
       trace_id VARCHAR(128),
       run_id VARCHAR(128),
       batch_id VARCHAR(128),
       tool_call_id VARCHAR(191),
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMP(3) NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT NOW(),
       CONSTRAINT uniq_agent_qq_attention_leases_identity_surface_session UNIQUE (identity_key, surface, session_key)
     )
   `);
@@ -125,8 +125,8 @@ async function ensureQqAttentionLeaseSchemaWithSql(sql) {
       attention_score DOUBLE PRECISION NOT NULL,
       reason VARCHAR(64) NOT NULL,
       metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMP(3) NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT NOW(),
       CONSTRAINT uniq_agent_qq_attention_reminders_identity_session_inbound UNIQUE (identity_key, session_key, inbound_message_id)
     )
   `);

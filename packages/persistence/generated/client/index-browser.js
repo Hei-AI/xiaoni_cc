@@ -200,6 +200,16 @@ exports.Prisma.AgentQqAttentionReminderScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.AgentRuntimeControlScalarFieldEnum = {
+  identity_key: 'identity_key',
+  enabled: 'enabled',
+  post_compression_pause_armed: 'post_compression_pause_armed',
+  post_compression_pause_armed_at: 'post_compression_pause_armed_at',
+  post_compression_pause_triggered_at: 'post_compression_pause_triggered_at',
+  post_compression_pause_reason: 'post_compression_pause_reason',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.AgentRecoverySessionScalarFieldEnum = {
   id: 'id',
   identity_key: 'identity_key',
@@ -411,6 +421,35 @@ exports.Prisma.LlmRequestSliceScalarFieldEnum = {
   run_id: 'run_id',
   conversation_id: 'conversation_id',
   agent_turn: 'agent_turn',
+  model_name: 'model_name',
+  model_provider: 'model_provider',
+  request_format_version: 'request_format_version',
+  wire_provider_format: 'wire_provider_format',
+  processing_time_ms: 'processing_time_ms',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  completed_at: 'completed_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.CodexProviderUsageEventScalarFieldEnum = {
+  id: 'id',
+  event_id: 'event_id',
+  source_kind: 'source_kind',
+  source_id: 'source_id',
+  identity_key: 'identity_key',
+  llm_call_id: 'llm_call_id',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  conversation_id: 'conversation_id',
+  canonical_request: 'canonical_request',
+  wire_request: 'wire_request',
+  canonical_response: 'canonical_response',
+  wire_response: 'wire_response',
+  raw_response: 'raw_response',
+  output_items: 'output_items',
+  status: 'status',
+  token_usage: 'token_usage',
   model_name: 'model_name',
   model_provider: 'model_provider',
   request_format_version: 'request_format_version',
@@ -1413,6 +1452,7 @@ exports.Prisma.ModelName = {
   AgentQueueMessage: 'AgentQueueMessage',
   AgentQqAttentionLease: 'AgentQqAttentionLease',
   AgentQqAttentionReminder: 'AgentQqAttentionReminder',
+  AgentRuntimeControl: 'AgentRuntimeControl',
   AgentRecoverySession: 'AgentRecoverySession',
   AgentSessionLifeState: 'AgentSessionLifeState',
   AgentSessionGroupState: 'AgentSessionGroupState',
@@ -1423,6 +1463,7 @@ exports.Prisma.ModelName = {
   AgentLifeEvent: 'AgentLifeEvent',
   AgentStackItem: 'AgentStackItem',
   LlmRequestSlice: 'LlmRequestSlice',
+  CodexProviderUsageEvent: 'CodexProviderUsageEvent',
   LlmUsageRollupSource: 'LlmUsageRollupSource',
   LlmUsageRollup: 'LlmUsageRollup',
   LlmUsageRollupState: 'LlmUsageRollupState',

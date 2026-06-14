@@ -1458,8 +1458,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             run_id VARCHAR(128),
             conversation_id BIGINT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(identity_key, stack_index)
           )
         `,
@@ -1492,9 +1492,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             wire_provider_format VARCHAR(128),
             processing_time_ms INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1505,14 +1505,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
             llm_call_id VARCHAR(128),
             trace_id VARCHAR(128),
-            created_at TIMESTAMP(3) NOT NULL,
-            hour_bucket_start TIMESTAMP(3) NOT NULL,
-            day_bucket_start TIMESTAMP(3) NOT NULL,
-            month_bucket_start TIMESTAMP(3) NOT NULL,
+            created_at TIMESTAMPTZ(3) NOT NULL,
+            hour_bucket_start TIMESTAMPTZ(3) NOT NULL,
+            day_bucket_start TIMESTAMPTZ(3) NOT NULL,
+            month_bucket_start TIMESTAMPTZ(3) NOT NULL,
             input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
             cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
             output_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1540,9 +1540,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             wire_provider_format VARCHAR(128),
             processing_time_ms INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         "ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider'",
@@ -1552,8 +1552,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             id BIGSERIAL PRIMARY KEY,
             identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
             bucket VARCHAR(16) NOT NULL,
-            bucket_start TIMESTAMP(3) NOT NULL,
-            bucket_end TIMESTAMP(3) NOT NULL,
+            bucket_start TIMESTAMPTZ(3) NOT NULL,
+            bucket_end TIMESTAMPTZ(3) NOT NULL,
             call_count BIGINT NOT NULL DEFAULT 0,
             input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
             cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
@@ -1563,12 +1563,12 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             top_fork_run_id VARCHAR(191),
             top_llm_call_id VARCHAR(128),
             top_trace_id VARCHAR(128),
-            top_timestamp TIMESTAMP(3),
+            top_timestamp TIMESTAMPTZ(3),
             top_input_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
             top_cached_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
             top_output_tokens NUMERIC(20, 0) NOT NULL DEFAULT 0,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(identity_key, bucket, bucket_start)
           )
         `,
@@ -1580,10 +1580,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           CREATE TABLE IF NOT EXISTS llm_usage_rollup_state (
             identity_key VARCHAR(191) PRIMARY KEY,
             version INTEGER NOT NULL DEFAULT 1,
-            initialized_at TIMESTAMP(3),
+            initialized_at TIMESTAMPTZ(3),
             source_max_id BIGINT NOT NULL DEFAULT 0,
             source_count BIGINT NOT NULL DEFAULT 0,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1608,10 +1608,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             stack_call_item_id BIGINT,
             stack_output_item_id BIGINT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1623,7 +1623,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             summary_stack_item_id BIGINT,
             method VARCHAR(64) NOT NULL,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1642,10 +1642,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             artifact JSONB NOT NULL DEFAULT '{}'::jsonb,
             error_message TEXT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            started_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1669,8 +1669,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             run_id VARCHAR(128),
             conversation_id BIGINT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(fork_run_id, item_index)
           )
         `,
@@ -1704,9 +1704,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             wire_provider_format VARCHAR(128),
             processing_time_ms INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1732,10 +1732,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             stack_call_item_id BIGINT,
             stack_output_item_id BIGINT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1755,10 +1755,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             artifact JSONB NOT NULL DEFAULT '{}'::jsonb,
             error_message TEXT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            started_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         `
@@ -1782,8 +1782,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             run_id VARCHAR(128),
             conversation_id BIGINT,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(fork_run_id, item_index)
           )
         `,
@@ -1817,9 +1817,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             wire_provider_format VARCHAR(128),
             processing_time_ms INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP(3),
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_identity_index ON agent_stack_items (identity_key, stack_index DESC)',

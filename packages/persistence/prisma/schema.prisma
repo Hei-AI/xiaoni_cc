@@ -30,16 +30,16 @@ model AgentQueueMessage {
   status                String    @default("pending") @db.VarChar(16)
   attempts              Int       @default(0)
   max_attempts          Int       @default(3)
-  available_at          DateTime  @default(now()) @db.Timestamp(3)
-  locked_at             DateTime? @db.Timestamp(3)
+  available_at          DateTime  @default(now()) @db.Timestamptz(3)
+  locked_at             DateTime? @db.Timestamptz(3)
   locked_by             String?   @db.VarChar(128)
-  processing_started_at DateTime? @db.Timestamp(3)
-  completed_at          DateTime? @db.Timestamp(3)
+  processing_started_at DateTime? @db.Timestamptz(3)
+  completed_at          DateTime? @db.Timestamptz(3)
   conversation_id       BigInt?   @db.BigInt
   error_message         String?
   result                Json?
-  created_at            DateTime  @default(now()) @db.Timestamp(3)
-  updated_at            DateTime  @updatedAt @db.Timestamp(3)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([status, available_at, id], map: "idx_agent_queue_pending_available")
   @@index([session_key, status, available_at, id], map: "idx_agent_queue_session_pending")
@@ -59,24 +59,24 @@ model AgentQqAttentionLease {
   account_id               String    @db.VarChar(191)
   status                   String    @default("active") @db.VarChar(32)
   score                    Float     @default(0)
-  score_updated_at         DateTime  @db.Timestamp(3)
+  score_updated_at         DateTime  @db.Timestamptz(3)
   half_life_seconds        Int       @default(480)
-  last_focused_at          DateTime  @db.Timestamp(3)
+  last_focused_at          DateTime  @db.Timestamptz(3)
   last_seen_inbound_id     BigInt?   @db.BigInt
   latest_window_inbound_id BigInt?   @db.BigInt
-  last_reminder_at         DateTime? @db.Timestamp(3)
+  last_reminder_at         DateTime? @db.Timestamptz(3)
   last_reminder_inbound_id BigInt?   @db.BigInt
   reminder_count           Int       @default(0)
-  expires_at               DateTime  @db.Timestamp(3)
-  closed_at                DateTime? @db.Timestamp(3)
+  expires_at               DateTime  @db.Timestamptz(3)
+  closed_at                DateTime? @db.Timestamptz(3)
   close_reason             String?   @db.VarChar(64)
   trace_id                 String?   @db.VarChar(128)
   run_id                   String?   @db.VarChar(128)
   batch_id                 String?   @db.VarChar(128)
   tool_call_id             String?   @db.VarChar(191)
   metadata                 Json      @default("{}")
-  created_at               DateTime  @default(now()) @db.Timestamp(3)
-  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+  created_at               DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([identity_key, surface, session_key], map: "uniq_agent_qq_attention_leases_identity_surface_session")
   @@index([identity_key, status, expires_at, score_updated_at, id], map: "idx_agent_qq_attention_leases_active_expiry")
@@ -95,8 +95,8 @@ model AgentQqAttentionReminder {
   attention_score    Float
   reason             String   @db.VarChar(64)
   metadata           Json     @default("{}")
-  created_at         DateTime @default(now()) @db.Timestamp(3)
-  updated_at         DateTime @updatedAt @db.Timestamp(3)
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([identity_key, session_key, inbound_message_id], map: "uniq_agent_qq_attention_reminders_identity_session_inbound")
   @@index([session_key, created_at, id], map: "idx_agent_qq_attention_reminders_session_created")
@@ -124,12 +124,12 @@ model AgentRecoverySession {
   reason                              String?
   xiaoni_os                           String?
   clock_minutes                       Int?
-  clock_due_at                        DateTime? @db.Timestamp(3)
-  clock_fired_at                      DateTime? @db.Timestamp(3)
-  clock_deferred_at                   DateTime? @db.Timestamp(3)
-  started_at                          DateTime  @default(now()) @db.Timestamp(3)
-  ended_at                            DateTime? @db.Timestamp(3)
-  last_checked_at                     DateTime? @db.Timestamp(3)
+  clock_due_at                        DateTime? @db.Timestamptz(3)
+  clock_fired_at                      DateTime? @db.Timestamptz(3)
+  clock_deferred_at                   DateTime? @db.Timestamptz(3)
+  started_at                          DateTime  @default(now()) @db.Timestamptz(3)
+  ended_at                            DateTime? @db.Timestamptz(3)
+  last_checked_at                     DateTime? @db.Timestamptz(3)
   tool_execution_id                   String?   @db.VarChar(191)
   llm_request_slice_id                String?   @db.VarChar(191)
   llm_call_id                         String?   @db.VarChar(128)
@@ -147,12 +147,12 @@ model AgentRecoverySession {
   start_energy                        Float?
   current_energy                      Float?
   max_energy                          Float     @default(1)
-  planned_natural_wake_at             DateTime? @db.Timestamp(3)
-  hard_wake_at                        DateTime? @db.Timestamp(3)
+  planned_natural_wake_at             DateTime? @db.Timestamptz(3)
+  hard_wake_at                        DateTime? @db.Timestamptz(3)
   result                              Json      @default("{}")
   metadata                            Json      @default("{}")
-  created_at                          DateTime  @default(now()) @db.Timestamp(3)
-  updated_at                          DateTime  @updatedAt @db.Timestamp(3)
+  created_at                          DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at                          DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, status, started_at, id], map: "idx_agent_recovery_sessions_identity_status")
   @@index([status, hard_wake_at, id], map: "idx_agent_recovery_sessions_status_due")
@@ -162,22 +162,22 @@ model AgentRecoverySession {
 
 model AgentSessionLifeState {
   identity_key                   String                   @id @db.VarChar(191)
-  last_active_at                 DateTime?                @db.Timestamp(3)
-  last_boredom_reset_at          DateTime?                @db.Timestamp(3)
-  last_sleep_at                  DateTime?                @db.Timestamp(3)
-  service_started_at             DateTime?                @db.Timestamp(3)
-  last_presence_tick_enqueued_at DateTime?                @db.Timestamp(3)
-  last_proactive_at              DateTime?                @db.Timestamp(3)
-  last_user_message_at           DateTime?                @db.Timestamp(3)
+  last_active_at                 DateTime?                @db.Timestamptz(3)
+  last_boredom_reset_at          DateTime?                @db.Timestamptz(3)
+  last_sleep_at                  DateTime?                @db.Timestamptz(3)
+  service_started_at             DateTime?                @db.Timestamptz(3)
+  last_presence_tick_enqueued_at DateTime?                @db.Timestamptz(3)
+  last_proactive_at              DateTime?                @db.Timestamptz(3)
+  last_user_message_at           DateTime?                @db.Timestamptz(3)
   daily_proactive_count          Int                      @default(0)
-  daily_proactive_date           DateTime?                @db.Timestamp(3)
+  daily_proactive_date           DateTime?                @db.Timestamptz(3)
   projection_json                Json                     @default("{}")
   explanation_json               Json                     @default("{}")
   reduced_through_event_id       BigInt?                  @db.BigInt
-  reduced_through_occurred_at    DateTime?                @db.Timestamp(3)
+  reduced_through_occurred_at    DateTime?                @db.Timestamptz(3)
   projection_version             String?                  @db.VarChar(64)
-  projection_updated_at          DateTime?                @db.Timestamp(3)
-  updated_at                     DateTime                 @updatedAt @db.Timestamp(3)
+  projection_updated_at          DateTime?                @db.Timestamptz(3)
+  updated_at                     DateTime                 @updatedAt @db.Timestamptz(3)
   group_states                   AgentSessionGroupState[]
 
   @@map("agent_session_life_states")
@@ -186,9 +186,9 @@ model AgentSessionLifeState {
 model AgentSessionGroupState {
   session_key          String                @id @db.VarChar(191)
   identity_key         String                @db.VarChar(191)
-  last_spoke_at        DateTime?             @db.Timestamp(3)
-  last_user_message_at DateTime?             @db.Timestamp(3)
-  updated_at           DateTime              @updatedAt @db.Timestamp(3)
+  last_spoke_at        DateTime?             @db.Timestamptz(3)
+  last_user_message_at DateTime?             @db.Timestamptz(3)
+  updated_at           DateTime              @updatedAt @db.Timestamptz(3)
   life_state           AgentSessionLifeState @relation(fields: [identity_key], references: [identity_key], onDelete: Cascade)
 
   @@index([identity_key], map: "idx_agent_session_group_states_identity")
@@ -204,7 +204,7 @@ model AgentSharePoolItem {
   source_wording String                @db.VarChar(32)
   effort_cost    Int
   base_heat      Float                 @default(1.0)
-  created_at     DateTime              @default(now()) @db.Timestamp(3)
+  created_at     DateTime              @default(now()) @db.Timestamptz(3)
   metadata       Json                  @default("{}")
   usages         AgentShareItemUsage[]
 
@@ -220,7 +220,7 @@ model AgentShareItemUsage {
   target_group_id    BigInt?            @db.BigInt
   run_id             String?            @db.VarChar(128)
   trace_id           String?            @db.VarChar(128)
-  used_at            DateTime           @default(now()) @db.Timestamp(3)
+  used_at            DateTime           @default(now()) @db.Timestamptz(3)
   outcome            String?            @db.VarChar(32)
   item               AgentSharePoolItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
 
@@ -241,7 +241,7 @@ model AgentPresenceStateSidecar {
   compression_mapping Json
   final_context_block String
   model_action_outcome String? @db.VarChar(32)
-  created_at          DateTime @default(now()) @db.Timestamp(3)
+  created_at          DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([run_id], map: "idx_agent_presence_sidecars_run")
   @@index([identity_key, created_at], map: "idx_agent_presence_sidecars_identity_created")
@@ -266,9 +266,9 @@ model AgentDigitalAction {
   source_queue_ids Json      @default("[]")
   source_run_ids   Json      @default("[]")
   error_message    String?
-  created_at       DateTime  @default(now()) @db.Timestamp(3)
-  updated_at       DateTime  @updatedAt @db.Timestamp(3)
-  completed_at     DateTime? @db.Timestamp(3)
+  created_at       DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime  @updatedAt @db.Timestamptz(3)
+  completed_at     DateTime? @db.Timestamptz(3)
 
   @@index([identity_key, created_at], map: "idx_agent_digital_actions_identity_created")
   @@index([status, created_at], map: "idx_agent_digital_actions_status_created")
@@ -280,7 +280,7 @@ model AgentLifeEvent {
   id                   BigInt   @id @default(autoincrement()) @db.BigInt
   identity_key         String   @db.VarChar(191)
   event_kind           String   @db.VarChar(64)
-  occurred_at          DateTime @default(now()) @db.Timestamp(3)
+  occurred_at          DateTime @default(now()) @db.Timestamptz(3)
   surface              String?  @db.VarChar(64)
   chat_type            String?  @db.VarChar(16)
   session_key          String?  @db.VarChar(191)
@@ -308,7 +308,7 @@ model AgentLifeEvent {
   attention_delta      Float    @default(0)
   payload              Json     @default("{}")
   dedupe_key           String   @unique @db.VarChar(255)
-  created_at           DateTime @default(now()) @db.Timestamp(3)
+  created_at           DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([identity_key, occurred_at], map: "idx_agent_life_events_identity_time")
   @@index([identity_key, occurred_at, id], map: "idx_agent_life_events_identity_time_id")
@@ -340,8 +340,8 @@ model AgentStackItem {
   run_id               String?   @db.VarChar(128)
   conversation_id      BigInt?   @db.BigInt
   metadata             Json      @default("{}")
-  created_at           DateTime  @default(now()) @db.Timestamp(3)
-  updated_at           DateTime  @updatedAt @db.Timestamp(3)
+  created_at           DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([identity_key, stack_index], map: "uniq_agent_stack_items_identity_index")
   @@index([identity_key, stack_index], map: "idx_agent_stack_items_identity_index")
@@ -380,9 +380,9 @@ model LlmRequestSlice {
   wire_provider_format   String?   @db.VarChar(128)
   processing_time_ms     Int?
   metadata               Json      @default("{}")
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  completed_at           DateTime? @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, created_at, id], map: "idx_llm_request_slices_identity_time")
   @@index([trace_id, agent_turn, id], map: "idx_llm_request_slices_trace")
@@ -414,9 +414,9 @@ model CodexProviderUsageEvent {
   wire_provider_format   String?   @db.VarChar(128)
   processing_time_ms     Int?
   metadata               Json      @default("{}")
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  completed_at           DateTime? @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, created_at, id], map: "idx_codex_provider_usage_identity_time")
   @@index([source_kind, created_at, id], map: "idx_codex_provider_usage_source_time")
@@ -432,14 +432,14 @@ model LlmUsageRollupSource {
   identity_key       String   @default("xiaoni") @db.VarChar(191)
   llm_call_id        String?  @db.VarChar(128)
   trace_id           String?  @db.VarChar(128)
-  created_at         DateTime @db.Timestamp(3)
-  hour_bucket_start  DateTime @db.Timestamp(3)
-  day_bucket_start   DateTime @db.Timestamp(3)
-  month_bucket_start DateTime @db.Timestamp(3)
+  created_at         DateTime @db.Timestamptz(3)
+  hour_bucket_start  DateTime @db.Timestamptz(3)
+  day_bucket_start   DateTime @db.Timestamptz(3)
+  month_bucket_start DateTime @db.Timestamptz(3)
   input_tokens       Decimal  @default(0) @db.Decimal(20, 0)
   cached_tokens      Decimal  @default(0) @db.Decimal(20, 0)
   output_tokens      Decimal  @default(0) @db.Decimal(20, 0)
-  updated_at         DateTime @updatedAt @db.Timestamp(3)
+  updated_at         DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, created_at, slice_id], map: "idx_llm_usage_rollup_sources_identity_time")
   @@index([identity_key, hour_bucket_start], map: "idx_llm_usage_rollup_sources_hour")
@@ -452,8 +452,8 @@ model LlmUsageRollup {
   id                       BigInt   @id @default(autoincrement()) @db.BigInt
   identity_key             String   @default("xiaoni") @db.VarChar(191)
   bucket                   String   @db.VarChar(16)
-  bucket_start             DateTime @db.Timestamp(3)
-  bucket_end               DateTime @db.Timestamp(3)
+  bucket_start             DateTime @db.Timestamptz(3)
+  bucket_end               DateTime @db.Timestamptz(3)
   call_count               BigInt   @default(0) @db.BigInt
   input_tokens             Decimal  @default(0) @db.Decimal(20, 0)
   cached_tokens            Decimal  @default(0) @db.Decimal(20, 0)
@@ -463,12 +463,12 @@ model LlmUsageRollup {
   top_fork_run_id          String?  @db.VarChar(191)
   top_llm_call_id          String?  @db.VarChar(128)
   top_trace_id             String?  @db.VarChar(128)
-  top_timestamp            DateTime? @db.Timestamp(3)
+  top_timestamp            DateTime? @db.Timestamptz(3)
   top_input_tokens         Decimal  @default(0) @db.Decimal(20, 0)
   top_cached_tokens        Decimal  @default(0) @db.Decimal(20, 0)
   top_output_tokens        Decimal  @default(0) @db.Decimal(20, 0)
-  created_at               DateTime @default(now()) @db.Timestamp(3)
-  updated_at               DateTime @updatedAt @db.Timestamp(3)
+  created_at               DateTime @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([identity_key, bucket, bucket_start], map: "llm_usage_rollups_identity_bucket_start_key")
   @@index([identity_key, bucket, bucket_start], map: "idx_llm_usage_rollups_identity_bucket_time")
@@ -478,10 +478,10 @@ model LlmUsageRollup {
 model LlmUsageRollupState {
   identity_key   String    @id @db.VarChar(191)
   version        Int       @default(1)
-  initialized_at DateTime? @db.Timestamp(3)
+  initialized_at DateTime? @db.Timestamptz(3)
   source_max_id  BigInt    @default(0) @db.BigInt
   source_count   BigInt    @default(0) @db.BigInt
-  updated_at     DateTime  @updatedAt @db.Timestamp(3)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("llm_usage_rollup_state")
 }
@@ -507,10 +507,10 @@ model ToolExecution {
   stack_call_item_id   BigInt?   @db.BigInt
   stack_output_item_id BigInt?   @db.BigInt
   metadata             Json      @default("{}")
-  created_at           DateTime  @default(now()) @db.Timestamp(3)
-  started_at           DateTime  @default(now()) @db.Timestamp(3)
-  completed_at         DateTime? @db.Timestamp(3)
-  updated_at           DateTime  @updatedAt @db.Timestamp(3)
+  created_at           DateTime  @default(now()) @db.Timestamptz(3)
+  started_at           DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at         DateTime? @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([trace_id, started_at, id], map: "idx_tool_executions_trace")
   @@index([tool_call_id], map: "idx_tool_executions_tool_call")
@@ -533,10 +533,10 @@ model CoreMemoryCompressionForkRun {
   artifact                                   Json      @default("{}")
   error_message                              String?
   metadata                                   Json      @default("{}")
-  started_at                                 DateTime  @default(now()) @db.Timestamp(3)
-  completed_at                               DateTime? @db.Timestamp(3)
-  created_at                                 DateTime  @default(now()) @db.Timestamp(3)
-  updated_at                                 DateTime  @updatedAt @db.Timestamp(3)
+  started_at                                 DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at                               DateTime? @db.Timestamptz(3)
+  created_at                                 DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at                                 DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([trace_id, started_at, id], map: "idx_core_memory_fork_runs_trace")
   @@index([run_id, started_at, id], map: "idx_core_memory_fork_runs_run")
@@ -563,8 +563,8 @@ model CoreMemoryCompressionForkItem {
   run_id               String?  @db.VarChar(128)
   conversation_id      BigInt?  @db.BigInt
   metadata             Json     @default("{}")
-  created_at           DateTime @default(now()) @db.Timestamp(3)
-  updated_at           DateTime @updatedAt @db.Timestamp(3)
+  created_at           DateTime @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([fork_run_id, item_index], map: "uniq_core_memory_fork_items_run_index")
   @@index([fork_run_id, item_index], map: "idx_core_memory_fork_items_run_index")
@@ -602,9 +602,9 @@ model CoreMemoryCompressionForkSlice {
   wire_provider_format   String?   @db.VarChar(128)
   processing_time_ms     Int?
   metadata               Json      @default("{}")
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  completed_at           DateTime? @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([fork_run_id, agent_turn, id], map: "idx_core_memory_fork_slices_run_turn")
   @@map("core_memory_compression_fork_slices")
@@ -632,10 +632,10 @@ model CoreMemoryCompressionForkToolExecution {
   stack_call_item_id   BigInt?   @db.BigInt
   stack_output_item_id BigInt?   @db.BigInt
   metadata             Json      @default("{}")
-  created_at           DateTime  @default(now()) @db.Timestamp(3)
-  started_at           DateTime  @default(now()) @db.Timestamp(3)
-  completed_at         DateTime? @db.Timestamp(3)
-  updated_at           DateTime  @updatedAt @db.Timestamp(3)
+  created_at           DateTime  @default(now()) @db.Timestamptz(3)
+  started_at           DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at         DateTime? @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([fork_run_id, started_at, id], map: "idx_core_memory_fork_tool_run_time")
   @@index([tool_call_id], map: "idx_core_memory_fork_tool_call")
@@ -651,7 +651,7 @@ model StackCompaction {
   summary_stack_item_id BigInt?  @db.BigInt
   method                String   @db.VarChar(64)
   metadata              Json     @default("{}")
-  created_at            DateTime @default(now()) @db.Timestamp(3)
+  created_at            DateTime @default(now()) @db.Timestamptz(3)
 
   @@map("stack_compactions")
 }
@@ -666,9 +666,9 @@ model GroupChatSetting {
   welcome_message    String?
   admin_user_id      BigInt?   @db.BigInt
   agent_prompt_id    String?
-  last_activity      DateTime? @db.Timestamp(3)
-  created_at         DateTime  @default(now()) @db.Timestamp(3)
-  updated_at         DateTime  @updatedAt @db.Timestamp(3)
+  last_activity      DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("group_chat_settings")
 }
@@ -683,9 +683,9 @@ model PrivateChatSetting {
   welcome_message    String?
   user_notes         String?
   agent_prompt_id    String?
-  last_activity      DateTime? @db.Timestamp(3)
-  created_at         DateTime  @default(now()) @db.Timestamp(3)
-  updated_at         DateTime  @updatedAt @db.Timestamp(3)
+  last_activity      DateTime? @db.Timestamptz(3)
+  created_at         DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("private_chat_settings")
 }
@@ -704,9 +704,9 @@ model AgentInboundMessage {
   sender_name       String?   @db.VarChar(255)
   account_id        String    @db.VarChar(191)
   is_read           Int       @default(0)
-  read_at           DateTime? @db.Timestamp(3)
-  received_at       DateTime  @db.Timestamp(3)
-  message_timestamp DateTime? @db.Timestamp(3)
+  read_at           DateTime? @db.Timestamptz(3)
+  received_at       DateTime  @db.Timestamptz(3)
+  message_timestamp DateTime? @db.Timestamptz(3)
   body_for_agent    String
   raw_body          String?
   command_body      String?
@@ -716,8 +716,8 @@ model AgentInboundMessage {
   reply_to_sender   String?   @db.VarChar(255)
   raw_payload       Json
   inbound_context   Json
-  created_at        DateTime  @default(now()) @db.Timestamp(3)
-  updated_at        DateTime  @updatedAt @db.Timestamp(3)
+  created_at        DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([session_key, received_at, id], map: "idx_agent_inbound_messages_session_received")
   @@index([is_read, session_key, received_at, id], map: "idx_agent_inbound_messages_unread_session")
@@ -753,15 +753,15 @@ model HttpTrafficLog {
   response_content_type String?   @db.VarChar(255)
   response_size         Int?
   duration_ms           BigInt?   @db.BigInt
-  request_timestamp     DateTime  @db.Timestamp(3)
-  response_timestamp    DateTime? @db.Timestamp(3)
+  request_timestamp     DateTime  @db.Timestamptz(3)
+  response_timestamp    DateTime? @db.Timestamptz(3)
   is_ai_request         Boolean   @default(false)
   api_type              String?   @db.VarChar(64)
   api_version           String?   @db.VarChar(32)
   client_ip             String?   @db.VarChar(128)
   user_agent            String?   @db.Text
   error_message         String?   @db.Text
-  created_at            DateTime  @default(now()) @db.Timestamp(3)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
 
   @@map("http_traffic_logs")
 }
@@ -779,7 +779,7 @@ model ConversationItem {
   delivery_message_id BigInt? @db.BigInt
   run_id             String?  @db.VarChar(128)
   trace_id           String?  @db.VarChar(128)
-  created_at         DateTime @default(now()) @db.Timestamp(3)
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([conversation_id, group_index, item_index, id], map: "idx_conversation_items_conversation_group_item")
   @@index([session_key, created_at, id], map: "idx_conversation_items_session_created")
@@ -800,7 +800,7 @@ model TrafficReplayHistory {
   duration_ms            Int?
   status                 String    @default("completed") @db.VarChar(32)
   error_message          String?   @db.Text
-  replayed_at            DateTime  @default(now()) @db.Timestamp(3)
+  replayed_at            DateTime  @default(now()) @db.Timestamptz(3)
   replayed_by            String?   @db.VarChar(50)
   modified_method        String?   @db.VarChar(16)
   modified_url           String?   @db.Text
@@ -840,10 +840,10 @@ model ImageLabRun {
   input_json     Json?
   result_json    Json?
   error_message  String?            @db.Text
-  started_at     DateTime?          @db.Timestamp(3)
-  completed_at   DateTime?          @db.Timestamp(3)
-  created_at     DateTime           @default(now()) @db.Timestamp(3)
-  updated_at     DateTime           @updatedAt @db.Timestamp(3)
+  started_at     DateTime?          @db.Timestamptz(3)
+  completed_at   DateTime?          @db.Timestamptz(3)
+  created_at     DateTime           @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime           @updatedAt @db.Timestamptz(3)
   artifacts      ImageLabArtifact[]
 
   @@index([created_at, id], map: "idx_image_lab_runs_created")
@@ -866,7 +866,7 @@ model ImageLabArtifact {
   height          Int?
   revised_prompt  String?     @db.Text
   metadata        Json?
-  created_at      DateTime    @default(now()) @db.Timestamp(3)
+  created_at      DateTime    @default(now()) @db.Timestamptz(3)
   run             ImageLabRun @relation(fields: [run_id], references: [id], onDelete: Cascade)
 
   @@index([run_id, created_at], map: "idx_image_lab_artifacts_run_created")
@@ -893,8 +893,8 @@ model AgentMediaAsset {
   source_locator    String?                 @db.Text
   storage_uri       String?                 @db.Text
   metadata          Json?
-  created_at        DateTime                @default(now()) @db.Timestamp(3)
-  updated_at        DateTime                @updatedAt @db.Timestamp(3)
+  created_at        DateTime                @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime                @updatedAt @db.Timestamptz(3)
   observations      AgentMediaObservation[]
 
   @@unique([message_sid, media_tag], map: "uniq_agent_media_message_tag")
@@ -912,7 +912,7 @@ model AgentMediaObservation {
   source_model  String?         @db.VarChar(128)
   confidence    String?         @db.VarChar(32)
   metadata      Json?
-  created_at    DateTime        @default(now()) @db.Timestamp(3)
+  created_at    DateTime        @default(now()) @db.Timestamptz(3)
   asset         AgentMediaAsset @relation(fields: [asset_id], references: [id], onDelete: Cascade)
 
   @@index([asset_id, created_at], map: "idx_agent_media_observations_asset_created")
@@ -940,12 +940,12 @@ model AgentTask {
   result_json            Json?
   error_message          String?             @db.Text
   attempts               Int                 @default(0)
-  available_at           DateTime            @default(now()) @db.Timestamp(3)
+  available_at           DateTime            @default(now()) @db.Timestamptz(3)
   claimed_by             String?             @db.VarChar(128)
-  claimed_at             DateTime?           @db.Timestamp(3)
-  completed_at           DateTime?           @db.Timestamp(3)
-  created_at             DateTime            @default(now()) @db.Timestamp(3)
-  updated_at             DateTime            @updatedAt @db.Timestamp(3)
+  claimed_at             DateTime?           @db.Timestamptz(3)
+  completed_at           DateTime?           @db.Timestamptz(3)
+  created_at             DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime            @updatedAt @db.Timestamptz(3)
   artifacts              AgentTaskArtifact[]
 
   @@index([status, available_at, id], map: "idx_agent_tasks_status_available")
@@ -966,7 +966,7 @@ model AgentTaskArtifact {
   bytes          Int?
   revised_prompt String?   @db.Text
   metadata       Json?
-  created_at     DateTime  @default(now()) @db.Timestamp(3)
+  created_at     DateTime  @default(now()) @db.Timestamptz(3)
   task           AgentTask @relation(fields: [task_id], references: [id], onDelete: Cascade)
 
   @@index([task_id, created_at], map: "idx_agent_task_artifacts_task_created")
@@ -993,8 +993,8 @@ model AbTurnSnapshot {
   treatment_status   String         @default("pending") @db.VarChar(32)
   eval_status        String         @default("pending") @db.VarChar(32)
   capture_error      String?
-  created_at         DateTime       @default(now()) @db.Timestamp(3)
-  updated_at         DateTime       @updatedAt @db.Timestamp(3)
+  created_at         DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime       @updatedAt @db.Timestamptz(3)
   arm_runs           AbArmRun[]
   eval_results       AbEvalResult[]
 
@@ -1016,11 +1016,11 @@ model AbArmRun {
   output_artifact        Json
   memory_context         Json
   failure                Json?
-  started_at             DateTime?      @db.Timestamp(3)
-  completed_at           DateTime?      @db.Timestamp(3)
+  started_at             DateTime?      @db.Timestamptz(3)
+  completed_at           DateTime?      @db.Timestamptz(3)
   status                 String         @default("pending") @db.VarChar(32)
-  created_at             DateTime       @default(now()) @db.Timestamp(3)
-  updated_at             DateTime       @updatedAt @db.Timestamp(3)
+  created_at             DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime       @updatedAt @db.Timestamptz(3)
   snapshot               AbTurnSnapshot @relation(fields: [snapshot_id], references: [id], onDelete: Cascade)
   control_eval_results   AbEvalResult[] @relation("AbEvalControlArmRun")
   treatment_eval_results AbEvalResult[] @relation("AbEvalTreatmentArmRun")
@@ -1045,10 +1045,10 @@ model AbMemoryStreamItem {
   status            String    @default("active") @db.VarChar(32)
   source_event_refs Json
   provenance        Json
-  ttl_expires_at    DateTime? @db.Timestamp(3)
-  fulfilled_at      DateTime? @db.Timestamp(3)
-  created_at        DateTime  @default(now()) @db.Timestamp(3)
-  updated_at        DateTime  @updatedAt @db.Timestamp(3)
+  ttl_expires_at    DateTime? @db.Timestamptz(3)
+  fulfilled_at      DateTime? @db.Timestamptz(3)
+  created_at        DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([namespace, type, status, updated_at], map: "idx_ab_memory_items_namespace_type_status_updated")
   @@index([arm, namespace, type, status, updated_at], map: "idx_ab_memory_items_arm_namespace_type_status_updated")
@@ -1067,8 +1067,8 @@ model AbEvalResult {
   reviewer_notes       String?
   isolation_check      Json
   fixture_id           String?        @db.VarChar(191)
-  created_at           DateTime       @default(now()) @db.Timestamp(3)
-  updated_at           DateTime       @updatedAt @db.Timestamp(3)
+  created_at           DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime       @updatedAt @db.Timestamptz(3)
   snapshot             AbTurnSnapshot @relation(fields: [snapshot_id], references: [id], onDelete: Cascade)
   control_arm_run      AbArmRun?      @relation("AbEvalControlArmRun", fields: [control_arm_run_id], references: [id], onDelete: SetNull)
   treatment_arm_run    AbArmRun?      @relation("AbEvalTreatmentArmRun", fields: [treatment_arm_run_id], references: [id], onDelete: SetNull)
@@ -1090,8 +1090,8 @@ model RelationshipLedgerEvent {
   source_message_ids  Json
   source_excerpt      String?
   metadata            Json?
-  created_at          DateTime  @default(now()) @db.Timestamp(3)
-  last_reinforced_at  DateTime? @db.Timestamp(3)
+  created_at          DateTime  @default(now()) @db.Timestamptz(3)
+  last_reinforced_at  DateTime? @db.Timestamptz(3)
 
   @@index([group_id, target_user_id, event_type, created_at], map: "idx_relationship_ledger_scope_type_created")
   @@index([session_key, created_at], map: "idx_relationship_ledger_session_created")
@@ -1112,10 +1112,10 @@ model SelfEvolutionJob {
   output_state_version Int?
   error_message        String?
   metadata             Json?
-  started_at           DateTime? @db.Timestamp(3)
-  finished_at          DateTime? @db.Timestamp(3)
-  created_at           DateTime  @default(now()) @db.Timestamp(3)
-  updated_at           DateTime  @updatedAt @db.Timestamp(3)
+  started_at           DateTime? @db.Timestamptz(3)
+  finished_at          DateTime? @db.Timestamptz(3)
+  created_at           DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([group_id, status, updated_at], map: "idx_self_evolution_jobs_group_status_updated")
   @@index([session_key, updated_at], map: "idx_self_evolution_jobs_session_updated")
@@ -1142,8 +1142,8 @@ model SelfEvolutionState {
   source_event_ids         Json
   source_message_ids       Json
   metadata                 Json?
-  created_at               DateTime  @default(now()) @db.Timestamp(3)
-  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+  created_at               DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([group_id, target_user_id, scope_type, is_active, updated_at], map: "idx_self_evolution_states_scope_active_updated")
   @@index([session_key, is_active, updated_at], map: "idx_self_evolution_states_session_active_updated")
@@ -1164,8 +1164,8 @@ model AgentFeedbackEpisode {
   event_importance       Float     @default(0)
   source_salience        Float     @default(0)
   metadata               Json?
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([group_id, source_user_id, scope_type, updated_at], map: "idx_agent_feedback_episodes_scope_updated")
   @@index([session_key, updated_at], map: "idx_agent_feedback_episodes_session_updated")
@@ -1198,10 +1198,10 @@ model AgentFeedbackReflection {
   supersedes_reflection_id BigInt?  @db.BigInt
   conflict_group_key      String?   @db.VarChar(191)
   metadata                Json?
-  last_hit_at             DateTime? @db.Timestamp(3)
+  last_hit_at             DateTime? @db.Timestamptz(3)
   hit_count               Int       @default(0)
-  created_at              DateTime  @default(now()) @db.Timestamp(3)
-  updated_at              DateTime  @updatedAt @db.Timestamp(3)
+  created_at              DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([group_id, learning_key, learning_scope, is_active, updated_at], map: "idx_agent_feedback_reflections_learning_active_updated")
   @@index([session_key, is_active, updated_at], map: "idx_agent_feedback_reflections_session_active_updated")
@@ -1225,8 +1225,8 @@ model AgentFeedbackLearningState {
   source_weight           Float     @default(0)
   conflict_penalty        Float     @default(0)
   metadata                Json?
-  created_at              DateTime  @default(now()) @db.Timestamp(3)
-  updated_at              DateTime  @updatedAt @db.Timestamp(3)
+  created_at              DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([group_id, scope_type, updated_at], map: "idx_agent_feedback_learning_states_scope_updated")
   @@index([session_key, updated_at], map: "idx_agent_feedback_learning_states_session_updated")
@@ -1249,8 +1249,8 @@ model AgentMemoryObservation {
   source_run_id          String?   @db.VarChar(128)
   writer_model           String?   @db.VarChar(128)
   metadata               Json?
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([session_key, created_at, id], map: "idx_agent_memory_obs_session_created")
   @@index([group_id, created_at, id], map: "idx_agent_memory_obs_group_created")
@@ -1272,8 +1272,8 @@ model AgentMemoryAssertion {
   source_run_id          String?   @db.VarChar(128)
   writer_model           String?   @db.VarChar(128)
   metadata               Json?
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([session_key, created_at, id], map: "idx_agent_memory_assert_session_created")
   @@index([group_id, fact_type, created_at], map: "idx_agent_memory_assert_group_fact")
@@ -1289,8 +1289,8 @@ model AgentMemoryReflection {
   kind                   String    @db.VarChar(32)
   subjects               Json
   evidence_basis         String    @db.VarChar(32)
-  evidence_time_start    DateTime? @db.Timestamp(3)
-  evidence_time_end      DateTime? @db.Timestamp(3)
+  evidence_time_start    DateTime? @db.Timestamptz(3)
+  evidence_time_end      DateTime? @db.Timestamptz(3)
   poignancy              Int       @default(1)
   source_observation_ids Json
   source_message_ids     Json
@@ -1298,8 +1298,8 @@ model AgentMemoryReflection {
   source_run_id          String?   @db.VarChar(128)
   writer_model           String?   @db.VarChar(128)
   metadata               Json?
-  created_at             DateTime  @default(now()) @db.Timestamp(3)
-  updated_at             DateTime  @updatedAt @db.Timestamp(3)
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([session_key, created_at, id], map: "idx_agent_memory_refl_session_created")
   @@index([group_id, kind, created_at], map: "idx_agent_memory_refl_group_kind")
@@ -1315,8 +1315,8 @@ model XiaoniIdentityRoot {
   status                      String   @default("active") @db.VarChar(32)
   created_by                  String?  @db.VarChar(191)
   metadata                    Json?
-  created_at                  DateTime @default(now()) @db.Timestamp(3)
-  updated_at                  DateTime @updatedAt @db.Timestamp(3)
+  created_at                  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at                  DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, status, created_at], map: "idx_xiaoni_identity_roots_key_status_created")
   @@map("xiaoni_identity_roots")
@@ -1337,8 +1337,8 @@ model IdentityLineageEvent {
   accepted_fact_id         BigInt?   @db.BigInt
   integrity_status         String    @default("accepted") @db.VarChar(32)
   metadata                 Json?
-  occurred_at              DateTime? @db.Timestamp(3)
-  created_at               DateTime  @default(now()) @db.Timestamp(3)
+  occurred_at              DateTime? @db.Timestamptz(3)
+  created_at               DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([identity_key, created_at, id], map: "idx_identity_lineage_events_key_created")
   @@index([event_type, created_at], map: "idx_identity_lineage_events_type_created")
@@ -1366,9 +1366,9 @@ model IdentityChangeCandidate {
   legacy_source_table   String?   @db.VarChar(64)
   legacy_source_id      String?   @db.VarChar(191)
   metadata              Json?
-  judged_at             DateTime? @db.Timestamp(3)
-  created_at            DateTime  @default(now()) @db.Timestamp(3)
-  updated_at            DateTime  @updatedAt @db.Timestamp(3)
+  judged_at             DateTime? @db.Timestamptz(3)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, status, created_at], map: "idx_identity_change_candidates_key_status_created")
   @@index([identity_key, judge_status, created_at], map: "idx_identity_change_candidates_key_judge_created")
@@ -1392,7 +1392,7 @@ model IdentityEvidenceRef {
   redaction_status  String   @default("visible") @db.VarChar(32)
   confidence        String   @default("medium") @db.VarChar(16)
   metadata          Json?
-  created_at        DateTime @default(now()) @db.Timestamp(3)
+  created_at        DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([identity_key, source_type, source_id], map: "idx_identity_evidence_refs_key_source")
   @@index([identity_event_id], map: "idx_identity_evidence_refs_event")
@@ -1417,8 +1417,8 @@ model AcceptedIdentityFact {
   confidence            String    @default("medium") @db.VarChar(16)
   activation_tags       Json
   metadata              Json?
-  accepted_at           DateTime  @default(now()) @db.Timestamp(3)
-  updated_at            DateTime  @updatedAt @db.Timestamp(3)
+  accepted_at           DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([identity_key, status, accepted_at], map: "idx_accepted_identity_facts_key_status_accepted")
   @@index([identity_key, fact_key, status], map: "idx_accepted_identity_facts_key_fact_status")
@@ -1440,7 +1440,7 @@ model RuntimeIdentityActivationTrace {
   selected_skill_ref String?  @db.VarChar(191)
   activation_reason  String?
   metadata           Json?
-  created_at         DateTime @default(now()) @db.Timestamp(3)
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([trace_id, run_id], map: "idx_runtime_identity_activation_traces_trace_run")
   @@index([identity_key, created_at], map: "idx_runtime_identity_activation_traces_key_created")
@@ -1453,15 +1453,15 @@ model ChatSpaceTopic {
   chat_space_id                BigInt    @db.BigInt
   status                       String    @default("candidate") @db.VarChar(32)
   canonical_title              String?
-  started_at                   DateTime? @db.Timestamp(3)
-  last_activity_at             DateTime? @db.Timestamp(3)
-  closed_at                    DateTime? @db.Timestamp(3)
+  started_at                   DateTime? @db.Timestamptz(3)
+  last_activity_at             DateTime? @db.Timestamptz(3)
+  closed_at                    DateTime? @db.Timestamptz(3)
   current_accepted_version_id  BigInt?   @db.BigInt
   current_candidate_version_id BigInt?   @db.BigInt
   last_projection_job_id       BigInt?   @db.BigInt
   metadata                     Json?
-  created_at                   DateTime  @default(now()) @db.Timestamp(3)
-  updated_at                   DateTime  @updatedAt @db.Timestamp(3)
+  created_at                   DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at                   DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([chat_space_type, chat_space_id, status, last_activity_at], map: "idx_chat_space_topics_space_status_activity")
   @@index([chat_space_type, chat_space_id, updated_at], map: "idx_chat_space_topics_space_updated")
@@ -1483,10 +1483,10 @@ model TopicProjectionJob {
   error_code               String?   @db.VarChar(64)
   error_message            String?
   metadata                 Json?
-  started_at               DateTime? @db.Timestamp(3)
-  finished_at              DateTime? @db.Timestamp(3)
-  created_at               DateTime  @default(now()) @db.Timestamp(3)
-  updated_at               DateTime  @updatedAt @db.Timestamp(3)
+  started_at               DateTime? @db.Timestamptz(3)
+  finished_at              DateTime? @db.Timestamptz(3)
+  created_at               DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at               DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([chat_space_type, chat_space_id, status, updated_at], map: "idx_topic_projection_jobs_space_status_updated")
   @@index([input_bundle_hash, created_at], map: "idx_topic_projection_jobs_bundle_hash")
@@ -1509,13 +1509,13 @@ model TopicProjectionVersion {
   evidence_count      Int       @default(0)
   relationship_count  Int       @default(0)
   runtime_hit_count   Int       @default(0)
-  last_runtime_hit_at DateTime? @db.Timestamp(3)
+  last_runtime_hit_at DateTime? @db.Timestamptz(3)
   input_bundle_hash   String    @db.VarChar(191)
   snapshot_json       Json
   provenance_json     Json
   metadata            Json?
-  created_at          DateTime  @default(now()) @db.Timestamp(3)
-  updated_at          DateTime  @updatedAt @db.Timestamp(3)
+  created_at          DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(3)
 
   @@unique([topic_id, version_number], map: "uniq_topic_projection_versions_topic_version")
   @@index([topic_id, created_at], map: "idx_topic_projection_versions_topic_created")
@@ -1534,7 +1534,7 @@ model TopicVersionRelationship {
   source_event_ids      Json
   source_message_ids    Json
   metadata              Json?
-  created_at            DateTime @default(now()) @db.Timestamp(3)
+  created_at            DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([projection_version_id, target_user_id], map: "idx_topic_version_relationships_version_target")
   @@map("topic_version_relationships")
@@ -1549,9 +1549,9 @@ model TopicVersionEvidence {
   excerpt_text          String?
   speaker_id            String?   @db.VarChar(191)
   speaker_name          String?   @db.VarChar(255)
-  occurred_at           DateTime? @db.Timestamp(3)
+  occurred_at           DateTime? @db.Timestamptz(3)
   metadata              Json?
-  created_at            DateTime  @default(now()) @db.Timestamp(3)
+  created_at            DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([projection_version_id, sort_order, id], map: "idx_topic_version_evidence_version_sort")
   @@index([source_kind, source_id], map: "idx_topic_version_evidence_source")
@@ -1569,8 +1569,8 @@ model TopicReviewEvent {
   manual_note                String?
   patch_json                 Json?
   metadata                   Json?
-  created_at                 DateTime  @default(now()) @db.Timestamp(3)
-  updated_at                 DateTime  @updatedAt @db.Timestamp(3)
+  created_at                 DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at                 DateTime  @updatedAt @db.Timestamptz(3)
 
   @@index([topic_id, created_at], map: "idx_topic_review_events_topic_created")
   @@index([status, updated_at], map: "idx_topic_review_events_status_updated")
@@ -1590,8 +1590,8 @@ model GoldenChatCase {
   fixture_bundle_json        Json
   created_by                 String?  @db.VarChar(191)
   metadata                   Json?
-  created_at                 DateTime @default(now()) @db.Timestamp(3)
-  updated_at                 DateTime @updatedAt @db.Timestamp(3)
+  created_at                 DateTime @default(now()) @db.Timestamptz(3)
+  updated_at                 DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([chat_space_type, chat_space_id, status, updated_at], map: "idx_golden_chat_cases_space_status_updated")
   @@index([source_projection_version_id, created_at], map: "idx_golden_chat_cases_source_version")

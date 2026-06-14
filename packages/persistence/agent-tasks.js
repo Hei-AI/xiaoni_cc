@@ -118,12 +118,12 @@ function createAgentTaskPersistence({ getPrismaClient, createSqlAdapter }) {
           result_json JSONB NULL,
           error_message TEXT NULL,
           attempts INTEGER NOT NULL DEFAULT 0,
-          available_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          available_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           claimed_by VARCHAR(128) NULL,
-          claimed_at TIMESTAMP(3) NULL,
-          completed_at TIMESTAMP(3) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          claimed_at TIMESTAMPTZ(3) NULL,
+          completed_at TIMESTAMPTZ(3) NULL,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -139,7 +139,7 @@ function createAgentTaskPersistence({ getPrismaClient, createSqlAdapter }) {
           bytes INTEGER NULL,
           revised_prompt TEXT NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_tasks_status_available ON agent_tasks (status, available_at ASC, id ASC)');

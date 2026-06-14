@@ -12,7 +12,7 @@ function createRelationshipTrustPersistence({ createSqlAdapter }) {
             speaker_qq BIGINT NOT NULL,
             trust_score DOUBLE PRECISION NOT NULL DEFAULT 0,
             level VARCHAR(4) NOT NULL DEFAULT 'L1',
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT uq_relationship_trust_key_speaker UNIQUE (identity_key, speaker_qq)
           )
         `

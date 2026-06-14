@@ -51,8 +51,8 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
   `agent_session_life_states` 是 life projection 事实。
 - `core_memory_compression_fork_*` 和 `image_vision_fork_*` 只记录 fork 自身，不改写主 loop
   的 stack 边界。
-- 所有 `TIMESTAMP(3)` 写入和 API 输出必须复用 `packages/persistence/time.js` 的东八区
-  timestamp helper。
+- 所有结构化时间写入使用 `TIMESTAMPTZ(3)` Instant；API 输出和小腻上下文必须复用
+  `packages/persistence/time.js` 的东八区 timestamp helper。
 
 ## Verification
 

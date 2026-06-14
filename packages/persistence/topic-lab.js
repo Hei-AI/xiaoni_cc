@@ -98,15 +98,15 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           chat_space_id BIGINT NOT NULL,
           status VARCHAR(32) NOT NULL DEFAULT 'candidate',
           canonical_title TEXT NULL,
-          started_at TIMESTAMP(3) NULL,
-          last_activity_at TIMESTAMP(3) NULL,
-          closed_at TIMESTAMP(3) NULL,
+          started_at TIMESTAMPTZ(3) NULL,
+          last_activity_at TIMESTAMPTZ(3) NULL,
+          closed_at TIMESTAMPTZ(3) NULL,
           current_accepted_version_id BIGINT NULL,
           current_candidate_version_id BIGINT NULL,
           last_projection_job_id BIGINT NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -125,10 +125,10 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           error_code VARCHAR(64) NULL,
           error_message TEXT NULL,
           metadata JSONB NULL,
-          started_at TIMESTAMP(3) NULL,
-          finished_at TIMESTAMP(3) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          started_at TIMESTAMPTZ(3) NULL,
+          finished_at TIMESTAMPTZ(3) NULL,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -148,13 +148,13 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           evidence_count INTEGER NOT NULL DEFAULT 0,
           relationship_count INTEGER NOT NULL DEFAULT 0,
           runtime_hit_count INTEGER NOT NULL DEFAULT 0,
-          last_runtime_hit_at TIMESTAMP(3) NULL,
+          last_runtime_hit_at TIMESTAMPTZ(3) NULL,
           input_bundle_hash VARCHAR(191) NOT NULL,
           snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           provenance_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -168,7 +168,7 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           source_event_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
           source_message_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -181,9 +181,9 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           excerpt_text TEXT NULL,
           speaker_id VARCHAR(191) NULL,
           speaker_name VARCHAR(255) NULL,
-          occurred_at TIMESTAMP(3) NULL,
+          occurred_at TIMESTAMPTZ(3) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -198,8 +198,8 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           manual_note TEXT NULL,
           patch_json JSONB NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -216,8 +216,8 @@ function createTopicLabPersistence({ getPrismaClient, createSqlAdapter }) {
           fixture_bundle_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_by VARCHAR(191) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_chat_space_topics_space_status_activity ON chat_space_topics (chat_space_type, chat_space_id, status, last_activity_at DESC)');

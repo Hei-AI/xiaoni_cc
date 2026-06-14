@@ -142,8 +142,8 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
             event_importance DOUBLE PRECISION NOT NULL DEFAULT 0,
             source_salience DOUBLE PRECISION NOT NULL DEFAULT 0,
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -175,10 +175,10 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
             supersedes_reflection_id BIGINT NULL,
             conflict_group_key VARCHAR(191) NULL,
             metadata JSONB NULL,
-            last_hit_at TIMESTAMP(3) NULL,
+            last_hit_at TIMESTAMPTZ(3) NULL,
             hit_count INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -201,8 +201,8 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
             source_weight DOUBLE PRECISION NOT NULL DEFAULT 0,
             conflict_penalty DOUBLE PRECISION NOT NULL DEFAULT 0,
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );

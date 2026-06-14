@@ -187,12 +187,12 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             reason TEXT,
             xiaoni_os TEXT,
             clock_minutes INTEGER,
-            clock_due_at TIMESTAMP(3),
-            clock_fired_at TIMESTAMP(3),
-            clock_deferred_at TIMESTAMP(3),
-            started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            ended_at TIMESTAMP(3),
-            last_checked_at TIMESTAMP(3),
+            clock_due_at TIMESTAMPTZ(3),
+            clock_fired_at TIMESTAMPTZ(3),
+            clock_deferred_at TIMESTAMPTZ(3),
+            started_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            ended_at TIMESTAMPTZ(3),
+            last_checked_at TIMESTAMPTZ(3),
             tool_execution_id VARCHAR(191),
             llm_request_slice_id VARCHAR(191),
             llm_call_id VARCHAR(128),
@@ -210,12 +210,12 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             start_energy DOUBLE PRECISION,
             current_energy DOUBLE PRECISION,
             max_energy DOUBLE PRECISION NOT NULL DEFAULT 1,
-            planned_natural_wake_at TIMESTAMP(3),
-            hard_wake_at TIMESTAMP(3),
+            planned_natural_wake_at TIMESTAMPTZ(3),
+            hard_wake_at TIMESTAMPTZ(3),
             result JSONB NOT NULL DEFAULT '{}'::jsonb,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `);
         await sql.execute("CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_recovery_sessions_active_identity ON agent_recovery_sessions (identity_key) WHERE status = 'active'");

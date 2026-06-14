@@ -63,6 +63,27 @@ compression failed/no tool  -> armed 保持 true
 6. 切换读写 helper：legacy `TIMESTAMP(3)` 继续走兼容 helper；已迁移 `TIMESTAMPTZ(3)` 走 Instant helper；人类和小腻上下文统一用东八区 formatter。
 7. 跑 persistence、agent-service、admin frontend/backend 的时间展示测试后，再人工恢复小腻主循环。
 
+## 2026-06-14 Execution
+
+实际切换在小腻 `recover_energy` 睡眠窗口中人工提前执行，没有等待二级闸门触发。执行前通过管理端 runtime control 手动设置：
+
+- `enabled=false`
+- `postCompressionPauseArmed=false`
+
+数据库迁移范围：
+
+- 全部非备份、非 cleanup 的应用表结构化时间列已切到 `TIMESTAMPTZ(3)`。
+- 迁移脚本：`scripts/development/migrate-active-timestamps-to-timestamptz.js`。
+- 每张应用表执行前创建 `ops_backup_timezone_timestamptz_20260614_*` 备份表；历史 cleanup / backup 表保留原样。
+- 纠偏列：`llm_request_slices.completed_at`、`core_memory_compression_fork_slices.completed_at`、`image_vision_fork_slices.completed_at`、`codex_provider_usage_events.completed_at`。这些列迁移前是 UTC wall-clock 形态，迁移时先补 `+8 hours`，再按 `Asia/Shanghai` 转 `TIMESTAMPTZ(3)`。
+
+迁移后验证：
+
+- 非备份、非 cleanup 应用表已无 `timestamp without time zone` 列。
+- 纠偏列的 `completed_at - created_at` 从约 `-8h` 恢复到毫秒级请求耗时。
+- runtime control API 返回东八区 offset，例如 `2026-06-14T13:12:51.151+08:00`。
+- 小腻主 runtime 保持暂停，等待人工确认后恢复。
+
 ## Xiaoni Context Shape
 
 未来进入小腻上下文的新结构化时间应该长这样：

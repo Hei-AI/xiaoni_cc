@@ -81,10 +81,10 @@ function createSelfEvolutionPersistence({ getPrismaClient, createSqlAdapter }) {
             output_state_version INTEGER NULL,
             error_message TEXT NULL,
             metadata JSONB NULL,
-            started_at TIMESTAMP(3) NULL,
-            finished_at TIMESTAMP(3) NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            started_at TIMESTAMPTZ(3) NULL,
+            finished_at TIMESTAMPTZ(3) NULL,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -110,8 +110,8 @@ function createSelfEvolutionPersistence({ getPrismaClient, createSqlAdapter }) {
             source_event_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
             source_message_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );

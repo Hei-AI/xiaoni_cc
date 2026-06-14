@@ -276,8 +276,8 @@ function createAbExperimentPersistence({ getPrismaClient, createSqlAdapter }) {
           treatment_status VARCHAR(32) NOT NULL DEFAULT 'pending',
           eval_status VARCHAR(32) NOT NULL DEFAULT 'pending',
           capture_error TEXT NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -292,11 +292,11 @@ function createAbExperimentPersistence({ getPrismaClient, createSqlAdapter }) {
           output_artifact JSONB NOT NULL DEFAULT '{}'::jsonb,
           memory_context JSONB NOT NULL DEFAULT '{}'::jsonb,
           failure JSONB NULL,
-          started_at TIMESTAMP(3) NULL,
-          completed_at TIMESTAMP(3) NULL,
+          started_at TIMESTAMPTZ(3) NULL,
+          completed_at TIMESTAMPTZ(3) NULL,
           status VARCHAR(32) NOT NULL DEFAULT 'pending',
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -314,10 +314,10 @@ function createAbExperimentPersistence({ getPrismaClient, createSqlAdapter }) {
           status VARCHAR(32) NOT NULL DEFAULT 'active',
           source_event_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
           provenance JSONB NOT NULL DEFAULT '{}'::jsonb,
-          ttl_expires_at TIMESTAMP(3) NULL,
-          fulfilled_at TIMESTAMP(3) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ttl_expires_at TIMESTAMPTZ(3) NULL,
+          fulfilled_at TIMESTAMPTZ(3) NULL,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -331,8 +331,8 @@ function createAbExperimentPersistence({ getPrismaClient, createSqlAdapter }) {
           reviewer_notes TEXT NULL,
           isolation_check JSONB NOT NULL DEFAULT '{}'::jsonb,
           fixture_id VARCHAR(191) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE UNIQUE INDEX IF NOT EXISTS uniq_ab_turn_snapshots_source_key ON ab_turn_snapshots (source_key)');

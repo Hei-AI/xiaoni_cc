@@ -66,7 +66,7 @@ test('ensureAgentRecoverySessionSchema creates durable session table and wake in
   const createTable = statements.find((statement) => statement.includes('CREATE TABLE IF NOT EXISTS agent_recovery_sessions')) || '';
   assert.match(createTable, /tool_call_id VARCHAR\(191\)/);
   assert.match(createTable, /wake_count_start_queue_message_id BIGINT/);
-  assert.match(createTable, /hard_wake_at TIMESTAMP\(3\)/);
+  assert.match(createTable, /hard_wake_at TIMESTAMPTZ\(3\)/);
   assert.ok(statements.some((statement) => statement.includes('uniq_agent_recovery_sessions_active_identity')));
   assert.ok(statements.some((statement) => statement.includes('idx_agent_queue_phone_notification_source_id')));
 });

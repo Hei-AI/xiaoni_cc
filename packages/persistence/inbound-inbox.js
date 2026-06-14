@@ -153,9 +153,9 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
             sender_name VARCHAR(255) NULL,
             account_id VARCHAR(191) NOT NULL,
             is_read INTEGER NOT NULL DEFAULT 0,
-            read_at TIMESTAMP(3) NULL,
-            received_at TIMESTAMP(3) NOT NULL,
-            message_timestamp TIMESTAMP(3) NULL,
+            read_at TIMESTAMPTZ(3) NULL,
+            received_at TIMESTAMPTZ(3) NOT NULL,
+            message_timestamp TIMESTAMPTZ(3) NULL,
             body_for_agent TEXT NOT NULL,
             raw_body TEXT NULL,
             command_body TEXT NULL,
@@ -165,8 +165,8 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
             reply_to_sender VARCHAR(255) NULL,
             raw_payload JSONB NOT NULL,
             inbound_context JSONB NOT NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
