@@ -100,6 +100,8 @@ test('maybeCreateQqAttentionReminder creates bodyless system reminder from activ
     sender_id: '20001',
     sender_name: 'Alice',
     account_id: '1129974489',
+    raw_body: '接口不是注释，注释告诉你为什么，接口让下一步接上',
+    body_for_agent: '接口不是注释，注释告诉你为什么，接口让下一步接上',
     is_read: 0,
     received_at: new Date('2026-06-13T00:02:00.000Z'),
     message_timestamp: null,
@@ -131,9 +133,13 @@ test('maybeCreateQqAttentionReminder creates bodyless system reminder from activ
   assert.equal(result.message.source, 'system_reminder');
   assert.equal(result.message.systemReminder.reason, 'attention_lease');
   assert.match(result.message.bodyForAgent, /unread_delta=1/);
-  assert.match(result.message.bodyForAgent, /focus_group 42/);
-  assert.doesNotMatch(result.message.bodyForAgent, /Alice/);
+  assert.match(result.message.bodyForAgent, /latest_sender=Alice\(20001\)/);
+  assert.match(result.message.bodyForAgent, /latest_preview=接口不是注释，注释告诉你为什么，接口让下\.\.\./);
+  assert.match(result.message.bodyForAgent, /focus_target=focus_group 42/);
+  assert.doesNotMatch(result.message.bodyForAgent, /没有明确喊你的信息/);
   assert.equal(result.message.rawPayload.kind, 'attention_lease_reminder');
+  assert.equal(result.message.rawPayload.source_sender_name, 'Alice');
+  assert.equal(result.message.rawPayload.source_preview, '接口不是注释，注释告诉你为什么，接口让下...');
 });
 
 test('maybeCreateQqAttentionReminder suppresses expired or disabled leases', async () => {

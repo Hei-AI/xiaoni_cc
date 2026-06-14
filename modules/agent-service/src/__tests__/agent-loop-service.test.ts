@@ -1420,6 +1420,10 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
     peer_name: 'Test Group',
     unread_delta: 3,
     direct_mentions: 1,
+    source_sender_id: '20001',
+    source_sender_name: 'Alice',
+    source_preview: '接口不是注释，注释告诉你为什么，接口...',
+    focus_target: 'focus_group 101',
     session_key: 'qq:group:101',
     trace_id: 'trace-should-stay-hidden'
   };
@@ -1441,8 +1445,12 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
   assert.match(rendered, /意识牵连：正在消退的注意力残留/);
   assert.match(rendered, /Test Group/);
   assert.match(rendered, /3 条新动静/);
-  assert.match(rendered, /有人 @ 了你 1 次/);
-  assert.match(rendered, /focus_group 101/);
+  assert.match(rendered, /动静数量：又多了 3 条未读/);
+  assert.match(rendered, /最新残影：Alice\(20001\) 刚说了句/);
+  assert.match(rendered, /接口不是注释，注释告诉你为什么/);
+  assert.match(rendered, /冲你来的：直接喊你或私戳你的次数有 1 次/);
+  assert.match(rendered, /视线锚点：focus_group 锁定为 101/);
+  assert.doesNotMatch(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, new RegExp(legacyReminderText));
   assert.doesNotMatch(rendered, /问问@Bob 今天玩什么/);
   assert.doesNotMatch(rendered, /qq:group:101|trace-should-stay-hidden/);

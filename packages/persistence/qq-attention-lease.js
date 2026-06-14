@@ -57,22 +57,38 @@ function chatLabel(row) {
 
 function focusTargetLine(row) {
   return row.chat_type === 'direct'
-    ? `- 查看目标: focus_private ${row.peer_id}`
-    : `- 查看目标: focus_group ${row.peer_id}`;
+    ? `focus_private ${row.peer_id}`
+    : `focus_group ${row.peer_id}`;
+}
+
+function truncatePreview(text, maxChars = 20) {
+  const normalized = normalizeString(text).replace(/\s+/g, ' ');
+  if (!normalized) return '无摘要';
+  const chars = Array.from(normalized);
+  return chars.length > maxChars
+    ? `${chars.slice(0, maxChars).join('')}...`
+    : normalized;
+}
+
+function senderLabel(row) {
+  const name = normalizeString(row.sender_name, null);
+  const id = normalizeString(row.sender_id, '');
+  if (name && id && name !== id) return `${name}(${id})`;
+  return name || id || '未知发送者';
+}
+
+function latestPreview(row) {
+  return truncatePreview(row.raw_body || row.body_for_agent || row.bodyForAgent || '');
 }
 
 function renderAttentionReminder(params) {
-  const lines = [
-    `- 新未读 ${params.unreadDelta} 条`,
-    params.directMentions > 0
-      ? `- 状态栏显示私聊/@你 ${params.directMentions} 次`
-      : '- 没有明确喊你的信息',
-    focusTargetLine(params.inbound)
-  ];
   return [
     `chat_label=${chatLabel(params.inbound)}`,
     `unread_delta=${params.unreadDelta}`,
-    lines.join('\n')
+    `latest_sender=${senderLabel(params.inbound)}`,
+    `latest_preview=${latestPreview(params.inbound)}`,
+    `direct_mentions=${params.directMentions}`,
+    `focus_target=${focusTargetLine(params.inbound)}`
   ].join('\n');
 }
 
@@ -270,7 +286,10 @@ function createQqAttentionLeasePersistence({ getPrismaClient, createSqlAdapter }
     if (Number(lease.reminder_count || 0) >= maxReminders) {
       return { shouldEnqueue: false, reason: 'max_reminders', score };
     }
-    const watermark = lease.last_reminder_inbound_id || lease.last_seen_inbound_id || 0n;
+    const watermark = [lease.last_reminder_inbound_id, lease.last_seen_inbound_id]
+      .map(toBigIntOrNull)
+      .filter((value) => value !== null)
+      .reduce((max, value) => (value > max ? value : max), 0n);
     if (inbound.id <= watermark) {
       return { shouldEnqueue: false, reason: 'no_new_inbound', score };
     }
@@ -353,6 +372,10 @@ function createQqAttentionLeasePersistence({ getPrismaClient, createSqlAdapter }
           peer_name: inbound.peer_name || null,
           unread_delta: unreadDelta,
           direct_mentions: directMentions,
+          source_sender_id: inbound.sender_id || null,
+          source_sender_name: inbound.sender_name || null,
+          source_preview: latestPreview(inbound),
+          focus_target: focusTargetLine(inbound),
           attention_score: score,
           lease_id: Number(lease.id),
           reminder_id: Number(reminder.id)
