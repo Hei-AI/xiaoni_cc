@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Loader2, Power, RefreshCw } from 'lucide-react';
+import { Bot, Loader2, Power, RefreshCw, TimerReset } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -19,6 +19,10 @@ type ApiResponse<T> = {
 type RuntimeControl = {
   identityKey: string;
   enabled: boolean;
+  postCompressionPauseArmed: boolean;
+  postCompressionPauseArmedAt: string | null;
+  postCompressionPauseTriggeredAt: string | null;
+  postCompressionPauseReason: string | null;
   updatedAt: string | null;
 };
 
@@ -31,11 +35,13 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-async function updateRuntimeControl(enabled: boolean): Promise<RuntimeControl> {
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'postCompressionPauseArmed'>>;
+
+async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled })
+    body: JSON.stringify(patch)
   });
   const payload = await response.json() as ApiResponse<RuntimeControl>;
   if (!response.ok || !payload.success) {
@@ -61,8 +67,21 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   });
 
   const control = controlQuery.data;
-  const enabled = mutation.isPending ? mutation.variables : control?.enabled ?? true;
+  const pendingPatch = mutation.isPending ? mutation.variables : null;
+  const enabled = typeof pendingPatch?.enabled === 'boolean' ? pendingPatch.enabled : control?.enabled ?? true;
+  const postCompressionPauseArmed = typeof pendingPatch?.postCompressionPauseArmed === 'boolean'
+    ? pendingPatch.postCompressionPauseArmed
+    : control?.postCompressionPauseArmed ?? false;
   const updatedAt = control?.updatedAt ? formatTimestamp(control.updatedAt, { fallback: control.updatedAt }) : '默认开启';
+  const armedAt = control?.postCompressionPauseArmedAt
+    ? formatTimestamp(control.postCompressionPauseArmedAt, { fallback: control.postCompressionPauseArmedAt })
+    : '未设置';
+  const triggeredAt = control?.postCompressionPauseTriggeredAt
+    ? formatTimestamp(control.postCompressionPauseTriggeredAt, { fallback: control.postCompressionPauseTriggeredAt })
+    : '尚未触发';
+  const runtimeStatusLabel = !enabled
+    ? '已暂停'
+    : postCompressionPauseArmed ? '运行中 · 已设闸' : '运行中';
 
   return (
     <PageShell className="max-w-4xl">
@@ -71,7 +90,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         title="小腻运行配置"
         description="控制小腻主循环是否继续消费队列和调用模型。"
         icon={<Power className="h-5 w-5" />}
-        badge={<StatusPill tone={enabled ? 'success' : 'warning'}>{enabled ? '运行中' : '已暂停'}</StatusPill>}
+        badge={<StatusPill tone={enabled ? 'success' : 'warning'}>{runtimeStatusLabel}</StatusPill>}
         actions={
           <Button variant="outline" size="sm" onClick={() => void controlQuery.refetch()} disabled={controlQuery.isFetching}>
             <RefreshCw className={controlQuery.isFetching ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
@@ -105,8 +124,38 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
             <Switch
               checked={enabled}
               disabled={controlQuery.isLoading || mutation.isPending}
-              onCheckedChange={(checked) => mutation.mutate(Boolean(checked))}
+              onCheckedChange={(checked) => mutation.mutate({ enabled: Boolean(checked) })}
               aria-label="小腻运行循环"
+            />
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="切换闸门"
+        description="打开后小腻会继续运行；下一次 Compress Memory 成功写入后，自动暂停主循环。"
+        icon={<TimerReset className="h-4 w-4 text-primary" />}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">下次压缩后暂停</div>
+            <div className="text-sm text-muted-foreground">
+              {postCompressionPauseArmed
+                ? enabled ? '已设闸，等待下一次核心记忆压缩完成。' : '已设闸；恢复运行后等待下一次核心记忆压缩完成。'
+                : '关闭时不会在压缩后自动暂停。'}
+            </div>
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:gap-4">
+              <span>设闸时间：{armedAt}</span>
+              <span>触发时间：{triggeredAt}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            <Switch
+              checked={postCompressionPauseArmed}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onCheckedChange={(checked) => mutation.mutate({ postCompressionPauseArmed: Boolean(checked) })}
+              aria-label="下次压缩后暂停"
             />
           </div>
         </div>

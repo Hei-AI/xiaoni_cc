@@ -2111,8 +2111,13 @@ export function findXiaoniActionEventTraceTarget(eventId: string, config?: Datab
 export type AgentRuntimeControlProjection = {
   identityKey: string;
   enabled: boolean;
+  postCompressionPauseArmed: boolean;
+  postCompressionPauseArmedAt: string | null;
+  postCompressionPauseTriggeredAt: string | null;
+  postCompressionPauseReason: string | null;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function getAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;

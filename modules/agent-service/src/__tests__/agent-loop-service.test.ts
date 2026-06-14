@@ -2504,6 +2504,76 @@ test('compress_core_memory preserves caller text and lets the loop continue', as
   assert.match(String((continuation.inputItems[0] as any).output), /core_memory_compressed/);
 });
 
+test('core memory compression commit runs the post-compression hook after durable writes', async () => {
+  const calls: string[] = [];
+  const store = {
+    upsertSessionContextSummary: async () => { calls.push('summary'); },
+    logTimelineEvent: async () => { calls.push('timeline'); }
+  };
+  const service = new AgentLoopService(store as any, undefined, {
+    onCoreMemoryCompressionCommitted: async (commit) => {
+      calls.push('hook');
+      assert.equal(commit.text, '压缩后的近况。');
+      assert.equal(commit.toolResult.context_summary_written, true);
+    }
+  });
+
+  const commit = await (service as any).commitCoreMemoryCompression({
+    rawToolResult: {
+      compressed: true,
+      text: ' 压缩后的近况。 ',
+      outcome: 'core_memory_compressed'
+    },
+    toolCall: {
+      name: COMPRESS_CORE_MEMORY_TOOL,
+      callId: 'call-post-compression-hook'
+    },
+    compression: null,
+    contextSessionKey: 'xiaoni:global',
+    sourceResponseId: 'llm-post-compression-hook',
+    metadata: {
+      trace_id: 'trace-post-compression-hook',
+      execution_mode: 'main_loop'
+    }
+  });
+
+  assert.equal(commit.text, '压缩后的近况。');
+  assert.deepEqual(calls, ['summary', 'timeline', 'hook']);
+});
+
+test('core memory compression commit keeps succeeding when the post-compression hook fails', async () => {
+  const store = {
+    upsertSessionContextSummary: async () => undefined,
+    logTimelineEvent: async () => undefined
+  };
+  const service = new AgentLoopService(store as any, undefined, {
+    onCoreMemoryCompressionCommitted: async () => {
+      throw new Error('pause trigger unavailable');
+    }
+  });
+
+  const commit = await (service as any).commitCoreMemoryCompression({
+    rawToolResult: {
+      compressed: true,
+      text: '压缩照常成功。',
+      outcome: 'core_memory_compressed'
+    },
+    toolCall: {
+      name: COMPRESS_CORE_MEMORY_TOOL,
+      callId: 'call-post-compression-hook-fails'
+    },
+    compression: null,
+    contextSessionKey: 'xiaoni:global',
+    sourceResponseId: 'llm-post-compression-hook-fails',
+    metadata: {
+      trace_id: 'trace-post-compression-hook-fails',
+      execution_mode: 'main_loop'
+    }
+  });
+
+  assert.equal(commit.text, '压缩照常成功。');
+});
+
 test('context compression memory writer generates episodic, semantic, and reflection memories', async () => {
   const calls: Array<any> = [];
   const observationWrites: Array<any> = [];

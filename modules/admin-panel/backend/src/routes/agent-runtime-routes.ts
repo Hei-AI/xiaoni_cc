@@ -812,10 +812,16 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
         ? req.body as Record<string, unknown>
         : {};
-      const control = await updateAgentRuntimeControl({
+      const patch: Record<string, unknown> = {
         identityKey: 'xiaoni',
-        enabled: body.enabled !== false
-      });
+      };
+      if (typeof body.enabled === 'boolean') {
+        patch.enabled = body.enabled;
+      }
+      if (typeof body.postCompressionPauseArmed === 'boolean') {
+        patch.postCompressionPauseArmed = body.postCompressionPauseArmed;
+      }
+      const control = await updateAgentRuntimeControl(patch);
       res.json({
         success: true,
         data: control,

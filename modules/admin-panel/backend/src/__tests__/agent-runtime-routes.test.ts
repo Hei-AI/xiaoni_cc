@@ -13,11 +13,13 @@ import {
 } from '../services/trace-span-builder';
 import {
   findXiaoniActionEventTraceTarget,
+  getAgentRuntimeControl,
   getXiaoniActionStream,
   getXiaoniLlmUsageTimeline,
   listAgentLifeEvents,
   listAgentRecoverySessions,
-  listToolExecutions
+  listToolExecutions,
+  updateAgentRuntimeControl
 } from '@qq-bot/persistence';
 
 jest.mock('axios');
@@ -26,12 +28,14 @@ jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
   getXiaoniLlmUsageTimeline: jest.fn(),
+  getAgentRuntimeControl: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentLifeEvents: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentRecoverySessions: jest.fn(),
   listToolExecutions: jest.fn(),
-  listAgentTasks: jest.fn()
+  listAgentTasks: jest.fn(),
+  updateAgentRuntimeControl: jest.fn()
 }));
 
 jest.mock('../services/trace-span-builder', () => ({
@@ -59,6 +63,81 @@ function createApp(database: ReturnType<typeof createDatabaseMock>) {
   app.use('/api', createAgentRuntimeRoutes(database as never, createLogger()));
   return app;
 }
+
+describe('agent runtime control routes', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns the full runtime control state', async () => {
+    const database = createDatabaseMock();
+    (getAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      postCompressionPauseArmed: true,
+      postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      updatedAt: '2026-06-13T20:00:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/agent-runtime/control');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.postCompressionPauseArmed).toBe(true);
+    expect(getAgentRuntimeControl).toHaveBeenCalledWith({ identityKey: 'xiaoni' });
+  });
+
+  it('patches enabled without changing the delayed pause switch', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: false,
+      postCompressionPauseArmed: true,
+      postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      updatedAt: '2026-06-13T20:01:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ enabled: false });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      enabled: false
+    });
+    expect(response.body.data.enabled).toBe(false);
+  });
+
+  it('patches delayed pause without implicitly resuming runtime', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: false,
+      postCompressionPauseArmed: true,
+      postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      updatedAt: '2026-06-13T20:01:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ postCompressionPauseArmed: true });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      postCompressionPauseArmed: true
+    });
+    expect(response.body.data.enabled).toBe(false);
+  });
+});
 
 describe('agent runtime recovery session routes', () => {
   beforeEach(() => {
