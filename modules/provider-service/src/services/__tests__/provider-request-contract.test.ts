@@ -11,6 +11,7 @@ import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../l
 import {
   buildRequestFromMessages,
   buildUnifiedConfig,
+  resolveProviderContextSessionId,
   shouldRecordCodexProviderUsageEvent
 } from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
@@ -310,6 +311,35 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
 });
 
+test('Codex provider omits prompt_cache_retention because the Codex backend rejects it', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload(createCanonicalRequest());
+
+  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+});
+
+test('provider debug uses Codex session metadata before QQ source session keys', () => {
+  assert.equal(resolveProviderContextSessionId({
+    codex_session_id: 'xiaoni:global',
+    session_id: 'qq:group:101',
+    session_key: 'qq:group:101'
+  }, null, 'codex-local'), 'xiaoni:global');
+  assert.equal(resolveProviderContextSessionId({
+    session_id: 'xiaoni:global',
+    session_key: 'qq:group:101'
+  }, null, 'codex-local'), 'xiaoni:global');
+  assert.equal(resolveProviderContextSessionId({
+    session_id: 'qq:group:101',
+    session_key: 'qq:group:101'
+  }, {
+    prompt_cache_key: 'xiaoni:global'
+  }, 'codex-local'), 'xiaoni:global');
+  assert.equal(resolveProviderContextSessionId({
+    session_key: 'qq:group:101'
+  }, null, 'codex-local'), 'qq:group:101');
+});
+
 test('Codex provider preserves function_call_output image content arrays', () => {
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload({
@@ -526,12 +556,16 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
       model: 'gpt-5.4-mini',
       stream: true,
       instructions: 'Be concise.',
+      prompt_cache_key: 'xiaoni:global',
+      prompt_cache_retention: '24h',
       input: [{ type: 'message', role: 'user', content: 'ping' }]
     });
 
     assert.equal(payload.model, 'gpt-5.4-mini');
     assert.equal(payload.instructions, 'Be concise.');
     assert.equal(payload.stream, true);
+    assert.equal(payload.prompt_cache_key, 'xiaoni:global');
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
     assert.deepEqual(payload.text, { verbosity: 'low' });
     assert.equal(payload.tool_choice, 'auto');
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'reasoning'), false);
