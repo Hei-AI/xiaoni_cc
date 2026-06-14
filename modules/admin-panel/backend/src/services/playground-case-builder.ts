@@ -1056,8 +1056,8 @@ export class PlaygroundCaseBuilder {
         notes TEXT NULL,
         is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
         created_by VARCHAR(100) NOT NULL DEFAULT 'admin',
-        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
@@ -1082,7 +1082,7 @@ export class PlaygroundCaseBuilder {
         provider VARCHAR(50) NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'completed',
         executed_by VARCHAR(100) NOT NULL DEFAULT 'admin',
-        created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT fk_playground_runs_case FOREIGN KEY (case_id) REFERENCES playground_cases(id) ON DELETE CASCADE
       )
     `);

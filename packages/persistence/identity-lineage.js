@@ -439,8 +439,8 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             status VARCHAR(32) NOT NULL DEFAULT 'active',
             created_by VARCHAR(191) NULL,
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -461,8 +461,8 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             accepted_fact_id BIGINT NULL,
             integrity_status VARCHAR(32) NOT NULL DEFAULT 'accepted',
             metadata JSONB NULL,
-            occurred_at TIMESTAMP(3) NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            occurred_at TIMESTAMPTZ(3) NULL,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -489,9 +489,9 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             legacy_source_table VARCHAR(64) NULL,
             legacy_source_id VARCHAR(191) NULL,
             metadata JSONB NULL,
-            judged_at TIMESTAMP(3) NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            judged_at TIMESTAMPTZ(3) NULL,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -511,7 +511,7 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             redaction_status VARCHAR(32) NOT NULL DEFAULT 'visible',
             confidence VARCHAR(16) NOT NULL DEFAULT 'medium',
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -533,8 +533,8 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             confidence VARCHAR(16) NOT NULL DEFAULT 'medium',
             activation_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
             metadata JSONB NULL,
-            accepted_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            accepted_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
@@ -553,7 +553,7 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             selected_skill_ref VARCHAR(191) NULL,
             activation_reason TEXT NULL,
             metadata JSONB NULL,
-            created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );

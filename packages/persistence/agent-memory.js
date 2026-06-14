@@ -64,8 +64,8 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
           source_run_id VARCHAR(128) NULL,
           writer_model VARCHAR(128) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -84,8 +84,8 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
           source_run_id VARCHAR(128) NULL,
           writer_model VARCHAR(128) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -98,8 +98,8 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
           kind VARCHAR(32) NOT NULL,
           subjects JSONB NOT NULL DEFAULT '[]'::jsonb,
           evidence_basis VARCHAR(32) NOT NULL,
-          evidence_time_start TIMESTAMP(3) NULL,
-          evidence_time_end TIMESTAMP(3) NULL,
+          evidence_time_start TIMESTAMPTZ(3) NULL,
+          evidence_time_end TIMESTAMPTZ(3) NULL,
           poignancy INTEGER NOT NULL DEFAULT 1,
           source_observation_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
           source_message_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -107,8 +107,8 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
           source_run_id VARCHAR(128) NULL,
           writer_model VARCHAR(128) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_memory_obs_session_created ON agent_memory_observations (session_key, created_at DESC, id DESC)');

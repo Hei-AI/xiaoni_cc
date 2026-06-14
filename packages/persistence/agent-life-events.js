@@ -216,7 +216,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
           id BIGSERIAL PRIMARY KEY,
           identity_key VARCHAR(191) NOT NULL,
           event_kind VARCHAR(64) NOT NULL,
-          occurred_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          occurred_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           surface VARCHAR(64) NULL,
           chat_type VARCHAR(16) NULL,
           session_key VARCHAR(191) NULL,
@@ -244,7 +244,7 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
           attention_delta DOUBLE PRECISION NOT NULL DEFAULT 0,
           payload JSONB NOT NULL DEFAULT '{}'::jsonb,
           dedupe_key VARCHAR(255) NOT NULL UNIQUE,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('ALTER TABLE agent_life_events ALTER COLUMN visibility DROP DEFAULT');

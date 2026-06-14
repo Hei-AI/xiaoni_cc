@@ -85,37 +85,37 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS agent_session_life_states (
           identity_key VARCHAR(191) PRIMARY KEY,
-          last_active_at TIMESTAMP(3) NULL,
-          last_boredom_reset_at TIMESTAMP(3) NULL,
-          last_sleep_at TIMESTAMP(3) NULL,
-          service_started_at TIMESTAMP(3) NULL,
-          last_presence_tick_enqueued_at TIMESTAMP(3) NULL,
-          last_proactive_at TIMESTAMP(3) NULL,
-          last_user_message_at TIMESTAMP(3) NULL,
+          last_active_at TIMESTAMPTZ(3) NULL,
+          last_boredom_reset_at TIMESTAMPTZ(3) NULL,
+          last_sleep_at TIMESTAMPTZ(3) NULL,
+          service_started_at TIMESTAMPTZ(3) NULL,
+          last_presence_tick_enqueued_at TIMESTAMPTZ(3) NULL,
+          last_proactive_at TIMESTAMPTZ(3) NULL,
+          last_user_message_at TIMESTAMPTZ(3) NULL,
           daily_proactive_count INTEGER NOT NULL DEFAULT 0,
-          daily_proactive_date TIMESTAMP(3) NULL,
+          daily_proactive_date TIMESTAMPTZ(3) NULL,
           projection_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           explanation_json JSONB NOT NULL DEFAULT '{}'::jsonb,
           reduced_through_event_id BIGINT NULL,
-          reduced_through_occurred_at TIMESTAMP(3) NULL,
+          reduced_through_occurred_at TIMESTAMPTZ(3) NULL,
           projection_version VARCHAR(64) NULL,
-          projection_updated_at TIMESTAMP(3) NULL,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          projection_updated_at TIMESTAMPTZ(3) NULL,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute("ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_json JSONB NOT NULL DEFAULT '{}'::jsonb");
       await sql.execute("ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS explanation_json JSONB NOT NULL DEFAULT '{}'::jsonb");
       await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS reduced_through_event_id BIGINT NULL');
-      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS reduced_through_occurred_at TIMESTAMP(3) NULL');
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS reduced_through_occurred_at TIMESTAMPTZ(3) NULL');
       await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_version VARCHAR(64) NULL');
-      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_updated_at TIMESTAMP(3) NULL');
+      await sql.execute('ALTER TABLE agent_session_life_states ADD COLUMN IF NOT EXISTS projection_updated_at TIMESTAMPTZ(3) NULL');
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS agent_session_group_states (
           session_key VARCHAR(191) PRIMARY KEY,
           identity_key VARCHAR(191) NOT NULL REFERENCES agent_session_life_states(identity_key) ON DELETE CASCADE,
-          last_spoke_at TIMESTAMP(3) NULL,
-          last_user_message_at TIMESTAMP(3) NULL,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          last_spoke_at TIMESTAMPTZ(3) NULL,
+          last_user_message_at TIMESTAMPTZ(3) NULL,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -128,7 +128,7 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
           source_wording VARCHAR(32) NOT NULL,
           effort_cost INTEGER NOT NULL,
           base_heat DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           metadata JSONB NOT NULL DEFAULT '{}'::jsonb
         )
       `);
@@ -141,7 +141,7 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
           target_group_id BIGINT NULL,
           run_id VARCHAR(128) NULL,
           trace_id VARCHAR(128) NULL,
-          used_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          used_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           outcome VARCHAR(32) NULL,
           CONSTRAINT uniq_agent_share_item_usage_item_session UNIQUE (item_id, target_session_key)
         )
@@ -159,7 +159,7 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
           compression_mapping JSONB NOT NULL,
           final_context_block TEXT NOT NULL,
           model_action_outcome VARCHAR(32) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -181,9 +181,9 @@ function createAgentPresencePersistence({ getPrismaClient, createSqlAdapter }) {
           source_queue_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
           source_run_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
           error_message TEXT NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          completed_at TIMESTAMP(3) NULL
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          completed_at TIMESTAMPTZ(3) NULL
         )
       `);
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_agent_session_group_states_identity ON agent_session_group_states (identity_key)');

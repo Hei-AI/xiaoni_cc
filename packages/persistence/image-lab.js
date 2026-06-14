@@ -96,10 +96,10 @@ function createImageLabPersistence({ getPrismaClient, createSqlAdapter }) {
           input_json JSONB NULL,
           result_json JSONB NULL,
           error_message TEXT NULL,
-          started_at TIMESTAMP(3) NULL,
-          completed_at TIMESTAMP(3) NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          started_at TIMESTAMPTZ(3) NULL,
+          completed_at TIMESTAMPTZ(3) NULL,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -116,7 +116,7 @@ function createImageLabPersistence({ getPrismaClient, createSqlAdapter }) {
           height INTEGER NULL,
           revised_prompt TEXT NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE INDEX IF NOT EXISTS idx_image_lab_runs_created ON image_lab_runs (created_at DESC, id DESC)');

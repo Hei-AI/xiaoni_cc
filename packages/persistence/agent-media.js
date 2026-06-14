@@ -104,8 +104,8 @@ function createAgentMediaPersistence({ getPrismaClient, createSqlAdapter }) {
           source_locator TEXT NULL,
           storage_uri TEXT NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute(`
@@ -117,7 +117,7 @@ function createAgentMediaPersistence({ getPrismaClient, createSqlAdapter }) {
           source_model VARCHAR(128) NULL,
           confidence VARCHAR(32) NULL,
           metadata JSONB NULL,
-          created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
       await sql.execute('CREATE UNIQUE INDEX IF NOT EXISTS uniq_agent_media_message_tag ON agent_media_assets (message_sid, media_tag)');

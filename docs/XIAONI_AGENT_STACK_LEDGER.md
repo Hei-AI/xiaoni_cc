@@ -309,10 +309,10 @@ LLM usage observatory 会合并主 `llm_request_slices`、compression fork、ima
 
 ### Time Semantics
 
-PostgreSQL `TIMESTAMP(3)` 字段按东八区 wall clock 处理。共享序列化逻辑在
-`packages/persistence/time.js`：写 Prisma 前用 `prepareTimestampWithoutTimezoneForPrisma`，
-API 输出用 `serializeTimestampWithoutTimezoneForApi`。涉及 action stream、life projection、
-recover energy 和 usage timeline 的新时间字段必须复用该层，避免把存储时区误读成 UTC。
+PostgreSQL 结构化时间字段使用 `TIMESTAMPTZ(3)` 存 Instant。共享序列化逻辑在
+`packages/persistence/time.js`：面向小腻上下文和管理端 API 输出时统一格式化为
+Asia/Shanghai / UTC+08。涉及 action stream、life projection、recover energy 和 usage
+timeline 的新时间字段必须复用该层，避免把存储 Instant 误展示成其他时区。
 
 ## Request Assembly
 

@@ -30,16 +30,16 @@ const COMMON_RUNTIME_DDLS = [
       status VARCHAR(16) NOT NULL DEFAULT 'pending',
       attempts INTEGER NOT NULL DEFAULT 0,
       max_attempts INTEGER NOT NULL DEFAULT 3,
-      available_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      locked_at TIMESTAMP(3),
+      available_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_at TIMESTAMPTZ(3),
       locked_by VARCHAR(128),
-      processing_started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
+      processing_started_at TIMESTAMPTZ(3),
+      completed_at TIMESTAMPTZ(3),
       conversation_id BIGINT,
       error_message TEXT,
       result JSONB,
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -61,10 +61,10 @@ const COMMON_RUNTIME_DDLS = [
       reason_for_start VARCHAR(64),
       input_message_count INTEGER NOT NULL DEFAULT 0,
       summary TEXT,
-      processing_started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      processing_started_at TIMESTAMPTZ(3),
+      completed_at TIMESTAMPTZ(3),
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -75,7 +75,7 @@ const COMMON_RUNTIME_DDLS = [
       inbound_message_id BIGINT NOT NULL,
       message_sid VARCHAR(191),
       position INTEGER NOT NULL,
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -98,10 +98,10 @@ const COMMON_RUNTIME_DDLS = [
       sent_messages JSONB,
       total_turns INTEGER NOT NULL DEFAULT 0,
       error_message TEXT,
-      started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      started_at TIMESTAMPTZ(3),
+      completed_at TIMESTAMPTZ(3),
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -117,10 +117,10 @@ const COMMON_RUNTIME_DDLS = [
       error_message TEXT,
       total_turns INTEGER NOT NULL DEFAULT 0,
       metadata JSONB,
-      started_at TIMESTAMP(3),
-      completed_at TIMESTAMP(3),
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      started_at TIMESTAMPTZ(3),
+      completed_at TIMESTAMPTZ(3),
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   'CREATE INDEX IF NOT EXISTS idx_agent_queue_pending_available ON agent_queue_messages (status, available_at, id)',
@@ -145,9 +145,9 @@ const TRANSCRIPT_SNAPSHOT_DDLS = [
       summarized_through_conversation_id BIGINT NOT NULL,
       summary_status VARCHAR(16) NOT NULL DEFAULT 'ready',
       summary_job_id VARCHAR(128) NULL,
-      last_compacted_at TIMESTAMP(3) NULL,
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      last_compacted_at TIMESTAMPTZ(3) NULL,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   'CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_private_user ON chat_transcript_snapshots (private_user_id, updated_at DESC)',
@@ -171,7 +171,7 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
       delivery_message_id BIGINT,
       run_id VARCHAR(128),
       trace_id VARCHAR(128),
-      created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `
@@ -184,7 +184,7 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
       context_summary TEXT,
       pending_proactive_share TEXT,
       pending_proactive_share_age INTEGER DEFAULT 0,
-      updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_phase TEXT NOT NULL DEFAULT 'reasoning_open'`,
