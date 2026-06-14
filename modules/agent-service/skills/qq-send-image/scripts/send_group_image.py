@@ -9,6 +9,8 @@ import urllib.request
 from html import escape
 from pathlib import Path
 
+from image_send_status import build_status_record, extract_message_id, utc_now_iso, write_status
+
 
 CONTAINER_ENDPOINT = "http://qqbot-provider-service:8090/api/internal/send_group_image"
 LOCAL_ENDPOINT = "http://127.0.0.1:8091/api/internal/send_group_image"
@@ -29,6 +31,7 @@ def result_block(tag, attrs, body):
     if body:
         print(escape(str(body)))
     print(f"</{tag}>")
+    sys.stdout.flush()
 
 
 def error(reason, **attrs):
@@ -180,22 +183,42 @@ def main(argv):
     parser.add_argument("--caption", default="", help="optional text to send after the image")
     args = parser.parse_args(argv)
 
+    status_record = None
     try:
         group_id = parse_group_id(args.group_id)
         image_path = resolve_image_path(args.image_path)
         data, mime_type, size = read_image(image_path)
         data_url = f"data:{mime_type};base64,{base64.b64encode(data).decode('ascii')}"
+        caption = args.caption.strip()
+        status_record = build_status_record(
+            "group",
+            group_id,
+            str(image_path),
+            caption,
+            status="pending",
+            mime_type=mime_type,
+            bytes=size,
+        )
+        write_status(status_record)
         payload = {
             "group_id": group_id,
             "data_url": data_url,
         }
-        caption = args.caption.strip()
         if caption:
             payload["caption"] = caption
         session_key = os.environ.get("XIAONI_SESSION_KEY", "").strip()
         if session_key:
             payload["session_key"] = session_key
-        provider_post(payload)
+        provider_response = provider_post(payload)
+        message_id = extract_message_id(provider_response)
+        sent_record = {
+            **status_record,
+            "status": "sent",
+            "updated_at": utc_now_iso(),
+            "message_id": message_id,
+            "provider_response": provider_response,
+        }
+        write_status(sent_record)
         result_block(
             "QQ_IMAGE_SEND_RESULT",
             {
@@ -205,10 +228,20 @@ def main(argv):
                 "mime_type": mime_type,
                 "bytes": size,
                 "caption_sent": "true" if caption else "false",
+                "status_key": status_record["status_key"],
+                "message_id": message_id,
             },
             "图片已发送到 QQ 群。",
         )
     except Exception as exc:
+        if status_record is not None:
+            failed_record = {
+                **status_record,
+                "status": "failed",
+                "updated_at": utc_now_iso(),
+                "reason": str(exc),
+            }
+            write_status(failed_record)
         error(str(exc), group_id=args.group_id, image_path=args.image_path)
     return 0
 
