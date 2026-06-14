@@ -384,7 +384,9 @@ function buildTestMainCanonicalRequest(
       run_id: queueMessage.runId,
       batch_id: queueMessage.batchId,
       session_key: queueMessage.sessionKey,
-      session_id: queueMessage.sessionKey,
+      source_session_key: queueMessage.sessionKey,
+      session_id: 'xiaoni:global',
+      codex_session_id: 'xiaoni:global',
       turn_id: queueMessage.runId,
       sandbox: 'none',
       chat_type: queueMessage.chatType,
@@ -1010,7 +1012,9 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     run_id: 'run-1',
     batch_id: 'batch-1',
     session_key: 'qq:group:101',
-    session_id: 'qq:group:101',
+    source_session_key: 'qq:group:101',
+    session_id: 'xiaoni:global',
+    codex_session_id: 'xiaoni:global',
     turn_id: 'run-1',
     sandbox: 'none',
     chat_type: 'group',
@@ -2574,7 +2578,39 @@ test('core memory compression commit keeps succeeding when the post-compression 
   assert.equal(commit.text, '压缩照常成功。');
 });
 
-test('context compression memory writer generates episodic, semantic, and reflection memories', async () => {
+test('context compression memory writer scheduling is disabled by default', async () => {
+  const timelineEvents: any[] = [];
+  const service = new AgentLoopService({
+    logTimelineEvent: async (event: any) => {
+      timelineEvents.push(event);
+    }
+  } as any);
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    throw new Error('context compression memory writer should not call provider while disabled');
+  }) as typeof fetch;
+
+  try {
+    (service as any).scheduleContextCompressionMemoryWriter({
+      queueMessage: createQueuePayload(),
+      conversationId: 1001,
+      evictedTurns: [createConversationTurn({ id: 10, userDeliveryMessageId: 201 })],
+      runtimePrompt: createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(fetchCount, 0);
+  assert.equal(timelineEvents.length, 1);
+  assert.equal(timelineEvents[0].eventName, 'context_compression_memory_writer');
+  assert.equal(timelineEvents[0].metadata.subagent_status, 'disabled');
+});
+
+test('context compression memory writer generates episodic, semantic, and reflection memories with isolated cache keys', async () => {
   const calls: Array<any> = [];
   const observationWrites: Array<any> = [];
   const assertionWrites: Array<any> = [];
@@ -2776,9 +2812,19 @@ test('context compression memory writer generates episodic, semantic, and reflec
   assert.equal(calls[2].agent_type, 'context_compression_memory_writer:reflection');
   assert.deepEqual(calls.map((call) => call.model), ['gpt-5.5', 'gpt-5.5', 'gpt-5.5']);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.prompt_cache_key), [
-    'xiaoni:global',
-    'xiaoni:global',
-    'xiaoni:global'
+    'xiaoni:subagent:compact_memory:episodic',
+    'xiaoni:subagent:compact_memory:semantic',
+    'xiaoni:subagent:compact_memory:reflection'
+  ]);
+  assert.deepEqual(calls.map((call) => call.canonicalRequest.metadata.session_id), [
+    'xiaoni:subagent:compact_memory:episodic',
+    'xiaoni:subagent:compact_memory:semantic',
+    'xiaoni:subagent:compact_memory:reflection'
+  ]);
+  assert.deepEqual(calls.map((call) => call.canonicalRequest.metadata.source_session_key), [
+    'qq:group:101',
+    'qq:group:101',
+    'qq:group:101'
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.reasoning), [
     { effort: 'high', summary: 'auto' },

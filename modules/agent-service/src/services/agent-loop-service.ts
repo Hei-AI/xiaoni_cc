@@ -474,6 +474,7 @@ const HISTORY_COMPACT_KEEP = 30;
 const GLOBAL_PROMPT_HISTORY_LIMIT = HISTORY_COMPACT_AT + 1;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
+const CONTEXT_COMPRESSION_MEMORY_WRITER_ENABLED = false;
 const COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS = 3;
 const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
@@ -1904,7 +1905,9 @@ function buildAgentTurnMetadata(
     run_id: queueMessage.runId,
     batch_id: queueMessage.batchId,
     session_key: queueMessage.sessionKey,
-    session_id: queueMessage.sessionKey,
+    source_session_key: queueMessage.sessionKey,
+    session_id: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    codex_session_id: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
     turn_id: queueMessage.runId,
     sandbox: 'none',
     chat_type: queueMessage.chatType,
@@ -1932,7 +1935,15 @@ function buildFeedbackMemorySubagentTurnMetadata(params: {
     parent_conversation_id: String(params.conversationId),
     batch_id: params.queueMessage.batchId,
     session_key: params.queueMessage.sessionKey,
-    session_id: params.queueMessage.sessionKey,
+    source_session_key: params.queueMessage.sessionKey,
+    session_id: buildSubagentPromptCacheKey({
+      queueMessage: params.queueMessage,
+      subagentType: FEEDBACK_MEMORY_SUBAGENT_TYPE
+    }),
+    codex_session_id: buildSubagentPromptCacheKey({
+      queueMessage: params.queueMessage,
+      subagentType: FEEDBACK_MEMORY_SUBAGENT_TYPE
+    }),
     turn_id: `${params.queueMessage.runId}:feedback_memory:${params.turn}`,
     sandbox: 'none',
     chat_type: params.queueMessage.chatType,
@@ -1965,6 +1976,12 @@ function buildCompactMemorySubagentTurnMetadata(params: {
   metadata.subagent_type = CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE;
   metadata.turn_id = `${params.queueMessage.runId}:compact_memory:${params.layer}`;
   metadata.memory_layer = params.layer;
+  metadata.session_id = buildSubagentPromptCacheKey({
+    queueMessage: params.queueMessage,
+    subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
+    layer: params.layer
+  });
+  metadata.codex_session_id = metadata.session_id;
   return metadata;
 }
 
@@ -1980,9 +1997,13 @@ function buildPromptCacheKey(
 function buildSubagentPromptCacheKey(params: {
   queueMessage: QueueMessageRecord['payload'];
   subagentType: string;
+  layer?: CompactMemoryLayer;
 }) {
-  void params;
-  return GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+  void params.queueMessage;
+  if (params.subagentType === CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE && params.layer) {
+    return `xiaoni:subagent:compact_memory:${params.layer}`;
+  }
+  return `xiaoni:subagent:${params.subagentType}`;
 }
 
 function delay(ms: number) {
@@ -5701,6 +5722,24 @@ export class AgentLoopService {
   }
 
   private scheduleContextCompressionMemoryWriter(params: ContextCompressionMemoryParams) {
+    if (!CONTEXT_COMPRESSION_MEMORY_WRITER_ENABLED) {
+      const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}`;
+      void this.store.logTimelineEvent({
+        traceId,
+        eventType: 'subagent',
+        eventName: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
+        eventPhase: 'end',
+        conversationId: params.conversationId,
+        metadata: {
+          subagent_status: 'disabled',
+          parent_trace_id: params.queueMessage.traceId,
+          parent_run_id: params.queueMessage.runId,
+          reason: 'disabled_pending_cache_session_isolation_review'
+        }
+      }).catch(() => undefined);
+      return;
+    }
+
     void this.runContextCompressionMemoryWriter(params).catch((error) => {
       const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}`;
       moduleLogger.warn('Context compression memory writer failed', {
@@ -5726,10 +5765,6 @@ export class AgentLoopService {
 
   private async runContextCompressionMemoryWriter(params: ContextCompressionMemoryParams) {
     const traceId = `${params.queueMessage.traceId}:subagent:${CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE}`;
-    const promptCacheKey = buildSubagentPromptCacheKey({
-      queueMessage: params.queueMessage,
-      subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE
-    });
     const groupId = Number.isFinite(Number(params.queueMessage.peerId)) ? Number(params.queueMessage.peerId) : null;
     const messageIdsByTurnId = buildSourceMessageIdsByTurnId(params.evictedTurns);
     const participantDirectory = buildCompactMemoryParticipantDirectory(params.evictedTurns);
@@ -5757,7 +5792,11 @@ export class AgentLoopService {
     const episodicToolCall = await this.runCompactMemoryLayer({
       params,
       traceId,
-      promptCacheKey,
+      promptCacheKey: buildSubagentPromptCacheKey({
+        queueMessage: params.queueMessage,
+        subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
+        layer: 'episodic'
+      }),
       layer: 'episodic',
       modelName: compactModelName,
       reasoningEffort: agentConfig.compactMemoryReasoningEffort,
@@ -5807,7 +5846,11 @@ export class AgentLoopService {
     const semanticToolCall = await this.runCompactMemoryLayer({
       params,
       traceId,
-      promptCacheKey,
+      promptCacheKey: buildSubagentPromptCacheKey({
+        queueMessage: params.queueMessage,
+        subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
+        layer: 'semantic'
+      }),
       layer: 'semantic',
       modelName: compactModelName,
       reasoningEffort: agentConfig.compactMemoryReasoningEffort,
@@ -5853,7 +5896,11 @@ export class AgentLoopService {
       const reflectionToolCall = await this.runCompactMemoryLayer({
         params,
         traceId,
-        promptCacheKey,
+        promptCacheKey: buildSubagentPromptCacheKey({
+          queueMessage: params.queueMessage,
+          subagentType: CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE,
+          layer: 'reflection'
+        }),
         layer: 'reflection',
         modelName: reflectionModelName,
         reasoningEffort: agentConfig.compactMemoryReflectionReasoningEffort,

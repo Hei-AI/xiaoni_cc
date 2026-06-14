@@ -76,6 +76,22 @@ function normalizeString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+export function resolveProviderContextSessionId(
+  requestMetadata: Record<string, any> = {},
+  request?: Pick<OpenResponseCreateRequest, 'prompt_cache_key'> | null,
+  providerId?: string
+) {
+  const codexSessionId = normalizeString(requestMetadata.codex_session_id ?? request?.prompt_cache_key);
+  if ((providerId === 'codex' || providerId === 'codex-local') && codexSessionId) {
+    return codexSessionId;
+  }
+  return normalizeString(
+    requestMetadata.session_id
+    ?? requestMetadata.session_key
+    ?? codexSessionId
+  );
+}
+
 function normalizeUsageSourceKindFromExecutionMode(executionMode: string) {
   if (executionMode === 'image_vision_fork_no_persist' || executionMode === 'image_vision_fork') {
     return 'image_vision_fork';
@@ -263,25 +279,25 @@ async function executeProviderRequest(
     ? canonicalRequest.metadata
     : {};
   const client = createProviderClient(providerId);
-	  const providerContext = {
-	    traceId: payload.trace_id,
-	    conversationId: payload.conversation_id,
-	    agentTurn: payload.agent_turn,
-	    agentType: payload.agent_type,
-	    llmCallId,
-	    promptName: payload.prompt_name,
-	    replayIdentityKey: persistLlmCall ? 'xiaoni' : 'xiaoni-internal',
-	    sessionId: normalizeString(requestMetadata.session_id ?? requestMetadata.session_key),
-	    turnId: normalizeString(payload.run_id ?? requestMetadata.turn_id ?? requestMetadata.run_id),
-	    sandbox: normalizeString(requestMetadata.sandbox) || 'none'
-	  };
-	  const startedAt = Date.now();
-	  const result = await client.generateContent({
-	    request,
-	    modelName,
-	    providerConfig: config,
-	    context: providerContext
-	  });
+  const providerContext = {
+    traceId: payload.trace_id,
+    conversationId: payload.conversation_id,
+    agentTurn: payload.agent_turn,
+    agentType: payload.agent_type,
+    llmCallId,
+    promptName: payload.prompt_name,
+    replayIdentityKey: persistLlmCall ? 'xiaoni' : 'xiaoni-internal',
+    sessionId: resolveProviderContextSessionId(requestMetadata, request, providerId),
+    turnId: normalizeString(payload.run_id ?? requestMetadata.turn_id ?? requestMetadata.run_id),
+    sandbox: normalizeString(requestMetadata.sandbox) || 'none'
+  };
+  const startedAt = Date.now();
+  const result = await client.generateContent({
+    request,
+    modelName,
+    providerConfig: config,
+    context: providerContext
+  });
   const finishedAt = Date.now();
   const contextPolicy = resolveModelContextPolicy(modelName, config);
   const contextThresholds = contextPolicy
