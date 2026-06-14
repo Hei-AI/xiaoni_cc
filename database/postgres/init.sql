@@ -6,9 +6,9 @@ CREATE TABLE IF NOT EXISTS private_chat_settings (
   welcome_message TEXT,
   user_notes TEXT,
   agent_prompt_id VARCHAR(100),
-  last_activity TIMESTAMP(3),
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  last_activity TIMESTAMPTZ(3),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS group_chat_settings (
@@ -19,9 +19,9 @@ CREATE TABLE IF NOT EXISTS group_chat_settings (
   welcome_message TEXT,
   admin_user_id BIGINT,
   agent_prompt_id VARCHAR(100),
-  last_activity TIMESTAMP(3),
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  last_activity TIMESTAMPTZ(3),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS agent_prompts (
@@ -37,8 +37,8 @@ CREATE TABLE IF NOT EXISTS agent_prompts (
   is_active INTEGER NOT NULL DEFAULT 1,
   version INTEGER NOT NULL DEFAULT 1,
   created_by VARCHAR(100) NOT NULL DEFAULT 'system',
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   description TEXT
 );
 
@@ -48,8 +48,8 @@ CREATE TABLE IF NOT EXISTS prompt_debug_sessions (
   session_name VARCHAR(255) NOT NULL,
   messages JSONB NOT NULL DEFAULT '[]'::jsonb,
   input_count INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   group_id BIGINT,
   user_message TEXT NOT NULL,
   ai_response TEXT,
-  timestamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  timestamp TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   response_time INTEGER NOT NULL DEFAULT 0,
   status VARCHAR(32),
   error_reason TEXT,
@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   message_id BIGINT,
   reply_to_message_id BIGINT,
   reply_to_text TEXT,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   trace_id VARCHAR(100)
 );
 
@@ -84,9 +84,9 @@ CREATE TABLE IF NOT EXISTS chat_transcript_snapshots (
   summarized_through_conversation_id BIGINT NOT NULL,
   summary_status VARCHAR(16) NOT NULL DEFAULT 'ready',
   summary_job_id VARCHAR(128),
-  last_compacted_at TIMESTAMP(3),
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  last_compacted_at TIMESTAMPTZ(3),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS conversation_items (
@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS conversation_items (
   delivery_message_id BIGINT,
   run_id VARCHAR(128),
   trace_id VARCHAR(128),
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_transcript_snapshots_private_user
@@ -120,9 +120,9 @@ CREATE TABLE IF NOT EXISTS conversation_sessions (
   session_type VARCHAR(32) NOT NULL,
   current_service VARCHAR(64),
   status VARCHAR(32) NOT NULL,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_activity TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  expires_at TIMESTAMP(3),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_activity TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMPTZ(3),
   conversation_context JSONB,
   business_context JSONB,
   message_count INTEGER NOT NULL DEFAULT 0
@@ -148,9 +148,9 @@ CREATE TABLE IF NOT EXISTS llm_call_logs (
   status VARCHAR(32),
   error_message TEXT,
   error_code VARCHAR(64),
-  started_at TIMESTAMP(3),
-  completed_at TIMESTAMP(3),
-  timestamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  started_at TIMESTAMPTZ(3),
+  completed_at TIMESTAMPTZ(3),
+  timestamp TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   processing_time_ms INTEGER DEFAULT 0,
   api_call_time_ms INTEGER DEFAULT 0,
   input_tokens INTEGER DEFAULT 0,
@@ -173,8 +173,8 @@ CREATE TABLE IF NOT EXISTS websocket_logs (
   user_id BIGINT,
   group_id BIGINT,
   message_id VARCHAR(100),
-  timestamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  timestamp TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS timeline_events (
@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS timeline_events (
   event_name VARCHAR(128),
   event_phase VARCHAR(32),
   component VARCHAR(128),
-  event_time TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  event_time TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   duration_ms INTEGER,
   metadata JSONB,
   performance_metrics JSONB
@@ -218,15 +218,15 @@ CREATE TABLE IF NOT EXISTS http_traffic_logs (
   response_content_type VARCHAR(255),
   response_size INTEGER,
   duration_ms BIGINT,
-  request_timestamp TIMESTAMP(3) NOT NULL,
-  response_timestamp TIMESTAMP(3),
+  request_timestamp TIMESTAMPTZ(3) NOT NULL,
+  response_timestamp TIMESTAMPTZ(3),
   is_ai_request BOOLEAN NOT NULL DEFAULT FALSE,
   api_type VARCHAR(64),
   api_version VARCHAR(32),
   client_ip VARCHAR(128),
   user_agent TEXT,
   error_message TEXT,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS log_import_state (
@@ -236,8 +236,8 @@ CREATE TABLE IF NOT EXISTS log_import_state (
   last_position BIGINT NOT NULL DEFAULT 0,
   records_imported INTEGER NOT NULL DEFAULT 0,
   status VARCHAR(32) NOT NULL DEFAULT 'active',
-  import_started_at TIMESTAMP(3),
-  last_import_time TIMESTAMP(3)
+  import_started_at TIMESTAMPTZ(3),
+  last_import_time TIMESTAMPTZ(3)
 );
 
 CREATE TABLE IF NOT EXISTS traffic_replay_history (
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS traffic_replay_history (
   duration_ms INTEGER,
   status VARCHAR(32) NOT NULL DEFAULT 'completed',
   error_message TEXT,
-  replayed_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  replayed_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 ALTER TABLE llm_call_logs
@@ -264,7 +264,7 @@ ALTER TABLE llm_call_logs
   ADD COLUMN IF NOT EXISTS wire_request JSONB,
   ADD COLUMN IF NOT EXISTS wire_response JSONB,
   ADD COLUMN IF NOT EXISTS effective_unified_config JSONB,
-  ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP(3);
+  ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ(3);
 
 CREATE TABLE IF NOT EXISTS agent_queue_messages (
   id BIGSERIAL PRIMARY KEY,
@@ -286,16 +286,16 @@ CREATE TABLE IF NOT EXISTS agent_queue_messages (
   status VARCHAR(16) NOT NULL DEFAULT 'pending',
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,
-  available_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  locked_at TIMESTAMP(3),
+  available_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  locked_at TIMESTAMPTZ(3),
   locked_by VARCHAR(128),
-  processing_started_at TIMESTAMP(3),
-  completed_at TIMESTAMP(3),
+  processing_started_at TIMESTAMPTZ(3),
+  completed_at TIMESTAMPTZ(3),
   conversation_id BIGINT,
   error_message TEXT,
   result JSONB,
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_queue_pending_available
@@ -316,10 +316,10 @@ CREATE TABLE IF NOT EXISTS llm_jobs (
   error_message TEXT,
   total_turns INTEGER NOT NULL DEFAULT 0,
   metadata JSONB,
-  started_at TIMESTAMP(3),
-  completed_at TIMESTAMP(3),
-  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  started_at TIMESTAMPTZ(3),
+  completed_at TIMESTAMPTZ(3),
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS tool_execution_logs (
@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS tool_execution_logs (
   error_message TEXT,
   execution_mode VARCHAR(64),
   side_effect BOOLEAN NOT NULL DEFAULT FALSE,
-  started_at TIMESTAMP(3),
-  completed_at TIMESTAMP(3),
+  started_at TIMESTAMPTZ(3),
+  completed_at TIMESTAMPTZ(3),
   duration_ms BIGINT
 );

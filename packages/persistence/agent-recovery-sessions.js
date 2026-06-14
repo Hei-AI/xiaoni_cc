@@ -277,7 +277,7 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
               hard_wake_at,
               metadata
             )
-            VALUES (?, ?, 'active', ?, ?, ?, ?::timestamp, ?::timestamp, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::timestamp, ?::timestamp, ?::jsonb)
+            VALUES (?, ?, 'active', ?, ?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::timestamptz, ?::timestamptz, ?::jsonb)
             RETURNING *
           `,
           [
@@ -399,8 +399,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
               last_wake_counted_queue_message_id = COALESCE(?, last_wake_counted_queue_message_id),
               current_pressure = ?,
               current_energy = ?,
-              clock_deferred_at = COALESCE(clock_deferred_at, ?::timestamp),
-              last_checked_at = COALESCE(?::timestamp, CURRENT_TIMESTAMP),
+              clock_deferred_at = COALESCE(clock_deferred_at, ?::timestamptz),
+              last_checked_at = COALESCE(?::timestamptz, CURRENT_TIMESTAMP),
               updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
           RETURNING *
@@ -432,8 +432,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
           UPDATE agent_recovery_sessions
           SET status = ?,
               wake_cause = ?,
-              ended_at = COALESCE(?::timestamp, CURRENT_TIMESTAMP),
-              clock_fired_at = COALESCE(clock_fired_at, ?::timestamp),
+              ended_at = COALESCE(?::timestamptz, CURRENT_TIMESTAMP),
+              clock_fired_at = COALESCE(clock_fired_at, ?::timestamptz),
               wake_call_count = COALESCE(?, wake_call_count),
               wake_required_count = COALESCE(?, wake_required_count),
               last_wake_counted_queue_message_id = COALESCE(?, last_wake_counted_queue_message_id),
