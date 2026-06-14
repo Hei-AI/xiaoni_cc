@@ -4135,6 +4135,22 @@ function buildToolRuntimeEnergyResult(toolName: string, runtimeEnergyState?: Run
   };
 }
 
+function buildToolErrorResult(
+  toolCall: Pick<AgentToolCall, 'name' | 'callId'>,
+  error: unknown
+): Record<string, unknown> {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    success: false,
+    tool_error: true,
+    tool_name: toolCall.name,
+    tool_call_id: toolCall.callId,
+    error_message: message,
+    error: message,
+    error_name: error instanceof Error && error.name ? error.name : null
+  };
+}
+
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>,
@@ -5335,14 +5351,58 @@ export class AgentLoopService {
               });
             }
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const toolResult = buildToolErrorResult(toolCall, error);
+            const message = String(toolResult.error_message || toolResult.error || 'Tool execution failed');
+            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
+            const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
+              loopInput: requestInput,
+              speakingToolName: payload.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+              hasVisibleReply: deliveredMessages.length > 0,
+              runtimeEnergyState
+            });
+            const toolOutputStackRows = await this.appendAgentStackItemsSafe({
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              sourceType: 'tool_executions',
+              sourceId: stackToolExecutionId,
+              llmRequestSliceId: sliceId,
+              items: buildToolResultStackItems({
+                toolCall,
+                toolResult,
+                continuationItems: continuation.inputItems,
+                llmRequestSliceId: sliceId
+              }) as Array<Record<string, unknown>>
+            });
+            const stackOutputItemId = (toolOutputStackRows[0] as { id?: string | number } | undefined)?.id || null;
             await this.completeAgentStackToolExecutionSafe({
               executionId: stackToolExecutionId,
               status: 'failed',
-              result: {},
-              errorMessage: message
+              result: toolResult,
+              errorMessage: message,
+              stackOutputItemId
             });
-            throw error;
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'tool',
+              eventName: 'tool_execution_failed_model_visible',
+              eventPhase: null,
+              metadata: {
+                tool_name: toolCall.name,
+                tool_call_id: toolCall.callId,
+                tool_execution_id: stackToolExecutionId,
+                error_message: message
+              }
+            }).catch((timelineError) => {
+              moduleLogger.warn('Failed to log model-visible tool error', {
+                traceId: payload.traceId,
+                runId: queueMessage.id,
+                toolName: toolCall.name,
+                error: timelineError instanceof Error ? timelineError.message : String(timelineError)
+              });
+            });
+            if (continuation.inputItems.length > 0) {
+              appendLoopInputItems(continuation.inputItems);
+            }
           }
         }
         if (!hasToolCall && !actionPlan.hasFinalAnswer && !leaseRelease) {
@@ -7506,14 +7566,38 @@ export class AgentLoopService {
             });
             forkInput.push(...continuation.inputItems);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const toolResult = buildToolErrorResult(toolCall, error);
+            const message = String(toolResult.error_message || toolResult.error || 'Tool execution failed');
+            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
+            const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
+              loopInput: forkInput,
+              speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+              hasVisibleReply: false,
+              runtimeEnergyState
+            });
+            const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
+              forkRunId,
+              traceId: params.queueMessage.traceId,
+              runId: params.queueMessage.runId,
+              sourceType: 'core_memory_compression_fork_tool_executions',
+              sourceId: forkToolExecutionId,
+              llmRequestSliceId: forkSliceId,
+              items: buildToolResultStackItems({
+                toolCall,
+                toolResult,
+                continuationItems: continuation.inputItems,
+                llmRequestSliceId: forkSliceId
+              }) as Array<Record<string, unknown>>
+            });
             await this.completeCoreMemoryCompressionForkToolExecutionSafe({
               executionId: forkToolExecutionId,
               status: 'failed',
-              result: {},
-              errorMessage: message
+              result: toolResult,
+              errorMessage: message,
+              stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
             });
-            throw error;
+            forkInput.push(...continuation.inputItems);
+            continue;
           }
         }
       }

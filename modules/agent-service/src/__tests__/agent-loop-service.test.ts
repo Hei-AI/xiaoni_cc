@@ -5541,7 +5541,115 @@ test('runtime frame does not auto-send image task status after queuing', async (
   }
 });
 
-test('runtime frame stores partially delivered assistant transcript as commentary on failure', async () => {
+test('runtime frame forwards failed send tool output to the model and settles', async () => {
+  const queueMessage = {
+    id: 'run-queue-send-tool-error',
+    traceId: 'trace-send-tool-error',
+    batchId: 'batch-send-tool-error',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    appendAgentStackItems: [],
+    completeAgentStackToolExecution: [],
+    createConversation: [],
+    failQueueMessage: [],
+    releaseExecutionLease: [],
+    settleQueueMessages: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-send-tool-error',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseDeliveryBlocked: async () => {},
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return params.items.map((item: any, index: number) => ({ ...item, id: index + 1, stackIndex: index + 1 }));
+    },
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async (params: any) => {
+      storeCalls.completeAgentStackToolExecution.push(params);
+    },
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2002;
+    },
+    attachConversationIdToTrace: async () => {},
+    failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).executeAgentTurn = async () => ({
+    success: true,
+    llm_call_id: 'llm-send-tool-error-1',
+    canonical_response: {
+      output: [{
+        type: 'function_call',
+        call_id: 'call-send-tool-error',
+        name: GROUP_REPLY_TOOL,
+        arguments: JSON.stringify({ group_id: 970752010, message: '醒了' })
+      }]
+    }
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: false,
+    status: 502,
+    json: async () => ({
+      success: false,
+      error: 'EventChecker Failed: 发送失败，你已被移出该群，请重新加群。'
+    })
+  }) as any) as typeof fetch;
+
+  try {
+    await processRuntimeFrameForTest(service, queueMessage as any);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
+
+  const failedToolCompletion = storeCalls.completeAgentStackToolExecution.find((item) => item.status === 'failed');
+  assert.equal(failedToolCompletion?.errorMessage, 'EventChecker Failed: 发送失败，你已被移出该群，请重新加群。');
+  assert.equal(failedToolCompletion?.result?.tool_name, GROUP_REPLY_TOOL);
+  assert.equal(failedToolCompletion?.result?.tool_call_id, 'call-send-tool-error');
+
+  const toolOutputBatch = storeCalls.appendAgentStackItems.find((item) => item.sourceType === 'tool_executions');
+  assert.equal(toolOutputBatch?.items?.[0]?.visibility, 'model_visible');
+  const output = JSON.parse(String(toolOutputBatch?.items?.[0]?.content?.output || '{}'));
+  assert.equal(output.tool_error, true);
+  assert.equal(output.tool_name, GROUP_REPLY_TOOL);
+  assert.equal(output.error_message, 'EventChecker Failed: 发送失败，你已被移出该群，请重新加群。');
+});
+
+test('runtime frame keeps delivered transcript when a later tool error is returned to the model', async () => {
   const queueMessage = {
     id: 'run-queue-failure',
     traceId: 'trace-failure',
@@ -5557,7 +5665,8 @@ test('runtime frame stores partially delivered assistant transcript as commentar
     createConversation: [],
     failQueueMessage: [],
     releaseExecutionLease: [],
-    markLeaseVisibleDeliveryCommitted: []
+    markLeaseVisibleDeliveryCommitted: [],
+    settleQueueMessages: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -5588,6 +5697,7 @@ test('runtime frame stores partially delivered assistant transcript as commentar
     },
     attachConversationIdToTrace: async () => {},
     failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
     updateLlmJob: async () => {}
   } as any;
@@ -5645,8 +5755,8 @@ test('runtime frame stores partially delivered assistant transcript as commentar
 
   assert.equal(turn, 1);
   assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
+  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
+  assert.equal(storeCalls.createConversation[0]?.aiResponse, '先发一条');
   assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
@@ -5662,8 +5772,9 @@ test('runtime frame stores partially delivered assistant transcript as commentar
       }
     ]
   );
-  assert.deepEqual(storeCalls.failQueueMessage[0], ['run-queue-failure', 'recover_energy failed', 2001]);
-  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_error');
+  assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['先发一条']);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.deepEqual(storeCalls.releaseExecutionLease[0]?.sentMessages, ['先发一条']);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-failure']);
 });
