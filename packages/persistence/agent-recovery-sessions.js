@@ -399,6 +399,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
               last_wake_counted_queue_message_id = COALESCE(?, last_wake_counted_queue_message_id),
               current_pressure = ?,
               current_energy = ?,
+              planned_natural_wake_at = COALESCE(?::timestamptz, planned_natural_wake_at),
+              hard_wake_at = COALESCE(?::timestamptz, hard_wake_at),
               clock_deferred_at = COALESCE(clock_deferred_at, ?::timestamptz),
               last_checked_at = COALESCE(?::timestamptz, CURRENT_TIMESTAMP),
               updated_at = CURRENT_TIMESTAMP
@@ -411,6 +413,8 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
           normalizeBigIntId(input.lastWakeCountedQueueMessageId ?? input.last_wake_counted_queue_message_id),
           normalizeNumber(input.currentPressure ?? input.current_pressure),
           normalizeNumber(input.currentEnergy ?? input.current_energy),
+          normalizeTimestampParam(input.plannedNaturalWakeAt || input.planned_natural_wake_at),
+          normalizeTimestampParam(input.hardWakeAt || input.hard_wake_at),
           normalizeTimestampParam(input.clockDeferredAt || input.clock_deferred_at),
           normalizeTimestampParam(input.lastCheckedAt || input.last_checked_at),
           id

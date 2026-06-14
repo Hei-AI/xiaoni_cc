@@ -158,7 +158,9 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
           last_wake_counted_queue_message_id: params[2],
           current_pressure: params[3],
           current_energy: params[4],
-          clock_deferred_at: params[5]
+          planned_natural_wake_at: params[5],
+          hard_wake_at: params[6],
+          clock_deferred_at: params[7]
         });
         return [activeRow];
       }
@@ -232,10 +234,14 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
     lastWakeCountedQueueMessageId: 45,
     currentPressure: 0.4,
     currentEnergy: 0.6,
+    plannedNaturalWakeAt: '2026-06-13T01:40:00.000Z',
+    hardWakeAt: '2026-06-13T03:00:00.000Z',
     clockDeferredAt: '2026-06-13T01:30:00.000Z'
   });
   assert.equal(updated.wakeCallCount, 3);
   assert.equal(updated.lastWakeCountedQueueMessageId, 45);
+  assert.equal(updated.plannedNaturalWakeAt, '2026-06-13T01:40:00.000Z');
+  assert.equal(updated.hardWakeAt, '2026-06-13T03:00:00.000Z');
   assert.equal(updated.clockDeferredAt, '2026-06-13T01:30:00.000Z');
 
   const finalized = await persistence.finalizeAgentRecoverySession({

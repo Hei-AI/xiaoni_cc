@@ -6331,6 +6331,8 @@ test('runtime iteration does not claim queue messages while recovery session is 
   assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.id, 301);
   assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.wakeCallCount, 4);
   assert.equal(storeCalls.updateAgentRecoverySessionProgress[0]?.lastWakeCountedQueueMessageId, 102);
+  assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.plannedNaturalWakeAt instanceof Date);
+  assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.hardWakeAt instanceof Date);
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.clockDeferredAt instanceof Date);
 });
 

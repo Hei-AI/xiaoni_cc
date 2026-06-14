@@ -14,16 +14,17 @@ export type RecoverEnergyPolicy = {
   minWakeCalls: number;
   wakeCallSpan: number;
   wakeCallGamma: number;
+  actionDebtRecoveryTauMinutes: number;
 };
 
 export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   pressureFloor: 0.05,
   sleepTauMinutes: 63,
-  wakeTauMinutes: 273,
+  wakeTauMinutes: 720,
   wakePressureCeiling: 1,
   hardPressureCeiling: 1.6,
   hardMaxRecoveryMinutes: 120,
-  naturalWakePressure: 0.17,
+  naturalWakePressure: 0.12,
   minimumWakeEnergy: 0,
   forcedSleepPressure: 1.3,
   normalSleepOnsetPressure: 0.3,
@@ -31,7 +32,8 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   restCooldownTauMinutes: 45,
   minWakeCalls: 3,
   wakeCallSpan: 9,
-  wakeCallGamma: 2
+  wakeCallGamma: 2,
+  actionDebtRecoveryTauMinutes: 90
 };
 
 const MINUTE_MS = 60 * 1000;

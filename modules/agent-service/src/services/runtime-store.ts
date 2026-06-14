@@ -1624,6 +1624,14 @@ export class RuntimeStore {
       },
       dedupeKey: `sleep_period:${compactDedupePart(runId, queueMessage.traceId)}:recover_energy`
     });
+    await updateAgentLifeState('xiaoni', {
+      last_sleep_at: now
+    }, databaseConfig).catch((error) => {
+      moduleLogger.warn('Failed to update Xiaoni last_sleep_at after recover_energy', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
     await this.refreshXiaoniLifeProjection(now).catch((error) => {
       moduleLogger.warn('Failed to refresh Xiaoni life projection after recover_energy', {
         traceId: queueMessage.traceId,
@@ -1672,6 +1680,14 @@ export class RuntimeStore {
         recovery_policy: 'recover_energy_curve_session'
       },
       dedupeKey: `sleep_period:recovery_session:${session.id}`
+    });
+    await updateAgentLifeState('xiaoni', {
+      last_sleep_at: now
+    }, databaseConfig).catch((error) => {
+      moduleLogger.warn('Failed to update Xiaoni last_sleep_at after recovery session', {
+        recoverySessionId: session.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
     });
     await this.refreshXiaoniLifeProjection(now).catch((error) => {
       moduleLogger.warn('Failed to refresh Xiaoni life projection after recovery session', {
