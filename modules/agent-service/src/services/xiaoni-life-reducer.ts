@@ -289,6 +289,16 @@ function applyActionCost(state: ReducerInternalState, eventKind: string, eventCo
   return resolvedCost;
 }
 
+function computeDecayedActionDebt(actionDebt: number, elapsedMinutes: number) {
+  const normalizedDebt = clampNonNegative(actionDebt);
+  const normalizedElapsed = Math.max(0, elapsedMinutes);
+  if (normalizedDebt <= 0 || normalizedElapsed <= 0) {
+    return normalizedDebt;
+  }
+  const tau = Math.max(0.001, DEFAULT_RECOVER_ENERGY_POLICY.actionDebtRecoveryTauMinutes);
+  return clampPressure(normalizedDebt * Math.exp(-normalizedElapsed / tau));
+}
+
 function advanceAwakePressure(state: ReducerInternalState, at: Date | null) {
   if (!at) {
     return;
@@ -301,6 +311,7 @@ function advanceAwakePressure(state: ReducerInternalState, at: Date | null) {
   if (awakeMinutes <= 0) {
     return;
   }
+  state.actionDebt = computeDecayedActionDebt(state.actionDebt, awakeMinutes);
   state.homeostaticPressure = clampNumber(
     computeAwakePressureAfterMinutes({
       startPressure: state.homeostaticPressure,
@@ -397,6 +408,7 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
         : `空闲检查被跳过，${actionCostText(resolveActionCost(event.eventKind, actionCost))}`);
       break;
     case 'rest_period':
+      advanceAwakePressure(state, occurredAt);
       state.actionDebt = clampNonNegative(state.actionDebt - 0.1);
       if (state.actionDebt === 0) {
         state.homeostaticPressure = clampNonNegative(state.homeostaticPressure - 0.04);

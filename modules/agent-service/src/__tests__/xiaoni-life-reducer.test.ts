@@ -5,6 +5,7 @@ import {
   reduceXiaoniLifeState,
   XIAONI_LIFE_PROJECTION_VERSION
 } from '../services/xiaoni-life-reducer';
+import { shouldAcceptVoluntaryRecovery } from '../services/recover-energy-policy';
 
 function assertApprox(actual: number, expected: number, epsilon = 0.000001) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} !== ${expected}`);
@@ -46,6 +47,51 @@ function event(overrides: Partial<AgentLifeEventProjection>): AgentLifeEventProj
     createdAt: '2026-05-31T00:00:00.000Z',
     ...overrides
   };
+}
+
+function minutesAfter(date: Date, minutes: number) {
+  return new Date(date.getTime() + (minutes * 60 * 1000)).toISOString();
+}
+
+function densePostWakeQqEvents(wakeAt: Date): AgentLifeEventProjection[] {
+  const events: AgentLifeEventProjection[] = [
+    event({
+      id: 'incident-sleep',
+      eventKind: 'sleep_period',
+      occurredAt: wakeAt.toISOString(),
+      payload: {
+        energy: 0.8300980845774224,
+        max_energy: 1,
+        wake_cause: 'natural',
+        sleep_minutes: 53
+      }
+    })
+  ];
+  let id = 1;
+  for (let index = 0; index < 13; index += 1) {
+    events.push(event({
+      id: `incident-surface-${id++}`,
+      eventKind: 'surface_visit',
+      occurredAt: minutesAfter(wakeAt, 5 + (index * 1.4)),
+      actionCost: 0.01,
+      payload: { source: 'qq_usage', action: 'qq_usage.focus_private' }
+    }));
+    events.push(event({
+      id: `incident-reply-${id++}`,
+      eventKind: 'qq_self_message',
+      occurredAt: minutesAfter(wakeAt, 5.3 + (index * 1.4)),
+      actionCost: 0.01,
+      payload: { tool_name: 'send_in_private', index: 0 }
+    }));
+  }
+  events.push(event({
+    id: `incident-reply-${id++}`,
+    eventKind: 'qq_self_message',
+    occurredAt: minutesAfter(wakeAt, 35),
+    actionCost: 0.01,
+    payload: { tool_name: 'send_in_private', index: 0 }
+  }));
+  return events;
 }
 
 test('reduceXiaoniLifeState is deterministic by occurred_at then id', () => {
@@ -147,7 +193,8 @@ test('action debt contributes to fatigue while sleep event energy anchors recove
     ]
   });
 
-  assert.equal(tired.projection.state.actionCost, 0.8);
+  assert.ok(tired.projection.state.actionCost > 0.1);
+  assert.ok(tired.projection.state.actionCost < 0.2);
   assert.ok(tired.projection.state.fatigue > tired.projection.state.actionCost);
   assert.equal(tired.projection.state.energy, 1 - tired.projection.state.fatigue);
   assert.ok(rested.projection.state.fatigue < tired.projection.state.fatigue);
@@ -179,7 +226,8 @@ test('awake homeostatic pressure accumulates from last sleep anchor', () => {
     events: []
   });
 
-  assert.ok(twoHours.projection.state.homeostaticPressure > 0.35);
+  assert.ok(twoHours.projection.state.homeostaticPressure > 0.15);
+  assert.ok(twoHours.projection.state.homeostaticPressure < 0.17);
   assert.ok(fourHours.projection.state.homeostaticPressure > twoHours.projection.state.homeostaticPressure);
   assert.ok(eightHours.projection.state.homeostaticPressure > fourHours.projection.state.homeostaticPressure);
   assert.ok(twoHours.projection.state.energy > fourHours.projection.state.energy);
@@ -253,10 +301,51 @@ test('default speech accounting does not exhaust all energy for one group reply'
     ]
   });
 
-  assert.equal(result.projection.state.actionCost, 0.01);
+  assert.ok(result.projection.state.actionCost > 0.005);
+  assert.ok(result.projection.state.actionCost < 0.006);
   assert.ok(result.projection.state.fatigue > result.projection.state.actionCost);
   assert.ok(result.projection.state.energy < 0.99);
   assert.ok(result.projection.state.energy > 0.7);
+});
+
+test('dense post-wake QQ exchange does not immediately reopen voluntary sleep gate', () => {
+  const wakeAt = new Date('2026-06-14T12:58:38.879Z');
+  const now = new Date('2026-06-14T13:34:01.332Z');
+  const result = reduceXiaoniLifeState({
+    now,
+    events: densePostWakeQqEvents(wakeAt)
+  });
+  const recoveryGate = shouldAcceptVoluntaryRecovery({
+    energy: result.projection.state.energy,
+    maxEnergy: 1,
+    lastWakeAt: result.projection.anchors.lastRestAt,
+    now
+  });
+
+  assert.equal(recoveryGate.accepted, false);
+  assert.ok(result.projection.state.energy > 0.55);
+  assert.ok(result.projection.state.actionDebt < 0.25);
+});
+
+test('time-decayed action debt is stable across projection resume boundaries', () => {
+  const wakeAt = new Date('2026-06-14T12:58:38.879Z');
+  const now = new Date('2026-06-14T13:34:01.332Z');
+  const events = densePostWakeQqEvents(wakeAt);
+  const splitIndex = 15;
+  const firstHalf = events.slice(0, splitIndex);
+  const secondHalf = events.slice(splitIndex);
+  const midNow = new Date(firstHalf[firstHalf.length - 1].occurredAt || wakeAt);
+  const rebuilt = reduceXiaoniLifeState({ now, events });
+  const first = reduceXiaoniLifeState({ now: midNow, events: firstHalf });
+  const resumed = reduceXiaoniLifeState({
+    now,
+    previousProjection: first.projection,
+    events: secondHalf
+  });
+
+  assertApprox(resumed.projection.state.energy, rebuilt.projection.state.energy);
+  assertApprox(resumed.projection.state.actionDebt, rebuilt.projection.state.actionDebt);
+  assertApprox(resumed.projection.state.homeostaticPressure, rebuilt.projection.state.homeostaticPressure);
 });
 
 test('presence tick evaluation event drives cooldown only when enqueued', () => {

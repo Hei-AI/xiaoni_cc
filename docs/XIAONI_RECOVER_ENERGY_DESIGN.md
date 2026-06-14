@@ -69,7 +69,7 @@ energy_after(t) = max_energy * (1 - p_after(t))
 ```text
 p_floor = 0.05
 tau_sleep_minutes = 63       // paper 4.2h sleep tau compressed into Xiaoni's 2h cycle
-p_natural_wake = 0.17       // energy ~= 0.83
+p_natural_wake = 0.12       // energy ~= 0.88
 p_min_wake = 1.00           // energy >= 0 才能被外界叫醒
 p_forced_sleep = 1.30       // energy <= -0.30 触发强制休息
 ```
@@ -84,7 +84,7 @@ p_awake(t) = p_wake_ceiling - (p_wake_ceiling - p_at_wake) * exp(-awake_minutes 
 
 ```text
 p_wake_ceiling = 1.00
-tau_wake_minutes = 273      // paper 18.2h wake tau compressed into Xiaoni's 2h sleep-cycle scale
+tau_wake_minutes = 720      // Xiaoni 2h full-recovery cycle with stronger awake endurance
 ```
 
 清醒疲劳必须接入 `agent_life_states.projection_json` 的 life reducer，而不是只在 `recover_energy` 会话内计算。主 runtime 的 `<STATE>`、`recover_energy` 接受门槛、强制休息判断和 presence 恢复判断都必须读同一个投影。
@@ -98,7 +98,14 @@ energy = 1 - pressure
 
 - `homeostatic_pressure`：按清醒时间自然上升，按睡眠恢复曲线下降。
 - `action_debt`：说话、搜索、阅读、处理消息等行动造成的额外透支。
+- `action_debt` 随清醒时间按指数曲线缓慢恢复，避免短时间高频 QQ 读写被永久线性累加成过度疲劳。
 - prompt-facing `<STATE>` 仍只显示 `energy/max_energy`，不暴露 pressure、homeostatic_pressure 或 action_debt。
+
+默认行动债恢复参数：
+
+```text
+tau_action_debt_recovery_minutes = 90
+```
 
 ## Anti Frequent Rest Gate
 

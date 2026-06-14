@@ -4547,6 +4547,12 @@ export class AgentLoopService {
           lastWakeCountedQueueMessageId: lastWakeCountedId,
           currentPressure: projection.pressure,
           currentEnergy: projection.energy,
+          plannedNaturalWakeAt: estimateNaturalWakeAt({
+            startEnergy: Number(session.startEnergy ?? session.currentEnergy ?? 0),
+            maxEnergy: Number(session.maxEnergy || 1),
+            startedAt: new Date(session.startedAt || new Date())
+          }),
+          hardWakeAt: estimateHardWakeAt(new Date(session.startedAt || new Date())),
           clockDeferredAt,
           lastCheckedAt: new Date()
         }).catch((error) => {

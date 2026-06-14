@@ -13,7 +13,8 @@ import {
 test('recover energy uses Xiaoni two-hour compressed sleep cycle', () => {
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes, 120);
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.sleepTauMinutes, 63);
-  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.wakeTauMinutes, 273);
+  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.wakeTauMinutes, 720);
+  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.naturalWakePressure, 0.12);
 });
 
 test('sleep pressure follows normalized curve and reaches full recovery at two hours', () => {
@@ -31,11 +32,13 @@ test('sleep pressure follows normalized curve and reaches full recovery at two h
 });
 
 test('awake pressure uses compressed wake tau', () => {
-  const twoHours = computeAwakePressureAfterMinutes({ startPressure: 0.17, awakeMinutes: 120 });
-  const fourHours = computeAwakePressureAfterMinutes({ startPressure: 0.17, awakeMinutes: 240 });
-  const eightHours = computeAwakePressureAfterMinutes({ startPressure: 0.17, awakeMinutes: 480 });
+  const thirtyFiveMinutes = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 35 });
+  const twoHours = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 120 });
+  const fourHours = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 240 });
+  const eightHours = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 480 });
 
-  assert.ok(twoHours > 0.4 && twoHours < 0.5);
+  assert.ok(thirtyFiveMinutes > 0.15 && thirtyFiveMinutes < 0.17);
+  assert.ok(twoHours > 0.24 && twoHours < 0.28);
   assert.ok(fourHours > twoHours);
   assert.ok(eightHours > fourHours);
 });
