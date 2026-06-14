@@ -15,6 +15,11 @@
 | `image_task_notification` | `docs/xiaoni_prompt/image_task_notification.md` | 图片任务完成后由 task worker 写入 completion notify，再被主 loop pick。 |
 | `self_continuation` | `docs/xiaoni_prompt/self_continuation_reminder.md` | 没有 notify，且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时。 |
 | `core_memory_compression_fork_retry` | `docs/xiaoni_prompt/core_memory_compression_fork_retry_reminder.md` | compression fork 返回 `final_answer` 或未调用 `compress_core_memory` 时，作为 fork 内 retry reminder。 |
+| `image_vision_write_description` | `docs/xiaoni_prompt/image_vision_write_description_reminder.md` | image vision fork 要求模型用 `exec_command` 写入指定观察文件时。 |
+| `image_vision_existing_observation` | `docs/xiaoni_prompt/image_vision_existing_observation_reminder.md` | 同一图片已有观察文件时，要求模型基于当前图片修正或补充。 |
+| `image_vision_retry_missing_file` | `docs/xiaoni_prompt/image_vision_retry_missing_file_reminder.md` | image vision fork 返回 `final_answer` 但观察文件缺失或为空时。 |
+| `image_vision_failed_after_retries` | `docs/xiaoni_prompt/image_vision_failed_after_retries_reminder.md` | image vision fork 多次失败后，返回给主 loop 的可恢复失败说明。 |
+| `image_vision_unsupported_tool_output` | `docs/xiaoni_prompt/image_vision_unsupported_tool_output.md` | image vision fork 请求非 `exec_command` 工具时，作为 corrective tool output。 |
 | `system_reminder_fallback` | `docs/xiaoni_prompt/system_reminder_fallback.md` | 工程传入空白普通 system reminder 时的兜底正文。 |
 | `recover_energy_completed` | `docs/xiaoni_prompt/recover_energy_completed_reminder.md` | `recover_energy` 工具允许休息并自然醒后，作为同一个 tool call 的 callback 文本。 |
 | `recover_energy_interrupted` | `docs/xiaoni_prompt/recover_energy_interrupted_reminder.md` | `recover_energy` 休息期间被私聊或群 @ 累计达到动态阈值后，作为同一个 tool call 的 callback 文本。 |
@@ -45,6 +50,9 @@
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
 - `image_task_pending` 只允许说明任务仍在渲染中，且当前没有图片 id/path；如果此前盲猜路径导致发送失败，未来完成 notify 里的 id/path 会覆盖旧失败记忆。
 - `core_memory_compression_fork_retry` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<小腻近况>`。
+- image vision fork 的正文观察必须来自 `/xiaoni-runtime/image-vision/observations/<image_id>.md`；
+  provider `final_answer` 只是检查时机，不是观察内容。fork 内只执行 `exec_command`，
+  其它工具请求只能收到 corrective tool output。
 - `<CAPABILITIES>` 是能力成本表，不是 reminder。
 - `<STATE>` 是状态感知，不是 reminder；它只保留小腻能体感理解的状态值，工程事件名留在代码侧。
 

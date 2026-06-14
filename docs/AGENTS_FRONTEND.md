@@ -19,6 +19,7 @@
 - 当前 `modules/admin-panel/frontend` 的 `npm test` 只是占位，不代表存在自动化回归套件。
 - 当前真实测试基线：先跑 `modules/admin-panel/frontend` 的 `npm run build`，再做浏览器关键路径手测；若问题发生在生产页，优先在生产页复测。
 - 如果补前端自动化，沿用现有 `modules/admin-panel/frontend/playwright.config.ts` 和 `tests/` 约定，不要再引入第二套框架。
+- 小腻行动流、恢复页、LLM usage observatory 和 Raw Trace 的用户路径看 `docs/XIAONI_OPERATOR_HOWTO.md`；前端只负责投影和交互，不重新定义 runtime 事实源。
 
 ## UI Guardrails
 - 调试/观测页面围绕真实循环：`选对象 -> 看细节 -> 判断 -> 下一个`

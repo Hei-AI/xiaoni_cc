@@ -103,10 +103,11 @@
 
 ## Local Request Captures
 
-以下文件是本机抓包和对照讨论材料，被 `.gitignore` 忽略，不是上游 API 契约或仓库可交付 fixture：
+以下路径是本机抓包和对照讨论材料，被 `.gitignore` 忽略，不是上游 API 契约或仓库可交付
+fixture。它们可能不存在；不要把它们写成可点击仓库文档链接。
 
-- [codex-request-body-latest.json](../tmp/codex-request-body-latest.json)
-- [codex-request-body-latest.pretty.json](../tmp/codex-request-body-latest.pretty.json)
+- `tmp/codex-request-body-latest.json`
+- `tmp/codex-request-body-latest.pretty.json`
 
 ## Official References
 

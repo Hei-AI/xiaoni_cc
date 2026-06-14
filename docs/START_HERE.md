@@ -10,7 +10,7 @@
 - 先信这些入口：`README.md`、`docs/INDEX.md`、`AGENTS.md`
 
 ## First 15 Minutes
-- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md`、`docs/XIAONI_RUNTIME_SURFACES.md` 和 `docs/INDEX.md` 的最小下一跳；当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
+- 想理解小腻当前运行链路，先看 `README.md` 的运行架构、`docs/XIAONI_AGENT_STACK_LEDGER.md`、`docs/XIAONI_RUNTIME_SURFACES.md` 和 `docs/INDEX.md` 的最小下一跳；要实际操作行动流、恢复页、LLM usage 或本地 skill，再看 `docs/XIAONI_OPERATOR_HOWTO.md`。当前真相以 `modules/provider-service`、`modules/agent-service`、`packages/persistence` 和主 prompt 为准。
 - 想排查小腻本地命令执行、长命令 session、git archive 或 Docker socket，直接看 `docs/AGENTS_XIAONI_EXECUTOR.md` 和 `modules/xiaoni-executor`。
 - 想调管理端，先看 `modules/admin-panel/backend`、`modules/admin-panel/frontend`。
 - 次级入口：`modules/http-traffic-monitor`、`modules/embedding-server`
@@ -34,6 +34,7 @@
 - 当前主发言判断在 `agent-service` loop。`topic projection`、`transcript snapshot`、三层长期记忆等能力可以作为 typed recall projection、观测、评测或异步产物存在，但不要把它们当成入口层“是否说话”的总决策器。
 - 不要把空闲行为做成第二套 planner、presence runner、硬编码兴趣表，或靠 fake `consciousness_tick` / `presence_tick` 敲钟。当前目标只有一条连续主 runtime stream；完整契约只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`，prompt-facing reminder 模板索引看 `docs/remind.md`。
 - 不要把完整 LLM request/response 记录归到 `agent-service`；`agent-service` 只组装 canonical request 和回填 stack link，provider wire payload 由 `provider-service` / Codex Provider 写入 `llm_request_slices`。
+- 不要把小腻本地浏览器、站点发布或图片发送路径写进聊天记忆当成口头约定；这些可操作边界统一看 `docs/XIAONI_RUNTIME_SURFACES.md` 和 `docs/XIAONI_OPERATOR_HOWTO.md`，具体命令以对应 `modules/agent-service/skills/*/SKILL.md` 为准。
 - 不要把“本地前端联调”和“公网 Docker 前端”当成同一条链路；本地页面调试只起本地 Vite 前端，后端仍走容器。
 - 不要再让本地前端复用 `3003`；本地联调固定走 `13003`，公网 Docker 前端继续占用 `3003`。
 - 不要再恢复或参考历史 MySQL schema/migration/直连探针；当前真实数据库以 `packages/persistence`、Prisma schema 和 `database/postgres/init.sql` 为准。

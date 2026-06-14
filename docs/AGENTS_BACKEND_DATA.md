@@ -26,6 +26,8 @@
 - 私聊和群聊设置里已有 `transcript_compact_offset`，它会直接影响 transcript compact 后保留多少尾部对话继续原样重放。
 - LLM stack 卡片的 Raw Trace 应聚焦对应 `llm_request_slices` span，span detail 返回完整 `canonical_request`、`wire_request`、`raw_response` 和覆盖的 stack range。provider span 只作为这个 LLM span 下的真实上游请求证据。
 - provider span / LLM slice detail 优先展示 `llm_request_slices.wire_request/wire_response`；必要时再从 `CLIPROXY_REQUEST_LOG_DIR` 指向的 CLIProxyAPI 请求日志补全真实上游 request / response。日志匹配只信 `x-llm-call-id` header，敏感 header 会脱敏。
+- Xiaoni recovery page 走 `/api/agent-runtime/recovery-sessions` 和 `agent_recovery_sessions` / life state projection；不要从 action stream 临时拼恢复会话。
+- `$qq-send-image` 的 agent-service 内部 API 是发送本地图片到 QQ 的工程边界；provider-service 仍只负责最终 NapCat image send。不要让前端、脚本或文档绕过 agent-service 直接拼 provider 内部 send payload。
 
 ## Memory Persistence
 

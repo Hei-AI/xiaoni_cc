@@ -2,6 +2,7 @@
 
 本文是小腻当前运行面的参考页。它不替代主 loop 架构；主 loop、request assembly、
 stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准。
+实际操作步骤见 `docs/XIAONI_OPERATOR_HOWTO.md`。
 
 ## Public Operator Surfaces
 
@@ -12,6 +13,9 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | LLM usage observatory | `getXiaoniLlmUsageTimeline()` | 合并 main slices、core-memory compression fork、image vision fork 和 Codex provider image usage；支持 call/hour/day/month bucket、自动下采样和 search overlay。 |
 | Recovery page | `agent_recovery_sessions` + `agent_session_life_states` | 展示当前精力投影、recover_energy 会话、clock、醒来原因和 wake count。 |
 | QQ unread navigation | `$qq-usage` skill + `agent_inbound_messages` | 小腻主动打开 QQ inbox/window。`agent_queue_messages` 只是 Notify Bucket，不是 QQ app 未读列表。 |
+| QQ image send | `$qq-send-image` + `agent-service /api/internal/qq-send-image` | 将 `/xiaoni-runtime` 下已有图片经 `provider-service -> NapCat` 发到群或私聊，并保留 status key 供补查。 |
+| Xiaoni browser | `$xiaoni-browser` + host Playwright CLI bridge | 控制宿主机可见 Chrome 做页面检查、截图、console/network 调试和登录态网页操作。 |
+| Xiaoni public site | `$xiaoni-site` + `$site-publish-check` | 管理 `https://xiaoni.liahuas.top` 的静态发布目录和上线前检查。 |
 
 ## Xiaoni Local Skills
 
@@ -56,7 +60,8 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 
 ## Verification
 
-文档或代码触碰这些 surface 后，按变更范围至少跑：
+文档或代码触碰这些 surface 后，先用 `docs/XIAONI_OPERATOR_HOWTO.md` 的步骤确认用户入口；
+再按变更范围至少跑：
 
 ```bash
 npm --prefix modules/agent-service test

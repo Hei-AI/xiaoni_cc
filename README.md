@@ -5,7 +5,7 @@
 当前主仓保留运行底座和管理端：
 
 - `provider-service`: NapCat / OneBot 入口、LLM provider 执行、消息模拟、embeddings、inbox 写入、IM 入口硬开关和内部 loop 触发队列入口
-- `agent-service`: 主 agent loop runtime，消费内部触发队列、组装连续 stack ledger 上的 canonical LLM request、执行工具和 delivery state，提供 `$qq-usage` 工程 API，并维护 life event 投影；完整 request/response slice 由 `provider-service` 记录，runtime 伪代码和边界见 `docs/XIAONI_AGENT_STACK_LEDGER.md`，当前可操作 surface 和本地 skill 清单见 `docs/XIAONI_RUNTIME_SURFACES.md`
+- `agent-service`: 主 agent loop runtime，消费内部触发队列、组装连续 stack ledger 上的 canonical LLM request、执行工具和 delivery state，提供 `$qq-usage` / `$qq-send-image` 等工程 API，并维护 life event 投影；完整 request/response slice 由 `provider-service` 记录，runtime 伪代码和边界见 `docs/XIAONI_AGENT_STACK_LEDGER.md`，当前可操作 surface 和本地 skill 清单见 `docs/XIAONI_RUNTIME_SURFACES.md`，操作路径见 `docs/XIAONI_OPERATOR_HOWTO.md`
 - `xiaoni-executor`: 小腻 `exec_command` 的独立命令执行容器，保存 session、审计日志和 git archive
 - `admin-panel/backend`: 运营 API、Prompt 配置、队列管理、小腻行动流、Image Lab、流量查看/回放、runtime status
 - `admin-panel/frontend`: 管理界面，默认从“小腻行动流”看她当前在做什么
@@ -51,7 +51,7 @@ NapCat -> provider-service
 - NapCat 独立部署，不包含在主业务 compose 中。
 - 管理端默认链路是前端 -> `admin-panel/backend`。
 - `provider-service` 当前负责 provider debug、OneBot 入站和出站、`agent_inbound_messages` inbox 写入、按 chat policy 把 `phone_notification` 写入内部 loop 触发队列、image provider、embeddings 和 timeline 记录。聊天对象 `is_enabled=0` 时仍落 QQ inbox，但不写 `phone_notification` 到 Notify Bucket；`auto_reply_enabled` 只保留为兼容/派生字段。
-- `agent-service` 负责执行 loop agent、提供 `$qq-usage` 工程 API，并把工程 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。`run` 只是 trace、delivery、retry 边界，不是小腻的认知边界；`agent_queue_messages` 是 Notify Bucket 的持久化 / lease 承载，不是小腻看到的 QQ 未读列表。
+- `agent-service` 负责执行 loop agent、提供 `$qq-usage`、`$qq-send-image` 等工程 API，并把工程 run / trace / transcript / delivery state / 三层长期记忆写回 PostgreSQL。`run` 只是 trace、delivery、retry 边界，不是小腻的认知边界；`agent_queue_messages` 是 Notify Bucket 的持久化 / lease 承载，不是小腻看到的 QQ 未读列表。
 - `xiaoni-executor` 负责执行小腻的 `exec_command`，默认把 `/app` 映射到 `/workspace/qq_bot`，并把 session、审计日志和 git archive 写入 `/home/liahua/.qqbot-local/xiaoni-runtime`。
 - 小腻主 prompt 只有一套，维护在 `docs/xiaoni_prompt/`；主 runtime 会在启动时预热稳定 system prompt，并在 prompt 文件变更后于 loop 边界清空缓存、重新读取。runtime reminder 模板在对应 reminder 追加时读取。群/私聊不再绑定不同 prompt，DB prompt 表不再是小腻运行时来源。
 - 小腻看 QQ 未读时走 `$qq-usage`：模型通过 `exec_command` 调用 `modules/agent-service/skills/qq-usage` 脚本，脚本请求 `agent-service /api/internal/qq-usage`，底层读取 `agent_inbound_messages` 的 thread list / conversation window。当前 `open_inbox` 最多展示 10 个 thread，`focus_thread` / `scroll_thread` 每次最多展示 10 条消息。清角标通过 `put_qq_away` 写回 inbox read state。
@@ -96,7 +96,7 @@ docker compose ps
 
 保留的调试面：
 
-- Admin 小腻行动流：由 `agent_stack_items` / `llm_request_slices` / `tool_executions` 与 life/media/task/fork 事实投影出来的当前行动、模型请求切片、工具结果、发言、看群、历史后台行动、任务、图片观察和 runtime busy flags
+- Admin 小腻行动流：由 `agent_stack_items` / `llm_request_slices` / `tool_executions` 与 life/media/task/fork 事实投影出来的当前行动、模型请求切片、工具结果、发言、看群、历史后台行动、任务、图片观察和 runtime busy flags；操作路径见 `docs/XIAONI_OPERATOR_HOWTO.md`
 - `provider-service` 健康检查、消息模拟、LLM 调试、简单队列接口、embeddings
 - Admin 小腻行动流 event trace、runtime status、task/media 观测、LLM usage observatory；行动卡片来源是 `agent_stack_items` 的模型输出 / 当前输入 / 可见投递、`tool_executions` 的工程工具结果以及必要 life/media/task/fork 事件，Raw Trace 通过 `/api/xiaoni/action-stream/events/:eventId/trace` 聚焦对应 LLM/tool/fork span。
 - Admin Queue Management
@@ -147,6 +147,7 @@ python3 scripts/start_modules.py status
 - [docs/INDEX.md](docs/INDEX.md)
 - [docs/XIAONI_AGENT_STACK_LEDGER.md](docs/XIAONI_AGENT_STACK_LEDGER.md)
 - [docs/XIAONI_RUNTIME_SURFACES.md](docs/XIAONI_RUNTIME_SURFACES.md)
+- [docs/XIAONI_OPERATOR_HOWTO.md](docs/XIAONI_OPERATOR_HOWTO.md)
 - [docs/XIAONI_MAIN_PROMPT_NEXT.md](docs/XIAONI_MAIN_PROMPT_NEXT.md)
 - [docs/remind.md](docs/remind.md)
 - [docs/AGENTS_XIAONI_EXECUTOR.md](docs/AGENTS_XIAONI_EXECUTOR.md)

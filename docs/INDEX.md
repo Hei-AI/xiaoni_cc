@@ -11,6 +11,8 @@
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - 小腻当前运行面、Admin surface、本地 skills、prompt template 和数据归属：
   - `docs/XIAONI_RUNTIME_SURFACES.md`
+- 小腻行动流、Raw Trace、恢复页、LLM usage、本地浏览器、站点发布和图片发送操作：
+  - `docs/XIAONI_OPERATOR_HOWTO.md`
 - 小腻时区切换、TIMESTAMPTZ 迁移和压缩后暂停闸门：
   - `docs/XIAONI_TIMEZONE_MIGRATION_PLAN.md`
 - 前端页面、交互、生产前端问题：
@@ -43,6 +45,8 @@
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - Xiaoni runtime surfaces、local skills、site/browser/image task/usage observability：
   - `docs/XIAONI_RUNTIME_SURFACES.md`
+- Xiaoni runtime 操作 how-to：
+  - `docs/XIAONI_OPERATOR_HOWTO.md`
 - Provider-service / Codex Provider 完整 request/response 记录和 Raw Trace provider payload：
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - `xiaoni-executor` 命令执行服务：
@@ -60,6 +64,8 @@
 - Agent stack ledger、LLM request assembly、行动流投影和 trace detail 当前事实源：
   `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - 当前可操作 surface 和本地 skill 清单事实源：`docs/XIAONI_RUNTIME_SURFACES.md`。
+- 当前操作步骤事实源：`docs/XIAONI_OPERATOR_HOWTO.md`；skill 细节事实源仍是各
+  `modules/agent-service/skills/*/SKILL.md`。
 - Raw Trace provider payload 事实源：`provider-service` / Codex Provider 写入的 `llm_request_slices`；它不是独立行动流主卡片。
 - Runtime loop、Notify Bucket、QQ inbox、IM 硬开关、`final_answer` 连续推进、
   图片理解 fork、recover_energy callback 和行动流事实源统一看
@@ -76,6 +82,8 @@
   活跃专项文档。
 - 旧 runtime 图资产已删除；不要再新增与主文档重复、容易滞后的架构图。需要图时，
   先更新 `docs/XIAONI_AGENT_STACK_LEDGER.md` 或对应专项文档里的文字契约，再生成图。
+- 已落地的临时工程计划、事故笔记和重复 fix notes 不再作为阅读路径；落地后的事实必须
+  合并进 ledger、surface、how-to 或对应专项文档。
 
 ## GStack Workflows
 - 长任务自动评审：

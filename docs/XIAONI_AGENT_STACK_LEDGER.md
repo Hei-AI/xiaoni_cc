@@ -166,13 +166,25 @@ QQ 正文，也不是 assistant 历史。
 小腻主 agent 上下文发起一次 no-persist image vision fork：请求里可以短暂携带图片
 base64，但 base64 不进入长期 replay、traffic 骨架或 `agent_stack_items`。fork 自己的
 run / item / slice / tool 记录写入 `image_vision_fork_*` 表，LLM 用量进入 usage timeline。
-主 loop 后续只继承文本观察：
+fork 的成功标准不是 provider `final_answer` 文本，而是模型用 `exec_command` 写入工程指定的
+Markdown 观察文件：
+
+```text
+/xiaoni-runtime/image-vision/observations/<image_id>.md
+```
+
+fork 只允许执行 `exec_command`；如果模型请求其它业务工具，工程返回
+`docs/xiaoni_prompt/image_vision_unsupported_tool_output.md` 形态的 corrective tool output，
+不执行该工具。`final_answer` 只表示工程此时检查文件；文件缺失或为空时追加 retry reminder，
+最多重试 10 次。主 loop 后续只继承文本观察：
 
 ```xml
 <image id="...">含义是: ...</image>
 ```
 
 如果之后需要重新看同一张图，模型应再次调用 `inspect_image_placeholder(image_id)`。
+已有观察文件会被注入给 fork 作为先前记录，模型应基于当前图片 bytes 修正或补充，而不是把
+旧文本当成不可变真相。
 
 ### Image Tasks
 
