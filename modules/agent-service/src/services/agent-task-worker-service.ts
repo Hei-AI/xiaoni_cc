@@ -8,7 +8,7 @@ import {
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
 import { randomUUID } from 'node:crypto';
-import { agentConfig, databaseConfig } from '../config';
+import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
 
 const moduleLogger = logger.createModuleLogger('agent-task-worker-service');
@@ -385,7 +385,7 @@ export class AgentTaskWorkerService {
       id: artifactId,
       source: 'image_task',
       traceId: task.source_trace_id || null,
-      sessionKey: 'xiaoni:global',
+      sessionKey: getGlobalPromptContextSessionKey(),
       chatType: 'direct',
       peerId: agentConfig.botAccountId || '1129974489',
       peerName: '小腻 runtime',
@@ -429,7 +429,7 @@ export class AgentTaskWorkerService {
       BodyForCommands: body,
       RawBody: body,
       CommandBody: body,
-      SessionKey: 'xiaoni:global',
+      SessionKey: getGlobalPromptContextSessionKey(),
       AccountId: accountId,
       MessageSid: messageSid,
       ChatType: 'direct',
@@ -440,7 +440,7 @@ export class AgentTaskWorkerService {
       Provider: 'internal',
       Surface: 'image_task_notification',
       WasMentioned: true,
-      NativeChannelId: 'xiaoni:global',
+      NativeChannelId: getGlobalPromptContextSessionKey(),
       CommandAuthorized: false
     };
     const payload = {
@@ -449,7 +449,7 @@ export class AgentTaskWorkerService {
       batchId: '',
       source: 'image_task_notification',
       chatType: 'direct',
-      sessionKey: 'xiaoni:global',
+      sessionKey: getGlobalPromptContextSessionKey(),
       peerId: accountId,
       peerName: '小腻 runtime',
       senderId: 'image-task-worker',

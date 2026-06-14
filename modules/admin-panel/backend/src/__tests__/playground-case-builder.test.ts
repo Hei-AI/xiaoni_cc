@@ -142,13 +142,13 @@ describe('buildProviderConfigFromPrompt', () => {
       id: 'prompt-1',
       prompt_name: '小腻主AGENT',
       system_instructions: 'system',
-      model_name: 'gpt-5.4-mini',
+      model_name: 'gpt-5-mini',
       model_config: {},
       advanced_config: {},
     });
 
     expect(providerConfig.model.provider).toBe('codex-local');
-    expect(providerConfig.model.name).toBe('gpt-5.4-mini');
+    expect(providerConfig.model.name).toBe('gpt-5-mini');
   });
 });
 
@@ -169,7 +169,7 @@ describe('playground contract guards', () => {
 
   it('rejects unsupported tool config extras', () => {
     expect(() => validatePlaygroundProviderConfig({
-      model: { provider: 'openai', name: 'gpt-5.4-mini', providerSpecific: {} },
+      model: { provider: 'openai', name: 'gpt-5-mini', providerSpecific: {} },
       generation: {},
       thinking: {},
       safety: [],

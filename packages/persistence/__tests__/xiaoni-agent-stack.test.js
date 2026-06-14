@@ -90,7 +90,7 @@ function createMockSql() {
             id: 60,
             fork_run_id: params[6],
             identity_key: 'xiaoni',
-            context_session_key: 'xiaoni:global',
+            context_session_key: 'xiaoni:test-global',
             trace_id: 'trace-1',
             run_id: 'run-1',
             conversation_id: null,
@@ -606,7 +606,7 @@ test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usag
     canonicalResponse: { output: [{ type: 'message' }] },
     outputItems: [{ type: 'message' }],
     tokenUsage: { input_tokens: 33, cached_input_tokens: 12, output_tokens: 7 },
-    modelName: 'gpt-5.4-mini',
+    modelName: 'gpt-5-mini',
     modelProvider: 'codex'
   });
 
@@ -965,7 +965,7 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
 
   const run = await persistence.recordCoreMemoryCompressionForkRun({
     forkRunId: 'fork-1',
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     status: 'running',
     traceId: 'trace-1',
     runId: 'run-1',
@@ -1051,7 +1051,7 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
 
   await persistence.recordCoreMemoryCompressionForkRun({
     forkRunId: 'fork-active',
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     status: 'running',
     traceId: 'trace-active',
     runId: 'run-active',
@@ -1063,7 +1063,7 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
   });
 
   const active = await persistence.findActiveCoreMemoryCompressionForkRun({
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     compressionCoveredEndConversationId: 201,
     staleAfterMinutes: 30
   });
@@ -1076,7 +1076,7 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
   assert.ok(active);
   assert.equal(active.forkRunId, 'fork-active');
   assert.ok(query);
-  assert.deepEqual(query.params, ['xiaoni:global', '201', '30']);
+  assert.deepEqual(query.params, ['xiaoni:test-global', '201', '30']);
 });
 
 test('attachConversationIdToAgentStackByTrace updates main stack, tools, and image fork rows', async () => {

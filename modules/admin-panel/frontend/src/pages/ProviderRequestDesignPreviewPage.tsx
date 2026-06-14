@@ -20,7 +20,7 @@ const requestHeaders = {
 
 const requestBody = JSON.stringify(
   {
-    model: 'gpt-5.4-mini',
+    model: 'gpt-5-mini',
     input: [
       {
         role: 'system',
@@ -90,9 +90,9 @@ function makeGenerationRow(): TraceWaterfallRow {
     parentId: 'turn-1',
     spanId: 'llm-1',
     depth: 2,
-    pathTokens: ['Conversation Trace', 'model slice 1', 'openai / gpt-5.4-mini'],
-    title: 'openai / gpt-5.4-mini',
-    subtitle: 'openai / gpt-5.4-mini',
+    pathTokens: ['Conversation Trace', 'model slice 1', 'openai / gpt-5-mini'],
+    title: 'openai / gpt-5-mini',
+    subtitle: 'openai / gpt-5-mini',
     summary: 'LLM generation span，保留原来的结构化 input/output 查看方式。',
     status: 'ok',
     kind: 'client',
@@ -105,7 +105,7 @@ function makeGenerationRow(): TraceWaterfallRow {
     hasChildren: true,
     defaultExpanded: true,
     errorCountInSubtree: 0,
-    badges: ['client', 'generation', 'gpt-5.4-mini'],
+    badges: ['client', 'generation', 'gpt-5-mini'],
     meta: [
       { label: 'Status', value: 'ok' },
       { label: 'Duration', value: '1102ms' },
@@ -143,7 +143,7 @@ function makeGenerationRow(): TraceWaterfallRow {
           value: {
             llm_call_id: 'llm-call-preview-1',
             model_provider: 'openai',
-            model_name: 'gpt-5.4-mini',
+            model_name: 'gpt-5-mini',
           },
           emptyLabel: 'No evidence captured',
         },
@@ -158,7 +158,7 @@ function makeProviderRequestRow(): TraceWaterfallRow {
     parentId: 'llm-1',
     spanId: 'provider-request:preview',
     depth: 3,
-    pathTokens: ['Conversation Trace', 'model slice 1', 'openai / gpt-5.4-mini', 'POST api.openai.com'],
+    pathTokens: ['Conversation Trace', 'model slice 1', 'openai / gpt-5-mini', 'POST api.openai.com'],
     title: 'POST api.openai.com',
     subtitle: 'responses / api.openai.com / /v1/responses',
     summary: 'Provider request span，Input 和 Output 各自拆成垂直折叠的 Headers / Body 两段。',
@@ -237,7 +237,7 @@ const mockRows = [
   },
   {
     id: 'llm-1',
-    title: 'openai / gpt-5.4-mini',
+    title: 'openai / gpt-5-mini',
     subtitle: 'generation',
     badge: 'generation',
   },

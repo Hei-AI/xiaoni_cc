@@ -26,6 +26,8 @@ const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
 const DEFAULT_CODEX_TRANSIENT_RETRY_ATTEMPTS = 3;
 const DEFAULT_CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = 250;
+const DEFAULT_CODEX_ORIGINATOR = 'openclaw';
+const DEFAULT_CODEX_BETA_HEADER = 'responses=experimental';
 
 type CodexProviderRuntimeOptions = {
   id?: 'codex' | 'codex-local';
@@ -80,6 +82,11 @@ function parsePositiveIntegerEnv(name: string, fallback: number): number {
   }
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readTrimmedEnv(name: string): string | undefined {
+  const raw = process.env[name];
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : undefined;
 }
 
 function delay(ms: number): Promise<void> {
@@ -313,9 +320,9 @@ export class CodexProvider extends OpenAIProvider {
     const requestHeaders = {
       Authorization: `Bearer ${apiKey}`,
       ...(accountId ? { 'chatgpt-account-id': accountId } : {}),
-      originator: 'openclaw',
+      originator: this.resolveOriginator(),
       'User-Agent': this.buildUserAgent(),
-      'OpenAI-Beta': 'responses=experimental',
+      'OpenAI-Beta': this.resolveOpenAIBetaHeader(),
       accept: 'text/event-stream',
       'content-type': 'application/json',
       ...this.defaultHeaders,
@@ -520,7 +527,16 @@ export class CodexProvider extends OpenAIProvider {
   }
 
   private buildUserAgent(): string {
-    return `openclaw (${os.platform()} ${os.release()}; ${os.arch()})`;
+    return readTrimmedEnv('CODEX_REQUEST_USER_AGENT')
+      || `${DEFAULT_CODEX_ORIGINATOR} (${os.platform()} ${os.release()}; ${os.arch()})`;
+  }
+
+  private resolveOriginator(): string {
+    return readTrimmedEnv('CODEX_REQUEST_ORIGINATOR') || DEFAULT_CODEX_ORIGINATOR;
+  }
+
+  private resolveOpenAIBetaHeader(): string {
+    return readTrimmedEnv('CODEX_REQUEST_OPENAI_BETA') || DEFAULT_CODEX_BETA_HEADER;
   }
 
   private resolveTextVerbosity(request?: Record<string, any>, providerConfig?: UnifiedLLMConfig): 'low' | 'medium' | 'high' {

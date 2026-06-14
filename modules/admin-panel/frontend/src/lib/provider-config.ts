@@ -45,17 +45,17 @@ export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, str
     'gemini-2.5-pro',
   ],
   openai: [
-    'gpt-5.4-mini',
+    'gpt-5-mini',
     'gpt-5.4',
     'gpt-5.5',
   ],
   codex: [
-    'gpt-5.4-mini',
+    'gpt-5-mini',
     'gpt-5.3-codex',
   ],
   'codex-local': [
     'gpt-5.5',
-    'gpt-5.4-mini',
+    'gpt-5-mini',
     'gpt-5.4',
   ],
   custom: [],
@@ -137,7 +137,6 @@ export function inferProviderFromModelName(modelName?: string | null): Playgroun
     normalized.includes('codex') ||
     normalized === 'gpt-5-mini' ||
     normalized === 'gpt-5.4' ||
-    normalized === 'gpt-5.4-mini' ||
     normalized === 'gpt-5.5' ||
     normalized === 'gpt-5.5-mini' ||
     normalized === 'gpt-5.3-codex' ||
@@ -162,11 +161,11 @@ export function inferProviderFromModelName(modelName?: string | null): Playgroun
 export function defaultModelForProvider(provider: PlaygroundProviderId): string {
   switch (provider) {
     case 'openai':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'codex-local':
       return 'gpt-5.5';
     case 'codex':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'google':
     case 'google-legacy':
       return 'gemini-2.5-flash';

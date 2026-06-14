@@ -341,7 +341,7 @@ export class OpenAIImageProvider {
       return await this.parseCodexResponsesResponse(response, {
         operation: images.length > 0 || mask ? 'edit' : 'generation',
         provider: transport.mode,
-        model: String(payload.model || 'gpt-5.4-mini'),
+        model: String(payload.model || 'gpt-5-mini'),
         startedAt,
         method: 'POST',
         upstreamUrl,
@@ -706,7 +706,7 @@ export class OpenAIImageProvider {
     }
 
     return {
-      model: process.env.IMAGE_PROVIDER_CODEX_RESPONSE_MODEL || aiConfig.model_name || process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
+      model: process.env.IMAGE_PROVIDER_CODEX_RESPONSE_MODEL || aiConfig.model_name || process.env.AI_MODEL_NAME || 'gpt-5-mini',
       store: false,
       stream: true,
       instructions: 'Use the image_generation tool to create exactly the requested image. Return the image result, not explanatory text.',

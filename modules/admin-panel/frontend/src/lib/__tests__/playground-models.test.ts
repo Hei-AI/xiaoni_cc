@@ -47,14 +47,14 @@ describe('playground-models', () => {
     const override = derivePlaygroundModelOverride(
       makeProviderConfig({
         provider: 'openai',
-        context: { modelName: 'gpt-5.4-mini' },
+        context: { modelName: 'gpt-5-mini' },
       }),
       null
     );
 
     expect(override).toBe('');
-    expect(defaultModelForPlaygroundProvider('openai')).toBe('gpt-5.4-mini');
-    expect(defaultModelForPlaygroundProvider('codex')).toBe('gpt-5.4-mini');
+    expect(defaultModelForPlaygroundProvider('openai')).toBe('gpt-5-mini');
+    expect(defaultModelForPlaygroundProvider('codex')).toBe('gpt-5-mini');
     expect(getPromptDefaultModelName(null)).toBeNull();
   });
 

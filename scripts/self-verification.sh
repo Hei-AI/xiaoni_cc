@@ -98,7 +98,7 @@ verify_provider_debug_and_embedding() {
     local debug_response
     debug_response=$(curl -s -X POST "${ADMIN_API_URL}/api/debug/prompt-v2" \
         -H 'Content-Type: application/json' \
-        -d '{"userInput":"reply with pong only","provider":"codex","model":"gpt-5.4-mini","parameters":{"temperature":0}}')
+        -d '{"userInput":"reply with pong only","provider":"codex","model":"gpt-5-mini","parameters":{"temperature":0}}')
 
     if echo "$debug_response" | grep -q '"success":true' && echo "$debug_response" | grep -q '"response":"pong"'; then
         log_info "✅ Provider debug 调用成功"

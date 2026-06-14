@@ -68,11 +68,11 @@ export function normalizePlaygroundProvider(value: unknown): PlaygroundProviderI
 export function defaultModelForPlaygroundProvider(provider: PlaygroundProviderId): string {
   switch (provider) {
     case 'openai':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'codex-local':
       return 'gpt-5.5';
     case 'codex':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'google':
     case 'google-legacy':
       return 'gemini-2.5-flash';

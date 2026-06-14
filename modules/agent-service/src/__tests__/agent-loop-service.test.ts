@@ -6,6 +6,8 @@ import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRe
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import type { QueueMessagePayload } from '../types';
 
+process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:test-global';
+
 const PRIVATE_REPLY_TOOL = 'send_in_private';
 const UNREAD_MEANING_TOOL = 'emit_unread_meaning';
 const REMOVED_LIFE_ACTION_TOOL = ['submit', 'life', 'action'].join('_');
@@ -322,7 +324,7 @@ function createRuntimeLoopPayload(): QueueMessagePayload {
     ...payload,
     source: 'runtime_loop',
     chatType: 'direct',
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     peerId: 'xiaoni',
     peerName: '小腻',
     senderId: payload.accountId,
@@ -343,7 +345,7 @@ function createRuntimeLoopPayload(): QueueMessagePayload {
       BodyForCommands: '',
       RawBody: '',
       CommandBody: '',
-      NativeChannelId: 'xiaoni:global',
+      NativeChannelId: 'xiaoni:test-global',
       Surface: 'runtime_loop',
       WasMentioned: false,
       CommandAuthorized: false
@@ -385,15 +387,15 @@ function buildTestMainCanonicalRequest(
       batch_id: queueMessage.batchId,
       session_key: queueMessage.sessionKey,
       source_session_key: queueMessage.sessionKey,
-      session_id: 'xiaoni:global',
-      codex_session_id: 'xiaoni:global',
+      session_id: 'xiaoni:test-global',
+      codex_session_id: 'xiaoni:test-global',
       turn_id: queueMessage.runId,
       sandbox: 'none',
       chat_type: queueMessage.chatType,
       prompt_name: runtimePrompt.promptName,
       ...(runtimePrompt.promptId ? { prompt_id: runtimePrompt.promptId } : {})
     },
-    prompt_cache_key: 'xiaoni:global',
+    prompt_cache_key: 'xiaoni:test-global',
     ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
       ? { prompt_cache_retention: agentConfig.promptCacheRetention.trim() }
       : {})
@@ -1013,14 +1015,14 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     batch_id: 'batch-1',
     session_key: 'qq:group:101',
     source_session_key: 'qq:group:101',
-    session_id: 'xiaoni:global',
-    codex_session_id: 'xiaoni:global',
+    session_id: 'xiaoni:test-global',
+    codex_session_id: 'xiaoni:test-global',
     turn_id: 'run-1',
     sandbox: 'none',
     chat_type: 'group',
     prompt_name: 'agent_loop_v1'
   });
-  assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'xiaoni:global');
+  assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'xiaoni:test-global');
   assert.equal(requestBody.canonicalRequest.prompt_cache_retention, '24h');
   assert.equal(requestBody.parameters.advanced_config.generationConfig.timeout, agentConfig.mainAgentTurnTimeoutMs);
   assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'previous_response_id'), false);
@@ -1459,7 +1461,7 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
 test('buildInitialInput renders completed image tasks as task notifications', () => {
   const payload = createQueuePayload();
   payload.source = 'image_task_notification';
-  payload.sessionKey = 'xiaoni:global';
+  payload.sessionKey = 'xiaoni:test-global';
   payload.chatType = 'direct';
   payload.peerId = '1129974489';
   payload.peerName = '小腻 runtime';
@@ -2393,7 +2395,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].prompt_name, '小腻主AGENT');
   assert.equal(calls[0].model, 'gpt-5.4');
   assert.equal(calls[0].canonicalRequest.metadata.prompt_id, 'prompt-1');
-  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'xiaoni:global');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'xiaoni:test-global');
   assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
   assert.deepEqual(calls[0].parameters, {
     model_config: {
@@ -2541,7 +2543,7 @@ test('core memory compression commit runs the post-compression hook after durabl
       callId: 'call-post-compression-hook'
     },
     compression: null,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     sourceResponseId: 'llm-post-compression-hook',
     metadata: {
       trace_id: 'trace-post-compression-hook',
@@ -2575,7 +2577,7 @@ test('core memory compression commit keeps succeeding when the post-compression 
       callId: 'call-post-compression-hook-fails'
     },
     compression: null,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     sourceResponseId: 'llm-post-compression-hook-fails',
     metadata: {
       trace_id: 'trace-post-compression-hook-fails',
@@ -2602,7 +2604,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
   const service = new AgentLoopService({
     listRecentTurns: async () => recentTail,
     getSessionReadCutoffState: async () => ({
-      sessionKey: 'xiaoni:global',
+      sessionKey: 'xiaoni:test-global',
       readCutoffAfterConversationId: 200,
       lastContextWindowTokens: 400000,
       lastTargetBudgetTokens: 280000,
@@ -2633,7 +2635,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
     },
     compression: {
       required: true,
-      contextSessionKey: 'xiaoni:global',
+      contextSessionKey: 'xiaoni:test-global',
       readCutoffAfterConversationId: 171,
       previousReadCutoffAfterConversationId: null,
       compressionCoveredEndConversationId: 201,
@@ -2644,7 +2646,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
       lastTargetBudgetTokens: 280000,
       lastHardBudgetTokens: 380000
     },
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     sourceResponseId: 'llm-late-compression',
     metadata: {
       trace_id: 'trace-late-compression',
@@ -2718,7 +2720,7 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
     },
     compression: {
       required: true,
-      contextSessionKey: 'xiaoni:global',
+      contextSessionKey: 'xiaoni:test-global',
       readCutoffAfterConversationId: 171,
       previousReadCutoffAfterConversationId: null,
       compressionCoveredEndConversationId: 201,
@@ -2729,7 +2731,7 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
       lastTargetBudgetTokens: 280000,
       lastHardBudgetTokens: 380000
     },
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     sourceResponseId: 'llm-atomic-compression',
     metadata: {
       trace_id: 'trace-atomic-compression',
@@ -2739,7 +2741,7 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
 
   assert.equal(atomicWrites.length, 1);
   assert.deepEqual(atomicWrites[0], {
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     contextSummary: '原子写入的近况。',
     readCutoffAfterConversationId: 171,
     lastContextWindowTokens: 400000,
@@ -3771,7 +3773,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
         json: async () => ({
           success: true,
           response: '',
-          model: 'gpt-5.4-mini',
+          model: 'gpt-5-mini',
           provider: 'openai',
           llm_call_id: isAfterWriteToolResult ? 'llm-image-fork-2' : 'llm-image-fork-1',
           llm_request_slice_id: isAfterWriteToolResult ? 'llm-image-fork-2' : 'llm-image-fork-1',
@@ -3974,7 +3976,7 @@ test('image vision fork returns corrective output for non-exec tool calls', asyn
     return {
       success: true,
       response: '',
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
       provider: 'openai',
       llm_call_id: `llm-mixed-tool-${forkTurns}`,
       llm_request_slice_id: `llm-mixed-tool-${forkTurns}`,
@@ -4595,7 +4597,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
     afterConversationId: null,
     scope: 'global'
   });
-  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
+  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
       role: item.role,
@@ -4633,8 +4635,8 @@ test('runtime frame persists delivered assistant transcript items with final pha
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
   assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.runtime_stream, {
-    stream_key: 'xiaoni:global',
-    context_session_key: 'xiaoni:global',
+    stream_key: 'xiaoni:test-global',
+    context_session_key: 'xiaoni:test-global',
     trigger_source: 'phone_notification',
     trigger_kind: 'sensory_event',
     sensory_input: true,
@@ -6595,7 +6597,7 @@ test('no-notify continuation preserves global OS context during recover_energy t
   assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
   assert.equal(listRecentTurnsCalls[0]?.limit, undefined);
   assert.equal(outboundSendFetchCalled, false);
-  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
+  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
   assert.match(renderedModelInput, /253631878/);
@@ -6649,9 +6651,9 @@ test('runtime frame fetches global history after persisted read cutoff', async (
     },
     getSessionReadCutoffState: async (sessionKey: string) => {
       cutoffReadCount += 1;
-      assert.equal(sessionKey, 'xiaoni:global');
+      assert.equal(sessionKey, 'xiaoni:test-global');
       return {
-        sessionKey: 'xiaoni:global',
+        sessionKey: 'xiaoni:test-global',
         readCutoffAfterConversationId: 171,
         lastContextWindowTokens: 400000,
         lastTargetBudgetTokens: 280000,
@@ -6742,7 +6744,7 @@ test('buildContextBudgetPlan keeps the main request append-only and does not pla
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:global'
+    contextSessionKey: 'xiaoni:test-global'
   });
 
   assert.equal(plan.retainedHistory.length, 201);
@@ -6784,13 +6786,13 @@ test('buildCoreMemoryCompressionCheckpoint builds the pressure-only fork input',
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:global'
+    contextSessionKey: 'xiaoni:test-global'
   });
 
   assert.ok(checkpoint);
   assert.deepEqual(checkpoint.compression, {
     required: true,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     readCutoffAfterConversationId: 171,
     previousReadCutoffAfterConversationId: null,
     compressionCoveredEndConversationId: 201,
@@ -6953,7 +6955,7 @@ test('core memory compression commit keeps appended turns beyond the fork covera
 
   const cutoff = await (service as any).resolveCoreMemoryCompressionCommitCutoff({
     required: true,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     readCutoffAfterConversationId: 170,
     previousReadCutoffAfterConversationId: null,
     compressionCoveredEndConversationId: 200,
@@ -6979,7 +6981,7 @@ test('core memory compression scheduling dedupes only an in-process fork', async
   const queuePayload = createRuntimeLoopPayload();
   const compression = {
     required: true,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     readCutoffAfterConversationId: 171,
     previousReadCutoffAfterConversationId: null,
     compressionCoveredEndConversationId: 201,
@@ -6998,7 +7000,7 @@ test('core memory compression scheduling dedupes only an in-process fork', async
     startedFork = true;
     throw new Error('must not start a duplicate compression fork');
   };
-  (service as any).coreMemoryCompressionForks.set('xiaoni:global', {
+  (service as any).coreMemoryCompressionForks.set('xiaoni:test-global', {
     promise: new Promise(() => {}),
     compression,
     startedAtMs: Date.now()
@@ -7008,7 +7010,7 @@ test('core memory compression scheduling dedupes only an in-process fork', async
     baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queuePayload), queuePayload, createRuntimePrompt()),
     queueMessage: queuePayload,
     runtimePrompt: createRuntimePrompt(),
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     compression
   });
 
@@ -7321,11 +7323,11 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.match(secondForkText, /call-archive/);
   assert.match(secondForkText, /archived to \/tmp\/xiaoni-memory\.md/);
   assert.deepEqual(summaryWrites, [{
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     contextSummary: '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。'
   }]);
   assert.deepEqual(cutoffWrites, [{
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     readCutoffAfterConversationId: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
@@ -7444,10 +7446,10 @@ test('core memory compression fork retries final_answer without tool call and th
     baseRequest,
     queueMessage,
     runtimePrompt,
-    contextSessionKey: 'xiaoni:global',
+    contextSessionKey: 'xiaoni:test-global',
     compression: {
       required: true,
-      contextSessionKey: 'xiaoni:global',
+      contextSessionKey: 'xiaoni:test-global',
       readCutoffAfterConversationId: 171,
       previousReadCutoffAfterConversationId: null,
       compressionCoveredEndConversationId: 200,
@@ -7475,11 +7477,11 @@ test('core memory compression fork retries final_answer without tool call and th
   assert.equal(completedForkRuns[0]?.status, 'completed');
   assert.equal(completedForkRuns[0]?.metadata?.fork_no_tool_retry_count, 1);
   assert.deepEqual(summaryWrites, [{
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     contextSummary: '压缩后的近况：纠偏后成功调用 compress_core_memory。'
   }]);
   assert.deepEqual(cutoffWrites, [{
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     readCutoffAfterConversationId: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
@@ -7557,10 +7559,10 @@ test('core memory compression fork fails after ten no-tool retries', async () =>
       baseRequest,
       queueMessage,
       runtimePrompt,
-      contextSessionKey: 'xiaoni:global',
+      contextSessionKey: 'xiaoni:test-global',
       compression: {
         required: true,
-        contextSessionKey: 'xiaoni:global',
+        contextSessionKey: 'xiaoni:test-global',
         readCutoffAfterConversationId: 171,
         previousReadCutoffAfterConversationId: null,
         compressionCoveredEndConversationId: 200,

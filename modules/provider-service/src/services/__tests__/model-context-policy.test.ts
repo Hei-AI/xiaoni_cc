@@ -19,8 +19,8 @@ test('resolves built-in GPT-5 mini context policy', () => {
   assert.equal(thresholds.hardCeilingTokens, 349200);
 });
 
-test('supports alias policy resolution for gpt-5.4-mini', () => {
-  const policy = resolveModelContextPolicy('gpt-5.4-mini');
+test('supports alias policy resolution for gmini', () => {
+  const policy = resolveModelContextPolicy('gmini');
 
   assert.ok(policy);
   assert.equal(policy.model, 'gpt-5-mini');
@@ -31,14 +31,12 @@ test('allows environment provider overrides by model name', () => {
   const original = process.env.MODEL_PROVIDER_OVERRIDES_JSON;
   process.env.MODEL_PROVIDER_OVERRIDES_JSON = JSON.stringify({
     'gpt-5.4': 'openai',
-    'gpt-5-mini': 'codex',
-    'gpt-5.4-mini': 'codex'
+    'gpt-5-mini': 'codex'
   });
 
   try {
     assert.equal(inferProviderFromModelName('gpt-5.4'), 'openai');
     assert.equal(inferProviderFromModelName('gpt-5-mini'), 'codex');
-    assert.equal(inferProviderFromModelName('gpt-5.4-mini'), 'codex');
   } finally {
     if (original === undefined) {
       delete process.env.MODEL_PROVIDER_OVERRIDES_JSON;
@@ -50,7 +48,7 @@ test('allows environment provider overrides by model name', () => {
 
 test('routes Codex-capable GPT models to local Codex auth by default', () => {
   assert.equal(inferProviderFromModelName('gpt-5.5'), 'codex-local');
-  assert.equal(inferProviderFromModelName('gpt-5.4-mini'), 'codex-local');
+  assert.equal(inferProviderFromModelName('gpt-5-mini'), 'codex-local');
   assert.equal(inferProviderFromModelName('gpt-5.3-codex'), 'codex-local');
 });
 

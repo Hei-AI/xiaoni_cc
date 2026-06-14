@@ -56,7 +56,7 @@ function createDatabase() {
     status: 'completed',
     error_reason: null,
     response_time: 1200,
-    model_name: 'gpt-5.4-mini',
+    model_name: 'gpt-5-mini',
     raw_request: JSON.stringify({ prompt: 'hello' }),
     timestamp: '2026-03-28T10:00:00.000Z',
   };
@@ -78,10 +78,10 @@ function createDatabase() {
           created_at: '2026-03-28T10:00:01.000Z',
           completed_at: '2026-03-28T10:00:03.000Z',
           status: 'completed',
-          model_name: 'gpt-5.4-mini',
+          model_name: 'gpt-5-mini',
           model_provider: 'codex',
-          canonical_request: { model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] },
-          wire_request: { model: 'gpt-5.4-mini', input: [{ role: 'user', content: 'hello' }] },
+          canonical_request: { model: 'gpt-5-mini', input: [{ role: 'user', content: 'hello' }] },
+          wire_request: { model: 'gpt-5-mini', input: [{ role: 'user', content: 'hello' }] },
           canonical_response: { output_text: 'hi' },
           wire_response: { id: 'resp-1' },
           raw_response: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
@@ -147,10 +147,10 @@ describe('buildConversationTracePayload', () => {
       createdAt: '2026-03-28T10:00:01.000Z',
       completedAt: '2026-03-28T10:00:03.000Z',
       status: 'completed',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       modelProvider: 'codex',
-      canonicalRequest: { model: 'gpt-5.4-mini' },
-      wireRequest: { model: 'gpt-5.4-mini' },
+      canonicalRequest: { model: 'gpt-5-mini' },
+      wireRequest: { model: 'gpt-5-mini' },
       canonicalResponse: { output_text: 'hi' },
       wireResponse: { id: 'resp-1' },
       rawResponse: { output: [{ type: 'message' }] },
@@ -227,10 +227,10 @@ describe('buildStackTracePayload', () => {
       createdAt: '2026-03-28T10:00:01.000Z',
       completedAt: '2026-03-28T10:00:03.000Z',
       status: 'completed',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       modelProvider: 'codex',
-      canonicalRequest: { model: 'gpt-5.4-mini' },
-      wireRequest: { model: 'gpt-5.4-mini' },
+      canonicalRequest: { model: 'gpt-5-mini' },
+      wireRequest: { model: 'gpt-5-mini' },
       canonicalResponse: { output_text: 'hi' },
       wireResponse: { id: 'resp-1' },
       rawResponse: { output: [{ type: 'message' }] },
@@ -334,10 +334,10 @@ describe('buildStackTracePayload', () => {
       createdAt: '2026-03-28T10:00:01.000Z',
       completedAt: '2026-03-28T10:00:03.000Z',
       status: 'completed',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       modelProvider: 'codex',
-      canonicalRequest: { model: 'gpt-5.4-mini' },
-      wireRequest: { model: 'gpt-5.4-mini' },
+      canonicalRequest: { model: 'gpt-5-mini' },
+      wireRequest: { model: 'gpt-5-mini' },
       canonicalResponse: { output_text: 'hi' },
       wireResponse: { id: 'resp-1' },
       rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
@@ -371,7 +371,7 @@ describe('buildStackTracePayload', () => {
         'x-trace-id': 'trace-1'
       },
       upstream_url: 'http://provider.local/responses',
-      body: { model: 'gpt-5.4-mini' }
+      body: { model: 'gpt-5-mini' }
     });
     expect(detail?.output).toMatchObject({
       status_code: 201,
@@ -397,9 +397,9 @@ describe('buildStackTracePayload', () => {
       createdAt: '2026-03-28T10:00:01.000Z',
       completedAt: '2026-03-28T10:00:03.000Z',
       status: 'completed',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       modelProvider: 'codex',
-      wireRequest: { model: 'gpt-5.4-mini', input: ['hello'] },
+      wireRequest: { model: 'gpt-5-mini', input: ['hello'] },
       wireResponse: { id: 'resp-1' },
       rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'hi' }] }] },
       tokenUsage: { input_tokens: 10, output_tokens: 20 },
@@ -437,7 +437,7 @@ describe('buildStackTracePayload', () => {
       Authorization: '[redacted]',
       'x-trace-id': 'trace-1'
     });
-    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.4-mini', input: ['hello'] }));
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5-mini', input: ['hello'] }));
     expect(rawTrace?.response.status_code).toBe(201);
     expect(rawTrace?.response.headers).toEqual({ 'content-type': 'application/json' });
     expect(rawTrace?.response.body).toBe(JSON.stringify({
@@ -460,9 +460,9 @@ describe('buildStackTracePayload', () => {
       createdAt: '2026-03-28T10:00:01.000Z',
       completedAt: '2026-03-28T10:00:03.000Z',
       status: 'completed',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       modelProvider: 'codex',
-      wireRequest: { model: 'gpt-5.4-mini', input: ['compress'] },
+      wireRequest: { model: 'gpt-5-mini', input: ['compress'] },
       wireResponse: { id: 'resp-fork-1' },
       rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'compressed' }] }] },
       tokenUsage: { input_tokens: 100, output_tokens: 20 },
@@ -499,7 +499,7 @@ describe('buildStackTracePayload', () => {
       rawTraceOnly: true,
       limit: 1
     }));
-    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.4-mini', input: ['compress'] }));
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5-mini', input: ['compress'] }));
     expect(rawTrace?.source).toBe('core_memory_compression_fork_slices.provider_exchange');
   });
 
@@ -526,7 +526,7 @@ describe('buildStackTracePayload', () => {
               accept: 'text/event-stream'
             },
             body: {
-              model: 'gpt-5.4-mini',
+              model: 'gpt-5-mini',
               tools: [{ type: 'image_generation', model: 'gpt-image-2' }]
             },
             body_format: 'json',
@@ -558,7 +558,7 @@ describe('buildStackTracePayload', () => {
       accept: 'text/event-stream'
     });
     expect(rawTrace?.request.body).toBe(JSON.stringify({
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
       tools: [{ type: 'image_generation', model: 'gpt-image-2' }]
     }));
     expect(rawTrace?.response.status_code).toBe(200);
@@ -576,8 +576,8 @@ describe('buildConversationTraceSpanDetail', () => {
     );
 
     expect(detail?.input).toMatchObject({
-      canonical_request: { model: 'gpt-5.4-mini' },
-      wire_request: { model: 'gpt-5.4-mini' }
+      canonical_request: { model: 'gpt-5-mini' },
+      wire_request: { model: 'gpt-5-mini' }
     });
     expect(detail?.output).toMatchObject({
       canonical_response: { output_text: 'hi' },

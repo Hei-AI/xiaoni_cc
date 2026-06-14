@@ -38,7 +38,7 @@ test('getAgentMediaAssetById reads one asset with session filtering through Pris
               asset_id: 'asset-img-123',
               observer: 'xiaoni',
               description: '旧观察',
-              source_model: 'gpt-5.4-mini',
+              source_model: 'gpt-5-mini',
               confidence: null,
               metadata: {},
               created_at: new Date('2026-06-10T00:00:02.000Z')

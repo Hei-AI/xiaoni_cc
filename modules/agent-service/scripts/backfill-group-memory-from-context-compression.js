@@ -4,7 +4,7 @@
 process.env.DATABASE_URL = process.env.DATABASE_URL
   || 'postgresql://qqbot_user:qqbot_password@127.0.0.1:5432/qqbot_db?schema=public&options=-c%20timezone%3DAsia%2FShanghai';
 process.env.PROVIDER_SERVICE_URL = process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091';
-process.env.AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'gpt-5.4-mini';
+process.env.AI_MODEL_NAME = process.env.AI_MODEL_NAME || 'gpt-5-mini';
 process.env.AGENT_COMPACT_MEMORY_MODEL = process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5';
 process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL = process.env.AGENT_COMPACT_MEMORY_REFLECTION_MODEL || process.env.AGENT_COMPACT_MEMORY_MODEL;
 process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT = process.env.AGENT_COMPACT_MEMORY_REASONING_EFFORT || 'high';

@@ -47,7 +47,7 @@ type FinalCandidatePayload = {
   final_candidate_action?: CandidateAction;
 };
 
-const DEFAULT_MODEL_NAME = 'gpt-5.4-mini';
+const DEFAULT_MODEL_NAME = 'gpt-5-mini';
 const DEFAULT_RUNNER_NAME = 'mini-treatment-runner';
 const FORMAT_REPAIR_SCHEMA = [
   'Return only JSON.',
@@ -205,7 +205,7 @@ function buildInitialMessages(snapshot: AbTurnSnapshot): TreatmentModelMessage[]
     {
       role: 'system',
       content: [
-        'You are the isolated gpt-5.4-mini A/B treatment arm for Xiaoni.',
+        'You are the isolated gpt-5-mini A/B treatment arm for Xiaoni.',
         'Do not send messages or call production tools. Produce candidate artifacts only.',
         'Pass 1: judge the scene and return JSON with initialImpulse. A candidate draft is allowed but not final.'
       ].join('\n')
@@ -231,7 +231,7 @@ function buildFinalMessages(
     {
       role: 'system',
       content: [
-        'You are the isolated gpt-5.4-mini A/B treatment arm for Xiaoni.',
+        'You are the isolated gpt-5-mini A/B treatment arm for Xiaoni.',
         'Pass 2: use the frozen snapshot plus retrieved observations/reflections/plans to produce one final candidate action.',
         'Return JSON only. This is not an allow/deny gate and must not mutate production state.'
       ].join('\n')

@@ -6,7 +6,7 @@ describe('ResponseComparator', () => {
       semanticJudge: async () => ({
         semanticMatch: true,
         semanticSummary: '字段顺序变了，但用户可见语义没变。',
-        semanticJudgeModel: 'gpt-5.4-mini',
+        semanticJudgeModel: 'gpt-5-mini',
         semanticJudgeReason: null
       })
     });
@@ -29,7 +29,7 @@ describe('ResponseComparator', () => {
     expect(comparison.bodyMatch).toBe(false);
     expect(comparison.semanticMatch).toBe(true);
     expect(comparison.semanticSummary).toContain('语义没变');
-    expect(comparison.semanticJudgeModel).toBe('gpt-5.4-mini');
+    expect(comparison.semanticJudgeModel).toBe('gpt-5-mini');
   });
 
   it('skips semantic judge when responses already match exactly', async () => {

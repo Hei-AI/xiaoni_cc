@@ -57,7 +57,6 @@ export function inferProviderFromModelName(modelName?: string): ResolvedProvider
     normalized.includes('codex') ||
     normalized === 'gpt-5-mini' ||
     normalized === 'gpt-5.4' ||
-    normalized === 'gpt-5.4-mini' ||
     normalized === 'gpt-5.5' ||
     normalized === 'gpt-5.5-mini' ||
     normalized === 'gpt-5.3-codex' ||

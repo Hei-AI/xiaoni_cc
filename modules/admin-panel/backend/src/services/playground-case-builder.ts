@@ -207,11 +207,11 @@ function normalizeProvider(value?: string | null): PlaygroundProviderConfig['mod
 function defaultModelForProvider(provider: PlaygroundProviderConfig['model']['provider']): string {
   switch (provider) {
     case 'openai':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'codex-local':
       return 'gpt-5.5';
     case 'codex':
-      return 'gpt-5.4-mini';
+      return 'gpt-5-mini';
     case 'google-legacy':
       return 'gemini-2.5-flash';
     case 'google-gemini-cli':
@@ -711,7 +711,6 @@ function inferProviderFromModelName(modelName?: string | null): PlaygroundProvid
   if (
     normalized.includes('codex') ||
     normalized === 'gpt-5-mini' ||
-    normalized === 'gpt-5.4-mini' ||
     normalized === 'gpt-5.5' ||
     normalized === 'gpt-5.5-mini' ||
     normalized === 'gpt-5.3-codex' ||

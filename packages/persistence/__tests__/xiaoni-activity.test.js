@@ -332,7 +332,7 @@ test('Xiaoni activity feed hides operator-only self-action LLM prompts', async (
       llm_call_id: 'llm_self',
       agent_type: 'self_action_search',
       prompt_template: 'self_action_search:web_search',
-      model_name: 'gpt-5.4-mini',
+      model_name: 'gpt-5-mini',
       status: 'completed',
       started_at: new Date('2026-05-31T04:10:00.000Z'),
       canonical_request: {

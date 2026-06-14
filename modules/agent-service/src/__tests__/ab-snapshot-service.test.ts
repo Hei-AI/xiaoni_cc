@@ -64,7 +64,7 @@ function snapshotInput(): AbSnapshotBuilderInput {
     },
     runtimeConfig: {
       controlModelName: 'gpt-5.4',
-      treatmentModelName: 'gpt-5.4-mini',
+      treatmentModelName: 'gpt-5-mini',
       promptVersions: { main: 'v1' },
       rendererVersions: { runtimeInput: 'v2' },
       metadata: { worker: 'unit-test' }

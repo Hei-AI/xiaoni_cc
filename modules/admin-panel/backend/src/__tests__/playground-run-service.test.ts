@@ -8,7 +8,7 @@ function createLogger(): winston.Logger {
 
 function createProviderConfig(overrides: Partial<PlaygroundProviderConfig> = {}): PlaygroundProviderConfig {
   return {
-    model: { provider: 'openai', name: 'gpt-5.4-mini', providerSpecific: {} },
+    model: { provider: 'openai', name: 'gpt-5-mini', providerSpecific: {} },
     generation: {},
     thinking: {},
     safety: [],
@@ -47,9 +47,9 @@ function createCaseRecord(overrides: Partial<PlaygroundCase> = {}): PlaygroundCa
     providerConfig: createProviderConfig(),
     baselineSnapshot: {
       provider: 'openai',
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       canonicalRequest: {
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5-mini',
         instructions: 'System prompt',
         input: [
           {
@@ -179,7 +179,7 @@ describe('PlaygroundRunService.createRun', () => {
       json: async () => ({
         success: true,
         provider: 'openai',
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5-mini',
         response: '',
         canonical_response: {
           output: [

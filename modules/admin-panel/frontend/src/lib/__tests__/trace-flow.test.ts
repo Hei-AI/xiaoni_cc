@@ -101,7 +101,7 @@ describe('buildTraceFlowViewModel', () => {
         attributes: {
           'semantic.role': 'generation',
           'semantic.display_name': 'planner',
-          'llm.model_name': 'gpt-5.4-mini',
+          'llm.model_name': 'gpt-5-mini',
           'llm.model_provider': 'openai',
         },
       }),
@@ -129,7 +129,7 @@ describe('buildTraceFlowViewModel', () => {
       'planner',
       'GET api.openai.com',
     ]);
-    expect(viewModel.rows.find((row) => row.id === 'llm-1')?.subtitle).toBe('openai / gpt-5.4-mini');
+    expect(viewModel.rows.find((row) => row.id === 'llm-1')?.subtitle).toBe('openai / gpt-5-mini');
     expect(viewModel.rows.find((row) => row.id === 'llm-1')?.inspector.sections.map((section) => section.id)).toEqual([
       'input',
       'output',
@@ -265,7 +265,7 @@ describe('buildTraceFlowViewModel', () => {
         attributes: {
           'semantic.role': 'generation',
           'semantic.display_name': 'planner',
-          'llm.model_name': 'gpt-5.4-mini',
+          'llm.model_name': 'gpt-5-mini',
           'llm.model_provider': 'openai',
           'provider.request_count': 1,
           'provider.statuses': ['200'],
@@ -431,7 +431,7 @@ describe('buildTraceFlowViewModel', () => {
         attributes: {
           'semantic.role': 'generation',
           'semantic.display_name': 'planner',
-          'llm.model_name': 'gpt-5.4-mini',
+          'llm.model_name': 'gpt-5-mini',
           'llm.model_provider': 'openai',
         },
       }),

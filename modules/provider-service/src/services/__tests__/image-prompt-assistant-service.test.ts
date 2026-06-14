@@ -83,7 +83,7 @@ function validArgs(overrides: Record<string, any> = {}) {
 test('image prompt assistant requires structured tool output and returns normalized result', async () => {
   const fake = new FakePromptProvider(validArgs());
   const service = new ImagePromptAssistantService({
-    modelName: 'gpt-5.4-mini',
+    modelName: 'gpt-5-mini',
     providerFactory: () => fake
   });
 

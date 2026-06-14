@@ -304,7 +304,7 @@ export class ImagePromptAssistantService {
       || process.env.IMAGE_PROMPT_ASSISTANT_MODEL
       || process.env.IMAGE_PROVIDER_CODEX_RESPONSE_MODEL
       || aiConfig.model_name
-      || 'gpt-5.4-mini';
+      || 'gpt-5-mini';
   }
 
   async compose(input: ImagePromptAssistantRequest): Promise<ImagePromptAssistantResult> {
