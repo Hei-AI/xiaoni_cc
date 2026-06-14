@@ -11,6 +11,8 @@
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - 小腻当前运行面、Admin surface、本地 skills、prompt template 和数据归属：
   - `docs/XIAONI_RUNTIME_SURFACES.md`
+- 小腻时区切换、TIMESTAMPTZ 迁移和压缩后暂停闸门：
+  - `docs/XIAONI_TIMEZONE_MIGRATION_PLAN.md`
 - 前端页面、交互、生产前端问题：
   - `docs/AGENTS_FRONTEND.md`
 - 后端接口、队列、共享数据模型、数据库访问：

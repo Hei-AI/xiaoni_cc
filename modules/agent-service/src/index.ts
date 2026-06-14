@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAgentRuntimeControl } from '@qq-bot/persistence';
+import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
@@ -12,7 +12,8 @@ const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store, undefined, {
-  isRuntimeEnabled
+  isRuntimeEnabled,
+  onCoreMemoryCompressionCommitted: triggerRuntimePauseAfterCoreMemoryCompression
 });
 const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
@@ -126,6 +127,21 @@ async function isRuntimeEnabled() {
       error: error instanceof Error ? error.message : String(error)
     });
     return true;
+  }
+}
+
+async function triggerRuntimePauseAfterCoreMemoryCompression() {
+  const control = await triggerPostCompressionRuntimePause({
+    identityKey: 'xiaoni',
+    reason: 'core_memory_compression_completed'
+  }, databaseConfig);
+  runtimeEnabled = control.enabled !== false;
+  if (!runtimeEnabled && control.postCompressionPauseTriggeredAt) {
+    moduleLogger.warn('Xiaoni runtime paused after core memory compression', {
+      identityKey: control.identityKey,
+      triggeredAt: control.postCompressionPauseTriggeredAt,
+      reason: control.postCompressionPauseReason
+    });
   }
 }
 
