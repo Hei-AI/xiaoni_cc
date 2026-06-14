@@ -57,6 +57,7 @@
 - 小腻主 prompt 的稳定部分只定义身份、人格边界、开口标准、沉默标准、能力边界、完成条件和少量风格样例；不要塞动态状态、工具列表、skill 列表或 cost。
 - 当前消息、历史、摘要、长期学习、状态值、图片观察、搜索结果、工程提醒、动态能力列表和 cost 都属于 runtime input / developer context，不要回填进 system prompt。工程在主 loop 输入开头追加一次 developer `<CAPABILITIES>`，列出工具、skill 和 cost。
 - `agent-service` 会对 `docs/xiaoni_prompt/*.md` 做内容 fingerprint 轮询；文件内容变化后只设置 runtime prompt reload 标记，当前 frame 不被打断，下一轮 loop 边界清空 `stableRuntimePrompt` 并重新读取 system prompt。`prompt_cache_key` 仍保持 `xiaoni:global`，不要把 prompt 版本塞进 cache key；需要审计时看新 slice 的 request payload。
+- TODO 观察：2026-06-14 18:05 `llm_1781431541816_0727fc09` 出现 `53853 input / 2176 cached`，但与 16:38 `llm_1781426285553_687b73cb` 的 canonical/wire request 前 191 个 input item 完全一致，`model`、`instructions`、`tools`、`tool_choice` 和 `prompt_cache_key=xiaoni:global` 也一致。当前判断是 Codex backend 侧 prompt cache miss/淘汰；`prompt_cache_retention=24h` 只在 canonical request 中，Codex wire payload 仍按既有约束不发送 retention。后续如果重复出现低缓存，优先对比 wire 前缀、间隔、服务重启和 Codex 后端响应头，再决定是否需要新的保温或分桶策略。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
   `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。不要用工程术语解释它。
 - `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
