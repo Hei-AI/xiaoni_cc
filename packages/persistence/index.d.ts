@@ -1058,6 +1058,7 @@ export type XiaoniAgentStackPersistenceApi = {
   completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
   recordCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
   completeCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
+  findActiveCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
   appendCoreMemoryCompressionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkItem[]>;
   recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
   recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
@@ -1088,6 +1089,7 @@ export function recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput
 export function completeToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
 export function recordCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
 export function completeCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
+export function findActiveCoreMemoryCompressionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkRun | null>;
 export function appendCoreMemoryCompressionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkItem[]>;
 export function recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
 export function recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;

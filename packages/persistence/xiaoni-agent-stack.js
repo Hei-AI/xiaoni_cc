@@ -2418,6 +2418,41 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function findActiveCoreMemoryCompressionForkRun(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const contextSessionKey = firstString(input.contextSessionKey, input.context_session_key);
+    const compressionCoveredEndConversationId = normalizeBigIntId(
+      input.compressionCoveredEndConversationId ?? input.compression_covered_end_conversation_id
+    );
+    if (!contextSessionKey || compressionCoveredEndConversationId === null) {
+      return null;
+    }
+    const staleAfterMinutes = Number.parseInt(String(input.staleAfterMinutes ?? input.stale_after_minutes ?? 30), 10);
+    const effectiveStaleAfterMinutes = Number.isFinite(staleAfterMinutes) && staleAfterMinutes > 0
+      ? staleAfterMinutes
+      : 30;
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM core_memory_compression_fork_runs
+          WHERE context_session_key = ?
+            AND status = 'running'
+            AND metadata->>'compression_covered_end_conversation_id' = ?
+            AND started_at > NOW() - (?::text || ' minutes')::interval
+          ORDER BY started_at DESC, id DESC
+          LIMIT 1
+        `,
+        [
+          contextSessionKey,
+          String(compressionCoveredEndConversationId),
+          String(effectiveStaleAfterMinutes)
+        ]
+      );
+      return normalizeCompressionForkRunRow(rows[0]);
+    });
+  }
+
   async function appendCoreMemoryCompressionForkItems(input = {}, config = {}) {
     const rawItems = Array.isArray(input.items)
       ? input.items
@@ -3760,6 +3795,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     completeToolExecution,
     recordCoreMemoryCompressionForkRun,
     completeCoreMemoryCompressionForkRun,
+    findActiveCoreMemoryCompressionForkRun,
     appendCoreMemoryCompressionForkItems,
     recordCoreMemoryCompressionForkSlice,
     recordCoreMemoryCompressionForkToolExecution,

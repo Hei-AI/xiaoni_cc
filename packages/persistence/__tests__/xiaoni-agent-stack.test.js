@@ -110,6 +110,13 @@ function createMockSql() {
         rows.forkRun.push(row);
         return [row];
       }
+      if (sql.includes('FROM core_memory_compression_fork_runs')) {
+        return rows.forkRun.filter((row) =>
+          row.context_session_key === params[0]
+          && row.status === 'running'
+          && String(row.metadata?.compression_covered_end_conversation_id) === String(params[1])
+        ).slice(0, 1);
+      }
       if (sql.includes('INSERT INTO core_memory_compression_fork_items')) {
         const row = {
           id: forkItemId++,
@@ -1036,6 +1043,40 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
   assert.equal(completedTool.stackOutputItemId, itemRows[1].id);
   assert.equal(completedRun.summaryText, '压缩后的近况');
   assert.equal(sql.rows.stackInsert.length, 0);
+});
+
+test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable coverage', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordCoreMemoryCompressionForkRun({
+    forkRunId: 'fork-active',
+    contextSessionKey: 'xiaoni:global',
+    status: 'running',
+    traceId: 'trace-active',
+    runId: 'run-active',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: 99,
+    metadata: {
+      compression_covered_end_conversation_id: 201
+    }
+  });
+
+  const active = await persistence.findActiveCoreMemoryCompressionForkRun({
+    contextSessionKey: 'xiaoni:global',
+    compressionCoveredEndConversationId: 201,
+    staleAfterMinutes: 30
+  });
+  const query = sql.calls.find((call) =>
+    call.kind === 'query'
+    && call.sql.includes('FROM core_memory_compression_fork_runs')
+    && call.sql.includes("metadata->>'compression_covered_end_conversation_id'")
+  );
+
+  assert.ok(active);
+  assert.equal(active.forkRunId, 'fork-active');
+  assert.ok(query);
+  assert.deepEqual(query.params, ['xiaoni:global', '201', '30']);
 });
 
 test('attachConversationIdToAgentStackByTrace updates main stack, tools, and image fork rows', async () => {

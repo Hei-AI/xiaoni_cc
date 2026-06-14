@@ -3576,6 +3576,8 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
 
   const originalFetch = globalThis.fetch;
   const fetchCalls: Array<{ url: string; headers: any; body: any }> = [];
+  let imageVisionForkTurn = 0;
+  let imageVisionFileContent = '';
   globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const parsed = init?.body ? JSON.parse(String(init.body)) : null;
     fetchCalls.push({
@@ -3596,27 +3598,41 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
       } as Response;
     }
     if (String(url).endsWith('/api/internal/llm/debug')) {
+      imageVisionForkTurn += 1;
+      const isAfterWriteToolResult = imageVisionForkTurn > 1;
       return {
         ok: true,
         json: async () => ({
           success: true,
-          response: '这是一只猫',
+          response: '',
           model: 'gpt-5.4-mini',
           provider: 'openai',
-          llm_call_id: 'llm-image-fork',
-          llm_request_slice_id: 'llm-image-fork',
+          llm_call_id: isAfterWriteToolResult ? 'llm-image-fork-2' : 'llm-image-fork-1',
+          llm_request_slice_id: isAfterWriteToolResult ? 'llm-image-fork-2' : 'llm-image-fork-1',
           canonical_request: parsed?.canonicalRequest,
           wire_request: { model: parsed?.model, input: [{ type: 'wire_input' }] },
-          canonical_response: {
-            output: [{
-              id: 'msg-image-fork',
-              type: 'message',
-              role: 'assistant',
-              content: [{ type: 'output_text', text: '这是一只猫' }]
-            }]
-          },
+          canonical_response: isAfterWriteToolResult
+            ? {
+                output: [{
+                  id: 'msg-image-fork-final',
+                  type: 'message',
+                  role: 'assistant',
+                  phase: 'final_answer',
+                  content: [{ type: 'output_text', text: '已写入图片理解。' }]
+                }]
+              }
+            : {
+                output: [{
+                  type: 'function_call',
+                  call_id: 'call-write-image-vision',
+                  name: EXEC_COMMAND_TOOL,
+                  arguments: JSON.stringify({
+                    cmd: 'mkdir -p /xiaoni-runtime/image-vision/observations && printf %s "这是一只猫" > /xiaoni-runtime/image-vision/observations/test.md'
+                  })
+                }]
+              },
           wire_response: { id: 'resp-image-fork' },
-          raw_response: { id: 'resp-image-fork', output_text: '这是一只猫' },
+          raw_response: { id: 'resp-image-fork' },
           usage: {
             input_tokens: 1234,
             output_tokens: 56,
@@ -3634,11 +3650,40 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
         })
       } as Response;
     }
+    if (String(url).endsWith('/api/internal/exec-command')) {
+      const cmd = String(parsed?.cmd || '');
+      if (cmd.includes('printf %s "这是一只猫"')) {
+        imageVisionFileContent = '这是一只猫';
+      }
+      const isFileCheck = cmd.includes('Path(');
+      const stdout = isFileCheck
+        ? imageVisionFileContent
+          ? `OK\n${imageVisionFileContent}\n`
+          : 'MISSING\n'
+        : 'written\n';
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          success: true,
+          result: {
+            cmd,
+            exit_code: 0,
+            stdout,
+            stderr: '',
+            timed_out: false,
+            duration_ms: 1,
+            codex_output: stdout
+          }
+        })
+      } as Response;
+    }
     throw new Error(`Unexpected fetch: ${String(url)}`);
   }) as typeof fetch;
 
   try {
-    await processRuntimeFrameForTest(service, queueMessage as any);
+    await withExecutorUrl('http://xiaoni-executor.test', async () => {
+      await processRuntimeFrameForTest(service, queueMessage as any);
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3646,7 +3691,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   const materializeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/media/materialize-image'));
   const executeCalls = fetchCalls.filter((call) => call.url.endsWith('/api/internal/llm/debug'));
   assert.equal(materializeCalls.length, 1);
-  assert.equal(executeCalls.length, 1);
+  assert.equal(executeCalls.length, 2);
   assert.equal(fetchCalls.some((call) => call.url.includes('/api/internal/media/inspect')), false);
   assert.equal(materializeCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
   assert.equal(executeCalls[0]?.headers?.['x-qqbot-no-traffic-persist'], '1');
@@ -3657,16 +3702,18 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   const forkRequest = executeCalls[0]?.body?.canonicalRequest;
   assert.ok(mainRequest);
   assert.ok(forkRequest);
-  assert.deepEqual(forkRequest.input.slice(0, -3), mainRequest.input);
+  assert.deepEqual(forkRequest.input.slice(0, -4), mainRequest.input);
   assert.equal(forkRequest.instructions, mainRequest.instructions);
   assert.deepEqual(forkRequest.tools, mainRequest.tools);
-  assert.deepEqual(forkRequest.tool_choice, mainRequest.tool_choice);
+  assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
+  assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
+  assert.equal(forkRequest.tool_choice?.mode, mainRequest.tool_choice?.mode);
   assert.equal(forkRequest.parallel_tool_calls, false);
   assert.equal(forkRequest.store, false);
 
   const appendedItems = forkRequest.input.slice(mainRequest.input.length);
-  assert.equal(appendedItems.length, 3);
-  const [visionCommentary, visionCall, visionOutput] = appendedItems;
+  assert.equal(appendedItems.length, 4);
+  const [visionCommentary, visionCall, visionOutput, writeReminder] = appendedItems;
   assert.equal(visionCommentary?.type, 'message');
   assert.equal(visionCommentary?.role, 'assistant');
   assert.equal(getMessageContent(visionCommentary), '让我来看看这个图是啥意思');
@@ -3694,12 +3741,16 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.equal(appendedItems.some((item: any) => item.role === 'user'), false);
   assert.doesNotMatch(JSON.stringify([visionCommentary, visionCall]), /data:image/);
   assert.match(JSON.stringify(visionOutput?.output), /data:image\/png;base64,QUJDREVGRw==/);
+  assert.equal(writeReminder?.type, 'message');
+  assert.equal(writeReminder?.role, 'developer');
+  assert.match(getMessageContent(writeReminder), new RegExp(`/xiaoni-runtime/image-vision/observations/${imageAssetId}\\.md`));
+  assert.match(getMessageContent(writeReminder), /exec_command/);
 
   assert.equal(storeCalls.recordMediaObservation.length, 1);
   assert.equal(storeCalls.recordMediaObservation[0]?.assetId, imageAssetId);
   assert.equal(storeCalls.recordMediaObservation[0]?.description, '这是一只猫');
   assert.match(storeCalls.recordMediaObservation[0]?.metadata?.fork_run_id, /^image-vision-fork:/);
-  assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.llm_request_slice_id, 'llm-image-fork');
+  assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.llm_request_slice_id, 'llm-image-fork-2');
   assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.provider_raw_trace_persisted, true);
   assert.equal(storeCalls.recordMediaObservation[0]?.metadata?.fork, 'image_vision_fork');
 
@@ -3707,12 +3758,14 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.match(storeCalls.recordImageVisionForkRun[0]?.forkRunId, /^image-vision-fork:/);
   assert.equal(storeCalls.recordImageVisionForkRun[0]?.status, 'running');
   assert.equal(storeCalls.recordImageVisionForkRun[0]?.assetId, imageAssetId);
-  assert.equal(storeCalls.appendImageVisionForkItems.length, 1);
-  assert.equal(storeCalls.appendImageVisionForkItems[0]?.llmRequestSliceId, 'llm-image-fork');
-  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.content?.content?.[0]?.text, '这是一只猫');
-  assert.equal(storeCalls.recordImageVisionForkSlice.length, 1);
+  assert.equal(storeCalls.appendImageVisionForkItems.length, 3);
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.llmRequestSliceId, 'llm-image-fork-1');
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.content?.name, EXEC_COMMAND_TOOL);
+  assert.equal(storeCalls.appendImageVisionForkItems[1]?.items[0]?.content?.output.includes('written'), true);
+  assert.equal(storeCalls.appendImageVisionForkItems[2]?.llmRequestSliceId, 'llm-image-fork-2');
+  assert.equal(storeCalls.recordImageVisionForkSlice.length, 2);
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.forkRunId, storeCalls.recordImageVisionForkRun[0]?.forkRunId);
-  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.sliceId, 'llm-image-fork');
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.sliceId, 'llm-image-fork-1');
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.canonicalRequest, forkRequest);
   assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.tokenUsage, {
     input_tokens: 1234,
@@ -3740,6 +3793,79 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   });
   assert.doesNotMatch(persistedRuntimeText, /data:image/);
   assert.doesNotMatch(persistedRuntimeText, /QUJDREVGRw==/);
+});
+
+test('image vision fork returns corrective output for non-exec tool calls', async () => {
+  const queueMessage = createRuntimeLoopPayload();
+  const service = new AgentLoopService({} as any);
+  const appendCalls: any[] = [];
+  let execCalls = 0;
+  let forkTurns = 0;
+
+  (service as any).waitForRuntimeEnabledBeforeModelSlice = async () => undefined;
+  (service as any).executeImageVisionForkTurn = async () => {
+    forkTurns += 1;
+    return {
+      success: true,
+      response: '',
+      model: 'gpt-5.4-mini',
+      provider: 'openai',
+      llm_call_id: `llm-mixed-tool-${forkTurns}`,
+      llm_request_slice_id: `llm-mixed-tool-${forkTurns}`,
+      canonical_response: {
+        output: [
+          {
+            type: 'function_call',
+            call_id: `call-write-${forkTurns}`,
+            name: EXEC_COMMAND_TOOL,
+            arguments: JSON.stringify({ cmd: 'printf image > /tmp/image.md' })
+          },
+          {
+            type: 'function_call',
+            call_id: `call-send-${forkTurns}`,
+            name: PRIVATE_REPLY_TOOL,
+            arguments: JSON.stringify({ message: '我写好了' })
+          }
+        ]
+      },
+      usage: {}
+    };
+  };
+  (service as any).executeCommand = async () => {
+    execCalls += 1;
+    return {
+      success: true,
+      exit_code: 0,
+      stdout: 'should-not-run',
+      stderr: ''
+    };
+  };
+  (service as any).appendImageVisionForkItemsSafe = async (params: any) => {
+    appendCalls.push(params);
+    return [];
+  };
+  (service as any).recordImageVisionForkSliceSafe = async () => null;
+
+  const result = await (service as any).runImageVisionForkToFile({
+    forkRunId: 'image-vision-fork:mixed-tool',
+    baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queueMessage), queueMessage, createRuntimePrompt()),
+    queueMessage,
+    outputPath: '/xiaoni-runtime/image-vision/observations/media_mixed.md',
+    assetId: 'media_mixed',
+    mediaTag: null
+  });
+
+  assert.equal(execCalls, 10);
+  assert.equal(forkTurns, 10);
+  assert.equal(result.failed, true);
+  assert.match(result.failureReason, /send_in_private/);
+  assert.equal(
+    appendCalls.some((call) => {
+      const text = JSON.stringify(call.items);
+      return text.includes('潜意识拦截') && text.includes(EXEC_COMMAND_TOOL);
+    }),
+    true
+  );
 });
 
 test('send_in_group uses explicit group target when provided', async () => {
@@ -6402,7 +6528,7 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   );
 });
 
-test('runtime frame does not slide the read window while core memory compression is pending', async () => {
+test('runtime frame does not expand the main request window for local pending compression', async () => {
   const queueMessage = {
     id: 'run-compression-pending',
     traceId: 'trace-compression-pending',
@@ -6499,17 +6625,18 @@ test('runtime frame does not slide the read window while core memory compression
     userId: 303,
     groupId: null,
     afterConversationId: null,
-    scope: 'global'
+    scope: 'global',
+    limit: 201
   });
-  assert.equal('limit' in listRecentTurnsCalls[0], false);
   assert.equal(mainRequests.length, 1);
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
-  assert.match(mainText, /global history 1(?!\d)/);
+  assert.doesNotMatch(mainText, /global history 1(?!\d)/);
+  assert.match(mainText, /global history 3(?!\d)/);
   assert.match(mainText, /global history 202/);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 202);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 202);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 201);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, true);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, 172);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 201);
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.status, 'already_running');
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.read_cutoff_after_conversation_id, 171);
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.compression_covered_end_conversation_id, 201);
@@ -6559,6 +6686,58 @@ test('core memory compression commit keeps appended turns beyond the fork covera
     scope: 'global',
     limit: 31
   });
+});
+
+test('core memory compression scheduling reuses an active persisted fork after restart', async () => {
+  const queuePayload = createRuntimeLoopPayload();
+  const activeLookupCalls: any[] = [];
+  const service = new AgentLoopService({
+    findActiveCoreMemoryCompressionForkRun: async (params: any) => {
+      activeLookupCalls.push(params);
+      return {
+        forkRunId: 'core-memory-fork:previous-run:active',
+        runId: 'previous-run',
+        startedAt: '2026-06-14T05:00:00.000Z'
+      };
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  let startedFork = false;
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork = true;
+    throw new Error('must not start a duplicate compression fork');
+  };
+
+  const artifact = await (service as any).scheduleCoreMemoryCompressionFork({
+    baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queuePayload), queuePayload, createRuntimePrompt()),
+    queueMessage: queuePayload,
+    runtimePrompt: createRuntimePrompt(),
+    contextSessionKey: 'xiaoni:global',
+    compression: {
+      required: true,
+      contextSessionKey: 'xiaoni:global',
+      readCutoffAfterConversationId: 171,
+      previousReadCutoffAfterConversationId: null,
+      compressionCoveredEndConversationId: 201,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    }
+  });
+
+  assert.equal(startedFork, false);
+  assert.deepEqual(activeLookupCalls, [{
+    contextSessionKey: 'xiaoni:global',
+    compressionCoveredEndConversationId: 201,
+    staleAfterMinutes: 30
+  }]);
+  assert.equal(artifact.status, 'already_running');
+  assert.equal(artifact.persisted_fork_run_id, 'core-memory-fork:previous-run:active');
+  assert.equal(artifact.persisted_run_id, 'previous-run');
 });
 
 test('core memory compression runs in an isolated background fork alongside the main agent request', async () => {

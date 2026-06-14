@@ -95,6 +95,8 @@ type OpenResponseInputContentPart =
 
 const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
 const OPENAI_CALL_ID_MAX_LENGTH = 64;
+const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
+const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 
 type OpenResponseToolDefinition = {
   type: 'function';
@@ -1395,6 +1397,23 @@ function buildAllowedToolsToolChoice(
   };
 }
 
+function narrowAllowedToolsToolChoice(
+  toolChoice: OpenResponseToolChoice | undefined,
+  allowedNames: string[]
+): OpenResponseToolChoice {
+  const allowed = new Set(allowedNames);
+  if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'allowed_tools') {
+    return {
+      ...toolChoice,
+      tools: toolChoice.tools.filter((tool) => tool.type === 'function' && allowed.has(tool.name))
+    };
+  }
+  return buildAllowedToolsToolChoice(
+    allowedNames.map((name) => ({ type: 'function' as const, name })),
+    'auto'
+  );
+}
+
 function formatRuntimeEnergy(value: number) {
   return Number.isFinite(value) ? value.toFixed(3) : '0.000';
 }
@@ -1704,10 +1723,15 @@ function buildCoreMemoryCompressionForkRequest(
 function buildImageVisionForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   imageDataUrl: string,
-  imageId: string
+  imageId: string,
+  outputPath: string,
+  existingObservation: string | null = null
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   const imageVisionCallId = buildImageVisionForkCallId(imageId);
+  const existingObservationReminder = existingObservation && existingObservation.trim()
+    ? [buildImageVisionExistingObservationReminder(existingObservation)]
+    : [];
   forkRequest.input = [
     ...forkRequest.input,
     {
@@ -1737,17 +1761,73 @@ function buildImageVisionForkRequest(
         image_url: imageDataUrl,
         detail: 'original'
       }]
-    }
+    },
+    ...existingObservationReminder,
+    buildImageVisionFileWriteReminder(outputPath)
   ];
+  forkRequest.tool_choice = narrowAllowedToolsToolChoice(forkRequest.tool_choice, [TOOL_NAMES.execCommand]);
   forkRequest.parallel_tool_calls = false;
   forkRequest.store = false;
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
     image_vision_fork: 'true',
     image_id: imageId,
+    image_vision_output_path: outputPath,
     raw_trace_persisted: 'true'
   };
   return forkRequest;
+}
+
+function buildImageVisionObservationPath(imageId: string) {
+  return `${IMAGE_VISION_OBSERVATION_DIR}/${imageId}.md`;
+}
+
+function buildImageVisionFileWriteReminder(outputPath: string): OpenResponseInputItem {
+  return buildDeveloperInputItem([
+    renderPromptSnippet('image_vision_write_description_reminder.md', {
+      CURRENT_TIME: formatEast8Timestamp(),
+      OUTPUT_PATH: outputPath
+    })
+  ]);
+}
+
+function buildImageVisionExistingObservationReminder(existingObservation: string): OpenResponseInputItem {
+  return buildDeveloperInputItem([
+    renderPromptSnippet('image_vision_existing_observation_reminder.md', {
+      CURRENT_TIME: formatEast8Timestamp(),
+      EXISTING_OBSERVATION: existingObservation.trim()
+    })
+  ]);
+}
+
+function buildImageVisionRetryReminder(params: {
+  outputPath: string;
+  checkResult: string;
+}): OpenResponseInputItem {
+  return buildDeveloperInputItem([
+    renderPromptSnippet('image_vision_retry_missing_file_reminder.md', {
+      CURRENT_TIME: formatEast8Timestamp(),
+      OUTPUT_PATH: params.outputPath,
+      CHECK_RESULT: params.checkResult
+    })
+  ]);
+}
+
+function buildImageVisionUnsupportedToolOutput(toolCall: AgentToolCall): Extract<OpenResponseInputItem, { type: 'function_call_output' }> {
+  return {
+    type: 'function_call_output',
+    call_id: toolCall.callId,
+    output: renderPromptSnippet('image_vision_unsupported_tool_output.md', {
+      ALLOWED_TOOL: TOOL_NAMES.execCommand
+    })
+  };
+}
+
+function buildImageVisionFailedDescription(outputPath: string) {
+  return renderPromptSnippet('image_vision_failed_after_retries_reminder.md', {
+    CURRENT_TIME: formatEast8Timestamp(),
+    OUTPUT_PATH: outputPath
+  });
 }
 
 function buildImageVisionForkCallId(imageId: string): string {
@@ -4759,7 +4839,6 @@ export class AgentLoopService {
       }
       const contextSessionKey = GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
-      const pendingCoreMemoryCompression = this.coreMemoryCompressionForks.get(contextSessionKey)?.compression ?? null;
       const historyQuery: {
         userId: number;
         groupId: number | null;
@@ -4772,9 +4851,7 @@ export class AgentLoopService {
         afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
         scope: 'global' as const
       };
-      if (!pendingCoreMemoryCompression) {
-        historyQuery.limit = GLOBAL_PROMPT_HISTORY_LIMIT;
-      }
+      historyQuery.limit = GLOBAL_PROMPT_HISTORY_LIMIT;
       const history = await this.store.listRecentTurns(historyQuery);
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
@@ -4811,7 +4888,6 @@ export class AgentLoopService {
         runtimeEnergyState: initialRuntimeEnergyState,
         contextSessionKey,
         cutoffState,
-        pendingCoreMemoryCompression,
         triggerInputMode: options.triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer
       });
@@ -4855,14 +4931,21 @@ export class AgentLoopService {
         : [];
       let requestInput = budgetPlan.requestInput;
       if (budgetPlan.coreMemoryCompression) {
-        const compressionInput = budgetPlan.summarySourceInput ?? requestInput;
-        coreMemoryCompressionArtifact = this.scheduleCoreMemoryCompressionFork({
-          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, compressionInput, payload),
-          queueMessage: payload,
-          runtimePrompt,
-          compression: budgetPlan.coreMemoryCompression,
-          contextSessionKey
-        });
+        if (!budgetPlan.summarySourceInput) {
+          moduleLogger.warn('Skipped core memory compression fork because summary source input is missing', {
+            traceId: payload.traceId,
+            contextSessionKey,
+            compression: budgetPlan.coreMemoryCompression
+          });
+        } else {
+          coreMemoryCompressionArtifact = await this.scheduleCoreMemoryCompressionFork({
+            baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.summarySourceInput, payload),
+            queueMessage: payload,
+            runtimePrompt,
+            compression: budgetPlan.coreMemoryCompression,
+            contextSessionKey
+          });
+        }
       }
       const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
         if (items.length === 0) {
@@ -6345,7 +6428,6 @@ export class AgentLoopService {
     runtimeEnergyState?: RuntimeEnergyState | null;
     contextSessionKey?: string;
     cutoffState?: SessionReadCutoffState | null;
-    pendingCoreMemoryCompression?: CoreMemoryCompressionPlan | null;
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   }): Promise<ContextBudgetPlan> {
@@ -6365,48 +6447,6 @@ export class AgentLoopService {
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
-    const pendingCoreMemoryCompression = params.pendingCoreMemoryCompression ?? null;
-
-    if (pendingCoreMemoryCompression) {
-      const requestInput = buildLoopRequestInput({
-        history: initialRetainedHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary,
-        pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-      });
-      const estimate = await estimateLoopInputTokens({
-        modelName: params.runtimePrompt.modelName,
-        queueMessage: params.queueMessage,
-        loopInput: requestInput
-      });
-
-      return {
-        requestInput,
-        summarySourceInput: null,
-        retainedHistory: initialRetainedHistory,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        estimatedInputTokens: estimate.inputTokens,
-        contextWindowTokens,
-        targetBudgetTokens,
-        hardBudgetTokens,
-        tokenizerEncoding: estimate.encoding,
-        tokenizerSource: estimate.source,
-        cutoffRecomputed: false,
-        contextSummary,
-        pendingProactiveShare,
-        pendingProactiveShareAge,
-        coreMemoryCompression: pendingCoreMemoryCompression
-      };
-    }
 
     // Count-based compaction: when retained history exceeds HISTORY_COMPACT_AT turns,
     // evict everything except the most recent HISTORY_COMPACT_KEEP turns regardless of token budget.
@@ -6770,6 +6810,25 @@ export class AgentLoopService {
     }
   }
 
+  private async findActiveCoreMemoryCompressionForkRunSafe(params: Parameters<RuntimeStore['findActiveCoreMemoryCompressionForkRun']>[0]) {
+    const finder = (this.store as RuntimeStore & {
+      findActiveCoreMemoryCompressionForkRun?: RuntimeStore['findActiveCoreMemoryCompressionForkRun'];
+    }).findActiveCoreMemoryCompressionForkRun;
+    if (typeof finder !== 'function') {
+      return null;
+    }
+    try {
+      return await finder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to find active core memory compression fork run', {
+        contextSessionKey: params.contextSessionKey,
+        compressionCoveredEndConversationId: params.compressionCoveredEndConversationId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private async appendCoreMemoryCompressionForkItemsSafe(params: Parameters<RuntimeStore['appendCoreMemoryCompressionForkItems']>[0]) {
     const appender = (this.store as RuntimeStore & {
       appendCoreMemoryCompressionForkItems?: RuntimeStore['appendCoreMemoryCompressionForkItems'];
@@ -7036,7 +7095,7 @@ export class AgentLoopService {
     return commit;
   }
 
-  private scheduleCoreMemoryCompressionFork(params: {
+  private async scheduleCoreMemoryCompressionFork(params: {
     baseRequest: CanonicalAgentTurnRequest;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
@@ -7057,6 +7116,22 @@ export class AgentLoopService {
     };
     if (existing) {
       return artifact;
+    }
+    const activePersistedFork = typeof params.compression.compressionCoveredEndConversationId === 'number'
+      ? await this.findActiveCoreMemoryCompressionForkRunSafe({
+          contextSessionKey: key,
+          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId,
+          staleAfterMinutes: 30
+        })
+      : null;
+    if (activePersistedFork) {
+      return {
+        ...artifact,
+        status: 'already_running',
+        persisted_fork_run_id: activePersistedFork.forkRunId,
+        persisted_run_id: activePersistedFork.runId,
+        persisted_started_at: activePersistedFork.startedAt
+      };
     }
 
     const fork = this.runCoreMemoryCompressionFork(params);
@@ -7924,8 +7999,16 @@ export class AgentLoopService {
       };
     }
 
-    const forkRequest = buildImageVisionForkRequest(baseRequest, materialized.dataUrl, assetId);
     const forkRunId = buildImageVisionForkRunId(queueMessage.runId, assetId);
+    const outputPath = buildImageVisionObservationPath(assetId);
+    const existingObservation = await this.readImageVisionObservationFile(outputPath, queueMessage);
+    const forkRequest = buildImageVisionForkRequest(
+      baseRequest,
+      materialized.dataUrl,
+      assetId,
+      outputPath,
+      existingObservation.text
+    );
     await this.recordImageVisionForkRunSafe({
       forkRunId,
       status: 'running',
@@ -7936,44 +8019,152 @@ export class AgentLoopService {
       mediaTag: asset.media_tag || mediaTag || null,
       metadata: {
         execution_mode: 'image_vision_fork',
+        image_vision_output_path: outputPath,
         reason: typeof args.reason === 'string' ? args.reason : null
       }
     });
 
-    let payload: ProviderAgentResponse;
-    let description = '';
-    let forkSliceId = '';
+    let forkResult: {
+      payload: ProviderAgentResponse | null;
+      description: string;
+      forkSliceId: string | null;
+      failed: boolean;
+      failureReason?: string | null;
+    };
     try {
-      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          [NO_TRAFFIC_PERSIST_HEADER]: '1'
-        },
-        body: JSON.stringify({
-          trace_id: queueMessage.traceId,
-          run_id: queueMessage.runId,
-          executionMode: 'image_vision_fork',
-          model: forkRequest.model,
-          canonicalRequest: forkRequest
-        })
+      forkResult = await this.runImageVisionForkToFile({
+        forkRunId,
+        baseRequest: forkRequest,
+        queueMessage,
+        outputPath,
+        assetId,
+        mediaTag: asset.media_tag || mediaTag || null
       });
-      payload = await response.json() as ProviderAgentResponse;
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
-      }
+    } catch (error) {
+      await this.completeImageVisionForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        metadata: {
+          execution_mode: 'image_vision_fork',
+          asset_id: assetId,
+          image_vision_output_path: outputPath
+        }
+      });
+      throw error;
+    }
 
-      forkSliceId = payload.llm_request_slice_id
+    if (forkResult.failed) {
+      await this.completeImageVisionForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        errorMessage: forkResult.failureReason || 'image vision fork did not write a description file',
+        metadata: {
+          execution_mode: 'image_vision_fork',
+          asset_id: assetId,
+          image_vision_output_path: outputPath
+        }
+      });
+      const description = forkResult.description;
+      return {
+        image_id: assetId,
+        media_tag: asset.media_tag || mediaTag || null,
+        inspected: false,
+        description,
+        output_xml: buildImageObservationXml(assetId, description),
+        executor_path: materialized.executorPath,
+        observation_path: outputPath
+      };
+    }
+
+    const observation = await this.store.recordMediaObservation({
+      assetId,
+      observer: 'xiaoni',
+      description: forkResult.description,
+      sourceModel: forkResult.payload?.model || null,
+      metadata: {
+        trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId || null,
+        fork_run_id: forkRunId,
+        llm_call_id: forkResult.payload?.llm_call_id || null,
+        llm_request_slice_id: forkResult.forkSliceId || null,
+        image_vision_output_path: outputPath,
+        provider_raw_trace_persisted: true,
+        fork: 'image_vision_fork',
+        reason: typeof args.reason === 'string' ? args.reason : null
+      }
+    });
+    await this.completeImageVisionForkRunSafe({
+      forkRunId,
+      status: 'completed',
+      observationId: typeof (observation as { id?: unknown } | null)?.id === 'string'
+        ? (observation as { id: string }).id
+        : null,
+      description: forkResult.description,
+      artifact: {
+        description: forkResult.description,
+        observation_path: outputPath,
+        llm_request_slice_id: forkResult.forkSliceId || null,
+        llm_call_id: forkResult.payload?.llm_call_id || null
+      },
+      metadata: {
+        execution_mode: 'image_vision_fork',
+        asset_id: assetId,
+        media_tag: asset.media_tag || mediaTag || null,
+        image_vision_output_path: outputPath
+      }
+    });
+
+    const outputXml = buildImageObservationXml(assetId, forkResult.description);
+    return {
+      image_id: assetId,
+      media_tag: asset.media_tag || mediaTag || null,
+      inspected: true,
+      description: forkResult.description,
+      output_xml: outputXml,
+      executor_path: materialized.executorPath,
+      observation_path: outputPath
+    };
+  }
+
+  private async runImageVisionForkToFile(params: {
+    forkRunId: string;
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    outputPath: string;
+    assetId: string;
+    mediaTag: string | null;
+  }): Promise<{
+    payload: ProviderAgentResponse | null;
+    description: string;
+    forkSliceId: string | null;
+    failed: boolean;
+    failureReason?: string | null;
+  }> {
+    let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    let lastPayload: ProviderAgentResponse | null = null;
+    let lastForkSliceId: string | null = null;
+    let lastCheckResult = 'not_checked';
+
+    for (let forkTurn = 1; forkTurn <= IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS; forkTurn += 1) {
+      const forkRequest = cloneCanonicalAgentTurnRequest(params.baseRequest);
+      forkRequest.input = normalizeResponseInputItems(forkInput);
+      forkRequest.metadata = {
+        ...(forkRequest.metadata || {}),
+        fork_turn: String(forkTurn)
+      };
+      await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+      const payload = await this.executeImageVisionForkTurn(forkRequest, params.queueMessage);
+      lastPayload = payload;
+      const forkSliceId = payload.llm_request_slice_id
         || payload.llm_call_id
-        || `image-vision-fork-slice:${forkRunId}`;
-      description = typeof payload.response === 'string' && payload.response.trim()
-        ? payload.response.trim()
-        : '图片已读取，但没有得到有效描述。';
+        || `image-vision-fork-slice:${params.forkRunId}:${forkTurn}`;
+      lastForkSliceId = forkSliceId;
       const outputItems = extractCanonicalResponseOutputItems(payload);
       const outputRows = await this.appendImageVisionForkItemsSafe({
-        forkRunId,
-        traceId: queueMessage.traceId,
-        runId: queueMessage.runId,
+        forkRunId: params.forkRunId,
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
         sourceType: 'image_vision_fork_slices',
         sourceId: forkSliceId,
         llmRequestSliceId: forkSliceId,
@@ -7983,7 +8174,7 @@ export class AgentLoopService {
         .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
         .filter((value) => Number.isFinite(value));
       await this.recordImageVisionForkSliceSafe({
-        forkRunId,
+        forkRunId: params.forkRunId,
         sliceId: forkSliceId,
         llmCallId: payload.llm_call_id || null,
         inputStartIndex: null,
@@ -7999,8 +8190,9 @@ export class AgentLoopService {
         outputItems,
         status: payload.success ? 'completed' : 'failed',
         tokenUsage: buildProviderTokenUsage(payload),
-        traceId: queueMessage.traceId,
-        runId: queueMessage.runId,
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        agentTurn: forkTurn,
         modelName: payload.model || forkRequest.model || null,
         modelProvider: payload.provider || null,
         requestFormatVersion: payload.request_format_version || null,
@@ -8008,66 +8200,173 @@ export class AgentLoopService {
         processingTimeMs: typeof payload.performance?.processing_time_ms === 'number' ? payload.performance.processing_time_ms : null,
         metadata: {
           execution_mode: 'image_vision_fork',
-          asset_id: assetId,
-          media_tag: asset.media_tag || mediaTag || null
+          asset_id: params.assetId,
+          media_tag: params.mediaTag,
+          image_vision_output_path: params.outputPath,
+          fork_turn: forkTurn
         }
       });
-    } catch (error) {
-      await this.completeImageVisionForkRunSafe({
-        forkRunId,
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        metadata: {
-          execution_mode: 'image_vision_fork',
-          asset_id: assetId
+
+      const actionPlan = this.responseActionRouter.route(payload.canonical_response);
+      const toolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
+      for (const replayItem of actionPlan.replayableOutputs) {
+        forkInput.push(replayItem.inputItem as OpenResponseInputItem);
+      }
+
+      const wrongToolCalls = toolCalls.filter((item) => item.toolCall.name !== TOOL_NAMES.execCommand);
+      if (wrongToolCalls.length > 0) {
+        const wrongToolOutputs = wrongToolCalls.map((item) => buildImageVisionUnsupportedToolOutput(item.toolCall));
+        forkInput.push(...wrongToolOutputs);
+        await this.appendImageVisionForkItemsSafe({
+          forkRunId: params.forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'image_vision_fork_tool_executions',
+          sourceId: `image-vision-fork-tool:${params.forkRunId}:unsupported-tools:${forkTurn}`,
+          llmRequestSliceId: forkSliceId,
+          items: wrongToolCalls.flatMap((item, index) => buildToolResultStackItems({
+            toolCall: item.toolCall,
+            toolResult: {
+              success: false,
+              error: wrongToolOutputs[index]?.output || `只能调用 ${TOOL_NAMES.execCommand}`,
+              allowed_tool: TOOL_NAMES.execCommand,
+              task: 'image_vision'
+            },
+            continuationItems: wrongToolOutputs[index] ? [wrongToolOutputs[index]!] : [],
+            llmRequestSliceId: forkSliceId
+          })) as Array<Record<string, unknown>>
+        });
+      }
+
+      const execCall = toolCalls.find((item) => item.toolCall.name === TOOL_NAMES.execCommand);
+      if (execCall) {
+        const toolResult = await this.executeCommand(execCall.toolCall.args, execCall.toolCall, params.queueMessage);
+        const continuation = applyToolResultToLoopInput(execCall.toolCall, toolResult, {
+          loopInput: forkInput,
+          speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+          hasVisibleReply: false,
+          runtimeEnergyState: await this.getCurrentRuntimeEnergyState(params.queueMessage)
+        });
+        forkInput.push(...continuation.inputItems);
+        await this.appendImageVisionForkItemsSafe({
+          forkRunId: params.forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'image_vision_fork_tool_executions',
+          sourceId: `image-vision-fork-tool:${params.forkRunId}:${execCall.toolCall.callId}`,
+          llmRequestSliceId: forkSliceId,
+          items: buildToolResultStackItems({
+            toolCall: execCall.toolCall,
+            toolResult,
+            continuationItems: continuation.inputItems,
+            llmRequestSliceId: forkSliceId
+          }) as Array<Record<string, unknown>>
+        });
+      }
+
+      if (actionPlan.hasFinalAnswer) {
+        const check = await this.readImageVisionObservationFile(params.outputPath, params.queueMessage);
+        lastCheckResult = check.message;
+        if (check.text) {
+          return {
+            payload,
+            description: check.text,
+            forkSliceId,
+            failed: false
+          };
         }
-      });
-      throw error;
+        forkInput.push(buildImageVisionRetryReminder({
+          outputPath: params.outputPath,
+          checkResult: `你已经 final_answer，但该路径下还没有可用的图片理解内容。${check.message}`
+        }));
+        continue;
+      }
+
+      lastCheckResult = wrongToolCalls.length > 0
+        ? `模型调用了不允许的工具 ${wrongToolCalls.map((item) => item.toolCall.name).join(', ')}；已通过 function_call_output 提醒只能调用 ${TOOL_NAMES.execCommand}`
+        : execCall
+        ? `模型调用了 ${TOOL_NAMES.execCommand}，但还没有 final_answer 表示写入完成`
+        : `模型没有调用 ${TOOL_NAMES.execCommand}，也没有 final_answer`;
+      forkInput.push(buildImageVisionRetryReminder({
+        outputPath: params.outputPath,
+        checkResult: lastCheckResult
+      }));
     }
 
-    const observation = await this.store.recordMediaObservation({
-      assetId,
-      observer: 'xiaoni',
-      description,
-      sourceModel: payload.model || null,
-      metadata: {
-        trace_id: queueMessage.traceId,
-        run_id: queueMessage.runId || null,
-        fork_run_id: forkRunId,
-        llm_call_id: payload.llm_call_id || null,
-        llm_request_slice_id: forkSliceId || null,
-        provider_raw_trace_persisted: true,
-        fork: 'image_vision_fork',
-        reason: typeof args.reason === 'string' ? args.reason : null
-      }
-    });
-    await this.completeImageVisionForkRunSafe({
-      forkRunId,
-      status: 'completed',
-      observationId: typeof (observation as { id?: unknown } | null)?.id === 'string'
-        ? (observation as { id: string }).id
-        : null,
-      description,
-      artifact: {
-        description,
-        llm_request_slice_id: forkSliceId || null,
-        llm_call_id: payload.llm_call_id || null
-      },
-      metadata: {
-        execution_mode: 'image_vision_fork',
-        asset_id: assetId,
-        media_tag: asset.media_tag || mediaTag || null
-      }
-    });
-
-    const outputXml = buildImageObservationXml(assetId, description);
     return {
-      image_id: assetId,
-      media_tag: asset.media_tag || mediaTag || null,
-      inspected: true,
-      description,
-      output_xml: outputXml,
-      executor_path: materialized.executorPath
+      payload: lastPayload,
+      description: buildImageVisionFailedDescription(params.outputPath),
+      forkSliceId: lastForkSliceId,
+      failed: true,
+      failureReason: `image vision fork failed to write non-empty observation file after ${IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS} attempts: ${lastCheckResult}`
+    };
+  }
+
+  private async executeImageVisionForkTurn(
+    forkRequest: CanonicalAgentTurnRequest,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<ProviderAgentResponse> {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
+      },
+      body: JSON.stringify({
+        trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId,
+        executionMode: 'image_vision_fork',
+        model: forkRequest.model,
+        canonicalRequest: forkRequest
+      })
+    });
+    const payload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || `${TOOL_NAMES.inspectImage} fork failed with ${response.status}`);
+    }
+    return payload;
+  }
+
+  private async readImageVisionObservationFile(
+    outputPath: string,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<{ text: string | null; message: string }> {
+    const script = [
+      'python3 - <<\'PY\'',
+      'from pathlib import Path',
+      'p = Path(' + JSON.stringify(outputPath) + ')',
+      'if not p.exists():',
+      '    print("MISSING")',
+      'elif not p.is_file():',
+      '    print("NOT_FILE")',
+      'else:',
+      '    text = p.read_text(encoding="utf-8", errors="replace").strip()',
+      '    if not text:',
+      '        print("EMPTY")',
+      '    else:',
+      '        print("OK")',
+      '        print(text)',
+      'PY'
+    ].join('\n');
+    const result = await this.executeCommand({
+      cmd: script,
+      yield_time_ms: 10_000,
+      max_output_tokens: 20_000
+    }, undefined, queueMessage);
+    const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+    const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
+    const [statusLine = '', ...rest] = stdout.split(/\r?\n/u);
+    const status = statusLine.trim();
+    if (status === 'OK') {
+      const text = rest.join('\n').trim();
+      return text
+        ? { text, message: '文件存在且内容非空' }
+        : { text: null, message: '文件状态为 OK，但内容为空' };
+    }
+    const detail = stderr ? `${status || 'UNKNOWN'}: ${stderr}` : status || 'UNKNOWN';
+    return {
+      text: null,
+      message: `文件检查失败：${detail}`
     };
   }
 
