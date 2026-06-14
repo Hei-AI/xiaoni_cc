@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { v4 as uuidv4 } from 'uuid';
-import { agentConfig } from '../config';
+import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
@@ -482,7 +482,6 @@ const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_WRITER_ENABLED = false;
 const COMPACT_MEMORY_PROVIDER_MAX_ATTEMPTS = 3;
-const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 export const XIAONI_IDENTITY_KEY = 'xiaoni';
 const RUNTIME_IDENTITY_FACT_LIMIT = 4;
 const XIAONI_SKILL_ROOT = '/app/modules/agent-service/skills';
@@ -491,6 +490,7 @@ const RUNTIME_MAX_ENERGY = 1;
 function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
   const receivedAt = new Date().toISOString();
   const botAccountId = agentConfig.botAccountId;
+  const globalPromptContextSessionKey = getGlobalPromptContextSessionKey();
   const inboundContext: QueueMessageRecord['payload']['inboundContext'] = {
     Body: '',
     BodyForAgent: '',
@@ -499,7 +499,7 @@ function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
     CommandBody: '',
     From: botAccountId,
     To: botAccountId,
-    SessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    SessionKey: globalPromptContextSessionKey,
     AccountId: botAccountId,
     ChatType: 'direct',
     ConversationLabel: XIAONI_IDENTITY_KEY,
@@ -509,7 +509,7 @@ function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
     Provider: 'runtime',
     Surface: 'runtime_bootstrap',
     WasMentioned: false,
-    NativeChannelId: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    NativeChannelId: globalPromptContextSessionKey,
     CommandAuthorized: false
   };
 
@@ -519,7 +519,7 @@ function buildRuntimeBootstrapPromptPayload(): QueueMessageRecord['payload'] {
     batchId: 'runtime_bootstrap',
     source: 'runtime_bootstrap',
     chatType: 'direct',
-    sessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    sessionKey: globalPromptContextSessionKey,
     peerId: XIAONI_IDENTITY_KEY,
     peerName: XIAONI_IDENTITY_KEY,
     senderId: botAccountId,
@@ -1990,8 +1990,8 @@ function buildAgentTurnMetadata(
     batch_id: queueMessage.batchId,
     session_key: queueMessage.sessionKey,
     source_session_key: queueMessage.sessionKey,
-    session_id: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
-    codex_session_id: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    session_id: getGlobalPromptContextSessionKey(),
+    codex_session_id: getGlobalPromptContextSessionKey(),
     turn_id: queueMessage.runId,
     sandbox: 'none',
     chat_type: queueMessage.chatType,
@@ -2075,7 +2075,7 @@ function buildPromptCacheKey(
 ) {
   void queueMessage;
   void _runtimePrompt;
-  return GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+  return getGlobalPromptContextSessionKey();
 }
 
 function buildSubagentPromptCacheKey(params: {
@@ -4857,7 +4857,7 @@ export class AgentLoopService {
           });
         });
       }
-      const contextSessionKey = GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+      const contextSessionKey = getGlobalPromptContextSessionKey();
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
       const historyQuery: {
         userId: number;
@@ -5628,7 +5628,7 @@ export class AgentLoopService {
       const sentMessages = deliveredMessages.map((item) => item.content);
       const responseReplayItems = extractResponseReplayInputItems(loopContinuation);
       const runtimeStream = buildRuntimeStreamMetadata(payload, {
-        contextSessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+        contextSessionKey: getGlobalPromptContextSessionKey(),
         responseReplayItemCount: responseReplayItems.length,
         turnsExecuted
       });
@@ -6505,7 +6505,7 @@ export class AgentLoopService {
     const contextWindowTokens = policy?.contextWindowTokens ?? null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
-    const contextSessionKey = params.contextSessionKey || GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+    const contextSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
     const cutoffState = Object.prototype.hasOwnProperty.call(params, 'cutoffState')
       ? params.cutoffState ?? null
       : await this.store.getSessionReadCutoffState(contextSessionKey);
@@ -6575,7 +6575,7 @@ export class AgentLoopService {
     const contextWindowTokens = policy?.contextWindowTokens ?? null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
-    const contextSessionKey = params.contextSessionKey || GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+    const contextSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
     const cutoffState = Object.prototype.hasOwnProperty.call(params, 'cutoffState')
       ? params.cutoffState ?? null
       : await this.store.getSessionReadCutoffState(contextSessionKey);
@@ -9761,7 +9761,7 @@ function buildRuntimeStreamMetadata(
   }
 ) {
   return {
-    stream_key: GLOBAL_PROMPT_CONTEXT_SESSION_KEY,
+    stream_key: getGlobalPromptContextSessionKey(),
     context_session_key: params.contextSessionKey,
     trigger_source: queueMessage.source,
     trigger_kind: classifyRuntimeStreamInput(queueMessage),

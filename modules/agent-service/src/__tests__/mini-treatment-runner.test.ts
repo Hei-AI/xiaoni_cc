@@ -56,7 +56,7 @@ const snapshot: AbTurnSnapshot = {
   },
   runtimeConfig: {
     controlModelName: 'gpt-5.4',
-    treatmentModelName: 'gpt-5.4-mini',
+    treatmentModelName: 'gpt-5-mini',
     promptVersions: { main: 'v1' }
   },
   captureStatus: 'created',
@@ -164,7 +164,7 @@ function createDeps(overrides: Partial<TreatmentDeps> = {}) {
 test('MiniTreatmentRunner executes fixed pass1 recall pass2 and writes treatment arm only', async () => {
   const { deps, calls, armRuns } = createDeps();
   const runner = new MiniTreatmentRunner(deps, {
-    modelName: 'gpt-5.4-mini',
+    modelName: 'gpt-5-mini',
     projectOrNamespace: 'ab:treatment:exp:s:p'
   });
 

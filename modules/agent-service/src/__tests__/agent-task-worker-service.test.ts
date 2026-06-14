@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
 import { AgentTaskWorkerService } from '../services/agent-task-worker-service';
 
+process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:test-global';
+
 test('AgentTaskWorkerService falls back to generation for image_edit tasks without source images', async () => {
   const service = new AgentTaskWorkerService();
   const originalFetch = globalThis.fetch;
@@ -114,7 +116,7 @@ test('AgentTaskWorkerService resolves image_edit sources by global media asset i
     const payload = await (service as any).callImageProvider({
       id: 'task-global-source-edit',
       task_type: 'image_edit',
-      session_key: 'xiaoni:global',
+      session_key: 'xiaoni:test-global',
       chat_type: 'direct',
       peer_id: '3994058476',
       prompt: '把这张图改成水彩风格',
@@ -179,7 +181,7 @@ test('AgentTaskWorkerService registers completed generated image as inspectable 
   assert.equal(upserts.length, 1);
   assert.equal(upserts[0]?.id, 'task_artifact_1');
   assert.equal(upserts[0]?.source, 'image_task');
-  assert.equal(upserts[0]?.sessionKey, 'xiaoni:global');
+  assert.equal(upserts[0]?.sessionKey, 'xiaoni:test-global');
   assert.equal(upserts[0]?.mediaTag, 'task_artifact_1');
   assert.equal(upserts[0]?.sourceLocator, 'data:image/png;base64,AA==');
   assert.equal(upserts[0]?.metadata?.executor_path, '/xiaoni-runtime/picture/task_artifact_1.png');

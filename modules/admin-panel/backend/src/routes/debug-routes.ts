@@ -163,7 +163,6 @@ const DISPLAY_MODEL_CONTEXT_DEFAULTS: Record<string, DisplayModelContextPolicyDe
 };
 
 const DISPLAY_MODEL_CONTEXT_ALIASES: Record<string, string> = {
-  'gpt-5.4-mini': 'gpt-5-mini',
   gmini: 'gpt-5-mini'
 };
 

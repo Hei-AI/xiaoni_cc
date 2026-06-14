@@ -301,7 +301,7 @@ test('recordQqUsageThreadSeen timestamps seen events at observation time with tr
     batchId: 'batch-qq-usage',
     toolCallId: 'call-exec',
     toolName: 'exec_command',
-    sessionKey: 'xiaoni:global'
+    sessionKey: 'xiaoni:test-global'
   });
 
   const seenEvent = lifeEvents.find((event) => event.eventKind === 'qq_message_seen');
@@ -312,7 +312,7 @@ test('recordQqUsageThreadSeen timestamps seen events at observation time with tr
   assert.equal(seenEvent.batchId, 'batch-qq-usage');
   assert.equal(seenEvent.payload.message_timestamp, '2026-06-06T03:07:45.000Z');
   assert.equal(seenEvent.payload.tool_call_id, 'call-exec');
-  assert.equal(seenEvent.payload.source_session_key, 'xiaoni:global');
+  assert.equal(seenEvent.payload.source_session_key, 'xiaoni:test-global');
 });
 
 test('visible group replies charge one bounded action cost without per-message double counting', async () => {

@@ -250,7 +250,7 @@ const MEDIA_RESOLUTION_OPTIONS = [
 const PROVIDER_MODEL_DESCRIPTIONS: Record<string, string> = {
   'gemini-2.5-flash': '平衡质量与延迟的常用模型',
   'gemini-2.5-pro': '复杂推理与持久对话首选',
-  'gpt-5.4-mini': '轻量通用模型，适合快速迭代',
+  'gpt-5-mini': '轻量通用模型，适合快速迭代',
   'gpt-5.4': '高质量输出与复杂任务',
   'gpt-5.3-codex': '偏工具与代码执行场景'
 };
@@ -3037,7 +3037,7 @@ export const PromptEditPage: React.FC = () => {
                     id="model_name"
                     value={formData.model_name}
                     onChange={(e) => setFormData((prev) => ({ ...prev, model_name: e.target.value }))}
-                    placeholder="例如：gpt-5.4-mini"
+                    placeholder="例如：gpt-5-mini"
                     disabled={!isEditing}
                   />
                   <p className="mt-1 text-xs text-muted-foreground">模型 ID 必须显式填写。预设按钮只帮助选型，不会自动补默认值。</p>

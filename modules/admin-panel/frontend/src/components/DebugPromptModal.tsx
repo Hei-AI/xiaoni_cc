@@ -209,7 +209,7 @@ export const DebugPromptModal: React.FC<DebugPromptModalProps> = ({
                 id="model"
                 value={request.model}
                 onChange={(e) => setRequest(prev => ({ ...prev, model: e.target.value }))}
-                placeholder="必须显式填写，例如 gpt-5.4-mini"
+                placeholder="必须显式填写，例如 gpt-5-mini"
               />
               <p className="text-xs text-muted-foreground">
                 调试不会再自动补默认模型。

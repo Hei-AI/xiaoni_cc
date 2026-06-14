@@ -48,7 +48,6 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
 };
 
 const MODEL_ALIASES: Record<string, string> = {
-  'gpt-5.4-mini': 'gpt-5-mini',
   gmini: 'gpt-5-mini'
 };
 

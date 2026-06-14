@@ -162,7 +162,7 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:global'
+    contextSessionKey: 'xiaoni:test-global'
   });
   const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
     history: Array.from({ length: 201 }, (_, index) => createConversationTurn(index + 1)),
@@ -171,7 +171,7 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:global'
+    contextSessionKey: 'xiaoni:test-global'
   });
 
   const mainRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');

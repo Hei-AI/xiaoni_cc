@@ -69,7 +69,7 @@ test('QqUsageSkillRuntime passes runtime trace context to thread-reading actions
     batchId: 'batch-qq-usage',
     toolCallId: 'call-exec',
     toolName: 'exec_command',
-    sessionKey: 'xiaoni:global'
+    sessionKey: 'xiaoni:test-global'
   };
 
   await runtime.execute('focus_group', { group_id: '123' }, context);

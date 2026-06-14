@@ -148,7 +148,7 @@ export class TrafficReplayService {
                 }
               })
             }],
-            model: 'gpt-5.4-mini',
+            model: 'gpt-5-mini',
             conversation_id: `traffic-replay:${original.id}`
           })
         });
@@ -168,14 +168,14 @@ export class TrafficReplayService {
           return {
             semanticMatch: typeof parsed.semantic_match === 'boolean' ? parsed.semantic_match : null,
             semanticSummary: typeof parsed.summary === 'string' ? parsed.summary : null,
-            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5.4-mini',
+            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5-mini',
             semanticJudgeReason: null
           };
         } catch {
           return {
             semanticMatch: null,
             semanticSummary: null,
-            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5.4-mini',
+            semanticJudgeModel: typeof payload.model === 'string' ? payload.model : 'gpt-5-mini',
             semanticJudgeReason: 'semantic_judge_invalid_json'
           };
         }

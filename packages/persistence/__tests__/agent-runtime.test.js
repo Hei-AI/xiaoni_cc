@@ -190,7 +190,7 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
       }
       if (sql.includes('FOR UPDATE')) {
         return [{
-          session_key: 'xiaoni:global',
+          session_key: 'xiaoni:test-global',
           read_cutoff_after_conversation_id: 100,
           last_context_window_tokens: 400000,
           last_target_budget_tokens: 280000,
@@ -203,7 +203,7 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
       }
       if (sql.includes('INSERT INTO agent_session_context_windows')) {
         return [{
-          session_key: 'xiaoni:global',
+          session_key: 'xiaoni:test-global',
           read_cutoff_after_conversation_id: 171,
           last_context_window_tokens: 400000,
           last_target_budget_tokens: 280000,
@@ -231,7 +231,7 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
   });
 
   const result = await persistence.commitSessionContextSummaryAndReadCutoff({
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     contextSummary: 'new summary',
     readCutoffAfterConversationId: 171,
     lastContextWindowTokens: 400000,
@@ -245,7 +245,7 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
   assert.equal(queries[0].sql.includes('pg_advisory_xact_lock'), true);
   assert.equal(queries[1].sql.includes('FOR UPDATE'), true);
   assert.equal(queries[2].sql.includes('INSERT INTO agent_session_context_windows'), true);
-  assert.equal(queries[2].params[0], 'xiaoni:global');
+  assert.equal(queries[2].params[0], 'xiaoni:test-global');
   assert.equal(queries[2].params[1], 'new summary');
   assert.equal(queries[2].params[2], 171);
 });
@@ -260,7 +260,7 @@ test('commitSessionContextSummaryAndReadCutoff no-ops when current cutoff alread
       }
       if (sql.includes('FOR UPDATE')) {
         return [{
-          session_key: 'xiaoni:global',
+          session_key: 'xiaoni:test-global',
           read_cutoff_after_conversation_id: 200,
           last_context_window_tokens: 400000,
           last_target_budget_tokens: 280000,
@@ -288,7 +288,7 @@ test('commitSessionContextSummaryAndReadCutoff no-ops when current cutoff alread
   });
 
   const result = await persistence.commitSessionContextSummaryAndReadCutoff({
-    sessionKey: 'xiaoni:global',
+    sessionKey: 'xiaoni:test-global',
     contextSummary: 'late summary',
     readCutoffAfterConversationId: 171,
     lastContextWindowTokens: 400000,

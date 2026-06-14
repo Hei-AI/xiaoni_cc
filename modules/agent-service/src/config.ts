@@ -69,11 +69,19 @@ export const databaseConfig = {
 
 const mainAgentTurnTimeoutMs = Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '120000', 10));
 const queueIdleIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10));
+const DEFAULT_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
+
+export function getGlobalPromptContextSessionKey() {
+  const value = process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : DEFAULT_GLOBAL_PROMPT_CONTEXT_SESSION_KEY;
+}
 
 export const agentConfig = {
   providerServiceUrl: (process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, ''),
   xiaoniExecutorUrl: (process.env.XIAONI_EXECUTOR_URL || '').replace(/\/$/, ''),
-  modelName: process.env.AI_MODEL_NAME || 'gpt-5.4-mini',
+  modelName: process.env.AI_MODEL_NAME || 'gpt-5-mini',
   xiaoniMainAgentModelName: process.env.XIAONI_MAIN_AGENT_MODEL || XIAONI_MAIN_AGENT_DEFAULT_MODEL,
   activeImClaimLimit: Math.max(1, Number.parseInt(process.env.AGENT_IM_TRIGGER_CLAIM_LIMIT || '200', 10) || 200),
   compactMemoryModelName: process.env.AGENT_COMPACT_MEMORY_MODEL || 'gpt-5.5',

@@ -419,7 +419,7 @@ export default class SelfEvolutionExecutorService {
     this.llmProviderFactory = deps.llmProviderFactory || ((providerId) => createProviderClient(providerId));
     this.now = deps.now || (() => Date.now());
     this.modelName = deps.modelName || aiConfig.model_name;
-    this.fallbackModelName = deps.fallbackModelName || (this.modelName === 'gpt-5.4' ? 'gpt-5.4-mini' : null);
+    this.fallbackModelName = deps.fallbackModelName || (this.modelName === 'gpt-5.4' ? 'gpt-5-mini' : null);
     this.timeoutMs = Math.max(1000, deps.timeoutMs || selfEvolutionConfig.timeoutMs || 90000);
     this.listStates = deps.listStates || ((filters) => listSelfEvolutionStates(filters, databaseConfig));
   }

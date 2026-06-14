@@ -16,6 +16,14 @@ import {
 } from '../provider-debug-service';
 import { buildTraceHeaders } from '../../utils/trace-headers';
 
+process.env.CODEX_REQUEST_ORIGINATOR = 'openclaw-test';
+process.env.CODEX_REQUEST_USER_AGENT = 'openclaw-test (provider-request-contract)';
+process.env.CODEX_REQUEST_OPENAI_BETA = 'responses=test';
+
+const TEST_CODEX_PROMPT_CACHE_KEY = 'test:codex-prompt-cache';
+const TEST_CODEX_CONTEXT_SESSION_ID = 'test:codex-context-session';
+const TEST_CODEX_SOURCE_SESSION_ID = 'test:qq-source-session';
+
 class TestOpenAIProvider extends OpenAIProvider {
   buildPayload(request: OpenResponseCreateRequest) {
     return this.buildResponsesPayload(request);
@@ -100,10 +108,10 @@ function createJwtWithExp(expSeconds: number): string {
 
 function createCanonicalRequest(): OpenResponseCreateRequest {
   return {
-    model: 'gpt-5.4-mini',
+    model: 'gpt-5-mini',
     instructions: 'System prompt from canonical request.',
     previous_response_id: 'resp_prev_789',
-    prompt_cache_key: 'qq:group:101',
+    prompt_cache_key: TEST_CODEX_PROMPT_CACHE_KEY,
     prompt_cache_retention: '24h',
     store: false,
     input: [
@@ -143,7 +151,7 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.input.some((item: any) => item?.role === 'system'), false);
   assert.equal(payload.tool_choice, 'required');
   assert.equal(payload.previous_response_id, 'resp_prev_789');
-  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
   assert.equal(payload.prompt_cache_retention, '24h');
   assert.equal(payload.store, false);
   assert.equal(payload.tools[1]?.type, 'web_search');
@@ -298,7 +306,7 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.input.some((item: any) => item?.role === 'system'), false);
   assert.equal(payload.tool_choice, 'required');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
-  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
@@ -315,29 +323,29 @@ test('Codex provider omits prompt_cache_retention because the Codex backend reje
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());
 
-  assert.equal(payload.prompt_cache_key, 'qq:group:101');
+  assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
 });
 
 test('provider debug uses Codex session metadata before QQ source session keys', () => {
   assert.equal(resolveProviderContextSessionId({
-    codex_session_id: 'xiaoni:global',
-    session_id: 'qq:group:101',
-    session_key: 'qq:group:101'
-  }, null, 'codex-local'), 'xiaoni:global');
+    codex_session_id: 'xiaoni:test-global',
+    session_id: TEST_CODEX_SOURCE_SESSION_ID,
+    session_key: TEST_CODEX_SOURCE_SESSION_ID
+  }, null, 'codex-local'), 'xiaoni:test-global');
   assert.equal(resolveProviderContextSessionId({
-    session_id: 'xiaoni:global',
-    session_key: 'qq:group:101'
-  }, null, 'codex-local'), 'xiaoni:global');
+    session_id: 'xiaoni:test-global',
+    session_key: TEST_CODEX_SOURCE_SESSION_ID
+  }, null, 'codex-local'), 'xiaoni:test-global');
   assert.equal(resolveProviderContextSessionId({
-    session_id: 'qq:group:101',
-    session_key: 'qq:group:101'
+    session_id: TEST_CODEX_SOURCE_SESSION_ID,
+    session_key: TEST_CODEX_SOURCE_SESSION_ID
   }, {
-    prompt_cache_key: 'xiaoni:global'
-  }, 'codex-local'), 'xiaoni:global');
+    prompt_cache_key: 'xiaoni:test-global'
+  }, 'codex-local'), 'xiaoni:test-global');
   assert.equal(resolveProviderContextSessionId({
-    session_key: 'qq:group:101'
-  }, null, 'codex-local'), 'qq:group:101');
+    session_key: TEST_CODEX_SOURCE_SESSION_ID
+  }, null, 'codex-local'), TEST_CODEX_SOURCE_SESSION_ID);
 });
 
 test('Codex provider preserves function_call_output image content arrays', () => {
@@ -481,7 +489,7 @@ test('Codex provider defaults proxy-key mode to CLIProxyAPI Codex direct route',
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     assert.deepEqual(provider.transportDefaults(), {
@@ -536,7 +544,7 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     assert.deepEqual(provider.transportDefaults(), {
@@ -553,18 +561,18 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
     assert.equal(authProfiles.profiles['openai:default'].refresh, 'local-refresh-token');
 
     const payload = provider.buildPayload({
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
       stream: true,
       instructions: 'Be concise.',
-      prompt_cache_key: 'xiaoni:global',
+      prompt_cache_key: 'xiaoni:test-global',
       prompt_cache_retention: '24h',
       input: [{ type: 'message', role: 'user', content: 'ping' }]
     });
 
-    assert.equal(payload.model, 'gpt-5.4-mini');
+  assert.equal(payload.model, 'gpt-5-codex-mini');
     assert.equal(payload.instructions, 'Be concise.');
     assert.equal(payload.stream, true);
-    assert.equal(payload.prompt_cache_key, 'xiaoni:global');
+    assert.equal(payload.prompt_cache_key, 'xiaoni:test-global');
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
     assert.deepEqual(payload.text, { verbosity: 'low' });
     assert.equal(payload.tool_choice, 'auto');
@@ -626,7 +634,7 @@ test('Codex local provider prefers auth-profiles over the Codex CLI auth bootstr
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     assert.equal(await provider.resolveApiKeyForTest(), 'profile-access-token');
@@ -697,7 +705,7 @@ test('Codex local provider derives auth.json expiry from JWT and writes refresh 
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     assert.equal(await provider.resolveApiKeyForTest(), 'refreshed-from-jwt-expiry');
@@ -788,7 +796,7 @@ test('Codex local provider does not persist refreshed OAuth credentials to auth.
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     assert.equal(await provider.resolveApiKeyForTest(), 'refreshed-local-access-token');
@@ -809,7 +817,7 @@ test('Codex local provider does not persist refreshed OAuth credentials to auth.
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
     assert.equal(await nextProvider.resolveApiKeyForTest(), 'refreshed-local-access-token');
     assert.equal(refreshCalls, 1);
@@ -854,16 +862,16 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     const response = await provider.postForTest({
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
       stream: true,
       input: [{ type: 'message', role: 'user', content: 'ping' }]
     }, {
-      session_id: 'qq:group:101',
-      'x-codex-turn-metadata': '{"session_id":"qq:group:101"}'
+      session_id: TEST_CODEX_CONTEXT_SESSION_ID,
+      'x-codex-turn-metadata': JSON.stringify({ session_id: TEST_CODEX_CONTEXT_SESSION_ID })
     });
 
     assert.equal(calls.length, 1);
@@ -871,11 +879,12 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
     assert.equal(calls[0]?.init?.headers?.Authorization, 'Bearer proxy-key');
     assert.equal(calls[0]?.init?.headers?.accept, 'text/event-stream');
     assert.equal(calls[0]?.init?.headers?.['content-type'], 'application/json');
-    assert.equal(calls[0]?.init?.headers?.session_id, 'qq:group:101');
-    assert.equal(calls[0]?.init?.headers?.['x-client-request-id'], 'qq:group:101');
+    assert.equal(calls[0]?.init?.headers?.session_id, TEST_CODEX_CONTEXT_SESSION_ID);
+    assert.equal(calls[0]?.init?.headers?.['x-client-request-id'], TEST_CODEX_CONTEXT_SESSION_ID);
     assert.equal(calls[0]?.init?.headers?.['chatgpt-account-id'], undefined);
-    assert.equal(calls[0]?.init?.headers?.originator, 'openclaw');
-    assert.match(calls[0]?.init?.headers?.['User-Agent'], /^openclaw \(/);
+    assert.equal(calls[0]?.init?.headers?.originator, 'openclaw-test');
+    assert.equal(calls[0]?.init?.headers?.['User-Agent'], 'openclaw-test (provider-request-contract)');
+    assert.equal(calls[0]?.init?.headers?.['OpenAI-Beta'], 'responses=test');
     assert.equal(JSON.parse(calls[0]?.init?.body).stream, true);
     assert.equal(response.output_text, 'hello');
     assert.equal(response.usage.total_tokens, 4);
@@ -924,11 +933,11 @@ test('Codex provider retries transient upstream fetch failures before failing th
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     const response = await provider.postForTest({
-      model: 'gpt-5.4-mini',
+      model: 'gpt-5-mini',
       stream: true,
       input: [{ type: 'message', role: 'user', content: 'ping' }]
     });
@@ -978,12 +987,12 @@ test('Codex provider does not treat OAuth failures as transient retry errors', a
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
 
     await assert.rejects(
       () => provider.postForTest({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5-mini',
         stream: true,
         input: [{ type: 'message', role: 'user', content: 'ping' }]
       }),
@@ -1092,7 +1101,7 @@ test('buildTraceHeaders emits Codex-compatible session metadata headers', () => 
     traceId: 'trace-1',
     agentTurn: 2,
     llmCallId: 'llm-1',
-    sessionId: 'qq:group:101',
+    sessionId: TEST_CODEX_CONTEXT_SESSION_ID,
     turnId: 'run-1',
     sandbox: 'none'
   });
@@ -1100,8 +1109,8 @@ test('buildTraceHeaders emits Codex-compatible session metadata headers', () => 
   assert.equal(headers['x-trace-id'], 'trace-1');
   assert.equal(headers['x-agent-turn'], '2');
   assert.equal(headers['x-llm-call-id'], 'llm-1');
-  assert.equal(headers.session_id, 'qq:group:101');
-  assert.match(headers['x-codex-turn-metadata'], /"session_id":"qq:group:101"/);
+  assert.equal(headers.session_id, TEST_CODEX_CONTEXT_SESSION_ID);
+  assert.match(headers['x-codex-turn-metadata'], /"session_id":"test:codex-context-session"/);
   assert.match(headers['x-codex-turn-metadata'], /"turn_id":"run-1"/);
   assert.match(headers['x-codex-turn-metadata'], /"sandbox":"none"/);
 });
@@ -1147,16 +1156,16 @@ test('Codex provider returns only the recovered response after internal retry su
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
-    const config = buildUnifiedConfig('gpt-5.4-mini', 'codex', {}, 'Prompt from provider debug');
+    const config = buildUnifiedConfig('gpt-5-mini', 'codex', {}, 'Prompt from provider debug');
 
     const result = await provider.generateContent({
       request: {
-        model: 'gpt-5.4-mini',
+        model: 'gpt-5-mini',
         input: [{ type: 'message', role: 'user', content: 'ping' }]
       },
-      modelName: 'gpt-5.4-mini',
+      modelName: 'gpt-5-mini',
       providerConfig: config,
       context: {
         traceId: 'trace-recovered',
@@ -1204,17 +1213,17 @@ test('Codex provider rejects after retry exhaustion without returning a response
       authorized_user_id: 1,
       bot_qq_number: 2,
       gemini_api_keys: [],
-      model_name: 'gpt-5.4-mini'
+      model_name: 'gpt-5-mini'
     });
-    const config = buildUnifiedConfig('gpt-5.4-mini', 'codex', {}, 'Prompt from provider debug');
+    const config = buildUnifiedConfig('gpt-5-mini', 'codex', {}, 'Prompt from provider debug');
 
     await assert.rejects(
       () => provider.generateContent({
         request: {
-          model: 'gpt-5.4-mini',
+          model: 'gpt-5-mini',
           input: [{ type: 'message', role: 'user', content: 'ping' }]
         },
-        modelName: 'gpt-5.4-mini',
+        modelName: 'gpt-5-mini',
         providerConfig: config,
         context: {
           traceId: 'trace-failed',
@@ -1237,9 +1246,9 @@ test('Codex provider rejects after retry exhaustion without returning a response
 });
 
 test('provider debug request builder maps systemPrompt into instructions instead of a synthetic system input message', () => {
-  const config = buildUnifiedConfig('gpt-5.4-mini', 'codex', {}, 'Prompt from provider debug');
+  const config = buildUnifiedConfig('gpt-5-mini', 'codex', {}, 'Prompt from provider debug');
   const request = buildRequestFromMessages(
-    'gpt-5.4-mini',
+    'gpt-5-mini',
     'Prompt from provider debug',
     [
       { role: 'user', content: 'First message' },
