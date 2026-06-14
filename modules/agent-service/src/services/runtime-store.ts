@@ -92,6 +92,7 @@ import {
   attachConversationIdToRuntimeTrace,
   getSessionReadCutoffState as getSessionReadCutoffStatePersistence,
   upsertSessionReadCutoffState as upsertSessionReadCutoffStatePersistence,
+  commitSessionContextSummaryAndReadCutoff as commitSessionContextSummaryAndReadCutoffPersistence,
   upsertProactiveShareState as upsertProactiveShareStatePersistence,
   upsertSessionContextSummary as upsertSessionContextSummaryPersistence,
   loadSessionReplayState as loadSessionReplayStatePersistence,
@@ -2286,6 +2287,20 @@ export class RuntimeStore {
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
+  }
+
+  async commitSessionContextSummaryAndReadCutoff(params: {
+    sessionKey: string;
+    contextSummary: string;
+    readCutoffAfterConversationId: number;
+    lastContextWindowTokens: number;
+    lastTargetBudgetTokens: number;
+    lastHardBudgetTokens: number;
+  }): Promise<{ committed: boolean; state: SessionReadCutoffState | null }> {
+    return commitSessionContextSummaryAndReadCutoffPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig) as Promise<{ committed: boolean; state: SessionReadCutoffState | null }>;
   }
 
   async upsertProactiveShareState(sessionKey: string, share: string | null, age: number) {

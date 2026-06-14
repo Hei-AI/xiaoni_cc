@@ -164,17 +164,29 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     developerContextBlock: null,
     contextSessionKey: 'xiaoni:global'
   });
+  const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
+    history: Array.from({ length: 201 }, (_, index) => createConversationTurn(index + 1)),
+    queueMessage: createQueuePayload(),
+    runtimePrompt: createRuntimePrompt(),
+    loopContinuation: [],
+    runtimeIdentityFacts: [],
+    developerContextBlock: null,
+    contextSessionKey: 'xiaoni:global'
+  });
 
   const mainRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');
-  const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.summarySourceInput, 'group');
+  const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, checkpoint.summarySourceInput, 'group');
   const pressureToolNames = (pressureRequest.tools ?? []).map((tool: any) => getToolName(tool));
   const compressTool = (pressureRequest.tools ?? []).find((tool: any) => getToolName(tool) === COMPRESS_CORE_MEMORY_TOOL) as any;
 
+  assert.equal(plan.summarySourceInput, null);
+  assert.equal(plan.coreMemoryCompression, null);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
   assert.equal(getAllowedToolNames(mainRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
-  assert.match(JSON.stringify(plan.summarySourceInput), /当前压力:/);
-  assert.doesNotMatch(JSON.stringify(plan.summarySourceInput), /source=\\?"core_memory_pressure\\?"/);
-  assert.doesNotMatch(JSON.stringify(plan.summarySourceInput), /required_tool=\\?"compress_core_memory\\?"/);
+  assert.ok(checkpoint);
+  assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
+  assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), /source=\\?"core_memory_pressure\\?"/);
+  assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), /required_tool=\\?"compress_core_memory\\?"/);
   assert.deepEqual(getAllowedToolNames(pressureRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
   assert.ok(pressureToolNames.includes(COMPRESS_CORE_MEMORY_TOOL));
   assert.deepEqual(compressTool?.function?.parameters?.required, ['text']);

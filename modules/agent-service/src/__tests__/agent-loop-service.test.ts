@@ -2586,6 +2586,172 @@ test('core memory compression commit keeps succeeding when the post-compression 
   assert.equal(commit.text, '压缩照常成功。');
 });
 
+test('core memory compression commit no-ops when durable cutoff already covers the fork', async () => {
+  const summaryWrites: any[] = [];
+  const cutoffWrites: any[] = [];
+  const timelineEvents: any[] = [];
+  let hookCalls = 0;
+  const recentTail = Array.from({ length: 31 }, (_, index) => createConversationTurn({
+    id: 171 + index,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `tail history ${171 + index}`,
+    aiResponse: `tail os ${171 + index}`
+  }));
+  const service = new AgentLoopService({
+    listRecentTurns: async () => recentTail,
+    getSessionReadCutoffState: async () => ({
+      sessionKey: 'xiaoni:global',
+      readCutoffAfterConversationId: 200,
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000,
+      contextSummary: '更新的近况已经覆盖到 200。',
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0,
+      updatedAt: null
+    }),
+    upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
+    upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); }
+  } as any, undefined, {
+    onCoreMemoryCompressionCommitted: async () => {
+      hookCalls += 1;
+    }
+  });
+
+  const commit = await (service as any).commitCoreMemoryCompression({
+    rawToolResult: {
+      compressed: true,
+      text: '  旧 fork 晚返回的近况。  ',
+      outcome: 'core_memory_compressed'
+    },
+    toolCall: {
+      name: COMPRESS_CORE_MEMORY_TOOL,
+      callId: 'call-late-compression'
+    },
+    compression: {
+      required: true,
+      contextSessionKey: 'xiaoni:global',
+      readCutoffAfterConversationId: 171,
+      previousReadCutoffAfterConversationId: null,
+      compressionCoveredEndConversationId: 201,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    },
+    contextSessionKey: 'xiaoni:global',
+    sourceResponseId: 'llm-late-compression',
+    metadata: {
+      trace_id: 'trace-late-compression',
+      execution_mode: 'compression_fork_background'
+    }
+  });
+
+  assert.equal(commit.text, '旧 fork 晚返回的近况。');
+  assert.equal(commit.artifact.superseded, true);
+  assert.equal(commit.artifact.read_cutoff_after_conversation_id, 200);
+  assert.equal(commit.toolResult.context_summary_written, false);
+  assert.equal(commit.toolResult.read_cutoff_written, false);
+  assert.equal(commit.toolResult.superseded, true);
+  assert.deepEqual(summaryWrites, []);
+  assert.deepEqual(cutoffWrites, []);
+  assert.equal(hookCalls, 0);
+  assert.equal(timelineEvents[0]?.eventPhase, 'skip');
+});
+
+test('core memory compression commit uses atomic summary and cutoff persistence when available', async () => {
+  const atomicWrites: any[] = [];
+  const timelineEvents: any[] = [];
+  const recentTail = Array.from({ length: 31 }, (_, index) => createConversationTurn({
+    id: 171 + index,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `tail history ${171 + index}`,
+    aiResponse: `tail os ${171 + index}`
+  }));
+  const service = new AgentLoopService({
+    listRecentTurns: async () => recentTail,
+    commitSessionContextSummaryAndReadCutoff: async (params: any) => {
+      atomicWrites.push(params);
+      return {
+        committed: true,
+        state: {
+          sessionKey: params.sessionKey,
+          readCutoffAfterConversationId: params.readCutoffAfterConversationId,
+          lastContextWindowTokens: params.lastContextWindowTokens,
+          lastTargetBudgetTokens: params.lastTargetBudgetTokens,
+          lastHardBudgetTokens: params.lastHardBudgetTokens,
+          contextSummary: params.contextSummary,
+          pendingProactiveShare: null,
+          pendingProactiveShareAge: 0,
+          updatedAt: null
+        }
+      };
+    },
+    getSessionReadCutoffState: async () => {
+      throw new Error('atomic commit should not use pre-read guard');
+    },
+    upsertSessionContextSummary: async () => {
+      throw new Error('atomic commit should not split summary write');
+    },
+    upsertSessionReadCutoffState: async () => {
+      throw new Error('atomic commit should not split cutoff write');
+    },
+    logTimelineEvent: async (event: any) => { timelineEvents.push(event); }
+  } as any);
+
+  const commit = await (service as any).commitCoreMemoryCompression({
+    rawToolResult: {
+      compressed: true,
+      text: '原子写入的近况。',
+      outcome: 'core_memory_compressed'
+    },
+    toolCall: {
+      name: COMPRESS_CORE_MEMORY_TOOL,
+      callId: 'call-atomic-compression'
+    },
+    compression: {
+      required: true,
+      contextSessionKey: 'xiaoni:global',
+      readCutoffAfterConversationId: 171,
+      previousReadCutoffAfterConversationId: null,
+      compressionCoveredEndConversationId: 201,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    },
+    contextSessionKey: 'xiaoni:global',
+    sourceResponseId: 'llm-atomic-compression',
+    metadata: {
+      trace_id: 'trace-atomic-compression',
+      execution_mode: 'compression_fork_background'
+    }
+  });
+
+  assert.equal(atomicWrites.length, 1);
+  assert.deepEqual(atomicWrites[0], {
+    sessionKey: 'xiaoni:global',
+    contextSummary: '原子写入的近况。',
+    readCutoffAfterConversationId: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+  assert.equal(commit.toolResult.context_summary_written, true);
+  assert.equal(commit.toolResult.read_cutoff_written, true);
+  assert.equal(commit.artifact.read_cutoff_after_conversation_id, 171);
+  assert.equal(timelineEvents[0]?.eventName, 'core_memory_compressed');
+});
+
 test('context compression memory writer scheduling is disabled by default', async () => {
   const timelineEvents: any[] = [];
   const service = new AgentLoopService({
@@ -4427,8 +4593,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
     userId: 202,
     groupId: 101,
     afterConversationId: null,
-    scope: 'global',
-    limit: 201
+    scope: 'global'
   });
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.deepEqual(
@@ -5252,7 +5417,7 @@ test('runtime frame does not allow request_image_task to swallow a same-slice vi
     assert.equal(storeCalls.createConversation.length, 1);
     assert.equal(storeCalls.createConversation[0]?.aiResponse, '图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。');
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。']);
-	    assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
+    assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-image-task-followup']);
     assert.equal(sendGroupCalls.length, 1);
     assert.equal(sendGroupCalls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/send_group`);
@@ -6317,7 +6482,7 @@ test('no-notify continuation preserves global OS context during recover_energy t
   }
 
   assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
-  assert.equal(listRecentTurnsCalls[0]?.limit, 201);
+  assert.equal(listRecentTurnsCalls[0]?.limit, undefined);
   assert.equal(outboundSendFetchCalled, false);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
@@ -6440,18 +6605,13 @@ test('runtime frame fetches global history after persisted read cutoff', async (
     userId: 303,
     groupId: null,
     afterConversationId: 171,
-    scope: 'global',
-    limit: 201
+    scope: 'global'
   });
 });
 
-test('buildContextBudgetPlan injects core-memory pressure at 200 turns before advancing cutoff', async () => {
-  const upsertCalls: any[] = [];
+test('buildContextBudgetPlan keeps the main request append-only and does not plan compression', async () => {
   const service = new AgentLoopService({
-    getSessionReadCutoffState: async () => null,
-    upsertSessionReadCutoffState: async (params: any) => {
-      upsertCalls.push(params);
-    }
+    getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
@@ -6477,9 +6637,47 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   assert.equal(plan.retainedHistory.length, 201);
   assert.equal(plan.retainedHistory[0]?.id, 1);
   assert.equal(plan.retainedHistory[200]?.id, 201);
-  assert.equal(plan.readCutoffAfterConversationId, 171);
-  assert.equal(plan.cutoffRecomputed, true);
-  assert.deepEqual(plan.coreMemoryCompression, {
+  assert.equal(plan.readCutoffAfterConversationId, null);
+  assert.equal(plan.previousReadCutoffAfterConversationId, null);
+  assert.equal(plan.cutoffRecomputed, false);
+  assert.equal(plan.coreMemoryCompression, null);
+  assert.equal(plan.summarySourceInput, null);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
+  assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
+
+  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
+  assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
+  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+});
+
+test('buildCoreMemoryCompressionCheckpoint builds the pressure-only fork input', async () => {
+  const service = new AgentLoopService({
+    getSessionReadCutoffState: async () => null
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const history = Array.from({ length: 201 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `global history ${index + 1}`,
+    aiResponse: `global os ${index + 1}`
+  }));
+
+  const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
+    history,
+    queueMessage: createRuntimeLoopPayload(),
+    runtimePrompt: createRuntimePrompt(),
+    loopContinuation: [],
+    runtimeIdentityFacts: [],
+    developerContextBlock: null,
+    contextSessionKey: 'xiaoni:global'
+  });
+
+  assert.ok(checkpoint);
+  assert.deepEqual(checkpoint.compression, {
     required: true,
     contextSessionKey: 'xiaoni:global',
     readCutoffAfterConversationId: 171,
@@ -6492,18 +6690,10 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
     lastTargetBudgetTokens: 280000,
     lastHardBudgetTokens: 380000
   });
-  assert.equal(upsertCalls.length, 0);
-  assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
-  assert.match(JSON.stringify(plan.summarySourceInput), /当前压力:/);
-  assert.match(JSON.stringify(plan.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
-  assert.doesNotMatch(JSON.stringify(plan.requestInput), /source=\\?"core_memory_pressure\\?"/);
-  assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
+  assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
+  assert.match(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
 
-  const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
-  assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
-  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
-
-  const compressionRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.summarySourceInput, 'direct');
+  const compressionRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, checkpoint.summarySourceInput, 'direct');
   assert.deepEqual(getAllowedToolNames(compressionRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
 
   const alternateToolChoiceRequest = {
@@ -6528,11 +6718,11 @@ test('buildContextBudgetPlan injects core-memory pressure at 200 turns before ad
   );
 });
 
-test('runtime frame does not expand the main request window for local pending compression', async () => {
+test('runtime frame schedules compression in the background without leaking fork state into the main loop', async () => {
   const queueMessage = {
-    id: 'run-compression-pending',
-    traceId: 'trace-compression-pending',
-    batchId: 'batch-compression-pending',
+    id: 'run-compression-background-checkpoint',
+    traceId: 'trace-compression-background-checkpoint',
+    batchId: 'batch-compression-background-checkpoint',
     status: 'processing',
     attempts: 1,
     createdAt: '2026-06-12T00:00:00.000Z',
@@ -6550,21 +6740,9 @@ test('runtime frame does not expand the main request window for local pending co
   const listRecentTurnsCalls: any[] = [];
   const conversations: any[] = [];
   const mainRequests: any[] = [];
-  const pendingCompression = {
-    required: true,
-    contextSessionKey: 'xiaoni:global',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: null,
-    compressionCoveredEndConversationId: 201,
-    historyUserId: 303,
-    historyGroupId: null,
-    historyScope: 'global',
-    lastContextWindowTokens: 400000,
-    lastTargetBudgetTokens: 280000,
-    lastHardBudgetTokens: 380000
-  };
+  const scheduledForks: any[] = [];
   const store = {
-    createLlmJob: async () => 'job-compression-pending',
+    createLlmJob: async () => 'job-compression-background-checkpoint',
     logTimelineEvent: async () => {},
     listRecentTurns: async (params: any = {}) => {
       listRecentTurnsCalls.push(params);
@@ -6598,16 +6776,15 @@ test('runtime frame does not expand the main request window for local pending co
   const service = new AgentLoopService(store, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  (service as any).coreMemoryCompressionForks.set('xiaoni:global', {
-    promise: new Promise(() => {}),
-    compression: pendingCompression,
-    startedAtMs: Date.now()
-  });
+  (service as any).runCoreMemoryCompressionFork = async (params: any) => {
+    scheduledForks.push(params);
+    return new Promise(() => {});
+  };
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     mainRequests.push(canonicalRequest);
     return {
       success: true,
-      llm_call_id: 'llm-compression-pending',
+      llm_call_id: 'llm-compression-background-checkpoint',
       canonical_response: {
         output: []
       }
@@ -6625,21 +6802,20 @@ test('runtime frame does not expand the main request window for local pending co
     userId: 303,
     groupId: null,
     afterConversationId: null,
-    scope: 'global',
-    limit: 201
+    scope: 'global'
   });
   assert.equal(mainRequests.length, 1);
+  assert.equal(scheduledForks.length, 1);
+  assert.equal(scheduledForks[0]?.compression?.readCutoffAfterConversationId, 172);
+  assert.equal(scheduledForks[0]?.compression?.compressionCoveredEndConversationId, 202);
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
-  assert.doesNotMatch(mainText, /global history 1(?!\d)/);
-  assert.match(mainText, /global history 3(?!\d)/);
+  assert.match(mainText, /global history 1(?!\d)/);
   assert.match(mainText, /global history 202/);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 201);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, true);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, 172);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 201);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.status, 'already_running');
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.read_cutoff_after_conversation_id, 171);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.compression_covered_end_conversation_id, 201);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 202);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 202);
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
 });
 
 test('core memory compression commit keeps appended turns beyond the fork coverage boundary', async () => {
@@ -6688,19 +6864,22 @@ test('core memory compression commit keeps appended turns beyond the fork covera
   });
 });
 
-test('core memory compression scheduling reuses an active persisted fork after restart', async () => {
+test('core memory compression scheduling dedupes only an in-process fork', async () => {
   const queuePayload = createRuntimeLoopPayload();
-  const activeLookupCalls: any[] = [];
-  const service = new AgentLoopService({
-    findActiveCoreMemoryCompressionForkRun: async (params: any) => {
-      activeLookupCalls.push(params);
-      return {
-        forkRunId: 'core-memory-fork:previous-run:active',
-        runId: 'previous-run',
-        startedAt: '2026-06-14T05:00:00.000Z'
-      };
-    }
-  } as any, {
+  const compression = {
+    required: true,
+    contextSessionKey: 'xiaoni:global',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: null,
+    compressionCoveredEndConversationId: 201,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  };
+  const service = new AgentLoopService({} as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
   let startedFork = false;
@@ -6708,36 +6887,24 @@ test('core memory compression scheduling reuses an active persisted fork after r
     startedFork = true;
     throw new Error('must not start a duplicate compression fork');
   };
+  (service as any).coreMemoryCompressionForks.set('xiaoni:global', {
+    promise: new Promise(() => {}),
+    compression,
+    startedAtMs: Date.now()
+  });
 
   const artifact = await (service as any).scheduleCoreMemoryCompressionFork({
     baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queuePayload), queuePayload, createRuntimePrompt()),
     queueMessage: queuePayload,
     runtimePrompt: createRuntimePrompt(),
     contextSessionKey: 'xiaoni:global',
-    compression: {
-      required: true,
-      contextSessionKey: 'xiaoni:global',
-      readCutoffAfterConversationId: 171,
-      previousReadCutoffAfterConversationId: null,
-      compressionCoveredEndConversationId: 201,
-      historyUserId: 303,
-      historyGroupId: null,
-      historyScope: 'global',
-      lastContextWindowTokens: 400000,
-      lastTargetBudgetTokens: 280000,
-      lastHardBudgetTokens: 380000
-    }
+    compression
   });
 
   assert.equal(startedFork, false);
-  assert.deepEqual(activeLookupCalls, [{
-    contextSessionKey: 'xiaoni:global',
-    compressionCoveredEndConversationId: 201,
-    staleAfterMinutes: 30
-  }]);
   assert.equal(artifact.status, 'already_running');
-  assert.equal(artifact.persisted_fork_run_id, 'core-memory-fork:previous-run:active');
-  assert.equal(artifact.persisted_run_id, 'previous-run');
+  assert.equal(artifact.persisted_fork_run_id, undefined);
+  assert.equal(artifact.persisted_run_id, undefined);
 });
 
 test('core memory compression runs in an isolated background fork alongside the main agent request', async () => {
@@ -6992,14 +7159,10 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(conversations.length, 1);
   assert.equal(conversations[0]?.rawRequest?.retained_history_count, 201);
   assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 201);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.execution_mode, 'compression_fork_background');
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression?.status, 'scheduled');
+  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
   assert.doesNotMatch(JSON.stringify(conversations[0]?.rawResponse?.responses_replay_items || []), /call-archive|call-compress|archived/);
   assert.doesNotMatch(JSON.stringify(mainStackItems), /call-archive|call-compress|archived/);
-  assert.equal(scheduledCompressionWriters.length, 1);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.length, 171);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.[0]?.id, 1);
-  assert.equal(scheduledCompressionWriters[0]?.evictedTurns?.at(-1)?.id, 171);
+  assert.equal(scheduledCompressionWriters.length, 0);
 
   releaseForkTurn();
   await waitFor(() => completedForkRuns.length === 1, 'background compression fork did not complete');
@@ -7109,6 +7272,7 @@ test('core memory compression fork retries final_answer without tool call and th
     },
     upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
     upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
+    getSessionReadCutoffState: async () => null,
     listRecentTurns: async () => Array.from({ length: 31 }, (_, index) => createConversationTurn({
       id: index + 171,
       userId: 85178516,
