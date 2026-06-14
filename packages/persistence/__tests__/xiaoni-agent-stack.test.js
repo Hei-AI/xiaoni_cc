@@ -493,6 +493,9 @@ function createMockSql() {
         rows.tool.push(row);
         return [row];
       }
+      if (sql.includes('FROM tool_executions')) {
+        return rows.tool;
+      }
       return [];
     },
     insert: async () => {
@@ -872,6 +875,53 @@ test('recordToolExecution and completeToolExecution link tool result callback st
   assert.equal(completed.status, 'completed');
   assert.equal(completed.stackOutputItemId, '11');
   assert.equal(completed.result.stdout, '/tmp');
+});
+
+test('listToolExecutions filters by tool name in persistence', async () => {
+  const sql = createMockSql();
+  sql.rows.tool.push({
+    id: 41,
+    execution_id: 'tool:run-2:call-recover',
+    identity_key: 'xiaoni',
+    llm_request_slice_id: 'llm-2',
+    llm_call_id: 'llm-2',
+    tool_call_id: 'call-recover',
+    tool_name: 'recover_energy',
+    arguments: { reason: '困了' },
+    raw_arguments: '{"reason":"困了"}',
+    result: {
+      rest_rejected: true,
+      reason: '现在还没到可以休息的线'
+    },
+    status: 'completed',
+    error_message: null,
+    side_effect: false,
+    trace_id: 'trace-2',
+    run_id: 'run-2',
+    conversation_id: null,
+    agent_turn: 2,
+    stack_call_item_id: 12,
+    stack_output_item_id: 13,
+    metadata: {},
+    created_at: '2026-06-11T00:02:00.000Z',
+    started_at: '2026-06-11T00:02:00.000Z',
+    completed_at: '2026-06-11T00:02:01.000Z',
+    updated_at: '2026-06-11T00:02:01.000Z'
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const rows = await persistence.listToolExecutions({
+    identityKey: 'xiaoni',
+    toolName: 'recover_energy',
+    limit: 10
+  });
+  const query = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('FROM tool_executions'));
+
+  assert.ok(query);
+  assert.match(query.sql, /tool_name = \?/);
+  assert.deepEqual(query.params.slice(0, 2), ['xiaoni', 'recover_energy']);
+  assert.equal(rows[0].toolName, 'recover_energy');
+  assert.equal(rows[0].result.rest_rejected, true);
 });
 
 test('core memory compression fork ledger stores run, slice, items, and tool execution outside main stack', async () => {

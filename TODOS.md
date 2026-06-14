@@ -2,6 +2,30 @@
 
 ## LLM runtime
 
+### Investigate fast energy/pressure drift causing frequent recover_energy attempts
+
+**What:** Check the current Xiaoni energy and pressure projection system to explain
+why she has recently tried to sleep so often, and why energy/pressure appears to
+drop or accumulate unusually fast.
+
+**Why:** The recovery page now shows rejected `recover_energy` attempts; the latest
+7-day window had 29 recover_energy calls and 16 engineering rejections. Those
+rejections were mostly because the anti-frequent-rest gate said she had not crossed
+the sleep threshold yet, but the repeated attempts suggest the prompt-visible state,
+life reducer, action costs, wake cooldown, or projection timing may be making her
+feel tired too aggressively.
+
+**Context:** Start from `agent_session_life_states.projection_json`,
+`agent_life_events`, and `tool_executions` for `recover_energy`. Compare
+homeostatic pressure, action debt, action-cost events, `last_wake_at`, and
+`required_pressure` around the recent rejected calls. Confirm whether this is a
+real reducer bug, cost calibration issue, prompt interpretation issue, or expected
+behavior from recent high activity.
+
+**Effort:** M
+**Priority:** P2
+**Depends on:** Recent recovery telemetry and life projection samples
+
 ### Investigate repeated isolated prompt-cache hit drops on codex-local
 
 **What:** If 小腻再次出现单个 `codex-local/responses` slice 的 `cached_tokens`

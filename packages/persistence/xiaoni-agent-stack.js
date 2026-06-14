@@ -3641,6 +3641,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const traceId = firstString(input.traceId, input.trace_id);
     const runId = firstString(input.runId, input.run_id);
     const toolCallId = firstString(input.toolCallId, input.tool_call_id);
+    const toolName = firstString(input.toolName, input.tool_name);
     const executionId = firstString(input.executionId, input.execution_id);
     const llmRequestSliceId = firstString(input.llmRequestSliceId, input.llm_request_slice_id);
     if (traceId) {
@@ -3654,6 +3655,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     if (toolCallId) {
       clauses.push('tool_call_id = ?');
       params.push(toolCallId);
+    }
+    if (toolName) {
+      clauses.push('tool_name = ?');
+      params.push(toolName);
     }
     if (executionId) {
       clauses.push('execution_id = ?');

@@ -16,7 +16,8 @@ import {
   getXiaoniActionStream,
   getXiaoniLlmUsageTimeline,
   listAgentLifeEvents,
-  listAgentRecoverySessions
+  listAgentRecoverySessions,
+  listToolExecutions
 } from '@qq-bot/persistence';
 
 jest.mock('axios');
@@ -29,6 +30,7 @@ jest.mock('@qq-bot/persistence', () => ({
   listAgentLifeEvents: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentRecoverySessions: jest.fn(),
+  listToolExecutions: jest.fn(),
   listAgentTasks: jest.fn()
 }));
 
@@ -141,6 +143,27 @@ describe('agent runtime recovery session routes', () => {
         payload: {}
       }
     ]);
+    (listToolExecutions as jest.Mock).mockResolvedValueOnce([
+      {
+        id: '701',
+        executionId: 'tool:recover:rejected',
+        identityKey: 'xiaoni',
+        toolCallId: 'call-rejected',
+        toolName: 'recover_energy',
+        arguments: { reason: '还想睡一会儿' },
+        result: {
+          rest_rejected: true,
+          reason: '现在还没到可以休息的线：当前精力 0.870/1.000，刚醒不久或精力还够时很难再次入睡。',
+          energy: 0.87,
+          max_energy: 1,
+          pressure: 0.13,
+          required_pressure: 0.5
+        },
+        status: 'completed',
+        startedAt: '2026-06-13T00:12:00.000Z',
+        completedAt: '2026-06-13T00:12:01.000Z'
+      }
+    ]);
 
     const response = await request(createApp(database))
       .get('/api/agent-runtime/recovery-sessions?identity_key=xiaoni&status=all&limit=40');
@@ -162,8 +185,28 @@ describe('agent runtime recovery session routes', () => {
       chronological: true,
       limit: 1000
     });
+    expect(listToolExecutions).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      toolName: 'recover_energy',
+      occurredAfter: expect.any(Date),
+      chronological: true,
+      limit: 1000
+    });
     expect(response.body.data.active.id).toBe(88);
     expect(response.body.data.sessions).toHaveLength(2);
+    expect(response.body.data.recoverEnergyRequests.summary).toMatchObject({
+      total: 1,
+      rejected: 1,
+      accepted: 0
+    });
+    expect(response.body.data.recoverEnergyRequests.requests[0]).toMatchObject({
+      status: 'rejected',
+      restRejected: true,
+      reason: expect.stringContaining('现在还没到可以休息的线'),
+      requestedReason: '还想睡一会儿',
+      energy: 0.87,
+      requiredPressure: 0.5
+    });
     expect(response.body.data.current.lifeState.projection.state.energy).toBe(0.87);
     expect(response.body.data.recentExperience).toBeUndefined();
     expect(response.body.data.energyTimeline.points.length).toBeGreaterThan(0);
@@ -173,6 +216,13 @@ describe('agent runtime recovery session routes', () => {
           kind: 'session_end',
           recoverySessionId: 87,
           timestamp: '2026-06-12T23:00:00.080Z'
+        }),
+        expect.objectContaining({
+          kind: 'recover_energy_rejected',
+          label: '拒绝休息',
+          restRejected: true,
+          rejectionReason: expect.stringContaining('现在还没到可以休息的线'),
+          timestamp: '2026-06-13T00:12:00.000Z'
         })
       ])
     );

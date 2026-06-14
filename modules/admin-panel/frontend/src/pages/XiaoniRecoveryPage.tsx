@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlarmClock, BatteryMedium, Bell, Clock3, Moon, RefreshCw } from 'lucide-react';
+import { AlarmClock, BatteryMedium, Bell, Clock3, Moon, RefreshCw, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Table,
@@ -114,6 +114,14 @@ type EnergyTimelinePoint = {
   label?: string | null;
   recoverySessionId?: number | null;
   eventId?: string | null;
+  restRejected?: boolean | null;
+  rejectionReason?: string | null;
+  requestedReason?: string | null;
+  pressure?: number | null;
+  requiredPressure?: number | null;
+  toolExecutionId?: string | null;
+  toolCallId?: string | null;
+  traceId?: string | null;
 };
 
 type EnergyTimeline = {
@@ -128,12 +136,43 @@ type EnergyTimeline = {
   };
 };
 
+type RecoverEnergyRequest = {
+  id: string | number | null;
+  toolExecutionId: string | null;
+  toolCallId: string | null;
+  traceId: string | null;
+  runId: string | null;
+  status: string;
+  restRejected: boolean;
+  reason: string | null;
+  requestedReason: string | null;
+  xiaoniOs: string | null;
+  energy: number | null;
+  maxEnergy: number | null;
+  pressure: number | null;
+  requiredPressure: number | null;
+  clockMinutes: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+};
+
+type RecoverEnergyRequestsPayload = {
+  requests: RecoverEnergyRequest[];
+  summary: {
+    total: number;
+    rejected: number;
+    accepted: number;
+    completed: number;
+  };
+};
+
 type RecoverySessionsPayload = {
   identityKey: string;
   status: string;
   limit: number;
   active: RecoverySession | null;
   sessions: RecoverySession[];
+  recoverEnergyRequests?: RecoverEnergyRequestsPayload;
   current?: CurrentRecoveryState;
   energyTimeline?: EnergyTimeline;
   runtime: RuntimeSnapshot;
@@ -197,6 +236,32 @@ function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger
     return 'danger';
   }
   return 'neutral';
+}
+
+function requestStatusTone(request: RecoverEnergyRequest): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
+  if (request.restRejected || request.status === 'rejected') {
+    return 'danger';
+  }
+  if (request.status === 'accepted') {
+    return 'warning';
+  }
+  if (request.status === 'completed') {
+    return 'success';
+  }
+  return statusTone(request.status);
+}
+
+function requestStatusLabel(request: RecoverEnergyRequest) {
+  if (request.restRejected || request.status === 'rejected') {
+    return '被拒绝';
+  }
+  if (request.status === 'accepted') {
+    return '已入睡';
+  }
+  if (request.status === 'completed') {
+    return '已恢复';
+  }
+  return request.status || '-';
 }
 
 const wakeCauseLabels: Record<string, string> = {
@@ -377,7 +442,20 @@ function EnergyTooltip({ active, payload, label }: { active?: boolean; payload?:
         <span className="text-right font-medium text-amber-700">{formatPercent(point.actionCost)}</span>
         <span className="text-muted-foreground">来源</span>
         <span className="truncate text-right font-medium text-foreground">{point.label || point.kind || point.source || '-'}</span>
+        {point.restRejected ? (
+          <>
+            <span className="text-muted-foreground">门槛</span>
+            <span className="text-right font-medium text-rose-700">
+              {formatPercent(point.pressure)} / {formatPercent(point.requiredPressure)}
+            </span>
+          </>
+        ) : null}
       </div>
+      {point.restRejected ? (
+        <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-rose-900">
+          {point.rejectionReason || '这次 recover_energy 被工程拒绝。'}
+        </div>
+      ) : null}
       {point.recoverySessionId || point.eventId ? (
         <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground">
           {point.recoverySessionId ? `recovery #${point.recoverySessionId}` : point.eventId}
@@ -467,6 +545,13 @@ export const XiaoniRecoveryPage: React.FC = () => {
   const payload = query.data;
   const active = payload?.active || null;
   const sessions = payload?.sessions || [];
+  const recoverEnergyRequests = payload?.recoverEnergyRequests?.requests || [];
+  const recoverEnergyRequestSummary = payload?.recoverEnergyRequests?.summary || {
+    total: recoverEnergyRequests.length,
+    rejected: recoverEnergyRequests.filter((request) => request.restRejected).length,
+    accepted: recoverEnergyRequests.filter((request) => request.status === 'accepted').length,
+    completed: recoverEnergyRequests.filter((request) => request.status === 'completed').length
+  };
   const current = payload?.current || null;
   const runtime = current?.runtime || payload?.runtime;
   const runtimeLive = runtime?.live;
@@ -527,7 +612,7 @@ export const XiaoniRecoveryPage: React.FC = () => {
         />
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard
           label="当前状态"
           value={active ? '休息中' : '清醒'}
@@ -562,6 +647,13 @@ export const XiaoniRecoveryPage: React.FC = () => {
           detail={active?.wakeRequiredCount ? `阈值 ${active.wakeRequiredCount}` : '无 active 阈值'}
           icon={<Bell className="h-4 w-4" />}
           tone={active && active.wakeRequiredCount && active.wakeCallCount >= active.wakeRequiredCount ? 'danger' : 'default'}
+        />
+        <MetricCard
+          label="休息请求"
+          value={recoverEnergyRequestSummary.total}
+          detail={`拒绝 ${recoverEnergyRequestSummary.rejected} / 入睡 ${recoverEnergyRequestSummary.accepted}`}
+          icon={<XCircle className="h-4 w-4" />}
+          tone={recoverEnergyRequestSummary.rejected > 0 ? 'danger' : 'default'}
         />
       </div>
 
@@ -642,6 +734,61 @@ export const XiaoniRecoveryPage: React.FC = () => {
             icon={<Moon className="h-8 w-8" />}
             title="当前没有休息会话"
             description="小腻没有处在 recover_energy 的持久化休眠状态。"
+          />
+        )}
+      </SectionPanel>
+
+      <SectionPanel
+        title="最近 recover_energy 请求"
+        description="包含已入睡和被工程拒绝的 recover_energy tool call；拒绝不会生成 recovery session。"
+        icon={<XCircle className="h-4 w-4 text-primary" />}
+        contentClassName="pt-0"
+      >
+        {recoverEnergyRequests.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>结果</TableHead>
+                <TableHead>时间</TableHead>
+                <TableHead>精力</TableHead>
+                <TableHead>压力/门槛</TableHead>
+                <TableHead>clock</TableHead>
+                <TableHead>原因</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {recoverEnergyRequests.map((request, index) => (
+                <TableRow key={request.toolExecutionId || request.id || index}>
+                  <TableCell>
+                    <StatusPill tone={requestStatusTone(request)}>{requestStatusLabel(request)}</StatusPill>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatTimestamp(request.startedAt, { fallback: '-' })}
+                  </TableCell>
+                  <TableCell>{formatEnergyValue(request.energy, request.maxEnergy || 1)}</TableCell>
+                  <TableCell>
+                    {formatNumber(request.pressure)} / {formatNumber(request.requiredPressure)}
+                  </TableCell>
+                  <TableCell>{request.clockMinutes ? `${request.clockMinutes}m` : '-'}</TableCell>
+                  <TableCell className="max-w-[520px]">
+                    <div className="line-clamp-2 text-sm text-foreground" title={request.reason || request.requestedReason || ''}>
+                      {request.reason || request.requestedReason || '-'}
+                    </div>
+                    {request.restRejected && request.requestedReason && request.requestedReason !== request.reason ? (
+                      <div className="mt-1 line-clamp-1 text-xs text-muted-foreground" title={request.requestedReason}>
+                        请求理由：{request.requestedReason}
+                      </div>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            icon={<XCircle className="h-8 w-8" />}
+            title="还没有 recover_energy 请求"
+            description="小腻调用 recover_energy 后，这里会显示成功入睡或被拒绝的记录。"
           />
         )}
       </SectionPanel>
