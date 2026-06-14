@@ -19,6 +19,7 @@ import {
   completeToolExecution as completeAgentStackToolExecutionPersistence,
   recordCoreMemoryCompressionForkRun as recordCoreMemoryCompressionForkRunPersistence,
   completeCoreMemoryCompressionForkRun as completeCoreMemoryCompressionForkRunPersistence,
+  findActiveCoreMemoryCompressionForkRun as findActiveCoreMemoryCompressionForkRunPersistence,
   appendCoreMemoryCompressionForkItems as appendCoreMemoryCompressionForkItemsPersistence,
   recordCoreMemoryCompressionForkSlice as recordCoreMemoryCompressionForkSlicePersistence,
   recordCoreMemoryCompressionForkToolExecution as recordCoreMemoryCompressionForkToolExecutionPersistence,
@@ -2039,6 +2040,18 @@ export class RuntimeStore {
     metadata?: Record<string, unknown>;
   }) {
     return completeCoreMemoryCompressionForkRunPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async findActiveCoreMemoryCompressionForkRun(params: {
+    contextSessionKey: string;
+    compressionCoveredEndConversationId: number;
+    staleAfterMinutes?: number;
+  }) {
+    return findActiveCoreMemoryCompressionForkRunPersistence({
+      identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
