@@ -102,16 +102,16 @@ describe('traffic persistence time filters', () => {
     });
 
     expect(prismaClient.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(recordedQueries[0]?.text).toContain('request_timestamp >= CAST($1 AS timestamp)');
-    expect(recordedQueries[0]?.text).toContain('request_timestamp <= CAST($2 AS timestamp)');
+    expect(recordedQueries[0]?.text).toContain('request_timestamp >= CAST($1 AS timestamptz)');
+    expect(recordedQueries[0]?.text).toContain('request_timestamp <= CAST($2 AS timestamptz)');
     expect(recordedQueries[0]?.values).toEqual([
       serializeTimestampForStorage(new Date('2026-03-28T04:00:00.000Z')),
       serializeTimestampForStorage(new Date('2026-03-28T05:00:00.000Z')),
       20,
       0
     ]);
-    expect(recordedQueries[1]?.text).toContain('request_timestamp >= CAST($1 AS timestamp)');
-    expect(recordedQueries[1]?.text).toContain('request_timestamp <= CAST($2 AS timestamp)');
+    expect(recordedQueries[1]?.text).toContain('request_timestamp >= CAST($1 AS timestamptz)');
+    expect(recordedQueries[1]?.text).toContain('request_timestamp <= CAST($2 AS timestamptz)');
     expect(recordedQueries[1]?.values).toEqual([
       serializeTimestampForStorage(new Date('2026-03-28T04:00:00.000Z')),
       serializeTimestampForStorage(new Date('2026-03-28T05:00:00.000Z'))

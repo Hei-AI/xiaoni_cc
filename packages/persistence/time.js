@@ -185,7 +185,7 @@ function parseTimestampWithoutTimezone(value) {
 }
 
 function serializeTimestampWithoutTimezoneForApi(value) {
-  const instant = parseTimestampWithoutTimezone(value);
+  const instant = parseStoredTimestamp(value);
   if (!instant) {
     return value ?? null;
   }
@@ -197,7 +197,7 @@ function serializeTimestampForStorage(value) {
   if (!instant) {
     return value ?? null;
   }
-  return formatEast8WallClock(instant);
+  return instant.toISOString();
 }
 
 function prepareTimestampWithoutTimezoneForPrisma(value) {
@@ -206,7 +206,7 @@ function prepareTimestampWithoutTimezoneForPrisma(value) {
   }
 
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : getShiftedUtcDate(value);
+    return Number.isNaN(value.getTime()) ? null : value;
   }
 
   if (typeof value === 'string') {
@@ -215,17 +215,15 @@ function prepareTimestampWithoutTimezoneForPrisma(value) {
       return null;
     }
     if (hasExplicitTimezone(trimmed)) {
-      const instant = parseInstantValue(trimmed);
-      return instant ? getShiftedUtcDate(instant) : null;
+      return parseInstantValue(trimmed);
     }
     const normalized = normalizeWallClockString(trimmed);
     if (normalized) {
-      return new Date(`${normalized.replace(' ', 'T')}Z`);
+      return parseWallClockWithOffset(normalized, STORAGE_OFFSET_MINUTES);
     }
   }
 
-  const instant = parseInstantValue(value);
-  return instant ? getShiftedUtcDate(instant) : null;
+  return parseInstantValue(value);
 }
 
 function serializeTimestampForApi(value) {

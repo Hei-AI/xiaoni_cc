@@ -163,7 +163,7 @@ test('recordAgentLifeEvent accepts homeostasis projection event kinds', async ()
   ]);
 });
 
-test('recordAgentLifeEvent writes Date instants as East-8 timestamp wall clock', async () => {
+test('recordAgentLifeEvent writes Date instants without wall-clock shifting', async () => {
   let createPayload = null;
   const { persistence } = createPersistence({
     prisma: {
@@ -192,7 +192,7 @@ test('recordAgentLifeEvent writes Date instants as East-8 timestamp wall clock',
     dedupeKey: 'sleep:wall-clock'
   });
 
-  assert.equal(createPayload.data.occurred_at.toISOString(), '2026-06-14T04:15:05.385Z');
+  assert.equal(createPayload.data.occurred_at.toISOString(), '2026-06-13T20:15:05.385Z');
 });
 
 test('listAgentLifeEvents can read oldest-first batches for projection replay', async () => {
@@ -225,7 +225,7 @@ test('listAgentLifeEvents can read oldest-first batches for projection replay', 
 
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
   assert.equal(rows[0].id, '1');
-  assert.equal(rows[0].occurredAt, '2026-05-31T00:00:00.000+08:00');
+  assert.equal(rows[0].occurredAt, '2026-05-31T08:00:00.000+08:00');
 });
 
 test('listAgentLifeEvents can seek after a timestamp and id for projection catch-up', async () => {
@@ -249,8 +249,8 @@ test('listAgentLifeEvents can seek after a timestamp and id for projection catch
     limit: 1000
   });
 
-  assert.equal(findPayload.where.OR[0].occurred_at.gt.toISOString(), '2026-06-10T23:08:01.161Z');
-  assert.equal(findPayload.where.OR[1].occurred_at.toISOString(), '2026-06-10T23:08:01.161Z');
+  assert.equal(findPayload.where.OR[0].occurred_at.gt.toISOString(), '2026-06-10T15:08:01.161Z');
+  assert.equal(findPayload.where.OR[1].occurred_at.toISOString(), '2026-06-10T15:08:01.161Z');
   assert.equal(findPayload.where.OR[1].id.gt, 7794n);
   assert.deepEqual(findPayload.orderBy, [{ occurred_at: 'asc' }, { id: 'asc' }]);
 });
@@ -266,7 +266,7 @@ test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window',
             id: 9n,
             identity_key: 'xiaoni',
             event_kind: 'sleep_period',
-            occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+            occurred_at: new Date('2026-06-06T04:34:51.000Z'),
             visibility: 'self_private',
             payload: {
               reason: '先休息一下',
@@ -275,7 +275,7 @@ test('getActiveAgentRecoveryWindow returns the unexpired recover_energy window',
             trace_id: 'trace-rest',
             run_id: 'run-rest',
             dedupe_key: 'sleep:1',
-            created_at: new Date('2026-06-06T12:34:51.000Z')
+            created_at: new Date('2026-06-06T04:34:51.000Z')
           }];
         }
       }
@@ -308,11 +308,11 @@ test('getActiveAgentRecoveryWindow ignores expired recovery events', async () =>
           id: 10n,
           identity_key: 'xiaoni',
           event_kind: 'sleep_period',
-          occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+          occurred_at: new Date('2026-06-06T04:34:51.000Z'),
           visibility: 'self_private',
           payload: { duration_minutes: 5 },
           dedupe_key: 'sleep:expired',
-          created_at: new Date('2026-06-06T12:34:51.000Z')
+          created_at: new Date('2026-06-06T04:34:51.000Z')
         }]
       }
     }
@@ -334,7 +334,7 @@ test('getLatestAgentRecoveryWindow returns expired window and continuation statu
           id: 11n,
           identity_key: 'xiaoni',
           event_kind: 'sleep_period',
-          occurred_at: new Date('2026-06-06T12:34:51.000Z'),
+          occurred_at: new Date('2026-06-06T04:34:51.000Z'),
           visibility: 'self_private',
           payload: {
             reason: '睡五分钟',
@@ -343,7 +343,7 @@ test('getLatestAgentRecoveryWindow returns expired window and continuation statu
           trace_id: 'trace-sleep',
           run_id: 'run-sleep',
           dedupe_key: 'sleep:latest',
-          created_at: new Date('2026-06-06T12:34:51.000Z')
+          created_at: new Date('2026-06-06T04:34:51.000Z')
         }]
       },
       agentQueueMessage: {

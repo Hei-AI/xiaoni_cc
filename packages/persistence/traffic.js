@@ -137,10 +137,10 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const endTime = toDateValue(filters.endTime);
 
     if (startTime) {
-      conditions.push(Prisma.sql`request_timestamp >= CAST(${serializeTimestampForStorage(startTime)} AS timestamp)`);
+      conditions.push(Prisma.sql`request_timestamp >= CAST(${serializeTimestampForStorage(startTime)} AS timestamptz)`);
     }
     if (endTime) {
-      conditions.push(Prisma.sql`request_timestamp <= CAST(${serializeTimestampForStorage(endTime)} AS timestamp)`);
+      conditions.push(Prisma.sql`request_timestamp <= CAST(${serializeTimestampForStorage(endTime)} AS timestamptz)`);
     }
     if (filters.method) {
       conditions.push(Prisma.sql`method = ${filters.method}`);
@@ -632,8 +632,8 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
         ${record.response_content_type || null},
         ${toIntegerValue(record.response_size)},
         ${toBigIntValue(record.duration_ms)},
-        CAST(${requestTimestamp} AS timestamp),
-        CAST(${responseTimestamp} AS timestamp),
+        CAST(${requestTimestamp} AS timestamptz),
+        CAST(${responseTimestamp} AS timestamptz),
         ${Boolean(record.is_ai_request)},
         ${record.api_type || null},
         ${record.api_version || null},

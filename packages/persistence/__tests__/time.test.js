@@ -24,7 +24,7 @@ test('serializeTimestampWithoutTimezoneForApi treats Date UTC fields as stored w
   const prismaTimestamp = new Date('2026-06-13T21:52:16.211Z');
   assert.equal(
     serializeTimestampWithoutTimezoneForApi(prismaTimestamp),
-    '2026-06-13T21:52:16.211+08:00'
+    '2026-06-14T05:52:16.211+08:00'
   );
   assert.equal(
     parseTimestampWithoutTimezone(prismaTimestamp).toISOString(),
@@ -32,17 +32,17 @@ test('serializeTimestampWithoutTimezoneForApi treats Date UTC fields as stored w
   );
 });
 
-test('prepareTimestampWithoutTimezoneForPrisma stores instants as East-8 wall clock Dates', () => {
+test('prepareTimestampWithoutTimezoneForPrisma stores instants without wall-clock shifting', () => {
   assert.equal(
     prepareTimestampWithoutTimezoneForPrisma(new Date('2026-06-13T20:15:05.385Z')).toISOString(),
-    '2026-06-14T04:15:05.385Z'
+    '2026-06-13T20:15:05.385Z'
   );
   assert.equal(
     prepareTimestampWithoutTimezoneForPrisma('2026-06-14T04:15:05.385+08:00').toISOString(),
-    '2026-06-14T04:15:05.385Z'
+    '2026-06-13T20:15:05.385Z'
   );
   assert.equal(
     prepareTimestampWithoutTimezoneForPrisma('2026-06-14 04:15:05.385').toISOString(),
-    '2026-06-14T04:15:05.385Z'
+    '2026-06-13T20:15:05.385Z'
   );
 });

@@ -236,7 +236,7 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
   });
   assert.equal(updated.wakeCallCount, 3);
   assert.equal(updated.lastWakeCountedQueueMessageId, 45);
-  assert.equal(updated.clockDeferredAt, '2026-06-13 09:30:00.000');
+  assert.equal(updated.clockDeferredAt, '2026-06-13T01:30:00.000Z');
 
   const finalized = await persistence.finalizeAgentRecoverySession({
     id: created.id,
@@ -257,7 +257,7 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
   assert.ok(queries.some((entry) => entry.statement.includes('INSERT INTO agent_recovery_sessions')));
 });
 
-test('agent recovery sessions serialize Date timestamp parameters as storage wall clock', async () => {
+test('agent recovery sessions serialize Date timestamp parameters as instants', async () => {
   const queryCalls = [];
   const adapter = {
     query: async (statement, params = []) => {
@@ -309,10 +309,10 @@ test('agent recovery sessions serialize Date timestamp parameters as storage wal
 
   const insertCall = queryCalls.find((entry) => entry.statement.includes('INSERT INTO agent_recovery_sessions'));
   const finalizeCall = queryCalls.find((entry) => entry.statement.includes('SET status = ?'));
-  assert.equal(insertCall.params[6], '2026-06-13 13:52:16.209');
-  assert.equal(insertCall.params[5], '2026-06-13 14:52:16.209');
-  assert.equal(insertCall.params[24], '2026-06-13 15:52:16.209');
-  assert.equal(insertCall.params[25], '2026-06-13 16:52:16.209');
-  assert.equal(finalizeCall.params[2], '2026-06-13 16:52:16.209');
-  assert.equal(finalizeCall.params[3], '2026-06-13 16:52:16.209');
+  assert.equal(insertCall.params[6], '2026-06-13T05:52:16.209Z');
+  assert.equal(insertCall.params[5], '2026-06-13T06:52:16.209Z');
+  assert.equal(insertCall.params[24], '2026-06-13T07:52:16.209Z');
+  assert.equal(insertCall.params[25], '2026-06-13T08:52:16.209Z');
+  assert.equal(finalizeCall.params[2], '2026-06-13T08:52:16.209Z');
+  assert.equal(finalizeCall.params[3], '2026-06-13T08:52:16.209Z');
 });

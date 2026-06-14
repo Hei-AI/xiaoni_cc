@@ -2,6 +2,7 @@
 
 const {
   formatEast8IsoOffset,
+  parseStoredTimestamp,
   parseTimestampWithoutTimezone,
   prepareTimestampWithoutTimezoneForPrisma,
   serializeTimestampWithoutTimezoneForApi
@@ -154,7 +155,7 @@ function toInstantDate(value) {
 }
 
 function toStoredTimestampDate(value) {
-  return parseTimestampWithoutTimezone(value);
+  return parseStoredTimestamp(value);
 }
 
 function normalizeRecoveryDurationMs(payload) {
