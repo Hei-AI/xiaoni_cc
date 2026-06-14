@@ -10,6 +10,7 @@ import {
   listAgentLifeEvents,
   listAgentMediaAssets,
   listAgentRecoverySessions,
+  listToolExecutions,
   listAgentTasks,
   updateAgentRuntimeControl,
 } from '@qq-bot/persistence';
@@ -281,13 +282,76 @@ function currentProjectionTimestamp(current: any) {
   );
 }
 
+function recoverEnergyResult(tool: any): Record<string, unknown> {
+  return tool?.result && typeof tool.result === 'object' && !Array.isArray(tool.result)
+    ? tool.result
+    : {};
+}
+
+function recoverEnergyRequestStatus(tool: any) {
+  const result = recoverEnergyResult(tool);
+  if (result.rest_rejected === true) {
+    return 'rejected';
+  }
+  if (result.recovery_session_requested === true) {
+    return 'accepted';
+  }
+  if (result.recovered === true) {
+    return 'completed';
+  }
+  return tool?.status || 'unknown';
+}
+
+function summarizeRecoverEnergyRequests(tools: any[]) {
+  const requests = tools.map((tool) => {
+    const result = recoverEnergyResult(tool);
+    const args = tool?.arguments && typeof tool.arguments === 'object' && !Array.isArray(tool.arguments)
+      ? tool.arguments
+      : {};
+    return {
+      id: tool.executionId || tool.id || null,
+      toolExecutionId: tool.executionId || null,
+      toolCallId: tool.toolCallId || null,
+      traceId: tool.traceId || null,
+      runId: tool.runId || null,
+      status: recoverEnergyRequestStatus(tool),
+      restRejected: result.rest_rejected === true,
+      reason: typeof result.reason === 'string' && result.reason.trim()
+        ? result.reason.trim()
+        : (typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : null),
+      requestedReason: typeof args.reason === 'string' && args.reason.trim() ? args.reason.trim() : null,
+      xiaoniOs: typeof result.xiaoni_os === 'string' && result.xiaoni_os.trim()
+        ? result.xiaoni_os.trim()
+        : (typeof args.xiaoni_os === 'string' && args.xiaoni_os.trim() ? args.xiaoni_os.trim() : null),
+      energy: finiteNumber(result.energy ?? result.energy_start ?? result.energy_before),
+      maxEnergy: finiteNumber(result.max_energy) ?? 1,
+      pressure: finiteNumber(result.pressure),
+      requiredPressure: finiteNumber(result.required_pressure),
+      clockMinutes: finiteNumber(result.clock_minutes),
+      startedAt: tool.startedAt || tool.createdAt || null,
+      completedAt: tool.completedAt || null
+    };
+  });
+  return {
+    requests,
+    summary: {
+      total: requests.length,
+      rejected: requests.filter((request) => request.restRejected).length,
+      accepted: requests.filter((request) => request.status === 'accepted').length,
+      completed: requests.filter((request) => request.status === 'completed').length
+    }
+  };
+}
+
 function buildEnergyTimeline({
   sessions,
   events,
+  recoverEnergyRequests,
   current
 }: {
   sessions: any[];
   events: any[];
+  recoverEnergyRequests?: any[];
   current: any;
 }) {
   const items: Array<{
@@ -300,6 +364,7 @@ function buildEnergyTimeline({
     eventId?: string | null;
     explicitEnergy?: number | null;
     event?: any;
+    recoverEnergyRequest?: any;
   }> = [];
 
   for (const session of sessions) {
@@ -349,6 +414,24 @@ function buildEnergyTimeline({
     });
   }
 
+  for (const request of recoverEnergyRequests || []) {
+    const timestamp = toValidDate(request?.startedAt);
+    if (!timestamp) {
+      continue;
+    }
+    const maxEnergy = request?.maxEnergy ?? 1;
+    const energy = normalizeEnergy(request?.energy, maxEnergy);
+    items.push({
+      timestamp,
+      priority: request.restRejected ? 2 : 1,
+      source: 'tool_execution',
+      kind: request.restRejected ? 'recover_energy_rejected' : `recover_energy_${request.status || 'requested'}`,
+      label: request.restRejected ? '拒绝休息' : '请求休息',
+      explicitEnergy: energy,
+      recoverEnergyRequest: request
+    });
+  }
+
   const projectionAt = currentProjectionTimestamp(current);
   const projectedEnergy = currentProjectionEnergy(current);
   if (projectionAt && projectedEnergy !== null) {
@@ -382,7 +465,15 @@ function buildEnergyTimeline({
       kind: item.kind,
       label: item.label,
       recoverySessionId: item.recoverySessionId ?? null,
-      eventId: item.eventId ?? null
+      eventId: item.eventId ?? null,
+      restRejected: item.recoverEnergyRequest?.restRejected === true,
+      rejectionReason: item.recoverEnergyRequest?.restRejected === true ? item.recoverEnergyRequest?.reason || null : null,
+      requestedReason: item.recoverEnergyRequest?.requestedReason || null,
+      pressure: item.recoverEnergyRequest?.pressure ?? null,
+      requiredPressure: item.recoverEnergyRequest?.requiredPressure ?? null,
+      toolExecutionId: item.recoverEnergyRequest?.toolExecutionId ?? null,
+      toolCallId: item.recoverEnergyRequest?.toolCallId ?? null,
+      traceId: item.recoverEnergyRequest?.traceId ?? null
     });
   };
 
@@ -799,15 +890,26 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         runtime
       };
       const energyTimelineStart = resolveTimelineStart(Array.isArray(sessions) ? sessions : []);
-      const energyEvents = await listAgentLifeEvents({
-        identityKey,
-        occurredAfter: energyTimelineStart,
-        chronological: true,
-        limit: 1000
-      });
+      const [energyEvents, recoverEnergyTools] = await Promise.all([
+        listAgentLifeEvents({
+          identityKey,
+          occurredAfter: energyTimelineStart,
+          chronological: true,
+          limit: 1000
+        }),
+        listToolExecutions({
+          identityKey,
+          toolName: 'recover_energy',
+          occurredAfter: energyTimelineStart,
+          chronological: true,
+          limit: 1000
+        })
+      ]);
+      const recoverEnergyRequests = summarizeRecoverEnergyRequests(Array.isArray(recoverEnergyTools) ? recoverEnergyTools : []);
       const energyTimeline = buildEnergyTimeline({
         sessions: Array.isArray(sessions) ? sessions : [],
         events: Array.isArray(energyEvents) ? energyEvents : [],
+        recoverEnergyRequests: recoverEnergyRequests.requests,
         current
       });
       res.json({
@@ -818,6 +920,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           limit,
           active: Array.isArray(sessions) ? sessions.find((session: any) => session.status === 'active') || null : null,
           sessions,
+          recoverEnergyRequests,
           current,
           energyTimeline,
           runtime
