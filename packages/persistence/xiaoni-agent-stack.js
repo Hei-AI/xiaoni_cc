@@ -3039,8 +3039,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
   }
 
   function appendTimeClauses(clauses, params, input, expression) {
-    const startTime = normalizeDateFilter(input.startTime || input.start_time || input.since || input.from);
-    const endTime = normalizeDateFilter(input.endTime || input.end_time || input.until || input.to);
+    const startTime = normalizeDateFilter(input.startTime || input.start_time || input.since || input.from || input.occurredAfter || input.occurred_after);
+    const endTime = normalizeDateFilter(input.endTime || input.end_time || input.until || input.to || input.occurredBefore || input.occurred_before);
     if (startTime) {
       clauses.push(`${expression} >= ?`);
       params.push(startTime);
@@ -3638,6 +3638,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const clauses = ['identity_key = ?'];
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
+    const offset = Math.max(0, Number.parseInt(String(input.offset || 0), 10) || 0);
     const traceId = firstString(input.traceId, input.trace_id);
     const runId = firstString(input.runId, input.run_id);
     const toolCallId = firstString(input.toolCallId, input.tool_call_id);
@@ -3673,7 +3674,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
     }
     appendTimeClauses(clauses, params, input, 'COALESCE(started_at, created_at)');
-    params.push(limit);
+    params.push(limit, offset);
 
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
@@ -3682,7 +3683,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           FROM tool_executions
           WHERE ${clauses.join(' AND ')}
           ORDER BY COALESCE(started_at, created_at) ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
-          LIMIT ?
+          LIMIT ? OFFSET ?
         `,
         params
       );

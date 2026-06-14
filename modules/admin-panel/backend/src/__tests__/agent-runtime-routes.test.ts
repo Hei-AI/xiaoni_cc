@@ -242,6 +242,26 @@ describe('agent runtime recovery session routes', () => {
         startedAt: '2026-06-13T00:12:00.000Z',
         completedAt: '2026-06-13T00:12:01.000Z'
       }
+    ]).mockResolvedValueOnce([
+      {
+        id: '701',
+        executionId: 'tool:recover:rejected',
+        identityKey: 'xiaoni',
+        toolCallId: 'call-rejected',
+        toolName: 'recover_energy',
+        arguments: { reason: '还想睡一会儿' },
+        result: {
+          rest_rejected: true,
+          reason: '现在还没到可以休息的线：当前精力 0.870/1.000，刚醒不久或精力还够时很难再次入睡。',
+          energy: 0.87,
+          max_energy: 1,
+          pressure: 0.13,
+          required_pressure: 0.5
+        },
+        status: 'completed',
+        startedAt: '2026-06-13T00:12:00.000Z',
+        completedAt: '2026-06-13T00:12:01.000Z'
+      }
     ]);
 
     const response = await request(createApp(database))
@@ -264,12 +284,18 @@ describe('agent runtime recovery session routes', () => {
       chronological: true,
       limit: 1000
     });
-    expect(listToolExecutions).toHaveBeenCalledWith({
+    expect(listToolExecutions).toHaveBeenNthCalledWith(1, {
       identityKey: 'xiaoni',
       toolName: 'recover_energy',
       occurredAfter: expect.any(Date),
       chronological: true,
       limit: 1000
+    });
+    expect(listToolExecutions).toHaveBeenNthCalledWith(2, {
+      identityKey: 'xiaoni',
+      toolName: 'recover_energy',
+      limit: 21,
+      offset: 0
     });
     expect(response.body.data.active.id).toBe(88);
     expect(response.body.data.sessions).toHaveLength(2);
@@ -277,6 +303,14 @@ describe('agent runtime recovery session routes', () => {
       total: 1,
       rejected: 1,
       accepted: 0
+    });
+    expect(response.body.data.recoverEnergyRequests.pagination).toMatchObject({
+      limit: 20,
+      offset: 0,
+      hasMore: false,
+      nextOffset: null,
+      previousOffset: null,
+      sort: 'started_at_desc'
     });
     expect(response.body.data.recoverEnergyRequests.requests[0]).toMatchObject({
       status: 'rejected',
@@ -309,6 +343,92 @@ describe('agent runtime recovery session routes', () => {
     expect(response.body.data.runtime.live).toBe(true);
     expect(response.body.data.current.runtime.live).toBe(true);
     expect(database.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it('paginates and time filters recover energy request rows independently of the timeline', async () => {
+    const database = createDatabaseMock();
+    (axios.get as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: {
+        status: 'healthy',
+        service: 'agent-service',
+        runtime_enabled: true,
+        timestamp: '2026-06-13T00:00:00.000Z'
+      }
+    });
+    (listAgentRecoverySessions as jest.Mock).mockResolvedValueOnce([]);
+    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({ current: {}, items: [] });
+    (listAgentLifeEvents as jest.Mock).mockResolvedValueOnce([]);
+    (listToolExecutions as jest.Mock)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: '703',
+          executionId: 'tool:recover:newer',
+          identityKey: 'xiaoni',
+          toolCallId: 'call-newer',
+          toolName: 'recover_energy',
+          arguments: { reason: '困' },
+          result: { recovery_session_requested: true, energy_start: 0.2, max_energy: 1 },
+          status: 'completed',
+          startedAt: '2026-06-13T08:00:00.000Z',
+          completedAt: '2026-06-13T08:00:01.000Z'
+        },
+        {
+          id: '702',
+          executionId: 'tool:recover:older',
+          identityKey: 'xiaoni',
+          toolCallId: 'call-older',
+          toolName: 'recover_energy',
+          arguments: { reason: '累' },
+          result: { rest_rejected: true, energy: 0.8, max_energy: 1 },
+          status: 'completed',
+          startedAt: '2026-06-13T07:00:00.000Z',
+          completedAt: '2026-06-13T07:00:01.000Z'
+        },
+        {
+          id: '701',
+          executionId: 'tool:recover:extra',
+          identityKey: 'xiaoni',
+          toolCallId: 'call-extra',
+          toolName: 'recover_energy',
+          arguments: {},
+          result: {},
+          status: 'completed',
+          startedAt: '2026-06-13T06:00:00.000Z',
+          completedAt: '2026-06-13T06:00:01.000Z'
+        }
+      ]);
+
+    const response = await request(createApp(database))
+      .get('/api/agent-runtime/recovery-sessions?request_limit=2&request_offset=4&request_from=2026-06-13T06:00:00.000Z&request_to=2026-06-13T09:00:00.000Z');
+
+    expect(response.status).toBe(200);
+    expect(listToolExecutions).toHaveBeenNthCalledWith(2, {
+      identityKey: 'xiaoni',
+      toolName: 'recover_energy',
+      startTime: new Date('2026-06-13T06:00:00.000Z'),
+      endTime: new Date('2026-06-13T09:00:00.000Z'),
+      limit: 3,
+      offset: 4
+    });
+    expect(response.body.data.recoverEnergyRequests.requests).toHaveLength(2);
+    expect(response.body.data.recoverEnergyRequests.requests.map((item: any) => item.toolExecutionId)).toEqual([
+      'tool:recover:newer',
+      'tool:recover:older'
+    ]);
+    expect(response.body.data.recoverEnergyRequests.pagination).toMatchObject({
+      limit: 2,
+      offset: 4,
+      hasMore: true,
+      nextOffset: 6,
+      previousOffset: 2,
+      sort: 'started_at_desc',
+      filters: {
+        from: '2026-06-13T06:00:00.000Z',
+        to: '2026-06-13T09:00:00.000Z'
+      }
+    });
   });
 });
 

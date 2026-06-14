@@ -924,6 +924,34 @@ test('listToolExecutions filters by tool name in persistence', async () => {
   assert.equal(rows[0].result.rest_rejected, true);
 });
 
+test('listToolExecutions supports offset and occurred time filters', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.listToolExecutions({
+    identityKey: 'xiaoni',
+    toolName: 'recover_energy',
+    occurredAfter: '2026-06-13T06:00:00.000Z',
+    occurredBefore: '2026-06-13T09:00:00.000Z',
+    limit: 20,
+    offset: 40
+  });
+  const query = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('FROM tool_executions'));
+
+  assert.ok(query);
+  assert.match(query.sql, /COALESCE\(started_at, created_at\) >= \?/);
+  assert.match(query.sql, /COALESCE\(started_at, created_at\) <= \?/);
+  assert.match(query.sql, /LIMIT \? OFFSET \?/);
+  assert.deepEqual(query.params, [
+    'xiaoni',
+    'recover_energy',
+    new Date('2026-06-13T06:00:00.000Z'),
+    new Date('2026-06-13T09:00:00.000Z'),
+    20,
+    40
+  ]);
+});
+
 test('core memory compression fork ledger stores run, slice, items, and tool execution outside main stack', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });

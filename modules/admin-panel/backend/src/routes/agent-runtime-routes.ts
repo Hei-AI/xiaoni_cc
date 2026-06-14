@@ -269,6 +269,22 @@ function resolveTimelineStart(sessions: any[]) {
   return firstSessionAt || new Date(Date.now() - 24 * 60 * 60 * 1000);
 }
 
+function parseBoundedInteger(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function parseOptionalDate(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  const date = new Date(value.trim());
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
 function currentProjectionEnergy(current: any) {
   return normalizeEnergy(current?.lifeState?.projection?.state?.energy, 1);
 }
@@ -302,7 +318,7 @@ function recoverEnergyRequestStatus(tool: any) {
   return tool?.status || 'unknown';
 }
 
-function summarizeRecoverEnergyRequests(tools: any[]) {
+function summarizeRecoverEnergyRequests(tools: any[], pagination?: Record<string, unknown>) {
   const requests = tools.map((tool) => {
     const result = recoverEnergyResult(tool);
     const args = tool?.arguments && typeof tool.arguments === 'object' && !Array.isArray(tool.arguments)
@@ -334,6 +350,7 @@ function summarizeRecoverEnergyRequests(tools: any[]) {
   });
   return {
     requests,
+    ...(pagination ? { pagination } : {}),
     summary: {
       total: requests.length,
       rejected: requests.filter((request) => request.restRejected).length,
@@ -880,6 +897,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   router.get('/agent-runtime/recovery-sessions', async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(100, Number.parseInt(String(req.query.limit || '30'), 10) || 30));
+      const requestLimit = parseBoundedInteger(req.query.request_limit, 20, 1, 100);
+      const requestOffset = parseBoundedInteger(req.query.request_offset, 0, 0, 100000);
+      const requestFrom = parseOptionalDate(req.query.request_from || req.query.request_start_time || req.query.from);
+      const requestTo = parseOptionalDate(req.query.request_to || req.query.request_end_time || req.query.to);
       const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
         ? req.query.identity_key.trim()
         : 'xiaoni';
@@ -896,7 +917,11 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         runtime
       };
       const energyTimelineStart = resolveTimelineStart(Array.isArray(sessions) ? sessions : []);
-      const [energyEvents, recoverEnergyTools] = await Promise.all([
+      const requestTimeFilter = {
+        ...(requestFrom ? { startTime: requestFrom } : {}),
+        ...(requestTo ? { endTime: requestTo } : {})
+      };
+      const [energyEvents, recoverEnergyToolsForTimeline, recoverEnergyToolsForList] = await Promise.all([
         listAgentLifeEvents({
           identityKey,
           occurredAfter: energyTimelineStart,
@@ -909,13 +934,36 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           occurredAfter: energyTimelineStart,
           chronological: true,
           limit: 1000
+        }),
+        listToolExecutions({
+          identityKey,
+          toolName: 'recover_energy',
+          ...requestTimeFilter,
+          limit: requestLimit + 1,
+          offset: requestOffset
         })
       ]);
-      const recoverEnergyRequests = summarizeRecoverEnergyRequests(Array.isArray(recoverEnergyTools) ? recoverEnergyTools : []);
+      const requestRows = Array.isArray(recoverEnergyToolsForList) ? recoverEnergyToolsForList : [];
+      const hasMoreRequests = requestRows.length > requestLimit;
+      const recoverEnergyRequests = summarizeRecoverEnergyRequests(requestRows.slice(0, requestLimit), {
+        limit: requestLimit,
+        offset: requestOffset,
+        hasMore: hasMoreRequests,
+        nextOffset: hasMoreRequests ? requestOffset + requestLimit : null,
+        previousOffset: requestOffset > 0 ? Math.max(0, requestOffset - requestLimit) : null,
+        sort: 'started_at_desc',
+        filters: {
+          from: requestFrom ? requestFrom.toISOString() : null,
+          to: requestTo ? requestTo.toISOString() : null
+        }
+      });
+      const recoverEnergyRequestsForTimeline = summarizeRecoverEnergyRequests(
+        Array.isArray(recoverEnergyToolsForTimeline) ? recoverEnergyToolsForTimeline : []
+      );
       const energyTimeline = buildEnergyTimeline({
         sessions: Array.isArray(sessions) ? sessions : [],
         events: Array.isArray(energyEvents) ? energyEvents : [],
-        recoverEnergyRequests: recoverEnergyRequests.requests,
+        recoverEnergyRequests: recoverEnergyRequestsForTimeline.requests,
         current
       });
       res.json({
@@ -924,6 +972,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           identityKey,
           status,
           limit,
+          requestLimit,
+          requestOffset,
           active: Array.isArray(sessions) ? sessions.find((session: any) => session.status === 'active') || null : null,
           sessions,
           recoverEnergyRequests,

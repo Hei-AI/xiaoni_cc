@@ -10,8 +10,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlarmClock, BatteryMedium, Bell, Clock3, Moon, RefreshCw, XCircle } from 'lucide-react';
+import { AlarmClock, BatteryMedium, Bell, Calendar, Clock3, Moon, RefreshCw, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Table,
   TableBody,
@@ -158,6 +159,18 @@ type RecoverEnergyRequest = {
 
 type RecoverEnergyRequestsPayload = {
   requests: RecoverEnergyRequest[];
+  pagination?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+    nextOffset: number | null;
+    previousOffset: number | null;
+    sort?: string | null;
+    filters?: {
+      from?: string | null;
+      to?: string | null;
+    };
+  };
   summary: {
     total: number;
     rejected: number;
@@ -178,8 +191,27 @@ type RecoverySessionsPayload = {
   runtime: RuntimeSnapshot;
 };
 
-async function fetchRecoverySessions(): Promise<RecoverySessionsPayload> {
-  const response = await fetch('/api/agent-runtime/recovery-sessions?limit=40');
+const RECOVER_ENERGY_REQUEST_PAGE_SIZE = 20;
+
+type RecoverEnergyRequestFilters = {
+  offset: number;
+  from: string;
+  to: string;
+};
+
+async function fetchRecoverySessions(filters: RecoverEnergyRequestFilters): Promise<RecoverySessionsPayload> {
+  const params = new URLSearchParams({
+    limit: '40',
+    request_limit: String(RECOVER_ENERGY_REQUEST_PAGE_SIZE),
+    request_offset: String(filters.offset)
+  });
+  if (filters.from.trim()) {
+    params.set('request_from', filters.from.trim());
+  }
+  if (filters.to.trim()) {
+    params.set('request_to', filters.to.trim());
+  }
+  const response = await fetch(`/api/agent-runtime/recovery-sessions?${params.toString()}`);
   const payload = await response.json() as ApiResponse<RecoverySessionsPayload>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || 'Failed to load recovery sessions');
@@ -536,9 +568,17 @@ function EnergyTrendChart({ points, isLoading }: { points: EnergyChartPoint[]; i
 }
 
 export const XiaoniRecoveryPage: React.FC = () => {
+  const [requestOffset, setRequestOffset] = React.useState(0);
+  const [requestFrom, setRequestFrom] = React.useState('');
+  const [requestTo, setRequestTo] = React.useState('');
+  const requestFilters = React.useMemo<RecoverEnergyRequestFilters>(() => ({
+    offset: requestOffset,
+    from: requestFrom,
+    to: requestTo
+  }), [requestFrom, requestOffset, requestTo]);
   const query = useQuery({
-    queryKey: ['xiaoni-recovery-sessions'],
-    queryFn: fetchRecoverySessions,
+    queryKey: ['xiaoni-recovery-sessions', requestFilters],
+    queryFn: () => fetchRecoverySessions(requestFilters),
     refetchInterval: 5000
   });
 
@@ -552,6 +592,8 @@ export const XiaoniRecoveryPage: React.FC = () => {
     accepted: recoverEnergyRequests.filter((request) => request.status === 'accepted').length,
     completed: recoverEnergyRequests.filter((request) => request.status === 'completed').length
   };
+  const recoverEnergyRequestPagination = payload?.recoverEnergyRequests?.pagination || null;
+  const requestPage = Math.floor(requestOffset / RECOVER_ENERGY_REQUEST_PAGE_SIZE) + 1;
   const current = payload?.current || null;
   const runtime = current?.runtime || payload?.runtime;
   const runtimeLive = runtime?.live;
@@ -744,46 +786,120 @@ export const XiaoniRecoveryPage: React.FC = () => {
         icon={<XCircle className="h-4 w-4 text-primary" />}
         contentClassName="pt-0"
       >
+        <div className="mb-4 flex flex-col gap-3 border-b border-border pb-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Calendar className="h-3.5 w-3.5" />
+                开始时间
+              </div>
+              <Input
+                type="datetime-local"
+                step="1"
+                value={requestFrom}
+                onChange={(event) => {
+                  setRequestFrom(event.target.value);
+                  setRequestOffset(0);
+                }}
+                className="w-full lg:w-56"
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs font-medium text-muted-foreground">结束时间</div>
+              <Input
+                type="datetime-local"
+                step="1"
+                value={requestTo}
+                onChange={(event) => {
+                  setRequestTo(event.target.value);
+                  setRequestOffset(0);
+                }}
+                className="w-full lg:w-56"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRequestFrom('');
+                setRequestTo('');
+                setRequestOffset(0);
+              }}
+              disabled={!requestFrom && !requestTo && requestOffset === 0}
+            >
+              清空
+            </Button>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            按开始时间倒序，每页 {RECOVER_ENERGY_REQUEST_PAGE_SIZE} 条
+          </div>
+        </div>
         {recoverEnergyRequests.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>结果</TableHead>
-                <TableHead>时间</TableHead>
-                <TableHead>精力</TableHead>
-                <TableHead>压力/门槛</TableHead>
-                <TableHead>clock</TableHead>
-                <TableHead>原因</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {recoverEnergyRequests.map((request, index) => (
-                <TableRow key={request.toolExecutionId || request.id || index}>
-                  <TableCell>
-                    <StatusPill tone={requestStatusTone(request)}>{requestStatusLabel(request)}</StatusPill>
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatTimestamp(request.startedAt, { fallback: '-' })}
-                  </TableCell>
-                  <TableCell>{formatEnergyValue(request.energy, request.maxEnergy || 1)}</TableCell>
-                  <TableCell>
-                    {formatNumber(request.pressure)} / {formatNumber(request.requiredPressure)}
-                  </TableCell>
-                  <TableCell>{request.clockMinutes ? `${request.clockMinutes}m` : '-'}</TableCell>
-                  <TableCell className="max-w-[520px]">
-                    <div className="line-clamp-2 text-sm text-foreground" title={request.reason || request.requestedReason || ''}>
-                      {request.reason || request.requestedReason || '-'}
-                    </div>
-                    {request.restRejected && request.requestedReason && request.requestedReason !== request.reason ? (
-                      <div className="mt-1 line-clamp-1 text-xs text-muted-foreground" title={request.requestedReason}>
-                        请求理由：{request.requestedReason}
-                      </div>
-                    ) : null}
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>结果</TableHead>
+                  <TableHead>时间</TableHead>
+                  <TableHead>精力</TableHead>
+                  <TableHead>压力/门槛</TableHead>
+                  <TableHead>clock</TableHead>
+                  <TableHead>原因</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {recoverEnergyRequests.map((request, index) => (
+                  <TableRow key={request.toolExecutionId || request.id || index}>
+                    <TableCell>
+                      <StatusPill tone={requestStatusTone(request)}>{requestStatusLabel(request)}</StatusPill>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {formatTimestamp(request.startedAt, { fallback: '-' })}
+                    </TableCell>
+                    <TableCell>{formatEnergyValue(request.energy, request.maxEnergy || 1)}</TableCell>
+                    <TableCell>
+                      {formatNumber(request.pressure)} / {formatNumber(request.requiredPressure)}
+                    </TableCell>
+                    <TableCell>{request.clockMinutes ? `${request.clockMinutes}m` : '-'}</TableCell>
+                    <TableCell className="max-w-[520px]">
+                      <div className="line-clamp-2 text-sm text-foreground" title={request.reason || request.requestedReason || ''}>
+                        {request.reason || request.requestedReason || '-'}
+                      </div>
+                      {request.restRejected && request.requestedReason && request.requestedReason !== request.reason ? (
+                        <div className="mt-1 line-clamp-1 text-xs text-muted-foreground" title={request.requestedReason}>
+                          请求理由：{request.requestedReason}
+                        </div>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-muted-foreground">
+                第 {requestPage} 页，本页 {recoverEnergyRequests.length} 条
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRequestOffset(recoverEnergyRequestPagination?.previousOffset ?? Math.max(0, requestOffset - RECOVER_ENERGY_REQUEST_PAGE_SIZE))}
+                  disabled={requestOffset <= 0 || query.isFetching}
+                >
+                  上一页
+                </Button>
+                <StatusPill tone="info">offset {requestOffset}</StatusPill>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRequestOffset(recoverEnergyRequestPagination?.nextOffset ?? requestOffset + RECOVER_ENERGY_REQUEST_PAGE_SIZE)}
+                  disabled={!recoverEnergyRequestPagination?.hasMore || query.isFetching}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          </>
         ) : (
           <EmptyState
             icon={<XCircle className="h-8 w-8" />}
