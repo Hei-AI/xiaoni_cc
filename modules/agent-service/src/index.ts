@@ -48,6 +48,23 @@ app.get('/health', async (_req, res) => {
   });
 });
 
+app.post('/api/internal/runtime/cache-heartbeat', async (_req, res) => {
+  try {
+    const result = await loopService.triggerCacheHeartbeatForDebug();
+    res.json({
+      success: true,
+      result
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('Manual cache heartbeat failed', { error: message });
+    res.status(500).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 app.post('/api/internal/qq-usage', async (req, res) => {
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
     ? req.body as Record<string, unknown>

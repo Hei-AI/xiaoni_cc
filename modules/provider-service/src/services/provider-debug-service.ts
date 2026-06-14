@@ -105,8 +105,8 @@ function normalizeUsageSourceKindFromExecutionMode(executionMode: string) {
     .slice(0, 32) || 'codex_provider';
 }
 
-function identityKeyForProviderUsage(sourceKind: string, replayIdentityKey?: string) {
-  if (sourceKind === 'image_vision_fork') {
+export function identityKeyForProviderUsage(sourceKind: string, replayIdentityKey?: string) {
+  if (sourceKind === 'image_vision_fork' || sourceKind === 'cache_heartbeat') {
     return 'xiaoni';
   }
   return replayIdentityKey || 'xiaoni-internal';

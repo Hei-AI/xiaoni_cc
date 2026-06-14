@@ -359,7 +359,34 @@ function createMockSql() {
         rows.providerEvent.push(row);
         return [row];
       }
-      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('FROM codex_provider_usage_events') && sql.includes('WHERE event_id = ?')) {
+      if (/SELECT\s+\*\s+FROM\s+codex_provider_usage_events/i.test(sql)) {
+        return rows.providerEvent.filter((row) => {
+          let index = 0;
+          if (sql.includes('identity_key = ?') && row.identity_key !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('event_id = ?') && row.event_id !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('source_kind = ?') && row.source_kind !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('source_id = ?') && row.source_id !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('trace_id = ?') && row.trace_id !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('run_id = ?') && row.run_id !== params[index++]) {
+            return false;
+          }
+          if (sql.includes('llm_call_id = ?') && row.llm_call_id !== params[index++]) {
+            return false;
+          }
+          return true;
+        });
+      }
+      if (sql.includes("date_trunc('hour', created_at)") && sql.includes('FROM codex_provider_usage_events') && sql.includes('WHERE slice_id = ?')) {
         const eventId = params[0];
         const row = rows.providerEvent.find((entry) => entry.event_id === eventId);
         if (!row) {
@@ -620,6 +647,38 @@ test('recordCodexProviderUsageEvent stores no-stack Codex Provider calls in usag
     && row.input_tokens === 33
     && row.output_tokens === 7
   ));
+});
+
+test('listCodexProviderUsageEvents returns cache heartbeat provider events', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordCodexProviderUsageEvent({
+    eventId: 'codex-provider:llm-heartbeat',
+    sourceKind: 'cache_heartbeat',
+    llmCallId: 'llm-heartbeat',
+    traceId: 'trace-heartbeat',
+    runId: 'run-heartbeat',
+    canonicalRequest: { input: [{ type: 'message', content: 'Heartbeat' }] },
+    wireRequest: { model: 'gpt-test' },
+    rawResponse: { output_text: '1' },
+    outputItems: [{ type: 'message' }],
+    tokenUsage: { input_tokens: 100, cached_input_tokens: 90, output_tokens: 1 },
+    modelName: 'gpt-test',
+    modelProvider: 'codex-local'
+  });
+
+  const rows = await persistence.listCodexProviderUsageEvents({
+    identityKey: 'xiaoni',
+    sourceKind: 'cache_heartbeat',
+    limit: 10
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].eventId, 'codex-provider:llm-heartbeat');
+  assert.equal(rows[0].sourceKind, 'cache_heartbeat');
+  assert.equal(rows[0].llmCallId, 'llm-heartbeat');
+  assert.equal(rows[0].tokenUsage.cached_input_tokens, 90);
 });
 
 test('recordCodexProviderUsageEvent skips rollup when compression fork slice owns the same llm call', async () => {

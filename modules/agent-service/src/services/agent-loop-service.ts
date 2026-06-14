@@ -215,6 +215,30 @@ type CanonicalAgentTurnRequest = {
   store?: boolean;
 };
 
+type CacheHeartbeatRunResult = {
+  triggered: boolean;
+  reason?: string;
+  executionMode: string;
+  traceId?: string;
+  runId?: string;
+  promptName?: string;
+  model?: string | null;
+  provider?: string | null;
+  llmCallId?: string | null;
+  promptCacheKey?: string | null;
+  store?: boolean | null;
+  maxOutputTokens?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  cachedInputTokens?: number | null;
+  processingTimeMs?: number | null;
+};
+
+type RecoverySessionHeartbeatState = {
+  id: number | string;
+};
+
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
   onCoreMemoryCompressionCommitted?: (commit: CoreMemoryCompressionCommit) => void | Promise<void>;
@@ -632,6 +656,12 @@ const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
+const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
+const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
+  'Heartbeat.',
+  'Cache maintenance only; do not call tools.',
+  'Return exactly: 1'
+].join(' ');
 
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
@@ -1722,6 +1752,32 @@ function buildCoreMemoryCompressionForkRequest(
     no_persist: 'true'
   };
   return forkRequest;
+}
+
+function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
+  const heartbeatRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  heartbeatRequest.input = normalizeResponseInputItems([
+    ...heartbeatRequest.input,
+    {
+      type: 'message',
+      role: 'developer',
+      content: CACHE_HEARTBEAT_DEVELOPER_CONTENT
+    }
+  ]);
+  heartbeatRequest.parallel_tool_calls = false;
+  heartbeatRequest.store = false;
+  heartbeatRequest.max_output_tokens = Math.max(
+    1,
+    Math.min(16, Number(agentConfig.cacheHeartbeatMaxOutputTokens) || 1)
+  );
+  heartbeatRequest.metadata = {
+    ...(heartbeatRequest.metadata || {}),
+    cache_heartbeat: 'true',
+    no_persist: 'true',
+    no_main_stack_persist: 'true',
+    no_traffic_persist: 'true'
+  };
+  return heartbeatRequest;
 }
 
 function buildImageVisionForkRequest(
@@ -4280,6 +4336,8 @@ export class AgentLoopService {
   private readonly responseActionRouter = new ResponseActionRouter();
   private stableRuntimePrompt: ResolvedAgentRuntimePrompt | null = null;
   private readonly coreMemoryCompressionForks = new Map<string, CoreMemoryCompressionForkState>();
+  private cacheHeartbeatLastStartedAtMs = 0;
+  private cacheHeartbeatInFlight: Promise<void> | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -4423,9 +4481,11 @@ export class AgentLoopService {
   private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
     const recoveryAction = await this.reconcileActiveRecoverySession(params);
     if (recoveryAction.status === 'active') {
+      await this.maybeRunCacheHeartbeatDuringRecovery(recoveryAction.session);
       await sleep(params.idleIntervalMs);
       return;
     }
+    await this.clearCacheHeartbeatRecoverySchedule(recoveryAction.session);
     if (recoveryAction.status === 'settled') {
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
         queueBacked: false,
@@ -4451,9 +4511,249 @@ export class AgentLoopService {
     await this.processRuntimeFrame(queueMessage);
   }
 
+  private async clearCacheHeartbeatRecoverySchedule(session?: RecoverySessionHeartbeatState | null) {
+    this.cacheHeartbeatLastStartedAtMs = 0;
+    const store = this.store as RuntimeStore & {
+      clearAgentRecoveryCacheHeartbeatSchedule?: RuntimeStore['clearAgentRecoveryCacheHeartbeatSchedule'];
+    };
+    if (!session?.id || typeof store.clearAgentRecoveryCacheHeartbeatSchedule !== 'function') {
+      return;
+    }
+    await store.clearAgentRecoveryCacheHeartbeatSchedule.call(this.store, {
+      id: session.id,
+      reason: 'recovery_settled'
+    }).catch((error) => {
+      moduleLogger.warn('Failed to clear Xiaoni cache heartbeat recovery schedule', {
+        recoverySessionId: session.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
+  private shouldRunFallbackCacheHeartbeat(intervalMs: number) {
+    const nowMs = Date.now();
+    if (this.cacheHeartbeatLastStartedAtMs > 0 && nowMs - this.cacheHeartbeatLastStartedAtMs < intervalMs) {
+      return false;
+    }
+    this.cacheHeartbeatLastStartedAtMs = nowMs;
+    return true;
+  }
+
+  private async maybeRunCacheHeartbeatDuringRecovery(session?: RecoverySessionHeartbeatState | null) {
+    if (!agentConfig.cacheHeartbeatEnabled) {
+      return;
+    }
+    if (this.cacheHeartbeatInFlight) {
+      return;
+    }
+    const intervalMs = Math.max(60 * 1000, Number(agentConfig.cacheHeartbeatIntervalMs) || (5 * 60 * 1000));
+    const store = this.store as RuntimeStore & {
+      claimAgentRecoveryCacheHeartbeat?: RuntimeStore['claimAgentRecoveryCacheHeartbeat'];
+      completeAgentRecoveryCacheHeartbeat?: RuntimeStore['completeAgentRecoveryCacheHeartbeat'];
+    };
+    let heartbeatSessionId: number | string | null = session?.id || null;
+    let heartbeatStartedAt: string | null = null;
+
+    if (heartbeatSessionId && typeof store.claimAgentRecoveryCacheHeartbeat === 'function') {
+      const claim = await store.claimAgentRecoveryCacheHeartbeat.call(this.store, {
+        id: heartbeatSessionId,
+        intervalMs,
+        inFlightStaleMs: Math.min(intervalMs, 60 * 1000),
+        now: new Date()
+      }).catch((error) => {
+        moduleLogger.warn('Failed to claim persisted Xiaoni cache heartbeat schedule', {
+          recoverySessionId: heartbeatSessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+      });
+      if (!claim?.claimed) {
+        return;
+      }
+      heartbeatStartedAt = claim.inFlightStartedAt || new Date().toISOString();
+    } else {
+      heartbeatSessionId = null;
+      if (!this.shouldRunFallbackCacheHeartbeat(intervalMs)) {
+        return;
+      }
+      heartbeatStartedAt = new Date().toISOString();
+    }
+
+    const run = (async () => {
+      try {
+        const result = await this.runCacheHeartbeatDuringRecovery();
+        if (heartbeatSessionId && typeof store.completeAgentRecoveryCacheHeartbeat === 'function') {
+          await store.completeAgentRecoveryCacheHeartbeat.call(this.store, {
+            id: heartbeatSessionId,
+            intervalMs,
+            status: result.triggered ? 'completed' : 'skipped',
+            startedAt: heartbeatStartedAt,
+            completedAt: new Date(),
+            eventId: result.llmCallId ? `codex-provider:${result.llmCallId}` : null,
+            llmCallId: result.llmCallId,
+            traceId: result.traceId,
+            runId: result.runId,
+            inputTokens: result.inputTokens,
+            cachedInputTokens: result.cachedInputTokens,
+            outputTokens: result.outputTokens,
+            processingTimeMs: result.processingTimeMs
+          }).catch((error) => {
+            moduleLogger.warn('Failed to persist Xiaoni cache heartbeat completion', {
+              recoverySessionId: heartbeatSessionId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+        }
+      } catch (error) {
+        if (heartbeatSessionId && typeof store.completeAgentRecoveryCacheHeartbeat === 'function') {
+          await store.completeAgentRecoveryCacheHeartbeat.call(this.store, {
+            id: heartbeatSessionId,
+            intervalMs,
+            status: 'failed',
+            startedAt: heartbeatStartedAt,
+            completedAt: new Date(),
+            error: error instanceof Error ? error.message : String(error)
+          }).catch((persistError) => {
+            moduleLogger.warn('Failed to persist Xiaoni cache heartbeat failure', {
+              recoverySessionId: heartbeatSessionId,
+              error: persistError instanceof Error ? persistError.message : String(persistError)
+            });
+          });
+        }
+        moduleLogger.warn('Xiaoni cache heartbeat failed', {
+          recoverySessionId: heartbeatSessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    })();
+    this.cacheHeartbeatInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (this.cacheHeartbeatInFlight === run) {
+        this.cacheHeartbeatInFlight = null;
+      }
+    }
+  }
+
+  async triggerCacheHeartbeatForDebug(): Promise<CacheHeartbeatRunResult> {
+    return this.runCacheHeartbeatDuringRecovery();
+  }
+
+  private async runCacheHeartbeatDuringRecovery(): Promise<CacheHeartbeatRunResult> {
+    const queueMessage = buildRuntimeLoopFrameQueueMessage();
+    const built = await this.buildCacheHeartbeatCanonicalRequest(queueMessage.payload);
+    if (!built) {
+      return {
+        triggered: false,
+        reason: 'request_builder_unavailable',
+        executionMode: CACHE_HEARTBEAT_EXECUTION_MODE,
+        traceId: queueMessage.traceId,
+        runId: queueMessage.id
+      };
+    }
+
+    const modelResult = await this.executeCacheHeartbeatTurn(
+      built.canonicalRequest,
+      queueMessage.payload,
+      built.runtimePrompt
+    );
+    const result = this.buildCacheHeartbeatRunResult(queueMessage, built.canonicalRequest, built.runtimePrompt, modelResult);
+    moduleLogger.info('Xiaoni cache heartbeat completed', {
+      traceId: result.traceId,
+      runId: result.runId,
+      model: result.model,
+      provider: result.provider,
+      cachedInputTokens: result.cachedInputTokens
+    });
+    return result;
+  }
+
+  private buildCacheHeartbeatRunResult(
+    queueMessage: QueueMessageRecord,
+    canonicalRequest: CanonicalAgentTurnRequest,
+    runtimePrompt: ResolvedAgentRuntimePrompt,
+    modelResult: ProviderAgentResponse
+  ): CacheHeartbeatRunResult {
+    return {
+      triggered: true,
+      executionMode: CACHE_HEARTBEAT_EXECUTION_MODE,
+      traceId: queueMessage.traceId,
+      runId: queueMessage.id,
+      promptName: runtimePrompt.promptName,
+      model: modelResult.model || runtimePrompt.modelName || null,
+      provider: modelResult.provider || null,
+      llmCallId: modelResult.llm_call_id || modelResult.llm_request_slice_id || null,
+      promptCacheKey: canonicalRequest.prompt_cache_key || null,
+      store: canonicalRequest.store ?? null,
+      maxOutputTokens: canonicalRequest.max_output_tokens ?? null,
+      inputTokens: readOptionalNumber(modelResult.usage?.input_tokens),
+      outputTokens: readOptionalNumber(modelResult.usage?.output_tokens),
+      totalTokens: readOptionalNumber(modelResult.usage?.total_tokens),
+      cachedInputTokens: readOptionalNumber(modelResult.usage_details?.cached_input_tokens),
+      processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms)
+    };
+  }
+
+  private async buildCacheHeartbeatCanonicalRequest(queueMessage: QueueMessageRecord['payload']): Promise<{
+    canonicalRequest: CanonicalAgentTurnRequest;
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+  } | null> {
+    const store = this.store as RuntimeStore & {
+      getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
+      listRecentTurns?: RuntimeStore['listRecentTurns'];
+    };
+    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listRecentTurns !== 'function') {
+      return null;
+    }
+
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const cutoffState = await store.getSessionReadCutoffState.call(this.store, contextSessionKey);
+    const sessionIds = resolveSessionTargets(queueMessage);
+    const history = await store.listRecentTurns.call(this.store, {
+      userId: sessionIds.userId,
+      groupId: sessionIds.groupId,
+      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      scope: 'global' as const
+    });
+    const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
+    const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(queueMessage);
+    const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(queueMessage);
+    const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(queueMessage);
+    const developerContextBlock = [
+      baseDeveloperContextBlock
+    ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
+    const buildBudgetPlan = (appendSelfContinuationOnTerminalFinalAnswer: boolean) => this.buildContextBudgetPlan({
+      history,
+      queueMessage,
+      runtimePrompt,
+      loopContinuation: [],
+      runtimeIdentityFacts,
+      developerContextBlock,
+      runtimeEnergyState,
+      contextSessionKey,
+      cutoffState,
+      triggerInputMode: 'suppress_current_trigger',
+      appendSelfContinuationOnTerminalFinalAnswer
+    });
+    let budgetPlan = await buildBudgetPlan(false);
+    const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
+    if (isAssistantFinalAnswerInputItem(lastInputItem)) {
+      budgetPlan = await buildBudgetPlan(true);
+    }
+
+    return {
+      canonicalRequest: buildCacheHeartbeatForkRequest(
+        buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.requestInput, queueMessage)
+      ),
+      runtimePrompt
+    };
+  }
+
   private async reconcileActiveRecoverySession(_params: AgentRuntimeIterationParams): Promise<{
     status: 'none' | 'active' | 'settled';
     inputItems: OpenResponseInputItem[];
+    session?: RecoverySessionHeartbeatState | null;
   }> {
     const store = this.store as RuntimeStore & {
       getActiveAgentRecoverySession?: RuntimeStore['getActiveAgentRecoverySession'];
@@ -4503,7 +4803,7 @@ export class AgentLoopService {
         energy: energyState.energy,
         pressure
       });
-      return { status: 'active', inputItems: [] };
+      return { status: 'active', inputItems: [], session: session ? { id: session.id } : null };
     }
 
     const lastCountedId = Math.max(
@@ -4562,7 +4862,7 @@ export class AgentLoopService {
           });
         });
       }
-      return { status: 'active', inputItems: [] };
+      return { status: 'active', inputItems: [], session: { id: session.id } };
     }
 
     const toolResult = this.buildRecoverySessionResult(session, projection, {
@@ -4574,7 +4874,7 @@ export class AgentLoopService {
       lastWakeCountedQueueMessageId: lastWakeCountedId
     });
     if (inputItems.length === 0) {
-      return { status: 'active', inputItems: [] };
+      return { status: 'active', inputItems: [], session: { id: session.id } };
     }
     if (typeof store.recordRecoverySessionLifeEvent === 'function') {
       await store.recordRecoverySessionLifeEvent.call(this.store, session, toolResult).catch((error) => {
@@ -4584,7 +4884,7 @@ export class AgentLoopService {
         });
       });
     }
-    return { status: 'settled', inputItems };
+    return { status: 'settled', inputItems, session: { id: session.id } };
   }
 
   private buildRecoverySessionResult(
@@ -7665,6 +7965,38 @@ export class AgentLoopService {
     const payload = await response.json() as ProviderAgentResponse;
     if (!response.ok || !payload.success) {
       throw new Error(payload.error || `Provider compression fork execute failed with ${response.status}`);
+    }
+
+    return payload;
+  }
+
+  private async executeCacheHeartbeatTurn(
+    canonicalRequest: CanonicalAgentTurnRequest,
+    queueMessage: QueueMessageRecord['payload'],
+    runtimePrompt: ResolvedAgentRuntimePrompt
+  ) {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
+      },
+      body: JSON.stringify({
+        trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId,
+        agent_turn: 0,
+        agent_type: 'chat_bot',
+        prompt_name: runtimePrompt.promptName,
+        executionMode: CACHE_HEARTBEAT_EXECUTION_MODE,
+        model: runtimePrompt.modelName,
+        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+        canonicalRequest
+      })
+    });
+
+    const payload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || `Provider cache heartbeat execute failed with ${response.status}`);
     }
 
     return payload;

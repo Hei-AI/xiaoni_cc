@@ -11,6 +11,7 @@ import type { OpenResponseCreateRequest, OpenResponseToolDefinition } from '../l
 import {
   buildRequestFromMessages,
   buildUnifiedConfig,
+  identityKeyForProviderUsage,
   resolveProviderContextSessionId,
   shouldRecordCodexProviderUsageEvent
 } from '../provider-debug-service';
@@ -113,6 +114,7 @@ function createCanonicalRequest(): OpenResponseCreateRequest {
     previous_response_id: 'resp_prev_789',
     prompt_cache_key: TEST_CODEX_PROMPT_CACHE_KEY,
     prompt_cache_retention: '24h',
+    max_output_tokens: 7,
     store: false,
     input: [
       {
@@ -153,6 +155,7 @@ test('OpenAI provider keeps canonical instructions top-level and preserves paral
   assert.equal(payload.previous_response_id, 'resp_prev_789');
   assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
   assert.equal(payload.prompt_cache_retention, '24h');
+  assert.equal(payload.max_output_tokens, 7);
   assert.equal(payload.store, false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
@@ -188,10 +191,22 @@ test('provider debug skips duplicate usage rows for core memory compression fork
   }), true);
 
   assert.equal(shouldRecordCodexProviderUsageEvent({
+    persistLlmCall: false,
+    provider: 'codex-local',
+    executionMode: 'cache_heartbeat_no_persist'
+  }), true);
+
+  assert.equal(shouldRecordCodexProviderUsageEvent({
     persistLlmCall: true,
     provider: 'codex-local',
     executionMode: 'agent_loop'
   }), false);
+});
+
+test('provider debug records cache heartbeat usage under Xiaoni identity', () => {
+  assert.equal(identityKeyForProviderUsage('cache_heartbeat', 'xiaoni-internal'), 'xiaoni');
+  assert.equal(identityKeyForProviderUsage('image_vision_fork', 'xiaoni-internal'), 'xiaoni');
+  assert.equal(identityKeyForProviderUsage('prompt_debug', 'xiaoni-internal'), 'xiaoni-internal');
 });
 
 test('OpenAI provider preserves function_call_output image content arrays', () => {
@@ -307,6 +322,7 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.equal(payload.tool_choice, 'required');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'previous_response_id'), false);
   assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'max_output_tokens'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
   assert.equal(payload.tools[1]?.type, 'web_search');
   assert.equal(payload.tools[1]?.search_context_size, 'medium');
@@ -319,12 +335,13 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
 });
 
-test('Codex provider omits prompt_cache_retention because the Codex backend rejects it', () => {
+test('Codex provider omits unsupported cache tuning fields because the Codex backend rejects them', () => {
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());
 
   assert.equal(payload.prompt_cache_key, TEST_CODEX_PROMPT_CACHE_KEY);
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'max_output_tokens'), false);
 });
 
 test('provider debug uses Codex session metadata before QQ source session keys', () => {
@@ -566,6 +583,7 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
       instructions: 'Be concise.',
       prompt_cache_key: 'xiaoni:test-global',
       prompt_cache_retention: '24h',
+      max_output_tokens: 1,
       input: [{ type: 'message', role: 'user', content: 'ping' }]
     });
 
@@ -573,6 +591,7 @@ test('Codex local provider uses Codex auth.json against the direct Codex backend
     assert.equal(payload.instructions, 'Be concise.');
     assert.equal(payload.stream, true);
     assert.equal(payload.prompt_cache_key, 'xiaoni:test-global');
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'max_output_tokens'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
     assert.deepEqual(payload.text, { verbosity: 'low' });
     assert.equal(payload.tool_choice, 'auto');

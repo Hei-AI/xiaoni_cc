@@ -77,10 +77,66 @@ function normalizeBigIntId(value) {
   }
 }
 
+function parseDateMs(value) {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(String(value));
+  const ms = date.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const parsed = normalizeInteger(value, fallback);
+  return parsed && parsed > 0 ? parsed : fallback;
+}
+
+function dateAfterMs(value, ms) {
+  const baseMs = parseDateMs(value);
+  if (baseMs === null) {
+    return null;
+  }
+  return new Date(baseMs + ms).toISOString();
+}
+
+function cacheHeartbeatMetadataFrom(metadata) {
+  return normalizeJsonObject(metadata.cache_heartbeat || metadata.cacheHeartbeat, {});
+}
+
+function cacheHeartbeatProjection(metadata = {}) {
+  const heartbeat = cacheHeartbeatMetadataFrom(metadata);
+  return {
+    intervalMs: normalizeInteger(heartbeat.interval_ms ?? heartbeat.intervalMs),
+    nextDueAt: normalizeDate(heartbeat.next_due_at ?? heartbeat.nextDueAt),
+    lastClaimedAt: normalizeDate(heartbeat.last_claimed_at ?? heartbeat.lastClaimedAt),
+    inFlightStartedAt: normalizeDate(heartbeat.in_flight_started_at ?? heartbeat.inFlightStartedAt),
+    lastStartedAt: normalizeDate(heartbeat.last_started_at ?? heartbeat.lastStartedAt),
+    lastCompletedAt: normalizeDate(heartbeat.last_completed_at ?? heartbeat.lastCompletedAt),
+    lastStatus: firstString(heartbeat.last_status, heartbeat.lastStatus),
+    lastEventId: firstString(heartbeat.last_event_id, heartbeat.lastEventId),
+    lastLlmCallId: firstString(heartbeat.last_llm_call_id, heartbeat.lastLlmCallId),
+    lastError: firstString(heartbeat.last_error, heartbeat.lastError),
+    claimCount: normalizeInteger(heartbeat.claim_count ?? heartbeat.claimCount, 0) || 0
+  };
+}
+
+function mergeCacheHeartbeatMetadata(metadata, patch) {
+  const normalized = normalizeJsonObject(metadata, {});
+  const current = cacheHeartbeatMetadataFrom(normalized);
+  return {
+    ...normalized,
+    cache_heartbeat: {
+      ...current,
+      ...patch
+    }
+  };
+}
+
 function normalizeRecoverySessionRow(row) {
   if (!row) {
     return null;
   }
+  const metadata = normalizeJsonObject(row.metadata, {});
   return {
     id: Number(row.id),
     identityKey: row.identity_key,
@@ -116,7 +172,8 @@ function normalizeRecoverySessionRow(row) {
     plannedNaturalWakeAt: normalizeDate(row.planned_natural_wake_at),
     hardWakeAt: normalizeDate(row.hard_wake_at),
     result: normalizeJsonObject(row.result, {}),
-    metadata: normalizeJsonObject(row.metadata, {}),
+    metadata,
+    cacheHeartbeat: cacheHeartbeatProjection(metadata),
     createdAt: normalizeDate(row.created_at),
     updatedAt: normalizeDate(row.updated_at)
   };
@@ -424,6 +481,210 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
     });
   }
 
+  async function claimAgentRecoveryCacheHeartbeat(input = {}, config = {}) {
+    const id = normalizeBigIntId(input.id);
+    if (!id) {
+      return {
+        claimed: false,
+        reason: 'invalid_session_id',
+        session: null,
+        nextDueAt: null
+      };
+    }
+    await ensureAgentRecoverySessionSchema(input, config);
+    const intervalMs = Math.max(60_000, normalizePositiveInteger(input.intervalMs ?? input.interval_ms, 5 * 60_000));
+    const inFlightStaleMs = Math.max(15_000, normalizePositiveInteger(input.inFlightStaleMs ?? input.in_flight_stale_ms, Math.min(intervalMs, 60_000)));
+    const now = input.now || new Date();
+    const nowMs = parseDateMs(now) || Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    return withSql(input, config, async (sql) => {
+      const claimWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            SELECT *
+            FROM agent_recovery_sessions
+            WHERE id = ?
+              AND status = 'active'
+            FOR UPDATE
+          `,
+          [id]
+        );
+        const row = rows[0];
+        if (!row) {
+          return {
+            claimed: false,
+            reason: 'inactive_or_missing',
+            session: null,
+            nextDueAt: null
+          };
+        }
+
+        const metadata = normalizeJsonObject(row.metadata, {});
+        const heartbeat = cacheHeartbeatMetadataFrom(metadata);
+        const nextDueAt = normalizeDate(heartbeat.next_due_at ?? heartbeat.nextDueAt);
+        const nextDueMs = parseDateMs(nextDueAt);
+        const inFlightStartedAt = normalizeDate(heartbeat.in_flight_started_at ?? heartbeat.inFlightStartedAt);
+        const inFlightStartedMs = parseDateMs(inFlightStartedAt);
+        if (inFlightStartedMs !== null && nowMs - inFlightStartedMs < inFlightStaleMs) {
+          return {
+            claimed: false,
+            reason: 'in_flight',
+            session: normalizeRecoverySessionRow(row),
+            nextDueAt,
+            inFlightStartedAt
+          };
+        }
+        if (nextDueMs !== null && nowMs < nextDueMs) {
+          return {
+            claimed: false,
+            reason: 'not_due',
+            session: normalizeRecoverySessionRow(row),
+            nextDueAt
+          };
+        }
+
+        const nextMetadata = mergeCacheHeartbeatMetadata(metadata, {
+          interval_ms: intervalMs,
+          in_flight_started_at: nowIso,
+          last_claimed_at: nowIso,
+          claim_count: normalizeInteger(heartbeat.claim_count ?? heartbeat.claimCount, 0) + 1,
+          last_claim_reason: inFlightStartedMs !== null ? 'stale_in_flight_reclaimed' : 'due'
+        });
+        const updatedRows = await executor.query(
+          `
+            UPDATE agent_recovery_sessions
+            SET metadata = ?::jsonb,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND status = 'active'
+            RETURNING *
+          `,
+          [JSON.stringify(nextMetadata), id]
+        );
+        const updated = normalizeRecoverySessionRow(updatedRows[0]);
+        return {
+          claimed: Boolean(updated),
+          reason: updated ? 'claimed' : 'inactive_or_missing',
+          session: updated,
+          nextDueAt: updated?.cacheHeartbeat?.nextDueAt || null,
+          inFlightStartedAt: nowIso
+        };
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(claimWithExecutor);
+      }
+      return claimWithExecutor(sql);
+    });
+  }
+
+  async function completeAgentRecoveryCacheHeartbeat(input = {}, config = {}) {
+    const id = normalizeBigIntId(input.id);
+    if (!id) {
+      return null;
+    }
+    await ensureAgentRecoverySessionSchema(input, config);
+    const intervalMs = Math.max(60_000, normalizePositiveInteger(input.intervalMs ?? input.interval_ms, 5 * 60_000));
+    const retryMs = Math.max(15_000, normalizePositiveInteger(input.retryMs ?? input.retry_ms, Math.min(intervalMs, 60_000)));
+    const now = input.completedAt || input.completed_at || input.now || new Date();
+    const nowMs = parseDateMs(now) || Date.now();
+    const completedAt = new Date(nowMs).toISOString();
+    const startedAt = normalizeDate(input.startedAt || input.started_at) || completedAt;
+    const status = firstString(input.status, 'completed');
+    const success = status === 'completed' || status === 'ok' || status === 'success';
+    const nextDueAt = success
+      ? dateAfterMs(startedAt, intervalMs)
+      : new Date(nowMs + retryMs).toISOString();
+    return withSql(input, config, async (sql) => {
+      const completeWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            SELECT *
+            FROM agent_recovery_sessions
+            WHERE id = ?
+              AND status = 'active'
+            FOR UPDATE
+          `,
+          [id]
+        );
+        const row = rows[0];
+        if (!row) {
+          return null;
+        }
+        const metadata = normalizeJsonObject(row.metadata, {});
+        const nextMetadata = mergeCacheHeartbeatMetadata(metadata, {
+          interval_ms: intervalMs,
+          in_flight_started_at: null,
+          last_started_at: startedAt,
+          last_completed_at: completedAt,
+          last_status: status,
+          last_event_id: firstString(input.eventId, input.event_id),
+          last_llm_call_id: firstString(input.llmCallId, input.llm_call_id),
+          last_trace_id: firstString(input.traceId, input.trace_id),
+          last_run_id: firstString(input.runId, input.run_id),
+          last_error: success ? null : firstString(input.error, input.errorMessage, input.error_message, 'unknown_error'),
+          last_input_tokens: normalizeInteger(input.inputTokens ?? input.input_tokens),
+          last_cached_input_tokens: normalizeInteger(input.cachedInputTokens ?? input.cached_input_tokens),
+          last_output_tokens: normalizeInteger(input.outputTokens ?? input.output_tokens),
+          last_processing_time_ms: normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+          next_due_at: nextDueAt
+        });
+        const updatedRows = await executor.query(
+          `
+            UPDATE agent_recovery_sessions
+            SET metadata = ?::jsonb,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+              AND status = 'active'
+            RETURNING *
+          `,
+          [JSON.stringify(nextMetadata), id]
+        );
+        return normalizeRecoverySessionRow(updatedRows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(completeWithExecutor);
+      }
+      return completeWithExecutor(sql);
+    });
+  }
+
+  async function clearAgentRecoveryCacheHeartbeatSchedule(input = {}, config = {}) {
+    const id = normalizeBigIntId(input.id);
+    if (!id) {
+      return null;
+    }
+    await ensureAgentRecoverySessionSchema(input, config);
+    const now = normalizeDate(input.now || new Date());
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          UPDATE agent_recovery_sessions
+          SET metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{cache_heartbeat}',
+                COALESCE(metadata->'cache_heartbeat', '{}'::jsonb)
+                  || jsonb_build_object(
+                    'in_flight_started_at', NULL,
+                    'next_due_at', NULL,
+                    'cancelled_at', ?::text,
+                    'cancel_reason', ?::text
+                  ),
+                true
+              ),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+          RETURNING *
+        `,
+        [
+          now,
+          firstString(input.reason, 'recovery_settled'),
+          id
+        ]
+      );
+      return normalizeRecoverySessionRow(rows[0]);
+    });
+  }
+
   async function finalizeAgentRecoverySession(input = {}, config = {}) {
     const id = normalizeBigIntId(input.id);
     if (!id) {
@@ -475,6 +736,9 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
     listAgentRecoverySessions,
     listAgentRecoveryWakeNotifications,
     updateAgentRecoverySessionProgress,
+    claimAgentRecoveryCacheHeartbeat,
+    completeAgentRecoveryCacheHeartbeat,
+    clearAgentRecoveryCacheHeartbeatSchedule,
     finalizeAgentRecoverySession
   };
 }

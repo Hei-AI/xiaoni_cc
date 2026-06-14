@@ -464,6 +464,7 @@ const xiaoniActivityPersistence = createXiaoniActivityPersistence({
   createSqlAdapter,
   listAgentStackItems: xiaoniAgentStackPersistence.listAgentStackItems,
   listLlmRequestSlices: xiaoniAgentStackPersistence.listLlmRequestSlices,
+  listCodexProviderUsageEvents: xiaoniAgentStackPersistence.listCodexProviderUsageEvents,
   listToolExecutions: xiaoniAgentStackPersistence.listToolExecutions,
   findAgentStackItemByEventId: xiaoniAgentStackPersistence.findAgentStackItemByEventId
 });

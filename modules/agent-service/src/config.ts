@@ -45,6 +45,11 @@ function readTextVerbosityEnv(name: string, defaultValue: 'low' | 'medium' | 'hi
   return value === 'low' || value === 'medium' || value === 'high' ? value : defaultValue;
 }
 
+function readIntegerEnv(name: string, defaultValue: number) {
+  const value = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(value) ? value : defaultValue;
+}
+
 export const serverConfig = {
   host: process.env.HTTP_HOST || '0.0.0.0',
   port: Number.parseInt(process.env.HTTP_PORT || '8092', 10)
@@ -92,6 +97,15 @@ export const agentConfig = {
   mainAgentTurnTimeoutMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '120000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
+  cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),
+  cacheHeartbeatIntervalMs: Math.max(
+    60 * 1000,
+    readIntegerEnv('AGENT_CACHE_HEARTBEAT_INTERVAL_MS', 5 * 60 * 1000)
+  ),
+  cacheHeartbeatMaxOutputTokens: Math.max(
+    1,
+    Math.min(16, readIntegerEnv('AGENT_CACHE_HEARTBEAT_MAX_OUTPUT_TOKENS', 1))
+  ),
   preReplyMemoryReasonerEnabled: false,
   preReplyMemoryReasonerModelName: process.env.AGENT_PRE_REPLY_MEMORY_REASONER_MODEL || 'gpt-5.4',
   presentSelfReconstructionEnabled: false,

@@ -216,6 +216,7 @@ interface XiaoniActivityFeed {
   };
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: CompressionForkTimeline;
+  cacheHeartbeatTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
 
@@ -358,6 +359,7 @@ function rawTraceSpanIdForSource(
     source !== 'llm_request'
     && source !== 'compression_fork_llm_request'
     && source !== 'image_vision_fork_observation'
+    && source !== 'cache_heartbeat'
     && source !== 'task'
   ) {
     return null;
@@ -546,6 +548,7 @@ function itemIcon(item: XiaoniActivityFeedItem) {
   if (item.source === 'task') return <Sparkles className="h-4 w-4" />;
   if (item.source === 'media_observation') return <Image className="h-4 w-4" />;
   if (item.source === 'image_vision_fork_observation') return <Image className="h-4 w-4" />;
+  if (item.source === 'cache_heartbeat') return <RefreshCw className="h-4 w-4" />;
   if (item.source === 'queue_message') return <Clock3 className="h-4 w-4" />;
   if (item.kind === 'qq_message_seen') return <Eye className="h-4 w-4" />;
   if (['send_in_group', 'send_in_private', 'qq_self_message'].includes(item.kind)) return <MessageCircle className="h-4 w-4" />;
@@ -579,6 +582,8 @@ function sourceLabel(source: string) {
       return 'vision fork';
     case 'image_vision_fork_observation':
       return 'vision step';
+    case 'cache_heartbeat':
+      return 'heartbeat';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -776,12 +781,18 @@ function forkKindForRun(run: CompressionForkRun) {
   if (metadataKind) {
     return metadataKind;
   }
+  if (run.source === 'cache_heartbeat') {
+    return 'cache_heartbeat';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
 function forkAgentLabel(forkKind: string) {
   if (forkKind === 'image_vision') {
     return 'Image Vision Fork';
+  }
+  if (forkKind === 'cache_heartbeat') {
+    return 'Cache Heartbeat Fork';
   }
   return 'Memory Compress Fork';
 }
@@ -803,7 +814,15 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...imageVisionRuns]
+  const cacheHeartbeatRuns = (feed?.cacheHeartbeatTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  return [...compressionRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -847,6 +866,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const itemsById = new Map<string, XiaoniActivityFeedItem>();
   const compressionRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
+  const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
 
   pages.forEach((page) => {
     (page.items || []).forEach((item) => {
@@ -864,6 +884,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
         imageVisionRunsById.set(run.id, run);
       }
     });
+    (page.cacheHeartbeatTimeline?.runs || []).forEach((run) => {
+      if (!cacheHeartbeatRunsById.has(run.id)) {
+        cacheHeartbeatRunsById.set(run.id, run);
+      }
+    });
   });
 
   const lastPage = pages[pages.length - 1] || firstPage;
@@ -875,6 +900,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     compressionForkTimeline: {
       ...(firstPage.compressionForkTimeline || {}),
       runs: Array.from(compressionRunsById.values()),
+    },
+    cacheHeartbeatTimeline: {
+      ...(firstPage.cacheHeartbeatTimeline || {}),
+      runs: Array.from(cacheHeartbeatRunsById.values()),
     },
     imageVisionForkTimeline: {
       ...(firstPage.imageVisionForkTimeline || {}),
@@ -1664,6 +1693,7 @@ function ForkAgentRunCard({
   const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
   const forkKind = run.forkKind || forkKindForRun(run);
   const isImageVision = forkKind === 'image_vision';
+  const isCacheHeartbeat = forkKind === 'cache_heartbeat';
   const usage = summarizeForkRunUsage(run);
   const inputValue = formatTokenCount(usage.inputTokens) || '0';
   const cacheValue = formatTokenCount(usage.cachedInputTokens) || '0';
@@ -1675,13 +1705,20 @@ function ForkAgentRunCard({
       runHasFocus ? 'border-sky-300 ring-2 ring-sky-500 ring-offset-2 ring-offset-background' : 'border-border'
     )}>
       <div className="flex items-start gap-3">
-        <span className={cn('mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full', isImageVision ? 'bg-sky-100 text-sky-700' : 'bg-cyan-100 text-cyan-700')}>
-          {isImageVision ? <Image className="h-4 w-4" /> : <Waypoints className="h-4 w-4" />}
+        <span className={cn(
+          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
+          isImageVision
+            ? 'bg-sky-100 text-sky-700'
+            : isCacheHeartbeat
+              ? 'bg-emerald-100 text-emerald-700'
+              : 'bg-cyan-100 text-cyan-700'
+        )}>
+          {isImageVision ? <Image className="h-4 w-4" /> : isCacheHeartbeat ? <RefreshCw className="h-4 w-4" /> : <Waypoints className="h-4 w-4" />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {actionTagPills(run.tags, [
-              { key: `fork:${forkKind}`, label: run.agentLabel || forkAgentLabel(forkKind), tone: isImageVision ? 'info' : 'neutral' },
+              { key: `fork:${forkKind}`, label: run.agentLabel || forkAgentLabel(forkKind), tone: isImageVision ? 'info' : isCacheHeartbeat ? 'success' : 'neutral' },
               { key: `status:${run.status || 'fork'}`, label: statusLabel(run.status) || 'fork', tone: statusTone(run.status) },
             ])}
             {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
@@ -2470,7 +2507,7 @@ export const XiaoniActivityPage: React.FC = () => {
       if (point.anchorEventId) {
         nextParams.set('focus_event', point.anchorEventId);
       }
-      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'image_vision_fork') {
+      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'image_vision_fork' && point.sourceKind !== 'cache_heartbeat') {
         nextParams.set('focus_slice', point.llmRequestSliceId);
       } else {
         nextParams.delete('focus_slice');

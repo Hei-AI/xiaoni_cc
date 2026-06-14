@@ -6336,6 +6336,322 @@ test('runtime iteration does not claim queue messages while recovery session is 
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.clockDeferredAt instanceof Date);
 });
 
+test('runtime recovery cache heartbeat warms provider cache without touching the main stack', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCacheHeartbeatEnabled = agentConfig.cacheHeartbeatEnabled;
+  const previousCacheHeartbeatIntervalMs = agentConfig.cacheHeartbeatIntervalMs;
+  const previousCacheHeartbeatMaxOutputTokens = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatEnabled = true;
+  agentConfig.cacheHeartbeatIntervalMs = 60_000;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+
+  const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({ url: String(url), init: init || {} });
+    return new Response(JSON.stringify({
+      success: true,
+      model: 'gpt-5-mini',
+      provider: 'codex-local',
+      usage_details: {
+        cached_input_tokens: 123
+      }
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    const activeSession = {
+      id: 303,
+      initiator: 'recover_energy_tool',
+      reason: '睡一下。',
+      xiaoniOs: '先睡。',
+      clockMinutes: null,
+      clockDueAt: null,
+      clockDeferredAt: null,
+      startedAt: new Date().toISOString(),
+      startEnergy: -0.2,
+      currentEnergy: -0.2,
+      maxEnergy: 1,
+      wakeCountStartQueueMessageId: 100,
+      lastWakeCountedQueueMessageId: 100,
+      wakeCallCount: 0
+    };
+    const storeCalls: Record<string, any[]> = {
+      claimAgentRecoveryCacheHeartbeat: [],
+      completeAgentRecoveryCacheHeartbeat: [],
+      listAgentRecoveryWakeNotifications: [],
+      updateAgentRecoverySessionProgress: [],
+      listRecentTurns: [],
+      claimNextQueueMessage: [],
+      appendAgentStackItems: []
+    };
+    const store = {
+      getActiveAgentRecoverySession: async () => activeSession,
+      listAgentRecoveryWakeNotifications: async (params: any) => {
+        storeCalls.listAgentRecoveryWakeNotifications.push(params);
+        return [];
+      },
+      updateAgentRecoverySessionProgress: async (params: any) => {
+        storeCalls.updateAgentRecoverySessionProgress.push(params);
+        return activeSession;
+      },
+      claimAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.claimAgentRecoveryCacheHeartbeat.push(params);
+        return {
+          claimed: true,
+          reason: 'claimed',
+          session: activeSession,
+          nextDueAt: null,
+          inFlightStartedAt: '2026-06-13T01:05:00.000Z'
+        };
+      },
+      completeAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.completeAgentRecoveryCacheHeartbeat.push(params);
+        return activeSession;
+      },
+      getSessionReadCutoffState: async () => null,
+      listRecentTurns: async (params: any) => {
+        storeCalls.listRecentTurns.push(params);
+        return [];
+      },
+      getCurrentXiaoniEnergyState: async () => ({
+        energy: -0.1,
+        maxEnergy: 1,
+        lastWakeAt: null
+      }),
+      claimNextQueueMessage: async () => {
+        storeCalls.claimNextQueueMessage.push({});
+        return null;
+      },
+      appendAgentStackItems: async (params: any) => {
+        storeCalls.appendAgentStackItems.push(params);
+        return [];
+      }
+    } as any;
+    const service = new AgentLoopService(store, {
+      resolveForQueueMessage: async () => createRuntimePrompt({
+        promptName: '小腻主AGENT',
+        promptId: 'prompt-1'
+      })
+    } as any);
+
+    await (service as any).processRuntimeIteration({
+      workerId: 'worker-recovery-cache-heartbeat',
+      idleIntervalMs: 0
+    });
+
+    assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+    assert.equal(storeCalls.appendAgentStackItems.length, 0);
+    assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat.length, 1);
+    assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat[0]?.id, 303);
+    assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat[0]?.intervalMs, 60_000);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat.length, 1);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.id, 303);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.status, 'completed');
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.startedAt, '2026-06-13T01:05:00.000Z');
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.cachedInputTokens, 123);
+    assert.equal(storeCalls.listRecentTurns.length, 1);
+    assert.deepEqual(storeCalls.listRecentTurns[0], {
+      userId: 1129974489,
+      groupId: null,
+      afterConversationId: null,
+      scope: 'global'
+    });
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0]!.url, /\/api\/internal\/llm\/debug$/);
+    assert.equal((fetchCalls[0]!.init.headers as Record<string, string>)?.['x-qqbot-no-traffic-persist'], '1');
+    const body = JSON.parse(String(fetchCalls[0]!.init.body || '{}'));
+    assert.equal(body.executionMode, 'cache_heartbeat_no_persist');
+    assert.equal(body.agent_turn, 0);
+    const canonicalRequest = body.canonicalRequest;
+    assert.equal(canonicalRequest.store, false);
+    assert.equal(canonicalRequest.max_output_tokens, 1);
+    assert.equal(canonicalRequest.prompt_cache_key, 'xiaoni:test-global');
+    assert.equal(canonicalRequest.metadata?.cache_heartbeat, 'true');
+    assert.equal(canonicalRequest.metadata?.no_main_stack_persist, 'true');
+    assert.ok(Array.isArray(canonicalRequest.tools) && canonicalRequest.tools.length > 0);
+    assert.notEqual(canonicalRequest.tool_choice, 'none');
+    const lastInputItem = canonicalRequest.input[canonicalRequest.input.length - 1];
+    assert.equal(lastInputItem?.type, 'message');
+    assert.equal(lastInputItem?.role, 'developer');
+    assert.match(getMessageContent(lastInputItem), /Heartbeat/);
+    assert.match(getMessageContent(lastInputItem), /Return exactly: 1/);
+    assert.doesNotMatch(JSON.stringify(canonicalRequest.input.slice(0, -1)), /max_output_tokens|store/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
+    agentConfig.cacheHeartbeatIntervalMs = previousCacheHeartbeatIntervalMs;
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousCacheHeartbeatMaxOutputTokens;
+  }
+});
+
+test('runtime recovery cache heartbeat skips when persisted renewal is not due', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCacheHeartbeatEnabled = agentConfig.cacheHeartbeatEnabled;
+  const previousCacheHeartbeatIntervalMs = agentConfig.cacheHeartbeatIntervalMs;
+  agentConfig.cacheHeartbeatEnabled = true;
+  agentConfig.cacheHeartbeatIntervalMs = 60_000;
+
+  const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({ url: String(url), init: init || {} });
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    const activeSession = {
+      id: 304,
+      initiator: 'recover_energy_tool',
+      reason: '睡一下。',
+      xiaoniOs: '先睡。',
+      clockMinutes: null,
+      clockDueAt: null,
+      clockDeferredAt: null,
+      startedAt: new Date().toISOString(),
+      startEnergy: -0.2,
+      currentEnergy: -0.2,
+      maxEnergy: 1,
+      wakeCountStartQueueMessageId: 100,
+      lastWakeCountedQueueMessageId: 100,
+      wakeCallCount: 0
+    };
+    const storeCalls: Record<string, any[]> = {
+      claimAgentRecoveryCacheHeartbeat: [],
+      completeAgentRecoveryCacheHeartbeat: []
+    };
+    const store = {
+      getActiveAgentRecoverySession: async () => activeSession,
+      listAgentRecoveryWakeNotifications: async () => [],
+      updateAgentRecoverySessionProgress: async () => activeSession,
+      claimAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.claimAgentRecoveryCacheHeartbeat.push(params);
+        return {
+          claimed: false,
+          reason: 'not_due',
+          session: activeSession,
+          nextDueAt: new Date(Date.now() + 30_000).toISOString()
+        };
+      },
+      completeAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.completeAgentRecoveryCacheHeartbeat.push(params);
+        return activeSession;
+      }
+    } as any;
+    const service = new AgentLoopService(store);
+
+    await (service as any).processRuntimeIteration({
+      workerId: 'worker-recovery-cache-heartbeat-not-due',
+      idleIntervalMs: 0
+    });
+
+    assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat.length, 1);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat.length, 0);
+    assert.equal(fetchCalls.length, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
+    agentConfig.cacheHeartbeatIntervalMs = previousCacheHeartbeatIntervalMs;
+  }
+});
+
+test('manual cache heartbeat trigger returns validation summary without touching the main stack', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCacheHeartbeatMaxOutputTokens = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+
+  const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({ url: String(url), init: init || {} });
+    return new Response(JSON.stringify({
+      success: true,
+      llm_call_id: 'llm-heartbeat-manual',
+      model: 'gpt-5-mini',
+      provider: 'codex-local',
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 1,
+        total_tokens: 1001
+      },
+      usage_details: {
+        cached_input_tokens: 900
+      },
+      performance: {
+        processing_time_ms: 321
+      }
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    const storeCalls: Record<string, any[]> = {
+      listRecentTurns: [],
+      claimNextQueueMessage: [],
+      appendAgentStackItems: []
+    };
+    const store = {
+      getSessionReadCutoffState: async () => null,
+      listRecentTurns: async (params: any) => {
+        storeCalls.listRecentTurns.push(params);
+        return [];
+      },
+      getCurrentXiaoniEnergyState: async () => ({
+        energy: -0.1,
+        maxEnergy: 1,
+        lastWakeAt: null
+      }),
+      claimNextQueueMessage: async () => {
+        storeCalls.claimNextQueueMessage.push({});
+        return null;
+      },
+      appendAgentStackItems: async (params: any) => {
+        storeCalls.appendAgentStackItems.push(params);
+        return [];
+      }
+    } as any;
+    const service = new AgentLoopService(store, {
+      resolveForQueueMessage: async () => createRuntimePrompt({
+        promptName: '小腻主AGENT',
+        promptId: 'prompt-1'
+      })
+    } as any);
+
+    const result = await service.triggerCacheHeartbeatForDebug();
+
+    assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+    assert.equal(storeCalls.appendAgentStackItems.length, 0);
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0]!.url, /\/api\/internal\/llm\/debug$/);
+    const body = JSON.parse(String(fetchCalls[0]!.init.body || '{}'));
+    assert.equal(body.executionMode, 'cache_heartbeat_no_persist');
+    assert.equal(body.canonicalRequest.store, false);
+    assert.equal(body.canonicalRequest.max_output_tokens, 1);
+    assert.equal(result.triggered, true);
+    assert.equal(result.executionMode, 'cache_heartbeat_no_persist');
+    assert.equal(result.llmCallId, 'llm-heartbeat-manual');
+    assert.equal(result.provider, 'codex-local');
+    assert.equal(result.promptCacheKey, 'xiaoni:test-global');
+    assert.equal(result.store, false);
+    assert.equal(result.maxOutputTokens, 1);
+    assert.equal(result.inputTokens, 1000);
+    assert.equal(result.outputTokens, 1);
+    assert.equal(result.totalTokens, 1001);
+    assert.equal(result.cachedInputTokens, 900);
+    assert.equal(result.processingTimeMs, 321);
+    assert.equal(Object.prototype.hasOwnProperty.call(result, 'canonicalRequest'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(result, 'response'), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousCacheHeartbeatMaxOutputTokens;
+  }
+});
+
 test('runtime iteration settles persisted recovery session after restart with original tool callback', async () => {
   const storeCalls: Record<string, any[]> = {
     appendAgentStackItems: [],

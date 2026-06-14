@@ -263,6 +263,72 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
   assert.ok(queries.some((entry) => entry.statement.includes('INSERT INTO agent_recovery_sessions')));
 });
 
+test('agent recovery cache heartbeat claim and completion persist next renewal', async () => {
+  let activeRow = createSessionRow({
+    metadata: JSON.stringify({
+      cache_heartbeat: {
+        next_due_at: '2026-06-13T01:05:00.000Z'
+      }
+    })
+  });
+  const adapter = {
+    query: async (statement, params = []) => {
+      if (statement.includes('pg_advisory_lock') || statement.includes('pg_advisory_unlock')) {
+        return [];
+      }
+      if (statement.includes('SELECT *') && statement.includes('FOR UPDATE')) {
+        return activeRow ? [activeRow] : [];
+      }
+      if (statement.includes('SET metadata = ?::jsonb')) {
+        activeRow = createSessionRow({
+          ...activeRow,
+          metadata: params[0],
+          updated_at: '2026-06-13T01:05:00.000Z'
+        });
+        return [activeRow];
+      }
+      throw new Error(`Unexpected query: ${statement}`);
+    },
+    execute: async () => 0,
+    withTransaction: async (callback) => callback(adapter)
+  };
+  const persistence = createAgentRecoverySessionPersistence({ sqlAdapter: adapter });
+
+  const notDue = await persistence.claimAgentRecoveryCacheHeartbeat({
+    id: 88,
+    intervalMs: 300_000,
+    now: '2026-06-13T01:04:59.000Z'
+  });
+  assert.equal(notDue.claimed, false);
+  assert.equal(notDue.reason, 'not_due');
+
+  const claimed = await persistence.claimAgentRecoveryCacheHeartbeat({
+    id: 88,
+    intervalMs: 300_000,
+    now: '2026-06-13T01:05:00.000Z'
+  });
+  assert.equal(claimed.claimed, true);
+  assert.equal(claimed.session.cacheHeartbeat.inFlightStartedAt, '2026-06-13T01:05:00.000Z');
+  assert.equal(claimed.session.cacheHeartbeat.claimCount, 1);
+
+  const completed = await persistence.completeAgentRecoveryCacheHeartbeat({
+    id: 88,
+    intervalMs: 300_000,
+    startedAt: '2026-06-13T01:05:00.000Z',
+    completedAt: '2026-06-13T01:05:03.000Z',
+    status: 'completed',
+    eventId: 'codex-provider:llm-heartbeat',
+    llmCallId: 'llm-heartbeat',
+    inputTokens: 100,
+    cachedInputTokens: 90,
+    outputTokens: 1
+  });
+  assert.equal(completed.cacheHeartbeat.inFlightStartedAt, null);
+  assert.equal(completed.cacheHeartbeat.lastCompletedAt, '2026-06-13T01:05:03.000Z');
+  assert.equal(completed.cacheHeartbeat.nextDueAt, '2026-06-13T01:10:00.000Z');
+  assert.equal(completed.cacheHeartbeat.lastEventId, 'codex-provider:llm-heartbeat');
+});
+
 test('agent recovery sessions serialize Date timestamp parameters as instants', async () => {
   const queryCalls = [];
   const adapter = {

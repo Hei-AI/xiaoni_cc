@@ -1175,6 +1175,163 @@ function summarizeCompressionForkRun(row, events) {
   };
 }
 
+function tokenSummaryFromCodexProviderUsageEvent(row) {
+  const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
+  const inputTokens = Number(
+    tokenUsage.input_tokens
+    || tokenUsage.inputTokens
+    || tokenUsage.prompt_tokens
+    || tokenUsage.promptTokens
+    || 0
+  ) || 0;
+  const outputTokens = Number(
+    tokenUsage.output_tokens
+    || tokenUsage.outputTokens
+    || tokenUsage.completion_tokens
+    || tokenUsage.completionTokens
+    || 0
+  ) || 0;
+  const cachedInputTokens = cachedInputTokensFromUsage(tokenUsage);
+  const eventId = firstString(row.eventId, row.event_id, row.sliceId, row.slice_id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    eventId,
+    llmCallId,
+    providerRequestSpanId: providerRequestSpanIdForSlice(eventId, llmCallId)
+  };
+}
+
+function summarizeCacheHeartbeatEvent(row) {
+  const tokenSummary = tokenSummaryFromCodexProviderUsageEvent(row);
+  const eventId = tokenSummary.eventId || firstString(row.id) || `cache-heartbeat:${Date.now()}`;
+  const traceId = firstString(row.traceId, row.trace_id);
+  const runId = firstString(row.runId, row.run_id);
+  const provider = firstString(row.wireProviderFormat, row.wire_provider_format, row.modelProvider, row.model_provider, 'provider');
+  const modelName = firstString(row.modelName, row.model_name, 'model');
+  const tokenLabel = tokenSummary.inputTokens || tokenSummary.outputTokens
+    ? `${tokenSummary.inputTokens}->${tokenSummary.outputTokens} tokens`
+    : null;
+  const providerRawTraceAvailable = Boolean(row.wireRequest || row.wire_request || row.canonicalRequest || row.canonical_request);
+  const providerRequestSpanId = tokenSummary.providerRequestSpanId;
+  const traceTarget = normalizeTraceTarget({
+    traceId,
+    runId,
+    spanId: providerRequestSpanId,
+    llmRequestSliceId: eventId,
+    sourceKind: 'cache_heartbeat',
+    forkRunId: eventId,
+    conversationId: row.conversationId || row.conversation_id || null
+  });
+  return {
+    id: eventId,
+    source: 'cache_heartbeat',
+    kind: 'cache_heartbeat_fork',
+    title: 'Cache Heartbeat Fork',
+    body: truncateText([
+      provider,
+      modelName,
+      tokenLabel,
+      tokenSummary.cachedInputTokens ? `${tokenSummary.cachedInputTokens} cached` : null
+    ].filter(Boolean).join(' · '), 420),
+    status: row.status || null,
+    actor: 'system',
+    actorName: 'Heartbeat Fork',
+    timestamp: eventTimestamp(row.createdAt || row.created_at || row.completedAt || row.completed_at),
+    sessionKey: null,
+    peerName: null,
+    runId,
+    traceId,
+    tone: row.status === 'failed' ? 'danger' : 'success',
+    traceTarget,
+    metadata: normalizeValue({
+      forkKind: 'cache_heartbeat',
+      sourceKind: 'cache_heartbeat',
+      llmRequestSliceId: eventId,
+      llmCallId: tokenSummary.llmCallId,
+      providerRequestSpanId,
+      providerRawTraceAvailable,
+      modelName,
+      modelProvider: row.modelProvider || row.model_provider || null,
+      providerFormat: row.wireProviderFormat || row.wire_provider_format || null,
+      requestFormatVersion: row.requestFormatVersion || row.request_format_version || null,
+      processingTimeMs: Number(row.processingTimeMs || row.processing_time_ms || 0) || null,
+      inputTokens: tokenSummary.inputTokens,
+      cachedInputTokens: tokenSummary.cachedInputTokens,
+      outputTokens: tokenSummary.outputTokens,
+      eventId,
+      wirePayloadSource: 'codex_provider_usage_events'
+    })
+  };
+}
+
+function summarizeCacheHeartbeatRun(row) {
+  const event = summarizeCacheHeartbeatEvent(row);
+  const startedAt = event.timestamp;
+  const completedAt = normalizeDate(row.completedAt || row.completed_at || row.updatedAt || row.updated_at);
+  const startedMs = new Date(startedAt).getTime();
+  const completedMs = completedAt ? new Date(completedAt).getTime() : NaN;
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(completedMs)
+    ? Math.max(0, completedMs - startedMs)
+    : Number(event.metadata?.processingTimeMs || 0) || null;
+  return {
+    id: `cache-heartbeat:${event.id}`,
+    forkRunId: event.id,
+    source: 'cache_heartbeat',
+    kind: 'cache_heartbeat_fork',
+    title: 'Cache Heartbeat Fork',
+    body: event.body,
+    status: row.status || null,
+    startedAt,
+    completedAt,
+    durationMs,
+    traceId: event.traceId,
+    runId: event.runId,
+    conversationId: row.conversationId || row.conversation_id || null,
+    eventCount: 1,
+    events: [event],
+    metadata: normalizeValue({
+      forkKind: 'cache_heartbeat',
+      eventId: event.id,
+      llmCallId: event.metadata?.llmCallId || null,
+      providerRequestSpanId: event.metadata?.providerRequestSpanId || null,
+      providerRawTraceAvailable: event.metadata?.providerRawTraceAvailable === true,
+      createdAt: normalizeDate(row.createdAt || row.created_at),
+      updatedAt: normalizeDate(row.updatedAt || row.updated_at)
+    })
+  };
+}
+
+async function loadCacheHeartbeatTimeline({
+  identityKey,
+  timeWindow,
+  limit
+}, config, listCodexProviderUsageEvents) {
+  if (typeof listCodexProviderUsageEvents !== 'function') {
+    return { runs: [] };
+  }
+  const forkLimit = clampLimit(limit, 30, 120);
+  try {
+    const rows = await listCodexProviderUsageEvents({
+      identityKey,
+      sourceKind: 'cache_heartbeat',
+      startTime: timeWindow?.startTime || null,
+      endTime: timeWindow?.endTime || null,
+      chronological: false,
+      limit: forkLimit
+    }, config);
+    return {
+      runs: (Array.isArray(rows) ? rows : [])
+        .map(summarizeCacheHeartbeatRun)
+        .filter((run) => run.startedAt)
+    };
+  } catch {
+    return { runs: [] };
+  }
+}
+
 async function loadCoreMemoryCompressionForkTimeline(sql, {
   identityKey,
   timeWindow,
@@ -1753,6 +1910,8 @@ function sourceLabelForActionStreamTag(source) {
       return 'Image Vision Fork';
     case 'image_vision_fork_observation':
       return 'vision step';
+    case 'cache_heartbeat':
+      return 'Cache Heartbeat Fork';
     default:
       return source.replace(/_/g, ' ');
   }
@@ -1767,7 +1926,14 @@ function decorateActionStreamItem(item) {
 }
 
 function decorateActionStreamForkRun(run) {
-  const forkKind = firstString(run.metadata?.forkKind, run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory');
+  const forkKind = firstString(
+    run.metadata?.forkKind,
+    run.source === 'image_vision_fork'
+      ? 'image_vision'
+      : run.source === 'cache_heartbeat'
+        ? 'cache_heartbeat'
+        : 'compression_memory'
+  );
   const eventList = Array.isArray(run.events)
     ? run.events.map((event) => decorateActionStreamItem({
       ...event,
@@ -2086,6 +2252,7 @@ function createXiaoniActivityPersistence({
   createSqlAdapter,
   listAgentStackItems,
   listLlmRequestSlices,
+  listCodexProviderUsageEvents,
   listToolExecutions,
   findAgentStackItemByEventId
 }) {
@@ -2343,6 +2510,36 @@ function createXiaoniActivityPersistence({
     }
   }
 
+  async function resolveCodexProviderUsageTraceTarget(eventId, key, config = {}) {
+    if (typeof listCodexProviderUsageEvents !== 'function') {
+      return null;
+    }
+    let rows = await listCodexProviderUsageEvents({
+      identityKey: 'xiaoni',
+      eventId,
+      limit: 1
+    }, config).catch(() => []);
+    if (!rows[0]) {
+      rows = await listCodexProviderUsageEvents({
+        identityKey: 'xiaoni',
+        llmCallId: key,
+        limit: 1
+      }, config).catch(() => []);
+    }
+    const row = rows[0] || null;
+    if (!row) {
+      return null;
+    }
+    const event = summarizeCacheHeartbeatEvent(row);
+    return normalizeTraceTarget({
+      ...event.traceTarget,
+      sourceKind: row.sourceKind || 'codex_provider',
+      forkRunId: row.sourceId || row.eventId || eventId,
+      llmRequestSliceId: row.eventId,
+      spanId: event.metadata?.providerRequestSpanId || event.traceTarget?.spanId || null
+    });
+  }
+
   async function resolveCompressionForkItemTraceTarget(key, config = {}) {
     const sql = createSqlAdapter(config);
     try {
@@ -2535,6 +2732,10 @@ function createXiaoniActivityPersistence({
       return enrichTraceTarget(await resolveImageVisionForkSliceTraceTarget(parsed.key, config), config);
     }
 
+    if (parsed.prefix === 'codex-provider') {
+      return enrichTraceTarget(await resolveCodexProviderUsageTraceTarget(eventId, parsed.key, config), config);
+    }
+
     if (parsed.prefix === 'compression-fork-item') {
       return enrichTraceTarget(await resolveCompressionForkItemTraceTarget(parsed.key, config), config);
     }
@@ -2598,7 +2799,8 @@ function createXiaoniActivityPersistence({
         queueStats,
         digitalStats,
         taskStats,
-        compressionForkTimeline
+        compressionForkTimeline,
+        cacheHeartbeatTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
           where: { identity_key: identityKey }
@@ -2711,7 +2913,12 @@ function createXiaoniActivityPersistence({
           identityKey,
           timeWindow,
           limit: perSourceLimit
-        })
+        }),
+        loadCacheHeartbeatTimeline({
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        }, config, listCodexProviderUsageEvents)
       ]);
 
       const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));
@@ -2853,6 +3060,7 @@ function createXiaoniActivityPersistence({
         },
         items: normalizeValue(items),
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
+        cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithTokens)
       };
     } finally {
@@ -2881,15 +3089,19 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const imageVisionForkRuns = (feed.imageVisionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
-      ...imageVisionForkRuns
+      ...imageVisionForkRuns,
+      ...cacheHeartbeatRuns
     ]);
     const taggedItems = decoratedItems
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
+    const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     let focusedItem = null;
     if (focusedSliceId && typeof listLlmRequestSlices === 'function' && !taggedItems.some((item) => item.id === `llm-slice:${focusedSliceId}` || item.eventId === `llm-slice:${focusedSliceId}`)) {
       const focusedRows = await listLlmRequestSlices({
@@ -2927,6 +3139,11 @@ function createXiaoniActivityPersistence({
         kind: 'fork',
         id: `image-vision-fork:${run.id}`,
         run
+      })),
+      ...filteredCacheHeartbeatRuns.map((run) => ({
+        kind: 'fork',
+        id: `cache-heartbeat:${run.id}`,
+        run
       }))
     ];
     const { visibleEntries, hasMore, nextCursor } = paginateActionStreamEntries(actionEntries, limit);
@@ -2940,6 +3157,7 @@ function createXiaoniActivityPersistence({
     );
     const visibleCompressionForkRuns = filteredCompressionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .map((item) => item.tags ? item : decorateActionStreamItem(item));
@@ -2968,6 +3186,10 @@ function createXiaoniActivityPersistence({
         ...(feed.compressionForkTimeline || {}),
         runs: visibleCompressionForkRuns
       },
+      cacheHeartbeatTimeline: {
+        ...(feed.cacheHeartbeatTimeline || {}),
+        runs: visibleCacheHeartbeatRuns
+      },
       imageVisionForkTimeline: {
         ...(feed.imageVisionForkTimeline || {}),
         runs: visibleImageVisionForkRuns
@@ -2976,7 +3198,7 @@ function createXiaoniActivityPersistence({
   }
 
   return {
-      getXiaoniActivityFeed,
+    getXiaoniActivityFeed,
     getXiaoniActionStream,
     findXiaoniActionEventTraceTarget
   };

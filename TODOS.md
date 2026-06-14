@@ -26,11 +26,11 @@ behavior from recent high activity.
 **Priority:** P2
 **Depends on:** Recent recovery telemetry and life projection samples
 
-### Investigate repeated isolated prompt-cache hit drops on codex-local
+### Investigate repeated isolated prompt-cache hit drops after heartbeat
 
-**What:** If 小腻再次出现单个 `codex-local/responses` slice 的 `cached_tokens`
-比例从约 98%-99% 突然跌到低位、下一轮又恢复，继续排查 provider/backend
-cache 行为并收集更多样本。
+**What:** If 小腻在 active recovery cache heartbeat 启用后仍出现单个
+`codex-local/responses` slice 的 `cached_tokens` 比例从约 98%-99% 突然跌到低位、
+下一轮又恢复，继续排查 provider/backend cache 行为并收集更多样本。
 
 **Why:** `runtrace_1781350585451_bc8018f8` /
 `llm_1781350586397_00729fb8` 出现过 `Input 57.2K / Cache 6.8K / Output 93`
@@ -44,10 +44,11 @@ miss 的哪一种。
 `reasoning` / `include` 均稳定；`wire_request - input` 哈希也稳定。官方
 `/v1/responses` 文档支持 `prompt_cache_retention: "24h"`，但当前小腻实际走的
 ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
-`Unsupported parameter: prompt_cache_retention`，所以当前路径只能依赖
-`prompt_cache_key` 和 backend best-effort cache。下次复现时优先对比更多连续
-slice 的 wire payload、cached_tokens、时间间隔和同 key 并发情况，再决定是否需要
-改 provider 路径或增加观测。
+`Unsupported parameter: prompt_cache_retention`；2026-06-14 手动 heartbeat curl 也确认
+该 backend 拒绝 `max_output_tokens`，所以当前路径只能依赖
+`prompt_cache_key`、sleeping cache heartbeat 和 backend best-effort cache。下次复现时
+优先对比更多连续 slice 的 wire payload、cached_tokens、时间间隔、同 key 并发情况和
+`cache_heartbeat_no_persist` 用量事件，再决定是否需要改 provider 路径或继续增加观测。
 
 **Effort:** M
 **Priority:** P3

@@ -69,6 +69,9 @@ import {
   getActiveAgentRecoverySession as getActiveAgentRecoverySessionPersistence,
   listAgentRecoveryWakeNotifications as listAgentRecoveryWakeNotificationsPersistence,
   updateAgentRecoverySessionProgress as updateAgentRecoverySessionProgressPersistence,
+  claimAgentRecoveryCacheHeartbeat as claimAgentRecoveryCacheHeartbeatPersistence,
+  completeAgentRecoveryCacheHeartbeat as completeAgentRecoveryCacheHeartbeatPersistence,
+  clearAgentRecoveryCacheHeartbeatSchedule as clearAgentRecoveryCacheHeartbeatSchedulePersistence,
   finalizeAgentRecoverySession as finalizeAgentRecoverySessionPersistence,
   createAgentMemoryAssertion,
   createAgentMemoryObservation,
@@ -98,6 +101,7 @@ import {
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
+  type AgentRecoveryCacheHeartbeatClaimResult,
   type AgentRecoverySessionProjection,
   type AgentRecoveryWakeNotificationProjection,
   type QqUsageThreadList,
@@ -1338,6 +1342,27 @@ export class RuntimeStore {
 
   async updateAgentRecoverySessionProgress(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
     return updateAgentRecoverySessionProgressPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async claimAgentRecoveryCacheHeartbeat(params: Record<string, unknown>): Promise<AgentRecoveryCacheHeartbeatClaimResult> {
+    return claimAgentRecoveryCacheHeartbeatPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async completeAgentRecoveryCacheHeartbeat(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
+    return completeAgentRecoveryCacheHeartbeatPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async clearAgentRecoveryCacheHeartbeatSchedule(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
+    return clearAgentRecoveryCacheHeartbeatSchedulePersistence({
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);

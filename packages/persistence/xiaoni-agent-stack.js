@@ -1358,8 +1358,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
 
     const currentRows = await executor.query(
       `
-        ${usageRollupSourceFromCodexProviderSelectSql()}
-        WHERE event_id = ?
+        SELECT *
+        FROM (
+          ${usageRollupSourceFromCodexProviderSelectSql()}
+        ) codex_provider_usage_rollup_source
+        WHERE slice_id = ?
         LIMIT 1
       `,
       [eventId]
@@ -3286,6 +3289,64 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function listCodexProviderUsageEvents(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const clauses = ['identity_key = ?'];
+    const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
+    const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
+    const eventId = firstString(input.eventId, input.event_id, input.sliceId, input.slice_id);
+    const sourceKind = firstString(input.sourceKind, input.source_kind);
+    const sourceId = firstString(input.sourceId, input.source_id, input.forkRunId, input.fork_run_id);
+    const traceId = firstString(input.traceId, input.trace_id);
+    const runId = firstString(input.runId, input.run_id);
+    const llmCallId = firstString(input.llmCallId, input.llm_call_id);
+
+    if (eventId) {
+      clauses.push('event_id = ?');
+      params.push(eventId);
+    }
+    if (sourceKind) {
+      clauses.push('source_kind = ?');
+      params.push(normalizeCodexProviderUsageSourceKind(sourceKind));
+    }
+    if (sourceId) {
+      clauses.push('source_id = ?');
+      params.push(sourceId);
+    }
+    if (traceId) {
+      clauses.push('trace_id = ?');
+      params.push(traceId);
+    }
+    if (runId) {
+      clauses.push('run_id = ?');
+      params.push(runId);
+    }
+    if (llmCallId) {
+      clauses.push('llm_call_id = ?');
+      params.push(llmCallId);
+    }
+    if (input.conversationId || input.conversation_id) {
+      clauses.push('conversation_id = ?');
+      params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
+    }
+    appendTimeClauses(clauses, params, input, 'created_at');
+    params.push(limit);
+
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM codex_provider_usage_events
+          WHERE ${clauses.join(' AND ')}
+          ORDER BY created_at ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
+          LIMIT ?
+        `,
+        params
+      );
+      return rows.map(normalizeCodexProviderUsageEventRow).filter(Boolean);
+    });
+  }
+
   async function getXiaoniLlmUsageTimeline(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
@@ -3806,6 +3867,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     recordImageVisionForkSlice,
     listAgentStackItems,
     listLlmRequestSlices,
+    listCodexProviderUsageEvents,
     getXiaoniLlmUsageTimeline,
     listToolExecutions,
     findAgentStackItemByEventId,

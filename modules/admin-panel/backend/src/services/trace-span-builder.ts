@@ -8,6 +8,7 @@ import {
   listTraceTrafficLogs,
   listAgentStackItems,
   listLlmRequestSlices,
+  listCodexProviderUsageEvents,
   listToolExecutions,
   getAgentTaskById,
   parseInstantValue,
@@ -3545,6 +3546,109 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   return null;
 }
 
+function normalizeCodexProviderUsageEventAsSlice(row: any) {
+  const eventId = row.eventId ?? row.event_id ?? row.sliceId ?? row.slice_id ?? row.id;
+  return {
+    ...row,
+    sliceId: eventId,
+    slice_id: eventId,
+    llmCallId: row.llmCallId ?? row.llm_call_id ?? null,
+    llm_call_id: row.llmCallId ?? row.llm_call_id ?? null,
+    traceId: row.traceId ?? row.trace_id ?? null,
+    trace_id: row.traceId ?? row.trace_id ?? null,
+    runId: row.runId ?? row.run_id ?? null,
+    run_id: row.runId ?? row.run_id ?? null,
+    conversationId: row.conversationId ?? row.conversation_id ?? null,
+    conversation_id: row.conversationId ?? row.conversation_id ?? null,
+    agentTurn: null,
+    agent_turn: null,
+    canonicalRequest: row.canonicalRequest ?? row.canonical_request ?? {},
+    canonical_request: row.canonicalRequest ?? row.canonical_request ?? {},
+    wireRequest: row.wireRequest ?? row.wire_request ?? null,
+    wire_request: row.wireRequest ?? row.wire_request ?? null,
+    canonicalResponse: row.canonicalResponse ?? row.canonical_response ?? null,
+    canonical_response: row.canonicalResponse ?? row.canonical_response ?? null,
+    wireResponse: row.wireResponse ?? row.wire_response ?? null,
+    wire_response: row.wireResponse ?? row.wire_response ?? null,
+    rawResponse: row.rawResponse ?? row.raw_response ?? null,
+    raw_response: row.rawResponse ?? row.raw_response ?? null,
+    outputItems: row.outputItems ?? row.output_items ?? [],
+    output_items: row.outputItems ?? row.output_items ?? [],
+    tokenUsage: row.tokenUsage ?? row.token_usage ?? {},
+    token_usage: row.tokenUsage ?? row.token_usage ?? {},
+    modelName: row.modelName ?? row.model_name ?? null,
+    model_name: row.modelName ?? row.model_name ?? null,
+    modelProvider: row.modelProvider ?? row.model_provider ?? null,
+    model_provider: row.modelProvider ?? row.model_provider ?? null,
+    requestFormatVersion: row.requestFormatVersion ?? row.request_format_version ?? null,
+    request_format_version: row.requestFormatVersion ?? row.request_format_version ?? null,
+    wireProviderFormat: row.wireProviderFormat ?? row.wire_provider_format ?? null,
+    wire_provider_format: row.wireProviderFormat ?? row.wire_provider_format ?? null,
+    processingTimeMs: row.processingTimeMs ?? row.processing_time_ms ?? null,
+    processing_time_ms: row.processingTimeMs ?? row.processing_time_ms ?? null,
+    metadata: row.metadata ?? {},
+    createdAt: row.createdAt ?? row.created_at ?? null,
+    created_at: row.createdAt ?? row.created_at ?? null,
+    completedAt: row.completedAt ?? row.completed_at ?? null,
+    completed_at: row.completedAt ?? row.completed_at ?? null,
+    updatedAt: row.updatedAt ?? row.updated_at ?? null,
+    updated_at: row.updatedAt ?? row.updated_at ?? null,
+    status: row.status ?? null
+  };
+}
+
+async function buildCodexProviderUsageRawTrace(
+  logger: winston.Logger,
+  target: StackTraceTarget,
+  spanId: string
+): Promise<RawProviderTraceDto | null> {
+  const lookup = resolveStackRawTraceLookup(target, spanId);
+  const traceId = firstNonEmptyString(target.traceId);
+  const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const sourceKind = firstNonEmptyString(target.sourceKind);
+  const forkRunId = firstNonEmptyString(target.forkRunId);
+  const targetEventId = firstNonEmptyString(target.llmRequestSliceId);
+  const eventId = targetEventId?.startsWith('codex-provider:') ? targetEventId : lookup?.sliceId;
+  const sourceId = sourceKind === 'cache_heartbeat' ? null : forkRunId;
+  try {
+    const rows = await listCodexProviderUsageEvents({
+      identityKey: 'xiaoni',
+      ...(sourceKind ? { sourceKind } : {}),
+      ...(sourceId ? { sourceId } : {}),
+      ...(traceId ? { traceId } : {}),
+      ...(runId ? { runId } : {}),
+      ...(eventId ? { eventId } : {}),
+      ...(lookup?.llmCallId ? { llmCallId: lookup.llmCallId } : {}),
+      rawTraceOnly: true,
+      limit: 1
+    }) as any[];
+    const row = rows[0] as any;
+    if (!row) {
+      return null;
+    }
+    const slice = normalizeStackLlmSlice(normalizeCodexProviderUsageEventAsSlice(row), { includeRawWireText: true });
+    const providerCall = normalizeStackSliceProviderCall(slice);
+    if (!hasProviderWirePayload(providerCall)) {
+      return null;
+    }
+    return buildRawProviderTraceFromProviderCall(
+      providerCall,
+      spanId || target.spanId || null,
+      'codex_provider_usage_events.provider_exchange'
+    );
+  } catch (error) {
+    logger.warn('Codex provider usage raw trace query failed', {
+      error: error instanceof Error ? error.message : String(error),
+      traceId,
+      runId,
+      spanId,
+      lookup,
+      sourceKind
+    });
+    return null;
+  }
+}
+
 export async function buildStackRawProviderTrace(
   logger: winston.Logger,
   target: StackTraceTarget,
@@ -3552,6 +3656,13 @@ export async function buildStackRawProviderTrace(
 ): Promise<RawProviderTraceDto | null> {
   if (firstNonEmptyString(target.sourceKind) === 'image_task' || spanId.startsWith('provider-request:image-task:')) {
     return buildImageTaskRawProviderTrace(logger, target, spanId);
+  }
+
+  if (
+    firstNonEmptyString(target.sourceKind) === 'cache_heartbeat'
+    || (target.llmRequestSliceId || '').startsWith('codex-provider:')
+  ) {
+    return buildCodexProviderUsageRawTrace(logger, target, spanId);
   }
 
   const lookup = resolveStackRawTraceLookup(target, spanId);

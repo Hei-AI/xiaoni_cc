@@ -301,7 +301,7 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | --- | --- |
 | `core_memory_compression_fork_runs/items/slices/tool_executions` | 上下文压力触发的记忆压缩 fork。fork 可重试；如果模型没有调用 `compress_core_memory` 而返回 `final_answer`，工程会按 retry reminder 再跑，成功后把 text 写入未来 `<小腻近况>`。 |
 | `image_vision_fork_runs/items/slices` | 图片理解 fork。保存 no-persist vision 请求的文字栈、输出和 usage；base64 不进入主 stack。 |
-| `codex_provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant 等非主 loop provider 用量事件。 |
+| `codex_provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant、sleep cache heartbeat 等非主 loop provider 用量事件。 |
 
 LLM usage observatory 会合并主 `llm_request_slices`、compression fork、image vision fork
 和 Codex provider usage。call bucket 太密时会自动下采样到 hour/day/month；搜索 overlay
@@ -399,6 +399,9 @@ visible delivery card
 
 - `agent-service` 主 loop 已写入 stack ledger；`agent-service/index.ts` 只启动 runtime。
 - `provider-service` / Codex Provider 负责记录完整 canonical / wire request / response。
+- sleep cache heartbeat 只记录为 `codex_provider_usage_events`，不写主
+  `llm_request_slices`，也不追加到 `agent_stack_items`。本机手动入口
+  `POST /api/internal/runtime/cache-heartbeat` 只触发同一 no-persist fork 并返回 usage 摘要。
 - 管理端行动流和 Raw Trace 从 stack item、LLM slice、tool execution、life/media/task
   和 fork facts 投影，不再以 provider replay 或 run 列表为主卡片。
 - 旧 runtime LLM/tool audit 表和 provider replay ledger 已移除，schema ensure 会 drop

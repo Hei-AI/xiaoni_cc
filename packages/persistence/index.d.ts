@@ -1069,6 +1069,7 @@ export type XiaoniAgentStackPersistenceApi = {
   recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+  listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
   getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
   listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
   findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
@@ -1100,6 +1101,7 @@ export function appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCa
 export function recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
+export function listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
 export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
 export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
 export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
@@ -1882,6 +1884,27 @@ export type XiaoniActivityFeedItem = {
   tone: 'xiaoni' | 'success' | 'warning' | 'danger' | 'info' | 'neutral' | string;
   metadata: Record<string, unknown>;
 };
+export type XiaoniForkTimelineRun = {
+  id: string;
+  forkRunId: string;
+  source: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  status: string | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  traceId: string | null;
+  runId: string | null;
+  conversationId?: string | null;
+  eventCount: number;
+  events: XiaoniActivityFeedItem[];
+  metadata: Record<string, unknown>;
+};
+export type XiaoniForkTimeline = {
+  runs: XiaoniForkTimelineRun[];
+};
 export type XiaoniActionStreamItem = Omit<XiaoniActivityFeedItem, 'runId' | 'status'> & {
   status: 'observed' | 'running' | 'ok' | 'failed' | 'blocked' | 'waiting' | 'resting' | string | null;
   eventId: string;
@@ -1896,6 +1919,8 @@ export type XiaoniActionStreamItem = Omit<XiaoniActivityFeedItem, 'runId' | 'sta
     llmRequestSliceId?: string | null;
     toolCallId?: string | null;
     stackItemId?: string | null;
+    sourceKind?: string | null;
+    forkRunId?: string | null;
   } | null;
 };
 export type XiaoniActionEventTraceTarget = {
@@ -1906,6 +1931,8 @@ export type XiaoniActionEventTraceTarget = {
   llmRequestSliceId?: string | null;
   toolCallId?: string | null;
   stackItemId?: string | null;
+  sourceKind?: string | null;
+  forkRunId?: string | null;
 };
 export type XiaoniActivityTimeFilters = {
   range?: string;
@@ -1952,6 +1979,9 @@ export type XiaoniActivityFeedResult = {
     };
   };
   items: XiaoniActivityFeedItem[];
+  compressionForkTimeline?: XiaoniForkTimeline;
+  cacheHeartbeatTimeline?: XiaoniForkTimeline;
+  imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type XiaoniActionStreamResult = {
   identityKey: string;
@@ -1982,6 +2012,9 @@ export type XiaoniActionStreamResult = {
     };
   };
   items: XiaoniActionStreamItem[];
+  compressionForkTimeline?: XiaoniForkTimeline;
+  cacheHeartbeatTimeline?: XiaoniForkTimeline;
+  imageVisionForkTimeline?: XiaoniForkTimeline;
 };
 export type RecordAgentLifeEventInput = {
   identityKey?: string;
@@ -2094,8 +2127,28 @@ export type AgentRecoverySessionProjection = {
   hardWakeAt: string | null;
   result: Record<string, unknown>;
   metadata: Record<string, unknown>;
+  cacheHeartbeat?: {
+    intervalMs: number | null;
+    nextDueAt: string | null;
+    lastClaimedAt: string | null;
+    inFlightStartedAt: string | null;
+    lastStartedAt: string | null;
+    lastCompletedAt: string | null;
+    lastStatus: string | null;
+    lastEventId: string | null;
+    lastLlmCallId: string | null;
+    lastError: string | null;
+    claimCount: number;
+  };
   createdAt: string | null;
   updatedAt: string | null;
+};
+export type AgentRecoveryCacheHeartbeatClaimResult = {
+  claimed: boolean;
+  reason: string;
+  session: AgentRecoverySessionProjection | null;
+  nextDueAt: string | null;
+  inFlightStartedAt?: string | null;
 };
 export type AgentRecoveryWakeNotificationProjection = {
   id: number;
@@ -2114,6 +2167,9 @@ export function getActiveAgentRecoverySession(input?: Record<string, unknown>, c
 export function listAgentRecoverySessions(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection[]>;
 export function listAgentRecoveryWakeNotifications(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryWakeNotificationProjection[]>;
 export function updateAgentRecoverySessionProgress(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
+export function claimAgentRecoveryCacheHeartbeat(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoveryCacheHeartbeatClaimResult>;
+export function completeAgentRecoveryCacheHeartbeat(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
+export function clearAgentRecoveryCacheHeartbeatSchedule(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
 export function finalizeAgentRecoverySession(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRecoverySessionProjection | null>;
 export function getXiaoniActivityFeed(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActivityFeedResult>;
 export function getXiaoniActionStream(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<XiaoniActionStreamResult>;

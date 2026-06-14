@@ -230,6 +230,7 @@ loop tick:
   2. if active session remains:
        do not claim Notify Bucket
        do not append phone_notification to model context
+       optionally run no-persist cache heartbeat
        sleep and retry
   3. if session settled:
        run next model frame from appended callback/reminder
@@ -238,6 +239,25 @@ loop tick:
 ```
 
 唤醒计数只读扫描 `agent_queue_messages`：
+
+cache heartbeat 只用于睡眠中的 provider prompt-cache 保温。它用 no-notify 主请求前缀追加
+developer `Heartbeat`，通过 `/api/internal/llm/debug` 发送
+`cache_heartbeat_no_persist`，并设置 `store:false` / canonical `max_output_tokens:1`。
+当前 Codex backend 会拒绝 wire `max_output_tokens`，所以 Codex provider 实际只发送
+developer heartbeat 约束。heartbeat 不认领 Notify Bucket，不把任何 QQ 未读写入上下文，
+不写主 stack，也不消耗模型返回内容。
+heartbeat 续约状态持久化在 active `agent_recovery_sessions.metadata.cache_heartbeat` 中：
+每次 due 时先 claim，同一 session 只允许一个 in-flight heartbeat；成功后写入下一次
+`next_due_at = started_at + 5min`，失败时短间隔重试。agent-service 意外重启后，只要
+recovery session 仍是 active，下一轮 reconcile 会继续按该持久化 schedule 续约；session
+正常或提前醒来后，工程清掉 `next_due_at` 和 in-flight 标记，后续不会再发 planned heartbeat。
+需要本机验证时，走 agent-service 的一次性 internal 入口：
+
+```bash
+curl -sS -X POST http://127.0.0.1:8092/api/internal/runtime/cache-heartbeat
+```
+
+这个入口复用同一套 heartbeat fork，绕过 5 分钟自动调度间隔，只返回 provider usage 摘要。
 
 ```text
 source = 'phone_notification'
