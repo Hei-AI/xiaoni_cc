@@ -546,17 +546,19 @@ function createIdentityLineagePersistence({ getPrismaClient, createSqlAdapter })
             run_id VARCHAR(128) NULL,
             trace_id VARCHAR(128) NULL,
             conversation_id BIGINT NULL,
-            scene_fingerprint VARCHAR(191) NULL,
+            scene_fingerprint TEXT NULL,
             cue_summary TEXT NULL,
             activated_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
             suppressed_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
-            selected_skill_ref VARCHAR(191) NULL,
+            selected_skill_ref TEXT NULL,
             activation_reason TEXT NULL,
             metadata JSONB NULL,
             created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `
       );
+      await sql.execute('ALTER TABLE runtime_identity_activation_traces ALTER COLUMN scene_fingerprint TYPE TEXT');
+      await sql.execute('ALTER TABLE runtime_identity_activation_traces ALTER COLUMN selected_skill_ref TYPE TEXT');
 
       await sql.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uniq_xiaoni_identity_roots_active_key ON xiaoni_identity_roots (identity_key) WHERE status = 'active'"

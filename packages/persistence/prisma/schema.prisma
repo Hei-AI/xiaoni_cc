@@ -1433,11 +1433,11 @@ model RuntimeIdentityActivationTrace {
   run_id             String?  @db.VarChar(128)
   trace_id           String?  @db.VarChar(128)
   conversation_id    BigInt?  @db.BigInt
-  scene_fingerprint  String?  @db.VarChar(191)
+  scene_fingerprint  String?
   cue_summary        String?
   activated_refs     Json
   suppressed_refs    Json
-  selected_skill_ref String?  @db.VarChar(191)
+  selected_skill_ref String?
   activation_reason  String?
   metadata           Json?
   created_at         DateTime @default(now()) @db.Timestamptz(3)
