@@ -50,6 +50,9 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM core_memory_compression_fork_items')) {
           return overrides.compressionForkItems || [];
         }
+        if (statement.includes('FROM image_vision_fork_items')) {
+          return overrides.imageVisionForkItems || [];
+        }
         if (statement.includes('FROM core_memory_compression_fork_tool_executions')) {
           return overrides.compressionForkToolRows || [];
         }
@@ -789,6 +792,24 @@ test('Xiaoni action stream projects image vision fork observations outside main 
         },
         created_at: '2026-06-05T10:05:01.000Z'
       }]
+    }],
+    imageVisionForkItems: [{
+      id: 'vision-item-1',
+      fork_run_id: 'image-vision-fork:run_vision_1:media_vision_1',
+      identity_key: 'xiaoni',
+      item_index: 1,
+      item_kind: 'function_call',
+      tool_call_id: 'call_exec_vision_1',
+      llm_request_slice_id: 'vision_llm_1',
+      trace_id: 'trace_vision_1',
+      run_id: 'run_vision_1',
+      content: {
+        type: 'function_call',
+        name: 'exec_command',
+        call_id: 'call_exec_vision_1',
+        arguments: '{"cmd":"cat > /xiaoni-runtime/image-vision/observations/media_vision_1.md"}'
+      },
+      created_at: '2026-06-05T10:05:00.500Z'
     }]
   });
 
@@ -796,13 +817,17 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   const forkRun = stream.imageVisionForkTimeline.runs[0];
 
   assert.ok(forkRun);
-  assert.equal(forkRun.forkRunId, 'image-vision:media_vision_1');
+  assert.equal(forkRun.forkRunId, 'image-vision-fork:run_vision_1:media_vision_1');
   assert.equal(forkRun.source, 'image_vision_fork');
-  assert.equal(forkRun.events[0].source, 'image_vision_fork_observation');
-  assert.equal(forkRun.events[0].traceTarget.spanId, 'provider-request:wire:vision_llm_1');
-  assert.equal(forkRun.events[0].metadata.inputTokens, 188786);
-  assert.equal(forkRun.events[0].metadata.cachedInputTokens, 6656);
-  assert.equal(forkRun.events[0].metadata.outputTokens, 206);
+  const observationEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_observation');
+  assert.ok(observationEvent);
+  assert.equal(observationEvent.traceTarget.spanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(forkRun.events.some((event) => event.kind === 'function_call' && event.metadata.toolName === 'exec_command'), true);
+  assert.equal(forkRun.events.some((event) => String(event.body).includes('/xiaoni-runtime/image-vision/observations/media_vision_1.md')), true);
+  assert.equal(forkRun.eventCount, 2);
+  assert.equal(observationEvent.metadata.inputTokens, 188786);
+  assert.equal(observationEvent.metadata.cachedInputTokens, 6656);
+  assert.equal(observationEvent.metadata.outputTokens, 206);
   assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
   assert.equal(
     listSliceInputs.some((input) => input.sliceId === 'vision_llm_1' && input.sourceKind === 'image_vision_fork'),

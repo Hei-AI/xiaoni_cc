@@ -844,6 +844,24 @@ function buildCompressionForkTraceTarget(row, {
   });
 }
 
+function buildImageVisionForkTraceTarget(row, {
+  forkRunId,
+  spanId,
+  llmRequestSliceId,
+  toolCallId
+} = {}) {
+  return normalizeTraceTarget({
+    sourceKind: 'image_vision_fork',
+    forkRunId: firstString(forkRunId, row?.forkRunId, row?.fork_run_id),
+    conversationId: row?.conversationId || row?.conversation_id || null,
+    traceId: row?.traceId || row?.trace_id || null,
+    runId: row?.runId || row?.run_id || null,
+    spanId,
+    llmRequestSliceId,
+    toolCallId
+  });
+}
+
 function attachLlmTokenMetadata(item, tokenSummaryBySliceId) {
   const sliceId = firstString(item.metadata?.llmRequestSliceId, item.metadata?.llm_request_slice_id);
   const tokenSummary = sliceId ? tokenSummaryBySliceId.get(sliceId) : null;
@@ -1559,15 +1577,135 @@ function summarizeImageVisionForkObservation(row, observation, index) {
   };
 }
 
-function buildImageVisionForkTimeline(mediaAssets) {
+function summarizeImageVisionForkItem(row) {
+  const content = normalizeJsonObject(row.content, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const itemKind = row.itemKind || row.item_kind || 'fork_item';
+  const toolName = firstString(content.name, metadata.tool_name, metadata.toolName);
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id, content.call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const isToolCall = itemKind === 'function_call';
+  const isToolOutput = itemKind === 'function_call_output';
+  const isRuntimeInput = itemKind === 'runtime_input';
+  const isAssistantOutput = itemKind === 'assistant_output';
+  const llmCallId = firstString(metadata.llm_call_id, metadata.llmCallId, llmSliceId);
+  const body = isToolCall
+    ? firstString(content.arguments, previewJson(content.arguments), metadata.argumentsPreview)
+    : isToolOutput
+      ? firstString(content.output, previewJson(content.output))
+      : isRuntimeInput
+        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        : previewResponseItemText(content);
+  const itemId = firstString(row.id === null || typeof row.id === 'undefined' ? null : String(row.id), row.eventId, row.event_id);
+  if (isAssistantOutput && !body) {
+    return null;
+  }
+  const spanId = isToolCall && toolCallId
+    ? `image-vision-fork-tool-call:${toolCallId}`
+    : isToolOutput && toolCallId
+      ? `image-vision-fork-tool-output:${toolCallId}`
+      : llmSliceId
+        ? `image-vision-fork-slice:${llmSliceId}`
+        : `image-vision-fork-item:${itemId || row.item_index}`;
+
+  return {
+    id: `image-vision-fork-item:${itemId || row.item_index}`,
+    source: 'image_vision_fork_item',
+    kind: isToolCall
+      ? 'function_call'
+      : isToolOutput
+        ? 'function_call_output'
+        : isAssistantOutput
+          ? firstString(row.phase, content.phase, 'assistant_message')
+          : itemKind,
+    title: isToolCall
+      ? `Fork 请求工具: ${toolName || 'tool'}`
+      : isToolOutput
+        ? `Fork 工具结果: ${toolName || toolCallId || 'tool'}`
+        : isRuntimeInput
+          ? 'Fork 当前输入'
+          : row.phase === 'final_answer' || content.phase === 'final_answer'
+            ? 'Fork 模型输出: final_answer'
+            : 'Fork 模型输出',
+    body: truncateText(body, 420),
+    status: null,
+    actor: isRuntimeInput ? 'system' : 'xiaoni',
+    actorName: isRuntimeInput ? 'Runtime' : '小腻 Fork',
+    timestamp: eventTimestamp(row.createdAt || row.created_at),
+    sessionKey: firstString(content.session_key, metadata.session_key),
+    peerName: firstString(content.peer_name, metadata.peer_name),
+    runId: row.runId || row.run_id || null,
+    traceId: row.traceId || row.trace_id || null,
+    tone: isToolOutput ? 'success' : isToolCall ? 'xiaoni' : isRuntimeInput ? 'info' : 'info',
+    traceTarget: buildImageVisionForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: llmSliceId,
+      toolCallId
+    }),
+    metadata: {
+      forkRunId,
+      sourceKind: 'image_vision_fork',
+      forkItemId: itemId,
+      forkItemEventId: row.eventId || row.event_id || null,
+      itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      forkSource: 'image_vision_fork_items',
+      llmRequestSliceId: llmSliceId,
+      llmCallId,
+      spanId,
+      parentSpanId: llmSliceId
+        ? `image-vision-fork-slice:${llmSliceId}`
+        : forkRunId
+          ? `image-vision-fork:${forkRunId}`
+          : null,
+      providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, llmCallId) : null,
+      outputItemType: firstString(content.type, itemKind),
+      outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
+      toolCallId,
+      toolName,
+      messagePhase: firstString(row.phase, content.phase),
+      argumentsPreview: isToolCall ? truncateText(firstString(content.arguments, previewJson(content.arguments)), 1200) : null,
+      toolResultPreview: isToolOutput ? previewJson(content.output) : null,
+      payloadPreview: isRuntimeInput ? previewJson(content) : null
+    }
+  };
+}
+
+function imageVisionForkRunIdsFromObservations(observations) {
+  return (Array.isArray(observations) ? observations : [])
+    .map((observation) => {
+      const metadata = imageVisionObservationMetadata(observation);
+      return firstString(metadata.fork_run_id, metadata.forkRunId);
+    })
+    .filter(Boolean);
+}
+
+function buildImageVisionForkTimeline(mediaAssets, forkItemRows = []) {
+  const itemEventsByForkRunId = new Map();
+  for (const row of Array.isArray(forkItemRows) ? forkItemRows : []) {
+    const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+    const event = summarizeImageVisionForkItem(row);
+    if (!forkRunId || !event) {
+      continue;
+    }
+    if (!itemEventsByForkRunId.has(forkRunId)) {
+      itemEventsByForkRunId.set(forkRunId, []);
+    }
+    itemEventsByForkRunId.get(forkRunId).push(event);
+  }
   const runs = (Array.isArray(mediaAssets) ? mediaAssets : [])
     .map((row) => {
       const observations = Array.isArray(row.observations) ? row.observations : [];
       if (observations.length === 0) {
         return null;
       }
-      const eventList = observations
+      const observationEvents = observations
         .map((observation, index) => summarizeImageVisionForkObservation(row, observation, index))
+        .filter((event) => event.timestamp);
+      const forkRunIds = imageVisionForkRunIdsFromObservations(observations);
+      const forkItemEvents = forkRunIds.flatMap((forkRunId) => itemEventsByForkRunId.get(forkRunId) || []);
+      const eventList = [...observationEvents, ...forkItemEvents]
         .filter((event) => event.timestamp)
         .sort(compareTimelineEvents);
       if (eventList.length === 0) {
@@ -1583,7 +1721,7 @@ function buildImageVisionForkTimeline(mediaAssets) {
       const latestEvent = eventList[eventList.length - 1];
       return {
         id: `image-vision-fork:${row.id}`,
-        forkRunId: `image-vision:${row.id}`,
+        forkRunId: forkRunIds[0] || `image-vision:${row.id}`,
         source: 'image_vision_fork',
         kind: 'image_vision_fork',
         title: 'Image Vision Fork',
@@ -1601,6 +1739,7 @@ function buildImageVisionForkTimeline(mediaAssets) {
           forkKind: 'image_vision',
           mediaId: row.id,
           mediaTag: row.media_tag || null,
+          forkRunIds,
           sender: firstString(row.sender_name, row.sender_id),
           observationCount: observations.length,
           noPersist: true
@@ -2769,6 +2908,7 @@ function createXiaoniActivityPersistence({
     const phoneQueueTimePredicate = buildSqlTimePredicate([
       'COALESCE(processing_started_at, locked_at, available_at, created_at)'
     ], timeWindow);
+    const imageVisionForkItemTimePredicate = buildSqlTimePredicate(['created_at'], timeWindow);
     const lifeEventWhere = {
       identity_key: identityKey,
       event_kind: { notIn: ['pending_share_created', 'pending_share_consumed'] },
@@ -2793,6 +2933,7 @@ function createXiaoniActivityPersistence({
         digitalActions,
         tasks,
         mediaAssets,
+        imageVisionForkItemRows,
         queueItems,
         autonomousQueueItems,
         llmRequestSliceRows,
@@ -2837,6 +2978,14 @@ function createXiaoniActivityPersistence({
             }
           }
         }),
+        sql.query(`
+          SELECT *
+          FROM image_vision_fork_items
+          WHERE identity_key = ?
+          ${imageVisionForkItemTimePredicate.clause ? `AND ${imageVisionForkItemTimePredicate.clause}` : ''}
+          ORDER BY created_at DESC, id DESC
+          LIMIT ?
+        `, [identityKey, ...imageVisionForkItemTimePredicate.params, perSourceLimit]),
         sql.query(`
           ${QUEUE_ACTIVITY_SELECT}
           WHERE status IN ('pending', 'processing', 'failed')
@@ -2936,7 +3085,7 @@ function createXiaoniActivityPersistence({
       let normalizedLlmRequestSliceRows = Array.isArray(llmRequestSliceRows)
         ? llmRequestSliceRows
         : [];
-      const imageVisionForkTimeline = buildImageVisionForkTimeline(mediaAssets);
+      const imageVisionForkTimeline = buildImageVisionForkTimeline(mediaAssets, imageVisionForkItemRows);
       if (actionStreamProjection && typeof listLlmRequestSlices === 'function') {
         const knownSliceIds = new Set(
           normalizedLlmRequestSliceRows
