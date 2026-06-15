@@ -7784,6 +7784,7 @@ export class AgentLoopService {
           processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
           metadata: {
             ...baseForkMetadata,
+            ...buildProviderWireMetadata(modelResult),
             fork_run_id: forkRunId,
             fork_turn: forkTurn,
             execution_mode: 'compression_fork'
@@ -8798,6 +8799,7 @@ export class AgentLoopService {
         wireProviderFormat: payload.wire_provider_format || null,
         processingTimeMs: typeof payload.performance?.processing_time_ms === 'number' ? payload.performance.processing_time_ms : null,
         metadata: {
+          ...buildProviderWireMetadata(payload),
           execution_mode: 'image_vision_fork',
           asset_id: params.assetId,
           media_tag: params.mediaTag,
@@ -9589,6 +9591,16 @@ function buildProviderTokenUsage(modelResult: ProviderAgentResponse) {
     cached_input_tokens: readOptionalNumber(modelResult.usage_details?.cached_input_tokens) || 0,
     reasoning_tokens: readOptionalNumber(modelResult.usage_details?.reasoning_tokens) || 0,
     raw_usage: modelResult.usage_details?.raw_usage || null
+  };
+}
+
+function buildProviderWireMetadata(modelResult: ProviderAgentResponse): Record<string, unknown> {
+  return {
+    wire_request_headers: modelResult.wire_request_headers || null,
+    wire_request_url: modelResult.wire_request_url || null,
+    wire_response_headers: modelResult.wire_response_headers || null,
+    wire_response_status: modelResult.wire_response_status ?? null,
+    wire_response_status_text: modelResult.wire_response_status_text || null
   };
 }
 

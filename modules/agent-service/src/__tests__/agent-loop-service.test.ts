@@ -3791,6 +3791,8 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
           llm_request_slice_id: isAfterWriteToolResult ? 'llm-image-fork-2' : 'llm-image-fork-1',
           canonical_request: parsed?.canonicalRequest,
           wire_request: { model: parsed?.model, input: [{ type: 'wire_input' }] },
+          wire_request_headers: { 'content-type': 'application/json', 'x-request-id': `vision-${imageVisionForkTurn}` },
+          wire_request_url: 'https://provider.test/v1/responses',
           canonical_response: isAfterWriteToolResult
             ? {
                 output: [{
@@ -3812,6 +3814,9 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
                 }]
               },
           wire_response: { id: 'resp-image-fork' },
+          wire_response_headers: { 'content-type': 'text/event-stream' },
+          wire_response_status: 200,
+          wire_response_status_text: 'OK',
           raw_response: { id: 'resp-image-fork' },
           usage: {
             input_tokens: 1234,
@@ -3947,6 +3952,16 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.forkRunId, storeCalls.recordImageVisionForkRun[0]?.forkRunId);
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.sliceId, 'llm-image-fork-1');
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.canonicalRequest, forkRequest);
+  assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_request_headers, {
+    'content-type': 'application/json',
+    'x-request-id': 'vision-1'
+  });
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_request_url, 'https://provider.test/v1/responses');
+  assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_response_headers, {
+    'content-type': 'text/event-stream'
+  });
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_response_status, 200);
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_response_status_text, 'OK');
   assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.tokenUsage, {
     input_tokens: 1234,
     output_tokens: 56,
@@ -7832,6 +7847,11 @@ test('core memory compression runs in an isolated background fork alongside the 
       return {
         success: true,
         llm_call_id: 'llm-compress-fork-1',
+        wire_request_headers: { 'content-type': 'application/json', 'x-request-id': 'compress-1' },
+        wire_request_url: 'https://provider.test/v1/responses',
+        wire_response_headers: { 'content-type': 'text/event-stream' },
+        wire_response_status: 200,
+        wire_response_status_text: 'OK',
         usage: {
           input_tokens: 1000,
           output_tokens: 20,
@@ -7862,6 +7882,11 @@ test('core memory compression runs in an isolated background fork alongside the 
     return {
       success: true,
       llm_call_id: 'llm-compress-fork-2',
+      wire_request_headers: { 'content-type': 'application/json', 'x-request-id': 'compress-2' },
+      wire_request_url: 'https://provider.test/v1/responses',
+      wire_response_headers: { 'content-type': 'text/event-stream' },
+      wire_response_status: 200,
+      wire_response_status_text: 'OK',
       usage: {
         input_tokens: 1200,
         output_tokens: 30,
@@ -7979,6 +8004,16 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(forkSlices.length, 2);
   assert.equal(forkSlices[0]?.canonicalRequest?.store, false);
   assert.equal(forkSlices[0]?.metadata?.no_main_stack_persist, true);
+  assert.deepEqual(forkSlices[0]?.metadata?.wire_request_headers, {
+    'content-type': 'application/json',
+    'x-request-id': 'compress-1'
+  });
+  assert.equal(forkSlices[0]?.metadata?.wire_request_url, 'https://provider.test/v1/responses');
+  assert.deepEqual(forkSlices[0]?.metadata?.wire_response_headers, {
+    'content-type': 'text/event-stream'
+  });
+  assert.equal(forkSlices[0]?.metadata?.wire_response_status, 200);
+  assert.equal(forkSlices[0]?.metadata?.wire_response_status_text, 'OK');
   assert.deepEqual(forkSlices[0]?.tokenUsage, {
     input_tokens: 1000,
     output_tokens: 20,
