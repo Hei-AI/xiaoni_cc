@@ -503,6 +503,63 @@ describe('buildStackTracePayload', () => {
     expect(rawTrace?.source).toBe('core_memory_compression_fork_slices.provider_exchange');
   });
 
+  it('loads raw provider exchange from image vision fork slices', async () => {
+    (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
+      id: '31',
+      sliceId: 'vision-slice-1',
+      llmCallId: 'vision-llm-call-1',
+      traceId: 'trace-vision-1',
+      runId: 'run-vision-1',
+      forkRunId: 'vision-fork-run-1',
+      sourceKind: 'image_vision_fork',
+      conversationId: null,
+      agentTurn: 1,
+      createdAt: '2026-03-28T10:00:01.000Z',
+      completedAt: '2026-03-28T10:00:03.000Z',
+      status: 'completed',
+      modelName: 'gpt-5-mini',
+      modelProvider: 'codex',
+      wireRequest: { model: 'gpt-5-mini', input: ['inspect image'] },
+      wireResponse: { id: 'resp-vision-1' },
+      rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'observed' }] }] },
+      tokenUsage: { input_tokens: 100, output_tokens: 20 },
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'codex/responses',
+      processingTimeMs: 2000,
+      metadata: {
+        provider_request_headers: {
+          Authorization: 'Bearer secret',
+          'x-trace-id': 'trace-vision-1'
+        },
+        provider_response_status: 200
+      }
+    }]);
+
+    const rawTrace = await buildStackRawProviderTrace(
+      createLogger(),
+      {
+        traceId: 'trace-vision-1',
+        internalExecutionLeaseId: 'run-vision-1',
+        llmRequestSliceId: 'vision-slice-1',
+        sourceKind: 'image_vision_fork',
+        forkRunId: 'vision-fork-run-1'
+      },
+      'image-vision-fork-slice:vision-slice-1'
+    );
+
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: 'trace-vision-1',
+      runId: 'run-vision-1',
+      sourceKind: 'image_vision_fork',
+      forkRunId: 'vision-fork-run-1',
+      sliceId: 'vision-slice-1',
+      rawTraceOnly: true,
+      limit: 1
+    }));
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5-mini', input: ['inspect image'] }));
+    expect(rawTrace?.source).toBe('image_vision_fork_slices.provider_exchange');
+  });
+
   it('loads raw provider exchange from image task results', async () => {
     (getAgentTaskById as jest.Mock).mockResolvedValueOnce({
       id: 'task-image-1',

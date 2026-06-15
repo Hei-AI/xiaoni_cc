@@ -3533,6 +3533,9 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   if (spanId.startsWith('compression-fork-slice:')) {
     return { sliceId: spanId.slice('compression-fork-slice:'.length) };
   }
+  if (spanId.startsWith('image-vision-fork-slice:')) {
+    return { sliceId: spanId.slice('image-vision-fork-slice:'.length) };
+  }
   if (spanId.startsWith('llm-call:')) {
     return { llmCallId: spanId.slice('llm-call:'.length) };
   }
@@ -3705,7 +3708,9 @@ export async function buildStackRawProviderTrace(
       spanId || target.spanId || null,
       sourceKind === 'compression_fork'
         ? 'core_memory_compression_fork_slices.provider_exchange'
-        : 'llm_request_slices.provider_exchange'
+        : sourceKind === 'image_vision_fork'
+          ? 'image_vision_fork_slices.provider_exchange'
+          : 'llm_request_slices.provider_exchange'
     );
   } catch (error) {
     logger.warn('Stack raw provider trace query failed', {

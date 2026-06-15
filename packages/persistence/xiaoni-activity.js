@@ -1468,6 +1468,8 @@ function imageVisionObservationTraceTarget(row, observation) {
   return normalizeTraceTarget({
     traceId: firstString(metadata.trace_id, metadata.traceId, row?.trace_id),
     runId: firstString(metadata.run_id, metadata.runId),
+    sourceKind: 'image_vision_fork',
+    forkRunId: firstString(metadata.fork_run_id, metadata.forkRunId),
     spanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
     llmRequestSliceId: sliceId
   });

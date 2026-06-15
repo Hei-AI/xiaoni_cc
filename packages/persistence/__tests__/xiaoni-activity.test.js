@@ -781,6 +781,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
         source_model: 'gpt-5.1',
         metadata: {
           trace_id: 'trace_vision_1',
+          fork_run_id: 'image-vision-fork:run_vision_1:media_vision_1',
           llm_call_id: 'vision_llm_1',
           llm_request_slice_id: 'vision_llm_1',
           provider_raw_trace_persisted: true,
@@ -810,6 +811,8 @@ test('Xiaoni action stream projects image vision fork observations outside main 
 
   const resolved = await persistence.findXiaoniActionEventTraceTarget('image-vision-fork:obs_vision_1');
   assert.equal(resolved.spanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(resolved.sourceKind, 'image_vision_fork');
+  assert.equal(resolved.forkRunId, 'image-vision-fork:run_vision_1:media_vision_1');
 });
 
 test('Xiaoni action stream filters primary cards before applying the display limit', async () => {
