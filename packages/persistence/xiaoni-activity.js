@@ -986,6 +986,36 @@ function summarizeCompressionForkSlice(row) {
   };
 }
 
+function summarizeImageVisionForkSlice(row) {
+  const base = summarizeLlmRequestSlice(row);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const spanId = sliceId ? `image-vision-fork-slice:${sliceId}` : `image-vision-fork-slice-row:${row.id}`;
+  return {
+    ...base,
+    id: `image-vision-fork-slice:${sliceId || row.id}`,
+    source: 'image_vision_fork_llm_request',
+    kind: 'fork_llm_request_slice',
+    title: 'Fork LLM 请求',
+    actorName: '小腻 Fork',
+    traceTarget: buildImageVisionForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: sliceId
+    }),
+    metadata: {
+      ...base.metadata,
+      forkRunId,
+      spanId,
+      parentSpanId: forkRunId ? `image-vision-fork:${forkRunId}` : null,
+      sourceKind: 'image_vision_fork',
+      providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
+      wirePayloadSource: 'image_vision_fork_slices'
+    }
+  };
+}
+
 function summarizeCompressionForkItem(row) {
   const content = normalizeJsonObject(row.content, {});
   const metadata = normalizeJsonObject(row.metadata, {});
@@ -1066,7 +1096,7 @@ function summarizeCompressionForkItem(row) {
           ? `compression-fork:${forkRunId}`
           : null,
       providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, llmCallId) : null,
-      providerRawTraceAvailable: Boolean(llmSliceId),
+      providerRawTraceAvailable: false,
       outputItemType: firstString(content.type, itemKind),
       outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
       toolCallId,
@@ -1661,7 +1691,7 @@ function summarizeImageVisionForkItem(row) {
           ? `image-vision-fork:${forkRunId}`
           : null,
       providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, llmCallId) : null,
-      providerRawTraceAvailable: Boolean(llmSliceId),
+      providerRawTraceAvailable: false,
       outputItemType: firstString(content.type, itemKind),
       outputItemIndex: Number(metadata.output_item_index ?? 0) || null,
       toolCallId,
@@ -1751,6 +1781,62 @@ function buildImageVisionForkTimeline(mediaAssets, forkItemRows = []) {
     .filter(Boolean)
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
   return { runs: normalizeValue(runs) };
+}
+
+function withImageVisionForkEvents(run, events) {
+  const eventList = (Array.isArray(events) ? events : [])
+    .filter((event) => event?.timestamp)
+    .sort(compareTimelineEvents);
+  if (eventList.length === 0) {
+    return run;
+  }
+  const startedAt = eventList[0].timestamp;
+  const completedAt = eventList[eventList.length - 1].timestamp;
+  const startedMs = new Date(startedAt).getTime();
+  const completedMs = new Date(completedAt).getTime();
+  return {
+    ...run,
+    startedAt,
+    completedAt,
+    durationMs: Number.isFinite(startedMs) && Number.isFinite(completedMs)
+      ? Math.max(0, completedMs - startedMs)
+      : run.durationMs ?? null,
+    traceId: eventList[eventList.length - 1].traceId || run.traceId || null,
+    runId: eventList[eventList.length - 1].runId || run.runId || null,
+    body: truncateText(eventList[eventList.length - 1].body || run.body, 520),
+    eventCount: eventList.length,
+    events: normalizeValue(eventList)
+  };
+}
+
+function attachImageVisionForkSliceEvents(timeline, sliceRows) {
+  const sliceEventsByForkRunId = new Map();
+  for (const row of Array.isArray(sliceRows) ? sliceRows : []) {
+    if (firstString(row.sourceKind, row.source_kind) !== 'image_vision_fork') {
+      continue;
+    }
+    const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+    if (!forkRunId) {
+      continue;
+    }
+    if (!sliceEventsByForkRunId.has(forkRunId)) {
+      sliceEventsByForkRunId.set(forkRunId, []);
+    }
+    sliceEventsByForkRunId.get(forkRunId).push(summarizeImageVisionForkSlice(row));
+  }
+  return {
+    ...timeline,
+    runs: (Array.isArray(timeline?.runs) ? timeline.runs : []).map((run) => {
+      const sliceEvents = sliceEventsByForkRunId.get(run.forkRunId) || [];
+      if (sliceEvents.length === 0) {
+        return run;
+      }
+      return withImageVisionForkEvents(run, [
+        ...(Array.isArray(run.events) ? run.events : []),
+        ...sliceEvents
+      ]);
+    })
+  };
 }
 
 function imageVisionForkSliceIdsFromTimeline(timeline) {
@@ -3193,7 +3279,8 @@ function createXiaoniActivityPersistence({
           tokenSummaryBySliceId.set(tokenSummary.llmRequestSliceId, tokenSummary);
         }
       });
-      const imageVisionForkTimelineWithTokens = attachImageVisionForkTokenMetadata(imageVisionForkTimeline, tokenSummaryBySliceId);
+      const imageVisionForkTimelineWithSlices = attachImageVisionForkSliceEvents(imageVisionForkTimeline, normalizedLlmRequestSliceRows);
+      const imageVisionForkTimelineWithTokens = attachImageVisionForkTokenMetadata(imageVisionForkTimelineWithSlices, tokenSummaryBySliceId);
 
       const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),

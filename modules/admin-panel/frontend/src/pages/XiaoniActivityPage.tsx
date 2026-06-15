@@ -358,9 +358,7 @@ function rawTraceSpanIdForSource(
   if (
     source !== 'llm_request'
     && source !== 'compression_fork_llm_request'
-    && source !== 'compression_fork_item'
-    && source !== 'image_vision_fork_item'
-    && source !== 'image_vision_fork_observation'
+    && source !== 'image_vision_fork_llm_request'
     && source !== 'cache_heartbeat'
     && source !== 'task'
   ) {
@@ -575,6 +573,7 @@ function sourceLabel(source: string) {
     case 'queue_message':
       return 'queue';
     case 'compression_fork_llm_request':
+    case 'image_vision_fork_llm_request':
       return 'fork LLM';
     case 'compression_fork_item':
       return 'fork stack';
@@ -1580,7 +1579,7 @@ function CompressionForkEventRow({
           iconClasses[tone]
         )}
       >
-        {event.source === 'compression_fork_llm_request' ? (
+        {event.source === 'compression_fork_llm_request' || event.source === 'image_vision_fork_llm_request' ? (
           <Activity className="h-3.5 w-3.5" />
         ) : (
           <Waypoints className="h-3.5 w-3.5" />
