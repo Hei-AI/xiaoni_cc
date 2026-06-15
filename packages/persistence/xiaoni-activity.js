@@ -1570,7 +1570,6 @@ function summarizeImageVisionForkObservation(row, observation, index) {
   const traceId = firstString(metadata.trace_id, metadata.traceId, row.trace_id);
   const runId = firstString(metadata.run_id, metadata.runId);
   const traceTarget = imageVisionObservationTraceTarget(row, observation);
-  const providerRawTraceAvailable = Boolean(traceTarget);
   const observationId = observation?.id === null || typeof observation?.id === 'undefined'
     ? `${row.id}:${index}`
     : String(observation.id);
@@ -1601,9 +1600,9 @@ function summarizeImageVisionForkObservation(row, observation, index) {
       llmRequestSliceId,
       spanId: traceTarget?.spanId || null,
       providerRequestSpanId: traceTarget?.spanId || null,
-      providerRawTraceAvailable,
+      providerRawTraceAvailable: false,
       reason: firstString(metadata.reason),
-      noPersist: !providerRawTraceAvailable
+      noPersist: !traceTarget
     }
   };
 }
