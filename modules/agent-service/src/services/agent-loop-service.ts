@@ -31,7 +31,7 @@ import {
   type SessionReadCutoffState
 } from './runtime-store';
 import { resolveModelContextPolicy } from './model-context-policy';
-import { estimateTextTokens } from './token-estimator';
+import { estimateRequestTokens } from './token-estimator';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -500,7 +500,6 @@ type RuntimeIdentityFactProjection = {
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
-const HISTORY_COMPACT_AT = 200;
 const HISTORY_COMPACT_KEEP = 30;
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
@@ -5224,19 +5223,12 @@ export class AgentLoopService {
           budgetPlan = await buildBudgetPlan(true);
         }
       }
-      const coreMemoryCompressionCheckpoint = await this.buildCoreMemoryCompressionCheckpoint({
-        history,
-        queueMessage: payload,
-        runtimePrompt: resolvedRuntimePrompt,
-        loopContinuation,
-        runtimeIdentityFacts,
-        developerContextBlock,
-        runtimeEnergyState: initialRuntimeEnergyState,
-        contextSessionKey,
-        cutoffState,
-        triggerInputMode: options.triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer
-      });
+      const coreMemoryCompressionCheckpoint = budgetPlan.coreMemoryCompression && budgetPlan.summarySourceInput
+        ? {
+            compression: budgetPlan.coreMemoryCompression,
+            summarySourceInput: budgetPlan.summarySourceInput
+          }
+        : null;
       await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
       if (!jobId) {
         jobId = await this.store.createLlmJob({
@@ -6840,9 +6832,128 @@ export class AgentLoopService {
       loopInput: requestInput
     });
 
+    if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
+      return {
+        requestInput,
+        summarySourceInput: null,
+        retainedHistory: initialRetainedHistory,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        estimatedInputTokens: estimate.inputTokens,
+        contextWindowTokens,
+        targetBudgetTokens,
+        hardBudgetTokens,
+        tokenizerEncoding: estimate.encoding,
+        tokenizerSource: estimate.source,
+        cutoffRecomputed: false,
+        contextSummary,
+        pendingProactiveShare,
+        pendingProactiveShareAge,
+        coreMemoryCompression: null
+      };
+    }
+
+    if (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0) {
+      return {
+        requestInput,
+        summarySourceInput: null,
+        retainedHistory: initialRetainedHistory,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        estimatedInputTokens: estimate.inputTokens,
+        contextWindowTokens,
+        targetBudgetTokens,
+        hardBudgetTokens,
+        tokenizerEncoding: estimate.encoding,
+        tokenizerSource: estimate.source,
+        cutoffRecomputed: false,
+        contextSummary,
+        pendingProactiveShare,
+        pendingProactiveShareAge,
+        coreMemoryCompression: null
+      };
+    }
+
+    const compressionPoint = await planReadCutoffFromFirstOverflow({
+      history: initialRetainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation,
+      contextWindowTokens,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      contextSummary,
+      pendingProactiveShare,
+      developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+    });
+    if (!compressionPoint) {
+      return {
+        requestInput,
+        summarySourceInput: null,
+        retainedHistory: initialRetainedHistory,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        estimatedInputTokens: estimate.inputTokens,
+        contextWindowTokens,
+        targetBudgetTokens,
+        hardBudgetTokens,
+        tokenizerEncoding: estimate.encoding,
+        tokenizerSource: estimate.source,
+        cutoffRecomputed: false,
+        contextSummary,
+        pendingProactiveShare,
+        pendingProactiveShareAge,
+        coreMemoryCompression: null
+      };
+    }
+    const historyTargets = resolveSessionTargets(params.queueMessage);
+    const compression = {
+      required: true as const,
+      contextSessionKey,
+      readCutoffAfterConversationId: compressionPoint.readCutoffAfterConversationId,
+      previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      compressionCoveredEndConversationId: compressionPoint.compressionCoveredEndConversationId,
+      historyUserId: historyTargets.userId,
+      historyGroupId: historyTargets.groupId,
+      historyScope: 'global' as const,
+      lastContextWindowTokens: contextWindowTokens,
+      lastTargetBudgetTokens: targetBudgetTokens,
+      lastHardBudgetTokens: hardBudgetTokens
+    };
+    const pressureSummary = [
+      `本地估算当前输入 ${estimate.inputTokens} tokens，超过 context window ${contextWindowTokens}，必须压缩核心记忆。`,
+      `本次只压缩当前 stack 头部到 conversation ${compressionPoint.compressionCoveredEndConversationId} 的稳定内容。`,
+      `压缩成功后主线 offset 将推进到 ${compressionPoint.readCutoffAfterConversationId}，保留压缩源尾部 ${compressionPoint.overlapCount} 条作为衔接。`
+    ].join('\n');
+    const summarySourceInput = buildLoopRequestInput({
+      history: compressionPoint.summarySourceHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: [
+        ...params.loopContinuation,
+        buildCoreMemoryCompressionReminder({
+          contextSessionKey,
+          readCutoffAfterConversationId: compressionPoint.readCutoffAfterConversationId,
+          pressureSummary
+        })
+      ],
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      contextSummary,
+      pendingProactiveShare,
+      developerContextBlock: params.developerContextBlock ?? null,
+      runtimeEnergyState: params.runtimeEnergyState ?? null,
+      triggerInputMode,
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+    });
+
     return {
       requestInput,
-      summarySourceInput: null,
+      summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
@@ -6857,7 +6968,7 @@ export class AgentLoopService {
       contextSummary,
       pendingProactiveShare,
       pendingProactiveShareAge,
-      coreMemoryCompression: null
+      coreMemoryCompression: compression
     };
   }
 
@@ -6874,147 +6985,13 @@ export class AgentLoopService {
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   }): Promise<CoreMemoryCompressionCheckpoint | null> {
-    const policy = resolveModelContextPolicy(
-      params.runtimePrompt.modelName,
-      params.runtimePrompt.parameters as Record<string, unknown> | undefined
-    );
-    const contextWindowTokens = policy?.contextWindowTokens ?? null;
-    const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
-    const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
-    const contextSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
-    const cutoffState = Object.prototype.hasOwnProperty.call(params, 'cutoffState')
-      ? params.cutoffState ?? null
-      : await this.store.getSessionReadCutoffState(contextSessionKey);
-    const contextSummary = cutoffState?.contextSummary ?? null;
-    const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
-    const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
-    const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
-    const historyTargets = resolveSessionTargets(params.queueMessage);
-
-    if (initialRetainedHistory.length > HISTORY_COMPACT_AT) {
-      const compressionCoveredEndConversationId = initialRetainedHistory.length > 0
-        ? initialRetainedHistory[initialRetainedHistory.length - 1]!.id
-        : cutoffState?.readCutoffAfterConversationId ?? null;
-      const newCutoffTurn = initialRetainedHistory[initialRetainedHistory.length - HISTORY_COMPACT_KEEP - 1];
-      const newCutoffId = newCutoffTurn?.id ?? cutoffState?.readCutoffAfterConversationId ?? null;
-      const compressionLoopContinuation = [
-        ...params.loopContinuation,
-        buildCoreMemoryCompressionReminder({
-          contextSessionKey,
-          readCutoffAfterConversationId: newCutoffId,
-          pressureSummary: `当前可读历史 ${initialRetainedHistory.length} 条，超过压缩阈值 ${HISTORY_COMPACT_AT}。`
-        })
-      ];
-      const summarySourceInput = buildLoopRequestInput({
-        history: initialRetainedHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: compressionLoopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary,
-        pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-      });
-      return {
-        summarySourceInput,
-        compression: {
-          required: true,
-          contextSessionKey,
-          readCutoffAfterConversationId: newCutoffId,
-          previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-          compressionCoveredEndConversationId,
-          historyUserId: historyTargets.userId,
-          historyGroupId: historyTargets.groupId,
-          historyScope: 'global',
-          lastContextWindowTokens: contextWindowTokens ?? 0,
-          lastTargetBudgetTokens: targetBudgetTokens ?? 0,
-          lastHardBudgetTokens: hardBudgetTokens ?? 0
+    const plan = await this.buildContextBudgetPlan(params);
+    return plan.coreMemoryCompression && plan.summarySourceInput
+      ? {
+          compression: plan.coreMemoryCompression,
+          summarySourceInput: plan.summarySourceInput
         }
-      };
-    }
-
-    if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
-      return null;
-    }
-    const initialRequestInput = buildLoopRequestInput({
-      history: initialRetainedHistory,
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary,
-      pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null,
-      runtimeEnergyState: params.runtimeEnergyState ?? null,
-      triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-    });
-    const initialEstimate = await estimateLoopInputTokens({
-      modelName: params.runtimePrompt.modelName,
-      queueMessage: params.queueMessage,
-      loopInput: initialRequestInput
-    });
-    if (initialEstimate.inputTokens <= hardBudgetTokens) {
-      return null;
-    }
-
-    const recomputed = await recomputeReadCutoffToTarget({
-      history: initialRetainedHistory,
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
-      targetBudgetTokens,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary,
-      pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null,
-      runtimeEnergyState: params.runtimeEnergyState ?? null,
-      triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-    });
-    const compressionCoveredEndConversationId = recomputed.retainedHistory.length > 0
-      ? recomputed.retainedHistory[recomputed.retainedHistory.length - 1]!.id
-      : cutoffState?.readCutoffAfterConversationId ?? null;
-    const compressionLoopContinuation = [
-      ...params.loopContinuation,
-      buildCoreMemoryCompressionReminder({
-        contextSessionKey,
-        readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
-        pressureSummary: `预计输入 ${initialEstimate.inputTokens} tokens，超过 hard budget ${hardBudgetTokens}，必须压缩核心记忆。`
-      })
-    ];
-    const summarySourceInput = buildLoopRequestInput({
-      history: recomputed.retainedHistory,
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: compressionLoopContinuation,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary,
-      pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null,
-      runtimeEnergyState: params.runtimeEnergyState ?? null,
-      triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-    });
-    return {
-      summarySourceInput,
-      compression: {
-        required: true,
-        contextSessionKey,
-        readCutoffAfterConversationId: recomputed.readCutoffAfterConversationId,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        compressionCoveredEndConversationId,
-        historyUserId: historyTargets.userId,
-        historyGroupId: historyTargets.groupId,
-        historyScope: 'global',
-        lastContextWindowTokens: contextWindowTokens,
-        lastTargetBudgetTokens: targetBudgetTokens,
-        lastHardBudgetTokens: hardBudgetTokens
-      }
-    };
+      : null;
   }
 
   private async executeResponsePostActions(
@@ -7347,26 +7324,15 @@ export class AgentLoopService {
   }
 
   private async resolveCoreMemoryCompressionCommitCutoff(compression: CoreMemoryCompressionPlan): Promise<number | null> {
+    const plannedCutoffId = compression.readCutoffAfterConversationId;
+    if (typeof plannedCutoffId !== 'number' || !Number.isFinite(plannedCutoffId)) {
+      return null;
+    }
     const coveredEndId = compression.compressionCoveredEndConversationId;
     if (typeof coveredEndId !== 'number' || !Number.isFinite(coveredEndId)) {
-      return compression.readCutoffAfterConversationId;
+      return plannedCutoffId;
     }
-
-    const recentTail = await this.store.listRecentTurns({
-      userId: compression.historyUserId,
-      groupId: compression.historyGroupId,
-      afterConversationId: compression.previousReadCutoffAfterConversationId ?? null,
-      scope: compression.historyScope,
-      limit: HISTORY_COMPACT_KEEP + 1
-    });
-    const latestKeepCutoff = recentTail.length > HISTORY_COMPACT_KEEP
-      ? recentTail[0]!.id
-      : compression.readCutoffAfterConversationId;
-
-    if (typeof latestKeepCutoff !== 'number' || !Number.isFinite(latestKeepCutoff)) {
-      return Math.min(coveredEndId, compression.readCutoffAfterConversationId ?? coveredEndId);
-    }
-    return Math.min(latestKeepCutoff, coveredEndId);
+    return Math.min(plannedCutoffId, coveredEndId);
   }
 
   private async commitCoreMemoryCompression(params: {
@@ -9378,18 +9344,18 @@ async function estimateLoopInputTokens(params: {
     params.loopInput,
     params.queueMessage.chatType
   );
-  return estimateTextTokens({
+  return estimateRequestTokens({
     model: params.modelName,
-    text: JSON.stringify(canonicalRequest)
+    request: canonicalRequest
   });
 }
 
-async function recomputeReadCutoffToTarget(params: {
+async function planReadCutoffFromFirstOverflow(params: {
   history: ConversationTurn[];
   queueMessage: QueueMessageRecord['payload'];
   runtimePrompt: ResolvedAgentRuntimePrompt;
   loopContinuation: OpenResponseInputItem[];
-  targetBudgetTokens: number;
+  contextWindowTokens: number;
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
   contextSummary?: string | null;
   pendingProactiveShare?: string | null;
@@ -9398,58 +9364,15 @@ async function recomputeReadCutoffToTarget(params: {
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
 }) {
-  let retainedHistory: ConversationTurn[] = [];
-  let readCutoffAfterConversationId: number | null = params.history.length > 0
-    ? params.history[params.history.length - 1]!.id
-    : null;
-  let lastEstimate = await estimateLoopInputTokens({
-    modelName: params.runtimePrompt.modelName,
-    queueMessage: params.queueMessage,
-      loopInput: buildLoopRequestInput({
-        history: retainedHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary: params.contextSummary,
-        pendingProactiveShare: params.pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-      })
-  });
-
-  for (let index = params.history.length - 1; index >= 0; index -= 1) {
-    const candidateHistory = params.history.slice(index);
-    const candidateEstimate = await estimateLoopInputTokens({
-      modelName: params.runtimePrompt.modelName,
-      queueMessage: params.queueMessage,
-      loopInput: buildLoopRequestInput({
-        history: candidateHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary: params.contextSummary,
-        pendingProactiveShare: params.pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-      })
-    });
-    if (candidateEstimate.inputTokens > params.targetBudgetTokens) {
-      break;
-    }
-    retainedHistory = candidateHistory;
-    lastEstimate = candidateEstimate;
-    readCutoffAfterConversationId = index > 0 ? params.history[index - 1]!.id : null;
+  if (params.history.length === 0) {
+    return null;
   }
 
-  return {
-    requestInput: buildLoopRequestInput({
-      history: retainedHistory,
+  const estimatePrefix = async (prefixLength: number) => estimateLoopInputTokens({
+    modelName: params.runtimePrompt.modelName,
+    queueMessage: params.queueMessage,
+    loopInput: buildLoopRequestInput({
+      history: params.history.slice(0, prefixLength),
       queueMessage: params.queueMessage,
       runtimePrompt: params.runtimePrompt,
       loopContinuation: params.loopContinuation,
@@ -9460,12 +9383,43 @@ async function recomputeReadCutoffToTarget(params: {
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-    }),
-    retainedHistory,
+    })
+  });
+
+  let low = 1;
+  let high = params.history.length;
+  let firstOverflowPrefixLength: number | null = null;
+  while (low <= high) {
+    const midpoint = Math.floor((low + high) / 2);
+    const estimate = await estimatePrefix(midpoint);
+    if (estimate.inputTokens > params.contextWindowTokens) {
+      firstOverflowPrefixLength = midpoint;
+      high = midpoint - 1;
+    } else {
+      low = midpoint + 1;
+    }
+  }
+
+  if (firstOverflowPrefixLength === null) {
+    return null;
+  }
+
+  const sourceLength = Math.max(1, firstOverflowPrefixLength - 1);
+  const summarySourceHistory = params.history.slice(0, sourceLength);
+  const sourceEnd = summarySourceHistory[summarySourceHistory.length - 1];
+  if (!sourceEnd) {
+    return null;
+  }
+  const overlapCount = Math.min(HISTORY_COMPACT_KEEP, Math.max(0, summarySourceHistory.length - 1));
+  const readCutoffIndex = Math.max(0, summarySourceHistory.length - overlapCount - 1);
+  const readCutoffAfterConversationId = summarySourceHistory[readCutoffIndex]?.id ?? sourceEnd.id;
+
+  return {
+    firstOverflowPrefixLength,
+    summarySourceHistory,
     readCutoffAfterConversationId,
-    estimatedInputTokens: lastEstimate.inputTokens,
-    tokenizerEncoding: lastEstimate.encoding,
-    tokenizerSource: lastEstimate.source
+    compressionCoveredEndConversationId: sourceEnd.id,
+    overlapCount
   };
 }
 

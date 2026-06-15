@@ -26,6 +26,7 @@ const DIRECT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const CLIPROXYAPI_CODEX_BASE_URL = 'http://host.docker.internal:8317/backend-api';
 const DEFAULT_CODEX_TRANSIENT_RETRY_ATTEMPTS = 3;
 const DEFAULT_CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = 250;
+const DEFAULT_CODEX_RESPONSE_TIMEOUT_MS = 300_000;
 const DEFAULT_CODEX_ORIGINATOR = 'openclaw';
 const DEFAULT_CODEX_BETA_HEADER = 'responses=experimental';
 
@@ -91,6 +92,34 @@ function readTrimmedEnv(name: string): string | undefined {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function stringifyRawCodexErrorPayload(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === undefined) {
+    return 'undefined';
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildCodexSseErrorMessage(prefix: string, event: unknown): string {
+  const record = event && typeof event === 'object' ? event as Record<string, any> : {};
+  const candidates = [
+    record.message,
+    record.code,
+    record.error?.message,
+    record.error?.code,
+    record.response?.error?.message,
+    record.response?.error?.code
+  ].filter((value) => typeof value === 'string' && value.trim().length > 0);
+  const summary = candidates.length > 0 ? candidates.join(' | ') : prefix;
+  return `${summary}; raw_event=${stringifyRawCodexErrorPayload(event)}`;
 }
 
 export class CodexProvider extends OpenAIProvider {
@@ -310,7 +339,7 @@ export class CodexProvider extends OpenAIProvider {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
     const normalizedPath = responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs || 30000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_CODEX_RESPONSE_TIMEOUT_MS);
     const sessionId = traceHeaders.session_id;
     const codexTraceHeaders = {
       ...(sessionId && !traceHeaders['x-client-request-id'] ? { 'x-client-request-id': sessionId } : {}),
@@ -454,10 +483,10 @@ export class CodexProvider extends OpenAIProvider {
       }
 
       if (type === 'error') {
-        throw new Error(event?.message || event?.code || 'Codex SSE error');
+        throw new Error(buildCodexSseErrorMessage('Codex SSE error', event));
       }
       if (type === 'response.failed') {
-        throw new Error(event?.response?.error?.message || 'Codex response failed');
+        throw new Error(buildCodexSseErrorMessage('Codex response failed', event));
       }
       if (type === 'response.output_text.delta' && typeof event?.delta === 'string') {
         outputText += event.delta;

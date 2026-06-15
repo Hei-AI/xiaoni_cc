@@ -37,6 +37,8 @@ type WireExchangeMetadata = {
   responseStatusText: string | null;
 };
 
+const DEFAULT_LLM_RESPONSE_TIMEOUT_MS = 300_000;
+
 const SENSITIVE_HEADER_NAMES = new Set([
   'authorization',
   'cookie',
@@ -65,6 +67,20 @@ function normalizeHeaderRecord(headers: unknown): Record<string, unknown> {
     key,
     SENSITIVE_HEADER_NAMES.has(key.toLowerCase()) ? '[redacted]' : value
   ]));
+}
+
+function stringifyRawLlmErrorPayload(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value === undefined) {
+    return 'undefined';
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function withNullableType(schema: Record<string, any>): Record<string, any> {
@@ -358,7 +374,7 @@ export class OpenAIProvider implements LLMProvider {
     const requestConfig: AxiosRequestConfig = {
       url: requestUrl,
       method: 'post',
-      timeout: timeoutMs || 30000,
+      timeout: timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS,
       data: payload,
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -395,6 +411,17 @@ export class OpenAIProvider implements LLMProvider {
           responseStatus: error.response.status ?? null,
           responseStatusText: error.response.statusText || null
         };
+        const rawBody = stringifyRawLlmErrorPayload(error.response.data);
+        const message = `LLM API error (${error.response.status} ${error.response.statusText || ''}): ${rawBody}`;
+        const next = new Error(message.trim()) as Error & {
+          status?: number;
+          response?: unknown;
+          cause?: unknown;
+        };
+        next.status = error.response.status;
+        next.response = error.response;
+        next.cause = error;
+        throw next;
       }
       throw error;
     }

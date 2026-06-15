@@ -27,6 +27,15 @@ test('supports alias policy resolution for gmini', () => {
   assert.equal(policy.contextWindowTokens, 400000);
 });
 
+test('uses conservative GPT-5.5 runtime context budget for Codex requests', () => {
+  const policy = resolveModelContextPolicy('gpt-5.5');
+
+  assert.ok(policy);
+  assert.equal(policy.model, 'gpt-5.5');
+  assert.equal(policy.contextWindowTokens, 272000);
+  assert.equal(policy.maxOutputTokens, 128000);
+});
+
 test('allows environment provider overrides by model name', () => {
   const original = process.env.MODEL_PROVIDER_OVERRIDES_JSON;
   process.env.MODEL_PROVIDER_OVERRIDES_JSON = JSON.stringify({

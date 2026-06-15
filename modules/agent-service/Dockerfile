@@ -58,8 +58,9 @@ ENV AGENT_TOKENIZER_PYTHON=/opt/agent-tokenizer-venv/bin/python
 ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 RUN mkdir -p /app/logs
+COPY modules/agent-service/requirements-tokenizer.txt ./requirements-tokenizer.txt
 RUN python3 -m venv "$VIRTUAL_ENV" \
-  && "$VIRTUAL_ENV/bin/pip" install --no-cache-dir tiktoken
+  && "$VIRTUAL_ENV/bin/pip" install --no-cache-dir -r requirements-tokenizer.txt
 RUN python3 - <<'PY'
 import hashlib
 import os

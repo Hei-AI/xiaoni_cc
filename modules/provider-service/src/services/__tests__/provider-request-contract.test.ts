@@ -978,6 +978,50 @@ test('Codex provider retries transient upstream fetch failures before failing th
   }
 });
 
+test('Codex provider surfaces raw SSE error events in thrown errors', async () => {
+  const previousFetch = globalThis.fetch;
+
+  try {
+    (globalThis as any).fetch = async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => [
+        'event: error',
+        'data: {"type":"error","code":"upstream_payload_rejected","error":{"message":"full runtime payload rejected","details":{"limit":"internal"}}}',
+        ''
+      ].join('\n')
+    });
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5-mini'
+    });
+
+    await assert.rejects(
+      () => provider.postForTest({
+        model: 'gpt-5-mini',
+        stream: true,
+        input: [{ type: 'message', role: 'user', content: 'ping' }]
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /upstream_payload_rejected/);
+        assert.match(error.message, /full runtime payload rejected/);
+        assert.match(error.message, /raw_event=/);
+        assert.match(error.message, /"details":\{"limit":"internal"\}/);
+        return true;
+      }
+    );
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+  }
+});
+
 test('Codex provider does not treat OAuth failures as transient retry errors', async () => {
   const previousFetch = globalThis.fetch;
   const previousEnv = {
