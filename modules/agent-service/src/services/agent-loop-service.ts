@@ -2639,27 +2639,12 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
-const HISTORICAL_NOTIFICATION_TAG_PATTERN = /(?:<\s*(?:PHONE_NOTIFICATION|IMAGE_TASK_NOTIFICATION|NOTIFICATION_CENTER|NOTIFICATION)\b|<\s*system_reminder\b[\s\S]*(?:有新的未读qq消息|图片生成任务:|视线边缘：状态栏闪烁|意识牵连：正在消退的注意力残留|视觉感知：造物出炉))/i;
-
-function isHistoricalNotificationSnapshot(
-  item: ConversationTranscriptItem,
-  content: string
-) {
-  return item.role !== 'assistant'
-    && (item.source === 'sensory_event' || item.source === 'inbound_batch')
-    && HISTORICAL_NOTIFICATION_TAG_PATTERN.test(content);
-}
-
 function renderTranscriptItemForRuntimeContext(
   item: ConversationTranscriptItem,
   accountId: string
 ): OpenResponseInputItem | null {
   const content = String(item.content || '').trim();
   if (!content) {
-    return null;
-  }
-
-  if (isHistoricalNotificationSnapshot(item, content)) {
     return null;
   }
 
@@ -2683,7 +2668,7 @@ function renderTranscriptItemForRuntimeContext(
   return buildUserSceneInputItem([
     content.startsWith('<INPUT_MESSAGE')
       ? sanitizeInputMessageTags(content)
-      : formatTaggedBlock('INPUT_MESSAGE', {}, content)
+      : content
   ]);
 }
 

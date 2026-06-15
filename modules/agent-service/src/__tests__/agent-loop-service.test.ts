@@ -749,7 +749,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
     '上一段近况：小腻刚被提醒不要公式化接话，正在把上下文压缩改成纯文本时报。'
   );
   const contents = loopInput.map(getMessageContent);
-  const historyIndex = contents.findIndex((content) => content.includes('<INPUT_MESSAGE') && content.includes('昨天有什么好玩的'));
+  const historyIndex = contents.findIndex((content) => content.includes('昨天有什么好玩的'));
   const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
   const digestItem = loopInput[digestIndex] as any;
   const currentMessageIndex = contents.findIndex(isPhoneNotificationReminderContent);
@@ -763,6 +763,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   assert.ok(digestIndex < currentMessageIndex);
   assert.match(contents[digestIndex], /上一段近况/);
   assert.doesNotMatch(contents[digestIndex], /对话历史摘要/);
+  assert.doesNotMatch(contents[historyIndex], /<INPUT_MESSAGE/);
   assert.equal(contents.some((content) => content.includes('legacy_user_message')), false);
 });
 
@@ -1744,7 +1745,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
 
-test('buildInitialInput does not replay historical notification snapshots as current input', () => {
+test('buildInitialInput replays transcript items without notification tag filtering', () => {
   const historicalTurn = createConversationTurn({ id: 31 }) as any;
   historicalTurn.items = [
     {
@@ -1763,6 +1764,14 @@ test('buildInitialInput does not replay historical notification snapshots as cur
       runId: 'run-historical-inbound-notification',
       traceId: 'trace-historical-inbound-notification'
     },
+    {
+      ...historicalTurn.items[0],
+      source: 'inbound_batch',
+      content: '旧纯文本消息',
+      deliveryMessageId: null,
+      runId: 'run-historical-plain-text',
+      traceId: 'trace-historical-plain-text'
+    },
     historicalTurn.items[1]
   ] as any;
 
@@ -1779,8 +1788,10 @@ test('buildInitialInput does not replay historical notification snapshots as cur
 
   assert.equal(phoneNotificationItems.length, 1);
   assert.match(getMessageContent(phoneNotificationItems[0]), /堆积了 3 条新动静/);
-  assert.doesNotMatch(rendered, /堆积了 1 条新动静/);
-  assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
+  assert.match(rendered, /堆积了 1 条新动静/);
+  assert.match(rendered, /<PHONE_NOTIFICATION app="qq" surface="status_bar" unread_delta="7" \/>/);
+  assert.match(rendered, /旧纯文本消息/);
+  assert.doesNotMatch(rendered, /<INPUT_MESSAGE>\n旧纯文本消息\n<\/INPUT_MESSAGE>/);
 });
 
 test('buildInitialInput suppresses already-picked notification context', () => {
@@ -2017,7 +2028,7 @@ test('buildInitialInput replays structured transcript items as scene messages', 
   const priorCommentaryItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('我先看一下'));
   const priorFinalItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('原因已经找到了'));
   assert.equal((priorUserItem as any)?.role, 'user');
-  assert.match(getMessageContent(priorUserItem), /<INPUT_MESSAGE/);
+  assert.doesNotMatch(getMessageContent(priorUserItem), /<INPUT_MESSAGE/);
   assert.equal((priorCommentaryItem as any)?.role, 'assistant');
   assert.equal((priorCommentaryItem as any)?.phase, 'commentary');
   assert.equal((priorFinalItem as any)?.role, 'assistant');
