@@ -824,6 +824,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   const observationEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_observation');
   assert.ok(observationEvent);
   assert.equal(observationEvent.traceTarget.spanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(observationEvent.metadata.providerRawTraceAvailable, false);
   assert.equal(forkRun.events.some((event) => event.kind === 'function_call' && event.metadata.toolName === 'exec_command'), true);
   assert.equal(forkRun.events.some((event) => String(event.body).includes('/xiaoni-runtime/image-vision/observations/media_vision_1.md')), true);
   assert.equal(forkRun.eventCount, 3);
