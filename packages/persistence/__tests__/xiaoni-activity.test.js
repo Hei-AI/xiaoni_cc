@@ -757,6 +757,8 @@ test('Xiaoni action stream projects image vision fork observations outside main 
       modelProvider: 'codex-local',
       wireProviderFormat: 'openai-responses',
       status: 'completed',
+      wireRequest: { model: 'gpt-5.1', input: [] },
+      rawResponse: { id: 'resp_vision_1' },
       tokenUsage: {
         input_tokens: 188786,
         cached_input_tokens: 6656,
@@ -824,13 +826,18 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.equal(observationEvent.traceTarget.spanId, 'provider-request:wire:vision_llm_1');
   assert.equal(forkRun.events.some((event) => event.kind === 'function_call' && event.metadata.toolName === 'exec_command'), true);
   assert.equal(forkRun.events.some((event) => String(event.body).includes('/xiaoni-runtime/image-vision/observations/media_vision_1.md')), true);
-  assert.equal(forkRun.eventCount, 2);
+  assert.equal(forkRun.eventCount, 3);
   assert.equal(observationEvent.metadata.inputTokens, 188786);
   assert.equal(observationEvent.metadata.cachedInputTokens, 6656);
   assert.equal(observationEvent.metadata.outputTokens, 206);
+  const forkLlmEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_llm_request');
+  assert.ok(forkLlmEvent);
+  assert.equal(forkLlmEvent.metadata.providerRawTraceAvailable, true);
+  assert.equal(forkLlmEvent.metadata.providerRequestSpanId, 'provider-request:wire:vision_llm_1');
+  assert.equal(forkLlmEvent.traceTarget.spanId, 'image-vision-fork-slice:vision_llm_1');
   const forkToolEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_item' && event.kind === 'function_call');
   assert.ok(forkToolEvent);
-  assert.equal(forkToolEvent.metadata.providerRawTraceAvailable, true);
+  assert.equal(forkToolEvent.metadata.providerRawTraceAvailable, false);
   assert.equal(forkToolEvent.metadata.providerRequestSpanId, 'provider-request:wire:vision_llm_1');
   assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
   assert.equal(
