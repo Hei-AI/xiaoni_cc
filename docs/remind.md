@@ -26,6 +26,7 @@
 | `recover_energy_clock` | `docs/xiaoni_prompt/recover_energy_clock_reminder.md` | `recover_energy` 设置的 clock 到点且精力已可醒时，作为同一个 tool call 的 callback 文本。 |
 | `recover_energy_clock_deferred` | `docs/xiaoni_prompt/recover_energy_clock_deferred_reminder.md` | clock 到点但精力仍低于最低可醒线，延后到可醒后作为同一个 tool call 的 callback 文本。 |
 | `recover_energy_forced_completed` | `docs/xiaoni_prompt/recover_energy_forced_completed_reminder.md` | runtime 强制休息或恢复达到 hard cap 后的醒来提醒；forced runtime recovery 没有原始 tool call 时作为 runtime input。 |
+| `recover_energy_batch_final_timeline` | `docs/xiaoni_prompt/recover_energy_batch_final_timeline.md` | 同批工具调用中 `recover_energy` 被 runtime 放到最后执行时，嵌入醒来提醒，说明哪些动作发生在睡前。 |
 | `recover_energy_rejected` | `docs/xiaoni_prompt/recover_energy_rejected_reminder.md` | `recover_energy` 工具被工程拒绝时，作为同一个 tool call 的 callback 文本。 |
 
 ## Assembly Rules

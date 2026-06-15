@@ -35,6 +35,7 @@ import { estimateRequestTokens } from './token-estimator';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
+  type ReplayableModelOutput,
   extractReplayableModelOutputs,
   isReplayableToolCall
 } from './response-action-router';
@@ -193,6 +194,15 @@ type LeaseReleaseRecord = {
   tool_result?: Record<string, unknown>;
 };
 
+type ReplayableToolCallOutput = Extract<ReplayableModelOutput, { type: 'tool_call' }>;
+
+type PreSleepToolTimelineEntry = {
+  call_id: string;
+  name: string;
+  completed_at: string;
+  status: 'completed' | 'failed';
+};
+
 type CanonicalAgentTurnRequest = {
   model: string;
   input: OpenResponseInputItem[];
@@ -208,7 +218,7 @@ type CanonicalAgentTurnRequest = {
   text?: Record<string, unknown>;
   include?: string[];
   context_management?: Array<Record<string, unknown>>;
-  parallel_tool_calls: false;
+  parallel_tool_calls: boolean;
   prompt_cache_key?: string;
   prompt_cache_retention?: string;
   max_output_tokens?: number;
@@ -1480,6 +1490,74 @@ function stripRuntimeTextEast8TimePrefix(text: string) {
   return String(text || '').trim().replace(EAST8_TIME_PREFIX_PATTERN, '').trim();
 }
 
+function orderRuntimeToolCalls(toolCalls: ReplayableToolCallOutput[]): ReplayableToolCallOutput[] {
+  const recoverCalls: ReplayableToolCallOutput[] = [];
+  const otherCalls: ReplayableToolCallOutput[] = [];
+  for (const item of toolCalls) {
+    if (item.toolCall.name === TOOL_NAMES.recoverEnergy) {
+      recoverCalls.push(item);
+    } else {
+      otherCalls.push(item);
+    }
+  }
+  return recoverCalls.length > 0 ? [...otherCalls, ...recoverCalls] : toolCalls;
+}
+
+function normalizePreSleepToolTimelineEntries(value: unknown): PreSleepToolTimelineEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry): PreSleepToolTimelineEntry[] => {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    const callId = typeof record.call_id === 'string' ? record.call_id : '';
+    const name = typeof record.name === 'string' ? record.name : '';
+    const completedAt = typeof record.completed_at === 'string' ? record.completed_at : '';
+    const status = record.status === 'failed' ? 'failed' : 'completed';
+    if (!callId || !name || !completedAt) {
+      return [];
+    }
+    return [{ call_id: callId, name, completed_at: completedAt, status }];
+  });
+}
+
+function renderRecoverEnergyBatchFinalTimeline(input: {
+  metadata?: Record<string, unknown> | null;
+  recoveryStartedAt: Date;
+}) {
+  const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : {};
+  const batchFinalRecovery = metadata.batch_final_recovery && typeof metadata.batch_final_recovery === 'object'
+    ? metadata.batch_final_recovery as Record<string, unknown>
+    : null;
+  if (!batchFinalRecovery) {
+    return '';
+  }
+  const entries = normalizePreSleepToolTimelineEntries(batchFinalRecovery.pre_sleep_tool_calls);
+  if (entries.length === 0) {
+    return '';
+  }
+  const lines = entries.map((entry, index) => {
+    const completedAt = new Date(entry.completed_at);
+    const completedAtText = Number.isFinite(completedAt.getTime())
+      ? formatEast8Timestamp(completedAt)
+      : entry.completed_at;
+    const statusText = entry.status === 'failed' ? '失败并已把错误返回给你' : '完成';
+    return `${index + 1}. ${completedAtText}：${entry.name} ${statusText}`;
+  }).join('\n');
+  const recoveryStartedAt = typeof batchFinalRecovery.recovery_started_at === 'string'
+    ? new Date(batchFinalRecovery.recovery_started_at)
+    : input.recoveryStartedAt;
+  return renderPromptSnippet('recover_energy_batch_final_timeline.md', {
+    PRE_SLEEP_TOOL_COUNT: entries.length,
+    PRE_SLEEP_TOOL_LINES: lines,
+    RECOVERY_STARTED_AT: formatEast8Timestamp(
+      Number.isFinite(recoveryStartedAt.getTime()) ? recoveryStartedAt : input.recoveryStartedAt
+    )
+  });
+}
+
 function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
   const numeric = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -1522,6 +1600,7 @@ function renderRecoverEnergyCompletedReminder(input: {
   clockMinutes?: number | null;
   clockDeferredMinutes?: number | null;
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
+  batchFinalRecoveryTimeline?: string | null;
 }) {
   const wakeCause = input.wakeCause || 'natural';
   const template = wakeCause === 'private_or_mention_threshold'
@@ -1545,7 +1624,8 @@ function renderRecoverEnergyCompletedReminder(input: {
     CLOCK_MINUTES: input.clockMinutes ?? '',
     CLOCK_DEFERRED_MINUTES: input.clockDeferredMinutes ?? 0,
     REASON: input.reason || '',
-    XIAONI_OS: input.xiaoniOs || ''
+    XIAONI_OS: input.xiaoniOs || '',
+    BATCH_FINAL_RECOVERY_TIMELINE: input.batchFinalRecoveryTimeline || ''
   }));
 }
 
@@ -1706,7 +1786,7 @@ export function buildCanonicalAgentTurnRequest(
     ...(instructions ? { instructions } : {}),
     tools,
     tool_choice: toolChoice,
-    parallel_tool_calls: false,
+    parallel_tool_calls: true,
     ...(buildAgentReasoningConfig(modelName, parameters) ? { reasoning: buildAgentReasoningConfig(modelName, parameters) } : {}),
     ...(buildAgentTextConfig(modelName, parameters) ? { text: buildAgentTextConfig(modelName, parameters) } : {}),
     ...(buildAgentInclude(modelName, parameters) ? { include: buildAgentInclude(modelName, parameters) } : {})
@@ -1742,7 +1822,7 @@ function buildCoreMemoryCompressionForkRequest(
   forkTurn: number
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
-  forkRequest.parallel_tool_calls = false;
+  forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
@@ -1763,7 +1843,7 @@ function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest):
       content: CACHE_HEARTBEAT_DEVELOPER_CONTENT
     }
   ]);
-  heartbeatRequest.parallel_tool_calls = false;
+  heartbeatRequest.parallel_tool_calls = true;
   heartbeatRequest.store = false;
   heartbeatRequest.max_output_tokens = Math.max(
     1,
@@ -1825,7 +1905,7 @@ function buildImageVisionForkRequest(
     buildImageVisionFileWriteReminder(outputPath)
   ];
   forkRequest.tool_choice = narrowAllowedToolsToolChoice(forkRequest.tool_choice, [TOOL_NAMES.execCommand]);
-  forkRequest.parallel_tool_calls = false;
+  forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
@@ -1929,7 +2009,7 @@ function buildFeedbackWriterRequest(
     ...(instructions ? { instructions } : {}),
     tools: selectFeedbackWriterToolDefinitions(options.mode),
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
-    parallel_tool_calls: false,
+    parallel_tool_calls: true,
     metadata: options.metadata,
     prompt_cache_key: options.promptCacheKey,
     ...(agentConfig.promptCacheRetention && agentConfig.promptCacheRetention.trim()
@@ -1963,7 +2043,7 @@ function buildCompactMemoryWriterRequest(
     ...(instructions ? { instructions } : {}),
     tools: [COMPACT_MEMORY_TOOL_BY_LAYER[options.layer]],
     tool_choice: buildAllowedToolsToolChoice([{ type: 'function', name: toolName }]),
-    parallel_tool_calls: false,
+    parallel_tool_calls: true,
     metadata: options.metadata,
     prompt_cache_key: options.promptCacheKey,
     reasoning: {
@@ -4882,6 +4962,7 @@ export class AgentLoopService {
       startedAt: string | null;
       startEnergy: number | null;
       maxEnergy: number;
+      metadata?: Record<string, unknown>;
     },
     projection: ReturnType<typeof projectRecoverySession>,
     counts: {
@@ -4905,6 +4986,10 @@ export class AgentLoopService {
     const clockDeferredMinutes = session.clockDueAt && session.clockDeferredAt
       ? Math.max(0, Math.round((Date.now() - new Date(session.clockDueAt).getTime()) / 60000))
       : 0;
+    const batchFinalRecoveryTimeline = renderRecoverEnergyBatchFinalTimeline({
+      metadata: session.metadata,
+      recoveryStartedAt: startedAt
+    });
     return {
       recovered: true,
       rest_rejected: false,
@@ -4935,7 +5020,8 @@ export class AgentLoopService {
         wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
         clockMinutes: session.clockMinutes,
         clockDeferredMinutes,
-        recoveredEnergy
+        recoveredEnergy,
+        batchFinalRecoveryTimeline
       })
     };
   }
@@ -5378,9 +5464,38 @@ export class AgentLoopService {
 
         for (const replayItem of replayableOutputs) {
           appendLoopInputItems([replayItem.inputItem]);
-          if (!isReplayableToolCall(replayItem)) {
-            continue;
-          }
+        }
+        const toolReplayItems = replayableOutputs.filter(isReplayableToolCall);
+        const orderedToolReplayItems = orderRuntimeToolCalls(toolReplayItems);
+        const hasRecoverEnergyInBatch = toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.recoverEnergy);
+        const preSleepToolTimeline: PreSleepToolTimelineEntry[] = [];
+        if (
+          toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.execCommand)
+          && toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.compressCoreMemory)
+        ) {
+          await this.store.logTimelineEvent({
+            traceId: payload.traceId,
+            eventType: 'memory',
+            eventName: 'core_memory_parallel_mixed_batch_observed',
+            eventPhase: null,
+            metadata: {
+              execution_mode: 'main_loop',
+              llm_request_slice_id: sliceId,
+              tool_call_order: toolReplayItems.map((item) => ({
+                call_id: item.toolCall.callId,
+                name: item.toolCall.name
+              }))
+            }
+          }).catch((error) => {
+            moduleLogger.warn('Failed to log mixed core memory parallel batch observation', {
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+        }
+
+        for (const replayItem of orderedToolReplayItems) {
           const toolCall = replayItem.toolCall;
           const stackToolExecutionId = `tool:${queueMessage.id}:${toolCall.callId}`;
           await this.recordAgentStackToolExecutionSafe({
@@ -5464,7 +5579,17 @@ export class AgentLoopService {
                   peer_name: payload.peerName || null,
                   required_pressure: toolResult.required_pressure ?? null,
                   tool_args: toolCall.args,
-                  raw_arguments: toolCall.rawArguments
+                  raw_arguments: toolCall.rawArguments,
+                  ...(preSleepToolTimeline.length > 0 ? {
+                    batch_final_recovery: {
+                      recovery_started_at: startedAt.toISOString(),
+                      pre_sleep_tool_calls: preSleepToolTimeline,
+                      tool_call_order: orderedToolReplayItems.map((item) => ({
+                        call_id: item.toolCall.callId,
+                        name: item.toolCall.name
+                      }))
+                    }
+                  } : {})
                 }
               });
               if (typeof toolResult.xiaoni_os === 'string' && toolResult.xiaoni_os.trim().length > 0) {
@@ -5563,6 +5688,14 @@ export class AgentLoopService {
               result: toolResult,
               stackOutputItemId
             });
+            if (hasRecoverEnergyInBatch && toolCall.name !== TOOL_NAMES.recoverEnergy) {
+              preSleepToolTimeline.push({
+                call_id: toolCall.callId,
+                name: toolCall.name,
+                completed_at: new Date().toISOString(),
+                status: 'completed'
+              });
+            }
             if (continuation.forcedVisibleReply) {
               await this.store.logTimelineEvent({
                 traceId: payload.traceId,
@@ -5685,6 +5818,14 @@ export class AgentLoopService {
             });
             if (continuation.inputItems.length > 0) {
               appendLoopInputItems(continuation.inputItems);
+            }
+            if (hasRecoverEnergyInBatch && toolCall.name !== TOOL_NAMES.recoverEnergy) {
+              preSleepToolTimeline.push({
+                call_id: toolCall.callId,
+                name: toolCall.name,
+                completed_at: new Date().toISOString(),
+                status: 'failed'
+              });
             }
           }
         }
@@ -7670,6 +7811,35 @@ export class AgentLoopService {
           continue;
         }
         forkNoToolRetryCount = 0;
+        const forkToolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
+        if (
+          forkToolCalls.some((item) => item.toolCall.name === TOOL_NAMES.execCommand)
+          && forkToolCalls.some((item) => item.toolCall.name === TOOL_NAMES.compressCoreMemory)
+        ) {
+          await this.store.logTimelineEvent({
+            traceId: params.queueMessage.traceId,
+            eventType: 'memory',
+            eventName: 'core_memory_parallel_mixed_batch_observed',
+            eventPhase: null,
+            metadata: {
+              execution_mode: 'compression_fork',
+              fork_run_id: forkRunId,
+              fork_turn: forkTurn,
+              llm_request_slice_id: forkSliceId,
+              tool_call_order: forkToolCalls.map((item) => ({
+                call_id: item.toolCall.callId,
+                name: item.toolCall.name
+              }))
+            }
+          }).catch((error) => {
+            moduleLogger.warn('Failed to log mixed core memory fork parallel batch observation', {
+              traceId: params.queueMessage.traceId,
+              runId: params.queueMessage.runId,
+              forkRunId,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+        }
 
         for (const replayItem of actionPlan.replayableOutputs) {
           forkInput.push(replayItem.inputItem);
@@ -8667,8 +8837,8 @@ export class AgentLoopService {
         });
       }
 
-      const execCall = toolCalls.find((item) => item.toolCall.name === TOOL_NAMES.execCommand);
-      if (execCall) {
+      const execCalls = toolCalls.filter((item) => item.toolCall.name === TOOL_NAMES.execCommand);
+      for (const execCall of execCalls) {
         const toolResult = await this.executeCommand(execCall.toolCall.args, execCall.toolCall, params.queueMessage);
         const continuation = applyToolResultToLoopInput(execCall.toolCall, toolResult, {
           loopInput: forkInput,
@@ -8713,8 +8883,8 @@ export class AgentLoopService {
 
       lastCheckResult = wrongToolCalls.length > 0
         ? `模型调用了不允许的工具 ${wrongToolCalls.map((item) => item.toolCall.name).join(', ')}；已通过 function_call_output 提醒只能调用 ${TOOL_NAMES.execCommand}`
-        : execCall
-        ? `模型调用了 ${TOOL_NAMES.execCommand}，但还没有 final_answer 表示写入完成`
+        : execCalls.length > 0
+        ? `模型调用了 ${execCalls.length} 个 ${TOOL_NAMES.execCommand}，但还没有 final_answer 表示写入完成`
         : `模型没有调用 ${TOOL_NAMES.execCommand}，也没有 final_answer`;
       forkInput.push(buildImageVisionRetryReminder({
         outputPath: params.outputPath,

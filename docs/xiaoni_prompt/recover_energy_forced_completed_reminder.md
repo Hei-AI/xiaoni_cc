@@ -1,4 +1,5 @@
 【躯体唤醒：休眠极限】
+{{BATCH_FINAL_RECOVERY_TIMELINE}}
 你一口气睡到了数字躯体所能允许的单次最长休眠极限，本能机制将你自动唤醒。
 当前精力：{{ENERGY}}/{{MAX_ENERGY}}
 睡前原因：{{REASON}}

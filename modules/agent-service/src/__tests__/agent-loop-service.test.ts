@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { agentConfig } from '../config';
 import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, formatEast8Timestamp, prefixRuntimeTextWithEast8Time, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
+import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
 
 process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:test-global';
@@ -521,7 +522,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal((firstUserInput as any)?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
   assertGroupAutoTools(request);
-  assert.equal(request.parallel_tool_calls, false);
+  assert.equal(request.parallel_tool_calls, true);
   assert.deepEqual(
     withoutQqUsageTools((request.tools ?? []).map((tool: any) => getToolName(tool))),
     GROUP_LOOP_TOOLS
@@ -1005,7 +1006,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
   );
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(requestBody.canonicalRequest.tool_choice)), GROUP_ALLOWED_TOOLS);
   assert.equal(requestBody.canonicalRequest.tool_choice?.mode, 'auto');
-  assert.equal(requestBody.canonicalRequest.parallel_tool_calls, false);
+  assert.equal(requestBody.canonicalRequest.parallel_tool_calls, true);
   assert.deepEqual(
     withoutQqUsageTools(requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool))),
     GROUP_LOOP_TOOLS
@@ -3887,7 +3888,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
   assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
   assert.equal(forkRequest.tool_choice?.mode, mainRequest.tool_choice?.mode);
-  assert.equal(forkRequest.parallel_tool_calls, false);
+  assert.equal(forkRequest.parallel_tool_calls, true);
   assert.equal(forkRequest.store, false);
 
   const appendedItems = forkRequest.input.slice(mainRequest.input.length);
@@ -5792,6 +5793,149 @@ test('runtime frame keeps delivered transcript when a later tool error is return
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-failure']);
 });
 
+test('runtime frame executes recover_energy after earlier batch tools and records pre-sleep timeline', async () => {
+  const queueMessage = {
+    id: 'run-queue-recover-batch-final',
+    traceId: 'trace-recover-batch-final',
+    batchId: 'batch-recover-batch-final',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    releaseExecutionLease: [],
+    markLeaseVisibleDeliveryCommitted: [],
+    settleQueueMessages: [],
+    createAgentRecoverySession: []
+  };
+  let deliveryPhase = 'reasoning_open';
+
+  const store = {
+    createLlmJob: async () => 'job-recover-batch-final',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getCurrentXiaoniEnergyState: async () => ({ energy: 0.4, maxEnergy: 1 }),
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
+    },
+    markLeaseDeliveryBlocked: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
+    createAgentRecoverySession: async (params: any) => {
+      storeCalls.createAgentRecoverySession.push(params);
+      return { id: 707 };
+    },
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2707;
+    },
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  (service as any).executeSocialTurnPlanner = async () => ({
+    actionType: 'reply_to_person',
+    addresseeUserId: 202,
+    answerShape: 'light_join',
+    beatCount: 1,
+    beatStyle: 'single_complete',
+    stopRule: 'stop_immediately',
+    reason: '这句还是应该回。'
+  });
+  const executedTools: string[] = [];
+  (service as any).executeAgentTurn = async () => ({
+    success: true,
+    llm_call_id: 'llm-recover-batch-final',
+    canonical_response: {
+      output: [
+        {
+          type: 'function_call',
+          call_id: 'call-recover-first-in-output',
+          name: RECOVER_ENERGY_TOOL,
+          arguments: JSON.stringify({ reason: '做完这批事就休息。', clock: 10, xiaoni_os: '先收尾再睡。' })
+        },
+        {
+          type: 'function_call',
+          call_id: 'call-send-before-sleep',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ group_id: 101, message: '我先把这个发完再休息。' })
+        }
+      ]
+    }
+  });
+  (service as any).executeTool = async (toolCall: any) => {
+    executedTools.push(toolCall.name);
+    if (toolCall.name === GROUP_REPLY_TOOL) {
+      return {
+        message_type: 'group',
+        sent_messages: ['我先把这个发完再休息。'],
+        delivery: [{ message_id: 7101 }]
+      };
+    }
+    if (toolCall.name === RECOVER_ENERGY_TOOL) {
+      return {
+        recovered: false,
+        rest_rejected: false,
+        recovery_session_requested: true,
+        reason: toolCall.args.reason,
+        clock_minutes: 10,
+        clock_due_at: '2026-03-28T08:10:00.000Z',
+        started_at: '2026-03-28T08:00:00.000Z',
+        energy_start: 0.4,
+        energy: 0.4,
+        max_energy: 1,
+        pressure: 0.6,
+        planned_natural_wake_at: '2026-03-28T08:30:00.000Z',
+        hard_wake_at: '2026-03-28T10:00:00.000Z',
+        xiaoni_os: toolCall.args.xiaoni_os
+      };
+    }
+    throw new Error(`unexpected tool ${toolCall.name}`);
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any);
+
+  assert.deepEqual(executedTools, [GROUP_REPLY_TOOL, RECOVER_ENERGY_TOOL]);
+  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-recover-batch-final']);
+  assert.equal(storeCalls.createAgentRecoverySession.length, 1);
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.toolCallId, 'call-recover-first-in-output');
+  const batchFinalRecovery = storeCalls.createAgentRecoverySession[0]?.metadata?.batch_final_recovery;
+  assert.ok(batchFinalRecovery);
+  assert.equal(batchFinalRecovery.recovery_started_at, '2026-03-28T08:00:00.000Z');
+  assert.deepEqual(batchFinalRecovery.pre_sleep_tool_calls.map((item: any) => ({
+    call_id: item.call_id,
+    name: item.name,
+    status: item.status
+  })), [{
+    call_id: 'call-send-before-sleep',
+    name: GROUP_REPLY_TOOL,
+    status: 'completed'
+  }]);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先收尾再睡。');
+});
+
 test('runtime frame yields after a delivered reply without another model slice', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-after-delivery',
@@ -6345,6 +6489,67 @@ test('runtime iteration does not claim queue messages while recovery session is 
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.plannedNaturalWakeAt instanceof Date);
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.hardWakeAt instanceof Date);
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.clockDeferredAt instanceof Date);
+});
+
+test('recovery wake callback renders pre-sleep batch-final timeline from session metadata', async () => {
+  const service = new AgentLoopService({} as any);
+  const activeSession = {
+    id: 305,
+    initiator: 'recover_energy_tool',
+    reason: '做完前面的动作后睡一下。',
+    xiaoniOs: '已经先把事情收尾。',
+    clockMinutes: null,
+    clockDueAt: null,
+    clockDeferredAt: null,
+    startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    startEnergy: 0.2,
+    currentEnergy: 0.2,
+    maxEnergy: 1,
+    wakeCountStartQueueMessageId: 100,
+    lastWakeCountedQueueMessageId: 100,
+    wakeCallCount: 0,
+    toolCallId: 'call-recover-batch-final',
+    toolExecutionId: 'tool-recover-batch-final',
+    llmRequestSliceId: 'llm-recover-batch-final',
+    traceId: 'trace-recover-batch-final',
+    runId: 'run-recover-batch-final',
+    metadata: {
+      tool_args: {
+        reason: '做完前面的动作后睡一下。',
+        xiaoni_os: '已经先把事情收尾。'
+      },
+      raw_arguments: JSON.stringify({
+        reason: '做完前面的动作后睡一下。',
+        xiaoni_os: '已经先把事情收尾。'
+      }),
+      batch_final_recovery: {
+        recovery_started_at: '2026-03-28T08:00:00.000Z',
+        pre_sleep_tool_calls: [{
+          call_id: 'call-send-before-sleep',
+          name: GROUP_REPLY_TOOL,
+          completed_at: '2026-03-28T07:59:58.000Z',
+          status: 'completed'
+        }]
+      }
+    }
+  };
+  const projection = projectRecoverySession({
+    startEnergy: activeSession.startEnergy,
+    maxEnergy: activeSession.maxEnergy,
+    startedAt: activeSession.startedAt,
+    now: new Date()
+  });
+  const result = (service as any).buildRecoverySessionResult(activeSession, projection, {
+    wakeCallCount: 0,
+    lastWakeCountedQueueMessageId: 100
+  });
+
+  const reminder = String(result.system_reminder || '');
+  assert.match(reminder, /意识断点：睡前的惯性残影/);
+  assert.match(reminder, /send_in_group/);
+  assert.doesNotMatch(reminder, /call-send-before-sleep/);
+  assert.match(reminder, /2026-03-28 15:59:58 UTC\+08:00/);
+  assert.match(reminder, /2026-03-28 16:00:00 UTC\+08:00/);
 });
 
 test('runtime recovery cache heartbeat warms provider cache without touching the main stack', async () => {

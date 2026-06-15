@@ -22,6 +22,7 @@ Edit the prompt files directly:
 - `docs/xiaoni_prompt/recover_energy_clock_reminder.md`: recover_energy clock wake callback body.
 - `docs/xiaoni_prompt/recover_energy_clock_deferred_reminder.md`: recover_energy deferred clock wake callback body.
 - `docs/xiaoni_prompt/recover_energy_forced_completed_reminder.md`: forced/runtime recovery completion reminder.
+- `docs/xiaoni_prompt/recover_energy_batch_final_timeline.md`: optional wake callback timeline when recover_energy is executed after earlier tools in the same batch.
 - `docs/xiaoni_prompt/recover_energy_rejected_reminder.md`: recover_energy rejection callback body.
 
 The agent-service loader checks file `mtime` and size before each read. The main
