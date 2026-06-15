@@ -34,60 +34,65 @@ function fallbackEstimate(text: string, model: string): TokenEstimate {
   };
 }
 
+async function runTokenizer(payload: Record<string, unknown>): Promise<TokenEstimate> {
+  const scriptPath = resolveTokenizerScriptPath();
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const child = spawn(
+      process.env.AGENT_TOKENIZER_PYTHON || 'python3',
+      [scriptPath],
+      {
+        cwd: process.cwd(),
+        stdio: ['pipe', 'pipe', 'pipe']
+      }
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr || `tokenizer exited with ${code}`));
+        return;
+      }
+      resolve(stdout);
+    });
+    child.stdin.end(JSON.stringify(payload));
+  });
+  const result = JSON.parse(stdout || '{}') as {
+    ok?: boolean;
+    input_tokens?: number;
+    model?: string;
+    encoding?: string;
+    error?: string;
+  };
+  if (!result.ok || !Number.isFinite(Number(result.input_tokens))) {
+    throw new Error(result.error || 'token_count_failed');
+  }
+  return {
+    inputTokens: Math.trunc(Number(result.input_tokens)),
+    model: typeof result.model === 'string' ? result.model : String(payload.model || ''),
+    encoding: typeof result.encoding === 'string' ? result.encoding : 'unknown',
+    source: 'tiktoken'
+  };
+}
+
 export async function estimateTextTokens(params: {
   model: string;
   text: string;
 }): Promise<TokenEstimate> {
   const scriptPath = resolveTokenizerScriptPath();
   try {
-    const stdout = await new Promise<string>((resolve, reject) => {
-      const child = spawn(
-        process.env.AGENT_TOKENIZER_PYTHON || 'python3',
-        [scriptPath],
-        {
-          cwd: process.cwd(),
-          stdio: ['pipe', 'pipe', 'pipe']
-        }
-      );
-      let stdout = '';
-      let stderr = '';
-      child.stdout.setEncoding('utf8');
-      child.stderr.setEncoding('utf8');
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk;
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk;
-      });
-      child.on('error', reject);
-      child.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(stderr || `tokenizer exited with ${code}`));
-          return;
-        }
-        resolve(stdout);
-      });
-      child.stdin.end(JSON.stringify({
-        model: params.model,
-        text: params.text
-      }));
+    return await runTokenizer({
+      model: params.model,
+      text: params.text
     });
-    const payload = JSON.parse(stdout || '{}') as {
-      ok?: boolean;
-      input_tokens?: number;
-      model?: string;
-      encoding?: string;
-      error?: string;
-    };
-    if (!payload.ok || !Number.isFinite(Number(payload.input_tokens))) {
-      throw new Error(payload.error || 'token_count_failed');
-    }
-    return {
-      inputTokens: Math.trunc(Number(payload.input_tokens)),
-      model: typeof payload.model === 'string' ? payload.model : params.model,
-      encoding: typeof payload.encoding === 'string' ? payload.encoding : 'unknown',
-      source: 'tiktoken'
-    };
   } catch (error) {
     moduleLogger.warn('Falling back to heuristic token estimate', {
       model: params.model,
@@ -95,5 +100,26 @@ export async function estimateTextTokens(params: {
       error: error instanceof Error ? error.message : String(error)
     });
     return fallbackEstimate(params.text, params.model);
+  }
+}
+
+export async function estimateRequestTokens(params: {
+  model: string;
+  request: unknown;
+}): Promise<TokenEstimate> {
+  const scriptPath = resolveTokenizerScriptPath();
+  const fallbackText = JSON.stringify(params.request);
+  try {
+    return await runTokenizer({
+      model: params.model,
+      request: params.request
+    });
+  } catch (error) {
+    moduleLogger.warn('Falling back to heuristic token estimate', {
+      model: params.model,
+      scriptPath,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return fallbackEstimate(fallbackText, params.model);
   }
 }

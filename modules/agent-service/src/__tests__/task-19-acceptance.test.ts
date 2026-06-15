@@ -95,14 +95,14 @@ function createQueuePayload(): QueueMessagePayload {
   };
 }
 
-function createConversationTurn(id: number) {
+function createConversationTurn(id: number, text = `history ${id}`) {
   return {
     id,
     userId: 85178516,
     groupId: 101,
     batchId: null,
     sessionKey: 'qq:group:101',
-    userMessage: `history ${id}`,
+    userMessage: text,
     aiResponse: `xiaoni os ${id}`,
     items: [{
       id: id * 10,
@@ -110,7 +110,7 @@ function createConversationTurn(id: number) {
       sessionKey: 'qq:group:101',
       role: 'user' as const,
       phase: null,
-      content: `history ${id}`,
+      content: text,
       groupIndex: 0,
       itemIndex: 0,
       source: 'inbound_batch' as const,
@@ -164,10 +164,19 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
     developerContextBlock: null,
     contextSessionKey: 'xiaoni:test-global'
   });
+  const pressureRuntimePrompt = createRuntimePrompt({
+    parameters: {
+      model_config: {
+        contextWindowTokens: 4000,
+        maxOutputTokens: 1000
+      }
+    }
+  });
+  const pressureHistory = Array.from({ length: 12 }, (_, index) => createConversationTurn(index + 1, `history ${index + 1} ${'x '.repeat(180)}`));
   const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
-    history: Array.from({ length: 201 }, (_, index) => createConversationTurn(index + 1)),
+    history: pressureHistory,
     queueMessage: createQueuePayload(),
-    runtimePrompt: createRuntimePrompt(),
+    runtimePrompt: pressureRuntimePrompt,
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
@@ -175,7 +184,13 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
   });
 
   const mainRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'group');
-  const pressureRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, checkpoint.summarySourceInput, 'group');
+  assert.ok(checkpoint);
+  const pressureRequest = buildCanonicalAgentTurnRequest(
+    pressureRuntimePrompt.modelName,
+    checkpoint.summarySourceInput,
+    'group',
+    pressureRuntimePrompt.parameters as Record<string, unknown>
+  );
   const pressureToolNames = (pressureRequest.tools ?? []).map((tool: any) => getToolName(tool));
   const compressTool = (pressureRequest.tools ?? []).find((tool: any) => getToolName(tool) === COMPRESS_CORE_MEMORY_TOOL) as any;
 
@@ -183,7 +198,6 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
   assert.equal(plan.coreMemoryCompression, null);
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /当前压力:/);
   assert.equal(getAllowedToolNames(mainRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
-  assert.ok(checkpoint);
   assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
   assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), /source=\\?"core_memory_pressure\\?"/);
   assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), /required_tool=\\?"compress_core_memory\\?"/);
