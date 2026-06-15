@@ -796,6 +796,72 @@ describe('agent runtime action event trace routes', () => {
     expect(response.body.data.response.body).toBe('{"type":"response"}');
   });
 
+  it('loads raw provider exchange for image vision fork item events', async () => {
+    const database = createDatabaseMock();
+    (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
+      traceId: 'trace-vision',
+      conversationId: '42',
+      spanId: 'image-vision-fork-tool-call:call_exec_1',
+      internalExecutionLeaseId: 'run-vision',
+      llmRequestSliceId: 'vision_llm_1',
+      toolCallId: 'call_exec_1',
+      sourceKind: 'image_vision_fork',
+      forkRunId: 'image-vision-fork:run-vision:asset-1'
+    });
+    (buildStackRawProviderTrace as jest.Mock).mockResolvedValueOnce({
+      span_id: 'provider-request:wire:vision_llm_1',
+      trace_id: 'trace-vision',
+      conversation_id: '42',
+      slice_id: 'vision_llm_1',
+      llm_call_id: 'vision_llm_1',
+      source: 'image_vision_fork_slices.provider_exchange',
+      model_name: 'gpt-test',
+      model_provider: 'codex',
+      request_format_version: 'responses/v1',
+      wire_provider_format: 'openai/responses',
+      started_at: '2026-06-13T00:00:00.000Z',
+      completed_at: '2026-06-13T00:00:01.000Z',
+      duration_ms: 1000,
+      request: {
+        method: 'POST',
+        upstream_url: 'https://example.test/v1/responses',
+        headers: { 'content-type': 'application/json' },
+        body: '{"model":"gpt"}',
+        bytes: 15,
+        body_format: 'json',
+        body_source: 'image_vision_fork_slices.wire_request'
+      },
+      response: {
+        status_code: 200,
+        status_text: 'OK',
+        headers: { 'content-type': 'text/event-stream' },
+        body: '{"type":"response"}',
+        bytes: 19,
+        body_format: 'json',
+        body_source: 'image_vision_fork_slices.raw_response',
+        error_message: null
+      }
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/action-stream/events/image-vision-fork-item%3A10/raw-trace?spanId=provider-request%3Awire%3Avision_llm_1');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(buildConversationRawProviderTrace).not.toHaveBeenCalled();
+    expect(buildStackRawProviderTrace).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        sourceKind: 'image_vision_fork',
+        forkRunId: 'image-vision-fork:run-vision:asset-1',
+        llmRequestSliceId: 'vision_llm_1',
+        toolCallId: 'call_exec_1'
+      }),
+      'provider-request:wire:vision_llm_1'
+    );
+    expect(response.body.data.source).toBe('image_vision_fork_slices.provider_exchange');
+  });
+
   it('resolves a life action event to its conversation trace', async () => {
     const database = createDatabaseMock();
     (findXiaoniActionEventTraceTarget as jest.Mock).mockResolvedValueOnce({
