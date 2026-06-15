@@ -2,6 +2,46 @@
 
 ## LLM runtime
 
+
+对比这两个trace,我们已经发现了问题了, 要包含请求头, 请求体
+
+```
+source: LLM
+event: model request slice
+status: ok
+2026-06-15 11:33:44
+LLM 请求
+小腻
+runtrace_1781494416880_8a6cfc98
+stack-slice:llm_1781494418191_5cfd9892
+codex-local/responses
+payload 2 B
+Raw Trace
+Input 41.3K
+Cache 40.6K
+Output 117
+codex-local/responses · gpt-5.5 · turn 1 · 41272->117 tokens
+
+source: LLM
+event: model request slice
+status: ok
+2026-06-15 11:33:53
+LLM 请求
+小腻
+runtrace_1781494425437_2f3e19c0
+stack-slice:llm_1781494427537_4ac5f11e
+codex-local/responses
+payload 2 B
+Raw Trace
+Input 42.2K
+Cache 2.7K
+Output 234
+codex-local/responses · gpt-5.5 · turn 1 · 42199->234 tokens
+
+
+```
+
+
 ### Investigate fast energy/pressure drift causing frequent recover_energy attempts
 
 **What:** Check the current Xiaoni energy and pressure projection system to explain
@@ -53,5 +93,20 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Effort:** M
 **Priority:** P3
 **Depends on:** 再次出现可复现或高频样本
+
+### Add group number to group notification templates
+
+**What:** 群通知应该加上群号；更新相关通知模板，让群消息唤醒或展示时能直接看到
+QQ 群号。
+
+**Why:** 只显示群名称或上下文容易在同名群、转发排障和后续追踪时产生歧义。
+群号是稳定标识，应该进入模板。
+
+**Context:** 从 provider-service / agent-service 当前群通知模板入口开始查，确认
+入站群消息上下文里已有 group id 后再改模板。不要在前端或历史通知契约里堆兼容。
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** 当前群通知模板位置和群消息上下文字段确认
 
 ## Completed
