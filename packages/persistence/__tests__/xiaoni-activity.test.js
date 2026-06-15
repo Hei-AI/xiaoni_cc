@@ -828,6 +828,10 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.equal(observationEvent.metadata.inputTokens, 188786);
   assert.equal(observationEvent.metadata.cachedInputTokens, 6656);
   assert.equal(observationEvent.metadata.outputTokens, 206);
+  const forkToolEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_item' && event.kind === 'function_call');
+  assert.ok(forkToolEvent);
+  assert.equal(forkToolEvent.metadata.providerRawTraceAvailable, true);
+  assert.equal(forkToolEvent.metadata.providerRequestSpanId, 'provider-request:wire:vision_llm_1');
   assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
   assert.equal(
     listSliceInputs.some((input) => input.sliceId === 'vision_llm_1' && input.sourceKind === 'image_vision_fork'),
@@ -838,6 +842,13 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.equal(resolved.spanId, 'provider-request:wire:vision_llm_1');
   assert.equal(resolved.sourceKind, 'image_vision_fork');
   assert.equal(resolved.forkRunId, 'image-vision-fork:run_vision_1:media_vision_1');
+
+  const resolvedItem = await persistence.findXiaoniActionEventTraceTarget('image-vision-fork-item:vision-item-1');
+  assert.equal(resolvedItem.sourceKind, 'image_vision_fork');
+  assert.equal(resolvedItem.forkRunId, 'image-vision-fork:run_vision_1:media_vision_1');
+  assert.equal(resolvedItem.llmRequestSliceId, 'vision_llm_1');
+  assert.equal(resolvedItem.toolCallId, 'call_exec_vision_1');
+  assert.equal(resolvedItem.spanId, 'image-vision-fork-tool-call:call_exec_vision_1');
 });
 
 test('Xiaoni action stream filters primary cards before applying the display limit', async () => {
