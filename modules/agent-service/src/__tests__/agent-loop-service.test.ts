@@ -6952,6 +6952,82 @@ test('runtime recovery cache heartbeat skips when persisted renewal is not due',
   }
 });
 
+test('runtime recovery cache heartbeat pause control skips automatic renewal claim', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCacheHeartbeatEnabled = agentConfig.cacheHeartbeatEnabled;
+  agentConfig.cacheHeartbeatEnabled = true;
+
+  const fetchCalls: Array<{ url: string; init: RequestInit }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    fetchCalls.push({ url: String(url), init: init || {} });
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  }) as typeof fetch;
+
+  try {
+    const activeSession = {
+      id: 305,
+      initiator: 'recover_energy_tool',
+      reason: '睡一下。',
+      xiaoniOs: '先睡。',
+      clockMinutes: null,
+      clockDueAt: null,
+      clockDeferredAt: null,
+      startedAt: new Date().toISOString(),
+      startEnergy: -0.2,
+      currentEnergy: -0.2,
+      maxEnergy: 1,
+      wakeCountStartQueueMessageId: 100,
+      lastWakeCountedQueueMessageId: 100,
+      wakeCallCount: 0
+    };
+    const storeCalls: Record<string, any[]> = {
+      claimAgentRecoveryCacheHeartbeat: [],
+      completeAgentRecoveryCacheHeartbeat: [],
+      listAgentRecoveryWakeNotifications: [],
+      updateAgentRecoverySessionProgress: []
+    };
+    const store = {
+      getActiveAgentRecoverySession: async () => activeSession,
+      listAgentRecoveryWakeNotifications: async (params: any) => {
+        storeCalls.listAgentRecoveryWakeNotifications.push(params);
+        return [];
+      },
+      updateAgentRecoverySessionProgress: async (params: any) => {
+        storeCalls.updateAgentRecoverySessionProgress.push(params);
+        return activeSession;
+      },
+      claimAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.claimAgentRecoveryCacheHeartbeat.push(params);
+        return { claimed: true, session: activeSession };
+      },
+      completeAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.completeAgentRecoveryCacheHeartbeat.push(params);
+        return activeSession;
+      }
+    } as any;
+    const service = new AgentLoopService(store, undefined, {
+      isCacheHeartbeatPaused: async () => true
+    });
+
+    await (service as any).processRuntimeIteration({
+      workerId: 'worker-recovery-cache-heartbeat-paused',
+      idleIntervalMs: 0
+    });
+
+    assert.equal(storeCalls.listAgentRecoveryWakeNotifications.length, 1);
+    assert.equal(storeCalls.updateAgentRecoverySessionProgress.length, 1);
+    assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat.length, 0);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat.length, 0);
+    assert.equal(fetchCalls.length, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
+  }
+});
+
 test('manual cache heartbeat trigger returns validation summary without touching the main stack', async () => {
   const previousFetch = globalThis.fetch;
   const previousCacheHeartbeatMaxOutputTokens = agentConfig.cacheHeartbeatMaxOutputTokens;

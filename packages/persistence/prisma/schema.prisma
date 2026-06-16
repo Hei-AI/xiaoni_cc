@@ -106,6 +106,8 @@ model AgentQqAttentionReminder {
 model AgentRuntimeControl {
   identity_key                        String    @id @db.VarChar(191)
   enabled                             Boolean   @default(true)
+  cache_heartbeat_paused              Boolean   @default(false)
+  cache_heartbeat_paused_at           DateTime? @db.Timestamptz(3)
   post_compression_pause_armed        Boolean   @default(false)
   post_compression_pause_armed_at     DateTime? @db.Timestamptz(3)
   post_compression_pause_triggered_at DateTime? @db.Timestamptz(3)

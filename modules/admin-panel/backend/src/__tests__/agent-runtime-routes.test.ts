@@ -74,6 +74,8 @@ describe('agent runtime control routes', () => {
     (getAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
       identityKey: 'xiaoni',
       enabled: true,
+      cacheHeartbeatPaused: true,
+      cacheHeartbeatPausedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseArmed: true,
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,
@@ -86,6 +88,7 @@ describe('agent runtime control routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(response.body.data.cacheHeartbeatPaused).toBe(true);
     expect(response.body.data.postCompressionPauseArmed).toBe(true);
     expect(getAgentRuntimeControl).toHaveBeenCalledWith({ identityKey: 'xiaoni' });
   });
@@ -95,6 +98,8 @@ describe('agent runtime control routes', () => {
     (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
       identityKey: 'xiaoni',
       enabled: false,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null,
       postCompressionPauseArmed: true,
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,
@@ -114,11 +119,40 @@ describe('agent runtime control routes', () => {
     expect(response.body.data.enabled).toBe(false);
   });
 
+  it('patches cache heartbeat pause without pausing the main runtime', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: true,
+      cacheHeartbeatPausedAt: '2026-06-13T20:02:00.000+08:00',
+      postCompressionPauseArmed: false,
+      postCompressionPauseArmedAt: null,
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      updatedAt: '2026-06-13T20:02:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ cacheHeartbeatPaused: true });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      cacheHeartbeatPaused: true
+    });
+    expect(response.body.data.enabled).toBe(true);
+    expect(response.body.data.cacheHeartbeatPaused).toBe(true);
+  });
+
   it('patches delayed pause without implicitly resuming runtime', async () => {
     const database = createDatabaseMock();
     (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
       identityKey: 'xiaoni',
       enabled: false,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null,
       postCompressionPauseArmed: true,
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,

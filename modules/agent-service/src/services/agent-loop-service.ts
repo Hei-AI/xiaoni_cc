@@ -269,6 +269,7 @@ type RecoverySessionHeartbeatState = {
 
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
+  isCacheHeartbeatPaused?: () => boolean | Promise<boolean>;
   onCoreMemoryCompressionCommitted?: (commit: CoreMemoryCompressionCommit) => void | Promise<void>;
   runtimePausePollMs?: number;
 };
@@ -4599,6 +4600,18 @@ export class AgentLoopService {
   private async maybeRunCacheHeartbeatDuringRecovery(session?: RecoverySessionHeartbeatState | null) {
     if (!agentConfig.cacheHeartbeatEnabled) {
       return;
+    }
+    if (typeof this.options.isCacheHeartbeatPaused === 'function') {
+      try {
+        if (await this.options.isCacheHeartbeatPaused()) {
+          return;
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to check Xiaoni cache heartbeat pause control; defaulting heartbeat enabled', {
+          recoverySessionId: session?.id || null,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
     if (this.cacheHeartbeatInFlight) {
       return;

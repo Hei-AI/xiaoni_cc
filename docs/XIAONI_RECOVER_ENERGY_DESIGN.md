@@ -246,6 +246,8 @@ developer `Heartbeat`，通过 `/api/internal/llm/debug` 发送
 当前 Codex backend 会拒绝 wire `max_output_tokens`，所以 Codex provider 实际只发送
 developer heartbeat 约束。heartbeat 不认领 Notify Bucket，不把任何 QQ 未读写入上下文，
 不写主 stack，也不消耗模型返回内容。
+`agent_runtime_control.cache_heartbeat_paused=true` 时，睡眠期间自动 heartbeat 不会 claim
+recovery session schedule，也不会请求 provider；这只暂停自动保温，不影响手动验证入口。
 heartbeat 续约状态持久化在 active `agent_recovery_sessions.metadata.cache_heartbeat` 中：
 每次 due 时先 claim，同一 session 只允许一个 in-flight heartbeat；成功后写入下一次
 `next_due_at = started_at + 5min`，失败时短间隔重试。agent-service 意外重启后，只要
@@ -258,6 +260,7 @@ curl -sS -X POST http://127.0.0.1:8092/api/internal/runtime/cache-heartbeat
 ```
 
 这个入口复用同一套 heartbeat fork，绕过 5 分钟自动调度间隔，只返回 provider usage 摘要。
+即使 runtime control 暂停了自动 heartbeat，这个手动入口仍可用于本机排障。
 
 ```text
 source = 'phone_notification'

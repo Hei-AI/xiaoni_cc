@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Loader2, Power, RefreshCw, TimerReset } from 'lucide-react';
+import { Bot, HeartPulse, Loader2, Power, RefreshCw, TimerReset } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -19,6 +19,8 @@ type ApiResponse<T> = {
 type RuntimeControl = {
   identityKey: string;
   enabled: boolean;
+  cacheHeartbeatPaused: boolean;
+  cacheHeartbeatPausedAt: string | null;
   postCompressionPauseArmed: boolean;
   postCompressionPauseArmedAt: string | null;
   postCompressionPauseTriggeredAt: string | null;
@@ -35,7 +37,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'postCompressionPauseArmed'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed'>>;
 
 async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
@@ -69,10 +71,16 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const control = controlQuery.data;
   const pendingPatch = mutation.isPending ? mutation.variables : null;
   const enabled = typeof pendingPatch?.enabled === 'boolean' ? pendingPatch.enabled : control?.enabled ?? true;
+  const cacheHeartbeatPaused = typeof pendingPatch?.cacheHeartbeatPaused === 'boolean'
+    ? pendingPatch.cacheHeartbeatPaused
+    : control?.cacheHeartbeatPaused ?? false;
   const postCompressionPauseArmed = typeof pendingPatch?.postCompressionPauseArmed === 'boolean'
     ? pendingPatch.postCompressionPauseArmed
     : control?.postCompressionPauseArmed ?? false;
   const updatedAt = control?.updatedAt ? formatTimestamp(control.updatedAt, { fallback: control.updatedAt }) : '默认开启';
+  const cacheHeartbeatPausedAt = control?.cacheHeartbeatPausedAt
+    ? formatTimestamp(control.cacheHeartbeatPausedAt, { fallback: control.cacheHeartbeatPausedAt })
+    : '未暂停';
   const armedAt = control?.postCompressionPauseArmedAt
     ? formatTimestamp(control.postCompressionPauseArmedAt, { fallback: control.postCompressionPauseArmedAt })
     : '未设置';
@@ -126,6 +134,33 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ enabled: Boolean(checked) })}
               aria-label="小腻运行循环"
+            />
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="睡眠 heartbeat"
+        description="暂停后，小腻睡眠恢复期间不会自动发送 provider cache heartbeat；手动调试入口仍可用。"
+        icon={<HeartPulse className="h-4 w-4 text-primary" />}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">暂停睡眠保温 heartbeat</div>
+            <div className="text-sm text-muted-foreground">
+              {cacheHeartbeatPaused
+                ? '已暂停，睡眠中不会按 5 分钟节奏自动续约 prompt cache。'
+                : '开启自动 heartbeat，睡眠中会按恢复会话 schedule 保温。'}
+            </div>
+            <div className="text-xs text-muted-foreground">暂停时间：{cacheHeartbeatPausedAt}</div>
+          </div>
+          <div className="flex items-center gap-3">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            <Switch
+              checked={cacheHeartbeatPaused}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onCheckedChange={(checked) => mutation.mutate({ cacheHeartbeatPaused: Boolean(checked) })}
+              aria-label="暂停睡眠保温 heartbeat"
             />
           </div>
         </div>

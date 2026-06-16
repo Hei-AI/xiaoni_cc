@@ -2179,6 +2179,8 @@ export function findXiaoniActionEventTraceTarget(eventId: string, config?: Datab
 export type AgentRuntimeControlProjection = {
   identityKey: string;
   enabled: boolean;
+  cacheHeartbeatPaused: boolean;
+  cacheHeartbeatPausedAt: string | null;
   postCompressionPauseArmed: boolean;
   postCompressionPauseArmedAt: string | null;
   postCompressionPauseTriggeredAt: string | null;

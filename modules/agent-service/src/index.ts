@@ -14,6 +14,7 @@ const app = express();
 const store = new RuntimeStore();
 const loopService = new AgentLoopService(store, undefined, {
   isRuntimeEnabled,
+  isCacheHeartbeatPaused,
   onCoreMemoryCompressionCommitted: triggerRuntimePauseAfterCoreMemoryCompression
 });
 const taskWorkerService = new AgentTaskWorkerService();
@@ -173,6 +174,18 @@ async function isRuntimeEnabled() {
       error: error instanceof Error ? error.message : String(error)
     });
     return true;
+  }
+}
+
+async function isCacheHeartbeatPaused() {
+  try {
+    const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+    return control.cacheHeartbeatPaused === true;
+  } catch (error) {
+    moduleLogger.warn('Failed to load Xiaoni cache heartbeat pause control; defaulting heartbeat enabled', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return false;
   }
 }
 

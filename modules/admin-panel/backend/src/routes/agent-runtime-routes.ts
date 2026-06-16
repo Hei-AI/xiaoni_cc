@@ -835,6 +835,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.enabled === 'boolean') {
         patch.enabled = body.enabled;
       }
+      if (typeof body.cacheHeartbeatPaused === 'boolean') {
+        patch.cacheHeartbeatPaused = body.cacheHeartbeatPaused;
+      }
       if (typeof body.postCompressionPauseArmed === 'boolean') {
         patch.postCompressionPauseArmed = body.postCompressionPauseArmed;
       }

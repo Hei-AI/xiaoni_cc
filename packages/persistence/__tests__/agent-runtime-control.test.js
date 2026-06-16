@@ -36,6 +36,7 @@ test('ensureAgentRuntimeControlSchema creates an enabled-by-default control tabl
   const createTable = statements.join('\n');
   assert.match(createTable, /CREATE TABLE IF NOT EXISTS agent_runtime_control/);
   assert.match(createTable, /enabled BOOLEAN NOT NULL DEFAULT TRUE/);
+  assert.match(createTable, /cache_heartbeat_paused BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(createTable, /post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE/);
 });
 
@@ -47,6 +48,8 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
     enabled: true,
+    cacheHeartbeatPaused: false,
+    cacheHeartbeatPausedAt: null,
     postCompressionPauseArmed: false,
     postCompressionPauseArmedAt: null,
     postCompressionPauseTriggeredAt: null,
@@ -84,6 +87,8 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     rows: [[{
       identity_key: 'xiaoni',
       enabled: false,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
       post_compression_pause_armed: false,
       post_compression_pause_armed_at: null,
       post_compression_pause_triggered_at: null,
@@ -104,7 +109,13 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     false,
     false,
+    false,
+    false,
     true,
+    false,
+    false,
+    false,
+    false,
     false,
     false,
     false,
@@ -118,6 +129,67 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
     enabled: false,
+    cacheHeartbeatPaused: false,
+    cacheHeartbeatPausedAt: null,
+    postCompressionPauseArmed: false,
+    postCompressionPauseArmedAt: null,
+    postCompressionPauseTriggeredAt: null,
+    postCompressionPauseReason: null,
+    updatedAt: '2026-06-06T20:00:00.000+08:00'
+  });
+});
+
+test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime enabled', async () => {
+  const updatedAt = new Date('2026-06-06T12:00:00.000Z');
+  const pausedAt = new Date('2026-06-06T12:03:00.000Z');
+  const { queries, persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      cache_heartbeat_paused: true,
+      cache_heartbeat_paused_at: pausedAt,
+      post_compression_pause_armed: false,
+      post_compression_pause_armed_at: null,
+      post_compression_pause_triggered_at: null,
+      post_compression_pause_reason: null,
+      updated_at: updatedAt
+    }]]
+  });
+
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    cacheHeartbeatPaused: true
+  });
+
+  const updateQuery = queries.at(-1);
+  assert.match(updateQuery.statement, /cache_heartbeat_paused_at = CASE/);
+  assert.deepEqual(updateQuery.params, [
+    'xiaoni',
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ]);
+  assert.deepEqual(control, {
+    identityKey: 'xiaoni',
+    enabled: true,
+    cacheHeartbeatPaused: true,
+    cacheHeartbeatPausedAt: '2026-06-06T20:03:00.000+08:00',
     postCompressionPauseArmed: false,
     postCompressionPauseArmedAt: null,
     postCompressionPauseTriggeredAt: null,
@@ -133,6 +205,8 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     rows: [[{
       identity_key: 'xiaoni',
       enabled: true,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
       post_compression_pause_armed: true,
       post_compression_pause_armed_at: armedAt,
       post_compression_pause_triggered_at: null,
@@ -151,10 +225,16 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
   assert.deepEqual(updateQuery.params, [
     'xiaoni',
     true,
+    false,
+    false,
     true,
     true,
     false,
     true,
+    false,
+    false,
+    false,
+    false,
     true,
     true,
     true,
@@ -167,6 +247,8 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
     enabled: true,
+    cacheHeartbeatPaused: false,
+    cacheHeartbeatPausedAt: null,
     postCompressionPauseArmed: true,
     postCompressionPauseArmedAt: '2026-06-06T20:01:00.000+08:00',
     postCompressionPauseTriggeredAt: null,
@@ -182,6 +264,8 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     rows: [[{
       identity_key: 'xiaoni',
       enabled: false,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
       post_compression_pause_armed: false,
       post_compression_pause_armed_at: new Date('2026-06-06T12:01:00.000Z'),
       post_compression_pause_triggered_at: triggeredAt,
@@ -201,6 +285,8 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
     enabled: false,
+    cacheHeartbeatPaused: false,
+    cacheHeartbeatPausedAt: null,
     postCompressionPauseArmed: false,
     postCompressionPauseArmedAt: '2026-06-06T20:01:00.000+08:00',
     postCompressionPauseTriggeredAt: '2026-06-06T20:02:00.000+08:00',

@@ -10,6 +10,8 @@ function normalizeRuntimeControl(row) {
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
+    cacheHeartbeatPaused: row ? isTruthyDatabaseBoolean(row.cache_heartbeat_paused) : false,
+    cacheHeartbeatPausedAt: serializeTimestampForApi(row?.cache_heartbeat_paused_at),
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -43,6 +45,8 @@ function createAgentRuntimeControlPersistence(deps) {
       CREATE TABLE IF NOT EXISTS agent_runtime_control (
         identity_key VARCHAR(191) PRIMARY KEY,
         enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        cache_heartbeat_paused BOOLEAN NOT NULL DEFAULT FALSE,
+        cache_heartbeat_paused_at TIMESTAMPTZ(3),
         post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE,
         post_compression_pause_armed_at TIMESTAMPTZ(3),
         post_compression_pause_triggered_at TIMESTAMPTZ(3),
@@ -50,6 +54,8 @@ function createAgentRuntimeControlPersistence(deps) {
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS cache_heartbeat_paused BOOLEAN NOT NULL DEFAULT FALSE');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS cache_heartbeat_paused_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_armed_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_triggered_at TIMESTAMPTZ(3)');
@@ -57,6 +63,18 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute(`
       DO $$
       BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'agent_runtime_control'
+            AND column_name = 'cache_heartbeat_paused_at'
+            AND data_type = 'timestamp without time zone'
+        ) THEN
+          ALTER TABLE agent_runtime_control
+            ALTER COLUMN cache_heartbeat_paused_at TYPE TIMESTAMPTZ(3)
+            USING cache_heartbeat_paused_at AT TIME ZONE 'Asia/Shanghai';
+        END IF;
+
         IF EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_schema = current_schema()
@@ -115,7 +133,7 @@ function createAgentRuntimeControlPersistence(deps) {
       await ensureAgentRuntimeControlSchemaWithSql(sql, config);
       const rows = await sql.query(
         `
-          SELECT identity_key, enabled, updated_at
+          SELECT identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at
             , post_compression_pause_armed
             , post_compression_pause_armed_at
             , post_compression_pause_triggered_at
@@ -140,6 +158,11 @@ function createAgentRuntimeControlPersistence(deps) {
     try {
       await ensureAgentRuntimeControlSchemaWithSql(sql, config);
       const hasEnabled = typeof input.enabled === 'boolean';
+      const hasCacheHeartbeatPaused = typeof input.cacheHeartbeatPaused === 'boolean'
+        || typeof input.cache_heartbeat_paused === 'boolean';
+      const cacheHeartbeatPaused = hasCacheHeartbeatPaused
+        ? (input.cacheHeartbeatPaused ?? input.cache_heartbeat_paused) === true
+        : false;
       const hasPostCompressionPauseArmed = typeof input.postCompressionPauseArmed === 'boolean'
         || typeof input.post_compression_pause_armed === 'boolean';
       const postCompressionPauseArmed = hasPostCompressionPauseArmed
@@ -151,6 +174,8 @@ function createAgentRuntimeControlPersistence(deps) {
           INSERT INTO agent_runtime_control (
             identity_key,
             enabled,
+            cache_heartbeat_paused,
+            cache_heartbeat_paused_at,
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
@@ -162,6 +187,8 @@ function createAgentRuntimeControlPersistence(deps) {
             ?,
             ?,
             CASE WHEN ? THEN NOW() ELSE NULL END,
+            ?,
+            CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
             NOW()
@@ -171,6 +198,15 @@ function createAgentRuntimeControlPersistence(deps) {
             enabled = CASE
               WHEN ? THEN ?
               ELSE agent_runtime_control.enabled
+            END,
+            cache_heartbeat_paused = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.cache_heartbeat_paused
+            END,
+            cache_heartbeat_paused_at = CASE
+              WHEN ? THEN
+                CASE WHEN ? THEN NOW() ELSE NULL END
+              ELSE agent_runtime_control.cache_heartbeat_paused_at
             END,
             post_compression_pause_armed = CASE
               WHEN ? THEN ?
@@ -190,7 +226,7 @@ function createAgentRuntimeControlPersistence(deps) {
               ELSE agent_runtime_control.post_compression_pause_reason
             END,
             updated_at = NOW()
-          RETURNING identity_key, enabled, updated_at,
+          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
@@ -199,10 +235,16 @@ function createAgentRuntimeControlPersistence(deps) {
         [
           identityKey,
           enabled,
+          cacheHeartbeatPaused,
+          hasCacheHeartbeatPaused && cacheHeartbeatPaused,
           postCompressionPauseArmed,
           hasPostCompressionPauseArmed && postCompressionPauseArmed,
           hasEnabled,
           enabled,
+          hasCacheHeartbeatPaused,
+          cacheHeartbeatPaused,
+          hasCacheHeartbeatPaused,
+          cacheHeartbeatPaused,
           hasPostCompressionPauseArmed,
           postCompressionPauseArmed,
           hasPostCompressionPauseArmed,
@@ -263,7 +305,7 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN agent_runtime_control.post_compression_pause_armed THEN NOW()
               ELSE agent_runtime_control.updated_at
             END
-          RETURNING identity_key, enabled, updated_at,
+          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
