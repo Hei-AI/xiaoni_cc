@@ -56,23 +56,27 @@ type OpenResponseInputItem =
       role: 'system' | 'user' | 'assistant' | 'developer';
       content: string | OpenResponseInputContentPart[];
       phase?: ConversationTranscriptPhase;
+      [key: string]: unknown;
     }
   | {
       type: 'function_call';
       call_id: string;
       name: string;
       arguments: string;
+      [key: string]: unknown;
     }
   | {
       type: 'function_call_output';
       call_id: string;
       output: string | OpenResponseInputContentPart[];
+      [key: string]: unknown;
     }
   | {
       type: 'reasoning';
       content?: string;
       summary?: string | Array<Record<string, unknown>>;
       encrypted_content?: string;
+      [key: string]: unknown;
     };
 
 type OpenResponseInputContentPart =
@@ -195,6 +199,10 @@ type LeaseReleaseRecord = {
 };
 
 type ReplayableToolCallOutput = Extract<ReplayableModelOutput, { type: 'tool_call' }>;
+
+type StackBackedConversationTurn = ConversationTurn & {
+  stackReplayItems?: OpenResponseInputItem[];
+};
 
 type PreSleepToolTimelineEntry = {
   call_id: string;
@@ -4704,6 +4712,67 @@ export class AgentLoopService {
     return this.runCacheHeartbeatDuringRecovery();
   }
 
+  private async attachStackReplayItemsToHistory(history: ConversationTurn[], traceId: string): Promise<StackBackedConversationTurn[]> {
+    if (history.length === 0) {
+      return [];
+    }
+    const batchReader = (this.store as RuntimeStore & {
+      listAgentStackItemsForConversations?: RuntimeStore['listAgentStackItemsForConversations'];
+    }).listAgentStackItemsForConversations;
+    if (typeof batchReader === 'function') {
+      try {
+        const rows = await batchReader.call(this.store, {
+          identityKey: XIAONI_IDENTITY_KEY,
+          conversationIds: history.map((turn) => turn.id),
+          limit: Math.max(1000, history.length * 1000)
+        }) as Array<Record<string, unknown>>;
+        const rowsByConversationId = groupStackRowsByConversationId(rows);
+        return history.map((turn) => ({
+          ...turn,
+          stackReplayItems: extractResponseReplayInputItemsFromStackRows(rowsByConversationId.get(turn.id) || [])
+        }));
+      } catch (error) {
+        moduleLogger.warn('Failed to load Xiaoni stack replay items for conversation history', {
+          traceId,
+          conversationCount: history.length,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    const reader = (this.store as RuntimeStore & {
+      listAgentStackItems?: RuntimeStore['listAgentStackItems'];
+    }).listAgentStackItems;
+    if (typeof reader !== 'function') {
+      return history.map((turn) => ({ ...turn, stackReplayItems: [] }));
+    }
+
+    const rowsByConversationId = new Map<number, Array<Record<string, unknown>>>();
+    await Promise.all(history.map(async (turn) => {
+      try {
+        const rows = await reader.call(this.store, {
+          identityKey: XIAONI_IDENTITY_KEY,
+          conversationId: turn.id,
+          chronological: true,
+          limit: 1000
+        }) as Array<Record<string, unknown>>;
+        rowsByConversationId.set(turn.id, rows);
+      } catch (error) {
+        moduleLogger.warn('Failed to load Xiaoni stack replay items for conversation turn', {
+          traceId,
+          conversationId: turn.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        rowsByConversationId.set(turn.id, []);
+      }
+    }));
+
+    return history.map((turn) => ({
+      ...turn,
+      stackReplayItems: extractResponseReplayInputItemsFromStackRows(rowsByConversationId.get(turn.id) || [])
+    }));
+  }
+
   private async runCacheHeartbeatDuringRecovery(): Promise<CacheHeartbeatRunResult> {
     const queueMessage = buildRuntimeLoopFrameQueueMessage();
     const built = await this.buildCacheHeartbeatCanonicalRequest(queueMessage.payload);
@@ -4774,12 +4843,12 @@ export class AgentLoopService {
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const cutoffState = await store.getSessionReadCutoffState.call(this.store, contextSessionKey);
     const sessionIds = resolveSessionTargets(queueMessage);
-    const history = await store.listRecentTurns.call(this.store, {
+    const history = await this.attachStackReplayItemsToHistory(await store.listRecentTurns.call(this.store, {
       userId: sessionIds.userId,
       groupId: sessionIds.groupId,
       afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
       scope: 'global' as const
-    });
+    }), queueMessage.traceId);
     const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
     const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(queueMessage);
     const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(queueMessage);
@@ -5246,7 +5315,7 @@ export class AgentLoopService {
         afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
         scope: 'global' as const
       };
-      const history = await this.store.listRecentTurns(historyQuery);
+      const history = await this.attachStackReplayItemsToHistory(await this.store.listRecentTurns(historyQuery), payload.traceId);
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
@@ -9838,23 +9907,22 @@ export function buildInitialInput(
     items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
-  const appendReplayItems = (turn: ConversationTurn, turnIndex: number) => {
-    const replayItems = buildTurnResponseReplayItems(turn);
-    items.push(...replayItems);
-    if (
-      appendSelfContinuationOnTerminalFinalAnswer
-      && turnIndex === history.length - 1
-      && isAssistantFinalAnswerInputItem(replayItems[replayItems.length - 1])
-    ) {
-      items.push(buildSelfContinuationInputItem());
-    }
-  };
-
   for (const [turnIndex, turn] of history.entries()) {
+    const replayItems = buildTurnResponseReplayItems(turn);
+    const appendKnownReplayItems = () => {
+      items.push(...replayItems);
+      if (
+        appendSelfContinuationOnTerminalFinalAnswer
+        && turnIndex === history.length - 1
+        && isAssistantFinalAnswerInputItem(replayItems[replayItems.length - 1])
+      ) {
+        items.push(buildSelfContinuationInputItem());
+      }
+    };
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
       : [];
-    const osText = buildTurnOs(turn);
+    const osText = replayItems.length > 0 ? '' : buildTurnOs(turn);
     let osAttached = false;
 
     if (transcriptItems.length === 0) {
@@ -9862,7 +9930,7 @@ export function buildInitialInput(
         items.push(buildAssistantCommentaryInputItem([osText]));
         osAttached = true;
       }
-      appendReplayItems(turn, turnIndex);
+      appendKnownReplayItems();
       continue;
     }
 
@@ -9877,7 +9945,7 @@ export function buildInitialInput(
       items.push(buildAssistantCommentaryInputItem([osText]));
     }
 
-    appendReplayItems(turn, turnIndex);
+    appendKnownReplayItems();
   }
 
   if (triggerInputMode === 'fresh_trigger') {
@@ -10025,18 +10093,6 @@ function isMessageReplayItem(value: unknown): value is Extract<OpenResponseInput
       || Array.isArray(item.content) && flattenMessageContent(item.content as OpenResponseInputContentPart[]).trim().length > 0);
 }
 
-function normalizeMessageReplayInputItem(
-  item: Extract<OpenResponseInputItem, { type: 'message' }>
-): Extract<OpenResponseInputItem, { type: 'message' }> {
-  return buildMessageInputItem(
-    item.role === 'developer' ? 'developer' : 'assistant',
-    [flattenMessageContent(item.content).trim()],
-    item.role === 'assistant'
-      ? item.phase === 'final_answer' ? 'final_answer' : 'commentary'
-      : undefined
-  ) as Extract<OpenResponseInputItem, { type: 'message' }>;
-}
-
 function isFunctionCallReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'function_call' }> {
   if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call') {
     return false;
@@ -10089,7 +10145,7 @@ function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null
     return normalizeReasoningReplayInputItem(item);
   }
   if (isMessageReplayItem(item)) {
-    return normalizeMessageReplayInputItem(item);
+    return { ...item };
   }
   if (isFunctionCallReplayItem(item)) {
     return normalizeFunctionCallReplayInputItem(item);
@@ -10098,6 +10154,39 @@ function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null
     return normalizeFunctionCallOutputReplayInputItem(item);
   }
   return null;
+}
+
+function stackRowContentAsReplayInputItem(row: Record<string, unknown>): unknown {
+  if (row.visibility !== 'model_visible') {
+    return null;
+  }
+  const content = row.content;
+  if (!content || typeof content !== 'object' || Array.isArray(content)) {
+    return null;
+  }
+  return content;
+}
+
+function groupStackRowsByConversationId(rows: Array<Record<string, unknown>>) {
+  const grouped = new Map<number, Array<Record<string, unknown>>>();
+  for (const row of rows) {
+    const rawConversationId = row.conversationId ?? row.conversation_id;
+    const conversationId = typeof rawConversationId === 'number'
+      ? rawConversationId
+      : Number(rawConversationId);
+    if (!Number.isFinite(conversationId)) {
+      continue;
+    }
+    const key = Math.trunc(conversationId);
+    const bucket = grouped.get(key) || [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+  return grouped;
+}
+
+function extractResponseReplayInputItemsFromStackRows(rows: Array<Record<string, unknown>>): ResponseReplayInputItem[] {
+  return extractResponseReplayInputItems(rows.map(stackRowContentAsReplayInputItem) as OpenResponseInputItem[]);
 }
 
 function extractResponseReplayInputItems(items: OpenResponseInputItem[]): ResponseReplayInputItem[] {
@@ -10129,15 +10218,8 @@ function extractResponseReplayInputItems(items: OpenResponseInputItem[]): Respon
   });
 }
 
-function buildTurnResponseReplayItems(turn: ConversationTurn): OpenResponseInputItem[] {
-  const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
-    ? turn.rawResponse as Record<string, unknown>
-    : {};
-  const replayItems = Array.isArray(rawResponse.responses_replay_items)
-    ? rawResponse.responses_replay_items
-    : [];
-
-  return extractResponseReplayInputItems(replayItems as OpenResponseInputItem[]);
+function buildTurnResponseReplayItems(turn: StackBackedConversationTurn): OpenResponseInputItem[] {
+  return extractResponseReplayInputItems(turn.stackReplayItems || []);
 }
 
 function buildCurrentTurnInputItems(

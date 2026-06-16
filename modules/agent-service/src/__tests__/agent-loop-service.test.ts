@@ -262,6 +262,11 @@ function createConversationTurn(overrides: Partial<{
   };
 }
 
+function attachStackReplayItems(turn: ReturnType<typeof createConversationTurn>, items: unknown[]) {
+  (turn as any).stackReplayItems = items;
+  return turn;
+}
+
 function createDirectQueuePayload(): QueueMessagePayload {
   const payload = createQueuePayload();
   return {
@@ -1147,15 +1152,11 @@ test('buildInitialInput replays stored encrypted reasoning items across turns', 
     userMessage: '上一段用户消息',
     aiResponse: '上一段回复'
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'reasoning',
-        summary: [{ type: 'summary_text', text: 'prior turn reasoning summary' }],
-        encrypted_content: 'enc-prior-turn'
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [{
+    type: 'reasoning',
+    summary: [{ type: 'summary_text', text: 'prior turn reasoning summary' }],
+    encrypted_content: 'enc-prior-turn'
+  }]);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
 
@@ -1172,14 +1173,10 @@ test('buildInitialInput repairs stored encrypted reasoning items missing summary
     userMessage: '上一段用户消息',
     aiResponse: '上一段回复'
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'reasoning',
-        encrypted_content: 'enc-prior-turn-without-summary'
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [{
+    type: 'reasoning',
+    encrypted_content: 'enc-prior-turn-without-summary'
+  }]);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
 
@@ -1197,21 +1194,19 @@ test('buildInitialInput replays completed tool calls across turns', () => {
     userMessage: '上一段用户消息',
     aiResponse: '上一段回复'
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'function_call',
-        call_id: 'call-exec-1',
-        name: 'exec_command',
-        arguments: '{"cmd":"python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox"}'
-      },
-      {
-        type: 'function_call_output',
-        call_id: 'call-exec-1',
-        output: '<IM_INBOX_WINDOW mode="thread_list"></IM_INBOX_WINDOW>'
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [
+    {
+      type: 'function_call',
+      call_id: 'call-exec-1',
+      name: 'exec_command',
+      arguments: '{"cmd":"python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox"}'
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call-exec-1',
+      output: '<IM_INBOX_WINDOW mode="thread_list"></IM_INBOX_WINDOW>'
+    }
+  ]);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
 
@@ -1233,19 +1228,17 @@ test('buildInitialInput replays stored assistant messages across turns', () => {
     userMessage: '上一段用户消息',
     aiResponse: null
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'message',
-        role: 'assistant',
-        phase: 'commentary',
-        content: [{
-          type: 'output_text',
-          text: '我先打开列表看一下。'
-        }]
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [{
+    type: 'message',
+    role: 'assistant',
+    phase: 'commentary',
+    status: 'completed',
+    content: [{
+      type: 'output_text',
+      text: '我先打开列表看一下。',
+      annotations: []
+    }]
+  }]);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
   const assistantItem = loopInput.find((item: any) => (
@@ -1256,7 +1249,66 @@ test('buildInitialInput replays stored assistant messages across turns', () => {
 
   assert.ok(assistantItem);
   assert.equal(assistantItem.phase, 'commentary');
+  assert.equal(assistantItem.status, 'completed');
   assert.equal(assistantItem.content[0]?.type, 'output_text');
+  assert.deepEqual(assistantItem.content[0]?.annotations, []);
+});
+
+test('buildInitialInput does not synthesize raw xiaoni_os when stack replay has real response items', () => {
+  const turn = createConversationTurn({
+    id: 48,
+    userMessage: '',
+    aiResponse: null
+  }) as any;
+  turn.items = [];
+  turn.rawResponse = {
+    xiaoni_os: '如果睡着，醒来记得：这是 recover_energy 参数里的睡前念头。'
+  };
+  attachStackReplayItems(turn, [
+    {
+      type: 'reasoning',
+      summary: [],
+      encrypted_content: 'enc-before-recover'
+    },
+    {
+      type: 'message',
+      role: 'assistant',
+      phase: 'commentary',
+      content: [{
+        type: 'output_text',
+        text: '<xiaoni_os>\n11:06:03，绝对静。真实模型输出。\n</xiaoni_os>'
+      }]
+    },
+    {
+      type: 'function_call',
+      call_id: 'call-recover-1',
+      name: 'recover_energy',
+      arguments: JSON.stringify({
+        reason: '累了',
+        xiaoni_os: '如果睡着，醒来记得：这是 recover_energy 参数里的睡前念头。'
+      })
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call-recover-1',
+      output: '<system_reminder>自然醒来</system_reminder>'
+    }
+  ]);
+
+  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  const reasoningIndex = loopInput.findIndex((item: any) => item.type === 'reasoning' && item.encrypted_content === 'enc-before-recover');
+  const realOsIndex = loopInput.findIndex((item: any) => item.type === 'message' && getMessageContent(item).includes('真实模型输出'));
+  const recoverCallIndex = loopInput.findIndex((item: any) => item.type === 'function_call' && item.call_id === 'call-recover-1');
+  const syntheticOsItem = loopInput.find((item: any) => (
+    item.type === 'message'
+    && item.role === 'assistant'
+    && getMessageContent(item).includes('recover_energy 参数里的睡前念头')
+  ));
+
+  assert.equal(syntheticOsItem, undefined);
+  assert.ok(reasoningIndex >= 0);
+  assert.ok(realOsIndex > reasoningIndex);
+  assert.ok(recoverCallIndex > realOsIndex);
 });
 
 test('buildInitialInput appends self continuation after terminal final_answer only when requested', () => {
@@ -1265,19 +1317,15 @@ test('buildInitialInput appends self continuation after terminal final_answer on
     userMessage: '',
     aiResponse: null
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'message',
-        role: 'assistant',
-        phase: 'final_answer',
-        content: [{
-          type: 'output_text',
-          text: '留白。'
-        }]
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [{
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{
+      type: 'output_text',
+      text: '留白。'
+    }]
+  }]);
 
   const withoutReminder = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', false);
   assert.equal(withoutReminder.some((item: any) => (
@@ -1310,16 +1358,12 @@ test('buildInitialInput drops unpaired stored tool calls across turns', () => {
     userMessage: '上一段用户消息',
     aiResponse: '上一段回复'
   });
-  turn.rawResponse = {
-    responses_replay_items: [
-      {
-        type: 'function_call',
-        call_id: 'call-recover-1',
-        name: 'recover_energy',
-        arguments: '{"reason":"done"}'
-      }
-    ]
-  };
+  attachStackReplayItems(turn, [{
+    type: 'function_call',
+    call_id: 'call-recover-1',
+    name: 'recover_energy',
+    arguments: '{"reason":"done"}'
+  }]);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
 
@@ -4923,14 +4967,13 @@ test('no-notify continuation inserts self continuation after prior final_answer'
     userMessage: '',
     aiResponse: null
   });
-  priorTurn.rawResponse = {
-    responses_replay_items: [{
-      type: 'message',
-      role: 'assistant',
-      phase: 'final_answer',
-      content: [{ type: 'output_text', text: '留白。' }]
-    }]
+  const priorFinalAnswerReplay = {
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '留白。' }]
   };
+  attachStackReplayItems(priorTurn, [priorFinalAnswerReplay]);
   const queueMessage = {
     id: 'runtime-no-notify-after-final',
     traceId: 'trace-runtime-no-notify-after-final',
@@ -4953,6 +4996,11 @@ test('no-notify continuation inserts self continuation after prior final_answer'
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [priorTurn],
+    listAgentStackItemsForConversations: async () => [{
+      conversationId: priorTurn.id,
+      visibility: 'model_visible',
+      content: priorFinalAnswerReplay
+    }],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
@@ -7040,32 +7088,38 @@ test('no-notify continuation preserves global OS context during recover_energy t
     createAgentRecoverySession: []
   };
   let renderedModelInput = '';
+  const priorFinalAnswerReplay = {
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '可以。我会挑那种真有触动的句子说。' }]
+  };
+  const priorTurn = {
+    id: 4727,
+    userId: 85178516,
+    groupId: null,
+    batchId: null,
+    sessionKey: 'private:85178516',
+    userMessage: '你可以在253631878这个群里面多分享一些你对海涅的理解和研究',
+    aiResponse: '可以。我会挑那种真有触动的句子说。',
+    items: [],
+    rawResponse: {
+      xiaoni_os: '刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。'
+    }
+  };
 
   const store = {
     createLlmJob: async () => 'job-runtime-loop-recover',
     logTimelineEvent: async () => {},
     listRecentTurns: async (params: any) => {
       listRecentTurnsCalls.push(params);
-      return [{
-        id: 4727,
-        userId: 85178516,
-        groupId: null,
-        batchId: null,
-        sessionKey: 'private:85178516',
-        userMessage: '你可以在253631878这个群里面多分享一些你对海涅的理解和研究',
-        aiResponse: '可以。我会挑那种真有触动的句子说。',
-        items: [],
-        rawResponse: {
-          xiaoni_os: '刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。',
-          responses_replay_items: [{
-            type: 'message',
-            role: 'assistant',
-            phase: 'final_answer',
-            content: [{ type: 'output_text', text: '可以。我会挑那种真有触动的句子说。' }]
-          }]
-        }
-      }];
+      return [priorTurn];
     },
+    listAgentStackItemsForConversations: async () => [{
+      conversationId: priorTurn.id,
+      visibility: 'model_visible',
+      content: priorFinalAnswerReplay
+    }],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},

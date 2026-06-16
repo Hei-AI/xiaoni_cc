@@ -3146,6 +3146,44 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  async function listAgentStackItemsForConversations(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const rawConversationIds = Array.isArray(input.conversationIds)
+      ? input.conversationIds
+      : Array.isArray(input.conversation_ids)
+        ? input.conversation_ids
+        : [];
+    const conversationIds = Array.from(new Set(rawConversationIds
+      .map((value) => normalizeBigIntId(value))
+      .filter((value) => value !== null)));
+    if (conversationIds.length === 0) {
+      return [];
+    }
+    const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 5000), 10) || 5000, 10000));
+    const placeholders = conversationIds.map(() => '?').join(', ');
+    const params = [
+      identityKey,
+      ...conversationIds,
+      limit
+    ];
+
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM agent_stack_items
+          WHERE identity_key = ?
+            AND conversation_id IN (${placeholders})
+          ORDER BY conversation_id ASC, stack_index ASC, id ASC
+          LIMIT ?
+        `,
+        params
+      );
+      return rows.map(normalizeStackRow).filter(Boolean);
+    });
+  }
+
   async function listLlmRequestSlices(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const clauses = ['identity_key = ?'];
@@ -3866,6 +3904,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendImageVisionForkItems,
     recordImageVisionForkSlice,
     listAgentStackItems,
+    listAgentStackItemsForConversations,
     listLlmRequestSlices,
     listCodexProviderUsageEvents,
     getXiaoniLlmUsageTimeline,

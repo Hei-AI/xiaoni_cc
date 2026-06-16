@@ -14,6 +14,8 @@ import {
   ensureXiaoniAgentStackSchema,
   getAgentStackHead as getAgentStackHeadPersistence,
   appendAgentStackItems as appendAgentStackItemsPersistence,
+  listAgentStackItems as listAgentStackItemsPersistence,
+  listAgentStackItemsForConversations as listAgentStackItemsForConversationsPersistence,
   updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
   recordToolExecution as recordToolExecutionPersistence,
   completeToolExecution as completeAgentStackToolExecutionPersistence,
@@ -2020,6 +2022,40 @@ export class RuntimeStore {
       sourceId: params.sourceId || null,
       llmRequestSliceId: params.llmRequestSliceId || null,
       items: params.items,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async listAgentStackItems(params: {
+    identityKey?: string;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | string | null;
+    itemKind?: string | null;
+    limit?: number;
+    chronological?: boolean;
+  } = {}) {
+    return listAgentStackItemsPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      traceId: params.traceId || null,
+      runId: params.runId || null,
+      conversationId: params.conversationId ?? null,
+      itemKind: params.itemKind || null,
+      limit: params.limit,
+      chronological: params.chronological,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async listAgentStackItemsForConversations(params: {
+    identityKey?: string;
+    conversationIds: Array<number | string>;
+    limit?: number;
+  }) {
+    return listAgentStackItemsForConversationsPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      conversationIds: params.conversationIds,
+      limit: params.limit,
       sqlAdapter: this.sql
     }, databaseConfig);
   }
