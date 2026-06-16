@@ -46,6 +46,7 @@
 - 任务 worktree 完成后默认要通过 PR、merge 或 cherry-pick 合回目标分支；废弃、实验或对照用 worktree 必须在协同记录里明确标记，避免后续被整分支或整文件误合入。
 - 重启、构建或部署 `docker-compose.yml` 托管服务前，必须先确认没有其他 Codex 同事正在对同一服务执行重启、构建或部署。先看当前协同记录或交接说明，再用 `docker compose ps` 确认服务状态；发现有人在操作时先等待或协调，不要并行重启同一服务。
 - 重启时只操作当前任务需要的目标服务；除非用户明确要求，不要顺手重启整套主栈。
+- `qqbot-xiaoni-executor` 和 `qqbot-embedding-server` 是主栈运行容器，不是 worktree 测试容器。清理 worktree、修正 Docker compose label 或排查无关问题时，禁止顺手重启、重建、部署或替换这两个容器；只有任务明确涉及对应服务，或用户明确要求“切回主工作区 / 重启 / 部署”时，才允许操作。
 
 ## Development Rules
 - 根目录不是 npm workspace；新增依赖只加到对应模块
