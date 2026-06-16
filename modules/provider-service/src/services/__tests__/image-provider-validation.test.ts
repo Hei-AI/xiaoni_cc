@@ -205,7 +205,11 @@ test('Codex image provider inherits main canonical request fields for image fork
   assert.deepEqual(payload.tools, [{
     type: 'function',
     name: 'request_image_task',
-    description: 'queue image task'
+    description: 'queue image task',
+    parameters: {
+      type: 'object',
+      properties: {}
+    }
   }, {
     type: 'image_generation',
     model: 'gpt-image-2',
@@ -239,6 +243,54 @@ test('Codex image provider appends image_generation only when the inherited tool
   );
 
   assert.deepEqual(payload.tools.map((tool: any) => tool.type), ['function', 'image_generation']);
+});
+
+test('Codex image provider serializes inherited Responses function tools for Codex image forks', () => {
+  const provider = new OpenAIImageProvider({ apiKey: 'test-key' });
+
+  const payload = (provider as any).buildCodexResponsesPayload(
+    normalizeImageOptions({ prompt: 'edit this' }),
+    [],
+    undefined,
+    {
+      model: 'gpt-5.5',
+      input: [],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'compress_core_memory',
+          description: 'compress memory',
+          parameters: {
+            type: 'object',
+            required: ['text'],
+            properties: {
+              text: { type: 'string' }
+            },
+            additionalProperties: false
+          }
+        }
+      }, {
+        type: 'web_search',
+        search_context_size: 'low'
+      }, {
+        type: 'image_generation',
+        model: 'gpt-image-2',
+        size: 'auto',
+        quality: 'auto',
+        output_format: 'png',
+        background: 'auto'
+      }],
+      parallel_tool_calls: true
+    }
+  );
+
+  assert.equal(payload.tools[0]?.type, 'function');
+  assert.equal(payload.tools[0]?.name, 'compress_core_memory');
+  assert.equal(payload.tools[0]?.function, undefined);
+  assert.deepEqual(payload.tools[0]?.parameters?.required, ['text']);
+  assert.equal(payload.tools[1]?.type, 'web_search');
+  assert.equal(payload.tools[2]?.type, 'image_generation');
+  assert.equal(payload.tools[2]?.name, undefined);
 });
 
 test('Codex image response parser exposes JSON detail errors from HTTP failures', async () => {

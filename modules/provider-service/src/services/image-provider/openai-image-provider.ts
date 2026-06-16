@@ -726,10 +726,11 @@ export class OpenAIImageProvider {
     const basePayload = this.cloneCodexBaseRequest(codexBaseRequest);
     if (basePayload) {
       const inheritedTools = Array.isArray(basePayload.tools) ? basePayload.tools : [];
-      const tools = this.hasImageGenerationTool(inheritedTools)
-        ? inheritedTools
+      const normalizedInheritedTools = this.normalizeCodexResponseTools(inheritedTools);
+      const tools = this.hasImageGenerationTool(normalizedInheritedTools)
+        ? normalizedInheritedTools
         : [
-            ...inheritedTools,
+            ...normalizedInheritedTools,
             imageTool
           ];
       const payload: Record<string, unknown> = {
@@ -810,6 +811,54 @@ export class OpenAIImageProvider {
     return tools.some((tool) =>
       tool && typeof tool === 'object' && !Array.isArray(tool) && (tool as Record<string, unknown>).type === 'image_generation'
     );
+  }
+
+  private normalizeCodexResponseTools(tools: unknown[]): Record<string, unknown>[] {
+    return tools
+      .map((tool) => this.normalizeCodexResponseTool(tool))
+      .filter((tool): tool is Record<string, unknown> => Boolean(tool));
+  }
+
+  private normalizeCodexResponseTool(tool: unknown): Record<string, unknown> | null {
+    if (!tool || typeof tool !== 'object' || Array.isArray(tool)) {
+      return null;
+    }
+
+    const candidate = JSON.parse(JSON.stringify(tool)) as Record<string, unknown>;
+    if (candidate.type !== 'function') {
+      return candidate;
+    }
+
+    const functionConfig = candidate.function && typeof candidate.function === 'object' && !Array.isArray(candidate.function)
+      ? candidate.function as Record<string, unknown>
+      : {};
+    const name = typeof candidate.name === 'string' && candidate.name.trim()
+      ? candidate.name.trim()
+      : typeof functionConfig.name === 'string' && functionConfig.name.trim()
+      ? functionConfig.name.trim()
+      : '';
+    if (!name) {
+      return null;
+    }
+
+    const parameters = candidate.parameters && typeof candidate.parameters === 'object' && !Array.isArray(candidate.parameters)
+      ? candidate.parameters
+      : functionConfig.parameters && typeof functionConfig.parameters === 'object' && !Array.isArray(functionConfig.parameters)
+      ? functionConfig.parameters
+      : { type: 'object', properties: {} };
+    const description = typeof candidate.description === 'string'
+      ? candidate.description
+      : typeof functionConfig.description === 'string'
+      ? functionConfig.description
+      : undefined;
+
+    return {
+      type: 'function',
+      name,
+      ...(description ? { description } : {}),
+      parameters,
+      ...(typeof candidate.strict === 'boolean' ? { strict: candidate.strict } : {})
+    };
   }
 
   private normalizeCodexBaseInput(input: unknown): unknown[] {
