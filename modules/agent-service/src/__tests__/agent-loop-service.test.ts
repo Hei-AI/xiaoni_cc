@@ -19,11 +19,13 @@ const RECOVER_ENERGY_TOOL = 'recover_energy';
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
 const WEB_SEARCH_TOOL = 'web_search';
 const EXEC_COMMAND_TOOL = 'exec_command';
+const IMAGE_GENERATION_TOOL = 'image_generation';
 const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
 const GROUP_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
   COMPRESS_CORE_MEMORY_TOOL,
+  IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -43,6 +45,7 @@ const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
   COMPRESS_CORE_MEMORY_TOOL,
+  IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -3641,6 +3644,41 @@ test('requestImageTask resolves hash media ids globally before tag lookup', asyn
   assert.deepEqual(createdTasks[0]?.sourceMediaAssetIds, ['media_abcdef123456']);
   assert.equal(result.task_type, 'image_edit');
   assertPendingImageTaskContract(result, 'task-edit-global-media');
+});
+
+test('requestImageTask persists current canonical request for Codex image fork inheritance', async () => {
+  const createdTasks: any[] = [];
+  const service = new AgentLoopService({
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'task-with-codex-base-request';
+    }
+  } as any);
+  const currentCanonicalRequest = {
+    model: 'gpt-5.5',
+    input: [{
+      role: 'user',
+      content: 'current turn'
+    }],
+    prompt_cache_key: 'xiaoni:test-global',
+    prompt_cache_retention: '24h',
+    reasoning: { effort: 'medium', summary: 'auto' },
+    text: { verbosity: 'low' },
+    include: ['reasoning.encrypted_content'],
+    parallel_tool_calls: true,
+    metadata: {
+      trace_id: 'trace-1'
+    }
+  };
+
+  const result = await (service as any).requestImageTask({
+    operation: 'generate',
+    prompt: '生成一张蓝天白云头像图',
+    target_description: '普通蓝天白云头像图'
+  }, createQueuePayload(), { currentCanonicalRequest });
+
+  assert.equal(result.task_id, 'task-with-codex-base-request');
+  assert.deepEqual(createdTasks[0]?.inputJson?.codex_base_request, currentCanonicalRequest);
 });
 
 test('materializeImageAsset prefers storage_uri over expiring source_locator', async () => {

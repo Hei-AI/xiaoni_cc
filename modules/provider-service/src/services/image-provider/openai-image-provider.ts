@@ -54,6 +54,7 @@ type CodexImageError = {
 };
 
 const PROVIDER_EXCHANGE_SYMBOL = Symbol('qqbot.imageProviderExchange');
+const CODEX_IMAGE_TASK_DEVELOPER_CONTENT = 'Use the image_generation tool to create exactly the requested image. Return the image result, not explanatory text.';
 
 type ImageResponseWithExchange = Record<string, any> & {
   [PROVIDER_EXCHANGE_SYMBOL]?: ImageProviderExchange;
@@ -72,6 +73,8 @@ type ProviderRequestTraceContext = {
   requestBodySource: string;
   wireProviderFormat: string;
 };
+
+const DEFAULT_CODEX_RESPONSES_MODEL = 'gpt-5.5';
 
 export class OpenAIImageProvider {
   private readonly openAiApiKey?: string;
@@ -123,7 +126,7 @@ export class OpenAIImageProvider {
 
     const transport = await this.resolveTransport();
     if (transport.mode === 'codex') {
-      const response = await this.postCodexResponses(transport, options);
+      const response = await this.postCodexResponses(transport, options, [], undefined, input.codex_base_request);
       return this.buildResult({ ...response, provider: transport.mode }, options);
     }
 
@@ -144,7 +147,7 @@ export class OpenAIImageProvider {
 
     const transport = await this.resolveTransport();
     if (transport.mode === 'codex') {
-      const response = await this.postCodexResponses(transport, options, images, mask);
+      const response = await this.postCodexResponses(transport, options, images, mask, input.codex_base_request);
       return this.buildResult({ ...response, provider: transport.mode }, options);
     }
 
@@ -268,7 +271,8 @@ export class OpenAIImageProvider {
     transport: ImageTransport,
     options: NormalizedImageOptions,
     images: NormalizedImageFile[] = [],
-    mask?: NormalizedImageFile
+    mask?: NormalizedImageFile,
+    codexBaseRequest?: Record<string, unknown>
   ) {
     const count = Math.max(1, options.n || 1);
     const singleOptions = {
@@ -277,7 +281,7 @@ export class OpenAIImageProvider {
     };
     const results = [];
     for (let index = 0; index < count; index += 1) {
-      results.push(await this.postSingleCodexResponse(transport, singleOptions, images, mask));
+      results.push(await this.postSingleCodexResponse(transport, singleOptions, images, mask, codexBaseRequest));
     }
     const firstExchange = results
       .map((result) => this.getProviderExchange(result))
@@ -297,10 +301,11 @@ export class OpenAIImageProvider {
     transport: ImageTransport,
     options: NormalizedImageOptions,
     images: NormalizedImageFile[],
-    mask?: NormalizedImageFile
+    mask?: NormalizedImageFile,
+    codexBaseRequest?: Record<string, unknown>
   ) {
     try {
-      return await this.postCodexResponsesOnce(transport, options, images, mask);
+      return await this.postCodexResponsesOnce(transport, options, images, mask, codexBaseRequest);
     } catch (error: any) {
       const status = error?.status || error?.statusCode;
       if (status !== 401 && status !== 403) {
@@ -315,7 +320,7 @@ export class OpenAIImageProvider {
       this.moduleLogger.warn('Retrying Codex image response with refreshed OAuth token', {
         status
       });
-      return await this.postCodexResponsesOnce(refreshedTransport, options, images, mask);
+      return await this.postCodexResponsesOnce(refreshedTransport, options, images, mask, codexBaseRequest);
     }
   }
 
@@ -323,11 +328,12 @@ export class OpenAIImageProvider {
     transport: ImageTransport,
     options: NormalizedImageOptions,
     images: NormalizedImageFile[],
-    mask?: NormalizedImageFile
+    mask?: NormalizedImageFile,
+    codexBaseRequest?: Record<string, unknown>
   ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    const payload = this.buildCodexResponsesPayload(options, images, mask);
+    const payload = this.buildCodexResponsesPayload(options, images, mask, codexBaseRequest);
     const upstreamUrl = `${transport.baseUrl}${transport.responsesPath || this.codexResponsesPath}`;
     const headers = this.buildHeaders(transport, true, 'text/event-stream');
     const startedAt = new Date().toISOString();
@@ -450,7 +456,7 @@ export class OpenAIImageProvider {
       const json = this.tryParseJson(text);
       const errorEvent = events.find((event) => event?.type === 'error' || event?.type === 'response.failed');
       const codexError = this.extractCodexError(errorEvent);
-      const message = json?.error?.message || codexError?.message || `Codex Image API failed with HTTP ${response.status}`;
+      const message = json?.error?.message || json?.detail || codexError?.message || `Codex Image API failed with HTTP ${response.status}`;
       throw new ImageProviderError(message, response.status);
     }
 
@@ -683,7 +689,8 @@ export class OpenAIImageProvider {
   private buildCodexResponsesPayload(
     options: NormalizedImageOptions,
     images: NormalizedImageFile[],
-    mask?: NormalizedImageFile
+    mask?: NormalizedImageFile,
+    codexBaseRequest?: Record<string, unknown>
   ): Record<string, unknown> {
     const content: Record<string, unknown>[] = [
       {
@@ -705,32 +712,117 @@ export class OpenAIImageProvider {
       });
     }
 
+    const imageTool = {
+      type: 'image_generation',
+      model: options.model,
+      size: options.size,
+      quality: options.quality,
+      output_format: options.format,
+      background: options.background || 'auto',
+      ...(options.format !== 'png' && options.output_compression !== undefined
+        ? { output_compression: options.output_compression }
+        : {})
+    };
+    const basePayload = this.cloneCodexBaseRequest(codexBaseRequest);
+    if (basePayload) {
+      const inheritedTools = Array.isArray(basePayload.tools) ? basePayload.tools : [];
+      const tools = this.hasImageGenerationTool(inheritedTools)
+        ? inheritedTools
+        : [
+            ...inheritedTools,
+            imageTool
+          ];
+      const payload: Record<string, unknown> = {
+        model: this.resolveCodexResponsesModel(String(basePayload.model || '')),
+        store: false,
+        stream: true,
+        ...(typeof basePayload.instructions === 'string' && basePayload.instructions.trim()
+          ? { instructions: basePayload.instructions }
+          : {}),
+        input: [
+          ...this.normalizeCodexBaseInput(basePayload.input),
+          {
+            type: 'message',
+            role: 'developer',
+            content: CODEX_IMAGE_TASK_DEVELOPER_CONTENT
+          },
+          {
+            role: 'user',
+            content
+          }
+        ],
+        tools,
+        tool_choice: {
+          type: 'allowed_tools',
+          mode: 'required',
+          tools: [{ type: 'image_generation' }]
+        },
+        parallel_tool_calls: true
+      };
+      if (typeof basePayload.prompt_cache_key === 'string' && basePayload.prompt_cache_key.trim()) {
+        payload.prompt_cache_key = basePayload.prompt_cache_key.trim();
+      }
+      if (basePayload.reasoning && typeof basePayload.reasoning === 'object' && !Array.isArray(basePayload.reasoning)) {
+        payload.reasoning = basePayload.reasoning;
+      }
+      if (basePayload.text && typeof basePayload.text === 'object' && !Array.isArray(basePayload.text)) {
+        payload.text = basePayload.text;
+      }
+      if (Array.isArray(basePayload.include)) {
+        payload.include = basePayload.include.filter((item) => typeof item === 'string');
+      }
+      if (Array.isArray(basePayload.stop) && basePayload.stop.length > 0) {
+        payload.stop = basePayload.stop.filter((item) => typeof item === 'string');
+      }
+      return payload;
+    }
+
     return {
-      model: process.env.IMAGE_PROVIDER_CODEX_RESPONSE_MODEL || aiConfig.model_name || process.env.AI_MODEL_NAME || 'gpt-5-mini',
+      model: this.resolveCodexResponsesModel(process.env.IMAGE_PROVIDER_CODEX_RESPONSE_MODEL || DEFAULT_CODEX_RESPONSES_MODEL),
       store: false,
       stream: true,
-      instructions: 'Use the image_generation tool to create exactly the requested image. Return the image result, not explanatory text.',
+      instructions: CODEX_IMAGE_TASK_DEVELOPER_CONTENT,
       input: [
         {
           role: 'user',
           content
         }
       ],
-      tools: [
-        {
-          type: 'image_generation',
-          model: options.model,
-          size: options.size,
-          quality: options.quality,
-          output_format: options.format,
-          background: options.background || 'auto',
-          ...(options.format !== 'png' && options.output_compression !== undefined
-            ? { output_compression: options.output_compression }
-            : {})
-        }
-      ],
+      tools: [imageTool],
       parallel_tool_calls: true
     };
+  }
+
+  private cloneCodexBaseRequest(input: Record<string, unknown> | undefined): Record<string, unknown> | null {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      return null;
+    }
+    try {
+      const clone = JSON.parse(JSON.stringify(input)) as Record<string, unknown>;
+      delete clone.tool_choice;
+      return clone;
+    } catch {
+      return null;
+    }
+  }
+
+  private hasImageGenerationTool(tools: unknown[]): boolean {
+    return tools.some((tool) =>
+      tool && typeof tool === 'object' && !Array.isArray(tool) && (tool as Record<string, unknown>).type === 'image_generation'
+    );
+  }
+
+  private normalizeCodexBaseInput(input: unknown): unknown[] {
+    if (Array.isArray(input)) {
+      return input;
+    }
+    if (typeof input === 'string' && input.trim()) {
+      return [{
+        role: 'user',
+        content: input
+      }];
+    }
+    return [];
   }
 
   private toDataUrl(image: NormalizedImageFile): string {
@@ -791,6 +883,10 @@ export class OpenAIImageProvider {
     }
 
     return null;
+  }
+
+  private resolveCodexResponsesModel(modelName: string): string {
+    return modelName.trim() || DEFAULT_CODEX_RESPONSES_MODEL;
   }
 
   private statusForCodexError(error: CodexImageError | null): number {

@@ -70,6 +70,13 @@ export type OpenResponseToolDefinition = {
   };
   search_context_size?: 'low' | 'medium' | 'high';
   external_web_access?: boolean;
+} | {
+  type: 'image_generation';
+  model?: 'gpt-image-2';
+  output_format?: 'png' | 'jpeg' | 'webp';
+  size?: string;
+  quality?: string;
+  background?: string;
 };
 
 export type OpenResponseToolChoice =
@@ -92,6 +99,9 @@ export type OpenResponseToolChoice =
           }
         | {
             type: 'web_search' | 'web_search_preview';
+          }
+        | {
+            type: 'image_generation';
           }
       >;
     };

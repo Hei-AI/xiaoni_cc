@@ -101,6 +101,13 @@ function normalizeImageArtifacts(taskId: string, images: ImageProviderImage[]) {
   }));
 }
 
+function getCodexBaseRequest(inputJson: Record<string, unknown> | undefined) {
+  const candidate = inputJson?.codex_base_request;
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+    ? candidate as Record<string, unknown>
+    : null;
+}
+
 export class AgentTaskWorkerService {
   private readonly getMediaAssetById: typeof getAgentMediaAssetById;
   private readonly listMediaAssets: typeof listAgentMediaAssets;
@@ -182,9 +189,11 @@ export class AgentTaskWorkerService {
   }
 
   private async callImageProvider(task: AgentTaskRecord): Promise<ImageProviderPayload> {
+    const codexBaseRequest = getCodexBaseRequest(task.input_json);
     const body: Record<string, unknown> = {
       prompt: task.prompt,
-      n: 1
+      n: 1,
+      ...(codexBaseRequest ? { codex_base_request: codexBaseRequest } : {})
     };
 
     let endpoint = '/api/internal/image/generate';

@@ -123,6 +123,13 @@ type OpenResponseToolDefinition = {
   type: 'web_search';
   search_context_size?: 'low' | 'medium' | 'high';
   external_web_access?: boolean;
+} | {
+  type: 'image_generation';
+  model?: 'gpt-image-2';
+  output_format?: 'png' | 'jpeg' | 'webp';
+  size?: string;
+  quality?: string;
+  background?: string;
 };
 
 type OpenResponseToolChoice =
@@ -139,6 +146,9 @@ type OpenResponseToolChoice =
           }
         | {
             type: 'web_search';
+          }
+        | {
+            type: 'image_generation';
           }
       >;
     };
@@ -667,6 +677,15 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   type: 'web_search',
   search_context_size: agentConfig.webSearchContextSize,
   external_web_access: agentConfig.webSearchExternalAccess
+};
+
+const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
+  type: 'image_generation',
+  model: 'gpt-image-2',
+  output_format: 'png',
+  size: 'auto',
+  quality: 'auto',
+  background: 'auto'
 };
 
 const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
@@ -1438,7 +1457,7 @@ function hasToolReplay(loopInput: OpenResponseInputItem[], toolName: string) {
 }
 
 function buildAllowedToolsToolChoice(
-  tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }>,
+  tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'image_generation' }>,
   mode: 'auto' | 'required' = 'required'
 ): OpenResponseToolChoice {
   return {
@@ -1463,6 +1482,10 @@ function narrowAllowedToolsToolChoice(
     allowedNames.map((name) => ({ type: 'function' as const, name })),
     'auto'
   );
+}
+
+function buildImageGenerationAllowedToolsToolChoice(): OpenResponseToolChoice {
+  return buildAllowedToolsToolChoice([{ type: 'image_generation' }], 'required');
 }
 
 function formatRuntimeEnergy(value: number) {
@@ -1712,6 +1735,7 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   tools.push(COMPRESS_CORE_MEMORY_TOOL);
   return [
     ...tools,
+    IMAGE_GENERATION_TOOL,
     PRIVATE_MESSAGE_TOOL,
     GROUP_MESSAGE_TOOL,
     INSPECT_IMAGE_TOOL,
@@ -8250,7 +8274,7 @@ export class AgentLoopService {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage, context);
       }
       case TOOL_NAMES.imageTask: {
-        return this.requestImageTask(toolCall.args, queueMessage);
+        return this.requestImageTask(toolCall.args, queueMessage, context);
       }
       case TOOL_NAMES.recoverEnergy: {
         const energyState = await this.getCurrentRuntimeEnergyState(queueMessage);
@@ -9165,7 +9189,8 @@ export class AgentLoopService {
 
   private async requestImageTask(
     args: Record<string, unknown>,
-    queueMessage: QueueMessageRecord['payload']
+    queueMessage: QueueMessageRecord['payload'],
+    context: ToolExecutionContext = {}
   ) {
     const requestedOperation = args.operation === 'edit' ? 'edit' : 'generate';
     const prompt = typeof args.prompt === 'string' && args.prompt.trim()
@@ -9219,6 +9244,9 @@ export class AgentLoopService {
         requested_operation: requestedOperation,
         source_media_tags: sourceMediaTags,
         has_source_media: mediaAssets.length > 0,
+        ...(context.currentCanonicalRequest ? {
+          codex_base_request: cloneCanonicalAgentTurnRequest(context.currentCanonicalRequest)
+        } : {}),
         ...(normalizedFromEdit ? {
           normalized_from_edit: true,
           normalization_reason: normalizationReason

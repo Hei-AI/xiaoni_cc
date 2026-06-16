@@ -19,6 +19,7 @@ export type ImageProviderOptions = {
   output_compression?: number;
   background?: ImageBackground | 'transparent';
   n?: number;
+  codex_base_request?: Record<string, unknown>;
 };
 
 export type ImageGenerateRequest = ImageProviderOptions;
