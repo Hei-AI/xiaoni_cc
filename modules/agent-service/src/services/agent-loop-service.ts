@@ -7761,6 +7761,21 @@ export class AgentLoopService {
         const forkSliceId = modelResult.llm_request_slice_id
           || modelResult.llm_call_id
           || `core-memory-fork-slice:${forkRunId}:${forkTurn}`;
+        const inputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
+          forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'core_memory_compression_fork_slices',
+          sourceId: forkSliceId,
+          llmRequestSliceId: forkSliceId,
+          items: [buildForkInputStackItem({
+            forkRunId,
+            sliceId: forkSliceId,
+            forkTurn,
+            source: 'core_memory_compression_fork_input',
+            inputItems: forkRequest.input
+          }) as Record<string, unknown>]
+        });
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         const outputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
           forkRunId,
@@ -7774,6 +7789,12 @@ export class AgentLoopService {
         const outputItemIndexes = outputRows
           .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
           .filter((value) => Number.isFinite(value));
+        const inputItemIndexes = inputRows
+          .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+          .filter((value) => Number.isFinite(value));
+        const inputStackItemIds = inputRows
+          .map((row) => (row as { id?: unknown }).id)
+          .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
         const toolCallForkItemIdByCallId = new Map<string, string | number>();
         for (const row of outputRows) {
           const toolCallId = typeof (row as { toolCallId?: unknown }).toolCallId === 'string'
@@ -7791,9 +7812,9 @@ export class AgentLoopService {
           forkRunId,
           sliceId: forkSliceId,
           llmCallId: modelResult.llm_call_id || null,
-          inputStartIndex: null,
-          inputEndIndex: null,
-          inputStackItemIds: [],
+          inputStartIndex: inputItemIndexes.length > 0 ? Math.min(...inputItemIndexes) : null,
+          inputEndIndex: inputItemIndexes.length > 0 ? Math.max(...inputItemIndexes) : null,
+          inputStackItemIds,
           outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
           outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
           canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
@@ -8790,6 +8811,21 @@ export class AgentLoopService {
         || payload.llm_call_id
         || `image-vision-fork-slice:${params.forkRunId}:${forkTurn}`;
       lastForkSliceId = forkSliceId;
+      const inputRows = await this.appendImageVisionForkItemsSafe({
+        forkRunId: params.forkRunId,
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        sourceType: 'image_vision_fork_slices',
+        sourceId: forkSliceId,
+        llmRequestSliceId: forkSliceId,
+        items: [buildForkInputStackItem({
+          forkRunId: params.forkRunId,
+          sliceId: forkSliceId,
+          forkTurn,
+          source: 'image_vision_fork_input',
+          inputItems: forkRequest.input
+        }) as Record<string, unknown>]
+      });
       const outputItems = extractCanonicalResponseOutputItems(payload);
       const outputRows = await this.appendImageVisionForkItemsSafe({
         forkRunId: params.forkRunId,
@@ -8803,13 +8839,19 @@ export class AgentLoopService {
       const outputItemIndexes = outputRows
         .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
         .filter((value) => Number.isFinite(value));
+      const inputItemIndexes = inputRows
+        .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+        .filter((value) => Number.isFinite(value));
+      const inputStackItemIds = inputRows
+        .map((row) => (row as { id?: unknown }).id)
+        .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
       await this.recordImageVisionForkSliceSafe({
         forkRunId: params.forkRunId,
         sliceId: forkSliceId,
         llmCallId: payload.llm_call_id || null,
-        inputStartIndex: null,
-        inputEndIndex: null,
-        inputStackItemIds: [],
+        inputStartIndex: inputItemIndexes.length > 0 ? Math.min(...inputItemIndexes) : null,
+        inputEndIndex: inputItemIndexes.length > 0 ? Math.max(...inputItemIndexes) : null,
+        inputStackItemIds,
         outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
         outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
         canonicalRequest: (payload.canonical_request || forkRequest) as Record<string, unknown>,
@@ -9826,6 +9868,34 @@ function buildLoopSelfContinuationStackItem(params: {
       queue_source: params.queueMessage.source,
       prompt_facing_runtime_reminder: true,
       triggered_by: 'final_answer'
+    }
+  };
+}
+
+function buildForkInputStackItem(params: {
+  forkRunId: string;
+  sliceId: string;
+  forkTurn: number;
+  source: string;
+  inputItems: OpenResponseInputItem[];
+}) {
+  return {
+    eventId: `stack:${params.sliceId}:input`,
+    itemKind: 'runtime_input',
+    role: params.inputItems.some((item) => item.type === 'message' && item.role === 'user') ? 'user' : 'developer',
+    phase: null,
+    llmRequestSliceId: params.sliceId,
+    content: {
+      source: params.source,
+      fork_run_id: params.forkRunId,
+      fork_turn: params.forkTurn,
+      input_items: JSON.parse(JSON.stringify(params.inputItems))
+    },
+    visibility: 'model_visible',
+    metadata: {
+      fork_run_id: params.forkRunId,
+      fork_turn: params.forkTurn,
+      input_item_count: params.inputItems.length
     }
   };
 }

@@ -3738,6 +3738,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
     appendImageVisionForkItems: [],
     recordImageVisionForkSlice: []
   };
+  let imageForkItemIndex = 0;
 
   const store = {
     createLlmJob: async () => 'job-image-vision-fork',
@@ -3785,13 +3786,16 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
     },
     appendImageVisionForkItems: async (params: any) => {
       storeCalls.appendImageVisionForkItems.push(params);
-      return params.items.map((item: any, index: number) => ({
-        id: `image-fork-item-${index + 1}`,
-        itemIndex: index + 1,
-        itemKind: item.itemKind,
-        toolCallId: item.toolCallId || null,
-        ...item
-      }));
+      return params.items.map((item: any) => {
+        imageForkItemIndex += 1;
+        return {
+          id: `image-fork-item-${imageForkItemIndex}`,
+          itemIndex: imageForkItemIndex,
+          itemKind: item.itemKind,
+          toolCallId: item.toolCallId || null,
+          ...item
+        };
+      });
     },
     recordImageVisionForkSlice: async (params: any) => {
       storeCalls.recordImageVisionForkSlice.push(params);
@@ -4052,14 +4056,21 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.match(storeCalls.recordImageVisionForkRun[0]?.forkRunId, /^image-vision-fork:/);
   assert.equal(storeCalls.recordImageVisionForkRun[0]?.status, 'running');
   assert.equal(storeCalls.recordImageVisionForkRun[0]?.assetId, imageAssetId);
-  assert.equal(storeCalls.appendImageVisionForkItems.length, 3);
+  assert.equal(storeCalls.appendImageVisionForkItems.length, 5);
   assert.equal(storeCalls.appendImageVisionForkItems[0]?.llmRequestSliceId, 'llm-image-fork-1');
-  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.content?.name, EXEC_COMMAND_TOOL);
-  assert.equal(storeCalls.appendImageVisionForkItems[1]?.items[0]?.content?.output.includes('written'), true);
-  assert.equal(storeCalls.appendImageVisionForkItems[2]?.llmRequestSliceId, 'llm-image-fork-2');
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.itemKind, 'runtime_input');
+  assert.equal(storeCalls.appendImageVisionForkItems[0]?.items[0]?.content?.source, 'image_vision_fork_input');
+  assert.equal(storeCalls.appendImageVisionForkItems[1]?.items[0]?.content?.name, EXEC_COMMAND_TOOL);
+  assert.equal(storeCalls.appendImageVisionForkItems[2]?.items[0]?.content?.output.includes('written'), true);
+  assert.equal(storeCalls.appendImageVisionForkItems[3]?.llmRequestSliceId, 'llm-image-fork-2');
+  assert.equal(storeCalls.appendImageVisionForkItems[3]?.items[0]?.itemKind, 'runtime_input');
+  assert.equal(storeCalls.appendImageVisionForkItems[4]?.llmRequestSliceId, 'llm-image-fork-2');
   assert.equal(storeCalls.recordImageVisionForkSlice.length, 2);
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.forkRunId, storeCalls.recordImageVisionForkRun[0]?.forkRunId);
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.sliceId, 'llm-image-fork-1');
+  assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.inputStackItemIds, ['image-fork-item-1']);
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.inputStartIndex, 1);
+  assert.equal(storeCalls.recordImageVisionForkSlice[0]?.inputEndIndex, 1);
   assert.equal(storeCalls.recordImageVisionForkSlice[0]?.canonicalRequest, forkRequest);
   assert.deepEqual(storeCalls.recordImageVisionForkSlice[0]?.metadata?.wire_request_headers, {
     'content-type': 'application/json',
@@ -8138,6 +8149,9 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(completedForkRuns[0]?.summaryText, '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。');
   assert.equal(forkSlices.length, 2);
   assert.equal(forkSlices[0]?.canonicalRequest?.store, false);
+  assert.deepEqual(forkSlices[0]?.inputStackItemIds, ['7000']);
+  assert.equal(forkSlices[0]?.inputStartIndex, 1);
+  assert.equal(forkSlices[0]?.inputEndIndex, 1);
   assert.equal(forkSlices[0]?.metadata?.no_main_stack_persist, true);
   assert.deepEqual(forkSlices[0]?.metadata?.wire_request_headers, {
     'content-type': 'application/json',
