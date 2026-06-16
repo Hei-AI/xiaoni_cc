@@ -180,6 +180,7 @@ services:
       - DB_NAME=qqbot_db
       - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
       - XIAONI_EXECUTOR_URL=http://qqbot-xiaoni-executor:8093
+      - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
       - AI_MODEL_NAME=gpt-5-mini
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-gpt-5.5}
       - AGENT_PRE_REPLY_MEMORY_REASONER_ENABLED=true
@@ -201,6 +202,7 @@ services:
       - qq_bot_network
     volumes:
       - ./logs/agent-service:/app/logs
+      - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
       - ./docs/xiaoni_prompt:/app/docs/xiaoni_prompt:ro
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
 

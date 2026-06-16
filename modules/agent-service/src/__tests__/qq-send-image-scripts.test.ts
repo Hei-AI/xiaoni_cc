@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -36,6 +36,22 @@ function writeSmallPng(filePath: string) {
     0x00, 0x00, 0x00, 0x00
   ]));
 }
+
+function extractComposeService(compose: string, serviceName: string) {
+  const pattern = new RegExp(`^  ${serviceName}:\\n([\\s\\S]*?)(?=^  [A-Za-z0-9_-]+:|^networks:|(?![\\s\\S]))`, 'm');
+  const match = compose.match(pattern);
+  return match?.[1] || '';
+}
+
+test('docker compose mounts Xiaoni runtime into agent-service for qq-send-image', () => {
+  const repoRoot = path.resolve(process.cwd(), '../..');
+  const compose = readFileSync(path.join(repoRoot, 'docker-compose.yml'), 'utf8');
+  const agentService = extractComposeService(compose, 'agent-service');
+
+  assert.ok(agentService, 'agent-service compose block should exist');
+  assert.match(agentService, /- XIAONI_RUNTIME_ROOT=\/xiaoni-runtime/);
+  assert.match(agentService, /\$\{HOME\}\/\.qqbot-local\/xiaoni-runtime:\/xiaoni-runtime/);
+});
 
 test('qq-send-image script posts actions to the engineering API like qq-usage', async () => {
   const requests: any[] = [];
