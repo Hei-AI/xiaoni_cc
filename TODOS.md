@@ -94,19 +94,24 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Priority:** P3
 **Depends on:** 再次出现可复现或高频样本
 
-### Add group number to group notification templates
+### Enrich System Reminder group notification previews
 
-**What:** 群通知应该加上群号；更新相关通知模板，让群消息唤醒或展示时能直接看到
-QQ 群号。
+**What:** 更新 System Reminder 里的群聊提醒模板，让非 @ 群消息、以及小腻正在私聊时
+冒出来的群聊提醒，不只显示“有某个群 / 多少条未读”，还要包含 QQ 群号、群名、
+最新发言人，以及最新消息正文前 20 个字。
 
-**Why:** 只显示群名称或上下文容易在同名群、转发排障和后续追踪时产生歧义。
-群号是稳定标识，应该进入模板。
+**Why:** 现在模板信息量太低，小腻只能看到抽象的群未读数量，无法判断这条群动静
+是否值得从非 @ 或私聊上下文里切过去关注。这会让她天然忽略非 @ 群消息，也会让
+私聊场景下的群聊提醒缺少足够的行动线索。群号是稳定标识，最新发言人和正文 preview
+是判断新鲜度与相关性的最低信息。
 
-**Context:** 从 provider-service / agent-service 当前群通知模板入口开始查，确认
-入站群消息上下文里已有 group id 后再改模板。不要在前端或历史通知契约里堆兼容。
+**Context:** 从 provider-service / agent-service 当前 System Reminder / phone notification /
+attention lease 模板入口开始查，确认入站群消息上下文里已有 group id、group name、
+sender display name 和 latest message body 后再改模板。保持提醒是摘要，不直接替代
+`$qq-usage` 的完整 inbox/thread window；正文 preview 只截前 20 个字。
 
 **Effort:** S
 **Priority:** P2
-**Depends on:** 当前群通知模板位置和群消息上下文字段确认
+**Depends on:** 当前 System Reminder 模板位置和群消息上下文字段确认
 
 ## Completed
