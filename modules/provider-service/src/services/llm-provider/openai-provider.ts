@@ -455,6 +455,17 @@ export class OpenAIProvider implements LLMProvider {
       };
     }
 
+    if (tool.type === 'image_generation') {
+      return {
+        type: tool.type,
+        ...(tool.model ? { model: tool.model } : {}),
+        ...(tool.output_format ? { output_format: tool.output_format } : {}),
+        ...(tool.size ? { size: tool.size } : {}),
+        ...(tool.quality ? { quality: tool.quality } : {}),
+        ...(tool.background ? { background: tool.background } : {})
+      };
+    }
+
     return {
       type: tool.type,
       ...(tool.user_location ? { user_location: tool.user_location } : {}),

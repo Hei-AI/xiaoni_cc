@@ -52,6 +52,60 @@ test('AgentTaskWorkerService falls back to generation for image_edit tasks witho
   }
 });
 
+test('AgentTaskWorkerService forwards inherited Codex base request to image provider', async () => {
+  const service = new AgentTaskWorkerService();
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+  const codexBaseRequest = {
+    model: 'gpt-5.5',
+    input: [{ role: 'user', content: 'current turn' }],
+    prompt_cache_key: 'xiaoni:test-global',
+    reasoning: { effort: 'medium' },
+    text: { verbosity: 'low' },
+    include: ['reasoning.encrypted_content'],
+    parallel_tool_calls: true
+  };
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: init?.body ? JSON.parse(String(init.body)) : null
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          images: [{
+            data_url: 'data:image/png;base64,AA==',
+            mime_type: 'image/png'
+          }]
+        }
+      })
+    } as Response;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).callImageProvider({
+      id: 'task-inherits-codex-base',
+      task_type: 'image_generate',
+      session_key: 'qq:group:101',
+      chat_type: 'group',
+      peer_id: '101',
+      prompt: '生成一张蓝天白云头像图',
+      input_json: {
+        codex_base_request: codexBaseRequest
+      }
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, `${agentConfig.providerServiceUrl}/api/internal/image/generate`);
+    assert.deepEqual(calls[0]?.body?.codex_base_request, codexBaseRequest);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('AgentTaskWorkerService resolves image_edit sources by global media asset id', async () => {
   const lookups: any[] = [];
   const service = new AgentTaskWorkerService({
