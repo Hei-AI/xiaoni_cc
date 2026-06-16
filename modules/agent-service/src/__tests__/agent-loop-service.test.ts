@@ -1254,7 +1254,7 @@ test('buildInitialInput replays stored assistant messages across turns', () => {
   assert.deepEqual(assistantItem.content[0]?.annotations, []);
 });
 
-test('buildInitialInput does not synthesize raw xiaoni_os when stack replay has real response items', () => {
+test('buildInitialInput never synthesizes raw xiaoni_os into model-visible history', () => {
   const turn = createConversationTurn({
     id: 48,
     userMessage: '',
@@ -1309,6 +1309,74 @@ test('buildInitialInput does not synthesize raw xiaoni_os when stack replay has 
   assert.ok(reasoningIndex >= 0);
   assert.ok(realOsIndex > reasoningIndex);
   assert.ok(recoverCallIndex > realOsIndex);
+});
+
+test('buildInitialInput replays stack runtime_input wrapper items in original order', async () => {
+  const turn = createConversationTurn({
+    id: 49,
+    userMessage: '',
+    aiResponse: null
+  }) as any;
+  turn.items = [];
+  const store = {
+    listAgentStackItemsForConversations: async () => [
+      {
+        conversationId: turn.id,
+        itemKind: 'runtime_input',
+        visibility: 'model_visible',
+        content: {
+          source: 'self_continuation',
+          input_items: [{
+            type: 'message',
+            role: 'developer',
+            content: [{
+              type: 'input_text',
+              text: '<system_reminder>\n上一轮真实进入 LLM 的 developer reminder。\n</system_reminder>'
+            }]
+          }]
+        }
+      },
+      {
+        conversationId: turn.id,
+        visibility: 'model_visible',
+        content: {
+          type: 'reasoning',
+          summary: [],
+          encrypted_content: 'enc-after-developer-reminder'
+        }
+      },
+      {
+        conversationId: turn.id,
+        visibility: 'model_visible',
+        content: {
+          type: 'message',
+          role: 'assistant',
+          phase: 'commentary',
+          content: [{
+            type: 'output_text',
+            text: '<xiaoni_os>\n真实模型输出。\n</xiaoni_os>'
+          }]
+        }
+      }
+    ]
+  };
+  const service = new AgentLoopService(store as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const [stackBackedTurn] = await (service as any).attachStackReplayItemsToHistory([turn], 'trace-runtime-input-replay');
+
+  const loopInput = buildInitialInput([stackBackedTurn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  const reminderIndex = loopInput.findIndex((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('上一轮真实进入 LLM')
+  ));
+  const reasoningIndex = loopInput.findIndex((item: any) => item.type === 'reasoning' && item.encrypted_content === 'enc-after-developer-reminder');
+  const osIndex = loopInput.findIndex((item: any) => item.type === 'message' && getMessageContent(item).includes('真实模型输出'));
+
+  assert.ok(reminderIndex >= 0);
+  assert.equal(reasoningIndex, reminderIndex + 1);
+  assert.equal(osIndex, reasoningIndex + 1);
 });
 
 test('buildInitialInput appends self continuation after terminal final_answer only when requested', () => {
@@ -1979,16 +2047,14 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   const rendered = request.input.map(getMessageContent);
 
-  const osIndex = rendered.findIndex((content) => content.includes('上一段留下的内在延续'));
   const notificationIndex = rendered.findIndex(isPhoneNotificationReminderContent);
   const identityIndex = rendered.findIndex((content) => content.includes('[身份连续性]'));
 
-  assert.ok(osIndex !== -1);
   assert.ok(notificationIndex !== -1);
   assert.equal(identityIndex, -1);
   assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
   assert.equal(rendered.some((content) => content.includes('第二条')), false);
-  assert.ok(osIndex < notificationIndex);
+  assert.equal(rendered.some((content) => content.includes('上一段留下的内在延续')), false);
 });
 
 test('buildInitialInput applies bound user prompt template to the current message block', () => {
@@ -2179,7 +2245,7 @@ test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', (
   assert.doesNotMatch(getMessageContent(priorXiaoniItem), /这句明显是在顺着问我/);
 });
 
-test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () => {
+test('buildInitialInput does not synthesize residue-like raw xiaoni_os on spoken turns', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2214,8 +2280,8 @@ test('buildInitialInput preserves residue-like xiaoni_os on spoken turns', () =>
   const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('这句我记下了'));
   assert.match(getMessageContent(priorXiaoniItem), /这句我记下了/);
   const osItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<xiaoni_os>'));
-  assert.ok(osItem);
-  assert.match(getMessageContent(osItem), /我对她会更放松一点/);
+  assert.equal(osItem, undefined);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /我对她会更放松一点/);
 });
 
 test('buildInitialInput does not synthesize xiaoni_os from lease release details', () => {
@@ -2264,7 +2330,7 @@ test('buildInitialInput does not synthesize xiaoni_os from lease release details
   assert.doesNotMatch(assistantCommentary, /我插进去会显得多余/);
 });
 
-test('buildInitialInput preserves xiaoni_os from non-latest history turns', () => {
+test('buildInitialInput does not synthesize raw xiaoni_os from non-latest history turns', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2326,8 +2392,7 @@ test('buildInitialInput preserves xiaoni_os from non-latest history turns', () =
   assert.ok(priorTurnItem);
   assert.match(getMessageContent(priorTurnItem), /上一段回复/);
   const priorOsItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('上一段留下的内在延续'));
-  assert.ok(priorOsItem);
-  assert.match(getMessageContent(priorOsItem), /<xiaoni_os>/);
+  assert.equal(priorOsItem, undefined);
 });
 
 test('buildInitialInput replays assistant history with output_text content parts', () => {
@@ -7094,6 +7159,15 @@ test('no-notify continuation preserves global OS context during recover_energy t
     phase: 'final_answer',
     content: [{ type: 'output_text', text: '可以。我会挑那种真有触动的句子说。' }]
   };
+  const priorOsReplay = {
+    type: 'message',
+    role: 'assistant',
+    phase: 'commentary',
+    content: [{
+      type: 'output_text',
+      text: '<xiaoni_os>\n刚才已在私聊里答应阿花：会挑真有触动的海涅句子去 253631878 群里说。\n</xiaoni_os>'
+    }]
+  };
   const priorTurn = {
     id: 4727,
     userId: 85178516,
@@ -7115,11 +7189,18 @@ test('no-notify continuation preserves global OS context during recover_energy t
       listRecentTurnsCalls.push(params);
       return [priorTurn];
     },
-    listAgentStackItemsForConversations: async () => [{
-      conversationId: priorTurn.id,
-      visibility: 'model_visible',
-      content: priorFinalAnswerReplay
-    }],
+    listAgentStackItemsForConversations: async () => [
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: priorFinalAnswerReplay
+      },
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: priorOsReplay
+      }
+    ],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},

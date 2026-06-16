@@ -3404,45 +3404,6 @@ function extractMessageText(item: OpenResponseInputItem) {
     .trim();
 }
 
-function isTacticalReplyResidue(text: string) {
-  const normalized = text.replace(/\s+/g, '');
-  const tacticalMarkers = [
-    /最自然的是/,
-    /顺着/,
-    /轻轻(?:接一句|接一下|补一句|应一句|回一句|顺一句)/,
-    /接一句/,
-    /接一下/,
-    /补一句/,
-    /不展开/,
-    /短一点/,
-    /就够(?:了)?/,
-    /不抢答/,
-    /不把话说满/,
-    /把球(?:递回去|留给)/,
-    /先(?:轻轻|简短|朴素)?(?:回|接|应)一句/,
-    /别(?:再)?(?:拉长|展开|抢话|说重)/
-  ];
-  return tacticalMarkers.some((pattern) => pattern.test(normalized));
-}
-
-function sanitizeXiaoniOsForReplay(params: {
-  xiaoniOs: string;
-  aiResponse: string | null;
-  sentMessages: string[];
-}) {
-  const trimmed = params.xiaoniOs.trim();
-  if (!trimmed) {
-    return '';
-  }
-
-  const spokeThisTurn = Boolean(params.aiResponse) || params.sentMessages.length > 0;
-  if (spokeThisTurn && isTacticalReplyResidue(trimmed)) {
-    return '';
-  }
-
-  return trimmed;
-}
-
 function normalizePendingShare(value: string | null | undefined) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
@@ -9922,14 +9883,8 @@ export function buildInitialInput(
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0
       ? turn.items
       : [];
-    const osText = replayItems.length > 0 ? '' : buildTurnOs(turn);
-    let osAttached = false;
 
     if (transcriptItems.length === 0) {
-      if (osText) {
-        items.push(buildAssistantCommentaryInputItem([osText]));
-        osAttached = true;
-      }
       appendKnownReplayItems();
       continue;
     }
@@ -9939,10 +9894,6 @@ export function buildInitialInput(
       if (rendered) {
         items.push(rendered);
       }
-    }
-
-    if (osText && !osAttached) {
-      items.push(buildAssistantCommentaryInputItem([osText]));
     }
 
     appendKnownReplayItems();
@@ -9984,35 +9935,6 @@ function splitDeveloperContextBlock(developerContextBlock: string | null | undef
     dynamicContext: dynamicContext || null,
     capabilityRefresh
   };
-}
-
-function buildTurnOs(turn: ConversationTurn) {
-  const rawResponse = turn.rawResponse && typeof turn.rawResponse === 'object'
-    ? turn.rawResponse
-    : {};
-  const rawXiaoniOs = typeof (rawResponse as Record<string, unknown>).xiaoni_os === 'string'
-    ? String((rawResponse as Record<string, unknown>).xiaoni_os)
-    : '';
-  const sentMessages = Array.isArray((rawResponse as Record<string, unknown>).sent_messages)
-    ? ((rawResponse as Record<string, unknown>).sent_messages as unknown[])
-        .map((item) => typeof item === 'string' ? item.trim() : '')
-        .filter(Boolean)
-    : [];
-  const xiaoniOs = sanitizeXiaoniOsForReplay({
-    xiaoniOs: rawXiaoniOs,
-    aiResponse: turn.aiResponse || null,
-    sentMessages
-  });
-
-  if (xiaoniOs) {
-    return [
-      '<xiaoni_os>',
-      xiaoniOs,
-      '</xiaoni_os>'
-    ].join('\n');
-  }
-
-  return '';
 }
 
 function isReasoningReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'reasoning' }> {
@@ -10156,15 +10078,19 @@ function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null
   return null;
 }
 
-function stackRowContentAsReplayInputItem(row: Record<string, unknown>): unknown {
+function stackRowContentAsReplayInputItems(row: Record<string, unknown>): unknown[] {
   if (row.visibility !== 'model_visible') {
-    return null;
+    return [];
   }
   const content = row.content;
   if (!content || typeof content !== 'object' || Array.isArray(content)) {
-    return null;
+    return [];
   }
-  return content;
+  const inputItems = (content as { input_items?: unknown }).input_items;
+  if (Array.isArray(inputItems)) {
+    return inputItems;
+  }
+  return [content];
 }
 
 function groupStackRowsByConversationId(rows: Array<Record<string, unknown>>) {
@@ -10186,7 +10112,7 @@ function groupStackRowsByConversationId(rows: Array<Record<string, unknown>>) {
 }
 
 function extractResponseReplayInputItemsFromStackRows(rows: Array<Record<string, unknown>>): ResponseReplayInputItem[] {
-  return extractResponseReplayInputItems(rows.map(stackRowContentAsReplayInputItem) as OpenResponseInputItem[]);
+  return extractResponseReplayInputItems(rows.flatMap(stackRowContentAsReplayInputItems) as OpenResponseInputItem[]);
 }
 
 function extractResponseReplayInputItems(items: OpenResponseInputItem[]): ResponseReplayInputItem[] {
