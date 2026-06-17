@@ -335,6 +335,41 @@ test('Codex provider keeps canonical instructions top-level and preserves parall
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
 });
 
+test('Codex provider passes replayed assistant message items through to wire input', () => {
+  const provider = new TestCodexProvider({} as any);
+  const payload = provider.buildPayload({
+    ...createCanonicalRequest(),
+    input: [
+      {
+        type: 'message',
+        id: 'msg-original-1',
+        role: 'assistant',
+        phase: 'commentary',
+        status: 'completed',
+        nullish_internal_field: null,
+        content: [{
+          type: 'output_text',
+          text: '<xiaoni_os>\nCurrent sealed.\n</xiaoni_os>',
+          annotations: []
+        }]
+      }
+    ]
+  });
+
+  assert.deepEqual(payload.input[0], {
+    type: 'message',
+    id: 'msg-original-1',
+    role: 'assistant',
+    status: 'completed',
+    phase: 'commentary',
+    content: [{
+      type: 'output_text',
+      text: '<xiaoni_os>\nCurrent sealed.\n</xiaoni_os>',
+      annotations: []
+    }]
+  });
+});
+
 test('Codex provider omits unsupported cache tuning fields because the Codex backend rejects them', () => {
   const provider = new TestCodexProvider({} as any);
   const payload = provider.buildPayload(createCanonicalRequest());

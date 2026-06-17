@@ -59,3 +59,25 @@ test('ResponseActionRouter preserves assistant commentary phase as commentary', 
   assert.equal(plan.replayableOutputs[0].type, 'assistant_message');
   assert.equal(plan.postActions.length, 0);
 });
+
+test('ResponseActionRouter replays assistant output item without rebuilding it', () => {
+  const outputItem = {
+    type: 'message',
+    id: 'msg-original-1',
+    role: 'assistant',
+    phase: 'commentary',
+    status: 'completed',
+    provider_extra: { stable: true },
+    content: [{
+      type: 'output_text',
+      text: '原样回放。',
+      annotations: [{ type: 'note' }]
+    }]
+  };
+  const plan = new ResponseActionRouter().route({
+    output: [outputItem as any]
+  });
+
+  assert.equal(plan.replayableOutputs.length, 1);
+  assert.deepEqual(plan.replayableOutputs[0].inputItem, outputItem);
+});

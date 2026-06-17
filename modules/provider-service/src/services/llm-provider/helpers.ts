@@ -231,16 +231,20 @@ export function openResponseInputToOpenAIInput(
 
   for (const item of input) {
     if (item.type === 'message') {
-      normalizedInput.push({
+      const normalizedMessage = {
+        ...item,
         type: 'message',
         role: item.role,
-        ...(typeof (item as { phase?: string }).phase === 'string'
-          ? { phase: (item as { phase?: string }).phase }
-          : {}),
         content: typeof item.content === 'string'
           ? item.content
           : item.content.map(normalizeOpenAIMessageContentPart)
-      });
+      } as Record<string, any>;
+      for (const [key, value] of Object.entries(normalizedMessage)) {
+        if (value === null || value === undefined) {
+          delete normalizedMessage[key];
+        }
+      }
+      normalizedInput.push(normalizedMessage);
       continue;
     }
 

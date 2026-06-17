@@ -23,6 +23,7 @@ export type OpenResponseInputItem =
       role: OpenResponseMessageRole;
       content: string | OpenResponseMessageContentPart[];
       phase?: 'commentary' | 'final_answer';
+      [key: string]: any;
     }
   | {
       type: 'function_call';

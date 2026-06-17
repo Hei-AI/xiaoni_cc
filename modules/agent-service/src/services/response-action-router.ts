@@ -5,18 +5,22 @@ export type ResponseInputContentPart =
   | {
       type: 'input_text';
       text: string;
+      [key: string]: unknown;
     }
   | {
       type: 'output_text';
       text: string;
+      [key: string]: unknown;
     }
   | {
       type: 'refusal';
       refusal: string;
+      [key: string]: unknown;
     }
   | {
       type: 'input_image';
       image_url: string;
+      [key: string]: unknown;
     };
 
 export type ResponseInputItem =
@@ -25,23 +29,27 @@ export type ResponseInputItem =
       role: 'system' | 'user' | 'assistant' | 'developer';
       content: string | ResponseInputContentPart[];
       phase?: ConversationTranscriptPhase;
+      [key: string]: unknown;
     }
   | {
       type: 'function_call';
       call_id: string;
       name: string;
       arguments: string;
+      [key: string]: unknown;
     }
   | {
       type: 'function_call_output';
       call_id: string;
       output: string;
+      [key: string]: unknown;
     }
   | {
       type: 'reasoning';
       content?: string;
       summary?: string | Array<Record<string, unknown>>;
       encrypted_content?: string;
+      [key: string]: unknown;
     };
 
 export type CanonicalAgentResponse = {
@@ -55,11 +63,13 @@ export type CanonicalAgentResponse = {
     content?: string | Array<{
       type?: string;
       text?: string;
+      [key: string]: unknown;
     }>;
     summary?: string | Array<Record<string, unknown>>;
     encrypted_content?: string;
     phase?: ConversationTranscriptPhase;
     status?: string;
+    [key: string]: unknown;
   }>;
 } | null | undefined;
 
@@ -90,29 +100,8 @@ export type ResponseActionPlan = {
   postActions: ResponsePostAction[];
 };
 
-function buildOutputTextPart(text: string): ResponseInputContentPart {
-  return {
-    type: 'output_text',
-    text
-  };
-}
-
-function buildMessageInputItem(
-  role: 'user' | 'assistant' | 'developer',
-  parts: string[],
-  phase?: ConversationTranscriptPhase
-): ResponseInputItem {
-  const content = parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => role === 'assistant' ? buildOutputTextPart(part) : { type: 'input_text' as const, text: part });
-
-  return {
-    type: 'message',
-    role,
-    ...(phase ? { phase } : {}),
-    content
-  };
+function cloneReplayItem<T>(item: T): T {
+  return JSON.parse(JSON.stringify(item)) as T;
 }
 
 function isReasoningReplayItem(value: unknown): value is Extract<ResponseInputItem, { type: 'reasoning' }> {
@@ -131,23 +120,6 @@ function isReasoningReplayItem(value: unknown): value is Extract<ResponseInputIt
     || Array.isArray(item.summary) && item.summary.length > 0;
 }
 
-function normalizeReasoningReplayInputItem(
-  item: Extract<ResponseInputItem, { type: 'reasoning' }>
-): Extract<ResponseInputItem, { type: 'reasoning' }> {
-  return {
-    type: 'reasoning',
-    ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
-    ...(typeof item.summary === 'string' && item.summary.length > 0
-      ? { summary: item.summary }
-      : Array.isArray(item.summary) && item.summary.length > 0
-      ? { summary: item.summary }
-      : { summary: [] }),
-    ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-      ? { encrypted_content: item.encrypted_content }
-      : {})
-  };
-}
-
 export function isReplayableToolCall(
   item: ReplayableModelOutput
 ): item is Extract<ReplayableModelOutput, { type: 'tool_call' }> {
@@ -160,20 +132,7 @@ export function extractReplayableModelOutputs(response: CanonicalAgentResponse):
 
   for (const item of output) {
     if (item?.type === 'reasoning') {
-      const reasoningItem = normalizeReasoningReplayInputItem({
-        type: 'reasoning',
-        ...(typeof item.content === 'string' && item.content.length > 0
-          ? { content: item.content }
-          : {}),
-        ...(typeof item.summary === 'string' && item.summary.length > 0
-          ? { summary: item.summary }
-          : Array.isArray(item.summary) && item.summary.length > 0
-          ? { summary: item.summary }
-          : {}),
-        ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-          ? { encrypted_content: item.encrypted_content }
-          : {})
-      });
+      const reasoningItem = cloneReplayItem(item) as Extract<ResponseInputItem, { type: 'reasoning' }>;
       if (isReasoningReplayItem(reasoningItem)) {
         replayItems.push({
           type: 'reasoning',
@@ -196,7 +155,7 @@ export function extractReplayableModelOutputs(response: CanonicalAgentResponse):
           type: 'assistant_message',
           phase,
           text,
-          inputItem: buildMessageInputItem('assistant', [text], phase)
+          inputItem: cloneReplayItem(item) as ResponseInputItem
         });
       }
       continue;
@@ -215,14 +174,13 @@ export function extractReplayableModelOutputs(response: CanonicalAgentResponse):
     }
 
     const callId = item.call_id || `tool_${uuidv4().slice(0, 8)}`;
+    const inputItem = cloneReplayItem(item) as Extract<ResponseInputItem, { type: 'function_call' }>;
+    inputItem.call_id = callId;
+    inputItem.name = item.name;
+    inputItem.arguments = rawArguments;
     replayItems.push({
       type: 'tool_call',
-      inputItem: {
-        type: 'function_call',
-        call_id: callId,
-        name: item.name,
-        arguments: rawArguments
-      },
+      inputItem,
       toolCall: {
         callId,
         name: item.name,
