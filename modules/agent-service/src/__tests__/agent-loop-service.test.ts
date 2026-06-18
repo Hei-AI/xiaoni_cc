@@ -5103,8 +5103,11 @@ test('no-notify continuation inserts self continuation after prior final_answer'
     }
   };
   const storeCalls: Record<string, any[]> = {
-    createConversation: []
+    appendAgentStackItems: [],
+    createConversation: [],
+    updateLlmRequestSliceStackLinks: []
   };
+  const callOrder: string[] = [];
   const store = {
     createLlmJob: async () => 'job-runtime-no-notify-after-final',
     logTimelineEvent: async () => {},
@@ -5124,6 +5127,16 @@ test('no-notify continuation inserts self continuation after prior final_answer'
       blockedDeliveryAttemptCount: 0,
       lastBlockedDeliveryReason: null
     }),
+    appendAgentStackItems: async (params: any) => {
+      callOrder.push('appendAgentStackItems');
+      storeCalls.appendAgentStackItems.push(params);
+      return [{ id: 'stack-self-continuation', stackIndex: 1001 }];
+    },
+    getAgentStackHead: async () => 1001,
+    updateLlmRequestSliceStackLinks: async (params: any) => {
+      storeCalls.updateLlmRequestSliceStackLinks.push(params);
+      return null;
+    },
     createConversation: async (params: any) => {
       storeCalls.createConversation.push(params);
       return 2000;
@@ -5137,6 +5150,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   let capturedInput: any[] = [];
   let executeAgentTurnCalled = false;
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    callOrder.push('executeAgentTurn');
     executeAgentTurnCalled = true;
     capturedInput = canonicalRequest.input || [];
     return {
@@ -5169,6 +5183,17 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   assert.ok(finalAnswerIndex >= 0);
   assert.equal(reminderIndex, finalAnswerIndex + 1);
   assert.equal(executeAgentTurnCalled, true);
+  assert.ok(callOrder.indexOf('appendAgentStackItems') >= 0);
+  assert.ok(callOrder.indexOf('appendAgentStackItems') < callOrder.indexOf('executeAgentTurn'));
+  const selfContinuationStackBatch = storeCalls.appendAgentStackItems.find((call) =>
+    call.sourceType === 'agent_runtime'
+      && call.items?.[0]?.itemKind === 'runtime_input'
+      && call.items?.[0]?.content?.source === 'self_continuation'
+  );
+  assert.ok(selfContinuationStackBatch);
+  assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
+  assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system_reminder>/);
+  assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
   assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<system_reminder>'), false);
 });
 

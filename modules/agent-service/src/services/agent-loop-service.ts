@@ -2803,9 +2803,11 @@ function shouldAllowSelfContinuationOnTerminalFinalAnswer(
     && options.triggerInputMode === 'suppress_current_trigger';
 }
 
-function hasSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputItem[]): boolean {
-  const expectedReminderBody = readPromptSnippet('self_continuation_reminder.md').trim();
-  return items.some((item, index) => (
+function findSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputItem[]): OpenResponseInputItem | null {
+  const expectedReminderBody = stripRuntimeTextEast8TimePrefix(
+    extractTaggedBlockBody(renderSelfContinuationReminder(), 'system_reminder')
+  );
+  return items.find((item, index) => (
     index > 0
     && isAssistantFinalAnswerInputItem(items[index - 1])
     && item.type === 'message'
@@ -2813,7 +2815,7 @@ function hasSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputIt
     && stripRuntimeTextEast8TimePrefix(
       extractTaggedBlockBody(flattenMessageContent(item.content), 'system_reminder')
     ) === expectedReminderBody
-  ));
+  )) || null;
 }
 
 function isPhoneNotificationDirectCueMessage(
@@ -5430,7 +5432,8 @@ export class AgentLoopService {
           ]
         });
       }
-      if (hasSelfContinuationAfterAssistantFinalAnswer(requestInput)) {
+      const selfContinuationInputItem = findSelfContinuationAfterAssistantFinalAnswer(requestInput);
+      if (selfContinuationInputItem) {
         await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -5441,7 +5444,7 @@ export class AgentLoopService {
               queueMessage: payload,
               runId: queueMessage.id,
               turn: 1,
-              inputItem: buildSelfContinuationInputItem()
+              inputItem: selfContinuationInputItem
             }) as Record<string, unknown>
           ]
         });
