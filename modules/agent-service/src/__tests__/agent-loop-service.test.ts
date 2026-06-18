@@ -460,7 +460,7 @@ function expectedCurrentInputMessage() {
     '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
     '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
     '（以下是透过白噪音、明确指名道姓喊你的动静）：',
-    '{Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
+    '{Test Group(@101)} 里 {Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
     '</system_reminder>'
   ].join('\n');
 }
@@ -1667,19 +1667,35 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
 });
 
-test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread metadata only', () => {
+test('buildInitialInput renders ordinary group phone notifications with group and sender preview', () => {
   const payload = createQueuePayload();
+  const longMessage = '普通闲聊正文应该进入短摘要但是不能作为完整消息上下文出现超过二十个字';
   payload.wasMentioned = false;
-  payload.bodyForAgent = '普通闲聊正文不应该直接进来';
-  payload.rawBody = '普通闲聊正文不应该直接进来';
+  payload.bodyForAgent = 'Test Group 有 1 条新 QQ 消息。';
+  payload.rawBody = 'Test Group 有 1 条新 QQ 消息。';
   payload.inboundContext.WasMentioned = false;
   if (payload.phoneNotification) {
     payload.phoneNotification.directMentions = 0;
+    payload.phoneNotification.reason = 'group_message_phone_notification';
   }
   payload.messages[0].wasMentioned = false;
-  payload.messages[0].bodyForAgent = '普通闲聊正文不应该直接进来';
-  payload.messages[0].rawBody = '普通闲聊正文不应该直接进来';
-  payload.messages[0].inboundContext.WasMentioned = false;
+  payload.messages[0].source = 'phone_notification';
+  payload.messages[0].senderId = 'qq';
+  payload.messages[0].senderName = 'QQ';
+  payload.messages[0].bodyForAgent = 'Test Group 有 1 条新 QQ 消息。';
+  payload.messages[0].rawBody = 'Test Group 有 1 条新 QQ 消息。';
+  payload.messages[0].rawPayload = {
+    latest_sender_id: '202',
+    latest_sender_name: 'Alice',
+    source_preview: '普通闲聊正文应该进入短摘要...'
+  };
+  payload.messages[0].inboundContext = {
+    ...payload.messages[0].inboundContext,
+    Surface: 'phone_notification',
+    SenderId: '202',
+    SenderName: 'Alice',
+    WasMentioned: false
+  };
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt({
     systemPrompt: '你是小腻主AGENT'
@@ -1690,9 +1706,12 @@ test('buildInitialInput keeps ordinary unmentioned group IM as low-trust unread 
     .join('\n');
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
-  assert.doesNotMatch(rendered, /普通闲聊正文不应该直接进来/);
   assert.match(rendered, /视线边缘：状态栏闪烁/);
-  assert.match(rendered, /没有明确喊你的信息/);
+  assert.match(rendered, /\{Test Group\(@101\)\} 有 1 条新群消息/);
+  assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
+  assert.match(rendered, /最新消息是: \{普通闲聊正文应该进入短摘要/);
+  assert.doesNotMatch(rendered, new RegExp(longMessage));
+  assert.doesNotMatch(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, /latest_preview|messages/);
   assert.doesNotMatch(rendered, /手机状态栏出现了 QQ 通知/);
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);

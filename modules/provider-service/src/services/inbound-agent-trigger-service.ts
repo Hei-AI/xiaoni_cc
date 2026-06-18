@@ -86,6 +86,17 @@ export function applyForcedInboundAgentQueuePolicy(
   };
 }
 
+function truncateNotificationPreview(text: string, maxChars = 20) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  const chars = Array.from(normalized);
+  return chars.length > maxChars
+    ? `${chars.slice(0, maxChars).join('')}...`
+    : normalized;
+}
+
 export async function processInboundAgentQueueTrigger(params: {
   inboxEvent: InboxMessageRecord;
   inboxWindowMessages?: InboxMessageRecord[];
@@ -190,6 +201,7 @@ function buildPhoneNotificationMessage(
 ): SemanticInboundMessage {
   const notificationId = `phone:${message.messageSid || message.id}`;
   const peerName = message.peerName || (message.chatType === 'group' ? `群 ${message.peerId}` : `QQ ${message.peerId}`);
+  const sourcePreview = truncateNotificationPreview(message.bodyForAgent || message.rawBody || '');
   const summary = message.chatType === 'group'
     ? `${peerName} 有 1 条新 QQ 消息${message.wasMentioned ? '，其中有人 @ 小腻' : ''}。`
     : `${peerName} 发来 1 条 QQ 私聊。`;
@@ -236,6 +248,10 @@ function buildPhoneNotificationMessage(
       chat_type: message.chatType,
       peer_id: message.peerId,
       peer_name: message.peerName || null,
+      latest_sender_id: message.senderId,
+      latest_sender_name: message.senderName || null,
+      latest_preview: sourcePreview,
+      source_preview: sourcePreview,
       unread_delta: 1,
       direct_mentions: message.wasMentioned ? 1 : 0,
       latest_received_at: message.receivedAt

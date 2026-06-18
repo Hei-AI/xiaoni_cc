@@ -2814,7 +2814,9 @@ function isPhoneNotificationDirectCueMessage(
   queueMessage: QueueMessageRecord['payload'],
   message: QueueBatchMessage
 ) {
-  return queueMessage.chatType === 'direct'
+  return message.source === 'phone_notification'
+    || message.inboundContext?.Surface === 'phone_notification'
+    || queueMessage.chatType === 'direct'
     || Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
 }
 
@@ -2835,6 +2837,12 @@ function resolvePhoneNotificationCueIdentity(
 ) {
   const isNotificationMessage = message.source === 'phone_notification'
     || message.inboundContext?.Surface === 'phone_notification';
+  const rawPayload = message.rawPayload || {};
+  const messageChatType = message.chatType === 'direct' || message.inboundContext?.ChatType === 'direct'
+    ? 'direct'
+    : (message.chatType === 'group' || message.inboundContext?.ChatType === 'group'
+      ? 'group'
+      : queueMessage.chatType);
   if (!isNotificationMessage) {
     return {
       senderId: message.senderId,
@@ -2848,45 +2856,107 @@ function resolvePhoneNotificationCueIdentity(
   const contextSenderName = typeof message.inboundContext?.SenderName === 'string'
     ? message.inboundContext.SenderName.trim()
     : '';
-  const notificationPeerId = queueMessage.chatType === 'direct' && typeof queueMessage.phoneNotification?.peerId === 'string'
+  const rawSenderId = typeof rawPayload.latest_sender_id === 'string' && rawPayload.latest_sender_id.trim()
+    ? rawPayload.latest_sender_id.trim()
+    : typeof rawPayload.source_sender_id === 'string' && rawPayload.source_sender_id.trim()
+      ? rawPayload.source_sender_id.trim()
+      : '';
+  const rawSenderName = typeof rawPayload.latest_sender_name === 'string' && rawPayload.latest_sender_name.trim()
+    ? rawPayload.latest_sender_name.trim()
+    : typeof rawPayload.source_sender_name === 'string' && rawPayload.source_sender_name.trim()
+      ? rawPayload.source_sender_name.trim()
+      : '';
+  const messagePeerId = messageChatType === 'direct' && typeof message.peerId === 'string'
+    ? message.peerId.trim()
+    : '';
+  const messagePeerName = messageChatType === 'direct' && typeof message.peerName === 'string'
+    ? message.peerName.trim()
+    : '';
+  const notificationPeerId = messageChatType === 'direct' && typeof queueMessage.phoneNotification?.peerId === 'string'
     ? queueMessage.phoneNotification.peerId.trim()
     : '';
-  const notificationPeerName = queueMessage.chatType === 'direct' && typeof queueMessage.phoneNotification?.peerName === 'string'
+  const notificationPeerName = messageChatType === 'direct' && typeof queueMessage.phoneNotification?.peerName === 'string'
     ? queueMessage.phoneNotification.peerName.trim()
     : '';
 
   return {
-    senderId: contextSenderId || notificationPeerId || message.senderId,
-    senderName: contextSenderName || notificationPeerName || message.senderName
+    senderId: rawSenderId || contextSenderId || messagePeerId || notificationPeerId || message.senderId,
+    senderName: rawSenderName || contextSenderName || messagePeerName || notificationPeerName || message.senderName
   };
+}
+
+function phoneNotificationMessageSummary(message: QueueBatchMessage) {
+  const rawPayload = message.rawPayload || {};
+  const rawPreview = rawPayload.source_preview ?? rawPayload.latest_preview;
+  if (typeof rawPreview === 'string' && rawPreview.trim()) {
+    return truncateNotificationSummary(
+      normalizeTranscriptMessageText(rawPreview, message.inboundContext?.MentionedUsers)
+    );
+  }
+  return truncateNotificationSummary(
+    normalizeTranscriptMessageText(message.bodyForAgent || '', message.inboundContext?.MentionedUsers)
+  );
 }
 
 function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['payload']) {
   const grouped = new Map<string, {
+    kind: 'direct' | 'group_mention' | 'group_activity';
+    groupId?: string;
+    groupName?: string;
     senderId: string;
     senderName?: string;
     count: number;
     latestSummary: string;
+    latestSenderId?: string;
+    latestSenderName?: string;
   }>();
 
   for (const message of queueMessage.messages) {
     if (!isPhoneNotificationDirectCueMessage(queueMessage, message)) {
       continue;
     }
+    const wasMentioned = Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
+    const messageChatType = message.chatType === 'direct' || message.inboundContext?.ChatType === 'direct'
+      ? 'direct'
+      : (message.chatType === 'group' || message.inboundContext?.ChatType === 'group'
+        ? 'group'
+        : queueMessage.chatType);
     const identity = resolvePhoneNotificationCueIdentity(queueMessage, message);
-    const key = identity.senderId || identity.senderName || 'unknown';
+    const contextGroupId = typeof message.inboundContext?.NativeChannelId === 'string'
+      ? message.inboundContext.NativeChannelId.trim()
+      : '';
+    const contextGroupName = typeof message.inboundContext?.GroupSubject === 'string'
+      ? message.inboundContext.GroupSubject.trim()
+      : '';
+    const groupId = messageChatType === 'group'
+      ? String(message.peerId || contextGroupId || queueMessage.phoneNotification?.peerId || queueMessage.peerId || '').trim()
+      : '';
+    const groupName = messageChatType === 'group'
+      ? String(message.peerName || contextGroupName || queueMessage.phoneNotification?.peerName || queueMessage.peerName || '').trim()
+      : '';
+    const kind = messageChatType === 'direct'
+      ? 'direct'
+      : (wasMentioned ? 'group_mention' : 'group_activity');
+    const key = kind === 'direct'
+      ? `direct:${identity.senderId || identity.senderName || message.peerId || 'unknown'}`
+      : `${kind}:${groupId || groupName || 'unknown'}:${kind === 'group_mention' ? identity.senderId || identity.senderName || 'unknown' : 'group'}`;
     const current = grouped.get(key) || {
+      kind,
+      groupId,
+      groupName,
       senderId: identity.senderId,
       senderName: identity.senderName,
       count: 0,
-      latestSummary: ''
+      latestSummary: '',
+      latestSenderId: identity.senderId,
+      latestSenderName: identity.senderName
     };
     current.count += 1;
-    const summary = truncateNotificationSummary(
-      normalizeTranscriptMessageText(message.bodyForAgent || '', message.inboundContext.MentionedUsers)
-    );
+    const summary = phoneNotificationMessageSummary(message);
     if (summary) {
       current.latestSummary = summary;
+      current.latestSenderId = identity.senderId;
+      current.latestSenderName = identity.senderName;
     }
     grouped.set(key, current);
   }
@@ -2894,9 +2964,15 @@ function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['
   return Array.from(grouped.values()).map((entry) => {
     const identity = formatIdentity(entry.senderName, entry.senderId);
     const latest = entry.latestSummary || '无摘要';
-    return queueMessage.chatType === 'direct'
-      ? `${identity} 发来 ${entry.count} 条消息, 最新消息是: {${latest}}`
-      : `${identity} @了你 ${entry.count} 次, 最新消息是: {${latest}}`;
+    if (entry.kind === 'direct') {
+      return `${identity} 发来 ${entry.count} 条消息, 最新消息是: {${latest}}`;
+    }
+    const group = formatIdentity(entry.groupName, entry.groupId || queueMessage.peerId);
+    if (entry.kind === 'group_mention') {
+      return `${group} 里 ${identity} @了你 ${entry.count} 次, 最新消息是: {${latest}}`;
+    }
+    const latestSender = formatIdentity(entry.latestSenderName, entry.latestSenderId);
+    return `${group} 有 ${entry.count} 条新群消息, 最新发言人: ${latestSender}, 最新消息是: {${latest}}`;
   });
 }
 

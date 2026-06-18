@@ -141,10 +141,11 @@ async function runTrigger(inboxEvent: InboxMessageRecord) {
 }
 
 test('enqueues unmentioned group messages as phone notifications without message bodies', async () => {
+  const longBody = '群里真实正文应该只作为短摘要进入通知而不是完整正文';
   const { result, store } = await runTrigger(buildInbox({
     chatType: 'group',
     wasMentioned: false,
-    bodyForAgent: '群里真实正文'
+    bodyForAgent: longBody
   }));
 
   assert.equal(result.queued, true);
@@ -152,7 +153,10 @@ test('enqueues unmentioned group messages as phone notifications without message
   assert.equal(store.enqueuedMessages.length, 1);
   assert.equal(store.enqueuedMessages[0]?.source, 'phone_notification');
   assert.match(store.enqueuedMessages[0]?.bodyForAgent || '', /有 1 条新 QQ 消息/);
-  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', /群里真实正文/);
+  assert.doesNotMatch(store.enqueuedMessages[0]?.bodyForAgent || '', new RegExp(longBody));
+  assert.equal(store.enqueuedMessages[0]?.rawPayload.latest_sender_id, '20001');
+  assert.equal(store.enqueuedMessages[0]?.rawPayload.latest_sender_name, 'alice');
+  assert.equal(store.enqueuedMessages[0]?.rawPayload.source_preview, '群里真实正文应该只作为短摘要进入通知而不...');
 });
 
 test('does not enqueue phone notification when auto reply is disabled', async () => {
