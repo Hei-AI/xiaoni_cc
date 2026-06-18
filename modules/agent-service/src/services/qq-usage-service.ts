@@ -117,6 +117,7 @@ function renderThread(thread: QqUsageThreadSummary) {
     peer_id: thread.peerId,
     focus_target: focusTarget,
     display_name: displayName(thread),
+    notification_muted: String(thread.notificationMuted === true),
     unread_count: thread.unreadCount,
     direct_mentions: thread.directMentions,
     latest_sender: senderLabel(thread.latestMessage),

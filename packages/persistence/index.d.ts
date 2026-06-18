@@ -1231,6 +1231,8 @@ export type QqUsageThreadSummary = {
   peerId: string;
   peerName: string | null;
   accountId: string | null;
+  imReceiveEnabled: boolean;
+  notificationMuted: boolean;
   unreadCount: number;
   directMentions: number;
   totalMessages: number;

@@ -77,6 +77,47 @@ async function getThreadState(prisma, threadKey) {
   return prisma.agentInboundThreadState.findUnique({ where: { session_key: threadKey } });
 }
 
+async function getThreadNotificationStates(prisma, threadStates) {
+  const result = new Map();
+  const groupIds = threadStates
+    .filter((state) => state.chat_type === 'group')
+    .map((state) => toBigIntOrNull(state.peer_id))
+    .filter((id) => id !== null);
+  const directUserIds = threadStates
+    .filter((state) => state.chat_type !== 'group')
+    .map((state) => toBigIntOrNull(state.peer_id))
+    .filter((id) => id !== null);
+
+  const [groupSettings, privateSettings] = await Promise.all([
+    prisma.groupChatSetting && groupIds.length > 0
+      ? prisma.groupChatSetting.findMany({
+          where: { group_id: { in: groupIds } },
+          select: { group_id: true, is_enabled: true }
+        })
+      : [],
+    prisma.privateChatSetting && directUserIds.length > 0
+      ? prisma.privateChatSetting.findMany({
+          where: { user_id: { in: directUserIds } },
+          select: { user_id: true, is_enabled: true }
+        })
+      : []
+  ]);
+
+  for (const row of groupSettings) {
+    result.set(`group:${String(row.group_id)}`, {
+      imReceiveEnabled: Number(row.is_enabled) === 1,
+      notificationMuted: Number(row.is_enabled) !== 1
+    });
+  }
+  for (const row of privateSettings) {
+    result.set(`direct:${String(row.user_id)}`, {
+      imReceiveEnabled: Number(row.is_enabled) === 1,
+      notificationMuted: Number(row.is_enabled) !== 1
+    });
+  }
+  return result;
+}
+
 async function refreshThreadState(prisma, threadKey) {
   const latest = await prisma.agentInboundMessage.findFirst({
     where: { session_key: threadKey },
@@ -174,6 +215,7 @@ async function listQqUsageThreads(input = {}, config = {}) {
     where: { id: { in: page.map((row) => row.last_message_id).filter((id) => id !== null && typeof id !== 'undefined') } }
   });
   const latestById = new Map(latestRows.map((row) => [String(row.id), row]));
+  const notificationStates = await getThreadNotificationStates(prisma, page);
 
   return {
     offset,
@@ -184,12 +226,20 @@ async function listQqUsageThreads(input = {}, config = {}) {
     hasNewerThreads: offset > 0,
     threads: page.map((state) => {
       const latest = state.last_message_id ? latestById.get(String(state.last_message_id)) || null : null;
+      const chatType = state.chat_type || latest?.chat_type || 'direct';
+      const peerId = state.peer_id || latest?.peer_id || '';
+      const notificationState = notificationStates.get(`${chatType === 'group' ? 'group' : 'direct'}:${peerId}`) || {
+        imReceiveEnabled: true,
+        notificationMuted: false
+      };
       return {
         threadKey: state.session_key,
-        chatType: state.chat_type || latest?.chat_type || 'direct',
-        peerId: state.peer_id || latest?.peer_id || '',
+        chatType,
+        peerId,
         peerName: state.peer_name || latest?.peer_name || null,
         accountId: state.account_id || latest?.account_id || null,
+        imReceiveEnabled: notificationState.imReceiveEnabled,
+        notificationMuted: notificationState.notificationMuted,
         unreadCount: Number(state.unread_count || 0),
         directMentions: Number(state.direct_mentions || 0),
         totalMessages: Number(state.total_messages || 0),

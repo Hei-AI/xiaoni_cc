@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { QqUsageSkillRuntime } from '../services/qq-usage-service';
+import { QqUsageService, QqUsageSkillRuntime } from '../services/qq-usage-service';
 
 class FakeQqUsageService {
   calls: Array<{ method: string; args: unknown[] }> = [];
@@ -45,6 +45,39 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action, content: `<QQ_USAGE_ERROR reason="${reason}"></QQ_USAGE_ERROR>`, failed: true };
   }
 }
+
+test('QqUsageService renders muted notification state in inbox thread list', async () => {
+  const service = new QqUsageService({
+    listQqUsageThreads: async () => ({
+      offset: 0,
+      limit: 10,
+      searchQuery: '',
+      chatType: null,
+      hasOlderThreads: false,
+      hasNewerThreads: false,
+      threads: [{
+        threadKey: 'qq:group:253631878',
+        chatType: 'group',
+        peerId: '253631878',
+        peerName: '测试群',
+        accountId: '1129974489',
+        imReceiveEnabled: false,
+        notificationMuted: true,
+        unreadCount: 21,
+        directMentions: 1,
+        totalMessages: 100,
+        lastReceivedAt: '2026-06-18T12:00:00.000Z',
+        latestMessage: null
+      }]
+    })
+  } as any);
+
+  const result = await service.openInbox();
+
+  assert.match(result.content, /notification_muted="true"/);
+  assert.match(result.content, /unread_count="21"/);
+  assert.match(result.content, /direct_mentions="1"/);
+});
 
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
   const service = new FakeQqUsageService();
