@@ -194,6 +194,8 @@ type QqUsageThreadRuntimeState = {
 
 type QqUsageSkillRuntimeState = {
   inboxOffset: number;
+  inboxQuery: string | null;
+  inboxChatType: 'direct' | 'group' | null;
   activeThreadKey: string | null;
   threads: Map<string, QqUsageThreadRuntimeState>;
 };
@@ -217,14 +219,10 @@ const QQ_USAGE_ACTION_LABELS: Record<string, string> = {
   focus_private: 'qq_usage.focus_private',
   focus_group: 'qq_usage.focus_group',
   search_inbox: 'qq_usage.search_inbox',
-  search_private: 'qq_usage.search_private',
-  search_group: 'qq_usage.search_group',
   scroll_private: 'qq_usage.scroll_private',
   scroll_group: 'qq_usage.scroll_group',
   jump_private_to_latest: 'qq_usage.jump_private_to_latest',
   jump_group_to_latest: 'qq_usage.jump_group_to_latest',
-  put_private_away: 'qq_usage.put_private_away',
-  put_group_away: 'qq_usage.put_group_away',
   put_qq_away: 'qq_usage.put_qq_away'
 };
 
@@ -288,11 +286,14 @@ export class QqUsageService {
     };
   }
 
-  async scrollInbox(direction: 'older' | 'newer', currentOffset = 0): Promise<QqUsageToolResult> {
+  async scrollInbox(direction: 'older' | 'newer', currentOffset = 0, query?: string | null, chatType?: 'direct' | 'group' | null): Promise<QqUsageToolResult> {
     const nextOffset = direction === 'newer'
       ? Math.max(0, currentOffset - WINDOW_SIZE)
       : currentOffset + WINDOW_SIZE;
-    const result = await this.store.listQqUsageThreads({ limit: WINDOW_SIZE, offset: nextOffset });
+    const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+    const result = trimmedQuery
+      ? await this.store.searchQqUsageThreads({ query: trimmedQuery, chatType: chatType || undefined, limit: WINDOW_SIZE, offset: nextOffset })
+      : await this.store.listQqUsageThreads({ limit: WINDOW_SIZE, offset: nextOffset });
     return {
       qq_usage: true,
       action: 'qq_usage.scroll_inbox',
@@ -314,11 +315,7 @@ export class QqUsageService {
     });
     return {
       qq_usage: true,
-      action: chatType === 'direct'
-        ? 'qq_usage.search_private'
-        : chatType === 'group'
-          ? 'qq_usage.search_group'
-          : 'qq_usage.search_inbox',
+      action: 'qq_usage.search_inbox',
       content: renderThreadListWindow(result),
       inbox_offset: result.offset
     };
@@ -410,6 +407,8 @@ export class QqUsageService {
 export class QqUsageSkillRuntime {
   private readonly state: QqUsageSkillRuntimeState = {
     inboxOffset: 0,
+    inboxQuery: null,
+    inboxChatType: null,
     activeThreadKey: null,
     threads: new Map()
   };
@@ -440,15 +439,21 @@ export class QqUsageSkillRuntime {
     try {
       let result: QqUsageToolResult;
       if (action === 'open_inbox') {
+        this.state.inboxQuery = null;
+        this.state.inboxChatType = null;
         result = await this.service.openInbox(0);
       } else if (action === 'scroll_inbox') {
-        result = await this.service.scrollInbox(normalizeDirection(args.direction), this.state.inboxOffset);
+        result = await this.service.scrollInbox(
+          normalizeDirection(args.direction),
+          this.state.inboxOffset,
+          this.state.inboxQuery,
+          this.state.inboxChatType
+        );
       } else if (action === 'search_inbox') {
-        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword));
-      } else if (action === 'search_private') {
-        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword), 'direct');
-      } else if (action === 'search_group') {
-        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword), 'group');
+        const query = normalizeIdentifier(args.query ?? args.q ?? args.keyword);
+        this.state.inboxQuery = query || null;
+        this.state.inboxChatType = null;
+        result = await this.service.searchInbox(query);
       } else if (action === 'focus_private') {
         const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
         if (!threadKey) throw new Error('user_id is required');
@@ -489,24 +494,13 @@ export class QqUsageSkillRuntime {
         const threadKey = resolveGroupThreadKey(args);
         if (!threadKey) throw new Error('group_id is required');
         result = await this.service.jumpToLatest(threadKey, context, 'qq_usage.jump_group_to_latest');
-      } else if (action === 'put_private_away') {
-        const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
-        if (!threadKey) throw new Error('user_id is required');
-        result = await this.service.putAway(threadKey);
-        this.state.threads.delete(threadKey);
-        if (this.state.activeThreadKey === threadKey) {
-          this.state.activeThreadKey = null;
-        }
-      } else if (action === 'put_group_away') {
-        const threadKey = resolveGroupThreadKey(args);
-        if (!threadKey) throw new Error('group_id is required');
-        result = await this.service.putAway(threadKey);
-        this.state.threads.delete(threadKey);
-        if (this.state.activeThreadKey === threadKey) {
-          this.state.activeThreadKey = null;
-        }
       } else if (action === 'put_qq_away') {
-        result = await this.service.putAway(null);
+        const threadKey = this.state.activeThreadKey;
+        result = await this.service.putAway(threadKey);
+        if (threadKey) {
+          this.state.threads.delete(threadKey);
+          this.state.activeThreadKey = null;
+        }
       } else {
         throw new Error(`Unsupported qq_usage action: ${action}`);
       }

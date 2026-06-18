@@ -3,6 +3,7 @@
 const { serializeTimestampForApi } = require('./time');
 
 const TABLE_NAME = 'agent_inbound_messages';
+const THREAD_STATE_TABLE_NAME = 'agent_inbound_thread_states';
 const DEFAULT_CLAIM_LIMIT = 20;
 const DEFAULT_MESSAGE_LIMIT = 100;
 
@@ -101,6 +102,108 @@ function mapRow(row) {
   };
 }
 
+function isInsertedRow(row) {
+  return row?.inserted === true || row?.inserted === 't' || row?.inserted === 1 || row?.inserted === '1';
+}
+
+async function refreshInboundThreadState(sql, sessionKey) {
+  if (!sessionKey) {
+    return 0;
+  }
+
+  return sql.execute(
+    `
+      INSERT INTO ${THREAD_STATE_TABLE_NAME} (
+        session_key,
+        chat_type,
+        peer_id,
+        peer_name,
+        account_id,
+        total_messages,
+        unread_count,
+        direct_mentions,
+        last_message_id,
+        last_received_at,
+        latest_unread_received_at,
+        last_read_received_at,
+        updated_at
+      )
+      WITH scoped AS (
+        SELECT *
+        FROM ${TABLE_NAME}
+        WHERE session_key = ?
+      ),
+      last_read AS (
+        SELECT MAX(received_at) AS last_read_received_at
+        FROM scoped
+        WHERE is_read = 1
+      ),
+      latest AS (
+        SELECT
+          id AS last_message_id,
+          session_key,
+          chat_type,
+          peer_id,
+          peer_name,
+          account_id,
+          received_at AS last_received_at
+        FROM scoped
+        ORDER BY received_at DESC, id DESC
+        LIMIT 1
+      ),
+      summary AS (
+        SELECT
+          COUNT(*) AS total_messages,
+          SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_count,
+          SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} AND m.was_mentioned = 1 THEN 1 ELSE 0 END) AS direct_mentions,
+          MAX(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.received_at ELSE NULL END) AS latest_unread_received_at,
+          lr.last_read_received_at
+        FROM scoped m
+        CROSS JOIN last_read lr
+      )
+      SELECT
+        latest.session_key,
+        latest.chat_type,
+        latest.peer_id,
+        latest.peer_name,
+        latest.account_id,
+        COALESCE(summary.total_messages, 0),
+        COALESCE(summary.unread_count, 0),
+        COALESCE(summary.direct_mentions, 0),
+        latest.last_message_id,
+        latest.last_received_at,
+        summary.latest_unread_received_at,
+        summary.last_read_received_at,
+        CURRENT_TIMESTAMP
+      FROM latest
+      CROSS JOIN summary
+      ON CONFLICT (session_key) DO UPDATE SET
+        chat_type = EXCLUDED.chat_type,
+        peer_id = EXCLUDED.peer_id,
+        peer_name = EXCLUDED.peer_name,
+        account_id = EXCLUDED.account_id,
+        total_messages = EXCLUDED.total_messages,
+        unread_count = EXCLUDED.unread_count,
+        direct_mentions = EXCLUDED.direct_mentions,
+        last_message_id = EXCLUDED.last_message_id,
+        last_received_at = EXCLUDED.last_received_at,
+        latest_unread_received_at = EXCLUDED.latest_unread_received_at,
+        last_read_received_at = EXCLUDED.last_read_received_at,
+        updated_at = CURRENT_TIMESTAMP
+    `,
+    [sessionKey]
+  );
+}
+
+async function refreshInboundThreadStates(sql, sessionKeys) {
+  const uniqueKeys = Array.from(new Set(sessionKeys.filter(Boolean)));
+  let refreshed = 0;
+  for (const sessionKey of uniqueKeys) {
+    refreshed += await refreshInboundThreadState(sql, sessionKey);
+  }
+  return refreshed;
+}
+
 function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
   function createSql(input = {}, config = {}) {
     if (input?.sqlAdapter) {
@@ -171,11 +274,40 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
       );
 
+      await sql.execute(
+        `
+          CREATE TABLE IF NOT EXISTS ${THREAD_STATE_TABLE_NAME} (
+            session_key VARCHAR(191) PRIMARY KEY,
+            chat_type VARCHAR(16) NOT NULL,
+            peer_id VARCHAR(191) NOT NULL,
+            peer_name VARCHAR(255) NULL,
+            account_id VARCHAR(191) NOT NULL,
+            total_messages INTEGER NOT NULL DEFAULT 0,
+            unread_count INTEGER NOT NULL DEFAULT 0,
+            direct_mentions INTEGER NOT NULL DEFAULT 0,
+            last_message_id BIGINT NULL,
+            last_received_at TIMESTAMPTZ(3) NULL,
+            latest_unread_received_at TIMESTAMPTZ(3) NULL,
+            last_read_received_at TIMESTAMPTZ(3) NULL,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+      );
+      await sql.execute(
+        `ALTER TABLE ${THREAD_STATE_TABLE_NAME} ADD COLUMN IF NOT EXISTS latest_unread_received_at TIMESTAMPTZ(3) NULL`
+      );
+
       const rows = await sql.query(
         `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?`,
         [TABLE_NAME]
       );
+      const threadStateRows = await sql.query(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?`,
+        [THREAD_STATE_TABLE_NAME]
+      );
       const existing = new Set(rows.map((row) => row.indexname));
+      const existingThreadState = new Set(threadStateRows.map((row) => row.indexname));
       const statements = [
         {
           name: 'uq_agent_inbound_messages_dedupe',
@@ -204,6 +336,102 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           await sql.execute(statement.sql);
         }
       }
+
+      const threadStateStatements = [
+        {
+          name: 'idx_agent_inbound_thread_states_last_received',
+          sql: `CREATE INDEX IF NOT EXISTS idx_agent_inbound_thread_states_last_received ON ${THREAD_STATE_TABLE_NAME} (last_received_at, session_key)`
+        },
+        {
+          name: 'idx_agent_inbound_thread_states_peer',
+          sql: `CREATE INDEX IF NOT EXISTS idx_agent_inbound_thread_states_peer ON ${THREAD_STATE_TABLE_NAME} (chat_type, peer_id)`
+        }
+      ];
+
+      for (const statement of threadStateStatements) {
+        if (!existingThreadState.has(statement.name)) {
+          await sql.execute(statement.sql);
+        }
+      }
+
+      await sql.execute(
+        `
+          INSERT INTO ${THREAD_STATE_TABLE_NAME} (
+            session_key,
+            chat_type,
+            peer_id,
+            peer_name,
+            account_id,
+            total_messages,
+            unread_count,
+            direct_mentions,
+            last_message_id,
+            last_received_at,
+            latest_unread_received_at,
+            last_read_received_at,
+            updated_at
+          )
+          WITH last_read AS (
+            SELECT session_key, MAX(received_at) AS last_read_received_at
+            FROM ${TABLE_NAME}
+            WHERE is_read = 1
+            GROUP BY session_key
+          ),
+          latest AS (
+            SELECT DISTINCT ON (session_key)
+              session_key,
+              id AS last_message_id,
+              chat_type,
+              peer_id,
+              peer_name,
+              account_id,
+              received_at AS last_received_at
+            FROM ${TABLE_NAME}
+            ORDER BY session_key, received_at DESC, id DESC
+          ),
+          summary AS (
+            SELECT
+              m.session_key,
+              COUNT(*) AS total_messages,
+              SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_count,
+              SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} AND m.was_mentioned = 1 THEN 1 ELSE 0 END) AS direct_mentions,
+              MAX(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.received_at ELSE NULL END) AS latest_unread_received_at,
+              lr.last_read_received_at
+            FROM ${TABLE_NAME} m
+            LEFT JOIN last_read lr ON lr.session_key = m.session_key
+            GROUP BY m.session_key, lr.last_read_received_at
+          )
+          SELECT
+            latest.session_key,
+            latest.chat_type,
+            latest.peer_id,
+            latest.peer_name,
+            latest.account_id,
+            COALESCE(summary.total_messages, 0),
+            COALESCE(summary.unread_count, 0),
+            COALESCE(summary.direct_mentions, 0),
+            latest.last_message_id,
+            latest.last_received_at,
+            summary.latest_unread_received_at,
+            summary.last_read_received_at,
+            CURRENT_TIMESTAMP
+          FROM latest
+          JOIN summary ON summary.session_key = latest.session_key
+          ON CONFLICT (session_key) DO UPDATE SET
+            chat_type = EXCLUDED.chat_type,
+            peer_id = EXCLUDED.peer_id,
+            peer_name = EXCLUDED.peer_name,
+            account_id = EXCLUDED.account_id,
+            total_messages = EXCLUDED.total_messages,
+            unread_count = EXCLUDED.unread_count,
+            direct_mentions = EXCLUDED.direct_mentions,
+            last_message_id = EXCLUDED.last_message_id,
+            last_received_at = EXCLUDED.last_received_at,
+            latest_unread_received_at = EXCLUDED.latest_unread_received_at,
+            last_read_received_at = EXCLUDED.last_read_received_at,
+            updated_at = CURRENT_TIMESTAMP
+        `
+      );
     });
   }
 
@@ -224,39 +452,57 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
       const receivedAt = toReceivedAt(inboundContext);
       const messageTimestamp = toMessageTimestamp(inboundContext);
 
-      await sql.execute(
+      const rawPayloadJson = JSON.stringify(input.rawPayload || input.raw_payload || {});
+      const inboundContextJson = JSON.stringify(inboundContext);
+      const rows = await sql.query(
         `
-          INSERT INTO ${TABLE_NAME} (
-            trace_id,
-            source,
-            message_sid,
-            dedupe_key,
-            chat_type,
-            session_key,
-            peer_id,
-            peer_name,
-            sender_id,
-            sender_name,
-            account_id,
-            is_read,
-            read_at,
-            received_at,
-            message_timestamp,
-            body_for_agent,
-            raw_body,
-            command_body,
-            was_mentioned,
-            reply_to_id,
-            reply_to_body,
-            reply_to_sender,
-            raw_payload,
-            inbound_context
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb))
-          ON CONFLICT (dedupe_key) DO UPDATE SET
-            trace_id = EXCLUDED.trace_id,
-            raw_payload = EXCLUDED.raw_payload,
-            inbound_context = EXCLUDED.inbound_context,
-            updated_at = CURRENT_TIMESTAMP
+          WITH inserted AS (
+            INSERT INTO ${TABLE_NAME} (
+              trace_id,
+              source,
+              message_sid,
+              dedupe_key,
+              chat_type,
+              session_key,
+              peer_id,
+              peer_name,
+              sender_id,
+              sender_name,
+              account_id,
+              is_read,
+              read_at,
+              received_at,
+              message_timestamp,
+              body_for_agent,
+              raw_body,
+              command_body,
+              was_mentioned,
+              reply_to_id,
+              reply_to_body,
+              reply_to_sender,
+              raw_payload,
+              inbound_context
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb))
+            ON CONFLICT (dedupe_key) DO NOTHING
+            RETURNING *, TRUE AS inserted
+          ),
+          updated AS (
+            UPDATE ${TABLE_NAME}
+            SET
+              trace_id = ?,
+              raw_payload = CAST(? AS jsonb),
+              inbound_context = CAST(? AS jsonb),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE dedupe_key = ?
+              AND NOT EXISTS (SELECT 1 FROM inserted)
+            RETURNING *, FALSE AS inserted
+          )
+          SELECT *
+          FROM inserted
+          UNION ALL
+          SELECT *
+          FROM updated
+          LIMIT 1
         `,
         [
           traceId,
@@ -279,23 +525,21 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           inboundContext.ReplyToId || null,
           inboundContext.ReplyToBody || null,
           inboundContext.ReplyToSender || null,
-          JSON.stringify(input.rawPayload || input.raw_payload || {}),
-          JSON.stringify(inboundContext)
+          rawPayloadJson,
+          inboundContextJson,
+          traceId,
+          rawPayloadJson,
+          inboundContextJson,
+          dedupeKey
         ]
-      );
-
-      const rows = await sql.query(
-        `
-          SELECT *
-          FROM ${TABLE_NAME}
-          WHERE dedupe_key = ?
-          LIMIT 1
-        `,
-        [dedupeKey]
       );
 
       if (!rows[0]) {
         throw new Error('Failed to read persisted inbound message');
+      }
+
+      if (isInsertedRow(rows[0])) {
+        await refreshInboundThreadState(sql, sessionKey);
       }
 
       return mapRow(rows[0]);
@@ -306,20 +550,13 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
         `
-          WITH last_read AS (
-            SELECT session_key, MAX(received_at) AS last_read_received_at
-            FROM ${TABLE_NAME}
-            WHERE is_read = 1
-            GROUP BY session_key
-          )
           SELECT
-            COUNT(DISTINCT m.session_key) AS total_conversations,
-            COUNT(*) AS total_messages,
-            COUNT(DISTINCT CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.session_key END) AS unread_conversations,
-            SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_messages,
-            MAX(m.received_at) AS last_received_at
-          FROM ${TABLE_NAME} m
-          LEFT JOIN last_read lr ON lr.session_key = m.session_key
+            COUNT(*) AS total_conversations,
+            SUM(total_messages) AS total_messages,
+            COUNT(CASE WHEN unread_count > 0 THEN 1 END) AS unread_conversations,
+            SUM(unread_count) AS unread_messages,
+            MAX(last_received_at) AS last_received_at
+          FROM ${THREAD_STATE_TABLE_NAME}
         `
       );
 
@@ -341,46 +578,39 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
       const rows = await sql.query(
         `
           SELECT
-            m.session_key,
-            MIN(m.chat_type) AS chat_type,
-            MIN(m.peer_id) AS peer_id,
-            MIN(m.peer_name) AS peer_name,
-            MIN(m.account_id) AS account_id,
-            SUM(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN 1 ELSE 0 END) AS unread_count,
-            COUNT(*) AS total_messages,
-            MAX(m.received_at) AS last_received_at,
-            MAX(CASE WHEN m.is_read = 1 THEN m.received_at ELSE NULL END) AS last_read_received_at,
-            MAX(CASE WHEN ${effectiveUnreadPredicate('m', 'lr.last_read_received_at')} THEN m.received_at ELSE NULL END) AS latest_unread_received_at,
+            s.session_key,
+            s.chat_type,
+            s.peer_id,
+            s.peer_name,
+            s.account_id,
+            s.unread_count,
+            s.total_messages,
+            s.last_received_at,
+            s.latest_unread_received_at,
+            s.last_read_received_at,
             (
               SELECT x.body_for_agent
               FROM ${TABLE_NAME} x
-              WHERE x.session_key = m.session_key
+              WHERE x.id = s.last_message_id
               ORDER BY x.received_at DESC, x.id DESC
               LIMIT 1
             ) AS latest_body_for_agent,
             (
               SELECT x.sender_id
               FROM ${TABLE_NAME} x
-              WHERE x.session_key = m.session_key
+              WHERE x.id = s.last_message_id
               ORDER BY x.received_at DESC, x.id DESC
               LIMIT 1
             ) AS latest_sender_id,
             (
               SELECT x.sender_name
               FROM ${TABLE_NAME} x
-              WHERE x.session_key = m.session_key
+              WHERE x.id = s.last_message_id
               ORDER BY x.received_at DESC, x.id DESC
               LIMIT 1
             ) AS latest_sender_name
-          FROM ${TABLE_NAME} m
-          LEFT JOIN (
-            SELECT session_key, MAX(received_at) AS last_read_received_at
-            FROM ${TABLE_NAME}
-            WHERE is_read = 1
-            GROUP BY session_key
-          ) lr ON lr.session_key = m.session_key
-          GROUP BY m.session_key, lr.last_read_received_at
-          ORDER BY last_received_at DESC
+          FROM ${THREAD_STATE_TABLE_NAME} s
+          ORDER BY s.last_received_at DESC
           LIMIT ? OFFSET ?
         `,
         [limit, offset]
@@ -520,7 +750,7 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           );
         }
 
-        return tx.query(
+        const rows = await tx.query(
           `
             SELECT *
             FROM ${TABLE_NAME}
@@ -529,6 +759,10 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           `,
           ids
         );
+        if (shouldMarkRead) {
+          await refreshInboundThreadStates(tx, rows.map((row) => row.session_key));
+        }
+        return rows;
       });
 
       return rows.map(mapRow);
@@ -548,14 +782,26 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
 
     return withSql(input, config, async (sql) => {
       const placeholders = uniqueIds.map(() => '?').join(', ');
-      return sql.execute(
-        `
-          UPDATE ${TABLE_NAME}
-          SET is_read = 1, read_at = COALESCE(read_at, NOW())
-          WHERE id IN (${placeholders})
-        `,
-        uniqueIds
-      );
+      return sql.withTransaction(async (tx) => {
+        const rows = await tx.query(
+          `
+            SELECT DISTINCT session_key
+            FROM ${TABLE_NAME}
+            WHERE id IN (${placeholders})
+          `,
+          uniqueIds
+        );
+        const updated = await tx.execute(
+          `
+            UPDATE ${TABLE_NAME}
+            SET is_read = 1, read_at = COALESCE(read_at, NOW())
+            WHERE id IN (${placeholders})
+          `,
+          uniqueIds
+        );
+        await refreshInboundThreadStates(tx, rows.map((row) => row.session_key));
+        return updated;
+      });
     });
   }
 

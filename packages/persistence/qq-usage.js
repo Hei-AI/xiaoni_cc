@@ -28,44 +28,6 @@ function normalizeRow(row) {
   return normalized;
 }
 
-function buildEffectiveUnreadFilter(lastReadBySession) {
-  return (message) => {
-    if (Number(message.is_read) !== 0) {
-      return false;
-    }
-    const lastReadAt = lastReadBySession.get(message.session_key);
-    if (!lastReadAt) {
-      return true;
-    }
-    return new Date(message.received_at).getTime() > new Date(lastReadAt).getTime();
-  };
-}
-
-async function loadLastReadBySession(prisma, sessionKeys = null) {
-  const rows = await prisma.agentInboundMessage.groupBy({
-    by: ['session_key'],
-    where: {
-      is_read: 1,
-      ...(Array.isArray(sessionKeys) && sessionKeys.length > 0 ? { session_key: { in: sessionKeys } } : {})
-    },
-    _max: { received_at: true }
-  });
-  return new Map(rows.map((row) => [row.session_key, row._max.received_at]));
-}
-
-function countDirectMentions(messages) {
-  return messages.reduce((sum, message) => sum + (Number(message.was_mentioned) === 1 ? 1 : 0), 0);
-}
-
-function buildEffectiveUnreadWhere(sessionKey, lastReadAt, extra = {}) {
-  return {
-    session_key: sessionKey,
-    is_read: 0,
-    ...(lastReadAt ? { received_at: { gt: lastReadAt } } : {}),
-    ...extra
-  };
-}
-
 function normalizeChatType(value) {
   return value === 'group' || value === 'direct' ? value : null;
 }
@@ -89,20 +51,92 @@ function buildThreadListWhere(input = {}) {
   };
 }
 
+function buildEffectiveUnreadWhere(threadState, extra = {}) {
+  return {
+    session_key: threadState.session_key,
+    is_read: 0,
+    ...(threadState.last_read_received_at ? { received_at: { gt: threadState.last_read_received_at } } : {}),
+    ...extra
+  };
+}
+
+function isEffectiveUnreadFromState(message, threadState) {
+  if (Number(message?.is_read) !== 0) {
+    return false;
+  }
+  if (!threadState?.last_read_received_at) {
+    return true;
+  }
+  return new Date(message.received_at).getTime() > new Date(threadState.last_read_received_at).getTime();
+}
+
+async function getThreadState(prisma, threadKey) {
+  if (!prisma.agentInboundThreadState) {
+    return null;
+  }
+  return prisma.agentInboundThreadState.findUnique({ where: { session_key: threadKey } });
+}
+
+async function refreshThreadState(prisma, threadKey) {
+  const latest = await prisma.agentInboundMessage.findFirst({
+    where: { session_key: threadKey },
+    orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
+  });
+  if (!latest) {
+    if (prisma.agentInboundThreadState) {
+      await prisma.agentInboundThreadState.delete({ where: { session_key: threadKey } }).catch(() => undefined);
+    }
+    return null;
+  }
+
+  const lastRead = await prisma.agentInboundMessage.aggregate({
+    where: { session_key: threadKey, is_read: 1 },
+    _max: { received_at: true }
+  });
+  const threadState = {
+    session_key: threadKey,
+    last_read_received_at: lastRead._max.received_at || null
+  };
+  const [totalMessages, unreadCount, directMentions] = await Promise.all([
+    prisma.agentInboundMessage.count({ where: { session_key: threadKey } }),
+    prisma.agentInboundMessage.count({ where: buildEffectiveUnreadWhere(threadState) }),
+    prisma.agentInboundMessage.count({ where: buildEffectiveUnreadWhere(threadState, { was_mentioned: 1 }) })
+  ]);
+  const data = {
+    chat_type: latest.chat_type,
+    peer_id: latest.peer_id,
+    peer_name: latest.peer_name || null,
+    account_id: latest.account_id,
+    total_messages: Number(totalMessages || 0),
+    unread_count: Number(unreadCount || 0),
+    direct_mentions: Number(directMentions || 0),
+    last_message_id: latest.id,
+    last_received_at: latest.received_at,
+    last_read_received_at: threadState.last_read_received_at
+  };
+
+  if (!prisma.agentInboundThreadState) {
+    return { session_key: threadKey, ...data };
+  }
+
+  return prisma.agentInboundThreadState.upsert({
+    where: { session_key: threadKey },
+    create: { session_key: threadKey, ...data },
+    update: data
+  });
+}
+
 async function getQqUsageUnreadSummary(input = {}, config = {}) {
   const prisma = input.prisma || config.prisma || input.getPrismaClient?.(config) || config.getPrismaClient?.(config);
   if (!prisma) {
     throw new Error('getQqUsageUnreadSummary requires a Prisma client');
   }
-  const lastReadBySession = await loadLastReadBySession(prisma);
-  const unreadCandidates = await prisma.agentInboundMessage.findMany({
-    where: { is_read: 0 },
-    orderBy: [{ received_at: 'asc' }, { id: 'asc' }]
+  const summary = await prisma.agentInboundThreadState.aggregate({
+    _sum: { unread_count: true, direct_mentions: true }
   });
-  const effectiveUnread = unreadCandidates.filter(buildEffectiveUnreadFilter(lastReadBySession));
   return {
-    unreadCount: effectiveUnread.length,
-    directMentions: countDirectMentions(effectiveUnread)
+    unreadCount: Number(summary._sum.unread_count || 0),
+    directMentions: Number(summary._sum.direct_mentions || 0)
   };
 }
 
@@ -116,16 +150,13 @@ async function listQqUsageThreads(input = {}, config = {}) {
   const searchQuery = normalizeSearchQuery(input.searchQuery || input.search_query || input.query || input.q);
   const chatType = normalizeChatType(input.chatType || input.chat_type);
   const where = buildThreadListWhere(input);
-  const grouped = await prisma.agentInboundMessage.groupBy({
-    by: ['session_key'],
+  const states = await prisma.agentInboundThreadState.findMany({
     ...(Object.keys(where).length > 0 ? { where } : {}),
-    _max: { received_at: true },
-    _count: { _all: true },
-    orderBy: { _max: { received_at: 'desc' } },
+    orderBy: [{ last_received_at: 'desc' }, { session_key: 'asc' }],
     skip: offset,
     take: limit + 1
   });
-  const page = grouped.slice(0, limit);
+  const page = states.slice(0, limit);
   const sessionKeys = page.map((row) => row.session_key);
   if (sessionKeys.length === 0) {
     return {
@@ -139,50 +170,30 @@ async function listQqUsageThreads(input = {}, config = {}) {
     };
   }
 
-  const lastReadBySession = await loadLastReadBySession(prisma, sessionKeys);
-  const totalBySession = new Map(page.map((row) => [row.session_key, row._count._all]));
-  const threadDetails = await Promise.all(sessionKeys.map(async (sessionKey) => {
-    const lastReadAt = lastReadBySession.get(sessionKey);
-    const unreadWhere = buildEffectiveUnreadWhere(sessionKey, lastReadAt);
-    const [latest, unreadCount, directMentions] = await Promise.all([
-      prisma.agentInboundMessage.findFirst({
-        where: { session_key: sessionKey },
-        orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
-      }),
-      prisma.agentInboundMessage.count({ where: unreadWhere }),
-      prisma.agentInboundMessage.count({
-        where: buildEffectiveUnreadWhere(sessionKey, lastReadAt, { was_mentioned: 1 })
-      })
-    ]);
-    return {
-      sessionKey,
-      latest,
-      unreadCount,
-      directMentions
-    };
-  }));
-  const detailsBySession = new Map(threadDetails.map((detail) => [detail.sessionKey, detail]));
+  const latestRows = await prisma.agentInboundMessage.findMany({
+    where: { id: { in: page.map((row) => row.last_message_id).filter((id) => id !== null && typeof id !== 'undefined') } }
+  });
+  const latestById = new Map(latestRows.map((row) => [String(row.id), row]));
 
   return {
     offset,
     limit,
     searchQuery,
     chatType,
-    hasOlderThreads: grouped.length > limit,
+    hasOlderThreads: states.length > limit,
     hasNewerThreads: offset > 0,
-    threads: sessionKeys.map((sessionKey) => {
-      const detail = detailsBySession.get(sessionKey) || {};
-      const latest = detail.latest || null;
+    threads: page.map((state) => {
+      const latest = state.last_message_id ? latestById.get(String(state.last_message_id)) || null : null;
       return {
-        threadKey: sessionKey,
-        chatType: latest?.chat_type || 'direct',
-        peerId: latest?.peer_id || '',
-        peerName: latest?.peer_name || null,
-        accountId: latest?.account_id || null,
-        unreadCount: Number(detail.unreadCount || 0),
-        directMentions: Number(detail.directMentions || 0),
-        totalMessages: Number(totalBySession.get(sessionKey) || 0),
-        lastReceivedAt: latest?.received_at || null,
+        threadKey: state.session_key,
+        chatType: state.chat_type || latest?.chat_type || 'direct',
+        peerId: state.peer_id || latest?.peer_id || '',
+        peerName: state.peer_name || latest?.peer_name || null,
+        accountId: state.account_id || latest?.account_id || null,
+        unreadCount: Number(state.unread_count || 0),
+        directMentions: Number(state.direct_mentions || 0),
+        totalMessages: Number(state.total_messages || 0),
+        lastReceivedAt: state.last_received_at || latest?.received_at || null,
         latestMessage: latest ? normalizeRow(latest) : null
       };
     })
@@ -231,8 +242,7 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
   const limit = Math.max(1, Math.min(50, Number(input.limit) || 10));
   const mode = input.mode === 'older' || input.mode === 'newer' ? input.mode : 'latest';
   const anchor = mode === 'latest' ? null : await getMessageAnchor(prisma, input.anchorMessageId);
-  const lastReadBySession = await loadLastReadBySession(prisma, [threadKey]);
-  const isEffectiveUnread = buildEffectiveUnreadFilter(lastReadBySession);
+  const threadState = await getThreadState(prisma, threadKey) || await refreshThreadState(prisma, threadKey);
 
   let rows;
   if (mode === 'older') {
@@ -249,13 +259,13 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
       take: limit
     });
   } else {
-    const unreadRows = await prisma.agentInboundMessage.findMany({
-      where: { session_key: threadKey, is_read: 0 },
-      orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
-    });
-    const effectiveUnread = unreadRows.filter(isEffectiveUnread);
-    if (effectiveUnread.length >= limit) {
-      rows = effectiveUnread.slice(0, limit).reverse();
+    if (Number(threadState?.unread_count || 0) >= limit) {
+      rows = await prisma.agentInboundMessage.findMany({
+        where: buildEffectiveUnreadWhere(threadState),
+        orderBy: [{ received_at: 'desc' }, { id: 'desc' }],
+        take: limit
+      });
+      rows = rows.reverse();
     } else {
       rows = (await prisma.agentInboundMessage.findMany({
         where: { session_key: threadKey },
@@ -267,20 +277,40 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
 
   const first = rows[0] || null;
   const last = rows[rows.length - 1] || null;
-  const [olderCount, newerCount, allUnread] = await Promise.all([
+  const unreadCount = Number(threadState?.unread_count || 0);
+  const directMentions = Number(threadState?.direct_mentions || 0);
+  let unreadBeforeWindow = 0;
+  let unreadAfterWindow = 0;
+  if (unreadCount > 0 && first && last) {
+    const [before, throughLast] = await Promise.all([
+      prisma.agentInboundMessage.count({
+        where: {
+          ...buildEffectiveUnreadWhere(threadState),
+          OR: [
+            { received_at: { lt: first.received_at } },
+            { received_at: first.received_at, id: { lt: first.id } }
+          ]
+        }
+      }),
+      prisma.agentInboundMessage.count({
+        where: {
+          ...buildEffectiveUnreadWhere(threadState),
+          OR: [
+            { received_at: { lt: last.received_at } },
+            { received_at: last.received_at, id: { lte: last.id } }
+          ]
+        }
+      })
+    ]);
+    unreadBeforeWindow = Number(before || 0);
+    unreadAfterWindow = Math.max(0, unreadCount - Number(throughLast || 0));
+  }
+
+  const [olderCount, newerCount] = await Promise.all([
     first ? prisma.agentInboundMessage.count({ where: buildOlderWhere(threadKey, first) }) : Promise.resolve(0),
-    last ? prisma.agentInboundMessage.count({ where: buildNewerWhere(threadKey, last) }) : Promise.resolve(0),
-    prisma.agentInboundMessage.findMany({
-      where: { session_key: threadKey, is_read: 0 },
-      orderBy: [{ received_at: 'asc' }, { id: 'asc' }]
-    })
+    last ? prisma.agentInboundMessage.count({ where: buildNewerWhere(threadKey, last) }) : Promise.resolve(0)
   ]);
-  const effectiveUnread = allUnread.filter(isEffectiveUnread);
-  const windowUnread = rows.filter(isEffectiveUnread);
-  const firstUnreadIndex = effectiveUnread.findIndex((message) => first && message.id === first.id);
-  const lastUnreadIndex = effectiveUnread.findIndex((message) => last && message.id === last.id);
-  const unreadBeforeWindow = firstUnreadIndex > 0 ? firstUnreadIndex : 0;
-  const unreadAfterWindow = lastUnreadIndex >= 0 ? Math.max(0, effectiveUnread.length - lastUnreadIndex - 1) : 0;
+  const windowUnread = rows.filter((message) => isEffectiveUnreadFromState(message, threadState));
 
   return {
     threadKey,
@@ -292,9 +322,9 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
     newerAvailable: newerCount,
     unreadBeforeWindow,
     unreadAfterWindow,
-    reachedReadHistory: rows.some((message) => !isEffectiveUnread(message)),
-    unreadCount: effectiveUnread.length,
-    directMentions: countDirectMentions(effectiveUnread),
+    reachedReadHistory: rows.some((message) => !isEffectiveUnreadFromState(message, threadState)),
+    unreadCount,
+    directMentions,
     messages: rows.map(normalizeRow),
     latestMessageId: last ? Number(last.id) : null,
     earliestMessageId: first ? Number(first.id) : null,
@@ -315,6 +345,7 @@ async function markQqUsageThreadRead(input = {}, config = {}) {
     where: { session_key: threadKey, is_read: 0 },
     data: { is_read: 1, read_at: new Date() }
   });
+  await refreshThreadState(prisma, threadKey);
   return { threadKey, clearedCount: Number(result.count || 0) };
 }
 

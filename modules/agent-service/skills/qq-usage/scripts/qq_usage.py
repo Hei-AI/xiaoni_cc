@@ -95,12 +95,6 @@ def build_parser():
     search_inbox = subcommands.add_parser("search_inbox")
     search_inbox.add_argument("query")
 
-    search_private = subcommands.add_parser("search_private")
-    search_private.add_argument("query")
-
-    search_group = subcommands.add_parser("search_group")
-    search_group.add_argument("query")
-
     focus_private = subcommands.add_parser("focus_private")
     focus_private.add_argument("user_id")
 
@@ -120,12 +114,6 @@ def build_parser():
 
     jump_group = subcommands.add_parser("jump_group_to_latest")
     jump_group.add_argument("group_id")
-
-    put_private_away = subcommands.add_parser("put_private_away")
-    put_private_away.add_argument("user_id")
-
-    put_group_away = subcommands.add_parser("put_group_away")
-    put_group_away.add_argument("group_id")
 
     subcommands.add_parser("put_qq_away")
 

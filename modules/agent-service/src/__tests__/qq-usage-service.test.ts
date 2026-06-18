@@ -10,8 +10,8 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action: 'qq_usage.open_inbox', content: '<IM_INBOX_WINDOW></IM_INBOX_WINDOW>', inbox_offset: offset };
   }
 
-  async scrollInbox(direction: 'older' | 'newer', currentOffset = 0) {
-    this.calls.push({ method: 'scrollInbox', args: [direction, currentOffset] });
+  async scrollInbox(direction: 'older' | 'newer', currentOffset = 0, query?: string | null, chatType?: 'direct' | 'group' | null) {
+    this.calls.push({ method: 'scrollInbox', args: [direction, currentOffset, query, chatType] });
     return { qq_usage: true as const, action: 'qq_usage.scroll_inbox', content: '<IM_INBOX_WINDOW></IM_INBOX_WINDOW>', inbox_offset: direction === 'older' ? currentOffset + 10 : Math.max(0, currentOffset - 10) };
   }
 
@@ -61,7 +61,7 @@ test('QqUsageSkillRuntime executes skill commands through engineering service st
     'focusThread',
     'scrollThread'
   ]);
-  assert.deepEqual(service.calls[1]?.args, ['older', 0]);
+  assert.deepEqual(service.calls[1]?.args, ['older', 0, null, null]);
   assert.deepEqual(service.calls[3]?.args, ['qq:group:123', 'older', 10, {}, 'qq_usage.scroll_group']);
 });
 
@@ -85,21 +85,17 @@ test('QqUsageSkillRuntime passes runtime trace context to thread-reading actions
   });
 });
 
-test('QqUsageSkillRuntime searches inbox, private chats, and groups by name', async () => {
+test('QqUsageSkillRuntime searches inbox by name and preserves search while scrolling', async () => {
   const service = new FakeQqUsageService();
   const runtime = new QqUsageSkillRuntime(service as any);
 
   const inboxResult = await runtime.execute('search_inbox', { query: '阿花' });
-  const privateResult = await runtime.execute('search_private', { query: '小伊' });
-  const groupResult = await runtime.execute('search_group', { query: '朋友' });
+  await runtime.execute('scroll_inbox', { direction: 'older' });
 
   assert.equal(inboxResult.action, 'qq_usage.search_inbox');
-  assert.equal(privateResult.action, 'qq_usage.search_private');
-  assert.equal(groupResult.action, 'qq_usage.search_group');
   assert.deepEqual(service.calls, [
     { method: 'searchInbox', args: ['阿花', undefined] },
-    { method: 'searchInbox', args: ['小伊', 'direct'] },
-    { method: 'searchInbox', args: ['朋友', 'group'] }
+    { method: 'scrollInbox', args: ['older', 0, '阿花', null] }
   ]);
 });
 
@@ -110,7 +106,7 @@ test('QqUsageSkillRuntime opens private chats by user id using the configured bo
   const focusResult = await runtime.execute('focus_private', { user_id: '85178516' });
   const scrollResult = await runtime.execute('scroll_private', { user_id: '85178516', direction: 'newer' });
   const jumpResult = await runtime.execute('jump_private_to_latest', { user_id: '85178516' });
-  await runtime.execute('put_private_away', { user_id: '85178516' });
+  await runtime.execute('put_qq_away');
 
   assert.deepEqual(service.calls.map((call) => call.method), [
     'focusThread',
@@ -162,7 +158,7 @@ test('QqUsageSkillRuntime opens groups by group id', async () => {
   await runtime.execute('focus_group', { group_id: '123' });
   await runtime.execute('scroll_group', { group_id: '123', direction: 'older' });
   await runtime.execute('jump_group_to_latest', { group_id: '123' });
-  await runtime.execute('put_group_away', { group_id: '123' });
+  await runtime.execute('put_qq_away');
 
   assert.deepEqual(service.calls.map((call) => call.method), [
     'focusThread',
@@ -181,7 +177,7 @@ test('QqUsageSkillRuntime forgets scroll anchors after putting a chat away', asy
   const runtime = new QqUsageSkillRuntime(service as any, { botAccountId: '1129974489' });
 
   await runtime.execute('focus_private', { user_id: '85178516' });
-  await runtime.execute('put_private_away', { user_id: '85178516' });
+  await runtime.execute('put_qq_away');
   const result = await runtime.execute('scroll_private', { user_id: '85178516', direction: 'older' });
 
   assert.equal(result.failed, true);

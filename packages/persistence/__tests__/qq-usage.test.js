@@ -38,38 +38,55 @@ test('listQqUsageThreads summarizes visible threads without loading full message
     raw_payload: {}
   };
   const calls = {
-    groupBy: [],
+    threadFindMany: [],
     findFirst: [],
-    count: [],
     findMany: []
   };
   const prisma = {
-    agentInboundMessage: {
-      groupBy: async (query) => {
-        calls.groupBy.push(query);
-        if (query.where?.is_read === 1) {
-          return [
-            { session_key: 'qq:group:253631878', _max: { received_at: new Date('2026-06-18T11:00:00.000Z') } }
-          ];
-        }
+    agentInboundThreadState: {
+      findMany: async (query) => {
+        calls.threadFindMany.push(query);
         return [
           {
             session_key: 'qq:direct:1129974489:85178516',
-            _max: { received_at: directLatest.received_at },
-            _count: { _all: 442 }
+            chat_type: 'direct',
+            peer_id: '85178516',
+            peer_name: '李阿花',
+            account_id: '1129974489',
+            unread_count: 3,
+            direct_mentions: 0,
+            total_messages: 442,
+            last_message_id: directLatest.id,
+            last_received_at: directLatest.received_at
           },
           {
             session_key: 'qq:group:253631878',
-            _max: { received_at: groupLatest.received_at },
-            _count: { _all: 12875 }
+            chat_type: 'group',
+            peer_id: '253631878',
+            peer_name: 'Test Group',
+            account_id: '1129974489',
+            unread_count: 94,
+            direct_mentions: 2,
+            total_messages: 12875,
+            last_message_id: groupLatest.id,
+            last_received_at: groupLatest.received_at
           },
           {
             session_key: 'qq:group:older',
-            _max: { received_at: new Date('2026-06-18T10:00:00.000Z') },
-            _count: { _all: 4 }
+            chat_type: 'group',
+            peer_id: 'older',
+            peer_name: 'Older Group',
+            account_id: '1129974489',
+            unread_count: 0,
+            direct_mentions: 0,
+            total_messages: 4,
+            last_message_id: 50n,
+            last_received_at: new Date('2026-06-18T10:00:00.000Z')
           }
         ];
-      },
+      }
+    },
+    agentInboundMessage: {
       findFirst: async (query) => {
         calls.findFirst.push(query);
         if (query.where.session_key === 'qq:direct:1129974489:85178516') {
@@ -80,22 +97,10 @@ test('listQqUsageThreads summarizes visible threads without loading full message
         }
         return null;
       },
-      count: async (query) => {
-        calls.count.push(query);
-        const sessionKey = query.where.session_key;
-        const mentioned = query.where.was_mentioned === 1;
-        if (sessionKey === 'qq:direct:1129974489:85178516') {
-          return mentioned ? 0 : 3;
-        }
-        if (sessionKey === 'qq:group:253631878') {
-          assert.deepEqual(query.where.received_at, { gt: new Date('2026-06-18T11:00:00.000Z') });
-          return mentioned ? 2 : 94;
-        }
-        return 0;
-      },
       findMany: async (query) => {
         calls.findMany.push(query);
-        throw new Error('listQqUsageThreads should not load full message history');
+        assert.deepEqual(query.where.id.in, [directLatest.id, groupLatest.id]);
+        return [directLatest, groupLatest];
       }
     }
   };
@@ -113,16 +118,15 @@ test('listQqUsageThreads summarizes visible threads without loading full message
   assert.equal(result.threads[1].unreadCount, 94);
   assert.equal(result.threads[1].directMentions, 2);
   assert.equal(result.threads[1].totalMessages, 12875);
-  assert.equal(calls.findMany.length, 0);
-  assert.equal(calls.findFirst.length, 2);
-  assert.equal(calls.count.length, 4);
+  assert.equal(calls.threadFindMany.length, 1);
+  assert.equal(calls.findMany.length, 1);
+  assert.equal(calls.findFirst.length, 0);
 });
 
 test('searchQqUsageThreads filters visible chats by stored name or QQ id', async () => {
   const calls = {
-    groupBy: [],
-    findFirst: [],
-    count: []
+    threadFindMany: [],
+    findMany: []
   };
   const latest = {
     id: 300n,
@@ -141,12 +145,9 @@ test('searchQqUsageThreads filters visible chats by stored name or QQ id', async
     raw_payload: {}
   };
   const prisma = {
-    agentInboundMessage: {
-      groupBy: async (query) => {
-        calls.groupBy.push(query);
-        if (query.where?.is_read === 1) {
-          return [];
-        }
+    agentInboundThreadState: {
+      findMany: async (query) => {
+        calls.threadFindMany.push(query);
         assert.equal(query.where.chat_type, 'group');
         assert.deepEqual(query.where.OR, [
           { peer_name: { contains: '朋友', mode: 'insensitive' } },
@@ -155,19 +156,23 @@ test('searchQqUsageThreads filters visible chats by stored name or QQ id', async
         ]);
         return [{
           session_key: 'qq:group:253631878',
-          _max: { received_at: latest.received_at },
-          _count: { _all: 12876 }
+          chat_type: 'group',
+          peer_id: '253631878',
+          peer_name: '朋友群',
+          account_id: '1129974489',
+          unread_count: 94,
+          direct_mentions: 0,
+          total_messages: 12876,
+          last_message_id: latest.id,
+          last_received_at: latest.received_at
         }];
-      },
-      findFirst: async (query) => {
-        calls.findFirst.push(query);
-        assert.equal(query.where.session_key, 'qq:group:253631878');
-        return latest;
-      },
-      count: async (query) => {
-        calls.count.push(query);
-        assert.equal(query.where.session_key, 'qq:group:253631878');
-        return query.where.was_mentioned === 1 ? 0 : 94;
+      }
+    },
+    agentInboundMessage: {
+      findMany: async (query) => {
+        calls.findMany.push(query);
+        assert.deepEqual(query.where.id.in, [latest.id]);
+        return [latest];
       }
     }
   };
@@ -180,6 +185,6 @@ test('searchQqUsageThreads filters visible chats by stored name or QQ id', async
   assert.equal(result.threads.length, 1);
   assert.equal(result.threads[0].peerName, '朋友群');
   assert.equal(result.threads[0].unreadCount, 94);
-  assert.equal(calls.findFirst.length, 1);
-  assert.equal(calls.count.length, 2);
+  assert.equal(calls.threadFindMany.length, 1);
+  assert.equal(calls.findMany.length, 1);
 });

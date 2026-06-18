@@ -16,43 +16,36 @@ energy_cost: 0.002
 ## Commands
 
 Use `exec_command` to run the local script. The script calls the agent-service engineering interface; it does not query PostgreSQL.
-This skill only opens, scrolls, focuses, and closes QQ windows. It does not send QQ messages; sending is handled by the available prompt-facing send tool contract.
+This skill opens, searches, scrolls, focuses, and closes QQ windows. It does not send QQ messages; sending is handled by the available prompt-facing send tool contract.
 
 ```bash
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_inbox older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_inbox 阿花
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_private 阿花
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_group 朋友
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private 85178516 older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_group 123 older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest 85178516
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_group_to_latest 123
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_private_away 85178516
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_group_away 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
 ```
 
 - `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows.
 - `scroll_inbox older|newer` pages the thread list by 10.
-- `search_inbox query` searches private and group chats by visible chat name or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
-- `search_private query` searches private chats by the other person's visible name or QQ id.
-- `search_group query` searches group chats by visible group name or QQ group id.
+- `search_inbox query` searches private and group chats by visible chat name, group name, or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
 - `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
 - `focus_group group_id` opens a group by QQ group id.
 - `scroll_private user_id older|newer` and `scroll_group group_id older|newer` scroll the current conversation window by 10 messages.
 - `jump_private_to_latest user_id` and `jump_group_to_latest group_id` jump to the latest visible screen for that conversation.
-- `put_private_away user_id` and `put_group_away group_id` close QQ and clear that conversation's unread badge.
-- `put_qq_away` without an id only closes the list and clears no thread badge.
+- `put_qq_away` closes QQ. If a chat is currently open, it clears that chat's unread badge.
 
 ## Conversation IDs
 
 - For private chats, use the other person's QQ id: `focus_private 85178516`.
 - For groups, use the QQ group id: `focus_group 123`.
 - Do not pass internal `thread_key` / `session_key` values to this skill. Use the QQ id or group id instead.
-- If you only remember a name, use `search_private name`, `search_group name`, or `search_inbox name` first. Search matches currently stored visible names and QQ ids; if a group only has a fallback name like `群 123`, search by the real group name will not find it until that name is stored.
+- If you only remember a name, use `search_inbox name` first. Search matches currently stored visible names, group names, and QQ ids; if a group only has a fallback name like `群 123`, search by the real group name will not find it until that name is stored.
 
 ## Reading Rules
 
@@ -67,9 +60,8 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 ## Badge Rules
 
 - Switching conversations can clear the previous conversation's unread badge, including messages not displayed in the visible window.
-- `put_private_away user_id` or `put_group_away group_id` clears that conversation's unread badge.
+- `put_qq_away` clears the currently open conversation's unread badge. If only the inbox list is open, it clears no conversation badge.
 - Clearing a badge does not mean unseen messages were read. If you want to continue later, record that intention in `xiaoni_os`.
-- `put_qq_away` without a thread key only closes the list and clears no thread badge.
 
 ## Failure
 

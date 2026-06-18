@@ -203,6 +203,8 @@ exports.Prisma.AgentQqAttentionReminderScalarFieldEnum = {
 exports.Prisma.AgentRuntimeControlScalarFieldEnum = {
   identity_key: 'identity_key',
   enabled: 'enabled',
+  cache_heartbeat_paused: 'cache_heartbeat_paused',
+  cache_heartbeat_paused_at: 'cache_heartbeat_paused_at',
   post_compression_pause_armed: 'post_compression_pause_armed',
   post_compression_pause_armed_at: 'post_compression_pause_armed_at',
   post_compression_pause_triggered_at: 'post_compression_pause_triggered_at',
@@ -711,6 +713,23 @@ exports.Prisma.AgentInboundMessageScalarFieldEnum = {
   reply_to_sender: 'reply_to_sender',
   raw_payload: 'raw_payload',
   inbound_context: 'inbound_context',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentInboundThreadStateScalarFieldEnum = {
+  session_key: 'session_key',
+  chat_type: 'chat_type',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  account_id: 'account_id',
+  total_messages: 'total_messages',
+  unread_count: 'unread_count',
+  direct_mentions: 'direct_mentions',
+  last_message_id: 'last_message_id',
+  last_received_at: 'last_received_at',
+  latest_unread_received_at: 'latest_unread_received_at',
+  last_read_received_at: 'last_read_received_at',
   created_at: 'created_at',
   updated_at: 'updated_at'
 };
@@ -1476,6 +1495,7 @@ exports.Prisma.ModelName = {
   GroupChatSetting: 'GroupChatSetting',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',
+  AgentInboundThreadState: 'AgentInboundThreadState',
   HttpTrafficLog: 'HttpTrafficLog',
   ConversationItem: 'ConversationItem',
   TrafficReplayHistory: 'TrafficReplayHistory',

@@ -34,7 +34,8 @@ function createInboxRow(overrides = {}) {
       ChatType: 'group',
       SessionKey: 'qq:group:42',
       BodyForAgent: overrides.body_for_agent || 'hello'
-    })
+    }),
+    ...(typeof overrides.inserted !== 'undefined' ? { inserted: overrides.inserted } : {})
   };
 }
 
@@ -45,13 +46,13 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
   const sqlAdapter = {
     execute: async (sql, params = []) => {
       executes.push({ sql, params });
-      insertParams = params;
       return 1;
     },
     query: async (sql, params = []) => {
       queries.push({ sql, params });
-      assert.equal(params[0], 'napcat:sid-42');
+      insertParams = params;
       return [createInboxRow({
+        inserted: true,
         id: 42,
         trace_id: insertParams[0],
         source: insertParams[1],
@@ -110,23 +111,25 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
     }
   });
 
-  assert.equal(executes.length, 1);
-  assert.ok(executes[0].sql.includes('INSERT INTO agent_inbound_messages'));
-  assert.equal(executes[0].params[0], 'trace-42');
-  assert.equal(executes[0].params[1], 'napcat');
-  assert.equal(executes[0].params[2], 'sid-42');
-  assert.equal(executes[0].params[3], 'napcat:sid-42');
-  assert.equal(executes[0].params[4], 'group');
-  assert.equal(executes[0].params[5], 'qq:group:42');
-  assert.equal(executes[0].params[6], '42');
-  assert.equal(executes[0].params[7], 'Test Group');
-  assert.equal(executes[0].params[8], '10001');
-  assert.equal(executes[0].params[9], 'Alice');
-  assert.equal(executes[0].params[10], '1129974489');
-  assert.equal(executes[0].params[13], 'hello');
-  assert.equal(executes[0].params[16], 1);
-  assert.deepEqual(JSON.parse(executes[0].params[20]), { post_type: 'message' });
   assert.equal(queries.length, 1);
+  assert.ok(queries[0].sql.includes('INSERT INTO agent_inbound_messages'));
+  assert.equal(queries[0].params[0], 'trace-42');
+  assert.equal(queries[0].params[1], 'napcat');
+  assert.equal(queries[0].params[2], 'sid-42');
+  assert.equal(queries[0].params[3], 'napcat:sid-42');
+  assert.equal(queries[0].params[4], 'group');
+  assert.equal(queries[0].params[5], 'qq:group:42');
+  assert.equal(queries[0].params[6], '42');
+  assert.equal(queries[0].params[7], 'Test Group');
+  assert.equal(queries[0].params[8], '10001');
+  assert.equal(queries[0].params[9], 'Alice');
+  assert.equal(queries[0].params[10], '1129974489');
+  assert.equal(queries[0].params[13], 'hello');
+  assert.equal(queries[0].params[16], 1);
+  assert.deepEqual(JSON.parse(queries[0].params[20]), { post_type: 'message' });
+  assert.equal(executes.length, 1);
+  assert.ok(executes[0].sql.includes('INSERT INTO agent_inbound_thread_states'));
+  assert.deepEqual(executes[0].params, ['qq:group:42']);
   assert.equal(message.id, 42);
   assert.equal(message.messageSid, 'sid-42');
   assert.equal(message.rawBody, 'hello');
@@ -178,15 +181,17 @@ test('claimInboundMessages selects effective unread messages and marks them read
 
   assert.equal(claimed.length, 2);
   assert.deepEqual(claimed.map((message) => message.id), [2, 5]);
-  assert.equal(executeCalls.length, 1);
+  assert.equal(executeCalls.length, 2);
   assert.ok(executeCalls[0].sql.includes('SET is_read = 1, read_at = NOW()'));
   assert.deepEqual(executeCalls[0].params, [2, 5]);
+  assert.ok(executeCalls[1].sql.includes('INSERT INTO agent_inbound_thread_states'));
+  assert.deepEqual(executeCalls[1].params, ['qq:group:42']);
 });
 
 test('listInboundInboxConversations preserves summary shape', async () => {
   const sqlAdapter = {
     query: async (sql, params = []) => {
-      assert.ok(sql.includes('GROUP BY m.session_key'));
+      assert.ok(sql.includes('FROM agent_inbound_thread_states s'));
       assert.deepEqual(params, [25, 10]);
       return [{
         session_key: 'qq:group:42',
