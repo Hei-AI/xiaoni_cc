@@ -29,6 +29,14 @@
 | `recover_energy_batch_final_timeline` | `docs/xiaoni_prompt/recover_energy_batch_final_timeline.md` | 同批工具调用中 `recover_energy` 被 runtime 放到最后执行时，嵌入醒来提醒，说明哪些动作发生在睡前。 |
 | `recover_energy_rejected` | `docs/xiaoni_prompt/recover_energy_rejected_reminder.md` | `recover_energy` 工具被工程拒绝时，作为同一个 tool call 的 callback 文本。 |
 
+## Template Fragments
+
+| Fragment | File | Used By |
+| --- | --- | --- |
+| `phone_notification_direct_cue_line` | `docs/xiaoni_prompt/phone_notification_direct_cue_line.md` | `phone_notification` 的私聊短摘要行。 |
+| `phone_notification_group_mention_cue_line` | `docs/xiaoni_prompt/phone_notification_group_mention_cue_line.md` | `phone_notification` 的群 @ 短摘要行。 |
+| `phone_notification_group_activity_cue_line` | `docs/xiaoni_prompt/phone_notification_group_activity_cue_line.md` | `phone_notification` 的普通群动静短摘要行。 |
+
 ## Assembly Rules
 
 - Runtime reminder 使用 `developer` role 进入当前 request input。
@@ -42,11 +50,13 @@
 - 模型主动调用 `recover_energy` 后，成功/被打断/clock 醒来/拒绝说明必须作为该工具的 `function_call_output.output` 返回；不要 enqueue 恢复用 `self_continuation` notify，也不要用 `release_lease` 字段吞掉 callback。
 - runtime 强制休息没有原始 tool call，醒来后使用 runtime input `<system_reminder>`；不要伪造 `function_call_output`。
 - 自然文本型 tool callback 可以带同样的东八区时间前缀；结构化 JSON callback 必须继续保持合法 JSON。`exec_command.codex_output` 是终端 transcript，必须保持原样，不加该前缀。
-- `phone_notification` 只表示 QQ 状态栏余光；QQ 正文仍必须由模型主动通过 `$qq-usage` 读取。
+- `phone_notification` 只表示 QQ 状态栏余光；它可以携带允许通知的短 preview、
+  图片/媒体占位、群名和最新发言人，帮助小腻判断是否切到 QQ。完整 QQ 正文和上下文
+  仍必须由模型主动通过 `$qq-usage` 读取。
 - `attention_lease` 是 `$qq-usage` 主动查看某个 QQ 会话后的短期余光提醒；它仍是
   普通 `system_reminder` runtime input，不是 QQ 正文，不写 `conversation_items`。
-  模板变量只能使用会话名、未读数量、@/私聊次数和可执行的 `$qq-usage` 目标线索；
-  禁止放正文、preview、topic、sender latest body、`rawBody`、`bodyForAgent`、
+  模板变量只能使用会话名、未读数量、@/私聊次数、最新发言人、短 preview 和可执行的
+  `$qq-usage` 目标线索；禁止放完整正文、topic、`rawBody`、`bodyForAgent`、
   `sessionKey`、`threadKey`、`queueId`、`traceId` 或 `runId`。
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
 - `image_task_pending` 只允许说明任务仍在渲染中，且当前没有图片 id/path；如果此前盲猜路径导致发送失败，未来完成 notify 里的 id/path 会覆盖旧失败记忆。

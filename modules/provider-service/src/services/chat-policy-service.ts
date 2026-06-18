@@ -3,9 +3,11 @@ import { databaseConfig } from '../config';
 import { logger } from '../utils/logger';
 
 type MessageType = 'private' | 'group';
+export type GroupNotificationMode = 'all' | 'mentions_only';
 
 type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
+  notification_mode?: string | null;
 };
 
 export type PolicyState = {
@@ -13,6 +15,7 @@ export type PolicyState = {
   isEnabled: boolean;
   continuousLearningEnabled: boolean;
   autoReplyEnabled: boolean;
+  notificationMode: GroupNotificationMode;
 };
 
 type IncomingPolicyResult = PolicyState & {
@@ -79,19 +82,16 @@ export class ChatPolicyService {
   async markIncomingActivity(params: { messageType: MessageType; userId: number; groupId?: number }): Promise<void> {
     try {
       if (params.messageType === 'group' && params.groupId) {
-        await this.prisma.groupChatSetting.upsert({
-          where: { group_id: BigInt(params.groupId) },
-          create: {
-            group_id: BigInt(params.groupId),
-            is_enabled: 1,
-            continuous_learning_enabled: 0,
-            auto_reply_enabled: 1,
-            last_activity: new Date()
-          },
-          update: {
-            last_activity: new Date()
-          }
-        });
+        await this.prisma.$executeRawUnsafe(
+          "ALTER TABLE group_chat_settings ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'"
+        );
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO group_chat_settings (group_id, is_enabled, continuous_learning_enabled, auto_reply_enabled, notification_mode, last_activity)
+           VALUES ($1, 1, 0, 1, 'all', NOW())
+           ON CONFLICT (group_id) DO UPDATE
+             SET last_activity = NOW()`,
+          BigInt(params.groupId)
+        );
         return;
       }
 
@@ -126,7 +126,8 @@ export class ChatPolicyService {
         exists: false,
         isEnabled: true,
         continuousLearningEnabled: false,
-        autoReplyEnabled: true
+        autoReplyEnabled: true,
+        notificationMode: 'all'
       };
     }
 
@@ -136,7 +137,8 @@ export class ChatPolicyService {
       exists: true,
       isEnabled,
       continuousLearningEnabled: false,
-      autoReplyEnabled: isEnabled
+      autoReplyEnabled: isEnabled,
+      notificationMode: normalizeGroupNotificationMode(row.notification_mode)
     };
   }
 
@@ -145,14 +147,25 @@ export class ChatPolicyService {
       return null;
     }
 
-    const row = await this.prisma.groupChatSetting.findUnique({
-      where: { group_id: BigInt(groupId) },
-      select: {
-        is_enabled: true
-      }
-    });
-
-    return row || null;
+    try {
+      const rows = await this.prisma.$queryRawUnsafe(
+        'SELECT is_enabled, notification_mode FROM group_chat_settings WHERE group_id = $1 LIMIT 1',
+        BigInt(groupId)
+      );
+      return Array.isArray(rows) ? rows[0] || null : null;
+    } catch (error) {
+      const row = await this.prisma.groupChatSetting.findUnique({
+        where: { group_id: BigInt(groupId) },
+        select: {
+          is_enabled: true
+        }
+      });
+      this.moduleLogger.warn('Fell back to legacy group policy read without notification_mode', {
+        groupId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return row || null;
+    }
   }
 
   private async getPrivateRecord(userId: number): Promise<ChatPolicyRecord | null> {
@@ -165,6 +178,10 @@ export class ChatPolicyService {
 
     return row || null;
   }
+}
+
+function normalizeGroupNotificationMode(value: unknown): GroupNotificationMode {
+  return value === 'mentions_only' ? 'mentions_only' : 'all';
 }
 
 export default ChatPolicyService;

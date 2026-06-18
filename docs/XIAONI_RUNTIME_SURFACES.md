@@ -41,7 +41,7 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 
 | Template family | Current behavior |
 | --- | --- |
-| QQ/attention | `phone_notification` 只表示状态栏未读摘要；正文必须通过 `$qq-usage` 主动打开。`attention_lease` 是短期余光提醒，不续期所有 inbox。 |
+| QQ/attention | `phone_notification` 只表示状态栏未读短摘要；完整正文必须通过 `$qq-usage` 主动打开。群聊 `mentions_only` 模式下普通群消息只进 inbox，不敲状态栏。`attention_lease` 是短期余光提醒，不续期所有 inbox。 |
 | Self continuation | 只有 no-notify 且候选 requestInput 尾项仍是 `assistant final_answer` 时追加；不是 queue trigger。 |
 | Image tasks | `image_task_pending` 防止盲猜成品路径；`image_task_notification` 只在任务完成后提供 task id、图片 id/path 和目标说明。 |
 | Recovery | 模型主动 `recover_energy` 的成功、被打断、clock、clock deferred 和拒绝都作为同一个 tool call 的 callback；强制休息醒来走 runtime input。 |

@@ -206,6 +206,8 @@ const CONVERSATION_STORE_DDLS = [
    ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE group_chat_settings
    ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`,
+  `ALTER TABLE group_chat_settings
+   ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'`,
   `ALTER TABLE private_chat_settings
    ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`,
   `ALTER TABLE group_chat_settings

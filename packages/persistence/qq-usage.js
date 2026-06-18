@@ -28,6 +28,20 @@ function normalizeRow(row) {
   return normalized;
 }
 
+const GROUP_NOTIFICATION_MODES = new Set(['all', 'mentions_only']);
+
+function normalizeGroupNotificationMode(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (normalized === 'mentions' || normalized === 'mention_only' || normalized === 'mention-only') {
+    return 'mentions_only';
+  }
+  return GROUP_NOTIFICATION_MODES.has(normalized) ? normalized : '';
+}
+
+async function ensureGroupNotificationModeColumn(prisma) {
+  await prisma.$executeRawUnsafe("ALTER TABLE group_chat_settings ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'");
+}
+
 function normalizeChatType(value) {
   return value === 'group' || value === 'direct' ? value : null;
 }
@@ -399,6 +413,37 @@ async function markQqUsageThreadRead(input = {}, config = {}) {
   return { threadKey, clearedCount: Number(result.count || 0) };
 }
 
+async function setQqUsageGroupNotificationMode(input = {}, config = {}) {
+  const prisma = input.prisma || config.prisma || input.getPrismaClient?.(config) || config.getPrismaClient?.(config);
+  if (!prisma) {
+    throw new Error('setQqUsageGroupNotificationMode requires a Prisma client');
+  }
+  const groupId = toBigIntOrNull(input.groupId || input.group_id || input.peerId || input.peer_id);
+  if (groupId === null || groupId <= 0n) {
+    throw new Error('group_id is required');
+  }
+  const mode = normalizeGroupNotificationMode(input.mode || input.notificationMode || input.notification_mode);
+  if (!mode) {
+    throw new Error('mode must be all or mentions_only');
+  }
+  await ensureGroupNotificationModeColumn(prisma);
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO group_chat_settings (group_id, is_enabled, continuous_learning_enabled, auto_reply_enabled, notification_mode, last_activity)
+     VALUES ($1, 1, 0, 1, $2, NOW())
+     ON CONFLICT (group_id) DO UPDATE
+       SET notification_mode = EXCLUDED.notification_mode,
+           last_activity = NOW()
+     RETURNING group_id, notification_mode`,
+    groupId,
+    mode
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  return {
+    groupId: row?.group_id === undefined ? Number(groupId) : Number(row.group_id),
+    notificationMode: normalizeGroupNotificationMode(row?.notification_mode) || mode
+  };
+}
+
 function createQqUsagePersistence(deps) {
   return {
     getQqUsageUnreadSummary(input = {}, config = {}) {
@@ -415,6 +460,9 @@ function createQqUsagePersistence(deps) {
     },
     markQqUsageThreadRead(input = {}, config = {}) {
       return markQqUsageThreadRead({ ...input, getPrismaClient: deps.getPrismaClient }, config);
+    },
+    setQqUsageGroupNotificationMode(input = {}, config = {}) {
+      return setQqUsageGroupNotificationMode({ ...input, getPrismaClient: deps.getPrismaClient }, config);
     }
   };
 }

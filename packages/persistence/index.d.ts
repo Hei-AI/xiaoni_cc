@@ -1266,6 +1266,7 @@ export type QqUsageThreadWindow = {
   earliestMessageId: number | null;
   windowUnreadCount: number;
 };
+export type QqUsageGroupNotificationMode = 'all' | 'mentions_only';
 export function getQqUsageUnreadSummary(
   input?: Record<string, unknown>,
   config?: DatabaseUrlConfig
@@ -1286,6 +1287,10 @@ export function markQqUsageThreadRead(
   input?: { threadKey?: string | null },
   config?: DatabaseUrlConfig
 ): Promise<{ threadKey: string | null; clearedCount: number }>;
+export function setQqUsageGroupNotificationMode(
+  input?: { groupId?: string | number | bigint; group_id?: string | number | bigint; mode?: QqUsageGroupNotificationMode | string },
+  config?: DatabaseUrlConfig
+): Promise<{ groupId: number; notificationMode: QqUsageGroupNotificationMode }>;
 export function ensureQqAttentionLeaseSchema(
   input?: { sqlAdapter?: SqlAdapter },
   config?: DatabaseUrlConfig

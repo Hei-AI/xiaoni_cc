@@ -4,6 +4,7 @@ export type InboundAgentQueueTriggerReason =
   | 'group_mention_phone_notification'
   | 'group_message_phone_notification'
   | 'direct_phone_notification';
+type GroupNotificationMode = 'all' | 'mentions_only';
 
 export type InboundAgentQueueTriggerDecision = {
   shouldEnqueue: boolean;
@@ -15,6 +16,7 @@ export type InboundAgentQueuePolicyState = {
   isEnabled: boolean;
   continuousLearningEnabled: boolean;
   autoReplyEnabled: boolean;
+  notificationMode: GroupNotificationMode;
 };
 
 export type InboundAgentQueueRuntimeStore = {
@@ -33,14 +35,19 @@ export type InboundAgentQueueRuntimeStore = {
 
 export function decideInboundAgentQueueTrigger(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
-  options: { directTriggerUserIds?: Set<string> } = {}
+  options: { directTriggerUserIds?: Set<string>; notificationMode?: GroupNotificationMode } = {}
 ): InboundAgentQueueTriggerDecision {
-  void options;
   if (message.chatType === 'group') {
     if (message.wasMentioned) {
       return {
         shouldEnqueue: true,
         reason: 'group_mention_phone_notification'
+      };
+    }
+    if (options.notificationMode === 'mentions_only') {
+      return {
+        shouldEnqueue: false,
+        reason: 'group_message_phone_notification'
       };
     }
 
@@ -106,7 +113,9 @@ export async function processInboundAgentQueueTrigger(params: {
   traceId: string;
   source: 'napcat' | 'simulator';
 }, runtimeStoreService: InboundAgentQueueRuntimeStore) {
-  const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
+  const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent, {
+    notificationMode: params.policyState?.notificationMode
+  });
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,
     eventType: 'phone_notification',
@@ -121,6 +130,35 @@ export async function processInboundAgentQueueTrigger(params: {
       was_mentioned: params.inboxEvent.wasMentioned
     }
   });
+
+  if (!triggerDecision.shouldEnqueue) {
+    await runtimeStoreService.logTimelineEvent({
+      traceId: params.traceId,
+      eventType: 'phone_notification',
+      eventName: 'enqueue',
+      eventPhase: 'skip',
+      metadata: {
+        source: params.source,
+        reason: 'group_notification_mentions_only',
+        trigger_reason: triggerDecision.reason,
+        session_key: params.inboxEvent.sessionKey,
+        notification_mode: params.policyState?.notificationMode || 'all'
+      }
+    });
+
+    return {
+      attempted: true,
+      queued: false,
+      queueId: null,
+      queueIds: [],
+      queueStatus: 'skipped',
+      queueStatuses: [],
+      traceId: params.traceId,
+      notificationCount: 0,
+      triggerDecision,
+      reason: 'group_notification_mentions_only'
+    };
+  }
 
   if (params.policyState?.autoReplyEnabled === false) {
     await runtimeStoreService.logTimelineEvent({
@@ -205,12 +243,15 @@ function buildPhoneNotificationMessage(
   const summary = message.chatType === 'group'
     ? `${peerName} 有 1 条新 QQ 消息${message.wasMentioned ? '，其中有人 @ 小腻' : ''}。`
     : `${peerName} 发来 1 条 QQ 私聊。`;
+  const preview = message.chatType === 'group' && !message.wasMentioned
+    ? summary
+    : (message.bodyForAgent || message.rawBody || message.commandBody || summary);
   const inboundContext: FinalizedInboundContext = {
     ...message.inboundContext,
-    Body: '',
-    BodyForAgent: summary,
+    Body: preview,
+    BodyForAgent: preview,
     BodyForCommands: '',
-    RawBody: '',
+    RawBody: preview,
     CommandBody: '',
     Surface: 'phone_notification',
     MessageSid: notificationId,
@@ -231,8 +272,8 @@ function buildPhoneNotificationMessage(
     senderId: 'qq',
     senderName: 'QQ',
     accountId: message.accountId,
-    bodyForAgent: summary,
-    rawBody: summary,
+    bodyForAgent: preview,
+    rawBody: preview,
     commandBody: '',
     wasMentioned: message.wasMentioned,
     receivedAt: message.receivedAt,

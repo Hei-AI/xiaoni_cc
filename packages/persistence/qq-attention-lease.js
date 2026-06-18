@@ -305,6 +305,14 @@ function createQqAttentionLeasePersistence({ getPrismaClient, createSqlAdapter }
     if (unreadDelta <= 0) {
       return { shouldEnqueue: false, reason: 'no_unread_delta', score };
     }
+    if (
+      input.policyState
+      && input.policyState.notificationMode === 'mentions_only'
+      && inbound.chat_type === 'group'
+      && directMentions <= 0
+    ) {
+      return { shouldEnqueue: false, reason: 'group_notification_mentions_only', score };
+    }
     const dedupeKey = `attention_lease:${identityKey}:${inbound.session_key}:${lease.id}:${inbound.id}`;
     let reminder;
     try {

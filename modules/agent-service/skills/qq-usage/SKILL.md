@@ -28,6 +28,10 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_pr
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_group 123 older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest 85178516
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_group_to_latest 123
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_private_away 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_group_away 123
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 mentions_only
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 all
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
 ```
 
@@ -38,6 +42,8 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 - `focus_group group_id` opens a group by QQ group id.
 - `scroll_private user_id older|newer` and `scroll_group group_id older|newer` scroll the current conversation window by 10 messages.
 - `jump_private_to_latest user_id` and `jump_group_to_latest group_id` jump to the latest visible screen for that conversation.
+- `put_private_away user_id` and `put_group_away group_id` close QQ and clear that conversation's unread badge.
+- `set_group_notification_mode group_id mentions_only` keeps ordinary group messages in QQ inbox but stops status-bar reminders unless someone explicitly mentions you. `set_group_notification_mode group_id all` restores ordinary group status-bar reminders.
 - `put_qq_away` closes QQ. If a chat is currently open, it clears that chat's unread badge.
 
 ## Conversation IDs
@@ -49,7 +55,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 
 ## Reading Rules
 
-- `phone_notification` reminders and legacy `<PHONE_NOTIFICATION ... />` blocks are only status-bar notifications. They contain no message bodies, previews, topics, or hints. Use `focus_private user_id` or `focus_group group_id` to open the matching conversation.
+- `phone_notification` reminders and legacy `<PHONE_NOTIFICATION ... />` blocks are only status-bar notifications. They may contain a short latest-message preview and sender label for allowed notifications; use `focus_private user_id` or `focus_group group_id` to open the matching conversation before treating it as the full thread.
 - Thread previews are raw latest visible text, truncated to 20 visible characters. Non-text previews use `[图片]`, `[表情]`, or `[文件]`.
 - Conversation messages appear as child `<MESSAGE>` rows inside one `<IM_INBOX_WINDOW>`, not as top-level `<INPUT_MESSAGE>` blocks.
 - Message bodies may include media markers such as `[图片:pic_hash]`.

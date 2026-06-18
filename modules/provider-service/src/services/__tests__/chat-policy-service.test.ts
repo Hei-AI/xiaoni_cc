@@ -5,6 +5,10 @@ import { ChatPolicyService } from '../chat-policy-service';
 test('policy state treats receive as the hard parent switch', async () => {
   const service = new ChatPolicyService();
   (service as any).prisma = {
+    $queryRawUnsafe: async () => [{
+      is_enabled: 0,
+      notification_mode: 'all'
+    }],
     groupChatSetting: {
       findUnique: async () => ({
         is_enabled: 0,
@@ -25,7 +29,8 @@ test('policy state treats receive as the hard parent switch', async () => {
     exists: true,
     isEnabled: false,
     continuousLearningEnabled: false,
-    autoReplyEnabled: false
+    autoReplyEnabled: false,
+    notificationMode: 'all'
   });
 });
 
@@ -46,13 +51,18 @@ test('missing policy rows keep IM entry and internal delivery enabled by default
     exists: false,
     isEnabled: true,
     continuousLearningEnabled: false,
-    autoReplyEnabled: true
+    autoReplyEnabled: true,
+    notificationMode: 'all'
   });
 });
 
 test('policy state allows group auto reply without a prompt binding', async () => {
   const service = new ChatPolicyService();
   (service as any).prisma = {
+    $queryRawUnsafe: async () => [{
+      is_enabled: 1,
+      notification_mode: 'mentions_only'
+    }],
     groupChatSetting: {
       findUnique: async () => ({
         is_enabled: 1,
@@ -73,6 +83,7 @@ test('policy state allows group auto reply without a prompt binding', async () =
     exists: true,
     isEnabled: true,
     continuousLearningEnabled: false,
-    autoReplyEnabled: true
+    autoReplyEnabled: true,
+    notificationMode: 'mentions_only'
   });
 });

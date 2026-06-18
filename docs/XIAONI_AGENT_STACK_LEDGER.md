@@ -134,14 +134,17 @@ async function runXiaoniRuntime() {
 
 聊天对象的 IM 入口 `is_enabled=0` 是 provider-service 侧硬开关：QQ 正文仍写入
 inbox，但不会写 `phone_notification` 到 Notify Bucket，因此不会因为这条 QQ 消息
-唤醒主 loop。`auto_reply_enabled` 只保留为兼容/派生字段，不再是独立投递开关。
+唤醒主 loop。群聊的 `notification_mode=mentions_only` 是更窄的注意力阈值：普通群消息
+继续写入 inbox，但不写 `phone_notification`；群 @ 仍可唤醒。`auto_reply_enabled`
+只保留为兼容/派生字段，不再是独立投递开关。
 
 `attention_lease` 是 QQ inbox 之上的工程侧短期余光窗口，不是长期订阅。只有
 `$qq-usage` 明确聚焦、滚动或跳转到某个会话后，才可续期该 `session_key` 的
 attention lease；`open_inbox` 只表示看列表，不给所有会话开 lease。窗口内该会话
-有新入站消息时，工程只可按 lease 状态 enqueue bodyless `system_reminder` 摘要；
+有新入站消息时，工程只可按 lease 状态 enqueue `system_reminder` 短摘要；
 普通新消息不能续期，QQ 正文仍只能由模型再次主动使用 `$qq-usage` 读取。
-`is_enabled=0` 必须同时禁止 `phone_notification` 和 `attention_lease` reminder。
+`is_enabled=0` 必须同时禁止 `phone_notification` 和 `attention_lease` reminder；
+群聊 `notification_mode=mentions_only` 也必须禁止普通群消息的 `attention_lease` reminder。
 
 ### Prompt-Facing Runtime Input
 

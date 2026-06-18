@@ -81,7 +81,7 @@ function createFakePrisma() {
   };
 }
 
-test('maybeCreateQqAttentionReminder creates bodyless system reminder from active lease', async () => {
+test('maybeCreateQqAttentionReminder creates short-preview system reminder from active lease', async () => {
   const fake = createFakePrisma();
   const persistence = createQqAttentionLeasePersistence({
     getPrismaClient: () => fake.prisma,
@@ -190,4 +190,58 @@ test('maybeCreateQqAttentionReminder suppresses expired or disabled leases', asy
   });
   assert.equal(expired.shouldEnqueue, false);
   assert.equal(expired.reason, 'lease_expired');
+});
+
+test('maybeCreateQqAttentionReminder suppresses ordinary group reminders in mentions_only mode', async () => {
+  const fake = createFakePrisma();
+  const persistence = createQqAttentionLeasePersistence({
+    getPrismaClient: () => fake.prisma,
+    createSqlAdapter: () => {
+      throw new Error('SQL should not be used');
+    }
+  });
+  fake.inboundRows.set('100', {
+    id: 100n,
+    trace_id: 'trace-100',
+    message_sid: 'msg-100',
+    chat_type: 'group',
+    session_key: 'qq:group:42',
+    peer_id: '42',
+    peer_name: 'Test Group',
+    sender_id: '20001',
+    sender_name: 'Alice',
+    account_id: '1129974489',
+    raw_body: '普通群聊',
+    body_for_agent: '普通群聊',
+    is_read: 0,
+    received_at: new Date('2026-06-13T00:02:00.000Z'),
+    message_timestamp: null,
+    was_mentioned: 0
+  });
+  fake.leases.set('qq:group:42', {
+    id: 1n,
+    identity_key: 'xiaoni',
+    surface: 'qq',
+    session_key: 'qq:group:42',
+    status: 'active',
+    score: 1,
+    score_updated_at: new Date('2026-06-13T00:00:00.000Z'),
+    half_life_seconds: 480,
+    last_seen_inbound_id: 99n,
+    last_reminder_inbound_id: null,
+    last_reminder_at: null,
+    reminder_count: 0,
+    expires_at: new Date('2026-06-13T00:30:00.000Z'),
+    closed_at: null
+  });
+
+  const result = await persistence.maybeCreateQqAttentionReminder({
+    inboundMessageId: 100,
+    now: new Date('2026-06-13T00:02:00.000Z'),
+    policyState: { isEnabled: true, notificationMode: 'mentions_only' }
+  });
+
+  assert.equal(result.shouldEnqueue, false);
+  assert.equal(result.reason, 'group_notification_mentions_only');
+  assert.equal(fake.reminders.size, 0);
 });

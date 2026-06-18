@@ -94,24 +94,18 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Priority:** P3
 **Depends on:** 再次出现可复现或高频样本
 
+## Completed
+
 ### Enrich System Reminder group notification previews
 
-**What:** 更新 System Reminder 里的群聊提醒模板，让非 @ 群消息、以及小腻正在私聊时
-冒出来的群聊提醒，不只显示“有某个群 / 多少条未读”，还要包含 QQ 群号、群名、
-最新发言人，以及最新消息正文前 20 个字。
+**What:** System Reminder 的 QQ 状态栏提醒现在可以展示群号/群名、最新发言人和
+最新消息前 20 个字的短 preview；仍不替代 `$qq-usage` 的完整 inbox/thread window。
 
-**Why:** 现在模板信息量太低，小腻只能看到抽象的群未读数量，无法判断这条群动静
-是否值得从非 @ 或私聊上下文里切过去关注。这会让她天然忽略非 @ 群消息，也会让
-私聊场景下的群聊提醒缺少足够的行动线索。群号是稳定标识，最新发言人和正文 preview
-是判断新鲜度与相关性的最低信息。
+**Completed in:** `feature/xiaoni-group-notification-mode`
 
-**Context:** 从 provider-service / agent-service 当前 System Reminder / phone notification /
-attention lease 模板入口开始查，确认入站群消息上下文里已有 group id、group name、
-sender display name 和 latest message body 后再改模板。保持提醒是摘要，不直接替代
-`$qq-usage` 的完整 inbox/thread window；正文 preview 只截前 20 个字。
+### Add self-service group notification threshold
 
-**Effort:** S
-**Priority:** P2
-**Depends on:** 当前 System Reminder 模板位置和群消息上下文字段确认
+**What:** `$qq-usage` 新增 `set_group_notification_mode group_id mentions_only|all`，
+让小腻可以把普通群消息收进 QQ inbox 但不敲状态栏；群 @ 仍会提醒。
 
-## Completed
+**Completed in:** `feature/xiaoni-group-notification-mode`

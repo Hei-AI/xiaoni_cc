@@ -115,6 +115,16 @@ def build_parser():
     jump_group = subcommands.add_parser("jump_group_to_latest")
     jump_group.add_argument("group_id")
 
+    put_private_away = subcommands.add_parser("put_private_away")
+    put_private_away.add_argument("user_id")
+
+    put_group_away = subcommands.add_parser("put_group_away")
+    put_group_away.add_argument("group_id")
+
+    set_group_notification_mode = subcommands.add_parser("set_group_notification_mode")
+    set_group_notification_mode.add_argument("group_id")
+    set_group_notification_mode.add_argument("mode", choices=["all", "mentions_only", "mentions", "mention_only"])
+
     subcommands.add_parser("put_qq_away")
 
     return parser

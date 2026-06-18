@@ -47,6 +47,7 @@ import {
   listQqUsageThreadWindow,
   getQqUsageUnreadSummary,
   markQqUsageThreadRead,
+  setQqUsageGroupNotificationMode,
   renewQqAttentionLease,
   closeQqAttentionLease,
   ensureQqAttentionLeaseSchema,
@@ -2695,6 +2696,16 @@ export class RuntimeStore {
       });
     }
     return result;
+  }
+
+  async setQqUsageGroupNotificationMode(params: {
+    groupId: string | number | bigint;
+    mode: 'all' | 'mentions_only' | string;
+  }): Promise<{ groupId: number; notificationMode: 'all' | 'mentions_only' }> {
+    return setQqUsageGroupNotificationMode({
+      groupId: params.groupId,
+      mode: params.mode
+    }, databaseConfig);
   }
 
   async listRelevantFeedbackReflections(params: {

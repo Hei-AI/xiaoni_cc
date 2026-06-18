@@ -663,6 +663,7 @@ exports.Prisma.GroupChatSettingScalarFieldEnum = {
   is_enabled: 'is_enabled',
   continuous_learning_enabled: 'continuous_learning_enabled',
   auto_reply_enabled: 'auto_reply_enabled',
+  notification_mode: 'notification_mode',
   transcript_compact_offset: 'transcript_compact_offset',
   welcome_message: 'welcome_message',
   admin_user_id: 'admin_user_id',

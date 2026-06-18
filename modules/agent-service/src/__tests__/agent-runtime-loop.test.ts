@@ -61,7 +61,11 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
 
   assert.equal(processedResult, undefined);
   assert.deepEqual(processed.map((item) => item.message), [queueMessage]);
-  assert.deepEqual(processed.map((item) => item.options), [{}]);
+  assert.deepEqual(processed.map((item) => item.options), [{
+    initialLoopContinuation: [],
+    initialLoopContinuationBeforeCurrentTrigger: false,
+    recoveryWakeCountStartQueueMessageId: 1
+  }]);
 });
 
 test('runtime iteration delegates no-notify continuation evaluation to the runtime frame path', async () => {
@@ -91,7 +95,9 @@ test('runtime iteration delegates no-notify continuation evaluation to the runti
     queueBacked: false,
     triggerInputMode: 'suppress_current_trigger',
     appendRuntimeInputStackItem: false,
-    logQueueLifecycle: false
+    logQueueLifecycle: false,
+    initialLoopContinuation: [],
+    recoveryWakeCountStartQueueMessageId: 0
   });
 });
 

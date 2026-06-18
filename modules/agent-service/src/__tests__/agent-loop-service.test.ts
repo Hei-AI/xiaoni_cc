@@ -459,7 +459,7 @@ function expectedCurrentInputMessage() {
     '【视线边缘：状态栏闪烁】',
     '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
     '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
-    '（以下是透过白噪音、明确指名道姓喊你的动静）：',
+    '（以下是透过白噪音能看见的短摘要）：',
     '{Test Group(@101)} 里 {Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
     '</system_reminder>'
   ].join('\n');
@@ -1707,6 +1707,7 @@ test('buildInitialInput renders ordinary group phone notifications with group an
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
   assert.match(rendered, /视线边缘：状态栏闪烁/);
+  assert.match(rendered, /透过白噪音能看见的短摘要/);
   assert.match(rendered, /\{Test Group\(@101\)\} 有 1 条新群消息/);
   assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
   assert.match(rendered, /最新消息是: \{普通闲聊正文应该进入短摘要/);
@@ -1722,8 +1723,31 @@ test('buildInitialInput renders ordinary group phone notifications with group an
   assert.equal(loopInput.some((item: any) => item.role === 'user' && isPhoneNotificationReminderContent(getMessageContent(item))), false);
 });
 
-test('buildInitialInput keeps mentioned group batches as phone notifications only', () => {
+test('buildInitialInput suppresses phone notifications with no visible cue lines', () => {
   const payload = createQueuePayload();
+  payload.messages = [];
+  payload.bodyForAgent = '';
+  payload.rawBody = '';
+  if (payload.phoneNotification) {
+    payload.phoneNotification.unreadDelta = 1;
+    payload.phoneNotification.directMentions = 0;
+  }
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt({
+    userPromptTemplate: 'wrapped {{user_input}}'
+  }));
+  const rendered = loopInput.map(getMessageContent).join('\n');
+
+  assert.doesNotMatch(rendered, /视线边缘：状态栏闪烁/);
+  assert.doesNotMatch(rendered, /没有可见摘要/);
+  assert.equal(loopInput.some((item: any) => isPhoneNotificationReminderContent(getMessageContent(item))), false);
+});
+
+test('buildInitialInput renders mentioned and ordinary group notification cue lines together', () => {
+  const payload = createQueuePayload();
+  if (payload.phoneNotification) {
+    payload.phoneNotification.unreadDelta = 2;
+  }
   payload.wasMentioned = true;
   payload.bodyForAgent = '前面普通未读\n@小腻 看到前面了吗';
   payload.rawBody = '前面普通未读\n@小腻 看到前面了吗';
@@ -1764,8 +1788,12 @@ test('buildInitialInput keeps mentioned group batches as phone notifications onl
     .join('\n');
 
   assert.match(rendered, /视线边缘：状态栏闪烁/);
-  assert.doesNotMatch(rendered, /前面普通未读/);
+  assert.match(rendered, /堆积了 2 条新动静/);
+  assert.match(rendered, /Test Group\(@101\).*有 1 条新群消息/);
+  assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
+  assert.match(rendered, /前面普通未读/);
   assert.match(rendered, /@小腻 看到前面了吗/);
+  assert.match(rendered, /Alice\(@202\).*@了你 1 次/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="群聊"/);
   assert.doesNotMatch(rendered, /message_id="12" chat_type="群聊"/);
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
@@ -1773,7 +1801,113 @@ test('buildInitialInput keeps mentioned group batches as phone notifications onl
   assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
   const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   assert.ok(developerNotification);
-  assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"|前面普通未读/);
+  assert.match(getMessageContent(developerNotification), /Test Group\(@101\).*有 1 条新群消息/);
+  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*@了你 1 次/);
+  assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"/);
+});
+
+test('buildInitialInput renders direct mention and group activity cues in one phone notification', () => {
+  const payload = createQueuePayload();
+  if (payload.phoneNotification) {
+    payload.phoneNotification.unreadDelta = 4;
+  }
+  payload.messages = [
+    {
+      ...payload.messages[0],
+      queueMessageId: 1,
+      messageId: 11,
+      messageSid: 'sid-direct',
+      source: 'phone_notification',
+      chatType: 'direct',
+      sessionKey: 'qq:direct:303:3994058476',
+      peerId: '3994058476',
+      peerName: '小伊',
+      senderId: 'qq',
+      senderName: 'QQ',
+      bodyForAgent: '私聊预览内容很长需要截断一点点',
+      rawBody: '私聊预览内容很长需要截断一点点',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Surface: 'phone_notification',
+        ChatType: 'direct',
+        SenderId: '3994058476',
+        SenderName: '小伊',
+        Body: '私聊预览内容很长需要截断一点点',
+        BodyForAgent: '私聊预览内容很长需要截断一点点',
+        BodyForCommands: '',
+        WasMentioned: false,
+        MentionedUsers: []
+      }
+    },
+    {
+      ...payload.messages[0],
+      queueMessageId: 2,
+      messageId: 12,
+      messageSid: 'sid-mention',
+      source: 'phone_notification',
+      chatType: 'group',
+      sessionKey: 'qq:group:101',
+      peerId: '101',
+      peerName: '测试群',
+      senderId: '85178516',
+      senderName: '李阿花',
+      bodyForAgent: '@小腻 看下这个群通知逻辑',
+      rawBody: '@小腻 看下这个群通知逻辑',
+      wasMentioned: true,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Surface: 'phone_notification',
+        ChatType: 'group',
+        NativeChannelId: '101',
+        GroupSubject: '测试群',
+        Body: '@小腻 看下这个群通知逻辑',
+        BodyForAgent: '@小腻 看下这个群通知逻辑',
+        BodyForCommands: '',
+        WasMentioned: true,
+        MentionedUsers: []
+      }
+    },
+    {
+      ...payload.messages[0],
+      queueMessageId: 3,
+      messageId: 13,
+      messageSid: 'sid-group',
+      source: 'phone_notification',
+      chatType: 'group',
+      sessionKey: 'qq:group:202',
+      peerId: '202',
+      peerName: '闲聊群',
+      senderId: '20001',
+      senderName: '张三',
+      bodyForAgent: '这个接口要不要收紧一下',
+      rawBody: '这个接口要不要收紧一下',
+      wasMentioned: false,
+      inboundContext: {
+        ...payload.messages[0].inboundContext,
+        Surface: 'phone_notification',
+        ChatType: 'group',
+        NativeChannelId: '202',
+        GroupSubject: '闲聊群',
+        Body: '这个接口要不要收紧一下',
+        BodyForAgent: '这个接口要不要收紧一下',
+        BodyForCommands: '',
+        WasMentioned: false,
+        MentionedUsers: []
+      }
+    }
+  ];
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const rendered = currentTurnItems.map(getMessageContent).join('\n');
+
+  assert.equal(currentTurnItems.length, 1);
+  assert.match(rendered, /堆积了 4 条新动静/);
+  assert.match(rendered, /\{小伊\(@3994058476\)\} 发来 1 条消息, 最新消息是: \{私聊预览内容很长需要截断一点点\}/);
+  assert.match(rendered, /\{李阿花\(@85178516\)\} @了你 1 次, 最新消息是: \{@小腻 看下这个群通知逻辑\}/);
+  assert.match(rendered, /\{闲聊群\(@202\)\} 有 1 条新群消息, 最新发言人: \{张三\(@20001\)\}, 最新消息是: \{这个接口要不要收紧一下\}/);
+  assert.doesNotMatch(rendered, /<INPUT_MESSAGE|<PHONE_NOTIFICATION|message_sid=|source="napcat"/);
 });
 
 test('buildInitialInput keeps direct batches as phone notifications only', () => {
@@ -2117,7 +2251,8 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
   assert.ok(notificationIndex !== -1);
   assert.equal(identityIndex, -1);
   assert.equal(rendered.some((content) => content.includes('不要用公式化开头')), false);
-  assert.equal(rendered.some((content) => content.includes('第二条')), false);
+  assert.equal(rendered.some((content) => content.includes('message_id="12"')), false);
+  assert.equal(rendered.some((content) => content.includes('source="napcat"')), false);
   assert.equal(rendered.some((content) => content.includes('上一段留下的内在延续')), false);
 });
 

@@ -1197,10 +1197,17 @@ async function processAutoReply(params: {
       chat_type: params.inboxEvent.chatType
     }
   });
-  const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent);
+  const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent, {
+    notificationMode: policy.notificationMode
+  });
+  const notificationAllowed = policy.autoReplyEnabled && triggerDecision.shouldEnqueue;
   const participationDecision = {
-    decision: policy.autoReplyEnabled ? 'notify' as const : 'skip' as const,
-    reason: policy.autoReplyEnabled ? triggerDecision.reason : 'auto_reply_disabled',
+    decision: notificationAllowed ? 'notify' as const : 'skip' as const,
+    reason: !policy.autoReplyEnabled
+      ? 'auto_reply_disabled'
+      : triggerDecision.shouldEnqueue
+        ? triggerDecision.reason
+        : 'group_notification_mentions_only',
     confidence: 'high' as const,
     conservativeFallback: false,
     usedEmbeddings: false,
@@ -1210,7 +1217,8 @@ async function processAutoReply(params: {
       source_of_truth: 'phone_notification',
       provider_boundary_mode: 'notification_only_no_qq_body',
       trigger_reason: triggerDecision.reason,
-      auto_reply_enabled: policy.autoReplyEnabled
+      auto_reply_enabled: policy.autoReplyEnabled,
+      notification_mode: policy.notificationMode
     }
   };
   await runtimeStoreService.logTimelineEvent({

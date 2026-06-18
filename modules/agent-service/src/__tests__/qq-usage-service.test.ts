@@ -40,6 +40,11 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action: 'qq_usage.put_qq_away', content: '<IM_INBOX_WINDOW mode="closed"></IM_INBOX_WINDOW>', thread_key: threadKey || null };
   }
 
+  async setGroupNotificationMode(groupId: string, mode: 'all' | 'mentions_only') {
+    this.calls.push({ method: 'setGroupNotificationMode', args: [groupId, mode] });
+    return { qq_usage: true as const, action: 'qq_usage.set_group_notification_mode', content: `<QQ_GROUP_NOTIFICATION_MODE group_id="${groupId}" mode="${mode}"></QQ_GROUP_NOTIFICATION_MODE>` };
+  }
+
   error(action: string, args: Record<string, unknown>, reason: string) {
     this.calls.push({ method: 'error', args: [action, args, reason] });
     return { qq_usage: true as const, action, content: `<QQ_USAGE_ERROR reason="${reason}"></QQ_USAGE_ERROR>`, failed: true };
@@ -203,6 +208,34 @@ test('QqUsageSkillRuntime opens groups by group id', async () => {
   assert.deepEqual(service.calls[1]?.args, ['qq:group:123', 'older', 10, {}, 'qq_usage.scroll_group']);
   assert.deepEqual(service.calls[2]?.args, ['qq:group:123', {}, 'qq_usage.jump_group_to_latest']);
   assert.deepEqual(service.calls[3]?.args, ['qq:group:123']);
+});
+
+test('QqUsageSkillRuntime lets Xiaoni switch group notification mode', async () => {
+  const service = new FakeQqUsageService();
+  const runtime = new QqUsageSkillRuntime(service as any);
+
+  const mentionsOnly = await runtime.execute('set_group_notification_mode', { group_id: '123', mode: 'mentions' });
+  const all = await runtime.execute('set_group_notification_mode', { group_id: '123', mode: 'all' });
+
+  assert.equal(mentionsOnly.action, 'qq_usage.set_group_notification_mode');
+  assert.match(mentionsOnly.content, /mode="mentions_only"/);
+  assert.equal(all.action, 'qq_usage.set_group_notification_mode');
+  assert.deepEqual(service.calls, [
+    { method: 'setGroupNotificationMode', args: ['123', 'mentions_only'] },
+    { method: 'setGroupNotificationMode', args: ['123', 'all'] }
+  ]);
+});
+
+test('QqUsageSkillRuntime rejects invalid group notification mode', async () => {
+  const service = new FakeQqUsageService();
+  const runtime = new QqUsageSkillRuntime(service as any);
+
+  const result = await runtime.execute('set_group_notification_mode', { group_id: '123', mode: 'silent' });
+
+  assert.equal(result.failed, true);
+  assert.match(result.content, /mode must be all or mentions_only/);
+  assert.equal(service.calls.length, 1);
+  assert.equal(service.calls[0]?.method, 'error');
 });
 
 test('QqUsageSkillRuntime forgets scroll anchors after putting a chat away', async () => {

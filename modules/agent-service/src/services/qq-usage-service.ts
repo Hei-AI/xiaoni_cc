@@ -224,7 +224,10 @@ const QQ_USAGE_ACTION_LABELS: Record<string, string> = {
   scroll_group: 'qq_usage.scroll_group',
   jump_private_to_latest: 'qq_usage.jump_private_to_latest',
   jump_group_to_latest: 'qq_usage.jump_group_to_latest',
-  put_qq_away: 'qq_usage.put_qq_away'
+  put_private_away: 'qq_usage.put_private_away',
+  put_group_away: 'qq_usage.put_group_away',
+  put_qq_away: 'qq_usage.put_qq_away',
+  set_group_notification_mode: 'qq_usage.set_group_notification_mode'
 };
 
 function normalizeIdentifier(value: unknown) {
@@ -262,6 +265,17 @@ function resolveGroupThreadKey(args: Record<string, unknown>) {
 
 function normalizeDirection(value: unknown): 'older' | 'newer' {
   return value === 'newer' ? 'newer' : 'older';
+}
+
+function normalizeGroupNotificationMode(value: unknown): 'all' | 'mentions_only' {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (normalized === 'mentions' || normalized === 'mention_only') {
+    return 'mentions_only';
+  }
+  if (normalized === 'all' || normalized === 'mentions_only') {
+    return normalized;
+  }
+  throw new Error('mode must be all or mentions_only');
 }
 
 export class QqUsageService {
@@ -395,6 +409,21 @@ export class QqUsageService {
     };
   }
 
+  async setGroupNotificationMode(groupId: string, mode: 'all' | 'mentions_only'): Promise<QqUsageToolResult> {
+    const result = await this.store.setQqUsageGroupNotificationMode({ groupId, mode });
+    const body = result.notificationMode === 'mentions_only'
+      ? '已切到只提醒明确喊我的群消息。普通群消息会继续收进 QQ inbox，但不会再用状态栏反复敲我。'
+      : '已切回全部群消息提醒。普通群消息也会重新进入状态栏提醒。';
+    return {
+      qq_usage: true,
+      action: 'qq_usage.set_group_notification_mode',
+      content: formatTaggedBlock('QQ_GROUP_NOTIFICATION_MODE', {
+        group_id: result.groupId,
+        mode: result.notificationMode
+      }, body)
+    };
+  }
+
   error(action: string, args: Record<string, unknown>, reason: string): QqUsageToolResult {
     return {
       qq_usage: true,
@@ -495,6 +524,22 @@ export class QqUsageSkillRuntime {
         const threadKey = resolveGroupThreadKey(args);
         if (!threadKey) throw new Error('group_id is required');
         result = await this.service.jumpToLatest(threadKey, context, 'qq_usage.jump_group_to_latest');
+      } else if (action === 'put_private_away') {
+        const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
+        if (!threadKey) throw new Error('user_id is required');
+        result = await this.service.putAway(threadKey);
+        this.state.threads.delete(threadKey);
+        if (this.state.activeThreadKey === threadKey) {
+          this.state.activeThreadKey = null;
+        }
+      } else if (action === 'put_group_away') {
+        const threadKey = resolveGroupThreadKey(args);
+        if (!threadKey) throw new Error('group_id is required');
+        result = await this.service.putAway(threadKey);
+        this.state.threads.delete(threadKey);
+        if (this.state.activeThreadKey === threadKey) {
+          this.state.activeThreadKey = null;
+        }
       } else if (action === 'put_qq_away') {
         const threadKey = this.state.activeThreadKey;
         result = await this.service.putAway(threadKey);
@@ -502,6 +547,10 @@ export class QqUsageSkillRuntime {
           this.state.threads.delete(threadKey);
           this.state.activeThreadKey = null;
         }
+      } else if (action === 'set_group_notification_mode') {
+        const groupId = getGroupId(args);
+        if (!groupId) throw new Error('group_id is required');
+        result = await this.service.setGroupNotificationMode(groupId, normalizeGroupNotificationMode(args.mode));
       } else {
         throw new Error(`Unsupported qq_usage action: ${action}`);
       }

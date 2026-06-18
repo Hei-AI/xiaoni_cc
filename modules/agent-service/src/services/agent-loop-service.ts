@@ -2816,6 +2816,7 @@ function isPhoneNotificationDirectCueMessage(
 ) {
   return message.source === 'phone_notification'
     || message.inboundContext?.Surface === 'phone_notification'
+    || queueMessage.source === 'phone_notification'
     || queueMessage.chatType === 'direct'
     || Boolean(message.wasMentioned || message.inboundContext?.WasMentioned);
 }
@@ -2937,9 +2938,11 @@ function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['
     const kind = messageChatType === 'direct'
       ? 'direct'
       : (wasMentioned ? 'group_mention' : 'group_activity');
-    const key = kind === 'direct'
-      ? `direct:${identity.senderId || identity.senderName || message.peerId || 'unknown'}`
-      : `${kind}:${groupId || groupName || 'unknown'}:${kind === 'group_mention' ? identity.senderId || identity.senderName || 'unknown' : 'group'}`;
+    const key = kind === 'group_activity'
+      ? `group_activity:${groupId || groupName || 'unknown'}`
+      : (kind === 'group_mention'
+        ? `group_mention:${groupId || groupName || 'unknown'}:${identity.senderId || identity.senderName || 'unknown'}`
+        : `direct:${identity.senderId || identity.senderName || message.peerId || 'unknown'}`);
     const current = grouped.get(key) || {
       kind,
       groupId,
@@ -2965,26 +2968,45 @@ function buildPhoneNotificationDirectCueLines(queueMessage: QueueMessageRecord['
     const identity = formatIdentity(entry.senderName, entry.senderId);
     const latest = entry.latestSummary || '无摘要';
     if (entry.kind === 'direct') {
-      return `${identity} 发来 ${entry.count} 条消息, 最新消息是: {${latest}}`;
+      return renderPromptSnippet('phone_notification_direct_cue_line.md', {
+        IDENTITY: identity,
+        COUNT: entry.count,
+        LATEST_SUMMARY: latest
+      });
     }
     const group = formatIdentity(entry.groupName, entry.groupId || queueMessage.peerId);
     if (entry.kind === 'group_mention') {
-      return `${group} 里 ${identity} @了你 ${entry.count} 次, 最新消息是: {${latest}}`;
+      return renderPromptSnippet('phone_notification_group_mention_cue_line.md', {
+        GROUP_IDENTITY: group,
+        IDENTITY: identity,
+        COUNT: entry.count,
+        LATEST_SUMMARY: latest
+      });
     }
     const latestSender = formatIdentity(entry.latestSenderName, entry.latestSenderId);
-    return `${group} 有 ${entry.count} 条新群消息, 最新发言人: ${latestSender}, 最新消息是: {${latest}}`;
+    return renderPromptSnippet('phone_notification_group_activity_cue_line.md', {
+      GROUP_IDENTITY: group,
+      COUNT: entry.count,
+      LATEST_SENDER: latestSender,
+      LATEST_SUMMARY: latest
+    });
   });
 }
 
 function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   const notification = queueMessage.phoneNotification;
-  const unreadDelta = Number((notification?.unreadDelta ?? queueMessage.messages.length) || 1);
+  const unreadDelta = Math.max(
+    1,
+    Number(notification?.unreadDelta || 0),
+    queueMessage.messages.length || 0
+  );
   const directCueLines = buildPhoneNotificationDirectCueLines(queueMessage);
+  if (directCueLines.length === 0) {
+    return '';
+  }
   return formatSystemReminderBlock(renderPromptSnippet('phone_notification_reminder.md', {
     UNREAD_DELTA: unreadDelta,
-    DIRECT_CUE_LINES: directCueLines.length > 0
-      ? directCueLines.join('\n')
-      : '（没有明确喊你的信息）'
+    DIRECT_CUE_LINES: directCueLines.join('\n')
   }));
 }
 
@@ -10476,6 +10498,9 @@ function buildCurrentTurnInputItems(
         ? renderPhoneNotification(queueMessage)
         : renderConversationInput(queueMessage)
   ];
+  if (currentMessages.every((message) => !message.trim())) {
+    return [];
+  }
   let userPromptTemplate: string | null = null;
   if (typeof runtimePrompt.userPromptTemplate === 'string' && runtimePrompt.userPromptTemplate.trim()) {
     userPromptTemplate = runtimePrompt.userPromptTemplate;
@@ -10487,7 +10512,7 @@ function buildCurrentTurnInputItems(
       }))
     : currentMessages;
 
-  return renderedMessages.map((message) => (
+  return renderedMessages.filter((message) => message.trim()).map((message) => (
     isRuntimeReminder
       ? buildDeveloperInputItem([message])
       : buildUserSceneInputItem([message])

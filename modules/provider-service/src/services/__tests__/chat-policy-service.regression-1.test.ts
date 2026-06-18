@@ -25,6 +25,7 @@ test('auto reply follows the runtime toggle without requiring deprecated prompt 
     exists: true,
     isEnabled: true,
     continuousLearningEnabled: false,
-    autoReplyEnabled: true
+    autoReplyEnabled: true,
+    notificationMode: 'all'
   });
 });
