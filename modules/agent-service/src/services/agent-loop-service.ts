@@ -297,6 +297,7 @@ type ProcessRuntimeFrameOptions = {
   logQueueLifecycle?: boolean;
   initialLoopContinuation?: OpenResponseInputItem[];
   initialLoopContinuationBeforeCurrentTrigger?: boolean;
+  recoveryWakeCountStartQueueMessageId?: number | null;
 };
 
 function sleep(ms: number) {
@@ -634,6 +635,7 @@ function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}):
   logQueueLifecycle: boolean;
   initialLoopContinuation: OpenResponseInputItem[];
   initialLoopContinuationBeforeCurrentTrigger: boolean;
+  recoveryWakeCountStartQueueMessageId?: number | null;
 } {
   const queueBacked = options.queueBacked !== false;
   return {
@@ -642,7 +644,8 @@ function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}):
     appendRuntimeInputStackItem: options.appendRuntimeInputStackItem ?? queueBacked,
     logQueueLifecycle: options.logQueueLifecycle ?? queueBacked,
     initialLoopContinuation: options.initialLoopContinuation ?? [],
-    initialLoopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger ?? false
+    initialLoopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger ?? false,
+    recoveryWakeCountStartQueueMessageId: options.recoveryWakeCountStartQueueMessageId
   };
 }
 
@@ -4530,42 +4533,53 @@ export class AgentLoopService {
   private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
     const recoveryAction = await this.reconcileActiveRecoverySession(params);
     if (recoveryAction.status === 'active') {
-      await this.maybeRunCacheHeartbeatDuringRecovery(recoveryAction.session);
+      await this.scheduleCacheHeartbeatDuringRecovery(recoveryAction.session);
       await sleep(params.idleIntervalMs);
       return;
     }
     await this.clearCacheHeartbeatRecoverySchedule(recoveryAction.session);
-    if (recoveryAction.status === 'settled') {
-      const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
-      if (queueMessage) {
-        await this.processRuntimeFrame(queueMessage, {
-          initialLoopContinuation: recoveryAction.inputItems,
-          initialLoopContinuationBeforeCurrentTrigger: true
-        });
-        return;
-      }
+    const initialLoopContinuation = recoveryAction.status === 'settled'
+      ? recoveryAction.inputItems
+      : [];
+
+    const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+    if (!queueMessage) {
+      const recoveryWakeCountStartQueueMessageId = await this.readRecoveryQueueHighWatermark();
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
         queueBacked: false,
         triggerInputMode: 'suppress_current_trigger',
         appendRuntimeInputStackItem: false,
         logQueueLifecycle: false,
-        initialLoopContinuation: recoveryAction.inputItems
+        initialLoopContinuation,
+        recoveryWakeCountStartQueueMessageId
       });
       return;
     }
 
-    let queueMessage = await this.store.claimNextQueueMessage(params.workerId);
-    if (!queueMessage) {
-      await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
-        queueBacked: false,
-        triggerInputMode: 'suppress_current_trigger',
-        appendRuntimeInputStackItem: false,
-        logQueueLifecycle: false
-      });
-      return;
-    }
+    const recoveryWakeCountStartQueueMessageId = Math.max(
+      ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
+      0
+    );
+    await this.processRuntimeFrame(queueMessage, {
+      initialLoopContinuation,
+      initialLoopContinuationBeforeCurrentTrigger: initialLoopContinuation.length > 0,
+      recoveryWakeCountStartQueueMessageId
+    });
+  }
 
-    await this.processRuntimeFrame(queueMessage);
+  private async readRecoveryQueueHighWatermark(): Promise<number> {
+    const reader = (this.store as RuntimeStore & {
+      getAgentRecoveryQueueHighWatermark?: RuntimeStore['getAgentRecoveryQueueHighWatermark'];
+    }).getAgentRecoveryQueueHighWatermark;
+    if (typeof reader !== 'function') {
+      return 0;
+    }
+    return reader.call(this.store).catch((error) => {
+      moduleLogger.warn('Failed to read recovery queue high watermark', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return 0;
+    });
   }
 
   private async clearCacheHeartbeatRecoverySchedule(session?: RecoverySessionHeartbeatState | null) {
@@ -4596,7 +4610,7 @@ export class AgentLoopService {
     return true;
   }
 
-  private async maybeRunCacheHeartbeatDuringRecovery(session?: RecoverySessionHeartbeatState | null) {
+  private async scheduleCacheHeartbeatDuringRecovery(session?: RecoverySessionHeartbeatState | null) {
     if (!agentConfig.cacheHeartbeatEnabled) {
       return;
     }
@@ -4696,13 +4710,11 @@ export class AgentLoopService {
       }
     })();
     this.cacheHeartbeatInFlight = run;
-    try {
-      await run;
-    } finally {
+    run.finally(() => {
       if (this.cacheHeartbeatInFlight === run) {
         this.cacheHeartbeatInFlight = null;
       }
-    }
+    }).catch(() => undefined);
   }
 
   async triggerCacheHeartbeatForDebug(): Promise<CacheHeartbeatRunResult> {
@@ -4900,6 +4912,7 @@ export class AgentLoopService {
 
     let session = await store.getActiveAgentRecoverySession.call(this.store);
     if (!session) {
+      const recoveryWakeCountStartQueueMessageId = await this.readRecoveryQueueHighWatermark();
       const energyState = await this.getCurrentRuntimeEnergyState(buildRuntimeLoopFrameQueueMessage().payload).catch(() => null);
       const pressure = energyState ? 1 - (energyState.energy / Math.max(0.001, energyState.maxEnergy)) : 0;
       if (!energyState || pressure < DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure || typeof store.createAgentRecoverySession !== 'function') {
@@ -4923,6 +4936,7 @@ export class AgentLoopService {
         currentPressure: pressure,
         plannedNaturalWakeAt: naturalWakeAt,
         hardWakeAt: estimateHardWakeAt(startedAt),
+        wakeCountStartQueueMessageId: recoveryWakeCountStartQueueMessageId,
         metadata: {
           source: 'runtime_forced_recovery',
           forced_sleep_pressure: DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure
@@ -5215,6 +5229,10 @@ export class AgentLoopService {
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
     let jobId: string | null = null;
+    const recoveryWakeCountStartQueueMessageId = typeof options.recoveryWakeCountStartQueueMessageId === 'number'
+      && Number.isFinite(options.recoveryWakeCountStartQueueMessageId)
+      ? Math.max(0, Math.floor(options.recoveryWakeCountStartQueueMessageId))
+      : await this.readRecoveryQueueHighWatermark();
 
     let conversationId: number | null = null;
     let turnsExecuted = 0;
@@ -5641,6 +5659,7 @@ export class AgentLoopService {
                 currentPressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
                 plannedNaturalWakeAt: typeof toolResult.planned_natural_wake_at === 'string' ? new Date(toolResult.planned_natural_wake_at) : null,
                 hardWakeAt: typeof toolResult.hard_wake_at === 'string' ? new Date(toolResult.hard_wake_at) : estimateHardWakeAt(startedAt),
+                wakeCountStartQueueMessageId: recoveryWakeCountStartQueueMessageId,
                 metadata: {
                   model_name: runtimePrompt.modelName,
                   session_key: payload.sessionKey,
@@ -8261,24 +8280,39 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     runtimePrompt: ResolvedAgentRuntimePrompt
   ) {
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [NO_TRAFFIC_PERSIST_HEADER]: '1'
-      },
-      body: JSON.stringify({
-        trace_id: queueMessage.traceId,
-        run_id: queueMessage.runId,
-        agent_turn: 0,
-        agent_type: 'chat_bot',
-        prompt_name: runtimePrompt.promptName,
-        executionMode: CACHE_HEARTBEAT_EXECUTION_MODE,
-        model: runtimePrompt.modelName,
-        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
-        canonicalRequest
-      })
-    });
+    const timeoutMs = Math.max(1000, Number(agentConfig.cacheHeartbeatTimeoutMs) || 10_000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+    let response: Response;
+    try {
+      response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [NO_TRAFFIC_PERSIST_HEADER]: '1'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          trace_id: queueMessage.traceId,
+          run_id: queueMessage.runId,
+          agent_turn: 0,
+          agent_type: 'chat_bot',
+          prompt_name: runtimePrompt.promptName,
+          executionMode: CACHE_HEARTBEAT_EXECUTION_MODE,
+          model: runtimePrompt.modelName,
+          parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+          canonicalRequest
+        })
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Provider cache heartbeat timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const payload = await response.json() as ProviderAgentResponse;
     if (!response.ok || !payload.success) {

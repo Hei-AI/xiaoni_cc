@@ -68,6 +68,7 @@ import {
   listAgentLifeEvents,
   recordAgentLifeEvent,
   createAgentRecoverySession as createAgentRecoverySessionPersistence,
+  getAgentRecoveryQueueHighWatermark as getAgentRecoveryQueueHighWatermarkPersistence,
   getActiveAgentRecoverySession as getActiveAgentRecoverySessionPersistence,
   listAgentRecoveryWakeNotifications as listAgentRecoveryWakeNotificationsPersistence,
   updateAgentRecoverySessionProgress as updateAgentRecoverySessionProgressPersistence,
@@ -1321,6 +1322,12 @@ export class RuntimeStore {
     return createAgentRecoverySessionPersistence({
       identityKey: 'xiaoni',
       ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async getAgentRecoveryQueueHighWatermark(): Promise<number> {
+    return getAgentRecoveryQueueHighWatermarkPersistence({
       sqlAdapter: this.sql
     }, databaseConfig);
   }

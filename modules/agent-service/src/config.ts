@@ -106,6 +106,10 @@ export const agentConfig = {
     1,
     Math.min(16, readIntegerEnv('AGENT_CACHE_HEARTBEAT_MAX_OUTPUT_TOKENS', 1))
   ),
+  cacheHeartbeatTimeoutMs: Math.max(
+    1000,
+    readIntegerEnv('AGENT_CACHE_HEARTBEAT_TIMEOUT_MS', 10_000)
+  ),
   preReplyMemoryReasonerEnabled: false,
   preReplyMemoryReasonerModelName: process.env.AGENT_PRE_REPLY_MEMORY_REASONER_MODEL || 'gpt-5.4',
   presentSelfReconstructionEnabled: false,

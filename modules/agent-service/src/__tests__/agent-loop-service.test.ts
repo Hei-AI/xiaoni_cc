@@ -210,6 +210,16 @@ async function processRuntimeFrameForTest(service: AgentLoopService, queueMessag
   await (service as any).processRuntimeFrame(queueMessage, options);
 }
 
+async function waitForCondition(predicate: () => boolean, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error('Timed out waiting for condition');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function createConversationTurn(overrides: Partial<{
   id: number;
   userId: number;
@@ -6180,7 +6190,8 @@ test('runtime frame executes recover_energy after earlier batch tools and record
     releaseExecutionLease: [],
     markLeaseVisibleDeliveryCommitted: [],
     settleQueueMessages: [],
-    createAgentRecoverySession: []
+    createAgentRecoverySession: [],
+    getAgentRecoveryQueueHighWatermark: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -6190,6 +6201,10 @@ test('runtime frame executes recover_energy after earlier batch tools and record
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
     listRecentTurns: async () => [],
     getSessionReadCutoffState: async () => null,
+    getAgentRecoveryQueueHighWatermark: async () => {
+      storeCalls.getAgentRecoveryQueueHighWatermark.push({});
+      return 88;
+    },
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     getCurrentXiaoniEnergyState: async () => ({ energy: 0.4, maxEnergy: 1 }),
@@ -6290,6 +6305,7 @@ test('runtime frame executes recover_energy after earlier batch tools and record
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-recover-batch-final']);
   assert.equal(storeCalls.createAgentRecoverySession.length, 1);
   assert.equal(storeCalls.createAgentRecoverySession[0]?.toolCallId, 'call-recover-first-in-output');
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.wakeCountStartQueueMessageId, 88);
   const batchFinalRecovery = storeCalls.createAgentRecoverySession[0]?.metadata?.batch_final_recovery;
   assert.ok(batchFinalRecovery);
   assert.equal(batchFinalRecovery.recovery_started_at, '2026-03-28T08:00:00.000Z');
@@ -6861,6 +6877,89 @@ test('runtime iteration does not claim queue messages while recovery session is 
   assert.ok(storeCalls.updateAgentRecoverySessionProgress[0]?.clockDeferredAt instanceof Date);
 });
 
+test('forced recovery session uses explicit pre-sleep queue high watermark', async () => {
+  const previousCacheHeartbeatEnabled = agentConfig.cacheHeartbeatEnabled;
+  agentConfig.cacheHeartbeatEnabled = false;
+  const storeCalls: Record<string, any[]> = {
+    createAgentRecoverySession: [],
+    claimNextQueueMessage: [],
+    getAgentRecoveryQueueHighWatermark: []
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => null,
+    getAgentRecoveryQueueHighWatermark: async () => {
+      storeCalls.getAgentRecoveryQueueHighWatermark.push({});
+      return 501;
+    },
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: -0.4,
+      maxEnergy: 1,
+      lastWakeAt: null
+    }),
+    createAgentRecoverySession: async (params: any) => {
+      storeCalls.createAgentRecoverySession.push(params);
+      return { id: 401 };
+    },
+    claimNextQueueMessage: async () => {
+      storeCalls.claimNextQueueMessage.push({});
+      return null;
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+
+  try {
+    await (service as any).processRuntimeIteration({
+      workerId: 'worker-forced-recovery-watermark',
+      idleIntervalMs: 0
+    });
+  } finally {
+    agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
+  }
+
+  assert.equal(storeCalls.getAgentRecoveryQueueHighWatermark.length, 1);
+  assert.equal(storeCalls.createAgentRecoverySession.length, 1);
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.initiator, 'runtime_forced');
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.wakeCountStartQueueMessageId, 501);
+  assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+});
+
+test('runtime iteration passes claimed queue high watermark into notification frame', async () => {
+  const payload = createQueuePayload();
+  const queueMessage = {
+    id: 'queue-watermark',
+    traceId: payload.traceId,
+    batchId: payload.batchId,
+    status: 'processing',
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+    queueMessageIds: [10, 12],
+    payload
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => null,
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.8,
+      maxEnergy: 1,
+      lastWakeAt: null
+    }),
+    claimNextQueueMessage: async () => queueMessage
+  } as any;
+  const service = new AgentLoopService(store);
+  const frames: any[] = [];
+  (service as any).processRuntimeFrame = async (message: any, options: any) => {
+    frames.push({ message, options });
+  };
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-queue-watermark',
+    idleIntervalMs: 0
+  });
+
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0]?.message?.id, 'queue-watermark');
+  assert.equal(frames[0]?.options?.recoveryWakeCountStartQueueMessageId, 12);
+});
+
 test('recovery wake callback renders pre-sleep batch-final timeline from session metadata', async () => {
   const service = new AgentLoopService({} as any);
   const activeSession = {
@@ -7033,7 +7132,7 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
     assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat.length, 1);
     assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat[0]?.id, 303);
     assert.equal(storeCalls.claimAgentRecoveryCacheHeartbeat[0]?.intervalMs, 60_000);
-    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat.length, 1);
+    await waitForCondition(() => storeCalls.completeAgentRecoveryCacheHeartbeat.length === 1);
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.id, 303);
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.status, 'completed');
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.startedAt, '2026-06-13T01:05:00.000Z');
@@ -7070,6 +7169,123 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
     agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
     agentConfig.cacheHeartbeatIntervalMs = previousCacheHeartbeatIntervalMs;
     agentConfig.cacheHeartbeatMaxOutputTokens = previousCacheHeartbeatMaxOutputTokens;
+  }
+});
+
+test('runtime recovery cache heartbeat does not wait for provider fetch before polling again', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCacheHeartbeatEnabled = agentConfig.cacheHeartbeatEnabled;
+  const previousCacheHeartbeatIntervalMs = agentConfig.cacheHeartbeatIntervalMs;
+  const previousCacheHeartbeatTimeoutMs = agentConfig.cacheHeartbeatTimeoutMs;
+  agentConfig.cacheHeartbeatEnabled = true;
+  agentConfig.cacheHeartbeatIntervalMs = 60_000;
+  agentConfig.cacheHeartbeatTimeoutMs = 10_000;
+
+  const fetchResolver: { resolve?: (response: Response) => void } = {};
+  let fetchStarted = false;
+  globalThis.fetch = (async () => {
+    fetchStarted = true;
+    return new Promise<Response>((resolve) => {
+      fetchResolver.resolve = resolve;
+    });
+  }) as typeof fetch;
+
+  try {
+    const activeSession = {
+      id: 307,
+      initiator: 'recover_energy_tool',
+      reason: '睡一下。',
+      xiaoniOs: '先睡。',
+      clockMinutes: null,
+      clockDueAt: null,
+      clockDeferredAt: null,
+      startedAt: new Date().toISOString(),
+      startEnergy: -0.2,
+      currentEnergy: -0.2,
+      maxEnergy: 1,
+      wakeCountStartQueueMessageId: 100,
+      lastWakeCountedQueueMessageId: 100,
+      wakeCallCount: 0
+    };
+    const storeCalls: Record<string, any[]> = {
+      claimAgentRecoveryCacheHeartbeat: [],
+      completeAgentRecoveryCacheHeartbeat: [],
+      listAgentRecoveryWakeNotifications: [],
+      updateAgentRecoverySessionProgress: []
+    };
+    const store = {
+      getActiveAgentRecoverySession: async () => activeSession,
+      listAgentRecoveryWakeNotifications: async (params: any) => {
+        storeCalls.listAgentRecoveryWakeNotifications.push(params);
+        return [];
+      },
+      updateAgentRecoverySessionProgress: async (params: any) => {
+        storeCalls.updateAgentRecoverySessionProgress.push(params);
+        return activeSession;
+      },
+      claimAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.claimAgentRecoveryCacheHeartbeat.push(params);
+        return {
+          claimed: true,
+          reason: 'claimed',
+          session: activeSession,
+          nextDueAt: null,
+          inFlightStartedAt: '2026-06-13T01:05:00.000Z'
+        };
+      },
+      completeAgentRecoveryCacheHeartbeat: async (params: any) => {
+        storeCalls.completeAgentRecoveryCacheHeartbeat.push(params);
+        return activeSession;
+      },
+      getSessionReadCutoffState: async () => null,
+      listRecentTurns: async () => [],
+      getCurrentXiaoniEnergyState: async () => ({
+        energy: -0.1,
+        maxEnergy: 1,
+        lastWakeAt: null
+      })
+    } as any;
+    const service = new AgentLoopService(store, {
+      resolveForQueueMessage: async () => createRuntimePrompt({
+        promptName: '小腻主AGENT',
+        promptId: 'prompt-1'
+      })
+    } as any);
+
+    const iteration = (service as any).processRuntimeIteration({
+      workerId: 'worker-recovery-cache-heartbeat-background',
+      idleIntervalMs: 0
+    });
+    await waitForCondition(() => fetchStarted);
+    const race = await Promise.race([
+      iteration.then(() => 'returned'),
+      new Promise((resolve) => setTimeout(() => resolve('blocked'), 25))
+    ]);
+
+    assert.equal(race, 'returned');
+    assert.equal(storeCalls.listAgentRecoveryWakeNotifications.length, 1);
+    assert.equal(storeCalls.updateAgentRecoverySessionProgress.length, 1);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat.length, 0);
+
+    const finishFetch = fetchResolver.resolve;
+    if (!finishFetch) {
+      throw new Error('fetch resolver was not captured');
+    }
+    finishFetch(new Response(JSON.stringify({
+      success: true,
+      model: 'gpt-5-mini',
+      provider: 'codex-local'
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    }));
+    await waitForCondition(() => storeCalls.completeAgentRecoveryCacheHeartbeat.length === 1);
+    assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.status, 'completed');
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatEnabled = previousCacheHeartbeatEnabled;
+    agentConfig.cacheHeartbeatIntervalMs = previousCacheHeartbeatIntervalMs;
+    agentConfig.cacheHeartbeatTimeoutMs = previousCacheHeartbeatTimeoutMs;
   }
 });
 
