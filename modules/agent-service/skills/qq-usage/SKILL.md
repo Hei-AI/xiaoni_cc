@@ -32,10 +32,12 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_priva
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_group_away 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 mentions_only
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 all
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_delay 123 30
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_delay 123 0
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
 ```
 
-- `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows.
+- `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows. Group rows include `notification_muted` and `notification_aggregation_seconds`.
 - `scroll_inbox older|newer` pages the thread list by 10.
 - `search_inbox query` searches private and group chats by visible chat name, group name, or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
 - `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
@@ -44,6 +46,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 - `jump_private_to_latest user_id` and `jump_group_to_latest group_id` jump to the latest visible screen for that conversation.
 - `put_private_away user_id` and `put_group_away group_id` close QQ and clear that conversation's unread badge.
 - `set_group_notification_mode group_id mentions_only` keeps ordinary group messages in QQ inbox but stops status-bar reminders unless someone explicitly mentions you. `set_group_notification_mode group_id all` restores ordinary group status-bar reminders.
+- `set_group_notification_delay group_id seconds` sets how many seconds ordinary, unmuted group messages wait so multiple messages can become one status-bar reminder. Use `0` to turn off the delay. Mentions still remind immediately.
 - `put_qq_away` closes QQ. If a chat is currently open, it clears that chat's unread badge.
 
 ## Conversation IDs

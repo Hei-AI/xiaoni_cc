@@ -118,6 +118,7 @@ function renderThread(thread: QqUsageThreadSummary) {
     focus_target: focusTarget,
     display_name: displayName(thread),
     notification_muted: String(thread.notificationMuted === true),
+    notification_aggregation_seconds: thread.notificationAggregationSeconds,
     unread_count: thread.unreadCount,
     direct_mentions: thread.directMentions,
     latest_sender: senderLabel(thread.latestMessage),
@@ -227,7 +228,8 @@ const QQ_USAGE_ACTION_LABELS: Record<string, string> = {
   put_private_away: 'qq_usage.put_private_away',
   put_group_away: 'qq_usage.put_group_away',
   put_qq_away: 'qq_usage.put_qq_away',
-  set_group_notification_mode: 'qq_usage.set_group_notification_mode'
+  set_group_notification_mode: 'qq_usage.set_group_notification_mode',
+  set_group_notification_delay: 'qq_usage.set_group_notification_delay'
 };
 
 function normalizeIdentifier(value: unknown) {
@@ -278,6 +280,29 @@ function normalizeGroupNotificationMode(value: unknown): 'all' | 'mentions_only'
   throw new Error('mode must be all or mentions_only');
 }
 
+function normalizeAggregationSeconds(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    throw new Error('seconds must be a number from 0 to 86400');
+  }
+  return Math.max(0, Math.min(86400, Math.floor(numeric)));
+}
+
+function inferChatTypeFromThreadKey(threadKey: string): 'direct' | 'group' {
+  return threadKey.startsWith('qq:group:') ? 'group' : 'direct';
+}
+
+function inferPeerIdFromThreadKey(threadKey: string, messages: Record<string, unknown>[]) {
+  const latest = messages[messages.length - 1] || {};
+  const fromMessage = normalizeIdentifier(latest.peer_id || latest.peerId);
+  if (fromMessage) return fromMessage;
+  if (threadKey.startsWith('qq:group:')) {
+    return threadKey.slice('qq:group:'.length);
+  }
+  const parts = threadKey.split(':');
+  return parts[parts.length - 1] || '';
+}
+
 export class QqUsageService {
   constructor(private readonly store: RuntimeStore) {}
 
@@ -292,6 +317,7 @@ export class QqUsageService {
   }
 
   async openInbox(offset = 0): Promise<QqUsageToolResult> {
+    await this.store.clearQqUsageActiveSurface();
     const result = await this.store.listQqUsageThreads({ limit: WINDOW_SIZE, offset });
     return {
       qq_usage: true,
@@ -322,6 +348,7 @@ export class QqUsageService {
     if (!trimmedQuery) {
       throw new Error('search query is required');
     }
+    await this.store.clearQqUsageActiveSurface();
     const result = await this.store.searchQqUsageThreads({
       query: trimmedQuery,
       chatType,
@@ -339,6 +366,12 @@ export class QqUsageService {
   async focusThread(threadKey: string, context: QqUsageActionContext = {}, actionLabel = 'qq_usage.focus_thread'): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
     await this.store.recordQqUsageThreadSeen(result, actionLabel, context).catch(() => undefined);
+    await this.store.setQqUsageActiveSurface({
+      threadKey: result.threadKey,
+      chatType: inferChatTypeFromThreadKey(result.threadKey),
+      peerId: inferPeerIdFromThreadKey(result.threadKey, result.messages),
+      accountId: normalizeIdentifier(result.messages[result.messages.length - 1]?.account_id || result.messages[result.messages.length - 1]?.accountId)
+    });
     return {
       qq_usage: true,
       action: actionLabel,
@@ -370,6 +403,12 @@ export class QqUsageService {
   async jumpToLatest(threadKey: string, context: QqUsageActionContext = {}, actionLabel = 'qq_usage.jump_to_latest'): Promise<QqUsageToolResult> {
     const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
     await this.store.recordQqUsageThreadSeen(result, actionLabel, context).catch(() => undefined);
+    await this.store.setQqUsageActiveSurface({
+      threadKey: result.threadKey,
+      chatType: inferChatTypeFromThreadKey(result.threadKey),
+      peerId: inferPeerIdFromThreadKey(result.threadKey, result.messages),
+      accountId: normalizeIdentifier(result.messages[result.messages.length - 1]?.account_id || result.messages[result.messages.length - 1]?.accountId)
+    });
     return {
       qq_usage: true,
       action: actionLabel,
@@ -383,6 +422,7 @@ export class QqUsageService {
   async putAway(threadKey?: string | null): Promise<QqUsageToolResult> {
     if (threadKey && threadKey.trim()) {
       const result = await this.store.markQqUsageThreadRead({ threadKey: threadKey.trim() });
+      await this.store.clearQqUsageActiveSurface({ threadKey: threadKey.trim() });
       return {
         qq_usage: true,
         action: 'qq_usage.put_qq_away',
@@ -396,6 +436,7 @@ export class QqUsageService {
         }, 'QQ 已放下。清掉未读角标不等于已经看过未显示的消息。')
       };
     }
+    await this.store.clearQqUsageActiveSurface();
     return {
       qq_usage: true,
       action: 'qq_usage.put_qq_away',
@@ -420,6 +461,21 @@ export class QqUsageService {
       content: formatTaggedBlock('QQ_GROUP_NOTIFICATION_MODE', {
         group_id: result.groupId,
         mode: result.notificationMode
+      }, body)
+    };
+  }
+
+  async setGroupNotificationDelay(groupId: string, seconds: number): Promise<QqUsageToolResult> {
+    const result = await this.store.setQqUsageGroupNotificationAggregationSeconds({ groupId, seconds });
+    const body = result.notificationAggregationSeconds > 0
+      ? `已设置普通群消息聚合 ${result.notificationAggregationSeconds} 秒后再提醒。人在这个群里时不会额外提醒。`
+      : '已关闭普通群消息聚合延迟，后续按当前群通知模式立即处理。';
+    return {
+      qq_usage: true,
+      action: 'qq_usage.set_group_notification_delay',
+      content: formatTaggedBlock('QQ_GROUP_NOTIFICATION_DELAY', {
+        group_id: result.groupId,
+        seconds: result.notificationAggregationSeconds
       }, body)
     };
   }
@@ -551,6 +607,10 @@ export class QqUsageSkillRuntime {
         const groupId = getGroupId(args);
         if (!groupId) throw new Error('group_id is required');
         result = await this.service.setGroupNotificationMode(groupId, normalizeGroupNotificationMode(args.mode));
+      } else if (action === 'set_group_notification_delay') {
+        const groupId = getGroupId(args);
+        if (!groupId) throw new Error('group_id is required');
+        result = await this.service.setGroupNotificationDelay(groupId, normalizeAggregationSeconds(args.seconds ?? args.delay_seconds ?? args.delaySeconds));
       } else {
         throw new Error(`Unsupported qq_usage action: ${action}`);
       }

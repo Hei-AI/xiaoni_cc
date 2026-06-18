@@ -111,7 +111,8 @@ test('listQqUsageThreads summarizes visible threads without loading full message
         assert.deepEqual(query.where.group_id.in, [253631878n]);
         return [{
           group_id: 253631878n,
-          is_enabled: 0
+          is_enabled: 0,
+          notification_aggregation_seconds: 30
         }];
       }
     },
@@ -139,6 +140,7 @@ test('listQqUsageThreads summarizes visible threads without loading full message
   assert.equal(result.threads[0].latestMessage.id, 100);
   assert.equal(result.threads[1].threadKey, 'qq:group:253631878');
   assert.equal(result.threads[1].notificationMuted, true);
+  assert.equal(result.threads[1].notificationAggregationSeconds, 30);
   assert.equal(result.threads[1].unreadCount, 94);
   assert.equal(result.threads[1].directMentions, 2);
   assert.equal(result.threads[1].totalMessages, 12875);
@@ -147,6 +149,39 @@ test('listQqUsageThreads summarizes visible threads without loading full message
   assert.equal(calls.findFirst.length, 0);
   assert.equal(calls.groupSettingFindMany.length, 1);
   assert.equal(calls.privateSettingFindMany.length, 1);
+});
+
+test('setQqUsageGroupNotificationAggregationSeconds stores ordinary group aggregation delay', async () => {
+  const calls = {
+    execute: [],
+    query: []
+  };
+  const prisma = {
+    $executeRawUnsafe: async (...args) => {
+      calls.execute.push(args);
+    },
+    $queryRawUnsafe: async (...args) => {
+      calls.query.push(args);
+      return [{
+        group_id: 253631878n,
+        notification_aggregation_seconds: 45
+      }];
+    }
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const result = await persistence.setQqUsageGroupNotificationAggregationSeconds({
+    groupId: '253631878',
+    seconds: '45'
+  });
+
+  assert.equal(result.groupId, 253631878);
+  assert.equal(result.notificationAggregationSeconds, 45);
+  assert.equal(calls.execute.length, 2);
+  assert.match(calls.execute[1][0], /notification_aggregation_seconds/);
+  assert.equal(calls.query.length, 1);
+  assert.equal(calls.query[0][1], 253631878n);
+  assert.equal(calls.query[0][2], 45);
 });
 
 test('searchQqUsageThreads filters visible chats by stored name or QQ id', async () => {

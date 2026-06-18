@@ -11,6 +11,7 @@ import type { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessag
 class FakeRuntimeStore implements InboundAgentQueueRuntimeStore {
   readonly timelineEvents: Array<Record<string, unknown>> = [];
   readonly enqueuedMessages: SemanticInboundMessage[] = [];
+  readonly scheduledAggregations: Array<{ message: SemanticInboundMessage; seconds: number }> = [];
 
   buildSemanticInboundMessage(message: InboxMessageRecord, sourceContext: {
     source: string;
@@ -46,6 +47,15 @@ class FakeRuntimeStore implements InboundAgentQueueRuntimeStore {
     return {
       queueId: this.enqueuedMessages.length,
       status: 'pending'
+    };
+  }
+
+  async scheduleGroupNotificationAggregation(message: SemanticInboundMessage, seconds: number) {
+    this.scheduledAggregations.push({ message, seconds });
+    return {
+      scheduled: true,
+      dueAt: '2026-05-30T00:00:30.000Z',
+      unreadDelta: this.scheduledAggregations.length
     };
   }
 
@@ -161,6 +171,45 @@ test('enqueues unmentioned group messages as phone notifications without message
   assert.equal(store.enqueuedMessages[0]?.commandBody, '');
 });
 
+test('schedules ordinary unmuted group messages when group aggregation delay is enabled', async () => {
+  const inboxEvent = buildInbox({
+    chatType: 'group',
+    wasMentioned: false,
+    bodyForAgent: '群里普通消息'
+  });
+  const store = new FakeRuntimeStore();
+
+  const result = await processInboundAgentQueueTrigger({
+    inboxEvent,
+    inboundContext: inboxEvent.inboundContext,
+    policyState: {
+      exists: true,
+      isEnabled: true,
+      continuousLearningEnabled: false,
+      autoReplyEnabled: true,
+      notificationMode: 'all',
+      notificationAggregationSeconds: 30
+    },
+    rawPayload: { test: true },
+    traceId: inboxEvent.traceId,
+    source: 'napcat'
+  }, store);
+
+  assert.equal(result.attempted, true);
+  assert.equal(result.queued, false);
+  assert.equal(result.queueStatus, 'scheduled');
+  assert.equal(result.aggregationScheduled, true);
+  assert.equal(result.triggerDecision.reason, 'group_message_phone_notification');
+  assert.equal(store.enqueuedMessages.length, 0);
+  assert.equal(store.scheduledAggregations.length, 1);
+  assert.equal(store.scheduledAggregations[0]?.seconds, 30);
+  assert.equal(store.scheduledAggregations[0]?.message.source, 'phone_notification');
+  assert.equal(store.timelineEvents.some((event) => (
+    event.eventName === 'group_aggregation.schedule'
+    && event.eventPhase === 'end'
+  )), true);
+});
+
 test('skips unmentioned group phone notifications in mentions_only mode', async () => {
   const inboxEvent = buildInbox({
     chatType: 'group',
@@ -176,7 +225,8 @@ test('skips unmentioned group phone notifications in mentions_only mode', async 
       isEnabled: true,
       continuousLearningEnabled: false,
       autoReplyEnabled: true,
-      notificationMode: 'mentions_only'
+      notificationMode: 'mentions_only',
+      notificationAggregationSeconds: 0
     },
     rawPayload: { test: true },
     traceId: inboxEvent.traceId,
@@ -211,7 +261,8 @@ test('does not enqueue phone notification when auto reply is disabled', async ()
       isEnabled: true,
       continuousLearningEnabled: true,
       autoReplyEnabled: false,
-      notificationMode: 'all'
+      notificationMode: 'all',
+      notificationAggregationSeconds: 0
     },
     rawPayload: { test: true },
     traceId: inboxEvent.traceId,
@@ -238,15 +289,33 @@ test('enqueues mentioned group messages as phone notifications', async () => {
     WasMentioned: true,
     ChatType: 'group'
   });
-  const { result, store } = await runTrigger(buildInbox({
+  const inboxEvent = buildInbox({
     chatType: 'group',
     wasMentioned: true,
     inboundContext: context
-  }));
+  });
+  const store = new FakeRuntimeStore();
+
+  const result = await processInboundAgentQueueTrigger({
+    inboxEvent,
+    inboundContext: inboxEvent.inboundContext,
+    policyState: {
+      exists: true,
+      isEnabled: true,
+      continuousLearningEnabled: false,
+      autoReplyEnabled: true,
+      notificationMode: 'all',
+      notificationAggregationSeconds: 30
+    },
+    rawPayload: { test: true },
+    traceId: inboxEvent.traceId,
+    source: 'napcat'
+  }, store);
 
   assert.equal(result.queued, true);
   assert.equal(result.triggerDecision.reason, 'group_mention_phone_notification');
   assert.equal(store.enqueuedMessages.length, 1);
+  assert.equal(store.scheduledAggregations.length, 0);
   assert.equal(store.enqueuedMessages[0]?.chatType, 'group');
   assert.equal(store.enqueuedMessages[0]?.sessionKey, 'qq:group:100');
   assert.equal(store.enqueuedMessages[0]?.wasMentioned, true);
@@ -404,7 +473,8 @@ test('forces private authorized user through disabled receive and auto-reply pol
     isEnabled: false,
     continuousLearningEnabled: false,
     autoReplyEnabled: false,
-    notificationMode: 'all' as const
+    notificationMode: 'all' as const,
+    notificationAggregationSeconds: 0
   };
   const message = {
     chatType: 'direct' as const,
@@ -419,7 +489,8 @@ test('forces private authorized user through disabled receive and auto-reply pol
     isEnabled: true,
     continuousLearningEnabled: false,
     autoReplyEnabled: true,
-    notificationMode: 'all'
+    notificationMode: 'all',
+    notificationAggregationSeconds: 0
   });
 });
 
@@ -429,7 +500,8 @@ test('does not force non-authorized private users through disabled policy', () =
     isEnabled: false,
     continuousLearningEnabled: false,
     autoReplyEnabled: false,
-    notificationMode: 'all' as const
+    notificationMode: 'all' as const,
+    notificationAggregationSeconds: 0
   };
   const message = {
     chatType: 'direct' as const,
@@ -448,7 +520,8 @@ test('forces group mentions through disabled receive and auto-reply policy', () 
     isEnabled: false,
     continuousLearningEnabled: false,
     autoReplyEnabled: false,
-    notificationMode: 'all' as const
+    notificationMode: 'all' as const,
+    notificationAggregationSeconds: 0
   };
   const message = {
     chatType: 'group' as const,
@@ -462,7 +535,8 @@ test('forces group mentions through disabled receive and auto-reply policy', () 
     isEnabled: true,
     continuousLearningEnabled: false,
     autoReplyEnabled: true,
-    notificationMode: 'all'
+    notificationMode: 'all',
+    notificationAggregationSeconds: 0
   });
 });
 
@@ -472,7 +546,8 @@ test('does not force ordinary group messages through disabled policy', () => {
     isEnabled: false,
     continuousLearningEnabled: false,
     autoReplyEnabled: false,
-    notificationMode: 'all' as const
+    notificationMode: 'all' as const,
+    notificationAggregationSeconds: 0
   };
   const message = {
     chatType: 'group' as const,

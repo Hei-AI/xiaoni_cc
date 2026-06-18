@@ -45,6 +45,11 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action: 'qq_usage.set_group_notification_mode', content: `<QQ_GROUP_NOTIFICATION_MODE group_id="${groupId}" mode="${mode}"></QQ_GROUP_NOTIFICATION_MODE>` };
   }
 
+  async setGroupNotificationDelay(groupId: string, seconds: number) {
+    this.calls.push({ method: 'setGroupNotificationDelay', args: [groupId, seconds] });
+    return { qq_usage: true as const, action: 'qq_usage.set_group_notification_delay', content: `<QQ_GROUP_NOTIFICATION_DELAY group_id="${groupId}" seconds="${seconds}"></QQ_GROUP_NOTIFICATION_DELAY>` };
+  }
+
   error(action: string, args: Record<string, unknown>, reason: string) {
     this.calls.push({ method: 'error', args: [action, args, reason] });
     return { qq_usage: true as const, action, content: `<QQ_USAGE_ERROR reason="${reason}"></QQ_USAGE_ERROR>`, failed: true };
@@ -53,6 +58,7 @@ class FakeQqUsageService {
 
 test('QqUsageService renders muted notification state in inbox thread list', async () => {
   const service = new QqUsageService({
+    clearQqUsageActiveSurface: async () => undefined,
     listQqUsageThreads: async () => ({
       offset: 0,
       limit: 10,
@@ -68,6 +74,7 @@ test('QqUsageService renders muted notification state in inbox thread list', asy
         accountId: '1129974489',
         imReceiveEnabled: false,
         notificationMuted: true,
+        notificationAggregationSeconds: 30,
         unreadCount: 21,
         directMentions: 1,
         totalMessages: 100,
@@ -80,8 +87,67 @@ test('QqUsageService renders muted notification state in inbox thread list', asy
   const result = await service.openInbox();
 
   assert.match(result.content, /notification_muted="true"/);
+  assert.match(result.content, /notification_aggregation_seconds="30"/);
   assert.match(result.content, /unread_count="21"/);
   assert.match(result.content, /direct_mentions="1"/);
+});
+
+test('QqUsageService records active surface internally when focusing and clears it when putting away', async () => {
+  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const service = new QqUsageService({
+    listQqUsageThreadWindow: async () => ({
+      threadKey: 'qq:group:253631878',
+      mode: 'latest',
+      windowSize: 10,
+      cursorAnchor: '200:200',
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+      newerAvailable: 0,
+      unreadBeforeWindow: 0,
+      unreadAfterWindow: 0,
+      reachedReadHistory: false,
+      unreadCount: 1,
+      directMentions: 0,
+      latestMessageId: 200,
+      earliestMessageId: 200,
+      windowUnreadCount: 1,
+      messages: [{
+        id: 200,
+        peer_id: '253631878',
+        account_id: '1129974489',
+        sender_id: '3994058476',
+        sender_name: '小伊',
+        raw_body: 'hello',
+        received_at: '2026-06-18T12:00:00.000Z',
+        is_read: 0,
+        was_mentioned: 0
+      }]
+    }),
+    recordQqUsageThreadSeen: async (...args: unknown[]) => calls.push({ method: 'recordQqUsageThreadSeen', args }),
+    setQqUsageActiveSurface: async (...args: unknown[]) => calls.push({ method: 'setQqUsageActiveSurface', args }),
+    markQqUsageThreadRead: async (...args: unknown[]) => {
+      calls.push({ method: 'markQqUsageThreadRead', args });
+      return { threadKey: 'qq:group:253631878', clearedCount: 1 };
+    },
+    clearQqUsageActiveSurface: async (...args: unknown[]) => calls.push({ method: 'clearQqUsageActiveSurface', args })
+  } as any);
+
+  await service.focusThread('qq:group:253631878', {}, 'qq_usage.focus_group');
+  await service.putAway('qq:group:253631878');
+
+  assert.deepEqual(calls.map((call) => call.method), [
+    'recordQqUsageThreadSeen',
+    'setQqUsageActiveSurface',
+    'markQqUsageThreadRead',
+    'clearQqUsageActiveSurface'
+  ]);
+  assert.deepEqual(calls[1]?.args[0], {
+    threadKey: 'qq:group:253631878',
+    chatType: 'group',
+    peerId: '253631878',
+    accountId: '1129974489'
+  });
+  assert.deepEqual(calls[3]?.args[0], { threadKey: 'qq:group:253631878' });
 });
 
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
@@ -223,6 +289,19 @@ test('QqUsageSkillRuntime lets Xiaoni switch group notification mode', async () 
   assert.deepEqual(service.calls, [
     { method: 'setGroupNotificationMode', args: ['123', 'mentions_only'] },
     { method: 'setGroupNotificationMode', args: ['123', 'all'] }
+  ]);
+});
+
+test('QqUsageSkillRuntime lets Xiaoni set group notification aggregation delay', async () => {
+  const service = new FakeQqUsageService();
+  const runtime = new QqUsageSkillRuntime(service as any);
+
+  const result = await runtime.execute('set_group_notification_delay', { group_id: '123', seconds: '30' });
+
+  assert.equal(result.action, 'qq_usage.set_group_notification_delay');
+  assert.match(result.content, /seconds="30"/);
+  assert.deepEqual(service.calls, [
+    { method: 'setGroupNotificationDelay', args: ['123', 30] }
   ]);
 });
 

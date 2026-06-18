@@ -664,12 +664,38 @@ exports.Prisma.GroupChatSettingScalarFieldEnum = {
   continuous_learning_enabled: 'continuous_learning_enabled',
   auto_reply_enabled: 'auto_reply_enabled',
   notification_mode: 'notification_mode',
+  notification_aggregation_seconds: 'notification_aggregation_seconds',
   transcript_compact_offset: 'transcript_compact_offset',
   welcome_message: 'welcome_message',
   admin_user_id: 'admin_user_id',
   agent_prompt_id: 'agent_prompt_id',
   last_activity: 'last_activity',
   created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentQqGroupNotificationAggregationScalarFieldEnum = {
+  session_key: 'session_key',
+  peer_id: 'peer_id',
+  peer_name: 'peer_name',
+  account_id: 'account_id',
+  unread_delta: 'unread_delta',
+  direct_mentions: 'direct_mentions',
+  latest_message_id: 'latest_message_id',
+  latest_message_sid: 'latest_message_sid',
+  message_payload: 'message_payload',
+  due_at: 'due_at',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.AgentQqUsageSurfaceStateScalarFieldEnum = {
+  identity_key: 'identity_key',
+  active_thread_key: 'active_thread_key',
+  active_chat_type: 'active_chat_type',
+  active_peer_id: 'active_peer_id',
+  account_id: 'account_id',
+  opened_at: 'opened_at',
   updated_at: 'updated_at'
 };
 
@@ -1494,6 +1520,8 @@ exports.Prisma.ModelName = {
   CoreMemoryCompressionForkToolExecution: 'CoreMemoryCompressionForkToolExecution',
   StackCompaction: 'StackCompaction',
   GroupChatSetting: 'GroupChatSetting',
+  AgentQqGroupNotificationAggregation: 'AgentQqGroupNotificationAggregation',
+  AgentQqUsageSurfaceState: 'AgentQqUsageSurfaceState',
   PrivateChatSetting: 'PrivateChatSetting',
   AgentInboundMessage: 'AgentInboundMessage',
   AgentInboundThreadState: 'AgentInboundThreadState',

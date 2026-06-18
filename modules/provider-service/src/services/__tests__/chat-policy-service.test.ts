@@ -7,7 +7,8 @@ test('policy state treats receive as the hard parent switch', async () => {
   (service as any).prisma = {
     $queryRawUnsafe: async () => [{
       is_enabled: 0,
-      notification_mode: 'all'
+      notification_mode: 'all',
+      notification_aggregation_seconds: 0
     }],
     groupChatSetting: {
       findUnique: async () => ({
@@ -30,7 +31,8 @@ test('policy state treats receive as the hard parent switch', async () => {
     isEnabled: false,
     continuousLearningEnabled: false,
     autoReplyEnabled: false,
-    notificationMode: 'all'
+    notificationMode: 'all',
+    notificationAggregationSeconds: 0
   });
 });
 
@@ -52,7 +54,8 @@ test('missing policy rows keep IM entry and internal delivery enabled by default
     isEnabled: true,
     continuousLearningEnabled: false,
     autoReplyEnabled: true,
-    notificationMode: 'all'
+    notificationMode: 'all',
+    notificationAggregationSeconds: 0
   });
 });
 
@@ -61,7 +64,8 @@ test('policy state allows group auto reply without a prompt binding', async () =
   (service as any).prisma = {
     $queryRawUnsafe: async () => [{
       is_enabled: 1,
-      notification_mode: 'mentions_only'
+      notification_mode: 'mentions_only',
+      notification_aggregation_seconds: 45
     }],
     groupChatSetting: {
       findUnique: async () => ({
@@ -84,6 +88,7 @@ test('policy state allows group auto reply without a prompt binding', async () =
     isEnabled: true,
     continuousLearningEnabled: false,
     autoReplyEnabled: true,
-    notificationMode: 'mentions_only'
+    notificationMode: 'mentions_only',
+    notificationAggregationSeconds: 45
   });
 });

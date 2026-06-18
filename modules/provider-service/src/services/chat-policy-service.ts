@@ -8,6 +8,7 @@ export type GroupNotificationMode = 'all' | 'mentions_only';
 type ChatPolicyRecord = {
   is_enabled: number | bigint | null;
   notification_mode?: string | null;
+  notification_aggregation_seconds?: number | bigint | null;
 };
 
 export type PolicyState = {
@@ -16,6 +17,7 @@ export type PolicyState = {
   continuousLearningEnabled: boolean;
   autoReplyEnabled: boolean;
   notificationMode: GroupNotificationMode;
+  notificationAggregationSeconds: number;
 };
 
 type IncomingPolicyResult = PolicyState & {
@@ -86,8 +88,11 @@ export class ChatPolicyService {
           "ALTER TABLE group_chat_settings ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'"
         );
         await this.prisma.$executeRawUnsafe(
-          `INSERT INTO group_chat_settings (group_id, is_enabled, continuous_learning_enabled, auto_reply_enabled, notification_mode, last_activity)
-           VALUES ($1, 1, 0, 1, 'all', NOW())
+          "ALTER TABLE group_chat_settings ADD COLUMN IF NOT EXISTS notification_aggregation_seconds INTEGER NOT NULL DEFAULT 0"
+        );
+        await this.prisma.$executeRawUnsafe(
+          `INSERT INTO group_chat_settings (group_id, is_enabled, continuous_learning_enabled, auto_reply_enabled, notification_mode, notification_aggregation_seconds, last_activity)
+           VALUES ($1, 1, 0, 1, 'all', 0, NOW())
            ON CONFLICT (group_id) DO UPDATE
              SET last_activity = NOW()`,
           BigInt(params.groupId)
@@ -127,7 +132,8 @@ export class ChatPolicyService {
         isEnabled: true,
         continuousLearningEnabled: false,
         autoReplyEnabled: true,
-        notificationMode: 'all'
+        notificationMode: 'all',
+        notificationAggregationSeconds: 0
       };
     }
 
@@ -138,7 +144,8 @@ export class ChatPolicyService {
       isEnabled,
       continuousLearningEnabled: false,
       autoReplyEnabled: isEnabled,
-      notificationMode: normalizeGroupNotificationMode(row.notification_mode)
+      notificationMode: normalizeGroupNotificationMode(row.notification_mode),
+      notificationAggregationSeconds: normalizeAggregationSeconds(row.notification_aggregation_seconds)
     };
   }
 
@@ -149,7 +156,7 @@ export class ChatPolicyService {
 
     try {
       const rows = await this.prisma.$queryRawUnsafe(
-        'SELECT is_enabled, notification_mode FROM group_chat_settings WHERE group_id = $1 LIMIT 1',
+        'SELECT is_enabled, notification_mode, notification_aggregation_seconds FROM group_chat_settings WHERE group_id = $1 LIMIT 1',
         BigInt(groupId)
       );
       return Array.isArray(rows) ? rows[0] || null : null;
@@ -182,6 +189,12 @@ export class ChatPolicyService {
 
 function normalizeGroupNotificationMode(value: unknown): GroupNotificationMode {
   return value === 'mentions_only' ? 'mentions_only' : 'all';
+}
+
+function normalizeAggregationSeconds(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(86400, Math.floor(numeric)));
 }
 
 export default ChatPolicyService;

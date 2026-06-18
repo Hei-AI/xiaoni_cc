@@ -48,6 +48,9 @@ import {
   getQqUsageUnreadSummary,
   markQqUsageThreadRead,
   setQqUsageGroupNotificationMode,
+  setQqUsageGroupNotificationAggregationSeconds,
+  setQqUsageActiveSurface,
+  clearQqUsageActiveSurface,
   renewQqAttentionLease,
   closeQqAttentionLease,
   ensureQqAttentionLeaseSchema,
@@ -2706,6 +2709,47 @@ export class RuntimeStore {
       groupId: params.groupId,
       mode: params.mode
     }, databaseConfig);
+  }
+
+  async setQqUsageGroupNotificationAggregationSeconds(params: {
+    groupId: string | number | bigint;
+    seconds: number;
+  }): Promise<{ groupId: number; notificationAggregationSeconds: number }> {
+    return setQqUsageGroupNotificationAggregationSeconds({
+      groupId: params.groupId,
+      seconds: params.seconds
+    }, databaseConfig);
+  }
+
+  async setQqUsageActiveSurface(params: {
+    threadKey: string;
+    chatType: 'direct' | 'group';
+    peerId?: string | null;
+    accountId?: string | null;
+  }): Promise<void> {
+    await setQqUsageActiveSurface({
+      threadKey: params.threadKey,
+      chatType: params.chatType,
+      peerId: params.peerId || null,
+      accountId: params.accountId || null
+    }, databaseConfig).catch((error) => {
+      moduleLogger.warn('Failed to update QQ active surface', {
+        threadKey: params.threadKey,
+        chatType: params.chatType,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
+  async clearQqUsageActiveSurface(params: { threadKey?: string | null } = {}): Promise<void> {
+    await clearQqUsageActiveSurface({
+      threadKey: params.threadKey || undefined
+    }, databaseConfig).catch((error) => {
+      moduleLogger.warn('Failed to clear QQ active surface', {
+        threadKey: params.threadKey || null,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
   }
 
   async listRelevantFeedbackReflections(params: {

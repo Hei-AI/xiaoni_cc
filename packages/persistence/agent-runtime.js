@@ -208,10 +208,37 @@ const CONVERSATION_STORE_DDLS = [
    ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`,
   `ALTER TABLE group_chat_settings
    ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'`,
+  `ALTER TABLE group_chat_settings
+   ADD COLUMN IF NOT EXISTS notification_aggregation_seconds INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE private_chat_settings
    ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`,
   `ALTER TABLE group_chat_settings
-   ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`
+   ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`,
+  `CREATE TABLE IF NOT EXISTS agent_qq_group_notification_aggregations (
+      session_key VARCHAR(191) PRIMARY KEY,
+      peer_id VARCHAR(191) NOT NULL,
+      peer_name VARCHAR(255),
+      account_id VARCHAR(191) NOT NULL,
+      unread_delta INTEGER NOT NULL DEFAULT 1,
+      direct_mentions INTEGER NOT NULL DEFAULT 0,
+      latest_message_id BIGINT,
+      latest_message_sid VARCHAR(191) NOT NULL,
+      message_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      due_at TIMESTAMPTZ(3) NOT NULL,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  'CREATE INDEX IF NOT EXISTS idx_agent_qq_group_notification_aggregations_due ON agent_qq_group_notification_aggregations (due_at)',
+  `CREATE TABLE IF NOT EXISTS agent_qq_usage_surface_state (
+      identity_key VARCHAR(191) PRIMARY KEY DEFAULT 'xiaoni',
+      active_thread_key VARCHAR(191),
+      active_chat_type VARCHAR(16),
+      active_peer_id VARCHAR(191),
+      account_id VARCHAR(191),
+      opened_at TIMESTAMPTZ(3),
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  'CREATE INDEX IF NOT EXISTS idx_agent_qq_usage_surface_state_active_thread ON agent_qq_usage_surface_state (active_thread_key)'
 ];
 
 function normalizeJsonObject(value, fallback = {}) {

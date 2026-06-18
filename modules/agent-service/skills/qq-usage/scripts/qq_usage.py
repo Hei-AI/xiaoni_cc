@@ -125,6 +125,10 @@ def build_parser():
     set_group_notification_mode.add_argument("group_id")
     set_group_notification_mode.add_argument("mode", choices=["all", "mentions_only", "mentions", "mention_only"])
 
+    set_group_notification_delay = subcommands.add_parser("set_group_notification_delay")
+    set_group_notification_delay.add_argument("group_id")
+    set_group_notification_delay.add_argument("seconds")
+
     subcommands.add_parser("put_qq_away")
 
     return parser

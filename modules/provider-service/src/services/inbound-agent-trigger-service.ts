@@ -17,12 +17,19 @@ export type InboundAgentQueuePolicyState = {
   continuousLearningEnabled: boolean;
   autoReplyEnabled: boolean;
   notificationMode: GroupNotificationMode;
+  notificationAggregationSeconds: number;
 };
 
 export type InboundAgentQueueRuntimeStore = {
   enqueueSemanticMessage(message: SemanticInboundMessage): Promise<{
     queueId: number;
     status: string;
+  }>;
+  scheduleGroupNotificationAggregation(message: SemanticInboundMessage, seconds: number): Promise<{
+    scheduled: boolean;
+    reason?: string | null;
+    dueAt?: string | Date | null;
+    unreadDelta?: number | null;
   }>;
   logTimelineEvent(params: {
     traceId: string;
@@ -192,6 +199,60 @@ export async function processInboundAgentQueueTrigger(params: {
     source: params.source,
     reason: triggerDecision.reason
   });
+  const aggregationSeconds = Math.max(0, Number(params.policyState?.notificationAggregationSeconds || 0));
+  if (
+    params.inboxEvent.chatType === 'group'
+    && params.inboxEvent.wasMentioned !== true
+    && triggerDecision.reason === 'group_message_phone_notification'
+    && aggregationSeconds > 0
+  ) {
+    await runtimeStoreService.logTimelineEvent({
+      traceId: params.traceId,
+      eventType: 'phone_notification',
+      eventName: 'group_aggregation.schedule',
+      eventPhase: 'start',
+      metadata: {
+        source: params.source,
+        reason: triggerDecision.reason,
+        notification_id: notificationMessage.messageSid,
+        session_key: params.inboxEvent.sessionKey,
+        aggregation_seconds: aggregationSeconds
+      }
+    });
+
+    const aggregationResult = await runtimeStoreService.scheduleGroupNotificationAggregation(notificationMessage, aggregationSeconds);
+
+    await runtimeStoreService.logTimelineEvent({
+      traceId: params.traceId,
+      eventType: 'phone_notification',
+      eventName: 'group_aggregation.schedule',
+      eventPhase: aggregationResult.scheduled ? 'end' : 'skip',
+      metadata: {
+        source: params.source,
+        reason: aggregationResult.reason || 'scheduled',
+        trigger_reason: triggerDecision.reason,
+        notification_id: notificationMessage.messageSid,
+        session_key: params.inboxEvent.sessionKey,
+        aggregation_seconds: aggregationSeconds,
+        due_at: aggregationResult.dueAt || null,
+        unread_delta: aggregationResult.unreadDelta ?? null
+      }
+    });
+
+    return {
+      attempted: true,
+      queued: false,
+      queueId: null,
+      queueIds: [],
+      queueStatus: aggregationResult.scheduled ? 'scheduled' : 'skipped',
+      queueStatuses: [],
+      traceId: params.traceId,
+      notificationCount: 0,
+      triggerDecision,
+      aggregationScheduled: aggregationResult.scheduled,
+      reason: aggregationResult.reason || 'group_notification_aggregated'
+    };
+  }
 
   await runtimeStoreService.logTimelineEvent({
     traceId: params.traceId,

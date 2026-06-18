@@ -50,6 +50,12 @@ function normalizeSearchQuery(value) {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 80) : '';
 }
 
+function normalizeAggregationSeconds(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(86400, Math.floor(numeric)));
+}
+
 function buildThreadListWhere(input = {}) {
   const chatType = normalizeChatType(input.chatType || input.chat_type);
   const searchQuery = normalizeSearchQuery(input.searchQuery || input.search_query || input.query || input.q);
@@ -106,7 +112,7 @@ async function getThreadNotificationStates(prisma, threadStates) {
     prisma.groupChatSetting && groupIds.length > 0
       ? prisma.groupChatSetting.findMany({
           where: { group_id: { in: groupIds } },
-          select: { group_id: true, is_enabled: true }
+          select: { group_id: true, is_enabled: true, notification_aggregation_seconds: true }
         })
       : [],
     prisma.privateChatSetting && directUserIds.length > 0
@@ -120,13 +126,15 @@ async function getThreadNotificationStates(prisma, threadStates) {
   for (const row of groupSettings) {
     result.set(`group:${String(row.group_id)}`, {
       imReceiveEnabled: Number(row.is_enabled) === 1,
-      notificationMuted: Number(row.is_enabled) !== 1
+      notificationMuted: Number(row.is_enabled) !== 1,
+      notificationAggregationSeconds: normalizeAggregationSeconds(row.notification_aggregation_seconds)
     });
   }
   for (const row of privateSettings) {
     result.set(`direct:${String(row.user_id)}`, {
       imReceiveEnabled: Number(row.is_enabled) === 1,
-      notificationMuted: Number(row.is_enabled) !== 1
+      notificationMuted: Number(row.is_enabled) !== 1,
+      notificationAggregationSeconds: 0
     });
   }
   return result;
@@ -244,7 +252,8 @@ async function listQqUsageThreads(input = {}, config = {}) {
       const peerId = state.peer_id || latest?.peer_id || '';
       const notificationState = notificationStates.get(`${chatType === 'group' ? 'group' : 'direct'}:${peerId}`) || {
         imReceiveEnabled: true,
-        notificationMuted: false
+        notificationMuted: false,
+        notificationAggregationSeconds: 0
       };
       return {
         threadKey: state.session_key,
@@ -254,6 +263,7 @@ async function listQqUsageThreads(input = {}, config = {}) {
         accountId: state.account_id || latest?.account_id || null,
         imReceiveEnabled: notificationState.imReceiveEnabled,
         notificationMuted: notificationState.notificationMuted,
+        notificationAggregationSeconds: notificationState.notificationAggregationSeconds,
         unreadCount: Number(state.unread_count || 0),
         directMentions: Number(state.direct_mentions || 0),
         totalMessages: Number(state.total_messages || 0),
@@ -444,6 +454,37 @@ async function setQqUsageGroupNotificationMode(input = {}, config = {}) {
   };
 }
 
+async function setQqUsageGroupNotificationAggregationSeconds(input = {}, config = {}) {
+  const prisma = input.prisma || config.prisma || input.getPrismaClient?.(config) || config.getPrismaClient?.(config);
+  if (!prisma) {
+    throw new Error('setQqUsageGroupNotificationAggregationSeconds requires a Prisma client');
+  }
+  const groupId = toBigIntOrNull(input.groupId || input.group_id || input.peerId || input.peer_id);
+  if (groupId === null || groupId <= 0n) {
+    throw new Error('group_id is required');
+  }
+  const seconds = normalizeAggregationSeconds(input.seconds ?? input.notificationAggregationSeconds ?? input.notification_aggregation_seconds);
+  await ensureGroupNotificationModeColumn(prisma);
+  await prisma.$executeRawUnsafe(
+    "ALTER TABLE group_chat_settings ADD COLUMN IF NOT EXISTS notification_aggregation_seconds INTEGER NOT NULL DEFAULT 0"
+  );
+  const rows = await prisma.$queryRawUnsafe(
+    `INSERT INTO group_chat_settings (group_id, is_enabled, continuous_learning_enabled, auto_reply_enabled, notification_mode, notification_aggregation_seconds, last_activity)
+     VALUES ($1, 1, 0, 1, 'all', $2, NOW())
+     ON CONFLICT (group_id) DO UPDATE
+       SET notification_aggregation_seconds = EXCLUDED.notification_aggregation_seconds,
+           last_activity = NOW()
+     RETURNING group_id, notification_aggregation_seconds`,
+    groupId,
+    seconds
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  return {
+    groupId: row?.group_id === undefined ? Number(groupId) : Number(row.group_id),
+    notificationAggregationSeconds: normalizeAggregationSeconds(row?.notification_aggregation_seconds ?? seconds)
+  };
+}
+
 function createQqUsagePersistence(deps) {
   return {
     getQqUsageUnreadSummary(input = {}, config = {}) {
@@ -463,6 +504,9 @@ function createQqUsagePersistence(deps) {
     },
     setQqUsageGroupNotificationMode(input = {}, config = {}) {
       return setQqUsageGroupNotificationMode({ ...input, getPrismaClient: deps.getPrismaClient }, config);
+    },
+    setQqUsageGroupNotificationAggregationSeconds(input = {}, config = {}) {
+      return setQqUsageGroupNotificationAggregationSeconds({ ...input, getPrismaClient: deps.getPrismaClient }, config);
     }
   };
 }

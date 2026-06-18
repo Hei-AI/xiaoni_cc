@@ -40,7 +40,7 @@ import {
   type ProviderMessageType,
   type SimpleQueueSimulationPayload,
 } from './services/simple-queue-simulation-context';
-import { FinalizedInboundContext, InboxMessageRecord, InboundMediaAsset } from './types';
+import { FinalizedInboundContext, InboxMessageRecord, InboundMediaAsset, SemanticInboundMessage } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
 import {
   applyForcedInboundAgentQueuePolicy,
@@ -68,6 +68,10 @@ const inboundMediaFetchTimeoutMs = Number(process.env.PROVIDER_INBOUND_MEDIA_FET
 const INBOUND_MEDIA_FETCH_TIMEOUT_MS = Number.isFinite(inboundMediaFetchTimeoutMs) && inboundMediaFetchTimeoutMs > 0
   ? inboundMediaFetchTimeoutMs
   : 10_000;
+const groupNotificationAggregationFlushInterval = Number(process.env.QQ_GROUP_NOTIFICATION_AGGREGATION_FLUSH_INTERVAL_MS || 1000);
+const GROUP_NOTIFICATION_AGGREGATION_FLUSH_INTERVAL_MS = Number.isFinite(groupNotificationAggregationFlushInterval) && groupNotificationAggregationFlushInterval > 0
+  ? groupNotificationAggregationFlushInterval
+  : 1000;
 const NAPCAT_QQ_DATA_ROOT = process.env.NAPCAT_QQ_DATA_ROOT || '/app/napcat-qq-data';
 const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
 const embeddingService = new EmbeddingService(aiConfig);
@@ -83,6 +87,8 @@ const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
 const GROUP_INFO_CACHE_TTL_MS = Number(process.env.NAPCAT_GROUP_INFO_CACHE_TTL_MS || 10 * 60 * 1000);
 const groupNameCache = new Map<number, { name: string; expiresAt: number }>();
+let groupNotificationAggregationFlushTimer: ReturnType<typeof setInterval> | null = null;
+let groupNotificationAggregationFlushBusy = false;
 
 function parseDirectAgentTriggerUserIds() {
   const raw = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS
@@ -2358,6 +2364,7 @@ async function startServer() {
   await conversationStoreService.initialize();
   await transcriptSnapshotService.initialize();
   await runtimeStoreService.initialize();
+  startGroupNotificationAggregationFlushLoop();
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Provider service started', {
@@ -2367,8 +2374,63 @@ async function startServer() {
   });
 }
 
+async function flushGroupNotificationAggregationsOnce() {
+  if (groupNotificationAggregationFlushBusy) {
+    return;
+  }
+  groupNotificationAggregationFlushBusy = true;
+  try {
+    const dueItems = await runtimeStoreService.claimDueGroupNotificationAggregations(20);
+    for (const item of dueItems) {
+      try {
+        const message = item.message as unknown as SemanticInboundMessage;
+        const queueResult = await runtimeStoreService.enqueueSemanticMessage(message);
+        await runtimeStoreService.cancelGroupNotificationAggregation(item.sessionKey);
+        await runtimeStoreService.logTimelineEvent({
+          traceId: message.traceId,
+          eventType: 'phone_notification',
+          eventName: 'group_aggregation.flush',
+          eventPhase: 'end',
+          metadata: {
+            session_key: item.sessionKey,
+            queue_id: queueResult.queueId,
+            queue_status: queueResult.status,
+            unread_delta: item.unreadDelta,
+            due_at: item.dueAt
+          }
+        });
+      } catch (error) {
+        moduleLogger.warn('Failed to flush QQ group notification aggregation', {
+          sessionKey: item.sessionKey,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  } catch (error) {
+    moduleLogger.warn('Failed to claim QQ group notification aggregations', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    groupNotificationAggregationFlushBusy = false;
+  }
+}
+
+function startGroupNotificationAggregationFlushLoop() {
+  if (groupNotificationAggregationFlushTimer) {
+    return;
+  }
+  groupNotificationAggregationFlushTimer = setInterval(() => {
+    void flushGroupNotificationAggregationsOnce();
+  }, GROUP_NOTIFICATION_AGGREGATION_FLUSH_INTERVAL_MS);
+  void flushGroupNotificationAggregationsOnce();
+}
+
 async function shutdown(signal: string) {
   moduleLogger.info('Shutting down provider service', { signal });
+  if (groupNotificationAggregationFlushTimer) {
+    clearInterval(groupNotificationAggregationFlushTimer);
+    groupNotificationAggregationFlushTimer = null;
+  }
   await inboxService.close().catch((error) => {
     moduleLogger.warn('Failed to close inbox service cleanly', {
       error: error instanceof Error ? error.message : String(error)

@@ -665,6 +665,7 @@ model GroupChatSetting {
   continuous_learning_enabled Int @default(1)
   auto_reply_enabled Int       @default(0)
   notification_mode  String    @default("all") @db.VarChar(32)
+  notification_aggregation_seconds Int @default(0)
   transcript_compact_offset Int @default(6)
   welcome_message    String?
   admin_user_id      BigInt?   @db.BigInt
@@ -674,6 +675,37 @@ model GroupChatSetting {
   updated_at         DateTime  @updatedAt @db.Timestamptz(3)
 
   @@map("group_chat_settings")
+}
+
+model AgentQqGroupNotificationAggregation {
+  session_key        String   @id @db.VarChar(191)
+  peer_id            String   @db.VarChar(191)
+  peer_name          String?  @db.VarChar(255)
+  account_id         String   @db.VarChar(191)
+  unread_delta       Int      @default(1)
+  direct_mentions    Int      @default(0)
+  latest_message_id  BigInt?  @db.BigInt
+  latest_message_sid String   @db.VarChar(191)
+  message_payload    Json     @default("{}")
+  due_at             DateTime @db.Timestamptz(3)
+  created_at         DateTime @default(now()) @db.Timestamptz(3)
+  updated_at         DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([due_at], map: "idx_agent_qq_group_notification_aggregations_due")
+  @@map("agent_qq_group_notification_aggregations")
+}
+
+model AgentQqUsageSurfaceState {
+  identity_key       String    @id @default("xiaoni") @db.VarChar(191)
+  active_thread_key  String?   @db.VarChar(191)
+  active_chat_type   String?   @db.VarChar(16)
+  active_peer_id     String?   @db.VarChar(191)
+  account_id         String?   @db.VarChar(191)
+  opened_at          DateTime? @db.Timestamptz(3)
+  updated_at         DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([active_thread_key], map: "idx_agent_qq_usage_surface_state_active_thread")
+  @@map("agent_qq_usage_surface_state")
 }
 
 model PrivateChatSetting {

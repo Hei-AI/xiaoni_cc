@@ -23,6 +23,7 @@ const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
 const { createQqUsagePersistence } = require('./qq-usage');
 const { createQqAttentionLeasePersistence } = require('./qq-attention-lease');
+const { createQqGroupNotificationAggregationPersistence } = require('./qq-group-notification-aggregation');
 const { createAgentRuntimeControlPersistence } = require('./agent-runtime-control');
 const {
   STORAGE_TIMEZONE,
@@ -492,6 +493,11 @@ const qqAttentionLeasePersistence = createQqAttentionLeasePersistence({
   createSqlAdapter
 });
 
+const qqGroupNotificationAggregationPersistence = createQqGroupNotificationAggregationPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const agentRuntimeControlPersistence = createAgentRuntimeControlPersistence({
   createSqlAdapter
 });
@@ -532,5 +538,6 @@ module.exports = {
   ...agentMemoryPersistence,
   ...qqUsagePersistence,
   ...qqAttentionLeasePersistence,
+  ...qqGroupNotificationAggregationPersistence,
   ...agentRuntimeControlPersistence
 };

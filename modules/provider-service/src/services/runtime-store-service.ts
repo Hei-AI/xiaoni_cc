@@ -2,8 +2,12 @@ import {
   createSqlAdapter,
   enqueueAgentQueueMessage,
   ensureAgentRuntimeSchema,
+  ensureQqGroupNotificationAggregationSchema,
   ensureQqAttentionLeaseSchema,
   logRuntimeTimelineEvent,
+  scheduleQqGroupNotificationAggregation,
+  claimDueQqGroupNotificationAggregations,
+  cancelQqGroupNotificationAggregation,
   recordCodexProviderUsageEvent as persistCodexProviderUsageEvent,
   recordLlmRequestSlice,
   attachConversationIdToRuntimeTrace,
@@ -103,6 +107,26 @@ export class RuntimeStoreService {
       },
       payload: message as unknown as Record<string, unknown>,
       availableAt
+    }, databaseConfig);
+  }
+
+  async scheduleGroupNotificationAggregation(message: SemanticInboundMessage, seconds: number) {
+    return scheduleQqGroupNotificationAggregation({
+      message,
+      seconds
+    }, databaseConfig);
+  }
+
+  async claimDueGroupNotificationAggregations(limit = 20) {
+    return claimDueQqGroupNotificationAggregations({
+      limit,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async cancelGroupNotificationAggregation(threadKey: string) {
+    return cancelQqGroupNotificationAggregation({
+      threadKey
     }, databaseConfig);
   }
 
@@ -326,6 +350,9 @@ export class RuntimeStoreService {
 
   private async ensureSchema() {
     await ensureAgentRuntimeSchema({
+      sqlAdapter: this.sql
+    }, databaseConfig);
+    await ensureQqGroupNotificationAggregationSchema({
       sqlAdapter: this.sql
     }, databaseConfig);
     await ensureQqAttentionLeaseSchema({

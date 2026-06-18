@@ -1233,6 +1233,7 @@ export type QqUsageThreadSummary = {
   accountId: string | null;
   imReceiveEnabled: boolean;
   notificationMuted: boolean;
+  notificationAggregationSeconds: number;
   unreadCount: number;
   directMentions: number;
   totalMessages: number;
@@ -1291,6 +1292,34 @@ export function setQqUsageGroupNotificationMode(
   input?: { groupId?: string | number | bigint; group_id?: string | number | bigint; mode?: QqUsageGroupNotificationMode | string },
   config?: DatabaseUrlConfig
 ): Promise<{ groupId: number; notificationMode: QqUsageGroupNotificationMode }>;
+export function setQqUsageGroupNotificationAggregationSeconds(
+  input?: { groupId?: string | number | bigint; group_id?: string | number | bigint; seconds?: number | string; notificationAggregationSeconds?: number | string; notification_aggregation_seconds?: number | string },
+  config?: DatabaseUrlConfig
+): Promise<{ groupId: number; notificationAggregationSeconds: number }>;
+export function ensureQqGroupNotificationAggregationSchema(
+  input?: { sqlAdapter?: SqlAdapter },
+  config?: DatabaseUrlConfig
+): Promise<void>;
+export function scheduleQqGroupNotificationAggregation(
+  input?: Record<string, unknown>,
+  config?: DatabaseUrlConfig
+): Promise<{ scheduled: boolean; reason?: string | null; sessionKey?: string; dueAt?: string | Date | null; unreadDelta?: number | null }>;
+export function claimDueQqGroupNotificationAggregations(
+  input?: { limit?: number; sqlAdapter?: SqlAdapter },
+  config?: DatabaseUrlConfig
+): Promise<Array<{ sessionKey: string; dueAt: string | Date; unreadDelta: number; message: Record<string, unknown> }>>;
+export function cancelQqGroupNotificationAggregation(
+  input?: { threadKey?: string; thread_key?: string; sessionKey?: string; session_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<{ cancelledCount: number }>;
+export function setQqUsageActiveSurface(
+  input?: { identityKey?: string; identity_key?: string; threadKey?: string; thread_key?: string; chatType?: 'direct' | 'group'; chat_type?: 'direct' | 'group'; peerId?: string | null; peer_id?: string | null; accountId?: string | null; account_id?: string | null },
+  config?: DatabaseUrlConfig
+): Promise<{ identityKey: string; threadKey: string; chatType: 'direct' | 'group' }>;
+export function clearQqUsageActiveSurface(
+  input?: { identityKey?: string; identity_key?: string; threadKey?: string; thread_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<{ cleared: boolean; previousThreadKey?: string | null }>;
 export function ensureQqAttentionLeaseSchema(
   input?: { sqlAdapter?: SqlAdapter },
   config?: DatabaseUrlConfig
