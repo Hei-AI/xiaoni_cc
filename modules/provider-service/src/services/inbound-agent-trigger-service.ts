@@ -60,6 +60,10 @@ export function shouldForceInboundAgentQueueTrigger(
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
   options: { directTriggerUserIds?: Set<string> } = {}
 ) {
+  if (message.chatType === 'group' && message.wasMentioned === true) {
+    return true;
+  }
+
   const senderId = String(message.senderId || '').trim();
   return message.chatType === 'direct'
     && senderId.length > 0

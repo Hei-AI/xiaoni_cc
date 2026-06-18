@@ -393,3 +393,42 @@ test('does not force non-authorized private users through disabled policy', () =
   assert.equal(shouldForceInboundAgentQueueTrigger(message, options), false);
   assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message, options), disabledPolicy);
 });
+
+test('forces group mentions through disabled receive and auto-reply policy', () => {
+  const disabledPolicy = {
+    exists: true,
+    isEnabled: false,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: false
+  };
+  const message = {
+    chatType: 'group' as const,
+    wasMentioned: true,
+    senderId: '20001'
+  };
+
+  assert.equal(shouldForceInboundAgentQueueTrigger(message), true);
+  assert.deepEqual(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), {
+    exists: true,
+    isEnabled: true,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: true
+  });
+});
+
+test('does not force ordinary group messages through disabled policy', () => {
+  const disabledPolicy = {
+    exists: true,
+    isEnabled: false,
+    continuousLearningEnabled: false,
+    autoReplyEnabled: false
+  };
+  const message = {
+    chatType: 'group' as const,
+    wasMentioned: false,
+    senderId: '20001'
+  };
+
+  assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
+  assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
+});

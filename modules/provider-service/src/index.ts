@@ -1058,11 +1058,6 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     userId,
     groupId
   });
-  const effectivePolicy = applyEffectiveInboundPolicy(policy, {
-    messageType,
-    userId,
-    wasMentioned: false
-  });
 
   const traceId = inboxService.createTraceId('napcat');
   const expandedMessage = await expandForwardSegments(message);
@@ -1077,6 +1072,11 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   }
   await enrichInboundContextWithGroupName(inboundContext, groupId);
   await prepareInboundMediaAssets(inboundContext);
+  const effectivePolicy = applyEffectiveInboundPolicy(policy, {
+    messageType,
+    userId,
+    wasMentioned: inboundContext.WasMentioned === true
+  });
 
   const result = await inboxService.ingestIncomingMessage({
     inboundContext,
