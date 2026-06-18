@@ -7952,7 +7952,7 @@ test('core memory compression commit uses the planned source-overlap cutoff', as
   assert.equal(cutoff, 170);
 });
 
-test('core memory compression scheduling dedupes only an in-process fork', async () => {
+test('core memory compression scheduling dedupes an in-process fork before durable checks', async () => {
   const queuePayload = createRuntimeLoopPayload();
   const compression = {
     required: true,
@@ -7993,6 +7993,124 @@ test('core memory compression scheduling dedupes only an in-process fork', async
   assert.equal(artifact.status, 'already_running');
   assert.equal(artifact.persisted_fork_run_id, undefined);
   assert.equal(artifact.persisted_run_id, undefined);
+});
+
+test('core memory compression scheduling skips when durable cutoff already covers the planned fork', async () => {
+  const queuePayload = createRuntimeLoopPayload();
+  const compression = {
+    required: true,
+    contextSessionKey: 'xiaoni:test-global',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: 99,
+    compressionCoveredEndConversationId: 201,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  };
+  let startedFork = false;
+  let activeFinderCalled = false;
+  const service = new AgentLoopService({
+    getSessionReadCutoffState: async () => ({
+      sessionKey: 'xiaoni:test-global',
+      readCutoffAfterConversationId: 171,
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000,
+      contextSummary: 'already compressed',
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0,
+      updatedAt: null
+    }),
+    findActiveCoreMemoryCompressionForkRun: async () => {
+      activeFinderCalled = true;
+      return null;
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork = true;
+    throw new Error('must not start a covered compression fork');
+  };
+
+  const artifact = await (service as any).scheduleCoreMemoryCompressionFork({
+    baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queuePayload), queuePayload, createRuntimePrompt()),
+    queueMessage: queuePayload,
+    runtimePrompt: createRuntimePrompt(),
+    contextSessionKey: 'xiaoni:test-global',
+    compression
+  });
+
+  assert.equal(startedFork, false);
+  assert.equal(activeFinderCalled, false);
+  assert.equal(artifact.status, 'already_covered');
+  assert.equal(artifact.read_cutoff_after_conversation_id, 171);
+  assert.equal(artifact.planned_read_cutoff_after_conversation_id, 171);
+});
+
+test('core memory compression scheduling dedupes a durable running fork', async () => {
+  const queuePayload = createRuntimeLoopPayload();
+  const compression = {
+    required: true,
+    contextSessionKey: 'xiaoni:test-global',
+    readCutoffAfterConversationId: 171,
+    previousReadCutoffAfterConversationId: 99,
+    compressionCoveredEndConversationId: 201,
+    historyUserId: 303,
+    historyGroupId: null,
+    historyScope: 'global',
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  };
+  let startedFork = false;
+  const activeQueries: any[] = [];
+  const service = new AgentLoopService({
+    getSessionReadCutoffState: async () => ({
+      sessionKey: 'xiaoni:test-global',
+      readCutoffAfterConversationId: 99,
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000,
+      contextSummary: 'old summary',
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0,
+      updatedAt: null
+    }),
+    findActiveCoreMemoryCompressionForkRun: async (params: any) => {
+      activeQueries.push(params);
+      return {
+        forkRunId: 'fork-active',
+        runId: 'run-active'
+      };
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork = true;
+    throw new Error('must not start a duplicate durable compression fork');
+  };
+
+  const artifact = await (service as any).scheduleCoreMemoryCompressionFork({
+    baseRequest: buildTestMainCanonicalRequest(buildInitialInput([], queuePayload), queuePayload, createRuntimePrompt()),
+    queueMessage: queuePayload,
+    runtimePrompt: createRuntimePrompt(),
+    contextSessionKey: 'xiaoni:test-global',
+    compression
+  });
+
+  assert.equal(startedFork, false);
+  assert.deepEqual(activeQueries, [{
+    contextSessionKey: 'xiaoni:test-global',
+    compressionCoveredEndConversationId: 201
+  }]);
+  assert.equal(artifact.status, 'already_running_durable');
+  assert.equal(artifact.persisted_fork_run_id, 'fork-active');
+  assert.equal(artifact.persisted_run_id, 'run-active');
 });
 
 test('core memory compression runs in an isolated background fork alongside the main agent request', async () => {

@@ -7711,6 +7711,68 @@ export class AgentLoopService {
       return artifact;
     }
 
+    const plannedCommitCutoff = await this.resolveCoreMemoryCompressionCommitCutoff(params.compression);
+    const cutoffReader = (this.store as RuntimeStore & {
+      getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
+    }).getSessionReadCutoffState;
+    if (plannedCommitCutoff !== null && typeof cutoffReader === 'function') {
+      try {
+        const currentCutoffState = await cutoffReader.call(this.store, key);
+        const currentReadCutoffAfterConversationId = currentCutoffState?.readCutoffAfterConversationId ?? null;
+        if (
+          currentReadCutoffAfterConversationId !== null
+          && currentReadCutoffAfterConversationId >= plannedCommitCutoff
+        ) {
+          return {
+            ...artifact,
+            status: 'already_covered',
+            read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
+            planned_read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId
+          };
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to check core memory compression cutoff before scheduling fork', {
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          contextSessionKey: key,
+          plannedCommitCutoff,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    const durableFinder = (this.store as RuntimeStore & {
+      findActiveCoreMemoryCompressionForkRun?: RuntimeStore['findActiveCoreMemoryCompressionForkRun'];
+    }).findActiveCoreMemoryCompressionForkRun;
+    if (
+      typeof durableFinder === 'function'
+      && typeof params.compression.compressionCoveredEndConversationId === 'number'
+      && Number.isFinite(params.compression.compressionCoveredEndConversationId)
+    ) {
+      try {
+        const activeFork = await durableFinder.call(this.store, {
+          contextSessionKey: key,
+          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId
+        });
+        if (activeFork) {
+          return {
+            ...artifact,
+            status: 'already_running_durable',
+            persisted_fork_run_id: activeFork.forkRunId ?? null,
+            persisted_run_id: activeFork.runId ?? null
+          };
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to check active durable core memory compression fork before scheduling', {
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          contextSessionKey: key,
+          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
     const fork = this.runCoreMemoryCompressionFork(params);
     this.coreMemoryCompressionForks.set(key, {
       promise: fork,
