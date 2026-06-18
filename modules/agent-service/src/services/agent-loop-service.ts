@@ -296,6 +296,7 @@ type ProcessRuntimeFrameOptions = {
   appendRuntimeInputStackItem?: boolean;
   logQueueLifecycle?: boolean;
   initialLoopContinuation?: OpenResponseInputItem[];
+  initialLoopContinuationBeforeCurrentTrigger?: boolean;
 };
 
 function sleep(ms: number) {
@@ -632,6 +633,7 @@ function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}):
   appendRuntimeInputStackItem: boolean;
   logQueueLifecycle: boolean;
   initialLoopContinuation: OpenResponseInputItem[];
+  initialLoopContinuationBeforeCurrentTrigger: boolean;
 } {
   const queueBacked = options.queueBacked !== false;
   return {
@@ -639,7 +641,8 @@ function normalizeRuntimeFrameOptions(options: ProcessRuntimeFrameOptions = {}):
     triggerInputMode: options.triggerInputMode ?? (queueBacked ? 'fresh_trigger' : 'suppress_current_trigger'),
     appendRuntimeInputStackItem: options.appendRuntimeInputStackItem ?? queueBacked,
     logQueueLifecycle: options.logQueueLifecycle ?? queueBacked,
-    initialLoopContinuation: options.initialLoopContinuation ?? []
+    initialLoopContinuation: options.initialLoopContinuation ?? [],
+    initialLoopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger ?? false
   };
 }
 
@@ -4533,6 +4536,14 @@ export class AgentLoopService {
     }
     await this.clearCacheHeartbeatRecoverySchedule(recoveryAction.session);
     if (recoveryAction.status === 'settled') {
+      const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
+      if (queueMessage) {
+        await this.processRuntimeFrame(queueMessage, {
+          initialLoopContinuation: recoveryAction.inputItems,
+          initialLoopContinuationBeforeCurrentTrigger: true
+        });
+        return;
+      }
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
         queueBacked: false,
         triggerInputMode: 'suppress_current_trigger',
@@ -5339,7 +5350,8 @@ export class AgentLoopService {
         contextSessionKey,
         cutoffState,
         triggerInputMode: options.triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer
+        appendSelfContinuationOnTerminalFinalAnswer,
+        loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
       });
       let appendSelfContinuationOnTerminalFinalAnswer = false;
       budgetPlan = await buildBudgetPlan(false);
@@ -6978,6 +6990,7 @@ export class AgentLoopService {
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
+    loopContinuationBeforeCurrentTrigger?: boolean;
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -7009,7 +7022,8 @@ export class AgentLoopService {
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-      appendedSelfContinuationInputItems
+      appendedSelfContinuationInputItems,
+      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
     const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
     const estimate = await estimateLoopInputTokens({
@@ -7076,7 +7090,8 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
+      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
     if (!compressionPoint) {
       return {
@@ -7137,7 +7152,8 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
+      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
     return {
@@ -7174,6 +7190,7 @@ export class AgentLoopService {
     cutoffState?: SessionReadCutoffState | null;
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
+    loopContinuationBeforeCurrentTrigger?: boolean;
   }): Promise<CoreMemoryCompressionCheckpoint | null> {
     const plan = await this.buildContextBudgetPlan(params);
     return plan.coreMemoryCompression && plan.summarySourceInput
@@ -9657,7 +9674,11 @@ function buildLoopRequestInput(params: {
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   appendedSelfContinuationInputItems?: OpenResponseInputItem[];
+  loopContinuationBeforeCurrentTrigger?: boolean;
 }) {
+  if (params.loopContinuationBeforeCurrentTrigger) {
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation);
+  }
   return [
     ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null),
     ...params.loopContinuation
@@ -9693,6 +9714,7 @@ async function planReadCutoffFromFirstOverflow(params: {
   runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
+  loopContinuationBeforeCurrentTrigger?: boolean;
 }) {
   if (params.history.length === 0) {
     return null;
@@ -10017,7 +10039,8 @@ export function buildInitialInput(
   triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
   appendSelfContinuationOnTerminalFinalAnswer = false,
   runtimeEnergyState: RuntimeEnergyState | null = null,
-  appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null
+  appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
+  inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = []
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -10072,6 +10095,8 @@ export function buildInitialInput(
 
     appendKnownReplayItems();
   }
+
+  items.push(...inputItemsBeforeCurrentTurn);
 
   if (triggerInputMode === 'fresh_trigger') {
     items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));

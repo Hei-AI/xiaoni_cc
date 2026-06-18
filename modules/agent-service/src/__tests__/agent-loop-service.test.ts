@@ -1423,6 +1423,38 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   assert.match(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
 });
 
+test('buildInitialInput can place loop continuation before the current notification trigger', () => {
+  const toolOutput = {
+    type: 'function_call_output' as const,
+    call_id: 'call-recover-order',
+    output: '{"recovered":true}'
+  };
+  const loopInput = buildInitialInput(
+    [],
+    createQueuePayload(),
+    createRuntimePrompt({ modelName: 'gpt-5.5' }),
+    [],
+    null,
+    null,
+    null,
+    'fresh_trigger',
+    false,
+    null,
+    null,
+    [toolOutput]
+  );
+
+  const toolOutputIndex = loopInput.findIndex((item: any) => item.type === 'function_call_output' && item.call_id === 'call-recover-order');
+  const notificationIndex = loopInput.findIndex((item: any) => (
+    item.role === 'developer'
+    && isPhoneNotificationReminderContent(getMessageContent(item))
+  ));
+
+  assert.ok(toolOutputIndex >= 0);
+  assert.ok(notificationIndex >= 0);
+  assert.ok(toolOutputIndex < notificationIndex);
+});
+
 test('buildInitialInput drops unpaired stored tool calls across turns', () => {
   const turn = createConversationTurn({
     id: 45,
@@ -7354,7 +7386,7 @@ test('runtime iteration settles persisted recovery session after restart with or
     idleIntervalMs: 0
   });
 
-  assert.equal(storeCalls.claimNextQueueMessage.length, 0);
+  assert.equal(storeCalls.claimNextQueueMessage.length, 1);
   assert.equal(storeCalls.finalizeAgentRecoverySession[0]?.id, 302);
   assert.equal(storeCalls.finalizeAgentRecoverySession[0]?.wakeCause, 'hard_cap');
   assert.equal(storeCalls.completeAgentStackToolExecution[0]?.executionId, 'tool:run-restart:call-recover-restart');
@@ -7369,6 +7401,108 @@ test('runtime iteration settles persisted recovery session after restart with or
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.type, 'function_call_output');
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.call_id, 'call-recover-restart');
   assert.match(String(frames[0]?.options?.initialLoopContinuation?.[1]?.output), /<system_reminder>/);
+});
+
+test('runtime iteration batches settled recovery callback with a queued notification', async () => {
+  const storeCalls: Record<string, any[]> = {
+    appendAgentStackItems: [],
+    completeAgentStackToolExecution: [],
+    finalizeAgentRecoverySession: [],
+    recordRecoverySessionLifeEvent: [],
+    claimNextQueueMessage: []
+  };
+  const activeSession = {
+    id: 306,
+    initiator: 'recover_energy_tool',
+    reason: '睡醒先看手机。',
+    xiaoniOs: '醒来后先处理新动静。',
+    clockMinutes: 30,
+    clockDueAt: null,
+    clockDeferredAt: null,
+    startedAt: new Date(Date.now() - (121 * 60 * 1000)).toISOString(),
+    startEnergy: -0.25,
+    currentEnergy: -0.25,
+    maxEnergy: 1,
+    toolCallId: 'call-recover-notify',
+    toolExecutionId: 'tool:run-notify:call-recover-notify',
+    llmRequestSliceId: 'slice-recover-notify',
+    llmCallId: 'llm-recover-notify',
+    traceId: 'trace-recover-notify',
+    runId: 'run-recover-notify',
+    wakeCountStartQueueMessageId: 300,
+    lastWakeCountedQueueMessageId: 300,
+    wakeCallCount: 0,
+    metadata: {
+      tool_args: {
+        reason: '睡醒先看手机。',
+        clock: 30,
+        xiaoni_os: '醒来后先处理新动静。'
+      },
+      raw_arguments: '{"reason":"睡醒先看手机。","clock":30,"xiaoni_os":"醒来后先处理新动静。"}'
+    }
+  };
+  const notifyPayload = createQueuePayload();
+  notifyPayload.traceId = 'trace-notify-after-recovery';
+  notifyPayload.runId = 'run-notify-after-recovery';
+  notifyPayload.batchId = 'batch-notify-after-recovery';
+  notifyPayload.bodyForAgent = '醒了吗？';
+  notifyPayload.rawBody = '醒了吗？';
+  notifyPayload.messages[0]!.bodyForAgent = '醒了吗？';
+  notifyPayload.messages[0]!.rawBody = '醒了吗？';
+  const notifyMessage = {
+    id: 'queue-notify-after-recovery',
+    traceId: notifyPayload.traceId,
+    batchId: notifyPayload.batchId,
+    status: 'processing',
+    attempts: 0,
+    createdAt: '2026-06-18T02:00:00.000Z',
+    queueMessageIds: [301],
+    payload: notifyPayload
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => activeSession,
+    listAgentRecoveryWakeNotifications: async () => [],
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return [{ id: 'stack-output-notify' }];
+    },
+    completeAgentStackToolExecution: async (params: any) => {
+      storeCalls.completeAgentStackToolExecution.push(params);
+      return null;
+    },
+    finalizeAgentRecoverySession: async (params: any) => {
+      storeCalls.finalizeAgentRecoverySession.push(params);
+      return { ...activeSession, status: 'completed' };
+    },
+    recordRecoverySessionLifeEvent: async (session: any, toolResult: any) => {
+      storeCalls.recordRecoverySessionLifeEvent.push({ session, toolResult });
+    },
+    claimNextQueueMessage: async (workerId: string) => {
+      storeCalls.claimNextQueueMessage.push({ workerId });
+      return notifyMessage;
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  const frames: any[] = [];
+  (service as any).processRuntimeFrame = async (queueMessage: any, options: any) => {
+    frames.push({ queueMessage, options });
+  };
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-recovery-notify',
+    idleIntervalMs: 0
+  });
+
+  assert.equal(storeCalls.claimNextQueueMessage.length, 1);
+  assert.equal(storeCalls.claimNextQueueMessage[0]?.workerId, 'worker-recovery-notify');
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0]?.queueMessage?.id, 'queue-notify-after-recovery');
+  assert.equal(frames[0]?.options?.initialLoopContinuationBeforeCurrentTrigger, true);
+  assert.equal(frames[0]?.options?.queueBacked, undefined);
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-notify');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.type, 'function_call_output');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.call_id, 'call-recover-notify');
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
