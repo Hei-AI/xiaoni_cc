@@ -22,6 +22,14 @@ export type ForwardMessageItem = {
   message?: ForwardMessageSegment[];
 };
 
+export type NapcatGroupInfo = {
+  group_id?: number;
+  group_name?: string;
+  group_remark?: string;
+  member_count?: number;
+  max_member_count?: number;
+};
+
 function normalizeMentionUserId(value: string | number) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) {
@@ -158,6 +166,13 @@ export class NapcatClient {
   async getForwardMessage(id: string): Promise<ForwardMessageItem[]> {
     const result = await this.callAction<{ messages?: ForwardMessageItem[] }>('get_forward_msg', { id });
     return result?.messages ?? [];
+  }
+
+  async getGroupInfo(groupId: number): Promise<NapcatGroupInfo | null> {
+    const result = await this.callAction<NapcatGroupInfo>('get_group_info', {
+      group_id: groupId
+    });
+    return result || null;
   }
 
   private async callAction<T>(action: string, params: Record<string, unknown>): Promise<T> {

@@ -81,6 +81,8 @@ const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
 const conversationStoreService = new ConversationStoreService();
 const transcriptSnapshotService = new TranscriptSnapshotService();
+const GROUP_INFO_CACHE_TTL_MS = Number(process.env.NAPCAT_GROUP_INFO_CACHE_TTL_MS || 10 * 60 * 1000);
+const groupNameCache = new Map<number, { name: string; expiresAt: number }>();
 
 function parseDirectAgentTriggerUserIds() {
   const raw = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS
@@ -117,6 +119,50 @@ function buildIncomingPolicyResult(policy: ChatPolicyState) {
     allowed: policy.isEnabled,
     reason: policy.isEnabled ? 'accepted' as const : 'receive_disabled' as const
   };
+}
+
+async function resolveNapcatGroupName(groupId: number): Promise<string | null> {
+  if (!Number.isFinite(groupId)) {
+    return null;
+  }
+  const cached = groupNameCache.get(groupId);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.name;
+  }
+
+  try {
+    const groupInfo = await napcatClient.getGroupInfo(groupId);
+    const groupName = typeof groupInfo?.group_name === 'string' && groupInfo.group_name.trim()
+      ? groupInfo.group_name.trim()
+      : '';
+    if (!groupName) {
+      return null;
+    }
+    groupNameCache.set(groupId, {
+      name: groupName,
+      expiresAt: now + GROUP_INFO_CACHE_TTL_MS
+    });
+    return groupName;
+  } catch (error) {
+    moduleLogger.warn('Failed to resolve NapCat group name', {
+      groupId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return cached?.name || null;
+  }
+}
+
+async function enrichInboundContextWithGroupName(inboundContext: FinalizedInboundContext, groupId?: number) {
+  if (inboundContext.ChatType !== 'group' || !Number.isFinite(groupId)) {
+    return;
+  }
+  const groupName = await resolveNapcatGroupName(groupId as number);
+  if (!groupName) {
+    return;
+  }
+  inboundContext.GroupSubject = groupName;
+  inboundContext.ConversationLabel = groupName;
 }
 
 function buildAutoReplyPolicyResult(policy: ChatPolicyState) {
@@ -1029,6 +1075,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   if (!inboundContext) {
     return { accepted: false, reason: 'invalid_message' as const };
   }
+  await enrichInboundContextWithGroupName(inboundContext, groupId);
   await prepareInboundMediaAssets(inboundContext);
 
   const result = await inboxService.ingestIncomingMessage({

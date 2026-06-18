@@ -15,6 +15,11 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action: 'qq_usage.scroll_inbox', content: '<IM_INBOX_WINDOW></IM_INBOX_WINDOW>', inbox_offset: direction === 'older' ? currentOffset + 10 : Math.max(0, currentOffset - 10) };
   }
 
+  async searchInbox(query: string, chatType?: 'direct' | 'group') {
+    this.calls.push({ method: 'searchInbox', args: [query, chatType] });
+    return { qq_usage: true as const, action: chatType === 'direct' ? 'qq_usage.search_private' : chatType === 'group' ? 'qq_usage.search_group' : 'qq_usage.search_inbox', content: '<IM_INBOX_WINDOW mode="search_results"></IM_INBOX_WINDOW>', inbox_offset: 0 };
+  }
+
   async focusThread(threadKey: string, context = {}, actionLabel = 'qq_usage.focus_thread') {
     this.calls.push({ method: 'focusThread', args: [threadKey, context, actionLabel] });
     return { qq_usage: true as const, action: actionLabel, content: '<IM_INBOX_WINDOW></IM_INBOX_WINDOW>', thread_key: threadKey, earliest_message_id: 10, latest_message_id: 19 };
@@ -78,6 +83,24 @@ test('QqUsageSkillRuntime passes runtime trace context to thread-reading actions
     method: 'focusThread',
     args: ['qq:group:123', context, 'qq_usage.focus_group']
   });
+});
+
+test('QqUsageSkillRuntime searches inbox, private chats, and groups by name', async () => {
+  const service = new FakeQqUsageService();
+  const runtime = new QqUsageSkillRuntime(service as any);
+
+  const inboxResult = await runtime.execute('search_inbox', { query: '阿花' });
+  const privateResult = await runtime.execute('search_private', { query: '小伊' });
+  const groupResult = await runtime.execute('search_group', { query: '朋友' });
+
+  assert.equal(inboxResult.action, 'qq_usage.search_inbox');
+  assert.equal(privateResult.action, 'qq_usage.search_private');
+  assert.equal(groupResult.action, 'qq_usage.search_group');
+  assert.deepEqual(service.calls, [
+    { method: 'searchInbox', args: ['阿花', undefined] },
+    { method: 'searchInbox', args: ['小伊', 'direct'] },
+    { method: 'searchInbox', args: ['朋友', 'group'] }
+  ]);
 });
 
 test('QqUsageSkillRuntime opens private chats by user id using the configured bot account', async () => {

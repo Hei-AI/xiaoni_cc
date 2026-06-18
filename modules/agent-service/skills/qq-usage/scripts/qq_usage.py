@@ -92,6 +92,15 @@ def build_parser():
     scroll_inbox = subcommands.add_parser("scroll_inbox")
     scroll_inbox.add_argument("direction", choices=["older", "newer"])
 
+    search_inbox = subcommands.add_parser("search_inbox")
+    search_inbox.add_argument("query")
+
+    search_private = subcommands.add_parser("search_private")
+    search_private.add_argument("query")
+
+    search_group = subcommands.add_parser("search_group")
+    search_group.add_argument("query")
+
     focus_private = subcommands.add_parser("focus_private")
     focus_private.add_argument("user_id")
 

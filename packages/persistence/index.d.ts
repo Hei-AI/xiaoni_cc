@@ -1240,6 +1240,8 @@ export type QqUsageThreadSummary = {
 export type QqUsageThreadList = {
   offset: number;
   limit: number;
+  searchQuery?: string;
+  chatType?: 'direct' | 'group' | null;
   hasOlderThreads: boolean;
   hasNewerThreads: boolean;
   threads: QqUsageThreadSummary[];
@@ -1267,7 +1269,11 @@ export function getQqUsageUnreadSummary(
   config?: DatabaseUrlConfig
 ): Promise<QqUsageUnreadSummary>;
 export function listQqUsageThreads(
-  input?: { limit?: number; offset?: number },
+  input?: { limit?: number; offset?: number; searchQuery?: string; search_query?: string; query?: string; q?: string; chatType?: 'direct' | 'group'; chat_type?: 'direct' | 'group' },
+  config?: DatabaseUrlConfig
+): Promise<QqUsageThreadList>;
+export function searchQqUsageThreads(
+  input?: { limit?: number; offset?: number; searchQuery?: string; search_query?: string; query?: string; q?: string; chatType?: 'direct' | 'group'; chat_type?: 'direct' | 'group' },
   config?: DatabaseUrlConfig
 ): Promise<QqUsageThreadList>;
 export function listQqUsageThreadWindow(

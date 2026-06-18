@@ -43,6 +43,7 @@ import {
   listFeedbackLearningStates,
   listAgentInboundMessages,
   listQqUsageThreads,
+  searchQqUsageThreads,
   listQqUsageThreadWindow,
   getQqUsageUnreadSummary,
   markQqUsageThreadRead,
@@ -2516,6 +2517,20 @@ export class RuntimeStore {
 
   async listQqUsageThreads(params: { limit?: number; offset?: number }): Promise<QqUsageThreadList> {
     return listQqUsageThreads({
+      limit: params.limit,
+      offset: params.offset
+    }, databaseConfig);
+  }
+
+  async searchQqUsageThreads(params: {
+    query: string;
+    chatType?: 'direct' | 'group';
+    limit?: number;
+    offset?: number;
+  }): Promise<QqUsageThreadList> {
+    return searchQqUsageThreads({
+      query: params.query,
+      chatType: params.chatType,
       limit: params.limit,
       offset: params.offset
     }, databaseConfig);

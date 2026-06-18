@@ -108,9 +108,14 @@ function senderLabel(message: Record<string, unknown> | null) {
 }
 
 function renderThread(thread: QqUsageThreadSummary) {
+  const focusTarget = thread.chatType === 'group'
+    ? `focus_group ${thread.peerId}`
+    : `focus_private ${thread.peerId}`;
   return formatTaggedBlock('THREAD', {
     thread_key: thread.threadKey,
     chat_type: thread.chatType === 'group' ? '群聊' : '私聊',
+    peer_id: thread.peerId,
+    focus_target: focusTarget,
     display_name: displayName(thread),
     unread_count: thread.unreadCount,
     direct_mentions: thread.directMentions,
@@ -121,8 +126,10 @@ function renderThread(thread: QqUsageThreadSummary) {
 
 function renderThreadListWindow(result: QqUsageThreadList) {
   return formatTaggedBlock('IM_INBOX_WINDOW', {
-    mode: 'thread_list',
+    mode: result.searchQuery ? 'search_results' : 'thread_list',
     surface: 'qq',
+    query: result.searchQuery,
+    chat_type: result.chatType,
     offset: result.offset,
     window_size: result.limit,
     has_older_threads: String(result.hasOlderThreads),
@@ -209,6 +216,9 @@ const QQ_USAGE_ACTION_LABELS: Record<string, string> = {
   scroll_inbox: 'qq_usage.scroll_inbox',
   focus_private: 'qq_usage.focus_private',
   focus_group: 'qq_usage.focus_group',
+  search_inbox: 'qq_usage.search_inbox',
+  search_private: 'qq_usage.search_private',
+  search_group: 'qq_usage.search_group',
   scroll_private: 'qq_usage.scroll_private',
   scroll_group: 'qq_usage.scroll_group',
   jump_private_to_latest: 'qq_usage.jump_private_to_latest',
@@ -286,6 +296,29 @@ export class QqUsageService {
     return {
       qq_usage: true,
       action: 'qq_usage.scroll_inbox',
+      content: renderThreadListWindow(result),
+      inbox_offset: result.offset
+    };
+  }
+
+  async searchInbox(query: string, chatType?: 'direct' | 'group'): Promise<QqUsageToolResult> {
+    const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+    if (!trimmedQuery) {
+      throw new Error('search query is required');
+    }
+    const result = await this.store.searchQqUsageThreads({
+      query: trimmedQuery,
+      chatType,
+      limit: WINDOW_SIZE,
+      offset: 0
+    });
+    return {
+      qq_usage: true,
+      action: chatType === 'direct'
+        ? 'qq_usage.search_private'
+        : chatType === 'group'
+          ? 'qq_usage.search_group'
+          : 'qq_usage.search_inbox',
       content: renderThreadListWindow(result),
       inbox_offset: result.offset
     };
@@ -410,6 +443,12 @@ export class QqUsageSkillRuntime {
         result = await this.service.openInbox(0);
       } else if (action === 'scroll_inbox') {
         result = await this.service.scrollInbox(normalizeDirection(args.direction), this.state.inboxOffset);
+      } else if (action === 'search_inbox') {
+        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword));
+      } else if (action === 'search_private') {
+        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword), 'direct');
+      } else if (action === 'search_group') {
+        result = await this.service.searchInbox(normalizeIdentifier(args.query ?? args.q ?? args.keyword), 'group');
       } else if (action === 'focus_private') {
         const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
         if (!threadKey) throw new Error('user_id is required');

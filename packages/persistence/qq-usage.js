@@ -57,6 +57,38 @@ function countDirectMentions(messages) {
   return messages.reduce((sum, message) => sum + (Number(message.was_mentioned) === 1 ? 1 : 0), 0);
 }
 
+function buildEffectiveUnreadWhere(sessionKey, lastReadAt, extra = {}) {
+  return {
+    session_key: sessionKey,
+    is_read: 0,
+    ...(lastReadAt ? { received_at: { gt: lastReadAt } } : {}),
+    ...extra
+  };
+}
+
+function normalizeChatType(value) {
+  return value === 'group' || value === 'direct' ? value : null;
+}
+
+function normalizeSearchQuery(value) {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 80) : '';
+}
+
+function buildThreadListWhere(input = {}) {
+  const chatType = normalizeChatType(input.chatType || input.chat_type);
+  const searchQuery = normalizeSearchQuery(input.searchQuery || input.search_query || input.query || input.q);
+  return {
+    ...(chatType ? { chat_type: chatType } : {}),
+    ...(searchQuery ? {
+      OR: [
+        { peer_name: { contains: searchQuery, mode: 'insensitive' } },
+        { peer_id: { contains: searchQuery } },
+        { session_key: { contains: searchQuery } }
+      ]
+    } : {})
+  };
+}
+
 async function getQqUsageUnreadSummary(input = {}, config = {}) {
   const prisma = input.prisma || config.prisma || input.getPrismaClient?.(config) || config.getPrismaClient?.(config);
   if (!prisma) {
@@ -81,8 +113,12 @@ async function listQqUsageThreads(input = {}, config = {}) {
   }
   const limit = Math.max(1, Math.min(50, Number(input.limit) || 10));
   const offset = Math.max(0, Number(input.offset) || 0);
+  const searchQuery = normalizeSearchQuery(input.searchQuery || input.search_query || input.query || input.q);
+  const chatType = normalizeChatType(input.chatType || input.chat_type);
+  const where = buildThreadListWhere(input);
   const grouped = await prisma.agentInboundMessage.groupBy({
     by: ['session_key'],
+    ...(Object.keys(where).length > 0 ? { where } : {}),
     _max: { received_at: true },
     _count: { _all: true },
     orderBy: { _max: { received_at: 'desc' } },
@@ -95,47 +131,57 @@ async function listQqUsageThreads(input = {}, config = {}) {
     return {
       offset,
       limit,
+      searchQuery,
+      chatType,
       hasOlderThreads: false,
       hasNewerThreads: offset > 0,
       threads: []
     };
   }
 
-  const [messages, lastReadBySession] = await Promise.all([
-    prisma.agentInboundMessage.findMany({
-      where: { session_key: { in: sessionKeys } },
-      orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
-    }),
-    loadLastReadBySession(prisma, sessionKeys)
-  ]);
-
-  const bySession = new Map();
-  for (const message of messages) {
-    const bucket = bySession.get(message.session_key) || [];
-    bucket.push(message);
-    bySession.set(message.session_key, bucket);
-  }
-  const isEffectiveUnread = buildEffectiveUnreadFilter(lastReadBySession);
+  const lastReadBySession = await loadLastReadBySession(prisma, sessionKeys);
   const totalBySession = new Map(page.map((row) => [row.session_key, row._count._all]));
+  const threadDetails = await Promise.all(sessionKeys.map(async (sessionKey) => {
+    const lastReadAt = lastReadBySession.get(sessionKey);
+    const unreadWhere = buildEffectiveUnreadWhere(sessionKey, lastReadAt);
+    const [latest, unreadCount, directMentions] = await Promise.all([
+      prisma.agentInboundMessage.findFirst({
+        where: { session_key: sessionKey },
+        orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
+      }),
+      prisma.agentInboundMessage.count({ where: unreadWhere }),
+      prisma.agentInboundMessage.count({
+        where: buildEffectiveUnreadWhere(sessionKey, lastReadAt, { was_mentioned: 1 })
+      })
+    ]);
+    return {
+      sessionKey,
+      latest,
+      unreadCount,
+      directMentions
+    };
+  }));
+  const detailsBySession = new Map(threadDetails.map((detail) => [detail.sessionKey, detail]));
 
   return {
     offset,
     limit,
+    searchQuery,
+    chatType,
     hasOlderThreads: grouped.length > limit,
     hasNewerThreads: offset > 0,
     threads: sessionKeys.map((sessionKey) => {
-      const bucket = bySession.get(sessionKey) || [];
-      const latest = bucket[0] || null;
-      const unreadMessages = bucket.filter(isEffectiveUnread);
+      const detail = detailsBySession.get(sessionKey) || {};
+      const latest = detail.latest || null;
       return {
         threadKey: sessionKey,
         chatType: latest?.chat_type || 'direct',
         peerId: latest?.peer_id || '',
         peerName: latest?.peer_name || null,
         accountId: latest?.account_id || null,
-        unreadCount: unreadMessages.length,
-        directMentions: countDirectMentions(unreadMessages),
-        totalMessages: Number(totalBySession.get(sessionKey) || bucket.length),
+        unreadCount: Number(detail.unreadCount || 0),
+        directMentions: Number(detail.directMentions || 0),
+        totalMessages: Number(totalBySession.get(sessionKey) || 0),
         lastReceivedAt: latest?.received_at || null,
         latestMessage: latest ? normalizeRow(latest) : null
       };
@@ -278,6 +324,9 @@ function createQqUsagePersistence(deps) {
       return getQqUsageUnreadSummary({ ...input, getPrismaClient: deps.getPrismaClient }, config);
     },
     listQqUsageThreads(input = {}, config = {}) {
+      return listQqUsageThreads({ ...input, getPrismaClient: deps.getPrismaClient }, config);
+    },
+    searchQqUsageThreads(input = {}, config = {}) {
       return listQqUsageThreads({ ...input, getPrismaClient: deps.getPrismaClient }, config);
     },
     listQqUsageThreadWindow(input = {}, config = {}) {

@@ -21,6 +21,9 @@ This skill only opens, scrolls, focuses, and closes QQ windows. It does not send
 ```bash
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_inbox older
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_inbox 阿花
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_private 阿花
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_group 朋友
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private 85178516 older
@@ -34,6 +37,9 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 
 - `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows.
 - `scroll_inbox older|newer` pages the thread list by 10.
+- `search_inbox query` searches private and group chats by visible chat name or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
+- `search_private query` searches private chats by the other person's visible name or QQ id.
+- `search_group query` searches group chats by visible group name or QQ group id.
 - `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
 - `focus_group group_id` opens a group by QQ group id.
 - `scroll_private user_id older|newer` and `scroll_group group_id older|newer` scroll the current conversation window by 10 messages.
@@ -46,6 +52,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 - For private chats, use the other person's QQ id: `focus_private 85178516`.
 - For groups, use the QQ group id: `focus_group 123`.
 - Do not pass internal `thread_key` / `session_key` values to this skill. Use the QQ id or group id instead.
+- If you only remember a name, use `search_private name`, `search_group name`, or `search_inbox name` first. Search matches currently stored visible names and QQ ids; if a group only has a fallback name like `群 123`, search by the real group name will not find it until that name is stored.
 
 ## Reading Rules
 
