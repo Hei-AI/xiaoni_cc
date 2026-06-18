@@ -386,6 +386,7 @@ type CoreMemoryCompressionCheckpoint = {
 
 type ContextBudgetPlan = {
   requestInput: OpenResponseInputItem[];
+  selfContinuationInputItem: OpenResponseInputItem | null;
   summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
@@ -2801,21 +2802,6 @@ function shouldAllowSelfContinuationOnTerminalFinalAnswer(
 ): boolean {
   return !options.queueBacked
     && options.triggerInputMode === 'suppress_current_trigger';
-}
-
-function findSelfContinuationAfterAssistantFinalAnswer(items: OpenResponseInputItem[]): OpenResponseInputItem | null {
-  const expectedReminderBody = stripRuntimeTextEast8TimePrefix(
-    extractTaggedBlockBody(renderSelfContinuationReminder(), 'system_reminder')
-  );
-  return items.find((item, index) => (
-    index > 0
-    && isAssistantFinalAnswerInputItem(items[index - 1])
-    && item.type === 'message'
-    && item.role === 'developer'
-    && stripRuntimeTextEast8TimePrefix(
-      extractTaggedBlockBody(flattenMessageContent(item.content), 'system_reminder')
-    ) === expectedReminderBody
-  )) || null;
 }
 
 function isPhoneNotificationDirectCueMessage(
@@ -5234,6 +5220,7 @@ export class AgentLoopService {
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
+      selfContinuationInputItem: null,
       summarySourceInput: null,
       retainedHistory: [],
       runtimeIdentityFacts: [],
@@ -5432,7 +5419,7 @@ export class AgentLoopService {
           ]
         });
       }
-      const selfContinuationInputItem = findSelfContinuationAfterAssistantFinalAnswer(requestInput);
+      const selfContinuationInputItem = budgetPlan.selfContinuationInputItem;
       if (selfContinuationInputItem) {
         await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
@@ -7009,6 +6996,7 @@ export class AgentLoopService {
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
+    const appendedSelfContinuationInputItems: OpenResponseInputItem[] = [];
     const requestInput = buildLoopRequestInput({
       history: initialRetainedHistory,
       queueMessage: params.queueMessage,
@@ -7020,8 +7008,10 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
       triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
+      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
+      appendedSelfContinuationInputItems
     });
+    const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
     const estimate = await estimateLoopInputTokens({
       modelName: params.runtimePrompt.modelName,
       queueMessage: params.queueMessage,
@@ -7031,6 +7021,7 @@ export class AgentLoopService {
     if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
       return {
         requestInput,
+        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -7053,6 +7044,7 @@ export class AgentLoopService {
     if (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0) {
       return {
         requestInput,
+        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -7089,6 +7081,7 @@ export class AgentLoopService {
     if (!compressionPoint) {
       return {
         requestInput,
+        selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -7149,6 +7142,7 @@ export class AgentLoopService {
 
     return {
       requestInput,
+      selfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -9662,9 +9656,10 @@ function buildLoopRequestInput(params: {
   runtimeEnergyState?: RuntimeEnergyState | null;
   triggerInputMode?: RuntimeTriggerInputMode;
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
+  appendedSelfContinuationInputItems?: OpenResponseInputItem[];
 }) {
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null),
     ...params.loopContinuation
   ];
 }
@@ -10021,7 +10016,8 @@ export function buildInitialInput(
   developerContextBlock: string | null = null,
   triggerInputMode: RuntimeTriggerInputMode = 'fresh_trigger',
   appendSelfContinuationOnTerminalFinalAnswer = false,
-  runtimeEnergyState: RuntimeEnergyState | null = null
+  runtimeEnergyState: RuntimeEnergyState | null = null,
+  appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -10053,7 +10049,9 @@ export function buildInitialInput(
         && turnIndex === history.length - 1
         && isAssistantFinalAnswerInputItem(replayItems[replayItems.length - 1])
       ) {
-        items.push(buildSelfContinuationInputItem());
+        const selfContinuationInputItem = buildSelfContinuationInputItem();
+        items.push(selfContinuationInputItem);
+        appendedSelfContinuationInputItems?.push(selfContinuationInputItem);
       }
     };
     const transcriptItems = Array.isArray(turn.items) && turn.items.length > 0

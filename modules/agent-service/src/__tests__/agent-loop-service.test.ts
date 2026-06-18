@@ -5197,6 +5197,142 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<system_reminder>'), false);
 });
 
+test('no-notify continuation does not append self continuation after tool output', async () => {
+  const priorTurn = createConversationTurn({
+    id: 1997,
+    userMessage: '',
+    aiResponse: null
+  });
+  const priorFinalAnswerReplay = {
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '上一轮收尾。' }]
+  };
+  const generatedReminder = buildInitialInput([
+    Object.assign(priorTurn, { stackReplayItems: [priorFinalAnswerReplay] })
+  ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
+    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system_reminder>'));
+  assert.ok(generatedReminder);
+  const priorToolCallReplay = {
+    type: 'function_call',
+    name: 'send_in_private',
+    call_id: 'call-prior-send',
+    arguments: JSON.stringify({ user_id: 3994058476, message: '收到。' })
+  };
+  const priorToolOutputReplay = {
+    type: 'function_call_output',
+    call_id: 'call-prior-send',
+    output: JSON.stringify({ sent_messages: ['收到。'] })
+  };
+  const queueMessage = {
+    id: 'runtime-no-notify-after-tool-output',
+    traceId: 'trace-runtime-no-notify-after-tool-output',
+    batchId: 'batch-runtime-no-notify-after-tool-output',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [],
+    payload: {
+      ...createQueuePayload(),
+      source: 'runtime_loop',
+      messages: []
+    }
+  };
+  const storeCalls: Record<string, any[]> = {
+    appendAgentStackItems: [],
+    createConversation: []
+  };
+  const store = {
+    createLlmJob: async () => 'job-runtime-no-notify-after-tool-output',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [priorTurn],
+    listAgentStackItemsForConversations: async () => [
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: priorFinalAnswerReplay
+      },
+      {
+        conversationId: priorTurn.id,
+        itemKind: 'runtime_input',
+        visibility: 'model_visible',
+        content: {
+          source: 'self_continuation',
+          input_items: [generatedReminder]
+        }
+      },
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: priorToolCallReplay
+      },
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: priorToolOutputReplay
+      }
+    ],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return [];
+    },
+    getAgentStackHead: async () => 1001,
+    updateLlmRequestSliceStackLinks: async () => null,
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 2000;
+    },
+    attachConversationIdToTrace: async () => {},
+    updateLlmJob: async () => {}
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  let capturedInput: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedInput = canonicalRequest.input || [];
+    return {
+      success: true,
+      llm_call_id: 'llm-runtime-no-notify-after-tool-output',
+      canonical_response: {
+        output: []
+      }
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any, {
+    queueBacked: false,
+    triggerInputMode: 'suppress_current_trigger',
+    appendRuntimeInputStackItem: false,
+    logQueueLifecycle: false
+  });
+
+  const reminderItems = capturedInput.filter((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('<system_reminder>')
+  ));
+  assert.equal(reminderItems.length, 1);
+  assert.equal(capturedInput[capturedInput.length - 1]?.type, 'function_call_output');
+  assert.equal(capturedInput[capturedInput.length - 1]?.call_id, 'call-prior-send');
+  assert.equal(storeCalls.appendAgentStackItems.some((call) =>
+    call.sourceType === 'agent_runtime'
+      && call.items?.[0]?.itemKind === 'runtime_input'
+      && call.items?.[0]?.content?.source === 'self_continuation'
+  ), false);
+});
+
 test('no-notify continuation calls model without self continuation when request does not end with final_answer', async () => {
   const queueMessage = {
     id: 'runtime-no-notify-no-final',
