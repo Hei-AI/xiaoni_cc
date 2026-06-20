@@ -95,10 +95,10 @@ function withoutQqUsageTools(toolNames: Array<string | undefined>) {
   return toolNames.filter((name): name is string => typeof name === 'string');
 }
 
-function assertGroupAutoTools(request: ReturnType<typeof buildCanonicalAgentTurnRequest>) {
+function assertGroupRequiredTools(request: ReturnType<typeof buildCanonicalAgentTurnRequest>) {
   const allowedTools = withoutQqUsageTools(getAllowedToolNames(request.tool_choice));
   assert.deepEqual(allowedTools, GROUP_ALLOWED_TOOLS);
-  assert.equal((request.tool_choice as any)?.mode, 'auto');
+  assert.equal((request.tool_choice as any)?.mode, 'required');
   assert.equal(allowedTools.includes(REMOVED_LIFE_ACTION_TOOL), false);
 }
 
@@ -539,7 +539,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.equal(firstUserInput?.type, 'message');
   assert.equal((firstUserInput as any)?.role, 'user');
   assert.equal(request.input.some((item) => item.type === 'message' && item.role === 'system'), false);
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
   assert.equal(request.parallel_tool_calls, true);
   assert.deepEqual(
     withoutQqUsageTools((request.tools ?? []).map((tool: any) => getToolName(tool))),
@@ -815,7 +815,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
     withoutQqUsageTools((request.tools ?? []).map((tool: any) => getToolName(tool))),
     GROUP_LOOP_TOOLS
   );
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
   assert.doesNotMatch(String(request.instructions), new RegExp(REMOVED_LIFE_ACTION_TOOL));
   assert.doesNotMatch(String(request.instructions), /recall_long_term_learning/);
   assert.doesNotMatch(String(request.instructions), /不要先调用 emit_unread_meaning/);
@@ -833,7 +833,7 @@ test('buildCanonicalAgentTurnRequest exposes private and group send tools on dir
 
   assert.deepEqual(toolNames, DIRECT_LOOP_TOOLS);
   assert.deepEqual(allowedTools, DIRECT_ALLOWED_TOOLS);
-  assert.equal((request.tool_choice as any)?.mode, 'auto');
+  assert.equal((request.tool_choice as any)?.mode, 'required');
 });
 
 test('buildCanonicalAgentTurnRequest does not expose life action after unread meaning replay', () => {
@@ -851,7 +851,7 @@ test('buildCanonicalAgentTurnRequest does not expose life action after unread me
   });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
 });
 
 test('buildCanonicalAgentTurnRequest keeps direct group tools after unread meaning replay', () => {
@@ -870,7 +870,7 @@ test('buildCanonicalAgentTurnRequest keeps direct group tools after unread meani
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   const allowedTools = withoutQqUsageTools(getAllowedToolNames(request.tool_choice));
 
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
   assert.ok(allowedTools.includes(GROUP_REPLY_TOOL));
   assert.ok(allowedTools.includes(WEB_SEARCH_TOOL));
   assert.ok(allowedTools.includes(IMAGE_TASK_TOOL));
@@ -889,8 +889,8 @@ test('buildCanonicalAgentTurnRequest does not convert low energy into a no-tool 
   );
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
 
-  assertGroupAutoTools(request);
-  assert.equal((request.tool_choice as any)?.mode, 'auto');
+  assertGroupRequiredTools(request);
+  assert.equal((request.tool_choice as any)?.mode, 'required');
 });
 
 test('group loop exposes the speaking tool after unread meaning replay', () => {
@@ -950,7 +950,7 @@ test('search path uses web search directly instead of private memory recall', ()
   loopInput.push({ type: 'function_call_output', call_id: 'c1', output: '{"latest_unread_focus":"问了个需要查的事","message_act":"question","social_target":"me","addressed_to_me":true,"has_real_novelty":true,"confidence":"high","reason":"需要搜索"}' });
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
 });
 
 test('executeAgentTurn sends the standard canonical request shape to provider-service', async () => {
@@ -1023,7 +1023,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     ['function_call', 'function_call_output']
   );
   assert.deepEqual(withoutQqUsageTools(getAllowedToolNames(requestBody.canonicalRequest.tool_choice)), GROUP_ALLOWED_TOOLS);
-  assert.equal(requestBody.canonicalRequest.tool_choice?.mode, 'auto');
+  assert.equal(requestBody.canonicalRequest.tool_choice?.mode, 'required');
   assert.equal(requestBody.canonicalRequest.parallel_tool_calls, true);
   assert.deepEqual(
     withoutQqUsageTools(requestBody.canonicalRequest.tools.map((tool: any) => getToolName(tool))),
@@ -4239,6 +4239,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
   assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
   assert.equal(forkRequest.tool_choice?.mode, mainRequest.tool_choice?.mode);
+  assert.equal(forkRequest.tool_choice?.mode, 'required');
   assert.equal(forkRequest.parallel_tool_calls, true);
   assert.equal(forkRequest.store, false);
 
@@ -7309,7 +7310,7 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
     assert.equal(canonicalRequest.metadata?.cache_heartbeat, 'true');
     assert.equal(canonicalRequest.metadata?.no_main_stack_persist, 'true');
     assert.ok(Array.isArray(canonicalRequest.tools) && canonicalRequest.tools.length > 0);
-    assert.notEqual(canonicalRequest.tool_choice, 'none');
+    assert.equal(canonicalRequest.tool_choice, 'none');
     const lastInputItem = canonicalRequest.input[canonicalRequest.input.length - 1];
     assert.equal(lastInputItem?.type, 'message');
     assert.equal(lastInputItem?.role, 'developer');
@@ -7906,7 +7907,7 @@ test('removed life action tool is not exposed as a prompt-facing tool', () => {
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
   const reactionTool = (request.tools ?? []).find((t: any) => t.function?.name === REMOVED_LIFE_ACTION_TOOL);
   assert.equal(reactionTool, undefined);
-  assertGroupAutoTools(request);
+  assertGroupRequiredTools(request);
 });
 
 // E: old pending_share state machine is retired; presence context owns proactive material.
@@ -9010,6 +9011,7 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(forkRequests[0]?.metadata?.core_memory_compression_fork, 'true');
   assert.equal(forkRequests[0]?.metadata?.no_persist, 'true');
   assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
+  assert.equal(forkRequests[0]?.tool_choice?.mode, 'required');
   assert.deepEqual(forkRequests[0]?.tools, mainRequests[0]?.tools);
 
   const firstForkText = (forkRequests[0]?.input || []).map(getMessageContent).join('\n');

@@ -1487,8 +1487,7 @@ function narrowAllowedToolsToolChoice(
     };
   }
   return buildAllowedToolsToolChoice(
-    allowedNames.map((name) => ({ type: 'function' as const, name })),
-    'auto'
+    allowedNames.map((name) => ({ type: 'function' as const, name }))
   );
 }
 
@@ -1775,7 +1774,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'web_search' });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
-  return buildAllowedToolsToolChoice(tools, 'auto');
+  return buildAllowedToolsToolChoice(tools);
 }
 
 function selectFeedbackWriterToolDefinitions(mode: FeedbackWriterMode) {
@@ -1884,6 +1883,7 @@ function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest):
     }
   ]);
   heartbeatRequest.parallel_tool_calls = true;
+  heartbeatRequest.tool_choice = 'none';
   heartbeatRequest.store = false;
   heartbeatRequest.max_output_tokens = Math.max(
     1,
