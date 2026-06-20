@@ -13,7 +13,7 @@
 发生在 runtime loop 内部。空闲时不再合成 autonomous queue notify。没有 notify
 时，runtime loop 按同一套 stack window 组装一份候选 request；只有这份候选
 request 真正最后一个 input item 是 `assistant final_answer`，才追加普通
-`self_continuation` developer reminder。尾项不是 `final_answer` 时不追加 reminder，
+`self_continuation` user reminder。尾项不是 `final_answer` 时不追加 reminder，
 直接用候选 request 发起本次模型 slice。成功处理一个真实 slice 后没有固定 interval，
 下一轮立即回到主 `while` 顶部先 pick notify。
 
@@ -444,7 +444,7 @@ node --test packages/persistence/__tests__/*.test.js
 - `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder，也不提前写入
   `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且候选 requestInput
   最后一个 input item 仍是 `assistant final_answer`，才追加普通 `self_continuation`
-  developer reminder，后续模型请求能真实看到它。
+  user reminder，后续模型请求能真实看到它。
 - `recover_energy` 不写 `release_lease` tool result，不 enqueue 恢复用
   `self_continuation` notify；模型主动调用后的成功休息、被打断、clock 醒来和工程拒绝
   都必须作为该 tool call 的 `function_call_output` 进入 replay。runtime 强制休息没有

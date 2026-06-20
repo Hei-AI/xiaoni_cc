@@ -2796,7 +2796,7 @@ function renderSelfContinuationReminder() {
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
-  return buildDeveloperInputItem([renderSelfContinuationReminder()]);
+  return buildUserSceneInputItem([renderSelfContinuationReminder()]);
 }
 
 function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined): boolean {
@@ -10100,7 +10100,7 @@ function buildLoopSelfContinuationStackItem(params: {
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
     itemKind: 'runtime_input',
-    role: 'developer',
+    role: params.inputItem.type === 'message' ? params.inputItem.role : 'user',
     phase: null,
     content: {
       source: 'self_continuation',
@@ -10341,7 +10341,7 @@ function isMessageReplayItem(value: unknown): value is Extract<OpenResponseInput
     role?: unknown;
     content?: unknown;
   };
-  return (item.role === 'assistant' || item.role === 'developer')
+  return (item.role === 'assistant' || item.role === 'developer' || item.role === 'user')
     && (typeof item.content === 'string' && item.content.trim().length > 0
       || Array.isArray(item.content) && flattenMessageContent(item.content as OpenResponseInputContentPart[]).trim().length > 0);
 }

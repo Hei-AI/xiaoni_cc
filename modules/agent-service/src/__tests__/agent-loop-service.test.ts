@@ -1411,8 +1411,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   const withoutReminder = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', false);
   assert.equal(withoutReminder.some((item: any) => (
     item.type === 'message'
-    && item.role === 'developer'
-    && getMessageContent(item).includes('<system_reminder>')
+    && getMessageContent(item).includes('内驱微光')
   )), false);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true);
@@ -1424,7 +1423,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   ));
   const reminderIndex = loopInput.findIndex((item: any) => (
     item.type === 'message'
-    && item.role === 'developer'
+    && item.role === 'user'
     && getMessageContent(item).includes('<system_reminder>')
   ));
 
@@ -5258,8 +5257,7 @@ test('runtime frame records final_answer without eager self continuation when qu
   );
   const reminderReplayIndex = replayItems.findIndex((item: any) =>
     item?.type === 'message'
-      && item?.role === 'developer'
-      && JSON.stringify(item.content).includes('<system_reminder>')
+      && JSON.stringify(item.content).includes('内驱微光')
   );
   assert.ok(finalAnswerReplayIndex >= 0);
   assert.equal(reminderReplayIndex, -1);
@@ -5373,7 +5371,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   ));
   const reminderIndex = capturedInput.findIndex((item: any) => (
     item.type === 'message'
-    && item.role === 'developer'
+    && item.role === 'user'
     && getMessageContent(item).includes('<system_reminder>')
   ));
   assert.ok(finalAnswerIndex >= 0);
@@ -5387,6 +5385,7 @@ test('no-notify continuation inserts self continuation after prior final_answer'
       && call.items?.[0]?.content?.source === 'self_continuation'
   );
   assert.ok(selfContinuationStackBatch);
+  assert.equal(selfContinuationStackBatch.items[0].role, 'user');
   assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
   assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system_reminder>/);
   assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
@@ -5408,7 +5407,7 @@ test('no-notify continuation does not append self continuation after tool output
   const generatedReminder = buildInitialInput([
     Object.assign(priorTurn, { stackReplayItems: [priorFinalAnswerReplay] })
   ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
-    .find((item: any) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<system_reminder>'));
+    .find((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<system_reminder>'));
   assert.ok(generatedReminder);
   const priorToolCallReplay = {
     type: 'function_call',
@@ -5602,8 +5601,7 @@ test('no-notify continuation calls model without self continuation when request 
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(capturedInput.some((item: any) =>
     item?.type === 'message'
-      && item?.role === 'developer'
-      && getMessageContent(item).includes('<system_reminder>')
+      && getMessageContent(item).includes('内驱微光')
   ), false);
 });
 

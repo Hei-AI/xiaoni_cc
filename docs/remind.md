@@ -39,7 +39,8 @@
 
 ## Assembly Rules
 
-- Runtime reminder 使用 `developer` role 进入当前 request input。
+- Runtime reminder 默认使用 `developer` role 进入当前 request input；`self_continuation`
+  是例外，使用 `user` role。
 - Runtime reminder 的 `<system_reminder>` 正文前必须带当前东八区时间前缀，形如
   `[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]`。该前缀是
   prompt-facing 体感时间，不是工程路由字段。
