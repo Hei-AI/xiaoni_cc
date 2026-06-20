@@ -156,7 +156,7 @@ test('Codex image provider inherits main canonical request fields for image fork
     instructions: 'main instructions',
     prompt_cache_key: 'xiaoni:test-global',
     prompt_cache_retention: '24h',
-    reasoning: { effort: 'medium', summary: 'auto' },
+    reasoning: { effort: 'medium', summary: 'detailed' },
     text: { verbosity: 'low' },
     include: ['reasoning.encrypted_content'],
     parallel_tool_calls: true,
@@ -191,7 +191,7 @@ test('Codex image provider inherits main canonical request fields for image fork
   assert.equal(payload.model, 'gpt-5.5');
   assert.equal(payload.prompt_cache_key, 'xiaoni:test-global');
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'prompt_cache_retention'), false);
-  assert.deepEqual(payload.reasoning, { effort: 'medium', summary: 'auto' });
+  assert.deepEqual(payload.reasoning, { effort: 'medium', summary: 'detailed' });
   assert.deepEqual(payload.text, { verbosity: 'low' });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
   assert.equal(payload.instructions, 'main instructions');

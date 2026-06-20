@@ -2088,7 +2088,7 @@ function buildCompactMemoryWriterRequest(
     prompt_cache_key: options.promptCacheKey,
     reasoning: {
       effort: options.reasoningEffort || 'medium',
-      summary: 'auto'
+      summary: 'detailed'
     },
     text: {
       verbosity: options.textVerbosity
@@ -2693,25 +2693,6 @@ function formatAssistantSceneMessage(accountId: string, content: string) {
   return [`小腻(${accountId})`, body].join('\n');
 }
 
-function renderAssistantOutputMessage(params: {
-  accountId: string;
-  content: string;
-  messageId?: number | string | null;
-  timestamp?: string | null;
-  source?: string | null;
-  runId?: string | null;
-  traceId?: string | null;
-}) {
-  return formatTaggedBlock('OUTPUT_MESSAGE', {
-    message_id: params.messageId ?? undefined,
-    timestamp: params.timestamp ?? undefined,
-    sender: formatTagSpeaker('小腻', params.accountId),
-    source: params.source ?? undefined,
-    run_id: params.runId ?? undefined,
-    trace_id: params.traceId ?? undefined
-  }, params.content);
-}
-
 function renderAssistantAction(params: {
   timestamp?: string | null;
   source?: string | null;
@@ -2758,30 +2739,14 @@ function groupTranscriptItemsForScene(
   return grouped;
 }
 
-function renderTranscriptItemForRuntimeContext(
-  item: ConversationTranscriptItem,
-  accountId: string
-): OpenResponseInputItem | null {
+function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem): OpenResponseInputItem | null {
   const content = String(item.content || '').trim();
   if (!content) {
     return null;
   }
 
   if (item.role === 'assistant') {
-    const phase = item.phase === 'commentary' ? 'commentary' : 'final_answer';
-    const rendered = phase === 'final_answer'
-      ? renderAssistantOutputMessage({
-          accountId,
-          content,
-          messageId: item.deliveryMessageId,
-          source: item.source,
-          runId: item.runId,
-          traceId: item.traceId
-        })
-      : content;
-    return phase === 'final_answer'
-      ? buildAssistantFinalInputItem([rendered])
-      : buildAssistantCommentaryInputItem([content]);
+    return null;
   }
 
   return buildUserSceneInputItem([
@@ -4449,7 +4414,7 @@ function buildAgentReasoningConfig(modelName: string, parameters: AgentModelPara
 
   return {
     effort: explicitEffort || 'medium',
-    summary: explicitSummary || 'auto'
+    summary: explicitSummary || 'detailed'
   };
 }
 
@@ -10219,7 +10184,7 @@ export function buildInitialInput(
     }
 
     for (const transcriptItem of transcriptItems) {
-      const rendered = renderTranscriptItemForRuntimeContext(transcriptItem, queueMessage.accountId);
+      const rendered = renderTranscriptItemForRuntimeContext(transcriptItem);
       if (rendered) {
         items.push(rendered);
       }

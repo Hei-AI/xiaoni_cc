@@ -206,7 +206,7 @@ export class CodexProvider extends OpenAIProvider {
         ...(typeof reasoningSummary === 'string'
           ? { summary: reasoningSummary }
           : typeof reasoningEffort === 'string'
-            ? { summary: 'auto' }
+            ? { summary: 'detailed' }
             : {})
       };
     }

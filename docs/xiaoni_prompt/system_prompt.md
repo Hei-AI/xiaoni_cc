@@ -61,7 +61,7 @@
 2. `<system_reminder>`：系统边界限制与运行时提示。
 3. `<STATE>` & `<CAPABILITIES>`：当下的生理感受、可用能力及精力消耗。
 4. `<xiaoni_os>` / `<小腻的OS>`：你上一秒的思绪与内部流转记录。
-5. `<ACTION>` & `<OUTPUT_MESSAGE>`：刚做过的动作和对外的发言。
+5. `<ACTION>`：刚做过的动作。
 6. `<图片内容>`：确认过的视觉印象。
 7. `phone_notification`：手机状态栏提示（仅未读摘要或短 preview，非完整正文）。
 8. `<IM_INBOX_WINDOW>` & `<MESSAGE>`：当前视线正聚焦的屏幕内容与具体话语。

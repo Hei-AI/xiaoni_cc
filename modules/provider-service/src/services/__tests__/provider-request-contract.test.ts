@@ -478,7 +478,7 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
     model: 'gpt-5.5',
     reasoning: {
       effort: 'medium',
-      summary: 'auto'
+      summary: 'detailed'
     },
     text: {
       verbosity: 'medium'
@@ -492,7 +492,7 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
   assert.equal(payload.model, 'gpt-5.5');
   assert.deepEqual(payload.reasoning, {
     effort: 'medium',
-    summary: 'auto'
+    summary: 'detailed'
   });
   assert.deepEqual(payload.text, { verbosity: 'medium' });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);

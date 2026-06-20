@@ -8,7 +8,7 @@
 - 小腻主运行态使用 Responses API 形状，不回退到 Chat Completions 语义。
 - 当前小腻主聊天模型跟随 `XIAONI_MAIN_AGENT_MODEL`，未显式配置时是 `gpt-5.5`；`AI_MODEL_NAME` 仍作为其他默认模型入口使用。compact memory / reflection 是独立的记忆生成工作流，未显式配置时默认 `gpt-5.5`。不要在仓库文档或配置里假设 `gpt-5.5-mini` 可用。
 - 主聊天 agent 只在 provider 参数或模型策略明确需要时发送 `reasoning`、`text` 和 `include`；不要为了“看起来更像 reasoning model”伪造 `reasoning.encrypted_content`。
-- context compression memory writer 固定使用 Responses function tool schema、`parallel_tool_calls: false`、`tool_choice.allowed_tools(mode=required)`；compact 层默认 `model=gpt-5.5`、`reasoning.effort=high`、`reasoning.summary=auto`、`text.verbosity=medium`，超时默认 `120000ms`。
+- context compression memory writer 固定使用 Responses function tool schema、`parallel_tool_calls: false`、`tool_choice.allowed_tools(mode=required)`；compact 层默认 `model=gpt-5.5`、`reasoning.effort=high`、`reasoning.summary=detailed`、`text.verbosity=medium`，超时默认 `120000ms`。
 - `reasoning.summary` 只用于可观测性；不要要求或解析原始 hidden reasoning。
 - `text.verbosity` 必须作为模型参数处理；需要更短输出时用 `low`，不要把最终回答长度和 reasoning effort 混在同一条 prompt 里控制。
 

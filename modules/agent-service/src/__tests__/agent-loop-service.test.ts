@@ -799,7 +799,7 @@ test('buildCanonicalAgentTurnRequest makes gpt-5.5 stateless reasoning replay ex
 
   assert.deepEqual(request.reasoning, {
     effort: 'medium',
-    summary: 'auto'
+    summary: 'detailed'
   });
   assert.deepEqual(request.text, {
     verbosity: 'medium'
@@ -2276,7 +2276,7 @@ test('buildInitialInput applies bound user prompt template to the current messag
   assert.match(getMessageContent(currentMessage), /签名：Alice/);
 });
 
-test('buildInitialInput replays structured transcript items as scene messages', () => {
+test('buildInitialInput replays user transcript items but does not synthesize assistant replay messages', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2338,14 +2338,11 @@ test('buildInitialInput replays structured transcript items as scene messages', 
   const priorFinalItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('原因已经找到了'));
   assert.equal((priorUserItem as any)?.role, 'user');
   assert.doesNotMatch(getMessageContent(priorUserItem), /<INPUT_MESSAGE/);
-  assert.equal((priorCommentaryItem as any)?.role, 'assistant');
-  assert.equal((priorCommentaryItem as any)?.phase, 'commentary');
-  assert.equal((priorFinalItem as any)?.role, 'assistant');
-  assert.equal((priorFinalItem as any)?.phase, 'final_answer');
-  assert.match(getMessageContent(priorFinalItem), /<OUTPUT_MESSAGE/);
+  assert.equal(priorCommentaryItem, undefined);
+  assert.equal(priorFinalItem, undefined);
 });
 
-test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part replies', () => {
+test('buildInitialInput does not replay assistant delivery transcript or tactical xiaoni_os for spoken multi-part replies', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2392,17 +2389,14 @@ test('buildInitialInput does not replay tactical xiaoni_os for spoken multi-part
   ], createQueuePayload());
 
   const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('第一段'));
-  assert.equal((priorXiaoniItem as any).role, 'assistant');
-  assert.equal((priorXiaoniItem as any).phase, 'commentary');
-  assert.match(getMessageContent(priorXiaoniItem), /第一段/);
   const finalItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('第二段'));
-  assert.equal((finalItem as any)?.role, 'assistant');
-  assert.equal((finalItem as any)?.phase, 'final_answer');
-  assert.match(getMessageContent(finalItem), /第二段/);
+  assert.equal(priorXiaoniItem, undefined);
+  assert.equal(finalItem, undefined);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /第一段|第二段/);
   assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /先接一句/);
 });
 
-test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', () => {
+test('buildInitialInput omits assistant delivery transcript and tactical xiaoni_os from the latest spoken turn', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2435,12 +2429,9 @@ test('buildInitialInput omits tactical xiaoni_os from the latest spoken turn', (
   ], createQueuePayload());
 
   const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('我刚看群文件还没更新'));
-  assert.equal((priorXiaoniItem as any).role, 'assistant');
-  assert.equal((priorXiaoniItem as any).phase, 'final_answer');
-  assert.match(getMessageContent(priorXiaoniItem), /<OUTPUT_MESSAGE/);
-  assert.match(getMessageContent(priorXiaoniItem), /我刚看群文件还没更新/);
-  assert.doesNotMatch(getMessageContent(priorXiaoniItem), /<xiaoni_os>/);
-  assert.doesNotMatch(getMessageContent(priorXiaoniItem), /这句明显是在顺着问我/);
+  assert.equal(priorXiaoniItem, undefined);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /我刚看群文件还没更新/);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /这句明显是在顺着问我/);
 });
 
 test('buildInitialInput does not synthesize residue-like raw xiaoni_os on spoken turns', () => {
@@ -2476,7 +2467,8 @@ test('buildInitialInput does not synthesize residue-like raw xiaoni_os on spoken
   ], createQueuePayload());
 
   const priorXiaoniItem = loopInput.find((item: any) => item.role === 'assistant' && item.phase === 'final_answer' && getMessageContent(item).includes('这句我记下了'));
-  assert.match(getMessageContent(priorXiaoniItem), /这句我记下了/);
+  assert.equal(priorXiaoniItem, undefined);
+  assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /这句我记下了/);
   const osItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('<xiaoni_os>'));
   assert.equal(osItem, undefined);
   assert.doesNotMatch(loopInput.map(getMessageContent).join('\n'), /我对她会更放松一点/);
@@ -2587,13 +2579,12 @@ test('buildInitialInput does not synthesize raw xiaoni_os from non-latest histor
   ], createQueuePayload());
 
   const priorTurnItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('上一段回复'));
-  assert.ok(priorTurnItem);
-  assert.match(getMessageContent(priorTurnItem), /上一段回复/);
+  assert.equal(priorTurnItem, undefined);
   const priorOsItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && item.phase === 'commentary' && getMessageContent(item).includes('上一段留下的内在延续'));
   assert.equal(priorOsItem, undefined);
 });
 
-test('buildInitialInput replays assistant history with output_text content parts', () => {
+test('buildInitialInput replays user transcript but not assistant transcript history', () => {
   const loopInput = buildInitialInput([
     {
       id: 1,
@@ -2638,9 +2629,7 @@ test('buildInitialInput replays assistant history with output_text content parts
   ], createQueuePayload());
 
   const assistantItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('上一段回复')) as any;
-  assert.ok(assistantItem);
-  assert.equal(assistantItem.content[0]?.type, 'output_text');
-  assert.equal(assistantItem.content[0]?.text.includes('<OUTPUT_MESSAGE'), true);
+  assert.equal(assistantItem, undefined);
 
   const userItem = loopInput.find((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('上一段用户消息')) as any;
   assert.ok(userItem);
@@ -2730,7 +2719,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].canonicalRequest.model, 'gpt-5.4');
   assert.deepEqual(calls[0].canonicalRequest.reasoning, {
     effort: 'high',
-    summary: 'auto'
+    summary: 'detailed'
   });
 });
 
@@ -3322,9 +3311,9 @@ test('context compression memory writer generates episodic, semantic, and reflec
     'qq:group:101'
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.reasoning), [
-    { effort: 'high', summary: 'auto' },
-    { effort: 'high', summary: 'auto' },
-    { effort: 'high', summary: 'auto' }
+    { effort: 'high', summary: 'detailed' },
+    { effort: 'high', summary: 'detailed' },
+    { effort: 'high', summary: 'detailed' }
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.text), [
     { verbosity: 'medium' },
@@ -3857,7 +3846,7 @@ test('requestImageTask persists current canonical request for Codex image fork i
     }],
     prompt_cache_key: 'xiaoni:test-global',
     prompt_cache_retention: '24h',
-    reasoning: { effort: 'medium', summary: 'auto' },
+    reasoning: { effort: 'medium', summary: 'detailed' },
     text: { verbosity: 'low' },
     include: ['reasoning.encrypted_content'],
     parallel_tool_calls: true,
