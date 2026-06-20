@@ -249,3 +249,80 @@ test('searchQqUsageThreads filters visible chats by stored name or QQ id', async
   assert.equal(calls.threadFindMany.length, 1);
   assert.equal(calls.findMany.length, 1);
 });
+
+test('markQqUsageThreadRead refreshes latest unread timestamp with unread cursor', async () => {
+  const latestReceivedAt = new Date('2026-06-19T02:13:06.110Z');
+  const calls = {
+    updateMany: [],
+    counts: [],
+    aggregates: [],
+    upserts: []
+  };
+  const prisma = {
+    agentInboundMessage: {
+      updateMany: async (query) => {
+        calls.updateMany.push(query);
+        assert.deepEqual(query.where, {
+          session_key: 'qq:direct:1129974489:85178516',
+          is_read: 0
+        });
+        return { count: 9 };
+      },
+      findFirst: async (query) => {
+        assert.deepEqual(query.where, { session_key: 'qq:direct:1129974489:85178516' });
+        assert.deepEqual(query.orderBy, [{ received_at: 'desc' }, { id: 'desc' }]);
+        return {
+          id: 18521n,
+          session_key: 'qq:direct:1129974489:85178516',
+          chat_type: 'direct',
+          peer_id: '85178516',
+          peer_name: '李阿花',
+          account_id: '1129974489',
+          received_at: latestReceivedAt
+        };
+      },
+      aggregate: async (query) => {
+        calls.aggregates.push(query);
+        if (query.where.is_read === 1) {
+          return { _max: { received_at: latestReceivedAt } };
+        }
+        assert.deepEqual(query.where, {
+          session_key: 'qq:direct:1129974489:85178516',
+          is_read: 0,
+          received_at: { gt: latestReceivedAt }
+        });
+        return { _max: { received_at: null } };
+      },
+      count: async (query) => {
+        calls.counts.push(query);
+        if (query.where.is_read === 0) {
+          assert.deepEqual(query.where.received_at, { gt: latestReceivedAt });
+          return 0;
+        }
+        return 448;
+      }
+    },
+    agentInboundThreadState: {
+      upsert: async (query) => {
+        calls.upserts.push(query);
+        return query.update;
+      }
+    }
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const result = await persistence.markQqUsageThreadRead({
+    threadKey: 'qq:direct:1129974489:85178516'
+  });
+
+  assert.deepEqual(result, {
+    threadKey: 'qq:direct:1129974489:85178516',
+    clearedCount: 9
+  });
+  assert.equal(calls.aggregates.length, 2);
+  assert.equal(calls.upserts.length, 1);
+  assert.equal(calls.upserts[0].update.unread_count, 0);
+  assert.equal(calls.upserts[0].update.direct_mentions, 0);
+  assert.equal(calls.upserts[0].update.latest_unread_received_at, null);
+  assert.equal(calls.upserts[0].update.last_read_received_at, latestReceivedAt);
+});

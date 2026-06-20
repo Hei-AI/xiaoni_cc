@@ -160,10 +160,15 @@ async function refreshThreadState(prisma, threadKey) {
     session_key: threadKey,
     last_read_received_at: lastRead._max.received_at || null
   };
-  const [totalMessages, unreadCount, directMentions] = await Promise.all([
+  const effectiveUnreadWhere = buildEffectiveUnreadWhere(threadState);
+  const [totalMessages, unreadCount, directMentions, latestUnread] = await Promise.all([
     prisma.agentInboundMessage.count({ where: { session_key: threadKey } }),
-    prisma.agentInboundMessage.count({ where: buildEffectiveUnreadWhere(threadState) }),
-    prisma.agentInboundMessage.count({ where: buildEffectiveUnreadWhere(threadState, { was_mentioned: 1 }) })
+    prisma.agentInboundMessage.count({ where: effectiveUnreadWhere }),
+    prisma.agentInboundMessage.count({ where: { ...effectiveUnreadWhere, was_mentioned: 1 } }),
+    prisma.agentInboundMessage.aggregate({
+      where: effectiveUnreadWhere,
+      _max: { received_at: true }
+    })
   ]);
   const data = {
     chat_type: latest.chat_type,
@@ -175,6 +180,7 @@ async function refreshThreadState(prisma, threadKey) {
     direct_mentions: Number(directMentions || 0),
     last_message_id: latest.id,
     last_received_at: latest.received_at,
+    latest_unread_received_at: latestUnread._max.received_at || null,
     last_read_received_at: threadState.last_read_received_at
   };
 

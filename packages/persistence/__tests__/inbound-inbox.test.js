@@ -129,6 +129,7 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
   assert.deepEqual(JSON.parse(queries[0].params[20]), { post_type: 'message' });
   assert.equal(executes.length, 1);
   assert.ok(executes[0].sql.includes('INSERT INTO agent_inbound_thread_states'));
+  assert.match(executes[0].sql, /GROUP BY lr\.last_read_received_at/);
   assert.deepEqual(executes[0].params, ['qq:group:42']);
   assert.equal(message.id, 42);
   assert.equal(message.messageSid, 'sid-42');

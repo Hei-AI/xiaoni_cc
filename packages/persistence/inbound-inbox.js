@@ -160,6 +160,7 @@ async function refreshInboundThreadState(sql, sessionKey) {
           lr.last_read_received_at
         FROM scoped m
         CROSS JOIN last_read lr
+        GROUP BY lr.last_read_received_at
       )
       SELECT
         latest.session_key,
