@@ -8,6 +8,7 @@ import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
 
 process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:test-global';
+agentConfig.mainAgentPreModelYieldMs = 0;
 
 const PRIVATE_REPLY_TOOL = 'send_in_private';
 const UNREAD_MEANING_TOOL = 'emit_unread_meaning';
@@ -5690,6 +5691,91 @@ test('runtime frame waits before its single model slice when runtime control is 
     storeCalls.logTimelineEvent.some((event) => event.eventName === 'runtime_paused' && event.eventPhase === 'end'),
     true
   );
+});
+
+test('runtime frame yields before sending the main agent model slice', async () => {
+  const queueMessage = {
+    id: 'run-queue-pre-model-yield',
+    traceId: 'trace-pre-model-yield',
+    batchId: 'batch-pre-model-yield',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const events: string[] = [];
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    recordNoVisibleDeliveryLifeEvent: []
+  };
+
+  const store = {
+    createLlmJob: async () => 'job-pre-model-yield',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1999;
+    },
+    attachConversationIdToTrace: async () => {},
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordNoVisibleDeliveryLifeEvent: async (params: any) => { storeCalls.recordNoVisibleDeliveryLifeEvent.push(params); }
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any, {
+    isRuntimeEnabled: async () => {
+      events.push('runtime-enabled');
+      return true;
+    },
+    preModelSliceYieldMs: 5000,
+    sleepMs: async (ms) => {
+      events.push(`yield:${ms}`);
+    }
+  });
+
+  (service as any).executeAgentTurn = async () => {
+    events.push('execute-agent-turn');
+    return {
+      success: true,
+      llm_call_id: 'llm-pre-model-yield',
+      canonical_response: {
+        output: [{
+          type: 'message',
+          content: [{ type: 'output_text', text: '.' }]
+        }]
+      }
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any);
+
+  assert.deepEqual(events, [
+    'runtime-enabled',
+    'yield:5000',
+    'execute-agent-turn'
+  ]);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
 });
 
 test('runtime frame ignores the historical max turn count because it owns one model slice', async () => {

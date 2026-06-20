@@ -73,6 +73,7 @@ export const databaseConfig = {
 };
 
 const mainAgentTurnTimeoutMs = Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '300000', 10));
+const mainAgentPreModelYieldMs = Math.max(0, readIntegerEnv('AGENT_MAIN_PRE_MODEL_YIELD_MS', 5000));
 const queueIdleIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10));
 const DEFAULT_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 
@@ -95,6 +96,7 @@ export const agentConfig = {
   compactMemoryReflectionReasoningEffort: readReasoningEffortEnv('AGENT_COMPACT_MEMORY_REFLECTION_REASONING_EFFORT', 'high'),
   compactMemoryTextVerbosity: readTextVerbosityEnv('AGENT_COMPACT_MEMORY_TEXT_VERBOSITY', 'medium'),
   mainAgentTurnTimeoutMs,
+  mainAgentPreModelYieldMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '300000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),

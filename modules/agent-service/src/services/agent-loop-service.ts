@@ -272,6 +272,8 @@ type AgentLoopServiceOptions = {
   isCacheHeartbeatPaused?: () => boolean | Promise<boolean>;
   onCoreMemoryCompressionCommitted?: (commit: CoreMemoryCompressionCommit) => void | Promise<void>;
   runtimePausePollMs?: number;
+  preModelSliceYieldMs?: number;
+  sleepMs?: (ms: number) => Promise<void>;
 };
 
 type AgentRuntimeIterationParams = {
@@ -4532,6 +4534,16 @@ export class AgentLoopService {
     }
   }
 
+  private async yieldBeforeMainAgentModelSlice() {
+    const yieldMs = Math.max(0, this.options.preModelSliceYieldMs ?? agentConfig.mainAgentPreModelYieldMs);
+    if (yieldMs <= 0) {
+      return;
+    }
+
+    const wait = this.options.sleepMs ?? sleep;
+    await wait(yieldMs);
+  }
+
   private async resolveStableRuntimePrompt(payload: QueueMessageRecord['payload']) {
     if (!this.stableRuntimePrompt) {
       this.stableRuntimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
@@ -5533,6 +5545,7 @@ export class AgentLoopService {
       {
         const turn = 1;
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
+        await this.yieldBeforeMainAgentModelSlice();
         turnsExecuted = turn;
         const turnBudgetRecord: ContextBudgetTurnRecord = {
           turn,
