@@ -15,7 +15,7 @@ function createPersistence(overrides = {}) {
       count: async () => 0
     },
     agentTask: {
-      findMany: async () => [],
+      findMany: async () => overrides.tasks || [],
       count: async () => 0
     },
     agentMediaAsset: {
@@ -97,6 +97,15 @@ function createPersistence(overrides = {}) {
         .filter((row) => (row.sourceKind || row.source_kind || 'main') === sourceKind)
         .filter((row) => !sliceId || row.sliceId === sliceId || row.slice_id === sliceId)
         .filter((row) => !llmCallId || row.llmCallId === llmCallId || row.llm_call_id === llmCallId)
+        .slice(0, input.limit || 100);
+    },
+    listCodexProviderUsageEvents: async (input = {}) => {
+      if (typeof overrides.onListCodexProviderUsageEvents === 'function') {
+        overrides.onListCodexProviderUsageEvents(input);
+      }
+      const sourceKind = input.sourceKind || input.source_kind || null;
+      return (overrides.codexProviderUsageRows || [])
+        .filter((row) => !sourceKind || row.sourceKind === sourceKind || row.source_kind === sourceKind)
         .slice(0, input.limit || 100);
     },
     listAgentStackItems: async (input = {}) => {
@@ -435,6 +444,10 @@ test('Xiaoni activity feed promotes LLM request slices to first-class events', a
   assert.equal(slice.metadata.providerRequestBytes, Buffer.byteLength(JSON.stringify(wireRequest), 'utf8'));
   assert.equal(slice.metadata.providerResponseBytes, Buffer.byteLength(JSON.stringify(wireResponse), 'utf8'));
   assert.equal(feed.items.some((item) => item.id === 'llm:llm_codex_1'), false);
+
+  const actionStream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const actionSlice = actionStream.items.find((item) => item.id === 'llm-slice:slice_codex_1');
+  assert.equal(actionSlice.tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
 });
 
 test('Xiaoni action stream projects stack tool requests without provider replay rows', async () => {
@@ -836,6 +849,76 @@ test('Xiaoni action stream filters tags before applying display limit', async ()
   assert.equal(stream.availableTags.some((tag) => tag.key === 'source:llm_request' && tag.count === 100), true);
 });
 
+test('Xiaoni action stream lets the LLM source tag select cache heartbeat provider calls', async () => {
+  const persistence = createPersistence({
+    codexProviderUsageRows: [{
+      id: 'heartbeat-row-1',
+      eventId: 'codex-provider:heartbeat-1',
+      event_id: 'codex-provider:heartbeat-1',
+      sourceKind: 'cache_heartbeat',
+      source_kind: 'cache_heartbeat',
+      identityKey: 'xiaoni',
+      llmCallId: 'llm_heartbeat_1',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      status: 'completed',
+      createdAt: '2026-06-05T10:05:00.000Z',
+      completedAt: '2026-06-05T10:05:01.000Z',
+      tokenUsage: { input_tokens: 42000, cached_input_tokens: 41000, output_tokens: 1 },
+      wireRequest: { model: 'gpt-5.5', input: [] },
+      wireResponse: { id: 'resp_heartbeat_1' }
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({
+    limit: 10,
+    tags: ['source:llm_request']
+  });
+  const run = stream.cacheHeartbeatTimeline.runs[0];
+
+  assert.ok(run);
+  assert.equal(run.source, 'cache_heartbeat');
+  assert.equal(run.tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
+  assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true);
+  assert.deepEqual(stream.filters.tags, ['source:llm_request']);
+});
+
+test('Xiaoni action stream lets the LLM source tag select provider-backed image tasks', async () => {
+  const persistence = createPersistence({
+    tasks: [{
+      id: 'image-task-1',
+      task_type: 'image_generate',
+      status: 'completed',
+      session_key: 'group:1040740258',
+      peer_name: '测试群',
+      target_description: '画一张猫图',
+      prompt: 'cat',
+      source_trace_id: 'trace_image_task_1',
+      source_run_id: 'run_image_task_1',
+      result_json: {
+        provider_exchange: {
+          request: { model: 'gpt-image-2', prompt: 'cat' },
+          response: { id: 'resp_image_task_1' }
+        }
+      },
+      artifacts: [],
+      attempts: 1,
+      created_at: '2026-06-05T10:06:00.000Z',
+      completed_at: '2026-06-05T10:06:10.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({
+    limit: 10,
+    tags: ['source:llm_request']
+  });
+
+  assert.deepEqual(stream.items.map((item) => item.id), ['task:image-task-1']);
+  assert.equal(stream.items[0].tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
+  assert.equal(stream.items[0].tags.some((tag) => tag.key === 'source:task'), true);
+});
+
 test('Xiaoni action stream projects image vision fork observations outside main items', async () => {
   const listSliceInputs = [];
   const persistence = createPersistence({
@@ -933,6 +1016,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.equal(forkLlmEvent.metadata.providerRawTraceAvailable, true);
   assert.equal(forkLlmEvent.metadata.providerRequestSpanId, 'provider-request:wire:vision_llm_1');
   assert.equal(forkLlmEvent.traceTarget.spanId, 'image-vision-fork-slice:vision_llm_1');
+  assert.equal(forkLlmEvent.tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
   const forkToolEvent = forkRun.events.find((event) => event.source === 'image_vision_fork_item' && event.kind === 'function_call');
   assert.ok(forkToolEvent);
   assert.equal(forkToolEvent.metadata.providerRawTraceAvailable, false);

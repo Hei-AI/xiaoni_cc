@@ -2312,6 +2312,23 @@ function addActionStreamTag(tags, seen, key, label, tone = 'neutral') {
   tags.push(tag);
 }
 
+const LLM_PROVIDER_ACTION_STREAM_SOURCES = new Set([
+  'llm_request',
+  'compression_fork_llm_request',
+  'subconscious_fork_llm_request',
+  'image_vision_fork_llm_request',
+  'cache_heartbeat'
+]);
+
+function isLlmProviderBackedActionStreamItem(item, source) {
+  if (LLM_PROVIDER_ACTION_STREAM_SOURCES.has(source)) {
+    return true;
+  }
+  return source === 'task'
+    && item.metadata?.providerRawTraceAvailable === true
+    && item.traceTarget?.sourceKind === 'image_task';
+}
+
 function actionStreamItemTags(item) {
   const tags = [];
   const seen = new Set();
@@ -2323,6 +2340,9 @@ function actionStreamItemTags(item) {
 
   if (source) {
     addActionStreamTag(tags, seen, `source:${source}`, `source: ${sourceLabelForActionStreamTag(source)}`);
+    if (isLlmProviderBackedActionStreamItem(item, source)) {
+      addActionStreamTag(tags, seen, 'source:llm_request', 'source: LLM', 'info');
+    }
   }
   if (eventKind) {
     addActionStreamTag(tags, seen, `event:${eventKind}`, `event: ${eventKind.replace(/_/g, ' ')}`);
