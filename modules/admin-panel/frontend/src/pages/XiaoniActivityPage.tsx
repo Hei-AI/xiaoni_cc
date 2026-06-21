@@ -359,6 +359,7 @@ function rawTraceSpanIdForSource(
   if (
     source !== 'llm_request'
     && source !== 'compression_fork_llm_request'
+    && source !== 'subconscious_fork_llm_request'
     && source !== 'image_vision_fork_llm_request'
     && source !== 'cache_heartbeat'
     && source !== 'task'
