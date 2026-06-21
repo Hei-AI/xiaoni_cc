@@ -1781,7 +1781,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'web_search' });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
-  return buildAllowedToolsToolChoice(tools);
+  return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
 function selectFeedbackWriterToolDefinitions(mode: FeedbackWriterMode) {
