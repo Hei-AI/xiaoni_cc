@@ -28,6 +28,7 @@ function createQueueRow(overrides = {}) {
     }),
     status: 'pending',
     attempts: overrides.attempts || 0,
+    max_attempts: overrides.max_attempts || 3,
     created_at: overrides.created_at || '2026-06-09T00:00:00.000Z',
     processing_started_at: null,
     completed_at: null,
@@ -94,6 +95,7 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   assert.ok(claimed);
   assert.equal(claimed.status, 'processing');
   assert.equal(claimed.queueMessageIds.length, 2);
+  assert.equal(claimed.maxAttempts, 3);
   assert.equal(claimed.payload.messages.length, 2);
   assert.match(claimed.batchId, /^batch_/);
   assert.match(claimed.id, /^run_/);
@@ -165,4 +167,41 @@ test('claimNextAgentQueueMessage does not batch different sources for one sessio
   assert.deepEqual(claimed.queueMessageIds, [10]);
   assert.equal(claimed.payload.source, 'phone_notification');
   assert.equal(claimed.payload.systemReminder, undefined);
+});
+
+test('retryAgentQueueMessage returns a consumed run to pending without resetting attempts', async () => {
+  const executes = [];
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => {
+      throw new Error('Prisma should not be used for retry');
+    },
+    createSqlAdapter: () => ({
+      execute: async (sql, params = []) => {
+        executes.push({ sql, params });
+        return 1;
+      },
+      close: async () => undefined
+    })
+  });
+
+  const updated = await persistence.retryAgentQueueMessage({
+    runId: 'run-transient',
+    errorMessage: 'fetch failed',
+    retryDelayMs: 5000
+  });
+
+  assert.equal(updated, 1);
+  assert.equal(executes.length, 1);
+  assert.match(executes[0].sql, /SET status = 'pending'/);
+  assert.match(executes[0].sql, /attempts < max_attempts/);
+  assert.match(executes[0].sql, /locked_at = NULL/);
+  assert.match(executes[0].sql, /run_id = NULL/);
+  assert.equal(executes[0].params[0], 5000);
+  assert.equal(executes[0].params[1], 'fetch failed');
+  assert.equal(executes[0].params[3], 'run-transient');
+  const result = JSON.parse(executes[0].params[2]);
+  assert.equal(result.doorbell_retry_pending, true);
+  assert.equal(result.failed_run_id, 'run-transient');
+  assert.equal(result.retry_after_ms, 5000);
+  assert.equal(result.error_message, 'fetch failed');
 });

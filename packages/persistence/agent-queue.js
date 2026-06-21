@@ -138,6 +138,7 @@ function mapClaimedRun(input) {
     batchId: input.batchId,
     status: 'processing',
     attempts: Math.max(...input.rows.map((row) => Number(row.attempts || 0) + 1), 1),
+    maxAttempts: Math.max(...input.rows.map((row) => Number(row.max_attempts || 3)), 1),
     createdAt: normalizeDate(input.rows[0]?.created_at) || new Date().toISOString(),
     processingStartedAt: new Date().toISOString(),
     completedAt: null,
@@ -455,11 +456,57 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
+  async function retryAgentQueueMessage(input = {}, config = {}) {
+    const runId = normalizeOptionalString(input.runId || input.run_id);
+    if (!runId) {
+      throw new Error('retryAgentQueueMessage requires runId');
+    }
+    const retryDelayMs = Math.max(0, Number(input.retryDelayMs ?? input.retry_delay_ms ?? 0) || 0);
+    const errorMessage = String(input.errorMessage || input.error_message || '');
+    const { sql, shouldClose } = createSql(input, config);
+    try {
+      return await sql.execute(
+        `
+          UPDATE agent_queue_messages
+          SET status = 'pending',
+              available_at = NOW() + (? * INTERVAL '1 millisecond'),
+              locked_at = NULL,
+              locked_by = NULL,
+              batch_id = NULL,
+              run_id = NULL,
+              completed_at = NULL,
+              error_message = ?,
+              result = ?::jsonb,
+              updated_at = NOW()
+          WHERE run_id = ?
+            AND attempts < max_attempts
+        `,
+        [
+          retryDelayMs,
+          errorMessage,
+          JSON.stringify({
+            doorbell_retry_pending: true,
+            failed_run_id: runId,
+            retry_after_ms: retryDelayMs,
+            error_message: errorMessage,
+            retry_scheduled_at: new Date().toISOString()
+          }),
+          runId
+        ]
+      );
+    } finally {
+      if (shouldClose) {
+        await sql.close();
+      }
+    }
+  }
+
   return {
     enqueueAgentQueueMessage,
     claimNextAgentQueueMessage,
     settleAgentQueueMessages,
-    failAgentQueueMessage
+    failAgentQueueMessage,
+    retryAgentQueueMessage
   };
 }
 

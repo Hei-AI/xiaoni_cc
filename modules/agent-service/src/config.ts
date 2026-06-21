@@ -75,6 +75,13 @@ export const databaseConfig = {
 const mainAgentTurnTimeoutMs = Math.max(1000, Number.parseInt(process.env.AGENT_MAIN_TURN_TIMEOUT_MS || '300000', 10));
 const mainAgentPreModelYieldMs = Math.max(0, readIntegerEnv('AGENT_MAIN_PRE_MODEL_YIELD_MS', 5000));
 const queueIdleIntervalMs = Math.max(200, Number.parseInt(process.env.AGENT_QUEUE_IDLE_INTERVAL_MS || '2000', 10));
+const providerExecutionRetryAttempts = Math.max(1, readIntegerEnv('AGENT_PROVIDER_EXECUTION_RETRY_ATTEMPTS', 3));
+const providerExecutionRetryBaseDelayMs = Math.max(0, readIntegerEnv('AGENT_PROVIDER_EXECUTION_RETRY_BASE_DELAY_MS', 1500));
+const queueTransientRetryBaseDelayMs = Math.max(0, readIntegerEnv('AGENT_QUEUE_TRANSIENT_RETRY_BASE_DELAY_MS', 5000));
+const queueTransientRetryMaxDelayMs = Math.max(
+  queueTransientRetryBaseDelayMs,
+  readIntegerEnv('AGENT_QUEUE_TRANSIENT_RETRY_MAX_DELAY_MS', 60_000)
+);
 const DEFAULT_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:global';
 
 export function getGlobalPromptContextSessionKey() {
@@ -97,6 +104,10 @@ export const agentConfig = {
   compactMemoryTextVerbosity: readTextVerbosityEnv('AGENT_COMPACT_MEMORY_TEXT_VERBOSITY', 'medium'),
   mainAgentTurnTimeoutMs,
   mainAgentPreModelYieldMs,
+  providerExecutionRetryAttempts,
+  providerExecutionRetryBaseDelayMs,
+  queueTransientRetryBaseDelayMs,
+  queueTransientRetryMaxDelayMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '300000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),

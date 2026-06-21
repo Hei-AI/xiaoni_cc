@@ -96,6 +96,7 @@ import {
   claimNextAgentQueueMessage,
   settleAgentQueueMessages,
   failAgentQueueMessage,
+  retryAgentQueueMessage,
   ensureAgentRuntimeSchema,
   recoverStaleProcessingLeases as recoverStaleProcessingLeasesPersistence,
   releaseExecutionLease as releaseExecutionLeasePersistence,
@@ -1925,6 +1926,15 @@ export class RuntimeStore {
       conversationId: conversationId ?? null,
       sqlAdapter: this.sql
     }, databaseConfig);
+  }
+
+  async retryQueueMessage(runId: string, params: { errorMessage: string; retryDelayMs?: number }) {
+    return retryAgentQueueMessage({
+      runId,
+      errorMessage: params.errorMessage,
+      retryDelayMs: params.retryDelayMs ?? 0,
+      sqlAdapter: this.sql
+    }, databaseConfig) as Promise<number>;
   }
 
   async releaseExecutionLease(runId: string, updates: {

@@ -1797,6 +1797,7 @@ export type AgentQueueClaimedMessage = {
   batchId: string;
   status: string;
   attempts: number;
+  maxAttempts?: number;
   createdAt: string;
   processingStartedAt?: string | null;
   completedAt?: string | null;
@@ -1844,6 +1845,15 @@ export function failAgentQueueMessage(input: {
   conversation_id?: number | null;
   sqlAdapter?: SqlAdapter;
 }, config?: DatabaseUrlConfig): Promise<void>;
+export function retryAgentQueueMessage(input: {
+  runId?: string;
+  run_id?: string;
+  errorMessage?: string;
+  error_message?: string;
+  retryDelayMs?: number;
+  retry_delay_ms?: number;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<number>;
 
 // agent-presence
 export type AgentSharePoolItemProjection = {

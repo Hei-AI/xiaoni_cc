@@ -2760,6 +2760,63 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   });
 });
 
+test('executeAgentTurn retries transient provider transport failures before failing the turn', async () => {
+  const queuePayload = createQueuePayload();
+  const runtimePrompt = createRuntimePrompt();
+  const loopInput = buildInitialInput([], queuePayload);
+  const service = new AgentLoopService({} as any);
+  const originalFetch = globalThis.fetch;
+  const previousAttempts = agentConfig.providerExecutionRetryAttempts;
+  const previousDelay = agentConfig.providerExecutionRetryBaseDelayMs;
+  const calls: Array<{ url: string; body: any }> = [];
+  agentConfig.providerExecutionRetryAttempts = 3;
+  agentConfig.providerExecutionRetryBaseDelayMs = 0;
+
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: String(url),
+      body: JSON.parse(String(init?.body || '{}'))
+    });
+    if (calls.length === 1) {
+      throw new Error('fetch failed');
+    }
+    if (calls.length === 2) {
+      return {
+        ok: false,
+        status: 503,
+        json: async () => ({ success: false, error: 'ECONNREFUSED provider restarting' })
+      } as any;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        llm_call_id: 'llm-after-provider-retry',
+        canonical_response: { output: [] }
+      })
+    } as any;
+  }) as typeof fetch;
+
+  try {
+    const result = await (service as any).executeAgentTurn(
+      buildTestMainCanonicalRequest(loopInput, queuePayload, runtimePrompt),
+      queuePayload,
+      'trace-provider-retry',
+      1,
+      runtimePrompt
+    );
+    assert.equal(result.llm_call_id, 'llm-after-provider-retry');
+  } finally {
+    globalThis.fetch = originalFetch;
+    agentConfig.providerExecutionRetryAttempts = previousAttempts;
+    agentConfig.providerExecutionRetryBaseDelayMs = previousDelay;
+  }
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map((call) => call.body.run_id), ['trace-provider-retry', 'trace-provider-retry', 'trace-provider-retry']);
+});
+
 test('feedback memory subagent is disabled after extract_feedback_episode tool removal', async () => {
   const calls: Array<any> = [];
   const timelineEvents: Array<any> = [];
@@ -4864,6 +4921,98 @@ test('runtime frame fails without a bound prompt and does not call the provider'
   assert.equal(storeCalls.releaseExecutionLease[0]?.noVisibleDelivery, true);
   assert.equal(storeCalls.updateLlmJob[0]?.status, 'failed');
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
+});
+
+test('runtime frame requeues transient provider failures instead of failing a persisted notify', async () => {
+  const queueMessage = {
+    id: 'run-queue-transient-provider',
+    traceId: 'trace-transient-provider',
+    batchId: 'batch-transient-provider',
+    status: 'processing',
+    attempts: 1,
+    maxAttempts: 3,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [14336],
+    payload: {
+      ...createQueuePayload(),
+      runId: 'run-queue-transient-provider',
+      traceId: 'trace-transient-provider',
+      batchId: 'batch-transient-provider'
+    }
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    retryQueueMessage: [],
+    failQueueMessage: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    createLlmJob: async () => 'job-transient-provider',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 3001;
+    },
+    attachConversationIdToTrace: async () => {},
+    retryQueueMessage: async (...args: any[]) => {
+      storeCalls.retryQueueMessage.push(args);
+      return 1;
+    },
+    failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+  const previousBaseDelay = agentConfig.queueTransientRetryBaseDelayMs;
+  const previousMaxDelay = agentConfig.queueTransientRetryMaxDelayMs;
+  agentConfig.queueTransientRetryBaseDelayMs = 1234;
+  agentConfig.queueTransientRetryMaxDelayMs = 60_000;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeAgentTurn = async () => {
+    throw new Error('fetch failed');
+  };
+
+  try {
+    await processRuntimeFrameForTest(service, queueMessage as any);
+  } finally {
+    agentConfig.queueTransientRetryBaseDelayMs = previousBaseDelay;
+    agentConfig.queueTransientRetryMaxDelayMs = previousMaxDelay;
+  }
+
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.queue_retry_eligible, true);
+  assert.deepEqual(storeCalls.retryQueueMessage, [[
+    'run-queue-transient-provider',
+    {
+      errorMessage: 'fetch failed',
+      retryDelayMs: 1234
+    }
+  ]]);
+  assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.status, 'failed');
+  assert.equal(storeCalls.updateLlmJob[0]?.status, 'failed');
+  assert.equal(
+    storeCalls.logTimelineEvent.some((event) => event.eventName === 'queue_retry_scheduled'
+      && event.metadata?.retry_delay_ms === 1234),
+    true
+  );
 });
 
 test('runtime frame persists delivered assistant transcript items with final phase on success', async () => {

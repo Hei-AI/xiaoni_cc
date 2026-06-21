@@ -157,6 +157,7 @@ export type QueueMessageRecord = {
   batchId: string;
   status: string;
   attempts: number;
+  maxAttempts?: number;
   createdAt: string;
   processingStartedAt?: string | null;
   completedAt?: string | null;

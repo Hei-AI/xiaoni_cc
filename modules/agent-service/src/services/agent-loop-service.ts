@@ -6372,6 +6372,10 @@ export class AgentLoopService {
       const message = error instanceof Error ? error.message : String(error);
       const sentMessages = deliveredMessages.map((item) => item.content);
       const responseReplayItems = extractResponseReplayInputItems(loopContinuation);
+      const transientQueueRetryEligible = options.queueBacked
+        && sentMessages.length === 0
+        && isTransientProviderExecutionError(error)
+        && queueMessage.attempts < (queueMessage.maxAttempts ?? 3);
       const runtimeStream = buildRuntimeStreamMetadata(payload, {
         contextSessionKey: getGlobalPromptContextSessionKey(),
         responseReplayItemCount: responseReplayItems.length,
@@ -6449,11 +6453,55 @@ export class AgentLoopService {
           model_request_slices: turnsExecuted,
           lease_release: leaseRelease,
           lease_release_reason: leaseRelease.reason,
-          no_visible_delivery: leaseRelease.no_visible_delivery
+          no_visible_delivery: leaseRelease.no_visible_delivery,
+          queue_retry_eligible: transientQueueRetryEligible
         }
       });
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
-      if (options.queueBacked) {
+      let queueRetryScheduled = false;
+      if (transientQueueRetryEligible) {
+        const retryStore = this.store as RuntimeStore & {
+          retryQueueMessage?: (runId: string, params: { errorMessage: string; retryDelayMs?: number }) => Promise<number>;
+        };
+        if (typeof retryStore.retryQueueMessage === 'function') {
+          const retryDelayMs = computeTransientQueueRetryDelayMs(queueMessage.attempts);
+          const retried = await retryStore.retryQueueMessage.call(this.store, queueMessage.id, {
+            errorMessage: message,
+            retryDelayMs
+          }).catch((retryError) => {
+            moduleLogger.warn('Failed to requeue transient agent queue failure', {
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              error: retryError instanceof Error ? retryError.message : String(retryError)
+            });
+            return 0;
+          });
+          queueRetryScheduled = retried > 0;
+          if (queueRetryScheduled) {
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'decision',
+              eventName: 'queue_retry_scheduled',
+              eventPhase: null,
+              conversationId,
+              metadata: {
+                run_id: queueMessage.id,
+                attempts: queueMessage.attempts,
+                max_attempts: queueMessage.maxAttempts ?? 3,
+                retry_delay_ms: retryDelayMs,
+                error_message: message
+              }
+            }).catch((timelineError) => {
+              moduleLogger.warn('Failed to log transient queue retry schedule', {
+                traceId: payload.traceId,
+                runId: queueMessage.id,
+                error: timelineError instanceof Error ? timelineError.message : String(timelineError)
+              });
+            });
+          }
+        }
+      }
+      if (options.queueBacked && !queueRetryScheduled) {
         await this.store.failQueueMessage(queueMessage.id, message, conversationId);
       }
       if (presenceContext) {
@@ -6512,7 +6560,8 @@ export class AgentLoopService {
         runId: queueMessage.id,
         batchId: queueMessage.batchId,
         conversationId,
-        error: message
+        error: message,
+        retryScheduled: queueRetryScheduled
       });
     }
   }
@@ -9144,32 +9193,60 @@ export class AgentLoopService {
       inputStackItemIds?: Array<string | number>;
     } = { runId: traceId, inputStartIndex: null, inputEndIndex: null }
   ) {
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        trace_id: traceId,
-        run_id: sliceContext.runId,
-        agent_turn: turn,
-        agent_type: 'chat_bot',
-        prompt_name: runtimePrompt.promptName,
-        model: runtimePrompt.modelName,
-        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
-        input_start_index: sliceContext.inputStartIndex ?? null,
-        input_end_index: sliceContext.inputEndIndex ?? null,
-        input_stack_item_ids: sliceContext.inputStackItemIds || [],
-        canonicalRequest
-      })
+    const body = JSON.stringify({
+      trace_id: traceId,
+      run_id: sliceContext.runId,
+      agent_turn: turn,
+      agent_type: 'chat_bot',
+      prompt_name: runtimePrompt.promptName,
+      model: runtimePrompt.modelName,
+      parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+      input_start_index: sliceContext.inputStartIndex ?? null,
+      input_end_index: sliceContext.inputEndIndex ?? null,
+      input_stack_item_ids: sliceContext.inputStackItemIds || [],
+      canonicalRequest
     });
+    const maxAttempts = Math.max(1, agentConfig.providerExecutionRetryAttempts || 1);
+    let lastError: unknown = null;
 
-    const payload = await response.json() as ProviderAgentResponse;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || `Provider agent execute failed with ${response.status}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/agent/execute`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body
+        });
+
+        const payload = await response.json() as ProviderAgentResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || `Provider agent execute failed with ${response.status}`);
+        }
+
+        return payload;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isTransientProviderExecutionError(error)) {
+          throw error;
+        }
+        const retryDelayMs = computeProviderExecutionRetryDelayMs(attempt);
+        moduleLogger.warn('Retrying transient provider agent execute failure', {
+          traceId,
+          runId: sliceContext.runId,
+          turn,
+          attempt,
+          maxAttempts,
+          retryDelayMs,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        if (retryDelayMs > 0) {
+          await sleep(retryDelayMs);
+        }
+      }
     }
 
-    return payload;
+    throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Provider agent execute failed'));
   }
 
   private async executeTool(
@@ -10464,6 +10541,19 @@ function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCu
 function isTransientProviderExecutionError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return /terminated|fetch failed|network|timeout|timed out|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR/i.test(message);
+}
+
+function computeProviderExecutionRetryDelayMs(attempt: number) {
+  const baseDelayMs = Math.max(0, agentConfig.providerExecutionRetryBaseDelayMs || 0);
+  const multiplier = Math.max(1, Math.trunc(attempt));
+  return baseDelayMs * multiplier;
+}
+
+function computeTransientQueueRetryDelayMs(attempts: number) {
+  const baseDelayMs = Math.max(0, agentConfig.queueTransientRetryBaseDelayMs || 0);
+  const maxDelayMs = Math.max(baseDelayMs, agentConfig.queueTransientRetryMaxDelayMs || baseDelayMs);
+  const exponent = Math.max(0, Math.trunc(attempts) - 1);
+  return Math.min(maxDelayMs, baseDelayMs * Math.pow(3, exponent));
 }
 
 function isPhoneNotificationPayload(queueMessage: QueueMessageRecord['payload']) {
