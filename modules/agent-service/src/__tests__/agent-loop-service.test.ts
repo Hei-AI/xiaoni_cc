@@ -453,6 +453,21 @@ function getMessageContent(item: unknown) {
   return '';
 }
 
+function getInputTextParts(item: unknown) {
+  if (!item || typeof item !== 'object' || !('type' in item) || (item as any).type !== 'message') {
+    return [];
+  }
+
+  const content = (item as any).content;
+  if (!Array.isArray(content)) {
+    return [];
+  }
+
+  return content
+    .filter((part) => part && typeof part === 'object' && part.type === 'input_text')
+    .map((part) => String(part.text || ''));
+}
+
 function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
@@ -1572,7 +1587,7 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
   )), true);
 });
 
-test('buildInitialInput renders subconscious agent notify as user-facing stimulus', () => {
+test('buildInitialInput renders subconscious agent notify as developer bucket input', () => {
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.messages = [];
@@ -1599,7 +1614,7 @@ test('buildInitialInput renders subconscious agent notify as user-facing stimulu
   const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('潜意识想继续看看昨晚的 seed。'));
 
   assert.equal((subconsciousInput as any)?.type, 'message');
-  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.equal((subconsciousInput as any)?.role, 'developer');
   assert.match(getMessageContent(subconsciousInput), /<system_reminder>/);
 });
 
@@ -1791,6 +1806,10 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
   payload.rawBody = '前面普通未读\n@小腻 看到前面了吗';
   payload.messages[0].bodyForAgent = '前面普通未读';
   payload.messages[0].rawBody = '前面普通未读';
+  payload.messages[0].source = 'phone_notification';
+  payload.messages[0].rawPayload = {
+    phoneNotification: payload.phoneNotification
+  };
   payload.messages[0].wasMentioned = false;
   payload.messages[0].inboundContext = {
     ...payload.messages[0].inboundContext,
@@ -1805,8 +1824,12 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
     queueMessageId: 2,
     messageId: 12,
     messageSid: 'sid-2',
+    source: 'phone_notification',
     bodyForAgent: '@小腻 看到前面了吗',
     rawBody: '@小腻 看到前面了吗',
+    rawPayload: {
+      phoneNotification: payload.phoneNotification
+    },
     wasMentioned: true,
     inboundContext: {
       ...payload.messages[0].inboundContext,
@@ -1844,7 +1867,7 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
   assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"/);
 });
 
-test('buildInitialInput renders direct mention and group activity cues in one phone notification', () => {
+test('buildInitialInput renders direct mention and group activity cues as current bucket parts', () => {
   const payload = createQueuePayload();
   if (payload.phoneNotification) {
     payload.phoneNotification.unreadDelta = 4;
@@ -1939,9 +1962,11 @@ test('buildInitialInput renders direct mention and group activity cues in one ph
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   const rendered = currentTurnItems.map(getMessageContent).join('\n');
+  const parts = getInputTextParts(currentTurnItems[0]);
 
   assert.equal(currentTurnItems.length, 1);
-  assert.match(rendered, /堆积了 4 条新动静/);
+  assert.equal(parts.length, 3);
+  assert.equal(parts.every((part) => /堆积了 1 条新动静/.test(part)), true);
   assert.match(rendered, /\{小伊\(@3994058476\)\} 发来 1 条消息, 最新消息是: \{私聊预览内容很长需要截断一点点\}/);
   assert.match(rendered, /\{李阿花\(@85178516\)\} @了你 1 次, 最新消息是: \{@小腻 看下这个群通知逻辑\}/);
   assert.match(rendered, /\{闲聊群\(@202\)\} 有 1 条新群消息, 最新发言人: \{张三\(@20001\)\}, 最新消息是: \{这个接口要不要收紧一下\}/);
@@ -1991,13 +2016,16 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const rendered = loopInput.map(getMessageContent).join('\n');
+  const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
+  const parts = getInputTextParts(developerNotification);
   const sceneRendered = loopInput
     .filter((item: any) => item.role !== 'system')
     .map(getMessageContent)
     .join('\n');
 
   assert.match(rendered, /视线边缘：状态栏闪烁/);
-  assert.match(rendered, /Alice\(@202\).*发来 2 条消息/);
+  assert.equal(parts.length, 2);
+  assert.equal(parts.every((part) => /Alice\(@202\).*发来 1 条消息/.test(part)), true);
   assert.doesNotMatch(rendered, /QQ\(@qq\).*发来 2 条消息/);
   assert.match(rendered, /第二条私聊/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
@@ -2005,9 +2033,8 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
   assert.doesNotMatch(rendered, /message_sid=|source="napcat"/);
   assert.doesNotMatch(sceneRendered, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
-  const developerNotification = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
   assert.ok(developerNotification);
-  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*发来 2 条消息/);
+  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*发来 1 条消息/);
   assert.match(getMessageContent(developerNotification), /第二条私聊/);
   assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"|message_id=/);
 });
@@ -2065,15 +2092,23 @@ test('buildInitialInput does not expose reply context before QQ is opened', () =
 
 test('buildInitialInput renders a notification batch as one phone notification', () => {
   const payload = createQueuePayload();
+  payload.messages[0].source = 'phone_notification';
+  payload.messages[0].rawPayload = {
+    phoneNotification: payload.phoneNotification
+  };
   payload.messages.push({
     ...payload.messages[0],
     queueMessageId: 2,
     messageId: 12,
     messageSid: 'sid-2',
+    source: 'phone_notification',
     senderId: '606',
     senderName: 'Carol',
     bodyForAgent: '@Bob 嘿',
     rawBody: '@Bob 嘿',
+    rawPayload: {
+      phoneNotification: payload.phoneNotification
+    },
     wasMentioned: false,
     inboundContext: {
       ...payload.messages[0].inboundContext,
@@ -2092,6 +2127,148 @@ test('buildInitialInput renders a notification batch as one phone notification',
   assert.match(getMessageContent(currentTurnItems[0]), /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
+});
+
+test('buildInitialInput renders current bucket messages as one developer content array', () => {
+  const payload = createQueuePayload();
+  const systemText = '先处理桶里的系统提醒';
+  const phoneText = '在做啥呢';
+  const phoneNotification = {
+    app: 'qq',
+    notificationId: 'phone:14621',
+    sessionKey: 'qq:direct:303:202',
+    chatType: 'direct' as const,
+    peerId: '202',
+    peerName: 'Alice',
+    unreadDelta: 1,
+    directMentions: 0,
+    latestReceivedAt: '2026-03-28T08:00:01.000Z',
+    reason: 'direct_message_phone_notification'
+  };
+  const systemReminder = {
+    reminder: systemText,
+    reason: 'manual_test',
+    createdAt: '2026-03-28T08:00:00.000Z'
+  };
+
+  payload.source = 'phone_notification';
+  payload.chatType = 'direct';
+  payload.sessionKey = 'qq:direct:303:202';
+  payload.peerId = '202';
+  payload.peerName = 'Alice';
+  payload.senderId = '202';
+  payload.senderName = 'Alice';
+  payload.accountId = '303';
+  payload.bodyForAgent = `#1 小腻: ${systemText}\n#2 Alice: ${phoneText}`;
+  payload.rawBody = `${systemText}\n${phoneText}`;
+  payload.commandBody = `${systemText}\n${phoneText}`;
+  payload.wasMentioned = false;
+  payload.receivedAt = '2026-03-28T08:00:01.000Z';
+  payload.messageTimestamp = '2026-03-28T08:00:01.000Z';
+  payload.rawPayload = {
+    phoneNotification
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Body: phoneText,
+    BodyForAgent: phoneText,
+    BodyForCommands: '',
+    RawBody: phoneText,
+    CommandBody: '',
+    Surface: 'phone_notification',
+    MessageSid: 'phone-14621',
+    WasMentioned: false,
+    CommandAuthorized: false
+  };
+  payload.phoneNotification = phoneNotification;
+  payload.systemReminder = undefined;
+  payload.messages = [
+    {
+      queueMessageId: 14620,
+      traceId: 'trace-system',
+      source: 'system_reminder',
+      messageId: 14620,
+      messageSid: 'system-14620',
+      chatType: 'direct',
+      sessionKey: 'xiaoni:global',
+      peerId: 'xiaoni',
+      peerName: '小腻',
+      senderId: 'xiaoni',
+      senderName: '小腻',
+      accountId: 'xiaoni',
+      bodyForAgent: systemText,
+      rawBody: systemText,
+      commandBody: '',
+      wasMentioned: false,
+      receivedAt: '2026-03-28T08:00:00.000Z',
+      messageTimestamp: '2026-03-28T08:00:00.000Z',
+      rawPayload: {
+        reason: 'manual_test',
+        systemReminder
+      },
+      inboundContext: {
+        ...payload.inboundContext,
+        Body: systemText,
+        BodyForAgent: systemText,
+        BodyForCommands: '',
+        RawBody: systemText,
+        CommandBody: '',
+        Surface: 'system_reminder',
+        MessageSid: 'system-14620'
+      }
+    },
+    {
+      queueMessageId: 14621,
+      traceId: 'trace-phone',
+      source: 'phone_notification',
+      messageId: 14621,
+      messageSid: 'phone-14621',
+      chatType: 'direct',
+      sessionKey: 'qq:direct:303:202',
+      peerId: '202',
+      peerName: 'Alice',
+      senderId: '202',
+      senderName: 'Alice',
+      accountId: '303',
+      bodyForAgent: phoneText,
+      rawBody: phoneText,
+      commandBody: '',
+      wasMentioned: false,
+      receivedAt: '2026-03-28T08:00:01.000Z',
+      messageTimestamp: '2026-03-28T08:00:01.000Z',
+      rawPayload: {
+        source_preview: phoneText,
+        phoneNotification
+      },
+      inboundContext: {
+        ...payload.inboundContext,
+        Body: phoneText,
+        BodyForAgent: phoneText,
+        BodyForCommands: '',
+        RawBody: phoneText,
+        CommandBody: '',
+        Surface: 'phone_notification',
+        MessageSid: 'phone-14621'
+      }
+    }
+  ];
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const currentInput = loopInput.find((item: any) => (
+    item.role === 'developer'
+    && getMessageContent(item).includes(systemText)
+    && getMessageContent(item).includes(phoneText)
+  ));
+  const parts = getInputTextParts(currentInput);
+
+  assert.equal((currentInput as any)?.type, 'message');
+  assert.equal((currentInput as any)?.role, 'developer');
+  assert.equal(parts.length, 2);
+  assert.match(parts[0], /<system_reminder>/);
+  assert.match(parts[0], new RegExp(systemText));
+  assert.match(parts[1], /<system_reminder>/);
+  assert.match(parts[1], /视线边缘：状态栏闪烁/);
+  assert.match(parts[1], new RegExp(phoneText));
 });
 
 test('buildInitialInput replays transcript items without notification tag filtering', () => {
@@ -2242,15 +2419,23 @@ test('buildInitialInput does not project accepted identity facts into runtime in
 
 test('buildInitialInput keeps current batch before reminder without deprecated developer tail blocks', () => {
   const payload = createQueuePayload();
+  payload.messages[0].source = 'phone_notification';
+  payload.messages[0].rawPayload = {
+    phoneNotification: payload.phoneNotification
+  };
   payload.messages.push({
     ...payload.messages[0],
     queueMessageId: 2,
     messageId: 12,
     messageSid: 'sid-2',
+    source: 'phone_notification',
     senderId: '606',
     senderName: 'Carol',
     bodyForAgent: '第二条',
     rawBody: '第二条',
+    rawPayload: {
+      phoneNotification: payload.phoneNotification
+    },
     wasMentioned: false,
     inboundContext: {
       ...payload.messages[0].inboundContext,

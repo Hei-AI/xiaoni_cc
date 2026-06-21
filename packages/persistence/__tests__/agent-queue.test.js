@@ -62,11 +62,8 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   ];
   const tx = {
     query: async (sql, params = []) => {
-      if (sql.includes('LIMIT 1') && sql.includes('SKIP LOCKED')) {
-        return [rows[0]];
-      }
-      if (sql.includes('session_key = ?')) {
-        assert.deepEqual(params, ['qq:group:100', 'phone_notification']);
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+        assert.deepEqual(params, []);
         return rows;
       }
       throw new Error(`Unexpected query: ${sql}`);
@@ -103,6 +100,8 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   assert.equal(claimed.payload.bodyForAgent, '#1 QQ: 第一条\n#2 QQ: 第二条');
   assert.equal(claimed.payload.phoneNotification.unreadDelta, 3);
   assert.equal(claimed.payload.phoneNotification.directMentions, 1);
+  assert.equal(claimed.payload.messages[0].rawPayload.phoneNotification.notificationId, 'sid-10');
+  assert.equal(claimed.payload.messages[1].rawPayload.phoneNotification.notificationId, 'sid-11');
   assert.equal(inserts.length, 4);
   assert.equal(executes.length, 1);
   assert.ok(executes[0].sql.includes('UPDATE agent_queue_messages'));
@@ -116,7 +115,7 @@ test('claimNextAgentQueueMessage batches pending messages for one session', asyn
   assert.deepEqual(executes[0].params.slice(-2), [10, 11]);
 });
 
-test('claimNextAgentQueueMessage does not batch different sources for one session', async () => {
+test('claimNextAgentQueueMessage drains all currently due pending bucket messages', async () => {
   const rows = [
     createQueueRow({ id: 10, source: 'phone_notification', message_sid: 'sid-10' }),
     createQueueRow({
@@ -137,19 +136,20 @@ test('claimNextAgentQueueMessage does not batch different sources for one sessio
       })
     })
   ];
+  const executes = [];
   const tx = {
     query: async (sql, params = []) => {
-      if (sql.includes('LIMIT 1') && sql.includes('SKIP LOCKED')) {
-        return [rows[0]];
-      }
-      if (sql.includes('session_key = ?')) {
-        assert.deepEqual(params, ['qq:group:100', 'phone_notification']);
-        return [rows[0]];
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+        assert.deepEqual(params, []);
+        return rows;
       }
       throw new Error(`Unexpected query: ${sql}`);
     },
     insert: async () => ({ insertId: 1, affectedRows: 1 }),
-    execute: async () => 1
+    execute: async (sql, params = []) => {
+      executes.push({ sql, params });
+      return 2;
+    }
   };
   const persistence = createAgentQueuePersistence({
     getPrismaClient: () => {
@@ -164,9 +164,14 @@ test('claimNextAgentQueueMessage does not batch different sources for one sessio
   const claimed = await persistence.claimNextAgentQueueMessage({ workerId: 'worker-1' });
 
   assert.ok(claimed);
-  assert.deepEqual(claimed.queueMessageIds, [10]);
-  assert.equal(claimed.payload.source, 'phone_notification');
-  assert.equal(claimed.payload.systemReminder, undefined);
+  assert.deepEqual(claimed.queueMessageIds, [10, 11]);
+  assert.equal(claimed.payload.messages.length, 2);
+  assert.deepEqual(claimed.payload.messages.map((message) => message.source), ['phone_notification', 'system_reminder']);
+  assert.equal(claimed.payload.messages[0].rawPayload.phoneNotification.notificationId, 'sid-10');
+  assert.equal(claimed.payload.messages[1].rawPayload.systemReminder.reason, 'attention_lease');
+  assert.equal(claimed.payload.source, 'system_reminder');
+  assert.equal(claimed.payload.systemReminder.reason, 'attention_lease');
+  assert.deepEqual(executes[0].params.slice(-2), [10, 11]);
 });
 
 test('retryAgentQueueMessage returns a consumed run to pending without resetting attempts', async () => {

@@ -63,6 +63,7 @@ function buildBatchSummary(rows) {
 function mapClaimedRun(input) {
   const messages = input.rows.map((row) => {
     const payload = parseJson(row.payload, {});
+    const rawPayload = parseJson(row.raw_payload, {});
     return {
       queueMessageId: Number(row.id),
       traceId: input.traceId,
@@ -82,7 +83,12 @@ function mapClaimedRun(input) {
       wasMentioned: Boolean(payload.wasMentioned),
       receivedAt: payload.receivedAt || normalizeDate(row.created_at) || new Date().toISOString(),
       messageTimestamp: payload.messageTimestamp ?? null,
-      rawPayload: parseJson(row.raw_payload, {}),
+      rawPayload: {
+        ...rawPayload,
+        ...(payload.phoneNotification ? { phoneNotification: payload.phoneNotification } : {}),
+        ...(payload.imageTaskNotification ? { imageTaskNotification: payload.imageTaskNotification } : {}),
+        ...(payload.systemReminder ? { systemReminder: payload.systemReminder } : {})
+      },
       inboundContext: parseJson(row.inbound_context, {})
     };
   });
@@ -225,35 +231,15 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     const { sql, shouldClose } = createSql(input, config);
     try {
       return await sql.withTransaction(async (tx) => {
-        const candidates = await tx.query(
-          `
-            SELECT *
-            FROM agent_queue_messages
-            WHERE status = 'pending'
-              AND available_at <= NOW()
-            ORDER BY available_at ASC, id ASC
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED
-          `
-        );
-
-        const candidate = candidates[0];
-        if (!candidate) {
-          return null;
-        }
-
         const rows = await tx.query(
           `
             SELECT *
             FROM agent_queue_messages
             WHERE status = 'pending'
-              AND session_key = ?
-              AND source = ?
               AND available_at <= NOW()
             ORDER BY available_at ASC, id ASC
-            FOR UPDATE
-          `,
-          [candidate.session_key, candidate.source]
+            FOR UPDATE SKIP LOCKED
+          `
         );
 
         if (rows.length === 0) {

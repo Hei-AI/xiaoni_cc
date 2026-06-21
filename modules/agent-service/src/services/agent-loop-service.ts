@@ -3151,6 +3151,75 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
 }
 
+function buildQueueMessagePayloadForBatchMessage(
+  queueMessage: QueueMessageRecord['payload'],
+  message: QueueBatchMessage
+): QueueMessageRecord['payload'] {
+  const messagePhoneNotification = typeof message.rawPayload?.phoneNotification === 'object' && message.rawPayload.phoneNotification
+    ? message.rawPayload.phoneNotification as QueueMessageRecord['payload']['phoneNotification']
+    : undefined;
+  const messageImageTaskNotification = typeof message.rawPayload?.imageTaskNotification === 'object' && message.rawPayload.imageTaskNotification
+    ? message.rawPayload.imageTaskNotification as QueueMessageRecord['payload']['imageTaskNotification']
+    : undefined;
+  const messageSystemReminder = typeof message.rawPayload?.systemReminder === 'object' && message.rawPayload.systemReminder
+    ? message.rawPayload.systemReminder as QueueMessageRecord['payload']['systemReminder']
+    : undefined;
+  return {
+    ...queueMessage,
+    source: message.source,
+    chatType: message.chatType,
+    sessionKey: message.sessionKey,
+    peerId: message.peerId,
+    peerName: message.peerName,
+    senderId: message.senderId,
+    senderName: message.senderName,
+    accountId: message.accountId,
+    bodyForAgent: message.bodyForAgent,
+    rawBody: message.rawBody,
+    commandBody: message.commandBody,
+    wasMentioned: message.wasMentioned,
+    receivedAt: message.receivedAt,
+    messageTimestamp: message.messageTimestamp,
+    rawPayload: message.rawPayload,
+    inboundContext: message.inboundContext,
+    messages: [message],
+    ...(messagePhoneNotification ? { phoneNotification: messagePhoneNotification } : {}),
+    ...(messageImageTaskNotification ? { imageTaskNotification: messageImageTaskNotification } : {}),
+    ...(messageSystemReminder ? { systemReminder: messageSystemReminder } : {}),
+    ...(!messagePhoneNotification ? { phoneNotification: undefined } : {}),
+    ...(!messageImageTaskNotification ? { imageTaskNotification: undefined } : {}),
+    ...(!messageSystemReminder ? { systemReminder: undefined } : {})
+  };
+}
+
+function renderCurrentBucketMessage(queueMessage: QueueMessageRecord['payload']) {
+  if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
+    return '';
+  }
+  if (isSystemReminderPayload(queueMessage)) {
+    return renderSystemReminder(queueMessage);
+  }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return renderImageTaskNotification(queueMessage);
+  }
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return renderPhoneNotification(queueMessage);
+  }
+  return renderConversationInput(queueMessage);
+}
+
+function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payload']) {
+  const messages = Array.isArray(queueMessage.messages) ? queueMessage.messages : [];
+  if (messages.length <= 1) {
+    const rendered = renderCurrentBucketMessage(queueMessage);
+    return rendered.trim() ? [rendered] : [];
+  }
+  return messages
+    .map((message) => renderCurrentBucketMessage(buildQueueMessagePayloadForBatchMessage(queueMessage, message)))
+    .map((message) => message.trim())
+    .filter(Boolean);
+}
+
 export function buildTurnStateReminder(
   developerContextBlock: string | null | undefined,
   runtimeEnergyState: RuntimeEnergyState | null = null
@@ -11451,18 +11520,7 @@ function buildCurrentTurnInputItems(
   if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
     return [];
   }
-  const isRuntimeReminder = isSystemReminderPayload(queueMessage)
-    || isImageTaskNotificationPayload(queueMessage)
-    || isPhoneNotificationPayload(queueMessage);
-  const currentMessages = [
-    isSystemReminderPayload(queueMessage)
-      ? renderSystemReminder(queueMessage)
-      : isImageTaskNotificationPayload(queueMessage)
-      ? renderImageTaskNotification(queueMessage)
-      : isPhoneNotificationPayload(queueMessage)
-        ? renderPhoneNotification(queueMessage)
-        : renderConversationInput(queueMessage)
-  ];
+  const currentMessages = buildCurrentBucketMessageParts(queueMessage);
   if (currentMessages.every((message) => !message.trim())) {
     return [];
   }
@@ -11477,11 +11535,11 @@ function buildCurrentTurnInputItems(
       }))
     : currentMessages;
 
-  return renderedMessages.filter((message) => message.trim()).map((message) => (
-    isRuntimeReminder && !isSubconsciousAgentNotifyPayload(queueMessage)
-      ? buildDeveloperInputItem([message])
-      : buildUserSceneInputItem([message])
-  ));
+  const parts = renderedMessages.filter((message) => message.trim());
+  if (parts.length === 0) {
+    return [];
+  }
+  return [buildDeveloperInputItem(parts)];
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
