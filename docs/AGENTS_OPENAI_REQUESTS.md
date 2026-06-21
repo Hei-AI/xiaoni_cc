@@ -66,7 +66,7 @@
   append。`<STATE>` 只注入 `energy` 和 `max_energy` 数值；不要注入 pressure、dopamine 或高/中/低精力档位标签。`energy` 可以显示负数；恢复曲线、最大恢复时间和 clock 语义看 `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
 - 当工程检测到 `raw_energy < 0` 时，私聊、群 @ 和 clock 都不能强行叫醒；但 recovery session
   仍有最大恢复时间，达到 hard cap 后必须结算。
-- hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 developer role `<STATE>`，让模型看到搜索后的精力变化。`exec_command` 和 `inspect_image_placeholder` 这类不能安全 JSON 包装的本地执行路径也保留原始输出，并由工程额外追加 body-only `<STATE>`；结构化 JSON tool callback 则直接在 output JSON 中回传 `energy_cost`、`energy`、`max_energy`。
+- hosted `web_search` 不包本地 wrapper。工具返回后由工程追加新的 developer role `<STATE>`，让模型看到搜索后的精力变化。`exec_command` 和 `inspect_image_placeholder` 这类不能安全 JSON 包装的本地执行路径也保留原始输出，并由工程额外追加 body-only `<STATE>`；这些 native path 的 `<STATE>` 只作为下一次模型 slice 的 one-shot input，不写入 durable loop continuation / replay。结构化 JSON tool callback 则直接在 output JSON 中回传 `energy_cost`、`energy`、`max_energy`。
 - prompt-facing 恢复工具只有 `recover_energy`。`rest_period` /
   `sleep_period` 可作为历史/internal 事件留存，但不能作为面向模型的双工具
   契约。

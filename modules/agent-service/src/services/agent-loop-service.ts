@@ -158,6 +158,7 @@ type FeedbackWriterToolChoice = OpenResponseToolChoice | undefined;
 
 type ToolContinuationAction = {
   inputItems: OpenResponseInputItem[];
+  oneShotInputItems: OpenResponseInputItem[];
   forcedVisibleReply: {
     toolName: string;
     args: Record<string, unknown>;
@@ -4395,6 +4396,7 @@ export function applyToolResultToLoopInput(
           ? prefixTaggedBlockBodyWithEast8Time(toolResult.system_reminder, 'system_reminder')
           : JSON.stringify(structuredToolResult)
   }];
+  const oneShotInputItems: OpenResponseInputItem[] = [];
   if (
     runtimeEnergy
     && typeof runtimeEnergy.energy === 'number'
@@ -4402,7 +4404,7 @@ export function applyToolResultToLoopInput(
     && usesNativeToolOutput
     && toolCall.name !== TOOL_NAMES.recoverEnergy
   ) {
-    inputItems.push(buildDeveloperInputItem([
+    oneShotInputItems.push(buildDeveloperInputItem([
       buildRuntimeStateBlock({
         trigger: toolCall.name === 'web_search' ? 'web_search' : 'action_tool_threshold',
         energy: runtimeEnergy.energy,
@@ -4412,6 +4414,7 @@ export function applyToolResultToLoopInput(
   }
   return {
     inputItems,
+    oneShotInputItems,
     forcedVisibleReply: null
   };
 }
@@ -5626,6 +5629,7 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
+      let pendingOneShotInputItems: OpenResponseInputItem[] = [];
       if (coreMemoryCompressionCheckpoint) {
         await this.scheduleCoreMemoryCompressionFork({
           baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, coreMemoryCompressionCheckpoint.summarySourceInput, payload),
@@ -5641,6 +5645,12 @@ export class AgentLoopService {
         }
         loopContinuation.push(...items);
         requestInput.push(...items);
+      };
+      const appendOneShotInputItems = (items: OpenResponseInputItem[]) => {
+        if (items.length === 0) {
+          return;
+        }
+        pendingOneShotInputItems.push(...items);
       };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
@@ -5700,7 +5710,11 @@ export class AgentLoopService {
           cutoffRecomputed: turn === 1 ? budgetPlan.cutoffRecomputed : false
         };
         contextBudgetTurns.push(turnBudgetRecord);
-        const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload);
+        const currentRequestInput = pendingOneShotInputItems.length > 0
+          ? [...requestInput, ...pendingOneShotInputItems]
+          : requestInput;
+        pendingOneShotInputItems = [];
+        const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, currentRequestInput, payload);
         const inputEndIndex = await this.getAgentStackHeadSafe(payload.traceId);
         const inputStartIndex = inputEndIndex > 0 ? 1 : null;
         const modelResult = await this.executeAgentTurn(
@@ -6050,6 +6064,9 @@ export class AgentLoopService {
             if (continuation.inputItems.length > 0) {
               appendLoopInputItems(continuation.inputItems);
             }
+            if (continuation.oneShotInputItems.length > 0) {
+              appendOneShotInputItems(continuation.oneShotInputItems);
+            }
             if (compressedContextSummary && budgetPlan.coreMemoryCompression) {
               requestInput = buildLoopRequestInput({
                 history: budgetPlan.retainedHistory,
@@ -6116,6 +6133,9 @@ export class AgentLoopService {
             });
             if (continuation.inputItems.length > 0) {
               appendLoopInputItems(continuation.inputItems);
+            }
+            if (continuation.oneShotInputItems.length > 0) {
+              appendOneShotInputItems(continuation.oneShotInputItems);
             }
             if (hasRecoverEnergyInBatch && toolCall.name !== TOOL_NAMES.recoverEnergy) {
               preSleepToolTimeline.push({
@@ -8159,13 +8179,18 @@ export class AgentLoopService {
     try {
       const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
       let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1).input;
+      let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
       let forkToolCallCount = 0;
       let lastForkSliceId: string | null = null;
       let lastLlmCallId: string | null = null;
 
       for (let forkTurn = 1; forkTurn <= SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES; forkTurn += 1) {
         const forkRequest = buildSubconsciousAgentForkRequest(params.baseRequest, forkTurn);
-        forkRequest.input = normalizeResponseInputItems(forkInput);
+        const forkRequestInput = pendingForkOneShotInputItems.length > 0
+          ? [...forkInput, ...pendingForkOneShotInputItems]
+          : forkInput;
+        pendingForkOneShotInputItems = [];
+        forkRequest.input = normalizeResponseInputItems(forkRequestInput);
         await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
         const modelResult = await this.executeSubconsciousAgentForkTurn(
           forkRequest,
@@ -8400,6 +8425,7 @@ export class AgentLoopService {
             stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
           });
           forkInput.push(...continuation.inputItems);
+          pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
         }
       }
 
@@ -8662,6 +8688,7 @@ export class AgentLoopService {
       TOOL_NAMES.compressCoreMemory
     ]);
     let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
     let forkToolCallCount = 0;
     let forkNoToolRetryCount = 0;
     let forkNoToolRetryTotal = 0;
@@ -8707,7 +8734,11 @@ export class AgentLoopService {
     try {
       for (let forkTurn = 1; ; forkTurn += 1) {
         const forkRequest = buildCoreMemoryCompressionForkRequest(params.baseRequest, forkTurn);
-        forkRequest.input = normalizeResponseInputItems(forkInput);
+        const forkRequestInput = pendingForkOneShotInputItems.length > 0
+          ? [...forkInput, ...pendingForkOneShotInputItems]
+          : forkInput;
+        pendingForkOneShotInputItems = [];
+        forkRequest.input = normalizeResponseInputItems(forkRequestInput);
         await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
         const modelResult = await this.executeCoreMemoryCompressionForkTurn(
           forkRequest,
@@ -9001,6 +9032,7 @@ export class AgentLoopService {
               stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
             });
             forkInput.push(...continuation.inputItems);
+            pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
           } catch (error) {
             const toolResult = buildToolErrorResult(toolCall, error);
             const message = String(toolResult.error_message || toolResult.error || 'Tool execution failed');
@@ -9033,6 +9065,7 @@ export class AgentLoopService {
               stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
             });
             forkInput.push(...continuation.inputItems);
+            pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
             continue;
           }
         }
@@ -9826,13 +9859,18 @@ export class AgentLoopService {
     failureReason?: string | null;
   }> {
     let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
     let lastPayload: ProviderAgentResponse | null = null;
     let lastForkSliceId: string | null = null;
     let lastCheckResult = 'not_checked';
 
     for (let forkTurn = 1; forkTurn <= IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS; forkTurn += 1) {
       const forkRequest = cloneCanonicalAgentTurnRequest(params.baseRequest);
-      forkRequest.input = normalizeResponseInputItems(forkInput);
+      const forkRequestInput = pendingForkOneShotInputItems.length > 0
+        ? [...forkInput, ...pendingForkOneShotInputItems]
+        : forkInput;
+      pendingForkOneShotInputItems = [];
+      forkRequest.input = normalizeResponseInputItems(forkRequestInput);
       forkRequest.metadata = {
         ...(forkRequest.metadata || {}),
         fork_turn: String(forkTurn)
@@ -9954,6 +9992,7 @@ export class AgentLoopService {
           runtimeEnergyState: await this.getCurrentRuntimeEnergyState(params.queueMessage)
         });
         forkInput.push(...continuation.inputItems);
+        pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
         await this.appendImageVisionForkItemsSafe({
           forkRunId: params.forkRunId,
           traceId: params.queueMessage.traceId,

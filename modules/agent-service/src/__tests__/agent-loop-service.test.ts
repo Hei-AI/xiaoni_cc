@@ -730,7 +730,9 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     assert.doesNotMatch(output, EAST8_TIME_PREFIX_PATTERN);
     assert.match(output, /Process exited without an exit code/);
     assert.match(output, /ENOENT|not\/a\/real-shell/);
-    const stateItem = continuation.inputItems[1];
+    assert.equal(continuation.inputItems.length, 1);
+    const stateItem = continuation.oneShotInputItems[0];
+    assert.equal(continuation.oneShotInputItems.length, 1);
     assert.equal(stateItem?.type, 'message');
     assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
     assert.match(getMessageContent(stateItem), /0.910/);
@@ -5233,6 +5235,171 @@ test('runtime frame persists delivered assistant transcript items with final pha
   }]);
 });
 
+test('runtime frame keeps native tool STATE visible for one next model slice only', async () => {
+  const queueMessage = {
+    id: 'run-queue-tool-state-one-shot',
+    traceId: 'trace-tool-state-one-shot',
+    batchId: 'batch-tool-state-one-shot',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: createQueuePayload()
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    appendAgentStackItems: [],
+    updateLlmRequestSliceStackLinks: [],
+    recordAgentStackToolExecution: [],
+    completeAgentStackToolExecution: [],
+    getCurrentXiaoniEnergyState: []
+  };
+  const store = {
+    createLlmJob: async () => 'job-tool-state-one-shot',
+    logTimelineEvent: async () => {},
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      const callIndex = storeCalls.appendAgentStackItems.length;
+      return (params.items || []).map((item: any, index: number) => ({
+        id: `stack-tool-state-${callIndex}-${index}`,
+        stackIndex: callIndex * 100 + index,
+        itemKind: item.itemKind,
+        toolCallId: item.toolCallId ?? null
+      }));
+    },
+    getAgentStackHead: async () => 3000,
+    updateLlmRequestSliceStackLinks: async (params: any) => {
+      storeCalls.updateLlmRequestSliceStackLinks.push(params);
+      return null;
+    },
+    recordAgentStackToolExecution: async (params: any) => {
+      storeCalls.recordAgentStackToolExecution.push(params);
+      return { id: `tool-execution-${storeCalls.recordAgentStackToolExecution.length}`, ...params };
+    },
+    completeAgentStackToolExecution: async (params: any) => {
+      storeCalls.completeAgentStackToolExecution.push(params);
+    },
+    getCurrentXiaoniEnergyState: async () => {
+      storeCalls.getCurrentXiaoniEnergyState.push({});
+      const energySamples = [
+        { energy: 0.95, maxEnergy: 1 },
+        { energy: 0.802, maxEnergy: 1 },
+        { energy: 0.777, maxEnergy: 1 }
+      ];
+      return energySamples[Math.min(storeCalls.getCurrentXiaoniEnergyState.length - 1, energySamples.length - 1)];
+    },
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 1888;
+    },
+    ensureXiaoniIdentityRoot: async () => ({ root: { id: 1 }, event: { id: 2 }, created: false }),
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async (_runId: string, params: any) => { storeCalls.settleQueueMessages.push(params); },
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
+    recordNoVisibleDeliveryLifeEvent: async () => {},
+    recordRecoverEnergyLifeEvent: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  const capturedInputs: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-tool-state-one-shot-1',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-exec-one',
+            name: EXEC_COMMAND_TOOL,
+            arguments: JSON.stringify({ cmd: 'printf one' })
+          }]
+        }
+      };
+    }
+    if (turn === 2) {
+      return {
+        success: true,
+        llm_call_id: 'llm-tool-state-one-shot-2',
+        canonical_response: {
+          output: [
+            {
+              type: 'reasoning',
+              summary: [],
+              encrypted_content: 'enc-after-state-one'
+            },
+            {
+              type: 'function_call',
+              call_id: 'call-exec-two',
+              name: EXEC_COMMAND_TOOL,
+              arguments: JSON.stringify({ cmd: 'printf two' })
+            }
+          ]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-tool-state-one-shot-3',
+      canonical_response: {
+        output: []
+      }
+    };
+  };
+  (service as any).executeTool = async (toolCall: any) => ({
+    success: true,
+    tool_name: toolCall.name,
+    codex_output: `Chunk ID: ${toolCall.callId}\nProcess exited with code 0\nOutput:\nok\n`
+  });
+
+  await processRuntimeFrameForTest(service, queueMessage as any);
+
+  const stateItems = (input: any[]) => input.filter((item) => (
+    item?.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('<STATE>')
+  ));
+
+  assert.equal(capturedInputs.length, 3);
+  assert.equal(stateItems(capturedInputs[0]).length, 0);
+  assert.equal(stateItems(capturedInputs[1]).length, 1);
+  assert.match(getMessageContent(stateItems(capturedInputs[1])[0]), /0\.802/);
+  assert.equal(stateItems(capturedInputs[2]).length, 1);
+  assert.match(getMessageContent(stateItems(capturedInputs[2])[0]), /0\.777/);
+  assert.doesNotMatch(getMessageContent(stateItems(capturedInputs[2])[0]), /0\.802/);
+  assert.equal(
+    JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<STATE>'),
+    false
+  );
+  assert.equal(
+    JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('enc-after-state-one'),
+    true
+  );
+});
+
 test('runtime frame yields after a no-tool model slice without synthetic follow-up input', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-recover',
@@ -7190,7 +7357,9 @@ test('applyToolResultToLoopInput appends web_search STATE from fresh runtime ene
     }
   );
 
-  const stateItem = continuation.inputItems.find((item) => getMessageContent(item).includes('0.910'));
+  assert.equal(continuation.inputItems.length, 1);
+  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
+  const stateItem = continuation.oneShotInputItems.find((item) => getMessageContent(item).includes('0.910'));
   assert.ok(stateItem);
   assert.equal(stateItem?.type, 'message');
   assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');

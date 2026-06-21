@@ -66,7 +66,7 @@
   provider `final_answer` 只是检查时机，不是观察内容。fork 内只执行 `exec_command`，
   其它工具请求只能收到 corrective tool output。
 - `<CAPABILITIES>` 是能力成本表，不是 reminder。
-- `<STATE>` 是状态感知，不是 reminder；它只保留小腻能体感理解的状态值，工程事件名留在代码侧。
+- `<STATE>` 是状态感知，不是 reminder；它只保留小腻能体感理解的状态值，工程事件名留在代码侧。native tool 后追加的 `<STATE>` 只在下一次模型 slice 临时可见，不作为 reminder 或 replay 持久化。
 
 ## Deleted Legacy Reminder Concepts
 
