@@ -553,6 +553,62 @@ describe('buildStackTracePayload', () => {
     expect(rawTrace?.source).toBe('core_memory_compression_fork_slices.provider_exchange');
   });
 
+  it('loads raw provider exchange from subconscious fork slice spans', async () => {
+    (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
+      id: '41',
+      sliceId: 'sub-slice-1',
+      llmCallId: 'sub-llm-call-1',
+      traceId: 'trace-subconscious-1',
+      runId: 'run-subconscious-1',
+      forkRunId: 'subconscious-fork-run-1',
+      sourceKind: 'subconscious_agent_fork',
+      conversationId: null,
+      agentTurn: 1,
+      createdAt: '2026-03-28T10:00:01.000Z',
+      completedAt: '2026-03-28T10:00:03.000Z',
+      status: 'completed',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireRequest: { model: 'gpt-5.5', input: ['self continuation'] },
+      wireResponse: { id: 'resp-subconscious-1' },
+      rawResponse: { output: [{ type: 'message', content: [{ type: 'output_text', text: 'next intent' }] }] },
+      tokenUsage: { input_tokens: 100, output_tokens: 20 },
+      requestFormatVersion: 'openresponse/v1',
+      wireProviderFormat: 'codex-local/responses',
+      processingTimeMs: 2000,
+      metadata: {
+        provider_request_headers: {
+          Authorization: 'Bearer secret',
+          'x-trace-id': 'trace-subconscious-1'
+        },
+        provider_response_status: 200
+      }
+    }]);
+
+    const rawTrace = await buildStackRawProviderTrace(
+      createLogger(),
+      {
+        traceId: 'trace-subconscious-1',
+        internalExecutionLeaseId: 'run-subconscious-1',
+        sourceKind: 'subconscious_agent_fork',
+        forkRunId: 'subconscious-fork-run-1'
+      },
+      'subconscious-fork-slice:sub-slice-1'
+    );
+
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: 'trace-subconscious-1',
+      runId: 'run-subconscious-1',
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork-run-1',
+      sliceId: 'sub-slice-1',
+      rawTraceOnly: true,
+      limit: 1
+    }));
+    expect(rawTrace?.request.body).toBe(JSON.stringify({ model: 'gpt-5.5', input: ['self continuation'] }));
+    expect(rawTrace?.source).toBe('subconscious_agent_fork_slices.provider_exchange');
+  });
+
   it('loads raw provider exchange from image vision fork slices', async () => {
     (listLlmRequestSlices as jest.Mock).mockResolvedValueOnce([{
       id: '31',

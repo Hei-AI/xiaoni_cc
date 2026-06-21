@@ -3552,6 +3552,9 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   if (spanId.startsWith('compression-fork-slice:')) {
     return { sliceId: spanId.slice('compression-fork-slice:'.length) };
   }
+  if (spanId.startsWith('subconscious-fork-slice:')) {
+    return { sliceId: spanId.slice('subconscious-fork-slice:'.length) };
+  }
   if (spanId.startsWith('image-vision-fork-slice:')) {
     return { sliceId: spanId.slice('image-vision-fork-slice:'.length) };
   }
