@@ -294,7 +294,8 @@ async function executeProviderRequest(
     replayIdentityKey: persistLlmCall ? 'xiaoni' : 'xiaoni-internal',
     sessionId: resolveProviderContextSessionId(requestMetadata, request, providerId),
     turnId: normalizeString(payload.run_id ?? requestMetadata.turn_id ?? requestMetadata.run_id),
-    sandbox: normalizeString(requestMetadata.sandbox) || 'none'
+    sandbox: normalizeString(requestMetadata.sandbox) || 'none',
+    executionMode
   };
   const startedAt = Date.now();
   const result = await client.generateContent({

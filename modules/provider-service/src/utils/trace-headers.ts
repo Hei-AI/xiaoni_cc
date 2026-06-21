@@ -11,6 +11,7 @@ export interface TraceCorrelationContext {
   sessionId?: string;
   turnId?: string;
   sandbox?: string;
+  executionMode?: string;
 }
 
 type WorkspaceDescriptor = {
@@ -99,6 +100,9 @@ export function buildTraceHeaders(
   if (context.toolCallId) {
     headers['x-tool-call-id'] = context.toolCallId;
   }
+  if (context.executionMode) {
+    headers['x-execution-mode'] = context.executionMode;
+  }
   if (context.sessionId) {
     headers.session_id = context.sessionId;
   }
@@ -106,6 +110,7 @@ export function buildTraceHeaders(
     const turnMetadata: Record<string, unknown> = {
       ...(context.sessionId ? { session_id: context.sessionId } : {}),
       ...(context.turnId ? { turn_id: context.turnId } : {}),
+      ...(context.executionMode ? { execution_mode: context.executionMode } : {}),
       sandbox: context.sandbox || 'none'
     };
     const workspaceMetadata = resolveWorkspaceMetadata();

@@ -228,6 +228,7 @@ export interface LLMProviderContext {
   sessionId?: string;
   turnId?: string;
   sandbox?: string;
+  executionMode?: string;
 }
 
 export interface LLMProviderTextRequest {

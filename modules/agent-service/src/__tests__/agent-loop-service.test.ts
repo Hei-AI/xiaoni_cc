@@ -7525,6 +7525,10 @@ test('subconscious fork enqueues plain natural language notify and records hidde
     assert.equal(enqueued, true);
     assert.equal(forkRequest.store, false);
     assert.equal(forkRequest.parallel_tool_calls, false);
+    assert.deepEqual(
+      (forkRequest.tools ?? []).map(getToolName),
+      (baseRequest.tools ?? []).map(getToolName)
+    );
     assert.equal(forkRequest.tool_choice?.mode, 'auto');
     assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]);
     assert.match(getMessageContent(forkRequest.input[forkRequest.input.length - 1]), /自驱引擎/);

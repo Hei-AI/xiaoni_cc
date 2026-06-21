@@ -17,6 +17,7 @@ import {
   resolveCodexAuthProfilesPath,
   saveCodexAuthProfileCredential
 } from './codex-auth-profiles';
+import { codexPromptCacheAdmissionGate } from './codex-prompt-cache-gate';
 import { OpenAIProvider } from './openai-provider';
 
 const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -338,8 +339,6 @@ export class CodexProvider extends OpenAIProvider {
   ): Promise<any> {
     const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
     const normalizedPath = responsesPath.startsWith('/') ? responsesPath : `/${responsesPath}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_CODEX_RESPONSE_TIMEOUT_MS);
     const sessionId = traceHeaders.session_id;
     const codexTraceHeaders = {
       ...(sessionId && !traceHeaders['x-client-request-id'] ? { 'x-client-request-id': sessionId } : {}),
@@ -358,15 +357,41 @@ export class CodexProvider extends OpenAIProvider {
       ...codexTraceHeaders
     };
 
-    try {
-      this.recordWireExchange({
-        requestHeaders: this.sanitizeWireHeaders(requestHeaders),
-        requestUrl,
-        responseHeaders: null,
-        responseStatus: null,
-        responseStatusText: null
-      });
+    const admission = await codexPromptCacheAdmissionGate.admit({
+      payload,
+      executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
+        ? traceHeaders['x-execution-mode']
+        : null
+    });
+    if (admission.enabled && admission.waitMs > 0) {
+      const logPayload = {
+        bucketKey: admission.bucketKey,
+        waitMs: admission.waitMs,
+        queueDepth: admission.queueDepth,
+        priority: admission.priority,
+        bypassed: admission.bypassed,
+        sessionId: traceHeaders.session_id || null,
+        llmCallId: traceHeaders['x-llm-call-id'] || null,
+        executionMode: traceHeaders['x-execution-mode'] || null
+      };
+      if (admission.bypassed) {
+        this.codexLogger.warn('Bypassing Codex prompt cache admission gate for interactive request', logPayload);
+      } else {
+        this.codexLogger.info('Codex prompt cache admission gate released request', logPayload);
+      }
+    }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs || DEFAULT_CODEX_RESPONSE_TIMEOUT_MS);
+    this.recordWireExchange({
+      requestHeaders: this.sanitizeWireHeaders(requestHeaders),
+      requestUrl,
+      responseHeaders: null,
+      responseStatus: null,
+      responseStatusText: null
+    });
+
+    try {
       const response = await fetch(requestUrl, {
         method: 'POST',
         signal: controller.signal,

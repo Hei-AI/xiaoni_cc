@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CodexLocalProvider } from '../llm-provider/codex-local-provider';
+import { resetCodexPromptCacheAdmissionGateForTest } from '../llm-provider/codex-prompt-cache-gate';
 import { CodexProvider } from '../llm-provider/codex-provider';
 import { GeminiCliProvider } from '../llm-provider/gemini-cli-provider';
 import { OpenAIProvider } from '../llm-provider/openai-provider';
@@ -947,6 +948,149 @@ test('Codex provider sends CLIProxyAPI proxy requests as SSE and assembles the r
   }
 });
 
+test('Codex provider gates background requests that share a prompt cache bucket', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_PROMPT_CACHE_GATE_ENABLED: process.env.CODEX_PROMPT_CACHE_GATE_ENABLED,
+    CODEX_PROMPT_CACHE_GATE_RPM: process.env.CODEX_PROMPT_CACHE_GATE_RPM,
+    CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS
+  };
+  const calls: Array<{ at: number; body: any }> = [];
+
+  try {
+    resetCodexPromptCacheAdmissionGateForTest();
+    process.env.CODEX_PROMPT_CACHE_GATE_ENABLED = 'true';
+    process.env.CODEX_PROMPT_CACHE_GATE_RPM = '1';
+    process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS = '80';
+
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      calls.push({ at: Date.now(), body: JSON.parse(init.body) });
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5-mini'
+    });
+    const payload = {
+      model: 'gpt-5-mini',
+      stream: true,
+      instructions: 'Stable prompt.',
+      prompt_cache_key: 'xiaoni:test-global',
+      input: [{ type: 'message', role: 'user', content: 'stable head' }]
+    };
+
+    await Promise.all([
+      provider.postForTest(payload, { 'x-execution-mode': 'subconscious_agent_fork_no_persist' }),
+      provider.postForTest(payload, { 'x-execution-mode': 'cache_heartbeat_no_persist' })
+    ]);
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0]?.body.prompt_cache_key, 'xiaoni:test-global');
+    assert.ok(
+      (calls[1]?.at || 0) - (calls[0]?.at || 0) >= 50,
+      `expected second background request to wait for cache gate; delta=${(calls[1]?.at || 0) - (calls[0]?.at || 0)}`
+    );
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    resetCodexPromptCacheAdmissionGateForTest();
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('Codex provider short-waits then releases interactive requests when cache gate is full', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_PROMPT_CACHE_GATE_ENABLED: process.env.CODEX_PROMPT_CACHE_GATE_ENABLED,
+    CODEX_PROMPT_CACHE_GATE_RPM: process.env.CODEX_PROMPT_CACHE_GATE_RPM,
+    CODEX_PROMPT_CACHE_GATE_WINDOW_MS: process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS,
+    CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS: process.env.CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS
+  };
+  const calls: Array<{ at: number; executionMode: string | undefined }> = [];
+
+  try {
+    resetCodexPromptCacheAdmissionGateForTest();
+    process.env.CODEX_PROMPT_CACHE_GATE_ENABLED = 'true';
+    process.env.CODEX_PROMPT_CACHE_GATE_RPM = '1';
+    process.env.CODEX_PROMPT_CACHE_GATE_WINDOW_MS = '100';
+    process.env.CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS = '10';
+
+    (globalThis as any).fetch = async (_url: string, init: any) => {
+      calls.push({ at: Date.now(), executionMode: init.headers?.['x-execution-mode'] });
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5-mini'
+    });
+    const payload = {
+      model: 'gpt-5-mini',
+      stream: true,
+      instructions: 'Stable prompt.',
+      prompt_cache_key: 'xiaoni:test-global',
+      input: [{ type: 'message', role: 'user', content: 'stable head' }]
+    };
+
+    await provider.postForTest(payload, { 'x-execution-mode': 'subconscious_agent_fork_no_persist' });
+    const startedAt = Date.now();
+    await provider.postForTest(payload, { 'x-execution-mode': 'agent_loop' });
+    const elapsedMs = Date.now() - startedAt;
+
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1]?.executionMode, 'agent_loop');
+    assert.ok(elapsedMs < 70, `expected interactive request to bypass before full window; elapsed=${elapsedMs}`);
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    resetCodexPromptCacheAdmissionGateForTest();
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('Codex provider retries transient upstream fetch failures before failing the agent turn', async () => {
   const previousFetch = globalThis.fetch;
   const previousEnv = {
@@ -1201,15 +1345,18 @@ test('buildTraceHeaders emits Codex-compatible session metadata headers', () => 
     llmCallId: 'llm-1',
     sessionId: TEST_CODEX_CONTEXT_SESSION_ID,
     turnId: 'run-1',
-    sandbox: 'none'
+    sandbox: 'none',
+    executionMode: 'agent_loop'
   });
 
   assert.equal(headers['x-trace-id'], 'trace-1');
   assert.equal(headers['x-agent-turn'], '2');
   assert.equal(headers['x-llm-call-id'], 'llm-1');
+  assert.equal(headers['x-execution-mode'], 'agent_loop');
   assert.equal(headers.session_id, TEST_CODEX_CONTEXT_SESSION_ID);
   assert.match(headers['x-codex-turn-metadata'], /"session_id":"test:codex-context-session"/);
   assert.match(headers['x-codex-turn-metadata'], /"turn_id":"run-1"/);
+  assert.match(headers['x-codex-turn-metadata'], /"execution_mode":"agent_loop"/);
   assert.match(headers['x-codex-turn-metadata'], /"sandbox":"none"/);
 });
 

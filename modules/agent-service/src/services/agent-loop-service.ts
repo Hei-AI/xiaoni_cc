@@ -1890,7 +1890,6 @@ function buildSubconsciousAgentForkRequest(
     ...forkRequest.input,
     buildDeveloperInputItem([renderSelfContinuationReminder()])
   ]);
-  forkRequest.tools = agentConfig.webSearchEnabled ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL] : [EXEC_COMMAND_TOOL];
   forkRequest.tool_choice = agentConfig.webSearchEnabled
     ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }, { type: 'web_search' }], 'auto')
     : buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }], 'auto');
