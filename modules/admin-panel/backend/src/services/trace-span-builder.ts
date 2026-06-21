@@ -1637,11 +1637,18 @@ async function listStackTraceRows<T>(
 ): Promise<T[]> {
   const traceId = firstNonEmptyString(target.traceId);
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const sourceKind = firstNonEmptyString(target.sourceKind);
+  const forkRunId = firstNonEmptyString(target.forkRunId);
+  const sourceLookup = {
+    ...(sourceKind ? { sourceKind } : {}),
+    ...(forkRunId ? { forkRunId } : {})
+  };
   const queries: Promise<T[]>[] = [];
 
   if (traceId) {
     queries.push(listFn({
       identityKey: 'xiaoni',
+      ...sourceLookup,
       traceId,
       chronological: true,
       limit
@@ -1649,6 +1656,7 @@ async function listStackTraceRows<T>(
   } else if (runId) {
     queries.push(listFn({
       identityKey: 'xiaoni',
+      ...sourceLookup,
       runId,
       chronological: true,
       limit
@@ -1678,6 +1686,12 @@ export async function buildStackTracePayload(
 ) {
   const traceId = firstNonEmptyString(target.traceId, target.internalExecutionLeaseId);
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const sourceKind = firstNonEmptyString(target.sourceKind);
+  const forkRunId = firstNonEmptyString(target.forkRunId);
+  const sourceLookup = {
+    ...(sourceKind ? { sourceKind } : {}),
+    ...(forkRunId ? { forkRunId } : {})
+  };
   const spanId = firstNonEmptyString(target.spanId);
   let focusedSliceId = firstNonEmptyString(target.llmRequestSliceId);
   let focusedToolCallId = firstNonEmptyString(target.toolCallId);
@@ -1704,6 +1718,7 @@ export async function buildStackTracePayload(
       const focusedTools = focusedToolCallId
         ? await listToolExecutions({
           identityKey: 'xiaoni',
+          ...sourceLookup,
           toolCallId: focusedToolCallId,
           chronological: true,
           limit: 10
@@ -1723,12 +1738,14 @@ export async function buildStackTracePayload(
       const [focusedSlices, sliceTools, toolItems, sliceItems] = await Promise.all([
         Promise.all(Array.from(sliceIds).map((sliceId) => listLlmRequestSlices({
           identityKey: 'xiaoni',
+          ...sourceLookup,
           sliceId,
           summaryOnly: true,
           limit: 1
         }) as Promise<any[]>)).then((rows) => rows.flat()),
         Promise.all(Array.from(sliceIds).map((sliceId) => listToolExecutions({
           identityKey: 'xiaoni',
+          ...sourceLookup,
           llmRequestSliceId: sliceId,
           chronological: true,
           limit: 20
@@ -1736,6 +1753,7 @@ export async function buildStackTracePayload(
         focusedToolCallId
           ? listAgentStackItems({
             identityKey: 'xiaoni',
+            ...sourceLookup,
             toolCallId: focusedToolCallId,
             chronological: true,
             limit: 20
@@ -1743,6 +1761,7 @@ export async function buildStackTracePayload(
           : Promise.resolve([]),
         Promise.all(Array.from(sliceIds).map((sliceId) => listAgentStackItems({
           identityKey: 'xiaoni',
+          ...sourceLookup,
           llmRequestSliceId: sliceId,
           chronological: true,
           limit: 50
@@ -3708,6 +3727,8 @@ export async function buildStackRawProviderTrace(
       spanId || target.spanId || null,
       sourceKind === 'compression_fork'
         ? 'core_memory_compression_fork_slices.provider_exchange'
+        : sourceKind === 'subconscious_agent_fork'
+          ? 'subconscious_agent_fork_slices.provider_exchange'
         : sourceKind === 'image_vision_fork'
           ? 'image_vision_fork_slices.provider_exchange'
           : 'llm_request_slices.provider_exchange'
@@ -3731,10 +3752,14 @@ export async function buildStackTraceSpanDetail(
 ): Promise<TraceSpanDetailDto | null> {
   const traceId = firstNonEmptyString(target.traceId);
   const runId = firstNonEmptyString(target.internalExecutionLeaseId);
+  const sourceKind = firstNonEmptyString(target.sourceKind);
+  const forkRunId = firstNonEmptyString(target.forkRunId);
   const baseLookup = {
     identityKey: 'xiaoni',
     ...(traceId ? { traceId } : {}),
-    ...(runId ? { runId } : {})
+    ...(runId ? { runId } : {}),
+    ...(sourceKind ? { sourceKind } : {}),
+    ...(forkRunId ? { forkRunId } : {})
   };
 
   try {

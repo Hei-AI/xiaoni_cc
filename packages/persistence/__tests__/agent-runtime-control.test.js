@@ -38,6 +38,7 @@ test('ensureAgentRuntimeControlSchema creates an enabled-by-default control tabl
   assert.match(createTable, /enabled BOOLEAN NOT NULL DEFAULT TRUE/);
   assert.match(createTable, /cache_heartbeat_paused BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(createTable, /post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(createTable, /main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000/);
 });
 
 test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', async () => {
@@ -54,6 +55,7 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
     postCompressionPauseArmedAt: null,
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
+    mainAgentPreModelYieldMs: 5000,
     updatedAt: null
   });
 });
@@ -93,6 +95,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
       post_compression_pause_armed_at: null,
       post_compression_pause_triggered_at: null,
       post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 5000,
       updated_at: updatedAt
     }]]
   });
@@ -111,6 +114,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     false,
     false,
+    5000,
     true,
     false,
     false,
@@ -124,7 +128,9 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     false,
     false,
-    false
+    false,
+    false,
+    5000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -135,6 +141,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     postCompressionPauseArmedAt: null,
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
+    mainAgentPreModelYieldMs: 5000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -152,6 +159,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
       post_compression_pause_armed_at: null,
       post_compression_pause_triggered_at: null,
       post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 5000,
       updated_at: updatedAt
     }]]
   });
@@ -170,6 +178,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     true,
     false,
     false,
+    5000,
     false,
     true,
     true,
@@ -183,7 +192,9 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     false,
     false,
-    false
+    false,
+    false,
+    5000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -194,6 +205,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     postCompressionPauseArmedAt: null,
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
+    mainAgentPreModelYieldMs: 5000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -211,6 +223,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
       post_compression_pause_armed_at: armedAt,
       post_compression_pause_triggered_at: null,
       post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 5000,
       updated_at: updatedAt
     }]]
   });
@@ -229,6 +242,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     false,
     true,
     true,
+    5000,
     false,
     true,
     false,
@@ -242,7 +256,9 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     true,
     true,
     true,
-    true
+    true,
+    false,
+    5000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -253,8 +269,38 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     postCompressionPauseArmedAt: '2026-06-06T20:01:00.000+08:00',
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
+    mainAgentPreModelYieldMs: 5000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
+});
+
+test('updateAgentRuntimeControl persists main agent pre-model yield milliseconds', async () => {
+  const updatedAt = new Date('2026-06-06T12:04:00.000Z');
+  const { queries, persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
+      post_compression_pause_armed: false,
+      post_compression_pause_armed_at: null,
+      post_compression_pause_triggered_at: null,
+      post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 25,
+      updated_at: updatedAt
+    }]]
+  });
+
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    mainAgentPreModelYieldMs: 25
+  });
+
+  const updateQuery = queries.at(-1);
+  assert.match(updateQuery.statement, /main_agent_pre_model_yield_ms = CASE/);
+  assert.equal(updateQuery.params.at(-2), true);
+  assert.equal(updateQuery.params.at(-1), 25);
+  assert.equal(control.mainAgentPreModelYieldMs, 25);
 });
 
 test('triggerPostCompressionRuntimePause disables runtime only when armed', async () => {
@@ -270,6 +316,7 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
       post_compression_pause_armed_at: new Date('2026-06-06T12:01:00.000Z'),
       post_compression_pause_triggered_at: triggeredAt,
       post_compression_pause_reason: 'core_memory_compression_completed',
+      main_agent_pre_model_yield_ms: 5000,
       updated_at: updatedAt
     }]]
   });
@@ -291,6 +338,7 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     postCompressionPauseArmedAt: '2026-06-06T20:01:00.000+08:00',
     postCompressionPauseTriggeredAt: '2026-06-06T20:02:00.000+08:00',
     postCompressionPauseReason: 'core_memory_compression_completed',
+    mainAgentPreModelYieldMs: 5000,
     updatedAt: '2026-06-06T20:02:00.000+08:00'
   });
 });

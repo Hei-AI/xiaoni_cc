@@ -1563,6 +1563,42 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
   assert.match(rendered, /<system_reminder>/);
   assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
   assert.match(rendered, /该压缩记忆了。/);
+  assert.equal(loopInput.some((item: any) => (
+    item.type === 'message'
+    && item.role === 'developer'
+    && getMessageContent(item).includes('该压缩记忆了。')
+  )), true);
+});
+
+test('buildInitialInput renders subconscious agent notify as user-facing stimulus', () => {
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = '潜意识想继续看看昨晚的 seed。';
+  payload.rawBody = '潜意识想继续看看昨晚的 seed。';
+  payload.rawPayload = {
+    reason: 'subconscious_agent',
+    final_answer_text: '继续 seed',
+    notify_template: 'subconscious_agent_notify.md'
+  };
+  payload.systemReminder = {
+    reminder: '潜意识想继续看看昨晚的 seed。',
+    reason: 'subconscious_agent',
+    createdAt: '2026-06-12T14:51:11.000Z'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: '潜意识想继续看看昨晚的 seed。'
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('潜意识想继续看看昨晚的 seed。'));
+
+  assert.equal((subconsciousInput as any)?.type, 'message');
+  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.match(getMessageContent(subconsciousInput), /<system_reminder>/);
 });
 
 test('buildInitialInput renders attention lease reminders from the prompt template', () => {
@@ -4072,19 +4108,33 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
         }
       };
     }
+    if (turn === 2) {
+      return {
+        success: true,
+        llm_call_id: 'llm-main-image-2',
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-rest-after-image',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: JSON.stringify({
+              reason: '看完图后先停一下。',
+              clock: 5,
+              xiaoni_os: `已经通过视觉 fork 看过 ${imageAssetId}。`
+            })
+          }]
+        }
+      };
+    }
     return {
       success: true,
-      llm_call_id: 'llm-main-image-2',
+      llm_call_id: `llm-main-image-${turn}`,
       canonical_response: {
         output: [{
-          type: 'function_call',
-          call_id: 'call-rest-after-image',
-          name: RECOVER_ENERGY_TOOL,
-          arguments: JSON.stringify({
-            reason: '看完图后先停一下。',
-            clock: 5,
-            xiaoni_os: `已经通过视觉 fork 看过 ${imageAssetId}。`
-          })
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '图片看完了，我先等新的通知。' }]
         }]
       }
     };
@@ -4228,7 +4278,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(forkRequest.tools, mainRequest.tools);
   assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
   assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
-  assert.equal(forkRequest.tool_choice?.mode, mainRequest.tool_choice?.mode);
+  assert.equal(mainRequest.tool_choice?.mode, 'required');
   assert.equal(forkRequest.tool_choice?.mode, 'required');
   assert.equal(forkRequest.parallel_tool_calls, true);
   assert.equal(forkRequest.store, false);
@@ -5506,7 +5556,7 @@ test('no-notify continuation does not append self continuation after tool output
 
   const reminderItems = capturedInput.filter((item: any) => (
     item.type === 'message'
-    && item.role === 'developer'
+    && item.role === 'user'
     && getMessageContent(item).includes('<system_reminder>')
   ));
   assert.equal(reminderItems.length, 1);
@@ -5693,7 +5743,7 @@ test('runtime frame waits before its single model slice when runtime control is 
   );
 });
 
-test('runtime frame yields before sending the main agent model slice', async () => {
+test('runtime frame uses dynamic pre-model yield before sending the main agent model slice', async () => {
   const queueMessage = {
     id: 'run-queue-pre-model-yield',
     traceId: 'trace-pre-model-yield',
@@ -5748,7 +5798,7 @@ test('runtime frame yields before sending the main agent model slice', async () 
       events.push('runtime-enabled');
       return true;
     },
-    preModelSliceYieldMs: 5000,
+    getMainAgentPreModelYieldMs: async () => 25,
     sleepMs: async (ms) => {
       events.push(`yield:${ms}`);
     }
@@ -5772,13 +5822,13 @@ test('runtime frame yields before sending the main agent model slice', async () 
 
   assert.deepEqual(events, [
     'runtime-enabled',
-    'yield:5000',
+    'yield:25',
     'execute-agent-turn'
   ]);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
 });
 
-test('runtime frame ignores the historical max turn count because it owns one model slice', async () => {
+test('runtime frame keeps appending non-final output until final_answer returns control to notify', async () => {
   const queueMessage = {
     id: 'run-queue-unbounded-loop',
     traceId: 'trace-unbounded-loop',
@@ -5831,39 +5881,50 @@ test('runtime frame ignores the historical max turn count because it owns one mo
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
 
-  const historicalMaxTurns = 3;
-  const originalMaxTurns = agentConfig.maxTurns;
   let turns = 0;
   (service as any).executeAgentTurn = async () => {
     turns += 1;
+    if (turns === 1) {
+      return {
+        success: true,
+        llm_call_id: `llm-unbounded-loop-${turns}`,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-unbounded-loop',
+            name: RECOVER_ENERGY_TOOL,
+            arguments: '{"action":"status_check"}'
+          }]
+        }
+      };
+    }
     return {
       success: true,
       llm_call_id: `llm-unbounded-loop-${turns}`,
       canonical_response: {
         output: [{
           type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
           content: [{ type: 'output_text', text: `内部想法 ${turns}` }]
         }]
       }
     };
   };
+  (service as any).executeTool = async () => ({ recovered: true, xiaoni_os: 'energy ok' });
 
-  agentConfig.maxTurns = historicalMaxTurns;
-  try {
-    await processRuntimeFrameForTest(service, queueMessage as any);
-  } finally {
-    agentConfig.maxTurns = originalMaxTurns;
-  }
+  await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turns, 1);
+  assert.equal(turns, 2);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'final_answer_yielded');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(storeCalls.recordNoVisibleDeliveryLifeEvent.length, 0);
-  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 0);
+  assert.equal(storeCalls.recordRecoverEnergyLifeEvent.length, 1);
 });
 
 test('runtime frame does not allow request_image_task to swallow a same-slice visible group reply', async () => {
@@ -6133,9 +6194,9 @@ test('runtime frame does not auto-send image task status after queuing', async (
       turn += 1;
       return {
         success: true,
-        llm_call_id: 'llm-image-task-no-auto-send-1',
+        llm_call_id: `llm-image-task-no-auto-send-${turn}`,
         canonical_response: {
-          output: [{
+          output: turn === 1 ? [{
             type: 'function_call',
             call_id: 'call-image-task-no-auto-send',
             name: IMAGE_TASK_TOOL,
@@ -6143,6 +6204,11 @@ test('runtime frame does not auto-send image task status after queuing', async (
               prompt: '一张很普通的蓝天白云头像图',
               target_description: '群聊里用于头像的普通蓝天白云图'
             })
+          }] : [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '图片任务已经排好，我继续等新通知。' }]
           }]
         }
       };
@@ -6150,12 +6216,13 @@ test('runtime frame does not auto-send image task status after queuing', async (
 
     await processRuntimeFrameForTest(service, queueMessage as any);
 
-    assert.equal(turn, 1);
+    assert.equal(turn, 2);
     assert.equal(storeCalls.createRuntimeTask.length, 1);
     assert.equal(storeCalls.createConversation.length, 1);
     assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, []);
     assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
+    assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release?.outcome, 'final_answer_yielded');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, []);
     assert.deepEqual(fetchCalls, []);
   } finally {
@@ -6222,18 +6289,27 @@ test('runtime frame forwards failed send tool output to the model and settles', 
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
 
-  (service as any).executeAgentTurn = async () => ({
-    success: true,
-    llm_call_id: 'llm-send-tool-error-1',
-    canonical_response: {
-      output: [{
-        type: 'function_call',
-        call_id: 'call-send-tool-error',
-        name: GROUP_REPLY_TOOL,
-        arguments: JSON.stringify({ group_id: 970752010, message: '醒了' })
-      }]
-    }
-  });
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    return {
+      success: true,
+      llm_call_id: `llm-send-tool-error-${turn}`,
+      canonical_response: {
+        output: turn === 1 ? [{
+          type: 'function_call',
+          call_id: 'call-send-tool-error',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ group_id: 970752010, message: '醒了' })
+        }] : [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '发送失败已经回传给模型，本轮先停。' }]
+        }]
+      }
+    };
+  };
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => ({
@@ -6252,6 +6328,7 @@ test('runtime frame forwards failed send tool output to the model and settles', 
   }
 
   assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.equal(turn, 2);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
@@ -7186,6 +7263,729 @@ test('runtime iteration passes claimed queue high watermark into notification fr
   assert.equal(frames.length, 1);
   assert.equal(frames[0]?.message?.id, 'queue-watermark');
   assert.equal(frames[0]?.options?.recoveryWakeCountStartQueueMessageId, 12);
+});
+
+test('runtime iteration starts subconscious fork on empty notify after final_answer without running main frame', async () => {
+  const priorTurn = attachStackReplayItems(createConversationTurn({
+    id: 715,
+    userMessage: '',
+    aiResponse: null,
+    sessionKey: 'xiaoni:test-global',
+    groupId: null
+  }), [{
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '先停在这里。' }]
+  }]);
+  const storeCalls: Record<string, any[]> = {
+    claimNextQueueMessage: [],
+    listRecentTurns: []
+  };
+  const store = {
+    getActiveAgentRecoverySession: async () => null,
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.8,
+      maxEnergy: 1,
+      lastWakeAt: null
+    }),
+    getSessionReadCutoffState: async () => null,
+    listRecentTurns: async (params: any) => {
+      storeCalls.listRecentTurns.push(params);
+      return [priorTurn];
+    },
+    listAgentStackItemsForConversations: async () => [
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: (priorTurn as any).stackReplayItems[0]
+      }
+    ],
+    claimNextQueueMessage: async (workerId: string) => {
+      storeCalls.claimNextQueueMessage.push({ workerId });
+      return null;
+    }
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const forkCalls: any[] = [];
+  const frames: any[] = [];
+  (service as any).runSubconsciousAgentFork = async (params: any) => {
+    forkCalls.push(params);
+    return true;
+  };
+  (service as any).processRuntimeFrame = async (...args: any[]) => {
+    frames.push(args);
+  };
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-subconscious-empty',
+    idleIntervalMs: 0
+  });
+
+  assert.deepEqual(storeCalls.claimNextQueueMessage, [{ workerId: 'worker-subconscious-empty' }]);
+  assert.equal(storeCalls.listRecentTurns[0]?.scope, 'global');
+  assert.equal(frames.length, 0);
+  assert.equal(forkCalls.length, 1);
+  assert.match(JSON.stringify(forkCalls[0]?.baseRequest?.input || []), /先停在这里/);
+});
+
+test('runtime iteration does not wait for an in-flight subconscious fork before consuming later notify', async () => {
+  const priorTurn = attachStackReplayItems(createConversationTurn({
+    id: 716,
+    userMessage: '',
+    aiResponse: null,
+    sessionKey: 'xiaoni:test-global',
+    groupId: null
+  }), [{
+    type: 'message',
+    role: 'assistant',
+    phase: 'final_answer',
+    content: [{ type: 'output_text', text: '先停在这里。' }]
+  }]);
+  const notifyMessage = {
+    id: 'run-queue-after-fork-started',
+    traceId: 'trace-after-fork-started',
+    batchId: 'batch-after-fork-started',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [42],
+    payload: {
+      ...createQueuePayload(),
+      runId: 'run-queue-after-fork-started',
+      traceId: 'trace-after-fork-started',
+      batchId: 'batch-after-fork-started'
+    }
+  };
+  const storeCalls: Record<string, any[]> = {
+    claimNextQueueMessage: [],
+    listRecentTurns: []
+  };
+  let claimCount = 0;
+  const store = {
+    getActiveAgentRecoverySession: async () => null,
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.8,
+      maxEnergy: 1,
+      lastWakeAt: null
+    }),
+    getSessionReadCutoffState: async () => null,
+    listRecentTurns: async (params: any) => {
+      storeCalls.listRecentTurns.push(params);
+      return [priorTurn];
+    },
+    listAgentStackItemsForConversations: async () => [
+      {
+        conversationId: priorTurn.id,
+        visibility: 'model_visible',
+        content: (priorTurn as any).stackReplayItems[0]
+      }
+    ],
+    claimNextQueueMessage: async (workerId: string) => {
+      storeCalls.claimNextQueueMessage.push({ workerId });
+      claimCount += 1;
+      return claimCount === 1 ? null : notifyMessage;
+    }
+  } as any;
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const events: string[] = [];
+  let resolveFork: ((value: boolean) => void) | null = null;
+  (service as any).runSubconsciousAgentFork = async () => {
+    events.push('fork-started');
+    return new Promise<boolean>((resolve) => {
+      resolveFork = resolve;
+    });
+  };
+  (service as any).processRuntimeFrame = async (message: any) => {
+    events.push(`frame:${message.id}`);
+  };
+
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-subconscious-pending',
+    idleIntervalMs: 0,
+    sleepMs: async () => {}
+  });
+  await (service as any).processRuntimeIteration({
+    workerId: 'worker-subconscious-pending',
+    idleIntervalMs: 0,
+    sleepMs: async () => {}
+  });
+
+  assert.deepEqual(events, ['fork-started', 'frame:run-queue-after-fork-started']);
+  assert.equal(storeCalls.claimNextQueueMessage.length, 2);
+  assert.ok(resolveFork);
+  (resolveFork as (value: boolean) => void)(true);
+});
+
+test('subconscious fork enqueues plain natural language notify and records hidden trace links', async () => {
+  const previousWebSearchEnabled = agentConfig.webSearchEnabled;
+  agentConfig.webSearchEnabled = true;
+  const queuePayload = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt({
+    promptName: '小腻主AGENT',
+    promptId: 'prompt-subconscious'
+  });
+  const baseRequest = buildTestMainCanonicalRequest(
+    buildInitialInput([], queuePayload, runtimePrompt),
+    queuePayload,
+    runtimePrompt
+  );
+  const storeCalls: Record<string, any[]> = {
+    recordSubconsciousAgentForkRun: [],
+    appendSubconsciousAgentForkItems: [],
+    recordSubconsciousAgentForkSlice: [],
+    recordSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkRun: [],
+    enqueueQueueMessage: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    recordSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    appendSubconsciousAgentForkItems: async (params: any) => {
+      storeCalls.appendSubconsciousAgentForkItems.push(params);
+      return params.items.map((item: any, index: number) => ({
+        id: `${params.forkRunId}:item:${storeCalls.appendSubconsciousAgentForkItems.length}:${index}`,
+        itemIndex: index + (storeCalls.appendSubconsciousAgentForkItems.length * 10),
+        content: item
+      }));
+    },
+    recordSubconsciousAgentForkSlice: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkSlice.push(params);
+      return params;
+    },
+    recordSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    enqueueQueueMessage: async (params: any) => {
+      storeCalls.enqueueQueueMessage.push(params);
+      return { queueId: 909 };
+    },
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  let forkRequest: any = null;
+  (service as any).executeSubconsciousAgentForkTurn = async (request: any) => {
+    forkRequest = request;
+    return {
+      success: true,
+      llm_call_id: 'llm-subconscious-1',
+      llm_request_slice_id: 'slice-subconscious-1',
+      model: 'gpt-test',
+      provider: 'codex-local',
+      canonical_request: request,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{
+            type: 'output_text',
+            text: '我想先把昨晚没收束的图片任务状态捡起来，再看看有没有可以继续的小种子。'
+          }]
+        }]
+      },
+      usage: {
+        input_tokens: 10,
+        output_tokens: 12,
+        total_tokens: 22
+      },
+      performance: {
+        processing_time_ms: 123
+      }
+    };
+  };
+
+  try {
+    const enqueued = await (service as any).runSubconsciousAgentFork({
+      baseRequest,
+      queueMessage: queuePayload,
+      runtimePrompt,
+      contextSessionKey: 'xiaoni:test-global'
+    });
+
+    assert.equal(enqueued, true);
+    assert.equal(forkRequest.store, false);
+    assert.equal(forkRequest.parallel_tool_calls, false);
+    assert.equal(forkRequest.tool_choice?.mode, 'auto');
+    assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]);
+    assert.match(getMessageContent(forkRequest.input[forkRequest.input.length - 1]), /自驱引擎/);
+    assert.equal(storeCalls.enqueueQueueMessage.length, 1);
+    const enqueuedMessage = storeCalls.enqueueQueueMessage[0]?.message;
+    assert.equal(enqueuedMessage.source, 'system_reminder');
+    assert.match(enqueuedMessage.bodyForAgent, /我想先把昨晚没收束的图片任务状态捡起来/);
+    assert.equal(enqueuedMessage.rawPayload.reason, 'subconscious_agent');
+    assert.equal(enqueuedMessage.rawPayload.notify_template, 'subconscious_agent_notify.md');
+    assert.equal(enqueuedMessage.rawPayload.final_answer_text, '我想先把昨晚没收束的图片任务状态捡起来，再看看有没有可以继续的小种子。');
+    assert.match(enqueuedMessage.rawPayload.fork_run_id, /^subconscious-fork:/);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.notifyQueueMessageId, 909);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.summaryText, enqueuedMessage.rawPayload.final_answer_text);
+    assert.equal(storeCalls.recordSubconsciousAgentForkSlice[0]?.status, 'completed');
+    assert.equal(storeCalls.recordSubconsciousAgentForkSlice[0]?.tokenUsage?.total_tokens, 22);
+  } finally {
+    agentConfig.webSearchEnabled = previousWebSearchEnabled;
+  }
+});
+
+test('subconscious fork failure records failed run without throwing or enqueueing notify', async () => {
+  const queuePayload = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt({
+    promptName: '小腻主AGENT',
+    promptId: 'prompt-subconscious-failure'
+  });
+  const baseRequest = buildTestMainCanonicalRequest(
+    buildInitialInput([], queuePayload, runtimePrompt),
+    queuePayload,
+    runtimePrompt
+  );
+  const storeCalls: Record<string, any[]> = {
+    recordSubconsciousAgentForkRun: [],
+    completeSubconsciousAgentForkRun: [],
+    enqueueQueueMessage: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    recordSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    enqueueQueueMessage: async (params: any) => {
+      storeCalls.enqueueQueueMessage.push(params);
+      return { queueId: 911 };
+    },
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  (service as any).executeSubconsciousAgentForkTurn = async () => {
+    throw new Error('provider temporarily unavailable');
+  };
+
+  const enqueued = await (service as any).runSubconsciousAgentFork({
+    baseRequest,
+    queueMessage: queuePayload,
+    runtimePrompt,
+    contextSessionKey: 'xiaoni:test-global'
+  });
+
+  assert.equal(enqueued, false);
+  assert.equal(storeCalls.enqueueQueueMessage.length, 0);
+  assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.status, 'failed');
+  assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.errorMessage, 'provider temporarily unavailable');
+  assert.equal(storeCalls.logTimelineEvent.at(-1)?.metadata?.status, 'failed');
+});
+
+test('subconscious fork waits for first final_answer before enqueueing notify stimulus', async () => {
+  const queuePayload = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt({
+    promptName: '小腻主AGENT',
+    promptId: 'prompt-subconscious-commentary'
+  });
+  const baseRequest = buildTestMainCanonicalRequest(
+    buildInitialInput([], queuePayload, runtimePrompt),
+    queuePayload,
+    runtimePrompt
+  );
+  const storeCalls: Record<string, any[]> = {
+    appendSubconsciousAgentForkItems: [],
+    recordSubconsciousAgentForkSlice: [],
+    completeSubconsciousAgentForkRun: [],
+    enqueueQueueMessage: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    recordSubconsciousAgentForkRun: async (params: any) => params,
+    appendSubconsciousAgentForkItems: async (params: any) => {
+      storeCalls.appendSubconsciousAgentForkItems.push(params);
+      return params.items.map((item: any, index: number) => ({
+        id: `${params.forkRunId}:item:${index}`,
+        itemIndex: index + 1,
+        itemKind: item.itemKind,
+        content: item.content
+      }));
+    },
+    recordSubconsciousAgentForkSlice: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkSlice.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    enqueueQueueMessage: async (params: any) => {
+      storeCalls.enqueueQueueMessage.push(params);
+      return { queueId: 912 };
+    },
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  const forkRequests: any[] = [];
+  (service as any).executeSubconsciousAgentForkTurn = async (request: any) => {
+    forkRequests.push(request);
+    if (forkRequests.length === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-subconscious-commentary',
+        llm_request_slice_id: 'slice-subconscious-commentary',
+        model: 'gpt-test',
+        provider: 'codex-local',
+        canonical_request: request,
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'commentary',
+            content: [{
+              type: 'output_text',
+              text: '这只是边想边说，还不是最终 seed。'
+            }]
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-subconscious-final',
+      llm_request_slice_id: 'slice-subconscious-final',
+      model: 'gpt-test',
+      provider: 'codex-local',
+      canonical_request: request,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{
+            type: 'output_text',
+            text: '最终 seed 是继续整理昨晚留下的那个小想法。'
+          }]
+        }]
+      }
+    };
+  };
+
+  const enqueued = await (service as any).runSubconsciousAgentFork({
+    baseRequest,
+    queueMessage: queuePayload,
+    runtimePrompt,
+    contextSessionKey: 'xiaoni:test-global'
+  });
+
+  assert.equal(enqueued, true);
+  assert.equal(forkRequests.length, 2);
+  assert.equal(forkRequests[0]?.tool_choice?.mode, 'auto');
+  assert.equal(forkRequests[1]?.tool_choice?.mode, 'auto');
+  assert.equal(storeCalls.enqueueQueueMessage.length, 1);
+  assert.match(storeCalls.enqueueQueueMessage[0]?.message?.bodyForAgent, /最终 seed 是继续整理昨晚留下的那个小想法/);
+  assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.artifact?.fork_turn_count, 2);
+  assert.equal(storeCalls.logTimelineEvent.at(-1)?.metadata?.status, 'completed');
+});
+
+test('subconscious fork can use exec_command across turns before enqueueing natural language notify', async () => {
+  const previousWebSearchEnabled = agentConfig.webSearchEnabled;
+  agentConfig.webSearchEnabled = false;
+  const queuePayload = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt({
+    promptName: '小腻主AGENT',
+    promptId: 'prompt-subconscious-multiturn'
+  });
+  const baseRequest = buildTestMainCanonicalRequest(
+    buildInitialInput([], queuePayload, runtimePrompt),
+    queuePayload,
+    runtimePrompt
+  );
+  const storeCalls: Record<string, any[]> = {
+    recordSubconsciousAgentForkRun: [],
+    appendSubconsciousAgentForkItems: [],
+    recordSubconsciousAgentForkSlice: [],
+    recordSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkRun: [],
+    enqueueQueueMessage: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    recordSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    appendSubconsciousAgentForkItems: async (params: any) => {
+      storeCalls.appendSubconsciousAgentForkItems.push(params);
+      return params.items.map((item: any, index: number) => ({
+        id: `${params.forkRunId}:item:${storeCalls.appendSubconsciousAgentForkItems.length}:${index}`,
+        itemIndex: index + (storeCalls.appendSubconsciousAgentForkItems.length * 10),
+        itemKind: item.itemKind,
+        toolCallId: item.toolCallId,
+        content: item.content
+      }));
+    },
+    recordSubconsciousAgentForkSlice: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkSlice.push(params);
+      return params;
+    },
+    recordSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    enqueueQueueMessage: async (params: any) => {
+      storeCalls.enqueueQueueMessage.push(params);
+      return { queueId: 910 };
+    },
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.8,
+      maxEnergy: 1
+    }),
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  const forkRequests: any[] = [];
+  (service as any).executeSubconsciousAgentForkTurn = async (request: any) => {
+    forkRequests.push(request);
+    if (forkRequests.length === 1) {
+      return {
+        success: true,
+        llm_call_id: 'llm-subconscious-tool-1',
+        llm_request_slice_id: 'slice-subconscious-tool-1',
+        model: 'gpt-test',
+        provider: 'codex-local',
+        canonical_request: request,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: 'call-subconscious-seed',
+            name: EXEC_COMMAND_TOOL,
+            arguments: JSON.stringify({
+              cmd: 'printf seed',
+              max_output_tokens: 1000
+            })
+          }]
+        },
+        usage: {
+          input_tokens: 8,
+          output_tokens: 4,
+          total_tokens: 12
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-subconscious-tool-2',
+      llm_request_slice_id: 'slice-subconscious-tool-2',
+      model: 'gpt-test',
+      provider: 'codex-local',
+      canonical_request: request,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{
+            type: 'output_text',
+            text: '我查到可以继续从图片任务的 pending 状态收束，先把这个作为下一颗 seed。'
+          }]
+        }]
+      },
+      usage: {
+        input_tokens: 20,
+        output_tokens: 9,
+        total_tokens: 29
+      }
+    };
+  };
+  const executedTools: any[] = [];
+  (service as any).executeTool = async (toolCall: any) => {
+    executedTools.push(toolCall);
+    return {
+      exit_code: 0,
+      stdout: 'seed: image task pending status',
+      stderr: '',
+      codex_output: 'seed: image task pending status'
+    };
+  };
+
+  try {
+    const enqueued = await (service as any).runSubconsciousAgentFork({
+      baseRequest,
+      queueMessage: queuePayload,
+      runtimePrompt,
+      contextSessionKey: 'xiaoni:test-global'
+    });
+
+    assert.equal(enqueued, true);
+    assert.equal(forkRequests.length, 2);
+    assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), [EXEC_COMMAND_TOOL]);
+    assert.equal(executedTools.length, 1);
+    assert.equal(executedTools[0]?.name, EXEC_COMMAND_TOOL);
+    const secondTurnToolOutput = forkRequests[1]?.input.find((item: any) => (
+      item?.type === 'function_call_output' && item.call_id === 'call-subconscious-seed'
+    ));
+    assert.ok(secondTurnToolOutput);
+    assert.match(String(secondTurnToolOutput.output), /image task pending status/);
+    assert.equal(storeCalls.recordSubconsciousAgentForkSlice.length, 2);
+    assert.equal(storeCalls.recordSubconsciousAgentForkToolExecution.length, 1);
+    assert.equal(storeCalls.recordSubconsciousAgentForkToolExecution[0]?.toolName, EXEC_COMMAND_TOOL);
+    assert.equal(storeCalls.completeSubconsciousAgentForkToolExecution[0]?.status, 'completed');
+    assert.equal(storeCalls.enqueueQueueMessage.length, 1);
+    const enqueuedMessage = storeCalls.enqueueQueueMessage[0]?.message;
+    assert.match(enqueuedMessage.bodyForAgent, /我查到可以继续从图片任务的 pending 状态收束/);
+    assert.equal(enqueuedMessage.rawPayload.final_answer_text, '我查到可以继续从图片任务的 pending 状态收束，先把这个作为下一颗 seed。');
+    assert.doesNotMatch(enqueuedMessage.bodyForAgent, /image task pending status/);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.notifyQueueMessageId, 910);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.artifact?.fork_turn_count, 2);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.artifact?.fork_tool_call_count, 1);
+  } finally {
+    agentConfig.webSearchEnabled = previousWebSearchEnabled;
+  }
+});
+
+test('subconscious fork stops after five exec_command calls', async () => {
+  const previousWebSearchEnabled = agentConfig.webSearchEnabled;
+  agentConfig.webSearchEnabled = false;
+  const queuePayload = createRuntimeLoopPayload();
+  const runtimePrompt = createRuntimePrompt({
+    promptName: '小腻主AGENT',
+    promptId: 'prompt-subconscious-tool-limit'
+  });
+  const baseRequest = buildTestMainCanonicalRequest(
+    buildInitialInput([], queuePayload, runtimePrompt),
+    queuePayload,
+    runtimePrompt
+  );
+  const storeCalls: Record<string, any[]> = {
+    recordSubconsciousAgentForkRun: [],
+    appendSubconsciousAgentForkItems: [],
+    recordSubconsciousAgentForkSlice: [],
+    recordSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkToolExecution: [],
+    completeSubconsciousAgentForkRun: [],
+    enqueueQueueMessage: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    recordSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    appendSubconsciousAgentForkItems: async (params: any) => {
+      storeCalls.appendSubconsciousAgentForkItems.push(params);
+      return params.items.map((item: any, index: number) => ({
+        id: `${params.forkRunId}:item:${storeCalls.appendSubconsciousAgentForkItems.length}:${index}`,
+        itemIndex: index + (storeCalls.appendSubconsciousAgentForkItems.length * 10),
+        itemKind: item.itemKind,
+        toolCallId: item.toolCallId,
+        content: item.content
+      }));
+    },
+    recordSubconsciousAgentForkSlice: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkSlice.push(params);
+      return params;
+    },
+    recordSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.recordSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkToolExecution: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkToolExecution.push(params);
+      return params;
+    },
+    completeSubconsciousAgentForkRun: async (params: any) => {
+      storeCalls.completeSubconsciousAgentForkRun.push(params);
+      return params;
+    },
+    enqueueQueueMessage: async (params: any) => {
+      storeCalls.enqueueQueueMessage.push(params);
+      return { queueId: 913 };
+    },
+    getCurrentXiaoniEnergyState: async () => ({
+      energy: 0.8,
+      maxEnergy: 1
+    }),
+    logTimelineEvent: async (params: any) => {
+      storeCalls.logTimelineEvent.push(params);
+    }
+  } as any;
+  const service = new AgentLoopService(store);
+  const executedTools: any[] = [];
+  (service as any).executeSubconsciousAgentForkTurn = async (_request: any, _queueMessage: any, _runtimePrompt: any, forkTurn: number) => ({
+    success: true,
+    llm_call_id: `llm-subconscious-tool-limit-${forkTurn}`,
+    llm_request_slice_id: `slice-subconscious-tool-limit-${forkTurn}`,
+    model: 'gpt-test',
+    provider: 'codex-local',
+    canonical_response: {
+      output: [{
+        type: 'function_call',
+        call_id: `call-subconscious-tool-limit-${forkTurn}`,
+        name: EXEC_COMMAND_TOOL,
+        arguments: JSON.stringify({
+          cmd: 'printf seed',
+          max_output_tokens: 1000
+        })
+      }]
+    }
+  });
+  (service as any).executeTool = async (toolCall: any) => {
+    executedTools.push(toolCall);
+    return {
+      exit_code: 0,
+      stdout: 'seed',
+      stderr: '',
+      codex_output: 'seed'
+    };
+  };
+
+  try {
+    const enqueued = await (service as any).runSubconsciousAgentFork({
+      baseRequest,
+      queueMessage: queuePayload,
+      runtimePrompt,
+      contextSessionKey: 'xiaoni:test-global'
+    });
+
+    assert.equal(enqueued, false);
+    assert.equal(executedTools.length, 5);
+    assert.equal(storeCalls.enqueueQueueMessage.length, 0);
+    assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.status, 'failed');
+    assert.match(storeCalls.completeSubconsciousAgentForkRun[0]?.errorMessage, /exceeded 5 tool calls/);
+    assert.equal(storeCalls.logTimelineEvent.at(-1)?.metadata?.status, 'failed');
+  } finally {
+    agentConfig.webSearchEnabled = previousWebSearchEnabled;
+  }
 });
 
 test('recovery wake callback renders pre-sleep batch-final timeline from session metadata', async () => {

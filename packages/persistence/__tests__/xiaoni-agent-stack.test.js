@@ -19,6 +19,10 @@ function createMockSql() {
     imageForkRun: [],
     imageForkItem: [],
     imageForkSlice: [],
+    subconsciousForkRun: [],
+    subconsciousForkItem: [],
+    subconsciousForkSlice: [],
+    subconsciousForkTool: [],
     providerEvent: [],
     rollupSource: [],
     rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 3 }]
@@ -83,6 +87,29 @@ function createMockSql() {
         rows.forkRun.push(row);
         return [row];
       }
+      if (sql.includes('INSERT INTO subconscious_agent_fork_runs')) {
+        const row = {
+          id: 160,
+          fork_run_id: params[0],
+          identity_key: params[1],
+          context_session_key: params[2],
+          status: params[3],
+          trace_id: params[4],
+          run_id: params[5],
+          conversation_id: params[6],
+          notify_queue_message_id: params[7],
+          summary_text: params[8],
+          artifact: JSON.parse(params[9]),
+          error_message: params[10],
+          metadata: JSON.parse(params[11]),
+          started_at: params[12] || '2026-06-11T00:00:00.000Z',
+          completed_at: params[13],
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.subconsciousForkRun.push(row);
+        return [row];
+      }
       if (sql.includes('UPDATE core_memory_compression_fork_runs')) {
         const existing = rows.forkRun.find((row) => row.fork_run_id === params[6]) || rows.forkRun[0];
         const row = {
@@ -108,6 +135,32 @@ function createMockSql() {
         };
         rows.forkRun = rows.forkRun.filter((entry) => entry.fork_run_id !== row.fork_run_id);
         rows.forkRun.push(row);
+        return [row];
+      }
+      if (sql.includes('UPDATE subconscious_agent_fork_runs')) {
+        const existing = rows.subconsciousForkRun.find((row) => row.fork_run_id === params[7]) || rows.subconsciousForkRun[0];
+        const row = {
+          ...(existing || {
+            id: 160,
+            fork_run_id: params[7],
+            identity_key: 'xiaoni',
+            context_session_key: 'xiaoni:test-global',
+            trace_id: 'trace-1',
+            run_id: 'run-1',
+            conversation_id: null,
+            created_at: '2026-06-11T00:00:00.000Z'
+          }),
+          status: params[0],
+          notify_queue_message_id: params[1] ?? existing?.notify_queue_message_id ?? null,
+          summary_text: params[2] || existing?.summary_text || null,
+          artifact: JSON.parse(params[3]),
+          error_message: params[4],
+          metadata: JSON.parse(params[5]),
+          completed_at: params[6] || '2026-06-11T00:00:01.000Z',
+          updated_at: '2026-06-11T00:00:01.000Z'
+        };
+        rows.subconsciousForkRun = rows.subconsciousForkRun.filter((entry) => entry.fork_run_id !== row.fork_run_id);
+        rows.subconsciousForkRun.push(row);
         return [row];
       }
       if (sql.includes('FROM core_memory_compression_fork_runs')) {
@@ -142,6 +195,33 @@ function createMockSql() {
           updated_at: '2026-06-11T00:00:00.000Z'
         };
         rows.forkItem.push(row);
+        return [row];
+      }
+      if (sql.includes('INSERT INTO subconscious_agent_fork_items')) {
+        const row = {
+          id: forkItemId++,
+          event_id: params[0],
+          fork_run_id: params[1],
+          identity_key: params[2],
+          item_index: params[3],
+          item_kind: params[4],
+          role: params[5],
+          phase: params[6],
+          provider_item_id: params[7],
+          tool_call_id: params[8],
+          llm_request_slice_id: params[9],
+          content: JSON.parse(params[10]),
+          visibility: params[11],
+          source_type: params[12],
+          source_id: params[13],
+          trace_id: params[14],
+          run_id: params[15],
+          conversation_id: params[16],
+          metadata: JSON.parse(params[17]),
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.subconsciousForkItem.push(row);
         return [row];
       }
       if (sql.includes('INSERT INTO core_memory_compression_fork_slices')) {
@@ -181,6 +261,43 @@ function createMockSql() {
         rows.forkSlice.push(row);
         return [row];
       }
+      if (sql.includes('INSERT INTO subconscious_agent_fork_slices')) {
+        const row = {
+          id: 180,
+          slice_id: params[0],
+          fork_run_id: params[1],
+          llm_call_id: params[2],
+          identity_key: params[3],
+          input_start_index: params[4],
+          input_end_index: params[5],
+          input_stack_item_ids: JSON.parse(params[6]),
+          output_start_index: params[7],
+          output_end_index: params[8],
+          canonical_request: JSON.parse(params[9]),
+          wire_request: params[10] ? JSON.parse(params[10]) : null,
+          canonical_response: params[11] ? JSON.parse(params[11]) : null,
+          wire_response: params[12] ? JSON.parse(params[12]) : null,
+          raw_response: params[13] ? JSON.parse(params[13]) : null,
+          output_items: JSON.parse(params[14]),
+          status: params[15],
+          token_usage: JSON.parse(params[16]),
+          trace_id: params[17],
+          run_id: params[18],
+          conversation_id: params[19],
+          agent_turn: params[20],
+          model_name: params[21],
+          model_provider: params[22],
+          request_format_version: params[23],
+          wire_provider_format: params[24],
+          processing_time_ms: params[25],
+          metadata: JSON.parse(params[26]),
+          completed_at: params[27],
+          created_at: '2026-06-11T00:00:00.000Z',
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.subconsciousForkSlice.push(row);
+        return [row];
+      }
       if (sql.includes('INSERT INTO core_memory_compression_fork_tool_executions')) {
         const row = {
           id: 90,
@@ -210,6 +327,37 @@ function createMockSql() {
           updated_at: '2026-06-11T00:00:00.000Z'
         };
         rows.forkTool.push(row);
+        return [row];
+      }
+      if (sql.includes('INSERT INTO subconscious_agent_fork_tool_executions')) {
+        const row = {
+          id: 190,
+          execution_id: params[0],
+          fork_run_id: params[1],
+          identity_key: params[2],
+          llm_request_slice_id: params[3],
+          llm_call_id: params[4],
+          tool_call_id: params[5],
+          tool_name: params[6],
+          arguments: JSON.parse(params[7]),
+          raw_arguments: params[8],
+          result: JSON.parse(params[9]),
+          status: params[10],
+          error_message: params[11],
+          side_effect: params[12],
+          trace_id: params[13],
+          run_id: params[14],
+          conversation_id: params[15],
+          agent_turn: params[16],
+          stack_call_item_id: params[17],
+          stack_output_item_id: params[18],
+          metadata: JSON.parse(params[19]),
+          created_at: '2026-06-11T00:00:00.000Z',
+          started_at: '2026-06-11T00:00:00.000Z',
+          completed_at: params[21],
+          updated_at: '2026-06-11T00:00:00.000Z'
+        };
+        rows.subconsciousForkTool.push(row);
         return [row];
       }
       if (sql.includes('INSERT INTO image_vision_fork_slices')) {
@@ -262,6 +410,21 @@ function createMockSql() {
         };
         rows.forkTool = rows.forkTool.filter((entry) => entry.execution_id !== row.execution_id);
         rows.forkTool.push(row);
+        return [row];
+      }
+      if (sql.includes('UPDATE subconscious_agent_fork_tool_executions')) {
+        const existing = rows.subconsciousForkTool.find((row) => row.execution_id === params[5]) || rows.subconsciousForkTool[0];
+        const row = {
+          ...existing,
+          status: params[0],
+          result: JSON.parse(params[1]),
+          error_message: params[2],
+          stack_output_item_id: params[3],
+          completed_at: params[4] || '2026-06-11T00:00:01.000Z',
+          updated_at: '2026-06-11T00:00:01.000Z'
+        };
+        rows.subconsciousForkTool = rows.subconsciousForkTool.filter((entry) => entry.execution_id !== row.execution_id);
+        rows.subconsciousForkTool.push(row);
         return [row];
       }
       if (sql.includes('INSERT INTO agent_stack_items')) {
@@ -406,6 +569,13 @@ function createMockSql() {
         ) {
           return [];
         }
+        if (
+          sql.includes("source_kind = 'subconscious_agent_fork'")
+          && row.source_kind === 'subconscious_agent_fork'
+          && rows.subconsciousForkSlice.some((slice) => slice.llm_call_id === row.llm_call_id)
+        ) {
+          return [];
+        }
         return [{
           slice_id: row.event_id,
           source_kind: row.source_kind,
@@ -429,7 +599,9 @@ function createMockSql() {
           ? rows.forkSlice
           : sourceKind === 'image_vision_fork'
             ? rows.imageForkSlice
-            : rows.slice;
+            : sourceKind === 'subconscious_agent_fork'
+              ? rows.subconsciousForkSlice
+              : rows.slice;
         const row = sourceRows.find((entry) => entry.slice_id === sliceId);
         if (!row) {
           return [];
@@ -437,7 +609,7 @@ function createMockSql() {
         return [{
           slice_id: row.slice_id,
           source_kind: sourceKind,
-          fork_run_id: sourceKind === 'compression_fork' || sourceKind === 'image_vision_fork' ? row.fork_run_id : null,
+          fork_run_id: sourceKind === 'compression_fork' || sourceKind === 'image_vision_fork' || sourceKind === 'subconscious_agent_fork' ? row.fork_run_id : null,
           identity_key: row.identity_key,
           llm_call_id: row.llm_call_id,
           trace_id: row.trace_id,
@@ -477,6 +649,24 @@ function createMockSql() {
       if (sql.includes('FROM llm_usage_rollup_sources')) {
         return rows.rollupSource;
       }
+      if (sql.includes('FROM core_memory_compression_fork_items')) {
+        return rows.forkItem;
+      }
+      if (sql.includes('FROM subconscious_agent_fork_items')) {
+        return rows.subconsciousForkItem;
+      }
+      if (sql.includes('FROM image_vision_fork_items')) {
+        return rows.imageForkItem;
+      }
+      if (sql.includes('FROM core_memory_compression_fork_slices')) {
+        return rows.forkSlice.map((row) => ({ ...row, source_kind: 'compression_fork' }));
+      }
+      if (sql.includes('FROM subconscious_agent_fork_slices')) {
+        return rows.subconsciousForkSlice.map((row) => ({ ...row, source_kind: 'subconscious_agent_fork' }));
+      }
+      if (sql.includes('FROM image_vision_fork_slices')) {
+        return rows.imageForkSlice.map((row) => ({ ...row, source_kind: 'image_vision_fork' }));
+      }
       if (sql.includes('UPDATE llm_request_slices')) {
         const existing = rows.slice.find((row) => row.slice_id === params[6]) || rows.slice[0];
         if (!existing) {
@@ -496,6 +686,12 @@ function createMockSql() {
       }
       if (sql.includes('FROM llm_request_slices')) {
         return rows.slice;
+      }
+      if (sql.includes('FROM core_memory_compression_fork_tool_executions')) {
+        return rows.forkTool;
+      }
+      if (sql.includes('FROM subconscious_agent_fork_tool_executions')) {
+        return rows.subconsciousForkTool;
       }
       if (sql.includes('INSERT INTO tool_executions') || sql.includes('UPDATE tool_executions')) {
         const row = {
@@ -543,7 +739,7 @@ function createMockSql() {
   return executor;
 }
 
-test('ensureXiaoniAgentStackSchema creates main, compression fork, and image fork ledger tables', async () => {
+test('ensureXiaoniAgentStackSchema creates main and fork ledger tables', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -562,6 +758,97 @@ test('ensureXiaoniAgentStackSchema creates main, compression fork, and image for
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_runs/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_items/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS image_vision_fork_slices/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_runs/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_items/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_slices/);
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_tool_executions/);
+});
+
+test('subconscious agent fork ledger records natural-language notify linkage and usage source', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const run = await persistence.recordSubconsciousAgentForkRun({
+    forkRunId: 'subconscious-fork:run-1:test',
+    contextSessionKey: 'xiaoni:test-global',
+    status: 'running',
+    traceId: 'trace-sub',
+    runId: 'run-1',
+    metadata: { trigger: 'empty_notify_after_final_answer' }
+  });
+  const items = await persistence.appendSubconsciousAgentForkItems({
+    forkRunId: run.forkRunId,
+    traceId: 'trace-sub',
+    runId: 'run-1',
+    sourceType: 'subconscious_agent_fork_slices',
+    sourceId: 'sub-slice-1',
+    llmRequestSliceId: 'sub-slice-1',
+    items: [{
+      type: 'message',
+      role: 'assistant',
+      phase: 'final_answer',
+      content: [{ type: 'output_text', text: '继续看看昨晚留下的 seed。' }]
+    }]
+  });
+  const slice = await persistence.recordSubconsciousAgentForkSlice({
+    forkRunId: run.forkRunId,
+    sliceId: 'sub-slice-1',
+    llmCallId: 'llm-sub-1',
+    inputStartIndex: items[0].itemIndex,
+    inputEndIndex: items[0].itemIndex,
+    inputStackItemIds: [items[0].id],
+    outputStartIndex: items[0].itemIndex,
+    outputEndIndex: items[0].itemIndex,
+    canonicalRequest: { input: ['context'] },
+    canonicalResponse: { output: ['继续看看昨晚留下的 seed。'] },
+    outputItems: [{ type: 'message' }],
+    status: 'completed',
+    tokenUsage: { input_tokens: 12, output_tokens: 5 },
+    traceId: 'trace-sub',
+    runId: 'run-1',
+    agentTurn: 1,
+    modelName: 'gpt-test',
+    modelProvider: 'codex'
+  });
+  const tool = await persistence.recordSubconsciousAgentForkToolExecution({
+    forkRunId: run.forkRunId,
+    executionId: 'sub-tool-1',
+    llmRequestSliceId: slice.sliceId,
+    llmCallId: 'llm-sub-1',
+    toolCallId: 'call-sub-1',
+    toolName: 'web_search',
+    arguments: { q: 'fun seed' },
+    result: {},
+    status: 'running',
+    traceId: 'trace-sub',
+    runId: 'run-1',
+    agentTurn: 1
+  });
+  const completedTool = await persistence.completeSubconsciousAgentForkToolExecution({
+    executionId: tool.executionId,
+    status: 'completed',
+    result: { ok: true },
+    stackOutputItemId: items[0].id
+  });
+  const completed = await persistence.completeSubconsciousAgentForkRun({
+    forkRunId: run.forkRunId,
+    status: 'completed',
+    notifyQueueMessageId: 909,
+    summaryText: '继续看看昨晚留下的 seed。',
+    artifact: { notify_queue_message_id: 909 }
+  });
+
+  assert.equal(completed.notifyQueueMessageId, '909');
+  assert.equal(completed.summaryText, '继续看看昨晚留下的 seed。');
+  assert.equal(completedTool.status, 'completed');
+  assert.equal(slice.forkRunId, run.forkRunId);
+  assert.ok(sql.rows.rollupSource.some((row) =>
+    row.slice_id === 'sub-slice-1'
+    && row.source_kind === 'subconscious_agent_fork'
+    && row.fork_run_id === run.forkRunId
+    && row.input_tokens === 12
+    && row.output_tokens === 5
+  ));
 });
 
 test('appendAgentStackItems assigns monotonic identity-local stack indexes', async () => {
@@ -990,6 +1277,81 @@ test('listToolExecutions filters by tool name in persistence', async () => {
   assert.equal(rows[0].result.rest_rejected, true);
 });
 
+test('stack trace list APIs read subconscious fork ledger tables when sourceKind is provided', async () => {
+  const sql = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  await persistence.recordSubconsciousAgentForkRun({
+    forkRunId: 'subconscious-fork:run-1:seed',
+    contextSessionKey: 'xiaoni:test-global',
+    status: 'running',
+    traceId: 'trace-subconscious',
+    runId: 'run-subconscious'
+  });
+  await persistence.appendSubconsciousAgentForkItems({
+    forkRunId: 'subconscious-fork:run-1:seed',
+    traceId: 'trace-subconscious',
+    runId: 'run-subconscious',
+    llmRequestSliceId: 'sub-slice-1',
+    items: [{
+      itemKind: 'function_call',
+      toolCallId: 'call-subconscious',
+      content: { type: 'function_call', name: 'exec_command' }
+    }]
+  });
+  await persistence.recordSubconsciousAgentForkSlice({
+    forkRunId: 'subconscious-fork:run-1:seed',
+    sliceId: 'sub-slice-1',
+    llmCallId: 'sub-llm-1',
+    traceId: 'trace-subconscious',
+    runId: 'run-subconscious',
+    outputItems: [],
+    tokenUsage: { input_tokens: 1, output_tokens: 1 }
+  });
+  await persistence.recordSubconsciousAgentForkToolExecution({
+    forkRunId: 'subconscious-fork:run-1:seed',
+    executionId: 'sub-tool-1',
+    llmRequestSliceId: 'sub-slice-1',
+    llmCallId: 'sub-llm-1',
+    toolCallId: 'call-subconscious',
+    toolName: 'exec_command',
+    traceId: 'trace-subconscious',
+    runId: 'run-subconscious',
+    status: 'completed',
+    result: { stdout: 'seed' }
+  });
+
+  const slices = await persistence.listLlmRequestSlices({
+    identityKey: 'xiaoni',
+    sourceKind: 'subconscious_agent_fork',
+    forkRunId: 'subconscious-fork:run-1:seed',
+    sliceId: 'sub-slice-1',
+    limit: 1
+  });
+  const items = await persistence.listAgentStackItems({
+    identityKey: 'xiaoni',
+    sourceKind: 'subconscious_agent_fork',
+    forkRunId: 'subconscious-fork:run-1:seed',
+    llmRequestSliceId: 'sub-slice-1',
+    limit: 10
+  });
+  const tools = await persistence.listToolExecutions({
+    identityKey: 'xiaoni',
+    sourceKind: 'subconscious_agent_fork',
+    forkRunId: 'subconscious-fork:run-1:seed',
+    toolCallId: 'call-subconscious',
+    limit: 10
+  });
+
+  assert.equal(slices[0].sliceId, 'sub-slice-1');
+  assert.equal(slices[0].sourceKind, 'subconscious_agent_fork');
+  assert.equal(items[0].forkRunId, 'subconscious-fork:run-1:seed');
+  assert.equal(tools[0].forkRunId, 'subconscious-fork:run-1:seed');
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM subconscious_agent_fork_slices')));
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM subconscious_agent_fork_items')));
+  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM subconscious_agent_fork_tool_executions')));
+});
+
 test('listToolExecutions supports offset and occurred time filters', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
@@ -1138,7 +1500,7 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
   assert.deepEqual(query.params, ['xiaoni:test-global', '201', '30']);
 });
 
-test('attachConversationIdToAgentStackByTrace updates main stack, tools, and image fork rows', async () => {
+test('attachConversationIdToAgentStackByTrace updates main stack, tools, and fork rows', async () => {
   const sql = createMockSql();
   const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
 
@@ -1147,12 +1509,20 @@ test('attachConversationIdToAgentStackByTrace updates main stack, tools, and ima
     conversationId: '42'
   });
 
-  assert.equal(count, 7);
+  assert.equal(count, 15);
   const updates = sql.calls.filter((call) => call.kind === 'execute' && call.sql.includes('UPDATE '));
-  assert.equal(updates.length, 7);
+  assert.equal(updates.length, 15);
   assert.ok(updates.some((call) => call.sql.includes('agent_stack_items')));
   assert.ok(updates.some((call) => call.sql.includes('llm_request_slices')));
   assert.ok(updates.some((call) => call.sql.includes('tool_executions')));
+  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_runs')));
+  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_items')));
+  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_slices')));
+  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_tool_executions')));
+  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_runs')));
+  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_items')));
+  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_slices')));
+  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_tool_executions')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_runs')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_items')));
   assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_slices')));

@@ -68,7 +68,7 @@ test('runtime iteration claims and processes queued notify inside AgentLoopServi
   }]);
 });
 
-test('runtime iteration delegates no-notify continuation evaluation to the runtime frame path', async () => {
+test('runtime iteration blocks on empty notify and only schedules subconscious fork work', async () => {
   const processed: ProcessedRuntimeFrame[] = [];
   const calls: string[] = [];
   const service = new AgentLoopService({
@@ -80,25 +80,21 @@ test('runtime iteration delegates no-notify continuation evaluation to the runti
   (service as any).processRuntimeFrame = async (message: QueueMessageRecord, options: Record<string, unknown> = {}) => {
     processed.push({ message, options });
   };
+  (service as any).maybeRunSubconsciousAgentFork = async () => {
+    calls.push('fork-check');
+  };
 
   const processedResult = await (service as any).processRuntimeIteration({
     workerId: 'worker-1',
-    idleIntervalMs: 2000
+    idleIntervalMs: 2000,
+    sleepMs: async (ms: number) => {
+      calls.push(`sleep:${ms}`);
+    }
   });
 
   assert.equal(processedResult, undefined);
-  assert.deepEqual(calls, ['claim']);
-  assert.equal(processed.length, 1);
-  assert.equal(processed[0]?.message.payload.source, 'runtime_loop');
-  assert.equal(processed[0]?.message.queueMessageIds.length, 0);
-  assert.deepEqual(processed[0]?.options, {
-    queueBacked: false,
-    triggerInputMode: 'suppress_current_trigger',
-    appendRuntimeInputStackItem: false,
-    logQueueLifecycle: false,
-    initialLoopContinuation: [],
-    recoveryWakeCountStartQueueMessageId: 0
-  });
+  assert.deepEqual(calls, ['claim', 'fork-check', 'sleep:2000']);
+  assert.equal(processed.length, 0);
 });
 
 test('runtime loop owns the forever loop without sleeping between successful frames', async () => {
@@ -169,6 +165,9 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
   (service as any).processRuntimeFrame = async () => {
     stopped = true;
   };
+  (service as any).maybeRunSubconsciousAgentFork = async () => {
+    events.push('fork-check');
+  };
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
@@ -182,6 +181,7 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
     },
     sleepMs: async (ms) => {
       events.push(`sleep:${ms}`);
+      stopped = true;
     }
   });
 
@@ -191,6 +191,8 @@ test('runtime loop resolves stable prompt before the first runtime iteration', a
     'runtime-enabled',
     'busy:true',
     'claim',
+    'fork-check',
+    'sleep:2000',
     'busy:false'
   ]);
 });
@@ -237,6 +239,9 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
   (service as any).processRuntimeFrame = async () => {
     stopped = true;
   };
+  (service as any).maybeRunSubconsciousAgentFork = async () => {
+    events.push('fork-check');
+  };
 
   await service.runRuntimeLoop({
     workerId: 'worker-1',
@@ -250,11 +255,14 @@ test('runtime loop reports stale recovery errors and keeps the loop alive', asyn
     },
     sleepMs: async (ms) => {
       events.push(`sleep:${ms}`);
+      stopped = true;
     }
   });
 
   assert.deepEqual(events, [
-    'recovery failed'
+    'recovery failed',
+    'fork-check',
+    'sleep:2000'
   ]);
 });
 

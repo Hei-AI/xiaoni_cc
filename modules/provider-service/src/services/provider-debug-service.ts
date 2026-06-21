@@ -109,6 +109,9 @@ export function identityKeyForProviderUsage(sourceKind: string, replayIdentityKe
   if (sourceKind === 'image_vision_fork' || sourceKind === 'cache_heartbeat') {
     return 'xiaoni';
   }
+  if (sourceKind === 'subconscious_agent_fork') {
+    return 'xiaoni';
+  }
   return replayIdentityKey || 'xiaoni-internal';
 }
 
@@ -126,6 +129,8 @@ export function shouldRecordCodexProviderUsageEvent(params: {
   if (
     params.executionMode === 'core_memory_compression_fork_no_persist'
     || params.executionMode === 'core_memory_compression_fork'
+    || params.executionMode === 'subconscious_agent_fork_no_persist'
+    || params.executionMode === 'subconscious_agent_fork'
     || params.executionMode === 'image_vision_fork_no_persist'
     || params.executionMode === 'image_vision_fork'
   ) {

@@ -179,6 +179,20 @@ function parseQueryBoolean(value: unknown, fallback = false): boolean {
   return !['0', 'false', 'no', 'off'].includes(raw.toLowerCase());
 }
 
+function parseNonNegativeInteger(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  if (!/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  const parsed = Number.parseInt(value.trim(), 10);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function parseUsageBucket(value: unknown): 'call' | 'hour' | 'day' | 'month' {
   const raw = firstQueryString(value);
   return raw === 'hour' || raw === 'day' || raw === 'month' || raw === 'call'
@@ -194,7 +208,7 @@ async function resolveActionEventTraceTarget(
 }
 
 function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
-  if (target.sourceKind === 'compression_fork' || target.sourceKind === 'image_vision_fork') {
+  if (target.sourceKind === 'compression_fork' || target.sourceKind === 'subconscious_agent_fork' || target.sourceKind === 'image_vision_fork') {
     return true;
   }
 
@@ -207,6 +221,7 @@ function shouldUseStackTrace(target: ActionEventTraceTarget): boolean {
     || spanId.startsWith('tool-call:')
     || spanId.startsWith('tool-output:')
     || spanId.startsWith('compression-fork-')
+    || spanId.startsWith('subconscious-fork-')
     || spanId.startsWith('image-vision-fork-')
     || spanId.startsWith('provider-request:wire:');
 }
@@ -840,6 +855,18 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       }
       if (typeof body.postCompressionPauseArmed === 'boolean') {
         patch.postCompressionPauseArmed = body.postCompressionPauseArmed;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'mainAgentPreModelYieldMs')) {
+        const value = parseNonNegativeInteger(body.mainAgentPreModelYieldMs);
+        if (value === null) {
+          res.status(400).json({
+            success: false,
+            error: 'mainAgentPreModelYieldMs must be a non-negative integer millisecond value',
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        patch.mainAgentPreModelYieldMs = value;
       }
       const control = await updateAgentRuntimeControl(patch);
       res.json({

@@ -7,6 +7,7 @@ function isTruthyDatabaseBoolean(value) {
 }
 
 function normalizeRuntimeControl(row) {
+  const rawMainAgentPreModelYieldMs = Number.parseInt(String(row?.main_agent_pre_model_yield_ms ?? ''), 10);
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
@@ -16,6 +17,9 @@ function normalizeRuntimeControl(row) {
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
     postCompressionPauseReason: row?.post_compression_pause_reason || null,
+    mainAgentPreModelYieldMs: Number.isFinite(rawMainAgentPreModelYieldMs) && rawMainAgentPreModelYieldMs >= 0
+      ? rawMainAgentPreModelYieldMs
+      : 5000,
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -51,6 +55,7 @@ function createAgentRuntimeControlPersistence(deps) {
         post_compression_pause_armed_at TIMESTAMPTZ(3),
         post_compression_pause_triggered_at TIMESTAMPTZ(3),
         post_compression_pause_reason TEXT,
+        main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -60,6 +65,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_armed_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_triggered_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_reason TEXT');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000');
     await sql.execute(`
       DO $$
       BEGIN
@@ -138,6 +144,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , post_compression_pause_armed_at
             , post_compression_pause_triggered_at
             , post_compression_pause_reason
+            , main_agent_pre_model_yield_ms
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
@@ -168,6 +175,14 @@ function createAgentRuntimeControlPersistence(deps) {
       const postCompressionPauseArmed = hasPostCompressionPauseArmed
         ? (input.postCompressionPauseArmed ?? input.post_compression_pause_armed) === true
         : false;
+      const rawMainAgentPreModelYieldMs = input.mainAgentPreModelYieldMs ?? input.main_agent_pre_model_yield_ms;
+      const parsedMainAgentPreModelYieldMs = Number.parseInt(String(rawMainAgentPreModelYieldMs ?? ''), 10);
+      const hasMainAgentPreModelYieldMs = rawMainAgentPreModelYieldMs !== undefined
+        && Number.isFinite(parsedMainAgentPreModelYieldMs)
+        && parsedMainAgentPreModelYieldMs >= 0;
+      const mainAgentPreModelYieldMs = hasMainAgentPreModelYieldMs
+        ? parsedMainAgentPreModelYieldMs
+        : 5000;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -180,6 +195,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
+            main_agent_pre_model_yield_ms,
             updated_at
           )
           VALUES (
@@ -191,6 +207,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             NOW()
           )
           ON CONFLICT (identity_key)
@@ -225,12 +242,17 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? AND ? THEN NULL
               ELSE agent_runtime_control.post_compression_pause_reason
             END,
+            main_agent_pre_model_yield_ms = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.main_agent_pre_model_yield_ms
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
-            post_compression_pause_reason
+            post_compression_pause_reason,
+            main_agent_pre_model_yield_ms
         `,
         [
           identityKey,
@@ -239,6 +261,7 @@ function createAgentRuntimeControlPersistence(deps) {
           hasCacheHeartbeatPaused && cacheHeartbeatPaused,
           postCompressionPauseArmed,
           hasPostCompressionPauseArmed && postCompressionPauseArmed,
+          mainAgentPreModelYieldMs,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -252,7 +275,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasPostCompressionPauseArmed,
           postCompressionPauseArmed,
           hasPostCompressionPauseArmed,
-          postCompressionPauseArmed
+          postCompressionPauseArmed,
+          hasMainAgentPreModelYieldMs,
+          mainAgentPreModelYieldMs
         ]
       );
       return normalizeRuntimeControl(rows[0]);
@@ -309,7 +334,8 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
-            post_compression_pause_reason
+            post_compression_pause_reason,
+            main_agent_pre_model_yield_ms
         `,
         [identityKey, reason]
       );

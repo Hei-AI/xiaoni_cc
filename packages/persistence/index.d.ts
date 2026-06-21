@@ -876,6 +876,12 @@ export type XiaoniCoreMemoryCompressionForkSlice = XiaoniLlmRequestSlice & {
 export type XiaoniCoreMemoryCompressionForkToolExecution = XiaoniToolExecution & {
   forkRunId: string;
 };
+export type XiaoniSubconsciousAgentForkRun = Omit<XiaoniCoreMemoryCompressionForkRun, 'readCutoffAfterConversationId' | 'previousReadCutoffAfterConversationId'> & {
+  notifyQueueMessageId: string | null;
+};
+export type XiaoniSubconsciousAgentForkItem = XiaoniCoreMemoryCompressionForkItem;
+export type XiaoniSubconsciousAgentForkSlice = XiaoniCoreMemoryCompressionForkSlice;
+export type XiaoniSubconsciousAgentForkToolExecution = XiaoniCoreMemoryCompressionForkToolExecution;
 export type XiaoniImageVisionForkRun = {
   id: string | null;
   forkRunId: string;
@@ -1063,6 +1069,12 @@ export type XiaoniAgentStackPersistenceApi = {
   recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
   recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
   completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
+  recordSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
+  completeSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
+  appendSubconsciousAgentForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkItem[]>;
+  recordSubconsciousAgentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkSlice | null>;
+  recordSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
+  completeSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
   recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
   completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
   appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
@@ -1096,6 +1108,12 @@ export function appendCoreMemoryCompressionForkItems(input?: XiaoniAgentStackPer
 export function recordCoreMemoryCompressionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkSlice | null>;
 export function recordCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
 export function completeCoreMemoryCompressionForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCoreMemoryCompressionForkToolExecution | null>;
+export function recordSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
+export function completeSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
+export function appendSubconsciousAgentForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkItem[]>;
+export function recordSubconsciousAgentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkSlice | null>;
+export function recordSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
+export function completeSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
 export function recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
 export function completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
 export function appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
@@ -2227,6 +2245,7 @@ export type AgentRuntimeControlProjection = {
   postCompressionPauseArmedAt: string | null;
   postCompressionPauseTriggeredAt: string | null;
   postCompressionPauseReason: string | null;
+  mainAgentPreModelYieldMs: number;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;

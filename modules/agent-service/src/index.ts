@@ -15,6 +15,7 @@ const store = new RuntimeStore();
 const loopService = new AgentLoopService(store, undefined, {
   isRuntimeEnabled,
   isCacheHeartbeatPaused,
+  getMainAgentPreModelYieldMs,
   onCoreMemoryCompressionCommitted: triggerRuntimePauseAfterCoreMemoryCompression
 });
 const taskWorkerService = new AgentTaskWorkerService();
@@ -186,6 +187,21 @@ async function isCacheHeartbeatPaused() {
       error: error instanceof Error ? error.message : String(error)
     });
     return false;
+  }
+}
+
+async function getMainAgentPreModelYieldMs() {
+  try {
+    const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+    return Number.isFinite(control.mainAgentPreModelYieldMs) && control.mainAgentPreModelYieldMs >= 0
+      ? control.mainAgentPreModelYieldMs
+      : agentConfig.mainAgentPreModelYieldMs;
+  } catch (error) {
+    moduleLogger.warn('Failed to load Xiaoni main agent pre-model yield control; using fallback', {
+      error: error instanceof Error ? error.message : String(error),
+      fallbackMs: agentConfig.mainAgentPreModelYieldMs
+    });
+    return agentConfig.mainAgentPreModelYieldMs;
   }
 }
 

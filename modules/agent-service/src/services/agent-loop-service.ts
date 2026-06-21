@@ -102,6 +102,7 @@ const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionRem
 const OPENAI_CALL_ID_MAX_LENGTH = 64;
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
+const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
 
 type OpenResponseToolDefinition = {
   type: 'function';
@@ -270,6 +271,7 @@ type RecoverySessionHeartbeatState = {
 type AgentLoopServiceOptions = {
   isRuntimeEnabled?: () => boolean | Promise<boolean>;
   isCacheHeartbeatPaused?: () => boolean | Promise<boolean>;
+  getMainAgentPreModelYieldMs?: () => number | Promise<number>;
   onCoreMemoryCompressionCommitted?: (commit: CoreMemoryCompressionCommit) => void | Promise<void>;
   runtimePausePollMs?: number;
   preModelSliceYieldMs?: number;
@@ -279,6 +281,7 @@ type AgentLoopServiceOptions = {
 type AgentRuntimeIterationParams = {
   workerId: string;
   idleIntervalMs: number;
+  sleepMs?: (ms: number) => Promise<void>;
 };
 
 export type AgentRuntimeLoopParams = AgentRuntimeIterationParams & {
@@ -702,6 +705,8 @@ const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
+const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
+const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
 const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
   'Heartbeat.',
@@ -1874,6 +1879,30 @@ function buildCoreMemoryCompressionForkRequest(
   return forkRequest;
 }
 
+function buildSubconsciousAgentForkRequest(
+  baseRequest: CanonicalAgentTurnRequest,
+  forkTurn: number
+): CanonicalAgentTurnRequest {
+  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  forkRequest.parallel_tool_calls = false;
+  forkRequest.store = false;
+  forkRequest.input = normalizeResponseInputItems([
+    ...forkRequest.input,
+    buildDeveloperInputItem([renderSelfContinuationReminder()])
+  ]);
+  forkRequest.tools = agentConfig.webSearchEnabled ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL] : [EXEC_COMMAND_TOOL];
+  forkRequest.tool_choice = agentConfig.webSearchEnabled
+    ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }, { type: 'web_search' }], 'auto')
+    : buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }], 'auto');
+  forkRequest.metadata = {
+    ...(forkRequest.metadata || {}),
+    subconscious_agent_fork: 'true',
+    fork_turn: String(forkTurn),
+    no_persist: 'true'
+  };
+  return forkRequest;
+}
+
 function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
   const heartbeatRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   heartbeatRequest.input = normalizeResponseInputItems([
@@ -1946,7 +1975,15 @@ function buildImageVisionForkRequest(
     ...existingObservationReminder,
     buildImageVisionFileWriteReminder(outputPath)
   ];
-  forkRequest.tool_choice = narrowAllowedToolsToolChoice(forkRequest.tool_choice, [TOOL_NAMES.execCommand]);
+  const imageForkToolChoice = narrowAllowedToolsToolChoice(forkRequest.tool_choice, [TOOL_NAMES.execCommand]);
+  if (typeof imageForkToolChoice === 'object' && imageForkToolChoice.type === 'allowed_tools') {
+    forkRequest.tool_choice = {
+      ...imageForkToolChoice,
+      mode: 'required'
+    };
+  } else {
+    forkRequest.tool_choice = buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }]);
+  }
   forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
   forkRequest.metadata = {
@@ -2760,6 +2797,12 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
 
 function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
+}
+
+function renderSubconsciousAgentNotify(finalAnswerText: string) {
+  return renderPromptSnippet('subconscious_agent_notify.md', {
+    SUBCONSCIOUS_FINAL_ANSWER: finalAnswerText
+  });
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
@@ -4455,6 +4498,8 @@ export class AgentLoopService {
   private readonly coreMemoryCompressionForks = new Map<string, CoreMemoryCompressionForkState>();
   private cacheHeartbeatLastStartedAtMs = 0;
   private cacheHeartbeatInFlight: Promise<void> | null = null;
+  private subconsciousAgentForkBackoffUntilMs = 0;
+  private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -4535,7 +4580,21 @@ export class AgentLoopService {
   }
 
   private async yieldBeforeMainAgentModelSlice() {
-    const yieldMs = Math.max(0, this.options.preModelSliceYieldMs ?? agentConfig.mainAgentPreModelYieldMs);
+    let configuredYieldMs = this.options.preModelSliceYieldMs ?? agentConfig.mainAgentPreModelYieldMs;
+    if (typeof this.options.getMainAgentPreModelYieldMs === 'function') {
+      try {
+        const resolved = await this.options.getMainAgentPreModelYieldMs();
+        if (Number.isFinite(resolved) && resolved >= 0) {
+          configuredYieldMs = resolved;
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to load Xiaoni main agent pre-model yield; using fallback', {
+          error: error instanceof Error ? error.message : String(error),
+          fallbackMs: configuredYieldMs
+        });
+      }
+    }
+    const yieldMs = Math.max(0, Math.trunc(configuredYieldMs));
     if (yieldMs <= 0) {
       return;
     }
@@ -4606,10 +4665,11 @@ export class AgentLoopService {
   }
 
   private async processRuntimeIteration(params: AgentRuntimeIterationParams) {
+    const wait = params.sleepMs ?? sleep;
     const recoveryAction = await this.reconcileActiveRecoverySession(params);
     if (recoveryAction.status === 'active') {
       await this.scheduleCacheHeartbeatDuringRecovery(recoveryAction.session);
-      await sleep(params.idleIntervalMs);
+      await wait(params.idleIntervalMs);
       return;
     }
     await this.clearCacheHeartbeatRecoverySchedule(recoveryAction.session);
@@ -4619,6 +4679,27 @@ export class AgentLoopService {
 
     const queueMessage = await this.store.claimNextQueueMessage(params.workerId);
     if (!queueMessage) {
+      await this.maybeRunSubconsciousAgentFork(params, initialLoopContinuation);
+      await wait(params.idleIntervalMs);
+      return;
+    }
+
+    const recoveryWakeCountStartQueueMessageId = Math.max(
+      ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
+      0
+    );
+    await this.processRuntimeFrame(queueMessage, {
+      initialLoopContinuation,
+      initialLoopContinuationBeforeCurrentTrigger: initialLoopContinuation.length > 0,
+      recoveryWakeCountStartQueueMessageId
+    });
+  }
+
+  private async maybeRunSubconsciousAgentFork(
+    _params: AgentRuntimeIterationParams,
+    initialLoopContinuation: OpenResponseInputItem[]
+  ) {
+    if (initialLoopContinuation.length > 0) {
       const recoveryWakeCountStartQueueMessageId = await this.readRecoveryQueueHighWatermark();
       await this.processRuntimeFrame(buildRuntimeLoopFrameQueueMessage(), {
         queueBacked: false,
@@ -4631,14 +4712,69 @@ export class AgentLoopService {
       return;
     }
 
-    const recoveryWakeCountStartQueueMessageId = Math.max(
-      ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
-      0
-    );
-    await this.processRuntimeFrame(queueMessage, {
-      initialLoopContinuation,
-      initialLoopContinuationBeforeCurrentTrigger: initialLoopContinuation.length > 0,
-      recoveryWakeCountStartQueueMessageId
+    if (this.subconsciousAgentForkBackoffUntilMs > Date.now()) {
+      return;
+    }
+    if (this.subconsciousAgentForkInFlight) {
+      return;
+    }
+
+    const queueMessage = buildRuntimeLoopFrameQueueMessage();
+    const payload = queueMessage.payload;
+    const sessionIds = resolveSessionTargets(payload);
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
+    const history = await this.attachStackReplayItemsToHistory(await this.store.listRecentTurns({
+      userId: sessionIds.userId,
+      groupId: sessionIds.groupId,
+      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      scope: 'global'
+    }), payload.traceId);
+    const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
+    const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
+    const developerContextBlock = await this.buildDeveloperContextBlock(payload);
+    const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
+    const budgetPlan = await this.buildContextBudgetPlan({
+      history,
+      queueMessage: payload,
+      runtimePrompt,
+      loopContinuation: [],
+      runtimeIdentityFacts,
+      developerContextBlock,
+      runtimeEnergyState,
+      contextSessionKey,
+      cutoffState,
+      triggerInputMode: 'suppress_current_trigger',
+      appendSelfContinuationOnTerminalFinalAnswer: false,
+      loopContinuationBeforeCurrentTrigger: false
+    });
+    const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
+    if (!isAssistantFinalAnswerInputItem(lastInputItem)) {
+      return;
+    }
+
+    const fork = this.runSubconsciousAgentFork({
+      baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.requestInput, payload),
+      queueMessage: payload,
+      runtimePrompt,
+      contextSessionKey
+    });
+    this.subconsciousAgentForkInFlight = fork;
+    void fork.then((enqueued) => {
+      if (!enqueued) {
+        this.subconsciousAgentForkBackoffUntilMs = Date.now() + SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS;
+      }
+    }).catch((error) => {
+      this.subconsciousAgentForkBackoffUntilMs = Date.now() + SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS;
+      moduleLogger.warn('Background subconscious agent fork failed', {
+        traceId: payload.traceId,
+        runId: payload.runId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }).finally(() => {
+      if (this.subconsciousAgentForkInFlight === fork) {
+        this.subconsciousAgentForkInFlight = null;
+      }
     });
   }
 
@@ -5542,8 +5678,7 @@ export class AgentLoopService {
         });
       }
 
-      {
-        const turn = 1;
+      for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
         turnsExecuted = turn;
@@ -6006,23 +6141,45 @@ export class AgentLoopService {
             });
           }
         }
-        if (!leaseRelease) {
+        if (hasToolCall && deliveredMessages.length > 0 && !leaseRelease) {
+          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
+          if (deliveryState.deliveryPhase !== 'reasoning_open') {
+            leaseRelease = buildLeaseReleaseRecord({
+              reason: 'visible_delivery_committed',
+              detail: 'Visible delivery was committed; this frame yielded to the runtime loop without another model call.',
+              outcome: 'frame_yielded_after_visible_delivery',
+              noVisibleDelivery: false,
+              visibleDeliveryCommitted: true,
+              source: 'runtime:visible_delivery_frame_yield'
+            });
+          }
+        }
+        if (!leaseRelease && actionPlan.hasFinalAnswer) {
           leaseRelease = buildLeaseReleaseRecord({
             reason: deliveredMessages.length > 0 ? 'visible_delivery_committed' : 'runtime_frame_yielded',
             detail: deliveredMessages.length > 0
               ? 'Visible delivery was committed; this frame yielded to the runtime loop without another model call.'
-              : 'One runtime frame completed one model slice; control returns to the main runtime loop before any further model call.',
+              : 'Assistant final_answer reached; control returns to the Notify Bucket before any further main-agent model call.',
             outcome: deliveredMessages.length > 0
               ? 'frame_yielded_after_visible_delivery'
-              : hasToolCall
-                ? 'tool_outputs_appended'
-                : actionPlan.hasFinalAnswer
-                  ? 'final_answer_yielded'
-                  : 'model_slice_yielded',
+              : 'final_answer_yielded',
             noVisibleDelivery: deliveredMessages.length === 0,
             visibleDeliveryCommitted: deliveredMessages.length > 0,
             source: deliveredMessages.length > 0 ? 'runtime:visible_delivery_frame_yield' : 'runtime:frame_yield'
           });
+        }
+        if (!leaseRelease && !hasToolCall && replayableOutputs.length === 0) {
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: 'runtime_frame_yielded',
+            detail: 'Model slice returned no replayable output item; control returns to the runtime loop to avoid repeating an unchanged request.',
+            outcome: 'model_slice_yielded',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: 'runtime:empty_model_slice_yield'
+          });
+        }
+        if (!leaseRelease) {
+          continue;
         }
 
         await this.store.logTimelineEvent({
@@ -6032,6 +6189,7 @@ export class AgentLoopService {
           eventPhase: null,
           metadata: leaseRelease
         });
+        break;
       }
 
       const sentMessages = deliveredMessages.map((message) => message.content);
@@ -7625,6 +7783,129 @@ export class AgentLoopService {
     }
   }
 
+  private async recordSubconsciousAgentForkRunSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordSubconsciousAgentForkRun?: RuntimeStore['recordSubconsciousAgentForkRun'];
+    }).recordSubconsciousAgentForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record subconscious agent fork run', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeSubconsciousAgentForkRunSafe(params: Parameters<RuntimeStore['completeSubconsciousAgentForkRun']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeSubconsciousAgentForkRun?: RuntimeStore['completeSubconsciousAgentForkRun'];
+    }).completeSubconsciousAgentForkRun;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete subconscious agent fork run', {
+        forkRunId: params.forkRunId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async appendSubconsciousAgentForkItemsSafe(params: Parameters<RuntimeStore['appendSubconsciousAgentForkItems']>[0]) {
+    const appender = (this.store as RuntimeStore & {
+      appendSubconsciousAgentForkItems?: RuntimeStore['appendSubconsciousAgentForkItems'];
+    }).appendSubconsciousAgentForkItems;
+    if (typeof appender !== 'function' || params.items.length === 0) {
+      return [];
+    }
+    try {
+      return await appender.call(this.store, params) as Array<Record<string, unknown>>;
+    } catch (error) {
+      moduleLogger.warn('Failed to append subconscious agent fork items', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        itemCount: params.items.length,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  private async recordSubconsciousAgentForkSliceSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkSlice']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordSubconsciousAgentForkSlice?: RuntimeStore['recordSubconsciousAgentForkSlice'];
+    }).recordSubconsciousAgentForkSlice;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record subconscious agent fork slice', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        sliceId: params.sliceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async recordSubconsciousAgentForkToolExecutionSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordSubconsciousAgentForkToolExecution?: RuntimeStore['recordSubconsciousAgentForkToolExecution'];
+    }).recordSubconsciousAgentForkToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record subconscious agent fork tool execution', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        executionId: params.executionId,
+        toolName: params.toolName,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  private async completeSubconsciousAgentForkToolExecutionSafe(params: Parameters<RuntimeStore['completeSubconsciousAgentForkToolExecution']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      completeSubconsciousAgentForkToolExecution?: RuntimeStore['completeSubconsciousAgentForkToolExecution'];
+    }).completeSubconsciousAgentForkToolExecution;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to complete subconscious agent fork tool execution', {
+        executionId: params.executionId,
+        status: params.status,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private async resolveCoreMemoryCompressionCommitCutoff(compression: CoreMemoryCompressionPlan): Promise<number | null> {
     const plannedCutoffId = compression.readCutoffAfterConversationId;
     if (typeof plannedCutoffId !== 'number' || !Number.isFinite(plannedCutoffId)) {
@@ -7792,6 +8073,426 @@ export class AgentLoopService {
       });
     }
     return commit;
+  }
+
+  private async runSubconsciousAgentFork(params: {
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    contextSessionKey: string;
+	  }): Promise<boolean> {
+    const forkRunId = `subconscious-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+    const baseForkMetadata = {
+      trigger: 'empty_notify_after_final_answer',
+      context_session_key: params.contextSessionKey,
+      no_main_stack_persist: true,
+      no_traffic_persist: true
+    };
+
+    await this.recordSubconsciousAgentForkRunSafe({
+      forkRunId,
+      contextSessionKey: params.contextSessionKey,
+      status: 'running',
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      metadata: baseForkMetadata
+    });
+    await this.store.logTimelineEvent({
+      traceId: params.queueMessage.traceId,
+      eventType: 'decision',
+      eventName: 'subconscious_agent_fork',
+      eventPhase: 'start',
+      metadata: {
+        fork_run_id: forkRunId,
+        no_main_stack_persist: true
+      }
+    });
+
+    try {
+      const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
+      let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1).input;
+      let forkToolCallCount = 0;
+      let lastForkSliceId: string | null = null;
+      let lastLlmCallId: string | null = null;
+
+      for (let forkTurn = 1; forkTurn <= SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES; forkTurn += 1) {
+        const forkRequest = buildSubconsciousAgentForkRequest(params.baseRequest, forkTurn);
+        forkRequest.input = normalizeResponseInputItems(forkInput);
+        await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+        const modelResult = await this.executeSubconsciousAgentForkTurn(
+          forkRequest,
+          params.queueMessage,
+          params.runtimePrompt,
+          forkTurn
+        );
+        const forkSliceId = modelResult.llm_request_slice_id
+          || modelResult.llm_call_id
+          || `subconscious-fork-slice:${forkRunId}:${forkTurn}`;
+        lastForkSliceId = forkSliceId;
+        lastLlmCallId = modelResult.llm_call_id || null;
+        const inputRows = await this.appendSubconsciousAgentForkItemsSafe({
+          forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'subconscious_agent_fork_slices',
+          sourceId: forkSliceId,
+          llmRequestSliceId: forkSliceId,
+          items: [buildForkInputStackItem({
+            forkRunId,
+            sliceId: forkSliceId,
+            forkTurn,
+            source: 'subconscious_agent_fork_input',
+            inputItems: forkRequest.input
+          }) as Record<string, unknown>]
+        });
+        const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        const outputRows = await this.appendSubconsciousAgentForkItemsSafe({
+          forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          sourceType: 'subconscious_agent_fork_slices',
+          sourceId: forkSliceId,
+          llmRequestSliceId: forkSliceId,
+          items: buildModelOutputStackItems(outputItems, forkSliceId) as Array<Record<string, unknown>>
+        });
+        const outputItemIndexes = outputRows
+          .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+          .filter((value) => Number.isFinite(value));
+        const inputItemIndexes = inputRows
+          .map((row) => Number((row as { itemIndex?: unknown }).itemIndex))
+          .filter((value) => Number.isFinite(value));
+        const inputStackItemIds = inputRows
+          .map((row) => (row as { id?: unknown }).id)
+          .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number');
+        const toolCallForkItemIdByCallId = new Map<string, string | number>();
+        for (const row of outputRows) {
+          const toolCallId = typeof (row as { toolCallId?: unknown }).toolCallId === 'string'
+            ? (row as { toolCallId: string }).toolCallId
+            : null;
+          const itemKind = typeof (row as { itemKind?: unknown }).itemKind === 'string'
+            ? (row as { itemKind: string }).itemKind
+            : null;
+          const id = (row as { id?: unknown }).id;
+          if (toolCallId && itemKind === 'function_call' && (typeof id === 'string' || typeof id === 'number')) {
+            toolCallForkItemIdByCallId.set(toolCallId, id);
+          }
+        }
+
+        await this.recordSubconsciousAgentForkSliceSafe({
+          forkRunId,
+          sliceId: forkSliceId,
+          llmCallId: modelResult.llm_call_id || null,
+          inputStartIndex: inputItemIndexes.length > 0 ? Math.min(...inputItemIndexes) : null,
+          inputEndIndex: inputItemIndexes.length > 0 ? Math.max(...inputItemIndexes) : null,
+          inputStackItemIds,
+          outputStartIndex: outputItemIndexes.length > 0 ? Math.min(...outputItemIndexes) : null,
+          outputEndIndex: outputItemIndexes.length > 0 ? Math.max(...outputItemIndexes) : null,
+          canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+          wireRequest: modelResult.wire_request || null,
+          canonicalResponse: modelResult.canonical_response || null,
+          wireResponse: modelResult.wire_response || null,
+          rawResponse: modelResult.raw_response || null,
+          outputItems,
+          status: modelResult.success ? 'completed' : 'failed',
+          tokenUsage: buildProviderTokenUsage(modelResult),
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          agentTurn: forkTurn,
+          modelName: modelResult.model || params.runtimePrompt.modelName,
+          modelProvider: modelResult.provider || null,
+          requestFormatVersion: modelResult.request_format_version || null,
+          wireProviderFormat: modelResult.wire_provider_format || null,
+          processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+          metadata: {
+            ...baseForkMetadata,
+            ...buildProviderWireMetadata(modelResult),
+            fork_run_id: forkRunId,
+            fork_turn: forkTurn,
+            execution_mode: 'subconscious_agent_fork'
+          }
+        });
+
+        const naturalLanguage = extractSubconsciousNaturalLanguage(outputItems);
+        if (naturalLanguage) {
+          const notifyQueueMessage = await this.enqueueSubconsciousAgentNotify({
+            forkRunId,
+            forkSliceId,
+            llmCallId: modelResult.llm_call_id || null,
+            traceId: params.queueMessage.traceId,
+            runId: params.queueMessage.runId,
+            text: naturalLanguage
+          });
+          const notifyQueueMessageId = Number(notifyQueueMessage?.queueId || 0) || null;
+          await this.completeSubconsciousAgentForkRunSafe({
+            forkRunId,
+            status: 'completed',
+            notifyQueueMessageId,
+            summaryText: naturalLanguage,
+            artifact: {
+              notify_queue_message_id: notifyQueueMessageId,
+              llm_request_slice_id: forkSliceId,
+              llm_call_id: modelResult.llm_call_id || null,
+              text_length: naturalLanguage.length,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount
+            },
+            metadata: baseForkMetadata
+          });
+          await this.store.logTimelineEvent({
+            traceId: params.queueMessage.traceId,
+            eventType: 'decision',
+            eventName: 'subconscious_agent_fork',
+            eventPhase: 'end',
+            metadata: {
+              status: 'completed',
+              fork_run_id: forkRunId,
+              notify_queue_message_id: notifyQueueMessageId,
+              llm_request_slice_id: forkSliceId,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount
+            }
+          });
+          return true;
+        }
+
+        const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
+        if (!actionPlan.hasToolCall) {
+          for (const replayItem of actionPlan.replayableOutputs) {
+            forkInput.push(replayItem.inputItem as OpenResponseInputItem);
+          }
+          continue;
+        }
+
+        for (const replayItem of actionPlan.replayableOutputs) {
+          forkInput.push(replayItem.inputItem);
+          if (!isReplayableToolCall(replayItem)) {
+            continue;
+          }
+          const toolCall = replayItem.toolCall;
+          forkToolCallCount += 1;
+          if (forkToolCallCount > SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS) {
+            throw new Error(`subconscious agent fork exceeded ${SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS} tool calls`);
+          }
+          const forkToolExecutionId = `subconscious-fork-tool:${forkRunId}:${toolCall.callId}`;
+          await this.recordSubconsciousAgentForkToolExecutionSafe({
+            forkRunId,
+            executionId: forkToolExecutionId,
+            llmRequestSliceId: forkSliceId,
+            llmCallId: modelResult.llm_call_id || null,
+            toolCallId: toolCall.callId,
+            toolName: toolCall.name,
+            arguments: toolCall.args,
+            rawArguments: toolCall.rawArguments,
+            status: 'running',
+            sideEffect: isToolCallSideEffecting(toolCall),
+            traceId: params.queueMessage.traceId,
+            runId: params.queueMessage.runId,
+            agentTurn: forkTurn,
+            stackCallItemId: toolCallForkItemIdByCallId.get(toolCall.callId) || null,
+            metadata: {
+              ...baseForkMetadata,
+              fork_turn: forkTurn,
+              model_name: params.runtimePrompt.modelName,
+              session_key: params.queueMessage.sessionKey,
+              chat_type: params.queueMessage.chatType
+            }
+          });
+
+          let rawToolResult: Record<string, unknown>;
+          let toolStatus: 'completed' | 'failed' = 'completed';
+          let toolErrorMessage: string | null = null;
+          try {
+            if (!allowedToolNames.has(toolCall.name)) {
+              throw new Error(`subconscious agent fork tried unsupported tool: ${toolCall.name}`);
+            }
+            rawToolResult = await this.executeTool(toolCall, params.queueMessage, {
+              currentCanonicalRequest: forkRequest
+            });
+          } catch (error) {
+            rawToolResult = buildToolErrorResult(toolCall, error);
+            toolStatus = 'failed';
+            toolErrorMessage = String(rawToolResult.error_message || rawToolResult.error || 'Tool execution failed');
+          }
+
+          const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
+          const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
+            loopInput: forkInput,
+            speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+            hasVisibleReply: false,
+            runtimeEnergyState
+          });
+          if (continuation.forcedVisibleReply) {
+            rawToolResult = {
+              ...rawToolResult,
+              forced_visible_reply_rejected: true,
+              error_message: 'subconscious agent fork cannot force visible delivery'
+            };
+            toolStatus = 'failed';
+            toolErrorMessage = 'subconscious agent fork cannot force visible delivery';
+          }
+          const toolOutputRows = await this.appendSubconsciousAgentForkItemsSafe({
+            forkRunId,
+            traceId: params.queueMessage.traceId,
+            runId: params.queueMessage.runId,
+            sourceType: 'subconscious_agent_fork_tool_executions',
+            sourceId: forkToolExecutionId,
+            llmRequestSliceId: forkSliceId,
+            items: buildToolResultStackItems({
+              toolCall,
+              toolResult: rawToolResult,
+              continuationItems: continuation.inputItems,
+              llmRequestSliceId: forkSliceId
+            }) as Array<Record<string, unknown>>
+          });
+          await this.completeSubconsciousAgentForkToolExecutionSafe({
+            executionId: forkToolExecutionId,
+            status: toolStatus,
+            result: rawToolResult,
+            errorMessage: toolErrorMessage,
+            stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
+          });
+          forkInput.push(...continuation.inputItems);
+        }
+      }
+
+      await this.completeSubconsciousAgentForkRunSafe({
+        forkRunId,
+        status: 'completed',
+        summaryText: null,
+        artifact: {
+          no_stimulus: true,
+          max_turns_exhausted: true,
+          llm_request_slice_id: lastForkSliceId,
+          llm_call_id: lastLlmCallId,
+          fork_turn_count: SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES,
+          fork_tool_call_count: forkToolCallCount
+        },
+        metadata: baseForkMetadata
+      });
+      await this.store.logTimelineEvent({
+        traceId: params.queueMessage.traceId,
+        eventType: 'decision',
+        eventName: 'subconscious_agent_fork',
+        eventPhase: 'end',
+        metadata: {
+          status: 'no_stimulus',
+          reason: 'max_turns_exhausted',
+          fork_run_id: forkRunId,
+          llm_request_slice_id: lastForkSliceId,
+          fork_tool_call_count: forkToolCallCount
+        }
+      });
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.completeSubconsciousAgentForkRunSafe({
+        forkRunId,
+        status: 'failed',
+        errorMessage: message,
+        metadata: baseForkMetadata
+      });
+      await this.store.logTimelineEvent({
+        traceId: params.queueMessage.traceId,
+        eventType: 'decision',
+        eventName: 'subconscious_agent_fork',
+        eventPhase: 'end',
+        metadata: {
+          status: 'failed',
+          fork_run_id: forkRunId,
+          error_message: message
+        }
+      });
+      return false;
+    }
+  }
+
+  private async enqueueSubconsciousAgentNotify(params: {
+    forkRunId: string;
+    forkSliceId: string;
+    llmCallId: string | null;
+    traceId: string;
+    runId: string;
+    text: string;
+  }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      throw new Error('subconscious agent notify requires queue enqueue persistence');
+    }
+    const now = new Date();
+    const messageSid = `subconscious-agent:${params.forkRunId}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = renderSubconsciousAgentNotify(params.text);
+    const rawPayload = {
+      reason: 'subconscious_agent',
+      fork_run_id: params.forkRunId,
+      fork_slice_id: params.forkSliceId,
+      llm_call_id: params.llmCallId,
+      final_answer_text: params.text,
+      notify_template: 'subconscious_agent_notify.md',
+      source_trace_id: params.traceId,
+      source_run_id: params.runId
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'subconscious_agent',
+        sourceTraceId: params.traceId,
+        sourceRunId: params.runId,
+        sourceLlmCallId: params.llmCallId,
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      },
+      subconsciousAgent: rawPayload
+    };
+
+    return enqueuer.call(this.store, {
+      message: {
+        traceId: params.traceId,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
   }
 
   private async scheduleCoreMemoryCompressionFork(params: {
@@ -8346,6 +9047,39 @@ export class AgentLoopService {
     const payload = await response.json() as ProviderAgentResponse;
     if (!response.ok || !payload.success) {
       throw new Error(payload.error || `Provider compression fork execute failed with ${response.status}`);
+    }
+
+    return payload;
+  }
+
+  private async executeSubconsciousAgentForkTurn(
+    canonicalRequest: CanonicalAgentTurnRequest,
+    queueMessage: QueueMessageRecord['payload'],
+    runtimePrompt: ResolvedAgentRuntimePrompt,
+    forkTurn: number
+  ) {
+    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [NO_TRAFFIC_PERSIST_HEADER]: '1'
+      },
+      body: JSON.stringify({
+        trace_id: queueMessage.traceId,
+        run_id: queueMessage.runId,
+        agent_turn: forkTurn,
+        agent_type: 'subconscious_agent',
+        prompt_name: `${runtimePrompt.promptName}:subconscious_agent`,
+        executionMode: 'subconscious_agent_fork_no_persist',
+        model: runtimePrompt.modelName,
+        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+        canonicalRequest
+      })
+    });
+
+    const payload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || `Provider subconscious fork execute failed with ${response.status}`);
     }
 
     return payload;
@@ -9765,6 +10499,14 @@ function isDeletedFinalAnswerReminderPayload(queueMessage: QueueMessageRecord['p
   return reason === 'final_answer_idle' || reason === 'final_answer_turn_control';
 }
 
+function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  return reason === 'subconscious_agent';
+}
+
 function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['payload']) {
   return isPhoneNotificationPayload(queueMessage)
     || isImageTaskNotificationPayload(queueMessage)
@@ -9949,6 +10691,28 @@ function extractCanonicalResponseOutputItems(modelResult: ProviderAgentResponse)
   return output
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
     .map((item) => ({ ...item }));
+}
+
+function extractSubconsciousNaturalLanguage(outputItems: Array<Record<string, unknown>>): string | null {
+  for (let index = outputItems.length - 1; index >= 0; index -= 1) {
+    const item = outputItems[index]!;
+    if (item.type !== 'message' || item.role !== 'assistant' || item.phase !== 'final_answer') {
+      continue;
+    }
+    const content = item.content;
+    const text = typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? flattenMessageContent(content as OpenResponseInputContentPart[])
+        : typeof item.text === 'string'
+          ? item.text
+          : '';
+    const normalized = stripRuntimeTextEast8TimePrefix(text).trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
 }
 
 function stackKindForModelOutputItem(item: Record<string, unknown>) {
@@ -10491,7 +11255,7 @@ function buildCurrentTurnInputItems(
     : currentMessages;
 
   return renderedMessages.filter((message) => message.trim()).map((message) => (
-    isRuntimeReminder
+    isRuntimeReminder && !isSubconsciousAgentNotifyPayload(queueMessage)
       ? buildDeveloperInputItem([message])
       : buildUserSceneInputItem([message])
   ));

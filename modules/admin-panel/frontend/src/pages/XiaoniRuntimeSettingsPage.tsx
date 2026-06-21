@@ -7,6 +7,7 @@ import { SectionPanel } from '@/components/console/SectionPanel';
 import { ErrorState } from '@/components/console/ErrorState';
 import { StatusPill } from '@/components/console/StatusPill';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { formatTimestamp } from '@/lib/utils';
 
@@ -25,6 +26,7 @@ type RuntimeControl = {
   postCompressionPauseArmedAt: string | null;
   postCompressionPauseTriggeredAt: string | null;
   postCompressionPauseReason: string | null;
+  mainAgentPreModelYieldMs: number;
   updatedAt: string | null;
 };
 
@@ -37,7 +39,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs'>>;
 
 async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
@@ -54,6 +56,7 @@ async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<Runtime
 
 export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const [yieldInput, setYieldInput] = React.useState('');
   const controlQuery = useQuery({
     queryKey: ['xiaoni-runtime-control'],
     queryFn: fetchRuntimeControl,
@@ -77,6 +80,19 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const postCompressionPauseArmed = typeof pendingPatch?.postCompressionPauseArmed === 'boolean'
     ? pendingPatch.postCompressionPauseArmed
     : control?.postCompressionPauseArmed ?? false;
+  const currentYieldMs = typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
+    ? pendingPatch.mainAgentPreModelYieldMs
+    : control?.mainAgentPreModelYieldMs ?? 5000;
+  React.useEffect(() => {
+    if (!mutation.isPending && typeof control?.mainAgentPreModelYieldMs === 'number') {
+      setYieldInput(String(control.mainAgentPreModelYieldMs));
+    }
+  }, [control?.mainAgentPreModelYieldMs, mutation.isPending]);
+  const parsedYieldMs = /^\d+$/.test(yieldInput.trim())
+    ? Number.parseInt(yieldInput.trim(), 10)
+    : null;
+  const yieldInputValid = parsedYieldMs !== null && Number.isSafeInteger(parsedYieldMs);
+  const yieldInputDirty = yieldInputValid && parsedYieldMs !== currentYieldMs;
   const updatedAt = control?.updatedAt ? formatTimestamp(control.updatedAt, { fallback: control.updatedAt }) : '默认开启';
   const cacheHeartbeatPausedAt = control?.cacheHeartbeatPausedAt
     ? formatTimestamp(control.cacheHeartbeatPausedAt, { fallback: control.cacheHeartbeatPausedAt })
@@ -90,6 +106,13 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const runtimeStatusLabel = !enabled
     ? '已暂停'
     : postCompressionPauseArmed ? '运行中 · 已设闸' : '运行中';
+  const handleYieldSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!yieldInputValid || parsedYieldMs === null) {
+      return;
+    }
+    mutation.mutate({ mainAgentPreModelYieldMs: parsedYieldMs });
+  }, [mutation, parsedYieldMs, yieldInputValid]);
 
   return (
     <PageShell className="max-w-4xl">
@@ -137,6 +160,42 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
             />
           </div>
         </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="主模型 Yield"
+        description="主 agent 每次发起模型 slice 前的等待时间。"
+        icon={<TimerReset className="h-4 w-4 text-primary" />}
+      >
+        <form className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between" onSubmit={handleYieldSubmit}>
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">模型前等待</div>
+            <div className="text-sm text-muted-foreground">当前值：{currentYieldMs} ms</div>
+            <div className="text-xs text-muted-foreground">单位：毫秒</div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-56">
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              inputMode="numeric"
+              value={yieldInput}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onChange={(event) => setYieldInput(event.target.value)}
+              aria-label="模型前等待毫秒"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={controlQuery.isLoading || mutation.isPending || !yieldInputValid || !yieldInputDirty}
+            >
+              {mutation.isPending && typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : null}
+              保存
+            </Button>
+          </div>
+        </form>
       </SectionPanel>
 
       <SectionPanel

@@ -112,6 +112,7 @@ model AgentRuntimeControl {
   post_compression_pause_armed_at     DateTime? @db.Timestamptz(3)
   post_compression_pause_triggered_at DateTime? @db.Timestamptz(3)
   post_compression_pause_reason       String?
+  main_agent_pre_model_yield_ms       Int       @default(5000)
   updated_at                          DateTime  @default(now()) @db.Timestamptz(3)
 
   @@map("agent_runtime_control")
@@ -643,6 +644,130 @@ model CoreMemoryCompressionForkToolExecution {
   @@index([tool_call_id], map: "idx_core_memory_fork_tool_call")
   @@index([llm_request_slice_id], map: "idx_core_memory_fork_tool_slice")
   @@map("core_memory_compression_fork_tool_executions")
+}
+
+model SubconsciousAgentForkRun {
+  id                      BigInt    @id @default(autoincrement()) @db.BigInt
+  fork_run_id             String    @unique @db.VarChar(191)
+  identity_key            String    @default("xiaoni") @db.VarChar(191)
+  context_session_key     String?   @db.VarChar(191)
+  status                  String    @default("running") @db.VarChar(32)
+  trace_id                String?   @db.VarChar(128)
+  run_id                  String?   @db.VarChar(128)
+  conversation_id         BigInt?   @db.BigInt
+  notify_queue_message_id BigInt?   @db.BigInt
+  summary_text            String?
+  artifact                Json      @default("{}")
+  error_message           String?
+  metadata                Json      @default("{}")
+  started_at              DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at            DateTime? @db.Timestamptz(3)
+  created_at              DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at              DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([trace_id, started_at, id], map: "idx_subconscious_fork_runs_trace")
+  @@index([run_id, started_at, id], map: "idx_subconscious_fork_runs_run")
+  @@map("subconscious_agent_fork_runs")
+}
+
+model SubconsciousAgentForkItem {
+  id                   BigInt   @id @default(autoincrement()) @db.BigInt
+  event_id             String   @unique @db.VarChar(191)
+  fork_run_id          String   @db.VarChar(191)
+  identity_key         String   @default("xiaoni") @db.VarChar(191)
+  item_index           BigInt   @db.BigInt
+  item_kind            String   @db.VarChar(64)
+  role                 String?  @db.VarChar(32)
+  phase                String?  @db.VarChar(32)
+  provider_item_id     String?  @db.VarChar(191)
+  tool_call_id         String?  @db.VarChar(191)
+  llm_request_slice_id String?  @db.VarChar(191)
+  content              Json     @default("{}")
+  visibility           String   @default("model_visible") @db.VarChar(32)
+  source_type          String?  @db.VarChar(64)
+  source_id            String?  @db.VarChar(191)
+  trace_id             String?  @db.VarChar(128)
+  run_id               String?  @db.VarChar(128)
+  conversation_id      BigInt?  @db.BigInt
+  metadata             Json     @default("{}")
+  created_at           DateTime @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([fork_run_id, item_index], map: "uniq_subconscious_fork_items_run_index")
+  @@index([fork_run_id, item_index], map: "idx_subconscious_fork_items_run_index")
+  @@index([tool_call_id], map: "idx_subconscious_fork_items_tool_call")
+  @@index([llm_request_slice_id], map: "idx_subconscious_fork_items_slice")
+  @@map("subconscious_agent_fork_items")
+}
+
+model SubconsciousAgentForkSlice {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  slice_id               String    @unique @db.VarChar(191)
+  fork_run_id            String    @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  input_start_index      BigInt?   @db.BigInt
+  input_end_index        BigInt?   @db.BigInt
+  input_stack_item_ids   Json      @default("[]")
+  output_start_index     BigInt?   @db.BigInt
+  output_end_index       BigInt?   @db.BigInt
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  conversation_id        BigInt?   @db.BigInt
+  agent_turn             Int?
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  request_format_version String?   @db.VarChar(64)
+  wire_provider_format   String?   @db.VarChar(128)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([fork_run_id, agent_turn, id], map: "idx_subconscious_fork_slices_run_turn")
+  @@map("subconscious_agent_fork_slices")
+}
+
+model SubconsciousAgentForkToolExecution {
+  id                   BigInt    @id @default(autoincrement()) @db.BigInt
+  execution_id         String    @unique @db.VarChar(191)
+  fork_run_id          String    @db.VarChar(191)
+  identity_key         String    @default("xiaoni") @db.VarChar(191)
+  llm_request_slice_id String?   @db.VarChar(191)
+  llm_call_id          String?   @db.VarChar(128)
+  tool_call_id         String?   @db.VarChar(191)
+  tool_name            String    @db.VarChar(191)
+  arguments            Json      @default("{}")
+  raw_arguments        String?
+  result               Json      @default("{}")
+  status               String    @default("running") @db.VarChar(32)
+  error_message        String?
+  side_effect          Boolean   @default(false)
+  trace_id             String?   @db.VarChar(128)
+  run_id               String?   @db.VarChar(128)
+  conversation_id      BigInt?   @db.BigInt
+  agent_turn           Int?
+  stack_call_item_id   BigInt?   @db.BigInt
+  stack_output_item_id BigInt?   @db.BigInt
+  metadata             Json      @default("{}")
+  created_at           DateTime  @default(now()) @db.Timestamptz(3)
+  started_at           DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at         DateTime? @db.Timestamptz(3)
+  updated_at           DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([fork_run_id, started_at, id], map: "idx_subconscious_fork_tool_run_time")
+  @@index([tool_call_id], map: "idx_subconscious_fork_tool_call")
+  @@index([llm_request_slice_id], map: "idx_subconscious_fork_tool_slice")
+  @@map("subconscious_agent_fork_tool_executions")
 }
 
 model StackCompaction {

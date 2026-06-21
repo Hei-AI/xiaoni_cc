@@ -216,6 +216,7 @@ interface XiaoniActivityFeed {
   };
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: CompressionForkTimeline;
+  subconsciousForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
@@ -785,6 +786,9 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'cache_heartbeat') {
     return 'cache_heartbeat';
   }
+  if (run.source === 'subconscious_agent_fork') {
+    return 'subconscious_agent';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -795,11 +799,22 @@ function forkAgentLabel(forkKind: string) {
   if (forkKind === 'cache_heartbeat') {
     return 'Cache Heartbeat Fork';
   }
+  if (forkKind === 'subconscious_agent') {
+    return '潜意识 Agent';
+  }
   return 'Memory Compress Fork';
 }
 
 function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
   const compressionRuns = (feed?.compressionForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  const subconsciousRuns = (feed?.subconsciousForkTimeline?.runs || []).map((run) => {
     const forkKind = forkKindForRun(run);
     return {
       ...run,
@@ -823,7 +838,7 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
+  return [...compressionRuns, ...subconsciousRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -866,6 +881,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   }
   const itemsById = new Map<string, XiaoniActivityFeedItem>();
   const compressionRunsById = new Map<string, CompressionForkRun>();
+  const subconsciousRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
 
@@ -878,6 +894,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     (page.compressionForkTimeline?.runs || []).forEach((run) => {
       if (!compressionRunsById.has(run.id)) {
         compressionRunsById.set(run.id, run);
+      }
+    });
+    (page.subconsciousForkTimeline?.runs || []).forEach((run) => {
+      if (!subconsciousRunsById.has(run.id)) {
+        subconsciousRunsById.set(run.id, run);
       }
     });
     (page.imageVisionForkTimeline?.runs || []).forEach((run) => {
@@ -901,6 +922,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     compressionForkTimeline: {
       ...(firstPage.compressionForkTimeline || {}),
       runs: Array.from(compressionRunsById.values()),
+    },
+    subconsciousForkTimeline: {
+      ...(firstPage.subconsciousForkTimeline || {}),
+      runs: Array.from(subconsciousRunsById.values()),
     },
     cacheHeartbeatTimeline: {
       ...(firstPage.cacheHeartbeatTimeline || {}),
@@ -1579,7 +1604,7 @@ function CompressionForkEventRow({
           iconClasses[tone]
         )}
       >
-        {event.source === 'compression_fork_llm_request' || event.source === 'image_vision_fork_llm_request' ? (
+        {event.source === 'compression_fork_llm_request' || event.source === 'subconscious_fork_llm_request' || event.source === 'image_vision_fork_llm_request' ? (
           <Activity className="h-3.5 w-3.5" />
         ) : (
           <Waypoints className="h-3.5 w-3.5" />
@@ -1695,6 +1720,7 @@ function ForkAgentRunCard({
   const forkKind = run.forkKind || forkKindForRun(run);
   const isImageVision = forkKind === 'image_vision';
   const isCacheHeartbeat = forkKind === 'cache_heartbeat';
+  const isSubconscious = forkKind === 'subconscious_agent';
   const usage = summarizeForkRunUsage(run);
   const inputValue = formatTokenCount(usage.inputTokens) || '0';
   const cacheValue = formatTokenCount(usage.cachedInputTokens) || '0';
@@ -1712,7 +1738,9 @@ function ForkAgentRunCard({
             ? 'bg-sky-100 text-sky-700'
             : isCacheHeartbeat
               ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-cyan-100 text-cyan-700'
+              : isSubconscious
+                ? 'bg-fuchsia-100 text-fuchsia-700'
+                : 'bg-cyan-100 text-cyan-700'
         )}>
           {isImageVision ? <Image className="h-4 w-4" /> : isCacheHeartbeat ? <RefreshCw className="h-4 w-4" /> : <Waypoints className="h-4 w-4" />}
         </span>
@@ -2508,7 +2536,7 @@ export const XiaoniActivityPage: React.FC = () => {
       if (point.anchorEventId) {
         nextParams.set('focus_event', point.anchorEventId);
       }
-      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'image_vision_fork' && point.sourceKind !== 'cache_heartbeat') {
+      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'subconscious_agent_fork' && point.sourceKind !== 'image_vision_fork' && point.sourceKind !== 'cache_heartbeat') {
         nextParams.set('focus_slice', point.llmRequestSliceId);
       } else {
         nextParams.delete('focus_slice');

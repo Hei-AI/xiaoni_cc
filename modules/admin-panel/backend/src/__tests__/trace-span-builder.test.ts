@@ -301,6 +301,34 @@ describe('buildStackTracePayload', () => {
     expect(listAgentStackItems).toHaveBeenCalledWith(expect.objectContaining({ toolCallId: 'call-1' }));
   });
 
+  it('keeps fork source lookup when loading focused stack trace spans', async () => {
+    const payload = await buildStackTracePayload(createLogger(), {
+      traceId: 'trace-fork',
+      internalExecutionLeaseId: 'run-fork',
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork:run-fork:seed',
+      llmRequestSliceId: 'sub-slice-1',
+      toolCallId: 'call-subconscious'
+    });
+
+    expect(payload?.trace.trace_id).toBe('trace-fork');
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork:run-fork:seed',
+      sliceId: 'sub-slice-1'
+    }));
+    expect(listToolExecutions).toHaveBeenCalledWith(expect.objectContaining({
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork:run-fork:seed',
+      toolCallId: 'call-subconscious'
+    }));
+    expect(listAgentStackItems).toHaveBeenCalledWith(expect.objectContaining({
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork:run-fork:seed',
+      llmRequestSliceId: 'sub-slice-1'
+    }));
+  });
+
   it('loads stack-only tool span detail', async () => {
     const detail = await buildStackTraceSpanDetail(
       createLogger(),
@@ -319,6 +347,28 @@ describe('buildStackTracePayload', () => {
       traceId: 'trace-1',
       runId: 'run-1',
       toolCallId: 'call-1'
+    }));
+  });
+
+  it('keeps fork source lookup when loading focused stack span detail', async () => {
+    const detail = await buildStackTraceSpanDetail(
+      createLogger(),
+      {
+        traceId: 'trace-fork',
+        internalExecutionLeaseId: 'run-fork',
+        sourceKind: 'subconscious_agent_fork',
+        forkRunId: 'subconscious-fork:run-fork:seed'
+      },
+      'provider-request:wire:llm-call-1'
+    );
+
+    expect(detail?.input).toBeTruthy();
+    expect(listLlmRequestSlices).toHaveBeenCalledWith(expect.objectContaining({
+      traceId: 'trace-fork',
+      runId: 'run-fork',
+      sourceKind: 'subconscious_agent_fork',
+      forkRunId: 'subconscious-fork:run-fork:seed',
+      llmCallId: 'llm-call-1'
     }));
   });
 

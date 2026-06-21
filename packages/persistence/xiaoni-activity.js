@@ -844,6 +844,24 @@ function buildCompressionForkTraceTarget(row, {
   });
 }
 
+function buildSubconsciousForkTraceTarget(row, {
+  forkRunId,
+  spanId,
+  llmRequestSliceId,
+  toolCallId
+} = {}) {
+  return normalizeTraceTarget({
+    sourceKind: 'subconscious_agent_fork',
+    forkRunId: firstString(forkRunId, row?.forkRunId, row?.fork_run_id),
+    conversationId: row?.conversationId || row?.conversation_id || null,
+    traceId: row?.traceId || row?.trace_id || null,
+    runId: row?.runId || row?.run_id || null,
+    spanId,
+    llmRequestSliceId,
+    toolCallId
+  });
+}
+
 function buildImageVisionForkTraceTarget(row, {
   forkRunId,
   spanId,
@@ -1224,6 +1242,144 @@ function summarizeCompressionForkRun(row, events) {
   };
 }
 
+function subconsciousSpanId(value) {
+  return typeof value === 'string'
+    ? value
+      .replace(/^compression-fork-slice:/, 'subconscious-fork-slice:')
+      .replace(/^compression-fork-tool-call:/, 'subconscious-fork-tool-call:')
+      .replace(/^compression-fork-tool-output:/, 'subconscious-fork-tool-output:')
+      .replace(/^compression-fork-item:/, 'subconscious-fork-item:')
+      .replace(/^compression-fork:/, 'subconscious-fork:')
+    : value;
+}
+
+function retargetSubconsciousForkEvent(event, row, source, forkRunId, spanId, llmSliceId, toolCallId) {
+  const metadata = normalizeJsonObject(event.metadata, {});
+  return {
+    ...event,
+    id: subconsciousSpanId(event.id),
+    source,
+    actorName: event.actorName === 'Runtime' ? 'Runtime' : '潜意识 Agent',
+    traceTarget: buildSubconsciousForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: llmSliceId,
+      toolCallId
+    }),
+    metadata: {
+      ...metadata,
+      forkRunId,
+      sourceKind: 'subconscious_agent_fork',
+      forkSource: metadata.forkSource ? 'subconscious_agent_fork_items' : metadata.forkSource,
+      spanId,
+      parentSpanId: subconsciousSpanId(metadata.parentSpanId),
+      wirePayloadSource: metadata.wirePayloadSource === 'core_memory_compression_fork_slices'
+        ? 'subconscious_agent_fork_slices'
+        : metadata.wirePayloadSource
+    }
+  };
+}
+
+function summarizeSubconsciousForkSlice(row) {
+  const event = summarizeCompressionForkSlice(row);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const spanId = sliceId ? `subconscious-fork-slice:${sliceId}` : `subconscious-fork-slice-row:${row.id}`;
+  return {
+    ...retargetSubconsciousForkEvent(event, row, 'subconscious_fork_llm_request', forkRunId, spanId, sliceId, null),
+    id: `subconscious-fork-slice:${sliceId || row.id}`,
+    title: '潜意识 Fork LLM 请求',
+    metadata: {
+      ...event.metadata,
+      forkRunId,
+      spanId,
+      parentSpanId: forkRunId ? `subconscious-fork:${forkRunId}` : null,
+      sourceKind: 'subconscious_agent_fork',
+      providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
+      wirePayloadSource: 'subconscious_agent_fork_slices'
+    }
+  };
+}
+
+function summarizeSubconsciousForkItem(row) {
+  const event = summarizeCompressionForkItem(row);
+  const content = normalizeJsonObject(row.content, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const itemKind = row.itemKind || row.item_kind || 'fork_item';
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id, content.call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const itemId = firstString(row.id === null || typeof row.id === 'undefined' ? null : String(row.id), row.eventId, row.event_id);
+  const spanId = itemKind === 'function_call' && toolCallId
+    ? `subconscious-fork-tool-call:${toolCallId}`
+    : itemKind === 'function_call_output' && toolCallId
+      ? `subconscious-fork-tool-output:${toolCallId}`
+      : llmSliceId
+        ? `subconscious-fork-slice:${llmSliceId}`
+        : `subconscious-fork-item:${itemId || row.item_index}`;
+  const retargeted = retargetSubconsciousForkEvent(event, row, 'subconscious_fork_item', forkRunId, spanId, llmSliceId, toolCallId);
+  return {
+    ...retargeted,
+    id: `subconscious-fork-item:${itemId || row.item_index}`,
+    title: retargeted.title.replace(/^Fork/, '潜意识 Fork'),
+    metadata: {
+      ...retargeted.metadata,
+      forkItemId: itemId,
+      forkItemEventId: row.eventId || row.event_id || null,
+      itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      forkSource: 'subconscious_agent_fork_items',
+      llmRequestSliceId: llmSliceId,
+      llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
+      providerRequestSpanId: llmSliceId ? providerRequestSpanIdForSlice(llmSliceId, firstString(metadata.llm_call_id, metadata.llmCallId)) : null
+    }
+  };
+}
+
+function summarizeSubconsciousForkToolExecution(row) {
+  const event = summarizeCompressionForkToolExecution(row);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const toolCallId = firstString(row.toolCallId, row.tool_call_id);
+  const llmSliceId = firstString(row.llmRequestSliceId, row.llm_request_slice_id);
+  const spanId = toolCallId ? `subconscious-fork-tool-call:${toolCallId}` : `subconscious-fork-tool:${row.id}`;
+  const retargeted = retargetSubconsciousForkEvent(event, row, 'subconscious_fork_tool_execution', forkRunId, spanId, llmSliceId, toolCallId);
+  return {
+    ...retargeted,
+    id: String(retargeted.id || '').replace(/^compression-fork-tool:/, 'subconscious-fork-tool:'),
+    title: retargeted.title.replace(/^Fork tool:/, '潜意识 Fork tool:')
+  };
+}
+
+function summarizeSubconsciousForkRun(row, events) {
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+  const base = summarizeCompressionForkRun(row, events);
+  const artifact = normalizeJsonObject(row.artifact, {});
+  const metadata = normalizeJsonObject(row.metadata, {});
+  return {
+    ...base,
+    id: `subconscious-fork:${forkRunId}`,
+    forkRunId,
+    source: 'subconscious_agent_fork',
+    kind: 'subconscious_agent_fork',
+    title: '潜意识 Agent',
+    body: truncateText(firstString(row.error_message, row.errorMessage, row.summary_text, row.summaryText, artifact.summary_text), 520),
+    readCutoffAfterConversationId: null,
+    previousReadCutoffAfterConversationId: null,
+    events: normalizeValue([...events].sort(compareTimelineEvents)),
+    metadata: normalizeValue({
+      forkRunId,
+      forkKind: 'subconscious_agent',
+      notifyQueueMessageId: row.notifyQueueMessageId || row.notify_queue_message_id || artifact.notify_queue_message_id || null,
+      contextSessionKey: row.contextSessionKey || row.context_session_key || null,
+      artifact,
+      metadata,
+      errorMessage: row.errorMessage || row.error_message || null,
+      createdAt: normalizeDate(row.createdAt || row.created_at),
+      updatedAt: normalizeDate(row.updatedAt || row.updated_at)
+    })
+  };
+}
+
 function tokenSummaryFromCodexProviderUsageEvent(row) {
   const tokenUsage = normalizeJsonObject(row.tokenUsage ?? row.token_usage, {});
   const inputTokens = Number(
@@ -1448,6 +1604,80 @@ async function loadCoreMemoryCompressionForkTimeline(sql, {
       runs: runRows.map((row) => {
         const forkRunId = firstString(row.forkRunId, row.fork_run_id);
         return summarizeCompressionForkRun(row, eventsByForkRunId.get(forkRunId) || []);
+      })
+    };
+  } catch {
+    return { runs: [] };
+  }
+}
+
+async function loadSubconsciousAgentForkTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+}) {
+  const forkLimit = clampLimit(limit, 30, 120);
+  const overlapPredicate = buildSqlForkRunOverlapPredicate(timeWindow);
+  try {
+    const runRows = await sql.query(`
+      SELECT *
+      FROM subconscious_agent_fork_runs
+      WHERE identity_key = ?
+      ${overlapPredicate.clause ? `AND ${overlapPredicate.clause}` : ''}
+      ORDER BY COALESCE(started_at, created_at) DESC, id DESC
+      LIMIT ?
+    `, [identityKey, ...overlapPredicate.params, forkLimit]);
+    const forkRunIds = runRows
+      .map((row) => firstString(row.forkRunId, row.fork_run_id))
+      .filter(Boolean);
+    if (forkRunIds.length === 0) {
+      return { runs: [] };
+    }
+    const placeholders = forkRunIds.map(() => '?').join(', ');
+    const [sliceRows, itemRows, toolRows] = await Promise.all([
+      sql.query(`
+        SELECT *
+        FROM subconscious_agent_fork_slices
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
+      `, forkRunIds),
+      sql.query(`
+        SELECT *
+        FROM subconscious_agent_fork_items
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, item_index ASC, id ASC
+      `, forkRunIds),
+      sql.query(`
+        SELECT *
+        FROM subconscious_agent_fork_tool_executions
+        WHERE fork_run_id IN (${placeholders})
+        ORDER BY fork_run_id ASC, started_at ASC, id ASC
+      `, forkRunIds)
+    ]);
+    const eventsByForkRunId = new Map(forkRunIds.map((forkRunId) => [forkRunId, []]));
+    for (const row of sliceRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeSubconsciousForkSlice(row));
+      }
+    }
+    for (const row of itemRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeSubconsciousForkItem(row));
+      }
+    }
+    for (const row of toolRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (eventsByForkRunId.has(forkRunId)) {
+        eventsByForkRunId.get(forkRunId).push(summarizeSubconsciousForkToolExecution(row));
+      }
+    }
+
+    return {
+      runs: runRows.map((row) => {
+        const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+        return summarizeSubconsciousForkRun(row, eventsByForkRunId.get(forkRunId) || []);
       })
     };
   } catch {
@@ -2128,6 +2358,14 @@ function sourceLabelForActionStreamTag(source) {
       return 'queue';
     case 'core_memory_compression_fork':
       return 'Memory Compress Fork';
+    case 'subconscious_agent_fork':
+      return 'Subconscious Agent Fork';
+    case 'subconscious_fork_llm_request':
+      return 'subconscious LLM';
+    case 'subconscious_fork_item':
+      return 'subconscious stack';
+    case 'subconscious_fork_tool_execution':
+      return 'subconscious tool';
     case 'compression_fork_llm_request':
       return 'fork LLM';
     case 'compression_fork_item':
@@ -2738,6 +2976,42 @@ function createXiaoniActivityPersistence({
     }
   }
 
+  async function resolveSubconsciousForkSliceTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM subconscious_agent_fork_slices
+          WHERE identity_key = ?
+            AND (slice_id = ? OR llm_call_id = ? OR id::text = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const sliceId = firstString(row.slice_id, row.llm_call_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+      const llmCallId = firstString(row.llm_call_id);
+      return normalizeTraceTarget({
+        sourceKind: 'subconscious_agent_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: providerRequestSpanIdForSlice(sliceId, llmCallId) || (sliceId ? `subconscious-fork-slice:${sliceId}` : null),
+        llmRequestSliceId: sliceId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function resolveCodexProviderUsageTraceTarget(eventId, key, config = {}) {
     if (typeof listCodexProviderUsageEvents !== 'function') {
       return null;
@@ -2860,6 +3134,52 @@ function createXiaoniActivityPersistence({
     }
   }
 
+  async function resolveSubconsciousForkItemTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM subconscious_agent_fork_items
+          WHERE identity_key = ?
+            AND (id::text = ? OR event_id = ? OR tool_call_id = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const content = normalizeJsonObject(row.content, {});
+      const itemKind = row.item_kind || 'fork_item';
+      const toolCallId = firstString(row.tool_call_id, content.call_id);
+      const llmSliceId = firstString(row.llm_request_slice_id);
+      const spanId = itemKind === 'function_call' && toolCallId
+        ? `subconscious-fork-tool-call:${toolCallId}`
+        : itemKind === 'function_call_output' && toolCallId
+          ? `subconscious-fork-tool-output:${toolCallId}`
+          : llmSliceId
+            ? `subconscious-fork-slice:${llmSliceId}`
+            : `subconscious-fork-item:${row.id}`;
+      return normalizeTraceTarget({
+        sourceKind: 'subconscious_agent_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId,
+        llmRequestSliceId: llmSliceId,
+        toolCallId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function resolveCompressionForkToolTraceTarget(key, config = {}) {
     const sql = createSqlAdapter(config);
     try {
@@ -2887,6 +3207,43 @@ function createXiaoniActivityPersistence({
         traceId: row.trace_id,
         runId: row.run_id,
         spanId: toolCallId ? `compression-fork-tool-call:${toolCallId}` : `compression-fork-tool:${row.id}`,
+        llmRequestSliceId: llmSliceId,
+        toolCallId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
+  async function resolveSubconsciousForkToolTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM subconscious_agent_fork_tool_executions
+          WHERE identity_key = ?
+            AND (id::text = ? OR execution_id = ? OR tool_call_id = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const toolCallId = firstString(row.tool_call_id);
+      const llmSliceId = firstString(row.llm_request_slice_id);
+      return normalizeTraceTarget({
+        sourceKind: 'subconscious_agent_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: toolCallId ? `subconscious-fork-tool-call:${toolCallId}` : `subconscious-fork-tool:${row.id}`,
         llmRequestSliceId: llmSliceId,
         toolCallId
       });
@@ -3002,6 +3359,10 @@ function createXiaoniActivityPersistence({
       return enrichTraceTarget(await resolveCompressionForkSliceTraceTarget(parsed.key, config), config);
     }
 
+    if (parsed.prefix === 'subconscious-fork-slice') {
+      return enrichTraceTarget(await resolveSubconsciousForkSliceTraceTarget(parsed.key, config), config);
+    }
+
     if (parsed.prefix === 'image-vision-fork-slice') {
       return enrichTraceTarget(await resolveImageVisionForkSliceTraceTarget(parsed.key, config), config);
     }
@@ -3014,12 +3375,20 @@ function createXiaoniActivityPersistence({
       return enrichTraceTarget(await resolveCompressionForkItemTraceTarget(parsed.key, config), config);
     }
 
+    if (parsed.prefix === 'subconscious-fork-item') {
+      return enrichTraceTarget(await resolveSubconsciousForkItemTraceTarget(parsed.key, config), config);
+    }
+
     if (parsed.prefix === 'image-vision-fork-item') {
       return enrichTraceTarget(await resolveImageVisionForkItemTraceTarget(parsed.key, config), config);
     }
 
     if (parsed.prefix === 'compression-fork-tool') {
       return enrichTraceTarget(await resolveCompressionForkToolTraceTarget(parsed.key, config), config);
+    }
+
+    if (parsed.prefix === 'subconscious-fork-tool') {
+      return enrichTraceTarget(await resolveSubconsciousForkToolTraceTarget(parsed.key, config), config);
     }
 
     return null;
@@ -3080,6 +3449,7 @@ function createXiaoniActivityPersistence({
         digitalStats,
         taskStats,
         compressionForkTimeline,
+        subconsciousForkTimeline,
         cacheHeartbeatTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
@@ -3198,6 +3568,11 @@ function createXiaoniActivityPersistence({
           prisma.agentTask.count({ where: { status: 'failed' } })
         ]),
         loadCoreMemoryCompressionForkTimeline(sql, {
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        }),
+        loadSubconsciousAgentForkTimeline(sql, {
           identityKey,
           timeWindow,
           limit: perSourceLimit
@@ -3349,6 +3724,7 @@ function createXiaoniActivityPersistence({
         },
         items: normalizeValue(items),
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
+        subconsciousForkTimeline: normalizeValue(subconsciousForkTimeline),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithTokens)
       };
@@ -3376,12 +3752,15 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamItem);
     const compressionForkRuns = (feed.compressionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const subconsciousForkRuns = (feed.subconsciousForkTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
     const imageVisionForkRuns = (feed.imageVisionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
+      ...subconsciousForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns
     ]);
@@ -3389,6 +3768,7 @@ function createXiaoniActivityPersistence({
       .filter((item) => itemMatchesActionStreamTags(item, selectedTags))
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
+    const filteredSubconsciousForkRuns = filterActionStreamForkRunsByTags(subconsciousForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     let focusedItem = null;
@@ -3424,6 +3804,11 @@ function createXiaoniActivityPersistence({
         id: `compression-fork:${run.id}`,
         run
       })),
+      ...filteredSubconsciousForkRuns.map((run) => ({
+        kind: 'fork',
+        id: `subconscious-fork:${run.id}`,
+        run
+      })),
       ...filteredImageVisionForkRuns.map((run) => ({
         kind: 'fork',
         id: `image-vision-fork:${run.id}`,
@@ -3445,6 +3830,7 @@ function createXiaoniActivityPersistence({
         .map((entry) => entry.run.id)
     );
     const visibleCompressionForkRuns = filteredCompressionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleSubconsciousForkRuns = filteredSubconsciousForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
@@ -3474,6 +3860,10 @@ function createXiaoniActivityPersistence({
       compressionForkTimeline: {
         ...(feed.compressionForkTimeline || {}),
         runs: visibleCompressionForkRuns
+      },
+      subconsciousForkTimeline: {
+        ...(feed.subconsciousForkTimeline || {}),
+        runs: visibleSubconsciousForkRuns
       },
       cacheHeartbeatTimeline: {
         ...(feed.cacheHeartbeatTimeline || {}),

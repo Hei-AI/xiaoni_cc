@@ -80,6 +80,7 @@ describe('agent runtime control routes', () => {
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,
       postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
       updatedAt: '2026-06-13T20:00:00.000+08:00'
     });
 
@@ -90,6 +91,7 @@ describe('agent runtime control routes', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data.cacheHeartbeatPaused).toBe(true);
     expect(response.body.data.postCompressionPauseArmed).toBe(true);
+    expect(response.body.data.mainAgentPreModelYieldMs).toBe(5000);
     expect(getAgentRuntimeControl).toHaveBeenCalledWith({ identityKey: 'xiaoni' });
   });
 
@@ -104,6 +106,7 @@ describe('agent runtime control routes', () => {
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,
       postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
       updatedAt: '2026-06-13T20:01:00.000+08:00'
     });
 
@@ -130,6 +133,7 @@ describe('agent runtime control routes', () => {
       postCompressionPauseArmedAt: null,
       postCompressionPauseTriggeredAt: null,
       postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
       updatedAt: '2026-06-13T20:02:00.000+08:00'
     });
 
@@ -157,6 +161,7 @@ describe('agent runtime control routes', () => {
       postCompressionPauseArmedAt: '2026-06-13T20:00:00.000+08:00',
       postCompressionPauseTriggeredAt: null,
       postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
       updatedAt: '2026-06-13T20:01:00.000+08:00'
     });
 
@@ -170,6 +175,44 @@ describe('agent runtime control routes', () => {
       postCompressionPauseArmed: true
     });
     expect(response.body.data.enabled).toBe(false);
+  });
+
+  it('patches the main agent pre-model yield in milliseconds', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null,
+      postCompressionPauseArmed: false,
+      postCompressionPauseArmedAt: null,
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 125,
+      updatedAt: '2026-06-13T20:03:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ mainAgentPreModelYieldMs: 125 });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      mainAgentPreModelYieldMs: 125
+    });
+    expect(response.body.data.mainAgentPreModelYieldMs).toBe(125);
+  });
+
+  it('rejects invalid main agent pre-model yield values', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ mainAgentPreModelYieldMs: -1 });
+
+    expect(response.status).toBe(400);
+    expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
   });
 });
 

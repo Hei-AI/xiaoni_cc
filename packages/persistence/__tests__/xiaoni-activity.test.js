@@ -53,6 +53,18 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM image_vision_fork_items')) {
           return overrides.imageVisionForkItems || [];
         }
+        if (statement.includes('FROM subconscious_agent_fork_runs')) {
+          return overrides.subconsciousForkRuns || [];
+        }
+        if (statement.includes('FROM subconscious_agent_fork_slices')) {
+          return overrides.subconsciousForkSlices || [];
+        }
+        if (statement.includes('FROM subconscious_agent_fork_items')) {
+          return overrides.subconsciousForkItems || [];
+        }
+        if (statement.includes('FROM subconscious_agent_fork_tool_executions')) {
+          return overrides.subconsciousForkToolRows || [];
+        }
         if (statement.includes('FROM core_memory_compression_fork_tool_executions')) {
           return overrides.compressionForkToolRows || [];
         }
@@ -625,6 +637,91 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(resolved.forkRunId, 'core_memory_fork_1');
   assert.equal(resolved.llmRequestSliceId, 'fork_slice_1');
   assert.equal(resolved.spanId, 'provider-request:wire:fork_llm_1');
+});
+
+test('Xiaoni action stream returns subconscious fork overlay with natural language output', async () => {
+  const persistence = createPersistence({
+    subconsciousForkRuns: [{
+      id: '21',
+      fork_run_id: 'subconscious_fork_1',
+      identity_key: 'xiaoni',
+      context_session_key: 'xiaoni:test-global',
+      status: 'completed',
+      trace_id: 'trace_sub_stream',
+      run_id: 'run_internal_sub_1',
+      notify_queue_message_id: '909',
+      summary_text: '我想先把没做完的图片任务捡起来。',
+      artifact: { notify_queue_message_id: 909 },
+      metadata: { trigger: 'empty_notify_after_final_answer' },
+      started_at: '2026-06-05T10:10:00.000Z',
+      completed_at: '2026-06-05T10:10:02.000Z',
+      created_at: '2026-06-05T10:10:00.000Z',
+      updated_at: '2026-06-05T10:10:02.000Z'
+    }],
+    subconsciousForkSlices: [{
+      id: '22',
+      slice_id: 'sub_slice_1',
+      fork_run_id: 'subconscious_fork_1',
+      llm_call_id: 'sub_llm_1',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      token_usage: { input_tokens: 50, output_tokens: 9 },
+      trace_id: 'trace_sub_stream',
+      run_id: 'run_internal_sub_1',
+      agent_turn: 1,
+      model_name: 'gpt-5.5',
+      model_provider: 'codex-local',
+      wire_provider_format: 'codex-local/responses',
+      canonical_request: { input: [{ role: 'developer', content: 'self continuation reminder' }] },
+      wire_response: { id: 'resp_sub' },
+      output_items: [{ type: 'message', content: '我想先把没做完的图片任务捡起来。' }],
+      created_at: '2026-06-05T10:10:01.000Z',
+      completed_at: '2026-06-05T10:10:02.000Z'
+    }],
+    subconsciousForkItems: [{
+      id: '23',
+      event_id: 'subconscious-fork:subconscious_fork_1:item:1',
+      fork_run_id: 'subconscious_fork_1',
+      identity_key: 'xiaoni',
+      item_index: '1',
+      item_kind: 'assistant_output',
+      role: 'assistant',
+      phase: 'final_answer',
+      llm_request_slice_id: 'sub_slice_1',
+      content: {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: '我想先把没做完的图片任务捡起来。' }]
+      },
+      trace_id: 'trace_sub_stream',
+      run_id: 'run_internal_sub_1',
+      metadata: { output_item_index: 0 },
+      created_at: '2026-06-05T10:10:02.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const forkRun = stream.subconsciousForkTimeline.runs[0];
+
+  assert.ok(forkRun);
+  assert.equal(forkRun.forkRunId, 'subconscious_fork_1');
+  assert.equal(forkRun.source, 'subconscious_agent_fork');
+  assert.equal(forkRun.body, '我想先把没做完的图片任务捡起来。');
+  assert.equal(forkRun.metadata.notifyQueueMessageId, '909');
+  assert.deepEqual(forkRun.events.map((item) => item.source), [
+    'subconscious_fork_llm_request',
+    'subconscious_fork_item'
+  ]);
+  assert.equal(forkRun.events[0].traceTarget.sourceKind, 'subconscious_agent_fork');
+  assert.equal(forkRun.events[0].traceTarget.forkRunId, 'subconscious_fork_1');
+  assert.equal(forkRun.events[0].metadata.providerRequestSpanId, 'provider-request:wire:sub_llm_1');
+  assert.equal(stream.items.some((item) => item.id.startsWith('subconscious-fork:')), false);
+
+  const resolved = await persistence.findXiaoniActionEventTraceTarget('subconscious-fork-slice:sub_slice_1');
+  assert.equal(resolved.sourceKind, 'subconscious_agent_fork');
+  assert.equal(resolved.forkRunId, 'subconscious_fork_1');
+  assert.equal(resolved.llmRequestSliceId, 'sub_slice_1');
 });
 
 test('Xiaoni action stream paginates the merged main and fork timeline', async () => {
