@@ -5092,7 +5092,9 @@ test('runtime frame persists delivered assistant transcript items with final pha
   } as any);
 
   let turn = 0;
-  (service as any).executeAgentTurn = async () => {
+  const capturedRequestInputs: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedRequestInputs.push(canonicalRequest.input);
     turn += 1;
     if (turn === 1) {
       return {
@@ -5119,7 +5121,9 @@ test('runtime frame persists delivered assistant transcript items with final pha
       canonical_response: {
         output: [{
           type: 'message',
-          content: [{ type: 'output_text', text: '' }]
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '发送结果已收到。' }]
         }]
       }
     };
@@ -5203,9 +5207,11 @@ test('runtime frame persists delivered assistant transcript items with final pha
   );
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['第一条', '第二条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
-  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('call-group-success'), true);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
   assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.runtime_stream, {
     stream_key: 'xiaoni:test-global',
     context_session_key: 'xiaoni:test-global',
@@ -5214,7 +5220,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
     sensory_input: true,
     append_strategy: 'responses_replay_items',
     response_replay_item_count: storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.length,
-    model_request_slices: 1
+    model_request_slices: 2
   });
   assert.deepEqual(
     storeCalls.createConversation[0]?.rawResponse?.runtime_stream,
@@ -6943,7 +6949,7 @@ test('runtime frame executes recover_energy after earlier batch tools and record
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先收尾再睡。');
 });
 
-test('runtime frame yields after a delivered reply without another model slice', async () => {
+test('runtime frame feeds delivered reply tool output back to the model before yielding', async () => {
   const queueMessage = {
     id: 'run-queue-no-tool-after-delivery',
     traceId: 'trace-no-tool-after-delivery',
@@ -7011,8 +7017,27 @@ test('runtime frame yields after a delivered reply without another model slice',
     reason: '这句还是应该回。'
   });
   let turn = 0;
-  (service as any).executeAgentTurn = async () => {
+  const capturedRequestInputs: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedRequestInputs.push(canonicalRequest.input);
     turn += 1;
+    if (turn === 2) {
+      const inputText = JSON.stringify(canonicalRequest.input || []);
+      assert.equal(inputText.includes('function_call_output'), true);
+      assert.equal(inputText.includes('call-send-delivered'), true);
+      return {
+        success: true,
+        llm_call_id: 'llm-delivered-2',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '发送结果已收到。' }]
+          }]
+        }
+      };
+    }
     return {
       success: true,
       llm_call_id: 'llm-delivered-1',
@@ -7038,16 +7063,19 @@ test('runtime frame yields after a delivered reply without another model slice',
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 1);
+  assert.equal(turn, 2);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
   assert.equal(storeCalls.failQueueMessage.length, 0);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.status, 'settled');
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '先发一条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'visible_delivery_committed');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['先发一条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(
     storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
       item?.type === 'message'
@@ -7057,6 +7085,179 @@ test('runtime frame yields after a delivered reply without another model slice',
     false
   );
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
+});
+
+test('runtime frame appends available notify non-blockingly before the next model slice', async () => {
+  const queueMessage = {
+    id: 'run-queue-nonblocking-main',
+    traceId: 'trace-nonblocking-main',
+    batchId: 'batch-nonblocking-main',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [11],
+    payload: createQueuePayload()
+  };
+  const continuationPayload = {
+    ...createQueuePayload(),
+    traceId: 'trace-nonblocking-notify',
+    runId: 'run-nonblocking-notify-payload',
+    batchId: 'batch-nonblocking-notify',
+    bodyForAgent: '刚刚又来了一条新的 notify',
+    rawBody: '刚刚又来了一条新的 notify',
+    commandBody: '',
+    messages: [{
+      ...createQueuePayload().messages[0],
+      body: '刚刚又来了一条新的 notify',
+      bodyForAgent: '刚刚又来了一条新的 notify',
+      rawBody: '刚刚又来了一条新的 notify'
+    }]
+  };
+  const continuationQueueMessage = {
+    id: 'run-queue-nonblocking-notify',
+    traceId: 'trace-nonblocking-notify',
+    batchId: 'batch-nonblocking-notify',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-03-28T08:00:01.000Z',
+    queueMessageIds: [12],
+    payload: continuationPayload
+  };
+
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    settleQueueMessages: [],
+    releaseExecutionLease: [],
+    markLeaseVisibleDeliveryCommitted: [],
+    claimNextQueueMessage: [],
+    appendAgentStackItems: [],
+    attachConversationIdToTrace: [],
+    logTimelineEvent: []
+  };
+  let deliveryPhase = 'reasoning_open';
+  let claimed = false;
+
+  const store = {
+    createLlmJob: async () => 'job-nonblocking-notify',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase,
+      deliveryCommitCount: deliveryPhase === 'delivery_committed' ? 1 : 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    markLeaseVisibleDeliveryCommitted: async (_runId: string) => {
+      deliveryPhase = 'delivery_committed';
+      storeCalls.markLeaseVisibleDeliveryCommitted.push(_runId);
+    },
+    markLeaseDeliveryBlocked: async () => {},
+    claimNextQueueMessage: async (workerId: string) => {
+      storeCalls.claimNextQueueMessage.push(workerId);
+      if (claimed) {
+        return null;
+      }
+      claimed = true;
+      return continuationQueueMessage;
+    },
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return (params.items || []).map((item: any, index: number) => ({
+        id: `stack-nonblocking-${storeCalls.appendAgentStackItems.length}-${index}`,
+        stackIndex: storeCalls.appendAgentStackItems.length * 100 + index,
+        itemKind: item.itemKind,
+        toolCallId: item.toolCallId ?? null
+      }));
+    },
+    getAgentStackHead: async () => 5000,
+    updateLlmRequestSliceStackLinks: async () => null,
+    recordAgentStackToolExecution: async () => ({ id: 1 }),
+    completeAgentStackToolExecution: async () => {},
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 4101;
+    },
+    attachConversationIdToTrace: async (...args: any[]) => { storeCalls.attachConversationIdToTrace.push(args); },
+    settleQueueMessages: async (runId: string, params: any) => { storeCalls.settleQueueMessages.push({ runId, params }); },
+    releaseExecutionLease: async (runId: string, params: any) => { storeCalls.releaseExecutionLease.push({ runId, params }); },
+    updateLlmJob: async () => {}
+  } as any;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  let turn = 0;
+  const capturedRequestInputs: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedRequestInputs.push(canonicalRequest.input);
+    turn += 1;
+    if (turn === 2) {
+      const inputText = JSON.stringify(canonicalRequest.input || []);
+      assert.equal(inputText.includes('function_call_output'), true);
+      assert.equal(inputText.includes('call-send-before-notify'), true);
+      assert.equal(inputText.includes('刚刚又来了一条新的 notify'), true);
+      return {
+        success: true,
+        llm_call_id: 'llm-nonblocking-notify-2',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '发送和新通知都已处理。' }]
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: 'llm-nonblocking-notify-1',
+      canonical_response: {
+        output: [{
+          type: 'function_call',
+          call_id: 'call-send-before-notify',
+          name: GROUP_REPLY_TOOL,
+          arguments: JSON.stringify({ group_id: 101, message: '先把这条发出去' })
+        }]
+      }
+    };
+  };
+  (service as any).executeTool = async (toolCall: any) => {
+    assert.equal(toolCall.name, GROUP_REPLY_TOOL);
+    return {
+      message_type: 'group',
+      sent_messages: ['先把这条发出去'],
+      delivery: [{ message_id: 8101 }]
+    };
+  };
+
+  await processRuntimeFrameForTest(service, queueMessage as any);
+
+  assert.equal(turn, 2);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('刚刚又来了一条新的 notify'), true);
+  assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-nonblocking-main']);
+  assert.deepEqual(storeCalls.settleQueueMessages.map((call) => call.runId), [
+    'run-queue-nonblocking-main',
+    'run-queue-nonblocking-notify'
+  ]);
+  assert.equal(storeCalls.settleQueueMessages[1]?.params?.result?.consumed_as_nonblocking_notify, true);
+  assert.equal(storeCalls.settleQueueMessages[1]?.params?.result?.parent_run_id, 'run-queue-nonblocking-main');
+  assert.deepEqual(storeCalls.releaseExecutionLease.map((call) => call.runId), [
+    'run-queue-nonblocking-main',
+    'run-queue-nonblocking-notify'
+  ]);
+  assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.continuation_queue_message_ids, [12]);
+  assert.equal(storeCalls.createConversation[0]?.rawRequest?.continuation_runs?.[0]?.run_id, 'run-queue-nonblocking-notify');
+  assert.equal(storeCalls.appendAgentStackItems.some((call) =>
+    call.sourceType === 'agent_queue_messages'
+    && call.sourceId === 'run-queue-nonblocking-notify'
+  ), true);
+  assert.equal(storeCalls.logTimelineEvent.some((event) => event.eventName === 'nonblocking_notify_append'), true);
 });
 
 test('runtime frame allows multiple visible deliveries within the same provider slice', async () => {
@@ -7132,8 +7333,28 @@ test('runtime frame allows multiple visible deliveries within the same provider 
   });
   let turn = 0;
   let executeToolCalls = 0;
-  (service as any).executeAgentTurn = async () => {
+  const capturedRequestInputs: any[] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    capturedRequestInputs.push(canonicalRequest.input);
     turn += 1;
+    if (turn === 2) {
+      const inputText = JSON.stringify(canonicalRequest.input || []);
+      assert.equal(inputText.includes('call-send-multi-delivery-1'), true);
+      assert.equal(inputText.includes('call-send-multi-delivery-2'), true);
+      assert.equal(inputText.includes('function_call_output'), true);
+      return {
+        success: true,
+        llm_call_id: 'llm-multi-delivery-2',
+        canonical_response: {
+          output: [{
+            type: 'message',
+            role: 'assistant',
+            phase: 'final_answer',
+            content: [{ type: 'output_text', text: '两条发送结果已收到。' }]
+          }]
+        }
+      };
+    }
     return {
       success: true,
       llm_call_id: 'llm-multi-delivery-1',
@@ -7169,11 +7390,13 @@ test('runtime frame allows multiple visible deliveries within the same provider 
 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
-  assert.equal(turn, 1);
+  assert.equal(turn, 2);
   assert.equal(executeToolCalls, 2);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
   assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '已发送：第二条');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
   assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
@@ -7185,6 +7408,7 @@ test('runtime frame allows multiple visible deliveries within the same provider 
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
+  assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(
     storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
       item?.type === 'message'

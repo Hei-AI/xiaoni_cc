@@ -5518,6 +5518,7 @@ export class AgentLoopService {
       });
     }
     let loopContinuation: OpenResponseInputItem[] = [...options.initialLoopContinuation];
+    const continuationQueueMessages: QueueMessageRecord[] = [];
 
     try {
       const recorder = (this.store as RuntimeStore & {
@@ -5651,6 +5652,63 @@ export class AgentLoopService {
           return;
         }
         pendingOneShotInputItems.push(...items);
+      };
+      const appendAvailableQueueNotifyToLoop = async () => {
+        if (!options.queueBacked) {
+          return;
+        }
+        if (!runtimePrompt) {
+          return;
+        }
+        const claimer = (this.store as RuntimeStore & {
+          claimNextQueueMessage?: RuntimeStore['claimNextQueueMessage'];
+        }).claimNextQueueMessage;
+        if (typeof claimer !== 'function') {
+          return;
+        }
+        const claimed = await claimer.call(this.store, agentConfig.workerId);
+        if (!claimed) {
+          return;
+        }
+        continuationQueueMessages.push(claimed);
+        const claimedInputItems = buildCurrentTurnInputItems(claimed.payload, runtimePrompt)
+          .filter((item) => item.type !== 'message' || flattenMessageContent(item.content).trim().length > 0);
+        if (claimedInputItems.length > 0) {
+          appendLoopInputItems(claimedInputItems);
+        }
+        await this.appendAgentStackItemsSafe({
+          traceId: claimed.payload.traceId,
+          runId: claimed.id,
+          sourceType: 'agent_queue_messages',
+          sourceId: claimed.id,
+          items: [
+            buildRuntimeInputStackItem({
+              queueMessage: claimed.payload,
+              runId: claimed.id,
+              runtimePrompt
+            }) as Record<string, unknown>
+          ]
+        });
+        await this.store.logTimelineEvent({
+          traceId: payload.traceId,
+          eventType: 'queue',
+          eventName: 'nonblocking_notify_append',
+          eventPhase: null,
+          metadata: {
+            source_run_id: queueMessage.id,
+            appended_run_id: claimed.id,
+            appended_batch_id: claimed.batchId,
+            appended_queue_message_ids: claimed.queueMessageIds,
+            appended_source: claimed.payload.source
+          }
+        }).catch((error) => {
+          moduleLogger.warn('Failed to log nonblocking notify append', {
+            traceId: payload.traceId,
+            runId: queueMessage.id,
+            appendedRunId: claimed.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
       };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
@@ -6160,19 +6218,6 @@ export class AgentLoopService {
             });
           }
         }
-        if (hasToolCall && deliveredMessages.length > 0 && !leaseRelease) {
-          deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-          if (deliveryState.deliveryPhase !== 'reasoning_open') {
-            leaseRelease = buildLeaseReleaseRecord({
-              reason: 'visible_delivery_committed',
-              detail: 'Visible delivery was committed; this frame yielded to the runtime loop without another model call.',
-              outcome: 'frame_yielded_after_visible_delivery',
-              noVisibleDelivery: false,
-              visibleDeliveryCommitted: true,
-              source: 'runtime:visible_delivery_frame_yield'
-            });
-          }
-        }
         if (!leaseRelease && actionPlan.hasFinalAnswer) {
           leaseRelease = buildLeaseReleaseRecord({
             reason: deliveredMessages.length > 0 ? 'visible_delivery_committed' : 'runtime_frame_yielded',
@@ -6198,6 +6243,7 @@ export class AgentLoopService {
           });
         }
         if (!leaseRelease) {
+          await appendAvailableQueueNotifyToLoop();
           continue;
         }
 
@@ -6253,6 +6299,14 @@ export class AgentLoopService {
           run_id: queueMessage.id,
           batch_id: queueMessage.batchId,
           queue_message_ids: queueMessage.queueMessageIds,
+          continuation_queue_message_ids: continuationQueueMessages.flatMap((message) => message.queueMessageIds),
+          continuation_runs: continuationQueueMessages.map((message) => ({
+            run_id: message.id,
+            batch_id: message.batchId,
+            trace_id: message.traceId,
+            source: message.payload.source,
+            queue_message_ids: message.queueMessageIds
+          })),
           batch_messages: payload.messages,
           history_count: historyCount,
           retained_history_count: budgetPlan.retainedHistory.length,
@@ -6310,21 +6364,36 @@ export class AgentLoopService {
       });
 
       await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
+      for (const continuationQueueMessage of continuationQueueMessages) {
+        await this.store.attachConversationIdToTrace(continuationQueueMessage.payload.traceId, conversationId);
+      }
       if (options.queueBacked) {
+        const queueSettleResult = {
+          no_visible_delivery: leaseRelease.no_visible_delivery,
+          sent_messages: sentMessages,
+          xiaoni_os: persistedXiaoniOs,
+          pending_share: persistedPendingShare,
+          stored_feedback_reflection_ids: storedFeedbackReflectionIds,
+          model_request_slices: turnsExecuted,
+          lease_release: leaseRelease,
+          core_memory_compression: coreMemoryCompressionArtifact,
+          lease_release_reason: leaseRelease.reason,
+          continuation_queue_message_ids: continuationQueueMessages.flatMap((message) => message.queueMessageIds)
+        };
         await this.store.settleQueueMessages(queueMessage.id, {
           conversationId,
-          result: {
-            no_visible_delivery: leaseRelease.no_visible_delivery,
-            sent_messages: sentMessages,
-            xiaoni_os: persistedXiaoniOs,
-            pending_share: persistedPendingShare,
-            stored_feedback_reflection_ids: storedFeedbackReflectionIds,
-            model_request_slices: turnsExecuted,
-            lease_release: leaseRelease,
-            core_memory_compression: coreMemoryCompressionArtifact,
-            lease_release_reason: leaseRelease.reason
-          }
+          result: queueSettleResult
         });
+        for (const continuationQueueMessage of continuationQueueMessages) {
+          await this.store.settleQueueMessages(continuationQueueMessage.id, {
+            conversationId,
+            result: {
+              ...queueSettleResult,
+              consumed_as_nonblocking_notify: true,
+              parent_run_id: queueMessage.id
+            }
+          });
+        }
       }
       const presenceOutcome = sentMessages.length > 0 ? 'replied' : 'silent';
       if (presenceContext) {
@@ -6354,6 +6423,17 @@ export class AgentLoopService {
           modelRequestSlices: turnsExecuted,
           conversationId
         });
+        for (const continuationQueueMessage of continuationQueueMessages) {
+          await this.store.releaseExecutionLease(continuationQueueMessage.id, {
+            status: 'settled',
+            leaseRelease,
+            noVisibleDelivery: leaseRelease.no_visible_delivery,
+            finalResponse,
+            sentMessages,
+            modelRequestSlices: turnsExecuted,
+            conversationId
+          });
+        }
       }
       if (jobId) {
         await this.store.updateLlmJob(jobId, {
@@ -6523,6 +6603,9 @@ export class AgentLoopService {
       }
       if (options.queueBacked && !queueRetryScheduled) {
         await this.store.failQueueMessage(queueMessage.id, message, conversationId);
+        for (const continuationQueueMessage of continuationQueueMessages) {
+          await this.store.failQueueMessage(continuationQueueMessage.id, message, conversationId);
+        }
       }
       if (presenceContext) {
         const sidecarRecorder = (this.store as RuntimeStore & {
@@ -6552,6 +6635,18 @@ export class AgentLoopService {
           errorMessage: message,
           conversationId
         });
+        for (const continuationQueueMessage of continuationQueueMessages) {
+          await this.store.releaseExecutionLease(continuationQueueMessage.id, {
+            status: 'failed',
+            leaseRelease,
+            noVisibleDelivery: leaseRelease.no_visible_delivery,
+            finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null,
+            sentMessages,
+            modelRequestSlices: turnsExecuted,
+            errorMessage: message,
+            conversationId
+          });
+        }
       }
       if (jobId) {
         await this.store.updateLlmJob(jobId, {
