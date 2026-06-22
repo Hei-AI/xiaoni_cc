@@ -4523,7 +4523,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
   assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
   assert.equal(mainRequest.tool_choice?.mode, 'auto');
-  assert.equal(forkRequest.tool_choice?.mode, 'required');
+  assert.equal(forkRequest.tool_choice?.mode, 'auto');
   assert.equal(forkRequest.parallel_tool_calls, true);
   assert.equal(forkRequest.store, false);
 

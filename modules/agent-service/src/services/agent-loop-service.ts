@@ -1979,10 +1979,10 @@ function buildImageVisionForkRequest(
   if (typeof imageForkToolChoice === 'object' && imageForkToolChoice.type === 'allowed_tools') {
     forkRequest.tool_choice = {
       ...imageForkToolChoice,
-      mode: 'required'
+      mode: 'auto'
     };
   } else {
-    forkRequest.tool_choice = buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }]);
+    forkRequest.tool_choice = buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }], 'auto');
   }
   forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
