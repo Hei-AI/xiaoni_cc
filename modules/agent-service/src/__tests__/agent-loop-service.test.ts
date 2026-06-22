@@ -817,7 +817,7 @@ test('buildCanonicalAgentTurnRequest makes gpt-5.5 stateless reasoning replay ex
 
   assert.deepEqual(request.reasoning, {
     effort: 'medium',
-    summary: 'detailed'
+    summary: 'auto'
   });
   assert.deepEqual(request.text, {
     verbosity: 'medium'
@@ -2943,7 +2943,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].canonicalRequest.model, 'gpt-5.4');
   assert.deepEqual(calls[0].canonicalRequest.reasoning, {
     effort: 'high',
-    summary: 'detailed'
+    summary: 'auto'
   });
 });
 
@@ -3592,9 +3592,9 @@ test('context compression memory writer generates episodic, semantic, and reflec
     'qq:group:101'
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.reasoning), [
-    { effort: 'high', summary: 'detailed' },
-    { effort: 'high', summary: 'detailed' },
-    { effort: 'high', summary: 'detailed' }
+    { effort: 'high', summary: 'auto' },
+    { effort: 'high', summary: 'auto' },
+    { effort: 'high', summary: 'auto' }
   ]);
   assert.deepEqual(calls.map((call) => call.canonicalRequest.text), [
     { verbosity: 'medium' },
@@ -4127,7 +4127,7 @@ test('requestImageTask persists current canonical request for Codex image fork i
     }],
     prompt_cache_key: 'xiaoni:test-global',
     prompt_cache_retention: '24h',
-    reasoning: { effort: 'medium', summary: 'detailed' },
+    reasoning: { effort: 'medium', summary: 'auto' },
     text: { verbosity: 'low' },
     include: ['reasoning.encrypted_content'],
     parallel_tool_calls: true,

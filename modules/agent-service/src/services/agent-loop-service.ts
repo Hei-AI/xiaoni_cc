@@ -2127,7 +2127,7 @@ function buildCompactMemoryWriterRequest(
     prompt_cache_key: options.promptCacheKey,
     reasoning: {
       effort: options.reasoningEffort || 'medium',
-      summary: 'detailed'
+      summary: 'auto'
     },
     text: {
       verbosity: options.textVerbosity
@@ -4530,7 +4530,7 @@ function buildAgentReasoningConfig(modelName: string, parameters: AgentModelPara
 
   return {
     effort: explicitEffort || 'medium',
-    summary: explicitSummary || 'detailed'
+    summary: explicitSummary || 'auto'
   };
 }
 

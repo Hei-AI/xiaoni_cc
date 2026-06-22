@@ -460,14 +460,14 @@ test('Codex provider preserves explicit reasoning settings and include values', 
     ...createCanonicalRequest(),
     reasoning: {
       effort: 'high',
-      summary: 'detailed'
+      summary: 'auto'
     },
     include: ['reasoning.encrypted_content', 'file_search_call.results']
   });
 
   assert.deepEqual(payload.reasoning, {
     effort: 'high',
-    summary: 'detailed'
+    summary: 'auto'
   });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content', 'file_search_call.results']);
 });
@@ -479,7 +479,7 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
     model: 'gpt-5.5',
     reasoning: {
       effort: 'medium',
-      summary: 'detailed'
+      summary: 'auto'
     },
     text: {
       verbosity: 'medium'
@@ -493,7 +493,7 @@ test('Codex provider accepts gpt-5.5 medium stateless reasoning replay contract'
   assert.equal(payload.model, 'gpt-5.5');
   assert.deepEqual(payload.reasoning, {
     effort: 'medium',
-    summary: 'detailed'
+    summary: 'auto'
   });
   assert.deepEqual(payload.text, { verbosity: 'medium' });
   assert.deepEqual(payload.include, ['reasoning.encrypted_content']);
