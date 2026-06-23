@@ -1435,6 +1435,83 @@ test('Codex provider returns only the recovered response after internal retry su
   }
 });
 
+test('Codex provider retries SSE service overload errors', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEnv = {
+    CODEX_TRANSIENT_RETRY_ATTEMPTS: process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS,
+    CODEX_TRANSIENT_RETRY_BASE_DELAY_MS: process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS
+  };
+  let fetchCount = 0;
+
+  try {
+    process.env.CODEX_TRANSIENT_RETRY_ATTEMPTS = '2';
+    process.env.CODEX_TRANSIENT_RETRY_BASE_DELAY_MS = '1';
+    (globalThis as any).fetch = async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => [
+            'event: error',
+            'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later.","param":null},"sequence_number":3}',
+            ''
+          ].join('\n')
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => [
+          'event: response.output_text.delta',
+          'data: {"type":"response.output_text.delta","delta":"recovered"}',
+          '',
+          'event: response.completed',
+          'data: {"type":"response.completed","response":{"id":"resp_recovered","status":"completed","usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}}',
+          ''
+        ].join('\n')
+      };
+    };
+
+    const provider = new TestCodexProvider({
+      codex_base_url: 'http://proxy.test/backend-api',
+      codex_proxy_api_key: 'proxy-key',
+      authorized_user_id: 1,
+      bot_qq_number: 2,
+      gemini_api_keys: [],
+      model_name: 'gpt-5-mini'
+    });
+    const config = buildUnifiedConfig('gpt-5-mini', 'codex', {}, 'Prompt from provider debug');
+
+    const result = await provider.generateContent({
+      request: {
+        model: 'gpt-5-mini',
+        input: [{ type: 'message', role: 'user', content: 'ping' }]
+      },
+      modelName: 'gpt-5-mini',
+      providerConfig: config,
+      context: {
+        traceId: 'trace-sse-overload',
+        llmCallId: 'llm-sse-overload',
+        replayIdentityKey: 'xiaoni'
+      }
+    });
+
+    assert.equal(fetchCount, 2);
+    assert.equal(result.text, 'recovered');
+    assert.equal((result.wireResponse as any).output_text, 'recovered');
+  } finally {
+    (globalThis as any).fetch = previousFetch;
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
 test('Codex provider rejects after retry exhaustion without returning a response', async () => {
   const previousFetch = globalThis.fetch;
   const previousEnv = {
