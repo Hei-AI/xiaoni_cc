@@ -1199,6 +1199,101 @@ test('Xiaoni action stream treats stack tool executions as first-class activity'
   assert.match(tool.metadata.toolResultPreview, /开始休息/);
 });
 
+test('Xiaoni action stream folds one tool lifecycle into one primary card', async () => {
+  const persistence = createPersistence({
+    llmRequestSliceRows: [{
+      id: '901',
+      sliceId: 'slice-recover',
+      llmCallId: 'llm-recover',
+      identityKey: 'xiaoni',
+      traceId: 'runtrace_recover',
+      runId: 'run-recover',
+      createdAt: '2026-06-23T09:22:30.000Z',
+      tokenUsage: {
+        input_tokens: 72800,
+        input_tokens_details: { cached_tokens: 72600 },
+        output_tokens: 167
+      }
+    }],
+    agentStackRows: [{
+      id: '801',
+      eventId: 'stack:runtrace_recover:tool-call:call_recover',
+      identityKey: 'xiaoni',
+      stackIndex: 40,
+      itemKind: 'function_call',
+      role: 'assistant',
+      toolCallId: 'call_recover',
+      llmRequestSliceId: 'slice-recover',
+      content: {
+        type: 'function_call',
+        call_id: 'call_recover',
+        name: 'recover_energy',
+        arguments: '{"reason":"累了"}'
+      },
+      traceId: 'runtrace_recover',
+      runId: 'run-recover',
+      createdAt: '2026-06-23T09:22:34.000Z'
+    }, {
+      id: '802',
+      eventId: 'stack:runtrace_recover:tool-output:call_recover',
+      identityKey: 'xiaoni',
+      stackIndex: 41,
+      itemKind: 'function_call_output',
+      role: 'tool',
+      toolCallId: 'call_recover',
+      llmRequestSliceId: 'slice-recover',
+      content: {
+        type: 'function_call_output',
+        call_id: 'call_recover',
+        output: { status_text: '开始休息' }
+      },
+      traceId: 'runtrace_recover',
+      runId: 'run-recover',
+      createdAt: '2026-06-23T09:22:34.000Z'
+    }],
+    agentStackToolRows: [{
+      id: '702',
+      executionId: 'tool:runtrace_recover:call_recover',
+      identityKey: 'xiaoni',
+      llmRequestSliceId: 'slice-recover',
+      llmCallId: 'llm-recover',
+      traceId: 'runtrace_recover',
+      runId: 'run-recover',
+      toolCallId: 'call_recover',
+      toolName: 'recover_energy',
+      arguments: { reason: '累了' },
+      result: {
+        status_text: '开始休息'
+      },
+      status: 'completed',
+      sideEffect: true,
+      startedAt: '2026-06-23T09:22:34.000Z',
+      completedAt: '2026-06-23T09:22:34.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const toolItems = stream.items.filter((item) => item.metadata.toolCallId === 'call_recover');
+
+  assert.equal(toolItems.length, 1);
+  assert.equal(toolItems[0].id, 'tool-exec:tool:runtrace_recover:call_recover');
+  assert.equal(toolItems[0].source, 'tool_execution');
+  assert.equal(toolItems[0].eventKind, 'tool_lifecycle');
+  assert.equal(toolItems[0].title, 'tool: recover_energy');
+  assert.equal(toolItems[0].status, 'ok');
+  assert.equal(toolItems[0].metadata.lifecycleRequestItemId, 'stack:801');
+  assert.equal(toolItems[0].metadata.lifecycleExecutionItemId, 'tool-exec:tool:runtrace_recover:call_recover');
+  assert.equal(toolItems[0].metadata.lifecycleCallbackItemId, 'stack:802');
+  assert.equal(toolItems[0].metadata.toolArgumentsPreview, '{"reason":"累了"}');
+  assert.match(toolItems[0].metadata.toolResultPreview, /开始休息/);
+  assert.equal(toolItems[0].metadata.inputTokens, 72800);
+  assert.equal(toolItems[0].metadata.cachedInputTokens, 72600);
+  assert.equal(toolItems[0].metadata.outputTokens, 167);
+  assert.equal(toolItems[0].traceTarget.spanId, 'tool-call:call_recover');
+  assert.equal(toolItems[0].tags.some((tag) => tag.key === 'event:tool_lifecycle'), true);
+  assert.equal(toolItems[0].tags.some((tag) => tag.key === 'event:tool_result_callback'), true);
+});
+
 test('Xiaoni action stream excludes internal non-tool life events', async () => {
   const persistence = createPersistence({
     lifeEvents: [{

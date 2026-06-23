@@ -2411,6 +2411,168 @@ function decorateActionStreamItem(item) {
   };
 }
 
+function actionStreamToolLifecyclePhase(item) {
+  if (!item || !item.metadata?.toolCallId) {
+    return null;
+  }
+  if (item.source === 'tool_execution') {
+    return 'execution';
+  }
+  if (item.source === 'llm_stack_item' && item.kind === 'function_call') {
+    return 'request';
+  }
+  if (item.source === 'llm_stack_item' && item.kind === 'function_call_output') {
+    return 'callback';
+  }
+  return null;
+}
+
+function actionStreamToolLifecycleKey(item) {
+  const phase = actionStreamToolLifecyclePhase(item);
+  if (!phase) {
+    return null;
+  }
+  const toolCallId = firstString(item.metadata?.toolCallId, item.traceTarget?.toolCallId);
+  if (!toolCallId) {
+    return null;
+  }
+  const scope = firstString(
+    item.metadata?.llmRequestSliceId,
+    item.traceTarget?.llmRequestSliceId,
+    item.traceId,
+    item.internalExecutionLeaseId,
+    item.runId
+  ) || 'global';
+  return `${scope}:${toolCallId}`;
+}
+
+function newestActionStreamItem(items) {
+  return items
+    .filter(Boolean)
+    .sort((left, right) => {
+      const rightMs = new Date(right.timestamp || right.occurredAt).getTime() || 0;
+      const leftMs = new Date(left.timestamp || left.occurredAt).getTime() || 0;
+      return rightMs - leftMs;
+    })[0] || null;
+}
+
+function appendActionStreamLifecycleTags(tags, sourceItems) {
+  const seen = new Set((tags || []).map((tag) => tag.key).filter(Boolean));
+  const next = [...(tags || [])];
+  for (const item of sourceItems) {
+    for (const tag of item?.tags || []) {
+      if (!tag?.key || seen.has(tag.key)) {
+        continue;
+      }
+      seen.add(tag.key);
+      next.push(tag);
+    }
+  }
+  return next;
+}
+
+function mergeActionStreamToolLifecycleItems(items) {
+  const groups = new Map();
+  const order = [];
+  for (const item of items || []) {
+    const key = actionStreamToolLifecycleKey(item);
+    if (!key) {
+      order.push({ item });
+      continue;
+    }
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        key,
+        items: [],
+        request: null,
+        execution: null,
+        callback: null
+      };
+      groups.set(key, group);
+      order.push({ group });
+    }
+    group.items.push(item);
+    const phase = actionStreamToolLifecyclePhase(item);
+    if (phase === 'request') {
+      group.request = group.request || item;
+    } else if (phase === 'execution') {
+      group.execution = group.execution || item;
+    } else if (phase === 'callback') {
+      group.callback = group.callback || item;
+    }
+  }
+
+  return order.map((entry) => {
+    if (!entry.group) {
+      return entry.item;
+    }
+    const { group } = entry;
+    if (group.items.length === 1) {
+      return group.items[0];
+    }
+
+    const base = group.execution || group.callback || group.request || newestActionStreamItem(group.items);
+    const newest = newestActionStreamItem(group.items) || base;
+    const toolName = firstString(
+      base.metadata?.toolName,
+      group.execution?.metadata?.toolName,
+      group.request?.metadata?.toolName,
+      group.callback?.metadata?.toolName,
+      base.kind
+    );
+    const requestPreview = firstString(
+      group.request?.metadata?.argumentsPreview,
+      group.execution?.metadata?.toolArgumentsPreview
+    );
+    const resultPreview = firstString(
+      group.callback?.metadata?.toolResultPreview,
+      group.execution?.metadata?.toolResultPreview
+    );
+    const status = group.execution?.status === 'failed'
+      ? 'failed'
+      : firstString(group.execution?.status, group.callback ? 'ok' : null, base.status);
+    const lifecycle = {
+      key: group.key,
+      phaseCount: group.items.length,
+      requestItemId: group.request?.id || null,
+      executionItemId: group.execution?.id || null,
+      callbackItemId: group.callback?.id || null
+    };
+    const merged = {
+      ...base,
+      id: group.execution?.id || group.request?.id || base.id,
+      title: toolName ? `tool: ${toolName}` : base.title,
+      body: firstString(group.execution?.body, group.callback?.body, group.request?.body, base.body),
+      status,
+      tone: status === 'failed' ? 'danger' : group.callback || group.execution ? 'success' : base.tone,
+      timestamp: newest.timestamp || base.timestamp,
+      occurredAt: newest.occurredAt || newest.timestamp || base.occurredAt,
+      eventKind: 'tool_lifecycle',
+      traceTarget: group.execution?.traceTarget || group.request?.traceTarget || group.callback?.traceTarget || base.traceTarget,
+      metadata: normalizeValue({
+        ...base.metadata,
+        toolLifecycle: lifecycle,
+        toolCallId: firstString(base.metadata?.toolCallId, group.request?.metadata?.toolCallId, group.callback?.metadata?.toolCallId),
+        toolName,
+        toolArgumentsPreview: requestPreview,
+        argumentsPreview: requestPreview,
+        toolResultPreview: resultPreview,
+        stackResultPreview: group.callback?.metadata?.toolResultPreview || null,
+        executionResultPreview: group.execution?.metadata?.toolResultPreview || null,
+        lifecycleRequestItemId: lifecycle.requestItemId,
+        lifecycleExecutionItemId: lifecycle.executionItemId,
+        lifecycleCallbackItemId: lifecycle.callbackItemId
+      })
+    };
+    const mergedTags = actionStreamItemTags(merged);
+    return {
+      ...merged,
+      tags: appendActionStreamLifecycleTags(mergedTags, group.items)
+    };
+  });
+}
+
 function decorateActionStreamForkRun(run) {
   const forkKind = firstString(
     run.metadata?.forkKind,
@@ -3766,10 +3928,10 @@ function createXiaoniActivityPersistence({
       actionStreamProjection: true
     }, config);
     const feedActionItems = feed.items.filter(isPrimaryActionStreamItem);
-    const decoratedItems = dedupeFeedItems(feedActionItems)
+    const decoratedItems = mergeActionStreamToolLifecycleItems(dedupeFeedItems(feedActionItems)
       .filter((item) => item.timestamp)
       .filter((item) => itemMatchesTimeWindow(item, timeWindow))
-      .map(decorateActionStreamItem);
+      .map(decorateActionStreamItem));
     const compressionForkRuns = (feed.compressionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const subconsciousForkRuns = (feed.subconsciousForkTimeline?.runs || [])
