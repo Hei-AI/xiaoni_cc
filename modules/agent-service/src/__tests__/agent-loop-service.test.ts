@@ -1589,33 +1589,37 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
 
 test('buildInitialInput renders subconscious agent notify template as user bucket input', () => {
   const payload = createQueuePayload();
+  const planText = '<xiaoni_plan>\n短暂的停歇后，你的潜意识已经为你计划出接下来的可参考的大概旅程方向：\n继续 seed\n</xiaoni_plan>';
   payload.source = 'system_reminder';
   payload.messages = [];
   payload.phoneNotification = undefined;
-  payload.bodyForAgent = '潜意识想继续看看昨晚的 seed。';
-  payload.rawBody = '潜意识想继续看看昨晚的 seed。';
+  payload.bodyForAgent = planText;
+  payload.rawBody = planText;
   payload.rawPayload = {
     reason: 'subconscious_agent',
     final_answer_text: '继续 seed',
     notify_template: 'subconscious_agent_notify.md'
   };
   payload.systemReminder = {
-    reminder: '潜意识想继续看看昨晚的 seed。',
+    reminder: planText,
     reason: 'subconscious_agent',
     createdAt: '2026-06-12T14:51:11.000Z'
   };
   payload.inboundContext = {
     ...payload.inboundContext,
     Surface: 'system_reminder',
-    BodyForAgent: '潜意识想继续看看昨晚的 seed。'
+    BodyForAgent: planText
   };
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
-  const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('潜意识想继续看看昨晚的 seed。'));
+  const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('继续 seed'));
+  const subconsciousContent = getMessageContent(subconsciousInput);
 
   assert.equal((subconsciousInput as any)?.type, 'message');
   assert.equal((subconsciousInput as any)?.role, 'user');
-  assert.match(getMessageContent(subconsciousInput), /<system_reminder>/);
+  assert.match(subconsciousContent, /<xiaoni_plan>/);
+  assert.doesNotMatch(subconsciousContent, /<system_reminder>/);
+  assert.doesNotMatch(subconsciousContent, /&lt;xiaoni_plan&gt;/);
 });
 
 test('buildInitialInput keeps non-template subconscious system reminders as developer input', () => {
