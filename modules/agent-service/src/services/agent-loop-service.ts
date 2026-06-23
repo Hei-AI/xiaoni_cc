@@ -10796,7 +10796,9 @@ function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payl
     return false;
   }
   const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
-  return reason === 'subconscious_agent';
+  const notifyTemplate = queueMessage.rawPayload?.notify_template;
+  return reason === 'subconscious_agent'
+    && notifyTemplate === 'subconscious_agent_notify.md';
 }
 
 function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -11538,6 +11540,9 @@ function buildCurrentTurnInputItems(
   const parts = renderedMessages.filter((message) => message.trim());
   if (parts.length === 0) {
     return [];
+  }
+  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
+    return [buildUserSceneInputItem(parts)];
   }
   return [buildDeveloperInputItem(parts)];
 }

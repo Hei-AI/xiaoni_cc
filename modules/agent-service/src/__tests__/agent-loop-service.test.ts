@@ -1587,7 +1587,7 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
   )), true);
 });
 
-test('buildInitialInput renders subconscious agent notify as developer bucket input', () => {
+test('buildInitialInput renders subconscious agent notify template as user bucket input', () => {
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.messages = [];
@@ -1612,6 +1612,35 @@ test('buildInitialInput renders subconscious agent notify as developer bucket in
 
   const loopInput = buildInitialInput([], payload, createRuntimePrompt());
   const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('潜意识想继续看看昨晚的 seed。'));
+
+  assert.equal((subconsciousInput as any)?.type, 'message');
+  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.match(getMessageContent(subconsciousInput), /<system_reminder>/);
+});
+
+test('buildInitialInput keeps non-template subconscious system reminders as developer input', () => {
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = '潜意识兼容提醒。';
+  payload.rawBody = '潜意识兼容提醒。';
+  payload.rawPayload = {
+    reason: 'subconscious_agent'
+  };
+  payload.systemReminder = {
+    reminder: '潜意识兼容提醒。',
+    reason: 'subconscious_agent',
+    createdAt: '2026-06-12T14:51:11.000Z'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: '潜意识兼容提醒。'
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('潜意识兼容提醒。'));
 
   assert.equal((subconsciousInput as any)?.type, 'message');
   assert.equal((subconsciousInput as any)?.role, 'developer');
