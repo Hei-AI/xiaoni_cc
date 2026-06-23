@@ -3151,6 +3151,17 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
 }
 
+function renderSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
+  const reminder = getSystemReminderText(queueMessage);
+  if (reminder) {
+    return reminder;
+  }
+  const finalAnswerText = typeof queueMessage.rawPayload?.final_answer_text === 'string'
+    ? queueMessage.rawPayload.final_answer_text.trim()
+    : '';
+  return finalAnswerText ? renderSubconsciousAgentNotify(finalAnswerText) : '';
+}
+
 function buildQueueMessagePayloadForBatchMessage(
   queueMessage: QueueMessageRecord['payload'],
   message: QueueBatchMessage
@@ -3195,6 +3206,9 @@ function buildQueueMessagePayloadForBatchMessage(
 function renderCurrentBucketMessage(queueMessage: QueueMessageRecord['payload']) {
   if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
     return '';
+  }
+  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
+    return renderSubconsciousAgentNotifyPayload(queueMessage);
   }
   if (isSystemReminderPayload(queueMessage)) {
     return renderSystemReminder(queueMessage);
