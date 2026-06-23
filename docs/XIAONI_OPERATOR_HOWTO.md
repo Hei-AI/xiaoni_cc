@@ -66,6 +66,22 @@ curl -sS -X POST http://127.0.0.1:8092/api/internal/runtime/cache-heartbeat
 The heartbeat writes Codex provider usage events. It does not claim Notify Bucket
 rows and does not append to the main stack.
 
+## How to adjust runtime controls
+
+Use the admin runtime settings page for live control rows backed by
+`agent_runtime_control`.
+
+- Main loop switch pauses or resumes Xiaoni's runtime loop.
+- Main model yield sets the wait, in milliseconds, before each main model slice.
+  The default is `5000`.
+- Sleep heartbeat pause stops automatic provider cache heartbeat while Xiaoni is
+  in an active recovery session. The manual heartbeat endpoint above still works.
+- Post-compression pause arms a one-shot gate: after the next successful core
+  memory compression write, the main loop pauses.
+
+Use these controls for runtime pacing and cache experiments. Do not use them as a
+replacement for fixing queue, prompt, or provider bugs.
+
 ## How to verify LLM usage
 
 1. Open the LLM usage observatory in Xiaoni activity.
@@ -148,6 +164,43 @@ Then run `$site-publish-check`:
 
 The checker must pass before sharing the public link. It verifies the dist file,
 public HTTP 200, homepage link, private path leakage, and same-site resources.
+
+## How to inspect local images without an image id
+
+Use `$local-image-visibility` when a PNG exists under `/xiaoni-runtime/picture`
+but there is no usable `inspect_image_placeholder` image id.
+
+```bash
+python3 /workspace/qq_bot/modules/agent-service/skills/local-image-visibility/scripts/local_image_visibility.py info /xiaoni-runtime/picture/example.png
+python3 /workspace/qq_bot/modules/agent-service/skills/local-image-visibility/scripts/local_image_visibility.py ascii /xiaoni-runtime/picture/example.png --out /xiaoni-runtime/notes/YYYY-MM-DD/image-ascii.txt
+python3 /workspace/qq_bot/modules/agent-service/skills/local-image-visibility/scripts/local_image_visibility.py browser-thumb /xiaoni-runtime/picture/example.png --width 96 --height 64
+```
+
+This only confirms file visibility, dimensions, thumbnails, and coarse color or
+ascii shape. It does not provide reliable semantic vision.
+
+## How to preserve artifacts before publishing or sharing
+
+Use `$forever-archive` before treating a page, essay, image, or toy as something
+Xiaoni should remember after rebuilds.
+
+```bash
+python3 /workspace/qq_bot/modules/agent-service/skills/forever-archive/scripts/archive_artifact.py \
+  --category site \
+  --slug example-artifact \
+  --public-url https://xiaoni.liahuas.top/example-artifact/ \
+  --route /example-artifact/ \
+  --file /xiaoni-runtime/site/xiaoni-home/example-artifact/index.html:public_page_index.html
+```
+
+For long QQ shares, use `$qq-share-splitter` before sending a note or essay:
+
+```bash
+python3 /workspace/qq_bot/modules/agent-service/skills/qq-share-splitter/scripts/split_share.py /xiaoni-runtime/notes/example.md --max-chars 650
+```
+
+If the content is worth keeping, publish or archive the full version first, then
+share a short conversational teaser and link.
 
 ## Verification
 

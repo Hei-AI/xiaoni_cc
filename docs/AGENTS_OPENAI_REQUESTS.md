@@ -8,7 +8,7 @@
 - 小腻主运行态使用 Responses API 形状，不回退到 Chat Completions 语义。
 - 当前小腻主聊天模型跟随 `XIAONI_MAIN_AGENT_MODEL`，未显式配置时是 `gpt-5.5`；`AI_MODEL_NAME` 仍作为其他默认模型入口使用。compact memory / reflection 是独立的记忆生成工作流，未显式配置时默认 `gpt-5.5`。不要在仓库文档或配置里假设 `gpt-5.5-mini` 可用。
 - 主聊天 agent 只在 provider 参数或模型策略明确需要时发送 `reasoning`、`text` 和 `include`；不要为了“看起来更像 reasoning model”伪造 `reasoning.encrypted_content`。
-- context compression memory writer 固定使用 Responses function tool schema、`parallel_tool_calls: false`、`tool_choice.allowed_tools(mode=required)`；compact 层默认 `model=gpt-5.5`、`reasoning.effort=high`、`reasoning.summary=auto`、`text.verbosity=medium`，超时默认 `120000ms`。
+- context compression memory writer 固定使用 Responses function tool schema、`parallel_tool_calls: false`、`tool_choice.allowed_tools(mode=required)`；compact 层默认 `model=gpt-5.5`、`reasoning.effort=high`、`reasoning.summary=auto`、`text.verbosity=medium`，超时默认 `300000ms`。
 - `reasoning.summary` 只用于可观测性；不要要求或解析原始 hidden reasoning。
 - `text.verbosity` 必须作为模型参数处理；需要更短输出时用 `low`，不要把最终回答长度和 reasoning effort 混在同一条 prompt 里控制。
 
@@ -59,6 +59,7 @@
 - `agent-service` 会对 `docs/xiaoni_prompt/*.md` 做内容 fingerprint 轮询；文件内容变化后只设置 runtime prompt reload 标记，当前 frame 不被打断，下一轮 loop 边界清空 `stableRuntimePrompt` 并重新读取 system prompt。`prompt_cache_key` 仍保持 `xiaoni:global`，不要把 prompt 版本塞进 cache key；需要审计时看新 slice 的 request payload。
 - TODO 观察：2026-06-14 18:05 `llm_1781431541816_0727fc09` 出现 `53853 input / 2176 cached`，但与 16:38 `llm_1781426285553_687b73cb` 的 canonical/wire request 前 191 个 input item 完全一致，`model`、`instructions`、`tools`、`tool_choice` 和 `prompt_cache_key=xiaoni:global` 也一致。当前判断是 Codex backend 侧 prompt cache miss/淘汰；`prompt_cache_retention=24h` 只在 canonical request 中，Codex wire payload 仍按既有约束不发送 retention。后续如果重复出现低缓存，优先对比 wire 前缀、间隔、服务重启和 Codex 后端响应头，再决定是否需要新的保温或分桶策略。
 - 2026-06-14 起，active recovery 睡眠中默认每 5 分钟执行一次 no-persist cache heartbeat。heartbeat 复用 no-notify 主请求装配，末尾追加一条 developer `Heartbeat`，显式 `store:false`、canonical `max_output_tokens:1`，走 provider-service `/api/internal/llm/debug` 和 `executionMode=cache_heartbeat_no_persist`。它不写 `agent_stack_items`，不写主 `llm_request_slices`，不执行工具，也不回填小腻主 loop；Codex backend 当前会拒绝 `prompt_cache_retention` 和 `max_output_tokens`，所以 Codex provider wire payload 两者都不发送，低输出只靠 developer heartbeat 约束。续约 schedule 持久化在 active `agent_recovery_sessions.metadata.cache_heartbeat`；agent-service 重启后仍会按 active recovery session 继续续约，session 醒来后清掉 planned heartbeat。`agent_runtime_control.cache_heartbeat_paused=true` 只暂停睡眠中的自动 heartbeat，不暂停手动验证入口。本机一次性验证入口是 agent-service `POST /api/internal/runtime/cache-heartbeat`。
+- Codex provider 侧有 prompt cache admission gate，按 `model + prompt_cache_key + 稳定前缀 hash` 做本进程限速，避免同一 cache 前缀在短时间内被过多并发请求打爆。默认开启；可用 `CODEX_PROMPT_CACHE_GATE_ENABLED=0` 关闭，`CODEX_PROMPT_CACHE_GATE_RPM` / `CODEX_PROMPT_CACHE_GATE_WINDOW_MS` 调整窗口，`CODEX_PROMPT_CACHE_GATE_INTERACTIVE_MAX_WAIT_MS` 控制交互请求最长等待，`CODEX_PROMPT_CACHE_GATE_PREFIX_BYTES` 控制前缀 hash 采样大小。`fork`、`heartbeat`、`subconscious` 和 `_no_persist` 执行模式按 background 排队；普通交互请求超过最长等待会 bypass 并记录日志。
 - 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。DB 字段可以继续叫
   `xiaoni_os`；旧历史里的 `<小腻的OS>` 不迁移，只作为已读历史兼容。不要用工程术语解释它。
 - `<STATE>` 不是每次模型请求都注入。工程只在跨 run action 计数阈值、hosted
