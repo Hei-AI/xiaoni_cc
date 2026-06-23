@@ -883,6 +883,40 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  router.post('/agent-runtime/prompt/reload', async (_req, res) => {
+    try {
+      const response = await axios.post(`${AGENT_SERVICE_URL}/api/internal/runtime/prompt/reload`, {}, {
+        timeout: AGENT_REQUEST_TIMEOUT_MS,
+        validateStatus: () => true
+      });
+      const payload = response.data && typeof response.data === 'object'
+        ? response.data as Record<string, unknown>
+        : {};
+      if (response.status < 200 || response.status >= 300 || payload.success === false) {
+        res.status(response.status >= 400 ? response.status : 502).json({
+          success: false,
+          error: typeof payload.error === 'string'
+            ? payload.error
+            : `agent-service prompt reload returned HTTP ${response.status}`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: payload.result && typeof payload.result === 'object' ? payload.result : payload,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to force-load Xiaoni runtime prompt',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.get('/agent-runtime/activity-feed', async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.limit || '80'), 10) || 80));

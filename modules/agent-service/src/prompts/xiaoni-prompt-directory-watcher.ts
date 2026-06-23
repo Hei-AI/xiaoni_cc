@@ -7,6 +7,7 @@ export type XiaoniPromptDirectoryFingerprint = {
   fingerprint: string;
   fileCount: number;
   files: string[];
+  fileFingerprints: Record<string, string>;
 };
 
 export type XiaoniPromptDirectoryChange = {
@@ -14,6 +15,7 @@ export type XiaoniPromptDirectoryChange = {
   fingerprint: string;
   fileCount: number;
   files: string[];
+  changedFiles: string[];
   changedAt: string;
 };
 
@@ -32,19 +34,38 @@ export async function computeXiaoniPromptDirectoryFingerprint(
     .sort((left, right) => left.localeCompare(right));
 
   const hash = createHash('sha256');
+  const fileFingerprints: Record<string, string> = {};
   hash.update('xiaoni_prompt_directory_v1\0');
   for (const file of files) {
+    const content = await readFile(join(promptDir, file));
+    const fileHash = createHash('sha256');
+    fileHash.update(file);
+    fileHash.update('\0');
+    fileHash.update(content);
+    fileFingerprints[file] = fileHash.digest('hex');
+
     hash.update(file);
     hash.update('\0');
-    hash.update(await readFile(join(promptDir, file)));
+    hash.update(content);
     hash.update('\0');
   }
 
   return {
     fingerprint: hash.digest('hex'),
     fileCount: files.length,
-    files
+    files,
+    fileFingerprints
   };
+}
+
+function listChangedPromptFiles(
+  previous: XiaoniPromptDirectoryFingerprint,
+  current: XiaoniPromptDirectoryFingerprint
+) {
+  const files = new Set([...previous.files, ...current.files]);
+  return Array.from(files)
+    .filter((file) => previous.fileFingerprints[file] !== current.fileFingerprints[file])
+    .sort((left, right) => left.localeCompare(right));
 }
 
 export class XiaoniPromptDirectoryWatcher {
@@ -112,6 +133,7 @@ export class XiaoniPromptDirectoryWatcher {
         fingerprint: current.fingerprint,
         fileCount: current.fileCount,
         files: current.files,
+        changedFiles: listChangedPromptFiles(previous, current),
         changedAt: new Date().toISOString()
       });
     } catch (error) {
@@ -127,7 +149,11 @@ export class XiaoniPromptDirectoryWatcher {
     this.pendingChange = this.pendingChange
       ? {
           ...change,
-          previousFingerprint: this.pendingChange.previousFingerprint
+          previousFingerprint: this.pendingChange.previousFingerprint,
+          changedFiles: Array.from(new Set([
+            ...this.pendingChange.changedFiles,
+            ...change.changedFiles
+          ])).sort((left, right) => left.localeCompare(right))
         }
       : change;
     if (this.debounceTimer) {

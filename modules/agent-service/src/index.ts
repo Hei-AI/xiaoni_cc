@@ -8,6 +8,7 @@ import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
 import { XiaoniPromptDirectoryWatcher } from './prompts/xiaoni-prompt-directory-watcher';
+import { XiaoniPromptReloadPolicy } from './prompts/xiaoni-prompt-reload-policy';
 
 const moduleLogger = logger.createModuleLogger('agent-service');
 const app = express();
@@ -16,7 +17,7 @@ const loopService = new AgentLoopService(store, undefined, {
   isRuntimeEnabled,
   isCacheHeartbeatPaused,
   getMainAgentPreModelYieldMs,
-  onCoreMemoryCompressionCommitted: triggerRuntimePauseAfterCoreMemoryCompression
+  onCoreMemoryCompressionCommitted: handleCoreMemoryCompressionCommitted
 });
 const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
@@ -31,7 +32,7 @@ let workerBusy = false;
 let taskWorkerBusy = false;
 let runtimeEnabled = true;
 let lastProcessingRecoveryAt = 0;
-let promptReloadRequested = false;
+const promptReloadPolicy = new XiaoniPromptReloadPolicy();
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -60,6 +61,32 @@ app.post('/api/internal/runtime/cache-heartbeat', async (_req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     moduleLogger.warn('Manual cache heartbeat failed', { error: message });
+    res.status(500).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+app.post('/api/internal/runtime/prompt/reload', async (_req, res) => {
+  try {
+    const hadPendingReload = promptReloadPolicy.clearPendingReload();
+    const invalidated = loopService.invalidateStableRuntimePrompt('manual_force_load');
+    moduleLogger.warn('Manual Xiaoni runtime prompt force-load requested', {
+      invalidated,
+      had_pending_reload: hadPendingReload
+    });
+    res.json({
+      success: true,
+      result: {
+        invalidated,
+        had_pending_reload: hadPendingReload,
+        reason: 'manual_force_load'
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('Manual Xiaoni runtime prompt force-load failed', { error: message });
     res.status(500).json({
       success: false,
       error: message
@@ -220,22 +247,28 @@ async function triggerRuntimePauseAfterCoreMemoryCompression() {
   }
 }
 
-function consumePromptReloadRequest() {
-  if (!promptReloadRequested) {
-    return false;
+async function handleCoreMemoryCompressionCommitted() {
+  if (promptReloadPolicy.consumePostCompressionReload()) {
+    const invalidated = loopService.invalidateStableRuntimePrompt('prompt_files_changed_after_core_memory_compression');
+    moduleLogger.warn('Xiaoni prompt file reload armed after core memory compression', {
+      reason: 'prefix_sensitive_prompt_files_changed',
+      invalidated
+    });
   }
-  promptReloadRequested = false;
-  return true;
+  await triggerRuntimePauseAfterCoreMemoryCompression();
 }
 
 const promptDirectoryWatcher = new XiaoniPromptDirectoryWatcher({
   logger: moduleLogger,
   onChange: (change) => {
-    promptReloadRequested = true;
-    moduleLogger.info('Xiaoni prompt files changed; scheduling runtime prompt reload', {
+    const decision = promptReloadPolicy.recordPromptDirectoryChange(change);
+    moduleLogger.info('Xiaoni prompt files changed', {
       fingerprint: change.fingerprint.slice(0, 12),
       file_count: change.fileCount,
-      files: change.files
+      files: change.files,
+      changed_files: decision.changedFiles,
+      prefix_sensitive_files: decision.prefixSensitiveFiles,
+      reload_policy: decision.reloadPolicy
     });
   }
 });
@@ -273,7 +306,6 @@ async function start() {
     workerId: agentConfig.workerId,
     idleIntervalMs: agentConfig.idleIntervalMs,
     isStopping: () => stopping,
-    shouldReloadRuntimePrompt: consumePromptReloadRequest,
     recoverStaleProcessingLeases: recoverStaleProcessingLeasesPeriodically,
     onBusyChange: (busy) => {
       workerBusy = busy;

@@ -18,7 +18,10 @@ function fingerprint(value: string): XiaoniPromptDirectoryFingerprint {
   return {
     fingerprint: value,
     fileCount: 1,
-    files: ['system_prompt.md']
+    files: ['system_prompt.md'],
+    fileFingerprints: {
+      'system_prompt.md': value
+    }
   };
 }
 
@@ -36,9 +39,53 @@ test('computeXiaoniPromptDirectoryFingerprint changes when prompt markdown chang
     assert.notEqual(first.fingerprint, second.fingerprint);
     assert.deepEqual(first.files, ['system_prompt.md']);
     assert.deepEqual(second.files, ['system_prompt.md']);
+    assert.notEqual(first.fileFingerprints['system_prompt.md'], second.fileFingerprints['system_prompt.md']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('XiaoniPromptDirectoryWatcher reports only changed markdown files', async () => {
+  const changes: XiaoniPromptDirectoryChange[] = [];
+  const fingerprints: XiaoniPromptDirectoryFingerprint[] = [
+    {
+      fingerprint: 'a',
+      fileCount: 2,
+      files: ['phone_notification_reminder.md', 'system_prompt.md'],
+      fileFingerprints: {
+        'phone_notification_reminder.md': 'phone-a',
+        'system_prompt.md': 'system-a'
+      }
+    },
+    {
+      fingerprint: 'b',
+      fileCount: 2,
+      files: ['phone_notification_reminder.md', 'system_prompt.md'],
+      fileFingerprints: {
+        'phone_notification_reminder.md': 'phone-b',
+        'system_prompt.md': 'system-a'
+      }
+    }
+  ];
+  let last = fingerprints[fingerprints.length - 1]!;
+  const watcher = new XiaoniPromptDirectoryWatcher({
+    debounceMs: 0,
+    readFingerprint: async () => {
+      last = fingerprints.shift() ?? last;
+      return last;
+    },
+    onChange: (change) => {
+      changes.push(change);
+    }
+  });
+
+  await watcher.pollOnce();
+  await watcher.pollOnce();
+  await wait(10);
+  watcher.stop();
+
+  assert.equal(changes.length, 1);
+  assert.deepEqual(changes[0]?.changedFiles, ['phone_notification_reminder.md']);
 });
 
 test('XiaoniPromptDirectoryWatcher debounces multiple prompt changes into one reload event', async () => {

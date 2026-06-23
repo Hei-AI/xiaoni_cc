@@ -41,6 +41,12 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
 
 type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs'>>;
 
+type RuntimePromptReloadResult = {
+  invalidated?: boolean;
+  had_pending_reload?: boolean;
+  reason?: string;
+};
+
 async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
     method: 'PATCH',
@@ -50,6 +56,18 @@ async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<Runtime
   const payload = await response.json() as ApiResponse<RuntimeControl>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || 'Failed to update runtime control');
+  }
+  return payload.data;
+}
+
+async function forceLoadRuntimePrompt(): Promise<RuntimePromptReloadResult> {
+  const response = await fetch('/api/agent-runtime/prompt/reload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const payload = await response.json() as ApiResponse<RuntimePromptReloadResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to force-load runtime prompt');
   }
   return payload.data;
 }
@@ -66,6 +84,14 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     mutationFn: updateRuntimeControl,
     onSuccess: (data) => {
       queryClient.setQueryData(['xiaoni-runtime-control'], data);
+      void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const forceLoadMutation = useMutation({
+    mutationFn: forceLoadRuntimePrompt,
+    onSuccess: () => {
+      void controlQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
     }
@@ -123,10 +149,23 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         icon={<Power className="h-5 w-5" />}
         badge={<StatusPill tone={enabled ? 'success' : 'warning'}>{runtimeStatusLabel}</StatusPill>}
         actions={
-          <Button variant="outline" size="sm" onClick={() => void controlQuery.refetch()} disabled={controlQuery.isFetching}>
-            <RefreshCw className={controlQuery.isFetching ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-            刷新
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => forceLoadMutation.mutate()}
+              disabled={forceLoadMutation.isPending}
+            >
+              {forceLoadMutation.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <RefreshCw className="mr-2 h-4 w-4" />}
+              强制加载
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void controlQuery.refetch()} disabled={controlQuery.isFetching}>
+              <RefreshCw className={controlQuery.isFetching ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
+              刷新
+            </Button>
+          </div>
         }
       />
 
@@ -134,6 +173,13 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         <ErrorState
           description={controlQuery.error instanceof Error ? controlQuery.error.message : '加载运行配置失败'}
           onRetry={() => void controlQuery.refetch()}
+        />
+      ) : null}
+
+      {forceLoadMutation.error ? (
+        <ErrorState
+          description={forceLoadMutation.error instanceof Error ? forceLoadMutation.error.message : '强制加载运行 prompt 失败'}
+          onRetry={() => forceLoadMutation.mutate()}
         />
       ) : null}
 

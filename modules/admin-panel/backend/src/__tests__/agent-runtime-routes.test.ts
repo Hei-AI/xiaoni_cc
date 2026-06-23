@@ -214,6 +214,55 @@ describe('agent runtime control routes', () => {
     expect(response.status).toBe(400);
     expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
   });
+
+  it('proxies prompt force-load requests to agent-service', async () => {
+    const database = createDatabaseMock();
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: {
+        success: true,
+        result: {
+          invalidated: true,
+          had_pending_reload: false,
+          reason: 'manual_force_load'
+        }
+      }
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/prompt/reload')
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.invalidated).toBe(true);
+    expect(axios.post).toHaveBeenCalledWith(
+      'http://qqbot-agent-service:8092/api/internal/runtime/prompt/reload',
+      {},
+      expect.objectContaining({
+        timeout: 5000
+      })
+    );
+  });
+
+  it('returns agent-service prompt force-load failures', async () => {
+    const database = createDatabaseMock();
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      status: 503,
+      data: {
+        success: false,
+        error: 'agent-service unavailable'
+      }
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/prompt/reload')
+      .send({});
+
+    expect(response.status).toBe(503);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBe('agent-service unavailable');
+  });
 });
 
 describe('agent runtime recovery session routes', () => {
