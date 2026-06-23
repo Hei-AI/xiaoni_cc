@@ -17,11 +17,12 @@ energy_cost: 0.004
 
 - Browser profile: host Chrome `Profile 2`.
 - Primary attach mode: official Playwright Extension code, loaded as Xiaoni's own unpacked extension id. The source Web Store id is `mmlmfjhmonkocbjadbfplnigmagldckm`, but the running id and Playwright CLI preflight are patched by the host bridge to avoid Chrome blocking the Web Store id in automation launches.
-- Host bridge maintains a patched unpacked copy of Playwright Extension `0.2.1` under `C:\temp\xiaoni-playwright-extension-<id>-0.2.1`. The patch only auto-selects a debuggable tab when the CLI token is valid and filters `chrome-extension:` tabs out of selection.
-- Chrome is visible and headed. The bridge may close and reopen host Chrome once when `ensure-extension --restart` is used so `--disable-extensions-except` and `--load-extension` take effect for the real `Profile 2`.
+- Host bridge maintains a patched unpacked copy of Playwright Extension `0.2.1` under `C:\temp\xiaoni-playwright-extension-<id>-0.2.1`. The patch keeps the registered `connect.html` path but replaces `/lib/ui/connect.js` with a Xiaoni-only minimal connector, auto-selects a debuggable tab when the CLI token is valid, creates an `about:blank` tab if no debuggable tab exists, and filters `chrome-extension:` tabs out of selection. On `ensure-extension --restart`, the bridge clears Chrome's service-worker `ScriptCache` and `Database` after closing Chrome so the patched background script is registered and reloaded.
+- Chrome is visible and headed. The bridge may close and reopen host Chrome once when `ensure-extension --restart` is used so `--load-extension` takes effect for the real `Profile 2`. Do not add `--disable-extensions-except`; it can make Chrome block the unpacked extension page with `ERR_BLOCKED_BY_CLIENT`.
 - Host CLI install: `C:\temp\xiaoni-playwright-cli`.
 - Host bridge: `http://127.0.0.1:9977/run` or `http://172.18.0.1:9977/run` from executor containers. A test bridge may also run on `9976`.
 - Your `exec_command` runs inside `qqbot-xiaoni-executor`, so call the bridge client below instead of running `playwright-cli` directly.
+- Removed fallback paths: do not use `open`, `--browser`, `--headed`, `ensure-cdp`, or `attach --cdp`. Those create or target browser sessions that are not guaranteed to be the operator's visible Chrome `Profile 2`. The bridge rejects them.
 
 ## Start Or Reattach
 
@@ -34,7 +35,7 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 `attach --extension=chrome` creates a daemon session. The bridge only reports attach success after the official CLI's initial snapshot succeeds. If stdout contains `Session ... created` followed by `### Error`, treat the session as failed; run `tab-list` to confirm before relying on it.
 
-If attach opens a blocked `chrome-extension://.../connect.html` page, or if `ensure-extension` says Chrome is already running without the patched extension, ask the operator before restarting because it closes and reopens their visible Chrome. Then run:
+If attach opens a blocked `chrome-extension://.../connect.html` page, times out before the initial snapshot, or says Chrome is already running without the patched extension, restart the real visible Chrome with the patched extension:
 
 ```bash
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- ensure-extension --restart
@@ -84,9 +85,7 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 - This controls the operator's real visible browser. Avoid destructive account actions unless the operator explicitly asked for them.
 - `cookie-list`, storage commands, and request/response body commands can expose sensitive credentials. Do not run or repeat their output unless it is necessary and explicitly requested.
 - Do not close all browser tabs as cleanup. Inspect with `tab-list` first.
-- Do not use the CDP mirror profile as the default path. Chrome 136+ requires a non-default user-data-dir for raw `--remote-debugging-port`; that path opens headed Chrome but does not reliably preserve Google/Gemini login state on Windows.
-- If `attach --extension=chrome` fails, run `ensure-extension`; only use `ensure-extension --restart` after operator approval because it restarts visible Chrome.
-- CDP attach is a diagnostic fallback only: `ensure-cdp` plus `attach --cdp http://127.0.0.1:9222`. It is useful for debugging the bridge, not for authenticated Gemini work.
+- Do not use CDP mirror profiles or `playwright-cli open` as recovery paths. If `attach --extension=chrome` fails, the browser skill is broken; run `ensure-extension --restart`, reattach, and report the attach error if it still fails.
 
 ## Host Bridge Maintenance
 

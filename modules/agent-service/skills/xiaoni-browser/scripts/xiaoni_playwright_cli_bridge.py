@@ -77,6 +77,15 @@ class Handler(BaseHTTPRequestHandler):
             args = payload.get("args")
             if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
                 raise ValueError("args must be a string array")
+            fallback_error = _removed_fallback_error(args)
+            if fallback_error:
+                self._json(200, {
+                    "ok": False,
+                    "returncode": 2,
+                    "stdout": "",
+                    "stderr": fallback_error + "\n",
+                })
+                return
             if args and args[0] == "ensure-cdp":
                 result = _ensure_cdp("--restart" in args)
                 self._json(200, {
@@ -169,6 +178,45 @@ def _decode_timeout_output(value):
     return str(value)
 
 
+def _primary_command(args):
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("-s", "--s", "--session"):
+            skip_next = True
+            continue
+        if arg.startswith("-s=") or arg.startswith("--s=") or arg.startswith("--session="):
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg
+    return ""
+
+
+def _removed_fallback_error(args):
+    command = _primary_command(args)
+    if command == "open":
+        return (
+            "Xiaoni browser fallback removed: `open` creates a separate Playwright "
+            "browser session that can show as `<in-memory>` instead of the operator's "
+            "visible Chrome Profile 2. Run `ensure-extension` and "
+            "`attach --extension=chrome`; if attach fails, fix attach instead of using `open`."
+        )
+    if command == "ensure-cdp" or _is_cdp_attach(args):
+        return (
+            "Xiaoni browser CDP fallback removed: CDP uses a mirror/debug profile and "
+            "is not Xiaoni's real visible Chrome Profile 2. Run `ensure-extension` and "
+            "`attach --extension=chrome`; if attach fails, fix extension attach."
+        )
+    return ""
+
+
+def _is_cdp_attach(args):
+    return _primary_command(args) == "attach" and any(arg == "--cdp" or arg.startswith("--cdp=") for arg in args)
+
+
 def _is_extension_attach(args):
     return "attach" in args and any(arg.startswith("--extension") for arg in args)
 
@@ -178,10 +226,20 @@ def _ensure_cli_wrapper_exit_code():
     if not path.exists():
         return
     text = path.read_text(encoding="utf-8-sig")
-    if "exit $LASTEXITCODE" in text:
-        return
     newline = "\r\n" if "\r\n" in text else "\n"
-    path.write_text(text.rstrip() + newline + "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }" + newline, encoding="utf-8")
+    text = _ensure_powershell_env_line(text, "PLAYWRIGHT_MCP_HOST", "127.0.0.1", newline)
+    text = _ensure_powershell_env_line(text, "PLAYWRIGHT_EXTENSION_PROTOCOL", "1", newline)
+    if "exit $LASTEXITCODE" not in text:
+        text = text.rstrip() + newline + "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }" + newline
+    path.write_text(text, encoding="utf-8")
+
+
+def _ensure_powershell_env_line(text, name, value, newline):
+    line = f'$env:{name} = "{value}"'
+    pattern = re.compile(rf'^\s*\$env:{re.escape(name)}\s*=\s*"[^"]*"\s*$', re.MULTILINE)
+    if pattern.search(text):
+        return pattern.sub(line, text)
+    return text.rstrip() + newline + line + newline
 
 
 def _command_timeout_seconds(args, requested_timeout):
@@ -342,6 +400,7 @@ def _windows_cli_env():
                 if match:
                     env[match.group(1)] = match.group(2)
     env.setdefault("PLAYWRIGHT_MCP_EXECUTABLE_PATH", CHROME_EXE_WIN)
+    env.setdefault("PLAYWRIGHT_MCP_HOST", "127.0.0.1")
     return env
 
 
@@ -364,11 +423,12 @@ def _ensure_extension(restart):
 
 def _prepare_extension_dir(extension_dir):
     manifest_path = extension_dir / "manifest.json"
+    connect_html_path = extension_dir / "connect.html"
     connect_path = extension_dir / "lib" / "ui" / "connect.js"
     background_path = extension_dir / "lib" / "background.mjs"
     if not _extension_dir_is_current(manifest_path, connect_path, background_path):
         _download_and_extract_extension(extension_dir)
-    _patch_extension(connect_path, background_path)
+    _patch_extension(connect_path, background_path, connect_html_path)
 
 
 def _extension_dir_is_current(manifest_path, connect_path, background_path):
@@ -423,31 +483,65 @@ def _download_and_extract_extension(extension_dir):
     shutil.rmtree(temp_dir)
 
 
-def _patch_extension(connect_path, background_path):
+def _patch_extension(connect_path, background_path, connect_html_path):
     manifest_path = connect_path.parents[2] / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["key"] = EXTENSION_KEY
     manifest.pop("update_url", None)
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    connect = connect_path.read_text(encoding="utf-8")
     token_override = _windows_cli_env().get("PLAYWRIGHT_MCP_EXTENSION_TOKEN", "")
-    token_guard = "token === expectedToken"
-    if token_override:
-        token_guard += f" || token === {json.dumps(token_override)}"
-    if "const pickAutoConnectTab =" not in connect:
-        connect = connect.replace(
-            "const SUPPORTED_PROTOCOL_VERSION = 2;",
-            """const SUPPORTED_PROTOCOL_VERSION = 2;
-const pickAutoConnectTab = (response) => {
-  if (!(response == null ? void 0 : response.success) || !Array.isArray(response.tabs))
-    return;
-  const visibleTabs = response.tabs.filter((tab) => {
-    if (!tab.url)
-      return false;
-    return !["chrome:", "chrome-extension:", "edge:", "devtools:"].some((scheme) => tab.url.startsWith(scheme));
-  });
-  const score = (tab) => {
+    _write_minimal_connect_page(connect_html_path, connect_path, token_override)
+
+    background = background_path.read_text(encoding="utf-8")
+    background = background.replace(
+        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:"];',
+        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "chrome-extension:", "edge:", "devtools:"];',
+    )
+    background_path.write_text(background, encoding="utf-8")
+
+
+def _write_minimal_connect_page(connect_html_path, connect_script_path, token):
+    connect_script_path.write_text(_minimal_connect_script(token), encoding="utf-8")
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <title>Xiaoni Playwright Extension</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script type="module" crossorigin src="/lib/ui/connect.js"></script>
+</head>
+<body>
+  <pre id="status">connecting</pre>
+</body>
+</html>
+"""
+    connect_html_path.write_text(html, encoding="utf-8")
+
+
+def _minimal_connect_script(token):
+    expected_token = json.dumps(token)
+    return f"""const status = document.getElementById("status");
+const setStatus = (message) => {{
+  if (status)
+    status.textContent = message;
+  document.title = message;
+}};
+const params = new URLSearchParams(window.location.search);
+const relayUrl = params.get("mcpRelayUrl");
+const token = params.get("token") || "";
+const expectedToken = {expected_token};
+const protocolVersion = Number.parseInt(params.get("protocolVersion") || "1", 10) || 1;
+const client = (() => {{
+  try {{
+    return JSON.parse(params.get("client") || "{{}}");
+  }} catch {{
+    return {{}};
+  }}
+}})();
+const isVisibleTab = (tab) => tab && tab.url && !["chrome:", "chrome-extension:", "edge:", "devtools:"].some((scheme) => tab.url.startsWith(scheme));
+const pickTab = (tabs) => {{
+  const visibleTabs = tabs.filter(isVisibleTab);
+  const score = (tab) => {{
     let value = 0;
     if (tab.url && tab.url.startsWith("https://gemini.google.com/"))
       value += 1000000000000000;
@@ -456,29 +550,49 @@ const pickAutoConnectTab = (response) => {
     if (typeof tab.lastAccessed === "number")
       value += tab.lastAccessed;
     return value;
-  };
+  }};
   return [...visibleTabs].sort((a, b) => score(b) - score(a) || a.index - b.index)[0];
-};""",
-        )
-    auto_connect_block = """      if (__TOKEN_GUARD__) {
+}};
+const main = async () => {{
+  if (!relayUrl)
+    throw new Error("Missing mcpRelayUrl");
+  const host = new URL(relayUrl).hostname;
+  if (host !== "127.0.0.1" && host !== "[::1]")
+    throw new Error(`Rejected non-loopback relay host: ${{host}}`);
+  if (expectedToken && token !== expectedToken)
+    throw new Error("Invalid Xiaoni extension token");
+  setStatus("requesting connection");
+  const requested = await chrome.runtime.sendMessage({{ type: "connectionRequested", mcpRelayUrl: relayUrl, protocolVersion }});
+  if (!(requested && requested.success))
+    throw new Error((requested && requested.error) || "connectionRequested failed");
+  const tabResponse = await chrome.runtime.sendMessage({{ type: "getTabs" }});
+  if (!(tabResponse && tabResponse.success))
+    throw new Error((tabResponse && tabResponse.error) || "getTabs failed");
+  let tab = pickTab(tabResponse.tabs || []);
+  if (!tab)
+    tab = await chrome.tabs.create({{ url: "about:blank", active: true }});
+  setStatus(`connecting tab ${{tab.id}}`);
+  const connected = await chrome.runtime.sendMessage({{ type: "connectToTab", tab, clientName: client.name || "xiaoni" }});
+  if (!(connected && connected.success))
+    throw new Error((connected && connected.error) || "connectToTab failed");
+  setStatus("connected");
+}};
+main().catch((error) => {{
+  console.error(error);
+  setStatus(`error: ${{error.message || error}}`);
+}});
+"""
+
+
+def _auto_connect_block(token_guard):
+    return """      if (__TOKEN_GUARD__) {
         const tabResponse = await chrome.runtime.sendMessage({ type: "getTabs" });
-        const targetTab = pickAutoConnectTab(tabResponse);
+        let targetTab = pickAutoConnectTab(tabResponse);
+        if (!targetTab)
+          targetTab = await chrome.tabs.create({ url: "about:blank", active: true });
         await handleConnectToTab(targetTab);
         return;
       }""".replace("__TOKEN_GUARD__", token_guard)
-    connect = re.sub(
-        r"""      if \(token === expectedToken(?: \|\| token === "[^"]+")?\) \{\n        (?:await handleConnectToTab\(\);|const tabResponse = await chrome\.runtime\.sendMessage\(\{ type: "getTabs" \}\);\n        const targetTab = pickAutoConnectTab\(tabResponse\);\n        await handleConnectToTab\(targetTab\);)\n        return;\n      \}""",
-        auto_connect_block,
-        connect,
-    )
-    connect_path.write_text(connect, encoding="utf-8")
-
-    background = background_path.read_text(encoding="utf-8")
-    background = background.replace(
-        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:"];',
-        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "chrome-extension:", "edge:", "devtools:"];',
-    )
-    background_path.write_text(background, encoding="utf-8")
 
 
 def _patch_playwright_cli_extension_id():
@@ -496,8 +610,27 @@ def _patch_playwright_cli_extension_id():
             "if (userDataDir && !await isPlaywrightExtensionInstalled(userDataDir))\n      throw new Error(`Playwright Extension not found in \"${userDataDir}\". Install it from ${playwrightExtensionInstallUrl}`);",
             "if (false && userDataDir && !await isPlaywrightExtensionInstalled(userDataDir))\n      throw new Error(`Playwright Extension not found in \"${userDataDir}\". Install it from ${playwrightExtensionInstallUrl}`);",
         )
+        patched = _patch_cli_extension_relay_loopback(patched)
         if patched != text:
             path.write_text(patched, encoding="utf-8")
+
+
+def _patch_cli_extension_relay_loopback(text):
+    if 'this._wsHost.replace("ws://[::1]", "ws://127.0.0.1")' in text:
+        patched = text
+    else:
+        patched = text.replace(
+            'const mcpRelayEndpoint = `${this._wsHost}${this._extensionPath}`;',
+            'const mcpRelayEndpoint = `${this._wsHost.replace("ws://[::1]", "ws://127.0.0.1")}${this._extensionPath}`;',
+        )
+    patched = patched.replace(
+        "new URL(`chrome-extension://${playwrightExtensionId}/xiaoni-connect.html`)",
+        "new URL(`chrome-extension://${playwrightExtensionId}/connect.html`)",
+    )
+    return patched.replace(
+        "await startHttpServer(httpServer, {});",
+        'await startHttpServer(httpServer, { host: "127.0.0.1" });',
+    )
 
 
 def _launch_chrome_with_extension(restart):
@@ -538,6 +671,13 @@ if ($restart) {{
       try {{ Stop-Process -Id $process.ProcessId -Force }} catch {{ }}
     }}
   }}
+  $serviceWorkerRoot = Join-Path $userDataDir (Join-Path $profile 'Service Worker')
+  foreach ($name in @('ScriptCache', 'Database')) {{
+    $serviceWorkerPath = Join-Path $serviceWorkerRoot $name
+    if (Test-Path $serviceWorkerPath) {{
+      try {{ Remove-Item -Recurse -Force $serviceWorkerPath }} catch {{ }}
+    }}
+  }}
 }}
 if (-not (Test-Path $extensionDir)) {{
   [Console]::Out.Write((@{{ ok = $false; error = 'Extension directory does not exist'; extensionDir = $extensionDir }} | ConvertTo-Json -Compress))
@@ -548,7 +688,7 @@ if (($roots | Measure-Object).Count -eq 0 -or $restart) {{
   $escapedUserDataDir = $userDataDir.Replace('"', '\"')
   $escapedProfile = $profile.Replace('"', '\"')
   $escapedExtensionDir = $extensionDir.Replace('"', '\"')
-  $arguments = '--user-data-dir="' + $escapedUserDataDir + '" --profile-directory="' + $escapedProfile + '" --disable-extensions-except="' + $escapedExtensionDir + '" --load-extension="' + $escapedExtensionDir + '" --restore-last-session --no-first-run'
+  $arguments = '--user-data-dir="' + $escapedUserDataDir + '" --profile-directory="' + $escapedProfile + '" --load-extension="' + $escapedExtensionDir + '" --restore-last-session --no-first-run'
   Start-Process -FilePath $chrome -ArgumentList $arguments
   Start-Sleep -Seconds 3
 }}
