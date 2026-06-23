@@ -793,6 +793,55 @@ test('Xiaoni action stream paginates the merged main and fork timeline', async (
   assert.deepEqual(stream.items.map((item) => item.id), ['llm-slice:slice_newer']);
 });
 
+test('Xiaoni action stream cursor follows visible main items instead of older fork runs', async () => {
+  const persistence = createPersistence({
+    llmRequestSliceRows: [{
+      id: '20',
+      sliceId: 'slice_visible_main',
+      llmCallId: 'llm_visible_main',
+      identityKey: 'xiaoni',
+      status: 'completed',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      canonicalRequest: { input: [{ role: 'user', content: 'visible main' }] },
+      wireResponse: { id: 'resp_visible_main' },
+      createdAt: '2026-06-05T10:10:00.000Z',
+      completedAt: '2026-06-05T10:10:01.000Z'
+    }],
+    subconsciousForkRuns: [{
+      id: '21',
+      fork_run_id: 'subconscious_fork_older_than_visible_main',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      summary_text: '旧 fork',
+      started_at: '2026-06-05T09:00:00.000Z',
+      completed_at: '2026-06-05T09:00:10.000Z',
+      created_at: '2026-06-05T09:00:00.000Z',
+      updated_at: '2026-06-05T09:00:10.000Z'
+    }, {
+      id: '22',
+      fork_run_id: 'subconscious_fork_even_older',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      summary_text: '更旧 fork',
+      started_at: '2026-06-05T08:59:00.000Z',
+      completed_at: '2026-06-05T08:59:10.000Z',
+      created_at: '2026-06-05T08:59:00.000Z',
+      updated_at: '2026-06-05T08:59:10.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 2 });
+
+  assert.equal(stream.pagination.hasMore, true);
+  assert.equal(stream.pagination.nextCursor, '2026-06-05T10:10:00.000Z');
+  assert.deepEqual(stream.items.map((item) => item.id), ['llm-slice:slice_visible_main']);
+  assert.deepEqual(stream.subconsciousForkTimeline.runs.map((run) => run.forkRunId), [
+    'subconscious_fork_older_than_visible_main'
+  ]);
+});
+
 test('Xiaoni action stream filters tags before applying display limit', async () => {
   const noisyLlmSlices = Array.from({ length: 100 }, (_, index) => ({
     id: String(3000 + index),
