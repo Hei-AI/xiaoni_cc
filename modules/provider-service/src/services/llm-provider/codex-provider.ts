@@ -123,6 +123,21 @@ function buildCodexSseErrorMessage(prefix: string, event: unknown): string {
   return `${summary}; raw_event=${stringifyRawCodexErrorPayload(event)}`;
 }
 
+function buildCodexSseError(prefix: string, event: unknown): Error & { code?: string } {
+  const record = event && typeof event === 'object' ? event as Record<string, any> : {};
+  const error = new Error(buildCodexSseErrorMessage(prefix, event)) as Error & { code?: string };
+  const code = [
+    record.error?.code,
+    record.error?.type,
+    record.response?.error?.code,
+    record.response?.error?.type
+  ].find((value) => typeof value === 'string' && value.trim().length > 0);
+  if (typeof code === 'string') {
+    error.code = code.trim();
+  }
+  return error;
+}
+
 export class CodexProvider extends OpenAIProvider {
   readonly id: 'codex' | 'codex-local';
   protected readonly codexLogger = logger.createModuleLogger('llm-provider-codex');
@@ -457,7 +472,9 @@ export class CodexProvider extends OpenAIProvider {
       'ENOTFOUND',
       'ETIMEDOUT',
       'UND_ERR_CONNECT_TIMEOUT',
-      'UND_ERR_SOCKET'
+      'UND_ERR_SOCKET',
+      'server_is_overloaded',
+      'service_unavailable_error'
     ].includes(code)) {
       return true;
     }
@@ -468,6 +485,9 @@ export class CodexProvider extends OpenAIProvider {
       message.includes('fetch failed') ||
       message.includes('network socket disconnected') ||
       message.includes('socket disconnected') ||
+      message.includes('server_is_overloaded') ||
+      message.includes('service_unavailable_error') ||
+      message.includes('currently overloaded') ||
       message.includes('terminated');
   }
 
@@ -508,10 +528,10 @@ export class CodexProvider extends OpenAIProvider {
       }
 
       if (type === 'error') {
-        throw new Error(buildCodexSseErrorMessage('Codex SSE error', event));
+        throw buildCodexSseError('Codex SSE error', event);
       }
       if (type === 'response.failed') {
-        throw new Error(buildCodexSseErrorMessage('Codex response failed', event));
+        throw buildCodexSseError('Codex response failed', event);
       }
       if (type === 'response.output_text.delta' && typeof event?.delta === 'string') {
         outputText += event.delta;

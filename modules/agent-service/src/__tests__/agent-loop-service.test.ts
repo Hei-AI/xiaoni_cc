@@ -5202,6 +5202,99 @@ test('runtime frame requeues transient provider failures instead of failing a pe
   );
 });
 
+test('runtime frame requeues Codex service overload failures instead of failing a persisted notify', async () => {
+  const queueMessage = {
+    id: 'run-queue-overload-provider',
+    traceId: 'trace-overload-provider',
+    batchId: 'batch-overload-provider',
+    status: 'processing',
+    attempts: 1,
+    maxAttempts: 3,
+    createdAt: '2026-03-28T08:00:00.000Z',
+    queueMessageIds: [14337],
+    payload: {
+      ...createQueuePayload(),
+      runId: 'run-queue-overload-provider',
+      traceId: 'trace-overload-provider',
+      batchId: 'batch-overload-provider'
+    }
+  };
+
+  const overloadError = 'Our servers are currently overloaded. Please try again later. | server_is_overloaded; raw_event={"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded"}}';
+  const storeCalls: Record<string, any[]> = {
+    createConversation: [],
+    retryQueueMessage: [],
+    failQueueMessage: [],
+    releaseExecutionLease: [],
+    updateLlmJob: [],
+    logTimelineEvent: []
+  };
+  const store = {
+    createLlmJob: async () => 'job-overload-provider',
+    logTimelineEvent: async (params: any) => { storeCalls.logTimelineEvent.push(params); },
+    loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
+    listRecentTurns: async () => [],
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({
+      deliveryPhase: 'reasoning_open',
+      deliveryCommitCount: 0,
+      blockedDeliveryAttemptCount: 0,
+      lastBlockedDeliveryReason: null
+    }),
+    createConversation: async (params: any) => {
+      storeCalls.createConversation.push(params);
+      return 3002;
+    },
+    attachConversationIdToTrace: async () => {},
+    retryQueueMessage: async (...args: any[]) => {
+      storeCalls.retryQueueMessage.push(args);
+      return 1;
+    },
+    failQueueMessage: async (...args: any[]) => { storeCalls.failQueueMessage.push(args); },
+    releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
+    updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); }
+  } as any;
+  const previousBaseDelay = agentConfig.queueTransientRetryBaseDelayMs;
+  const previousMaxDelay = agentConfig.queueTransientRetryMaxDelayMs;
+  agentConfig.queueTransientRetryBaseDelayMs = 1234;
+  agentConfig.queueTransientRetryMaxDelayMs = 60_000;
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeAgentTurn = async () => {
+    throw new Error(overloadError);
+  };
+
+  try {
+    await processRuntimeFrameForTest(service, queueMessage as any);
+  } finally {
+    agentConfig.queueTransientRetryBaseDelayMs = previousBaseDelay;
+    agentConfig.queueTransientRetryMaxDelayMs = previousMaxDelay;
+  }
+
+  assert.equal(storeCalls.createConversation.length, 1);
+  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
+  assert.equal(storeCalls.createConversation[0]?.rawResponse?.queue_retry_eligible, true);
+  assert.deepEqual(storeCalls.retryQueueMessage, [[
+    'run-queue-overload-provider',
+    {
+      errorMessage: overloadError,
+      retryDelayMs: 1234
+    }
+  ]]);
+  assert.equal(storeCalls.failQueueMessage.length, 0);
+  assert.equal(storeCalls.releaseExecutionLease[0]?.status, 'failed');
+  assert.equal(storeCalls.updateLlmJob[0]?.status, 'failed');
+  assert.equal(
+    storeCalls.logTimelineEvent.some((event) => event.eventName === 'queue_retry_scheduled'
+      && event.metadata?.retry_delay_ms === 1234),
+    true
+  );
+});
+
 test('runtime frame persists delivered assistant transcript items with final phase on success', async () => {
   const queueMessage = {
     id: 'run-queue-success',

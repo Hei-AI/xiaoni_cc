@@ -10743,7 +10743,7 @@ function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCu
 
 function isTransientProviderExecutionError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return /terminated|fetch failed|network|timeout|timed out|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR/i.test(message);
+  return /terminated|fetch failed|network|timeout|timed out|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|UND_ERR|server_is_overloaded|service_unavailable_error|currently overloaded/i.test(message);
 }
 
 function computeProviderExecutionRetryDelayMs(attempt: number) {
