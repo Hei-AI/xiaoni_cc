@@ -3203,6 +3203,86 @@ function buildQueueMessagePayloadForBatchMessage(
   };
 }
 
+type CurrentBucketMessageTemplateKind =
+  | 'deleted_final_answer_reminder'
+  | 'subconscious_agent_notify'
+  | 'system_reminder'
+  | 'image_task_notification'
+  | 'phone_notification'
+  | 'conversation_input';
+
+function classifyCurrentBucketMessageTemplate(queueMessage: QueueMessageRecord['payload']) {
+  if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
+    return 'deleted_final_answer_reminder';
+  }
+  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
+    return 'subconscious_agent_notify';
+  }
+  if (isSystemReminderPayload(queueMessage)) {
+    return 'system_reminder';
+  }
+  if (isImageTaskNotificationPayload(queueMessage)) {
+    return 'image_task_notification';
+  }
+  if (isPhoneNotificationPayload(queueMessage)) {
+    return 'phone_notification';
+  }
+  return 'conversation_input';
+}
+
+function getPhoneNotificationForBatchMessage(message: QueueBatchMessage) {
+  return typeof message.rawPayload?.phoneNotification === 'object' && message.rawPayload.phoneNotification
+    ? message.rawPayload.phoneNotification as QueueMessageRecord['payload']['phoneNotification']
+    : undefined;
+}
+
+function buildPhoneNotificationPayloadForBatchMessages(
+  queueMessage: QueueMessageRecord['payload'],
+  messages: QueueBatchMessage[]
+): QueueMessageRecord['payload'] {
+  const latest = messages[messages.length - 1];
+  const basePayload = buildQueueMessagePayloadForBatchMessage(queueMessage, latest);
+  const notifications = messages
+    .map((message) => ({
+      message,
+      notification: getPhoneNotificationForBatchMessage(message)
+    }))
+    .filter((entry): entry is {
+      message: QueueBatchMessage;
+      notification: NonNullable<QueueMessageRecord['payload']['phoneNotification']>;
+    } => Boolean(entry.notification));
+  const latestNotification = notifications[notifications.length - 1]?.notification || basePayload.phoneNotification || queueMessage.phoneNotification;
+  const uniqueNotifications = new Map<string, NonNullable<QueueMessageRecord['payload']['phoneNotification']>>();
+  for (const { message, notification } of notifications) {
+    uniqueNotifications.set(notification.notificationId || message.messageSid || String(message.queueMessageId), notification);
+  }
+  const unreadDelta = uniqueNotifications.size > 0
+    ? Array.from(uniqueNotifications.values()).reduce((sum, notification) => sum + Math.max(1, Number(notification.unreadDelta || 1)), 0)
+    : Math.max(1, Number(queueMessage.phoneNotification?.unreadDelta || basePayload.phoneNotification?.unreadDelta || 0), messages.length);
+  const directMentions = uniqueNotifications.size > 0
+    ? Array.from(uniqueNotifications.values()).reduce((sum, notification) => sum + Math.max(0, Number(notification.directMentions || 0)), 0)
+    : Math.max(0, Number(queueMessage.phoneNotification?.directMentions || basePayload.phoneNotification?.directMentions || 0));
+
+  return {
+    ...basePayload,
+    source: 'phone_notification',
+    bodyForAgent: messages.map((message) => message.bodyForAgent).join('\n'),
+    rawBody: messages.map((message) => message.rawBody).join('\n'),
+    commandBody: messages.map((message) => message.commandBody).join('\n'),
+    wasMentioned: messages.some((message) => message.wasMentioned),
+    messages,
+    ...(latestNotification
+      ? {
+          phoneNotification: {
+            ...latestNotification,
+            unreadDelta,
+            directMentions
+          }
+        }
+      : { phoneNotification: undefined })
+  };
+}
+
 function renderCurrentBucketMessage(queueMessage: QueueMessageRecord['payload']) {
   if (isDeletedFinalAnswerReminderPayload(queueMessage)) {
     return '';
@@ -3228,8 +3308,31 @@ function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payloa
     const rendered = renderCurrentBucketMessage(queueMessage);
     return rendered.trim() ? [rendered] : [];
   }
-  return messages
-    .map((message) => renderCurrentBucketMessage(buildQueueMessagePayloadForBatchMessage(queueMessage, message)))
+
+  const groupedMessages: Array<{
+    kind: CurrentBucketMessageTemplateKind;
+    messages: QueueBatchMessage[];
+  }> = [];
+  for (const message of messages) {
+    const messagePayload = buildQueueMessagePayloadForBatchMessage(queueMessage, message);
+    const kind = classifyCurrentBucketMessageTemplate(messagePayload);
+    const previous = groupedMessages[groupedMessages.length - 1];
+    if (kind === 'phone_notification' && previous?.kind === kind) {
+      previous.messages.push(message);
+      continue;
+    }
+    groupedMessages.push({ kind, messages: [message] });
+  }
+
+  return groupedMessages
+    .map((group) => {
+      if (group.kind === 'phone_notification' && group.messages.length > 1) {
+        return renderCurrentBucketMessage(buildPhoneNotificationPayloadForBatchMessages(queueMessage, group.messages));
+      }
+      return group.messages
+        .map((message) => renderCurrentBucketMessage(buildQueueMessagePayloadForBatchMessage(queueMessage, message)))
+        .join('\n\n');
+    })
     .map((message) => message.trim())
     .filter(Boolean);
 }

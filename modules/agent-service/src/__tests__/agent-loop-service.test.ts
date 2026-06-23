@@ -1900,7 +1900,7 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
   assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"/);
 });
 
-test('buildInitialInput renders direct mention and group activity cues as current bucket parts', () => {
+test('buildInitialInput aggregates direct mention and group activity cues into one phone reminder', () => {
   const payload = createQueuePayload();
   if (payload.phoneNotification) {
     payload.phoneNotification.unreadDelta = 4;
@@ -1998,8 +1998,8 @@ test('buildInitialInput renders direct mention and group activity cues as curren
   const parts = getInputTextParts(currentTurnItems[0]);
 
   assert.equal(currentTurnItems.length, 1);
-  assert.equal(parts.length, 3);
-  assert.equal(parts.every((part) => /堆积了 1 条新动静/.test(part)), true);
+  assert.equal(parts.length, 1);
+  assert.match(parts[0], /堆积了 4 条新动静/);
   assert.match(rendered, /\{小伊\(@3994058476\)\} 发来 1 条消息, 最新消息是: \{私聊预览内容很长需要截断一点点\}/);
   assert.match(rendered, /\{李阿花\(@85178516\)\} @了你 1 次, 最新消息是: \{@小腻 看下这个群通知逻辑\}/);
   assert.match(rendered, /\{闲聊群\(@202\)\} 有 1 条新群消息, 最新发言人: \{张三\(@20001\)\}, 最新消息是: \{这个接口要不要收紧一下\}/);
@@ -2057,8 +2057,8 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     .join('\n');
 
   assert.match(rendered, /视线边缘：状态栏闪烁/);
-  assert.equal(parts.length, 2);
-  assert.equal(parts.every((part) => /Alice\(@202\).*发来 1 条消息/.test(part)), true);
+  assert.equal(parts.length, 1);
+  assert.match(parts[0], /Alice\(@202\).*发来 2 条消息/);
   assert.doesNotMatch(rendered, /QQ\(@qq\).*发来 2 条消息/);
   assert.match(rendered, /第二条私聊/);
   assert.doesNotMatch(rendered, /message_id="11" chat_type="私聊"/);
@@ -2067,7 +2067,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
   assert.doesNotMatch(sceneRendered, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(sceneRendered, /<IM_INBOX_WINDOW/);
   assert.ok(developerNotification);
-  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*发来 1 条消息/);
+  assert.match(getMessageContent(developerNotification), /Alice\(@202\).*发来 2 条消息/);
   assert.match(getMessageContent(developerNotification), /第二条私聊/);
   assert.doesNotMatch(getMessageContent(developerNotification), /<IM_INBOX_WINDOW|message_sid=|source="napcat"|message_id=/);
 });
