@@ -2636,6 +2636,15 @@ function actionStreamEntryTimestamp(entry) {
   return entry.kind === 'fork' ? entry.run.startedAt : entry.item.timestamp;
 }
 
+function actionStreamPaginationCursor(visibleEntries) {
+  const visibleMainEntries = visibleEntries
+    .filter((entry) => entry.kind === 'main' && actionStreamEntryTimestamp(entry));
+  if (visibleMainEntries.length > 0) {
+    return actionStreamEntryTimestamp(visibleMainEntries[visibleMainEntries.length - 1]);
+  }
+  return actionStreamEntryTimestamp(visibleEntries[visibleEntries.length - 1]);
+}
+
 function sortActionStreamEntries(left, right) {
   const rightMs = new Date(actionStreamEntryTimestamp(right)).getTime() || 0;
   const leftMs = new Date(actionStreamEntryTimestamp(left)).getTime() || 0;
@@ -2669,10 +2678,11 @@ function paginateActionStreamEntries(entries, limit) {
   }
 
   const visibleEntries = ordered.slice(0, visibleCount);
+  const nextCursor = actionStreamPaginationCursor(visibleEntries);
   return {
     visibleEntries,
     hasMore: visibleCount < ordered.length,
-    nextCursor: visibleCount < ordered.length ? actionStreamEntryTimestamp(visibleEntries[visibleEntries.length - 1]) : null
+    nextCursor: visibleCount < ordered.length ? nextCursor : null
   };
 }
 
