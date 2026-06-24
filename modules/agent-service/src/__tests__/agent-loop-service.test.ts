@@ -9539,6 +9539,7 @@ test('runtime iteration settles persisted recovery session after restart with or
     llmCallId: 'llm-restart',
     traceId: 'trace-restart',
     runId: 'run-restart',
+    conversationId: 12345,
     wakeCountStartQueueMessageId: 200,
     lastWakeCountedQueueMessageId: 200,
     wakeCallCount: 0,
@@ -9593,6 +9594,7 @@ test('runtime iteration settles persisted recovery session after restart with or
   assert.equal(storeCalls.recordRecoverySessionLifeEvent[0]?.toolResult?.recovery_session_id, 302);
   assert.equal(storeCalls.appendAgentStackItems[0]?.sourceType, 'agent_recovery_sessions');
   assert.equal(storeCalls.appendAgentStackItems[0]?.sourceId, '302');
+  assert.equal(storeCalls.appendAgentStackItems[0]?.conversationId, 12345);
   assert.equal(frames.length, 1);
   assert.equal(frames[0]?.options?.queueBacked, false);
   assert.equal(frames[0]?.options?.initialLoopContinuation?.length, 1);
@@ -9627,6 +9629,7 @@ test('runtime iteration batches settled recovery callback with a queued notifica
     llmCallId: 'llm-recover-notify',
     traceId: 'trace-recover-notify',
     runId: 'run-recover-notify',
+    conversationId: 12346,
     wakeCountStartQueueMessageId: 300,
     lastWakeCountedQueueMessageId: 300,
     wakeCallCount: 0,
@@ -9700,6 +9703,7 @@ test('runtime iteration batches settled recovery callback with a queued notifica
   assert.equal(frames[0]?.options?.initialLoopContinuation?.length, 1);
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call_output');
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-notify');
+  assert.equal(storeCalls.appendAgentStackItems[0]?.conversationId, 12346);
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {

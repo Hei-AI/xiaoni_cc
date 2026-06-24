@@ -5530,6 +5530,7 @@ export class AgentLoopService {
       llmRequestSliceId: string | null;
       traceId: string | null;
       runId: string | null;
+      conversationId?: number | null;
       metadata?: Record<string, unknown>;
     },
     toolResult: Record<string, unknown>,
@@ -5573,6 +5574,7 @@ export class AgentLoopService {
       const rows = await this.appendAgentStackItemsSafe({
         traceId: session.traceId || `recovery:${session.id}`,
         runId: session.runId || `recovery:${session.id}`,
+        conversationId: session.conversationId ?? null,
         sourceType: 'agent_recovery_sessions',
         sourceId: String(session.id),
         llmRequestSliceId: session.llmRequestSliceId || null,
@@ -5595,6 +5597,7 @@ export class AgentLoopService {
       await this.appendAgentStackItemsSafe({
         traceId: session.traceId || `recovery:${session.id}`,
         runId: session.runId || `recovery:${session.id}`,
+        conversationId: session.conversationId ?? null,
         sourceType: 'agent_recovery_sessions',
         sourceId: String(session.id),
         items: [{
@@ -7853,6 +7856,7 @@ export class AgentLoopService {
     sourceType?: string | null;
     sourceId?: string | null;
     llmRequestSliceId?: string | null;
+    conversationId?: number | null;
     items: Array<Record<string, unknown>>;
   }) {
     const appender = (this.store as RuntimeStore & {
@@ -7869,6 +7873,7 @@ export class AgentLoopService {
         sourceType: params.sourceType || null,
         sourceId: params.sourceId || null,
         llmRequestSliceId: params.llmRequestSliceId || null,
+        conversationId: params.conversationId ?? null,
         items: params.items
       }) as Array<Record<string, unknown>>;
     } catch (error) {
