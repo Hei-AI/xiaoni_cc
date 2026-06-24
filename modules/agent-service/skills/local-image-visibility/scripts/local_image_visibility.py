@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, base64, binascii, json, os, struct, subprocess, sys, urllib.error, urllib.request, zlib
+import argparse, base64, binascii, http.client, json, os, struct, subprocess, sys, urllib.error, urllib.request, zlib
 
 PNG_SIG=b'\x89PNG\r\n\x1a\n'
 PROVIDER_SERVICE_URL=os.environ.get('PROVIDER_SERVICE_URL','').rstrip('/')
@@ -107,7 +107,7 @@ def register_image(path):
             if data.get('placeholder'): return data.get('placeholder')
             if data.get('image_id'): return f"<image>pic<{data.get('image_id')}></image>"
             last=f'provider did not return an image id via {url}'
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, http.client.HTTPException, ConnectionError) as exc:
             last=str(exc)
     return f'image inspection unavailable: {last or "provider not reachable"}'
 

@@ -2,6 +2,7 @@
 import argparse
 import base64
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -945,7 +946,7 @@ def _register_runtime_picture(container_path):
                 "media_tag": data.get("media_tag"),
                 "placeholder": data.get("placeholder") or f"<image>pic<{image_id}></image>",
             }
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, http.client.HTTPException, ConnectionError) as exc:
             last_error = str(exc)
     return {
         "ok": False,
