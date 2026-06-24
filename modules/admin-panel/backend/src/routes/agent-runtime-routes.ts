@@ -10,8 +10,10 @@ import {
   getXiaoniActivityFeed,
   getXiaoniLlmUsageTimeline,
   findXiaoniActionEventTraceTarget,
+  enqueueAgentQueueMessage,
   getAgentLifeState,
   getAgentRuntimeControl,
+  getLatestUnreadAgentInboundMessage,
   listAgentLifeEvents,
   listAgentMediaAssets,
   listAgentRecoverySessions,
@@ -82,6 +84,8 @@ type RuntimeFileShadowCandidate = {
   safeEmbeddingText: string;
   preview: string | null;
 };
+
+type InboundMessageRow = Record<string, unknown>;
 
 async function probeAgentService(): Promise<AgentProbeResult> {
   return axios
@@ -222,6 +226,135 @@ function parsePositiveInteger(value: unknown, fallback: number, max: number): nu
     return fallback;
   }
   return Math.min(parsed, max);
+}
+
+function trimmedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function boolFromRow(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function stringFromRow(row: InboundMessageRow, camelKey: string, snakeKey: string, fallback = ''): string {
+  const value = row[camelKey] ?? row[snakeKey];
+  return typeof value === 'string' ? value : fallback;
+}
+
+function numberFromRow(row: InboundMessageRow, camelKey: string, snakeKey: string): number {
+  const value = row[camelKey] ?? row[snakeKey];
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function objectFromRow(row: InboundMessageRow, camelKey: string, snakeKey: string): Record<string, unknown> {
+  const value = row[camelKey] ?? row[snakeKey];
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function truncateNotificationPreview(text: string, maxChars = 20): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  const chars = Array.from(normalized);
+  return chars.length > maxChars
+    ? `${chars.slice(0, maxChars).join('')}...`
+    : normalized;
+}
+
+function buildManualRecoveryPhoneNotification(row: InboundMessageRow, now = Date.now()) {
+  const id = numberFromRow(row, 'id', 'id');
+  const chatType = stringFromRow(row, 'chatType', 'chat_type') === 'direct' ? 'direct' : 'group';
+  const sessionKey = stringFromRow(row, 'sessionKey', 'session_key');
+  const peerId = stringFromRow(row, 'peerId', 'peer_id');
+  const peerName = trimmedString(row.peerName ?? row.peer_name);
+  const senderId = stringFromRow(row, 'senderId', 'sender_id');
+  const senderName = trimmedString(row.senderName ?? row.sender_name);
+  const accountId = stringFromRow(row, 'accountId', 'account_id');
+  const messageSid = stringFromRow(row, 'messageSid', 'message_sid', String(id));
+  const bodyForAgent = stringFromRow(row, 'bodyForAgent', 'body_for_agent');
+  const rawBody = stringFromRow(row, 'rawBody', 'raw_body');
+  const commandBody = stringFromRow(row, 'commandBody', 'command_body');
+  const receivedAt = row.receivedAt ?? row.received_at ?? new Date().toISOString();
+  const messageTimestamp = row.messageTimestamp ?? row.message_timestamp ?? null;
+  const wasMentioned = boolFromRow(row.wasMentioned ?? row.was_mentioned);
+  const displayPeerName = peerName || (chatType === 'group' ? `群 ${peerId}` : `QQ ${peerId}`);
+  const sourcePreview = truncateNotificationPreview(bodyForAgent || rawBody);
+  const summary = chatType === 'group'
+    ? `${displayPeerName} 有未读 QQ 消息${wasMentioned ? '，其中有人 @ 小腻' : ''}。`
+    : `${displayPeerName} 发来未读 QQ 私聊。`;
+  const preview = chatType === 'group' && !wasMentioned
+    ? summary
+    : (bodyForAgent || rawBody || commandBody || summary);
+  const notificationId = `phone:manual-recover:${id}:${now}`;
+  const inboundContext = {
+    ...objectFromRow(row, 'inboundContext', 'inbound_context'),
+    Body: preview,
+    BodyForAgent: preview,
+    BodyForCommands: '',
+    RawBody: preview,
+    CommandBody: '',
+    Surface: 'phone_notification',
+    MessageSid: notificationId,
+    WasMentioned: wasMentioned,
+    CommandAuthorized: false
+  };
+
+  return {
+    traceId: `manual_recover_${now}_${id}`,
+    source: 'phone_notification',
+    messageId: id,
+    messageSid: notificationId,
+    dedupeKey: `phone_notification:manual_recover:${id}:${now}`,
+    chatType,
+    sessionKey,
+    peerId,
+    peerName,
+    senderId: 'qq',
+    senderName: 'QQ',
+    accountId,
+    bodyForAgent: preview,
+    rawBody: preview,
+    commandBody: '',
+    wasMentioned,
+    receivedAt,
+    messageTimestamp,
+    rawPayload: {
+      kind: 'phone_notification',
+      app: 'qq',
+      reason: 'manual_recover_after_provider_outage',
+      source: 'manual_recover',
+      source_message_id: id,
+      source_message_sid: messageSid,
+      session_key: sessionKey,
+      chat_type: chatType,
+      peer_id: peerId,
+      peer_name: peerName,
+      latest_sender_id: senderId,
+      latest_sender_name: senderName,
+      latest_preview: sourcePreview,
+      source_preview: sourcePreview,
+      unread_delta: 1,
+      direct_mentions: wasMentioned ? 1 : 0,
+      latest_received_at: receivedAt
+    },
+    inboundContext,
+    phoneNotification: {
+      app: 'qq',
+      notificationId,
+      sessionKey,
+      chatType,
+      peerId,
+      peerName,
+      unreadDelta: 1,
+      directMentions: wasMentioned ? 1 : 0,
+      latestReceivedAt: receivedAt,
+      reason: 'manual_recover_after_provider_outage'
+    }
+  };
 }
 
 function compactFilePreview(value: string, maxLength = 1200): string | null {
@@ -1202,6 +1335,81 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to update Xiaoni runtime control',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.post('/agent-runtime/recover-now', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as Record<string, unknown>
+        : {};
+      const sessionKey = trimmedString(body.sessionKey ?? body.session_key);
+      const resumeRuntime = body.resumeRuntime !== false && body.resume_runtime !== false;
+      const unpauseCacheHeartbeat = body.unpauseCacheHeartbeat !== false && body.unpause_cache_heartbeat !== false;
+      const controlPatch: Record<string, unknown> = {
+        identityKey: 'xiaoni'
+      };
+      if (resumeRuntime) {
+        controlPatch.enabled = true;
+      }
+      if (unpauseCacheHeartbeat) {
+        controlPatch.cacheHeartbeatPaused = false;
+      }
+      const control = Object.keys(controlPatch).length > 1
+        ? await updateAgentRuntimeControl(controlPatch)
+        : await getAgentRuntimeControl({ identityKey: 'xiaoni' });
+
+      const inbound = await getLatestUnreadAgentInboundMessage({
+        ...(sessionKey ? { sessionKey } : {})
+      });
+      if (!inbound) {
+        res.status(409).json({
+          success: false,
+          error: sessionKey
+            ? `No unread QQ inbox messages found for ${sessionKey}`
+            : 'No unread QQ inbox messages found to recover from',
+          data: {
+            control,
+            sessionKey
+          },
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      const notification = buildManualRecoveryPhoneNotification(inbound);
+      const queue = await enqueueAgentQueueMessage({
+        message: notification,
+        payload: notification,
+        availableAt: new Date()
+      });
+
+      res.json({
+        success: true,
+        data: {
+          control,
+          queue,
+          sourceInboundMessage: {
+            id: numberFromRow(inbound, 'id', 'id'),
+            sessionKey: stringFromRow(inbound, 'sessionKey', 'session_key'),
+            messageSid: stringFromRow(inbound, 'messageSid', 'message_sid'),
+            receivedAt: inbound.receivedAt ?? inbound.received_at ?? null
+          },
+          recovery: {
+            kind: 'phone_notification',
+            reason: 'manual_recover_after_provider_outage',
+            resumedRuntime: resumeRuntime,
+            unpausedCacheHeartbeat: unpauseCacheHeartbeat
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to manually recover Xiaoni runtime',
         timestamp: new Date().toISOString()
       });
     }

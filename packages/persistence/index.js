@@ -371,6 +371,30 @@ async function listAgentInboundMessagesByIds(ids = [], config = {}) {
   return rows.map(normalizeRow);
 }
 
+async function getLatestUnreadAgentInboundMessage(filters = {}, config = {}) {
+  const prisma = getPrismaClient(config);
+  const where = {
+    is_read: 0
+  };
+  if (typeof filters.sessionKey === 'string' && filters.sessionKey.trim()) {
+    where.session_key = filters.sessionKey.trim();
+  }
+  if (typeof filters.chatType === 'string' && filters.chatType.trim()) {
+    where.chat_type = filters.chatType.trim();
+  }
+  if (typeof filters.peerId === 'string' && filters.peerId.trim()) {
+    where.peer_id = filters.peerId.trim();
+  }
+  const row = await prisma.agentInboundMessage.findFirst({
+    where,
+    orderBy: [
+      { received_at: 'desc' },
+      { id: 'desc' }
+    ]
+  });
+  return row ? normalizeRow(row) : null;
+}
+
 async function getAgentInboundMessageByMessageSid(messageSid, filters = {}, config = {}) {
   if (typeof messageSid !== 'string' || !messageSid.trim()) {
     return null;
@@ -516,6 +540,7 @@ module.exports = {
   resolveChatAgentPrompt,
   listAgentInboundMessages,
   listAgentInboundMessagesByIds,
+  getLatestUnreadAgentInboundMessage,
   getAgentInboundMessageByMessageSid,
   ...require('./time'),
   ...trafficPersistence,

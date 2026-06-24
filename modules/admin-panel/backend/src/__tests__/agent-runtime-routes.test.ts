@@ -12,10 +12,12 @@ import {
   buildStackRawProviderTrace
 } from '../services/trace-span-builder';
 import {
+  enqueueAgentQueueMessage,
   extractPassiveRecallCuesFromActionStream,
   findXiaoniActionEventTraceTarget,
   getAgentLifeState,
   getAgentRuntimeControl,
+  getLatestUnreadAgentInboundMessage,
   getXiaoniActionStream,
   getXiaoniLlmUsageTimeline,
   listAgentLifeEvents,
@@ -27,12 +29,14 @@ import {
 jest.mock('axios');
 
 jest.mock('@qq-bot/persistence', () => ({
+  enqueueAgentQueueMessage: jest.fn(),
   extractPassiveRecallCuesFromActionStream: jest.fn(),
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
   getXiaoniLlmUsageTimeline: jest.fn(),
   getAgentLifeState: jest.fn(),
   getAgentRuntimeControl: jest.fn(),
+  getLatestUnreadAgentInboundMessage: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentLifeEvents: jest.fn(),
   listAgentMediaAssets: jest.fn(),
@@ -217,6 +221,92 @@ describe('agent runtime control routes', () => {
 
     expect(response.status).toBe(400);
     expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
+  });
+
+  it('manually recovers Xiaoni by enqueueing a phone notification from the latest unread inbox message', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null
+    });
+    (getLatestUnreadAgentInboundMessage as jest.Mock).mockResolvedValueOnce({
+      id: 42,
+      trace_id: 'evt_42',
+      message_sid: 'qq-msg-42',
+      chat_type: 'group',
+      session_key: 'qq:group:100',
+      peer_id: '100',
+      peer_name: '测试群',
+      sender_id: '200',
+      sender_name: 'Alice',
+      account_id: '1129974489',
+      received_at: '2026-06-25T00:00:00.000+08:00',
+      body_for_agent: 'hello',
+      raw_body: 'hello',
+      command_body: 'hello',
+      was_mentioned: 0,
+      inbound_context: {
+        ChatType: 'group',
+        SessionKey: 'qq:group:100'
+      }
+    });
+    (enqueueAgentQueueMessage as jest.Mock).mockResolvedValueOnce({
+      queueId: 17818,
+      status: 'pending',
+      attempts: 0
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/recover-now')
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false
+    });
+    expect(getLatestUnreadAgentInboundMessage).toHaveBeenCalledWith({});
+    expect(enqueueAgentQueueMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.objectContaining({
+        source: 'phone_notification',
+        sessionKey: 'qq:group:100',
+        rawPayload: expect.objectContaining({
+          reason: 'manual_recover_after_provider_outage',
+          source_message_id: 42
+        })
+      }),
+      payload: expect.objectContaining({
+        source: 'phone_notification',
+        sessionKey: 'qq:group:100'
+      }),
+      availableAt: expect.any(Date)
+    }));
+    expect(response.body.data.queue.queueId).toBe(17818);
+    expect(response.body.data.sourceInboundMessage.id).toBe(42);
+  });
+
+  it('returns conflict when manual recovery has no unread inbox message to wake from', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false
+    });
+    (getLatestUnreadAgentInboundMessage as jest.Mock).mockResolvedValueOnce(null);
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/recover-now')
+      .send({ sessionKey: 'qq:group:100' });
+
+    expect(response.status).toBe(409);
+    expect(response.body.success).toBe(false);
+    expect(getLatestUnreadAgentInboundMessage).toHaveBeenCalledWith({
+      sessionKey: 'qq:group:100'
+    });
+    expect(enqueueAgentQueueMessage).not.toHaveBeenCalled();
   });
 
   it('proxies prompt force-load requests to agent-service', async () => {

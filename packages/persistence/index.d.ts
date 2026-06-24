@@ -674,6 +674,10 @@ export function listAgentInboundMessagesByIds(
   ids: Array<number | bigint | string>,
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
+export function getLatestUnreadAgentInboundMessage(
+  filters?: { sessionKey?: string; chatType?: string; peerId?: string },
+  config?: DatabaseUrlConfig
+): Promise<any | null>;
 export function getAgentInboundMessageByMessageSid(
   messageSid: string,
   filters?: { sessionKey?: string },
