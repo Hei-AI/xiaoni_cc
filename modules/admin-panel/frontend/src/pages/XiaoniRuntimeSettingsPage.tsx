@@ -47,6 +47,22 @@ type RuntimePromptReloadResult = {
   reason?: string;
 };
 
+type RuntimeRecoverNowResult = {
+  queue?: {
+    queueId?: number;
+    status?: string;
+  };
+  sourceInboundMessage?: {
+    id?: number;
+    sessionKey?: string;
+    messageSid?: string;
+    receivedAt?: string | null;
+  };
+  recovery?: {
+    reason?: string;
+  };
+};
+
 async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
     method: 'PATCH',
@@ -56,6 +72,19 @@ async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<Runtime
   const payload = await response.json() as ApiResponse<RuntimeControl>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || 'Failed to update runtime control');
+  }
+  return payload.data;
+}
+
+async function recoverRuntimeNow(): Promise<RuntimeRecoverNowResult> {
+  const response = await fetch('/api/agent-runtime/recover-now', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  });
+  const payload = await response.json() as ApiResponse<RuntimeRecoverNowResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to recover Xiaoni runtime');
   }
   return payload.data;
 }
@@ -90,6 +119,14 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   });
   const forceLoadMutation = useMutation({
     mutationFn: forceLoadRuntimePrompt,
+    onSuccess: () => {
+      void controlQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const recoverMutation = useMutation({
+    mutationFn: recoverRuntimeNow,
     onSuccess: () => {
       void controlQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
@@ -151,6 +188,17 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              variant="default"
+              size="sm"
+              onClick={() => recoverMutation.mutate()}
+              disabled={recoverMutation.isPending}
+            >
+              {recoverMutation.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <HeartPulse className="mr-2 h-4 w-4" />}
+              手动恢复
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               onClick={() => forceLoadMutation.mutate()}
@@ -181,6 +229,42 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
           description={forceLoadMutation.error instanceof Error ? forceLoadMutation.error.message : '强制加载运行 prompt 失败'}
           onRetry={() => forceLoadMutation.mutate()}
         />
+      ) : null}
+
+      {recoverMutation.error ? (
+        <ErrorState
+          description={recoverMutation.error instanceof Error ? recoverMutation.error.message : '手动恢复小腻失败'}
+          onRetry={() => recoverMutation.mutate()}
+        />
+      ) : null}
+
+      {recoverMutation.data ? (
+        <SectionPanel
+          title="手动恢复已触发"
+          description="已把最新未读 QQ inbox 转成 phone_notification 门铃，agent-service 会按主循环正常 claim。"
+          icon={<HeartPulse className="h-4 w-4 text-primary" />}
+        >
+          <div className="grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <div className="text-xs text-muted-foreground">Queue</div>
+              <div className="font-medium text-foreground">
+                #{recoverMutation.data.queue?.queueId ?? 'unknown'} · {recoverMutation.data.queue?.status ?? 'pending'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Inbox</div>
+              <div className="font-medium text-foreground">
+                #{recoverMutation.data.sourceInboundMessage?.id ?? 'unknown'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Session</div>
+              <div className="font-medium text-foreground">
+                {recoverMutation.data.sourceInboundMessage?.sessionKey ?? 'unknown'}
+              </div>
+            </div>
+          </div>
+        </SectionPanel>
       ) : null}
 
       <SectionPanel
