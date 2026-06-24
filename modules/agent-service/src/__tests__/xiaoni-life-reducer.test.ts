@@ -193,8 +193,8 @@ test('action debt contributes to fatigue while sleep event energy anchors recove
     ]
   });
 
-  assert.ok(tired.projection.state.actionCost > 0.1);
-  assert.ok(tired.projection.state.actionCost < 0.2);
+  assert.ok(tired.projection.state.actionCost > 0.48);
+  assert.ok(tired.projection.state.actionCost < 0.49);
   assert.ok(tired.projection.state.fatigue > tired.projection.state.actionCost);
   assert.equal(tired.projection.state.energy, 1 - tired.projection.state.fatigue);
   assert.ok(rested.projection.state.fatigue < tired.projection.state.fatigue);
@@ -226,12 +226,43 @@ test('awake homeostatic pressure accumulates from last sleep anchor', () => {
     events: []
   });
 
-  assert.ok(twoHours.projection.state.homeostaticPressure > 0.15);
-  assert.ok(twoHours.projection.state.homeostaticPressure < 0.17);
+  assert.ok(twoHours.projection.state.homeostaticPressure > 0.06);
+  assert.ok(twoHours.projection.state.homeostaticPressure < 0.11);
   assert.ok(fourHours.projection.state.homeostaticPressure > twoHours.projection.state.homeostaticPressure);
   assert.ok(eightHours.projection.state.homeostaticPressure > fourHours.projection.state.homeostaticPressure);
   assert.ok(twoHours.projection.state.energy > fourHours.projection.state.energy);
   assert.ok(fourHours.projection.state.energy > eightHours.projection.state.energy);
+});
+
+test('night awake pressure rises faster than daytime awake pressure', () => {
+  const nightAnchors = {
+    now: new Date('2026-06-12T18:00:00.000Z'),
+    serviceStartedAt: '2026-06-12T18:00:00.000Z',
+    lastSleepAt: '2026-06-12T18:00:00.000Z',
+    lastBoredomResetAt: '2026-06-12T18:00:00.000Z',
+    lastActiveAt: '2026-06-12T18:00:00.000Z'
+  };
+  const dayAnchors = {
+    now: new Date('2026-06-13T06:00:00.000Z'),
+    serviceStartedAt: '2026-06-13T06:00:00.000Z',
+    lastSleepAt: '2026-06-13T06:00:00.000Z',
+    lastBoredomResetAt: '2026-06-13T06:00:00.000Z',
+    lastActiveAt: '2026-06-13T06:00:00.000Z'
+  };
+
+  const night = reduceXiaoniLifeState({
+    now: new Date('2026-06-12T20:00:00.000Z'),
+    legacyAnchors: nightAnchors,
+    events: []
+  });
+  const day = reduceXiaoniLifeState({
+    now: new Date('2026-06-13T08:00:00.000Z'),
+    legacyAnchors: dayAnchors,
+    events: []
+  });
+
+  assert.ok(night.projection.state.homeostaticPressure > day.projection.state.homeostaticPressure);
+  assert.ok(night.projection.state.energy < day.projection.state.energy);
 });
 
 test('projection resume advances awake pressure once without double counting', () => {
@@ -302,7 +333,7 @@ test('default speech accounting does not exhaust all energy for one group reply'
   });
 
   assert.ok(result.projection.state.actionCost > 0.005);
-  assert.ok(result.projection.state.actionCost < 0.006);
+  assert.ok(result.projection.state.actionCost < 0.009);
   assert.ok(result.projection.state.fatigue > result.projection.state.actionCost);
   assert.ok(result.projection.state.energy < 0.99);
   assert.ok(result.projection.state.energy > 0.7);
@@ -323,8 +354,8 @@ test('dense post-wake QQ exchange does not immediately reopen voluntary sleep ga
   });
 
   assert.equal(recoveryGate.accepted, false);
-  assert.ok(result.projection.state.energy > 0.55);
-  assert.ok(result.projection.state.actionDebt < 0.25);
+  assert.ok(result.projection.state.energy > 0.5);
+  assert.ok(result.projection.state.actionDebt < 0.27);
 });
 
 test('time-decayed action debt is stable across projection resume boundaries', () => {

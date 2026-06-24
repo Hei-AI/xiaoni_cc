@@ -232,7 +232,7 @@ test('resolvePresenceRecoveryEvent records visible rest or sleep facts for fatig
   assert.deepEqual(resolvePresenceRecoveryEvent(tiredState, new Date('2026-05-31T00:30:00.000Z')), {
     eventKind: 'sleep_period',
     reason: 'fatigue_sleep_window',
-    bucketMs: 6 * 60 * 60 * 1000
+    bucketMs: 8 * 60 * 60 * 1000
   });
   assert.deepEqual(resolvePresenceRecoveryEvent(tiredState, new Date('2026-05-31T07:00:00.000Z')), {
     eventKind: 'rest_period',

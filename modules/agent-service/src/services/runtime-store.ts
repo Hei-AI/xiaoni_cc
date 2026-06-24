@@ -267,7 +267,7 @@ function projectionEventId(value: bigint | number | string | null | undefined): 
 }
 
 const REST_RECOVERY_BUCKET_MS = 60 * 60 * 1000;
-const SLEEP_RECOVERY_BUCKET_MS = 6 * 60 * 60 * 1000;
+const SLEEP_RECOVERY_BUCKET_MS = 8 * 60 * 60 * 1000;
 const VISIBLE_REPLY_BASE_ACTION_COST = 0.01;
 const VISIBLE_REPLY_EXTRA_MESSAGE_ACTION_COST = 0.005;
 const VISIBLE_REPLY_MAX_ACTION_COST = 0.02;

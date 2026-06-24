@@ -16,7 +16,7 @@
 
 - `reason`：为什么现在需要休息。必填。
 - `xiaoni_os`：休息前留给醒来后自己的私密备注。必填，不发给任何人。
-- `clock`：可选，正整数分钟数。含义是“几分钟后尝试叫醒我继续做事”，不是睡眠时长。
+- `clock`：可选，正整数分钟数，范围 `5..120`。含义是“几分钟后尝试叫醒我继续做事”，不是睡眠时长，也不是夜间 8 小时完整睡眠的闹铃。
 
 不再暴露 `duration_minutes`、`max_duration_minutes`、`rest_intent`、`alarm` 或 `alarm_minutes`。自然醒由 runtime 根据恢复曲线决定，小腻不需要预测自己会睡多久。
 
@@ -36,14 +36,14 @@ pressure = 1 - energy
 ```text
 p_start = clamp(1 - energy_before, 0, p_hard_ceiling)
 p_hard_ceiling = 1.60
-hard_max_recovery_minutes = 120
+full_recovery_minutes = 480
 ```
 
-无论小腻多疲惫、多透支，单次恢复会话最多持续 `hard_max_recovery_minutes`。到达 hard cap 后必须结算并醒来；这是小腻数字躯体的完整睡眠周期终点，不属于私聊、群 @ 或 clock 叫醒。
+`full_recovery_minutes` 是小腻数字躯体完整恢复到满值的周期。单次 session 还有昼夜节律上限：夜间可睡到完整 8 小时或夜间窗口结束；白天按 nap 处理，通常最多 90 分钟。只有达到完整 8 小时才是 `hard_cap` 满血醒；白天 nap cap 或昼夜节律推醒时，按当前曲线值结算精力，不提前满血。
 
 ## Recovery Curve
 
-睡眠时压力按指数曲线下降，但曲线以小腻的单次数字睡眠周期 `T = 120min` 作为终点边界。也就是说，公式仍然控制 `0 <= t < T` 的恢复形状；到达 `T` 时视为完整睡眠周期结束，精力结算到满值。
+睡眠时压力按指数曲线下降，但曲线以小腻的完整数字睡眠周期 `T = 480min` 作为终点边界。也就是说，公式仍然控制 `0 <= t < T` 的恢复形状；到达 `T` 时视为完整睡眠周期结束，精力结算到满值。白天短睡的 session cap 不改变 `T`，只会让小腻提前按当前曲线值醒来。
 
 ```text
 raw_sleep(t) = p_floor + (p_start - p_floor) * exp(-sleep_minutes / tau_sleep_minutes)
@@ -60,15 +60,16 @@ energy_after(t) = max_energy * (1 - p_after(t))
 这个终点归一化保证：
 
 - `t = 0` 时压力仍为 `p_start`。
-- `0 < t < 120` 时仍是指数恢复曲线，不是线性恢复。
-- `t >= 120` 时 `pressure = 0`、`energy = max_energy`，符合“休息满 120 分钟视为完全恢复”的 prompt 设定。
+- `0 < t < 480` 时仍是指数恢复曲线，不是线性恢复。
+- `t >= 480` 时 `pressure = 0`、`energy = max_energy`，符合夜间完整睡眠 8 小时满恢复的身体设定。
 - 私聊、群 @ 或 clock 提前唤醒时，按当前 `sleep_minutes` 的曲线值结算精力，不提前满血。
+- 白天 nap cap 或昼夜节律推醒也按当前 `sleep_minutes` 的曲线值结算精力，不提前满血。
 
 默认参数：
 
 ```text
 p_floor = 0.05
-tau_sleep_minutes = 63       // paper 4.2h sleep tau compressed into Xiaoni's 2h cycle
+tau_sleep_minutes = 252      // paper-scale 4.2h sleep tau
 p_natural_wake = 0.12       // energy ~= 0.88
 p_min_wake = 1.00           // energy >= 0 才能被外界叫醒
 p_forced_sleep = 1.30       // energy <= -0.30 触发强制休息
@@ -84,8 +85,26 @@ p_awake(t) = p_wake_ceiling - (p_wake_ceiling - p_at_wake) * exp(-awake_minutes 
 
 ```text
 p_wake_ceiling = 1.00
-tau_wake_minutes = 720      // Xiaoni 2h full-recovery cycle with stronger awake endurance
+tau_wake_minutes = 1092     // paper-scale 18.2h wake tau
 ```
+
+## Circadian Process C
+
+runtime 使用上海时间的 24 小时昼夜振荡器调制睡眠：
+
+```text
+sleep_drive = cos(2π * (local_minutes - 05:00) / 1440)
+night_window = 01:00..09:00 Asia/Shanghai
+daytime_nap_max_recovery_minutes = 90
+circadian_wake_tau_amplitude = 0.35
+```
+
+- `sleep_drive` 越高，越容易入睡、越不容易自然醒；`05:00` 附近睡眠促进最强。
+- `sleep_drive` 越高，清醒状态下的有效 `tau_wake_minutes` 越小，压力上升越快；夜里硬撑会更快变困。
+- `sleep_drive` 越低，越不容易入睡、越容易被昼夜节律推醒；`17:00` 附近清醒促进最强，清醒压力上升更慢。
+- 夜间 session 的最晚上限是 `min(480min, 到 09:00 的剩余分钟数)`。
+- 白天 session 的最晚上限是 `90min`，wake cause 为 `daytime_nap_cap`，不满血。
+- 每个 `agent_recovery_sessions` row 在 `metadata.recovery_policy_snapshot` 写入创建时的 Process S / Process C 参数；已存在且无 snapshot 的旧 session 按 2 小时旧规则结算，避免部署时延长正在进行的睡眠。
 
 清醒疲劳必须接入 `agent_life_states.projection_json` 的 life reducer，而不是只在 `recover_energy` 会话内计算。主 runtime 的 `<STATE>`、`recover_energy` 接受门槛、强制休息判断和 presence 恢复判断都必须读同一个投影。
 
@@ -104,7 +123,7 @@ energy = 1 - pressure
 默认行动债恢复参数：
 
 ```text
-tau_action_debt_recovery_minutes = 90
+tau_action_debt_recovery_minutes = 360
 ```
 
 ## Anti Frequent Rest Gate
@@ -121,8 +140,10 @@ p_required_to_start_sleep =
 ```text
 p_normal_onset = 0.30
 p_fresh_wake_penalty = 0.50
-tau_rest_cooldown_minutes = 45
+tau_rest_cooldown_minutes = 180
 ```
+
+Process C 会进一步调整门槛：夜间降低 `p_required_to_start_sleep`，白天提高它。
 
 接受规则：
 
@@ -161,10 +182,12 @@ gamma = 2
 唤醒优先级：
 
 ```text
-if elapsed_minutes >= hard_max_recovery_minutes:
+if elapsed_minutes >= full_recovery_minutes:
   energy_after = max_energy
   pressure_after = 0
   wake_cause = hard_cap
+else if elapsed_minutes >= session_max_recovery_minutes:
+  wake_cause = daytime_nap_cap or circadian_wake
 else if energy_after(t) < 0:
   keep sleeping; clock/private/@ cannot wake
 else if wake_call_count >= required_calls:
@@ -193,7 +216,9 @@ NO_ACTIVE_SESSION
        -> ACTIVE_FORCED(no tool_call_id)
 
 ACTIVE_VOLUNTARY / ACTIVE_FORCED
-  ├─ hard cap reached -> hard_cap
+  ├─ full 8h recovery reached -> hard_cap
+  ├─ daytime nap cap reached -> daytime_nap_cap
+  ├─ night window ends before full recovery -> circadian_wake
   ├─ energy < 0 -> keep sleeping
   ├─ clock due and energy >= 0 -> clock or clock_deferred
   ├─ wake count reaches threshold -> private_or_mention_threshold

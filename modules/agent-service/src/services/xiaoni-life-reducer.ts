@@ -7,7 +7,7 @@ import {
 import {
   DEFAULT_RECOVER_ENERGY_POLICY,
   clampNumber,
-  computeAwakePressureAfterMinutes,
+  computeAwakePressureBetween,
   energyToPressure
 } from './recover-energy-policy';
 
@@ -313,9 +313,10 @@ function advanceAwakePressure(state: ReducerInternalState, at: Date | null) {
   }
   state.actionDebt = computeDecayedActionDebt(state.actionDebt, awakeMinutes);
   state.homeostaticPressure = clampNumber(
-    computeAwakePressureAfterMinutes({
+    computeAwakePressureBetween({
       startPressure: state.homeostaticPressure,
-      awakeMinutes: awakeMinutes
+      startedAt: state.pressureUpdatedAt,
+      endedAt: at
     }),
     0,
     DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling

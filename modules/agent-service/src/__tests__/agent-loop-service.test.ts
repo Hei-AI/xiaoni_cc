@@ -8003,14 +8003,14 @@ test('applyToolResultToLoopInput appends web_search STATE from fresh runtime ene
 
 test('runtime energy recovery follows bounded pressure curve from negative debt', () => {
   const positive = recoverRuntimeEnergy({ rawEnergy: 0.25, elapsedMs: 60 * 60 * 1000 });
-  assert.ok(positive.energy > 0.5);
+  assert.ok(positive.energy > 0.25);
   assert.ok(positive.energy < 1);
   const negative = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 60 * 60 * 1000 });
   assert.equal(negative.startEnergy, -0.35);
   assert.equal(negative.debt, 0.35);
   assert.ok(negative.energy > -0.35);
-  const hardCap = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 3 * 60 * 60 * 1000 });
-  assert.equal(hardCap.fullRecoveryMs, 120 * 60 * 1000);
+  const hardCap = recoverRuntimeEnergy({ rawEnergy: -0.35, elapsedMs: 8 * 60 * 60 * 1000 });
+  assert.equal(hardCap.fullRecoveryMs, 480 * 60 * 1000);
   assert.equal(hardCap.energy, 1);
   assert.equal(hardCap.pressure, 0);
 });
@@ -8068,6 +8068,8 @@ test('recover_energy can still sleep when current energy is below full', async (
   assert.equal(result.recovery_session_requested, true);
   assert.equal(result.recovered, false);
   assert.equal(result.clock_minutes, 30);
+  assert.equal(result.full_recovery_minutes, 480);
+  assert.ok(result.recovery_policy_snapshot);
   assert.equal(result.energy_before, 0.5);
   assert.equal(result.energy, 0.5);
   assert.equal(result.xiaoni_os, '睡醒继续。');
@@ -8176,6 +8178,7 @@ test('forced recovery session uses explicit pre-sleep queue high watermark', asy
   assert.equal(storeCalls.createAgentRecoverySession.length, 1);
   assert.equal(storeCalls.createAgentRecoverySession[0]?.initiator, 'runtime_forced');
   assert.equal(storeCalls.createAgentRecoverySession[0]?.wakeCountStartQueueMessageId, 501);
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.metadata?.recovery_policy_snapshot?.fullRecoveryMinutes, 480);
   assert.equal(storeCalls.claimNextQueueMessage.length, 0);
 });
 
@@ -9913,6 +9916,7 @@ test('no-notify continuation preserves global OS context during recover_energy t
   assert.equal(storeCalls.createAgentRecoverySession[0]?.toolCallId, 'call-runtime-loop-recover');
   assert.equal(storeCalls.createAgentRecoverySession[0]?.clockMinutes, 30);
   assert.equal(storeCalls.createAgentRecoverySession[0]?.xiaoniOs, '全局近况已被看见。');
+  assert.equal(storeCalls.createAgentRecoverySession[0]?.metadata?.recovery_policy_snapshot?.fullRecoveryMinutes, 480);
   assert.deepEqual(storeCalls.createAgentRecoverySession[0]?.metadata?.tool_args, {
     reason: '测试全局 OS 是否进入上下文，当前没有外部目标，先休息。',
     clock: 30,

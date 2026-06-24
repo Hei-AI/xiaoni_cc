@@ -42,11 +42,18 @@ import {
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import {
   DEFAULT_RECOVER_ENERGY_POLICY,
-  computeRequiredSleepPressure,
-  estimateHardWakeAt,
+  LEGACY_RECOVER_ENERGY_POLICY,
+  LEGACY_RECOVER_ENERGY_POLICY_VERSION,
+  RECOVER_ENERGY_CLOCK_MAX_MINUTES,
+  type RecoverySessionPolicy,
+  createRecoveryPolicySnapshot,
   estimateNaturalWakeAt,
+  estimateSessionWakeAt,
   normalizeRecoverEnergyClock,
   projectRecoverySession,
+  recoverEnergyFullRecoveryMinutes,
+  recoverySessionPolicyFromSnapshot,
+  resolveRecoveryCircadianState,
   shouldAcceptVoluntaryRecovery
 } from './recover-energy-policy';
 
@@ -944,7 +951,7 @@ const RECOVER_ENERGY_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.recoverEnergy,
-    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 时，身体本能会在精力恢复后让你自然醒。clock 仅仅代表你心里定下的闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；但如果你透支得太狠，身体出于自我保护会屏蔽闹钟，直到恢复到及格线以上才会让你醒来。注意：身体有自己的节律，如果你当前精力充沛却频繁试图强行闭眼休息，你根本睡不着，潜意识会直接拒绝这次休眠（导致失眠）。',
+    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 时，身体本能和昼夜节律会决定你是短暂打盹还是睡到自然醒。clock 仅仅代表你心里定下的短闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；它不是完整睡眠时长，也不是夜间 8 小时睡眠的闹铃。如果你透支得太狠，身体出于自我保护会屏蔽闹钟，直到恢复到及格线以上才会让你醒来。注意：身体有自己的节律，如果你当前精力充沛却频繁试图强行闭眼休息，你根本睡不着，潜意识会直接拒绝这次休眠（导致失眠）。',
     parameters: {
       type: 'object',
       properties: {
@@ -959,8 +966,8 @@ const RECOVER_ENERGY_TOOL = {
         clock: {
           type: 'integer',
           minimum: 5,
-          maximum: 120,
-          description: '可选。给自己定的闹钟（可以是几分钟，也可以是几十分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，顺其自然睡到自然醒。'
+          maximum: RECOVER_ENERGY_CLOCK_MAX_MINUTES,
+          description: '可选。给自己定的短闹钟（可以是几分钟，也可以是几十分钟后，最长 120 分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，顺其自然睡到身体和昼夜节律允许醒来。'
         }
       },
       required: ['reason', 'xiaoni_os'],
@@ -1613,6 +1620,25 @@ function normalizeRuntimeEnergy(value: unknown, fallback = RUNTIME_MAX_ENERGY) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function legacyRecoverySessionPolicy(): RecoverySessionPolicy {
+  const fullRecoveryMinutes = recoverEnergyFullRecoveryMinutes(LEGACY_RECOVER_ENERGY_POLICY);
+  return {
+    version: LEGACY_RECOVER_ENERGY_POLICY_VERSION,
+    policy: LEGACY_RECOVER_ENERGY_POLICY,
+    circadian: resolveRecoveryCircadianState(new Date(0), LEGACY_RECOVER_ENERGY_POLICY),
+    fullRecoveryMinutes,
+    sessionMaxRecoveryMinutes: fullRecoveryMinutes,
+    sessionCapWakeCause: 'hard_cap'
+  };
+}
+
+function recoverySessionPolicyFromMetadata(metadata: unknown): RecoverySessionPolicy {
+  const normalized = metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? metadata as Record<string, unknown>
+    : {};
+  return recoverySessionPolicyFromSnapshot(normalized.recovery_policy_snapshot) ?? legacyRecoverySessionPolicy();
+}
+
 export function recoverRuntimeEnergy(input: {
   rawEnergy: number;
   elapsedMs: number;
@@ -1625,7 +1651,9 @@ export function recoverRuntimeEnergy(input: {
     startEnergy: rawEnergy,
     maxEnergy,
     startedAt: new Date(0),
-    now: new Date(elapsedMs)
+    now: new Date(elapsedMs),
+    sessionMaxRecoveryMinutes: recoverEnergyFullRecoveryMinutes(DEFAULT_RECOVER_ENERGY_POLICY),
+    sessionCapWakeCause: 'hard_cap'
   });
   return {
     rawEnergyBefore: rawEnergy,
@@ -1634,7 +1662,7 @@ export function recoverRuntimeEnergy(input: {
     maxEnergy,
     debt: rawEnergy < 0 ? Math.abs(rawEnergy) : 0,
     elapsedMs,
-    fullRecoveryMs: DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes * 60 * 1000,
+    fullRecoveryMs: recoverEnergyFullRecoveryMinutes(DEFAULT_RECOVER_ENERGY_POLICY) * 60 * 1000,
     pressure: projected.pressure,
     startPressure: projected.startPressure
   };
@@ -5334,10 +5362,13 @@ export class AgentLoopService {
         return { status: 'none', inputItems: [] };
       }
       const startedAt = new Date();
+      const policySnapshot = createRecoveryPolicySnapshot(startedAt);
+      const sessionPolicy = recoverySessionPolicyFromSnapshot(policySnapshot)!;
       const naturalWakeAt = estimateNaturalWakeAt({
         startEnergy: energyState.energy,
         maxEnergy: energyState.maxEnergy,
-        startedAt
+        startedAt,
+        policy: sessionPolicy.policy
       });
       session = await store.createAgentRecoverySession.call(this.store, {
         initiator: 'runtime_forced',
@@ -5350,11 +5381,12 @@ export class AgentLoopService {
         startPressure: pressure,
         currentPressure: pressure,
         plannedNaturalWakeAt: naturalWakeAt,
-        hardWakeAt: estimateHardWakeAt(startedAt),
+        hardWakeAt: estimateSessionWakeAt(startedAt, sessionPolicy),
         wakeCountStartQueueMessageId: recoveryWakeCountStartQueueMessageId,
         metadata: {
           source: 'runtime_forced_recovery',
-          forced_sleep_pressure: DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure
+          forced_sleep_pressure: DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure,
+          recovery_policy_snapshot: policySnapshot
         }
       });
       moduleLogger.warn('Started forced Xiaoni recovery session', {
@@ -5386,6 +5418,7 @@ export class AgentLoopService {
       ? Math.max(...wakeRows.map((row) => Number(row.id || 0)))
       : lastCountedId;
     const wakeCallCount = Math.max(0, Number(session.wakeCallCount || 0)) + wakeIncrement;
+    const sessionPolicy = recoverySessionPolicyFromMetadata(session.metadata);
     const projection = projectRecoverySession({
       startEnergy: Number(session.startEnergy ?? session.currentEnergy ?? 0),
       maxEnergy: Number(session.maxEnergy || 1),
@@ -5393,7 +5426,10 @@ export class AgentLoopService {
       now: new Date(),
       clockDueAt: session.clockDueAt,
       clockDeferredAt: session.clockDeferredAt,
-      wakeCallCount
+      wakeCallCount,
+      policy: sessionPolicy.policy,
+      sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+      sessionCapWakeCause: sessionPolicy.sessionCapWakeCause
     });
     const clockDeferredAt = projection.clockShouldDefer && !session.clockDeferredAt ? new Date() : null;
 
@@ -5409,9 +5445,10 @@ export class AgentLoopService {
           plannedNaturalWakeAt: estimateNaturalWakeAt({
             startEnergy: Number(session.startEnergy ?? session.currentEnergy ?? 0),
             maxEnergy: Number(session.maxEnergy || 1),
-            startedAt: new Date(session.startedAt || new Date())
+            startedAt: new Date(session.startedAt || new Date()),
+            policy: sessionPolicy.policy
           }),
-          hardWakeAt: estimateHardWakeAt(new Date(session.startedAt || new Date())),
+          hardWakeAt: estimateSessionWakeAt(new Date(session.startedAt || new Date()), sessionPolicy),
           clockDeferredAt,
           lastCheckedAt: new Date()
         }).catch((error) => {
@@ -5467,6 +5504,7 @@ export class AgentLoopService {
   ) {
     const startedAt = session.startedAt ? new Date(session.startedAt) : new Date();
     const elapsedMs = Math.max(0, Date.now() - startedAt.getTime());
+    const sessionPolicy = recoverySessionPolicyFromMetadata(session.metadata);
     const recoveredEnergy = {
       rawEnergyBefore: Number(session.startEnergy ?? projection.energy),
       startEnergy: Number(session.startEnergy ?? projection.energy),
@@ -5474,7 +5512,7 @@ export class AgentLoopService {
       maxEnergy: Number(session.maxEnergy || 1),
       debt: Number(session.startEnergy ?? 0) < 0 ? Math.abs(Number(session.startEnergy ?? 0)) : 0,
       elapsedMs,
-      fullRecoveryMs: DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes * 60 * 1000,
+      fullRecoveryMs: sessionPolicy.fullRecoveryMinutes * 60 * 1000,
       pressure: projection.pressure,
       startPressure: projection.startPressure
     };
@@ -5502,6 +5540,9 @@ export class AgentLoopService {
       energy_debt: recoveredEnergy.debt,
       pressure: projection.pressure,
       start_pressure: projection.startPressure,
+      full_recovery_minutes: sessionPolicy.fullRecoveryMinutes,
+      session_max_recovery_minutes: sessionPolicy.sessionMaxRecoveryMinutes,
+      session_cap_wake_cause: sessionPolicy.sessionCapWakeCause,
       wake_call_count: counts.wakeCallCount,
       wake_required_count: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
       last_wake_counted_queue_message_id: counts.lastWakeCountedQueueMessageId,
@@ -6122,6 +6163,8 @@ export class AgentLoopService {
               }
               const startedAt = typeof toolResult.started_at === 'string' ? new Date(toolResult.started_at) : new Date();
               const clockDueAt = typeof toolResult.clock_due_at === 'string' ? new Date(toolResult.clock_due_at) : null;
+              const persistedSessionPolicy = recoverySessionPolicyFromSnapshot(toolResult.recovery_policy_snapshot)
+                ?? recoverySessionPolicyFromSnapshot(createRecoveryPolicySnapshot(startedAt))!;
               await creator.call(this.store, {
                 initiator: 'recover_energy_tool',
                 reason: typeof toolResult.reason === 'string' ? toolResult.reason : null,
@@ -6142,7 +6185,7 @@ export class AgentLoopService {
                 startPressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
                 currentPressure: typeof toolResult.pressure === 'number' ? toolResult.pressure : null,
                 plannedNaturalWakeAt: typeof toolResult.planned_natural_wake_at === 'string' ? new Date(toolResult.planned_natural_wake_at) : null,
-                hardWakeAt: typeof toolResult.hard_wake_at === 'string' ? new Date(toolResult.hard_wake_at) : estimateHardWakeAt(startedAt),
+                hardWakeAt: typeof toolResult.hard_wake_at === 'string' ? new Date(toolResult.hard_wake_at) : estimateSessionWakeAt(startedAt, persistedSessionPolicy),
                 wakeCountStartQueueMessageId: recoveryWakeCountStartQueueMessageId,
                 metadata: {
                   model_name: runtimePrompt.modelName,
@@ -6150,6 +6193,10 @@ export class AgentLoopService {
                   chat_type: payload.chatType,
                   peer_name: payload.peerName || null,
                   required_pressure: toolResult.required_pressure ?? null,
+                  recovery_policy_snapshot: toolResult.recovery_policy_snapshot ?? null,
+                  full_recovery_minutes: toolResult.full_recovery_minutes ?? null,
+                  session_max_recovery_minutes: toolResult.session_max_recovery_minutes ?? null,
+                  session_cap_wake_cause: toolResult.session_cap_wake_cause ?? null,
                   tool_args: toolCall.args,
                   raw_arguments: toolCall.rawArguments,
                   ...(preSleepToolTimeline.length > 0 ? {
@@ -9620,12 +9667,15 @@ export class AgentLoopService {
       case TOOL_NAMES.recoverEnergy: {
         const energyState = await this.getCurrentRuntimeEnergyState(queueMessage);
         const now = new Date();
+        const policySnapshot = createRecoveryPolicySnapshot(now);
+        const sessionPolicy = recoverySessionPolicyFromSnapshot(policySnapshot)!;
         const gate = energyState
           ? shouldAcceptVoluntaryRecovery({
               energy: energyState.energy,
               maxEnergy: energyState.maxEnergy,
               lastWakeAt: energyState.lastWakeAt ?? null,
-              now
+              now,
+              policy: sessionPolicy.policy
             })
           : null;
         if (energyState && gate && !gate.accepted) {
@@ -9656,8 +9706,13 @@ export class AgentLoopService {
         const startEnergy = energyState?.energy ?? 0;
         const maxEnergy = energyState?.maxEnergy ?? RUNTIME_MAX_ENERGY;
         const startedAt = now;
-        const naturalWakeAt = estimateNaturalWakeAt({ startEnergy, maxEnergy, startedAt });
-        const hardWakeAt = estimateHardWakeAt(startedAt);
+        const naturalWakeAt = estimateNaturalWakeAt({
+          startEnergy,
+          maxEnergy,
+          startedAt,
+          policy: sessionPolicy.policy
+        });
+        const hardWakeAt = estimateSessionWakeAt(startedAt, sessionPolicy);
         return {
           recovered: false,
           recovery_session_requested: true,
@@ -9668,6 +9723,10 @@ export class AgentLoopService {
           started_at: startedAt.toISOString(),
           planned_natural_wake_at: naturalWakeAt.toISOString(),
           hard_wake_at: hardWakeAt.toISOString(),
+          full_recovery_minutes: sessionPolicy.fullRecoveryMinutes,
+          session_max_recovery_minutes: sessionPolicy.sessionMaxRecoveryMinutes,
+          session_cap_wake_cause: sessionPolicy.sessionCapWakeCause,
+          recovery_policy_snapshot: policySnapshot,
           energy_before: startEnergy,
           energy_start: startEnergy,
           energy: startEnergy,
