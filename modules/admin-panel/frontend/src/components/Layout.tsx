@@ -23,6 +23,7 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  BrainCircuit,
   ChevronRight,
   CheckCircle2,
   ClipboardList,
@@ -224,6 +225,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           description: 'provider、tool、消息和状态事件',
           active: location.pathname === '/xiaoni-action-stream'
             || location.pathname === '/xiaoni-activity',
+        },
+        {
+          href: '/xiaoni-passive-recall',
+          label: '被动浮现 Shadow',
+          icon: BrainCircuit,
+          description: '只读查看召回原始点',
+          active: location.pathname.startsWith('/xiaoni-passive-recall'),
         },
         {
           href: '/xiaoni-recovery',

@@ -23,6 +23,44 @@ export type SqlAdapter = SqlTransaction & {
   close(): Promise<void>;
 };
 
+export type XiaoniRuntimePathClassification = {
+  path: string;
+  relativePath: string;
+  runtimeDir: string | null;
+  basename: string | null;
+  extension: string | null;
+  indexable: boolean;
+  excluded: boolean;
+  operation?: 'read' | 'write' | 'reference';
+};
+
+export type XiaoniPassiveRecallCueClass =
+  | 'db_file_provenance'
+  | 'db_life_cue'
+  | 'db_spoken_fragment';
+
+export type XiaoniPassiveRecallCue = {
+  cueClass: XiaoniPassiveRecallCueClass;
+  itemId: string | null;
+  source: string | null;
+  kind: string | null;
+  timestamp: string | null;
+  runId: string | null;
+  traceId: string | null;
+  toolName: string | null;
+  qqUsage: { mode: string; peerId: string | null } | null;
+  runtimePaths: XiaoniRuntimePathClassification[];
+  features: string[];
+  privacyScope: string;
+  memoryCandidate: 'file_memory' | 'spoken_fragment' | null;
+  safeEmbeddingText: string | null;
+};
+
+export function classifyRuntimePath(path: string): XiaoniRuntimePathClassification | null;
+export function extractRuntimePaths(text: string): XiaoniRuntimePathClassification[];
+export function extractPassiveRecallCueFromActionStreamItem(item: Record<string, unknown>): XiaoniPassiveRecallCue | null;
+export function extractPassiveRecallCuesFromActionStream(items?: Array<Record<string, unknown>>): XiaoniPassiveRecallCue[];
+
 export type TrafficLogFilters = {
   startTime?: string | Date;
   endTime?: string | Date;
@@ -2060,6 +2098,18 @@ export type XiaoniActionStreamResult = {
   generatedAt: string;
   streamKind: 'xiaoni_action_stream';
   filters?: XiaoniActivityTimeFilters;
+  pagination?: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+  availableTags?: Array<{
+    key: string;
+    label: string;
+    tone?: string;
+    count?: number;
+  }>;
+  focusedEventId?: string | null;
   current: {
     lifeState: Record<string, unknown> | null;
     latestActivityAt: string | null;
@@ -2085,6 +2135,7 @@ export type XiaoniActionStreamResult = {
   };
   items: XiaoniActionStreamItem[];
   compressionForkTimeline?: XiaoniForkTimeline;
+  subconsciousForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };

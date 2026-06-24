@@ -1,7 +1,11 @@
 import express from 'express';
 import axios from 'axios';
 import winston from 'winston';
+import fs from 'fs/promises';
+import path from 'path';
 import {
+  classifyRuntimePath,
+  extractPassiveRecallCuesFromActionStream,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
   getXiaoniLlmUsageTimeline,
@@ -27,6 +31,10 @@ import {
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
 const AGENT_REQUEST_TIMEOUT_MS = 5000;
+const XIAONI_RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/home/liahua/.qqbot-local/xiaoni-runtime';
+const XIAONI_RUNTIME_CANONICAL_ROOT = '/xiaoni-runtime';
+const XIAONI_PASSIVE_RECALL_FILE_DIRS = ['forever', 'notes', 'reading', 'toys'];
+const XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES = 3000;
 const ACTION_STREAM_RANGE_MS: Record<string, number> = {
   '1h': 60 * 60 * 1000,
   '6h': 6 * 60 * 60 * 1000,
@@ -59,6 +67,20 @@ type ActionEventTraceTarget = {
   stackItemId?: string | null;
   sourceKind?: string | null;
   forkRunId?: string | null;
+};
+
+type RuntimeFileShadowCandidate = {
+  source: 'runtime_file';
+  cueClass: 'file_shadow_candidate';
+  path: string;
+  relativePath: string;
+  runtimeDir: string | null;
+  basename: string | null;
+  extension: string | null;
+  sizeBytes: number;
+  mtime: string;
+  safeEmbeddingText: string;
+  preview: string | null;
 };
 
 async function probeAgentService(): Promise<AgentProbeResult> {
@@ -192,6 +214,173 @@ function parseNonNegativeInteger(value: unknown): number | null {
   }
   const parsed = Number.parseInt(value.trim(), 10);
   return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+function parsePositiveInteger(value: unknown, fallback: number, max: number): number {
+  const parsed = parseNonNegativeInteger(value);
+  if (!parsed || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+}
+
+function compactFilePreview(value: string, maxLength = 1200): string | null {
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (!compact) {
+    return null;
+  }
+  return compact.length <= maxLength ? compact : `${compact.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function toCanonicalRuntimePath(runtimeRoot: string, absolutePath: string): string | null {
+  const relativePath = path.relative(runtimeRoot, absolutePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  return `${XIAONI_RUNTIME_CANONICAL_ROOT}/${relativePath.split(path.sep).join('/')}`;
+}
+
+async function readRuntimeFilePreview(absolutePath: string): Promise<string | null> {
+  try {
+    const handle = await fs.open(absolutePath, 'r');
+    try {
+      const buffer = Buffer.alloc(4096);
+      const result = await handle.read(buffer, 0, buffer.length, 0);
+      return compactFilePreview(buffer.slice(0, result.bytesRead).toString('utf8'));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function collectRuntimeFileCandidates(options: {
+  limit: number;
+  runtimeRoot?: string;
+}): Promise<{
+  runtimeRoot: string;
+  available: boolean;
+  candidates: RuntimeFileShadowCandidate[];
+  error: string | null;
+}> {
+  const runtimeRoot = options.runtimeRoot || XIAONI_RUNTIME_ROOT;
+  const files: Array<{
+    absolutePath: string;
+    canonicalPath: string;
+    stat: { size: number; mtime: Date };
+  }> = [];
+  let visited = 0;
+
+  async function visit(dir: string, depth: number): Promise<void> {
+    if (visited >= XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES || depth > 8) {
+      return;
+    }
+    visited += 1;
+    let entries: Array<{
+      name: string;
+      isDirectory: () => boolean;
+      isFile: () => boolean;
+    }>;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (visited >= XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES) {
+        return;
+      }
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
+        continue;
+      }
+      const absolutePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath, depth + 1);
+        continue;
+      }
+      if (!entry.isFile()) {
+        continue;
+      }
+      const canonicalPath = toCanonicalRuntimePath(runtimeRoot, absolutePath);
+      if (!canonicalPath) {
+        continue;
+      }
+      const classified = classifyRuntimePath(canonicalPath);
+      if (!classified?.indexable) {
+        continue;
+      }
+      try {
+        const stat = await fs.stat(absolutePath);
+        files.push({
+          absolutePath,
+          canonicalPath,
+          stat: {
+            size: stat.size,
+            mtime: stat.mtime
+          }
+        });
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  try {
+    const rootStat = await fs.stat(runtimeRoot);
+    if (!rootStat.isDirectory()) {
+      return {
+        runtimeRoot,
+        available: false,
+        candidates: [],
+        error: 'Xiaoni runtime root is not a directory'
+      };
+    }
+  } catch (error) {
+    return {
+      runtimeRoot,
+      available: false,
+      candidates: [],
+      error: error instanceof Error ? error.message : 'Xiaoni runtime root is unavailable'
+    };
+  }
+
+  await Promise.all(XIAONI_PASSIVE_RECALL_FILE_DIRS.map((dir) => visit(path.join(runtimeRoot, dir), 1)));
+  files.sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
+
+  const selected = files.slice(0, options.limit);
+  const candidates = await Promise.all(selected.map(async (file): Promise<RuntimeFileShadowCandidate | null> => {
+    const classified = classifyRuntimePath(file.canonicalPath);
+    if (!classified?.indexable) {
+      return null;
+    }
+    const preview = await readRuntimeFilePreview(file.absolutePath);
+    return {
+      source: 'runtime_file',
+      cueClass: 'file_shadow_candidate',
+      path: classified.path,
+      relativePath: classified.relativePath,
+      runtimeDir: classified.runtimeDir,
+      basename: classified.basename,
+      extension: classified.extension,
+      sizeBytes: file.stat.size,
+      mtime: file.stat.mtime.toISOString(),
+      safeEmbeddingText: [
+        'xiaoni runtime file',
+        `${classified.runtimeDir || 'unknown'} ${classified.relativePath.replace(/[._/-]+/g, ' ')}`,
+        preview
+      ].filter(Boolean).join('\n'),
+      preview
+    };
+  }));
+
+  return {
+    runtimeRoot,
+    available: true,
+    candidates: candidates.filter((entry): entry is RuntimeFileShadowCandidate => Boolean(entry)),
+    error: null
+  };
 }
 
 function parseUsageBucket(value: unknown): 'call' | 'hour' | 'day' | 'month' {
@@ -690,6 +879,94 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load Xiaoni action stream',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/xiaoni/passive-recall/shadow-cues', async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.limit || '80'), 10) || 80));
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const timeFilter = resolveActionStreamTimeFilter(req.query);
+      const beforeTime = parseQueryDate(req.query.before_time ?? req.query.beforeTime ?? req.query.before);
+      const tags = parseQueryStringList(req.query.tags ?? req.query.tag);
+      const includeFiles = parseQueryBoolean(req.query.include_files ?? req.query.includeFiles, true);
+      const fileLimit = parsePositiveInteger(req.query.file_limit ?? req.query.fileLimit, 20, 100);
+      const [stream, fileSource] = await Promise.all([
+        getXiaoniActionStream({
+          identityKey,
+          limit,
+          startTime: timeFilter.startTime,
+          endTime: timeFilter.endTime,
+          beforeTime,
+          tags,
+          focusEvent: firstQueryString(req.query.focus_event ?? req.query.focusEvent),
+          focusSlice: firstQueryString(req.query.focus_slice ?? req.query.focusSlice)
+        }),
+        includeFiles
+          ? collectRuntimeFileCandidates({ limit: fileLimit })
+          : Promise.resolve({
+            runtimeRoot: XIAONI_RUNTIME_ROOT,
+            available: false,
+            candidates: [],
+            error: null
+          })
+      ]);
+      const items = Array.isArray(stream.items) ? stream.items as Array<Record<string, unknown>> : [];
+      const cues = extractPassiveRecallCuesFromActionStream(items);
+      const cueCounts = cues.reduce((acc, cue) => {
+        const key = cue.cueClass || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      res.json({
+        success: true,
+        data: {
+          identityKey: stream.identityKey,
+          generatedAt: stream.generatedAt,
+          streamKind: 'xiaoni_passive_recall_shadow_cues',
+          deliveryMode: 'shadow_only',
+          filters: {
+            ...(typeof stream === 'object' && stream && 'filters' in stream ? (stream as Record<string, unknown>).filters as Record<string, unknown> : {}),
+            ...serializeActionStreamTimeFilter(timeFilter),
+            tags,
+            includeFiles,
+            fileLimit
+          },
+          pagination: stream.pagination || {
+            limit,
+            hasMore: false,
+            nextCursor: null
+          },
+          counts: {
+            ...cueCounts,
+            file_shadow_candidate: fileSource.candidates.length
+          },
+          sources: {
+            actionStream: {
+              totalItems: items.length,
+              cueCount: cues.length
+            },
+            runtimeFiles: {
+              runtimeRoot: fileSource.runtimeRoot,
+              available: fileSource.available,
+              candidateCount: fileSource.candidates.length,
+              error: fileSource.error
+            }
+          },
+          cues,
+          fileCandidates: fileSource.candidates
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni passive recall shadow cues',
         timestamp: new Date().toISOString()
       });
     }

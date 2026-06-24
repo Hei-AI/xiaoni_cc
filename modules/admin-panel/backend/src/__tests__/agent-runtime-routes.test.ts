@@ -12,6 +12,7 @@ import {
   buildStackRawProviderTrace
 } from '../services/trace-span-builder';
 import {
+  extractPassiveRecallCuesFromActionStream,
   findXiaoniActionEventTraceTarget,
   getAgentLifeState,
   getAgentRuntimeControl,
@@ -26,6 +27,7 @@ import {
 jest.mock('axios');
 
 jest.mock('@qq-bot/persistence', () => ({
+  extractPassiveRecallCuesFromActionStream: jest.fn(),
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
   getXiaoniLlmUsageTimeline: jest.fn(),
@@ -670,6 +672,106 @@ describe('agent runtime action stream route', () => {
       hasMore: true,
       nextCursor: '2026-06-12T12:00:00.000Z'
     });
+  });
+
+  it('returns passive recall shadow cues without exposing IM body as memory text', async () => {
+    const database = createDatabaseMock();
+    (extractPassiveRecallCuesFromActionStream as jest.Mock).mockReturnValueOnce([{
+      cueClass: 'db_life_cue',
+      itemId: 'tool-exec:qq-1',
+      source: 'tool_execution',
+      kind: 'exec_command',
+      timestamp: '2026-06-24T12:00:00.000Z',
+      toolName: 'exec_command',
+      qqUsage: {
+        mode: 'focus_private',
+        peerId: '2294133947'
+      },
+      runtimePaths: [],
+      features: [
+        'skill:qq_usage',
+        'im:focus_private',
+        'peer:2294133947'
+      ],
+      privacyScope: 'transient_private',
+      memoryCandidate: null,
+      safeEmbeddingText: 'xiaoni qq usage cue mode focus_private peer 2294133947'
+    }]);
+    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      generatedAt: '2026-06-24T12:00:00.000Z',
+      streamKind: 'xiaoni_action_stream',
+      filters: {},
+      availableTags: [],
+      pagination: {
+        limit: 20,
+        hasMore: false,
+        nextCursor: null
+      },
+      current: {
+        latestActivityAt: '2026-06-24T12:00:00.000Z'
+      },
+      focusedEventId: null,
+      items: [{
+        id: 'tool-exec:qq-1',
+        source: 'tool_execution',
+        kind: 'exec_command',
+        title: 'tool: exec_command',
+        body: '<IM_INBOX_WINDOW>用户说：我今天看了一部电影</IM_INBOX_WINDOW>',
+        timestamp: '2026-06-24T12:00:00.000Z',
+        metadata: {
+          toolName: 'exec_command',
+          toolArgumentsPreview: JSON.stringify({
+            cmd: 'python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 2294133947'
+          }),
+          toolResultPreview: '<IM_INBOX_WINDOW>用户说：我今天看了一部电影</IM_INBOX_WINDOW>'
+        },
+        tags: [
+          { key: 'source:tool_execution' },
+          { key: 'tool:exec_command' }
+        ]
+      }],
+      compressionForkTimeline: { runs: [] },
+      imageVisionForkTimeline: { runs: [] }
+    });
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/passive-recall/shadow-cues')
+      .query({
+        limit: 20,
+        range: '24h',
+        include_files: '0'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(getXiaoniActionStream).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      limit: 20,
+      startTime: expect.any(Date),
+      endTime: expect.any(Date),
+      beforeTime: null,
+      tags: [],
+      focusEvent: null,
+      focusSlice: null
+    });
+    expect(extractPassiveRecallCuesFromActionStream).toHaveBeenCalledTimes(1);
+    expect(response.body.data.streamKind).toBe('xiaoni_passive_recall_shadow_cues');
+    expect(response.body.data.deliveryMode).toBe('shadow_only');
+    expect(response.body.data.counts).toEqual({
+      db_life_cue: 1,
+      file_shadow_candidate: 0
+    });
+    expect(response.body.data.sources.runtimeFiles.available).toBe(false);
+    expect(response.body.data.fileCandidates).toEqual([]);
+    expect(response.body.data.cues[0].cueClass).toBe('db_life_cue');
+    expect(response.body.data.cues[0].features).toEqual(expect.arrayContaining([
+      'skill:qq_usage',
+      'im:focus_private',
+      'peer:2294133947'
+    ]));
+    expect(response.body.data.cues[0].safeEmbeddingText).toContain('xiaoni qq usage cue');
+    expect(response.body.data.cues[0].safeEmbeddingText).not.toContain('我今天看了一部电影');
   });
 });
 

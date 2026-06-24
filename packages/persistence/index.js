@@ -18,6 +18,7 @@ const { createAgentLifeEventPersistence } = require('./agent-life-events');
 const { createAgentRecoverySessionPersistence } = require('./agent-recovery-sessions');
 const { createXiaoniAgentStackPersistence } = require('./xiaoni-agent-stack');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
+const passiveRecallExtractor = require('./xiaoni-passive-recall-extractor');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
@@ -533,6 +534,7 @@ module.exports = {
   ...agentRecoverySessionPersistence,
   ...xiaoniAgentStackPersistence,
   ...xiaoniActivityPersistence,
+  ...passiveRecallExtractor,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,
   ...agentMemoryPersistence,
