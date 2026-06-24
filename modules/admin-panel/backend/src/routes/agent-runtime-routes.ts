@@ -6,6 +6,7 @@ import {
   getXiaoniActivityFeed,
   getXiaoniLlmUsageTimeline,
   findXiaoniActionEventTraceTarget,
+  getAgentLifeState,
   getAgentRuntimeControl,
   listAgentLifeEvents,
   listAgentMediaAssets,
@@ -249,6 +250,52 @@ function toValidDate(value: unknown): Date | null {
 function finiteNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeJsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeIsoDate(value: unknown): string | null {
+  const date = toValidDate(value);
+  return date ? date.toISOString() : null;
+}
+
+function normalizeRecoveryLifeState(row: any) {
+  if (!row) {
+    return null;
+  }
+  const projection = normalizeJsonObject(row.projection_json);
+  const projectedState = normalizeJsonObject(projection.state);
+  const explanation = normalizeJsonObject(row.explanation_json);
+  const contributors = Array.isArray(explanation.contributors)
+    ? explanation.contributors.filter((item: any) => item?.eventKind !== 'presence_tick_evaluated').slice(-5)
+    : [];
+  return {
+    identityKey: row.identity_key || null,
+    projection: {
+      version: typeof projection.version === 'string' ? projection.version : null,
+      generatedAt: normalizeIsoDate(projection.generatedAt),
+      state: {
+        energy: finiteNumber(projectedState.energy),
+        actionCost: finiteNumber(projectedState.actionCost)
+      }
+    },
+    explanation: {
+      summary: typeof explanation.summary === 'string' ? explanation.summary : null,
+      generatedAt: normalizeIsoDate(explanation.generatedAt),
+      contributors
+    },
+    reducedThroughEventId: row.reduced_through_event_id === null || typeof row.reduced_through_event_id === 'undefined'
+      ? null
+      : String(row.reduced_through_event_id),
+    reducedThroughOccurredAt: normalizeIsoDate(row.reduced_through_occurred_at),
+    projectionVersion: row.projection_version || null,
+    projectionUpdatedAt: normalizeIsoDate(row.projection_updated_at),
+    updatedAt: normalizeIsoDate(row.updated_at)
+  };
 }
 
 function clamp01(value: number) {
@@ -971,13 +1018,13 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const status = typeof req.query.status === 'string' && req.query.status.trim()
         ? req.query.status.trim()
         : 'all';
-      const [sessions, activity, runtime] = await Promise.all([
+      const [sessions, lifeState, runtime] = await Promise.all([
         listAgentRecoverySessions({ identityKey, status, limit }),
-        getXiaoniActionStream({ identityKey, limit: 12 }),
+        getAgentLifeState(identityKey),
         loadRuntimeSnapshot()
       ]);
       const current = {
-        ...(activity && typeof activity === 'object' && 'current' in activity ? (activity as any).current : {}),
+        lifeState: normalizeRecoveryLifeState(lifeState),
         runtime
       };
       const timelineNow = new Date();

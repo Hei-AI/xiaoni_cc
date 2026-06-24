@@ -13,6 +13,7 @@ import {
 } from '../services/trace-span-builder';
 import {
   findXiaoniActionEventTraceTarget,
+  getAgentLifeState,
   getAgentRuntimeControl,
   getXiaoniActionStream,
   getXiaoniLlmUsageTimeline,
@@ -28,6 +29,7 @@ jest.mock('@qq-bot/persistence', () => ({
   getXiaoniActionStream: jest.fn(),
   getXiaoniActivityFeed: jest.fn(),
   getXiaoniLlmUsageTimeline: jest.fn(),
+  getAgentLifeState: jest.fn(),
   getAgentRuntimeControl: jest.fn(),
   findXiaoniActionEventTraceTarget: jest.fn(),
   listAgentLifeEvents: jest.fn(),
@@ -311,32 +313,20 @@ describe('agent runtime recovery session routes', () => {
         }
       }
     ]);
-    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({
-      current: {
-        latestActivityAt: '2026-06-13T00:00:00.000Z',
-        lifeState: {
-          projectionUpdatedAt: '2026-06-13T00:15:00.000Z',
-          projection: {
-            state: {
-              energy: 0.87,
-              actionCost: 0.13
-            }
-          },
-          explanation: {
-            summary: '当前精力=0.87'
-          }
+    (getAgentLifeState as jest.Mock).mockResolvedValueOnce({
+      identity_key: 'xiaoni',
+      projection_json: {
+        generatedAt: '2026-06-13T00:15:00.000Z',
+        state: {
+          energy: 0.87,
+          actionCost: 0.13
         }
       },
-      items: [
-        {
-          id: 'tool-exec:1',
-          source: 'tool_execution',
-          kind: 'recover_energy',
-          title: 'tool: recover_energy',
-          body: '休息恢复精力',
-          timestamp: '2026-06-13T00:00:00.000Z'
-        }
-      ]
+      explanation_json: {
+        summary: '当前精力=0.87'
+      },
+      projection_updated_at: '2026-06-13T00:15:00.000Z',
+      updated_at: '2026-06-13T00:15:00.000Z'
     });
     (listAgentLifeEvents as jest.Mock).mockResolvedValueOnce([
       {
@@ -400,10 +390,8 @@ describe('agent runtime recovery session routes', () => {
       status: 'all',
       limit: 40
     });
-    expect(getXiaoniActionStream).toHaveBeenCalledWith({
-      identityKey: 'xiaoni',
-      limit: 12
-    });
+    expect(getAgentLifeState).toHaveBeenCalledWith('xiaoni');
+    expect(getXiaoniActionStream).not.toHaveBeenCalled();
     expect(listAgentLifeEvents).toHaveBeenCalledWith({
       identityKey: 'xiaoni',
       occurredAfter: expect.any(Date),
@@ -484,7 +472,7 @@ describe('agent runtime recovery session routes', () => {
       }
     });
     (listAgentRecoverySessions as jest.Mock).mockResolvedValueOnce([]);
-    (getXiaoniActionStream as jest.Mock).mockResolvedValueOnce({ current: {}, items: [] });
+    (getAgentLifeState as jest.Mock).mockResolvedValueOnce(null);
     (listAgentLifeEvents as jest.Mock).mockResolvedValueOnce([]);
     (listToolExecutions as jest.Mock)
       .mockResolvedValueOnce([])
