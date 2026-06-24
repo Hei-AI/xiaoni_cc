@@ -59,6 +59,7 @@ const RUNTIME_ASSET_ROOT = process.env.PROVIDER_RUNTIME_ASSET_ROOT || '/app/logs
 const RUNTIME_ASSET_BASE_URL = (process.env.PROVIDER_RUNTIME_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
 const XIAONI_RUNTIME_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
 const INBOUND_MEDIA_ASSET_ROOT = path.join(XIAONI_RUNTIME_ROOT, 'media', 'inbound').replace(/\/+$/, '');
+const LOCAL_RUNTIME_PICTURE_ROOT = path.join(XIAONI_RUNTIME_ROOT, 'picture').replace(/\/+$/, '');
 const INBOUND_MEDIA_ASSET_BASE_URL = (process.env.PROVIDER_INBOUND_MEDIA_ASSET_BASE_URL || `http://qqbot-provider-service:${serverConfig.port}`).replace(/\/$/, '');
 const inboundMediaMaxBytes = Number(process.env.PROVIDER_INBOUND_MEDIA_MAX_BYTES || 25 * 1024 * 1024);
 const INBOUND_MEDIA_MAX_BYTES = Number.isFinite(inboundMediaMaxBytes) && inboundMediaMaxBytes > 0
@@ -590,6 +591,52 @@ function assertInboundMediaSize(buffer: Buffer, source: string) {
   if (buffer.length > INBOUND_MEDIA_MAX_BYTES) {
     throw new Error(`Inbound media from ${source} exceeds ${INBOUND_MEDIA_MAX_BYTES} bytes`);
   }
+}
+
+function ensureRelativePathInside(root: string, filePath: string) {
+  const relative = path.relative(root, filePath);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('Local image path is outside the allowed runtime picture directory');
+  }
+  if (relative.includes(path.sep)) {
+    throw new Error('Local image path must be a direct child of the runtime picture directory');
+  }
+  return relative;
+}
+
+async function resolveLocalRuntimePicturePath(localPath: string) {
+  const trimmed = typeof localPath === 'string' ? localPath.trim() : '';
+  if (!trimmed || !path.isAbsolute(trimmed)) {
+    throw new Error('Local image path must be absolute');
+  }
+  const root = await fs.realpath(LOCAL_RUNTIME_PICTURE_ROOT).catch(() => path.resolve(LOCAL_RUNTIME_PICTURE_ROOT));
+  const candidate = path.resolve(trimmed);
+  const realPath = await fs.realpath(candidate);
+  ensureRelativePathInside(root, realPath);
+  const stat = await fs.stat(realPath);
+  if (!stat.isFile()) {
+    throw new Error('Local image path is not a file');
+  }
+  return realPath;
+}
+
+async function readLocalRuntimePicture(localPath: string, requestedMimeType?: string | null) {
+  const filePath = await resolveLocalRuntimePicturePath(localPath);
+  const buffer = await fs.readFile(filePath);
+  assertInboundMediaSize(buffer, filePath);
+  const mimeType = sniffImageMimeType(
+    buffer,
+    normalizeMimeType(requestedMimeType) || inferImageMimeTypeFromName(filePath)
+  );
+  if (!mimeType) {
+    throw new Error('Local runtime picture is not a supported image');
+  }
+  return {
+    filePath,
+    filename: path.basename(filePath),
+    buffer,
+    mimeType
+  };
 }
 
 async function fetchMediaAsBuffer(url: string, mimeType?: string | null) {
@@ -1614,6 +1661,110 @@ app.get('/api/internal/media-assets/:filename', async (req, res) => {
   }
 });
 
+app.get('/api/internal/local-media-assets/:filename', async (req, res) => {
+  try {
+    const filename = path.basename(req.params.filename || '');
+    if (!filename) {
+      return res.status(404).end();
+    }
+    const localPath = path.join(LOCAL_RUNTIME_PICTURE_ROOT, filename);
+    const image = await readLocalRuntimePicture(localPath);
+    res.type(image.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(image.buffer);
+  } catch {
+    res.status(404).end();
+  }
+});
+
+app.post('/api/internal/media-assets/register-local', async (req, res) => {
+  try {
+    const localPath = typeof req.body?.local_path === 'string' && req.body.local_path.trim()
+      ? req.body.local_path.trim()
+      : typeof req.body?.path === 'string' && req.body.path.trim()
+        ? req.body.path.trim()
+        : '';
+    if (!localPath) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing local_path',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const image = await readLocalRuntimePicture(
+      localPath,
+      typeof req.body?.mime_type === 'string' ? req.body.mime_type : null
+    );
+    const contentHash = createHash('sha256').update(image.buffer).digest('hex');
+    const assetId = `local_media_${contentHash.slice(0, 48)}`;
+    const mediaTag = typeof req.body?.media_tag === 'string' && req.body.media_tag.trim()
+      ? req.body.media_tag.trim()
+      : assetId;
+    const storageUri = `${INBOUND_MEDIA_ASSET_BASE_URL}/api/internal/local-media-assets/${encodeURIComponent(image.filename)}`;
+    const assets = await upsertAgentMediaAssets([{
+      id: assetId,
+      source: 'local_runtime',
+      traceId: typeof req.body?.trace_id === 'string' ? req.body.trace_id : null,
+      sessionKey: typeof req.body?.session_key === 'string' && req.body.session_key.trim()
+        ? req.body.session_key.trim()
+        : 'xiaoni:global',
+      chatType: req.body?.chat_type === 'group' ? 'group' : 'direct',
+      peerId: typeof req.body?.peer_id === 'string' ? req.body.peer_id : null,
+      peerName: typeof req.body?.peer_name === 'string' ? req.body.peer_name : null,
+      senderId: typeof req.body?.sender_id === 'string' ? req.body.sender_id : 'xiaoni',
+      senderName: typeof req.body?.sender_name === 'string' ? req.body.sender_name : '小腻',
+      accountId: typeof req.body?.account_id === 'string' ? req.body.account_id : null,
+      mediaTag,
+      placeholder: '[Image]',
+      mediaType: 'image',
+      mimeType: image.mimeType,
+      sourceLocator: image.filePath,
+      storageUri,
+      metadata: {
+        provider: 'local_runtime',
+        surface: 'xiaoni-browser',
+        placeholder: '[Image]',
+        file_name: image.filename,
+        content_hash: contentHash,
+        bytes: image.buffer.length,
+        storage_uri: storageUri,
+        executor_path: image.filePath,
+        local_path: image.filePath,
+        registered_by: typeof req.body?.registered_by === 'string' ? req.body.registered_by : 'local-media-register'
+      }
+    }]);
+    const asset = assets[0] || null;
+    res.json({
+      success: true,
+      data: {
+        asset,
+        image_id: asset?.id || assetId,
+        media_tag: asset?.media_tag || mediaTag,
+        placeholder: `<image>pic<${asset?.id || assetId}></image>`,
+        local_path: image.filePath,
+        storage_uri: storageUri,
+        mime_type: image.mimeType,
+        bytes: image.buffer.length
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const statusCode = /outside the allowed|must be absolute|direct child|not a file|not a supported image/i.test(message)
+      ? 400
+      : 500;
+    moduleLogger.warn('Local media asset registration failed', {
+      error: message
+    });
+    res.status(statusCode).json({
+      success: false,
+      error: message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.post(['/webhook', '/api/onebot/events', '/api/onebot/webhook'], async (req, res) => {
   try {
     const event = (req.body || {}) as OneBotMessageEvent;
@@ -1802,6 +1953,19 @@ app.post('/api/internal/media/materialize-image', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Missing source image locator or file_id'
+      });
+    }
+    if (sourceLocator.startsWith(LOCAL_RUNTIME_PICTURE_ROOT + '/')) {
+      const image = await readLocalRuntimePicture(sourceLocator, mimeType);
+      return res.json({
+        success: true,
+        data: {
+          data_url: toDataUrl(image.buffer, image.mimeType),
+          mime_type: image.mimeType,
+          bytes: image.buffer.length,
+          source: 'local_runtime_file'
+        },
+        timestamp: new Date().toISOString()
       });
     }
     if (sourceLocator.startsWith('data:')) {

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-import argparse, base64, binascii, os, struct, subprocess, sys, zlib
+import argparse, base64, binascii, json, os, struct, subprocess, sys, urllib.error, urllib.request, zlib
 
 PNG_SIG=b'\x89PNG\r\n\x1a\n'
+PROVIDER_SERVICE_URL=os.environ.get('PROVIDER_SERVICE_URL','').rstrip('/')
 
 def read_png(path):
     raw=open(path,'rb').read()
@@ -74,6 +75,45 @@ def default_thumb_path(src,w,h):
     base=os.path.splitext(os.path.basename(src))[0]
     return f'/xiaoni-runtime/picture/{base}-thumb-{w}x{h}.png'
 
+def provider_registration_urls():
+    explicit=os.environ.get('XIAONI_MEDIA_REGISTER_URL','').strip()
+    if explicit: return [explicit]
+    bases=[]
+    if PROVIDER_SERVICE_URL: bases.append(PROVIDER_SERVICE_URL)
+    bases.extend(['http://qqbot-provider-service:8090','http://127.0.0.1:8091'])
+    urls=[]
+    for base in bases:
+        url=base.rstrip('/')+'/api/internal/media-assets/register-local'
+        if url not in urls: urls.append(url)
+    return urls
+
+def register_image(path):
+    payload=json.dumps({
+        'local_path': path,
+        'session_key': os.environ.get('XIAONI_SESSION_KEY','xiaoni:global'),
+        'chat_type': os.environ.get('XIAONI_CHAT_TYPE','direct'),
+        'registered_by': 'local-image-visibility',
+    }).encode('utf-8')
+    last=None
+    for url in provider_registration_urls():
+        req=urllib.request.Request(url,data=payload,method='POST',headers={'Content-Type':'application/json'})
+        try:
+            with urllib.request.urlopen(req,timeout=5) as resp:
+                parsed=json.loads(resp.read().decode('utf-8',errors='replace'))
+            if not parsed.get('success'):
+                last=parsed.get('error') or f'request failed via {url}'
+                continue
+            data=parsed.get('data') or {}
+            if data.get('placeholder'): return data.get('placeholder')
+            if data.get('image_id'): return f"<image>pic<{data.get('image_id')}></image>"
+            last=f'provider did not return an image id via {url}'
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last=str(exc)
+    return f'image inspection unavailable: {last or "provider not reachable"}'
+
+def print_image_placeholder(path):
+    print(register_image(path))
+
 def main():
     ap=argparse.ArgumentParser()
     sub=ap.add_subparsers(dest='cmd', required=True)
@@ -83,17 +123,17 @@ def main():
     p=sub.add_parser('browser-thumb'); p.add_argument('path'); p.add_argument('--width',type=int,default=96); p.add_argument('--height',type=int,default=64)
     args=ap.parse_args()
     if args.cmd=='info':
-        w,h,ct,bpp,rows=read_png(args.path); print({'path':args.path,'exists':os.path.exists(args.path),'bytes':os.path.getsize(args.path),'width':w,'height':h,'color_type':ct})
+        w,h,ct,bpp,rows=read_png(args.path); print({'path':args.path,'exists':os.path.exists(args.path),'bytes':os.path.getsize(args.path),'width':w,'height':h,'color_type':ct}); print_image_placeholder(args.path)
     elif args.cmd=='thumb':
-        out=args.out or default_thumb_path(args.path,args.width,args.height); print(write_thumb(args.path,out,args.width,args.height))
+        out=args.out or default_thumb_path(args.path,args.width,args.height); print(write_thumb(args.path,out,args.width,args.height)); print_image_placeholder(out)
     elif args.cmd=='ascii':
-        print(ascii_report(args.path,args.out,args.cols,args.rows))
+        print(ascii_report(args.path,args.out,args.cols,args.rows)); print_image_placeholder(args.path)
     elif args.cmd=='browser-thumb':
         out=default_thumb_path(args.path,args.width,args.height); write_thumb(args.path,out,args.width,args.height)
         url='data:image/png;base64,'+base64.b64encode(open(out,'rb').read()).decode()
         cmd=['python3','/workspace/qq_bot/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py','--','-s=xiaoni-host','goto',url]
         print('thumbnail:',out,'url_length:',len(url), file=sys.stderr)
         r=subprocess.run(cmd, text=True, capture_output=True, timeout=20)
-        print(r.stdout); print(r.stderr, file=sys.stderr)
+        print(r.stdout); print_image_placeholder(out); print(r.stderr, file=sys.stderr)
         sys.exit(r.returncode)
 if __name__=='__main__': main()

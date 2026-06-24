@@ -4,6 +4,47 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createAgentMediaPersistence } = require('../agent-media');
 
+test('upsertAgentMediaAsset without message sid is idempotent by asset id', async () => {
+  const calls = [];
+  const persistence = createAgentMediaPersistence({
+    getPrismaClient: () => ({
+      agentMediaAsset: {
+        upsert: async (args) => {
+          calls.push(args);
+          return {
+            ...args.create,
+            created_at: new Date('2026-06-24T00:00:00.000Z'),
+            updated_at: new Date('2026-06-24T00:00:01.000Z'),
+            observations: []
+          };
+        }
+      }
+    }),
+    createSqlAdapter: () => {
+      throw new Error('SQL adapter should not be used for media asset upsert');
+    }
+  });
+
+  const asset = await persistence.upsertAgentMediaAsset({
+    id: 'local_media_abc123',
+    source: 'local_runtime',
+    sessionKey: 'xiaoni:global',
+    chatType: 'direct',
+    mediaTag: 'local_media_abc123',
+    mimeType: 'image/png',
+    sourceLocator: '/xiaoni-runtime/picture/screen.png',
+    storageUri: 'http://qqbot-provider-service:8090/api/internal/local-media-assets/screen.png',
+    metadata: { executor_path: '/xiaoni-runtime/picture/screen.png' }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].where, { id: 'local_media_abc123' });
+  assert.equal(calls[0].create.source, 'local_runtime');
+  assert.equal(calls[0].update.source_locator, '/xiaoni-runtime/picture/screen.png');
+  assert.equal(asset.id, 'local_media_abc123');
+  assert.equal(asset.metadata.executor_path, '/xiaoni-runtime/picture/screen.png');
+});
+
 test('getAgentMediaAssetById reads one asset with session filtering through Prisma', async () => {
   const calls = [];
   const persistence = createAgentMediaPersistence({

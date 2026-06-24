@@ -175,8 +175,16 @@ function createAgentMediaPersistence({ getPrismaClient, createSqlAdapter }) {
           create: data,
           include: { observations: { orderBy: [{ created_at: 'desc' }] } }
         })
-      : await prisma.agentMediaAsset.create({
-          data,
+      : await prisma.agentMediaAsset.upsert({
+          where: { id: data.id },
+          update: {
+            trace_id: data.trace_id,
+            source_locator: data.source_locator,
+            storage_uri: data.storage_uri,
+            mime_type: data.mime_type,
+            metadata: data.metadata
+          },
+          create: data,
           include: { observations: { orderBy: [{ created_at: 'desc' }] } }
         });
     return normalizeAsset(row);
