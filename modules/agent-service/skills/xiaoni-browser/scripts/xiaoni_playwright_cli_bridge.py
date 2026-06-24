@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ CLI_SCRIPT_WSL = "/mnt/c/temp/xiaoni-playwright-cli/xiaoni-playwright-cli.ps1"
 INSTALL_DIR_WSL = "/mnt/c/temp/xiaoni-playwright-cli"
 RUNTIME_HOST_ROOT = os.environ.get("XIAONI_RUNTIME_HOST_ROOT", "/home/liahua/.qqbot-local/xiaoni-runtime")
 RUNTIME_CONTAINER_ROOT = os.environ.get("XIAONI_RUNTIME_CONTAINER_ROOT", "/xiaoni-runtime")
+PROVIDER_SERVICE_URL = os.environ.get("PROVIDER_SERVICE_URL", "").rstrip("/")
 CDP_ENDPOINT = os.environ.get("XIAONI_BROWSER_CDP_ENDPOINT", "http://127.0.0.1:9222")
 CDP_PORT = os.environ.get("XIAONI_BROWSER_CDP_PORT", "9222")
 CHROME_EXE_WIN = os.environ.get("XIAONI_CHROME_EXE_WIN", "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
@@ -836,15 +838,33 @@ def _augment_browser_artifacts(stdout, args):
     if "screenshot" not in args:
         return stdout
     copied_paths = []
+    inspectable_images = []
+    image_errors = []
     for raw_path in _extract_markdown_artifact_paths(stdout):
         source_path = _resolve_cli_artifact_path(raw_path)
         if not source_path or not source_path.exists() or source_path.suffix.lower() != ".png":
             continue
-        copied_paths.append(_copy_to_runtime_picture_dir(source_path))
+        container_path = _copy_to_runtime_picture_dir(source_path)
+        copied_paths.append(container_path)
+        registration = _register_runtime_picture(container_path)
+        if registration.get("ok"):
+            inspectable_images.append(registration)
+        else:
+            image_errors.append(registration.get("error") or "image is not inspectable yet")
     if not copied_paths:
         return stdout
     lines = ["", "### Xiaoni runtime artifacts"]
     lines.extend(f"- {path}" for path in copied_paths)
+    if inspectable_images:
+        lines.append("")
+        lines.append("### Images")
+        for item in inspectable_images:
+            placeholder = item.get("placeholder") or f"<image>pic<{item.get('image_id')}></image>"
+            lines.append(f"- {placeholder}")
+    if image_errors:
+        lines.append("")
+        lines.append("### Image notes")
+        lines.extend(f"- {error}" for error in image_errors)
     return stdout.rstrip() + "\n" + "\n".join(lines) + "\n"
 
 
@@ -871,6 +891,66 @@ def _copy_to_runtime_picture_dir(source_path):
     destination = picture_dir / destination_name
     shutil.copy2(source_path, destination)
     return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"
+
+
+def _provider_registration_urls():
+    explicit = os.environ.get("XIAONI_MEDIA_REGISTER_URL", "").strip()
+    if explicit:
+        return [explicit]
+    bases = []
+    if PROVIDER_SERVICE_URL:
+        bases.append(PROVIDER_SERVICE_URL)
+    bases.extend(["http://qqbot-provider-service:8090", "http://127.0.0.1:8091"])
+    urls = []
+    for base in bases:
+        base = base.rstrip("/")
+        if not base:
+            continue
+        url = f"{base}/api/internal/media-assets/register-local"
+        if url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _register_runtime_picture(container_path):
+    payload = json.dumps({
+        "local_path": container_path,
+        "session_key": os.environ.get("XIAONI_SESSION_KEY", "xiaoni:global"),
+        "chat_type": os.environ.get("XIAONI_CHAT_TYPE", "direct"),
+        "registered_by": "xiaoni-browser"
+    }).encode("utf-8")
+    last_error = None
+    for url in _provider_registration_urls():
+        request = urllib.request.Request(
+            url,
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                body = response.read().decode("utf-8", errors="replace")
+            parsed = json.loads(body)
+            if not parsed.get("success"):
+                last_error = parsed.get("error") or f"registration failed via {url}"
+                continue
+            data = parsed.get("data") or {}
+            image_id = data.get("image_id")
+            if not image_id:
+                last_error = f"provider did not return an image id via {url}"
+                continue
+            return {
+                "ok": True,
+                "image_id": image_id,
+                "media_tag": data.get("media_tag"),
+                "placeholder": data.get("placeholder") or f"<image>pic<{image_id}></image>",
+            }
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = str(exc)
+    return {
+        "ok": False,
+        "error": f"saved screenshot, but image inspection is unavailable: {last_error or 'provider not reachable'}",
+    }
 
 
 if __name__ == "__main__":
