@@ -1347,7 +1347,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         : {};
       const sessionKey = trimmedString(body.sessionKey ?? body.session_key);
       const resumeRuntime = body.resumeRuntime !== false && body.resume_runtime !== false;
-      const unpauseCacheHeartbeat = body.unpauseCacheHeartbeat !== false && body.unpause_cache_heartbeat !== false;
+      const unpauseCacheHeartbeat = body.unpauseCacheHeartbeat === true || body.unpause_cache_heartbeat === true;
       const controlPatch: Record<string, unknown> = {
         identityKey: 'xiaoni'
       };
