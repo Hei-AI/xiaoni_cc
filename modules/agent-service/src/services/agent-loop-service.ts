@@ -5553,11 +5553,6 @@ export class AgentLoopService {
       : JSON.stringify(rawToolArgs);
     const inputItems: OpenResponseInputItem[] = isVoluntary
       ? [{
-          type: 'function_call',
-          call_id: session.toolCallId!,
-          name: TOOL_NAMES.recoverEnergy,
-          arguments: rawArguments
-        }, {
           type: 'function_call_output',
           call_id: session.toolCallId!,
           output: prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')
@@ -5565,6 +5560,10 @@ export class AgentLoopService {
       : [buildDeveloperInputItem([prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')]) as OpenResponseInputItem];
 
     if (isVoluntary) {
+      // The original recover_energy function_call is already part of the stack
+      // replay from the pre-sleep model slice. The wake callback must append
+      // only the matching output, otherwise the next provider request sees the
+      // same call_id twice and one of the calls has no distinct output.
       const toolCall: AgentToolCall = {
         callId: session.toolCallId!,
         name: TOOL_NAMES.recoverEnergy,

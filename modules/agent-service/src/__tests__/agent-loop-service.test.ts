@@ -1480,6 +1480,50 @@ test('buildInitialInput can place loop continuation before the current notificat
   assert.ok(toolOutputIndex < notificationIndex);
 });
 
+test('buildInitialInput pairs persisted recover_energy call with wake callback output', () => {
+  const turn = createConversationTurn({
+    id: 48,
+    userMessage: '',
+    aiResponse: null
+  });
+  attachStackReplayItems(turn, [{
+    type: 'reasoning',
+    summary: []
+  }, {
+    type: 'function_call',
+    call_id: 'call-recover-existing',
+    name: RECOVER_ENERGY_TOOL,
+    arguments: '{"reason":"休息一下","clock":30}'
+  }]);
+
+  const loopInput = buildInitialInput(
+    [turn],
+    createQueuePayload(),
+    createRuntimePrompt({ modelName: 'gpt-5.5' }),
+    [],
+    null,
+    null,
+    null,
+    'suppress_current_trigger',
+    false,
+    null,
+    null,
+    [{
+      type: 'function_call_output',
+      call_id: 'call-recover-existing',
+      output: '<system_reminder>醒来了</system_reminder>'
+    }]
+  );
+
+  const recoveredItems = loopInput.filter((item: any) => item.call_id === 'call-recover-existing');
+  assert.deepEqual(recoveredItems.map((item: any) => item.type), [
+    'function_call',
+    'function_call_output'
+  ]);
+  assert.equal(recoveredItems[0]?.name, RECOVER_ENERGY_TOOL);
+  assert.match(String((recoveredItems[1] as any)?.output), /醒来了/);
+});
+
 test('buildInitialInput preserves unpaired stored tool calls across turns', () => {
   const turn = createConversationTurn({
     id: 45,
@@ -9551,11 +9595,10 @@ test('runtime iteration settles persisted recovery session after restart with or
   assert.equal(storeCalls.appendAgentStackItems[0]?.sourceId, '302');
   assert.equal(frames.length, 1);
   assert.equal(frames[0]?.options?.queueBacked, false);
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.length, 1);
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call_output');
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-restart');
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.type, 'function_call_output');
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.call_id, 'call-recover-restart');
-  assert.match(String(frames[0]?.options?.initialLoopContinuation?.[1]?.output), /<system_reminder>/);
+  assert.match(String(frames[0]?.options?.initialLoopContinuation?.[0]?.output), /<system_reminder>/);
 });
 
 test('runtime iteration batches settled recovery callback with a queued notification', async () => {
@@ -9654,10 +9697,9 @@ test('runtime iteration batches settled recovery callback with a queued notifica
   assert.equal(frames[0]?.queueMessage?.id, 'queue-notify-after-recovery');
   assert.equal(frames[0]?.options?.initialLoopContinuationBeforeCurrentTrigger, true);
   assert.equal(frames[0]?.options?.queueBacked, undefined);
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call');
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.length, 1);
+  assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.type, 'function_call_output');
   assert.equal(frames[0]?.options?.initialLoopContinuation?.[0]?.call_id, 'call-recover-notify');
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.type, 'function_call_output');
-  assert.equal(frames[0]?.options?.initialLoopContinuation?.[1]?.call_id, 'call-recover-notify');
 });
 
 test('energy context keeps action tools available and lets recover_energy be chosen explicitly', () => {
