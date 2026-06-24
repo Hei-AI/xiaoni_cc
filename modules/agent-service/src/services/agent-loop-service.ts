@@ -77,6 +77,10 @@ type OpenResponseInputItem =
       summary?: string | Array<Record<string, unknown>>;
       encrypted_content?: string;
       [key: string]: unknown;
+    }
+  | {
+      type: string;
+      [key: string]: unknown;
     };
 
 type OpenResponseInputContentPart =
@@ -2809,8 +2813,20 @@ function buildSelfContinuationInputItem(): OpenResponseInputItem {
   return buildUserSceneInputItem([renderSelfContinuationReminder()]);
 }
 
+function isOpenResponseMessageInputItem(item: OpenResponseInputItem | undefined): item is Extract<OpenResponseInputItem, { type: 'message' }> {
+  if (!item || item.type !== 'message') {
+    return false;
+  }
+  const candidate = item as {
+    role?: unknown;
+    content?: unknown;
+  };
+  return typeof candidate.role === 'string'
+    && (typeof candidate.content === 'string' || Array.isArray(candidate.content));
+}
+
 function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined): boolean {
-  return Boolean(item && item.type === 'message' && item.role === 'assistant' && item.phase === 'final_answer');
+  return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant' && item.phase === 'final_answer');
 }
 
 function shouldAllowSelfContinuationOnTerminalFinalAnswer(
@@ -3703,7 +3719,7 @@ function stripJsonCodeFence(text: string) {
 }
 
 function extractMessageText(item: OpenResponseInputItem) {
-  if (item.type !== 'message') return '';
+  if (!isOpenResponseMessageInputItem(item)) return '';
   if (typeof item.content === 'string') return item.content.trim();
   return item.content
     .map((part) => {
@@ -5858,7 +5874,7 @@ export class AgentLoopService {
         }
         continuationQueueMessages.push(claimed);
         const claimedInputItems = buildCurrentTurnInputItems(claimed.payload, runtimePrompt)
-          .filter((item) => item.type !== 'message' || flattenMessageContent(item.content).trim().length > 0);
+          .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
         if (claimedInputItems.length > 0) {
           appendLoopInputItems(claimedInputItems);
         }
@@ -6017,9 +6033,7 @@ export class AgentLoopService {
           llmCallId: modelResult.llm_call_id || null
         });
 
-        for (const replayItem of replayableOutputs) {
-          appendLoopInputItems([replayItem.inputItem]);
-        }
+        appendLoopInputItems(outputItems as OpenResponseInputItem[]);
         const toolReplayItems = replayableOutputs.filter(isReplayableToolCall);
         const orderedToolReplayItems = orderRuntimeToolCalls(toolReplayItems);
         const hasRecoverEnergyInBatch = toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.recoverEnergy);
@@ -6418,7 +6432,7 @@ export class AgentLoopService {
             source: deliveredMessages.length > 0 ? 'runtime:visible_delivery_frame_yield' : 'runtime:frame_yield'
           });
         }
-        if (!leaseRelease && !hasToolCall && replayableOutputs.length === 0) {
+        if (!leaseRelease && !hasToolCall && outputItems.length === 0) {
           leaseRelease = buildLeaseReleaseRecord({
             reason: 'runtime_frame_yielded',
             detail: 'Model slice returned no replayable output item; control returns to the runtime loop to avoid repeating an unchanged request.',
@@ -11212,7 +11226,7 @@ function buildRuntimeInputStackItem(params: {
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>;
 }) {
   const currentInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
-    .filter((item) => item.type !== 'message' || flattenMessageContent(item.content).trim().length > 0);
+    .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:runtime-input`,
     itemKind: 'runtime_input',
@@ -11247,13 +11261,13 @@ function buildLoopSelfContinuationStackItem(params: {
   turn: number;
   inputItem: OpenResponseInputItem;
 }) {
-  const reminder = params.inputItem.type === 'message'
+  const reminder = isOpenResponseMessageInputItem(params.inputItem)
     ? flattenMessageContent(params.inputItem.content)
     : renderSelfContinuationReminder();
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:self-continuation:${params.turn}`,
     itemKind: 'runtime_input',
-    role: params.inputItem.type === 'message' ? params.inputItem.role : 'user',
+    role: isOpenResponseMessageInputItem(params.inputItem) ? params.inputItem.role : 'user',
     phase: null,
     content: {
       source: 'self_continuation',
@@ -11421,145 +11435,23 @@ function splitDeveloperContextBlock(developerContextBlock: string | null | undef
   };
 }
 
-function isReasoningReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'reasoning' }> {
-  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'reasoning') {
-    return false;
-  }
-
-  const item = value as {
-    content?: unknown;
-    summary?: unknown;
-    encrypted_content?: unknown;
-  };
-  return typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-    || typeof item.content === 'string' && item.content.length > 0
-    || typeof item.summary === 'string' && item.summary.length > 0
-    || Array.isArray(item.summary) && item.summary.length > 0;
-}
-
-function normalizeReasoningReplayInputItem(item: Extract<OpenResponseInputItem, { type: 'reasoning' }>): Extract<OpenResponseInputItem, { type: 'reasoning' }> {
-  return {
-    type: 'reasoning',
-    ...(typeof item.content === 'string' && item.content.length > 0 ? { content: item.content } : {}),
-    ...(typeof item.summary === 'string' && item.summary.length > 0
-      ? { summary: item.summary }
-      : Array.isArray(item.summary) && item.summary.length > 0
-      ? { summary: item.summary }
-      : { summary: [] }),
-    ...(typeof item.encrypted_content === 'string' && item.encrypted_content.length > 0
-      ? { encrypted_content: item.encrypted_content }
-      : {})
-  };
-}
-
 function normalizeResponseInputItems(items: OpenResponseInputItem[]): OpenResponseInputItem[] {
-  const normalizedItems: OpenResponseInputItem[] = [];
-  const seenFunctionCallIds = new Set<string>();
-  for (const item of items) {
-    if (item.type === 'function_call') {
-      if (seenFunctionCallIds.has(item.call_id)) {
-        continue;
-      }
-      seenFunctionCallIds.add(item.call_id);
-      normalizedItems.push(item);
-      continue;
-    }
-    if (item.type !== 'reasoning') {
-      normalizedItems.push(item);
-      continue;
-    }
-    const normalizedItem = normalizeReasoningReplayInputItem(item);
-    if (isReasoningReplayItem(normalizedItem)) {
-      normalizedItems.push(normalizedItem);
-    }
-  }
-  return normalizedItems;
+  return items
+    .map(normalizeReplayInputItem)
+    .filter((item): item is OpenResponseInputItem => Boolean(item));
 }
 
-type ResponseReplayInputItem =
-  | Extract<OpenResponseInputItem, { type: 'reasoning' }>
-  | Extract<OpenResponseInputItem, { type: 'message' }>
-  | Extract<OpenResponseInputItem, { type: 'function_call' }>
-  | FunctionCallOutputReplayInputItem;
-
-type FunctionCallOutputReplayInputItem = Extract<OpenResponseInputItem, { type: 'function_call_output' }> & {
-  output: string;
-};
-
-function isMessageReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'message' }> {
-  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'message') {
-    return false;
-  }
-  const item = value as {
-    role?: unknown;
-    content?: unknown;
-  };
-  return (item.role === 'assistant' || item.role === 'developer' || item.role === 'user')
-    && (typeof item.content === 'string' && item.content.trim().length > 0
-      || Array.isArray(item.content) && flattenMessageContent(item.content as OpenResponseInputContentPart[]).trim().length > 0);
-}
-
-function isFunctionCallReplayItem(value: unknown): value is Extract<OpenResponseInputItem, { type: 'function_call' }> {
-  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call') {
-    return false;
-  }
-  const item = value as {
-    call_id?: unknown;
-    name?: unknown;
-    arguments?: unknown;
-  };
-  return typeof item.call_id === 'string' && item.call_id.trim().length > 0
-    && typeof item.name === 'string' && item.name.trim().length > 0
-    && typeof item.arguments === 'string';
-}
-
-function normalizeFunctionCallReplayInputItem(
-  item: Extract<OpenResponseInputItem, { type: 'function_call' }>
-): Extract<OpenResponseInputItem, { type: 'function_call' }> {
-  return {
-    type: 'function_call',
-    call_id: item.call_id.trim(),
-    name: item.name.trim(),
-    arguments: item.arguments
-  };
-}
-
-function isFunctionCallOutputReplayItem(value: unknown): value is FunctionCallOutputReplayInputItem {
-  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'function_call_output') {
-    return false;
-  }
-  const item = value as {
-    call_id?: unknown;
-    output?: unknown;
-  };
-  return typeof item.call_id === 'string' && item.call_id.trim().length > 0
-    && typeof item.output === 'string';
-}
-
-function normalizeFunctionCallOutputReplayInputItem(
-  item: FunctionCallOutputReplayInputItem
-): FunctionCallOutputReplayInputItem {
-  return {
-    type: 'function_call_output',
-    call_id: item.call_id.trim(),
-    output: item.output
-  };
-}
+type ResponseReplayInputItem = OpenResponseInputItem;
 
 function normalizeReplayInputItem(item: unknown): ResponseReplayInputItem | null {
-  if (isReasoningReplayItem(item)) {
-    return normalizeReasoningReplayInputItem(item);
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    return null;
   }
-  if (isMessageReplayItem(item)) {
-    return { ...item };
+  const type = (item as { type?: unknown }).type;
+  if (typeof type !== 'string' || !type.trim()) {
+    return null;
   }
-  if (isFunctionCallReplayItem(item)) {
-    return normalizeFunctionCallReplayInputItem(item);
-  }
-  if (isFunctionCallOutputReplayItem(item)) {
-    return normalizeFunctionCallOutputReplayInputItem(item);
-  }
-  return null;
+  return JSON.parse(JSON.stringify(item)) as ResponseReplayInputItem;
 }
 
 function stackRowContentAsReplayInputItems(row: Record<string, unknown>): unknown[] {
@@ -11600,32 +11492,9 @@ function extractResponseReplayInputItemsFromStackRows(rows: Array<Record<string,
 }
 
 function extractResponseReplayInputItems(items: OpenResponseInputItem[]): ResponseReplayInputItem[] {
-  const normalizedItems = items
+  return items
     .map(normalizeReplayInputItem)
     .filter((item): item is ResponseReplayInputItem => Boolean(item));
-  const toolCallIds = new Set(
-    normalizedItems
-      .filter((item): item is Extract<OpenResponseInputItem, { type: 'function_call' }> => item.type === 'function_call')
-      .map((item) => item.call_id)
-  );
-  const toolOutputCallIds = new Set(
-    normalizedItems
-      .filter((item): item is FunctionCallOutputReplayInputItem => item.type === 'function_call_output')
-      .map((item) => item.call_id)
-  );
-
-  return normalizedItems.filter((item) => {
-    if (item.type === 'reasoning') {
-      return true;
-    }
-    if (item.type === 'message') {
-      return true;
-    }
-    if (item.type === 'function_call') {
-      return toolOutputCallIds.has(item.call_id);
-    }
-    return toolCallIds.has(item.call_id);
-  });
 }
 
 function buildTurnResponseReplayItems(turn: StackBackedConversationTurn): OpenResponseInputItem[] {

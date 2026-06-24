@@ -1127,7 +1127,7 @@ test('executeAgentTurn forwards encrypted reasoning input items to provider-serv
   )));
 });
 
-test('executeAgentTurn fills an empty summary for encrypted reasoning items without one', async () => {
+test('executeAgentTurn preserves encrypted reasoning items without synthesizing summary', async () => {
   const queuePayload = createQueuePayload();
   const runtimePrompt = createRuntimePrompt();
   const loopInput = buildInitialInput([], queuePayload);
@@ -1172,8 +1172,7 @@ test('executeAgentTurn fills an empty summary for encrypted reasoning items with
   assert.ok(requestInput.some((item: any) => (
     item.type === 'reasoning'
     && item.encrypted_content === 'enc-without-summary'
-    && Array.isArray(item.summary)
-    && item.summary.length === 0
+    && !Object.prototype.hasOwnProperty.call(item, 'summary')
   )));
 });
 
@@ -1198,7 +1197,7 @@ test('buildInitialInput replays stored encrypted reasoning items across turns', 
   )));
 });
 
-test('buildInitialInput repairs stored encrypted reasoning items missing summary', () => {
+test('buildInitialInput preserves stored encrypted reasoning items missing summary', () => {
   const turn = createConversationTurn({
     id: 43,
     userMessage: '上一段用户消息',
@@ -1214,8 +1213,7 @@ test('buildInitialInput repairs stored encrypted reasoning items missing summary
   assert.ok(loopInput.some((item: any) => (
     item.type === 'reasoning'
     && item.encrypted_content === 'enc-prior-turn-without-summary'
-    && Array.isArray(item.summary)
-    && item.summary.length === 0
+    && !Object.prototype.hasOwnProperty.call(item, 'summary')
   )));
 });
 
@@ -1482,7 +1480,7 @@ test('buildInitialInput can place loop continuation before the current notificat
   assert.ok(toolOutputIndex < notificationIndex);
 });
 
-test('buildInitialInput drops unpaired stored tool calls across turns', () => {
+test('buildInitialInput preserves unpaired stored tool calls across turns', () => {
   const turn = createConversationTurn({
     id: 45,
     userMessage: '上一段用户消息',
@@ -1497,7 +1495,7 @@ test('buildInitialInput drops unpaired stored tool calls across turns', () => {
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
 
-  assert.equal(loopInput.some((item: any) => item.type === 'function_call' && item.call_id === 'call-recover-1'), false);
+  assert.equal(loopInput.some((item: any) => item.type === 'function_call' && item.call_id === 'call-recover-1'), true);
 });
 
 test('buildInitialInput renders stable batch context without exposing runtime ids', () => {
@@ -6202,6 +6200,47 @@ test('no-notify continuation does not append self continuation after tool output
   ), false);
 });
 
+test('buildInitialInput preserves provider output items from stack replay', () => {
+  const priorTurn = createConversationTurn({
+    id: 1998,
+    userMessage: '',
+    aiResponse: null
+  });
+  const webSearchReplay = {
+    type: 'web_search_call',
+    id: 'ws-stack-replay',
+    status: 'completed',
+    action: {
+      type: 'open_page',
+      url: 'https://example.com/page'
+    }
+  };
+  const futureProviderReplay = {
+    type: 'future_provider_output_item',
+    id: 'future-stack-replay',
+    payload: {
+      keep: true
+    }
+  };
+
+  const input = buildInitialInput([
+    attachStackReplayItems(priorTurn, [
+      webSearchReplay,
+      futureProviderReplay,
+      {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        status: 'completed',
+        content: [{ type: 'output_text', text: '上一轮完整收尾。' }]
+      }
+    ])
+  ], createQueuePayload(), createRuntimePrompt());
+
+  assert.deepEqual(input.find((item: any) => item.id === 'ws-stack-replay'), webSearchReplay);
+  assert.deepEqual(input.find((item: any) => item.id === 'future-stack-replay'), futureProviderReplay);
+});
+
 test('no-notify continuation calls model without self continuation when request does not end with final_answer', async () => {
   const queueMessage = {
     id: 'runtime-no-notify-no-final',
@@ -7334,6 +7373,8 @@ test('runtime frame feeds delivered reply tool output back to the model before y
     turn += 1;
     if (turn === 2) {
       const inputText = JSON.stringify(canonicalRequest.input || []);
+      assert.equal(inputText.includes('web_search_call'), true);
+      assert.equal(inputText.includes('ws-before-delivery'), true);
       assert.equal(inputText.includes('function_call_output'), true);
       assert.equal(inputText.includes('call-send-delivered'), true);
       return {
@@ -7353,12 +7394,23 @@ test('runtime frame feeds delivered reply tool output back to the model before y
       success: true,
       llm_call_id: 'llm-delivered-1',
       canonical_response: {
-        output: [{
-          type: 'function_call',
-          call_id: 'call-send-delivered',
-          name: GROUP_REPLY_TOOL,
-          arguments: JSON.stringify({ group_id: 101, message: '先发一条' })
-        }]
+        output: [
+          {
+            type: 'web_search_call',
+            id: 'ws-before-delivery',
+            status: 'completed',
+            action: {
+              type: 'search',
+              query: 'Charles Jones gardener photographer'
+            }
+          },
+          {
+            type: 'function_call',
+            call_id: 'call-send-delivered',
+            name: GROUP_REPLY_TOOL,
+            arguments: JSON.stringify({ group_id: 101, message: '先发一条' })
+          }
+        ]
       }
     };
   };
@@ -7375,6 +7427,7 @@ test('runtime frame feeds delivered reply tool output back to the model before y
   await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 2);
+  assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('ws-before-delivery'), true);
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
   assert.equal(storeCalls.failQueueMessage.length, 0);
   assert.equal(storeCalls.createConversation.length, 1);
@@ -7395,6 +7448,7 @@ test('runtime frame feeds delivered reply tool output back to the model before y
     ),
     false
   );
+  assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('ws-before-delivery'), true);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
