@@ -228,8 +228,8 @@ describe('agent runtime control routes', () => {
     (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
       identityKey: 'xiaoni',
       enabled: true,
-      cacheHeartbeatPaused: false,
-      cacheHeartbeatPausedAt: null
+      cacheHeartbeatPaused: true,
+      cacheHeartbeatPausedAt: '2026-06-25T00:00:00.000+08:00'
     });
     (getLatestUnreadAgentInboundMessage as jest.Mock).mockResolvedValueOnce({
       id: 42,
@@ -265,8 +265,7 @@ describe('agent runtime control routes', () => {
     expect(response.status).toBe(200);
     expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
       identityKey: 'xiaoni',
-      enabled: true,
-      cacheHeartbeatPaused: false
+      enabled: true
     });
     expect(getLatestUnreadAgentInboundMessage).toHaveBeenCalledWith({});
     expect(enqueueAgentQueueMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -286,6 +285,56 @@ describe('agent runtime control routes', () => {
     }));
     expect(response.body.data.queue.queueId).toBe(17818);
     expect(response.body.data.sourceInboundMessage.id).toBe(42);
+    expect(response.body.data.recovery.unpausedCacheHeartbeat).toBe(false);
+    expect(response.body.data.control.cacheHeartbeatPaused).toBe(true);
+  });
+
+  it('only unpauses Xiaoni cache heartbeat during manual recovery when explicitly requested', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null
+    });
+    (getLatestUnreadAgentInboundMessage as jest.Mock).mockResolvedValueOnce({
+      id: 43,
+      trace_id: 'evt_43',
+      message_sid: 'qq-msg-43',
+      chat_type: 'group',
+      session_key: 'qq:group:100',
+      peer_id: '100',
+      peer_name: '测试群',
+      sender_id: '200',
+      sender_name: 'Alice',
+      account_id: '1129974489',
+      received_at: '2026-06-25T00:01:00.000+08:00',
+      body_for_agent: 'recover',
+      raw_body: 'recover',
+      command_body: 'recover',
+      was_mentioned: 0,
+      inbound_context: {
+        ChatType: 'group',
+        SessionKey: 'qq:group:100'
+      }
+    });
+    (enqueueAgentQueueMessage as jest.Mock).mockResolvedValueOnce({
+      queueId: 17819,
+      status: 'pending',
+      attempts: 0
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/recover-now')
+      .send({ unpauseCacheHeartbeat: true });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false
+    });
+    expect(response.body.data.recovery.unpausedCacheHeartbeat).toBe(true);
   });
 
   it('returns conflict when manual recovery has no unread inbox message to wake from', async () => {
