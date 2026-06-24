@@ -11,6 +11,8 @@
   - `docs/XIAONI_AGENT_STACK_LEDGER.md`
 - 小腻当前运行面、Admin surface、本地 skills、prompt template 和数据归属：
   - `docs/XIAONI_RUNTIME_SURFACES.md`
+- 小腻被动召回 extractor、action-stream cue 分类、无 LLM/无训练边界：
+  - `docs/XIAONI_PASSIVE_RECALL_EXTRACTOR.md`
 - 小腻行动流、Raw Trace、恢复页、LLM usage、本地浏览器、站点发布和图片发送操作：
   - `docs/XIAONI_OPERATOR_HOWTO.md`
 - 小腻时区切换、TIMESTAMPTZ 迁移和压缩后暂停闸门：
