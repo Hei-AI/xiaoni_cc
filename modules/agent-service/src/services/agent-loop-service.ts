@@ -5419,6 +5419,9 @@ export class AgentLoopService {
       : lastCountedId;
     const wakeCallCount = Math.max(0, Number(session.wakeCallCount || 0)) + wakeIncrement;
     const sessionPolicy = recoverySessionPolicyFromMetadata(session.metadata);
+    const isNightNaturalRecovery = sessionPolicy.version !== LEGACY_RECOVER_ENERGY_POLICY_VERSION
+      && sessionPolicy.circadian.phase === 'night'
+      && !session.clockDueAt;
     const projection = projectRecoverySession({
       startEnergy: Number(session.startEnergy ?? session.currentEnergy ?? 0),
       maxEnergy: Number(session.maxEnergy || 1),
@@ -5429,7 +5432,9 @@ export class AgentLoopService {
       wakeCallCount,
       policy: sessionPolicy.policy,
       sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
-      sessionCapWakeCause: sessionPolicy.sessionCapWakeCause
+      sessionCapWakeCause: sessionPolicy.sessionCapWakeCause,
+      suppressNaturalWakeBeforeSessionCap: isNightNaturalRecovery,
+      shapeWakeCallsBySessionProgress: isNightNaturalRecovery
     });
     const clockDeferredAt = projection.clockShouldDefer && !session.clockDeferredAt ? new Date() : null;
 

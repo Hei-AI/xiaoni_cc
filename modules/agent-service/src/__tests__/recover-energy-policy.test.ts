@@ -81,6 +81,73 @@ test('day session policy caps recover_energy as a nap', () => {
   assert.ok(sessionPolicy.policy.naturalWakePressure > DEFAULT_RECOVER_ENERGY_POLICY.naturalWakePressure);
 });
 
+test('night natural sleep waits for scheduled wake instead of energy threshold', () => {
+  const startedAt = new Date('2026-06-12T17:00:00.000Z');
+  const sessionPolicy = resolveRecoverySessionPolicy({ startedAt });
+  const projected = projectRecoverySession({
+    startEnergy: 0.2,
+    maxEnergy: 1,
+    startedAt,
+    now: new Date(startedAt.getTime() + (360 * 60 * 1000)),
+    policy: sessionPolicy.policy,
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause,
+    suppressNaturalWakeBeforeSessionCap: true
+  });
+
+  assert.equal(projected.shouldWake, false);
+  assert.equal(projected.wakeCause, 'active');
+  assert.ok(projected.pressure <= sessionPolicy.policy.naturalWakePressure);
+});
+
+test('night natural sleep is easiest to wake near sleep edges', () => {
+  const startedAt = new Date('2026-06-12T17:00:00.000Z');
+  const sessionPolicy = resolveRecoverySessionPolicy({ startedAt });
+  const early = projectRecoverySession({
+    startEnergy: 0.2,
+    maxEnergy: 1,
+    startedAt,
+    now: new Date(startedAt.getTime() + (60 * 60 * 1000)),
+    policy: sessionPolicy.policy,
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause,
+    suppressNaturalWakeBeforeSessionCap: true,
+    shapeWakeCallsBySessionProgress: true,
+    wakeCallCount: 3
+  });
+  const middle = projectRecoverySession({
+    startEnergy: 0.2,
+    maxEnergy: 1,
+    startedAt,
+    now: new Date(startedAt.getTime() + (240 * 60 * 1000)),
+    policy: sessionPolicy.policy,
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause,
+    suppressNaturalWakeBeforeSessionCap: true,
+    shapeWakeCallsBySessionProgress: true,
+    wakeCallCount: 3
+  });
+  const nearWake = projectRecoverySession({
+    startEnergy: 0.2,
+    maxEnergy: 1,
+    startedAt,
+    now: new Date(startedAt.getTime() + (450 * 60 * 1000)),
+    policy: sessionPolicy.policy,
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause,
+    suppressNaturalWakeBeforeSessionCap: true,
+    shapeWakeCallsBySessionProgress: true,
+    wakeCallCount: 3
+  });
+
+  assert.equal(early.shouldWake, false);
+  assert.equal(middle.shouldWake, false);
+  assert.equal(nearWake.shouldWake, true);
+  assert.equal(nearWake.wakeCause, 'private_or_mention_threshold');
+  assert.ok(early.wakeRequiredCount < middle.wakeRequiredCount);
+  assert.ok(nearWake.wakeRequiredCount < middle.wakeRequiredCount);
+});
+
 test('recovery policy snapshot is stable for active sessions', () => {
   const snapshot = createRecoveryPolicySnapshot(new Date('2026-06-12T17:00:00.000Z'));
   const sessionPolicy = recoverySessionPolicyFromSnapshot(snapshot);

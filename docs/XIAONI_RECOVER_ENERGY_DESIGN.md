@@ -103,6 +103,8 @@ circadian_wake_tau_amplitude = 0.35
 - `sleep_drive` 越高，清醒状态下的有效 `tau_wake_minutes` 越小，压力上升越快；夜里硬撑会更快变困。
 - `sleep_drive` 越低，越不容易入睡、越容易被昼夜节律推醒；`17:00` 附近清醒促进最强，清醒压力上升更慢。
 - 夜间 session 的最晚上限是 `min(480min, 到 09:00 的剩余分钟数)`。
+- 夜间无 `clock` 的自然睡眠不会因为压力提前低于 `p_natural_wake` 就醒；它以夜间窗口结束或完整 8 小时作为预定醒点。
+- 夜间自然睡眠的外界唤醒阈值按睡眠阶段呈 U 型：刚入睡和快到预定醒点时较容易叫醒，中段最难叫醒。
 - 白天 session 的最晚上限是 `90min`，wake cause 为 `daytime_nap_cap`，不满血。
 - 每个 `agent_recovery_sessions` row 在 `metadata.recovery_policy_snapshot` 写入创建时的 Process S / Process C 参数；已存在且无 snapshot 的旧 session 按 2 小时旧规则结算，避免部署时延长正在进行的睡眠。
 
@@ -167,6 +169,11 @@ else:
 ```text
 if energy_after(t) < 0:
   required_calls = Infinity
+else if night natural sleep:
+  progress = elapsed_minutes / session_max_recovery_minutes
+  sleep_stage_depth = sin(pi * progress)^0.75
+  pressure_depth = clamp(pressure_after(t), 0, 1)^gamma
+  required_calls = ceil(N_min + N_span * (0.75 * sleep_stage_depth + 0.25 * pressure_depth))
 else:
   required_calls = ceil(N_min + N_span * clamp(pressure_after(t), 0, 1)^gamma)
 ```

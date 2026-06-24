@@ -443,13 +443,26 @@ export function computeWakeRequiredCount(input: {
   energy: number;
   pressure: number;
   policy?: RecoverEnergyPolicy;
+  sessionProgress?: number;
+  shapeBySessionProgress?: boolean;
 }) {
   const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
   if (finiteNumber(input.energy, 0) < policy.minimumWakeEnergy) {
     return Number.POSITIVE_INFINITY;
   }
   const pressure = clampNumber(input.pressure, 0, 1);
-  return Math.ceil(policy.minWakeCalls + (policy.wakeCallSpan * Math.pow(pressure, policy.wakeCallGamma)));
+  const baseCount = policy.minWakeCalls + (policy.wakeCallSpan * Math.pow(pressure, policy.wakeCallGamma));
+  if (!input.shapeBySessionProgress) {
+    return Math.ceil(baseCount);
+  }
+  const progress = clampNumber(finiteNumber(input.sessionProgress, 0), 0, 1);
+  if (progress >= 0.85 && pressure <= policy.naturalWakePressure) {
+    return policy.minWakeCalls;
+  }
+  const pressureDepth = Math.pow(pressure, policy.wakeCallGamma);
+  const sleepStageDepth = Math.pow(Math.sin(Math.PI * progress), 0.75);
+  const combinedDepth = clampNumber((sleepStageDepth * 0.75) + (pressureDepth * 0.25), 0, 1);
+  return Math.ceil(policy.minWakeCalls + (policy.wakeCallSpan * combinedDepth));
 }
 
 export type RecoveryWakeCause =
@@ -473,6 +486,8 @@ export function projectRecoverySession(input: {
   policy?: RecoverEnergyPolicy;
   sessionMaxRecoveryMinutes?: number;
   sessionCapWakeCause?: RecoverySessionCapWakeCause;
+  suppressNaturalWakeBeforeSessionCap?: boolean;
+  shapeWakeCallsBySessionProgress?: boolean;
 }) {
   const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
   const maxEnergy = Math.max(0.001, finiteNumber(input.maxEnergy, 1));
@@ -489,7 +504,14 @@ export function projectRecoverySession(input: {
     policy
   });
   const energy = pressureToEnergy(pressure, maxEnergy);
-  const wakeRequiredCount = computeWakeRequiredCount({ energy, pressure, policy });
+  const sessionProgress = clampNumber(elapsedMinutes / sessionMaxRecoveryMinutes, 0, 1);
+  const wakeRequiredCount = computeWakeRequiredCount({
+    energy,
+    pressure,
+    policy,
+    sessionProgress,
+    shapeBySessionProgress: Boolean(input.shapeWakeCallsBySessionProgress)
+  });
   const wakeCallCount = Math.max(0, Math.floor(finiteNumber(input.wakeCallCount, 0)));
   const clockDueAt = input.clockDueAt ? new Date(input.clockDueAt) : null;
   const clockDue = Boolean(clockDueAt && !Number.isNaN(clockDueAt.getTime()) && now.getTime() >= clockDueAt.getTime());
@@ -508,7 +530,7 @@ export function projectRecoverySession(input: {
     wakeCause = 'private_or_mention_threshold';
   } else if (clockDue) {
     wakeCause = input.clockDeferredAt ? 'clock_deferred' : 'clock';
-  } else if (pressure <= policy.naturalWakePressure) {
+  } else if (!input.suppressNaturalWakeBeforeSessionCap && pressure <= policy.naturalWakePressure) {
     wakeCause = 'natural';
   }
 
@@ -520,6 +542,7 @@ export function projectRecoverySession(input: {
     cappedElapsedMinutes,
     fullRecoveryMinutes,
     sessionMaxRecoveryMinutes,
+    sessionProgress,
     wakeRequiredCount,
     wakeCallCount,
     clockDue,
