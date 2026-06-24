@@ -21,7 +21,7 @@ WORKDIR /app/modules/admin-panel/backend
 COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   npm config set registry ${NPM_REGISTRY} \
-  && npm ci --include=dev --no-audit --no-fund \
+  && npm_config_build_from_source=true npm_config_nodedir=/usr/local npm ci --include=dev --no-audit --no-fund \
   && npm config delete registry
 
 FROM base AS build
@@ -47,7 +47,7 @@ WORKDIR /app/modules/admin-panel/backend
 COPY modules/admin-panel/backend/package.json modules/admin-panel/backend/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
   npm config set registry ${NPM_REGISTRY} \
-  && npm ci --omit=dev --no-audit --no-fund \
+  && npm_config_build_from_source=true npm_config_nodedir=/usr/local npm ci --omit=dev --no-audit --no-fund \
   && npm config delete registry
 
 FROM base AS runtime
