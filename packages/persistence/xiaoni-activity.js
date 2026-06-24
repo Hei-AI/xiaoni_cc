@@ -371,6 +371,15 @@ const LIFE_EVENT_LABELS = {
 };
 
 const MAIN_LOOP_QUEUE_SOURCES = ['phone_notification'];
+const VISIBLE_DELIVERY_LIFE_KINDS = new Set([
+  'send_in_group',
+  'send_in_private',
+  'qq_self_message'
+]);
+const VISIBLE_DELIVERY_TOOL_NAMES = new Set([
+  'send_in_group',
+  'send_in_private'
+]);
 
 function isMainLoopQueueSource(source) {
   return MAIN_LOOP_QUEUE_SOURCES.includes(String(source || ''));
@@ -1537,6 +1546,41 @@ async function loadCacheHeartbeatTimeline({
   }
 }
 
+const FORK_SLICE_ACTION_STREAM_SELECT = `
+  id,
+  slice_id,
+  llm_call_id,
+  fork_run_id,
+  identity_key,
+  input_start_index,
+  input_end_index,
+  '[]'::jsonb AS input_stack_item_ids,
+  output_start_index,
+  output_end_index,
+  '{}'::jsonb AS canonical_request,
+  NULL::jsonb AS wire_request,
+  wire_request IS NOT NULL AS provider_raw_trace_available,
+  NULL::jsonb AS canonical_response,
+  NULL::jsonb AS wire_response,
+  NULL::jsonb AS raw_response,
+  '[]'::jsonb AS output_items,
+  status,
+  token_usage,
+  trace_id,
+  run_id,
+  conversation_id,
+  agent_turn,
+  model_name,
+  model_provider,
+  request_format_version,
+  wire_provider_format,
+  processing_time_ms,
+  metadata,
+  created_at,
+  completed_at,
+  updated_at
+`;
+
 async function loadCoreMemoryCompressionForkTimeline(sql, {
   identityKey,
   timeWindow,
@@ -1562,7 +1606,7 @@ async function loadCoreMemoryCompressionForkTimeline(sql, {
     const placeholders = forkRunIds.map(() => '?').join(', ');
     const [sliceRows, itemRows, toolRows] = await Promise.all([
       sql.query(`
-        SELECT *
+        SELECT ${FORK_SLICE_ACTION_STREAM_SELECT}
         FROM core_memory_compression_fork_slices
         WHERE fork_run_id IN (${placeholders})
         ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
@@ -1636,7 +1680,7 @@ async function loadSubconsciousAgentForkTimeline(sql, {
     const placeholders = forkRunIds.map(() => '?').join(', ');
     const [sliceRows, itemRows, toolRows] = await Promise.all([
       sql.query(`
-        SELECT *
+        SELECT ${FORK_SLICE_ACTION_STREAM_SELECT}
         FROM subconscious_agent_fork_slices
         WHERE fork_run_id IN (${placeholders})
         ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
@@ -2469,6 +2513,150 @@ function appendActionStreamLifecycleTags(tags, sourceItems) {
     }
   }
   return next;
+}
+
+function actionStreamRunTraceKeys(item) {
+  const keys = [];
+  const addKey = (prefix, value) => {
+    const normalized = firstString(value);
+    if (normalized) {
+      keys.push(`${prefix}:${normalized}`);
+    }
+  };
+  addKey('run', item?.runId);
+  addKey('trace', item?.traceId);
+  addKey('run', item?.traceTarget?.internalExecutionLeaseId);
+  addKey('trace', item?.traceTarget?.traceId);
+  addKey('run', item?.metadata?.runId);
+  addKey('trace', item?.metadata?.traceId);
+  return Array.from(new Set(keys));
+}
+
+function actionStreamItemsShareRunOrTrace(left, right) {
+  const rightKeys = new Set(actionStreamRunTraceKeys(right));
+  return actionStreamRunTraceKeys(left).some((key) => rightKeys.has(key));
+}
+
+function actionStreamFoldGroupKey(item, kind) {
+  const runTraceKey = actionStreamRunTraceKeys(item)[0];
+  if (!runTraceKey) {
+    return null;
+  }
+  const timestamp = item?.timestamp || item?.occurredAt;
+  const timestampSecond = timestamp ? String(timestamp).slice(0, 19) : '';
+  const chatType = firstString(item?.metadata?.chatType, item?.chatType, item?.sessionKey);
+  const peerId = firstString(item?.metadata?.peerId, item?.peerId, item?.sessionKey);
+  return [kind, runTraceKey, timestampSecond, chatType, peerId].filter(Boolean).join(':');
+}
+
+function isVisibleDeliveryLifeItem(item) {
+  return item?.source === 'life_event' && VISIBLE_DELIVERY_LIFE_KINDS.has(item.kind);
+}
+
+function isOperatorOnlyVisibleDeliveryCommit(item) {
+  return item?.source === 'life_event'
+    && item.kind === 'visible_delivery_committed';
+}
+
+function isGroupSelfMessageProjection(item) {
+  return item?.source === 'life_event'
+    && item.kind === 'qq_self_message'
+    && firstString(item.metadata?.chatType, item.chatType) === 'group';
+}
+
+function isVisibleDeliveryToolLifecycle(item) {
+  const toolName = firstString(item?.metadata?.toolName, item?.kind);
+  return item?.eventKind === 'tool_lifecycle' && VISIBLE_DELIVERY_TOOL_NAMES.has(toolName);
+}
+
+function mergeActionStreamGroup(base, group, { title, metadataKey }) {
+  if (!base || group.length <= 1) {
+    return base;
+  }
+  const chronological = [...group].sort((left, right) => {
+    const leftMs = new Date(left.timestamp || left.occurredAt).getTime() || 0;
+    const rightMs = new Date(right.timestamp || right.occurredAt).getTime() || 0;
+    if (leftMs !== rightMs) {
+      return leftMs - rightMs;
+    }
+    return String(left.id || '').localeCompare(String(right.id || ''));
+  });
+  const bodies = chronological
+    .map((item) => firstString(item.body))
+    .filter(Boolean);
+  return {
+    ...base,
+    title: title || base.title,
+    body: truncateText(bodies.join('\n'), 420),
+    metadata: normalizeValue({
+      ...base.metadata,
+      [metadataKey]: group.length,
+      foldedItemIds: chronological.map((item) => item.id).filter(Boolean)
+    })
+  };
+}
+
+function foldActionStreamRepeatedLifeItems(items) {
+  const groups = new Map();
+  const order = [];
+  for (const item of items || []) {
+    const isDirectSelfMessage = item?.source === 'life_event'
+      && item.kind === 'qq_self_message'
+      && firstString(item.metadata?.chatType, item.chatType) === 'direct';
+    const isSeenMessage = item?.source === 'life_event' && item.kind === 'qq_message_seen';
+    const groupKind = isDirectSelfMessage
+      ? 'direct_self_message'
+      : isSeenMessage
+        ? 'qq_message_seen'
+        : null;
+    const key = groupKind ? actionStreamFoldGroupKey(item, groupKind) : null;
+    if (!key) {
+      order.push({ item });
+      continue;
+    }
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, kind: groupKind, items: [] };
+      groups.set(key, group);
+      order.push({ group });
+    }
+    group.items.push(item);
+  }
+
+  return order.map((entry) => {
+    if (!entry.group) {
+      return entry.item;
+    }
+    const base = newestActionStreamItem(entry.group.items) || entry.group.items[0];
+    if (entry.group.kind === 'direct_self_message') {
+      return mergeActionStreamGroup(base, entry.group.items, {
+        title: '发出私聊消息',
+        metadataKey: 'foldedMessageCount'
+      });
+    }
+    return mergeActionStreamGroup(base, entry.group.items, {
+      title: `看到 ${entry.group.items.length} 条消息`,
+      metadataKey: 'foldedSeenMessageCount'
+    });
+  });
+}
+
+function foldActionStreamVisibleDeliveryItems(items) {
+  const deliveryLifeItems = (items || []).filter(isVisibleDeliveryLifeItem);
+  const groupDeliveryItems = deliveryLifeItems.filter((item) => item.kind === 'send_in_group');
+  const filteredItems = (items || []).filter((item) => {
+    if (isOperatorOnlyVisibleDeliveryCommit(item)) {
+      return false;
+    }
+    if (isGroupSelfMessageProjection(item) && groupDeliveryItems.some((delivery) => actionStreamItemsShareRunOrTrace(item, delivery))) {
+      return false;
+    }
+    if (isVisibleDeliveryToolLifecycle(item) && deliveryLifeItems.some((delivery) => actionStreamItemsShareRunOrTrace(item, delivery))) {
+      return false;
+    }
+    return true;
+  });
+  return foldActionStreamRepeatedLifeItems(filteredItems);
 }
 
 function mergeActionStreamToolLifecycleItems(items) {
@@ -3938,10 +4126,10 @@ function createXiaoniActivityPersistence({
       actionStreamProjection: true
     }, config);
     const feedActionItems = feed.items.filter(isPrimaryActionStreamItem);
-    const decoratedItems = mergeActionStreamToolLifecycleItems(dedupeFeedItems(feedActionItems)
+    const decoratedItems = foldActionStreamVisibleDeliveryItems(mergeActionStreamToolLifecycleItems(dedupeFeedItems(feedActionItems)
       .filter((item) => item.timestamp)
       .filter((item) => itemMatchesTimeWindow(item, timeWindow))
-      .map(decorateActionStreamItem));
+      .map(decorateActionStreamItem)));
     const compressionForkRuns = (feed.compressionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const subconsciousForkRuns = (feed.subconsciousForkTimeline?.runs || [])
