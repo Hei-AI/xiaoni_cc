@@ -62,7 +62,7 @@ const DIRECT_ALLOWED_TOOLS = [
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL
 ];
-const EAST8_TIME_PREFIX_PATTERN = /\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]/;
+const EAST8_TIME_PREFIX_PATTERN = /\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
 
 async function withExecutorUrl<T>(url: string, fn: () => Promise<T>): Promise<T> {
   const original = agentConfig.xiaoniExecutorUrl;
@@ -471,7 +471,7 @@ function getInputTextParts(item: unknown) {
 function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
-    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]',
+    '[当前时间: 2026-06-12 22:51:11]',
     '【视线边缘：状态栏闪烁】',
     '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
     '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
@@ -491,13 +491,17 @@ function isImageTaskNotificationReminderContent(content: string) {
     && content.includes('【视觉感知：造物出炉】');
 }
 
-test('runtime text timestamp helpers format East-8 time and avoid double prefixes', () => {
+test('runtime text timestamp helpers format local current time and avoid double prefixes', () => {
   const now = new Date('2026-06-12T14:51:11.000Z');
 
-  assert.equal(formatEast8Timestamp(now), '2026-06-12 22:51:11 UTC+08:00');
+  assert.equal(formatEast8Timestamp(now), '2026-06-12 22:51:11');
   assert.equal(
     prefixRuntimeTextWithEast8Time('醒了。', now),
-    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'
+    '[当前时间: 2026-06-12 22:51:11]\n醒了。'
+  );
+  assert.equal(
+    prefixRuntimeTextWithEast8Time('[当前时间: 2026-06-12 22:51:11]\n醒了。', now),
+    '[当前时间: 2026-06-12 22:51:11]\n醒了。'
   );
   assert.equal(
     prefixRuntimeTextWithEast8Time('[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。', now),
@@ -1598,7 +1602,7 @@ test('buildInitialInput suppresses deleted final-answer prompt reminders', () =>
   )), false);
 });
 
-test('buildInitialInput prefixes ordinary system reminders with East-8 current time', () => {
+test('buildInitialInput prefixes ordinary system reminders with local current time', () => {
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.messages = [];
@@ -1631,7 +1635,7 @@ test('buildInitialInput prefixes ordinary system reminders with East-8 current t
 
 test('buildInitialInput renders subconscious agent notify template as user bucket input', () => {
   const payload = createQueuePayload();
-  const planText = '<xiaoni_plan>\n短暂的停歇后，你的潜意识已经为你计划出接下来的可参考的大概旅程方向：\n继续 seed\n</xiaoni_plan>';
+  const planText = '[当前时间: 2026-06-12 22:51:11]\n<xiaoni_plan>\n短暂的停歇后，你的潜意识已经为你计划出接下来的可参考的大概旅程方向：\n继续 seed\n</xiaoni_plan>';
   payload.source = 'system_reminder';
   payload.messages = [];
   payload.phoneNotification = undefined;
@@ -1659,9 +1663,44 @@ test('buildInitialInput renders subconscious agent notify template as user bucke
 
   assert.equal((subconsciousInput as any)?.type, 'message');
   assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.match(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
   assert.match(subconsciousContent, /<xiaoni_plan>/);
   assert.doesNotMatch(subconsciousContent, /<system_reminder>/);
   assert.doesNotMatch(subconsciousContent, /&lt;xiaoni_plan&gt;/);
+});
+
+test('buildInitialInput generates subconscious agent notify with local current time once', () => {
+  const payload = createQueuePayload();
+  payload.source = 'system_reminder';
+  payload.messages = [];
+  payload.phoneNotification = undefined;
+  payload.bodyForAgent = '';
+  payload.rawBody = '';
+  payload.rawPayload = {
+    reason: 'subconscious_agent',
+    final_answer_text: '继续 seed',
+    notify_template: 'subconscious_agent_notify.md'
+  };
+  payload.systemReminder = {
+    reminder: '',
+    reason: 'subconscious_agent',
+    createdAt: '2026-06-12T14:51:11.000Z'
+  };
+  payload.inboundContext = {
+    ...payload.inboundContext,
+    Surface: 'system_reminder',
+    BodyForAgent: ''
+  };
+
+  const loopInput = buildInitialInput([], payload, createRuntimePrompt());
+  const subconsciousInput = loopInput.find((item: any) => getMessageContent(item).includes('继续 seed'));
+  const subconsciousContent = getMessageContent(subconsciousInput);
+
+  assert.equal((subconsciousInput as any)?.type, 'message');
+  assert.equal((subconsciousInput as any)?.role, 'user');
+  assert.match(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
+  assert.match(subconsciousContent, /<xiaoni_plan>/);
+  assert.equal((subconsciousContent.match(EAST8_TIME_PREFIX_PATTERN) || []).length, 1);
 });
 
 test('buildInitialInput keeps non-template subconscious system reminders as developer input', () => {
@@ -7954,6 +7993,7 @@ test('buildTurnStateReminder injects low-energy STATE from runtime context', () 
 
   assert.ok(reminder);
   assert.match(getMessageContent(reminder!), /<STATE/);
+  assert.match(getMessageContent(reminder!), EAST8_TIME_PREFIX_PATTERN);
   assert.match(getMessageContent(reminder!), /0.140/);
   assert.match(getMessageContent(reminder!), /1.000/);
   assert.doesNotMatch(getMessageContent(reminder!), /trigger=|note=/);
@@ -7966,6 +8006,7 @@ test('buildTurnStateReminder uses fresh runtime energy over directive values', (
   );
 
   assert.ok(reminder);
+  assert.match(getMessageContent(reminder!), EAST8_TIME_PREFIX_PATTERN);
   assert.match(getMessageContent(reminder!), /0.920/);
   assert.match(getMessageContent(reminder!), /1.000/);
   assert.doesNotMatch(getMessageContent(reminder!), /0.140|trigger=|after search|note=/);
@@ -7996,6 +8037,7 @@ test('applyToolResultToLoopInput appends web_search STATE from fresh runtime ene
   assert.ok(stateItem);
   assert.equal(stateItem?.type, 'message');
   assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
+  assert.match(getMessageContent(stateItem), EAST8_TIME_PREFIX_PATTERN);
   assert.match(getMessageContent(stateItem), /0.910/);
   assert.doesNotMatch(getMessageContent(stateItem), /0.420/);
   assert.doesNotMatch(getMessageContent(stateItem), /trigger=|note=/);
