@@ -1519,7 +1519,8 @@ function formatRuntimeEnergy(value: number) {
 }
 
 const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
-const EAST8_TIME_PREFIX_PATTERN = /^\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]\n?/;
+const RUNTIME_TIME_PREFIX_PATTERN = /^\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\n?/;
+const LEGACY_EAST8_TIME_PREFIX_PATTERN = /^\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]\n?/;
 
 function padTwoDigits(value: number) {
   return String(value).padStart(2, '0');
@@ -1530,21 +1531,24 @@ export function formatEast8Timestamp(now: Date = new Date()) {
   const date = new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + EAST8_OFFSET_MS);
   return [
     `${date.getUTCFullYear()}-${padTwoDigits(date.getUTCMonth() + 1)}-${padTwoDigits(date.getUTCDate())}`,
-    `${padTwoDigits(date.getUTCHours())}:${padTwoDigits(date.getUTCMinutes())}:${padTwoDigits(date.getUTCSeconds())}`,
-    'UTC+08:00'
+    `${padTwoDigits(date.getUTCHours())}:${padTwoDigits(date.getUTCMinutes())}:${padTwoDigits(date.getUTCSeconds())}`
   ].join(' ');
 }
 
 export function prefixRuntimeTextWithEast8Time(text: string, now: Date = new Date()) {
   const normalized = String(text || '').trim();
-  if (!normalized || EAST8_TIME_PREFIX_PATTERN.test(normalized)) {
+  if (!normalized || RUNTIME_TIME_PREFIX_PATTERN.test(normalized) || LEGACY_EAST8_TIME_PREFIX_PATTERN.test(normalized)) {
     return normalized;
   }
-  return `[当前时间 东八区: ${formatEast8Timestamp(now)}]\n${normalized}`;
+  return `[当前时间: ${formatEast8Timestamp(now)}]\n${normalized}`;
 }
 
 function stripRuntimeTextEast8TimePrefix(text: string) {
-  return String(text || '').trim().replace(EAST8_TIME_PREFIX_PATTERN, '').trim();
+  return String(text || '')
+    .trim()
+    .replace(RUNTIME_TIME_PREFIX_PATTERN, '')
+    .replace(LEGACY_EAST8_TIME_PREFIX_PATTERN, '')
+    .trim();
 }
 
 function orderRuntimeToolCalls(toolCalls: ReplayableToolCallOutput[]): ReplayableToolCallOutput[] {
@@ -1733,7 +1737,7 @@ export function buildRuntimeStateBlock(input: {
     ENERGY: formatRuntimeEnergy(energy),
     MAX_ENERGY: formatRuntimeEnergy(maxEnergy)
   });
-  return formatTaggedBlock('STATE', {}, body);
+  return formatTaggedBlock('STATE', {}, prefixRuntimeTextWithEast8Time(body));
 }
 
 function extractRuntimeStateDirective(developerContextBlock: string | null | undefined) {
@@ -2832,9 +2836,9 @@ function renderSelfContinuationReminder() {
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
-  return renderPromptSnippet('subconscious_agent_notify.md', {
+  return prefixRuntimeTextWithEast8Time(renderPromptSnippet('subconscious_agent_notify.md', {
     SUBCONSCIOUS_FINAL_ANSWER: finalAnswerText
-  });
+  }));
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
