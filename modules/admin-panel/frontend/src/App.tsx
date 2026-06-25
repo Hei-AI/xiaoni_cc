@@ -17,7 +17,6 @@ import { HttpTrafficDetailPage } from './pages/HttpTrafficDetailPage';
 import { ProviderRequestDesignPreviewPage } from './pages/ProviderRequestDesignPreviewPage';
 import { PlaygroundPage } from './pages/PlaygroundPage';
 import { ImageLabPage } from './pages/ImageLabPage';
-import { CcAccountUsagePage } from './pages/CcAccountUsagePage';
 import './globals.css';
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,7 +84,6 @@ function App() {
               <Route path="/prompts/:promptId/edit" element={<PromptEditPage />} />
               <Route path="/prompts/:promptId/debug" element={<PromptDebugRedirect />} />
               <Route path="/queue-management" element={<QueueManagementPage />} />
-              <Route path="/cc-account-usage" element={<CcAccountUsagePage />} />
               <Route path="/traffic" element={<HttpTrafficMonitorPage />} />
               <Route path="/traffic/:id" element={<HttpTrafficDetailPage />} />
               <Route path="/design/provider-request-preview" element={<ProviderRequestDesignPreviewPage />} />

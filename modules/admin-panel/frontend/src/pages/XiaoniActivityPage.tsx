@@ -65,6 +65,73 @@ type UsageBucket = 'call' | 'hour' | 'day' | 'month';
 
 const ACTION_STREAM_PAGE_SIZE = 80;
 
+// CC 订阅账号额度（事实来自 /api/cc-usage/*，源头是 anthropic-ratelimit-unified-* 响应头）。
+// 5h / 周窗口的实时条放在行动流顶层，utilization 折线图与 LLM Cost 共用同一时间轴。
+interface CcQuotaWindow {
+  utilization: number | null;
+  remaining: number | null;
+  status: string | null;
+  resetEpoch: number | null;
+  resetAt: string | null;
+}
+
+interface CcQuotaSnapshot {
+  provider: string;
+  capturedAt: string | null;
+  modelName: string | null;
+  status: string | null;
+  windows: { fiveHour: CcQuotaWindow; weekly: CcQuotaWindow };
+}
+
+interface CcQuotaTimelinePoint {
+  timestamp: string | null;
+  util5h: number | null;
+  util7d: number | null;
+  status5h: string | null;
+  status7d: string | null;
+}
+
+interface CcQuotaTimelineResult {
+  provider: string;
+  generatedAt: string;
+  window: { startTime: string; endTime: string };
+  limit: number;
+  truncated: boolean;
+  points: CcQuotaTimelinePoint[];
+}
+
+function ccStatusBarClass(status: string | null | undefined): string {
+  if (status === 'rejected') {
+    return 'bg-red-500';
+  }
+  if (status === 'allowed_warning') {
+    return 'bg-amber-500';
+  }
+  return 'bg-primary';
+}
+
+// 行动流顶层那条「自动刷新」行里的额度水平条：标签 + 进度条 + 已用百分比。
+function QuotaMiniBar({ label, win }: { label: string; win: CcQuotaWindow | undefined }) {
+  const utilization = win?.utilization ?? null;
+  const pct = utilization === null ? 0 : Math.round(utilization * 100);
+  const barWidth = utilization === null ? 0 : Math.min(100, Math.max(pct, 2));
+  return (
+    <div
+      className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs shadow-sm"
+      title={`额度 ${label}${win?.status ? ` · ${win.status}` : ''}`}
+    >
+      <span className="whitespace-nowrap font-medium text-muted-foreground">{label}</span>
+      <div className="h-2 w-16 overflow-hidden rounded-full bg-muted sm:w-24">
+        <div
+          className={cn('h-full rounded-full transition-all', ccStatusBarClass(win?.status))}
+          style={{ width: `${barWidth}%` }}
+        />
+      </div>
+      <span className="tabular-nums text-foreground">{utilization === null ? '—' : `${pct}%`}</span>
+    </div>
+  );
+}
+
 interface XiaoniActivityFeedItem {
   id: string;
   source: string;
@@ -1090,6 +1157,8 @@ function UsageTooltip({ active, payload, label }: UsageTooltipProps) {
 
 function XiaoniUsageObservatory({
   timeline,
+  quotaTimeline,
+  isQuotaLoading,
   bucket,
   searchQuery,
   isLoading,
@@ -1100,6 +1169,8 @@ function XiaoniUsageObservatory({
   onFocusPoint,
 }: {
   timeline: XiaoniLlmUsageTimeline | undefined;
+  quotaTimeline: CcQuotaTimelineResult | null;
+  isQuotaLoading: boolean;
   bucket: UsageBucket;
   searchQuery: string;
   isLoading: boolean;
@@ -1117,6 +1188,7 @@ function XiaoniUsageObservatory({
   const [searchDraft, setSearchDraft] = React.useState(searchQuery);
   const [wheelZoomActive, setWheelZoomActive] = React.useState(false);
   const chartShellRef = React.useRef<HTMLDivElement | null>(null);
+  const quotaShellRef = React.useRef<HTMLDivElement | null>(null);
   const suppressNextClickRef = React.useRef(false);
   const wheelCommitTimerRef = React.useRef<number | null>(null);
   const pendingWheelWindowRef = React.useRef<[number, number] | null>(null);
@@ -1135,6 +1207,16 @@ function XiaoniUsageObservatory({
       .filter((point): point is UsageChartPoint => point !== null)
   ), [timeline?.points]);
   const maxTotalTokens = React.useMemo(() => Math.max(1, ...chartPoints.map((point) => point.totalTokens)), [chartPoints]);
+  const quotaChartPoints = React.useMemo(() => (
+    (quotaTimeline?.points || [])
+      .map((point) => {
+        const timestampMs = parseTimestampMs(point.timestamp);
+        return timestampMs === null
+          ? null
+          : { timestampMs, util5h: point.util5h, util7d: point.util7d };
+      })
+      .filter((point): point is { timestampMs: number; util5h: number | null; util7d: number | null } => point !== null)
+  ), [quotaTimeline?.points]);
   const miniMapPoints = React.useMemo(() => {
     if (chartPoints.length <= 160) {
       return chartPoints;
@@ -1314,11 +1396,19 @@ function XiaoniUsageObservatory({
     setWheelZoomActive(true);
   }, []);
 
-  const handleWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+  const handleQuotaShellClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || suppressNextClickRef.current) {
+      return;
+    }
+    quotaShellRef.current?.focus({ preventScroll: true });
+    setWheelZoomActive(true);
+  }, []);
+
+  const performWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>, shellEl: HTMLDivElement | null) => {
     if (!timeline || fullEndMs <= fullStartMs) {
       return;
     }
-    const rect = chartShellRef.current?.getBoundingClientRect();
+    const rect = shellEl?.getBoundingClientRect();
     const ratio = rect && rect.width > 0
       ? clampTimestamp((event.clientX - rect.left) / rect.width, 0, 1)
       : 0.5;
@@ -1424,7 +1514,7 @@ function XiaoniUsageObservatory({
             setWheelZoomActive(false);
           }
         }}
-        onWheel={handleWheel}
+        onWheel={(event) => performWheel(event, chartShellRef.current)}
       >
         {isLoading && !timeline ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -1489,6 +1579,85 @@ function XiaoniUsageObservatory({
             </LineChart>
           </ResponsiveContainer>
         )}
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>账号额度 utilization（与 LLM Cost 共用时间轴）</span>
+          <span className="flex items-center gap-3">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: '#0284c7' }} />5h
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: '#7c3aed' }} />周
+            </span>
+          </span>
+        </div>
+        <div
+          ref={quotaShellRef}
+          tabIndex={0}
+          role="region"
+          aria-label="账号额度 chart"
+          className={cn(
+            'h-[160px] rounded-md border border-border bg-background p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/25',
+            wheelZoomActive && 'border-primary/50 ring-2 ring-primary/15'
+          )}
+          onClickCapture={handleQuotaShellClick}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) {
+              setWheelZoomActive(false);
+            }
+          }}
+          onWheel={(event) => performWheel(event, quotaShellRef.current)}
+        >
+          {isQuotaLoading && !quotaTimeline ? (
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              加载额度...
+            </div>
+          ) : quotaChartPoints.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">该区间暂无额度记录</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={quotaChartPoints}
+                margin={{ top: 8, right: 12, bottom: 6, left: 0 }}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="timestampMs"
+                  type="number"
+                  domain={chartDomain}
+                  allowDataOverflow
+                  tickFormatter={formatUsageAxis}
+                  tick={{ fontSize: 11 }}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <YAxis
+                  domain={[0, 1]}
+                  tickFormatter={(value: number) => `${Math.round(value * 100)}%`}
+                  tick={{ fontSize: 11 }}
+                  width={42}
+                  stroke="hsl(var(--muted-foreground))"
+                />
+                <ChartTooltip
+                  formatter={(value) => [typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : String(value), '']}
+                  labelFormatter={(label) => formatUsageAxis(label as number)}
+                  contentStyle={{ fontSize: 12 }}
+                  labelStyle={{ fontSize: 12 }}
+                />
+                {activeSelectionStart !== null && activeSelectionEnd !== null ? (
+                  <ReferenceArea x1={activeSelectionStart} x2={activeSelectionEnd} strokeOpacity={0.35} fill="#38bdf8" fillOpacity={0.12} />
+                ) : null}
+                <Line type="monotone" dataKey="util5h" name="5h" stroke="#0284c7" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+                <Line type="monotone" dataKey="util7d" name="周" stroke="#7c3aed" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
       </div>
 
       <div className="mt-3">
@@ -2414,6 +2583,39 @@ export const XiaoniActivityPage: React.FC = () => {
     },
     refetchInterval: usageSearch.trim() ? false : refreshInterval,
   });
+  const { data: ccQuotaResp } = useQuery<{ success: boolean; data: CcQuotaSnapshot | null }>({
+    queryKey: ['cc-usage-quota'],
+    queryFn: async () => {
+      const response = await fetch('/api/cc-usage/quota');
+      if (!response.ok) {
+        throw new Error(`quota request failed: ${response.status}`);
+      }
+      return await response.json() as { success: boolean; data: CcQuotaSnapshot | null };
+    },
+    refetchInterval: refreshInterval,
+  });
+  const ccQuotaSnapshot = ccQuotaResp?.data ?? null;
+  const { data: ccTimelineResp, isLoading: isCcTimelineLoading } = useQuery<{ success: boolean; data: CcQuotaTimelineResult }>({
+    queryKey: ['cc-usage-timeline', timeRange, startTime, endTime],
+    queryFn: async () => {
+      const params = new URLSearchParams({ range: timeRange });
+      if (timeRange === 'custom') {
+        if (startTime) {
+          params.set('start_time', formatIsoOffset(startTime, { fallback: startTime }));
+        }
+        if (endTime) {
+          params.set('end_time', formatIsoOffset(endTime, { fallback: endTime }));
+        }
+      }
+      const response = await fetch(`/api/cc-usage/timeline?${params}`);
+      if (!response.ok) {
+        throw new Error(`cc timeline request failed: ${response.status}`);
+      }
+      return await response.json() as { success: boolean; data: CcQuotaTimelineResult };
+    },
+    refetchInterval: refreshInterval,
+  });
+  const ccQuotaTimeline = ccTimelineResp?.data ?? null;
 
   const mainItems = React.useMemo(() => (feed?.items || []).filter((item) => !isImageVisionForkMainItem(item)), [feed?.items]);
   const forkRuns = React.useMemo(() => buildForkAgentRuns(feed), [feed]);
@@ -2585,6 +2787,12 @@ export const XiaoniActivityPage: React.FC = () => {
           ) : null}
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {ccQuotaSnapshot ? (
+            <>
+              <QuotaMiniBar label="5h" win={ccQuotaSnapshot.windows?.fiveHour} />
+              <QuotaMiniBar label="周" win={ccQuotaSnapshot.windows?.weekly} />
+            </>
+          ) : null}
           <div className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm shadow-sm">
             <Switch
               checked={refreshValue !== 'off'}
@@ -2641,6 +2849,8 @@ export const XiaoniActivityPage: React.FC = () => {
 
       <XiaoniUsageObservatory
         timeline={usageTimeline}
+        quotaTimeline={ccQuotaTimeline}
+        isQuotaLoading={isCcTimelineLoading}
         bucket={usageBucket}
         searchQuery={usageSearch}
         isLoading={isUsageLoading}
