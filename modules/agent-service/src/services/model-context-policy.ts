@@ -44,6 +44,13 @@ const DEFAULT_MODEL_POLICIES: Record<string, ModelContextPolicy> = {
     model: 'codex-mini-latest',
     contextWindowTokens: 200000,
     maxOutputTokens: 100000
+  },
+  // Claude Code subscription (Anthropic). opus-4-6 raw window is 1M; we run with
+  // a tuned effective budget of 600K so the compression cadence is sane.
+  'claude-opus-4-6': {
+    model: 'claude-opus-4-6',
+    contextWindowTokens: 600000,
+    maxOutputTokens: 64000
   }
 };
 

@@ -123,7 +123,10 @@ export function shouldRecordCodexProviderUsageEvent(params: {
   if (params.persistLlmCall) {
     return false;
   }
-  if (params.provider !== 'codex' && params.provider !== 'codex-local') {
+  // Record lightweight provider usage events for codex AND anthropic non-persist
+  // non-fork calls (e.g. sleep cache heartbeat) so the usage observatory still
+  // sees their token cost. The three forks below stay no-persist for all providers.
+  if (params.provider !== 'codex' && params.provider !== 'codex-local' && params.provider !== 'anthropic') {
     return false;
   }
   if (

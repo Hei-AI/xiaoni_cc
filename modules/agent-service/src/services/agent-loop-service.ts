@@ -7670,7 +7670,18 @@ export class AgentLoopService {
       params.runtimePrompt.modelName,
       params.runtimePrompt.parameters as Record<string, unknown> | undefined
     );
-    const contextWindowTokens = policy?.contextWindowTokens ?? null;
+    const rawContextWindowTokens = policy?.contextWindowTokens ?? null;
+    const calibrationSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
+    if (!tokenizerCalibrationBySession.has(calibrationSessionKey)) {
+      // seed with the model-specific baseline (1.2 expansion for Claude) before refining
+      tokenizerCalibrationBySession.set(calibrationSessionKey, defaultCalibrationForModel(params.runtimePrompt.modelName));
+    }
+    const tokenizerCalibration = getTokenizerCalibration(calibrationSessionKey);
+    // o200k_base undercounts Claude => calibration > 1 => shrink the effective
+    // window so compression triggers at the model's real token budget.
+    const contextWindowTokens = rawContextWindowTokens
+      ? Math.max(1, Math.floor(rawContextWindowTokens / tokenizerCalibration))
+      : null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
     const contextSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
@@ -11034,6 +11045,46 @@ function buildLoopRequestInput(params: {
   ];
 }
 
+// Tokenizer calibration. The local pre-estimate (token_count.py) uses tiktoken
+// o200k_base, which is NOT Claude's tokenizer. After each main turn we calibrate
+// from the real input_tokens the provider returned, and scale the effective
+// context window so the compression trigger matches the model's actual token
+// accounting. The uncompressed history is always re-estimated fresh each turn
+// (planReadCutoffFromFirstOverflow recomputes it), so only the calibration
+// factor is carried across turns. EMA-smoothed + clamped to avoid jitter.
+const tokenizerCalibrationBySession = new Map<string, number>();
+const TOKENIZER_CALIBRATION_MIN = 0.5;
+const TOKENIZER_CALIBRATION_MAX = 2.0;
+// tiktoken o200k_base undercounts Claude's tokenizer; Anthropic guidance is a
+// ~1.2-1.25 expansion factor. Seed the calibration with this so the FIRST turn
+// already accounts for it, before self-calibration (from real input_tokens) refines.
+const CLAUDE_TIKTOKEN_EXPANSION = 1.2;
+
+function defaultCalibrationForModel(modelName?: string): number {
+  const normalized = typeof modelName === 'string' ? modelName.trim().toLowerCase() : '';
+  return normalized.startsWith('claude') || normalized.includes('claude-') ? CLAUDE_TIKTOKEN_EXPANSION : 1;
+}
+
+function getTokenizerCalibration(sessionKey: string): number {
+  const value = tokenizerCalibrationBySession.get(sessionKey);
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function updateTokenizerCalibration(
+  sessionKey: string,
+  actualInputTokens: number | null,
+  estimatedInputTokens: number | null
+): void {
+  if (!actualInputTokens || !estimatedInputTokens || actualInputTokens <= 0 || estimatedInputTokens <= 0) {
+    return;
+  }
+  const observed = actualInputTokens / estimatedInputTokens;
+  const previous = getTokenizerCalibration(sessionKey);
+  const blended = previous * 0.5 + observed * 0.5;
+  const clamped = Math.min(TOKENIZER_CALIBRATION_MAX, Math.max(TOKENIZER_CALIBRATION_MIN, blended));
+  tokenizerCalibrationBySession.set(sessionKey, clamped);
+}
+
 async function estimateLoopInputTokens(params: {
   modelName: string;
   queueMessage: QueueMessageRecord['payload'];
@@ -11158,6 +11209,13 @@ function attachActualUsageToTurnBudget(
   record.cachedInputTokens = readOptionalNumber(modelResult.usage_details?.cached_input_tokens);
   record.reasoningTokens = readOptionalNumber(modelResult.usage_details?.reasoning_tokens);
   record.processingTimeMs = readOptionalNumber(modelResult.performance?.processing_time_ms);
+  // Calibrate the local tokenizer estimate against the model's real input_tokens
+  // for the next turn (keyed by the single global runtime session).
+  updateTokenizerCalibration(
+    getGlobalPromptContextSessionKey(),
+    record.actualInputTokens,
+    record.estimatedInputTokens
+  );
 }
 
 function serializeContextBudgetTurnRecord(record: ContextBudgetTurnRecord) {
