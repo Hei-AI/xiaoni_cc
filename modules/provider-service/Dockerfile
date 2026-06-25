@@ -6,6 +6,12 @@ ARG CODEX_CLI_VERSION=0.125.0
 FROM node:18-alpine AS base
 RUN apk add --no-cache tzdata ca-certificates
 ENV TZ=Asia/Shanghai
+# binaries.prisma.sh is unreachable from this network; fetch the engines from the
+# npmmirror binary mirror (same host npm ci already uses) so `prisma generate` works.
+# Force IPv4-first: Prisma's node-fetch downloader otherwise tries IPv6 and the TLS
+# handshake gets dropped ("socket disconnected before TLS"), while npm (IPv4) works.
+ENV PRISMA_ENGINES_MIRROR=https://registry.npmmirror.com/-/binary/prisma
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
 RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 WORKDIR /app/modules/provider-service
 
