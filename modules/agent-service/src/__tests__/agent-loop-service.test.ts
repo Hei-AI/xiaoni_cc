@@ -4634,7 +4634,10 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.deepEqual(forkRequest.input.slice(0, -4), mainRequest.input);
   assert.equal(forkRequest.instructions, mainRequest.instructions);
   assert.deepEqual(forkRequest.tools, mainRequest.tools);
-  assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL]);
+  // cache-alignment (Layer 1): the fork inherits the main loop's full auto
+  // tool_choice so its tools+system+history prefix is byte-identical and reads the
+  // main's warm cache. exec-only restriction is enforced at execution time (Layer 2).
+  assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), getAllowedToolNames(mainRequest.tool_choice));
   assert.equal(forkRequest.tool_choice?.type, mainRequest.tool_choice?.type);
   assert.equal(mainRequest.tool_choice?.mode, 'auto');
   assert.equal(forkRequest.tool_choice?.mode, 'auto');
@@ -8526,8 +8529,12 @@ test('subconscious fork enqueues plain natural language notify and records hidde
       (baseRequest.tools ?? []).map(getToolName)
     );
     assert.equal(forkRequest.tool_choice?.mode, 'auto');
-    assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]);
-    assert.match(getMessageContent(forkRequest.input[forkRequest.input.length - 1]), /自驱引擎/);
+    // cache-alignment (Layer 1): inherit the base/main auto tool_choice so the fork
+    // rides the main's warm in-context cache; exec-only is enforced at execution time.
+    assert.deepEqual(getAllowedToolNames(forkRequest.tool_choice), getAllowedToolNames(baseRequest.tool_choice));
+    // self-continuation reminder is appended, then the fork tool-restriction reminder last
+    assert.ok(forkRequest.input.some((item: any) => /节点休憩/.test(getMessageContent(item))));
+    assert.match(getMessageContent(forkRequest.input[forkRequest.input.length - 1]), /潜意识工具约束/);
     assert.equal(storeCalls.enqueueQueueMessage.length, 1);
     const enqueuedMessage = storeCalls.enqueueQueueMessage[0]?.message;
     assert.equal(enqueuedMessage.source, 'system_reminder');
@@ -8848,7 +8855,8 @@ test('subconscious fork can use exec_command across turns before enqueueing natu
 
     assert.equal(enqueued, true);
     assert.equal(forkRequests.length, 2);
-    assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), [EXEC_COMMAND_TOOL]);
+    // cache-alignment (Layer 1): fork inherits the base/main auto tool_choice.
+    assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), getAllowedToolNames(baseRequest.tool_choice));
     assert.equal(executedTools.length, 1);
     assert.equal(executedTools[0]?.name, EXEC_COMMAND_TOOL);
     const secondTurnToolOutput = forkRequests[1]?.input.find((item: any) => (
@@ -9185,7 +9193,13 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
     assert.equal(canonicalRequest.metadata?.cache_heartbeat, 'true');
     assert.equal(canonicalRequest.metadata?.no_main_stack_persist, 'true');
     assert.ok(Array.isArray(canonicalRequest.tools) && canonicalRequest.tools.length > 0);
-    assert.equal(canonicalRequest.tool_choice, 'none');
+    // cache-alignment: the heartbeat inherits the main loop's auto tool_choice so it
+    // refreshes the SAME messages-tier cache entry the main loop reads (NOT a separate
+    // 'none' entry the main loop would never hit). The heartbeat runs a single
+    // dispatch with no tool-execution loop, so an emitted tool_use is harmless.
+    assert.notEqual(canonicalRequest.tool_choice, 'none');
+    assert.equal(canonicalRequest.tool_choice?.mode, 'auto');
+    assert.ok(getAllowedToolNames(canonicalRequest.tool_choice).includes(EXEC_COMMAND_TOOL));
     const lastInputItem = canonicalRequest.input[canonicalRequest.input.length - 1];
     assert.equal(lastInputItem?.type, 'message');
     assert.equal(lastInputItem?.role, 'developer');

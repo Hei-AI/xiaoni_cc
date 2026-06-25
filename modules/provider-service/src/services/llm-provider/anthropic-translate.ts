@@ -17,11 +17,20 @@
  * Response (Messages) is translated back to OpenResponseOutputItem[] so the
  * agent-service stack / replay / Raw Trace keep working unchanged.
  *
- * Caching: Anthropic prompt cache is prefix-match (tools -> system -> messages).
- * A tool_choice change invalidates only the messages tier, so cropping tools[]
- * for forced-tool phases (forks) costs nothing extra — the main-loop normal mode
- * keeps a stable warm prefix. We place <=2 ephemeral breakpoints (system + last
- * message block). Model is set per-request by the caller (claude-opus-4-6).
+ * Caching: Anthropic prompt cache is prefix-match (tools -> system -> messages),
+ * keyed by the content prefix PLUS tool_choice and the thinking param (a change
+ * to either invalidates the messages tier; changing tool *definitions* invalidates
+ * everything). To let a fork ride the main loop's warm in-context (history) cache,
+ * the fork must send a byte-identical prefix AND matching tool_choice + thinking.
+ * The agent-service aligns the vision/subconscious/heartbeat forks to the main
+ * loop's auto tool_choice, so here we translate them faithfully (full allowed set
+ * + auto + adaptive thinking); only genuinely forced-tool phases (compression)
+ * crop tools / drop thinking and accept a cold prefix. Tool restriction for the
+ * aligned forks is enforced at execution time (allowlist reject) in agent-service,
+ * not via tool_choice — see the Layer-1/Layer-2 split. We place <=2 ephemeral
+ * breakpoints (system + last durable message block); a fork's appended tail stays
+ * after them and reads the main's entry via the 20-block lookback. Model is set
+ * per-request by the caller (claude-opus-4-6).
  */
 
 import type {
@@ -84,18 +93,6 @@ export interface AnthropicMessagesRequest {
 export interface TranslateResult {
   body: AnthropicMessagesRequest;
   thinkingEnabled: boolean;
-}
-
-const FORK_METADATA_KEYS = [
-  'cache_heartbeat',
-  'core_memory_compression_fork',
-  'subconscious_agent_fork',
-  'image_vision_fork'
-];
-
-function isForkOrHeartbeat(request: OpenResponseCreateRequest): boolean {
-  const meta = request.metadata || {};
-  return FORK_METADATA_KEYS.some((key) => meta[key] === 'true');
 }
 
 function parseImageSource(imageUrl: string): AnthropicImageSource {
@@ -257,9 +254,10 @@ interface BlockRef {
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean
-): { messages: AnthropicMessage[]; lastDurable: BlockRef | null } {
+): { messages: AnthropicMessage[]; lastDurable: BlockRef | null; anchors: BlockRef[] } {
   const messages: AnthropicMessage[] = [];
   let lastDurable: BlockRef | null = null;
+  const anchors: BlockRef[] = [];
 
   for (const item of input) {
     const mapped = itemToRoleBlocks(item, thinkingEnabled);
@@ -272,9 +270,15 @@ function buildMessages(
     } else {
       messages.push({ role: mapped.role, content: [...mapped.blocks] });
     }
+    const here: BlockRef = { msgIdx: messages.length - 1, blockIdx: messages[messages.length - 1]!.content.length - 1 };
     if (isDurableItem(item)) {
-      const msgIdx = messages.length - 1;
-      lastDurable = { msgIdx, blockIdx: messages[msgIdx]!.content.length - 1 };
+      lastDurable = here;
+    }
+    // A cache_anchor item marks a stable mid-history boundary the agent-service
+    // wants kept warm across turns (e.g. the compression head boundary, so a
+    // compression fork reading [..H_X] reuses this entry instead of cold-prefilling).
+    if ((item as { cache_anchor?: unknown }).cache_anchor === true) {
+      anchors.push(here);
     }
   }
 
@@ -282,12 +286,14 @@ function buildMessages(
   // <CAPABILITIES> developer block already maps to user; this is a safety net.
   if (messages.length > 0 && messages[0]!.role === 'assistant') {
     messages.unshift({ role: 'user', content: [{ type: 'text', text: '(对话开始)' }] });
-    if (lastDurable) {
-      lastDurable = { msgIdx: lastDurable.msgIdx + 1, blockIdx: lastDurable.blockIdx };
+    const shift = (ref: BlockRef | null): BlockRef | null => (ref ? { msgIdx: ref.msgIdx + 1, blockIdx: ref.blockIdx } : ref);
+    lastDurable = shift(lastDurable);
+    for (let i = 0; i < anchors.length; i += 1) {
+      anchors[i] = shift(anchors[i]!)!;
     }
   }
 
-  return { messages, lastDurable };
+  return { messages, lastDurable, anchors };
 }
 
 interface ToolPlan {
@@ -389,23 +395,52 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
   return { tools, toolChoice: { type: 'auto' }, forced: false };
 }
 
-function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: BlockRef | null): void {
+const MAX_CACHE_BREAKPOINTS = 4;
+
+function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): boolean {
+  const block = body.messages[ref.msgIdx]?.content[ref.blockIdx];
+  if (!block) {
+    return false;
+  }
+  // cache_control is valid on any block type (text/image/tool_use/tool_result)
+  (block as { cache_control?: { type: 'ephemeral' } }).cache_control = { type: 'ephemeral' };
+  return true;
+}
+
+function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: BlockRef | null, anchors: BlockRef[] = []): void {
+  let used = 0;
   // breakpoint 1: end of system (caches tools + system together) — stable prefix
   if (body.system && body.system.length > 0) {
     const lastSystem = body.system[body.system.length - 1];
     if (lastSystem) {
       lastSystem.cache_control = { type: 'ephemeral' };
+      used += 1;
     }
   }
-  // breakpoint 2: end of the last DURABLE block (caches the replayable history
-  // prefix; the volatile developer/runtime-reminder tail stays uncached after it).
-  if (lastDurable) {
-    const message = body.messages[lastDurable.msgIdx];
-    const block = message?.content[lastDurable.blockIdx];
-    if (block) {
-      // cache_control is valid on any block type (text/image/tool_use/tool_result)
-      (block as { cache_control?: { type: 'ephemeral' } }).cache_control = { type: 'ephemeral' };
+  // mid-history anchors (e.g. the compression head boundary). Explicitly pinning
+  // them every turn keeps [..anchor] warm across turns even when it drifts past the
+  // 20-block lookback of the live tail, so forks reading exactly that prefix hit it.
+  // Dedup against the live tail and reserve one slot for it.
+  const seen = new Set<string>();
+  const key = (ref: BlockRef) => `${ref.msgIdx}:${ref.blockIdx}`;
+  const tailKey = lastDurable ? key(lastDurable) : null;
+  for (const anchor of anchors) {
+    if (used >= MAX_CACHE_BREAKPOINTS - 1) {
+      break; // keep a slot for the live tail
     }
+    const k = key(anchor);
+    if (k === tailKey || seen.has(k)) {
+      continue;
+    }
+    if (setBlockCacheControl(body, anchor)) {
+      seen.add(k);
+      used += 1;
+    }
+  }
+  // final breakpoint: end of the last DURABLE block (caches the replayable history
+  // prefix; the volatile developer/runtime-reminder tail stays uncached after it).
+  if (lastDurable && used < MAX_CACHE_BREAKPOINTS && !seen.has(key(lastDurable))) {
+    setBlockCacheControl(body, lastDurable);
   }
 }
 
@@ -421,13 +456,15 @@ export function translateCanonicalToMessages(
   options: TranslateOptions = {}
 ): TranslateResult {
   const plan = buildToolPlan(request);
-  const fork = isForkOrHeartbeat(request);
-  // Thinking (adaptive) only when this request is NOT forced-tool and NOT a fork.
-  // Forced tool_choice (any/tool) is incompatible with extended thinking, and
-  // forks run deterministically without thinking.
-  const thinkingEnabled = !fork && !plan.forced && plan.toolChoice?.type !== 'none';
+  // Thinking (adaptive) whenever tool use is not forced and tools are not disabled.
+  // Forced tool_choice (any/tool) is incompatible with extended thinking. Aligned
+  // forks (vision/subconscious/heartbeat) inherit the main loop's auto tool_choice,
+  // so thinking turns ON for them too -> their tools+system+history prefix and the
+  // thinking param are byte-identical to the main loop's, and they read the same
+  // warm cache entry. Only forced-tool phases (compression) drop thinking.
+  const thinkingEnabled = !plan.forced && plan.toolChoice?.type !== 'none';
 
-  const { messages, lastDurable } = buildMessages(normalizeInputItems(request.input), thinkingEnabled);
+  const { messages, lastDurable, anchors } = buildMessages(normalizeInputItems(request.input), thinkingEnabled);
 
   const body: AnthropicMessagesRequest = {
     model: options.model || request.model,
@@ -457,7 +494,7 @@ export function translateCanonicalToMessages(
     // Keep it omitted to avoid 400s on unknown keys.
   }
 
-  placeCacheBreakpoints(body, lastDurable);
+  placeCacheBreakpoints(body, lastDurable, anchors);
 
   return { body, thinkingEnabled };
 }

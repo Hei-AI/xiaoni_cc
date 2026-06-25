@@ -1494,22 +1494,6 @@ function buildAllowedToolsToolChoice(
   };
 }
 
-function narrowAllowedToolsToolChoice(
-  toolChoice: OpenResponseToolChoice | undefined,
-  allowedNames: string[]
-): OpenResponseToolChoice {
-  const allowed = new Set(allowedNames);
-  if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'allowed_tools') {
-    return {
-      ...toolChoice,
-      tools: toolChoice.tools.filter((tool) => tool.type === 'function' && allowed.has(tool.name))
-    };
-  }
-  return buildAllowedToolsToolChoice(
-    allowedNames.map((name) => ({ type: 'function' as const, name }))
-  );
-}
-
 function buildImageGenerationAllowedToolsToolChoice(): OpenResponseToolChoice {
   return buildAllowedToolsToolChoice([{ type: 'image_generation' }], 'required');
 }
@@ -1925,11 +1909,14 @@ function buildSubconsciousAgentForkRequest(
   forkRequest.store = false;
   forkRequest.input = normalizeResponseInputItems([
     ...forkRequest.input,
-    buildDeveloperInputItem([renderSelfContinuationReminder()])
+    buildDeveloperInputItem([renderSelfContinuationReminder()]),
+    buildDeveloperInputItem([renderSubconsciousForkToolRestrictionReminder()])
   ]);
-  forkRequest.tool_choice = agentConfig.webSearchEnabled
-    ? buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }, { type: 'web_search' }], 'auto')
-    : buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }], 'auto');
+  // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools so the
+  // fork's prefix is byte-identical and rides the main's warm in-context cache.
+  // Tool restriction is enforced at execution time (Layer 2): allowedToolNames is
+  // {execCommand}, so any speaking/image tool the model emits is rejected, never
+  // executed. The appended restriction reminder hard-steers it to exec_command.
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
     subconscious_agent_fork: 'true',
@@ -1950,7 +1937,14 @@ function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest):
     }
   ]);
   heartbeatRequest.parallel_tool_calls = true;
-  heartbeatRequest.tool_choice = 'none';
+  // Cache-alignment: the heartbeat exists purely to keep the main loop's warm
+  // prefix from expiring. To refresh the SAME cache entry the main loop reads, its
+  // tool_choice + thinking must match the main loop's — so inherit the base auto
+  // tool_choice (do NOT set 'none', which would warm a different messages-tier
+  // entry the main loop never reads). The heartbeat runs a single dispatch with no
+  // tool-execution loop, so an emitted tool_use is harmless (discarded). The tiny
+  // max_output_tokens still triggers a full prefill, which is what writes/refreshes
+  // the cache; thinking:{adaptive} is added by the provider so the key matches.
   heartbeatRequest.store = false;
   heartbeatRequest.max_output_tokens = Math.max(
     1,
@@ -2011,15 +2005,12 @@ function buildImageVisionForkRequest(
     ...existingObservationReminder,
     buildImageVisionFileWriteReminder(outputPath)
   ];
-  const imageForkToolChoice = narrowAllowedToolsToolChoice(forkRequest.tool_choice, [TOOL_NAMES.execCommand]);
-  if (typeof imageForkToolChoice === 'object' && imageForkToolChoice.type === 'allowed_tools') {
-    forkRequest.tool_choice = {
-      ...imageForkToolChoice,
-      mode: 'auto'
-    };
-  } else {
-    forkRequest.tool_choice = buildAllowedToolsToolChoice([{ type: 'function', name: TOOL_NAMES.execCommand }], 'auto');
-  }
+  // Cache-alignment (Layer 1): keep the main loop's tool_choice/tools unchanged so
+  // the fork's tools+system+history prefix is byte-identical and reads the main's
+  // warm in-context cache. Tool restriction to exec_command is enforced at
+  // execution time (Layer 2): only execCommand calls run; any other tool the model
+  // emits gets buildImageVisionUnsupportedToolOutput and is never executed. The
+  // appended write reminder hard-steers the model to exec_command only.
   forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
   forkRequest.metadata = {
@@ -2833,6 +2824,15 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
 
 function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
+}
+
+// Layer-2 soft-enforcement reminder for the subconscious fork. The fork inherits
+// the main loop's full auto tool_choice (for cache alignment), so this hard-steers
+// the model to exec_command and away from any outward-facing tool. Kept separate
+// from the shared self_continuation_reminder, which must stay permissive for the
+// main loop (where deciding to actually message a friend is allowed).
+function renderSubconsciousForkToolRestrictionReminder() {
+  return formatSystemReminderBlock(readPromptSnippet('subconscious_fork_tool_restriction_reminder.md'));
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
@@ -7819,6 +7819,16 @@ export class AgentLoopService {
       `本次只压缩当前 stack 头部到 conversation ${compressionPoint.compressionCoveredEndConversationId} 的稳定内容。`,
       `压缩成功后主线 offset 将推进到 ${compressionPoint.readCutoffAfterConversationId}，保留压缩源尾部 ${compressionPoint.overlapCount} 条作为衔接。`
     ].join('\n');
+    // NOTE: the compression fork is deliberately fed the HEAD slice only
+    // (summarySourceHistory), NOT the full retained history — so the summarizer
+    // compresses exactly the evicted head and never re-summarizes retained-tail
+    // items (enforced by the "isolated background fork" test). This head-only input
+    // is a separately-built prefix, so on Claude it does NOT byte-match the main
+    // turn's warm requestInput entry; the compression fork's first read is therefore
+    // a one-time cold prefill. We accept that: compression is rare, and the post-
+    // compression rebuild (new M1 summary at the head) invalidates the messages-tier
+    // prefix cache anyway, so warming the head read would be a small, rare, largely-
+    // negated win at the cost of breaking the head-only summarization invariant.
     const summarySourceInput = buildLoopRequestInput({
       history: compressionPoint.summarySourceHistory,
       queueMessage: params.queueMessage,
@@ -7841,9 +7851,45 @@ export class AgentLoopService {
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
+    // Cache reuse for the compression fork: rebuild the main turn's requestInput with
+    // a cache breakpoint pinned at the compression head boundary (the last turn the
+    // fork will summarize). The main turn then writes/refreshes the [..H_X] entry
+    // every turn it runs, so when the (head-only) compression fork reads up to H_X it
+    // hits that warm entry via the 20-block lookback instead of cold-prefilling the
+    // whole near-window history. The anchor is a non-content marker, so requestInput's
+    // bytes (and token estimate) are unchanged and its head stays identical to the
+    // fork's head. We keep the fork head-only — this does NOT change what the
+    // summarizer reads, only where the main turn places its cache breakpoint.
+    const compressionHeadBoundaryConversationId =
+      compressionPoint.summarySourceHistory.length > 0
+        ? (compressionPoint.summarySourceHistory[compressionPoint.summarySourceHistory.length - 1] as { id?: number } | undefined)?.id ?? null
+        : null;
+    let anchoredRequestInput = requestInput;
+    let anchoredSelfContinuationInputItem = selfContinuationInputItem;
+    if (typeof compressionHeadBoundaryConversationId === 'number') {
+      const rebuiltSelfContinuation: OpenResponseInputItem[] = [];
+      anchoredRequestInput = buildLoopRequestInput({
+        history: initialRetainedHistory,
+        queueMessage: params.queueMessage,
+        runtimePrompt: params.runtimePrompt,
+        loopContinuation: params.loopContinuation,
+        runtimeIdentityFacts: params.runtimeIdentityFacts,
+        contextSummary,
+        pendingProactiveShare,
+        developerContextBlock: params.developerContextBlock ?? null,
+        runtimeEnergyState: params.runtimeEnergyState ?? null,
+        triggerInputMode,
+        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
+        appendedSelfContinuationInputItems: rebuiltSelfContinuation,
+        loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
+        cacheAnchorAfterConversationId: compressionHeadBoundaryConversationId
+      });
+      anchoredSelfContinuationInputItem = rebuiltSelfContinuation[0] ?? selfContinuationInputItem;
+    }
+
     return {
-      requestInput,
-      selfContinuationInputItem,
+      requestInput: anchoredRequestInput,
+      selfContinuationInputItem: anchoredSelfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -11035,12 +11081,13 @@ function buildLoopRequestInput(params: {
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
+  cacheAnchorAfterConversationId?: number | null;
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterConversationId ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterConversationId ?? null),
     ...params.loopContinuation
   ];
 }
@@ -11469,7 +11516,8 @@ export function buildInitialInput(
   appendSelfContinuationOnTerminalFinalAnswer = false,
   runtimeEnergyState: RuntimeEnergyState | null = null,
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
-  inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = []
+  inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
+  cacheAnchorAfterConversationId: number | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -11492,6 +11540,27 @@ export function buildInitialInput(
     items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
   }
 
+  // Pin a cache breakpoint on the last block this turn renders, when it is the
+  // compression head boundary (H_X). The provider keeps [..H_X] warm every turn so a
+  // compression fork reading exactly the head reuses it instead of cold-prefilling.
+  // The marker is a non-content field (does not change the rendered text), so the
+  // prefix stays byte-identical to the fork's head and they share the same entry.
+  const markAnchorIfBoundary = (turnId: unknown) => {
+    if (
+      cacheAnchorAfterConversationId === null
+      || typeof turnId !== 'number'
+      || turnId !== cacheAnchorAfterConversationId
+      || items.length === 0
+    ) {
+      return;
+    }
+    const lastIdx = items.length - 1;
+    items[lastIdx] = {
+      ...(items[lastIdx] as Record<string, unknown>),
+      cache_anchor: true
+    } as unknown as OpenResponseInputItem;
+  };
+
   for (const [turnIndex, turn] of history.entries()) {
     const replayItems = buildTurnResponseReplayItems(turn);
     const appendKnownReplayItems = () => {
@@ -11512,6 +11581,7 @@ export function buildInitialInput(
 
     if (transcriptItems.length === 0) {
       appendKnownReplayItems();
+      markAnchorIfBoundary((turn as { id?: unknown }).id);
       continue;
     }
 
@@ -11523,6 +11593,7 @@ export function buildInitialInput(
     }
 
     appendKnownReplayItems();
+    markAnchorIfBoundary((turn as { id?: unknown }).id);
   }
 
   items.push(...inputItemsBeforeCurrentTurn);

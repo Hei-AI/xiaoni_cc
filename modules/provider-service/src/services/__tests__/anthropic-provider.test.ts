@@ -93,6 +93,43 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
   assert.deepEqual(body.system?.[0]?.cache_control, { type: 'ephemeral' });
 });
 
+test('cache_anchor item gets its own breakpoint so the compression head boundary stays warm', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    instructions: 'You are Xiaoni.',
+    input: [
+      // head boundary (H_X): the last turn the compression fork will summarize
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'old head boundary' }], cache_anchor: true } as any,
+      { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'ack' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'recent retained' }] },
+      { type: 'message', role: 'developer', content: 'volatile runtime reminder' }
+    ],
+    tools: FN_TOOLS,
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
+  };
+  const { body } = translateCanonicalToMessages(req);
+
+  // collect every cache_control breakpoint
+  const breakpoints: string[] = [];
+  for (const s of body.system || []) {
+    if (s.cache_control) breakpoints.push('system');
+  }
+  let anchorMarked = false;
+  let tailMarked = false;
+  body.messages.forEach((m) => m.content.forEach((b) => {
+    if ((b as any).cache_control) {
+      breakpoints.push((b as any).text || (b as any).type);
+      if ((b as any).text === 'old head boundary') anchorMarked = true;
+      if ((b as any).text === 'recent retained') tailMarked = true;
+    }
+  }));
+
+  // system + anchor(head boundary) + last-durable(retained tail) == 3, within the 4 cap
+  assert.ok(breakpoints.length >= 3 && breakpoints.length <= 4, `breakpoints=${breakpoints.join(',')}`);
+  assert.equal(anchorMarked, true);   // [..H_X] gets its own warm entry
+  assert.equal(tailMarked, true);     // live tail still cached for the next turn
+});
+
 test('allowed_tools(required, [exec,compress]) -> tool_choice any + thinking off', () => {
   const req: OpenResponseCreateRequest = {
     model: 'claude-opus-4-6',
@@ -142,7 +179,11 @@ test("tool_choice 'none' -> {type:none}, no tools, thinking off", () => {
   assert.equal(body.max_tokens, 1);
 });
 
-test('fork metadata disables thinking even with auto tool_choice', () => {
+test('aligned fork (auto tool_choice) keeps thinking ON so it rides the main prefix cache', () => {
+  // Cache-alignment contract: forks inherit the main loop's auto tool_choice, so
+  // their tools+system+history prefix AND thinking param stay byte-identical to the
+  // main loop's and read the same warm cache entry. Tool restriction is enforced at
+  // execution time in agent-service, NOT by cropping tool_choice/thinking here.
   const req: OpenResponseCreateRequest = {
     model: 'claude-opus-4-6',
     input: [{ type: 'message', role: 'user', content: 'x' }],
@@ -151,8 +192,9 @@ test('fork metadata disables thinking even with auto tool_choice', () => {
     metadata: { image_vision_fork: 'true' }
   };
   const { thinkingEnabled, body } = translateCanonicalToMessages(req);
-  assert.equal(thinkingEnabled, false);
-  assert.equal(body.thinking, undefined);
+  assert.equal(thinkingEnabled, true);
+  assert.deepEqual(body.thinking, { type: 'adaptive' });
+  assert.equal(body.tool_choice?.type, 'auto');
 });
 
 // ---------------------------------------------------------------------------
