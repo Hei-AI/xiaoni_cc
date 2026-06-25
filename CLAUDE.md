@@ -207,6 +207,7 @@ Available skills:
 | 配置 / 部署 / 认证 / 密钥 | `docs/AGENTS_SECRETS_LOCAL_STATE.md` |
 | 小腻主 loop / Notify Bucket / QQ inbox / Raw Trace / action stack | `docs/XIAONI_AGENT_STACK_LEDGER.md` |
 | 小腻运行面 / Admin surface / local skills / usage observatory | `docs/XIAONI_RUNTIME_SURFACES.md` |
+| 小腻被动召回 extractor / shadow review / cue 分类 | `docs/XIAONI_PASSIVE_RECALL_EXTRACTOR.md` |
 | Xiaoni runtime 操作 / Raw Trace / recovery / browser / site / image send | `docs/XIAONI_OPERATOR_HOWTO.md` |
 | 小腻主 prompt / runtime reminder 模板 | `docs/XIAONI_MAIN_PROMPT_NEXT.md`、`docs/remind.md` |
 | Xiaoni exec_command / session / git archive | `docs/AGENTS_XIAONI_EXECUTOR.md` |

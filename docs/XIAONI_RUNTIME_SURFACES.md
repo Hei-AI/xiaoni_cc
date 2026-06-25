@@ -9,10 +9,11 @@ stack ledger 和 trace detail 仍以 `docs/XIAONI_AGENT_STACK_LEDGER.md` 为准�
 | Surface | Current source | What it means |
 | --- | --- | --- |
 | Admin 小腻活动 / action stream | `packages/persistence/xiaoni-activity.js` + admin routes | 从 `agent_stack_items`、`llm_request_slices`、`tool_executions`、life/media/task 和 fork facts 投影当前行动、工具、模型 slice、可见投递、图片观察和 runtime busy flags。 |
+| 被动浮现 Shadow（passive recall） | `packages/persistence/xiaoni-passive-recall-extractor.js` + `GET /api/xiaoni/passive-recall/shadow-cues` | 只读查看被动召回 extractor 的原始触发点和 runtime 文件候选，`deliveryMode: "shadow_only"`，不投递给主 agent、不写 Notify Bucket。边界事实源是 `docs/XIAONI_PASSIVE_RECALL_EXTRACTOR.md`。 |
 | Raw Trace | `llm_request_slices` and fork slice tables | 展示对应 stack item / tool execution / LLM slice 的 canonical request、wire request/response 和 raw response。provider span 是证据，不是主行动卡。 |
 | LLM usage observatory | `getXiaoniLlmUsageTimeline()` | 合并 main slices、core-memory compression fork、image vision fork 和 Codex provider image usage；支持 call/hour/day/month bucket、自动下采样和 search overlay。 |
 | Recovery page | `agent_recovery_sessions` + `agent_session_life_states` | 展示当前精力投影、recover_energy 会话、clock、醒来原因和 wake count。 |
-| Runtime settings | `agent_runtime_control` + admin runtime settings page | 控制主 loop enable、主模型 slice 前 yield、睡眠 cache heartbeat 暂停和压缩后暂停闸门。 |
+| Runtime settings | `agent_runtime_control` + admin runtime settings page | 控制主 loop enable、主模型 slice 前 yield、睡眠 cache heartbeat 暂停和压缩后暂停闸门；并提供 provider outage 后的「手动恢复」按钮，经 `POST /api/agent-runtime/recover-now` 注入一条合成 `phone_notification` 唤醒 runtime。 |
 | QQ unread navigation | `$qq-usage` skill + `agent_inbound_messages` | 小腻主动打开 QQ inbox/window。`agent_queue_messages` 只是 Notify Bucket，不是 QQ app 未读列表。 |
 | QQ image send | `$qq-send-image` + `agent-service /api/internal/qq-send-image` | 将 `/xiaoni-runtime` 下已有图片经 `provider-service -> NapCat` 发到群或私聊，并保留 status key 供补查。 |
 | Local image visibility | `$local-image-visibility` | 本地 PNG 已存在但没有可 inspect 的 image id 时，生成尺寸/缩略图/粗略颜色与 ascii 报告，必要时用可见浏览器打开小缩略图。 |

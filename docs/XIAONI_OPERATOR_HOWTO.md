@@ -78,9 +78,30 @@ Use the admin runtime settings page for live control rows backed by
   in an active recovery session. The manual heartbeat endpoint above still works.
 - Post-compression pause arms a one-shot gate: after the next successful core
   memory compression write, the main loop pauses.
+- Manual recover ("手动恢复") is for getting Xiaoni moving again after a provider
+  outage. It posts to `/api/agent-runtime/recover-now`, which injects one synthetic
+  `phone_notification` from the latest unread QQ inbox message so the main loop has
+  a trigger to claim. The response reports the enqueued queue row and the source
+  inbound message; if there is no unread inbox message, nothing is injected.
 
 Use these controls for runtime pacing and cache experiments. Do not use them as a
 replacement for fixing queue, prompt, or provider bugs.
+
+## How to inspect passive recall shadow cues
+
+1. Open the admin "被动浮现 Shadow" page at `/xiaoni-passive-recall`.
+2. The page reads `GET /api/xiaoni/passive-recall/shadow-cues` and returns
+   `deliveryMode: "shadow_only"`. Nothing here is delivered to the main agent or
+   written to the Notify Bucket; it is a review surface only.
+3. Read two sources side by side:
+   - `cues`: raw trigger points projected from the DB action stream.
+   - `fileCandidates`: read-only file candidates scanned from
+     `/xiaoni-runtime/forever|notes|reading|toys`.
+4. Reuse the action-stream filters: `range / start_time / end_time / before_time /
+   tags / limit`, plus `include_files / file_limit` for the file scan.
+5. Use this to sanity-check whether a cue looks like a real subconscious origin
+   point before any embedding, activation, or daemon work. Boundary and cue
+   classes are the source of truth in `docs/XIAONI_PASSIVE_RECALL_EXTRACTOR.md`.
 
 ## How to verify LLM usage
 

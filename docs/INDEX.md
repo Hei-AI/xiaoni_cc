@@ -75,7 +75,9 @@
   精力曲线和睡眠唤醒细节看 `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`。
   不要再为这些主题新增重复架构页。
 - Prompt 正文事实源：`docs/xiaoni_prompt/`。主 runtime 启动时预热
-  `system_prompt.md`，prompt 文件变化后在 loop 边界清空稳定 prompt 并重读；
+  `system_prompt.md`；prompt 文件变化后的重读受闸门控制：cache-prefix 敏感的
+  `system_prompt.md` / `skills_instructions.md` 等下一次 core memory compression
+  边界才清空稳定 prompt 并重读，其它 snippet 文件即时生效；
   runtime reminder 模板在对应 reminder 追加时读取。
   `modules/agent-service/src/prompts/xiaoni-main-agent.ts` 只保留加载入口。
 - 旧 presence / homeostasis 设计文档已删除；小腻运行真相以当前 README /
