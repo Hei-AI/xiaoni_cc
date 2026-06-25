@@ -18,6 +18,7 @@ import {
 } from '../llm-provider/anthropic-oauth';
 import { inferProviderFromModelName } from '../llm-provider/provider-config';
 import { AnthropicProvider } from '../llm-provider/anthropic-provider';
+import { xxh64, signClaudeBillingCch } from '../llm-provider/anthropic-cch';
 import type { OpenResponseCreateRequest } from '../llm-provider/types';
 import type { AIConfig } from '../../types';
 
@@ -339,6 +340,39 @@ test('loadClaudeOAuthCredential reads claudeAiOauth shape', async () => {
   assert.equal(credential?.refresh, 'sk-ant-ort01-y');
   assert.equal(source?.path, file);
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('xxh64 matches the canonical XXH64 test vectors', () => {
+  // official xxHash reference vectors (seed 0)
+  assert.equal(xxh64(Buffer.from('', 'utf8'), 0n), 0xef46db3751d8e999n);
+  assert.equal(
+    xxh64(Buffer.from('Nobody inspects the spammish repetition', 'utf8'), 0n),
+    0xfbcea83c8a378bf1n
+  );
+});
+
+test('signClaudeBillingCch writes a body checksum that verifies (zero-and-rehash)', () => {
+  const { body } = translateCanonicalToMessages({
+    model: 'claude-opus-4-6',
+    instructions: '你是小腻。',
+    input: [{ type: 'message', role: 'user', content: 'hi' }],
+    tools: FN_TOOLS,
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
+  } as OpenResponseCreateRequest);
+  const billing = body.system?.[0]?.text || '';
+  // cch is filled in (5 lowercase hex), not the 00000 placeholder
+  const m = billing.match(/cch=([0-9a-f]{5});/);
+  assert.ok(m, 'cch present');
+  assert.notEqual(m![1], '00000');
+  // verify: zero the cch in the exact sent bytes, rehash, compare to the embedded cch
+  const sentJson = JSON.stringify(body);
+  const unsigned = sentJson.replace(/cch=[0-9a-f]{5};/, 'cch=00000;');
+  const expected = (xxh64(Buffer.from(unsigned, 'utf8'), 0x6e52736ac806831en) & 0xfffffn)
+    .toString(16).padStart(5, '0');
+  assert.equal(m![1], expected);
+  // signing again is idempotent
+  signClaudeBillingCch(body);
+  assert.equal(body.system?.[0]?.text, billing);
 });
 
 test('buildClaudeHeaders sets bearer + cc headers', () => {

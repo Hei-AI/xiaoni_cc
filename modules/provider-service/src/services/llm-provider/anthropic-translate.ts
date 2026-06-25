@@ -33,6 +33,7 @@
  * per-request by the caller (claude-opus-4-6).
  */
 
+import { signClaudeBillingCch } from './anthropic-cch';
 import type {
   OpenResponseCreateRequest,
   OpenResponseInputItem,
@@ -527,6 +528,11 @@ export function translateCanonicalToMessages(
   }
 
   placeCacheBreakpoints(body, lastDurable, anchors);
+
+  // Final step: sign the billing block's cch over the fully-assembled body. Must run
+  // last (after system/messages/tools/breakpoints are all set) so the checksum covers
+  // the exact bytes that will be sent.
+  signClaudeBillingCch(body);
 
   return { body, thinkingEnabled };
 }
