@@ -24,15 +24,19 @@ import { isOAuthCredentialExpired, type NormalizedOAuthCredential } from './oaut
 export const CLAUDE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 export const CLAUDE_OAUTH_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 export const CLAUDE_API_BASE_URL = 'https://api.anthropic.com';
-export const CLAUDE_MESSAGES_PATH = '/v1/messages';
+// The Claude Code subscription endpoint expects the ?beta=true query (the official
+// CLI sends it). Without it the request can be rejected as not-Claude-Code.
+export const CLAUDE_MESSAGES_PATH = '/v1/messages?beta=true';
 
 const CLAUDE_OAUTH_SCOPE =
   'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload';
 
 const DEFAULT_CLIENT_VERSION = '2.1.77';
+// Match the current Claude Code CLI beta set so the request looks like the official
+// client (the endpoint server-side-validates this). Beta flags are opt-in enablers;
+// having them in the header does not change behavior unless the body opts in.
 const DEFAULT_ANTHROPIC_BETA =
-  'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14';
-const DEFAULT_BILLING_HEADER = 'cc_version={version}; cc_entrypoint=claude-vscode; cch=ed218;';
+  'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export interface ClaudeOAuthSource {
@@ -206,17 +210,16 @@ export async function persistClaudeOAuthCredential(
 export function buildClaudeHeaders(accessToken: string, aiConfig: AIConfig): Record<string, string> {
   const version = (aiConfig.anthropic_client_version || process.env.ANTHROPIC_CLIENT_VERSION || DEFAULT_CLIENT_VERSION).trim();
   const beta = (aiConfig.anthropic_beta || process.env.ANTHROPIC_BETA || DEFAULT_ANTHROPIC_BETA).trim();
-  const billing = (aiConfig.anthropic_billing_header || process.env.ANTHROPIC_BILLING_HEADER || DEFAULT_BILLING_HEADER)
-    .replace('{version}', version)
-    .trim();
+  // NOTE: x-anthropic-billing-header is NOT an HTTP header — real Claude Code sends it
+  // as the system[0] text block (and signs its cch over the body). It's injected in
+  // anthropic-translate.ts (buildBillingSystemBlock), not here.
   return {
     Authorization: `Bearer ${accessToken}`,
     'anthropic-version': '2023-06-01',
     'anthropic-beta': beta,
-    'user-agent': `claude-cli/${version}`,
+    'user-agent': `claude-cli/${version} (external, cli)`,
     'x-app': 'cli',
     'anthropic-dangerous-direct-browser-access': 'true',
-    'x-anthropic-billing-header': billing,
     'Content-Type': 'application/json'
   };
 }

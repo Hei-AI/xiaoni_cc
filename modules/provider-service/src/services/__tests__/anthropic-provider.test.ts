@@ -88,9 +88,13 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
   const names = (body.tools || []).map((t) => t.type || t.name).sort();
   // image_generation dropped, compress not allowed -> excluded; web_search mapped to server tool
   assert.deepEqual(names, ['exec_command', 'private_message', 'web_search_20260209'].sort());
-  // system present + cached
-  assert.equal(body.system?.[0]?.text, 'You are Xiaoni.');
-  assert.deepEqual(body.system?.[0]?.cache_control, { type: 'ephemeral' });
+  // system[] = [ billing block, Claude Code identity cloak, the real instructions ];
+  // the cache breakpoint lands on the last system block (the instructions).
+  assert.match(body.system?.[0]?.text || '', /x-anthropic-billing-header:/);  // billing as system[0]
+  assert.match(body.system?.[1]?.text || '', /Claude/);                       // identity cloak
+  assert.equal(body.system?.[1]?.cache_control, undefined);                   // not the breakpoint
+  assert.equal(body.system?.[2]?.text, 'You are Xiaoni.');                    // real instructions
+  assert.deepEqual(body.system?.[2]?.cache_control, { type: 'ephemeral' });
 });
 
 test('cache_anchor item gets its own breakpoint so the compression head boundary stays warm', () => {
@@ -343,9 +347,10 @@ test('buildClaudeHeaders sets bearer + cc headers', () => {
   assert.equal(headers['anthropic-version'], '2023-06-01');
   assert.match(headers['anthropic-beta'], /oauth-2025-04-20/);
   assert.match(headers['anthropic-beta'], /claude-code-20250219/);
-  assert.equal(headers['user-agent'], 'claude-cli/2.1.77');
+  assert.equal(headers['user-agent'], 'claude-cli/2.1.77 (external, cli)');
   assert.equal(headers['x-app'], 'cli');
-  assert.match(headers['x-anthropic-billing-header'], /cc_version=2\.1\.77/);
+  // billing header is NOT an HTTP header — it goes in system[0] (see translate tests)
+  assert.equal(headers['x-anthropic-billing-header'], undefined);
 });
 
 test('refreshClaudeOAuthCredential posts the correct body and persists', async () => {
@@ -439,7 +444,9 @@ test('AnthropicProvider.generateContent end-to-end (local server)', async () => 
     assert.equal(seenAuth, 'Bearer sk-ant-oat01-live');
     assert.equal(seenBody.model, 'claude-opus-4-6');
     assert.equal(seenBody.max_tokens, 64);
-    assert.equal(seenBody.system[0].text, 'sys');
+    assert.match(seenBody.system[0].text, /x-anthropic-billing-header:/);  // billing block system[0]
+    assert.match(seenBody.system[1].text, /Claude/);                       // identity cloak
+    assert.equal(seenBody.system[2].text, 'sys');                          // real instructions
     assert.equal(seenBody.tool_choice.type, 'auto');
     assert.equal(seenBody.tools[0].name, 'exec_command');
   } finally {
