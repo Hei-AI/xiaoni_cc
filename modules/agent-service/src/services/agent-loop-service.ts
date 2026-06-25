@@ -11815,10 +11815,19 @@ function buildCurrentTurnInputItems(
   if (parts.length === 0) {
     return [];
   }
-  if (isSubconsciousAgentNotifyPayload(queueMessage)) {
-    return [buildUserSceneInputItem(parts)];
-  }
-  return [buildDeveloperInputItem(parts)];
+  const triggerItem = isSubconsciousAgentNotifyPayload(queueMessage)
+    ? buildUserSceneInputItem(parts)
+    : buildDeveloperInputItem(parts);
+  // The current-turn trigger carries a fresh [当前时间] stamp every build, so the cache
+  // breakpoint must NOT anchor on it: anchoring on a per-turn-varying block drifts the
+  // whole cached body at every run/heartbeat boundary (the breakpoint block's bytes
+  // change, so heartbeat-warmed and main-loop prefixes diverge at the tail). Tag it
+  // cache_volatile so the provider's isDurableItem skips it and anchors the breakpoint on
+  // the last FROZEN (replayed) message instead — the cached prefix then stays byte-
+  // identical across the live build, the persisted replay, and the heartbeat fork. The
+  // tag is internal (provider never forwards it to the wire). A developer-role trigger is
+  // already non-durable, so the tag is a harmless no-op there.
+  return [{ ...(triggerItem as Record<string, unknown>), cache_volatile: true } as unknown as OpenResponseInputItem];
 }
 
 function renderConversationInput(queueMessage: QueueMessageRecord['payload']) {
