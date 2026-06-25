@@ -43,6 +43,7 @@ import {
 
 const DEFAULT_LLM_RESPONSE_TIMEOUT_MS = 300_000;
 const TRANSIENT_RETRY_ATTEMPTS = 2;
+const CONNECTION_RETRY_ATTEMPTS = 4;
 const TRANSIENT_RETRY_BASE_DELAY_MS = 400;
 
 const SENSITIVE_HEADER_NAMES = new Set([
@@ -230,6 +231,7 @@ export class AnthropicProvider implements LLMProvider {
 
     let refreshedOnce = false;
     let attempt = 0;
+    let connAttempt = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const resolved = await resolveClaudeOAuthCredential(this.aiConfig, refreshedOnce);
@@ -290,6 +292,15 @@ export class AnthropicProvider implements LLMProvider {
             : TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
           attempt += 1;
           await sleep(delay);
+          continue;
+        }
+
+        // connection-level errors (no HTTP response): TLS reset / socket disconnected /
+        // timeout / DNS. This network drops TLS to api.anthropic.com intermittently, so
+        // retry these (they cost no tokens — nothing reached the model).
+        if (!error?.response && connAttempt < CONNECTION_RETRY_ATTEMPTS) {
+          connAttempt += 1;
+          await sleep(TRANSIENT_RETRY_BASE_DELAY_MS * Math.pow(2, connAttempt - 1));
           continue;
         }
 

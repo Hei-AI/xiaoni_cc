@@ -210,6 +210,39 @@ function normalizeInputItems(input: OpenResponseCreateRequest['input']): OpenRes
 }
 
 /**
+ * Anthropic requires every assistant `tool_use` to be IMMEDIATELY followed by a user
+ * `tool_result` for the same id (OpenAI/Codex was lenient, so replayed history can have
+ * a tool_use whose output is missing, or split from it by a developer reminder). Pull
+ * each function_call_output to right after its function_call, synthesize a placeholder
+ * for any missing one, and drop orphan outputs. Deterministic -> stable cache prefix.
+ */
+function normalizeToolCallPairs(items: OpenResponseInputItem[]): OpenResponseInputItem[] {
+  const outputs = new Map<string, OpenResponseInputItem>();
+  for (const item of items) {
+    if (item.type === 'function_call_output' && item.call_id && !outputs.has(item.call_id)) {
+      outputs.set(item.call_id, item);
+    }
+  }
+  const result: OpenResponseInputItem[] = [];
+  for (const item of items) {
+    if (item.type === 'function_call_output') {
+      continue; // re-emitted right after its function_call below; orphans dropped
+    }
+    result.push(item);
+    if (item.type === 'function_call') {
+      const id = item.call_id || item.id;
+      if (id) {
+        result.push(
+          outputs.get(id)
+          || ({ type: 'function_call_output', call_id: id, output: '[no result recorded]' } as OpenResponseInputItem)
+        );
+      }
+    }
+  }
+  return result;
+}
+
+/**
  * Map one canonical input item to a (role, blocks) tuple. Returns null for items
  * that should be dropped (e.g. non-anthropic reasoning, item_reference).
  */
@@ -486,7 +519,10 @@ export function translateCanonicalToMessages(
   // warm cache entry. Only forced-tool phases (compression) drop thinking.
   const thinkingEnabled = !plan.forced && plan.toolChoice?.type !== 'none';
 
-  const { messages, lastDurable, anchors } = buildMessages(normalizeInputItems(request.input), thinkingEnabled);
+  const { messages, lastDurable, anchors } = buildMessages(
+    normalizeToolCallPairs(normalizeInputItems(request.input)),
+    thinkingEnabled
+  );
 
   const body: AnthropicMessagesRequest = {
     model: options.model || request.model,

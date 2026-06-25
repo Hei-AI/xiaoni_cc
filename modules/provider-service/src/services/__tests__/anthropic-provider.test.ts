@@ -98,6 +98,36 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
   assert.deepEqual(body.system?.[2]?.cache_control, { type: 'ephemeral' });
 });
 
+test('every tool_use is immediately followed by its tool_result (Anthropic pairing)', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    instructions: 'sys',
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'do it' }] },
+      // tool_use whose output is split from it by a developer reminder
+      { type: 'function_call', call_id: 'call_A', name: 'exec_command', arguments: '{}' },
+      { type: 'message', role: 'developer', content: '[reminder]' },
+      { type: 'function_call_output', call_id: 'call_A', output: 'ok A' },
+      // dangling tool_use with no recorded output
+      { type: 'function_call', call_id: 'call_B', name: 'exec_command', arguments: '{}' },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'next' }] }
+    ],
+    tools: FN_TOOLS,
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
+  };
+  const { body } = translateCanonicalToMessages(req);
+  for (let i = 0; i < body.messages.length; i += 1) {
+    const toolUseIds = body.messages[i]!.content.filter((b) => b.type === 'tool_use').map((b) => (b as any).id);
+    if (toolUseIds.length === 0) continue;
+    const next = body.messages[i + 1];
+    assert.ok(next && next.role === 'user', `tool_use msg ${i} must be followed by a user message`);
+    const resultIds = new Set(next!.content.filter((b) => b.type === 'tool_result').map((b) => (b as any).tool_use_id));
+    for (const id of toolUseIds) {
+      assert.ok(resultIds.has(id), `tool_result for ${id} must be present immediately after`);
+    }
+  }
+});
+
 test('cache_anchor item gets its own breakpoint so the compression head boundary stays warm', () => {
   const req: OpenResponseCreateRequest = {
     model: 'claude-opus-4-6',
