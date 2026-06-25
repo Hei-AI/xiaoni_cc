@@ -19,6 +19,39 @@ test('ResponseActionRouter does not create final_answer idle reminder post actio
   assert.deepEqual(plan.postActions, []);
 });
 
+test('ResponseActionRouter registers an empty-text final_answer as hasFinalAnswer', () => {
+  // Terminal end_turn carrier emitted when the model delivered via a tool and ended
+  // the turn empty. It carries no text but must still count as a final_answer so the
+  // loop yields via the final_answer branch and the fork / self-continuation revive.
+  const plan = new ResponseActionRouter().route({
+    output: [{
+      type: 'message',
+      role: 'assistant',
+      phase: 'final_answer',
+      content: []
+    }]
+  });
+
+  assert.equal(plan.hasFinalAnswer, true);
+  assert.equal(plan.hasToolCall, false);
+  assert.equal(plan.replayableOutputs.length, 1);
+  assert.equal(plan.replayableOutputs[0]!.type, 'assistant_message');
+});
+
+test('ResponseActionRouter still drops an empty-text commentary message', () => {
+  const plan = new ResponseActionRouter().route({
+    output: [{
+      type: 'message',
+      role: 'assistant',
+      phase: 'commentary',
+      content: []
+    }]
+  });
+
+  assert.equal(plan.hasFinalAnswer, false);
+  assert.equal(plan.replayableOutputs.length, 0);
+});
+
 test('ResponseActionRouter does not enqueue idle reminder when final_answer also has a tool call', () => {
   const plan = new ResponseActionRouter().route({
     output: [

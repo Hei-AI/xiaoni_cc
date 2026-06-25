@@ -149,8 +149,13 @@ export function extractReplayableModelOutputs(response: CanonicalAgentResponse):
             .filter(Boolean)
             .join('\n')
         : '';
-      if (text) {
-        const phase = item.phase === 'final_answer' ? 'final_answer' : 'commentary';
+      const phase = item.phase === 'final_answer' ? 'final_answer' : 'commentary';
+      // Empty-text commentary is dropped from replay (nothing to say), but a
+      // final_answer with empty text is a real terminal signal — the model ended its
+      // turn after delivering everything through a tool call. It must register as
+      // hasFinalAnswer so the loop yields via the final_answer branch and a
+      // final_answer lands at the replay tail for the fork / self-continuation gates.
+      if (text || phase === 'final_answer') {
         replayItems.push({
           type: 'assistant_message',
           phase,
