@@ -89,7 +89,20 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 ## Host Bridge Maintenance
 
-If the bridge is down, ask the operator or host Codex to start it on the WSL host:
+The bridge runs as a managed `systemd --user` service on the WSL host
+(`xiaoni-playwright-cli-bridge.service`, `Restart=always`, user lingering on), so it
+survives crashes and host/WSL reboots. It should not need a manual start anymore.
+
+If `9977` is refusing connections, ask the operator or host Codex to check/restart it
+on the WSL host:
+
+```bash
+systemctl --user status xiaoni-playwright-cli-bridge.service
+systemctl --user restart xiaoni-playwright-cli-bridge.service
+journalctl --user -u xiaoni-playwright-cli-bridge.service -n 50 --no-pager
+```
+
+Manual fallback only if systemd is unavailable:
 
 ```bash
 setsid python3 /home/liahua/IdeaProject/qq_bot/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli_bridge.py \
