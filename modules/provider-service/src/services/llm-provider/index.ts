@@ -28,7 +28,14 @@ export function createProviderClient(providerId: LLMProviderId): LLMProvider {
     case 'codex-local':
       return new CodexLocalProvider(aiConfig);
     case 'anthropic':
-      return new AnthropicProvider(aiConfig);
+      // The agent leaves max_output_tokens unset on main-loop/fork turns; without a
+      // default the translate caps at 16k, which with adaptive thinking (thinking
+      // tokens count toward max_tokens) truncates complex turns. Default to the
+      // claude-opus-4-6 model-context-policy ceiling (64k). It is only a cap — billed
+      // per token actually generated — so a higher ceiling has no cost downside.
+      return new AnthropicProvider(aiConfig, {
+        defaultMaxTokens: Number(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS) || 64000
+      });
     case 'google':
     case 'google-legacy':
     case 'google-gemini-cli':
