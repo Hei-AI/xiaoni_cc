@@ -17,6 +17,7 @@ const { createAgentPresencePersistence } = require('./agent-presence');
 const { createAgentLifeEventPersistence } = require('./agent-life-events');
 const { createAgentRecoverySessionPersistence } = require('./agent-recovery-sessions');
 const { createXiaoniAgentStackPersistence } = require('./xiaoni-agent-stack');
+const { createCcUsagePersistence } = require('./cc-usage');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const passiveRecallExtractor = require('./xiaoni-passive-recall-extractor');
 const { createAbExperimentPersistence } = require('./ab-experiment');
@@ -485,6 +486,10 @@ const xiaoniAgentStackPersistence = createXiaoniAgentStackPersistence({
   createSqlAdapter
 });
 
+const ccUsagePersistence = createCcUsagePersistence({
+  createSqlAdapter
+});
+
 const xiaoniActivityPersistence = createXiaoniActivityPersistence({
   getPrismaClient,
   createSqlAdapter,
@@ -558,6 +563,7 @@ module.exports = {
   ...agentLifeEventPersistence,
   ...agentRecoverySessionPersistence,
   ...xiaoniAgentStackPersistence,
+  ...ccUsagePersistence,
   ...xiaoniActivityPersistence,
   ...passiveRecallExtractor,
   ...abExperimentPersistence,

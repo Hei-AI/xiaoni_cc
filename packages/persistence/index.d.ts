@@ -1168,6 +1168,56 @@ export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, c
 export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
 export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
 export function attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
+export interface CcSubscriptionQuotaWindow {
+  utilization: number | null;
+  remaining: number | null;
+  status: string | null;
+  resetEpoch: number | null;
+  resetAt: string | null;
+}
+export interface CcSubscriptionQuotaSnapshot {
+  provider: string;
+  capturedAt: string | null;
+  modelName: string | null;
+  status: string | null;
+  resetAt: string | null;
+  fallbackPercentage: number | null;
+  overageStatus: string | null;
+  overageDisabledReason: string | null;
+  organizationId: string | null;
+  windows: {
+    fiveHour: CcSubscriptionQuotaWindow;
+    weekly: CcSubscriptionQuotaWindow;
+  };
+}
+export interface CcSubscriptionQuotaTimelinePoint {
+  timestamp: string | null;
+  util5h: number | null;
+  util7d: number | null;
+  status5h: string | null;
+  status7d: string | null;
+}
+export interface CcSubscriptionQuotaTimelineResult {
+  provider: string;
+  generatedAt: string;
+  window: { startTime: string; endTime: string };
+  limit: number;
+  truncated: boolean;
+  points: CcSubscriptionQuotaTimelinePoint[];
+}
+export interface CcSubscriptionQuotaSnapshotInput {
+  provider?: string;
+  sqlAdapter?: unknown;
+}
+export interface CcSubscriptionQuotaTimelineInput {
+  provider?: string;
+  startTime?: string | Date | null;
+  endTime?: string | Date | null;
+  limit?: number;
+  sqlAdapter?: unknown;
+}
+export function getCcSubscriptionQuotaSnapshot(input?: CcSubscriptionQuotaSnapshotInput, config?: DatabaseUrlConfig): Promise<CcSubscriptionQuotaSnapshot | null>;
+export function getCcSubscriptionQuotaTimeline(input?: CcSubscriptionQuotaTimelineInput, config?: DatabaseUrlConfig): Promise<CcSubscriptionQuotaTimelineResult>;
 export type AgentRuntimeLeaseRecoveryResult = {
   staleBefore: string;
   staleMs: number;
