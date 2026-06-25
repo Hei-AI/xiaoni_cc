@@ -36,6 +36,7 @@ export type PlaygroundProviderId =
   | 'openai'
   | 'codex'
   | 'codex-local'
+  | 'anthropic'
   | 'custom';
 
 export interface PlaygroundProviderConfig {

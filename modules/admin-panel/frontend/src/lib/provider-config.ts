@@ -29,6 +29,7 @@ export const PROVIDER_OPTIONS: Array<{
   { value: 'openai', label: 'OpenAI' },
   { value: 'codex', label: 'Codex' },
   { value: 'codex-local', label: 'Codex Local' },
+  { value: 'anthropic', label: 'Claude (Anthropic)' },
 ];
 
 export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, string[]> = {
@@ -57,6 +58,10 @@ export const PLAYGROUND_PROVIDER_MODEL_OPTIONS: Record<PlaygroundProviderId, str
     'gpt-5.5',
     'gpt-5-mini',
     'gpt-5.4',
+  ],
+  anthropic: [
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
   ],
   custom: [],
 };
@@ -112,6 +117,7 @@ function normalizeSupportedPlaygroundTools(value: unknown): Record<string, unkno
 export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (normalized === 'openai') return 'openai';
+  if (normalized === 'anthropic' || normalized === 'claude' || normalized === 'claude-code') return 'anthropic';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
   if (
     normalized === 'codex-local' ||
@@ -133,6 +139,9 @@ export function normalizePromptProvider(value: unknown): PlaygroundProviderId {
 
 export function inferProviderFromModelName(modelName?: string | null): PlaygroundProviderId {
   const normalized = (modelName || '').trim().toLowerCase();
+  if (normalized.startsWith('claude') || normalized.includes('claude-')) {
+    return 'anthropic';
+  }
   if (
     normalized.includes('codex') ||
     normalized === 'gpt-5-mini' ||

@@ -193,6 +193,7 @@ function stringify(value: unknown): string {
 function normalizeProvider(value?: string | null): PlaygroundProviderConfig['model']['provider'] {
   const normalized = (value || '').trim().toLowerCase();
   if (normalized === 'openai') return 'openai';
+  if (normalized === 'anthropic' || normalized === 'claude' || normalized === 'claude-code') return 'anthropic';
   if (normalized === 'codex' || normalized === 'openai-codex') return 'codex';
   if (
     normalized === 'codex-local' ||
@@ -212,6 +213,8 @@ function defaultModelForProvider(provider: PlaygroundProviderConfig['model']['pr
       return 'gpt-5.5';
     case 'codex':
       return 'gpt-5-mini';
+    case 'anthropic':
+      return 'claude-opus-4-6';
     case 'google-legacy':
       return 'gemini-2.5-flash';
     case 'google-gemini-cli':
