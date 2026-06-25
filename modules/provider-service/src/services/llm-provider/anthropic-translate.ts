@@ -295,6 +295,13 @@ function itemToRoleBlocks(
  * after the last breakpoint (uncached, cheap) and the durable prefix is reused.
  */
 function isDurableItem(item: OpenResponseInputItem): boolean {
+  // The agent marks the volatile current-turn trigger (fresh [当前时间] stamp every build)
+  // cache_volatile so the breakpoint never anchors on a per-turn-varying block — it lands
+  // on the last frozen (replayed) message instead, keeping the cached prefix byte-stable
+  // across the live build, the persisted replay, and the heartbeat fork.
+  if ((item as { cache_volatile?: unknown }).cache_volatile === true) {
+    return false;
+  }
   if (item.type === 'message') {
     return item.role !== 'developer' && item.role !== 'system';
   }

@@ -306,6 +306,43 @@ test('response with tool_use -> commentary phase + function_call item', () => {
   assert.equal(call.arguments, JSON.stringify({ cmd: 'ls' }));
 });
 
+test('cache breakpoint anchors on the last frozen message, not the volatile trigger', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    input: [
+      { type: 'message', role: 'user', content: '历史触发' },
+      { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '冻结回复' }] },
+      // current-turn trigger: fresh [当前时间] stamp, marked cache_volatile by the agent
+      { type: 'message', role: 'user', content: '[当前时间: 02:43:28] 当前触发', cache_volatile: true } as any
+    ]
+  };
+  const { body } = translateCanonicalToMessages(req);
+  const assistantMsg = body.messages.find((m) => m.role === 'assistant')!;
+  const lastMsg = body.messages[body.messages.length - 1]!;
+  // breakpoint lands on the frozen assistant reply...
+  assert.ok(assistantMsg.content.some((b) => (b as any).cache_control), 'frozen reply carries the breakpoint');
+  // ...NOT on the volatile current-turn trigger (the last message)
+  assert.equal(lastMsg.role, 'user');
+  assert.ok(!lastMsg.content.some((b) => (b as any).cache_control), 'volatile trigger has no breakpoint');
+  // the cache_volatile marker is internal — it must never reach the wire
+  body.messages.forEach((m) => m.content.forEach((b) => assert.equal((b as any).cache_volatile, undefined)));
+  assert.equal((lastMsg as any).cache_volatile, undefined);
+});
+
+test('cache breakpoint: without the marker, the trailing user turn still anchors (regression guard)', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    input: [
+      { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: 'a' }] },
+      { type: 'message', role: 'user', content: 'plain user turn' }
+    ]
+  };
+  const { body } = translateCanonicalToMessages(req);
+  const lastMsg = body.messages[body.messages.length - 1]!;
+  assert.equal(lastMsg.role, 'user');
+  assert.ok(lastMsg.content.some((b) => (b as any).cache_control), 'unmarked user turn keeps the breakpoint');
+});
+
 test('response: terminal end_turn with no text -> empty-content final_answer carrier', () => {
   // Model delivered everything via a tool earlier and ended the turn empty.
   const resp: AnthropicMessagesResponse = {
