@@ -306,6 +306,67 @@ test('response with tool_use -> commentary phase + function_call item', () => {
   assert.equal(call.arguments, JSON.stringify({ cmd: 'ls' }));
 });
 
+test('response: terminal end_turn with no text -> empty-content final_answer carrier', () => {
+  // Model delivered everything via a tool earlier and ended the turn empty.
+  const resp: AnthropicMessagesResponse = {
+    model: 'claude-opus-4-6',
+    stop_reason: 'end_turn',
+    content: [],
+    usage: { input_tokens: 10, output_tokens: 0 }
+  };
+  const canonical = translateMessagesResponseToCanonical(resp, 'claude-opus-4-6');
+  const msg = canonical.output.find((o) => o.type === 'message') as any;
+  assert.ok(msg, 'final_answer carrier emitted even with no text');
+  assert.equal(msg.phase, 'final_answer');
+  assert.deepEqual(msg.content, []);
+});
+
+test('response: terminal end_turn with only a thinking block -> final_answer carrier', () => {
+  const resp: AnthropicMessagesResponse = {
+    model: 'claude-opus-4-6',
+    stop_reason: 'end_turn',
+    content: [{ type: 'thinking', thinking: 'done', signature: 'SIG==' }],
+    usage: { input_tokens: 5, output_tokens: 1 }
+  };
+  const canonical = translateMessagesResponseToCanonical(resp, 'claude-opus-4-6');
+  const msg = canonical.output.find((o) => o.type === 'message') as any;
+  assert.ok(msg, 'final_answer carrier emitted alongside thinking');
+  assert.equal(msg.phase, 'final_answer');
+  assert.deepEqual(msg.content, []);
+});
+
+test('response: tool_use turn with no text does NOT synthesize a final_answer', () => {
+  const resp: AnthropicMessagesResponse = {
+    model: 'claude-opus-4-6',
+    stop_reason: 'tool_use',
+    content: [{ type: 'tool_use', id: 'toolu_1', name: 'send_in_private', input: { text: 'hi' } }],
+    usage: { input_tokens: 5, output_tokens: 3 }
+  };
+  const canonical = translateMessagesResponseToCanonical(resp, 'claude-opus-4-6');
+  const msg = canonical.output.find((o) => o.type === 'message');
+  assert.equal(msg, undefined, 'no assistant message for a mid-turn tool_use slice');
+  const call = canonical.output.find((o) => o.type === 'function_call') as any;
+  assert.equal(call.name, 'send_in_private');
+});
+
+test('round-trip: empty final_answer carrier is dropped from the Anthropic wire', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    input: [
+      { type: 'message', role: 'user', content: 'hi' },
+      { type: 'function_call', call_id: 'c1', name: 'send_in_private', arguments: '{"text":"yo"}' },
+      { type: 'function_call_output', call_id: 'c1', output: 'ok' },
+      // the synthesized terminal carrier — empty content
+      { type: 'message', role: 'assistant', phase: 'final_answer', content: [] }
+    ]
+  };
+  const { body } = translateCanonicalToMessages(req);
+  // user(hi) -> assistant(tool_use) -> user(tool_result). The empty carrier must NOT
+  // produce a trailing empty assistant turn (it would 400 / churn the cache prefix).
+  assert.equal(body.messages[body.messages.length - 1]!.role, 'user');
+  body.messages.forEach((m) => assert.ok(m.content.length > 0, 'no empty message turns on the wire'));
+});
+
 test('golden: thinking block survives response -> request round-trip byte-identical', () => {
   const resp: AnthropicMessagesResponse = {
     model: 'claude-opus-4-6',

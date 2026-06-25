@@ -675,6 +675,27 @@ export function translateMessagesResponseToCanonical(
       content: [{ type: 'output_text', text: assistantText }],
       status: 'completed'
     });
+  } else if (phase === 'final_answer' && !hasToolUse) {
+    // Terminal turn (end_turn / stop_sequence) that produced no text — the model
+    // delivered everything through a tool call (e.g. send_in_private) and ended the
+    // turn empty. `phase: final_answer` is the runtime loop's "turn settled" signal;
+    // with the OpenAI path it always rode on an explicit final message, but on
+    // Anthropic an empty end_turn has no text block to carry it. Without a carrier the
+    // signal is lost: the loop yields via the no-final-answer branch, leaving a tool
+    // result (not a final_answer) at the replay tail, so the subconscious-agent fork
+    // and self-continuation gates — which require a final_answer at the tail — never
+    // fire and the self-sustaining loop silently halts. Emit an empty-content carrier
+    // so the signal survives. Zero content blocks means the request translator
+    // (itemToRoleBlocks -> buildMessages drops blocks.length === 0) omits it from the
+    // wire entirely: no empty assistant turn is ever sent and the prompt-cache prefix
+    // is unchanged.
+    output.push({
+      type: 'message',
+      role: 'assistant',
+      phase,
+      content: [],
+      status: 'completed'
+    });
   }
 
   // tool calls
