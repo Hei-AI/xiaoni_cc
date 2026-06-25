@@ -183,7 +183,10 @@ services:
       - XIAONI_EXECUTOR_URL=http://qqbot-xiaoni-executor:8093
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
       - AI_MODEL_NAME=gpt-5-mini
-      - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-gpt-5.5}
+      - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-opus-4-6}
+      # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
+      # provider's connection retries room before the heartbeat gives up.
+      - AGENT_CACHE_HEARTBEAT_TIMEOUT_MS=${AGENT_CACHE_HEARTBEAT_TIMEOUT_MS:-60000}
       - AGENT_PRE_REPLY_MEMORY_REASONER_ENABLED=true
       - AGENT_PRE_REPLY_MEMORY_REASONER_MODEL=gpt-5.4
       - AGENT_PRESENT_SELF_RECONSTRUCTION_ENABLED=true
