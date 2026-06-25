@@ -95,6 +95,8 @@ RUN chmod +x /usr/local/bin/install-ca-from-volume.sh /app/docker-entrypoint.sh
 ENV NODE_ENV=production
 ENV HTTP_PORT=8092
 ENV LOG_LEVEL=info
+# IPv4-first: this network's IPv6 path drops TLS handshakes (see build stage note).
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
 
 EXPOSE 8092
 

@@ -77,6 +77,10 @@ RUN chmod +x /usr/local/bin/install-ca-from-volume.sh /app/docker-entrypoint.sh
 ENV NODE_ENV=production
 ENV HTTP_PORT=8091
 ENV LOG_LEVEL=info
+# IPv4-first: this network's IPv6 path drops TLS handshakes (same issue as the prisma
+# build). The Anthropic provider calls api.anthropic.com from here, so the runtime needs
+# it too, not just the build stages.
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
 
 EXPOSE 8090
 
