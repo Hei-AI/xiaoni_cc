@@ -28,6 +28,7 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
+  Gauge,
   ImagePlus,
   Loader2,
   Menu,
@@ -303,6 +304,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           icon: ClipboardList,
           description: '群聊/私聊对象列表与模拟投递',
           active: location.pathname === '/queue-management',
+        },
+        {
+          href: '/cc-account-usage',
+          label: 'CC 账号额度',
+          icon: Gauge,
+          description: '订阅 5h/周窗口额度与剩余',
+          active: location.pathname.startsWith('/cc-account-usage'),
         },
         {
           href: '/traffic',
