@@ -1155,6 +1155,34 @@ function UsageTooltip({ active, payload, label }: UsageTooltipProps) {
   );
 }
 
+// LLM Cost 与额度折线图共用 hover 同步：syncId 让一图的 tooltip/竖线同步到另一图。
+// 两图数据点时间戳不同，所以用最近邻按 timestampMs 对齐，而不是 recharts 默认的按 index。
+const USAGE_CHART_SYNC_ID = 'xiaoni-usage-x';
+
+function usageChartSyncMethod(
+  ticks: Array<{ value?: number | string }>,
+  data: { activeLabel?: number | string }
+): number | undefined {
+  const target = Number(data?.activeLabel);
+  if (!Array.isArray(ticks) || ticks.length === 0 || !Number.isFinite(target)) {
+    return undefined;
+  }
+  let bestIndex = 0;
+  let bestDelta = Infinity;
+  for (let index = 0; index < ticks.length; index += 1) {
+    const value = Number(ticks[index]?.value);
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    const delta = Math.abs(value - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
+}
+
 function XiaoniUsageObservatory({
   timeline,
   quotaTimeline,
@@ -1528,6 +1556,8 @@ function XiaoniUsageObservatory({
             <LineChart
               data={chartPoints}
               margin={{ top: 22, right: 12, bottom: 6, left: 0 }}
+              syncId={USAGE_CHART_SYNC_ID}
+              syncMethod={usageChartSyncMethod}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -1622,6 +1652,8 @@ function XiaoniUsageObservatory({
               <LineChart
                 data={quotaChartPoints}
                 margin={{ top: 8, right: 12, bottom: 6, left: 0 }}
+                syncId={USAGE_CHART_SYNC_ID}
+                syncMethod={usageChartSyncMethod}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
