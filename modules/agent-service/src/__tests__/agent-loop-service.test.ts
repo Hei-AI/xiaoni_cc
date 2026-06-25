@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, formatEast8Timestamp, prefixRuntimeTextWithEast8Time, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, formatEast8Timestamp, prefixRuntimeTextWithEast8Time, recoverRuntimeEnergy, resolveRuntimeReminderStampDate, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
@@ -507,6 +507,67 @@ test('runtime text timestamp helpers format local current time and avoid double 
     prefixRuntimeTextWithEast8Time('[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。', now),
     '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'
   );
+});
+
+test('resolveRuntimeReminderStampDate derives a stable stamp from the trace/run id so replay stays cache-warm', () => {
+  // The bug: the live request build and the persisted runtime_input stack item each
+  // stamp [当前时间] from their own new Date(), drifting ~1s apart. The originating run
+  // caches one value; every later run replays the other. That 1-byte drift sits inside
+  // the whole-body prompt-cache block, re-creating the entire replay body at each run
+  // boundary (cache 击穿). The stamp must be a pure function of the stable trace/run id.
+  const traceId = 'runtrace_1782400191350_92330dd2';
+  const runId = 'run_1782400191350_487feeb1';
+
+  // 1782400191350ms == 2026-06-25 23:09:51 (UTC+8) — must not depend on wall clock.
+  assert.equal(resolveRuntimeReminderStampDate({ traceId }).getTime(), 1782400191350);
+  assert.equal(formatEast8Timestamp(resolveRuntimeReminderStampDate({ traceId })), '2026-06-25 23:09:51');
+
+  // Two independent builds (live vs persist), spaced in wall-clock time, must produce
+  // the SAME stamp text — that is exactly what keeps the cached prefix byte-stable.
+  const liveStamp = resolveRuntimeReminderStampDate({ traceId });
+  const persistStamp = resolveRuntimeReminderStampDate({ traceId });
+  assert.equal(
+    prefixRuntimeTextWithEast8Time('【视线边缘：状态栏闪烁】', liveStamp),
+    prefixRuntimeTextWithEast8Time('【视线边缘：状态栏闪烁】', persistStamp)
+  );
+
+  // traceId wins; runId is the fallback; both encode the same epoch-ms.
+  assert.equal(resolveRuntimeReminderStampDate({ runId }).getTime(), 1782400191350);
+  assert.equal(resolveRuntimeReminderStampDate({ traceId, runId }).getTime(), 1782400191350);
+
+  // No parseable id -> fall back to wall clock (never throws, never NaN).
+  assert.ok(Number.isFinite(resolveRuntimeReminderStampDate({ traceId: 'recovery:session-xyz' }).getTime()));
+  assert.ok(Number.isFinite(resolveRuntimeReminderStampDate(null).getTime()));
+});
+
+test('buildInitialInput reuses precomputed current-turn items instead of rebuilding (build-once: 存档 == sent request)', () => {
+  // The actual structural fix: the current-turn reminder is built ONCE and the same
+  // array feeds both the sent request and the runtime_input 存档. buildInitialInput
+  // must consume the precomputed array verbatim on fresh_trigger and NOT rebuild a
+  // second (drifting) copy. This is what keeps cached bytes == replayed bytes.
+  const SENTINEL = 'SENTINEL_PRECOMPUTED_CURRENT_TURN';
+  const precomputed = [{
+    type: 'message',
+    role: 'developer',
+    content: [{ type: 'input_text', text: `<${SENTINEL}/>` }]
+  }] as any;
+
+  const withPrecomputed = buildInitialInput(
+    [], createQueuePayload(), createRuntimePrompt(),
+    [], null, null, null, 'fresh_trigger', false, null, null, [], null,
+    precomputed
+  );
+  const withoutPrecomputed = buildInitialInput([], createQueuePayload());
+
+  const withStr = JSON.stringify(withPrecomputed);
+  const withoutStr = JSON.stringify(withoutPrecomputed);
+
+  // precomputed is used verbatim, and the natural rebuild did NOT also run.
+  assert.match(withStr, new RegExp(SENTINEL));
+  assert.doesNotMatch(withStr, /视线边缘/);
+  // sanity: without precomputed, the real reminder is still built fresh.
+  assert.match(withoutStr, /视线边缘/);
+  assert.doesNotMatch(withoutStr, new RegExp(SENTINEL));
 });
 
 test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into instructions', () => {

@@ -405,6 +405,10 @@ type CoreMemoryCompressionCheckpoint = {
 
 type ContextBudgetPlan = {
   requestInput: OpenResponseInputItem[];
+  // The current-turn input items built ONCE for this trigger. The sent request and
+  // the runtime_input 存档 (persisted for next-run replay) both reuse this exact
+  // array instead of each rebuilding it, so the cached bytes == the replayed bytes.
+  currentTurnInputItems: OpenResponseInputItem[];
   selfContinuationInputItem: OpenResponseInputItem | null;
   summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
@@ -1525,6 +1529,35 @@ export function prefixRuntimeTextWithEast8Time(text: string, now: Date = new Dat
     return normalized;
   }
   return `[当前时间: ${formatEast8Timestamp(now)}]\n${normalized}`;
+}
+
+const RUNTIME_REMINDER_STAMP_ID_PATTERN = /(\d{12,})/;
+
+/**
+ * Resolve the [当前时间] stamp for a durable runtime reminder from the trace/run id's
+ * embedded epoch-ms, NOT a per-call `new Date()`.
+ *
+ * The live request build and the persisted runtime_input stack item each call
+ * buildCurrentTurnInputItems independently (live ~at run start, persist a beat later),
+ * so a wall-clock stamp drifts up to ~1s between them. The originating run caches the
+ * live value; every later run replays the persisted value. That 1-byte drift sits
+ * INSIDE the single whole-body prompt-cache block (the cache breakpoint lands on the
+ * last durable message), so the entire ~255K replay body cache-misses at each run
+ * boundary (cache 击穿). Deriving the stamp from the stable trace/run id makes live,
+ * persist, and replay byte-identical, keeping the prefix warm across runs.
+ */
+export function resolveRuntimeReminderStampDate(
+  source: { traceId?: string | null; runId?: string | null } | null | undefined
+): Date {
+  const candidate = source?.traceId || source?.runId || '';
+  const match = typeof candidate === 'string' ? candidate.match(RUNTIME_REMINDER_STAMP_ID_PATTERN) : null;
+  if (match) {
+    const ms = Number(match[1]);
+    if (Number.isFinite(ms) && ms > 0) {
+      return new Date(ms);
+    }
+  }
+  return new Date();
 }
 
 function stripRuntimeTextEast8TimePrefix(text: string) {
@@ -2684,8 +2717,8 @@ function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>,
   ].join('\n');
 }
 
-function formatSystemReminderBlock(body: string) {
-  return formatTaggedBlock('system_reminder', {}, prefixRuntimeTextWithEast8Time(body));
+function formatSystemReminderBlock(body: string, now: Date = new Date()) {
+  return formatTaggedBlock('system_reminder', {}, prefixRuntimeTextWithEast8Time(body, now));
 }
 
 function extractTaggedBlockBody(content: string, tagName: string) {
@@ -2835,10 +2868,10 @@ function renderSubconsciousForkToolRestrictionReminder() {
   return formatSystemReminderBlock(readPromptSnippet('subconscious_fork_tool_restriction_reminder.md'));
 }
 
-function renderSubconsciousAgentNotify(finalAnswerText: string) {
+function renderSubconsciousAgentNotify(finalAnswerText: string, now: Date = new Date()) {
   return prefixRuntimeTextWithEast8Time(renderPromptSnippet('subconscious_agent_notify.md', {
     SUBCONSCIOUS_FINAL_ANSWER: finalAnswerText
-  }));
+  }), now);
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
@@ -3065,7 +3098,7 @@ function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   return formatSystemReminderBlock(renderPromptSnippet('phone_notification_reminder.md', {
     UNREAD_DELTA: unreadDelta,
     DIRECT_CUE_LINES: directCueLines.join('\n')
-  }));
+  }), resolveRuntimeReminderStampDate(queueMessage));
 }
 
 function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']) {
@@ -3095,7 +3128,7 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
     emptyOptionalPlaceholders
   );
   const body = renderPromptTemplateText(template, variables).trimEnd();
-  return formatSystemReminderBlock(body);
+  return formatSystemReminderBlock(body, resolveRuntimeReminderStampDate(queueMessage));
 }
 
 function renderImageTaskPendingStatusText(params: {
@@ -3179,7 +3212,7 @@ function renderAttentionLeaseReminder(queueMessage: QueueMessageRecord['payload'
   return formatSystemReminderBlock(renderPromptSnippet('attention_lease_reminder.md', {
     CHAT_LABEL: chatLabel,
     ...buildAttentionLeaseTemplateVariables(queueMessage)
-  }));
+  }), resolveRuntimeReminderStampDate(queueMessage));
 }
 
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
@@ -3196,7 +3229,10 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
     return renderAttentionLeaseReminder(queueMessage);
   }
   const reminder = getSystemReminderText(queueMessage);
-  return formatSystemReminderBlock(reminder || readPromptSnippet('system_reminder_fallback.md'));
+  return formatSystemReminderBlock(
+    reminder || readPromptSnippet('system_reminder_fallback.md'),
+    resolveRuntimeReminderStampDate(queueMessage)
+  );
 }
 
 function renderSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
@@ -3207,7 +3243,9 @@ function renderSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['
   const finalAnswerText = typeof queueMessage.rawPayload?.final_answer_text === 'string'
     ? queueMessage.rawPayload.final_answer_text.trim()
     : '';
-  return finalAnswerText ? renderSubconsciousAgentNotify(finalAnswerText) : '';
+  return finalAnswerText
+    ? renderSubconsciousAgentNotify(finalAnswerText, resolveRuntimeReminderStampDate(queueMessage))
+    : '';
 }
 
 function buildQueueMessagePayloadForBatchMessage(
@@ -5716,6 +5754,7 @@ export class AgentLoopService {
     const contextBudgetTurns: ContextBudgetTurnRecord[] = [];
     let budgetPlan: ContextBudgetPlan = {
       requestInput: [],
+      currentTurnInputItems: [],
       selfContinuationInputItem: null,
       summarySourceInput: null,
       retainedHistory: [],
@@ -5939,7 +5978,8 @@ export class AgentLoopService {
             buildRuntimeInputStackItem({
               queueMessage: claimed.payload,
               runId: claimed.id,
-              runtimePrompt
+              runtimePrompt,
+              precomputedInputItems: claimedInputItems
             }) as Record<string, unknown>
           ]
         });
@@ -5976,7 +6016,8 @@ export class AgentLoopService {
             buildRuntimeInputStackItem({
               queueMessage: payload,
               runId: queueMessage.id,
-              runtimePrompt
+              runtimePrompt,
+              precomputedInputItems: budgetPlan.currentTurnInputItems
             }) as Record<string, unknown>
           ]
         });
@@ -7694,6 +7735,16 @@ export class AgentLoopService {
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
+    // Build the current-turn reminder ONCE. The sent request (below, incl. the
+    // anchored variant) and the runtime_input 存档 (processRuntimeFrame persist)
+    // both reuse this exact array. Previously each rebuilt it via its own
+    // new Date(), drifting the [当前时间] stamp ~1s, so the next run replayed
+    // bytes that didn't match what this run cached -> whole-body cache 击穿 at
+    // every run boundary. The compression fork builds its own input (different
+    // ephemeral agent, never replayed) and intentionally does NOT share this.
+    const currentTurnInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
+      .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
+
     const appendedSelfContinuationInputItems: OpenResponseInputItem[] = [];
     const requestInput = buildLoopRequestInput({
       history: initialRetainedHistory,
@@ -7708,7 +7759,8 @@ export class AgentLoopService {
       triggerInputMode,
       appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
       appendedSelfContinuationInputItems,
-      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
+      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
+      precomputedCurrentTurnInputItems: currentTurnInputItems
     });
     const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
     const estimate = await estimateLoopInputTokens({
@@ -7720,6 +7772,7 @@ export class AgentLoopService {
     if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
       return {
         requestInput,
+        currentTurnInputItems,
         selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
@@ -7743,6 +7796,7 @@ export class AgentLoopService {
     if (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0) {
       return {
         requestInput,
+        currentTurnInputItems,
         selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
@@ -7781,6 +7835,7 @@ export class AgentLoopService {
     if (!compressionPoint) {
       return {
         requestInput,
+        currentTurnInputItems,
         selfContinuationInputItem,
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
@@ -7882,13 +7937,15 @@ export class AgentLoopService {
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
         appendedSelfContinuationInputItems: rebuiltSelfContinuation,
         loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
-        cacheAnchorAfterConversationId: compressionHeadBoundaryConversationId
+        cacheAnchorAfterConversationId: compressionHeadBoundaryConversationId,
+        precomputedCurrentTurnInputItems: currentTurnInputItems
       });
       anchoredSelfContinuationInputItem = rebuiltSelfContinuation[0] ?? selfContinuationInputItem;
     }
 
     return {
       requestInput: anchoredRequestInput,
+      currentTurnInputItems,
       selfContinuationInputItem: anchoredSelfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
@@ -11101,12 +11158,15 @@ function buildLoopRequestInput(params: {
   appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
   cacheAnchorAfterConversationId?: number | null;
+  // When provided, the fresh_trigger current-turn items reuse this exact array
+  // instead of rebuilding, so the sent request and the 存档 stay byte-identical.
+  precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterConversationId ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterConversationId ?? null, params.precomputedCurrentTurnInputItems ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterConversationId ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterConversationId ?? null, params.precomputedCurrentTurnInputItems ?? null),
     ...params.loopContinuation
   ];
 }
@@ -11420,8 +11480,15 @@ function buildRuntimeInputStackItem(params: {
   queueMessage: QueueMessageRecord['payload'];
   runId: string;
   runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'>;
+  // The current-turn items already built for the sent request. When provided the
+  // 存档 reuses these exact bytes (deep-copied so the persisted snapshot can't
+  // share a mutable ref with the live request) instead of rebuilding with a fresh
+  // clock. Falls back to a rebuild only for callers that have nothing prebuilt.
+  precomputedInputItems?: OpenResponseInputItem[];
 }) {
-  const currentInputItems = buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt)
+  const currentInputItems = (params.precomputedInputItems
+    ? (JSON.parse(JSON.stringify(params.precomputedInputItems)) as OpenResponseInputItem[])
+    : buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt))
     .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
   return {
     eventId: `stack:${params.runId || params.queueMessage.traceId}:runtime-input`,
@@ -11536,7 +11603,8 @@ export function buildInitialInput(
   runtimeEnergyState: RuntimeEnergyState | null = null,
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
-  cacheAnchorAfterConversationId: number | null = null
+  cacheAnchorAfterConversationId: number | null = null,
+  precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -11618,7 +11686,7 @@ export function buildInitialInput(
   items.push(...inputItemsBeforeCurrentTurn);
 
   if (triggerInputMode === 'fresh_trigger') {
-    items.push(...buildCurrentTurnInputItems(queueMessage, runtimePrompt));
+    items.push(...(precomputedCurrentTurnInputItems ?? buildCurrentTurnInputItems(queueMessage, runtimePrompt)));
   }
   if (developerContextParts.dynamicContext) {
     items.push({
