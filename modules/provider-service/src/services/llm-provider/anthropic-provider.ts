@@ -19,6 +19,7 @@ import { AIConfig } from '../../types';
 import { logger } from '../../utils/logger';
 import { buildTraceHeaders } from '../../utils/trace-headers';
 import { cloneValue } from './helpers';
+import { codexPromptCacheAdmissionGate } from './codex-prompt-cache-gate';
 import {
   buildClaudeHeaders,
   CLAUDE_API_BASE_URL,
@@ -198,6 +199,34 @@ export class AnthropicProvider implements LLMProvider {
     const requestUrl = `${this.baseUrl}${CLAUDE_MESSAGES_PATH}`;
     const traceHeaders = buildTraceHeaders(input.context);
     const timeout = input.providerConfig?.performance.timeout || this.timeoutMs || DEFAULT_LLM_RESPONSE_TIMEOUT_MS;
+
+    // Prefix-cache admission gate (Claude parity with the Codex path). Anthropic has
+    // no prompt_cache_key — cache identity is purely content-prefix + manual
+    // breakpoints + 5min TTL. When the main loop and its forks (which share the same
+    // tools/system/history prefix) fire concurrently while that prefix is still cold,
+    // they each cold-prefill and duplicate-write instead of one warming it for the
+    // rest. The gate (keyed on model + stable-prefix-hash) serializes same-prefix
+    // requests so one warms the cache, then the others read it. Forks/heartbeat/
+    // subconscious run as background priority; the interactive main loop bypasses
+    // after a bounded wait. The gate keys off the canonical request (which still
+    // carries prompt_cache_key=xiaoni:global), not the translated Messages body.
+    const admission = await codexPromptCacheAdmissionGate.admit({
+      payload: input.request as unknown as Record<string, any>,
+      executionMode: typeof traceHeaders['x-execution-mode'] === 'string'
+        ? traceHeaders['x-execution-mode']
+        : null
+    });
+    if (admission.enabled && admission.waitMs > 0) {
+      this.moduleLogger.info('Anthropic prompt cache admission gate released request', {
+        bucketKey: admission.bucketKey,
+        waitMs: admission.waitMs,
+        queueDepth: admission.queueDepth,
+        priority: admission.priority,
+        bypassed: admission.bypassed,
+        llmCallId: input.context?.llmCallId || null,
+        executionMode: traceHeaders['x-execution-mode'] || null
+      });
+    }
 
     let refreshedOnce = false;
     let attempt = 0;
