@@ -17,6 +17,7 @@ import { createPlaygroundRoutes } from './routes/playground-routes';
 import { createTopicLabRoutes } from './routes/topic-lab-routes';
 import { createImageLabRoutes } from './routes/image-lab-routes';
 import { createAgentRuntimeRoutes } from './routes/agent-runtime-routes';
+import { createCcUsageRoutes } from './routes/cc-usage-routes';
 import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
 
@@ -147,6 +148,8 @@ async function startServer() {
   app.use('/api', createImageLabRoutes(database, logger));       // Image generation/edit proxy APIs
   logger.info('🔧 Registering agent runtime routes...');
   app.use('/api', createAgentRuntimeRoutes(database, logger));     // Runtime task/media observability APIs
+  logger.info('🔧 Registering CC usage routes...');
+  app.use('/api', createCcUsageRoutes(database, logger));          // CC subscription quota (read-only)
 
   logger.info('🔧 Registering inbox routes...');
   app.use('/api/inbox', inboxRoutes);
