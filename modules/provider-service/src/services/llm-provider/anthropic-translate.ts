@@ -35,7 +35,8 @@ import type {
 } from './types';
 
 const ANTHROPIC_THINKING_MARKER = '__anthropic_thinking__';
-const DEFAULT_MAX_TOKENS = 8192;
+const ANTHROPIC_REDACTED_MARKER = '__anthropic_redacted_thinking__';
+const DEFAULT_MAX_TOKENS = 16000;
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20260209';
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 
@@ -48,7 +49,8 @@ export type AnthropicContentBlock =
   | { type: 'image'; source: AnthropicImageSource }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, any> }
   | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[]; is_error?: boolean }
-  | { type: 'thinking'; thinking: string; signature: string };
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string };
 
 export interface AnthropicMessage {
   role: 'user' | 'assistant';
@@ -152,14 +154,26 @@ function functionCallOutputToToolResult(
   return { type: 'tool_result', tool_use_id: callId, content: '' };
 }
 
-function decodeAnthropicThinking(encrypted?: string): { thinking: string; signature: string } | null {
+/**
+ * Decode a stored reasoning item back into the original Anthropic block
+ * (thinking | redacted_thinking). Returns null for non-anthropic reasoning
+ * items (e.g. legacy OpenAI reasoning) so they are dropped on replay.
+ */
+function decodeAnthropicReasoning(encrypted?: string): AnthropicContentBlock | null {
   if (typeof encrypted !== 'string' || encrypted.length === 0) {
     return null;
   }
   try {
     const parsed = JSON.parse(encrypted);
     if (parsed && parsed[ANTHROPIC_THINKING_MARKER] === true && typeof parsed.signature === 'string') {
-      return { thinking: typeof parsed.thinking === 'string' ? parsed.thinking : '', signature: parsed.signature };
+      return {
+        type: 'thinking',
+        thinking: typeof parsed.thinking === 'string' ? parsed.thinking : '',
+        signature: parsed.signature
+      };
+    }
+    if (parsed && parsed[ANTHROPIC_REDACTED_MARKER] === true && typeof parsed.data === 'string') {
+      return { type: 'redacted_thinking', data: parsed.data };
     }
   } catch {
     // not an anthropic-native reasoning item
@@ -213,20 +227,40 @@ function itemToRoleBlocks(
     if (!thinkingEnabled) {
       return null; // drop thinking when this request runs without thinking
     }
-    const decoded = decodeAnthropicThinking(item.encrypted_content);
+    const decoded = decodeAnthropicReasoning(item.encrypted_content);
     if (!decoded) {
       return null; // not anthropic-native (e.g. legacy OpenAI reasoning) -> drop
     }
-    return { role: 'assistant', blocks: [{ type: 'thinking', thinking: decoded.thinking, signature: decoded.signature }] };
+    return { role: 'assistant', blocks: [decoded] };
   }
   return null; // item_reference and unknown -> drop
+}
+
+/**
+ * Durable items persist into replay history; volatile items (developer / system
+ * runtime reminders) are one-shot and re-appended fresh each turn. The cache
+ * breakpoint must land on the last DURABLE block so the volatile tail stays
+ * after the last breakpoint (uncached, cheap) and the durable prefix is reused.
+ */
+function isDurableItem(item: OpenResponseInputItem): boolean {
+  if (item.type === 'message') {
+    return item.role !== 'developer' && item.role !== 'system';
+  }
+  return true;
+}
+
+interface BlockRef {
+  msgIdx: number;
+  blockIdx: number;
 }
 
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean
-): AnthropicMessage[] {
+): { messages: AnthropicMessage[]; lastDurable: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
+  let lastDurable: BlockRef | null = null;
+
   for (const item of input) {
     const mapped = itemToRoleBlocks(item, thinkingEnabled);
     if (!mapped || mapped.blocks.length === 0) {
@@ -238,8 +272,22 @@ function buildMessages(
     } else {
       messages.push({ role: mapped.role, content: [...mapped.blocks] });
     }
+    if (isDurableItem(item)) {
+      const msgIdx = messages.length - 1;
+      lastDurable = { msgIdx, blockIdx: messages[msgIdx]!.content.length - 1 };
+    }
   }
-  return messages;
+
+  // Anthropic requires the first message to be 'user'. In practice the leading
+  // <CAPABILITIES> developer block already maps to user; this is a safety net.
+  if (messages.length > 0 && messages[0]!.role === 'assistant') {
+    messages.unshift({ role: 'user', content: [{ type: 'text', text: '(对话开始)' }] });
+    if (lastDurable) {
+      lastDurable = { msgIdx: lastDurable.msgIdx + 1, blockIdx: lastDurable.blockIdx };
+    }
+  }
+
+  return { messages, lastDurable };
 }
 
 interface ToolPlan {
@@ -341,20 +389,22 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
   return { tools, toolChoice: { type: 'auto' }, forced: false };
 }
 
-function placeCacheBreakpoints(body: AnthropicMessagesRequest): void {
-  // breakpoint 1: end of system (caches tools + system together)
+function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: BlockRef | null): void {
+  // breakpoint 1: end of system (caches tools + system together) — stable prefix
   if (body.system && body.system.length > 0) {
     const lastSystem = body.system[body.system.length - 1];
     if (lastSystem) {
       lastSystem.cache_control = { type: 'ephemeral' };
     }
   }
-  // breakpoint 2: last content block of the last message (caches history prefix)
-  const lastMessage = body.messages[body.messages.length - 1];
-  if (lastMessage && lastMessage.content.length > 0) {
-    const lastBlock = lastMessage.content[lastMessage.content.length - 1];
-    if (lastBlock && (lastBlock.type === 'text')) {
-      lastBlock.cache_control = { type: 'ephemeral' };
+  // breakpoint 2: end of the last DURABLE block (caches the replayable history
+  // prefix; the volatile developer/runtime-reminder tail stays uncached after it).
+  if (lastDurable) {
+    const message = body.messages[lastDurable.msgIdx];
+    const block = message?.content[lastDurable.blockIdx];
+    if (block) {
+      // cache_control is valid on any block type (text/image/tool_use/tool_result)
+      (block as { cache_control?: { type: 'ephemeral' } }).cache_control = { type: 'ephemeral' };
     }
   }
 }
@@ -377,7 +427,7 @@ export function translateCanonicalToMessages(
   // forks run deterministically without thinking.
   const thinkingEnabled = !fork && !plan.forced && plan.toolChoice?.type !== 'none';
 
-  const messages = buildMessages(normalizeInputItems(request.input), thinkingEnabled);
+  const { messages, lastDurable } = buildMessages(normalizeInputItems(request.input), thinkingEnabled);
 
   const body: AnthropicMessagesRequest = {
     model: options.model || request.model,
@@ -407,7 +457,7 @@ export function translateCanonicalToMessages(
     // Keep it omitted to avoid 400s on unknown keys.
   }
 
-  placeCacheBreakpoints(body);
+  placeCacheBreakpoints(body, lastDurable);
 
   return { body, thinkingEnabled };
 }
@@ -446,23 +496,55 @@ function encodeAnthropicThinking(thinking: string, signature: string): string {
   return JSON.stringify({ [ANTHROPIC_THINKING_MARKER]: true, thinking, signature });
 }
 
+/**
+ * The OpenAI path read a model-emitted `phase`; Anthropic encodes the same
+ * distinction in `stop_reason`:
+ *   end_turn  -> final_answer (model finished, nothing pending)
+ *   tool_use  -> commentary   (model paused to act, will continue)
+ *   max_tokens-> commentary   (truncated; not a finished answer)
+ */
+function resolvePhaseFromStopReason(
+  stopReason: string | undefined,
+  hasToolUse: boolean
+): 'commentary' | 'final_answer' {
+  switch (stopReason) {
+    case 'end_turn':
+    case 'stop_sequence':
+      return 'final_answer';
+    case 'tool_use':
+    case 'max_tokens':
+    case 'pause_turn':
+      return 'commentary';
+    default:
+      // refusal / unknown -> fall back to tool-use presence
+      return hasToolUse ? 'commentary' : 'final_answer';
+  }
+}
+
 export function translateMessagesResponseToCanonical(
   resp: AnthropicMessagesResponse,
   fallbackModel: string
 ): OpenResponseResource {
   const blocks = Array.isArray(resp.content) ? resp.content : [];
   const hasToolUse = blocks.some((b) => b.type === 'tool_use');
-  const phase: 'commentary' | 'final_answer' = hasToolUse ? 'commentary' : 'final_answer';
+  const phase = resolvePhaseFromStopReason(resp.stop_reason, hasToolUse);
 
   const output: OpenResponseOutputItem[] = [];
   const textParts: string[] = [];
 
-  // reasoning items first (Anthropic emits thinking before text/tool_use)
+  // reasoning items first (Anthropic emits thinking before text/tool_use).
+  // Both thinking and redacted_thinking must round-trip so full-content replay
+  // is lossless on the same model.
   for (const block of blocks) {
     if (block.type === 'thinking' && typeof block.signature === 'string') {
       output.push({
         type: 'reasoning',
         encrypted_content: encodeAnthropicThinking(block.thinking || '', block.signature)
+      });
+    } else if (block.type === 'redacted_thinking' && typeof (block as any).data === 'string') {
+      output.push({
+        type: 'reasoning',
+        encrypted_content: JSON.stringify({ [ANTHROPIC_REDACTED_MARKER]: true, data: (block as any).data })
       });
     }
   }
