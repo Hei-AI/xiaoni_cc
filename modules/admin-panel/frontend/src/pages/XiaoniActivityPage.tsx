@@ -1629,7 +1629,7 @@ function XiaoniUsageObservatory({
           role="region"
           aria-label="账号额度 chart"
           className={cn(
-            'h-[160px] rounded-md border border-border bg-background p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/25',
+            'h-72 rounded-md border border-border bg-background p-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/25',
             wheelZoomActive && 'border-primary/50 ring-2 ring-primary/15'
           )}
           onClickCapture={handleQuotaShellClick}
