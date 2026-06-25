@@ -10664,6 +10664,25 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     context: ToolExecutionContext = {}
   ) {
+    // Image generation is temporarily disabled during the Codex->Claude migration.
+    // The image path dispatches `codex_base_request` (a clone of the current canonical
+    // turn) to the Codex image Responses endpoint to reuse the main agent's prefix
+    // cache — but the main agent now runs on Claude, so that base request is Claude-
+    // shaped and the Codex reuse is moot/broken. Return a graceful "unavailable"
+    // result so the model tells the user it can't make images right now instead of
+    // queuing a broken task. Re-enable with XIAONI_IMAGE_TASK_ENABLED=true once the
+    // image path is ported to the Claude flow.
+    if (process.env.XIAONI_IMAGE_TASK_ENABLED !== 'true') {
+      void context;
+      return {
+        queued: false,
+        available: false,
+        artifact_available: false,
+        task_status: 'unavailable',
+        status_text: '作图功能当前临时不可用（迁移期间已停用），日后会恢复。请直接用文字告诉对方这次做不了图，不要反复重试本工具。'
+      };
+    }
+
     const requestedOperation = args.operation === 'edit' ? 'edit' : 'generate';
     const prompt = typeof args.prompt === 'string' && args.prompt.trim()
       ? args.prompt.trim()

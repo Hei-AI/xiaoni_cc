@@ -4114,6 +4114,7 @@ test('applyToolResultToLoopInput uses fresh runtime energy instead of prior JSON
 });
 
 test('requestImageTask normalizes edit without source image to image_generate', async () => {
+  process.env.XIAONI_IMAGE_TASK_ENABLED = 'true';
   const createdTasks: any[] = [];
   const service = new AgentLoopService({
     createRuntimeTask: async (input: any) => {
@@ -4148,6 +4149,7 @@ test('requestImageTask normalizes edit without source image to image_generate', 
 });
 
 test('requestImageTask keeps image_edit when a source image resolves', async () => {
+  process.env.XIAONI_IMAGE_TASK_ENABLED = 'true';
   const createdTasks: any[] = [];
   const service = new AgentLoopService({
     getMediaAssetById: async () => null,
@@ -4185,7 +4187,32 @@ test('requestImageTask keeps image_edit when a source image resolves', async () 
   assertPendingImageTaskContract(result, 'task-edit');
 });
 
+test('requestImageTask returns unavailable by default while image generation is disabled', async () => {
+  delete process.env.XIAONI_IMAGE_TASK_ENABLED;
+  const createdTasks: any[] = [];
+  const service = new AgentLoopService({
+    createRuntimeTask: async (input: any) => {
+      createdTasks.push(input);
+      return 'should-not-create';
+    },
+    getMediaAssetByTag: async () => null
+  } as any);
+
+  const result = await (service as any).requestImageTask({
+    operation: 'generate',
+    prompt: '画只猫',
+    target_description: '给Bob画猫'
+  }, createQueuePayload());
+
+  assert.equal(result.queued, false);
+  assert.equal(result.available, false);
+  assert.equal(result.task_status, 'unavailable');
+  assert.match(result.status_text, /作图功能当前临时不可用/);
+  assert.equal(createdTasks.length, 0); // no runtime task queued when disabled
+});
+
 test('requestImageTask resolves hash media ids globally before tag lookup', async () => {
+  process.env.XIAONI_IMAGE_TASK_ENABLED = 'true';
   const createdTasks: any[] = [];
   const idLookups: Array<{ sessionKey: string; assetId: string }> = [];
   const service = new AgentLoopService({
