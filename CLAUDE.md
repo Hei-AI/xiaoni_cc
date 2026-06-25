@@ -85,6 +85,31 @@ packages/persistence          共享 PostgreSQL 持久化层，Prisma schema + C
 
 NapCat 独立部署，入口是 `docker-compose.napcat.yml`，不在主 `docker-compose.yml` 里。
 
+### Runtime Truth（事实链路，来自 `AGENTS.md`）
+
+- QQ 入站事实链路：`NapCat -> provider-service -> agent_inbound_messages`；小腻用 `$qq-usage` 看未读时读的是 `agent_inbound_messages` 的 inbox/window，**不是** `agent_queue_messages`。
+- `agent_queue_messages` 是 Notify Bucket 的持久化门铃，不是小腻的 QQ app 未读列表、认知边界或长期运行凭证。
+- 底层事实源是追加式 Xiaoni agent stack：`agent_stack_items`（连续可回放上下文）、`llm_request_slices`（真实 LLM 请求 + provider wire payload，由 provider-service / provider 写入）、`tool_executions`（工具执行）；agent-service 只组装 canonical request 并回填 slice 的 stack index。细节看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。
+- 聊天对象 IM 入口 `is_enabled=0` 是 provider-service 侧硬开关：仍写 QQ inbox，但不写 `phone_notification` 到 Notify Bucket，因此不唤醒主 loop；`auto_reply_enabled` 只是兼容/派生字段。
+- 出站：`agent-service -> provider-service -> NapCat`；`exec_command` 走 `agent-service -> xiaoni-executor`；管理端 `admin-frontend -> admin-backend -> provider-service / agent-service / PostgreSQL`。
+
+### Where To Debug（先定位层，再进文档）
+
+- 页面/交互/浏览器请求失败 → `modules/admin-panel/frontend`（`docs/AGENTS_FRONTEND.md`）。
+- API 500 / 数据不一致 / 队列 / Prompt / 会话 → `modules/admin-panel/backend`，涉及共享表再看 `packages/persistence`（`docs/AGENTS_BACKEND_DATA.md`）。
+- provider debug / NapCat 收发 / embeddings / image provider / inbound queue 写入 / timeline → `modules/provider-service`。
+- agent run / 行为判断 / delivery state / self continuation / life event 投影 / 后台任务 → `modules/agent-service`。
+- `exec_command` / session / 命令审计 / git archive → `modules/xiaoni-executor`（`docs/AGENTS_XIAONI_EXECUTOR.md`）。
+- 部署 / 认证 / token / 本机访问 → `docs/AGENTS_SECRETS_LOCAL_STATE.md`。
+- 默认只修真实生效的层，不要围绕错误契约堆适配层。
+
+## Team Collaboration（worktree 协作铁律，来自 `AGENTS.md`）
+
+- 改代码前先确认当前目录是本任务专用的 git worktree；用 `git status --short --branch` + `git worktree list` 确认位置，不要在共享主工作区直接改。任务 worktree 完成后默认走 PR / merge / cherry-pick 合回；废弃/实验 worktree 要标记，避免误整分支合入。
+- **在 worktree 中工作时，数据库必须连主工作区主栈 DB**。不要让 compose volume、`DATABASE_URL`、本地脚本或测试容器隐式创建/连接 worktree 私有 DB；涉及 DB 的启动、重建、迁移、dump、restore 前先确认 Postgres 挂载和连接目标指向 `/home/liahua/IdeaProject/qq_bot` 主工作区。
+- 重启/构建/部署 compose 托管服务前，先确认没有其他同事正在操作同一服务（看协同记录 + `docker compose ps`）；只操作当前任务需要的目标服务，不要顺手重启整套主栈。
+- `qqbot-xiaoni-executor` 和 `qqbot-embedding-server` 是主栈运行容器，不是 worktree 测试容器；清理 worktree 或修 compose label 时禁止顺手重启/重建/替换它们，除非任务明确涉及或用户明确要求。
+
 ## Key Constraints
 
 **依赖管理**：新增依赖只加到对应模块的 `package.json`，不要加到根目录。
