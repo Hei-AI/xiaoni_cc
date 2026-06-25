@@ -1065,7 +1065,7 @@ test('executeAgentTurn sends the standard canonical request shape to provider-se
     prompt_name: 'agent_loop_v1'
   });
   assert.equal(requestBody.canonicalRequest.prompt_cache_key, 'xiaoni:test-global');
-  assert.equal(requestBody.canonicalRequest.prompt_cache_retention, '24h');
+  assert.equal(requestBody.canonicalRequest.prompt_cache_retention, undefined);
   assert.equal(requestBody.parameters.advanced_config.generationConfig.timeout, agentConfig.mainAgentTurnTimeoutMs);
   assert.equal(Object.prototype.hasOwnProperty.call(requestBody.canonicalRequest, 'previous_response_id'), false);
 });
@@ -3042,7 +3042,7 @@ test('executeAgentTurn forwards bound prompt metadata and prompt-specific model 
   assert.equal(calls[0].model, 'gpt-5.4');
   assert.equal(calls[0].canonicalRequest.metadata.prompt_id, 'prompt-1');
   assert.equal(calls[0].canonicalRequest.prompt_cache_key, 'xiaoni:test-global');
-  assert.equal(calls[0].canonicalRequest.prompt_cache_retention, '24h');
+  assert.equal(calls[0].canonicalRequest.prompt_cache_retention, undefined);
   assert.deepEqual(calls[0].parameters, {
     model_config: {
       providerSpecific: {}
