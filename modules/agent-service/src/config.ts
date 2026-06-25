@@ -109,11 +109,11 @@ export const agentConfig = {
   queueTransientRetryBaseDelayMs,
   queueTransientRetryMaxDelayMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '300000', 10)),
-  promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '24h',
+  promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '',
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),
   cacheHeartbeatIntervalMs: Math.max(
     60 * 1000,
-    readIntegerEnv('AGENT_CACHE_HEARTBEAT_INTERVAL_MS', 5 * 60 * 1000)
+    readIntegerEnv('AGENT_CACHE_HEARTBEAT_INTERVAL_MS', 3 * 60 * 1000)
   ),
   cacheHeartbeatMaxOutputTokens: Math.max(
     1,
