@@ -18,24 +18,38 @@ import {
 export function createCcUsageRoutes(_database: DatabaseManager, logger: winston.Logger) {
   const router = express.Router();
 
+  // 与小腻行动流 LLM Cost (/api/xiaoni/action-stream/llm-usage) 共用同一份时间窗口契约：
+  // 预设 range（1h/6h/24h/7d/30d）按 now 回推；custom/all 走显式 start_time/end_time。
+  // 这样额度折线图和 LLM Cost 折线图能落在同一个 x 轴窗口里，方便对齐缓存击穿的跳变点。
+  const RANGE_MS: Record<string, number> = {
+    '1h': 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+  };
+
+  const firstStr = (value: unknown): string | undefined => {
+    if (Array.isArray(value)) {
+      return firstStr(value[0]);
+    }
+    return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  };
+
   const resolveTimeWindow = (range: unknown, startTime: unknown, endTime: unknown) => {
-    const normalizedRange = typeof range === 'string' ? range : '7d';
-    const now = Date.now();
-    if (normalizedRange === 'custom') {
+    const normalizedRange = firstStr(range) || '7d';
+    if (Object.prototype.hasOwnProperty.call(RANGE_MS, normalizedRange)) {
+      const now = Date.now();
       return {
-        startTime: typeof startTime === 'string' && startTime.trim() ? startTime : undefined,
-        endTime: typeof endTime === 'string' && endTime.trim() ? endTime : undefined,
+        startTime: new Date(now - RANGE_MS[normalizedRange]).toISOString(),
+        endTime: new Date(now).toISOString(),
       };
     }
-    switch (normalizedRange) {
-      case '24h':
-        return { startTime: new Date(now - 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
-      case '30d':
-        return { startTime: new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
-      case '7d':
-      default:
-        return { startTime: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(), endTime: undefined };
-    }
+    // custom / all：用显式窗口，缺省时由 persistence 兜底默认跨度
+    return {
+      startTime: firstStr(startTime),
+      endTime: firstStr(endTime),
+    };
   };
 
   // 当前额度快照（截至最后一次订阅请求）
