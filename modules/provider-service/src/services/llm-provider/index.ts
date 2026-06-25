@@ -1,5 +1,6 @@
 import { aiConfig } from '../../config';
 import { UnifiedLLMConfig } from '../../types';
+import { AnthropicProvider } from './anthropic-provider';
 import { CodexLocalProvider } from './codex-local-provider';
 import { CodexProvider } from './codex-provider';
 import { GeminiCliProvider } from './gemini-cli-provider';
@@ -26,6 +27,8 @@ export function createProviderClient(providerId: LLMProviderId): LLMProvider {
       return new CodexProvider(aiConfig);
     case 'codex-local':
       return new CodexLocalProvider(aiConfig);
+    case 'anthropic':
+      return new AnthropicProvider(aiConfig);
     case 'google':
     case 'google-legacy':
     case 'google-gemini-cli':

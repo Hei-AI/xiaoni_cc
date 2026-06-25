@@ -1,7 +1,7 @@
 import { UnifiedLLMConfig } from '../../types';
 
 export type ResolvedProviderConfig = {
-  provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local';
+  provider: 'google' | 'google-gemini-cli' | 'google-legacy' | 'openai' | 'codex' | 'codex-local' | 'anthropic';
   providerSpecific?: Record<string, any>;
 };
 
@@ -31,6 +31,9 @@ function normalizeProvider(value: unknown): ResolvedProviderConfig['provider'] |
   if (normalized === 'openai') {
     return 'openai';
   }
+  if (normalized === 'anthropic' || normalized === 'claude' || normalized === 'claude-code') {
+    return 'anthropic';
+  }
   if (normalized === 'codex' || normalized === 'openai-codex') {
     return 'codex';
   }
@@ -51,6 +54,10 @@ export function inferProviderFromModelName(modelName?: string): ResolvedProvider
 
   if (override) {
     return override;
+  }
+
+  if (normalized.startsWith('claude') || normalized.startsWith('anthropic/') || normalized.includes('claude-')) {
+    return 'anthropic';
   }
 
   if (

@@ -126,6 +126,7 @@ services:
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
       - ${HOME}/.codex:/root/.codex:ro
       - ${HOME}/.qqbot-local/codex-auth-profiles:/root/.qqbot-local/codex-auth-profiles
+      - ${HOME}/.claude:/root/.claude
       - ${HOME}/.gemini:/root/.gemini
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
     networks:

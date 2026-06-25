@@ -35,6 +35,14 @@ export const aiConfig: AIConfig = {
   codex_oauth_path: process.env.CODEX_OAUTH_PATH || undefined,
   codex_responses_path: process.env.CODEX_RESPONSES_PATH || undefined,
   codex_proxy_api_key: process.env.CODEX_PROXY_API_KEY || undefined,
+  anthropic_access_token: process.env.ANTHROPIC_OAUTH_ACCESS_TOKEN || undefined,
+  anthropic_refresh_token: process.env.ANTHROPIC_OAUTH_REFRESH_TOKEN || undefined,
+  anthropic_expires_at: process.env.ANTHROPIC_OAUTH_EXPIRES_AT || undefined,
+  anthropic_oauth_path: process.env.ANTHROPIC_OAUTH_PATH || undefined,
+  anthropic_base_url: process.env.ANTHROPIC_BASE_URL || undefined,
+  anthropic_client_version: process.env.ANTHROPIC_CLIENT_VERSION || undefined,
+  anthropic_beta: process.env.ANTHROPIC_BETA || undefined,
+  anthropic_billing_header: process.env.ANTHROPIC_BILLING_HEADER || undefined,
   authorized_user_id: Number.parseInt(process.env.AUTHORIZED_USER_ID || '85178516', 10),
   bot_qq_number: Number.parseInt(process.env.BOT_QQ_NUMBER || '1129974489', 10)
 };
