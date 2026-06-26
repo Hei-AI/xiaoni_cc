@@ -33,7 +33,7 @@ export const RECOVER_ENERGY_CLOCK_MAX_MINUTES = 120;
 export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   pressureFloor: 0.05,
   sleepTauMinutes: 252,
-  wakeTauMinutes: 1092,
+  wakeTauMinutes: 1920,
   wakePressureCeiling: 1,
   hardPressureCeiling: 1.6,
   hardMaxRecoveryMinutes: 480,
@@ -55,7 +55,7 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   circadianSleepPeakMinute: 300,
   circadianSleepGateAmplitude: 0.18,
   circadianNaturalWakeAmplitude: 0.06,
-  circadianWakeTauAmplitude: 0.35
+  circadianWakeTauAmplitude: 0.1
 };
 
 export const LEGACY_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {

@@ -226,7 +226,7 @@ test('awake homeostatic pressure accumulates from last sleep anchor', () => {
     events: []
   });
 
-  assert.ok(twoHours.projection.state.homeostaticPressure > 0.06);
+  assert.ok(twoHours.projection.state.homeostaticPressure > 0.04);
   assert.ok(twoHours.projection.state.homeostaticPressure < 0.11);
   assert.ok(fourHours.projection.state.homeostaticPressure > twoHours.projection.state.homeostaticPressure);
   assert.ok(eightHours.projection.state.homeostaticPressure > fourHours.projection.state.homeostaticPressure);

@@ -21,10 +21,10 @@ test('recover energy uses Xiaoni eight-hour two-process sleep cycle', () => {
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.hardMaxRecoveryMinutes, 480);
   assert.equal(recoverEnergyFullRecoveryMinutes(), 480);
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.sleepTauMinutes, 252);
-  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.wakeTauMinutes, 1092);
+  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.wakeTauMinutes, 1920);
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.actionDebtRecoveryTauMinutes, 360);
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.restCooldownTauMinutes, 180);
-  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.circadianWakeTauAmplitude, 0.35);
+  assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.circadianWakeTauAmplitude, 0.1);
   assert.equal(DEFAULT_RECOVER_ENERGY_POLICY.naturalWakePressure, 0.12);
 });
 
@@ -169,8 +169,8 @@ test('awake pressure uses paper-scale wake tau', () => {
   const fourHours = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 240 });
   const eightHours = computeAwakePressureAfterMinutes({ startPressure: 0.12, awakeMinutes: 480 });
 
-  assert.ok(thirtyFiveMinutes > 0.14 && thirtyFiveMinutes < 0.16);
-  assert.ok(twoHours > 0.20 && twoHours < 0.23);
+  assert.ok(thirtyFiveMinutes > 0.13 && thirtyFiveMinutes < 0.15);
+  assert.ok(twoHours > 0.16 && twoHours < 0.19);
   assert.ok(fourHours > twoHours);
   assert.ok(eightHours > fourHours);
 });
