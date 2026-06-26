@@ -98,7 +98,7 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
   assert.match(body.system?.[1]?.text || '', /Claude/);                       // identity cloak
   assert.equal(body.system?.[1]?.cache_control, undefined);                   // not the breakpoint
   assert.equal(body.system?.[2]?.text, 'You are Xiaoni.');                    // real instructions
-  assert.deepEqual(body.system?.[2]?.cache_control, { type: 'ephemeral' });
+  assert.deepEqual(body.system?.[2]?.cache_control, { type: 'ephemeral', ttl: '1h' });  // extended 1h cache TTL
 });
 
 test('every tool_use is immediately followed by its tool_result (Anthropic pairing)', () => {
