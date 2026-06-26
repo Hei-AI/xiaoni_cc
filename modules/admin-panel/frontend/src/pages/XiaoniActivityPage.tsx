@@ -115,10 +115,11 @@ function QuotaMiniBar({ label, win }: { label: string; win: CcQuotaWindow | unde
   const utilization = win?.utilization ?? null;
   const pct = utilization === null ? 0 : Math.round(utilization * 100);
   const barWidth = utilization === null ? 0 : Math.min(100, Math.max(pct, 2));
+  const resetAt = win?.resetAt ?? null;
   return (
     <div
       className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs shadow-sm"
-      title={`额度 ${label}${win?.status ? ` · ${win.status}` : ''}`}
+      title={`额度 ${label}${win?.status ? ` · ${win.status}` : ''}${resetAt ? ` · 重置 ${formatTimestamp(resetAt)}` : ''}`}
     >
       <span className="whitespace-nowrap font-medium text-muted-foreground">{label}</span>
       <div className="h-2 w-16 overflow-hidden rounded-full bg-muted sm:w-24">
@@ -128,6 +129,9 @@ function QuotaMiniBar({ label, win }: { label: string; win: CcQuotaWindow | unde
         />
       </div>
       <span className="tabular-nums text-foreground">{utilization === null ? '—' : `${pct}%`}</span>
+      {resetAt ? (
+        <span className="whitespace-nowrap text-muted-foreground">重置 {formatTimeOnly(resetAt)}</span>
+      ) : null}
     </div>
   );
 }
