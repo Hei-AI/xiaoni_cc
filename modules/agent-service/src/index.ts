@@ -68,6 +68,49 @@ app.post('/api/internal/runtime/cache-heartbeat', async (_req, res) => {
   }
 });
 
+app.post('/api/internal/runtime/core-memory-compression/trigger', async (_req, res) => {
+  try {
+    const result = await loopService.triggerManualCoreMemoryCompression();
+    res.json({
+      success: true,
+      result
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('Manual core memory compression trigger failed', { error: message });
+    res.status(500).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
+app.get('/api/internal/runtime/core-memory-compression/status', async (req, res) => {
+  try {
+    const raw = req.query.compression_covered_end_conversation_id;
+    const coveredEnd = Number(Array.isArray(raw) ? raw[0] : raw);
+    if (!Number.isFinite(coveredEnd)) {
+      res.status(400).json({
+        success: false,
+        error: 'compression_covered_end_conversation_id query param required'
+      });
+      return;
+    }
+    const result = await loopService.getCoreMemoryCompressionForkStatus(coveredEnd);
+    res.json({
+      success: true,
+      result
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('Core memory compression status check failed', { error: message });
+    res.status(500).json({
+      success: false,
+      error: message
+    });
+  }
+});
+
 app.post('/api/internal/runtime/prompt/reload', async (_req, res) => {
   try {
     const hadPendingReload = promptReloadPolicy.clearPendingReload();

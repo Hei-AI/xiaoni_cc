@@ -11538,3 +11538,107 @@ test('group loop no longer exposes recall_long_term_learning as a pre-reply tool
   assert.equal(recallTool, undefined);
   assert.ok(!withoutQqUsageTools(getAllowedToolNames(request.tool_choice)).includes('recall_long_term_learning'));
 });
+
+function buildManualCompressionStore(history: ReturnType<typeof createConversationTurn>[]) {
+  return {
+    getSessionReadCutoffState: async () => null,
+    listRecentTurns: async () => history,
+    getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null })
+  } as any;
+}
+
+function buildManualCompressionService(history: ReturnType<typeof createConversationTurn>[]) {
+  return new AgentLoopService(buildManualCompressionStore(history), {
+    resolveForQueueMessage: async () => createRuntimePrompt({
+      // Large window so the 35-turn history is well UNDER budget: this proves the
+      // manual trigger forces a compaction even though the auto/overflow gate would
+      // never fire here.
+      parameters: { model_config: { contextWindowTokens: 400000, maxOutputTokens: 1000 } }
+    })
+  } as any);
+}
+
+test('manual core memory compression forces a compaction past the keep window without token overflow', async () => {
+  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 1129974489,
+    groupId: null,
+    sessionKey: 'xiaoni:test-global',
+    userMessage: `manual history ${index + 1}`,
+    aiResponse: `manual os ${index + 1}`
+  }));
+  const service = buildManualCompressionService(history);
+  let startedFork = 0;
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork += 1;
+    return { tool_name: COMPRESS_CORE_MEMORY_TOOL };
+  };
+
+  const result = await service.triggerManualCoreMemoryCompression();
+
+  // routed through the real scheduleCoreMemoryCompressionFork -> spawned exactly one fork
+  assert.equal(startedFork, 1);
+  assert.equal(result.status, 'scheduled');
+  assert.equal(result.triggered, true);
+  assert.equal(result.retainedHistoryTurns, 35);
+  // keep last HISTORY_COMPACT_KEEP (30): cutoff at id 5 (index 35-30-1=4), covered to newest id 35
+  assert.equal(result.compressionCoveredEndConversationId, 35);
+  assert.equal(result.readCutoffAfterConversationId, 5);
+});
+
+test('manual core memory compression is a no-op when history is at or under the keep window', async () => {
+  const history = Array.from({ length: 30 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 1129974489,
+    groupId: null,
+    sessionKey: 'xiaoni:test-global',
+    userMessage: `short ${index + 1}`,
+    aiResponse: `os ${index + 1}`
+  }));
+  const service = buildManualCompressionService(history);
+  let startedFork = 0;
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork += 1;
+    return {};
+  };
+
+  const result = await service.triggerManualCoreMemoryCompression();
+
+  assert.equal(startedFork, 0);
+  assert.equal(result.status, 'nothing_to_compress');
+  assert.equal(result.triggered, false);
+  assert.equal(result.retainedHistoryTurns, 30);
+});
+
+test('manual core memory compression delegates to the single-flight fork scheduler', async () => {
+  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 1129974489,
+    groupId: null,
+    sessionKey: 'xiaoni:test-global',
+    userMessage: `dup ${index + 1}`,
+    aiResponse: `os ${index + 1}`
+  }));
+  const service = buildManualCompressionService(history);
+  let startedFork = 0;
+  (service as any).runCoreMemoryCompressionFork = async () => {
+    startedFork += 1;
+    throw new Error('must not bypass scheduleCoreMemoryCompressionFork for a manual trigger');
+  };
+  let scheduleArgs: any = null;
+  (service as any).scheduleCoreMemoryCompressionFork = async (params: any) => {
+    scheduleArgs = params;
+    return { tool_name: COMPRESS_CORE_MEMORY_TOOL, status: 'already_running' };
+  };
+
+  const result = await service.triggerManualCoreMemoryCompression();
+
+  // never calls runCoreMemoryCompressionFork directly; the scheduler owns dedupe
+  assert.equal(startedFork, 0);
+  assert.equal(result.status, 'already_running');
+  assert.equal(result.triggered, false);
+  assert.ok(scheduleArgs, 'scheduleCoreMemoryCompressionFork was not invoked');
+  assert.equal(scheduleArgs.compression.compressionCoveredEndConversationId, 35);
+  assert.equal(scheduleArgs.compression.readCutoffAfterConversationId, 5);
+  assert.ok(Array.isArray(scheduleArgs.baseRequest.input));
+});

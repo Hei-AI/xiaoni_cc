@@ -276,6 +276,38 @@ type CacheHeartbeatRunResult = {
   processingTimeMs?: number | null;
 };
 
+// Result of an operator-forced core memory compaction (admin "立即压缩" button).
+// `status` mirrors scheduleCoreMemoryCompressionFork's artifact status
+// (scheduled | already_running | already_running_durable | already_covered),
+// plus 'nothing_to_compress' (history at/under the keep window) and
+// 'request_builder_unavailable' (store wiring missing). `triggered` is true only
+// when this call actually spawned a new background fork.
+type ManualCoreMemoryCompressionResult = {
+  triggered: boolean;
+  status: string;
+  contextSessionKey: string;
+  traceId: string;
+  runId: string;
+  retainedHistoryTurns?: number;
+  readCutoffAfterConversationId?: number | null;
+  compressionCoveredEndConversationId?: number | null;
+  artifact?: Record<string, unknown> | null;
+};
+
+// Liveness snapshot for the (fire-and-forget, possibly >5min) compaction fork.
+// Reuses findActiveCoreMemoryCompressionForkRun's 30-minute running-window, so
+// `running: false` means "no fork running for this covered range" (done, failed,
+// or never started) — a deliberately coarse v1 signal until liveness hardening.
+type CoreMemoryCompressionForkStatusResult = {
+  running: boolean;
+  contextSessionKey: string;
+  compressionCoveredEndConversationId: number;
+  forkRunId?: string | null;
+  runId?: string | null;
+  startedAt?: string | null;
+  status?: string | null;
+};
+
 type RecoverySessionHeartbeatState = {
   id: number | string;
 };
@@ -5206,6 +5238,149 @@ export class AgentLoopService {
     return this.runCacheHeartbeatDuringRecovery();
   }
 
+  // Operator-forced core memory compaction. Mirrors the cache-heartbeat prelude
+  // (synthetic runtime frame -> load history/prompt/identity/energy -> budget plan)
+  // but with forceCompression so a checkpoint is produced even when the context is
+  // under budget, then hands it to the SAME single-flight fork scheduler. We never
+  // call runCoreMemoryCompressionFork directly: scheduleCoreMemoryCompressionFork
+  // owns the in-memory + durable dedupe that keeps a manual click from racing an
+  // auto-overflow fork. Returns immediately; the fork runs in the background and
+  // may take >5min.
+  async triggerManualCoreMemoryCompression(): Promise<ManualCoreMemoryCompressionResult> {
+    const queueMessage = buildRuntimeLoopFrameQueueMessage();
+    const payload: QueueMessageRecord['payload'] = {
+      ...queueMessage.payload,
+      source: 'manual_core_memory_compression'
+    };
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const store = this.store as RuntimeStore & {
+      getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
+      listRecentTurns?: RuntimeStore['listRecentTurns'];
+    };
+    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listRecentTurns !== 'function') {
+      return {
+        triggered: false,
+        status: 'request_builder_unavailable',
+        contextSessionKey,
+        traceId: payload.traceId,
+        runId: payload.runId
+      };
+    }
+
+    const cutoffState = await store.getSessionReadCutoffState.call(this.store, contextSessionKey);
+    const sessionIds = resolveSessionTargets(payload);
+    const history = await this.attachStackReplayItemsToHistory(await store.listRecentTurns.call(this.store, {
+      userId: sessionIds.userId,
+      groupId: sessionIds.groupId,
+      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      scope: 'global' as const
+    }), payload.traceId);
+    const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
+    const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
+    const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);
+    const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
+    const developerContextBlock = [
+      baseDeveloperContextBlock
+    ].filter((part): part is string => Boolean(part && part.trim())).join('\n\n') || null;
+
+    const budgetPlan = await this.buildContextBudgetPlan({
+      history,
+      queueMessage: payload,
+      runtimePrompt,
+      loopContinuation: [],
+      runtimeIdentityFacts,
+      developerContextBlock,
+      runtimeEnergyState,
+      contextSessionKey,
+      cutoffState,
+      triggerInputMode: 'suppress_current_trigger',
+      forceCompression: true
+    });
+
+    if (!budgetPlan.coreMemoryCompression || !budgetPlan.summarySourceInput) {
+      moduleLogger.info('Manual core memory compression had nothing to compress', {
+        traceId: payload.traceId,
+        runId: payload.runId,
+        contextSessionKey,
+        retainedHistoryTurns: history.length
+      });
+      return {
+        triggered: false,
+        status: 'nothing_to_compress',
+        contextSessionKey,
+        traceId: payload.traceId,
+        runId: payload.runId,
+        retainedHistoryTurns: history.length
+      };
+    }
+
+    const artifact = await this.scheduleCoreMemoryCompressionFork({
+      baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.summarySourceInput, payload),
+      queueMessage: payload,
+      runtimePrompt,
+      compression: budgetPlan.coreMemoryCompression,
+      contextSessionKey
+    });
+    const artifactStatus = typeof (artifact as { status?: unknown })?.status === 'string'
+      ? (artifact as { status: string }).status
+      : 'scheduled';
+    moduleLogger.info('Manual core memory compression triggered', {
+      traceId: payload.traceId,
+      runId: payload.runId,
+      contextSessionKey,
+      status: artifactStatus,
+      readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
+      compressionCoveredEndConversationId: budgetPlan.coreMemoryCompression.compressionCoveredEndConversationId
+    });
+    return {
+      triggered: artifactStatus === 'scheduled',
+      status: artifactStatus,
+      contextSessionKey,
+      traceId: payload.traceId,
+      runId: payload.runId,
+      retainedHistoryTurns: history.length,
+      readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
+      compressionCoveredEndConversationId: budgetPlan.coreMemoryCompression.compressionCoveredEndConversationId,
+      artifact: artifact as Record<string, unknown>
+    };
+  }
+
+  // Coarse liveness poll for the admin UI: is a compaction fork still running for
+  // the given covered range? Reuses the durable 30-minute running-window guard, so
+  // running=false means "no fork running" (done | failed | never started).
+  async getCoreMemoryCompressionForkStatus(
+    compressionCoveredEndConversationId: number
+  ): Promise<CoreMemoryCompressionForkStatusResult> {
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const finder = (this.store as RuntimeStore & {
+      findActiveCoreMemoryCompressionForkRun?: RuntimeStore['findActiveCoreMemoryCompressionForkRun'];
+    }).findActiveCoreMemoryCompressionForkRun;
+    if (typeof finder !== 'function' || !Number.isFinite(compressionCoveredEndConversationId)) {
+      return { running: false, contextSessionKey, compressionCoveredEndConversationId };
+    }
+    const active = await finder.call(this.store, {
+      contextSessionKey,
+      compressionCoveredEndConversationId
+    }) as {
+      forkRunId?: string | null;
+      runId?: string | null;
+      startedAt?: unknown;
+      status?: string | null;
+    } | null;
+    if (!active) {
+      return { running: false, contextSessionKey, compressionCoveredEndConversationId };
+    }
+    return {
+      running: true,
+      contextSessionKey,
+      compressionCoveredEndConversationId,
+      forkRunId: active.forkRunId ?? null,
+      runId: active.runId ?? null,
+      startedAt: active.startedAt ? String(active.startedAt) : null,
+      status: active.status ?? null
+    };
+  }
+
   private async attachStackReplayItemsToHistory(history: ConversationTurn[], traceId: string): Promise<StackBackedConversationTurn[]> {
     if (history.length === 0) {
       return [];
@@ -7706,6 +7881,14 @@ export class AgentLoopService {
     triggerInputMode?: RuntimeTriggerInputMode;
     appendSelfContinuationOnTerminalFinalAnswer?: boolean;
     loopContinuationBeforeCurrentTrigger?: boolean;
+    // Operator-forced compaction (manual admin trigger). When true the overflow
+    // gate is bypassed: instead of compressing only when the live window exceeds
+    // the context budget, we compress everything older than the most recent
+    // HISTORY_COMPACT_KEEP turns regardless of current token pressure. Used to
+    // pre-shorten the cacheable prefix before shipping a prefix-cache-breaking
+    // change, so the next prime pays for the compressed prefix once instead of
+    // priming the full window now and re-priming after the natural overflow later.
+    forceCompression?: boolean;
   }): Promise<ContextBudgetPlan> {
     const policy = resolveModelContextPolicy(
       params.runtimePrompt.modelName,
@@ -7793,7 +7976,7 @@ export class AgentLoopService {
       };
     }
 
-    if (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0) {
+    if (!params.forceCompression && (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0)) {
       return {
         requestInput,
         currentTurnInputItems,
@@ -7817,21 +8000,23 @@ export class AgentLoopService {
       };
     }
 
-    const compressionPoint = await planReadCutoffFromFirstOverflow({
-      history: initialRetainedHistory,
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
-      contextWindowTokens,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary,
-      pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock ?? null,
-      runtimeEnergyState: params.runtimeEnergyState ?? null,
-      triggerInputMode,
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
-    });
+    const compressionPoint = params.forceCompression
+      ? planReadCutoffForForcedCompression(initialRetainedHistory)
+      : await planReadCutoffFromFirstOverflow({
+          history: initialRetainedHistory,
+          queueMessage: params.queueMessage,
+          runtimePrompt: params.runtimePrompt,
+          loopContinuation: params.loopContinuation,
+          contextWindowTokens,
+          runtimeIdentityFacts: params.runtimeIdentityFacts,
+          contextSummary,
+          pendingProactiveShare,
+          developerContextBlock: params.developerContextBlock ?? null,
+          runtimeEnergyState: params.runtimeEnergyState ?? null,
+          triggerInputMode,
+          appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
+          loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
+        });
     if (!compressionPoint) {
       return {
         requestInput,
@@ -11294,6 +11479,40 @@ async function planReadCutoffFromFirstOverflow(params: {
 
   return {
     firstOverflowPrefixLength,
+    summarySourceHistory,
+    readCutoffAfterConversationId,
+    compressionCoveredEndConversationId: sourceEnd.id,
+    overlapCount
+  };
+}
+
+// Forced/manual compaction cutoff. Unlike planReadCutoffFromFirstOverflow (which
+// binary-searches the token-overflow point), this is purely turn-count driven:
+// summarize the whole retained window and advance the read cutoff to keep only the
+// most recent HISTORY_COMPACT_KEEP turns live. Returns the SAME shape so the
+// downstream compression-plan / fork machinery is shared byte-for-byte. Returns
+// null when there is nothing strictly before the safety overlap to evict (history
+// at or under the keep window) — that is the only true no-op for a manual trigger.
+//
+//   history (oldest -> newest)
+//   [ ............ evicted head ............ | last HISTORY_COMPACT_KEEP turns ]
+//                                            ^ readCutoffAfterConversationId
+//   summarySourceHistory = whole window (head + overlap, same as the overflow path)
+//   compressionCoveredEndConversationId = newest retained turn
+function planReadCutoffForForcedCompression(history: ConversationTurn[]) {
+  if (history.length <= HISTORY_COMPACT_KEEP) {
+    return null;
+  }
+  const summarySourceHistory = history;
+  const sourceEnd = summarySourceHistory[summarySourceHistory.length - 1];
+  if (!sourceEnd) {
+    return null;
+  }
+  const overlapCount = Math.min(HISTORY_COMPACT_KEEP, Math.max(0, summarySourceHistory.length - 1));
+  const readCutoffIndex = Math.max(0, summarySourceHistory.length - overlapCount - 1);
+  const readCutoffAfterConversationId = summarySourceHistory[readCutoffIndex]?.id ?? sourceEnd.id;
+  return {
+    firstOverflowPrefixLength: summarySourceHistory.length,
     summarySourceHistory,
     readCutoffAfterConversationId,
     compressionCoveredEndConversationId: sourceEnd.id,
