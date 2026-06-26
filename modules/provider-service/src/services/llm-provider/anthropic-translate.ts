@@ -47,6 +47,20 @@ import type {
 const ANTHROPIC_THINKING_MARKER = '__anthropic_thinking__';
 const ANTHROPIC_REDACTED_MARKER = '__anthropic_redacted_thinking__';
 const DEFAULT_MAX_TOKENS = 16000;
+
+// Prompt-cache TTL for every ephemeral breakpoint. Omitting ttl gives Anthropic's
+// default 5m window; '1h' (extended cache) keeps Xiaoni's ~415K stable prefix warm
+// across idle gaps up to an hour, so a background fork or the next main turn reads
+// the warm prefix instead of cold-prefilling all ~415K when the loop goes quiet past
+// the 5m window. Every breakpoint uses the SAME ttl, so there is no longer-TTL-must-
+// come-before-shorter-TTL ordering constraint to satisfy. Env-overridable back to 5m
+// (ANTHROPIC_CACHE_TTL=5m) without a rebuild.
+type EphemeralCacheControl = { type: 'ephemeral'; ttl?: '1h' };
+const CACHE_CONTROL_TTL: '1h' | undefined =
+  (process.env.ANTHROPIC_CACHE_TTL || '1h').trim() === '5m' ? undefined : '1h';
+function ephemeralCacheControl(): EphemeralCacheControl {
+  return CACHE_CONTROL_TTL ? { type: 'ephemeral', ttl: CACHE_CONTROL_TTL } : { type: 'ephemeral' };
+}
 // Minimal Claude Code cloaking: the subscription endpoint server-side-validates that
 // requests look like the official CLI, and the leading system block must be the
 // Claude Code identity. We prepend ONLY this one static line (not the full CLI system
@@ -76,7 +90,7 @@ export type AnthropicImageSource =
   | { type: 'url'; url: string };
 
 export type AnthropicContentBlock =
-  | { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }
+  | { type: 'text'; text: string; cache_control?: EphemeralCacheControl }
   | { type: 'image'; source: AnthropicImageSource }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, any> }
   | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[]; is_error?: boolean }
@@ -104,7 +118,7 @@ export type AnthropicToolChoice =
 export interface AnthropicMessagesRequest {
   model: string;
   max_tokens: number;
-  system?: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>;
+  system?: Array<{ type: 'text'; text: string; cache_control?: EphemeralCacheControl }>;
   messages: AnthropicMessage[];
   tools?: AnthropicTool[];
   tool_choice?: AnthropicToolChoice;
@@ -465,7 +479,7 @@ function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): bo
     return false;
   }
   // cache_control is valid on any block type (text/image/tool_use/tool_result)
-  (block as { cache_control?: { type: 'ephemeral' } }).cache_control = { type: 'ephemeral' };
+  (block as { cache_control?: EphemeralCacheControl }).cache_control = ephemeralCacheControl();
   return true;
 }
 
@@ -475,7 +489,7 @@ function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: Bloc
   if (body.system && body.system.length > 0) {
     const lastSystem = body.system[body.system.length - 1];
     if (lastSystem) {
-      lastSystem.cache_control = { type: 'ephemeral' };
+      lastSystem.cache_control = ephemeralCacheControl();
       used += 1;
     }
   }
@@ -545,7 +559,7 @@ export function translateCanonicalToMessages(
   //   [2] the real instructions (Xiaoni)
   // Both cloak blocks are byte-stable; the cache breakpoint lands on the last block
   // (instructions), so the whole stable system prefix caches together.
-  const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
+  const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: EphemeralCacheControl }> = [
     { type: 'text', text: CLAUDE_BILLING_SYSTEM_BLOCK },
     { type: 'text', text: CLAUDE_CODE_IDENTITY_PROMPT }
   ];
