@@ -28,9 +28,6 @@ export const CLAUDE_API_BASE_URL = 'https://api.anthropic.com';
 // CLI sends it). Without it the request can be rejected as not-Claude-Code.
 export const CLAUDE_MESSAGES_PATH = '/v1/messages?beta=true';
 
-const CLAUDE_OAUTH_SCOPE =
-  'org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload';
-
 const DEFAULT_CLIENT_VERSION = '2.1.77';
 // Match the current Claude Code CLI beta set so the request looks like the official
 // client (the endpoint server-side-validates this). Beta flags are opt-in enablers;
@@ -147,11 +144,15 @@ export async function refreshClaudeOAuthCredential(
     const response = await (globalThis.fetch || fetch)(CLAUDE_OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // NOTE: do NOT send a `scope` param on a refresh_token grant. The credential
+      // is minted by the real Claude Code CLI with the platform's current scope
+      // set; sending our own hardcoded scope makes the server reject the refresh
+      // with `400 invalid_scope`. RFC 6749 §6: omit scope and the server reuses the
+      // original grant's scope. Matches codex-oauth.ts and the official CLI.
       body: JSON.stringify({
         grant_type: 'refresh_token',
         client_id: CLAUDE_OAUTH_CLIENT_ID,
-        refresh_token: credential.refresh,
-        scope: CLAUDE_OAUTH_SCOPE
+        refresh_token: credential.refresh
       })
     });
     if (!response.ok) {

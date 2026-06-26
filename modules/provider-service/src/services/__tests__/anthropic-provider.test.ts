@@ -538,6 +538,9 @@ test('refreshClaudeOAuthCredential posts the correct body and persists', async (
     assert.equal(capturedBody.grant_type, 'refresh_token');
     assert.equal(capturedBody.refresh_token, 'r-old');
     assert.ok(typeof capturedBody.client_id === 'string' && capturedBody.client_id.length > 0);
+    // Must NOT send a scope param: the platform rejects a refresh_token grant
+    // carrying our own scope with 400 invalid_scope (regression guard).
+    assert.equal('scope' in capturedBody, false);
     // persisted back into the file, preserving organizationUuid
     const persisted = JSON.parse(await fs.readFile(file, 'utf8'));
     assert.equal(persisted.claudeAiOauth.accessToken, 'new-access');
