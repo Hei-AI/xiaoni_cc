@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, HeartPulse, Loader2, Power, RefreshCw, TimerReset } from 'lucide-react';
+import { Bot, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -63,6 +63,36 @@ type RuntimeRecoverNowResult = {
   };
 };
 
+type ManualCompressionResult = {
+  triggered: boolean;
+  status: string;
+  contextSessionKey?: string;
+  traceId?: string;
+  runId?: string;
+  retainedHistoryTurns?: number;
+  readCutoffAfterConversationId?: number | null;
+  compressionCoveredEndConversationId?: number | null;
+};
+
+type CompressionForkStatus = {
+  running: boolean;
+  contextSessionKey?: string;
+  compressionCoveredEndConversationId?: number;
+  forkRunId?: string | null;
+  runId?: string | null;
+  startedAt?: string | null;
+  status?: string | null;
+};
+
+const COMPRESSION_STATUS_LABELS: Record<string, string> = {
+  scheduled: '已启动后台压缩 fork',
+  already_running: '已有压缩 fork 在运行（沿用现有的）',
+  already_running_durable: '已有压缩 fork 在运行（durable 去重）',
+  already_covered: '当前 read cutoff 已覆盖该范围，无需重复压缩',
+  nothing_to_compress: '历史不足，没有可压缩的旧内容',
+  request_builder_unavailable: 'agent-service 运行存储未就绪'
+};
+
 async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<RuntimeControl> {
   const response = await fetch('/api/agent-runtime/control', {
     method: 'PATCH',
@@ -101,6 +131,29 @@ async function forceLoadRuntimePrompt(): Promise<RuntimePromptReloadResult> {
   return payload.data;
 }
 
+async function triggerCoreMemoryCompression(): Promise<ManualCompressionResult> {
+  const response = await fetch('/api/agent-runtime/core-memory-compression/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const payload = await response.json() as ApiResponse<ManualCompressionResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to trigger core memory compression');
+  }
+  return payload.data;
+}
+
+async function fetchCompressionForkStatus(coveredEnd: number): Promise<CompressionForkStatus> {
+  const response = await fetch(
+    `/api/agent-runtime/core-memory-compression/status?compression_covered_end_conversation_id=${encodeURIComponent(String(coveredEnd))}`
+  );
+  const payload = await response.json() as ApiResponse<CompressionForkStatus>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to read compression status');
+  }
+  return payload.data;
+}
+
 export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [yieldInput, setYieldInput] = React.useState('');
@@ -132,6 +185,22 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
     }
+  });
+  const [trackedCoveredEnd, setTrackedCoveredEnd] = React.useState<number | null>(null);
+  const compressionMutation = useMutation({
+    mutationFn: triggerCoreMemoryCompression,
+    onSuccess: (data) => {
+      const forkScheduled = typeof data.compressionCoveredEndConversationId === 'number'
+        && (data.status === 'scheduled' || data.status === 'already_running' || data.status === 'already_running_durable');
+      setTrackedCoveredEnd(forkScheduled ? (data.compressionCoveredEndConversationId as number) : null);
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const compressionStatusQuery = useQuery({
+    queryKey: ['xiaoni-compression-fork-status', trackedCoveredEnd],
+    queryFn: () => fetchCompressionForkStatus(trackedCoveredEnd as number),
+    enabled: trackedCoveredEnd !== null,
+    refetchInterval: (query) => (query.state.data?.running === false ? false : 4000)
   });
 
   const control = controlQuery.data;
@@ -201,6 +270,17 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => compressionMutation.mutate()}
+              disabled={compressionMutation.isPending}
+            >
+              {compressionMutation.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <Shrink className="mr-2 h-4 w-4" />}
+              立即压缩记忆
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => forceLoadMutation.mutate()}
               disabled={forceLoadMutation.isPending}
             >
@@ -264,6 +344,57 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               </div>
             </div>
           </div>
+        </SectionPanel>
+      ) : null}
+
+      {compressionMutation.error ? (
+        <ErrorState
+          description={compressionMutation.error instanceof Error ? compressionMutation.error.message : '触发核心记忆压缩失败'}
+          onRetry={() => compressionMutation.mutate()}
+        />
+      ) : null}
+
+      {compressionMutation.data ? (
+        <SectionPanel
+          title="核心记忆压缩"
+          description="主动触发：把最近 30 轮之前的历史压进 xiaoni_近况 并推进 read cutoff。常用于上线打穿前缀缓存的改动前，提前压一次以省一次缓存重建。fork 在后台运行，可能 >5 分钟。"
+          icon={<Shrink className="h-4 w-4 text-primary" />}
+        >
+          <div className="grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <div className="text-xs text-muted-foreground">结果</div>
+              <div className="font-medium text-foreground">
+                {COMPRESSION_STATUS_LABELS[compressionMutation.data.status] ?? compressionMutation.data.status}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">压缩覆盖至 conversation</div>
+              <div className="font-medium text-foreground">
+                {compressionMutation.data.compressionCoveredEndConversationId ?? '—'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">新 read cutoff</div>
+              <div className="font-medium text-foreground">
+                {compressionMutation.data.readCutoffAfterConversationId ?? '—'}
+              </div>
+            </div>
+          </div>
+          {trackedCoveredEnd !== null ? (
+            <div className="mt-4 flex items-center gap-2 text-sm">
+              {compressionStatusQuery.data?.running === false ? (
+                <StatusPill tone="success">fork 已结束</StatusPill>
+              ) : (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <StatusPill tone="warning">fork 运行中</StatusPill>
+                </>
+              )}
+              <span className="text-xs text-muted-foreground">
+                fork run: {compressionStatusQuery.data?.forkRunId ?? compressionMutation.data.runId ?? '—'}
+              </span>
+            </div>
+          ) : null}
         </SectionPanel>
       ) : null}
 
