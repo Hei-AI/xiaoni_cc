@@ -98,6 +98,34 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
   assert.deepEqual(body.system?.[2]?.cache_control, { type: 'ephemeral' });
 });
 
+test('ANTHROPIC_THINKING_ENABLED=false forces thinking off even on auto tool_choice', () => {
+  const prev = process.env.ANTHROPIC_THINKING_ENABLED;
+  process.env.ANTHROPIC_THINKING_ENABLED = 'false';
+  try {
+    const req: OpenResponseCreateRequest = {
+      model: 'claude-opus-4-6',
+      instructions: 'You are Xiaoni.',
+      input: [{ type: 'message', role: 'user', content: 'hi' }],
+      tools: FN_TOOLS,
+      tool_choice: {
+        type: 'allowed_tools',
+        mode: 'auto',
+        tools: [
+          { type: 'function', name: 'exec_command' },
+          { type: 'function', name: 'private_message' }
+        ]
+      }
+    };
+    const { body, thinkingEnabled } = translateCanonicalToMessages(req);
+    assert.equal(body.tool_choice?.type, 'auto');   // still auto — only thinking is suppressed
+    assert.equal(thinkingEnabled, false);
+    assert.equal(body.thinking, undefined);          // no thinking param sent to Anthropic
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_THINKING_ENABLED;
+    else process.env.ANTHROPIC_THINKING_ENABLED = prev;
+  }
+});
+
 test('every tool_use is immediately followed by its tool_result (Anthropic pairing)', () => {
   const req: OpenResponseCreateRequest = {
     model: 'claude-opus-4-6',

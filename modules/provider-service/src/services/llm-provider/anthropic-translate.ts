@@ -524,7 +524,14 @@ export function translateCanonicalToMessages(
   // so thinking turns ON for them too -> their tools+system+history prefix and the
   // thinking param are byte-identical to the main loop's, and they read the same
   // warm cache entry. Only forced-tool phases (compression) drop thinking.
-  const thinkingEnabled = !plan.forced && plan.toolChoice?.type !== 'none';
+  //
+  // Global kill-switch: ANTHROPIC_THINKING_ENABLED=false forces thinking OFF for
+  // EVERY Anthropic request (main loop + all aligned forks together). They stay in
+  // lockstep, so the shared warm-cache prefix invariant still holds — and dropping
+  // thinking also drops the assistant thinking blocks from replayed history (see
+  // itemToRoleBlocks), which is intentional. Default ON (env unset/anything-but-false).
+  const thinkingGloballyEnabled = process.env.ANTHROPIC_THINKING_ENABLED !== 'false';
+  const thinkingEnabled = thinkingGloballyEnabled && !plan.forced && plan.toolChoice?.type !== 'none';
 
   const { messages, lastDurable, anchors } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
