@@ -1844,18 +1844,18 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   ];
 }
 
-function hasCoreMemoryCompressionReminder(loopInput: OpenResponseInputItem[]) {
-  return loopInput.some((item) => Boolean((item as Record<PropertyKey, unknown>)[CORE_MEMORY_COMPRESSION_REMINDER_MARKER]));
-}
-
 function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
-  if (hasCoreMemoryCompressionReminder(loopInput)) {
-    return buildAllowedToolsToolChoice([
-      { type: 'function', name: TOOL_NAMES.execCommand },
-      { type: 'function', name: TOOL_NAMES.compressCoreMemory }
-    ]);
-  }
-
+  void loopInput;
+  // compress_core_memory is a PERMANENT member of the main loop's tool set (most-
+  // complete toolset) under tool_choice auto — never forced. Forcing tool_choice
+  // (required/any) disables extended thinking, which strips every historical thinking
+  // block and makes the request prefix diverge from the main loop's warm cache. By
+  // keeping it auto and always exposing compress, the core memory compression fork —
+  // built as a byte-clone of the main agent plus a compress instruction — keeps
+  // thinking on, carries the SAME tools/tool_choice, and rides the warm in-context
+  // cache instead of cold-prefilling the whole window. 小腻 is told via the system
+  // prompt not to self-trigger compression; "only compress" for the fork is enforced
+  // at execution time (the fork loop's allowedToolNames), not by mutating the request.
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.privateReply },
@@ -1867,6 +1867,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'web_search' });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
+  tools.push({ type: 'function', name: TOOL_NAMES.compressCoreMemory });
   return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
@@ -8054,11 +8055,12 @@ export class AgentLoopService {
       lastTargetBudgetTokens: targetBudgetTokens,
       lastHardBudgetTokens: hardBudgetTokens
     };
-    const pressureSummary = [
-      `本地估算当前输入 ${estimate.inputTokens} tokens，超过 context window ${contextWindowTokens}，必须压缩核心记忆。`,
-      `本次只压缩当前 stack 头部到 conversation ${compressionPoint.compressionCoveredEndConversationId} 的稳定内容。`,
-      `压缩成功后主线 offset 将推进到 ${compressionPoint.readCutoffAfterConversationId}，保留压缩源尾部 ${compressionPoint.overlapCount} 条作为衔接。`
-    ].join('\n');
+    // Byte-stable, number-free instruction. The token counts / conversation ids /
+    // offsets that used to live here are internal bookkeeping (already carried in the
+    // fork metadata) — they are noise to 小腻 and, because they change every run, they
+    // churned the reminder tail and worked against a stable cache. The reminder only
+    // needs to tell the summarizer what to do; the cutoff math stays in code/metadata.
+    const pressureSummary = '把当前可压缩的稳定旧上下文整理成新的核心记忆近况，保留最近的衔接内容继续往下做。';
     // NOTE: the compression fork is deliberately fed the HEAD slice only
     // (summarySourceHistory), NOT the full retained history — so the summarizer
     // compresses exactly the evicted head and never re-summarizes retained-tail

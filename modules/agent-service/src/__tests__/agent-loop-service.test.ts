@@ -40,7 +40,8 @@ const GROUP_ALLOWED_TOOLS = [
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
-  RECOVER_ENERGY_TOOL
+  RECOVER_ENERGY_TOOL,
+  COMPRESS_CORE_MEMORY_TOOL
 ];
 const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
@@ -60,7 +61,8 @@ const DIRECT_ALLOWED_TOOLS = [
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
-  RECOVER_ENERGY_TOOL
+  RECOVER_ENERGY_TOOL,
+  COMPRESS_CORE_MEMORY_TOOL
 ];
 const EAST8_TIME_PREFIX_PATTERN = /\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
 
@@ -10213,7 +10215,12 @@ test('buildContextBudgetPlan keeps the main request append-only and does not pla
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
   assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
-  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+  // compress_core_memory is now PERMANENTLY exposed in the main loop's allowed_tools
+  // (auto) — even on a normal, non-compressing turn — so the compression fork can be a
+  // byte-clone of the main agent and ride the warm cache. 小腻 is told via the system
+  // prompt not to self-trigger it. (Was previously hidden until a compression reminder
+  // forced the tool_choice, which disabled thinking and broke the cache prefix.)
+  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), true);
 });
 
 test('buildCoreMemoryCompressionCheckpoint does not trigger from turn count alone', async () => {
@@ -10361,7 +10368,7 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
     plan.coreMemoryCompression!.compressionCoveredEndConversationId!
   );
   assert.equal(plan.summarySourceInput !== null, true);
-  assert.match(JSON.stringify(plan.summarySourceInput), /本地估算当前输入/);
+  assert.match(JSON.stringify(plan.summarySourceInput), /核心记忆近况/);
   assert.match(JSON.stringify(plan.summarySourceInput), /global history 1(?!\d)/);
   assert.match(JSON.stringify(plan.requestInput), /global history 1(?!\d)/);
   assert.match(JSON.stringify(plan.requestInput), /global history 12/);
@@ -10382,7 +10389,12 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
   assert.match(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
 
   const compressionRequest = buildCanonicalAgentTurnRequest(runtimePrompt.modelName, checkpoint.summarySourceInput, 'direct');
-  assert.deepEqual(getAllowedToolNames(compressionRequest.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
+  // Cache-aligned: the compression request keeps the main loop's auto tool_choice with
+  // compress_core_memory exposed (never the old forced [exec, compress] that disabled
+  // thinking). Restriction to compress is enforced at execution time, not here.
+  assert.equal((compressionRequest.tool_choice as any)?.mode, 'auto');
+  assert.ok(getAllowedToolNames(compressionRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL));
+  assert.ok(getAllowedToolNames(compressionRequest.tool_choice).includes(PRIVATE_REPLY_TOOL));
 
   const alternateToolChoiceRequest = {
     ...compressionRequest,
@@ -10990,8 +11002,13 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.equal(forkRequests[0]?.store, false);
   assert.equal(forkRequests[0]?.metadata?.core_memory_compression_fork, 'true');
   assert.equal(forkRequests[0]?.metadata?.no_persist, 'true');
-  assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
-  assert.equal(forkRequests[0]?.tool_choice?.mode, 'required');
+  // Cache-aligned: the fork carries the SAME tools AND the SAME auto tool_choice as the
+  // concurrent main agent turn, so its prefix is byte-identical and rides the warm cache
+  // instead of cold-prefilling. compress is exposed (auto), and "only compress" is enforced
+  // at execution time. This is the regression guard for the cache-penetration bug.
+  assert.equal(forkRequests[0]?.tool_choice?.mode, 'auto');
+  assert.ok(getAllowedToolNames(forkRequests[0]?.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL));
+  assert.deepEqual(forkRequests[0]?.tool_choice, mainRequests[0]?.tool_choice);
   assert.deepEqual(forkRequests[0]?.tools, mainRequests[0]?.tools);
 
   const firstForkText = (forkRequests[0]?.input || []).map(getMessageContent).join('\n');
