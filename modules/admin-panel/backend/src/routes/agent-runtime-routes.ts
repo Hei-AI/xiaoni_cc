@@ -1449,6 +1449,86 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  router.post('/agent-runtime/core-memory-compression/trigger', async (_req, res) => {
+    try {
+      const response = await axios.post(`${AGENT_SERVICE_URL}/api/internal/runtime/core-memory-compression/trigger`, {}, {
+        timeout: AGENT_REQUEST_TIMEOUT_MS,
+        validateStatus: () => true
+      });
+      const payload = response.data && typeof response.data === 'object'
+        ? response.data as Record<string, unknown>
+        : {};
+      if (response.status < 200 || response.status >= 300 || payload.success === false) {
+        res.status(response.status >= 400 ? response.status : 502).json({
+          success: false,
+          error: typeof payload.error === 'string'
+            ? payload.error
+            : `agent-service core memory compression trigger returned HTTP ${response.status}`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: payload.result && typeof payload.result === 'object' ? payload.result : payload,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to trigger Xiaoni core memory compression',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.get('/agent-runtime/core-memory-compression/status', async (req, res) => {
+    try {
+      const coveredEnd = trimmedString(
+        req.query.compression_covered_end_conversation_id ?? req.query.compressionCoveredEndConversationId
+      );
+      if (!coveredEnd) {
+        res.status(400).json({
+          success: false,
+          error: 'compression_covered_end_conversation_id query param required',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      const response = await axios.get(`${AGENT_SERVICE_URL}/api/internal/runtime/core-memory-compression/status`, {
+        params: { compression_covered_end_conversation_id: coveredEnd },
+        timeout: AGENT_REQUEST_TIMEOUT_MS,
+        validateStatus: () => true
+      });
+      const payload = response.data && typeof response.data === 'object'
+        ? response.data as Record<string, unknown>
+        : {};
+      if (response.status < 200 || response.status >= 300 || payload.success === false) {
+        res.status(response.status >= 400 ? response.status : 502).json({
+          success: false,
+          error: typeof payload.error === 'string'
+            ? payload.error
+            : `agent-service core memory compression status returned HTTP ${response.status}`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: payload.result && typeof payload.result === 'object' ? payload.result : payload,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read Xiaoni core memory compression status',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.get('/agent-runtime/activity-feed', async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(200, Number.parseInt(String(req.query.limit || '80'), 10) || 80));
