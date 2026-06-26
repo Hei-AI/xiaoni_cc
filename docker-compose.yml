@@ -102,6 +102,10 @@ services:
       - CODEX_BASE_URL=${CODEX_BASE_URL:-}
       - CODEX_LOCAL_AUTH_PROFILES_PATH=/root/.qqbot-local/codex-auth-profiles/auth-profiles.json
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
+      # Xiaoni thinking kill-switch: false disables adaptive thinking for every
+      # Anthropic request (main loop + aligned forks together). Set true (env file
+      # or here) + `docker compose up -d provider-service` to restore. Code default ON.
+      - ANTHROPIC_THINKING_ENABLED=${ANTHROPIC_THINKING_ENABLED:-false}
       - EMBEDDING_ENABLED=true
       - EMBEDDING_BASE_URL=http://qqbot-embedding-server:8080
       - EMBEDDING_MODEL_ID=embeddinggemma-300m
