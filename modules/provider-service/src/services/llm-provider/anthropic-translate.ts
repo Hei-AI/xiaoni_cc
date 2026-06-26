@@ -71,6 +71,18 @@ const CLAUDE_BILLING_SYSTEM_BLOCK =
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20260209';
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 
+// Global kill-switch for Anthropic extended thinking. Policy: every request through the
+// Claude provider runs with thinking OFF by default (main loop, all forks, cache
+// heartbeat, playground — no exceptions). Rationale: the `thinking` param is part of the
+// messages-tier prompt-cache key and stored thinking blocks bloat the replayed prefix;
+// keeping thinking uniformly off means every request — including the core-memory
+// compression fork — sends one byte-identical, thinking-free prefix and reads the SAME
+// warm cache instead of cold-prefilling. Flip ANTHROPIC_THINKING_ENABLED=true to restore
+// thinking globally (no rebuild). Read per-call (not at module load) so it stays testable.
+function isAnthropicThinkingGloballyEnabled(): boolean {
+  return process.env.ANTHROPIC_THINKING_ENABLED === 'true';
+}
+
 export type AnthropicImageSource =
   | { type: 'base64'; media_type: string; data: string }
   | { type: 'url'; url: string };
@@ -518,13 +530,14 @@ export function translateCanonicalToMessages(
   options: TranslateOptions = {}
 ): TranslateResult {
   const plan = buildToolPlan(request);
-  // Thinking (adaptive) whenever tool use is not forced and tools are not disabled.
-  // Forced tool_choice (any/tool) is incompatible with extended thinking. Aligned
-  // forks (vision/subconscious/heartbeat) inherit the main loop's auto tool_choice,
-  // so thinking turns ON for them too -> their tools+system+history prefix and the
-  // thinking param are byte-identical to the main loop's, and they read the same
-  // warm cache entry. Only forced-tool phases (compression) drop thinking.
-  const thinkingEnabled = !plan.forced && plan.toolChoice?.type !== 'none';
+  // Thinking is gated by the global kill-switch FIRST (default off — see
+  // ANTHROPIC_THINKING_GLOBALLY_ENABLED). When globally on, it also requires non-forced
+  // tool use (forced tool_choice is incompatible with extended thinking). Off by default
+  // keeps every request — including the compression fork — on one thinking-free, byte-
+  // identical prefix so the fork rides the main loop's warm cache instead of cold-reading.
+  const thinkingEnabled = isAnthropicThinkingGloballyEnabled()
+    && !plan.forced
+    && plan.toolChoice?.type !== 'none';
 
   const { messages, lastDurable, anchors } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),

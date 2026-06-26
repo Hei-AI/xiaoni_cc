@@ -82,7 +82,10 @@ test('allowed_tools(auto, subset) -> tools[]=subset + tool_choice auto + thinkin
       ]
     }
   };
+  // thinking is globally off by default; enable it to exercise the auto->thinking-on map
+  process.env.ANTHROPIC_THINKING_ENABLED = 'true';
   const { body, thinkingEnabled } = translateCanonicalToMessages(req);
+  delete process.env.ANTHROPIC_THINKING_ENABLED;
   assert.equal(body.tool_choice?.type, 'auto');
   assert.equal(thinkingEnabled, true);
   assert.deepEqual(body.thinking, { type: 'adaptive' });
@@ -226,10 +229,28 @@ test('aligned fork (auto tool_choice) keeps thinking ON so it rides the main pre
     tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] },
     metadata: { image_vision_fork: 'true' }
   };
+  // when thinking is globally enabled, the aligned fork keeps it on (auto tool_choice)
+  process.env.ANTHROPIC_THINKING_ENABLED = 'true';
   const { thinkingEnabled, body } = translateCanonicalToMessages(req);
+  delete process.env.ANTHROPIC_THINKING_ENABLED;
   assert.equal(thinkingEnabled, true);
   assert.deepEqual(body.thinking, { type: 'adaptive' });
   assert.equal(body.tool_choice?.type, 'auto');
+});
+
+test('global kill-switch off (default) -> thinking off even with auto tool_choice', () => {
+  const req: OpenResponseCreateRequest = {
+    model: 'claude-opus-4-6',
+    input: [{ type: 'message', role: 'user', content: 'x' }],
+    tools: FN_TOOLS,
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
+  };
+  // ANTHROPIC_THINKING_ENABLED unset -> thinking off for the whole Claude provider, so the
+  // compression fork shares the main loop's thinking-free prefix and rides the warm cache.
+  delete process.env.ANTHROPIC_THINKING_ENABLED;
+  const { thinkingEnabled, body } = translateCanonicalToMessages(req);
+  assert.equal(thinkingEnabled, false);
+  assert.equal(body.thinking, undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -427,7 +448,9 @@ test('golden: thinking block survives response -> request round-trip byte-identi
       { type: 'message', role: 'user', content: 'follow up' }
     ]
   };
+  process.env.ANTHROPIC_THINKING_ENABLED = 'true';
   const { body } = translateCanonicalToMessages(replayReq);
+  delete process.env.ANTHROPIC_THINKING_ENABLED;
   const assistantTurn = body.messages.find((m) => m.role === 'assistant');
   const thinkingBlock = assistantTurn?.content.find((b) => b.type === 'thinking') as any;
   assert.ok(thinkingBlock, 'thinking block replayed');
