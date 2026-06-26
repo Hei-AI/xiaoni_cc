@@ -81,6 +81,41 @@ test('day session policy caps recover_energy as a nap', () => {
   assert.ok(sessionPolicy.policy.naturalWakePressure > DEFAULT_RECOVER_ENERGY_POLICY.naturalWakePressure);
 });
 
+test('daytime nap recovers energy faster than night sleep tau', () => {
+  const startedAt = new Date('2026-06-13T06:00:00.000Z'); // 14:00 Asia/Shanghai → day phase
+  const sessionPolicy = resolveRecoverySessionPolicy({ startedAt });
+
+  assert.equal(sessionPolicy.circadian.phase, 'day');
+  // a daytime nap uses the faster nap tau, not the slower night sleep tau
+  assert.equal(sessionPolicy.policy.sleepTauMinutes, DEFAULT_RECOVER_ENERGY_POLICY.daytimeNapSleepTauMinutes);
+  assert.ok(sessionPolicy.policy.sleepTauMinutes < DEFAULT_RECOVER_ENERGY_POLICY.sleepTauMinutes);
+
+  const napStartEnergy = 0.4;
+  const now = new Date(startedAt.getTime() + (90 * 60 * 1000));
+  const nap = projectRecoverySession({
+    startEnergy: napStartEnergy,
+    maxEnergy: 1,
+    startedAt,
+    now,
+    policy: sessionPolicy.policy,
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause
+  });
+  const atNightTau = projectRecoverySession({
+    startEnergy: napStartEnergy,
+    maxEnergy: 1,
+    startedAt,
+    now,
+    policy: { ...sessionPolicy.policy, sleepTauMinutes: DEFAULT_RECOVER_ENERGY_POLICY.sleepTauMinutes },
+    sessionMaxRecoveryMinutes: sessionPolicy.sessionMaxRecoveryMinutes,
+    sessionCapWakeCause: sessionPolicy.sessionCapWakeCause
+  });
+
+  // same 90-min nap recovers more energy with the faster daytime tau
+  assert.ok(nap.energy > atNightTau.energy);
+  assert.ok(nap.energy - napStartEnergy > 0.23);
+});
+
 test('night natural sleep waits for scheduled wake instead of energy threshold', () => {
   const startedAt = new Date('2026-06-12T17:00:00.000Z');
   const sessionPolicy = resolveRecoverySessionPolicy({ startedAt });

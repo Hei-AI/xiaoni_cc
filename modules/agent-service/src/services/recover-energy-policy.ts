@@ -7,6 +7,7 @@ export type RecoverEnergyPolicy = {
   hardMaxRecoveryMinutes: number;
   fullRecoveryMinutes?: number;
   daytimeNapMaxRecoveryMinutes?: number;
+  daytimeNapSleepTauMinutes?: number;
   naturalWakePressure: number;
   minimumWakeEnergy: number;
   forcedSleepPressure: number;
@@ -39,6 +40,7 @@ export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   hardMaxRecoveryMinutes: 480,
   fullRecoveryMinutes: 480,
   daytimeNapMaxRecoveryMinutes: 90,
+  daytimeNapSleepTauMinutes: 180,
   naturalWakePressure: 0.12,
   minimumWakeEnergy: 0,
   forcedSleepPressure: 1.3,
@@ -67,6 +69,7 @@ export const LEGACY_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   hardMaxRecoveryMinutes: 120,
   fullRecoveryMinutes: 120,
   daytimeNapMaxRecoveryMinutes: 120,
+  daytimeNapSleepTauMinutes: 63,
   naturalWakePressure: 0.12,
   minimumWakeEnergy: 0,
   forcedSleepPressure: 1.3,
@@ -246,9 +249,13 @@ export function resolveRecoverySessionPolicy(input: {
       sessionCapWakeCause: sessionMaxRecoveryMinutes >= fullRecoveryMinutes ? 'hard_cap' : 'circadian_wake'
     };
   }
+  const napPolicy: RecoverEnergyPolicy = {
+    ...policy,
+    sleepTauMinutes: positivePolicyMinutes(basePolicy.daytimeNapSleepTauMinutes, basePolicy.sleepTauMinutes)
+  };
   return {
     version: RECOVER_ENERGY_POLICY_VERSION,
-    policy,
+    policy: napPolicy,
     circadian,
     fullRecoveryMinutes,
     sessionMaxRecoveryMinutes: Math.min(fullRecoveryMinutes, positivePolicyMinutes(basePolicy.daytimeNapMaxRecoveryMinutes, 90)),
