@@ -338,7 +338,11 @@ test('Xiaoni action stream reuses its SQL adapter for stack projection fan-out',
   assert.equal(createdAdapters.length, 1);
   assert.ok(createdAdapters[0]);
   assert.ok(projectionInputs.slices.length >= 1);
-  assert.equal(projectionInputs.stack.length, 3);
+  assert.equal(projectionInputs.stack.length, 4);
+  assert.deepEqual(
+    projectionInputs.stack.map((input) => input.itemKind).sort(),
+    ['assistant_output', 'function_call', 'function_call_output', 'runtime_input']
+  );
   assert.ok(projectionInputs.tools.length >= 1);
   for (const input of [
     ...projectionInputs.slices,
@@ -1135,19 +1139,20 @@ test('Xiaoni action stream projects image vision fork observations outside main 
 });
 
 test('Xiaoni action stream filters primary cards before applying the display limit', async () => {
-  const noisyFinalAnswers = Array.from({ length: 40 }, (_, index) => ({
+  // Genuinely non-primary stack items (state_event is not function_call /
+  // function_call_output / assistant_output) must be filtered out BEFORE the
+  // display limit, so they cannot starve real cards out of the budget.
+  const noisyStateEvents = Array.from({ length: 40 }, (_, index) => ({
     id: String(2000 + index),
     eventId: `stack:slice_noise_${index}:output:0`,
     identityKey: 'xiaoni',
     stackIndex: 2000 + index,
-    itemKind: 'assistant_output',
+    itemKind: 'state_event',
     role: 'assistant',
-    phase: index % 2 === 0 ? 'final_answer' : null,
+    phase: null,
     content: {
-      type: 'message',
-      role: 'assistant',
-      phase: index % 2 === 0 ? 'final_answer' : null,
-      content: [{ type: 'output_text', text: `ordinary model output ${index}` }]
+      type: 'state_event',
+      content: [{ type: 'output_text', text: `internal state event ${index}` }]
     },
     traceId: `trace_noise_${index}`,
     runId: `run_noise_${index}`,
@@ -1158,7 +1163,7 @@ test('Xiaoni action stream filters primary cards before applying the display lim
   }));
   const persistence = createPersistence({
     agentStackRows: [
-      ...noisyFinalAnswers,
+      ...noisyStateEvents,
       {
         id: '101',
         eventId: 'stack:trace_codex_stream:call_exec',
@@ -1211,6 +1216,60 @@ test('Xiaoni action stream filters primary cards before applying the display lim
   ]);
   assert.equal(stream.items.some((item) => item.kind === 'final_answer'), false);
   assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
+});
+
+test('Xiaoni action stream surfaces 小腻 assistant output and drops empty turns', async () => {
+  const persistence = createPersistence({
+    agentStackRows: [
+      {
+        id: '301',
+        eventId: 'stack:slice_a:output:0',
+        identityKey: 'xiaoni',
+        stackIndex: 30,
+        itemKind: 'assistant_output',
+        role: 'assistant',
+        phase: 'final_answer',
+        llmRequestSliceId: 'slice_a',
+        content: {
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '先不回，等阿强把完整报错贴上来再说。' }]
+        },
+        traceId: 'trace_a',
+        runId: 'run_a',
+        createdAt: '2026-06-05T11:00:02.000Z',
+        metadata: { output_item_index: 0 }
+      },
+      {
+        id: '302',
+        eventId: 'stack:slice_a:output:1',
+        identityKey: 'xiaoni',
+        stackIndex: 31,
+        itemKind: 'assistant_output',
+        role: 'assistant',
+        phase: null,
+        llmRequestSliceId: 'slice_a',
+        content: { type: 'message', role: 'assistant', content: [] },
+        traceId: 'trace_a',
+        runId: 'run_a',
+        createdAt: '2026-06-05T11:00:03.000Z',
+        metadata: { output_item_index: 1 }
+      }
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const assistantItems = stream.items.filter((item) => item.metadata?.itemKind === 'assistant_output');
+
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].id, 'stack:301');
+  assert.equal(assistantItems[0].source, 'llm_stack_item');
+  assert.equal(assistantItems[0].kind, 'final_answer');
+  assert.equal(assistantItems[0].metadata.llmRequestSliceId, 'slice_a');
+  assert.ok(String(assistantItems[0].body).includes('先不回'));
+  // empty assistant turn (stack:302) must not create a blank row
+  assert.equal(stream.items.some((item) => item.id === 'stack:302'), false);
 });
 
 test('Xiaoni activity feed projects stack ledger items without legacy LLM rows', async () => {
