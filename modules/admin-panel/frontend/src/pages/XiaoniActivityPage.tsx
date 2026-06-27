@@ -893,6 +893,32 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
 
 // Flatten main items + every fork run's internal events into one time-sorted
 // stream. Fork events carry a StreamForkRef so the UI can prefix + filter them.
+// Logical position of an event within its LLM turn. Wall-clock can't be trusted
+// for intra-turn order (the slice row is persisted after its own output items,
+// and several items share a millisecond), so order by phase, not by timestamp.
+function streamPhaseRank(entry: StreamEntry): number {
+  const item = entry.item;
+  const kind = (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind;
+  if (item.source === 'fork_trigger' || kind === 'runtime_input') {
+    return 0; // 触发 / 本 turn 追加进来的输入
+  }
+  if (item.source === 'llm_request' || item.source.endsWith('fork_llm_request') || item.source === 'cache_heartbeat') {
+    return 1; // 模型请求
+  }
+  if (kind === 'function_call') {
+    return 3; // 请求工具
+  }
+  if (kind === 'function_call_output' || item.source === 'tool_execution' || item.source.endsWith('fork_tool_execution')) {
+    return 4; // 工具结果
+  }
+  return 2; // 小腻输出 (assistant text / reasoning / final_answer)
+}
+
+function streamTurnKey(entry: StreamEntry): string {
+  const slice = typeof entry.item.metadata?.llmRequestSliceId === 'string' ? entry.item.metadata.llmRequestSliceId : null;
+  return slice ? `${entry.lane}:slice:${slice}` : `${entry.lane}:solo:${entry.id}`;
+}
+
 function buildStreamEntries(
   mainItems: XiaoniActivityFeedItem[],
   forkRuns: ForkAgentRun[]
@@ -923,17 +949,41 @@ function buildStreamEntries(
     }
   }
 
-  return entries.sort((left, right) => {
-    const rightMs = parseTimestampMs(right.timestamp) || 0;
-    const leftMs = parseTimestampMs(left.timestamp) || 0;
-    if (rightMs !== leftMs) {
-      return rightMs - leftMs;
+  // Group events by LLM turn (slice), order turns newest-first by the turn's
+  // earliest event, and within a turn order by phase (触发 → 模型请求 → 小腻输出
+  // → 请求工具 → 工具结果). This keeps each turn a contiguous, causally-ordered
+  // block instead of jumbling cause/effect by unreliable sub-second timestamps.
+  const groups = new Map<string, { anchor: number; entries: StreamEntry[] }>();
+  for (const entry of entries) {
+    const key = streamTurnKey(entry);
+    const ms = parseTimestampMs(entry.timestamp) || 0;
+    const group = groups.get(key);
+    if (group) {
+      group.entries.push(entry);
+      if (ms < group.anchor) {
+        group.anchor = ms;
+      }
+    } else {
+      groups.set(key, { anchor: ms, entries: [entry] });
     }
-    if (left.lane !== right.lane) {
-      return left.lane === 'fork' ? -1 : 1;
-    }
-    return left.id.localeCompare(right.id);
-  });
+  }
+  const result: StreamEntry[] = [];
+  for (const group of Array.from(groups.values()).sort((a, b) => b.anchor - a.anchor)) {
+    group.entries.sort((left, right) => {
+      const phase = streamPhaseRank(left) - streamPhaseRank(right);
+      if (phase !== 0) {
+        return phase;
+      }
+      const leftMs = parseTimestampMs(left.timestamp) || 0;
+      const rightMs = parseTimestampMs(right.timestamp) || 0;
+      if (leftMs !== rightMs) {
+        return leftMs - rightMs;
+      }
+      return left.id.localeCompare(right.id);
+    });
+    result.push(...group.entries);
+  }
+  return result;
 }
 
 function buildForkRoster(forkRuns: ForkAgentRun[]): ForkRosterEntry[] {
@@ -1793,7 +1843,9 @@ type StreamRowTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 
 function streamTypeTag(item: XiaoniActivityFeedItem): { label: string; tone: StreamRowTone } {
   const stackKind = (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind;
-  if (item.source === 'fork_trigger' || item.source === 'runtime_input') {
+  // Check runtime_input by KIND (fork runtime_input rows have source
+  // *_fork_item, not 'runtime_input') so they aren't mislabeled as 小腻输出.
+  if (item.source === 'fork_trigger' || item.source === 'runtime_input' || stackKind === 'runtime_input') {
     return { label: '触发', tone: 'info' };
   }
   if (
