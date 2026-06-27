@@ -702,6 +702,7 @@ function summarizeAgentStackItem(row) {
       stackIndex: Number(row.stackIndex || row.stack_index || 0) || null,
       stackSource: 'agent_stack_items',
       itemKind,
+      occurredSeq: streamNumberOrNull(row.occurredSeq ?? row.occurred_seq),
       llmRequestSliceId: llmSliceId,
       llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
       spanId,
@@ -1114,6 +1115,7 @@ function summarizeCompressionForkItem(row) {
       forkItemId: itemId,
       forkItemEventId: row.eventId || row.event_id || null,
       itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      occurredSeq: streamNumberOrNull(row.occurredSeq ?? row.occurred_seq),
       forkSource: 'core_memory_compression_fork_items',
       llmRequestSliceId: llmSliceId,
       llmCallId,
@@ -1338,6 +1340,7 @@ function summarizeSubconsciousForkItem(row) {
       forkItemId: itemId,
       forkItemEventId: row.eventId || row.event_id || null,
       itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      occurredSeq: streamNumberOrNull(row.occurredSeq ?? row.occurred_seq),
       forkSource: 'subconscious_agent_fork_items',
       llmRequestSliceId: llmSliceId,
       llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
@@ -1963,6 +1966,7 @@ function summarizeImageVisionForkItem(row) {
       forkItemId: itemId,
       forkItemEventId: row.eventId || row.event_id || null,
       itemIndex: Number(row.itemIndex || row.item_index || 0) || null,
+      occurredSeq: streamNumberOrNull(row.occurredSeq ?? row.occurred_seq),
       forkSource: 'image_vision_fork_items',
       llmRequestSliceId: llmSliceId,
       llmCallId,
@@ -2919,27 +2923,6 @@ function actionStreamAvailableTags(items, forkRuns) {
     });
 }
 
-function streamOrderToMs(value) {
-  const normalized = normalizeDate(value);
-  if (!normalized) {
-    return null;
-  }
-  const ms = new Date(normalized).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-// The turn's real start: the slice row is persisted when the response finishes,
-// so created_at ≈ completed_at. The request actually began processing_time_ms
-// earlier — that is when the turn truly started.
-function streamSliceTurnStartMs(row) {
-  const completedMs = streamOrderToMs(row.completedAt || row.completed_at);
-  const processingMs = Number(row.processingTimeMs ?? row.processing_time_ms);
-  if (completedMs !== null && Number.isFinite(processingMs) && processingMs > 0) {
-    return completedMs - processingMs;
-  }
-  return streamOrderToMs(row.createdAt || row.created_at || row.completedAt || row.completed_at);
-}
-
 function streamNumberOrNull(value) {
   if (value === null || typeof value === 'undefined') {
     return null;
@@ -2948,39 +2931,50 @@ function streamNumberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
-// Attach a reliable ordering key (orderTurnMs, orderRank) to each projected event.
-// Per-row timestamps are the batch/persist time — a whole turn is stamped when it
-// finishes, so they can't order events within or across turns. The real signals:
-//   - cross-turn: the turn's true start (completed_at - processing_time_ms)
-//   - within-turn: the append index (stack_index / item_index)
-// The 模型请求 slice has no index, so it sits at output_start_index - 0.5 (just
-// before its outputs). A main runtime_input row carries no slice id (appended
-// before the request existed). Its turn is the one whose OUTPUT immediately
-// follows it — i.e. the smallest output_start_index greater than its stack_index.
-// (Matching by "input range contains it" is wrong: every turn's input range spans
-// the whole prior context, so they all overlap and an old input would wrongly
-// adopt the latest turn.)
+// Attach a single ordering key (orderSeq) to each projected event from the
+// backend-stamped global creation sequence (occurred_seq, on every stack/fork
+// item). The frontend just sorts by orderSeq desc — no turn grouping, no
+// timestamp reconstruction.
+//   - real events (runtime_input / assistant_output / function_call /
+//     function_call_output, and fork items): orderSeq = their own occurred_seq.
+//   - the 模型请求 slice is not an appended item, so it sits just before its
+//     first output: orderSeq = occurred_seq(item at output_start_index) - 0.5.
+//   - a tool_execution audit row sits just before its function_call_output:
+//     orderSeq = occurred_seq(that callback) - 0.1.
+// Events with no occurred_seq (historical rows pre-migration, cache heartbeat)
+// get orderSeq = null and the frontend falls back to created_at for them.
+// Note: called per-context (main, then each fork), so the index→seq map is
+// single-lane — main stack_index and fork item_index never collide here.
 function attachStreamOrderMetadata(items, sliceRows) {
-  const bySliceId = new Map();
-  const outputAnchors = [];
-  for (const row of sliceRows || []) {
-    const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id);
-    if (!sliceId) {
+  const seqByIndex = new Map();
+  const seqByCallbackToolCallId = new Map();
+  for (const item of items || []) {
+    if (!item || typeof item !== 'object') {
       continue;
     }
-    const meta = {
-      turnMs: streamSliceTurnStartMs(row),
-      inputStart: streamNumberOrNull(row.inputStartIndex ?? row.input_start_index),
-      inputEnd: streamNumberOrNull(row.inputEndIndex ?? row.input_end_index),
-      outputStart: streamNumberOrNull(row.outputStartIndex ?? row.output_start_index),
-      outputEnd: streamNumberOrNull(row.outputEndIndex ?? row.output_end_index)
-    };
-    bySliceId.set(sliceId, meta);
-    if (meta.outputStart !== null) {
-      outputAnchors.push({ outputStart: meta.outputStart, sliceId });
+    const metadata = item.metadata || {};
+    const seq = streamNumberOrNull(metadata.occurredSeq);
+    if (seq === null) {
+      continue;
+    }
+    const index = streamNumberOrNull(metadata.stackIndex ?? metadata.itemIndex);
+    if (index !== null) {
+      seqByIndex.set(index, seq);
+    }
+    const kind = firstString(metadata.itemKind) || item.kind || '';
+    const toolCallId = firstString(metadata.toolCallId);
+    if (kind === 'function_call_output' && toolCallId) {
+      seqByCallbackToolCallId.set(toolCallId, seq);
     }
   }
-  outputAnchors.sort((left, right) => left.outputStart - right.outputStart);
+
+  const outputStartBySlice = new Map();
+  for (const row of sliceRows || []) {
+    const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id);
+    if (sliceId) {
+      outputStartBySlice.set(sliceId, streamNumberOrNull(row.outputStartIndex ?? row.output_start_index));
+    }
+  }
 
   for (const item of items || []) {
     if (!item || typeof item !== 'object') {
@@ -2988,50 +2982,28 @@ function attachStreamOrderMetadata(items, sliceRows) {
     }
     const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : (item.metadata = {});
     const source = item.source || '';
-    const sliceId = firstString(metadata.llmRequestSliceId);
-    const itemKind = firstString(metadata.itemKind) || item.kind || '';
-    const index = streamNumberOrNull(metadata.stackIndex ?? metadata.itemIndex);
-    const sliceMeta = sliceId ? bySliceId.get(sliceId) : null;
-    const isSlice = source === 'llm_request'
-      || source === 'compression_fork_llm_request'
-      || source === 'subconscious_fork_llm_request'
-      || source === 'image_vision_fork_llm_request'
-      || source === 'cache_heartbeat';
-
-    let turnMs = null;
-    let rank = null;
-
-    if (isSlice && sliceMeta) {
-      turnMs = sliceMeta.turnMs;
-      rank = sliceMeta.outputStart !== null
-        ? sliceMeta.outputStart - 0.5
-        : (sliceMeta.inputEnd !== null ? sliceMeta.inputEnd + 0.5 : 0);
-    } else if (sliceMeta) {
-      turnMs = sliceMeta.turnMs;
-      if (index !== null) {
-        rank = index;
-      } else if (itemKind === 'function_call_output' || source === 'tool_execution' || source.endsWith('fork_tool_execution')) {
-        const base = sliceMeta.outputEnd !== null
-          ? sliceMeta.outputEnd
-          : (sliceMeta.outputStart !== null ? sliceMeta.outputStart : 0);
-        rank = base + 0.5;
-      } else {
-        rank = sliceMeta.outputStart !== null ? sliceMeta.outputStart : 0;
+    let seq = streamNumberOrNull(metadata.occurredSeq);
+    if (seq === null) {
+      const isSlice = source === 'llm_request'
+        || source === 'compression_fork_llm_request'
+        || source === 'subconscious_fork_llm_request'
+        || source === 'image_vision_fork_llm_request';
+      if (isSlice) {
+        const sliceId = firstString(metadata.llmRequestSliceId);
+        const outputStart = sliceId ? outputStartBySlice.get(sliceId) : null;
+        const outputSeq = outputStart !== null && outputStart !== undefined ? seqByIndex.get(outputStart) : undefined;
+        if (outputSeq !== undefined) {
+          seq = outputSeq - 0.5;
+        }
+      } else if (source === 'tool_execution' || source.endsWith('fork_tool_execution')) {
+        const toolCallId = firstString(metadata.toolCallId);
+        const callbackSeq = toolCallId ? seqByCallbackToolCallId.get(toolCallId) : undefined;
+        if (callbackSeq !== undefined) {
+          seq = callbackSeq - 0.1;
+        }
       }
-    } else if (itemKind === 'runtime_input' && index !== null) {
-      const match = outputAnchors.find((anchor) => anchor.outputStart > index);
-      if (match) {
-        const matchMeta = bySliceId.get(match.sliceId);
-        turnMs = matchMeta ? matchMeta.turnMs : null;
-      }
-      rank = index;
     }
-
-    if (turnMs === null || typeof turnMs === 'undefined') {
-      turnMs = streamOrderToMs(item.timestamp);
-    }
-    metadata.orderTurnMs = turnMs;
-    metadata.orderRank = rank === null ? 0 : rank;
+    metadata.orderSeq = seq;
   }
   return items;
 }

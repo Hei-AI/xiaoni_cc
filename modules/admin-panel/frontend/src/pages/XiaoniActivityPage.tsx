@@ -898,27 +898,17 @@ function streamMetaNumber(value: unknown): number {
   return Number.isFinite(num) ? num : Number.NaN;
 }
 
-// The backend stamps each event with the real creation order: orderTurnMs (the
-// turn's true start = completed_at - processing_time_ms) and orderRank (the
-// append index, with the 模型请求 slice slotted between input and output). Sort
-// reverse-chronologically by those. Fall back to wall-clock / append index only
-// for events the backend didn't stamp (e.g. frontend-synthesized fork triggers).
-function streamOrderTurnMs(entry: StreamEntry): number {
-  const v = streamMetaNumber(entry.item.metadata?.orderTurnMs);
-  if (Number.isFinite(v)) {
-    return v;
-  }
-  return parseTimestampMs(entry.timestamp) ?? 0;
+// The backend stamps each event with orderSeq — a single global creation sequence
+// (occurred_seq, with the 模型请求 slice / tool rows derived from their neighbors).
+// Sort reverse-chronologically by it. Rows the backend couldn't stamp (historical
+// pre-migration rows, frontend-synthesized fork triggers) have no orderSeq and
+// fall back to wall-clock; they always sort BELOW stamped rows (they're older).
+function streamHasOrderSeq(entry: StreamEntry): boolean {
+  return Number.isFinite(streamMetaNumber(entry.item.metadata?.orderSeq));
 }
 
-function streamOrderRank(entry: StreamEntry): number {
-  const v = streamMetaNumber(entry.item.metadata?.orderRank);
-  if (Number.isFinite(v)) {
-    return v;
-  }
-  const meta = entry.item.metadata || {};
-  const index = streamMetaNumber(meta.stackIndex ?? meta.itemIndex);
-  return Number.isFinite(index) ? index : 0;
+function streamOrderSeq(entry: StreamEntry): number {
+  return streamMetaNumber(entry.item.metadata?.orderSeq);
 }
 
 function buildStreamEntries(
@@ -951,19 +941,26 @@ function buildStreamEntries(
     }
   }
 
-  // Standard reverse-chronological order (newest first), driven by the backend's
-  // real creation sequence: orderTurnMs (turn start) then orderRank (append index,
-  // slice slotted between input and output). No wall-clock guessing here.
+  // Standard reverse-chronological order (newest first) by the backend's global
+  // creation sequence. Two tiers: stamped rows (have orderSeq) sort above
+  // un-stamped historical rows; within each tier, newest first.
   return entries.sort((left, right) => {
-    const leftTurn = streamOrderTurnMs(left);
-    const rightTurn = streamOrderTurnMs(right);
-    if (leftTurn !== rightTurn) {
-      return rightTurn - leftTurn; // newest turn first
+    const leftHas = streamHasOrderSeq(left);
+    const rightHas = streamHasOrderSeq(right);
+    if (leftHas !== rightHas) {
+      return leftHas ? -1 : 1; // stamped rows above historical
     }
-    const leftRank = streamOrderRank(left);
-    const rightRank = streamOrderRank(right);
-    if (leftRank !== rightRank) {
-      return rightRank - leftRank; // newest within turn first
+    if (leftHas && rightHas) {
+      const seqDiff = streamOrderSeq(right) - streamOrderSeq(left);
+      if (seqDiff !== 0) {
+        return seqDiff; // newest creation seq first
+      }
+    } else {
+      const leftMs = parseTimestampMs(left.timestamp) ?? 0;
+      const rightMs = parseTimestampMs(right.timestamp) ?? 0;
+      if (leftMs !== rightMs) {
+        return rightMs - leftMs; // historical: newest wall-clock first
+      }
     }
     return (right.item.eventId || right.id).localeCompare(left.item.eventId || left.id);
   });
