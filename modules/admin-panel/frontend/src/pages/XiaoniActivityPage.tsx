@@ -1829,7 +1829,7 @@ type StreamRowTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 function streamTypeTag(item: XiaoniActivityFeedItem): { label: string; tone: StreamRowTone } {
   const stackKind = (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind;
   // Check runtime_input by KIND (fork runtime_input rows have source
-  // *_fork_item, not 'runtime_input') so they aren't mislabeled as 小腻输出.
+  // *_fork_item, not 'runtime_input') so they aren't mislabeled as 小腻os.
   if (item.source === 'fork_trigger' || item.source === 'runtime_input' || stackKind === 'runtime_input') {
     return { label: '触发', tone: 'info' };
   }
@@ -1861,7 +1861,7 @@ function streamTypeTag(item: XiaoniActivityFeedItem): { label: string; tone: Str
     || item.source === 'subconscious_fork_item'
     || item.source === 'image_vision_fork_item'
   ) {
-    return { label: '小腻输出', tone: 'info' };
+    return { label: '小腻os', tone: 'info' };
   }
   return { label: sourceLabel(item.source), tone: 'neutral' };
 }
