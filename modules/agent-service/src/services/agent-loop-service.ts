@@ -187,11 +187,6 @@ type ToolExecutionContext = {
   currentCanonicalRequest?: CanonicalAgentTurnRequest;
 };
 
-type RuntimeStateTrigger =
-  | 'action_tool_threshold'
-  | 'web_search'
-  | 'low_energy_reminder';
-
 export type RuntimeEnergyState = {
   energy: number;
   maxEnergy: number;
@@ -1471,9 +1466,9 @@ export function buildCapabilitiesDeveloperBlock(input: {
 } = {}) {
   const toolCosts = input.toolCosts || RUNTIME_TOOL_COSTS;
   const skillCosts = input.skillCosts || RUNTIME_SKILL_COSTS;
-  const toolLines = Object.entries(toolCosts)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, cost]) => `- ${name}: energy_cost=${formatRuntimeEnergy(cost)}`);
+  const toolLines = Object.keys(toolCosts)
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => `- ${name}`);
   const skillLines: string[] = [];
   const warnings: string[] = [];
   for (const [name, cost] of Object.entries(skillCosts).sort(([left], [right]) => left.localeCompare(right))) {
@@ -1481,7 +1476,7 @@ export function buildCapabilitiesDeveloperBlock(input: {
       warnings.push(`skill ${name} omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost`);
       continue;
     }
-    skillLines.push(`- ${name}: energy_cost=${formatRuntimeEnergy(cost)}`);
+    skillLines.push(`- ${name}`);
   }
   const block = [
     '<CAPABILITIES>',
@@ -1534,11 +1529,13 @@ function buildImageGenerationAllowedToolsToolChoice(): OpenResponseToolChoice {
   return buildAllowedToolsToolChoice([{ type: 'image_generation' }], 'required');
 }
 
-function formatRuntimeEnergy(value: number) {
-  return Number.isFinite(value) ? value.toFixed(3) : '0.000';
-}
-
 const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+// Historical normalization only: persisted stack items written before runtime
+// time stamping was removed still carry a [当前时间: ...] prefix. We no longer ADD
+// these synthetic "current time" stamps to system_reminders, but
+// stripRuntimeTextEast8TimePrefix keeps replay/extraction of that legacy content
+// clean. Do not reintroduce a stamp-add path here.
 const RUNTIME_TIME_PREFIX_PATTERN = /^\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\n?/;
 const LEGACY_EAST8_TIME_PREFIX_PATTERN = /^\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]\n?/;
 
@@ -1546,6 +1543,9 @@ function padTwoDigits(value: number) {
   return String(value).padStart(2, '0');
 }
 
+// Formats a concrete event timestamp (e.g. when a tool completed or a message
+// arrived) in East-8. This is NOT the removed synthetic "current time" reminder
+// stamp — it renders real per-event times in conversation/timeline history.
 export function formatEast8Timestamp(now: Date = new Date()) {
   const timestamp = now instanceof Date ? now.getTime() : Number.NaN;
   const date = new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + EAST8_OFFSET_MS);
@@ -1555,44 +1555,7 @@ export function formatEast8Timestamp(now: Date = new Date()) {
   ].join(' ');
 }
 
-export function prefixRuntimeTextWithEast8Time(text: string, now: Date = new Date()) {
-  const normalized = String(text || '').trim();
-  if (!normalized || RUNTIME_TIME_PREFIX_PATTERN.test(normalized) || LEGACY_EAST8_TIME_PREFIX_PATTERN.test(normalized)) {
-    return normalized;
-  }
-  return `[当前时间: ${formatEast8Timestamp(now)}]\n${normalized}`;
-}
-
-const RUNTIME_REMINDER_STAMP_ID_PATTERN = /(\d{12,})/;
-
-/**
- * Resolve the [当前时间] stamp for a durable runtime reminder from the trace/run id's
- * embedded epoch-ms, NOT a per-call `new Date()`.
- *
- * The live request build and the persisted runtime_input stack item each call
- * buildCurrentTurnInputItems independently (live ~at run start, persist a beat later),
- * so a wall-clock stamp drifts up to ~1s between them. The originating run caches the
- * live value; every later run replays the persisted value. That 1-byte drift sits
- * INSIDE the single whole-body prompt-cache block (the cache breakpoint lands on the
- * last durable message), so the entire ~255K replay body cache-misses at each run
- * boundary (cache 击穿). Deriving the stamp from the stable trace/run id makes live,
- * persist, and replay byte-identical, keeping the prefix warm across runs.
- */
-export function resolveRuntimeReminderStampDate(
-  source: { traceId?: string | null; runId?: string | null } | null | undefined
-): Date {
-  const candidate = source?.traceId || source?.runId || '';
-  const match = typeof candidate === 'string' ? candidate.match(RUNTIME_REMINDER_STAMP_ID_PATTERN) : null;
-  if (match) {
-    const ms = Number(match[1]);
-    if (Number.isFinite(ms) && ms > 0) {
-      return new Date(ms);
-    }
-  }
-  return new Date();
-}
-
-function stripRuntimeTextEast8TimePrefix(text: string) {
+export function stripRuntimeTextEast8TimePrefix(text: string) {
   return String(text || '')
     .trim()
     .replace(RUNTIME_TIME_PREFIX_PATTERN, '')
@@ -1744,10 +1707,6 @@ function renderRecoverEnergyCompletedReminder(input: {
           ? 'recover_energy_forced_completed_reminder.md'
           : 'recover_energy_completed_reminder.md';
   return formatSystemReminderBlock(renderPromptSnippet(template, {
-    ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
-    MAX_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.maxEnergy),
-    START_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.startEnergy),
-    CURRENT_ENERGY: formatRuntimeEnergy(input.recoveredEnergy.energy),
     SLEEP_MINUTES: Math.max(0, Math.round(input.sleepMinutes)),
     WAKE_CAUSE: wakeCause,
     WAKE_CALL_COUNT: input.wakeCallCount ?? 0,
@@ -1762,69 +1721,10 @@ function renderRecoverEnergyCompletedReminder(input: {
 
 function renderRecoverEnergyRejectedReminder(input: {
   reason: string;
-  energy: number;
-  maxEnergy: number;
 }) {
   return formatSystemReminderBlock(renderPromptSnippet('recover_energy_rejected_reminder.md', {
-    REJECT_REASON: input.reason,
-    ENERGY: formatRuntimeEnergy(input.energy),
-    MAX_ENERGY: formatRuntimeEnergy(input.maxEnergy)
+    REJECT_REASON: input.reason
   }));
-}
-
-export function buildRuntimeStateBlock(input: {
-  trigger: RuntimeStateTrigger;
-  energy: number;
-  maxEnergy?: number;
-  debt?: number;
-  recovered?: number;
-  note?: string | null;
-}) {
-  const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(input.maxEnergy, RUNTIME_MAX_ENERGY));
-  const energy = normalizeRuntimeEnergy(input.energy, maxEnergy);
-  const body = renderPromptSnippet('runtime_state.md', {
-    ENERGY: formatRuntimeEnergy(energy),
-    MAX_ENERGY: formatRuntimeEnergy(maxEnergy)
-  });
-  return formatTaggedBlock('STATE', {}, prefixRuntimeTextWithEast8Time(body));
-}
-
-function extractRuntimeStateDirective(developerContextBlock: string | null | undefined) {
-  const block = developerContextBlock || '';
-  if (!block.trim()) {
-    return null;
-  }
-  if (/<STATE\b/.test(block)) {
-    return null;
-  }
-  const directive = block.match(/<xiaoni_runtime_state\b([^>]*)\/?>/i)
-    || block.match(/<runtime_state\b([^>]*)\/?>/i);
-  if (directive) {
-    const attrs = parseTagAttributes(directive[1] || '');
-    const trigger = normalizeRuntimeStateTrigger(attrs.trigger);
-    const energy = normalizeRuntimeEnergy(attrs.energy ?? attrs.raw_energy, RUNTIME_MAX_ENERGY);
-    const maxEnergy = normalizeRuntimeEnergy(attrs.max_energy, RUNTIME_MAX_ENERGY);
-    if (trigger) {
-      return { trigger, energy, maxEnergy, note: attrs.note || null };
-    }
-  }
-  return null;
-}
-
-function parseTagAttributes(value: string) {
-  const attrs: Record<string, string> = {};
-  for (const match of value.matchAll(/\b([a-zA-Z_][\w:-]*)="([^"]*)"/g)) {
-    attrs[match[1]!] = match[2]!;
-  }
-  return attrs;
-}
-
-function normalizeRuntimeStateTrigger(value: unknown): RuntimeStateTrigger | null {
-  return value === 'action_tool_threshold'
-    || value === 'web_search'
-    || value === 'low_energy_reminder'
-    ? value
-    : null;
 }
 
 function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
@@ -2762,8 +2662,8 @@ function formatTaggedBlock(tagName: string, attributes: Record<string, unknown>,
   ].join('\n');
 }
 
-function formatSystemReminderBlock(body: string, now: Date = new Date()) {
-  return formatTaggedBlock('system_reminder', {}, prefixRuntimeTextWithEast8Time(body, now));
+function formatSystemReminderBlock(body: string) {
+  return formatTaggedBlock('system_reminder', {}, String(body || '').trim());
 }
 
 function extractTaggedBlockBody(content: string, tagName: string) {
@@ -2771,20 +2671,6 @@ function extractTaggedBlockBody(content: string, tagName: string) {
   const pattern = new RegExp(`^<${tagName}(?:\\s[^>]*)?>\\n?([\\s\\S]*?)\\n?</${tagName}>$`);
   const match = normalized.match(pattern);
   return match ? match[1].trim() : normalized;
-}
-
-function prefixTaggedBlockBodyWithEast8Time(content: string, tagName: string) {
-  const normalized = String(content || '').trim();
-  const pattern = new RegExp(`^(<${tagName}(?:\\s[^>]*)?>)\\n?([\\s\\S]*?)\\n?(</${tagName}>)$`);
-  const match = normalized.match(pattern);
-  if (!match) {
-    return prefixRuntimeTextWithEast8Time(normalized);
-  }
-  return [
-    match[1],
-    prefixRuntimeTextWithEast8Time(match[2]),
-    match[3]
-  ].join('\n');
 }
 
 function renderPromptChatType(chatType: string | null | undefined) {
@@ -2913,10 +2799,10 @@ function renderSubconsciousForkToolRestrictionReminder() {
   return formatSystemReminderBlock(readPromptSnippet('subconscious_fork_tool_restriction_reminder.md'));
 }
 
-function renderSubconsciousAgentNotify(finalAnswerText: string, now: Date = new Date()) {
-  return prefixRuntimeTextWithEast8Time(renderPromptSnippet('subconscious_agent_notify.md', {
+function renderSubconsciousAgentNotify(finalAnswerText: string) {
+  return renderPromptSnippet('subconscious_agent_notify.md', {
     SUBCONSCIOUS_FINAL_ANSWER: finalAnswerText
-  }), now);
+  }).trim();
 }
 
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
@@ -3143,7 +3029,7 @@ function renderPhoneNotification(queueMessage: QueueMessageRecord['payload']) {
   return formatSystemReminderBlock(renderPromptSnippet('phone_notification_reminder.md', {
     UNREAD_DELTA: unreadDelta,
     DIRECT_CUE_LINES: directCueLines.join('\n')
-  }), resolveRuntimeReminderStampDate(queueMessage));
+  }));
 }
 
 function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']) {
@@ -3173,7 +3059,7 @@ function renderImageTaskNotification(queueMessage: QueueMessageRecord['payload']
     emptyOptionalPlaceholders
   );
   const body = renderPromptTemplateText(template, variables).trimEnd();
-  return formatSystemReminderBlock(body, resolveRuntimeReminderStampDate(queueMessage));
+  return formatSystemReminderBlock(body);
 }
 
 function renderImageTaskPendingStatusText(params: {
@@ -3257,7 +3143,7 @@ function renderAttentionLeaseReminder(queueMessage: QueueMessageRecord['payload'
   return formatSystemReminderBlock(renderPromptSnippet('attention_lease_reminder.md', {
     CHAT_LABEL: chatLabel,
     ...buildAttentionLeaseTemplateVariables(queueMessage)
-  }), resolveRuntimeReminderStampDate(queueMessage));
+  }));
 }
 
 function getSystemReminderText(queueMessage: QueueMessageRecord['payload']) {
@@ -3275,8 +3161,7 @@ function renderSystemReminder(queueMessage: QueueMessageRecord['payload']) {
   }
   const reminder = getSystemReminderText(queueMessage);
   return formatSystemReminderBlock(
-    reminder || readPromptSnippet('system_reminder_fallback.md'),
-    resolveRuntimeReminderStampDate(queueMessage)
+    reminder || readPromptSnippet('system_reminder_fallback.md')
   );
 }
 
@@ -3289,7 +3174,7 @@ function renderSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['
     ? queueMessage.rawPayload.final_answer_text.trim()
     : '';
   return finalAnswerText
-    ? renderSubconsciousAgentNotify(finalAnswerText, resolveRuntimeReminderStampDate(queueMessage))
+    ? renderSubconsciousAgentNotify(finalAnswerText)
     : '';
 }
 
@@ -3466,32 +3351,6 @@ function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payloa
     })
     .map((message) => message.trim())
     .filter(Boolean);
-}
-
-export function buildTurnStateReminder(
-  developerContextBlock: string | null | undefined,
-  runtimeEnergyState: RuntimeEnergyState | null = null
-): OpenResponseInputItem | null {
-  const directive = extractRuntimeStateDirective(developerContextBlock);
-  if (!directive) {
-    return null;
-  }
-  const runtimeEnergy = runtimeEnergyState?.energy;
-  const runtimeMaxEnergy = runtimeEnergyState?.maxEnergy;
-  const energy = Number.isFinite(runtimeEnergy)
-    ? Number(runtimeEnergy)
-    : directive.energy;
-  const maxEnergy = Number.isFinite(runtimeMaxEnergy)
-    ? Math.max(0.001, Number(runtimeMaxEnergy))
-    : directive.maxEnergy;
-  return buildDeveloperInputItem([
-    buildRuntimeStateBlock({
-      trigger: directive.trigger,
-      energy,
-      maxEnergy,
-      note: directive.note
-    })
-  ]);
 }
 
 function buildCoreMemoryCompressionReminder(input: {
@@ -4652,22 +4511,6 @@ function parseFeedbackReflectionCandidate(value: unknown): FeedbackReflectionCan
   };
 }
 
-function buildToolRuntimeEnergyResult(toolName: string, runtimeEnergyState?: RuntimeEnergyState | null) {
-  const cost = RUNTIME_TOOL_COSTS[toolName];
-  if (!Number.isFinite(cost)) {
-    return null;
-  }
-  const energy = normalizeRuntimeEnergy(runtimeEnergyState?.energy, Number.NaN);
-  const maxEnergy = Math.max(0.001, normalizeRuntimeEnergy(runtimeEnergyState?.maxEnergy, RUNTIME_MAX_ENERGY));
-  return {
-    energy_cost: Number(cost),
-    ...(Number.isFinite(energy) ? {
-      energy,
-      max_energy: maxEnergy
-    } : {})
-  };
-}
-
 function buildToolErrorResult(
   toolCall: Pick<AgentToolCall, 'name' | 'callId'>,
   error: unknown
@@ -4689,46 +4532,18 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
-  const runtimeEnergy = buildToolRuntimeEnergyResult(toolCall.name, context?.runtimeEnergyState ?? null);
-  const usesNativeToolOutput = toolCall.name === 'web_search'
-    || (toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string')
-    || (toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string')
-    || (toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string');
-  const structuredToolResult = runtimeEnergy && !usesNativeToolOutput
-    ? {
-        ...toolResult,
-        energy_cost: runtimeEnergy.energy_cost,
-        energy: runtimeEnergy.energy,
-        max_energy: runtimeEnergy.max_energy
-      }
-    : toolResult;
   const inputItems: OpenResponseInputItem[] = [{
     type: 'function_call_output',
     call_id: toolCall.callId,
     output: toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
       ? toolResult.codex_output
       : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
-        ? prefixRuntimeTextWithEast8Time(toolResult.output_xml)
+        ? String(toolResult.output_xml).trim()
         : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
-          ? prefixTaggedBlockBodyWithEast8Time(toolResult.system_reminder, 'system_reminder')
-          : JSON.stringify(structuredToolResult)
+          ? String(toolResult.system_reminder).trim()
+          : JSON.stringify(toolResult)
   }];
   const oneShotInputItems: OpenResponseInputItem[] = [];
-  if (
-    runtimeEnergy
-    && typeof runtimeEnergy.energy === 'number'
-    && typeof runtimeEnergy.max_energy === 'number'
-    && usesNativeToolOutput
-    && toolCall.name !== TOOL_NAMES.recoverEnergy
-  ) {
-    oneShotInputItems.push(buildDeveloperInputItem([
-      buildRuntimeStateBlock({
-        trigger: toolCall.name === 'web_search' ? 'web_search' : 'action_tool_threshold',
-        energy: runtimeEnergy.energy,
-        maxEnergy: runtimeEnergy.max_energy
-      })
-    ]));
-  }
   return {
     inputItems,
     oneShotInputItems,
@@ -5828,13 +5643,14 @@ export class AgentLoopService {
     const rawArguments = typeof sessionMetadata.raw_arguments === 'string'
       ? sessionMetadata.raw_arguments
       : JSON.stringify(rawToolArgs);
+    const wakeSystemReminder = String(toolResult.system_reminder || '').trim();
     const inputItems: OpenResponseInputItem[] = isVoluntary
       ? [{
           type: 'function_call_output',
           call_id: session.toolCallId!,
-          output: prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')
+          output: wakeSystemReminder
         }]
-      : [buildDeveloperInputItem([prefixTaggedBlockBodyWithEast8Time(String(toolResult.system_reminder || ''), 'system_reminder')]) as OpenResponseInputItem];
+      : [buildDeveloperInputItem([wakeSystemReminder]) as OpenResponseInputItem];
 
     if (isVoluntary) {
       // The original recover_energy function_call is already part of the stack
@@ -10001,7 +9817,7 @@ export class AgentLoopService {
             })
           : null;
         if (energyState && gate && !gate.accepted) {
-          const reason = `现在还没到可以休息的线：当前精力 ${formatRuntimeEnergy(energyState.energy)}/${formatRuntimeEnergy(energyState.maxEnergy)}，刚醒不久或精力还够时很难再次入睡。`;
+          const reason = '现在还没到可以休息的线：刚醒不久、身体还撑得住的时候，很难再次入睡。';
           return {
             recovered: false,
             rest_rejected: true,
@@ -10012,9 +9828,7 @@ export class AgentLoopService {
             required_pressure: gate.requiredPressure,
             energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
             system_reminder: renderRecoverEnergyRejectedReminder({
-              reason,
-              energy: energyState.energy,
-              maxEnergy: energyState.maxEnergy
+              reason
             }),
             xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
               ? toolCall.args.xiaoni_os.trim()
@@ -11927,10 +11741,6 @@ export function buildInitialInput(
       role: 'developer',
       content: developerContextParts.dynamicContext
     });
-  }
-  const turnStateReminder = buildTurnStateReminder(developerContextBlock, runtimeEnergyState);
-  if (turnStateReminder) {
-    items.push(turnStateReminder);
   }
   return items;
 }

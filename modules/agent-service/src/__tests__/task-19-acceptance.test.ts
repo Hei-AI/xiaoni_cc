@@ -129,7 +129,7 @@ test('Task 19 prompt body loads from docs/xiaoni_prompt/system_prompt.md', () =>
   assert.doesNotMatch(systemPrompt, /pressure|dopamine|多巴胺|压力指标|情绪数字/u);
 });
 
-test('Task 19 injects CAPABILITIES once near the start and lists compress_core_memory cost', () => {
+test('Task 19 injects CAPABILITIES once near the start and lists compress_core_memory by name only', () => {
   const input = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
   const capabilities = input.filter((item) => (
     item.type === 'message'
@@ -139,7 +139,8 @@ test('Task 19 injects CAPABILITIES once near the start and lists compress_core_m
 
   assert.equal(capabilities.length, 1);
   assert.equal(input.indexOf(capabilities[0]!), 1);
-  assert.match(getMessageContent(capabilities[0]), /compress_core_memory: energy_cost=0.020/);
+  assert.match(getMessageContent(capabilities[0]), /- compress_core_memory/);
+  assert.doesNotMatch(getMessageContent(capabilities[0]), /energy_cost/);
 });
 
 test('Task 19 defines compress_core_memory but keeps it unavailable until engineering injects core-memory pressure', async () => {

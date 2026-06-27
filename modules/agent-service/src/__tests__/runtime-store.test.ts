@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   buildPresenceAnchorsFromLife,
   rankFeedbackReflectionsForRecall,
-  renderXiaoniLifeStateExplanation,
   resolvePresenceRecoveryEvent,
   shouldDiscardLifeProjectionCursor,
   RuntimeStore
@@ -418,48 +417,6 @@ test('visible group delivery from a direct run is attributed to the target group
   assert.equal(lifeEvents[1].chatType, 'group');
   assert.equal(lifeEvents[1].sessionKey, 'qq:group:253631878');
   assert.equal(lifeEvents[1].actionCost, 0);
-});
-
-test('renderXiaoniLifeStateExplanation tells current energy and recent action costs', () => {
-  const text = renderXiaoniLifeStateExplanation({
-    version: 'xiaoni-life-v1',
-    summary: '当前精力=0.10',
-    generatedAt: '2026-05-31T08:00:00.000Z',
-    rebuiltFromEvents: false,
-    eventCount: 3,
-    reducedThroughEventId: '3',
-    contributors: [
-      {
-        eventId: '3',
-        eventKind: 'sleep_period',
-        occurredAt: '2026-05-31T07:30:00.000Z',
-        effect: '刚才记录了一次休息恢复，恢复后累计行动成本重置为 0.00'
-      },
-      {
-        eventId: '2',
-        eventKind: 'send_in_group',
-        occurredAt: '2026-05-31T06:30:00.000Z',
-        effect: '已经开口，行动成本 1.00'
-      },
-      {
-        eventId: '1',
-        eventKind: 'presence_tick_evaluated',
-        occurredAt: '2026-05-31T06:00:00.000Z',
-        effect: '空闲检查被跳过'
-      }
-    ],
-    meterDrivers: {
-      boredom: '当前精力=0.10',
-      fatigue: '当前精力=0.10，累计行动成本=1.00',
-      sharingDesire: '当前精力=0.10',
-      attention: '当前精力=0.10'
-    }
-  });
-
-  assert.match(text, /现在的精力：当前精力=0\.10/);
-  assert.match(text, /最近行动消耗：已经开口，行动成本 1\.00/);
-  assert.match(text, /刚才怎么恢复：刚才记录了一次休息恢复，恢复后累计行动成本重置为 0\.00/);
-  assert.doesNotMatch(text, /无聊=|疲劳=|分享欲=|困倦压力=|疲劳怎么算|空闲检查被跳过/);
 });
 
 test('recordNoVisibleDeliveryLifeEvent records lurked action as self-private no-visible-delivery event', async () => {

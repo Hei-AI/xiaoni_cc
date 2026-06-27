@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildRuntimeStateBlock, buildTurnStateReminder, formatEast8Timestamp, prefixRuntimeTextWithEast8Time, recoverRuntimeEnergy, resolveRuntimeReminderStampDate, sanitizeLowValueOpeningFiller, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
@@ -473,7 +473,6 @@ function getInputTextParts(item: unknown) {
 function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
-    '[当前时间: 2026-06-12 22:51:11]',
     '【视线边缘：状态栏闪烁】',
     '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
     '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
@@ -493,53 +492,29 @@ function isImageTaskNotificationReminderContent(content: string) {
     && content.includes('【视觉感知：造物出炉】');
 }
 
-test('runtime text timestamp helpers format local current time and avoid double prefixes', () => {
-  const now = new Date('2026-06-12T14:51:11.000Z');
-
-  assert.equal(formatEast8Timestamp(now), '2026-06-12 22:51:11');
-  assert.equal(
-    prefixRuntimeTextWithEast8Time('醒了。', now),
-    '[当前时间: 2026-06-12 22:51:11]\n醒了。'
-  );
-  assert.equal(
-    prefixRuntimeTextWithEast8Time('[当前时间: 2026-06-12 22:51:11]\n醒了。', now),
-    '[当前时间: 2026-06-12 22:51:11]\n醒了。'
-  );
-  assert.equal(
-    prefixRuntimeTextWithEast8Time('[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。', now),
-    '[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'
-  );
+test('formatEast8Timestamp renders concrete event times in East-8 (per-event time is retained)', () => {
+  const eventTime = new Date('2026-06-12T14:51:11.000Z');
+  assert.equal(formatEast8Timestamp(eventTime), '2026-06-12 22:51:11');
 });
 
-test('resolveRuntimeReminderStampDate derives a stable stamp from the trace/run id so replay stays cache-warm', () => {
-  // The bug: the live request build and the persisted runtime_input stack item each
-  // stamp [当前时间] from their own new Date(), drifting ~1s apart. The originating run
-  // caches one value; every later run replays the other. That 1-byte drift sits inside
-  // the whole-body prompt-cache block, re-creating the entire replay body at each run
-  // boundary (cache 击穿). The stamp must be a pure function of the stable trace/run id.
-  const traceId = 'runtrace_1782400191350_92330dd2';
-  const runId = 'run_1782400191350_487feeb1';
+test('system_reminder blocks no longer carry a synthetic [当前时间] stamp', () => {
+  // 小腻 no longer has a "current time" concept: durable system_reminders are emitted
+  // verbatim, with no [当前时间: ...] prefix added at build time. (Per-event timestamps
+  // in conversation/timeline history are unaffected — those use formatEast8Timestamp.)
+  const reminder = expectedCurrentInputMessage();
+  assert.ok(!/\[当前时间/.test(reminder), 'reminder must not contain a 当前时间 stamp');
+});
 
-  // 1782400191350ms == 2026-06-25 23:09:51 (UTC+8) — must not depend on wall clock.
-  assert.equal(resolveRuntimeReminderStampDate({ traceId }).getTime(), 1782400191350);
-  assert.equal(formatEast8Timestamp(resolveRuntimeReminderStampDate({ traceId })), '2026-06-25 23:09:51');
-
-  // Two independent builds (live vs persist), spaced in wall-clock time, must produce
-  // the SAME stamp text — that is exactly what keeps the cached prefix byte-stable.
-  const liveStamp = resolveRuntimeReminderStampDate({ traceId });
-  const persistStamp = resolveRuntimeReminderStampDate({ traceId });
+test('stripRuntimeTextEast8TimePrefix still normalizes legacy stamped history', () => {
+  // Historical, already-persisted stack items keep their old [当前时间] prefix. We do
+  // not backfill them, so extraction must still strip the legacy prefix cleanly.
+  assert.equal(stripRuntimeTextEast8TimePrefix('[当前时间: 2026-06-12 22:51:11]\n醒了。'), '醒了。');
   assert.equal(
-    prefixRuntimeTextWithEast8Time('【视线边缘：状态栏闪烁】', liveStamp),
-    prefixRuntimeTextWithEast8Time('【视线边缘：状态栏闪烁】', persistStamp)
+    stripRuntimeTextEast8TimePrefix('[当前时间 东八区: 2026-06-12 22:51:11 UTC+08:00]\n醒了。'),
+    '醒了。'
   );
-
-  // traceId wins; runId is the fallback; both encode the same epoch-ms.
-  assert.equal(resolveRuntimeReminderStampDate({ runId }).getTime(), 1782400191350);
-  assert.equal(resolveRuntimeReminderStampDate({ traceId, runId }).getTime(), 1782400191350);
-
-  // No parseable id -> fall back to wall clock (never throws, never NaN).
-  assert.ok(Number.isFinite(resolveRuntimeReminderStampDate({ traceId: 'recovery:session-xyz' }).getTime()));
-  assert.ok(Number.isFinite(resolveRuntimeReminderStampDate(null).getTime()));
+  // Unstamped text passes through untouched.
+  assert.equal(stripRuntimeTextEast8TimePrefix('醒了。'), '醒了。');
 });
 
 test('buildInitialInput reuses precomputed current-turn items instead of rebuilding (build-once: 存档 == sent request)', () => {
@@ -813,12 +788,8 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     assert.match(output, /Process exited without an exit code/);
     assert.match(output, /ENOENT|not\/a\/real-shell/);
     assert.equal(continuation.inputItems.length, 1);
-    const stateItem = continuation.oneShotInputItems[0];
-    assert.equal(continuation.oneShotInputItems.length, 1);
-    assert.equal(stateItem?.type, 'message');
-    assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
-    assert.match(getMessageContent(stateItem), /0.910/);
-    assert.match(getMessageContent(stateItem), /1.000/);
+    // No energy STATE oneShot block is emitted anymore.
+    assert.equal(continuation.oneShotInputItems.length, 0);
   });
 });
 
@@ -1512,7 +1483,7 @@ test('buildInitialInput appends self continuation after terminal final_answer on
 
   assert.ok(finalAnswerIndex >= 0);
   assert.equal(reminderIndex, finalAnswerIndex + 1);
-  assert.match(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
 });
 
 test('buildInitialInput can place loop continuation before the current notification trigger', () => {
@@ -1623,7 +1594,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /SessionKey:/);
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
   assert.match(currentPrompt, /<system_reminder>/);
-  assert.match(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
   assert.match(currentPrompt, /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentPrompt, /session_key=/);
@@ -1665,7 +1636,7 @@ test('buildInitialInput suppresses deleted final-answer prompt reminders', () =>
   )), false);
 });
 
-test('buildInitialInput prefixes ordinary system reminders with local current time', () => {
+test('buildInitialInput emits ordinary system reminders without a current-time prefix', () => {
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.messages = [];
@@ -1687,7 +1658,7 @@ test('buildInitialInput prefixes ordinary system reminders with local current ti
   const rendered = loopInput.map(getMessageContent).join('\n');
 
   assert.match(rendered, /<system_reminder>/);
-  assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
   assert.match(rendered, /该压缩记忆了。/);
   assert.equal(loopInput.some((item: any) => (
     item.type === 'message'
@@ -1732,7 +1703,7 @@ test('buildInitialInput renders subconscious agent notify template as user bucke
   assert.doesNotMatch(subconsciousContent, /&lt;xiaoni_plan&gt;/);
 });
 
-test('buildInitialInput generates subconscious agent notify with local current time once', () => {
+test('buildInitialInput generates subconscious agent notify without a current-time prefix', () => {
   const payload = createQueuePayload();
   payload.source = 'system_reminder';
   payload.messages = [];
@@ -1761,9 +1732,8 @@ test('buildInitialInput generates subconscious agent notify with local current t
 
   assert.equal((subconsciousInput as any)?.type, 'message');
   assert.equal((subconsciousInput as any)?.role, 'user');
-  assert.match(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(subconsciousContent, EAST8_TIME_PREFIX_PATTERN);
   assert.match(subconsciousContent, /<xiaoni_plan>/);
-  assert.equal((subconsciousContent.match(EAST8_TIME_PREFIX_PATTERN) || []).length, 1);
 });
 
 test('buildInitialInput keeps non-template subconscious system reminders as developer input', () => {
@@ -1883,7 +1853,7 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   const rendered = loopInput.map(getMessageContent).join('\n');
 
   assert.match(rendered, /<system_reminder>/);
-  assert.match(rendered, EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
   assert.match(rendered, /视觉感知：造物出炉/);
   assert.match(rendered, /生成状态：已完成/);
   assert.match(rendered, /任务锚点: task-image-1/);
@@ -2300,7 +2270,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   const currentTurnItems = loopInput.filter((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
 
   assert.equal(currentTurnItems.length, 1);
-  assert.match(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
   assert.match(getMessageContent(currentTurnItems[0]), /视线边缘：状态栏闪烁/);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
@@ -4089,9 +4059,9 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(lastItem && lastItem.type === 'function_call_output' ? lastItem.call_id : null, 'call-1');
   const output = JSON.parse(String(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : '{}'));
   assert.deepEqual(output.sent_messages, ['我们出去玩吧']);
-  assert.equal(output.energy_cost, 0.015);
-  assert.equal(output.energy, 0.91);
-  assert.equal(output.max_energy, 1);
+  assert.equal('energy_cost' in output, false);
+  assert.equal('energy' in output, false);
+  assert.equal('max_energy' in output, false);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
 });
@@ -4130,13 +4100,13 @@ test('applyToolResultToLoopInput replays image task output without follow-up rem
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
   assert.match(String(output.status_text), /【视觉感知：造物孕育中】/);
   assert.match(String(output.status_text), /任务锚点: task-image-queued/);
-  assert.equal(output.energy_cost, 0.03);
-  assert.equal(output.energy, 0.88);
-  assert.equal(output.max_energy, 1);
+  assert.equal('energy_cost' in output, false);
+  assert.equal('energy' in output, false);
+  assert.equal('max_energy' in output, false);
   assert.equal(continuation.forcedVisibleReply, null);
 });
 
-test('applyToolResultToLoopInput uses fresh runtime energy instead of prior JSON tool output', () => {
+test('applyToolResultToLoopInput no longer annotates replayed tool output with energy', () => {
   const first = applyToolResultToLoopInput({
     callId: 'call-send-first',
     name: PRIVATE_REPLY_TOOL,
@@ -4171,9 +4141,9 @@ test('applyToolResultToLoopInput uses fresh runtime energy instead of prior JSON
   const replay = second.inputItems[0];
   assert.equal(replay?.type, 'function_call_output');
   const output = JSON.parse(String(replay && replay.type === 'function_call_output' ? replay.output : '{}'));
-  assert.equal(output.energy_cost, 0.03);
-  assert.equal(output.energy, 0.73);
-  assert.equal(output.max_energy, 1);
+  assert.equal('energy_cost' in output, false);
+  assert.equal('energy' in output, false);
+  assert.equal('max_energy' in output, false);
 });
 
 test('requestImageTask normalizes edit without source image to image_generate', async () => {
@@ -5726,7 +5696,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
   }]);
 });
 
-test('runtime frame keeps native tool STATE visible for one next model slice only', async () => {
+test('runtime frame never injects an energy STATE block into model slices', async () => {
   const queueMessage = {
     id: 'run-queue-tool-state-one-shot',
     traceId: 'trace-tool-state-one-shot',
@@ -5875,12 +5845,10 @@ test('runtime frame keeps native tool STATE visible for one next model slice onl
   ));
 
   assert.equal(capturedInputs.length, 3);
+  // 小腻 no longer sees an energy STATE block in any model slice.
   assert.equal(stateItems(capturedInputs[0]).length, 0);
-  assert.equal(stateItems(capturedInputs[1]).length, 1);
-  assert.match(getMessageContent(stateItems(capturedInputs[1])[0]), /0\.802/);
-  assert.equal(stateItems(capturedInputs[2]).length, 1);
-  assert.match(getMessageContent(stateItems(capturedInputs[2])[0]), /0\.777/);
-  assert.doesNotMatch(getMessageContent(stateItems(capturedInputs[2])[0]), /0\.802/);
+  assert.equal(stateItems(capturedInputs[1]).length, 0);
+  assert.equal(stateItems(capturedInputs[2]).length, 0);
   assert.equal(
     JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<STATE>'),
     false
@@ -7993,15 +7961,15 @@ test('applyToolResultToLoopInput replays recover_energy system reminder as funct
   assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
   assert.equal(continuation.inputItems[0]?.call_id, 'call-2');
   const output = String(continuation.inputItems[0]?.output || '');
-  assert.match(output, /^<system_reminder>\n/);
-  assert.match(output, EAST8_TIME_PREFIX_PATTERN);
+  assert.match(output, /^<system_reminder>/);
+  assert.doesNotMatch(output, EAST8_TIME_PREFIX_PATTERN);
   assert.match(output, /醒了。/);
   assert.match(output, /<\/system_reminder>$/);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), false);
 });
 
-test('applyToolResultToLoopInput prefixes inspect_image text output but not JSON callbacks', () => {
+test('applyToolResultToLoopInput passes inspect_image text output through without a time prefix', () => {
   const inspectContinuation = applyToolResultToLoopInput({
     callId: 'call-inspect',
     name: INSPECT_IMAGE_TOOL,
@@ -8012,7 +7980,7 @@ test('applyToolResultToLoopInput prefixes inspect_image text output but not JSON
 
   assert.equal(inspectContinuation.inputItems[0]?.type, 'function_call_output');
   const inspectOutput = String(inspectContinuation.inputItems[0]?.output || '');
-  assert.match(inspectOutput, EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(inspectOutput, EAST8_TIME_PREFIX_PATTERN);
   assert.match(inspectOutput, /<image id="img-1">含义是: 一只猫<\/image>/);
 
   const jsonContinuation = applyToolResultToLoopInput({
@@ -8081,59 +8049,45 @@ test('buildCanonicalAgentTurnRequest keeps action tools for direct social-target
   );
 });
 
-test('buildTurnStateReminder injects low-energy STATE from runtime context', () => {
-  const reminder = buildTurnStateReminder('<xiaoni_runtime_state trigger="low_energy_reminder" energy="0.140" max_energy="1" note="low energy" />');
-
-  assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), /<STATE/);
-  assert.match(getMessageContent(reminder!), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(reminder!), /0.140/);
-  assert.match(getMessageContent(reminder!), /1.000/);
-  assert.doesNotMatch(getMessageContent(reminder!), /trigger=|note=/);
-});
-
-test('buildTurnStateReminder uses fresh runtime energy over directive values', () => {
-  const reminder = buildTurnStateReminder(
-    '<xiaoni_runtime_state trigger="web_search" energy="0.140" max_energy="1" note="after search" />',
-    { energy: 0.92, maxEnergy: 1 }
-  );
-
-  assert.ok(reminder);
-  assert.match(getMessageContent(reminder!), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(reminder!), /0.920/);
-  assert.match(getMessageContent(reminder!), /1.000/);
-  assert.doesNotMatch(getMessageContent(reminder!), /0.140|trigger=|after search|note=/);
-});
-
-test('applyToolResultToLoopInput appends web_search STATE from fresh runtime energy', () => {
+test('applyToolResultToLoopInput no longer appends an energy STATE block or energy fields', () => {
   const continuation = applyToolResultToLoopInput(
     { name: WEB_SEARCH_TOOL, callId: 'call-search', rawArguments: '{}' },
     { result: 'found' },
     {
-      loopInput: [
-        {
-          type: 'message',
-          role: 'assistant',
-          phase: 'commentary',
-          content: buildRuntimeStateBlock({ trigger: 'low_energy_reminder', energy: 0.5 })
-        }
-      ],
+      loopInput: [],
       speakingToolName: GROUP_REPLY_TOOL,
       hasVisibleReply: false,
       runtimeEnergyState: { energy: 0.91, maxEnergy: 1 }
     }
   );
 
+  // 小腻 no longer sees energy: no <STATE> oneShot block, and the tool output
+  // carries no energy / max_energy / energy_cost fields.
+  assert.equal(continuation.oneShotInputItems.length, 0);
   assert.equal(continuation.inputItems.length, 1);
   assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
-  const stateItem = continuation.oneShotInputItems.find((item) => getMessageContent(item).includes('0.910'));
-  assert.ok(stateItem);
-  assert.equal(stateItem?.type, 'message');
-  assert.equal(stateItem && stateItem.type === 'message' ? stateItem.role : null, 'developer');
-  assert.match(getMessageContent(stateItem), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(stateItem), /0.910/);
-  assert.doesNotMatch(getMessageContent(stateItem), /0.420/);
-  assert.doesNotMatch(getMessageContent(stateItem), /trigger=|note=/);
+  const output = getMessageContent(continuation.inputItems[0]!);
+  assert.doesNotMatch(output, /<STATE|energy|max_energy|energy_cost|当前时间/);
+});
+
+test('applyToolResultToLoopInput serializes a plain tool result with no energy annotation', () => {
+  const continuation = applyToolResultToLoopInput(
+    { name: EXEC_COMMAND_TOOL, callId: 'call-exec', rawArguments: '{}' },
+    { success: true, stdout: 'ok' },
+    {
+      loopInput: [],
+      speakingToolName: GROUP_REPLY_TOOL,
+      hasVisibleReply: false,
+      runtimeEnergyState: { energy: 0.5, maxEnergy: 1 }
+    }
+  );
+
+  const output = getMessageContent(continuation.inputItems[0]!);
+  const parsed = JSON.parse(output);
+  assert.equal(parsed.success, true);
+  assert.equal('energy' in parsed, false);
+  assert.equal('max_energy' in parsed, false);
+  assert.equal('energy_cost' in parsed, false);
 });
 
 test('runtime energy recovery follows bounded pressure curve from negative debt', () => {
@@ -8175,7 +8129,7 @@ test('recover_energy refuses to sleep when Xiaoni is already full energy', async
   assert.equal(result.energy, 1);
   assert.equal(result.max_energy, 1);
   assert.match(String(result.system_reminder), /<system_reminder>/);
-  assert.match(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(String(result.system_reminder), EAST8_TIME_PREFIX_PATTERN);
   assert.match(String(result.system_reminder), /失眠|睡不着/);
   assert.equal(result.xiaoni_os, '其实已经不累了。');
 });
@@ -10386,7 +10340,7 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
   assert.ok(checkpoint);
   assert.equal(checkpoint.compression.readCutoffAfterConversationId, plan.coreMemoryCompression?.readCutoffAfterConversationId);
   assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
-  assert.match(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
+  assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
 
   const compressionRequest = buildCanonicalAgentTurnRequest(runtimePrompt.modelName, checkpoint.summarySourceInput, 'direct');
   // Cache-aligned: the compression request keeps the main loop's auto tool_choice with
@@ -11406,12 +11360,14 @@ test('buildInitialInput appends CAPABILITIES once near the start', () => {
   assert.ok(withSummary.indexOf(summaryCapabilities[0]!) < summaryIndex);
   const summaryCapabilitiesBlock = getMessageContent(summaryCapabilities[0]!);
   assert.doesNotMatch(summaryCapabilitiesBlock, new RegExp(REMOVED_LIFE_ACTION_TOOL));
-  assert.match(summaryCapabilitiesBlock, /recover_energy: energy_cost=0.000/);
-  assert.match(summaryCapabilitiesBlock, /compress_core_memory: energy_cost=0.020/);
+  // CAPABILITIES lists tools/skills by name only — no energy_cost is exposed.
+  assert.doesNotMatch(summaryCapabilitiesBlock, /energy_cost/);
+  assert.match(summaryCapabilitiesBlock, /- recover_energy/);
+  assert.match(summaryCapabilitiesBlock, /- compress_core_memory/);
   assert.doesNotMatch(summaryCapabilitiesBlock, /qq_usage_/);
-  assert.match(summaryCapabilitiesBlock, /skill-creator: energy_cost=0.002/);
-  assert.match(summaryCapabilitiesBlock, /qq-usage: energy_cost=0.002/);
-  assert.match(summaryCapabilitiesBlock, /qq-send-image: energy_cost=0.002/);
+  assert.match(summaryCapabilitiesBlock, /- skill-creator/);
+  assert.match(summaryCapabilitiesBlock, /- qq-usage/);
+  assert.match(summaryCapabilitiesBlock, /- qq-send-image/);
 
   const withRefresh = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], null, null, '<capability_refresh reason="operator" />');
   const refreshCapabilities = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
@@ -11426,8 +11382,9 @@ test('buildCapabilitiesDeveloperBlock omits missing-cost skills without prompt-f
     }
   });
 
-  assert.match(block, /skill-creator: energy_cost=0.002/);
-  assert.doesNotMatch(block, /missing-cost: energy_cost/);
+  assert.match(block, /- skill-creator/);
+  assert.doesNotMatch(block, /energy_cost/);
+  assert.doesNotMatch(block, /- missing-cost/);
   assert.doesNotMatch(block, /operator_warning|missing-cost omitted/);
   assert.deepEqual(warnings, ['skill missing-cost omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost']);
 });

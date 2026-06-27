@@ -282,55 +282,6 @@ function shanghaiHour(now: Date) {
   return Number.isFinite(hour) ? hour : now.getHours();
 }
 
-function compactContributor(contributor: XiaoniLifeStateExplanation['contributors'][number]) {
-  return [
-    contributor.effect
-  ].filter(Boolean).join(' ');
-}
-
-function actionCostContributors(explanation: XiaoniLifeStateExplanation) {
-  return explanation.contributors
-    .filter((item) => item.eventKind !== 'rest_period'
-      && item.eventKind !== 'sleep_period'
-      && item.eventKind !== 'presence_tick_evaluated')
-    .slice(0, 5);
-}
-
-function recoveryContributors(explanation: XiaoniLifeStateExplanation) {
-  return explanation.contributors
-    .filter((item) => item.eventKind === 'rest_period' || item.eventKind === 'sleep_period')
-    .slice(0, 3);
-}
-
-function metric(value: number) {
-  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
-}
-
-function renderRecoveryLabel(
-  eventKind: 'rest_period' | 'sleep_period',
-  state: XiaoniLifeStateProjection['state']
-) {
-  const energy = `当前精力=${metric(state.energy)}`;
-  if (eventKind === 'sleep_period') {
-    return `${energy}；暂不继续打开消息列表，记录休息恢复。`;
-  }
-  return `${energy}；暂不继续主动看群，记录短暂休息。`;
-}
-
-export function renderXiaoniLifeStateExplanation(explanation: XiaoniLifeStateExplanation) {
-  const actionCosts = actionCostContributors(explanation)
-    .map(compactContributor)
-    .join('；');
-  const recoveries = recoveryContributors(explanation)
-    .map(compactContributor)
-    .join('；');
-  return [
-    `现在的精力：${explanation.summary}`,
-    actionCosts ? `最近行动消耗：${actionCosts}` : null,
-    recoveries ? `刚才怎么恢复：${recoveries}` : null
-  ].filter(Boolean).join('；');
-}
-
 function visibleReplyActionCost(messageCount: number) {
   const extraCount = Math.max(0, Math.floor(messageCount) - 1);
   return Math.min(
