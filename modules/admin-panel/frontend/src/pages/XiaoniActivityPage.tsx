@@ -914,9 +914,8 @@ function streamPhaseRank(entry: StreamEntry): number {
   return 2; // 小腻输出 (assistant text / reasoning / final_answer)
 }
 
-function streamTurnKey(entry: StreamEntry): string {
-  const slice = typeof entry.item.metadata?.llmRequestSliceId === 'string' ? entry.item.metadata.llmRequestSliceId : null;
-  return slice ? `${entry.lane}:slice:${slice}` : `${entry.lane}:solo:${entry.id}`;
+function entrySliceId(entry: StreamEntry): string | null {
+  return typeof entry.item.metadata?.llmRequestSliceId === 'string' ? entry.item.metadata.llmRequestSliceId : null;
 }
 
 // Real append-ledger position of an event: stack_index (main) / item_index
@@ -959,13 +958,41 @@ function buildStreamEntries(
     }
   }
 
+  // Main runtime_input rows are appended before the LLM request exists, so they
+  // carry no slice id — but their stack_index immediately precedes that turn's
+  // output items. Build an index→slice map so an orphan runtime_input adopts the
+  // turn whose first output follows it (fork runtime_input already has a slice).
+  const sliceByIndex = entries
+    .map((entry) => {
+      const slice = entrySliceId(entry);
+      const index = streamOrderKey(entry);
+      return slice && Number.isFinite(index) ? { lane: entry.lane, index, slice } : null;
+    })
+    .filter((value): value is { lane: StreamLane; index: number; slice: string } => value !== null)
+    .sort((a, b) => a.index - b.index);
+
+  const turnKeyFor = (entry: StreamEntry): string => {
+    const slice = entrySliceId(entry);
+    if (slice) {
+      return `${entry.lane}:slice:${slice}`;
+    }
+    const index = streamOrderKey(entry);
+    if (Number.isFinite(index)) {
+      const next = sliceByIndex.find((value) => value.lane === entry.lane && value.index > index);
+      if (next) {
+        return `${entry.lane}:slice:${next.slice}`;
+      }
+    }
+    return `${entry.lane}:solo:${entry.id}`;
+  };
+
   // Group events by LLM turn (slice), order turns newest-first by the turn's
   // earliest event, and within a turn order by phase (触发 → 模型请求 → 小腻输出
   // → 请求工具 → 工具结果). This keeps each turn a contiguous, causally-ordered
   // block instead of jumbling cause/effect by unreliable sub-second timestamps.
   const groups = new Map<string, { anchor: number; entries: StreamEntry[] }>();
   for (const entry of entries) {
-    const key = streamTurnKey(entry);
+    const key = turnKeyFor(entry);
     const ms = parseTimestampMs(entry.timestamp) || 0;
     const group = groups.get(key);
     if (group) {
