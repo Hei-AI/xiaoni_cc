@@ -6127,10 +6127,20 @@ export class AgentLoopService {
           cutoffRecomputed: turn === 1 ? budgetPlan.cutoffRecomputed : false
         };
         contextBudgetTurns.push(turnBudgetRecord);
-        const currentRequestInput = pendingOneShotInputItems.length > 0
+        const currentRequestInputRaw = pendingOneShotInputItems.length > 0
           ? [...requestInput, ...pendingOneShotInputItems]
           : requestInput;
         pendingOneShotInputItems = [];
+        // Strip the model's own assistant TEXT from what it actually sees this turn. Cross-run
+        // history is already stripped in buildInitialInput; this additionally covers the
+        // intra-run tool loop (a prior turn of THIS run carried its narration forward via
+        // appendLoopInputItems). requestInput/loopContinuation stay UNstripped so the persisted
+        // record (responses_replay_items) and the action-stream card keep the full text — only
+        // what the model reads is stripped, so her narration ("现在等小伊回…") never rides
+        // forward, not across runs and not within one. function_call/output are kept (tool
+        // continuity). Filtering here (not at the append) is idempotent on the already-stripped
+        // cross-run prefix, so the warm cache prefix stays byte-identical.
+        const currentRequestInput = currentRequestInputRaw.filter((item) => !isAssistantTextOutputReplayItem(item));
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, currentRequestInput, payload);
         const inputEndIndex = await this.getAgentStackHeadSafe(payload.traceId);
         const inputStartIndex = inputEndIndex > 0 ? 1 : null;
