@@ -142,6 +142,12 @@ type OpenResponseToolDefinition = {
   size?: string;
   quality?: string;
   background?: string;
+} | {
+  type: 'computer_use';
+  display_width_px: number;
+  display_height_px: number;
+  display_number?: number;
+  enable_zoom?: boolean;
 };
 
 type OpenResponseToolChoice =
@@ -161,6 +167,9 @@ type OpenResponseToolChoice =
           }
         | {
             type: 'image_generation';
+          }
+        | {
+            type: 'computer_use';
           }
       >;
     };
@@ -707,7 +716,9 @@ const TOOL_NAMES = {
   privateReply: 'send_in_private',
   groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
-  compressCoreMemory: 'compress_core_memory'
+  compressCoreMemory: 'compress_core_memory',
+  // Anthropic computer-use tool; Claude returns a tool_use named "computer".
+  computerUse: 'computer'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
@@ -718,7 +729,24 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.002,
   [TOOL_NAMES.recoverEnergy]: 0.000,
-  [TOOL_NAMES.compressCoreMemory]: 0.020
+  [TOOL_NAMES.compressCoreMemory]: 0.020,
+  [TOOL_NAMES.computerUse]: 0.004
+};
+
+// Computer use declares a FIXED display surface. This must stay byte-constant
+// across every request (it is part of the cached tools prefix) — never set it to
+// the live window size, or the prefix changes on each resize. The bridge always
+// resizes screenshots to exactly this and maps action coordinates from this space
+// back to the live host-Chrome CSS viewport (see computer_coords.py). WXGA per
+// Anthropic's resolution guidance (accuracy degrades above ~1280 long edge).
+const COMPUTER_USE_DISPLAY_WIDTH = 1280;
+const COMPUTER_USE_DISPLAY_HEIGHT = 800;
+
+const COMPUTER_USE_TOOL: OpenResponseToolDefinition = {
+  type: 'computer_use',
+  display_width_px: COMPUTER_USE_DISPLAY_WIDTH,
+  display_height_px: COMPUTER_USE_DISPLAY_HEIGHT,
+  enable_zoom: true
 };
 
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
@@ -1515,7 +1543,7 @@ function hasToolReplay(loopInput: OpenResponseInputItem[], toolName: string) {
 }
 
 function buildAllowedToolsToolChoice(
-  tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'image_generation' }>,
+  tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'image_generation' } | { type: 'computer_use' }>,
   mode: 'auto' | 'required' = 'required'
 ): OpenResponseToolChoice {
   return {
@@ -1736,6 +1764,12 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   // resolveMainLoopToolChoice 的 auto allowed-tools），否则压缩 fork 的 tools 前缀
   // 与主 agent 不一致 → 冷读。禁止随意移除。详见 resolveMainLoopToolChoice 的不变量。
   tools.push(COMPRESS_CORE_MEMORY_TOOL);
+  // Computer use is gated by a static config flag (not per-request), so when on it
+  // is present in every main-loop AND fork request identically — the cached tools
+  // prefix stays byte-stable. See the cache-alignment invariant below.
+  if (agentConfig.computerUseEnabled) {
+    tools.push(COMPUTER_USE_TOOL);
+  }
   return [
     ...tools,
     IMAGE_GENERATION_TOOL,
@@ -1768,7 +1802,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   // │ 回归守卫：agent-loop-service.test.ts 断言 fork.tool_choice === 主.tool_choice。│
   // │ 详见 provider-service/.../anthropic-translate.ts:521-527。                  │
   // └──────────────────────────────────────────────────────────────────────────┘
-  const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
+  const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'computer_use' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.privateReply },
     { type: 'function', name: TOOL_NAMES.groupReply },
@@ -1780,6 +1814,11 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
   tools.push({ type: 'function', name: TOOL_NAMES.compressCoreMemory });
+  // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
+  // allowed-tools prefix aligned with the tool definitions across loop + forks.
+  if (agentConfig.computerUseEnabled) {
+    tools.push({ type: 'computer_use' });
+  }
   return buildAllowedToolsToolChoice(tools, 'auto');
 }
 
@@ -4568,16 +4607,26 @@ export function applyToolResultToLoopInput(
   toolResult: Record<string, unknown>,
   context?: ToolContinuationContext
 ): ToolContinuationAction {
+  // Computer use returns a screenshot after every action; surface it as an
+  // input_image content block (same shape the image-vision fork uses) so Claude
+  // sees the new screen and continues the action loop.
+  const computerImageContent = toolCall.name === TOOL_NAMES.computerUse
+    && Array.isArray((toolResult as { image_content?: unknown }).image_content)
+    ? (toolResult as { image_content: OpenResponseInputItem[] }).image_content
+    : null;
+
   const inputItems: OpenResponseInputItem[] = [{
     type: 'function_call_output',
     call_id: toolCall.callId,
-    output: toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
-      ? toolResult.codex_output
-      : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
-        ? String(toolResult.output_xml).trim()
-        : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
-          ? String(toolResult.system_reminder).trim()
-          : JSON.stringify(toolResult)
+    output: computerImageContent
+      ? (computerImageContent as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
+      : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
+        ? toolResult.codex_output
+        : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
+          ? String(toolResult.output_xml).trim()
+          : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
+            ? String(toolResult.system_reminder).trim()
+            : JSON.stringify(toolResult)
   }];
   const oneShotInputItems: OpenResponseInputItem[] = [];
   return {
@@ -9906,6 +9955,9 @@ export class AgentLoopService {
       case TOOL_NAMES.execCommand: {
         return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
+      case TOOL_NAMES.computerUse: {
+        return this.executeComputerAction(toolCall);
+      }
       case TOOL_NAMES.inspectImage: {
         return this.inspectImagePlaceholder(toolCall.args, queueMessage, context);
       }
@@ -10025,6 +10077,59 @@ export class AgentLoopService {
         error: error instanceof Error ? error.message : String(error)
       });
       return null;
+    }
+  }
+
+  // Execute one computer-use action against the host Playwright bridge and return
+  // the resulting screenshot as an input_image (rendered by applyToolResultToLoopInput).
+  // The bridge owns coordinate mapping (declared 1280x800 -> live CSS px) and resizes
+  // the screenshot back to the declared display; agent-service is a thin forwarder.
+  private async executeComputerAction(
+    toolCall: AgentToolCall
+  ): Promise<Record<string, unknown>> {
+    const action = toolCall.args && typeof toolCall.args === 'object' && !Array.isArray(toolCall.args)
+      ? (toolCall.args as Record<string, unknown>)
+      : {};
+    const actionName = typeof action.action === 'string' ? action.action : '';
+    const bridgeUrl = `${agentConfig.computerUseBridgeUrl.replace(/\/+$/, '')}/computer`;
+    try {
+      const response = await fetch(bridgeUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          display_width_px: COMPUTER_USE_DISPLAY_WIDTH,
+          display_height_px: COMPUTER_USE_DISPLAY_HEIGHT
+        })
+      });
+      const text = await response.text();
+      let payload: Record<string, unknown> | null = null;
+      try {
+        payload = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+      } catch {
+        payload = null;
+      }
+      if (!response.ok || !payload || payload.ok === false) {
+        const errMsg = payload && typeof payload.error === 'string'
+          ? payload.error
+          : `computer bridge HTTP ${response.status}: ${(text || response.statusText).slice(0, 300)}`;
+        return { computer_action: actionName, error: errMsg, tool_error: true };
+      }
+      const imageUrl = typeof payload.image_url === 'string' && payload.image_url
+        ? (payload.image_url as string)
+        : typeof payload.image_base64 === 'string' && payload.image_base64
+          ? `data:image/png;base64,${payload.image_base64 as string}`
+          : null;
+      if (!imageUrl) {
+        return { computer_action: actionName, error: 'computer bridge returned no screenshot', tool_error: true };
+      }
+      return {
+        computer_action: actionName,
+        image_content: [{ type: 'input_image', image_url: imageUrl, detail: 'original' }]
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { computer_action: actionName, error: `computer bridge unavailable: ${message}`, tool_error: true };
     }
   }
 

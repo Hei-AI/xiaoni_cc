@@ -3,11 +3,13 @@ import argparse
 import base64
 import hashlib
 import http.client
+import io
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -16,6 +18,19 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Computer-use support: tested coordinate mapper (declared display -> live CSS px)
+# lives next to this script; Pillow resizes screenshots back to the declared size.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import computer_coords  # noqa: E402
+except Exception:  # pragma: no cover
+    computer_coords = None
+try:
+    from PIL import Image  # noqa: E402
+    _PIL_OK = True
+except Exception:  # pragma: no cover
+    _PIL_OK = False
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -63,6 +78,189 @@ ATTACH_PROCESSES = {}
 ATTACH_LOCK = threading.Lock()
 
 
+# ─────────────────────────── computer-use action support ───────────────────────────
+# A computer-use action arrives in the declared display space (display_width_px x
+# display_height_px). We read the live viewport, map coordinates with the tested
+# computer_coords mapper, execute via playwright-cli run-code on the xiaoni-host
+# session, screenshot, and resize back to the declared size so the model's next
+# coordinate stays in the same space. The bridge only forwards to the host CLI.
+_COMPUTER_SESSION = "-s=xiaoni-host"
+_COMPUTER_SENTINEL = "XICU:"
+_COORD_ACTIONS = {
+    "left_click", "right_click", "middle_click", "double_click", "triple_click",
+    "mouse_move", "left_mouse_down", "left_click_drag", "scroll",
+}
+
+_KEY_TOKENS = {
+    "ctrl": "Control", "control": "Control", "alt": "Alt", "option": "Alt",
+    "shift": "Shift", "cmd": "Meta", "super": "Meta", "win": "Meta", "meta": "Meta",
+    "return": "Enter", "enter": "Enter", "esc": "Escape", "escape": "Escape",
+    "tab": "Tab", "space": "Space", "backspace": "Backspace", "delete": "Delete",
+    "up": "ArrowUp", "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight",
+    "page_up": "PageUp", "pageup": "PageUp", "page_down": "PageDown", "pagedown": "PageDown",
+    "home": "Home", "end": "End",
+}
+
+
+def _playwright_key(combo):
+    parts = re.split(r"[+\s]+", (combo or "").strip())
+    out = []
+    for p in parts:
+        if not p:
+            continue
+        low = p.lower()
+        if low in _KEY_TOKENS:
+            out.append(_KEY_TOKENS[low])
+        elif len(p) == 1:
+            out.append(p.upper() if p.isalpha() else p)
+        else:
+            out.append(p[:1].upper() + p[1:])
+    return "+".join(out) if out else (combo or "")
+
+
+def _run_cli_capture(extra_args, timeout=60):
+    completed = subprocess.run(
+        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN,
+         _COMPUTER_SESSION, *extra_args],
+        cwd=INSTALL_DIR_WSL,
+        env=_windows_cli_env(),
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+    )
+    return completed.returncode, completed.stdout or "", completed.stderr or ""
+
+
+def _extract_sentinel(stdout):
+    idx = stdout.rfind(_COMPUTER_SENTINEL)
+    if idx < 0:
+        return None
+    return stdout[idx + len(_COMPUTER_SENTINEL):].strip()
+
+
+def _computer_viewport():
+    js = ("async (page) => { const v = await page.evaluate(() => ({vw: window.innerWidth, "
+          "vh: window.innerHeight, dpr: window.devicePixelRatio})); return '" + _COMPUTER_SENTINEL
+          + "' + JSON.stringify(v); }")
+    rc, out, err = _run_cli_capture(["run-code", js])
+    raw = _extract_sentinel(out)
+    if rc != 0 or not raw:
+        return {"ok": False, "error": (err or out or "viewport read failed").strip()[:300]}
+    try:
+        v = json.loads(raw)
+        return {"ok": True, "vw": int(v["vw"]), "vh": int(v["vh"]), "dpr": float(v.get("dpr", 1))}
+    except Exception as exc:
+        return {"ok": False, "error": f"viewport parse failed: {exc}"}
+
+
+def _build_action_statements(action, css, css_end):
+    name = action.get("action")
+    text = action.get("text") or ""
+    if name in ("screenshot", "cursor_position"):
+        return ""
+    if name == "wait":
+        dur = action.get("duration")
+        ms = int(float(dur) * 1000) if isinstance(dur, (int, float)) else 1000
+        return f"await new Promise(r=>setTimeout(r,{ms}));"
+    if name == "mouse_move":
+        return f"await page.mouse.move({css[0]},{css[1]});"
+    if name == "left_click":
+        return f"await page.mouse.click({css[0]},{css[1]});"
+    if name == "right_click":
+        return f"await page.mouse.click({css[0]},{css[1]},{{button:'right'}});"
+    if name == "middle_click":
+        return f"await page.mouse.click({css[0]},{css[1]},{{button:'middle'}});"
+    if name == "double_click":
+        return f"await page.mouse.dblclick({css[0]},{css[1]});"
+    if name == "triple_click":
+        return f"await page.mouse.click({css[0]},{css[1]},{{clickCount:3}});"
+    if name == "left_mouse_down":
+        return f"await page.mouse.move({css[0]},{css[1]});await page.mouse.down();"
+    if name == "left_mouse_up":
+        return "await page.mouse.up();"
+    if name == "left_click_drag":
+        return (f"await page.mouse.move({css[0]},{css[1]});await page.mouse.down();"
+                f"await page.mouse.move({css_end[0]},{css_end[1]});await page.mouse.up();")
+    if name == "type":
+        return f"await page.keyboard.type({json.dumps(text)});"
+    if name == "key":
+        return f"await page.keyboard.press({json.dumps(_playwright_key(text))});"
+    if name == "hold_key":
+        dur = action.get("duration")
+        ms = int(float(dur) * 1000) if isinstance(dur, (int, float)) else 500
+        k = json.dumps(_playwright_key(text))
+        return f"await page.keyboard.down({k});await new Promise(r=>setTimeout(r,{ms}));await page.keyboard.up({k});"
+    if name == "scroll":
+        direction = action.get("scroll_direction", "down")
+        amount = action.get("scroll_amount", 3)
+        try:
+            step = int(amount) * 100
+        except Exception:
+            step = 300
+        dx = step if direction == "right" else -step if direction == "left" else 0
+        dy = step if direction == "down" else -step if direction == "up" else 0
+        move = f"await page.mouse.move({css[0]},{css[1]});" if css else ""
+        return f"{move}await page.mouse.wheel({dx},{dy});"
+    return ""  # unknown action -> screenshot only
+
+
+def _resize_png_to_declared(png_b64, dw, dh):
+    raw = base64.b64decode(png_b64)
+    img = Image.open(io.BytesIO(raw)).convert("RGB")
+    img = img.resize((dw, dh))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _run_computer_action(action, dw, dh):
+    if not _PIL_OK:
+        return {"ok": False, "error": "Pillow not installed on the bridge host (pip install Pillow)"}
+    if computer_coords is None:
+        return {"ok": False, "error": "computer_coords not importable on the bridge host"}
+    name = action.get("action")
+    region = action.get("region")
+    css = css_end = None
+    need_vp = (name in _COORD_ACTIONS) or name == "zoom" or isinstance(region, list)
+    if need_vp:
+        vp = _computer_viewport()
+        if not vp.get("ok"):
+            return {"ok": False, "error": vp.get("error", "viewport read failed")}
+        vw, vh = vp["vw"], vp["vh"]
+        coord = action.get("coordinate")
+        start = action.get("start_coordinate")
+        if name == "left_click_drag" and isinstance(start, list) and len(start) == 2 and isinstance(coord, list):
+            css = computer_coords.map_point(start[0], start[1], vw, vh, dw, dh)
+            css_end = computer_coords.map_point(coord[0], coord[1], vw, vh, dw, dh)
+        elif isinstance(coord, list) and len(coord) == 2:
+            css = computer_coords.map_point(coord[0], coord[1], vw, vh, dw, dh)
+
+    # zoom: crop the live region, then resize the crop back to the declared display.
+    if name == "zoom" and isinstance(region, list) and len(region) == 4:
+        x1, y1, x2, y2 = computer_coords.map_region(region, vw, vh, dw, dh)
+        w, h = max(1, x2 - x1), max(1, y2 - y1)
+        js = ("async (page) => { const b = await page.screenshot({type:'png', clip:{x:"
+              f"{x1},y:{y1},width:{w},height:{h}}}); return '" + _COMPUTER_SENTINEL + "' + b.toString('base64'); }")
+    else:
+        statements = _build_action_statements(action, css, css_end)
+        js = ("async (page) => { " + statements +
+              " const b = await page.screenshot({type:'png'}); return '" + _COMPUTER_SENTINEL +
+              "' + b.toString('base64'); }")
+
+    rc, out, err = _run_cli_capture(["run-code", js], timeout=90)
+    raw_b64 = _extract_sentinel(out)
+    if rc != 0 or not raw_b64:
+        return {"ok": False, "error": (err or out or "action/screenshot failed").strip()[:400]}
+    try:
+        resized = _resize_png_to_declared(raw_b64, dw, dh)
+    except Exception as exc:
+        return {"ok": False, "error": f"screenshot resize failed: {exc}"}
+    return {"ok": True, "action": name, "image_base64": resized}
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/health":
@@ -71,6 +269,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True})
 
     def do_POST(self):
+        if self.path == "/computer":
+            self._handle_computer()
+            return
         if self.path != "/run":
             self.send_error(404)
             return
@@ -150,6 +351,20 @@ class Handler(BaseHTTPRequestHandler):
                 })
         except Exception as error:
             self._json(500, {"ok": False, "error": str(error)})
+
+    def _handle_computer(self):
+        length = int(self.headers.get("content-length", "0"))
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            action = payload.get("action")
+            if not isinstance(action, dict) or not isinstance(action.get("action"), str):
+                raise ValueError("action must be an object with a string 'action' field")
+            dw = int(payload.get("display_width_px") or 1280)
+            dh = int(payload.get("display_height_px") or 800)
+            result = _run_computer_action(action, dw, dh)
+            self._json(200, result)
+        except Exception as error:
+            self._json(200, {"ok": False, "error": str(error)})
 
     def log_message(self, fmt, *args):
         return

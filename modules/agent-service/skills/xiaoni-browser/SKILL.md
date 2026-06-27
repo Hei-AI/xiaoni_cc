@@ -80,6 +80,27 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 5. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
 6. Prefer one session name: `-s=xiaoni-host`.
 
+## Computer Use Mode (native `computer` tool)
+
+When `AGENT_COMPUTER_USE_ENABLED` is on, you also have a native Anthropic
+**`computer`** tool that drives this same host Chrome by *vision and coordinates*
+instead of accessibility refs. It is a separate path from the `playwright-cli`
+commands above — you call the `computer` tool directly (not through `exec_command`).
+
+- The display is a fixed **1280×800** surface. Every action returns a fresh
+  screenshot resized to that size; your next coordinate must be in 1280×800 space.
+- Actions: `screenshot`, `left_click`, `right_click`, `middle_click`,
+  `double_click`, `triple_click`, `mouse_move`, `left_click_drag`,
+  `left_mouse_down`/`up`, `key`, `hold_key`, `type`, `scroll`, `wait`, and
+  `zoom` (pass `region:[x1,y1,x2,y2]` to read small text/labels — zoom is enabled).
+- **When to prefer it:** visually-driven pages, canvas/whiteboard apps, drag
+  interactions, or anything where the accessibility `snapshot` is missing or
+  unreliable. For ordinary DOM pages, the `snapshot` + `click <ref>` path above is
+  cheaper and more precise — use that first; reach for `computer` when sight is
+  what the task needs.
+- The bridge maps your 1280×800 coordinates to the live page automatically; you do
+  not compute pixels yourself. Read the latest screenshot before each action.
+
 ## Boundaries
 
 - This controls the operator's real visible browser. Avoid destructive account actions unless the operator explicitly asked for them.

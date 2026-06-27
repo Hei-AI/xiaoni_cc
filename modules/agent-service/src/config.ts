@@ -130,6 +130,12 @@ export const agentConfig = {
   webSearchEnabled: readBooleanEnv('AGENT_WEB_SEARCH_ENABLED', true),
   webSearchContextSize: readWebSearchContextSize(),
   webSearchExternalAccess: readBooleanEnv('AGENT_WEB_SEARCH_EXTERNAL_ACCESS', true),
+  // Anthropic computer-use browser tool (Claude models only). Static per process so
+  // the cached tools prefix stays byte-stable across the main loop and its forks.
+  computerUseEnabled: readBooleanEnv('AGENT_COMPUTER_USE_ENABLED', false),
+  // Host Playwright bridge for executing computer-use actions (same bridge the
+  // xiaoni-browser skill drives). From containers the host is 172.18.0.1.
+  computerUseBridgeUrl: process.env.XIAONI_BROWSER_BRIDGE_URL || 'http://172.18.0.1:9977',
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
   idleIntervalMs: queueIdleIntervalMs,
   processingRecoveryStaleMs: Math.max(
