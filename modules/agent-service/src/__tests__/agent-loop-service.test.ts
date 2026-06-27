@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, extractLatestAssistantNarrationReplayItems, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
@@ -1289,36 +1289,87 @@ test('buildInitialInput replays completed tool calls across turns', () => {
   )));
 });
 
-test('buildInitialInput replays stored assistant messages across turns', () => {
+test('buildInitialInput strips prior assistant text from the replayed context (every build)', () => {
+  const makeTurn = () => {
+    const turn = createConversationTurn({
+      id: 46,
+      userMessage: '上一段用户消息',
+      aiResponse: null
+    });
+    attachStackReplayItems(turn, [{
+      type: 'message',
+      role: 'assistant',
+      phase: 'commentary',
+      status: 'completed',
+      content: [{
+        type: 'output_text',
+        text: '我先打开列表看一下。',
+        annotations: []
+      }]
+    }]);
+    return turn;
+  };
+
+  // R1: assistant text (D, incl. inline <xiaoni_os>) is stripped from the replayed history
+  // on EVERY build — main loop AND fork (suppress) — so they share one cache-warm prefix.
+  // The fork gets D back as a tail re-injection (separate test), not from history replay.
+  for (const triggerInputMode of ['fresh_trigger', 'suppress_current_trigger'] as const) {
+    const loopInput = buildInitialInput([makeTurn()], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, triggerInputMode);
+    const assistantItem = loopInput.find((item: any) => (
+      item.type === 'message'
+      && item.role === 'assistant'
+      && getMessageContent(item).includes('我先打开列表看一下')
+    ));
+    assert.equal(assistantItem, undefined, `assistant text must be stripped in ${triggerInputMode}`);
+  }
+});
+
+test('subconscious fork re-injects the most recent assistant narration (D) at its tail', () => {
   const turn = createConversationTurn({
     id: 46,
     userMessage: '上一段用户消息',
     aiResponse: null
   });
-  attachStackReplayItems(turn, [{
-    type: 'message',
-    role: 'assistant',
-    phase: 'commentary',
-    status: 'completed',
-    content: [{
-      type: 'output_text',
-      text: '我先打开列表看一下。',
-      annotations: []
-    }]
-  }]);
+  attachStackReplayItems(turn, [
+    {
+      type: 'function_call',
+      call_id: 'call-send-1',
+      name: 'send_in_private',
+      arguments: '{"target_user_id":3994058476,"message":"真发出去的话"}'
+    },
+    {
+      type: 'function_call_output',
+      call_id: 'call-send-1',
+      output: '{"message_type":"private"}'
+    },
+    {
+      type: 'message',
+      role: 'assistant',
+      phase: 'final_answer',
+      content: [{ type: 'output_text', text: '等小伊接。' }]
+    }
+  ]);
 
-  const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
-  const assistantItem = loopInput.find((item: any) => (
-    item.type === 'message'
-    && item.role === 'assistant'
-    && getMessageContent(item).includes('我先打开列表看一下')
-  )) as any;
+  // The narration (D) is pulled from raw history…
+  const narration = extractLatestAssistantNarrationReplayItems([turn]);
+  assert.equal(narration.length, 1);
+  assert.equal(getMessageContent(narration[0] as any).includes('等小伊接'), true);
 
-  assert.ok(assistantItem);
-  assert.equal(assistantItem.phase, 'commentary');
-  assert.equal(assistantItem.status, 'completed');
-  assert.equal(assistantItem.content[0]?.type, 'output_text');
-  assert.deepEqual(assistantItem.content[0]?.annotations, []);
+  // …and the fork base prefix (built like the main loop) has D stripped — only the
+  // tool call/output survive there.
+  const baseInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  assert.equal(baseInput.some((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接')), false);
+  assert.equal(baseInput.some((item: any) => item.type === 'function_call' && item.call_id === 'call-send-1'), true);
+
+  // The fork request re-injects D at the tail, before the self-continuation reminder.
+  const baseRequest = buildCanonicalAgentTurnRequest('gpt-5.5', baseInput, createQueuePayload().chatType);
+  const forkRequest = buildSubconsciousAgentForkRequest(baseRequest, 1, narration);
+  const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接'));
+  // Identify the self-continuation reminder by its distinctive text (baseInput may carry
+  // other <system_reminder> blocks earlier, so don't match on that generic tag).
+  const reminderIndex = forkRequest.input.findIndex((item: any) => getMessageContent(item).includes('闲下来时的潜意识'));
+  assert.ok(dIndex >= 0, 'fork must see D');
+  assert.ok(reminderIndex > dIndex, 'D is re-injected before the self-continuation reminder tail');
 });
 
 test('buildInitialInput never synthesizes raw xiaoni_os into model-visible history', () => {
@@ -1373,9 +1424,11 @@ test('buildInitialInput never synthesizes raw xiaoni_os into model-visible histo
   ));
 
   assert.equal(syntheticOsItem, undefined);
+  // R1: inline assistant <xiaoni_os> text is stripped from replay (deliberate memory
+  // persists via compress_core_memory, not raw replay). Reasoning + tool calls survive.
+  assert.equal(realOsIndex, -1);
   assert.ok(reasoningIndex >= 0);
-  assert.ok(realOsIndex > reasoningIndex);
-  assert.ok(recoverCallIndex > realOsIndex);
+  assert.ok(recoverCallIndex > reasoningIndex);
 });
 
 test('buildInitialInput replays stack runtime_input wrapper items in original order', async () => {
@@ -1441,9 +1494,11 @@ test('buildInitialInput replays stack runtime_input wrapper items in original or
   const reasoningIndex = loopInput.findIndex((item: any) => item.type === 'reasoning' && item.encrypted_content === 'enc-after-developer-reminder');
   const osIndex = loopInput.findIndex((item: any) => item.type === 'message' && getMessageContent(item).includes('真实模型输出'));
 
+  // runtime_input wrapper (developer) + reasoning replay in original order; the trailing
+  // inline assistant <xiaoni_os> is stripped from replay (R1).
   assert.ok(reminderIndex >= 0);
   assert.equal(reasoningIndex, reminderIndex + 1);
-  assert.equal(osIndex, reasoningIndex + 1);
+  assert.equal(osIndex, -1);
 });
 
 test('buildInitialInput appends self continuation after terminal final_answer only when requested', () => {
@@ -1469,20 +1524,19 @@ test('buildInitialInput appends self continuation after terminal final_answer on
   )), false);
 
   const loopInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true);
-  const finalAnswerIndex = loopInput.findIndex((item: any) => (
+  // R1: D ("留白") is stripped from replay, but the self-continuation reminder is still
+  // appended (the terminal final_answer is detected from the raw, pre-strip items).
+  assert.equal(loopInput.some((item: any) => (
     item.type === 'message'
-    && item.role === 'assistant'
-    && item.phase === 'final_answer'
     && getMessageContent(item).includes('留白')
-  ));
+  )), false);
   const reminderIndex = loopInput.findIndex((item: any) => (
     item.type === 'message'
     && item.role === 'user'
     && getMessageContent(item).includes('<system_reminder>')
   ));
 
-  assert.ok(finalAnswerIndex >= 0);
-  assert.equal(reminderIndex, finalAnswerIndex + 1);
+  assert.ok(reminderIndex >= 0);
   assert.doesNotMatch(getMessageContent(loopInput[reminderIndex]), EAST8_TIME_PREFIX_PATTERN);
 });
 
@@ -6230,19 +6284,18 @@ test('no-notify continuation inserts self continuation after prior final_answer'
     logQueueLifecycle: false
   });
 
-  const finalAnswerIndex = capturedInput.findIndex((item: any) => (
+  // R1: the prior final_answer ("留白") is stripped from the replayed context, but the
+  // self-continuation reminder is still inserted (terminal final_answer detected from raw).
+  assert.equal(capturedInput.some((item: any) => (
     item.type === 'message'
-    && item.role === 'assistant'
-    && item.phase === 'final_answer'
     && getMessageContent(item).includes('留白')
-  ));
+  )), false);
   const reminderIndex = capturedInput.findIndex((item: any) => (
     item.type === 'message'
     && item.role === 'user'
     && getMessageContent(item).includes('<system_reminder>')
   ));
-  assert.ok(finalAnswerIndex >= 0);
-  assert.equal(reminderIndex, finalAnswerIndex + 1);
+  assert.ok(reminderIndex >= 0);
   assert.equal(executeAgentTurnCalled, true);
   assert.ok(callOrder.indexOf('appendAgentStackItems') >= 0);
   assert.ok(callOrder.indexOf('appendAgentStackItems') < callOrder.indexOf('executeAgentTurn'));

@@ -1878,23 +1878,30 @@ function buildCoreMemoryCompressionForkRequest(
   return forkRequest;
 }
 
-function buildSubconsciousAgentForkRequest(
+export function buildSubconsciousAgentForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
-  forkTurn: number
+  forkTurn: number,
+  recentNarrationItems: OpenResponseInputItem[] = []
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   forkRequest.parallel_tool_calls = false;
   forkRequest.store = false;
   forkRequest.input = normalizeResponseInputItems([
     ...forkRequest.input,
+    // Re-inject the most recent assistant narration (D) at the TAIL. D is stripped from
+    // the shared cache-warm prefix (baseRequest.input), so the fork keeps the continuity
+    // it needs to see — "what she just narrated" — as a small cold tail, the same pattern
+    // as the reminders below, without diverging the cache lineage from the main loop.
+    ...recentNarrationItems,
     buildDeveloperInputItem([renderSelfContinuationReminder()]),
     buildDeveloperInputItem([renderSubconsciousForkToolRestrictionReminder()])
   ]);
-  // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools so the
-  // fork's prefix is byte-identical and rides the main's warm in-context cache.
-  // Tool restriction is enforced at execution time (Layer 2): allowedToolNames is
-  // {execCommand}, so any speaking/image tool the model emits is rejected, never
-  // executed. The appended restriction reminder hard-steers it to exec_command.
+  // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools and share
+  // the same stripped prefix, so the fork's prefix is byte-identical and rides the warm
+  // in-context cache the heartbeat keeps alive. Tool restriction is enforced at execution
+  // time (Layer 2): allowedToolNames is {execCommand}, so any speaking/image tool the
+  // model emits is rejected, never executed. The appended restriction reminder steers it
+  // to just think and hand back directions (no exec_command needed).
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
     subconscious_agent_fork: 'true',
@@ -2823,6 +2830,51 @@ function isOpenResponseMessageInputItem(item: OpenResponseInputItem | undefined)
 
 function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined): boolean {
   return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant' && item.phase === 'final_answer');
+}
+
+// A prior turn's assistant TEXT output (a `message` item — final_answer / commentary
+// narration like "等小伊接。", incl. inline <xiaoni_os>). It is still recorded to the
+// stack and shown in the action-stream card, but it is NOT replayed back into context on
+// any build (buildInitialInput strips it unconditionally): replaying her idle narration
+// makes a "摸鱼"/等待 decision self-reinforce turn after turn (the model reads its own
+// "我先等着" and keeps waiting). Stripping on every build (main loop, heartbeat,
+// subconscious fork) keeps one shared cache-warm prefix. Tool calls and their outputs
+// (function_call / function_call_output) are NOT text — they carry what she actually did
+// and said, so they stay and tool continuity is preserved. The subconscious fork still
+// needs the latest narration to plan the next direction, so it re-injects the most recent
+// D at its TAIL (buildSubconsciousAgentForkRequest), not via the shared prefix.
+function isAssistantTextOutputReplayItem(item: OpenResponseInputItem | undefined): boolean {
+  return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant');
+}
+
+// The subconscious-fork idle gate used to read the last item of the (suppress-mode)
+// requestInput. Now that assistant text (D) is stripped from every replay, requestInput
+// no longer ends in a final_answer, so the gate reads the RAW history instead: did the
+// most recent turn settle on an assistant final_answer (i.e. she is idle)?
+function lastHistoryTurnEndsWithAssistantFinalAnswer(history: ConversationTurn[]): boolean {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const replay = buildTurnResponseReplayItems(history[index] as StackBackedConversationTurn);
+    if (replay.length === 0) {
+      continue;
+    }
+    return isAssistantFinalAnswerInputItem(replay[replay.length - 1]);
+  }
+  return false;
+}
+
+// The most recent turn's assistant TEXT outputs (D), pulled from raw history so the
+// subconscious fork can re-inject them at its tail. D is stripped from the shared
+// (cache-warm) prefix; the fork still needs to see what she just narrated to plan the
+// next direction and to avoid repeating itself, so it rides here as a small cold tail.
+export function extractLatestAssistantNarrationReplayItems(history: ConversationTurn[]): OpenResponseInputItem[] {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const replay = buildTurnResponseReplayItems(history[index] as StackBackedConversationTurn);
+    const narration = replay.filter((item) => isAssistantTextOutputReplayItem(item));
+    if (narration.length > 0) {
+      return narration;
+    }
+  }
+  return [];
 }
 
 function shouldAllowSelfContinuationOnTerminalFinalAnswer(
@@ -4882,8 +4934,9 @@ export class AgentLoopService {
       appendSelfContinuationOnTerminalFinalAnswer: false,
       loopContinuationBeforeCurrentTrigger: false
     });
-    const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
-    if (!isAssistantFinalAnswerInputItem(lastInputItem)) {
+    // Gate on raw history (assistant text D is now stripped from requestInput, so its last
+    // item is no longer a final_answer): only fork when she just settled on a final_answer.
+    if (!lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
       return;
     }
 
@@ -4891,7 +4944,8 @@ export class AgentLoopService {
       baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.requestInput, payload),
       queueMessage: payload,
       runtimePrompt,
-      contextSessionKey
+      contextSessionKey,
+      recentNarrationItems: extractLatestAssistantNarrationReplayItems(history)
     });
     this.subconsciousAgentForkInFlight = fork;
     void fork.then((enqueued) => {
@@ -5369,8 +5423,10 @@ export class AgentLoopService {
       appendSelfContinuationOnTerminalFinalAnswer
     });
     let budgetPlan = await buildBudgetPlan(false);
-    const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
-    if (isAssistantFinalAnswerInputItem(lastInputItem)) {
+    // Detect the terminal final_answer from raw history (D is stripped from requestInput
+    // now, so its last item is no longer a final_answer) so the heartbeat warms the same
+    // self-continuation tail the main loop appends.
+    if (lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
       budgetPlan = await buildBudgetPlan(true);
     }
 
@@ -5887,8 +5943,10 @@ export class AgentLoopService {
       let appendSelfContinuationOnTerminalFinalAnswer = false;
       budgetPlan = await buildBudgetPlan(false);
       if (allowSelfContinuationOnTerminalFinalAnswer) {
-        const lastInputItem = budgetPlan.requestInput[budgetPlan.requestInput.length - 1];
-        if (isAssistantFinalAnswerInputItem(lastInputItem)) {
+        // Detect from raw history: D is stripped from requestInput, so its last item is no
+        // longer a final_answer, but we still want to nudge self-continuation when she just
+        // settled on one.
+        if (lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
           appendSelfContinuationOnTerminalFinalAnswer = true;
           budgetPlan = await buildBudgetPlan(true);
         }
@@ -8634,6 +8692,9 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     contextSessionKey: string;
+    // Most recent assistant narration (D), stripped from the shared prefix and re-injected
+    // at the fork's tail so it sees what she just said. Empty when there is none.
+    recentNarrationItems: OpenResponseInputItem[];
 	  }): Promise<boolean> {
     const forkRunId = `subconscious-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const baseForkMetadata = {
@@ -8664,14 +8725,14 @@ export class AgentLoopService {
 
     try {
       const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
-      let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1).input;
+      let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1, params.recentNarrationItems).input;
       let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
       let forkToolCallCount = 0;
       let lastForkSliceId: string | null = null;
       let lastLlmCallId: string | null = null;
 
       for (let forkTurn = 1; forkTurn <= SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES; forkTurn += 1) {
-        const forkRequest = buildSubconsciousAgentForkRequest(params.baseRequest, forkTurn);
+        const forkRequest = buildSubconsciousAgentForkRequest(params.baseRequest, forkTurn, params.recentNarrationItems);
         const forkRequestInput = pendingForkOneShotInputItems.length > 0
           ? [...forkInput, ...pendingForkOneShotInputItems]
           : forkInput;
@@ -11719,14 +11780,28 @@ export function buildInitialInput(
     } as unknown as OpenResponseInputItem;
   };
 
+  // Drop prior turns' assistant TEXT outputs (D — final_answer/commentary narration,
+  // and inline <xiaoni_os>) from the replayed context on EVERY build: main loop,
+  // heartbeat, and subconscious fork all share ONE stripped prefix, so the single cache
+  // heartbeat keeps them all warm (no prefix-cache 穿透 / lineage fork). They stay
+  // recorded (stack row + action-stream card). The main agent's next turn therefore
+  // sees A B C E, not A B C D E, so her idle narration can't compound into a perpetual
+  // "摸鱼" loop; deliberate memory she wants to keep flows through compress_core_memory,
+  // not raw replay accumulation. The subconscious fork re-injects the most recent D at
+  // its TAIL (buildSubconsciousAgentForkRequest) so it keeps the continuity it needs
+  // without diverging the cache prefix. Tool calls/outputs are never text and are
+  // always retained.
   for (const [turnIndex, turn] of history.entries()) {
-    const replayItems = buildTurnResponseReplayItems(turn);
+    const replayItemsRaw = buildTurnResponseReplayItems(turn);
+    const replayItems = replayItemsRaw.filter((item) => !isAssistantTextOutputReplayItem(item));
     const appendKnownReplayItems = () => {
       items.push(...replayItems);
       if (
         appendSelfContinuationOnTerminalFinalAnswer
         && turnIndex === history.length - 1
-        && isAssistantFinalAnswerInputItem(replayItems[replayItems.length - 1])
+        // Detect the terminal final_answer from the RAW items; the final_answer text
+        // itself stays stripped, only the self-continuation reminder is appended.
+        && isAssistantFinalAnswerInputItem(replayItemsRaw[replayItemsRaw.length - 1])
       ) {
         const selfContinuationInputItem = buildSelfContinuationInputItem();
         items.push(selfContinuationInputItem);
