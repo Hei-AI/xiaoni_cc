@@ -701,6 +701,7 @@ function summarizeAgentStackItem(row) {
       stackEventId: row.eventId || row.event_id || null,
       stackIndex: Number(row.stackIndex || row.stack_index || 0) || null,
       stackSource: 'agent_stack_items',
+      itemKind,
       llmRequestSliceId: llmSliceId,
       llmCallId: firstString(metadata.llm_call_id, metadata.llmCallId),
       spanId,
@@ -2923,8 +2924,18 @@ function isPrimaryActionStreamItem(item) {
   if (item.source === 'life_event' && ACTION_STREAM_EXCLUDED_LIFE_KINDS.has(item.kind)) {
     return false;
   }
-  if (item.source === 'llm_stack_item' && item.kind !== 'function_call' && item.kind !== 'function_call_output') {
-    return false;
+  if (item.source === 'llm_stack_item') {
+    // Keep tool calls/outputs AND 小腻's own non-tool output (assistant_output:
+    // assistant_message / final_answer / reasoning). Drop any other stack noise.
+    const stackKind = item.metadata?.itemKind || item.kind;
+    if (stackKind !== 'function_call' && stackKind !== 'function_call_output' && stackKind !== 'assistant_output') {
+      return false;
+    }
+    // Skip empty assistant turns (e.g. a pure tool-call turn emits an empty
+    // message item) so they don't add blank rows to the stream.
+    if (stackKind === 'assistant_output' && !(item.body && String(item.body).trim())) {
+      return false;
+    }
   }
   if (item.source === 'queue_message' && item.kind === 'phone_notification') {
     return false;
@@ -3899,7 +3910,7 @@ function createXiaoniActivityPersistence({
           : [],
         typeof listAgentStackItems === 'function'
           ? (actionStreamProjection
-            ? Promise.all(['runtime_input', 'function_call', 'function_call_output'].map((itemKind) => listAgentStackItems({
+            ? Promise.all(['runtime_input', 'function_call', 'function_call_output', 'assistant_output'].map((itemKind) => listAgentStackItems({
               sqlAdapter: sql,
               identityKey,
               itemKind,
