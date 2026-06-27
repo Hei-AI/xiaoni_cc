@@ -2039,15 +2039,39 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         // creation order across the main loop and all forks. Added nullable +
         // SET DEFAULT (no table rewrite); historical rows stay NULL and fall
         // back to created_at in the projection.
+        //
+        // ensureXiaoniAgentStackSchema runs on EVERY persistence op (no guard),
+        // so the add-column / set-default must be idempotent-skip — a bare
+        // `ALTER COLUMN ... SET DEFAULT` would take an ACCESS EXCLUSIVE lock on
+        // the hot agent_stack_items table every append. This guarded DO block
+        // only ALTERs when the column/default is actually missing → zero lock
+        // after the first run.
         'CREATE SEQUENCE IF NOT EXISTS agent_event_seq',
-        'ALTER TABLE agent_stack_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
-        "ALTER TABLE agent_stack_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
-        'ALTER TABLE core_memory_compression_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
-        "ALTER TABLE core_memory_compression_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
-        'ALTER TABLE subconscious_agent_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
-        "ALTER TABLE subconscious_agent_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
-        'ALTER TABLE image_vision_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
-        "ALTER TABLE image_vision_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
+        `
+          DO $$
+          DECLARE t text;
+          BEGIN
+            FOREACH t IN ARRAY ARRAY[
+              'agent_stack_items',
+              'core_memory_compression_fork_items',
+              'subconscious_agent_fork_items',
+              'image_vision_fork_items'
+            ] LOOP
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = t AND column_name = 'occurred_seq'
+              ) THEN
+                EXECUTE format('ALTER TABLE %I ADD COLUMN occurred_seq BIGINT', t);
+              END IF;
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = t AND column_name = 'occurred_seq' AND column_default IS NOT NULL
+              ) THEN
+                EXECUTE format('ALTER TABLE %I ALTER COLUMN occurred_seq SET DEFAULT nextval(''agent_event_seq'')', t);
+              END IF;
+            END LOOP;
+          END $$;
+        `,
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_occurred ON agent_stack_items (identity_key, occurred_seq DESC)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_identity_index ON agent_stack_items (identity_key, stack_index DESC)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_trace ON agent_stack_items (trace_id, stack_index)',
