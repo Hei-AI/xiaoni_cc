@@ -1218,6 +1218,95 @@ test('Xiaoni action stream filters primary cards before applying the display lim
   assert.equal(stream.current.latestActivityAt, '2026-06-05T10:04:00.000Z');
 });
 
+test('Xiaoni action stream orders events by real turn start + append index', async () => {
+  // The slice row is persisted at finish time; its real request start is
+  // completed_at - processing_time_ms. All events of the turn must share that
+  // orderTurnMs, and order within the turn by append index (slice between
+  // input and output). The runtime_input carries no slice id and must adopt
+  // the turn whose input index range contains its stack_index.
+  const completedAt = '2026-06-26T14:58:21.084Z';
+  const processingTimeMs = 24014;
+  const expectedTurnMs = Date.parse(completedAt) - processingTimeMs;
+  const persistence = createPersistence({
+    llmRequestSliceRows: [{
+      id: '7',
+      sliceId: 'slice_order',
+      llmCallId: 'llm_order',
+      identityKey: 'xiaoni',
+      traceId: 'trace_order',
+      runId: 'run_order',
+      agentTurn: 1,
+      modelName: 'claude-opus-4-6',
+      status: 'completed',
+      createdAt: completedAt,
+      completedAt,
+      processingTimeMs,
+      inputStartIndex: 40,
+      inputEndIndex: 40,
+      outputStartIndex: 41,
+      outputEndIndex: 42,
+      tokenUsage: { input_tokens: 100, output_tokens: 5 },
+      canonicalRequest: { input: [] },
+      wireRequest: { model: 'claude-opus-4-6' },
+      wireResponse: { id: 'resp_order' }
+    }],
+    agentStackRows: [
+      {
+        id: '440',
+        eventId: 'stack:order:input',
+        identityKey: 'xiaoni',
+        stackIndex: 40,
+        itemKind: 'runtime_input',
+        content: { source: 'system_reminder', input_items: [{ role: 'user', type: 'message', content: [{ type: 'output_text', text: 'new input' }] }] },
+        traceId: 'trace_order',
+        runId: 'run_order',
+        createdAt: '2026-06-26T14:58:21.000Z'
+      },
+      {
+        id: '441',
+        eventId: 'stack:order:fc',
+        identityKey: 'xiaoni',
+        stackIndex: 41,
+        itemKind: 'function_call',
+        toolCallId: 'call_order',
+        llmRequestSliceId: 'slice_order',
+        content: { type: 'function_call', call_id: 'call_order', name: 'exec_command', arguments: '{"cmd":"date"}' },
+        traceId: 'trace_order',
+        runId: 'run_order',
+        createdAt: '2026-06-26T14:58:21.040Z'
+      },
+      {
+        id: '442',
+        eventId: 'stack:order:fco',
+        identityKey: 'xiaoni',
+        stackIndex: 42,
+        itemKind: 'function_call_output',
+        toolCallId: 'call_order',
+        llmRequestSliceId: 'slice_order',
+        content: { type: 'function_call_output', call_id: 'call_order', output: 'done' },
+        traceId: 'trace_order',
+        runId: 'run_order',
+        createdAt: '2026-06-26T14:58:21.422Z'
+      }
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  // The call + output (+execution) collapse into one tool lifecycle row, so the
+  // turn yields: runtime_input, the slice, and the merged tool row.
+  const turnItems = stream.items.filter((item) => item.metadata?.orderTurnMs === expectedTurnMs);
+  assert.equal(turnItems.length, 3);
+  // every event of the turn shares the real turn-start time, not the persist time
+  for (const item of turnItems) {
+    assert.equal(item.metadata.orderTurnMs, expectedTurnMs);
+  }
+  // within-turn order by append index: input(40) < slice(40.5) < tool(>=41)
+  const ranks = turnItems.map((item) => item.metadata.orderRank).sort((a, b) => a - b);
+  assert.equal(ranks[0], 40);
+  assert.equal(ranks[1], 40.5);
+  assert.ok(ranks[2] >= 41);
+});
+
 test('Xiaoni action stream surfaces 小腻 assistant output and drops empty turns', async () => {
   const persistence = createPersistence({
     agentStackRows: [
