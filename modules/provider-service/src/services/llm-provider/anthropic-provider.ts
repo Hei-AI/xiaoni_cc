@@ -27,6 +27,7 @@ import {
   resolveClaudeOAuthCredential
 } from './anthropic-oauth';
 import {
+  computerUseBeta,
   extractTextFromMessagesResponse,
   translateCanonicalToMessages,
   translateMessagesResponseToCanonical,
@@ -240,6 +241,22 @@ export class AnthropicProvider implements LLMProvider {
         throw new Error('Claude OAuth access token is unavailable (check ~/.claude/.credentials.json).');
       }
       const headers = { ...buildClaudeHeaders(accessToken, this.aiConfig), ...traceHeaders };
+      // Computer use is gated behind a per-version beta flag. Derive it from the
+      // computer_* tool type the translator placed in the body (model-resolved),
+      // and append it so we never send the wrong/no computer-use beta. No-op when
+      // the body carries no computer tool.
+      const computerToolType = Array.isArray((body as any).tools)
+        ? ((body as any).tools.find(
+            (t: any) => typeof t?.type === 'string' && t.type.startsWith('computer_')
+          )?.type as string | undefined)
+        : undefined;
+      if (computerToolType) {
+        const cuBeta = computerUseBeta(computerToolType);
+        const existing = String(headers['anthropic-beta'] || '');
+        if (cuBeta && !existing.split(',').includes(cuBeta)) {
+          headers['anthropic-beta'] = existing ? `${existing},${cuBeta}` : cuBeta;
+        }
+      }
       const requestConfig: AxiosRequestConfig = {
         url: requestUrl,
         method: 'post',

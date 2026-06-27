@@ -119,6 +119,11 @@ export interface AnthropicTool {
   description?: string;
   input_schema?: Record<string, any>;
   type?: string;
+  // computer-use tool fields (schema-less; sized display surface)
+  display_width_px?: number;
+  display_height_px?: number;
+  display_number?: number;
+  enable_zoom?: boolean;
 }
 
 export type AnthropicToolChoice =
@@ -406,8 +411,54 @@ function serializeFunctionTool(tool: OpenResponseToolDefinition): AnthropicTool 
   };
 }
 
+// Models that take the newer computer-use contract (computer_20251124 + the
+// computer-use-2025-11-24 beta). Everything else falls back to the 20250124
+// contract. Matched against the resolved request model id.
+const COMPUTER_USE_2025_11_MODELS = [
+  'opus-4-8', 'opus-4-7', 'opus-4-6', 'opus-4-5', 'sonnet-4-6'
+];
+
+export function computerToolType(model: string | undefined): 'computer_20251124' | 'computer_20250124' {
+  const m = (model || '').toLowerCase();
+  return COMPUTER_USE_2025_11_MODELS.some((tag) => m.includes(tag))
+    ? 'computer_20251124'
+    : 'computer_20250124';
+}
+
+/** The anthropic-beta flag that must accompany a given computer tool type. */
+export function computerUseBeta(toolType: string): string | null {
+  if (toolType === 'computer_20251124') return 'computer-use-2025-11-24';
+  if (toolType === 'computer_20250124') return 'computer-use-2025-01-24';
+  return null;
+}
+
+function serializeComputerTool(tool: OpenResponseToolDefinition, model: string | undefined): AnthropicTool | null {
+  if (tool.type !== 'computer_use') {
+    return null;
+  }
+  const type = computerToolType(model);
+  const out: AnthropicTool = {
+    type,
+    name: 'computer',
+    display_width_px: tool.display_width_px,
+    display_height_px: tool.display_height_px
+  };
+  if (typeof tool.display_number === 'number') {
+    out.display_number = tool.display_number;
+  }
+  // enable_zoom only exists on the 20251124 contract.
+  if (type === 'computer_20251124' && tool.enable_zoom) {
+    out.enable_zoom = true;
+  }
+  return out;
+}
+
 function hasWebSearchDef(tools: OpenResponseToolDefinition[] | undefined): boolean {
   return Boolean(tools?.some((tool) => tool.type === 'web_search' || tool.type === 'web_search_preview'));
+}
+
+function hasComputerDef(tools: OpenResponseToolDefinition[] | undefined): boolean {
+  return Boolean(tools?.some((tool) => tool.type === 'computer_use'));
 }
 
 function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
@@ -416,7 +467,8 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
 
   const buildFromAllowed = (
     allowedFnNames: Set<string> | null,
-    allowWebSearch: boolean
+    allowWebSearch: boolean,
+    allowComputer: boolean
   ): AnthropicTool[] => {
     const result: AnthropicTool[] = [];
     for (const def of defs) {
@@ -429,6 +481,11 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
         }
       } else if ((def.type === 'web_search' || def.type === 'web_search_preview') && allowWebSearch) {
         result.push({ type: WEB_SEARCH_TOOL_TYPE, name: WEB_SEARCH_TOOL_NAME });
+      } else if (def.type === 'computer_use' && allowComputer) {
+        const computer = serializeComputerTool(def, request.model);
+        if (computer) {
+          result.push(computer);
+        }
       }
       // image_generation defs are intentionally dropped (image gen stays on codex)
     }
@@ -443,7 +500,7 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
   // explicit single function force
   if (choice && typeof choice === 'object' && choice.type === 'function') {
     const name = choice.function.name;
-    const tools = buildFromAllowed(new Set([name]), false);
+    const tools = buildFromAllowed(new Set([name]), false, false);
     return { tools, toolChoice: tools.length ? { type: 'tool', name } : undefined, forced: tools.length > 0 };
   }
 
@@ -451,14 +508,17 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
   if (choice && typeof choice === 'object' && choice.type === 'allowed_tools') {
     const fnNames = new Set<string>();
     let allowWeb = false;
+    let allowComputer = false;
     for (const t of choice.tools) {
       if (t.type === 'function') {
         fnNames.add(t.name);
       } else if (t.type === 'web_search' || t.type === 'web_search_preview') {
         allowWeb = true;
+      } else if (t.type === 'computer_use') {
+        allowComputer = true;
       }
     }
-    const tools = buildFromAllowed(fnNames, allowWeb);
+    const tools = buildFromAllowed(fnNames, allowWeb, allowComputer);
     if (tools.length === 0) {
       return { tools: [], toolChoice: undefined, forced: false };
     }
@@ -473,7 +533,7 @@ function buildToolPlan(request: OpenResponseCreateRequest): ToolPlan {
   }
 
   // 'auto' | 'required' | undefined -> all defined tools
-  const tools = buildFromAllowed(null, hasWebSearchDef(defs));
+  const tools = buildFromAllowed(null, hasWebSearchDef(defs), hasComputerDef(defs));
   if (tools.length === 0) {
     return { tools: [], toolChoice: undefined, forced: false };
   }

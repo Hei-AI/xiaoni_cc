@@ -78,6 +78,15 @@ export type OpenResponseToolDefinition = {
   size?: string;
   quality?: string;
   background?: string;
+} | {
+  // Anthropic computer-use tool (client-executed via the host-Chrome bridge).
+  // The wire tool type (computer_20251124 vs computer_20250124) and the matching
+  // anthropic-beta header are resolved from the request model in anthropic-translate.
+  type: 'computer_use';
+  display_width_px: number;
+  display_height_px: number;
+  display_number?: number;
+  enable_zoom?: boolean;
 };
 
 export type OpenResponseToolChoice =
@@ -103,6 +112,9 @@ export type OpenResponseToolChoice =
           }
         | {
             type: 'image_generation';
+          }
+        | {
+            type: 'computer_use';
           }
       >;
     };

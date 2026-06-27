@@ -466,6 +466,13 @@ export class OpenAIProvider implements LLMProvider {
       };
     }
 
+    if (tool.type === 'computer_use') {
+      // Computer use is an Anthropic-only tool handled on the Anthropic path; it is
+      // never added to requests routed to the OpenAI/codex provider. Emit a bare
+      // passthrough so the union narrows — this branch is unreachable in practice.
+      return { type: tool.type };
+    }
+
     return {
       type: tool.type,
       ...(tool.user_location ? { user_location: tool.user_location } : {}),
