@@ -41,7 +41,18 @@
 ### 前端 `XiaoniActivityPage.tsx`
 6. 单一时间排序 entry 列表，按 `lane` 分左右栏渲染；fork 行加名称前缀 chip。
 7. 每行行内展开（固定高度滚动）→ 复用 `fetchRawTrace` / `RawTraceDialog` 内容。
-8. URL 参数：`density`（紧凑/舒适）、`fork`（筛选）。
+8. URL 参数：`density`（紧凑/舒适）、`fork`（筛选）、`split`（左右栏宽度比）。
+9. **左右栏可拖动分隔条**：拖动改变左右栏宽度比（存 `split` 到 URL）；栏越宽，该栏默认展示的摘要文本越长（snippet 截断长度随栏宽自适应）。
+
+### Fork 展平放在前端（决策）
+fork 数据已经由后端投影齐全：`compressionForkTimeline` / `subconsciousForkTimeline` /
+`imageVisionForkTimeline` / `cacheHeartbeatTimeline` 的 `runs[].events[]` 每条都带
+timestamp、`llmRequestSliceId`、`providerRequestSpanId`（可拉 raw trace），run 上带
+`metadata.notifyQueueMessageId` / `readCutoffAfterConversationId` 等触发线索。
+所以「fork 与主 agent 同构、逐事件展平、混排、加 fork 前缀、触发原因」**全部在前端做**：
+把 `run.events` 摊平成 `lane:'fork'` 的 entry，`forkLabel = agentLabel + 短 runId`，
+trigger 行由 run.metadata 派生。**后端 fork 投影暂不改**（避免无谓 churn / 分页风险），
+若后续需要服务端筛选再加 `fork` 查询参数。
 
 ### 验证
 - `npm --prefix modules/admin-panel/backend test`、persistence 单测（assistant_output 透出、fork 扁平 + trigger）。
