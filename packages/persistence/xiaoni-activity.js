@@ -2472,13 +2472,15 @@ function actionStreamToolLifecyclePhase(item) {
   if (!item || !item.metadata?.toolCallId) {
     return null;
   }
-  if (item.source === 'tool_execution') {
+  const source = item.source || '';
+  if (source === 'tool_execution' || source.endsWith('fork_tool_execution')) {
     return 'execution';
   }
-  if (item.source === 'llm_stack_item' && item.kind === 'function_call') {
+  const isStackItem = source === 'llm_stack_item' || source.endsWith('fork_item');
+  if (isStackItem && item.kind === 'function_call') {
     return 'request';
   }
-  if (item.source === 'llm_stack_item' && item.kind === 'function_call_output') {
+  if (isStackItem && item.kind === 'function_call_output') {
     return 'callback';
   }
   return null;
@@ -2713,22 +2715,28 @@ function mergeActionStreamToolLifecycleItems(items) {
       return group.items[0];
     }
 
-    const base = group.execution || group.callback || group.request || newestActionStreamItem(group.items);
-    const newest = newestActionStreamItem(group.items) || base;
+    // Call-first: the surviving card IS the model's tool call (请求工具). The
+    // execution + callback rows collapse into it; their result is folded into
+    // metadata and shown only when the card is expanded. base = request so the
+    // row's source/kind/occurred_seq are the call's (sorts at the call moment).
+    const base = group.request || group.execution || group.callback || newestActionStreamItem(group.items);
     const toolName = firstString(
+      group.request?.metadata?.toolName,
       base.metadata?.toolName,
       group.execution?.metadata?.toolName,
-      group.request?.metadata?.toolName,
       group.callback?.metadata?.toolName,
       base.kind
     );
     const requestPreview = firstString(
       group.request?.metadata?.argumentsPreview,
+      group.request?.body,
       group.execution?.metadata?.toolArgumentsPreview
     );
     const resultPreview = firstString(
       group.callback?.metadata?.toolResultPreview,
-      group.execution?.metadata?.toolResultPreview
+      group.execution?.metadata?.toolResultPreview,
+      group.callback?.body,
+      group.execution?.body
     );
     const status = group.execution?.status === 'failed'
       ? 'failed'
@@ -2742,15 +2750,15 @@ function mergeActionStreamToolLifecycleItems(items) {
     };
     const merged = {
       ...base,
-      id: group.execution?.id || group.request?.id || base.id,
-      title: toolName ? `tool: ${toolName}` : base.title,
-      body: firstString(group.execution?.body, group.callback?.body, group.request?.body, base.body),
+      id: group.request?.id || group.execution?.id || base.id,
+      // keep the request's own title (请求工具: X / Fork 请求工具: X)
+      title: firstString(group.request?.title, toolName ? `请求工具: ${toolName}` : null, base.title),
+      // first-screen body = the call (arguments); the result is in metadata for the expand
+      body: firstString(group.request?.body, requestPreview, base.body),
       status,
-      tone: status === 'failed' ? 'danger' : group.callback || group.execution ? 'success' : base.tone,
-      timestamp: newest.timestamp || base.timestamp,
-      occurredAt: newest.occurredAt || newest.timestamp || base.occurredAt,
+      tone: status === 'failed' ? 'danger' : base.tone,
       eventKind: 'tool_lifecycle',
-      traceTarget: group.execution?.traceTarget || group.request?.traceTarget || group.callback?.traceTarget || base.traceTarget,
+      traceTarget: group.request?.traceTarget || group.execution?.traceTarget || group.callback?.traceTarget || base.traceTarget,
       metadata: normalizeValue({
         ...base.metadata,
         toolLifecycle: lifecycle,
@@ -2784,10 +2792,10 @@ function decorateActionStreamForkRun(run) {
         : 'compression_memory'
   );
   const eventList = Array.isArray(run.events)
-    ? run.events.map((event) => decorateActionStreamItem({
+    ? mergeActionStreamToolLifecycleItems(run.events.map((event) => decorateActionStreamItem({
       ...event,
       forkKind
-    }))
+    })))
     : [];
   const normalizedRun = {
     ...run,

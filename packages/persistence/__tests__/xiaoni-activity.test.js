@@ -624,19 +624,20 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(forkRun.durationMs, 12000);
   assert.equal(forkRun.readCutoffAfterConversationId, '200');
   assert.equal(forkRun.tags.some((tag) => tag.key === 'source:core_memory_compression_fork'), true);
+  // call + execution collapse into one call-first card, so the fork yields the
+  // slice + the merged 请求工具 row (result folded into toolResultPreview).
   assert.deepEqual(forkRun.events.map((item) => item.source), [
     'compression_fork_llm_request',
-    'compression_fork_item',
-    'compression_fork_tool_execution'
+    'compression_fork_item'
   ]);
   assert.equal(forkRun.events[1].tags.some((tag) => tag.key === 'source:compression_fork_item'), true);
   assert.equal(forkRun.events[0].traceTarget.sourceKind, 'compression_fork');
   assert.equal(forkRun.events[0].traceTarget.forkRunId, 'core_memory_fork_1');
   assert.equal(forkRun.events[0].metadata.providerRequestSpanId, 'provider-request:wire:fork_llm_1');
   assert.equal(forkRun.events[1].traceTarget.toolCallId, 'fork_call_exec');
-  assert.equal(forkRun.events[2].traceTarget.llmRequestSliceId, 'fork_slice_1');
+  assert.equal(forkRun.events[1].eventKind, 'tool_lifecycle');
   assert.equal(forkRun.events[1].title, 'Fork 请求工具: exec_command');
-  assert.match(forkRun.events[2].metadata.toolResultPreview, /Fri Jun 5/);
+  assert.match(forkRun.events[1].metadata.toolResultPreview, /Fri Jun 5/);
   assert.equal(stream.items.some((item) => item.id.startsWith('compression-fork:')), false);
   assert.equal(stream.items.some((item) => item.source.startsWith('compression_fork')), false);
 
@@ -1253,8 +1254,13 @@ test('Xiaoni action stream orders events by global occurred_seq', async () => {
   assert.equal(input.metadata.orderSeq, 1000);
   // slice has no occurred_seq of its own -> derived just before its first output (1001)
   assert.equal(slice.metadata.orderSeq, 1000.5);
-  // the call + output collapse into one tool row that keeps the output's occurred_seq
-  assert.ok(stream.items.some((item) => item.metadata?.orderSeq === 1002));
+  // call + output collapse into one call-first tool row at the call's occurred_seq (1001),
+  // carrying the result in toolResultPreview for the expand.
+  const tool = stream.items.find((item) => item.metadata?.orderSeq === 1001);
+  assert.ok(tool);
+  assert.ok(String(tool.title).includes('请求工具'));
+  assert.ok(tool.metadata.toolResultPreview);
+  assert.equal(stream.items.some((item) => item.metadata?.orderSeq === 1002), false);
 });
 
 test('Xiaoni action stream keeps each runtime_input on its own occurred_seq', async () => {
@@ -1490,23 +1496,21 @@ test('Xiaoni action stream folds one tool lifecycle into one primary card', asyn
   const stream = await persistence.getXiaoniActionStream({ limit: 10 });
   const toolItems = stream.items.filter((item) => item.metadata.toolCallId === 'call_recover');
 
+  // Call-first: the single card IS the model's tool call (请求工具), and the
+  // result is folded into toolResultPreview for the expand.
   assert.equal(toolItems.length, 1);
-  assert.equal(toolItems[0].id, 'tool-exec:tool:runtrace_recover:call_recover');
-  assert.equal(toolItems[0].source, 'tool_execution');
+  assert.equal(toolItems[0].id, 'stack:801');
+  assert.equal(toolItems[0].source, 'llm_stack_item');
   assert.equal(toolItems[0].eventKind, 'tool_lifecycle');
-  assert.equal(toolItems[0].title, 'tool: recover_energy');
+  assert.equal(toolItems[0].title, '请求工具: recover_energy');
   assert.equal(toolItems[0].status, 'ok');
   assert.equal(toolItems[0].metadata.lifecycleRequestItemId, 'stack:801');
   assert.equal(toolItems[0].metadata.lifecycleExecutionItemId, 'tool-exec:tool:runtrace_recover:call_recover');
   assert.equal(toolItems[0].metadata.lifecycleCallbackItemId, 'stack:802');
   assert.equal(toolItems[0].metadata.toolArgumentsPreview, '{"reason":"累了"}');
   assert.match(toolItems[0].metadata.toolResultPreview, /开始休息/);
-  assert.equal(toolItems[0].metadata.inputTokens, 72800);
-  assert.equal(toolItems[0].metadata.cachedInputTokens, 72600);
-  assert.equal(toolItems[0].metadata.outputTokens, 167);
   assert.equal(toolItems[0].traceTarget.spanId, 'tool-call:call_recover');
   assert.equal(toolItems[0].tags.some((tag) => tag.key === 'event:tool_lifecycle'), true);
-  assert.equal(toolItems[0].tags.some((tag) => tag.key === 'event:tool_result_callback'), true);
 });
 
 test('Xiaoni action stream excludes internal non-tool life events', async () => {
