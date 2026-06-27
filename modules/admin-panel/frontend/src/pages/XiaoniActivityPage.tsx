@@ -1963,6 +1963,11 @@ function StreamRow({
   const who = item.source === 'function_call' || (typeof item.metadata?.toolName === 'string' && item.metadata.toolName)
     ? (item.metadata?.toolName as string)
     : null;
+  const isModelRequest = tag.label === '模型请求';
+  const modelName = metadataText(item.metadata, 'modelName');
+  const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
+  const cachedTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
+  const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
   return (
     <button
       type="button"
@@ -1982,7 +1987,16 @@ function StreamRow({
       ) : null}
       <StatusPill tone={tag.tone}>{tag.label}</StatusPill>
       {who ? <span className="shrink-0 font-mono text-[11px] text-foreground/80">{who}</span> : null}
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90">{snippet || '—'}</span>
+      {isModelRequest ? (
+        <span className="flex min-w-0 flex-1 items-center gap-2.5 text-[11px]">
+          {modelName ? <span className="hidden shrink truncate text-muted-foreground sm:inline">{modelName}</span> : null}
+          <span className="shrink-0 font-mono"><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
+          <span className="shrink-0 font-mono"><span className="text-muted-foreground">cached</span> <span className="text-emerald-700">{cachedTokens ?? '0'}</span></span>
+          <span className="shrink-0 font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90">{snippet || '—'}</span>
+      )}
       <span className="shrink-0 text-xs text-muted-foreground">{expanded ? '▾' : '▸'}</span>
     </button>
   );
