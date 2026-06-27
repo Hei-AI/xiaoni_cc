@@ -11421,6 +11421,21 @@ function extractCanonicalResponseOutputItems(modelResult: ProviderAgentResponse)
     .map((item) => ({ ...item }));
 }
 
+// The subconscious fork is instructed (self_continuation_reminder) to emit its plan
+// wrapped in <xiaoni_plan>...</xiaoni_plan>. subconscious_agent_notify.md re-wraps the
+// extracted text in <xiaoni_plan>, so without this strip the main loop would receive
+// doubly-nested tags (and the model would learn to echo the double wrap). Unwrap the
+// single outer wrapper and drop any residual xiaoni_plan tags so the value spliced
+// into the notify template stays well-formed and can't inject structure.
+function stripSubconsciousPlanWrapper(text: string): string {
+  let result = text.trim();
+  const wrapped = result.match(/^<xiaoni_plan>\s*([\s\S]*?)\s*<\/xiaoni_plan>$/i);
+  if (wrapped) {
+    result = wrapped[1]!.trim();
+  }
+  return result.replace(/<\/?xiaoni_plan>/gi, '').trim();
+}
+
 function extractSubconsciousNaturalLanguage(outputItems: Array<Record<string, unknown>>): string | null {
   for (let index = outputItems.length - 1; index >= 0; index -= 1) {
     const item = outputItems[index]!;
@@ -11435,7 +11450,7 @@ function extractSubconsciousNaturalLanguage(outputItems: Array<Record<string, un
         : typeof item.text === 'string'
           ? item.text
           : '';
-    const normalized = stripRuntimeTextEast8TimePrefix(text).trim();
+    const normalized = stripSubconsciousPlanWrapper(stripRuntimeTextEast8TimePrefix(text).trim());
     if (normalized) {
       return normalized;
     }
