@@ -2955,11 +2955,14 @@ function streamNumberOrNull(value) {
 //   - within-turn: the append index (stack_index / item_index)
 // The 模型请求 slice has no index, so it sits at output_start_index - 0.5 (just
 // before its outputs). A main runtime_input row carries no slice id (appended
-// before the request existed) — match it to the turn whose input index range
-// contains its stack_index.
+// before the request existed). Its turn is the one whose OUTPUT immediately
+// follows it — i.e. the smallest output_start_index greater than its stack_index.
+// (Matching by "input range contains it" is wrong: every turn's input range spans
+// the whole prior context, so they all overlap and an old input would wrongly
+// adopt the latest turn.)
 function attachStreamOrderMetadata(items, sliceRows) {
   const bySliceId = new Map();
-  const inputRanges = [];
+  const outputAnchors = [];
   for (const row of sliceRows || []) {
     const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id);
     if (!sliceId) {
@@ -2973,11 +2976,11 @@ function attachStreamOrderMetadata(items, sliceRows) {
       outputEnd: streamNumberOrNull(row.outputEndIndex ?? row.output_end_index)
     };
     bySliceId.set(sliceId, meta);
-    if (meta.inputStart !== null && meta.inputEnd !== null) {
-      inputRanges.push({ start: meta.inputStart, end: meta.inputEnd, sliceId });
+    if (meta.outputStart !== null) {
+      outputAnchors.push({ outputStart: meta.outputStart, sliceId });
     }
   }
-  inputRanges.sort((left, right) => left.start - right.start);
+  outputAnchors.sort((left, right) => left.outputStart - right.outputStart);
 
   for (const item of items || []) {
     if (!item || typeof item !== 'object') {
@@ -3016,8 +3019,7 @@ function attachStreamOrderMetadata(items, sliceRows) {
         rank = sliceMeta.outputStart !== null ? sliceMeta.outputStart : 0;
       }
     } else if (itemKind === 'runtime_input' && index !== null) {
-      const match = inputRanges.find((range) => index >= range.start && index <= range.end)
-        || inputRanges.find((range) => range.start > index);
+      const match = outputAnchors.find((anchor) => anchor.outputStart > index);
       if (match) {
         const matchMeta = bySliceId.get(match.sliceId);
         turnMs = matchMeta ? matchMeta.turnMs : null;

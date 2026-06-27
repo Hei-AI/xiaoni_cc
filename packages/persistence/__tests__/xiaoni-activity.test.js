@@ -1307,6 +1307,58 @@ test('Xiaoni action stream orders events by real turn start + append index', asy
   assert.ok(ranks[2] >= 41);
 });
 
+test('Xiaoni action stream assigns each runtime_input to its own turn despite overlapping input ranges', async () => {
+  // Two consecutive turns. Both input ranges start at the same low index (the
+  // request consumes the whole prior context), so they overlap. Each
+  // runtime_input must still adopt the turn whose output immediately follows it,
+  // not the latest turn.
+  const turnAMs = Date.parse('2026-06-26T16:16:10.000Z') - 4000;
+  const turnBMs = Date.parse('2026-06-26T16:17:33.000Z') - 4000;
+  const persistence = createPersistence({
+    llmRequestSliceRows: [
+      {
+        id: '11', sliceId: 'slice_a', llmCallId: 'llm_a', identityKey: 'xiaoni',
+        traceId: 'trace_a', runId: 'run_a', status: 'completed',
+        createdAt: '2026-06-26T16:16:10.000Z', completedAt: '2026-06-26T16:16:10.000Z', processingTimeMs: 4000,
+        inputStartIndex: 10, inputEndIndex: 50, outputStartIndex: 51, outputEndIndex: 51,
+        tokenUsage: { input_tokens: 1, output_tokens: 1 }, wireResponse: { id: 'a' }
+      },
+      {
+        id: '12', sliceId: 'slice_b', llmCallId: 'llm_b', identityKey: 'xiaoni',
+        traceId: 'trace_b', runId: 'run_b', status: 'completed',
+        createdAt: '2026-06-26T16:17:33.000Z', completedAt: '2026-06-26T16:17:33.000Z', processingTimeMs: 4000,
+        inputStartIndex: 10, inputEndIndex: 52, outputStartIndex: 53, outputEndIndex: 53,
+        tokenUsage: { input_tokens: 1, output_tokens: 1 }, wireResponse: { id: 'b' }
+      }
+    ],
+    agentStackRows: [
+      { id: '50', eventId: 'stack:a:input', identityKey: 'xiaoni', stackIndex: 50, itemKind: 'runtime_input',
+        content: { source: 'system_reminder', input_items: [{ role: 'user', type: 'message', content: [{ type: 'output_text', text: 'plan A' }] }] },
+        traceId: 'trace_a', runId: 'run_a', createdAt: '2026-06-26T16:16:05.000Z' },
+      { id: '51', eventId: 'stack:a:out', identityKey: 'xiaoni', stackIndex: 51, itemKind: 'assistant_output',
+        llmRequestSliceId: 'slice_a', phase: 'final_answer',
+        content: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'A done' }] },
+        traceId: 'trace_a', runId: 'run_a', createdAt: '2026-06-26T16:16:10.500Z' },
+      { id: '52', eventId: 'stack:b:input', identityKey: 'xiaoni', stackIndex: 52, itemKind: 'runtime_input',
+        content: { source: 'system_reminder', input_items: [{ role: 'user', type: 'message', content: [{ type: 'output_text', text: 'plan B' }] }] },
+        traceId: 'trace_b', runId: 'run_b', createdAt: '2026-06-26T16:17:28.000Z' },
+      { id: '53', eventId: 'stack:b:out', identityKey: 'xiaoni', stackIndex: 53, itemKind: 'assistant_output',
+        llmRequestSliceId: 'slice_b', phase: 'final_answer',
+        content: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'B done' }] },
+        traceId: 'trace_b', runId: 'run_b', createdAt: '2026-06-26T16:17:33.500Z' }
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const byId = new Map(stream.items.map((item) => [item.id, item]));
+  const inputA = byId.get('stack:50');
+  const inputB = byId.get('stack:52');
+  assert.ok(inputA && inputB);
+  // each runtime_input belongs to its OWN turn, not the latest one
+  assert.equal(inputA.metadata.orderTurnMs, turnAMs);
+  assert.equal(inputB.metadata.orderTurnMs, turnBMs);
+});
+
 test('Xiaoni action stream surfaces 小腻 assistant output and drops empty turns', async () => {
   const persistence = createPersistence({
     agentStackRows: [
