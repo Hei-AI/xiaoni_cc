@@ -657,7 +657,7 @@ function summarizeAgentStackItem(row) {
     : isToolOutput
       ? firstString(content.output, previewJson(content.output))
       : isRuntimeInput
-        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        ? firstString(extractText(content.input_items), content.system_reminder, previewJson(content.input_items))
         : previewResponseItemText(content);
   const spanId = isToolCall && toolCallId
     ? `tool-call:${toolCallId}`
@@ -1062,7 +1062,7 @@ function summarizeCompressionForkItem(row) {
     : isToolOutput
       ? firstString(content.output, previewJson(content.output))
       : isRuntimeInput
-        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        ? firstString(extractText(content.input_items), content.system_reminder, previewJson(content.input_items))
         : previewResponseItemText(content);
   const itemId = firstString(row.id === null || typeof row.id === 'undefined' ? null : String(row.id), row.eventId, row.event_id);
   const spanId = isToolCall && toolCallId
@@ -1900,7 +1900,7 @@ function summarizeImageVisionForkItem(row) {
     : isToolOutput
       ? firstString(content.output, previewJson(content.output))
       : isRuntimeInput
-        ? firstString(content.system_reminder, content.source, previewJson(content.input_items))
+        ? firstString(extractText(content.input_items), content.system_reminder, previewJson(content.input_items))
         : previewResponseItemText(content);
   const itemId = firstString(row.id === null || typeof row.id === 'undefined' ? null : String(row.id), row.eventId, row.event_id);
   if (isAssistantOutput && !body) {
@@ -2911,17 +2911,15 @@ function actionStreamAvailableTags(items, forkRuns) {
     });
 }
 
-const ACTION_STREAM_EXCLUDED_LIFE_KINDS = new Set([
-  'no_visible_delivery_observed',
-  'presence_tick_evaluated',
-  'surface_visit'
-]);
-
 function isPrimaryActionStreamItem(item) {
   if (!item) {
     return false;
   }
-  if (item.source === 'life_event' && ACTION_STREAM_EXCLUDED_LIFE_KINDS.has(item.kind)) {
+  // life_event projections (qq seen/sent, phone notifications, ...) duplicate the
+  // stack triggers / tool sends / assistant output, so they are dropped from the
+  // action stream. media_observation rows are bare "[Image]" markers with no
+  // content (real image handling shows up as the image_vision fork), also dropped.
+  if (item.source === 'life_event' || item.source === 'media_observation') {
     return false;
   }
   if (item.source === 'llm_stack_item') {
@@ -2938,9 +2936,6 @@ function isPrimaryActionStreamItem(item) {
     }
   }
   if (item.source === 'queue_message' && item.kind === 'phone_notification') {
-    return false;
-  }
-  if (item.source === 'media_observation' && item.metadata?.forkKind === 'image_vision') {
     return false;
   }
   return true;
