@@ -1645,6 +1645,10 @@ async function loadCoreMemoryCompressionForkTimeline(sql, {
       }
     }
 
+    for (const events of eventsByForkRunId.values()) {
+      attachStreamOrderMetadata(events, sliceRows);
+    }
+
     return {
       runs: runRows.map((row) => {
         const forkRunId = firstString(row.forkRunId, row.fork_run_id);
@@ -1717,6 +1721,10 @@ async function loadSubconsciousAgentForkTimeline(sql, {
       if (eventsByForkRunId.has(forkRunId)) {
         eventsByForkRunId.get(forkRunId).push(summarizeSubconsciousForkToolExecution(row));
       }
+    }
+
+    for (const events of eventsByForkRunId.values()) {
+      attachStreamOrderMetadata(events, sliceRows);
     }
 
     return {
@@ -2911,6 +2919,121 @@ function actionStreamAvailableTags(items, forkRuns) {
     });
 }
 
+function streamOrderToMs(value) {
+  const normalized = normalizeDate(value);
+  if (!normalized) {
+    return null;
+  }
+  const ms = new Date(normalized).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// The turn's real start: the slice row is persisted when the response finishes,
+// so created_at ≈ completed_at. The request actually began processing_time_ms
+// earlier — that is when the turn truly started.
+function streamSliceTurnStartMs(row) {
+  const completedMs = streamOrderToMs(row.completedAt || row.completed_at);
+  const processingMs = Number(row.processingTimeMs ?? row.processing_time_ms);
+  if (completedMs !== null && Number.isFinite(processingMs) && processingMs > 0) {
+    return completedMs - processingMs;
+  }
+  return streamOrderToMs(row.createdAt || row.created_at || row.completedAt || row.completed_at);
+}
+
+function streamNumberOrNull(value) {
+  if (value === null || typeof value === 'undefined') {
+    return null;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+// Attach a reliable ordering key (orderTurnMs, orderRank) to each projected event.
+// Per-row timestamps are the batch/persist time — a whole turn is stamped when it
+// finishes, so they can't order events within or across turns. The real signals:
+//   - cross-turn: the turn's true start (completed_at - processing_time_ms)
+//   - within-turn: the append index (stack_index / item_index)
+// The 模型请求 slice has no index, so it sits at output_start_index - 0.5 (just
+// before its outputs). A main runtime_input row carries no slice id (appended
+// before the request existed) — match it to the turn whose input index range
+// contains its stack_index.
+function attachStreamOrderMetadata(items, sliceRows) {
+  const bySliceId = new Map();
+  const inputRanges = [];
+  for (const row of sliceRows || []) {
+    const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id);
+    if (!sliceId) {
+      continue;
+    }
+    const meta = {
+      turnMs: streamSliceTurnStartMs(row),
+      inputStart: streamNumberOrNull(row.inputStartIndex ?? row.input_start_index),
+      inputEnd: streamNumberOrNull(row.inputEndIndex ?? row.input_end_index),
+      outputStart: streamNumberOrNull(row.outputStartIndex ?? row.output_start_index),
+      outputEnd: streamNumberOrNull(row.outputEndIndex ?? row.output_end_index)
+    };
+    bySliceId.set(sliceId, meta);
+    if (meta.inputStart !== null && meta.inputEnd !== null) {
+      inputRanges.push({ start: meta.inputStart, end: meta.inputEnd, sliceId });
+    }
+  }
+  inputRanges.sort((left, right) => left.start - right.start);
+
+  for (const item of items || []) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : (item.metadata = {});
+    const source = item.source || '';
+    const sliceId = firstString(metadata.llmRequestSliceId);
+    const itemKind = firstString(metadata.itemKind) || item.kind || '';
+    const index = streamNumberOrNull(metadata.stackIndex ?? metadata.itemIndex);
+    const sliceMeta = sliceId ? bySliceId.get(sliceId) : null;
+    const isSlice = source === 'llm_request'
+      || source === 'compression_fork_llm_request'
+      || source === 'subconscious_fork_llm_request'
+      || source === 'image_vision_fork_llm_request'
+      || source === 'cache_heartbeat';
+
+    let turnMs = null;
+    let rank = null;
+
+    if (isSlice && sliceMeta) {
+      turnMs = sliceMeta.turnMs;
+      rank = sliceMeta.outputStart !== null
+        ? sliceMeta.outputStart - 0.5
+        : (sliceMeta.inputEnd !== null ? sliceMeta.inputEnd + 0.5 : 0);
+    } else if (sliceMeta) {
+      turnMs = sliceMeta.turnMs;
+      if (index !== null) {
+        rank = index;
+      } else if (itemKind === 'function_call_output' || source === 'tool_execution' || source.endsWith('fork_tool_execution')) {
+        const base = sliceMeta.outputEnd !== null
+          ? sliceMeta.outputEnd
+          : (sliceMeta.outputStart !== null ? sliceMeta.outputStart : 0);
+        rank = base + 0.5;
+      } else {
+        rank = sliceMeta.outputStart !== null ? sliceMeta.outputStart : 0;
+      }
+    } else if (itemKind === 'runtime_input' && index !== null) {
+      const match = inputRanges.find((range) => index >= range.start && index <= range.end)
+        || inputRanges.find((range) => range.start > index);
+      if (match) {
+        const matchMeta = bySliceId.get(match.sliceId);
+        turnMs = matchMeta ? matchMeta.turnMs : null;
+      }
+      rank = index;
+    }
+
+    if (turnMs === null || typeof turnMs === 'undefined') {
+      turnMs = streamOrderToMs(item.timestamp);
+    }
+    metadata.orderTurnMs = turnMs;
+    metadata.orderRank = rank === null ? 0 : rank;
+  }
+  return items;
+}
+
 function isPrimaryActionStreamItem(item) {
   if (!item) {
     return false;
@@ -4056,6 +4179,7 @@ function createXiaoniActivityPersistence({
         .map((item) => attachLlmTokenMetadata(item, tokenSummaryBySliceId))
         .filter((item) => item.timestamp)
         .filter((item) => itemMatchesTimeWindow(item, timeWindow));
+      attachStreamOrderMetadata(projectedItems, normalizedLlmRequestSliceRows);
       const items = (actionStreamProjection
         ? projectedItems.filter(isPrimaryActionStreamItem)
         : projectedItems)

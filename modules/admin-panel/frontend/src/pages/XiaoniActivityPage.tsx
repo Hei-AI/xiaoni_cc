@@ -893,18 +893,32 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
 
 // Flatten main items + every fork run's internal events into one time-sorted
 // stream. Fork events carry a StreamForkRef so the UI can prefix + filter them.
-function entrySliceId(entry: StreamEntry): string | null {
-  return typeof entry.item.metadata?.llmRequestSliceId === 'string' ? entry.item.metadata.llmRequestSliceId : null;
+function streamMetaNumber(value: unknown): number {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : Number.NaN;
 }
 
-// Real append-ledger position of an event: stack_index (main) / item_index
-// (fork), assigned at creation. This is the ground-truth creation order — used
-// to break intra-phase ties instead of arbitrary id comparison.
-function streamOrderKey(entry: StreamEntry): number {
+// The backend stamps each event with the real creation order: orderTurnMs (the
+// turn's true start = completed_at - processing_time_ms) and orderRank (the
+// append index, with the 模型请求 slice slotted between input and output). Sort
+// reverse-chronologically by those. Fall back to wall-clock / append index only
+// for events the backend didn't stamp (e.g. frontend-synthesized fork triggers).
+function streamOrderTurnMs(entry: StreamEntry): number {
+  const v = streamMetaNumber(entry.item.metadata?.orderTurnMs);
+  if (Number.isFinite(v)) {
+    return v;
+  }
+  return parseTimestampMs(entry.timestamp) ?? 0;
+}
+
+function streamOrderRank(entry: StreamEntry): number {
+  const v = streamMetaNumber(entry.item.metadata?.orderRank);
+  if (Number.isFinite(v)) {
+    return v;
+  }
   const meta = entry.item.metadata || {};
-  const raw = meta.stackIndex ?? meta.itemIndex;
-  const num = typeof raw === 'number' ? raw : Number(raw);
-  return Number.isFinite(num) ? num : Number.NaN;
+  const index = streamMetaNumber(meta.stackIndex ?? meta.itemIndex);
+  return Number.isFinite(index) ? index : 0;
 }
 
 function buildStreamEntries(
@@ -937,54 +951,19 @@ function buildStreamEntries(
     }
   }
 
-  // Standard reverse-chronological order (newest first). Two timestamp problems
-  // are corrected so it stays monotonic:
-  //  1. The 模型请求 slice row is persisted AFTER its own output items, so its raw
-  //     timestamp would sort it above them. Re-time it to just before its first
-  //     output — its true request moment.
-  //  2. Events sharing a millisecond are tie-broken by the backend-enforced append
-  //     index (stack_index / item_index), the ground-truth creation sequence.
-  const firstOutputMsBySlice = new Map<string, number>();
-  for (const entry of entries) {
-    const slice = entrySliceId(entry);
-    if (!slice) {
-      continue;
-    }
-    const label = streamTypeTag(entry.item).label;
-    if (label !== '小腻输出' && label !== '请求工具' && label !== '工具结果') {
-      continue;
-    }
-    const ms = parseTimestampMs(entry.timestamp);
-    if (ms === null) {
-      continue;
-    }
-    const current = firstOutputMsBySlice.get(slice);
-    if (current === undefined || ms < current) {
-      firstOutputMsBySlice.set(slice, ms);
-    }
-  }
-
-  const sortMs = (entry: StreamEntry): number => {
-    if (streamTypeTag(entry.item).label === '模型请求') {
-      const slice = entrySliceId(entry);
-      const firstOutput = slice ? firstOutputMsBySlice.get(slice) : undefined;
-      if (firstOutput !== undefined) {
-        return firstOutput - 1;
-      }
-    }
-    return parseTimestampMs(entry.timestamp) ?? 0;
-  };
-
+  // Standard reverse-chronological order (newest first), driven by the backend's
+  // real creation sequence: orderTurnMs (turn start) then orderRank (append index,
+  // slice slotted between input and output). No wall-clock guessing here.
   return entries.sort((left, right) => {
-    const leftMs = sortMs(left);
-    const rightMs = sortMs(right);
-    if (leftMs !== rightMs) {
-      return rightMs - leftMs; // newest first
+    const leftTurn = streamOrderTurnMs(left);
+    const rightTurn = streamOrderTurnMs(right);
+    if (leftTurn !== rightTurn) {
+      return rightTurn - leftTurn; // newest turn first
     }
-    const leftKey = streamOrderKey(left);
-    const rightKey = streamOrderKey(right);
-    if (Number.isFinite(leftKey) && Number.isFinite(rightKey) && leftKey !== rightKey) {
-      return rightKey - leftKey; // higher append index = newer
+    const leftRank = streamOrderRank(left);
+    const rightRank = streamOrderRank(right);
+    if (leftRank !== rightRank) {
+      return rightRank - leftRank; // newest within turn first
     }
     return (right.item.eventId || right.id).localeCompare(left.item.eventId || left.id);
   });
