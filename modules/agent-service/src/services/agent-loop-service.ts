@@ -2862,21 +2862,6 @@ function lastHistoryTurnEndsWithAssistantFinalAnswer(history: ConversationTurn[]
   return false;
 }
 
-// The most recent turn's assistant TEXT outputs (D), pulled from raw history so the
-// subconscious fork can re-inject them at its tail. D is stripped from the shared
-// (cache-warm) prefix; the fork still needs to see what she just narrated to plan the
-// next direction and to avoid repeating itself, so it rides here as a small cold tail.
-export function extractLatestAssistantNarrationReplayItems(history: ConversationTurn[]): OpenResponseInputItem[] {
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const replay = buildTurnResponseReplayItems(history[index] as StackBackedConversationTurn);
-    const narration = replay.filter((item) => isAssistantTextOutputReplayItem(item));
-    if (narration.length > 0) {
-      return narration;
-    }
-  }
-  return [];
-}
-
 function shouldAllowSelfContinuationOnTerminalFinalAnswer(
   options: ReturnType<typeof normalizeRuntimeFrameOptions>
 ): boolean {
@@ -4686,6 +4671,16 @@ export class AgentLoopService {
   private cacheHeartbeatInFlight: Promise<void> | null = null;
   private subconsciousAgentForkBackoffUntilMs = 0;
   private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
+  // Handoff from the last settled main-agent run to the subconscious fork. The fork is a
+  // complete clone of the main agent (see GOVERNING PRINCIPLE on maybeRunSubconsciousAgentFork):
+  // it clones this exact request (main's last request + the 当轮小腻os) and only appends the
+  // reminder. `runProducedToolCall` gates C2 — fork only on a pure-talk run. Consumed (set
+  // null) on each fork evaluation, so each main settle yields at most one fork; null after a
+  // restart (no fresh main run yet) ⇒ no fork until the next main run repopulates it.
+  private lastMainAgentForkSeed: {
+    canonicalRequest: CanonicalAgentTurnRequest;
+    runProducedToolCall: boolean;
+  } | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -4881,6 +4876,37 @@ export class AgentLoopService {
     });
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SUBCONSCIOUS FORK — GOVERNING PRINCIPLE (do not violate)
+  //
+  // The subconscious (self-driven) fork is a COMPLETE CLONE of the main agent: its
+  // request must be the main agent's own context, byte-for-byte, plus the just-produced
+  // output D, plus the self-continuation developer reminder appended at the tail. That is
+  // the whole fork: clone(main) + D + reminder.
+  //
+  //   * The fork performs NO context manipulation of its own — no independent rebuild,
+  //     no fork-specific stripping, no re-injection. Whatever the main agent's context
+  //     is (already stripped or not), the fork inherits it verbatim.
+  //   * Stripping of assistant text is the MAIN agent's job ONLY (buildInitialInput +
+  //     the per-turn request build). The fork never strips and never "adds back".
+  //   * Because the fork's prefix is identical to the main agent's last request, it rides
+  //     the exact warm in-context cache the main agent just primed (≈ main hit rate).
+  //
+  // WHY: any independent rebuild can drift from the main agent's real request (different
+  // timing / intra-run state) and break both correctness ("fork sees something different
+  // from main") and the cache (prefix divergence → cold prefill). Observed: 2026-06-27
+  // fork hit 55% vs main 98% because the fork rebuilt+stripped independently while the
+  // main still carried intra-run text.
+  //
+  // TRIGGER (C2): fork ONLY after a pure-talk run — one that produced zero tool calls.
+  // If the run made any function_call (send/exec/image…), `lastMainAgentForkSeed.runProducedToolCall`
+  // is true and the fork is skipped: she was living her life, the subconscious shouldn't push.
+  //
+  // CURRENT STATUS: satisfied. The fork clones `lastMainAgentForkSeed.canonicalRequest` (the
+  // main's own last request, already incl. the 当轮小腻os) and only appends the reminder —
+  // no rebuild, no fork-side stripping, no re-injection. The seed is captured at the main
+  // run's settle (processRuntimeFrame) and consumed here.
+  // ─────────────────────────────────────────────────────────────────────────────
   private async maybeRunSubconsciousAgentFork(
     _params: AgentRuntimeIterationParams,
     initialLoopContinuation: OpenResponseInputItem[]
@@ -4905,47 +4931,33 @@ export class AgentLoopService {
       return;
     }
 
-    const queueMessage = buildRuntimeLoopFrameQueueMessage();
-    const payload = queueMessage.payload;
-    const sessionIds = resolveSessionTargets(payload);
-    const contextSessionKey = getGlobalPromptContextSessionKey();
-    const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
-    const history = await this.attachStackReplayItemsToHistory(await this.store.listRecentTurns({
-      userId: sessionIds.userId,
-      groupId: sessionIds.groupId,
-      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      scope: 'global'
-    }), payload.traceId);
-    const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
-    const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
-    const developerContextBlock = await this.buildDeveloperContextBlock(payload);
-    const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(payload);
-    const budgetPlan = await this.buildContextBudgetPlan({
-      history,
-      queueMessage: payload,
-      runtimePrompt,
-      loopContinuation: [],
-      runtimeIdentityFacts,
-      developerContextBlock,
-      runtimeEnergyState,
-      contextSessionKey,
-      cutoffState,
-      triggerInputMode: 'suppress_current_trigger',
-      appendSelfContinuationOnTerminalFinalAnswer: false,
-      loopContinuationBeforeCurrentTrigger: false
-    });
-    // Gate on raw history (assistant text D is now stripped from requestInput, so its last
-    // item is no longer a final_answer): only fork when she just settled on a final_answer.
-    if (!lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
+    // Consume the seed from the last settled main run (at most one fork per main settle).
+    const seed = this.lastMainAgentForkSeed;
+    this.lastMainAgentForkSeed = null;
+    if (!seed) {
+      // No fresh main run to clone (e.g. just after a restart). Wait for the next main run
+      // to repopulate the seed rather than rebuilding context independently.
+      return;
+    }
+    // C2: only fork on a pure-talk run. If the run made ANY tool call (send/exec/image…),
+    // she was doing her own thing — don't push her with the subconscious.
+    if (seed.runProducedToolCall) {
       return;
     }
 
+    const queueMessage = buildRuntimeLoopFrameQueueMessage();
+    const payload = queueMessage.payload;
+    const contextSessionKey = getGlobalPromptContextSessionKey();
+    const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
+
+    // C1: the fork is a COMPLETE CLONE of the main agent. baseRequest is the main's own
+    // last request (already incl. the 当轮小腻os at its tail); runSubconsciousAgentFork only
+    // appends the developer reminder. No rebuild, no fork-side stripping, no re-injection.
     const fork = this.runSubconsciousAgentFork({
-      baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.requestInput, payload),
+      baseRequest: seed.canonicalRequest,
       queueMessage: payload,
       runtimePrompt,
-      contextSessionKey,
-      recentNarrationItems: extractLatestAssistantNarrationReplayItems(history)
+      contextSessionKey
     });
     this.subconsciousAgentForkInFlight = fork;
     void fork.then((enqueued) => {
@@ -5988,6 +6000,10 @@ export class AgentLoopService {
         : [];
       let requestInput = budgetPlan.requestInput;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
+      // C2 (subconscious-fork trigger): track whether THIS run made any tool call. The
+      // fork only fires on a pure-talk run (zero function_calls) — if she did anything
+      // (send/exec/image…), she's living her life and the subconscious shouldn't push.
+      let runProducedToolCall = false;
       if (coreMemoryCompressionCheckpoint) {
         await this.scheduleCoreMemoryCompressionFork({
           baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, coreMemoryCompressionCheckpoint.summarySourceInput, payload),
@@ -6193,6 +6209,9 @@ export class AgentLoopService {
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
         const hasToolCall = actionPlan.hasToolCall;
+        if (hasToolCall) {
+          runProducedToolCall = true;
+        }
         await this.executeResponsePostActions(actionPlan.postActions, {
           queueMessage: payload,
           runId: queueMessage.id,
@@ -6620,6 +6639,17 @@ export class AgentLoopService {
           continue;
         }
 
+        // C1 (subconscious fork = complete clone of main): stash this settled run's request
+        // verbatim so the fork can clone it + append only the reminder — no rebuild, no
+        // drift, rides the warm cache. requestInput here already includes the just-produced
+        // 小腻os (D) at its tail (appended via appendLoopInputItems), so clone + reminder =
+        // 主agent上下文 + 当轮小腻os + 引导词. runProducedToolCall gates C2 (only pure-talk
+        // runs fork). Built with the main's own runtimePrompt/payload so bytes match the
+        // warm prefix the main just primed.
+        this.lastMainAgentForkSeed = {
+          canonicalRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
+          runProducedToolCall
+        };
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
           eventType: 'decision',
@@ -8702,9 +8732,9 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     contextSessionKey: string;
-    // Most recent assistant narration (D), stripped from the shared prefix and re-injected
-    // at the fork's tail so it sees what she just said. Empty when there is none.
-    recentNarrationItems: OpenResponseInputItem[];
+    // Optional extra items appended at the fork tail before the reminder. Unused on the
+    // clone path (the 当轮小腻os is already inside baseRequest); kept for flexibility.
+    recentNarrationItems?: OpenResponseInputItem[];
 	  }): Promise<boolean> {
     const forkRunId = `subconscious-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const baseForkMetadata = {

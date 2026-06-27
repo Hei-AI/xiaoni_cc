@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, extractLatestAssistantNarrationReplayItems, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
@@ -1324,52 +1324,26 @@ test('buildInitialInput strips prior assistant text from the replayed context (e
   }
 });
 
-test('subconscious fork re-injects the most recent assistant narration (D) at its tail', () => {
-  const turn = createConversationTurn({
-    id: 46,
-    userMessage: '上一段用户消息',
-    aiResponse: null
-  });
-  attachStackReplayItems(turn, [
-    {
-      type: 'function_call',
-      call_id: 'call-send-1',
-      name: 'send_in_private',
-      arguments: '{"target_user_id":3994058476,"message":"真发出去的话"}'
-    },
-    {
-      type: 'function_call_output',
-      call_id: 'call-send-1',
-      output: '{"message_type":"private"}'
-    },
-    {
-      type: 'message',
-      role: 'assistant',
-      phase: 'final_answer',
-      content: [{ type: 'output_text', text: '等小伊接。' }]
-    }
-  ]);
+test('subconscious fork clones the main request (incl. its 小腻os) and only appends the reminder at the tail', () => {
+  // The fork is a complete clone of the main agent: baseRequest IS the main's last request,
+  // which already carries the 当轮小腻os (D) at its tail. buildSubconsciousAgentForkRequest
+  // must preserve that verbatim and only append the self-continuation reminder after it —
+  // no stripping, no re-injection.
+  const mainRequestInput = [
+    { type: 'message', role: 'system', content: 'stable system prompt' },
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: '主 agent 最后一次请求的场景' }] },
+    { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '等小伊接。' }] }
+  ] as any;
+  const baseRequest = buildCanonicalAgentTurnRequest('gpt-5.5', mainRequestInput, createQueuePayload().chatType);
 
-  // The narration (D) is pulled from raw history…
-  const narration = extractLatestAssistantNarrationReplayItems([turn]);
-  assert.equal(narration.length, 1);
-  assert.equal(getMessageContent(narration[0] as any).includes('等小伊接'), true);
+  const forkRequest = buildSubconsciousAgentForkRequest(baseRequest, 1);
 
-  // …and the fork base prefix (built like the main loop) has D stripped — only the
-  // tool call/output survive there.
-  const baseInput = buildInitialInput([turn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
-  assert.equal(baseInput.some((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接')), false);
-  assert.equal(baseInput.some((item: any) => item.type === 'function_call' && item.call_id === 'call-send-1'), true);
-
-  // The fork request re-injects D at the tail, before the self-continuation reminder.
-  const baseRequest = buildCanonicalAgentTurnRequest('gpt-5.5', baseInput, createQueuePayload().chatType);
-  const forkRequest = buildSubconsciousAgentForkRequest(baseRequest, 1, narration);
   const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接'));
-  // Identify the self-continuation reminder by its distinctive text (baseInput may carry
-  // other <system_reminder> blocks earlier, so don't match on that generic tag).
+  // Identify the self-continuation reminder by its distinctive text (the base may carry
+  // other <system_reminder> blocks, so don't match on that generic tag).
   const reminderIndex = forkRequest.input.findIndex((item: any) => getMessageContent(item).includes('闲下来时的潜意识'));
-  assert.ok(dIndex >= 0, 'fork must see D');
-  assert.ok(reminderIndex > dIndex, 'D is re-injected before the self-continuation reminder tail');
+  assert.ok(dIndex >= 0, 'fork keeps the cloned 小腻os D verbatim');
+  assert.ok(reminderIndex > dIndex, 'reminder is appended after the cloned context tail');
 });
 
 test('buildInitialInput never synthesizes raw xiaoni_os into model-visible history', () => {
