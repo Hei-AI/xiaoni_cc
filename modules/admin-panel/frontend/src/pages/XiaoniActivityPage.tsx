@@ -1,6 +1,6 @@
 import React from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   CartesianGrid,
   Line,
@@ -13,25 +13,17 @@ import {
   YAxis,
 } from 'recharts';
 import {
-  Activity,
-  AlertTriangle,
   Bot,
   Calendar,
   ChevronsDown,
-  Clock3,
-  Eye,
-  Image,
   Loader2,
-  MessageCircle,
   RefreshCw,
   Search,
-  Sparkles,
   Tags,
   Waypoints,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -201,25 +193,31 @@ type ForkAgentRun = CompressionForkRun & {
   agentLabel?: string;
 };
 
-interface ForkRunUsageSummary {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
+type StreamLane = 'main' | 'fork';
+
+interface StreamForkRef {
+  runId: string;
+  kind: string;
+  label: string;
 }
 
-type WorkflowTimelineEntry =
-  | {
-      id: string;
-      kind: 'fork';
-      timestamp: string;
-      run: ForkAgentRun;
-    }
-  | {
-      id: string;
-      kind: 'main';
-      timestamp: string;
-      item: XiaoniActivityFeedItem;
-    };
+// A single atomic timeline event. Fork runs are flattened into one entry per
+// internal step (plus a synthesized trigger entry) so a fork reads exactly like
+// the main agent, interleaved by timestamp.
+interface StreamEntry {
+  id: string;
+  lane: StreamLane;
+  timestamp: string;
+  item: XiaoniActivityFeedItem;
+  fork: StreamForkRef | null;
+}
+
+interface ForkRosterEntry {
+  runId: string;
+  kind: string;
+  label: string;
+  count: number;
+}
 
 interface RuntimeSnapshot {
   live: boolean;
@@ -482,24 +480,6 @@ interface RawTraceData {
   };
 }
 
-const toneClasses: Record<string, string> = {
-  xiaoni: 'border-cyan-200/80 bg-cyan-50/70',
-  success: 'border-emerald-200/80 bg-emerald-50/70',
-  warning: 'border-amber-200/80 bg-amber-50/70',
-  danger: 'border-red-200/80 bg-red-50/70',
-  info: 'border-sky-200/80 bg-sky-50/70',
-  neutral: 'border-border bg-card',
-};
-
-const iconClasses: Record<string, string> = {
-  xiaoni: 'bg-cyan-100 text-cyan-700',
-  success: 'bg-emerald-100 text-emerald-700',
-  warning: 'bg-amber-100 text-amber-700',
-  danger: 'bg-red-100 text-red-700',
-  info: 'bg-sky-100 text-sky-700',
-  neutral: 'bg-muted text-muted-foreground',
-};
-
 const TIME_RANGE_OPTIONS: Array<{ value: TimeRange; label: string }> = [
   { value: '1h', label: '1h' },
   { value: '6h', label: '6h' },
@@ -581,54 +561,6 @@ function formatTokenAxis(value: number) {
   return formatTokenCount(Number.isFinite(value) ? value : 0) || '0';
 }
 
-function statusTone(value?: string | null): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
-  if (!value) {
-    return 'neutral';
-  }
-  if (['healthy', 'ok', 'observed', 'active_surface'].includes(value)) {
-    return 'success';
-  }
-  if (['running', 'planned', 'pending', 'waiting', 'degraded', 'stale_processing'].includes(value)) {
-    return 'warning';
-  }
-  if (['failed', 'offline', 'blocked'].includes(value)) {
-    return 'danger';
-  }
-  return 'info';
-}
-
-function statusLabel(value?: string | null) {
-  if (!value) {
-    return null;
-  }
-  if (value === 'completed') {
-    return 'ok';
-  }
-  if (value === 'processing') {
-    return 'running';
-  }
-  if (value === 'pending' || value === 'planned') {
-    return 'waiting';
-  }
-  return value;
-}
-
-function itemIcon(item: XiaoniActivityFeedItem) {
-  if (item.source === 'tool_execution') return <Waypoints className="h-4 w-4" />;
-  if (item.source === 'llm_stack_item') return <Waypoints className="h-4 w-4" />;
-  if (item.source === 'llm_request') return <Activity className="h-4 w-4" />;
-  if (item.source === 'digital_action') return <Search className="h-4 w-4" />;
-  if (item.source === 'task') return <Sparkles className="h-4 w-4" />;
-  if (item.source === 'media_observation') return <Image className="h-4 w-4" />;
-  if (item.source === 'image_vision_fork_observation') return <Image className="h-4 w-4" />;
-  if (item.source === 'cache_heartbeat') return <RefreshCw className="h-4 w-4" />;
-  if (item.source === 'queue_message') return <Clock3 className="h-4 w-4" />;
-  if (item.kind === 'qq_message_seen') return <Eye className="h-4 w-4" />;
-  if (['send_in_group', 'send_in_private', 'qq_self_message'].includes(item.kind)) return <MessageCircle className="h-4 w-4" />;
-  if (item.kind === 'terminal_action_blocked') return <AlertTriangle className="h-4 w-4" />;
-  return <Bot className="h-4 w-4" />;
-}
-
 function sourceLabel(source: string) {
   switch (source) {
     case 'life_event':
@@ -661,21 +593,6 @@ function sourceLabel(source: string) {
     default:
       return source.replace(/_/g, ' ');
   }
-}
-
-function actionTagTone(value?: string): 'neutral' | 'success' | 'warning' | 'danger' | 'info' {
-  return value === 'success' || value === 'warning' || value === 'danger' || value === 'info'
-    ? value
-    : 'neutral';
-}
-
-function actionTagPills(tags: ActionStreamTagOption[] | undefined, fallback: ActionStreamTagOption[]) {
-  const effectiveTags = tags?.length ? tags : fallback;
-  return effectiveTags.map((tag) => (
-    <StatusPill key={tag.key} tone={actionTagTone(tag.tone)}>
-      {tag.label}
-    </StatusPill>
-  ));
 }
 
 function metadataText(metadata: Record<string, unknown>, key: string): string | null {
@@ -714,10 +631,6 @@ function formatPayloadSize(requestBytes: string | null, responseBytes: string | 
   return requestBytes || responseBytes;
 }
 
-function formatRawTraceBytes(value: number | null | undefined) {
-  return formatBytes(typeof value === 'number' ? value : null) || '0 B';
-}
-
 function formatTokenCount(value: number | null) {
   if (value === null || value < 0) {
     return null;
@@ -753,24 +666,6 @@ function parseTimestampMs(value?: string | null) {
   }
   const parsed = parseTimestampValue(value)?.getTime();
   return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
-}
-
-function summarizeForkRunUsage(run: ForkAgentRun): ForkRunUsageSummary {
-  return run.events.reduce<ForkRunUsageSummary>((summary, event) => {
-    const inputTokens = metadataNumber(event.metadata, 'inputTokens') || 0;
-    const cachedInputTokens = metadataNumber(event.metadata, 'cachedInputTokens') || 0;
-    const outputTokens = metadataNumber(event.metadata, 'outputTokens') || 0;
-
-    return {
-      inputTokens: summary.inputTokens + inputTokens,
-      cachedInputTokens: summary.cachedInputTokens + cachedInputTokens,
-      outputTokens: summary.outputTokens + outputTokens,
-    };
-  }, {
-    inputTokens: 0,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-  });
 }
 
 function readUsageChartPoint(state: unknown): UsageChartPoint | null {
@@ -914,24 +809,119 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
-function buildWorkflowTimelineEntries(
+function shortForkRunId(forkRunId: string | null | undefined): string {
+  if (!forkRunId) {
+    return '';
+  }
+  const tail = forkRunId.replace(/[^a-zA-Z0-9]/g, '');
+  return tail.length > 6 ? tail.slice(-6) : tail;
+}
+
+function forkLabelForRun(run: ForkAgentRun): string {
+  const base = run.agentLabel || forkAgentLabel(run.forkKind || forkKindForRun(run));
+  const short = shortForkRunId(run.forkRunId);
+  return short ? `${base}·${short}` : base;
+}
+
+function forkChipClass(kind: string): string {
+  switch (kind) {
+    case 'subconscious_agent':
+      return 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700';
+    case 'image_vision':
+      return 'border-sky-200 bg-sky-50 text-sky-700';
+    case 'cache_heartbeat':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    case 'compression_memory':
+      return 'border-violet-200 bg-violet-50 text-violet-700';
+    default:
+      return 'border-border bg-muted text-muted-foreground';
+  }
+}
+
+// Synthesize a "trigger" event from the fork run's metadata so the timeline
+// shows WHY 小腻 entered this fork (notify doorbell / read-cutoff / media / timer).
+function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
+  const forkKind = run.forkKind || forkKindForRun(run);
+  let body: string | null = null;
+  if (forkKind === 'subconscious_agent') {
+    const notifyId = metadataText(run.metadata, 'notifyQueueMessageId')
+      ?? (metadataNumber(run.metadata, 'notifyQueueMessageId') !== null
+        ? String(metadataNumber(run.metadata, 'notifyQueueMessageId'))
+        : null);
+    const sessionKey = metadataText(run.metadata, 'contextSessionKey');
+    body = notifyId
+      ? `由 Notify Bucket #${notifyId} (phone_notification) 唤醒`
+      : '潜意识自主触发';
+    if (sessionKey) {
+      body += ` · ${sessionKey}`;
+    }
+  } else if (forkKind === 'compression_memory') {
+    const to = run.readCutoffAfterConversationId;
+    const from = run.previousReadCutoffAfterConversationId;
+    body = to ? `核心记忆压缩 · read-cutoff ${from || '-'} → ${to}` : '核心记忆压缩触发';
+  } else if (forkKind === 'image_vision') {
+    body = '收到图片 → 触发图像视觉 fork';
+  } else if (forkKind === 'cache_heartbeat') {
+    body = '缓存心跳定时触发 · 续 cache TTL';
+  } else {
+    body = 'fork 触发';
+  }
+  return {
+    id: `forktrig:${run.id}`,
+    source: 'fork_trigger',
+    kind: 'fork_trigger',
+    title: '触发',
+    body,
+    status: run.status || null,
+    actor: 'system',
+    actorName: run.agentLabel || null,
+    timestamp: run.startedAt,
+    occurredAt: run.startedAt,
+    sessionKey: null,
+    peerName: null,
+    traceId: run.traceId,
+    traceTarget: null,
+    tone: 'info',
+    metadata: {
+      forkKind,
+      forkRunId: run.forkRunId,
+      notifyQueueMessageId: run.metadata?.notifyQueueMessageId ?? null,
+    },
+    tags: [],
+  };
+}
+
+// Flatten main items + every fork run's internal events into one time-sorted
+// stream. Fork events carry a StreamForkRef so the UI can prefix + filter them.
+function buildStreamEntries(
   mainItems: XiaoniActivityFeedItem[],
   forkRuns: ForkAgentRun[]
-): WorkflowTimelineEntry[] {
-  const entries: WorkflowTimelineEntry[] = [
-    ...forkRuns.map((run) => ({
-      id: `fork:${run.id}`,
-      kind: 'fork' as const,
-      timestamp: run.startedAt,
-      run,
-    })),
-    ...mainItems.map((item) => ({
-      id: `main:${item.eventId || item.id}`,
-      kind: 'main' as const,
-      timestamp: item.occurredAt || item.timestamp,
-      item,
-    })),
-  ];
+): StreamEntry[] {
+  const entries: StreamEntry[] = mainItems.map((item) => ({
+    id: `main:${item.eventId || item.id}`,
+    lane: 'main' as const,
+    timestamp: item.occurredAt || item.timestamp,
+    item,
+    fork: null,
+  }));
+
+  for (const run of forkRuns) {
+    const forkKind = run.forkKind || forkKindForRun(run);
+    const ref: StreamForkRef = { runId: run.forkRunId, kind: forkKind, label: forkLabelForRun(run) };
+    const trigger = buildForkTriggerItem(run);
+    if (trigger) {
+      entries.push({ id: trigger.id, lane: 'fork', timestamp: run.startedAt, item: trigger, fork: ref });
+    }
+    for (const event of run.events || []) {
+      entries.push({
+        id: `fork:${run.forkRunId}:${event.id}`,
+        lane: 'fork',
+        timestamp: event.occurredAt || event.timestamp,
+        item: event,
+        fork: ref,
+      });
+    }
+  }
 
   return entries.sort((left, right) => {
     const rightMs = parseTimestampMs(right.timestamp) || 0;
@@ -939,11 +929,22 @@ function buildWorkflowTimelineEntries(
     if (rightMs !== leftMs) {
       return rightMs - leftMs;
     }
-    if (left.kind !== right.kind) {
-      return left.kind === 'fork' ? -1 : 1;
+    if (left.lane !== right.lane) {
+      return left.lane === 'fork' ? -1 : 1;
     }
     return left.id.localeCompare(right.id);
   });
+}
+
+function buildForkRoster(forkRuns: ForkAgentRun[]): ForkRosterEntry[] {
+  return forkRuns
+    .map((run) => ({
+      runId: run.forkRunId,
+      kind: run.forkKind || forkKindForRun(run),
+      label: forkLabelForRun(run),
+      count: (run.events?.length || 0) + 1,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed | undefined {
@@ -1771,343 +1772,6 @@ function XiaoniUsageObservatory({
   );
 }
 
-function CompressionForkEventRow({
-  event,
-  isFocused,
-  onOpenRawTrace,
-}: {
-  event: CompressionForkEvent;
-  isFocused: boolean;
-  onOpenRawTrace: (target: RawTraceTarget) => void;
-}) {
-  const tone = toneClasses[event.tone] ? event.tone : 'neutral';
-  const eventId = event.eventId || event.id;
-  const providerFormat = metadataText(event.metadata, 'providerFormat');
-  const spanId = metadataText(event.metadata, 'spanId');
-  const providerRequestSpanId = metadataText(event.metadata, 'providerRequestSpanId');
-  const providerRawTraceAvailable = metadataBoolean(event.metadata, 'providerRawTraceAvailable');
-  const traceTarget = event.traceTarget || null;
-  const inputTokens = formatTokenCount(metadataNumber(event.metadata, 'inputTokens'));
-  const cachedInputTokens = formatTokenCount(metadataNumber(event.metadata, 'cachedInputTokens'));
-  const outputTokens = formatTokenCount(metadataNumber(event.metadata, 'outputTokens'));
-  const toolArgumentsPreview = metadataText(event.metadata, 'toolArgumentsPreview') || metadataText(event.metadata, 'argumentsPreview');
-  const toolResultPreview = metadataText(event.metadata, 'toolResultPreview');
-  const providerResponsePreview = metadataText(event.metadata, 'providerResponsePreview');
-  const payloadPreview = metadataText(event.metadata, 'payloadPreview');
-  const rawTraceSpanId = rawTraceSpanIdForSource(event.source, providerRawTraceAvailable, providerRequestSpanId, traceTarget?.spanId, spanId);
-  const previewEntries = [
-    toolArgumentsPreview ? ['tool args', toolArgumentsPreview] as const : null,
-    toolResultPreview ? ['tool result', toolResultPreview] as const : null,
-    providerResponsePreview ? ['LLM response', providerResponsePreview] as const : null,
-    payloadPreview ? ['payload', payloadPreview] as const : null,
-  ].filter(Boolean) as Array<readonly [string, string]>;
-
-  return (
-    <div className="relative pl-9">
-      <div
-        className={cn(
-          'absolute left-0 top-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-background',
-          iconClasses[tone]
-        )}
-      >
-        {event.source === 'compression_fork_llm_request' || event.source === 'subconscious_fork_llm_request' || event.source === 'image_vision_fork_llm_request' ? (
-          <Activity className="h-3.5 w-3.5" />
-        ) : (
-          <Waypoints className="h-3.5 w-3.5" />
-        )}
-      </div>
-      <div
-        id={eventElementId(eventId)}
-        data-event-id={eventId}
-        className={cn(
-          'border-b border-cyan-100 pb-3 last:border-b-0',
-          isFocused && 'rounded-lg ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
-        )}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
-            <time className="font-mono text-xs font-semibold text-foreground">{formatTimeOnly(event.timestamp)}</time>
-            {actionTagPills(event.tags, [
-              { key: `source:${event.source}`, label: sourceLabel(event.source), tone: 'neutral' },
-              ...(event.status ? [{ key: `status:${event.status}`, label: statusLabel(event.status) || event.status, tone: statusTone(event.status) }] : []),
-            ])}
-            {providerFormat ? <span className="text-xs text-muted-foreground">{providerFormat}</span> : null}
-          </div>
-          {traceTarget && rawTraceSpanId ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 shrink-0 px-2 text-xs"
-              onClick={() => {
-                onOpenRawTrace({
-                  eventId,
-                  spanId: rawTraceSpanId,
-                  title: event.title,
-                  subtitle: event.traceId,
-                });
-              }}
-            >
-              <Waypoints className="mr-1.5 h-3.5 w-3.5" />
-              Raw Trace
-            </Button>
-          ) : null}
-        </div>
-        <div className="mt-1 min-w-0">
-          <div className="break-words text-sm font-semibold leading-5 text-foreground">{event.title}</div>
-          {event.body ? (
-            <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{event.body}</p>
-          ) : null}
-        </div>
-        {inputTokens || cachedInputTokens || outputTokens ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {inputTokens ? <StatusPill tone="neutral">Input {inputTokens}</StatusPill> : null}
-            {cachedInputTokens ? <StatusPill tone={cachedInputTokens === '0' ? 'neutral' : 'success'}>Cache {cachedInputTokens}</StatusPill> : null}
-            {outputTokens ? <StatusPill tone="neutral">Output {outputTokens}</StatusPill> : null}
-          </div>
-        ) : null}
-        {previewEntries.length ? (
-          <div className="mt-3 grid gap-2 lg:grid-cols-2">
-            {previewEntries.map(([label, value]) => (
-              <details key={label} className="min-w-0">
-                <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {label}
-                </summary>
-                <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/80">{value}</pre>
-              </details>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function ForkUsageMetric({
-  label,
-  value,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  tone?: 'neutral' | 'info' | 'success';
-}) {
-  return (
-    <div className={cn(
-      'min-w-0 rounded-md border px-2.5 py-2',
-      tone === 'info' && 'border-sky-200 bg-sky-50/80',
-      tone === 'success' && 'border-emerald-200 bg-emerald-50/80',
-      tone === 'neutral' && 'border-border bg-muted/25'
-    )}>
-      <div className="truncate text-[10px] font-semibold uppercase text-muted-foreground">{label}</div>
-      <div className={cn(
-        'mt-0.5 truncate font-mono text-xs font-semibold',
-        tone === 'info' && 'text-sky-700',
-        tone === 'success' && 'text-emerald-700',
-        tone === 'neutral' && 'text-foreground'
-      )}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function ForkAgentRunCard({
-  run,
-  focusEventId,
-  onOpenRawTrace,
-}: {
-  run: ForkAgentRun;
-  focusEventId?: string;
-  onOpenRawTrace: (target: RawTraceTarget) => void;
-}) {
-  const duration = formatDurationMs(run.durationMs);
-  const runHasFocus = Boolean(focusEventId && run.events.some((event) => (event.eventId || event.id) === focusEventId));
-  const forkKind = run.forkKind || forkKindForRun(run);
-  const isImageVision = forkKind === 'image_vision';
-  const isCacheHeartbeat = forkKind === 'cache_heartbeat';
-  const isSubconscious = forkKind === 'subconscious_agent';
-  const usage = summarizeForkRunUsage(run);
-  const inputValue = formatTokenCount(usage.inputTokens) || '0';
-  const cacheValue = formatTokenCount(usage.cachedInputTokens) || '0';
-  const outputValue = formatTokenCount(usage.outputTokens) || '0';
-
-  return (
-    <article className={cn(
-      'rounded-lg border bg-card p-3 shadow-sm',
-      runHasFocus ? 'border-sky-300 ring-2 ring-sky-500 ring-offset-2 ring-offset-background' : 'border-border'
-    )}>
-      <div className="flex items-start gap-3">
-        <span className={cn(
-          'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
-          isImageVision
-            ? 'bg-sky-100 text-sky-700'
-            : isCacheHeartbeat
-              ? 'bg-emerald-100 text-emerald-700'
-              : isSubconscious
-                ? 'bg-fuchsia-100 text-fuchsia-700'
-                : 'bg-cyan-100 text-cyan-700'
-        )}>
-          {isImageVision ? <Image className="h-4 w-4" /> : isCacheHeartbeat ? <RefreshCw className="h-4 w-4" /> : <Waypoints className="h-4 w-4" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            {actionTagPills(run.tags, [
-              { key: `fork:${forkKind}`, label: run.agentLabel || forkAgentLabel(forkKind), tone: isImageVision ? 'info' : isCacheHeartbeat ? 'success' : 'neutral' },
-              { key: `status:${run.status || 'fork'}`, label: statusLabel(run.status) || 'fork', tone: statusTone(run.status) },
-            ])}
-            {duration ? <StatusPill tone="neutral">{duration}</StatusPill> : null}
-            <StatusPill tone="neutral">{run.eventCount} steps</StatusPill>
-            <time className="font-mono text-xs text-muted-foreground">{formatTimestamp(run.startedAt)}</time>
-          </div>
-          <h3 className="mt-2 truncate text-sm font-semibold leading-5 text-foreground">{run.title}</h3>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <ForkUsageMetric label="Input" value={inputValue} tone="info" />
-        <ForkUsageMetric label="Cache" value={cacheValue} tone={usage.cachedInputTokens > 0 ? 'success' : 'neutral'} />
-        <ForkUsageMetric label="Output" value={outputValue} />
-      </div>
-
-      <details className="mt-3 border-t border-border pt-3" open={runHasFocus || undefined}>
-        <summary className="cursor-pointer text-[11px] font-semibold uppercase text-muted-foreground">
-          fork details
-        </summary>
-        <div className="mt-3 space-y-3">
-          {run.body ? (
-            <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground/80">{run.body}</p>
-          ) : null}
-          <div className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <div>
-              <span className="font-medium text-foreground">start</span> {formatTimestamp(run.startedAt)}
-            </div>
-            <div>
-              <span className="font-medium text-foreground">end</span> {run.completedAt ? formatTimestamp(run.completedAt) : 'running'}
-            </div>
-            {run.readCutoffAfterConversationId ? (
-              <div className="font-mono">cutoff {run.previousReadCutoffAfterConversationId || '-'} - {run.readCutoffAfterConversationId}</div>
-            ) : null}
-          </div>
-          <div className="relative">
-            <div className="absolute bottom-3 left-3 top-3 w-px bg-border" />
-            <div className="space-y-3">
-              {run.events.length ? (
-                run.events.map((event) => {
-                  const eventId = event.eventId || event.id;
-                  return (
-                    <CompressionForkEventRow
-                      key={event.id}
-                      event={event}
-                      isFocused={Boolean(focusEventId && eventId === focusEventId)}
-                      onOpenRawTrace={onOpenRawTrace}
-                    />
-                  );
-                })
-              ) : (
-                <div className="pl-9 text-sm text-muted-foreground">暂无 Fork 步骤记录</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </details>
-    </article>
-  );
-}
-
-function WorkflowTimelineCenter({
-  entry,
-}: {
-  entry: WorkflowTimelineEntry;
-}) {
-  const isFork = entry.kind === 'fork';
-  return (
-    <div className="relative hidden min-h-[3rem] justify-center xl:flex">
-      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
-      <div className={cn(
-        'relative z-10 mt-3 flex h-9 w-9 items-center justify-center rounded-full border-2 border-background shadow-sm',
-        isFork ? 'bg-cyan-100 text-cyan-700' : 'bg-card text-muted-foreground'
-      )}>
-        {isFork ? <Waypoints className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
-      </div>
-    </div>
-  );
-}
-
-function WorkflowDayMarker({
-  day,
-}: {
-  day: string;
-}) {
-  return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
-      <div className="hidden xl:block" />
-      <div className="relative flex justify-start xl:justify-center">
-        <div className="hidden absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border xl:block" />
-        <div className="relative z-10 rounded-full border border-border bg-background/95 px-3 py-1 text-xs font-semibold text-muted-foreground shadow-sm backdrop-blur">
-          {day}
-        </div>
-      </div>
-      <div className="hidden xl:block" />
-    </div>
-  );
-}
-
-function WorkflowTimeline({
-  entries,
-  focusEventId,
-  onOpenRawTrace,
-}: {
-  entries: WorkflowTimelineEntry[];
-  focusEventId?: string;
-  onOpenRawTrace: (target: RawTraceTarget) => void;
-}) {
-  if (!entries.length) {
-    return null;
-  }
-
-  return (
-    <div className="space-y-4">
-      {entries.map((entry, index) => {
-        const day = formatDateOnly(entry.timestamp);
-        const previousDay = index > 0 ? formatDateOnly(entries[index - 1].timestamp) : null;
-        const showDay = day !== previousDay;
-        const mainEventId = entry.kind === 'main' ? entry.item.eventId || entry.item.id : null;
-
-        return (
-          <React.Fragment key={entry.id}>
-            {showDay ? <WorkflowDayMarker day={day} /> : null}
-            <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.95fr)_3rem_minmax(0,1.45fr)]">
-              <div className={cn('min-w-0', entry.kind !== 'fork' && 'hidden xl:block')}>
-                {entry.kind === 'fork' ? (
-                  <ForkAgentRunCard
-                    run={entry.run}
-                    focusEventId={focusEventId}
-                    onOpenRawTrace={onOpenRawTrace}
-                  />
-                ) : null}
-              </div>
-
-              <WorkflowTimelineCenter entry={entry} />
-
-              <div className={cn('min-w-0', entry.kind !== 'main' && 'hidden xl:block')}>
-                {entry.kind === 'main' ? (
-                  <TimelineEvent
-                    item={entry.item}
-                    isLatest={index === 0}
-                    isFocused={focusEventId === mainEventId || Boolean(entry.item.metadata.focused)}
-                    onOpenRawTrace={onOpenRawTrace}
-                    laneLayout
-                  />
-                ) : null}
-              </div>
-            </div>
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
-}
 
 async function fetchRawTrace(target: RawTraceTarget): Promise<RawTraceData> {
   const params = new URLSearchParams();
@@ -2125,392 +1789,345 @@ async function fetchRawTrace(target: RawTraceTarget): Promise<RawTraceData> {
   return payload.data;
 }
 
-function RawTraceExchangePane({
-  kind,
-  data,
-}: {
-  kind: 'request' | 'response';
-  data: RawTraceRequestSide | RawTraceResponseSide;
-}) {
-  const isRequest = kind === 'request';
-  const meta = [
-    isRequest ? (data as RawTraceRequestSide).method : null,
-    !isRequest && (data as RawTraceResponseSide).status_code !== null ? `HTTP ${(data as RawTraceResponseSide).status_code}` : null,
-    !isRequest && (data as RawTraceResponseSide).status_text ? (data as RawTraceResponseSide).status_text : null,
-    data.body_format,
-    formatRawTraceBytes(data.bytes),
-  ].filter(Boolean) as string[];
+type StreamRowTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 
+function streamTypeTag(item: XiaoniActivityFeedItem): { label: string; tone: StreamRowTone } {
+  const stackKind = (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind;
+  if (item.source === 'fork_trigger' || item.source === 'runtime_input') {
+    return { label: '触发', tone: 'info' };
+  }
+  if (
+    item.source === 'llm_request'
+    || item.source === 'compression_fork_llm_request'
+    || item.source === 'subconscious_fork_llm_request'
+    || item.source === 'image_vision_fork_llm_request'
+    || item.source === 'cache_heartbeat'
+  ) {
+    return { label: '模型请求', tone: 'info' };
+  }
+  if (stackKind === 'function_call') {
+    return { label: '请求工具', tone: 'neutral' };
+  }
+  if (
+    stackKind === 'function_call_output'
+    || item.source === 'tool_execution'
+    || item.source === 'compression_fork_tool_execution'
+    || item.source === 'subconscious_fork_tool_execution'
+    || item.source === 'image_vision_fork_tool_execution'
+  ) {
+    return { label: '工具结果', tone: 'success' };
+  }
+  if (
+    stackKind === 'assistant_output'
+    || item.source === 'llm_stack_item'
+    || item.source === 'compression_fork_item'
+    || item.source === 'subconscious_fork_item'
+    || item.source === 'image_vision_fork_item'
+  ) {
+    return { label: '小腻输出', tone: 'info' };
+  }
+  return { label: sourceLabel(item.source), tone: 'neutral' };
+}
+
+function streamSnippet(item: XiaoniActivityFeedItem): string {
+  const body = typeof item.body === 'string' ? item.body.trim() : '';
+  return (body || item.title || '').replace(/\s+/g, ' ').trim();
+}
+
+function rawTraceTargetForItem(item: XiaoniActivityFeedItem): RawTraceTarget | null {
+  const providerRawTraceAvailable = metadataBoolean(item.metadata, 'providerRawTraceAvailable');
+  const spanId = metadataText(item.metadata, 'spanId');
+  const providerRequestSpanId = metadataText(item.metadata, 'providerRequestSpanId');
+  const rawSpan = rawTraceSpanIdForSource(
+    item.source,
+    providerRawTraceAvailable,
+    providerRequestSpanId,
+    item.traceTarget?.spanId,
+    spanId
+  );
+  const eventId = item.eventId || item.id;
+  if (!rawSpan || !eventId) {
+    return null;
+  }
+  return { eventId, spanId: rawSpan, title: item.title, subtitle: item.traceId };
+}
+
+function StreamPreviewBlock({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {meta.map((item) => (
-          <StatusPill key={item} tone="neutral">{item}</StatusPill>
-        ))}
-        {isRequest && (data as RawTraceRequestSide).upstream_url ? (
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{(data as RawTraceRequestSide).upstream_url}</span>
-        ) : null}
-        {!isRequest && (data as RawTraceResponseSide).error_message ? (
-          <StatusPill tone="danger">{(data as RawTraceResponseSide).error_message}</StatusPill>
-        ) : null}
-      </div>
-
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(18rem,24rem)_minmax(0,1fr)]">
-        <StructuredDataViewer
-          title={isRequest ? 'Request Headers' : 'Response Headers'}
-          value={data.headers}
-          emptyLabel={isRequest ? '无请求头' : '无响应头'}
-          heightClassName="h-[18rem] xl:h-[calc(100vh-17rem)]"
-        />
-        <StructuredDataViewer
-          title={isRequest ? 'Request Body' : 'Response Body'}
-          value={data.body}
-          emptyLabel={isRequest ? '无请求体' : '无响应体'}
-          heightClassName="h-[calc(100vh-24rem)] min-h-[24rem] xl:h-[calc(100vh-17rem)]"
-          notice={<span className="font-mono">{data.body_source}</span>}
-        />
-      </div>
-    </div>
+    <details className="min-w-0" open>
+      <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</summary>
+      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 font-mono text-[11px] leading-5 text-foreground/80">{value}</pre>
+    </details>
   );
 }
 
-function RawTraceDialog({
-  target,
-  onOpenChange,
-}: {
-  target: RawTraceTarget | null;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const rawTraceQuery = useQuery<RawTraceData>({
-    queryKey: ['xiaoni-action-stream-raw-trace', target?.eventId || null, target?.spanId || null],
-    queryFn: () => {
-      if (!target) {
-        throw new Error('Missing raw trace target');
-      }
-      return fetchRawTrace(target);
-    },
+// Inline, fixed-height + scrollable detail: full content, tool previews, and the
+// lazily-fetched raw provider request/response for the event's slice.
+function StreamRowDetail({ item }: { item: XiaoniActivityFeedItem }) {
+  const target = rawTraceTargetForItem(item);
+  const body = typeof item.body === 'string' && item.body.trim() ? item.body : null;
+  const toolArgs = metadataText(item.metadata, 'toolArgumentsPreview') || metadataText(item.metadata, 'argumentsPreview');
+  const toolResult = metadataText(item.metadata, 'toolResultPreview');
+  const responsePreview = metadataText(item.metadata, 'responsePreview') || metadataText(item.metadata, 'providerResponsePreview');
+  const payloadPreview = metadataText(item.metadata, 'payloadPreview');
+  const processingTime = formatDurationMs(metadataNumber(item.metadata, 'processingTimeMs'));
+  const payloadSize = formatPayloadSize(
+    formatBytes(metadataNumber(item.metadata, 'providerRequestBytes')),
+    formatBytes(metadataNumber(item.metadata, 'providerResponseBytes'))
+  );
+  const rawQuery = useQuery<RawTraceData>({
+    queryKey: ['stream-raw-trace', target?.eventId || null, target?.spanId || null],
+    queryFn: () => fetchRawTrace(target as RawTraceTarget),
     enabled: Boolean(target),
     staleTime: 0,
   });
 
-  const data = rawTraceQuery.data;
-  const headerBadges = data
-    ? [
-        data.model_name,
-        data.model_provider,
-        data.wire_provider_format,
-        data.request_format_version,
-        data.llm_call_id ? `llm ${data.llm_call_id}` : null,
-        data.slice_id ? `slice ${data.slice_id}` : null,
-      ].filter(Boolean) as string[]
-    : [];
-
   return (
-    <Dialog open={Boolean(target)} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-[96rem] gap-0 overflow-hidden p-0">
-        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <DialogTitle className="truncate">{target?.title || 'Raw Trace'}</DialogTitle>
-              <DialogDescription className="mt-2 break-all font-mono">
-                {target?.spanId || data?.span_id || data?.action_event?.focus_span_id || 'provider exchange'}
-              </DialogDescription>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              {headerBadges.map((item) => (
-                <StatusPill key={item} tone="neutral">{item}</StatusPill>
-              ))}
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
-          {rawTraceQuery.isLoading ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center gap-3 text-sm text-muted-foreground">
-              <Loader2 className="h-7 w-7 animate-spin text-primary" />
-              加载 raw trace...
-            </div>
-          ) : null}
-
-          {rawTraceQuery.error ? (
-            <div className="flex min-h-0 flex-1 items-center justify-center">
-              <ErrorState
-                description={rawTraceQuery.error instanceof Error ? rawTraceQuery.error.message : '加载 raw trace 失败'}
-                onRetry={() => void rawTraceQuery.refetch()}
-              />
-            </div>
-          ) : null}
-
-          {data ? (
-            <Tabs defaultValue="request" className="flex min-h-0 flex-1 flex-col">
-              <TabsList className="shrink-0">
-                <TabsTrigger value="request">Request</TabsTrigger>
-                <TabsTrigger value="response">Response</TabsTrigger>
-              </TabsList>
-              <TabsContent value="request" className="mt-4 flex min-h-0 flex-1 flex-col">
-                <RawTraceExchangePane kind="request" data={data.request} />
-              </TabsContent>
-              <TabsContent value="response" className="mt-4 flex min-h-0 flex-1 flex-col">
-                <RawTraceExchangePane kind="response" data={data.response} />
-              </TabsContent>
-            </Tabs>
-          ) : null}
+    <div className="mb-2 ml-2 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="h-[260px] space-y-3 overflow-auto p-3">
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          {item.traceId ? <span className="font-mono">{item.traceId}</span> : null}
+          {payloadSize ? <span>payload {payloadSize}</span> : null}
+          {processingTime ? <span>· {processingTime}</span> : null}
         </div>
-      </DialogContent>
-    </Dialog>
+        {body ? (
+          <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-2 text-[12px] leading-5 text-foreground/90">{body}</pre>
+        ) : null}
+        {toolArgs ? <StreamPreviewBlock label="tool args" value={toolArgs} /> : null}
+        {toolResult ? <StreamPreviewBlock label="tool result" value={toolResult} /> : null}
+        {responsePreview ? <StreamPreviewBlock label="LLM response" value={responsePreview} /> : null}
+        {payloadPreview && !body ? <StreamPreviewBlock label="payload" value={payloadPreview} /> : null}
+
+        {target ? (
+          rawQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              加载原始 LLM 请求…
+            </div>
+          ) : rawQuery.error ? (
+            <ErrorState
+              description={rawQuery.error instanceof Error ? rawQuery.error.message : '加载 raw trace 失败'}
+              onRetry={() => void rawQuery.refetch()}
+            />
+          ) : rawQuery.data ? (
+            <div className="border-t border-border pt-2">
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {[
+                  rawQuery.data.model_name,
+                  rawQuery.data.wire_provider_format,
+                  rawQuery.data.slice_id ? `slice ${rawQuery.data.slice_id}` : null,
+                ].filter(Boolean).map((badge) => (
+                  <StatusPill key={badge as string} tone="neutral">{badge}</StatusPill>
+                ))}
+              </div>
+              <Tabs defaultValue="request">
+                <TabsList className="h-8">
+                  <TabsTrigger value="request" className="text-xs">原始 LLM 请求</TabsTrigger>
+                  <TabsTrigger value="response" className="text-xs">响应</TabsTrigger>
+                </TabsList>
+                <TabsContent value="request" className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
+                  <StructuredDataViewer title="Request Headers" value={rawQuery.data.request.headers} emptyLabel="无请求头" heightClassName="h-40" />
+                  <StructuredDataViewer title="Request Body" value={rawQuery.data.request.body} emptyLabel="无请求体" heightClassName="h-40" />
+                </TabsContent>
+                <TabsContent value="response" className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
+                  <StructuredDataViewer title="Response Headers" value={rawQuery.data.response.headers} emptyLabel="无响应头" heightClassName="h-40" />
+                  <StructuredDataViewer title="Response Body" value={rawQuery.data.response.body} emptyLabel="无响应体" heightClassName="h-40" />
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : null
+        ) : (
+          <div className="text-xs text-muted-foreground">此事件不对应 provider 调用，无原始 LLM 请求。</div>
+        )}
+      </div>
+    </div>
   );
 }
 
-function TimelineEvent({
-  item,
-  isLatest,
+function StreamRow({
+  entry,
+  expanded,
   isFocused,
-  onOpenRawTrace,
-  laneLayout = false,
+  density,
+  onToggle,
 }: {
-  item: XiaoniActivityFeedItem;
-  isLatest: boolean;
+  entry: StreamEntry;
+  expanded: boolean;
   isFocused: boolean;
-  onOpenRawTrace: (target: RawTraceTarget) => void;
-  laneLayout?: boolean;
+  density: 'compact' | 'comfortable';
+  onToggle: () => void;
 }) {
-  const navigate = useNavigate();
-  const tone = toneClasses[item.tone] ? item.tone : 'neutral';
-  const eventKind = item.eventKind || item.kind;
-  const occurredAt = item.occurredAt || item.timestamp;
-  const itemEventId = item.eventId || item.id;
-  const inContextPreview = metadataText(item.metadata, 'inContextPreview');
-  const toolArgumentsPreview = metadataText(item.metadata, 'toolArgumentsPreview') || metadataText(item.metadata, 'argumentsPreview');
-  const toolResultPreview = metadataText(item.metadata, 'toolResultPreview');
-  const responsePreview = metadataText(item.metadata, 'responsePreview');
-  const providerRequestBytes = formatBytes(metadataNumber(item.metadata, 'providerRequestBytes'));
-  const providerResponseBytes = formatBytes(metadataNumber(item.metadata, 'providerResponseBytes'));
-  const providerFormat = metadataText(item.metadata, 'providerFormat');
-  const payloadSize = formatPayloadSize(providerRequestBytes, providerResponseBytes);
-  const spanId = metadataText(item.metadata, 'spanId');
-  const providerRequestSpanId = metadataText(item.metadata, 'providerRequestSpanId');
-  const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
-  const cachedInputTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
-  const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
-  const actionTracePreview = metadataText(item.metadata, 'actionTracePreview');
-  const budgetSnapshotPreview = metadataText(item.metadata, 'budgetSnapshotPreview');
-  const payloadPreview = metadataText(item.metadata, 'payloadPreview');
-  const interestCandidatesPreview = metadataText(item.metadata, 'interestCandidatesPreview');
-  const decisionLlmCallId = metadataText(item.metadata, 'decisionLlmCallId');
-  const searchLlmCallId = metadataText(item.metadata, 'searchLlmCallId');
-  const sourceActionId = metadataText(item.metadata, 'sourceActionId') || metadataText(item.metadata, 'actionId');
-  const traceTarget = item.traceTarget || null;
-  const providerRawTraceAvailable = metadataBoolean(item.metadata, 'providerRawTraceAvailable');
-  const rawTraceSpanId = rawTraceSpanIdForSource(item.source, providerRawTraceAvailable, providerRequestSpanId, traceTarget?.spanId, spanId);
-  const hasActionTrace = Boolean(actionTracePreview || budgetSnapshotPreview || payloadPreview || interestCandidatesPreview || decisionLlmCallId || searchLlmCallId || sourceActionId);
-  const isStackToolPayload = item.source === 'llm_stack_item' && (item.kind === 'function_call' || item.kind === 'function_call_output');
-  const shouldHideBodyInToolDetails = Boolean(isStackToolPayload && (toolArgumentsPreview || toolResultPreview));
-  const shouldCollapseBody = Boolean(item.body && !shouldHideBodyInToolDetails && (
-    item.body.length > 420
-    || toolArgumentsPreview
-    || toolResultPreview
-    || hasActionTrace
-  ));
+  const { item, fork } = entry;
+  const tag = streamTypeTag(item);
+  const snippet = streamSnippet(item);
+  const who = item.source === 'function_call' || (typeof item.metadata?.toolName === 'string' && item.metadata.toolName)
+    ? (item.metadata?.toolName as string)
+    : null;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      id={eventElementId(item.eventId || item.id)}
+      data-event-id={item.eventId || item.id}
+      className={cn(
+        'flex w-full items-center gap-2 rounded-md px-2 text-left hover:bg-muted/50',
+        density === 'compact' ? 'py-0.5' : 'py-1.5',
+        expanded && 'bg-muted/50',
+        isFocused && 'ring-2 ring-sky-500 ring-offset-1 ring-offset-background'
+      )}
+    >
+      <time className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">{formatTimeOnly(entry.timestamp)}</time>
+      {fork ? (
+        <span className={cn('shrink-0 rounded border px-1.5 text-[10px] font-bold', forkChipClass(fork.kind))}>{fork.label}</span>
+      ) : null}
+      <StatusPill tone={tag.tone}>{tag.label}</StatusPill>
+      {who ? <span className="shrink-0 font-mono text-[11px] text-foreground/80">{who}</span> : null}
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground/90">{snippet || '—'}</span>
+      <span className="shrink-0 text-xs text-muted-foreground">{expanded ? '▾' : '▸'}</span>
+    </button>
+  );
+}
+
+function StreamTimeline({
+  entries,
+  focusEventId,
+  density,
+  splitPct,
+  onSplitChange,
+  expandedId,
+  onToggleExpand,
+}: {
+  entries: StreamEntry[];
+  focusEventId?: string;
+  density: 'compact' | 'comfortable';
+  splitPct: number;
+  onSplitChange: (pct: number) => void;
+  expandedId: string | null;
+  onToggleExpand: (id: string) => void;
+}) {
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const gridStyle: React.CSSProperties = {
+    gridTemplateColumns: `minmax(0, ${splitPct}fr) minmax(0, ${100 - splitPct}fr)`,
+  };
+
+  const beginDrag = React.useCallback((event: React.PointerEvent) => {
+    event.preventDefault();
+    const move = (ev: PointerEvent) => {
+      const node = containerRef.current;
+      if (!node) {
+        return;
+      }
+      const rect = node.getBoundingClientRect();
+      if (rect.width <= 0) {
+        return;
+      }
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      onSplitChange(Math.max(22, Math.min(72, Math.round(pct))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [onSplitChange]);
+
+  if (!entries.length) {
+    return null;
+  }
 
   return (
-    <div className={cn('relative', !laneLayout && 'md:grid md:grid-cols-[7rem_minmax(0,1fr)] md:gap-6')}>
-      <div className={cn('hidden pt-4 text-right md:block', laneLayout && 'md:hidden')}>
-        <time className="block font-mono text-xs font-semibold leading-5 text-foreground">{formatDateOnly(occurredAt)}</time>
-        <time className="block font-mono text-sm font-semibold text-foreground">{formatTimeOnly(occurredAt)}</time>
-        <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{sourceLabel(item.source)}</div>
-      </div>
-
+    <div ref={containerRef} className="relative rounded-lg border border-border bg-card px-2 py-2">
       <div
-        className={cn(
-          'absolute left-3 top-5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-background md:left-[7.875rem]',
-          iconClasses[tone],
-          laneLayout && 'hidden'
-        )}
+        className="absolute inset-y-0 z-20 -ml-2 flex w-4 cursor-col-resize touch-none items-stretch justify-center"
+        style={{ left: `${splitPct}%` }}
+        onPointerDown={beginDrag}
+        role="separator"
+        aria-orientation="vertical"
+        title="拖动调整左右栏宽度"
       >
-        {itemIcon(item)}
+        <div className="w-px bg-border transition-colors hover:bg-sky-400" />
       </div>
-
-      <article
-        id={eventElementId(itemEventId)}
-        data-event-id={itemEventId}
-        className={cn(
-          'ml-12 rounded-lg border p-4 shadow-sm transition-shadow md:ml-0',
-          laneLayout && 'ml-0',
-          toneClasses[tone],
-          isFocused && 'ring-2 ring-sky-500 ring-offset-2 ring-offset-background'
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          {laneLayout ? (
-            <span className={cn('flex h-6 w-6 items-center justify-center rounded-full', iconClasses[tone])}>
-              {itemIcon(item)}
-            </span>
-          ) : null}
-          {isLatest ? <StatusPill tone="info">latest</StatusPill> : null}
-          {isFocused ? <StatusPill tone="info">focused</StatusPill> : null}
-          {actionTagPills(item.tags, [
-            { key: `source:${item.source}`, label: sourceLabel(item.source), tone: 'neutral' },
-            { key: `event:${eventKind}`, label: eventKind.replace(/_/g, ' '), tone: 'neutral' },
-            ...(item.status ? [{ key: `status:${item.status}`, label: statusLabel(item.status) || item.status, tone: statusTone(item.status) }] : []),
-          ])}
-          <time className={cn('text-xs text-muted-foreground', !laneLayout && 'md:hidden')}>{formatDateTimeCompact(occurredAt)}</time>
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h2 className="break-words text-base font-semibold leading-6 text-foreground">{item.title}</h2>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              {item.peerName ? <span>{item.peerName}</span> : null}
-              {item.actorName ? <span>{item.actorName}</span> : null}
-              {item.traceId ? <span className="font-mono">{item.traceId}</span> : null}
-              {spanId ? <span className="font-mono">{spanId}</span> : null}
-              {providerFormat ? <span>{providerFormat}</span> : null}
-              {item.source === 'llm_request' && payloadSize ? <span>payload {payloadSize}</span> : null}
-            </div>
-          </div>
-
-          {traceTarget && rawTraceSpanId && (item.eventId || item.id) ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              onClick={() => {
-                onOpenRawTrace({
-                  eventId: item.eventId || item.id,
-                  spanId: rawTraceSpanId,
-                  title: item.title,
-                  subtitle: item.traceId,
-                });
-              }}
-            >
-              <Waypoints className="mr-2 h-4 w-4" />
-              Raw Trace
-            </Button>
-          ) : null}
-        </div>
-
-        {inputTokens || cachedInputTokens || outputTokens ? (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {inputTokens ? <StatusPill tone="neutral">Input {inputTokens}</StatusPill> : null}
-            {cachedInputTokens ? <StatusPill tone={cachedInputTokens === '0' ? 'neutral' : 'success'}>Cache {cachedInputTokens}</StatusPill> : null}
-            {outputTokens ? <StatusPill tone="neutral">Output {outputTokens}</StatusPill> : null}
-          </div>
-        ) : null}
-
-        {item.body && shouldHideBodyInToolDetails ? null : item.body && shouldCollapseBody ? (
-          <details className="mt-3 border-t border-border/70 pt-3">
-            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              body
-            </summary>
-            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
-          </details>
-        ) : item.body ? (
-          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">{item.body}</p>
-        ) : null}
-
-        {item.source === 'llm_request' && responsePreview ? (
-          <details className="mt-4 border-t border-border/70 pt-3">
-            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              <Bot className="h-3.5 w-3.5" />
-              <span>LLM response</span>
-            </summary>
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/80 p-3 font-mono text-xs leading-5 text-foreground/90">{responsePreview}</pre>
-          </details>
-        ) : null}
-
-        {inContextPreview ? (
-          <details className="mt-4 border-t border-border/70 pt-3">
-            <summary className="flex cursor-pointer items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              <Bot className="h-3.5 w-3.5" />
-              <span>{item.source === 'llm_request' ? 'LLM context' : '对应 LLM context'}</span>
-            </summary>
-            <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{inContextPreview}</pre>
-          </details>
-        ) : null}
-
-        {toolArgumentsPreview || toolResultPreview || (responsePreview && item.source !== 'llm_request') ? (
-          <details className="mt-4 border-t border-border/70 pt-3">
-            <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              tool args / result
-            </summary>
-            <div className="grid gap-3 lg:grid-cols-2">
-              {toolArgumentsPreview ? (
-                <div className="mt-2 min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">tool args</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{toolArgumentsPreview}</pre>
+      <div className={cn(density === 'compact' ? 'space-y-px' : 'space-y-1')}>
+        {entries.map((entry, index) => {
+          const day = formatDateOnly(entry.timestamp);
+          const previousDay = index > 0 ? formatDateOnly(entries[index - 1].timestamp) : null;
+          const showDay = day !== previousDay;
+          const eventId = entry.item.eventId || entry.item.id;
+          const isFocused = Boolean(focusEventId && eventId === focusEventId);
+          const expanded = expandedId === entry.id;
+          return (
+            <React.Fragment key={entry.id}>
+              {showDay ? (
+                <div className="flex justify-center py-1">
+                  <span className="rounded-full border border-border bg-background/90 px-3 py-0.5 text-[11px] font-semibold text-muted-foreground">{day}</span>
                 </div>
               ) : null}
-              {toolResultPreview ? (
-                <div className="mt-2 min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">tool result</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{toolResultPreview}</pre>
+              <div className="grid items-start gap-0" style={gridStyle}>
+                <div className="min-w-0 pr-3">
+                  {entry.lane === 'fork' ? (
+                    <StreamRow entry={entry} expanded={expanded} isFocused={isFocused} density={density} onToggle={() => onToggleExpand(entry.id)} />
+                  ) : null}
                 </div>
-              ) : null}
-              {responsePreview && item.source !== 'llm_request' ? (
-                <details className="min-w-0 lg:col-span-2">
-                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    LLM response
-                  </summary>
-                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{responsePreview}</pre>
-                </details>
-              ) : null}
-            </div>
-          </details>
-        ) : null}
-
-        {hasActionTrace ? (
-          <details className="mt-4 border-t border-border/70 pt-3">
-            <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              <Waypoints className="h-3.5 w-3.5" />
-              <span>action trace</span>
-              {sourceActionId ? <span className="font-mono normal-case tracking-normal">{sourceActionId}</span> : null}
-            </summary>
-            {decisionLlmCallId || searchLlmCallId ? (
-              <div className="mb-3 mt-3 flex flex-wrap gap-2">
-                {decisionLlmCallId ? (
-                  <Button variant="outline" size="sm" onClick={() => navigate(`/traffic?llm_call_id=${encodeURIComponent(decisionLlmCallId)}`)}>
-                    <Waypoints className="mr-2 h-4 w-4" />
-                    decision traffic
-                  </Button>
-                ) : null}
-                {searchLlmCallId ? (
-                  <Button variant="outline" size="sm" onClick={() => navigate(`/traffic?llm_call_id=${encodeURIComponent(searchLlmCallId)}`)}>
-                    <Search className="mr-2 h-4 w-4" />
-                    search traffic
-                  </Button>
+                <div className="min-w-0 border-l border-border pl-3">
+                  {entry.lane === 'main' ? (
+                    <StreamRow entry={entry} expanded={expanded} isFocused={isFocused} density={density} onToggle={() => onToggleExpand(entry.id)} />
+                  ) : null}
+                </div>
+                {expanded ? (
+                  <div className="col-span-2">
+                    <StreamRowDetail item={entry.item} />
+                  </div>
                 ) : null}
               </div>
-            ) : null}
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              {interestCandidatesPreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">interest candidates</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{interestCandidatesPreview}</pre>
-                </div>
-              ) : null}
-              {actionTracePreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">source trace</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{actionTracePreview}</pre>
-                </div>
-              ) : null}
-              {budgetSnapshotPreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">budget</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{budgetSnapshotPreview}</pre>
-                </div>
-              ) : null}
-              {payloadPreview ? (
-                <div className="min-w-0">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">event payload</div>
-                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background/75 p-3 font-mono text-xs leading-5 text-foreground/80">{payloadPreview}</pre>
-                </div>
-              ) : null}
-            </div>
-          </details>
-        ) : null}
-      </article>
+            </React.Fragment>
+          );
+        })}
+      </div>
     </div>
+  );
+}
+
+function ForkFilterControls({
+  roster,
+  selected,
+  onToggle,
+  onShowAll,
+}: {
+  roster: ForkRosterEntry[];
+  selected: string[];
+  onToggle: (runId: string) => void;
+  onShowAll: () => void;
+}) {
+  if (!roster.length) {
+    return null;
+  }
+  const showAll = selected.length === 0;
+  return (
+    <section className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Waypoints className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-semibold text-foreground">Fork 筛选</span>
+        <Button variant={showAll ? 'default' : 'outline'} size="sm" className="h-7 px-2.5 text-xs" onClick={onShowAll}>全部</Button>
+        {roster.map((fork) => {
+          const on = showAll || selected.includes(fork.runId);
+          return (
+            <Button
+              key={fork.runId}
+              variant={on ? 'default' : 'outline'}
+              size="sm"
+              aria-pressed={on}
+              className="h-7 px-2.5 text-xs"
+              onClick={() => onToggle(fork.runId)}
+            >
+              <span className={cn('mr-1.5 inline-block h-2 w-2 rounded-full border', forkChipClass(fork.kind))} />
+              <span className="truncate">{fork.label}</span>
+              <span className={cn('ml-1.5 font-mono text-[10px]', on ? 'text-primary-foreground/80' : 'text-muted-foreground')}>{fork.count}</span>
+            </Button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -2528,7 +2145,16 @@ export const XiaoniActivityPage: React.FC = () => {
   const focusSlice = searchParams.get('focus_slice') || '';
   const startTime = searchParams.get('start_time') || '';
   const endTime = searchParams.get('end_time') || '';
-  const [rawTraceTarget, setRawTraceTarget] = React.useState<RawTraceTarget | null>(null);
+  const density: 'compact' | 'comfortable' = searchParams.get('density') === 'comfortable' ? 'comfortable' : 'compact';
+  const splitPct = (() => {
+    const raw = Number.parseInt(searchParams.get('split') || '', 10);
+    return Number.isFinite(raw) ? Math.max(22, Math.min(72, raw)) : 35;
+  })();
+  const forkSelected = React.useMemo(
+    () => (searchParams.get('fork') || '').split(',').map((value) => value.trim()).filter(Boolean),
+    [searchParams]
+  );
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const {
     data: feedPages,
@@ -2655,7 +2281,15 @@ export const XiaoniActivityPage: React.FC = () => {
 
   const mainItems = React.useMemo(() => (feed?.items || []).filter((item) => !isImageVisionForkMainItem(item)), [feed?.items]);
   const forkRuns = React.useMemo(() => buildForkAgentRuns(feed), [feed]);
-  const workflowEntries = React.useMemo(() => buildWorkflowTimelineEntries(mainItems, forkRuns), [mainItems, forkRuns]);
+  const forkRoster = React.useMemo(() => buildForkRoster(forkRuns), [forkRuns]);
+  const streamEntries = React.useMemo(() => buildStreamEntries(mainItems, forkRuns), [mainItems, forkRuns]);
+  const visibleEntries = React.useMemo(() => {
+    if (!forkSelected.length) {
+      return streamEntries;
+    }
+    const visible = new Set(forkSelected);
+    return streamEntries.filter((entry) => entry.lane === 'main' || (entry.fork && visible.has(entry.fork.runId)));
+  }, [streamEntries, forkSelected]);
   const forkCount = forkRuns.length;
   const rangeBadge = timeRange === 'custom'
     ? [startTime || '开始', endTime || '现在'].join(' - ')
@@ -2696,11 +2330,50 @@ export const XiaoniActivityPage: React.FC = () => {
     });
   }, [updateSearchParam]);
 
-  const handleRawTraceOpenChange = React.useCallback((open: boolean) => {
-    if (!open) {
-      setRawTraceTarget(null);
-    }
+  const handleToggleExpand = React.useCallback((id: string) => {
+    setExpandedId((current) => (current === id ? null : id));
   }, []);
+
+  const handleDensityChange = React.useCallback((next: 'compact' | 'comfortable') => {
+    updateSearchParam((nextParams) => {
+      if (next === 'compact') {
+        nextParams.delete('density');
+      } else {
+        nextParams.set('density', next);
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleSplitChange = React.useCallback((pct: number) => {
+    updateSearchParam((nextParams) => {
+      if (pct === 35) {
+        nextParams.delete('split');
+      } else {
+        nextParams.set('split', String(pct));
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleForkShowAll = React.useCallback(() => {
+    updateSearchParam((nextParams) => {
+      nextParams.delete('fork');
+    });
+  }, [updateSearchParam]);
+
+  const handleForkToggle = React.useCallback((runId: string) => {
+    const allIds = forkRoster.map((fork) => fork.runId);
+    const current = forkSelected.length ? forkSelected : allIds;
+    const next = current.includes(runId)
+      ? current.filter((id) => id !== runId)
+      : [...current, runId];
+    updateSearchParam((nextParams) => {
+      if (!next.length || next.length === allIds.length) {
+        nextParams.delete('fork');
+      } else {
+        nextParams.set('fork', next.join(','));
+      }
+    });
+  }, [forkRoster, forkSelected, updateSearchParam]);
 
   const handleUsageBucketChange = React.useCallback((nextBucket: UsageBucket) => {
     updateSearchParam((nextParams) => {
@@ -2795,7 +2468,7 @@ export const XiaoniActivityPage: React.FC = () => {
     }, { rootMargin: '720px 0px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, workflowEntries.length]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, visibleEntries.length]);
 
   React.useEffect(() => {
     if (!focusEvent || !feed) {
@@ -2919,11 +2592,41 @@ export const XiaoniActivityPage: React.FC = () => {
         ) : null}
 
         {feed && (mainItems.length > 0 || forkCount > 0) ? (
-          <div className="space-y-4">
-            <WorkflowTimeline
-              entries={workflowEntries}
+          <div className="space-y-3">
+            <ForkFilterControls
+              roster={forkRoster}
+              selected={forkSelected}
+              onToggle={handleForkToggle}
+              onShowAll={handleForkShowAll}
+            />
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">密度</span>
+              <div className="inline-flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  className={cn('px-2.5 py-1', density === 'compact' ? 'bg-primary text-primary-foreground' : 'bg-background')}
+                  onClick={() => handleDensityChange('compact')}
+                >
+                  紧凑
+                </button>
+                <button
+                  type="button"
+                  className={cn('px-2.5 py-1', density === 'comfortable' ? 'bg-primary text-primary-foreground' : 'bg-background')}
+                  onClick={() => handleDensityChange('comfortable')}
+                >
+                  舒适
+                </button>
+              </div>
+              <span className="ml-auto font-mono">左 {splitPct}% / 右 {100 - splitPct}% · 拖动中线调整</span>
+            </div>
+            <StreamTimeline
+              entries={visibleEntries}
               focusEventId={focusEvent || undefined}
-              onOpenRawTrace={setRawTraceTarget}
+              density={density}
+              splitPct={splitPct}
+              onSplitChange={handleSplitChange}
+              expandedId={expandedId}
+              onToggleExpand={handleToggleExpand}
             />
             {hasNextPage ? (
               <div className="flex justify-center border-t border-border pt-4">
@@ -2943,8 +2646,6 @@ export const XiaoniActivityPage: React.FC = () => {
           </div>
         ) : null}
       </main>
-
-      <RawTraceDialog target={rawTraceTarget} onOpenChange={handleRawTraceOpenChange} />
     </PageShell>
   );
 };
