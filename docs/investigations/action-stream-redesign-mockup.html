@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>小腻行动流 · 双栏 fork 展平 (mockup v5)</title>
+<style>
+  :root{
+    --bg:#f6f8fa; --card:#ffffff; --border:#e2e8f0; --fg:#0f172a; --muted:#64748b;
+    --cyan-b:#a5f3fc; --cyan-bg:#ecfeff; --cyan-fg:#0e7490;
+    --sky-b:#bae6fd; --sky-bg:#f0f9ff; --sky-fg:#0369a1;
+    --emerald-b:#a7f3d0; --emerald-bg:#ecfdf5; --emerald-fg:#047857;
+    --fuchsia-b:#f5d0fe; --fuchsia-bg:#fdf4ff; --fuchsia-fg:#a21caf;
+    --violet-b:#ddd6fe; --violet-bg:#f5f3ff; --violet-fg:#6d28d9;
+    --amber-b:#fde68a; --amber-bg:#fffbeb; --amber-fg:#b45309;
+    --slate-bg:#f1f5f9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;padding:22px 26px 70px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:19px;margin:0 0 3px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:12px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .pill{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--border);background:#f8fafc;color:var(--muted);border-radius:999px;padding:0 6px;font-size:10px;font-weight:700;white-space:nowrap;text-transform:uppercase;letter-spacing:.03em}
+  .pill.cyan{border-color:var(--cyan-b);background:var(--cyan-bg);color:var(--cyan-fg)}
+  .pill.sky{border-color:var(--sky-b);background:var(--sky-bg);color:var(--sky-fg)}
+  .pill.emerald{border-color:var(--emerald-b);background:var(--emerald-bg);color:var(--emerald-fg)}
+  .pill.fuchsia{border-color:var(--fuchsia-b);background:var(--fuchsia-bg);color:var(--fuchsia-fg)}
+  .badge-new{background:#dcfce7;border:1px solid #86efac;color:#166534;border-radius:999px;font-size:9px;font-weight:700;padding:0 5px;text-transform:uppercase}
+
+  /* fork name prefix chip (per fork run) */
+  .fk{display:inline-flex;align-items:center;gap:3px;border-radius:5px;padding:0 5px;font-size:10px;font-weight:800;white-space:nowrap;border:1px solid}
+  .fk.sub{color:var(--fuchsia-fg);background:var(--fuchsia-bg);border-color:var(--fuchsia-b)}
+  .fk.vis{color:var(--sky-fg);background:var(--sky-bg);border-color:var(--sky-b)}
+  .fk.beat{color:var(--emerald-fg);background:var(--emerald-bg);border-color:var(--emerald-b)}
+  .fk.comp{color:var(--violet-fg);background:var(--violet-bg);border-color:var(--violet-b)}
+
+  .toolbar{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:6px 12px;margin-bottom:8px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .seg-ctrl{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+  .seg-ctrl button{border:0;background:#fff;padding:3px 9px;font-size:11px;color:var(--muted);cursor:pointer}
+  .seg-ctrl button.on{background:#0ea5e9;color:#fff;font-weight:700}
+  .toolbar .grow{flex:1}
+  .toolbar .bar{height:5px;width:60px;border-radius:999px;background:#e2e8f0;overflow:hidden;display:inline-block;vertical-align:middle}
+  .toolbar .bar>i{display:block;height:100%;background:#0ea5e9}
+
+  /* fork filter chips */
+  .filter{display:flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:9px;padding:6px 12px;margin-bottom:10px;font-size:12px;flex-wrap:wrap}
+  .filter .lab{font-weight:700;color:var(--fg)}
+  .fchip{cursor:pointer;border:1px solid var(--border);border-radius:999px;padding:1px 9px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;background:#fff;color:var(--muted)}
+  .fchip .dot{width:8px;height:8px;border-radius:999px}
+  .fchip.on.sub{border-color:var(--fuchsia-b);background:var(--fuchsia-bg);color:var(--fuchsia-fg)}
+  .fchip.on.vis{border-color:var(--sky-b);background:var(--sky-bg);color:var(--sky-fg)}
+  .fchip.on.beat{border-color:var(--emerald-b);background:var(--emerald-bg);color:var(--emerald-fg)}
+  .fchip.off{opacity:.45;text-decoration:line-through}
+  .fchip .ct{font-weight:800;font-size:10px;opacity:.8}
+
+  .lanes-head{display:grid;grid-template-columns:1fr 116px 1.45fr;margin:2px 0 4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+  .lanes-head .l{text-align:right;padding-right:8px}
+  .lanes-head .c{text-align:center}
+  .lanes-head .r{padding-left:10px}
+
+  .stream{background:var(--card);border:1px solid var(--border);border-radius:11px;padding:6px 4px}
+  .entry{display:grid;grid-template-columns:1fr 116px 1.45fr;align-items:start}
+  .entry:hover .cell:not(.empty){background:#f8fafc}
+
+  .center{position:relative;display:flex;flex-direction:column;align-items:center;padding-top:3px}
+  .center::before{content:"";position:absolute;top:0;bottom:0;width:2px;background:var(--border)}
+  .ts{position:relative;z-index:2;background:var(--card);font-family:ui-monospace,monospace;font-size:10px;color:var(--muted);padding:0 4px;white-space:nowrap;text-align:center}
+  .ts b{color:var(--fg);font-weight:700}
+  .node{position:relative;z-index:2;width:9px;height:9px;border-radius:999px;margin-top:2px;border:2px solid #fff}
+  .node.sky{background:#0ea5e9}.node.cyan{background:#06b6d4}.node.slate{background:#94a3b8}.node.emerald{background:#10b981}.node.fuchsia{background:#d946ef}.node.violet{background:#8b5cf6}
+  .diamond{position:relative;z-index:2;width:11px;height:11px;background:#fff;border:2px solid #0ea5e9;transform:rotate(45deg);border-radius:2px;margin-top:2px}
+  .diamond.fk{border-color:#d946ef}
+
+  .cell{min-width:0;padding:3px 6px;border-radius:6px;cursor:pointer}
+  .cell.left{padding-right:10px}
+  .cell.right{padding-left:10px}
+  .cell.empty{cursor:default}
+  .l1{display:flex;align-items:center;gap:6px;min-width:0}
+  .who{font-weight:700;font-size:11.5px;white-space:nowrap}
+  .snippet{color:#334155;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .snippet.assistant{color:#0e7490}
+  .snippet.trigger{color:#0369a1}
+  .chev{margin-left:auto;color:#cbd5e1;font-size:11px;padding-left:6px}
+  .reqbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:linear-gradient(90deg,#eff6ff,#fff 65%);border:1px dashed #bfdbfe;border-radius:7px;padding:3px 9px}
+  .reqbar.fk{background:linear-gradient(90deg,#fdf4ff,#fff 65%);border-color:#f0abfc}
+  .reqbar .t{font-weight:800;font-size:11px;color:#1d4ed8}
+  .reqbar.fk .t{color:#a21caf}
+  .reqbar .mono{font-size:10px;color:var(--muted)}
+
+  /* inline expand: fixed height + scroll */
+  .expanded{margin:3px 6px 8px;border:1px solid var(--fuchsia-b);background:#fffbff;border-radius:9px;display:flex;flex-direction:column;height:236px;overflow:hidden}
+  .expanded.main{border-color:var(--cyan-b);background:#fbffff}
+  .escroll{overflow:auto;padding:8px 10px 10px}
+  .full{font-size:12.5px;color:#0c4a6e;white-space:pre-wrap;line-height:1.5;border-radius:7px;padding:7px 9px}
+  .full.fk{background:var(--fuchsia-bg);border:1px solid var(--fuchsia-b);color:#86198f}
+  .tabs{display:flex;gap:6px;margin:8px 0}
+  .tabs span{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:2px 8px;background:#fff}
+  .tabs span.on{background:#0f172a;color:#fff;border-color:#0f172a}
+  pre{margin:0;background:#0f172a;color:#e2e8f0;border-radius:7px;padding:9px 11px;font-size:10.5px;line-height:1.5;font-family:ui-monospace,monospace;white-space:pre}
+  .raw-meta{font-size:10.5px;color:var(--muted);margin-bottom:6px}
+  .raw-meta b{color:var(--fg)}
+
+  .day{display:flex;justify-content:center;margin:6px 0 2px}
+  .day span{font-size:10px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--border);border-radius:999px;padding:1px 11px}
+  .note{font-size:12px;color:var(--muted);margin-top:16px;border-top:1px solid var(--border);padding-top:9px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>小腻行动流 · 双栏 · Fork 展平</h1>
+  <div class="sub">mockup v5 — Fork Agent 和主 agent 一样<b>逐事件展平</b>（不再折叠成一张卡）。左栏多个 fork 默认<b>按时间混排</b>，每条事件带<b>fork 名称前缀</b>；可用上方 <b>Fork 筛选</b> 选择显示哪些。点开行内固定高度 + 滚动看<b>原始 LLM 请求</b>。绿色 <span class="badge-new">new</span> = 当前缺失内容。</div>
+
+  <div class="toolbar">
+    <span style="font-weight:700;color:var(--fg)">密度</span>
+    <span class="seg-ctrl"><button class="on">紧凑</button><button>舒适</button></span>
+    <span class="mono" style="color:#94a3b8">本屏 ≈ 22 事件 / 14 分钟</span>
+    <span class="grow"></span>
+    <span>额度 5h</span><span class="bar"><i style="width:34%"></i></span><span class="mono">34%</span>
+    <span>周</span><span class="bar"><i style="width:58%"></i></span><span class="mono">58%</span>
+    <span style="color:#94a3b8">▸ 成本图</span>
+  </div>
+
+  <div class="filter">
+    <span class="lab">Fork 筛选</span>
+    <span class="fchip on sub"><span class="dot" style="background:#d946ef"></span>潜意识·4471 <span class="ct">8</span></span>
+    <span class="fchip on vis"><span class="dot" style="background:#0ea5e9"></span>视觉·a13c <span class="ct">5</span></span>
+    <span class="fchip on beat"><span class="dot" style="background:#10b981"></span>心跳·b9 <span class="ct">2</span></span>
+    <span class="fchip off"><span class="dot" style="background:#8b5cf6"></span>压缩·77e <span class="ct">0</span></span>
+    <span style="margin-left:auto;color:#94a3b8;font-size:11px">混排 · 全选</span>
+  </div>
+
+  <div class="lanes-head"><div class="l">FORK AGENT ◀</div><div class="c">时间</div><div class="r">▶ 主 LOOP</div></div>
+  <div class="day"><span>2026-06-27</span></div>
+
+  <div class="stream">
+
+    <!-- main: tool result -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:20:03</b>.003</span><span class="node emerald"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill emerald">工具结果</span><span class="who mono">send_group_msg</span><span class="snippet">已发送：阿强 这个是 provider 超时不是你代码的锅～</span><span class="chev">▸</span></div></div>
+    </div>
+
+    <!-- fork 视觉: a tool result (interleaves with 潜意识) -->
+    <div class="entry">
+      <div class="cell left"><div class="l1"><span class="fk vis">视觉·a13c</span><span class="pill emerald">工具结果</span><span class="snippet">OCR：图片里是一段 Python traceback…</span><span class="chev">▸</span></div></div>
+      <div class="center"><span class="ts"><b>:02</b>.900</span><span class="node sky"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+
+    <!-- main: tool call -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:20:02</b>.002</span><span class="node slate"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill cyan">请求工具</span><span class="who mono">read_qq_window</span><span class="snippet mono">{ "session_key": "group:88123", "limit": 5 }</span><span class="chev">▸</span></div></div>
+    </div>
+
+    <!-- fork 潜意识: assistant output EXPANDED (open like main agent) -->
+    <div class="entry">
+      <div class="cell left" style="background:#fffbff"><div class="l1"><span class="fk sub">潜意识·4471</span><span class="pill fuchsia">输出</span><span class="badge-new">new</span><span class="snippet assistant">阿强的报错让我有点焦虑，要不要主动跟进…</span><span class="chev">▾</span></div></div>
+      <div class="center"><span class="ts"><b>:02</b>.100</span><span class="node fuchsia"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+    <div class="entry">
+      <div class="cell left">
+        <div class="expanded">
+          <div class="escroll">
+            <div class="full fk">阿强的报错让我有点焦虑，要不要主动跟进。
+（reasoning）我刚才已经在群里看到他贴的栈了，这种 provider 超时其实不用我担心，他自己重发就好。我先记一笔，别真的去打扰他。</div>
+            <div class="tabs"><span class="on">原始 LLM 请求</span><span>原始响应</span><span>canonical</span></div>
+            <div class="raw-meta">POST <b>anthropic/messages</b> · fork <b>潜意识·4471</b> · slice <span class="mono">llm_…b1</span> · <b>38.1K → 512</b></div>
+<pre>{
+  "model": "claude-opus-4-8",
+  "system": [ { "type":"text", "text":"你是小腻的潜意识…" } ],
+  "messages": [
+    { "role":"user", "content":"[notify #4471] 阿强 在群里@了你 …" },
+    { "role":"assistant", "content":"阿强的报错让我有点焦虑 …" }
+  ]
+}</pre>
+          </div>
+        </div>
+      </div>
+      <div class="center" style="opacity:.4"></div>
+      <div class="cell right empty"></div>
+    </div>
+
+    <!-- main: assistant output -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:20:02</b>.001</span><span class="node cyan"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill cyan">小腻输出</span><span class="pill">assistant_output</span><span class="badge-new">new</span><span class="snippet assistant">嗯…阿强又@我了，先看下他贴的报错是哪种再回。</span><span class="chev">▸</span></div></div>
+    </div>
+
+    <!-- fork 视觉: model request (flattened, like main) -->
+    <div class="entry">
+      <div class="cell left"><div class="reqbar fk"><span class="t">视觉·a13c 模型请求 · turn 2</span><span class="pill">opus-4-8</span><span class="pill sky">in 6.2K</span><span class="pill">out 120</span></div></div>
+      <div class="center"><span class="ts">:01.800</span><span class="diamond fk"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+
+    <!-- main: model request -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts">:01.500</span><span class="diamond"></span></div>
+      <div class="cell right empty"><div class="reqbar"><span class="t">模型请求 · turn 87</span><span class="pill">opus-4-8</span><span class="pill sky">in 412.0K</span><span class="pill emerald">cache 408.1K</span><span class="pill">out 263</span><span class="mono">llm_…5aea4d92</span></div></div>
+    </div>
+
+    <!-- 潜意识 trigger (its first event = 触发) -->
+    <div class="entry">
+      <div class="cell left"><div class="l1"><span class="fk sub">潜意识·4471</span><span class="pill fuchsia">触发</span><span class="snippet trigger">由 Notify #4471 (phone_notification) 唤醒 · group:88123</span><span class="chev">▸</span></div></div>
+      <div class="center"><span class="ts"><b>10:20:01</b></span><span class="node fuchsia"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+
+    <!-- main triggers -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:20:01</b></span><span class="node sky"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill sky">触发事件</span><span class="who">QQ 群</span><span class="snippet trigger">阿强：帮我看下这段报错 [NameError: name 'foo' …]</span><span class="chev">▸</span></div></div>
+    </div>
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:20:01</b></span><span class="node sky"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill sky">触发事件</span><span class="who">runtime_input</span><span class="snippet trigger">[当前时间] 10:20:01 · 你有 1 条未读…</span><span class="chev">▸</span></div></div>
+    </div>
+
+    <!-- 视觉 trigger + 心跳 interleaving older -->
+    <div class="entry">
+      <div class="cell left"><div class="l1"><span class="fk vis">视觉·a13c</span><span class="pill sky">触发</span><span class="snippet trigger">阿强发来 1 张图片 (media #99) → 触发图像视觉 fork</span><span class="chev">▸</span></div></div>
+      <div class="center"><span class="ts">10:20:00</span><span class="node sky"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+    <div class="entry">
+      <div class="cell left"><div class="l1"><span class="fk beat">心跳·b9</span><span class="pill emerald">心跳</span><span class="snippet">续 1h cache TTL · in 408.0K cached</span><span class="chev">▸</span></div></div>
+      <div class="center"><span class="ts">10:18:30</span><span class="node emerald"></span></div>
+      <div class="cell right empty"></div>
+    </div>
+
+    <!-- older main cycle -->
+    <div class="entry">
+      <div class="cell left empty"></div>
+      <div class="center"><span class="ts"><b>10:18:54</b>.001</span><span class="node cyan"></span></div>
+      <div class="cell right"><div class="l1"><span class="pill cyan">小腻输出</span><span class="pill">final_answer</span><span class="badge-new">new</span><span class="snippet assistant">先不回，等阿强把完整报错贴上来再说。</span><span class="chev">▸</span></div></div>
+    </div>
+
+  </div>
+
+  <div class="note">关键变化：<b>Fork 与主 agent 同构</b>——fork 内部 触发 / 模型请求 / 输出 / 工具 都展平成逐事件行（不再是折叠卡）；左栏多个 fork <b>按时间混排</b>，每行带 <b>fork 名称前缀</b>（潜意识·4471 / 视觉·a13c / 心跳·b9）；<b>Fork 筛选</b>可切换显示哪些 fork。点开行内固定高度 + 滚动看原始 LLM 请求。后端需把 fork slice/item/tool 也投影成扁平 feed 事件并带 forkRunId+label（<span class="mono">xiaoni-activity.js</span> fork timeline 段）。</div>
+</div>
+</body>
+</html>
