@@ -919,6 +919,16 @@ function streamTurnKey(entry: StreamEntry): string {
   return slice ? `${entry.lane}:slice:${slice}` : `${entry.lane}:solo:${entry.id}`;
 }
 
+// Real append-ledger position of an event: stack_index (main) / item_index
+// (fork), assigned at creation. This is the ground-truth creation order — used
+// to break intra-phase ties instead of arbitrary id comparison.
+function streamOrderKey(entry: StreamEntry): number {
+  const meta = entry.item.metadata || {};
+  const raw = meta.stackIndex ?? meta.itemIndex;
+  const num = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(num) ? num : Number.NaN;
+}
+
 function buildStreamEntries(
   mainItems: XiaoniActivityFeedItem[],
   forkRuns: ForkAgentRun[]
@@ -973,6 +983,13 @@ function buildStreamEntries(
       const phase = streamPhaseRank(left) - streamPhaseRank(right);
       if (phase !== 0) {
         return phase;
+      }
+      // Within a phase, order by the real append index (ground truth) when both
+      // events have one; fall back to wall-clock then id only when they don't.
+      const leftKey = streamOrderKey(left);
+      const rightKey = streamOrderKey(right);
+      if (Number.isFinite(leftKey) && Number.isFinite(rightKey) && leftKey !== rightKey) {
+        return leftKey - rightKey;
       }
       const leftMs = parseTimestampMs(left.timestamp) || 0;
       const rightMs = parseTimestampMs(right.timestamp) || 0;
