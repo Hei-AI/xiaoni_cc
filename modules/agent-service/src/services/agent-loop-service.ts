@@ -1832,6 +1832,9 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
     ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
     : [EXEC_COMMAND_TOOL];
+  // 缓存对齐：compress_core_memory 必须始终在主 loop 工具定义里（连同
+  // resolveMainLoopToolChoice 的 auto allowed-tools），否则压缩 fork 的 tools 前缀
+  // 与主 agent 不一致 → 冷读。禁止随意移除。详见 resolveMainLoopToolChoice 的不变量。
   tools.push(COMPRESS_CORE_MEMORY_TOOL);
   return [
     ...tools,
@@ -1846,16 +1849,25 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
 
 function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResponseToolChoice {
   void loopInput;
-  // compress_core_memory is a PERMANENT member of the main loop's tool set (most-
-  // complete toolset) under tool_choice auto — never forced. Forcing tool_choice
-  // (required/any) disables extended thinking, which strips every historical thinking
-  // block and makes the request prefix diverge from the main loop's warm cache. By
-  // keeping it auto and always exposing compress, the core memory compression fork —
-  // built as a byte-clone of the main agent plus a compress instruction — keeps
-  // thinking on, carries the SAME tools/tool_choice, and rides the warm in-context
-  // cache instead of cold-prefilling the whole window. 小腻 is told via the system
-  // prompt not to self-trigger compression; "only compress" for the fork is enforced
-  // at execution time (the fork loop's allowedToolNames), not by mutating the request.
+  // ┌──────────────────────────────────────────────────────────────────────────┐
+  // │ ⚠️ 缓存对齐不变量 — 禁止随意改动 (DO NOT casually change)                   │
+  // ├──────────────────────────────────────────────────────────────────────────┤
+  // │ 本函数必须永远返回 tool_choice = AUTO，且 compress_core_memory 必须始终在    │
+  // │ allowed tools 里（每一轮都暴露，不分压缩/非压缩）。                          │
+  // │                                                                            │
+  // │ 为什么不能改成「压缩时强制 tool_choice」：                                   │
+  // │   forced tool_choice (any/tool) → provider 关掉 extended thinking          │
+  // │   (anthropic-translate.ts:527 thinkingEnabled = !plan.forced) → 历史里      │
+  // │   每个 thinking block 被丢 (anthropic-translate.ts:280) → tools/thinking    │
+  // │   前缀与主 loop 不一致 → 压缩 fork 每次 100% 冷读整窗 (~487K, "Cache 0")。   │
+  // │                                                                            │
+  // │ 正确做法：fork = 主 agent 的字节克隆 (同 tools + 同 auto + thinking 在)，    │
+  // │   「只准压缩」靠执行层 runCoreMemoryCompressionFork 的 allowedToolNames 拦，  │
+  // │   绝不靠改 request 形状。小腻不自己乱压由 system_prompt「模块五」约束。       │
+  // │                                                                            │
+  // │ 回归守卫：agent-loop-service.test.ts 断言 fork.tool_choice === 主.tool_choice。│
+  // │ 详见 provider-service/.../anthropic-translate.ts:521-527。                  │
+  // └──────────────────────────────────────────────────────────────────────────┘
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
     { type: 'function', name: TOOL_NAMES.privateReply },
