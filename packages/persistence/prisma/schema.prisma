@@ -329,6 +329,7 @@ model AgentStackItem {
   event_id             String    @unique @db.VarChar(191)
   identity_key         String    @default("xiaoni") @db.VarChar(191)
   stack_index          BigInt    @db.BigInt
+  occurred_seq         BigInt?   @db.BigInt
   item_kind            String    @db.VarChar(64)
   role                 String?   @db.VarChar(32)
   phase                String?   @db.VarChar(32)
@@ -552,6 +553,7 @@ model CoreMemoryCompressionForkItem {
   fork_run_id          String   @db.VarChar(191)
   identity_key         String   @default("xiaoni") @db.VarChar(191)
   item_index           BigInt   @db.BigInt
+  occurred_seq         BigInt?  @db.BigInt
   item_kind            String   @db.VarChar(64)
   role                 String?  @db.VarChar(32)
   phase                String?  @db.VarChar(32)
@@ -676,6 +678,7 @@ model SubconsciousAgentForkItem {
   fork_run_id          String   @db.VarChar(191)
   identity_key         String   @default("xiaoni") @db.VarChar(191)
   item_index           BigInt   @db.BigInt
+  occurred_seq         BigInt?  @db.BigInt
   item_kind            String   @db.VarChar(64)
   role                 String?  @db.VarChar(32)
   phase                String?  @db.VarChar(32)

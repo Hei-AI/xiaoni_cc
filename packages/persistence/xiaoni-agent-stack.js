@@ -576,6 +576,7 @@ function normalizeStackRow(row) {
     eventId: row.event_id,
     identityKey: row.identity_key,
     stackIndex: Number(row.stack_index || 0),
+    occurredSeq: row.occurred_seq === null || typeof row.occurred_seq === 'undefined' ? null : Number(row.occurred_seq),
     itemKind: row.item_kind,
     role: row.role || null,
     phase: row.phase || null,
@@ -747,6 +748,7 @@ function normalizeCompressionForkItemRow(row) {
     forkRunId: row.fork_run_id,
     identityKey: row.identity_key,
     itemIndex: Number(row.item_index || 0),
+    occurredSeq: row.occurred_seq === null || typeof row.occurred_seq === 'undefined' ? null : Number(row.occurred_seq),
     itemKind: row.item_kind,
     role: row.role || null,
     phase: row.phase || null,
@@ -2032,6 +2034,21 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        // Global event-creation sequence: one shared counter stamped at insert
+        // on every real stack/fork item, so the action stream can sort by true
+        // creation order across the main loop and all forks. Added nullable +
+        // SET DEFAULT (no table rewrite); historical rows stay NULL and fall
+        // back to created_at in the projection.
+        'CREATE SEQUENCE IF NOT EXISTS agent_event_seq',
+        'ALTER TABLE agent_stack_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
+        "ALTER TABLE agent_stack_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
+        'ALTER TABLE core_memory_compression_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
+        "ALTER TABLE core_memory_compression_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
+        'ALTER TABLE subconscious_agent_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
+        "ALTER TABLE subconscious_agent_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
+        'ALTER TABLE image_vision_fork_items ADD COLUMN IF NOT EXISTS occurred_seq BIGINT',
+        "ALTER TABLE image_vision_fork_items ALTER COLUMN occurred_seq SET DEFAULT nextval('agent_event_seq')",
+        'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_occurred ON agent_stack_items (identity_key, occurred_seq DESC)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_identity_index ON agent_stack_items (identity_key, stack_index DESC)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_trace ON agent_stack_items (trace_id, stack_index)',
         'CREATE INDEX IF NOT EXISTS idx_agent_stack_items_run ON agent_stack_items (run_id, stack_index)',
