@@ -809,12 +809,17 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
+// Short, meaningful disambiguator for a fork run. forkRunId looks like
+// "core-memory-fork:runtime_…_7f13f6eb:63703585" or "codex-provider:llm_…_3af14579";
+// take the last ':'-segment, then its last '_'-token (the run's own hash) so the
+// chip shows a real id fragment (63703585 / 3af14579), not a mangled slice.
 function shortForkRunId(forkRunId: string | null | undefined): string {
   if (!forkRunId) {
     return '';
   }
-  const tail = forkRunId.replace(/[^a-zA-Z0-9]/g, '');
-  return tail.length > 6 ? tail.slice(-6) : tail;
+  const lastSegment = forkRunId.split(':').pop() || forkRunId;
+  const token = lastSegment.split('_').pop() || lastSegment;
+  return token.length > 10 ? token.slice(-8) : token;
 }
 
 function forkLabelForRun(run: ForkAgentRun): string {
