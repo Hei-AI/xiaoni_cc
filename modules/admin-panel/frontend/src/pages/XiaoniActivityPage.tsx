@@ -893,27 +893,6 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
 
 // Flatten main items + every fork run's internal events into one time-sorted
 // stream. Fork events carry a StreamForkRef so the UI can prefix + filter them.
-// Logical position of an event within its LLM turn. Wall-clock can't be trusted
-// for intra-turn order (the slice row is persisted after its own output items,
-// and several items share a millisecond), so order by phase, not by timestamp.
-function streamPhaseRank(entry: StreamEntry): number {
-  const item = entry.item;
-  const kind = (typeof item.metadata?.itemKind === 'string' ? item.metadata.itemKind : null) || item.kind;
-  if (item.source === 'fork_trigger' || kind === 'runtime_input') {
-    return 0; // 触发 / 本 turn 追加进来的输入
-  }
-  if (item.source === 'llm_request' || item.source.endsWith('fork_llm_request') || item.source === 'cache_heartbeat') {
-    return 1; // 模型请求
-  }
-  if (kind === 'function_call') {
-    return 3; // 请求工具
-  }
-  if (kind === 'function_call_output' || item.source === 'tool_execution' || item.source.endsWith('fork_tool_execution')) {
-    return 4; // 工具结果
-  }
-  return 2; // 小腻输出 (assistant text / reasoning / final_answer)
-}
-
 function entrySliceId(entry: StreamEntry): string | null {
   return typeof entry.item.metadata?.llmRequestSliceId === 'string' ? entry.item.metadata.llmRequestSliceId : null;
 }
@@ -958,76 +937,57 @@ function buildStreamEntries(
     }
   }
 
-  // Main runtime_input rows are appended before the LLM request exists, so they
-  // carry no slice id — but their stack_index immediately precedes that turn's
-  // output items. Build an index→slice map so an orphan runtime_input adopts the
-  // turn whose first output follows it (fork runtime_input already has a slice).
-  const sliceByIndex = entries
-    .map((entry) => {
-      const slice = entrySliceId(entry);
-      const index = streamOrderKey(entry);
-      return slice && Number.isFinite(index) ? { lane: entry.lane, index, slice } : null;
-    })
-    .filter((value): value is { lane: StreamLane; index: number; slice: string } => value !== null)
-    .sort((a, b) => a.index - b.index);
-
-  const turnKeyFor = (entry: StreamEntry): string => {
+  // Standard reverse-chronological order (newest first). Two timestamp problems
+  // are corrected so it stays monotonic:
+  //  1. The 模型请求 slice row is persisted AFTER its own output items, so its raw
+  //     timestamp would sort it above them. Re-time it to just before its first
+  //     output — its true request moment.
+  //  2. Events sharing a millisecond are tie-broken by the backend-enforced append
+  //     index (stack_index / item_index), the ground-truth creation sequence.
+  const firstOutputMsBySlice = new Map<string, number>();
+  for (const entry of entries) {
     const slice = entrySliceId(entry);
-    if (slice) {
-      return `${entry.lane}:slice:${slice}`;
+    if (!slice) {
+      continue;
     }
-    const index = streamOrderKey(entry);
-    if (Number.isFinite(index)) {
-      const next = sliceByIndex.find((value) => value.lane === entry.lane && value.index > index);
-      if (next) {
-        return `${entry.lane}:slice:${next.slice}`;
+    const label = streamTypeTag(entry.item).label;
+    if (label !== '小腻输出' && label !== '请求工具' && label !== '工具结果') {
+      continue;
+    }
+    const ms = parseTimestampMs(entry.timestamp);
+    if (ms === null) {
+      continue;
+    }
+    const current = firstOutputMsBySlice.get(slice);
+    if (current === undefined || ms < current) {
+      firstOutputMsBySlice.set(slice, ms);
+    }
+  }
+
+  const sortMs = (entry: StreamEntry): number => {
+    if (streamTypeTag(entry.item).label === '模型请求') {
+      const slice = entrySliceId(entry);
+      const firstOutput = slice ? firstOutputMsBySlice.get(slice) : undefined;
+      if (firstOutput !== undefined) {
+        return firstOutput - 1;
       }
     }
-    return `${entry.lane}:solo:${entry.id}`;
+    return parseTimestampMs(entry.timestamp) ?? 0;
   };
 
-  // Group events by LLM turn (slice), order turns newest-first by the turn's
-  // earliest event, and within a turn order by phase (触发 → 模型请求 → 小腻输出
-  // → 请求工具 → 工具结果). This keeps each turn a contiguous, causally-ordered
-  // block instead of jumbling cause/effect by unreliable sub-second timestamps.
-  const groups = new Map<string, { anchor: number; entries: StreamEntry[] }>();
-  for (const entry of entries) {
-    const key = turnKeyFor(entry);
-    const ms = parseTimestampMs(entry.timestamp) || 0;
-    const group = groups.get(key);
-    if (group) {
-      group.entries.push(entry);
-      if (ms < group.anchor) {
-        group.anchor = ms;
-      }
-    } else {
-      groups.set(key, { anchor: ms, entries: [entry] });
+  return entries.sort((left, right) => {
+    const leftMs = sortMs(left);
+    const rightMs = sortMs(right);
+    if (leftMs !== rightMs) {
+      return rightMs - leftMs; // newest first
     }
-  }
-  const result: StreamEntry[] = [];
-  for (const group of Array.from(groups.values()).sort((a, b) => b.anchor - a.anchor)) {
-    group.entries.sort((left, right) => {
-      const phase = streamPhaseRank(left) - streamPhaseRank(right);
-      if (phase !== 0) {
-        return phase;
-      }
-      // Within a phase, order by the real append index (ground truth) when both
-      // events have one; fall back to wall-clock then id only when they don't.
-      const leftKey = streamOrderKey(left);
-      const rightKey = streamOrderKey(right);
-      if (Number.isFinite(leftKey) && Number.isFinite(rightKey) && leftKey !== rightKey) {
-        return leftKey - rightKey;
-      }
-      const leftMs = parseTimestampMs(left.timestamp) || 0;
-      const rightMs = parseTimestampMs(right.timestamp) || 0;
-      if (leftMs !== rightMs) {
-        return leftMs - rightMs;
-      }
-      return left.id.localeCompare(right.id);
-    });
-    result.push(...group.entries);
-  }
-  return result;
+    const leftKey = streamOrderKey(left);
+    const rightKey = streamOrderKey(right);
+    if (Number.isFinite(leftKey) && Number.isFinite(rightKey) && leftKey !== rightKey) {
+      return rightKey - leftKey; // higher append index = newer
+    }
+    return (right.item.eventId || right.id).localeCompare(left.item.eventId || left.id);
+  });
 }
 
 function buildForkRoster(forkRuns: ForkAgentRun[]): ForkRosterEntry[] {
