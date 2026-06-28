@@ -75,13 +75,15 @@ const CLAUDE_CODE_IDENTITY_PROMPT =
   process.env.CLAUDE_CODE_IDENTITY_PROMPT || "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 // Real Claude Code sends the billing header as system[0] TEXT (not an HTTP header)
 // and signs the cch over the request body (see CLIProxyAPI claude_signing.go). We use
-// the documented unsigned value cch=00000: it keeps system[0] byte-stable across turns
-// so the prefix cache still works. NOTE: unsigned may be metered as extra-usage rather
-// than counted against the subscription pool — per-request cch signing is the follow-up
-// if that matters. Env-overridable.
+// a FIXED cch value (ed218) instead of per-request signing: it keeps system[0]
+// byte-stable across turns so the cached system prefix never has a moving byte. cch is
+// excluded from Anthropic's prompt-cache key, and a fixed cch is reported (per operator
+// info) not to affect subscription-pool metering. To restore per-request signing,
+// flip ANTHROPIC_CCH_SIGNING_ENABLED=true (see isClaudeBillingCchSigningEnabled).
+// The whole block is also env-overridable.
 const CLAUDE_BILLING_SYSTEM_BLOCK =
   process.env.CLAUDE_BILLING_SYSTEM_BLOCK
-  || 'x-anthropic-billing-header: cc_version=2.1.77.e19; cc_entrypoint=claude-vscode; cch=00000;';
+  || 'x-anthropic-billing-header: cc_version=2.1.77.e19; cc_entrypoint=claude-vscode; cch=ed218;';
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20260209';
 const WEB_SEARCH_TOOL_NAME = 'web_search';
 
@@ -95,6 +97,19 @@ const WEB_SEARCH_TOOL_NAME = 'web_search';
 // thinking globally (no rebuild). Read per-call (not at module load) so it stays testable.
 function isAnthropicThinkingGloballyEnabled(): boolean {
   return process.env.ANTHROPIC_THINKING_ENABLED === 'true';
+}
+
+// Per-request cch signing toggle. Default OFF: system[0] stays byte-stable at the
+// static fixed cch=ed218 (see CLAUDE_BILLING_SYSTEM_BLOCK). cch is excluded from Anthropic's
+// prompt-cache key — verified live: main-loop turns read the warm cache while cch
+// rotated every request — so signing gives ZERO cache benefit; keeping it fixed just
+// removes the only moving byte in the cached system prefix. Flip
+// ANTHROPIC_CCH_SIGNING_ENABLED=true to restore per-request signing without a rebuild
+// (the documented escape hatch if the subscription endpoint ever meters unsigned
+// requests as extra-usage instead of counting them against the subscription pool).
+// Read per-call (not at module load) so it stays testable.
+function isClaudeBillingCchSigningEnabled(): boolean {
+  return process.env.ANTHROPIC_CCH_SIGNING_ENABLED === 'true';
 }
 
 export type AnthropicImageSource =
@@ -659,10 +674,13 @@ export function translateCanonicalToMessages(
 
   placeCacheBreakpoints(body, lastDurable, anchors);
 
-  // Final step: sign the billing block's cch over the fully-assembled body. Must run
-  // last (after system/messages/tools/breakpoints are all set) so the checksum covers
-  // the exact bytes that will be sent.
-  signClaudeBillingCch(body);
+  // Final step: optionally sign the billing block's cch over the fully-assembled body.
+  // Must run last (after system/messages/tools/breakpoints are all set) so the checksum
+  // covers the exact bytes that will be sent. Default OFF -> cch stays fixed at 00000
+  // (byte-stable system[0]); see isClaudeBillingCchSigningEnabled.
+  if (isClaudeBillingCchSigningEnabled()) {
+    signClaudeBillingCch(body);
+  }
 
   return { body, thinkingEnabled };
 }

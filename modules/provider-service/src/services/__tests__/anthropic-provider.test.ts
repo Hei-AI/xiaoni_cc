@@ -502,28 +502,51 @@ test('xxh64 matches the canonical XXH64 test vectors', () => {
   );
 });
 
-test('signClaudeBillingCch writes a body checksum that verifies (zero-and-rehash)', () => {
-  const { body } = translateCanonicalToMessages({
-    model: 'claude-opus-4-6',
-    instructions: '你是小腻。',
-    input: [{ type: 'message', role: 'user', content: 'hi' }],
-    tools: FN_TOOLS,
-    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
-  } as OpenResponseCreateRequest);
-  const billing = body.system?.[0]?.text || '';
-  // cch is filled in (5 lowercase hex), not the 00000 placeholder
-  const m = billing.match(/cch=([0-9a-f]{5});/);
-  assert.ok(m, 'cch present');
-  assert.notEqual(m![1], '00000');
-  // verify: zero the cch in the exact sent bytes, rehash, compare to the embedded cch
-  const sentJson = JSON.stringify(body);
-  const unsigned = sentJson.replace(/cch=[0-9a-f]{5};/, 'cch=00000;');
-  const expected = (xxh64(Buffer.from(unsigned, 'utf8'), 0x6e52736ac806831en) & 0xfffffn)
-    .toString(16).padStart(5, '0');
-  assert.equal(m![1], expected);
-  // signing again is idempotent
-  signClaudeBillingCch(body);
-  assert.equal(body.system?.[0]?.text, billing);
+const CCH_TRANSLATE_REQUEST = {
+  model: 'claude-opus-4-6',
+  instructions: '你是小腻。',
+  input: [{ type: 'message', role: 'user', content: 'hi' }],
+  tools: FN_TOOLS,
+  tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [{ type: 'function', name: 'exec_command' }] }
+} as OpenResponseCreateRequest;
+
+test('cch signing is OFF by default — system[0] stays byte-stable at the fixed cch=ed218', () => {
+  const prev = process.env.ANTHROPIC_CCH_SIGNING_ENABLED;
+  delete process.env.ANTHROPIC_CCH_SIGNING_ENABLED;
+  try {
+    const { body } = translateCanonicalToMessages(CCH_TRANSLATE_REQUEST);
+    const billing = body.system?.[0]?.text || '';
+    // fixed value, not a per-request hash -> same bytes every turn (cache-stable prefix)
+    assert.match(billing, /cch=ed218;/);
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_CCH_SIGNING_ENABLED;
+    else process.env.ANTHROPIC_CCH_SIGNING_ENABLED = prev;
+  }
+});
+
+test('ANTHROPIC_CCH_SIGNING_ENABLED=true writes a body checksum that verifies (zero-and-rehash)', () => {
+  const prev = process.env.ANTHROPIC_CCH_SIGNING_ENABLED;
+  process.env.ANTHROPIC_CCH_SIGNING_ENABLED = 'true';
+  try {
+    const { body } = translateCanonicalToMessages(CCH_TRANSLATE_REQUEST);
+    const billing = body.system?.[0]?.text || '';
+    // cch is filled in (5 lowercase hex), not the 00000 placeholder
+    const m = billing.match(/cch=([0-9a-f]{5});/);
+    assert.ok(m, 'cch present');
+    assert.notEqual(m![1], '00000');
+    // verify: zero the cch in the exact sent bytes, rehash, compare to the embedded cch
+    const sentJson = JSON.stringify(body);
+    const unsigned = sentJson.replace(/cch=[0-9a-f]{5};/, 'cch=00000;');
+    const expected = (xxh64(Buffer.from(unsigned, 'utf8'), 0x6e52736ac806831en) & 0xfffffn)
+      .toString(16).padStart(5, '0');
+    assert.equal(m![1], expected);
+    // signing again is idempotent
+    signClaudeBillingCch(body);
+    assert.equal(body.system?.[0]?.text, billing);
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_CCH_SIGNING_ENABLED;
+    else process.env.ANTHROPIC_CCH_SIGNING_ENABLED = prev;
+  }
 });
 
 test('buildClaudeHeaders sets bearer + cc headers', () => {
