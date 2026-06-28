@@ -31,7 +31,6 @@ import {
   type SessionReadCutoffState
 } from './runtime-store';
 import { resolveModelContextPolicy } from './model-context-policy';
-import { estimateRequestTokens } from './token-estimator';
 import {
   runWebSearch,
   normalizeWebSearchSource,
@@ -619,9 +618,15 @@ function recordMainTurnInputTokensForCompression(sessionKey: string, actualInput
     && Number.isFinite(actualInputTokens)
     && actualInputTokens > COMPRESSION_TRIGGER_INPUT_TOKENS;
   if (over) {
+    // cap at the threshold — once armed, more over-line turns add nothing, and an
+    // uncapped counter would drift upward whenever compression can't yet schedule
+    // (e.g. history still <= keep window) without a sub-threshold turn to reset it.
     consecutiveOverCompressionThresholdBySession.set(
       sessionKey,
-      (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) + 1
+      Math.min(
+        COMPRESSION_TRIGGER_CONSECUTIVE_TURNS,
+        (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) + 1
+      )
     );
   } else if (typeof actualInputTokens === 'number' && Number.isFinite(actualInputTokens)) {
     // a real measurement at/under the soft line resets the debounce
