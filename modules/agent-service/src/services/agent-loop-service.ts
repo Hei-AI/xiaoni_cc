@@ -4742,12 +4742,28 @@ export function applyToolResultToLoopInput(
     && Array.isArray((toolResult as { image_content?: unknown }).image_content)
     ? (toolResult as { image_content: OpenResponseInputItem[] }).image_content
     : null;
+  // A bare computer-use `screenshot` now persists the PNG into the shared runtime;
+  // surface the sendable path alongside the image so the model knows it has a real
+  // file (vision base64 alone can't be sent) and can push it via qq-send-image.
+  const computerSavedPath = computerImageContent
+    && typeof (toolResult as { saved_path?: unknown }).saved_path === 'string'
+    && (toolResult as { saved_path: string }).saved_path
+    ? (toolResult as { saved_path: string }).saved_path
+    : null;
+  const computerOutput = computerImageContent
+    ? (computerSavedPath
+        ? [...computerImageContent, {
+            type: 'input_text',
+            text: `截图已存到 ${computerSavedPath}（executor 容器内可读）。要发到 QQ：用 $qq-send-image 发这个路径。`
+          }]
+        : computerImageContent)
+    : null;
 
   const inputItems: OpenResponseInputItem[] = [{
     type: 'function_call_output',
     call_id: toolCall.callId,
-    output: computerImageContent
-      ? (computerImageContent as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
+    output: computerOutput
+      ? (computerOutput as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
       : toolResult.tool_rejected === true && typeof toolResult.rejection_output === 'string'
         ? String(toolResult.rejection_output).trim()
       : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
@@ -10440,9 +10456,13 @@ export class AgentLoopService {
       if (!imageUrl) {
         return { computer_action: actionName, error: 'computer bridge returned no screenshot', tool_error: true };
       }
+      const savedPath = typeof payload.saved_path === 'string' && payload.saved_path
+        ? (payload.saved_path as string)
+        : null;
       return {
         computer_action: actionName,
-        image_content: [{ type: 'input_image', image_url: imageUrl, detail: 'original' }]
+        image_content: [{ type: 'input_image', image_url: imageUrl, detail: 'original' }],
+        ...(savedPath ? { saved_path: savedPath } : {})
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

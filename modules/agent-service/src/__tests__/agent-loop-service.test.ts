@@ -3299,6 +3299,45 @@ test('compress_core_memory preserves caller text and lets the loop continue', as
   assert.match(String((continuation.inputItems[0] as any).output), /core_memory_compressed/);
 });
 
+// Regression: a bare computer-use `screenshot` now persists the PNG into the
+// shared runtime. applyToolResultToLoopInput must append the sendable path as an
+// input_text block next to the input_image so the model knows it has a real file
+// (vision base64 alone can't be sent via qq-send-image). Without saved_path the
+// output stays image-only (clicks/scrolls don't persist a file).
+test('applyToolResultToLoopInput surfaces a persisted computer-use screenshot path', () => {
+  const withPath = applyToolResultToLoopInput({
+    name: 'computer',
+    callId: 'computer-1',
+    rawArguments: '{"action":"screenshot"}'
+  }, {
+    computer_action: 'screenshot',
+    image_content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: 'original' }],
+    saved_path: '/xiaoni-runtime/picture/xiaoni-computer-20260628T110011Z.png'
+  });
+
+  assert.equal(withPath.inputItems.length, 1);
+  assert.equal(withPath.inputItems[0]?.type, 'function_call_output');
+  const output = withPath.inputItems[0]?.output as Array<Record<string, unknown>>;
+  assert.equal(Array.isArray(output), true);
+  assert.equal(output.length, 2);
+  assert.equal(output[0]?.type, 'input_image');
+  assert.equal(output[1]?.type, 'input_text');
+  assert.match(String(output[1]?.text), /xiaoni-computer-20260628T110011Z\.png/);
+  assert.match(String(output[1]?.text), /qq-send-image/);
+
+  const withoutPath = applyToolResultToLoopInput({
+    name: 'computer',
+    callId: 'computer-2',
+    rawArguments: '{"action":"left_click","coordinate":[10,10]}'
+  }, {
+    computer_action: 'left_click',
+    image_content: [{ type: 'input_image', image_url: 'data:image/png;base64,BBBB', detail: 'original' }]
+  });
+  const noPathOutput = withoutPath.inputItems[0]?.output as Array<Record<string, unknown>>;
+  assert.equal(noPathOutput.length, 1);
+  assert.equal(noPathOutput[0]?.type, 'input_image');
+});
+
 // Regression: a manual "压缩记忆" trigger runs as a maintenance action while the
 // run loop is intentionally stopped. It must NOT park at the runtime-enabled
 // gate before its model slice, otherwise the fork emits only its start event and

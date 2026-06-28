@@ -275,7 +275,16 @@ def _run_computer_action(action, dw, dh):
         resized = _resize_png_to_declared(raw_b64, dw, dh)
     except Exception as exc:
         return {"ok": False, "error": f"screenshot resize failed: {exc}"}
-    return {"ok": True, "action": name, "image_base64": resized}
+    result = {"ok": True, "action": name, "image_base64": resized}
+    # A bare `screenshot` is the explicit "capture the screen" action; persist the
+    # full-res PNG into Xiaoni's shared runtime so she has a real file path she can
+    # send via qq-send-image. The vision base64 alone is not a sendable artifact.
+    if name == "screenshot":
+        try:
+            result["saved_path"] = _save_png_to_runtime_picture_dir(base64.b64decode(raw_b64))
+        except Exception:
+            pass
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1123,6 +1132,19 @@ def _copy_to_runtime_picture_dir(source_path):
     destination_name = f"xiaoni-browser-{timestamp}-{source_path.name}"
     destination = picture_dir / destination_name
     shutil.copy2(source_path, destination)
+    return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"
+
+
+def _save_png_to_runtime_picture_dir(png_bytes):
+    # Persist computer-use screenshot bytes (the bridge holds them in-memory; unlike
+    # the playwright-cli path there is no host file to copy) into the shared runtime
+    # picture dir and return the container-visible path qq-send-image can read.
+    picture_dir = Path(RUNTIME_HOST_ROOT) / "picture"
+    picture_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    destination_name = f"xiaoni-computer-{timestamp}.png"
+    destination = picture_dir / destination_name
+    destination.write_bytes(png_bytes)
     return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"
 
 
