@@ -1639,6 +1639,51 @@ export class RuntimeStore {
     });
   }
 
+  async recordWebSearchResultLifeEvent(input: {
+    queueMessage: QueueMessagePayload;
+    runId?: string;
+    toolName: string;
+    toolResult: Record<string, unknown>;
+  }) {
+    const now = new Date();
+    const queueMessage = input.queueMessage;
+    const runId = input.runId || queueMessage.runId;
+    const actionCost = typeof input.toolResult.energy_cost === 'number' ? input.toolResult.energy_cost : 0.03;
+    await this.recordLifeEventSafe({
+      identityKey: 'xiaoni',
+      eventKind: 'web_search_result',
+      occurredAt: now,
+      surface: isPresenceTickPayload(queueMessage) ? 'presence_tick' : 'qq',
+      chatType: queueMessage.chatType,
+      sessionKey: queueMessage.sessionKey,
+      surfaceId: queueMessage.sessionKey,
+      peerId: queueMessage.peerId,
+      accountId: queueMessage.accountId,
+      batchId: queueMessage.batchId,
+      runId,
+      traceId: queueMessage.traceId,
+      actorType: 'xiaoni',
+      actorId: queueMessage.accountId,
+      targetId: queueMessage.peerId,
+      visibility: 'self_private',
+      actionCost,
+      payload: {
+        tool_name: input.toolName,
+        source: typeof input.toolResult.source === 'string' ? input.toolResult.source : null,
+        total_results: typeof input.toolResult.total_results === 'number' ? input.toolResult.total_results : null,
+        result_ref: typeof input.toolResult.result_ref === 'string' ? input.toolResult.result_ref : null,
+        result_file: typeof input.toolResult.result_file === 'string' ? input.toolResult.result_file : null
+      },
+      dedupeKey: `web_search_result:${compactDedupePart(runId, queueMessage.traceId)}`
+    });
+    await this.refreshXiaoniLifeProjection(now).catch((error) => {
+      moduleLogger.warn('Failed to refresh Xiaoni life projection after web_search', {
+        traceId: queueMessage.traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    });
+  }
+
   async recordRecoverySessionLifeEvent(
     session: {
       id: number;

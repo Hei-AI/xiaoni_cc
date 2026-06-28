@@ -23,11 +23,6 @@ function readBooleanEnv(name: string, defaultValue: boolean) {
   return defaultValue;
 }
 
-function readWebSearchContextSize(): 'low' | 'medium' | 'high' {
-  const value = process.env.AGENT_WEB_SEARCH_CONTEXT_SIZE;
-  return value === 'medium' || value === 'high' ? value : 'low';
-}
-
 function readReasoningEffortEnv(name: string, defaultValue: string) {
   const value = process.env[name]?.trim().toLowerCase();
   return value === 'none'
@@ -127,9 +122,26 @@ export const agentConfig = {
   preReplyMemoryReasonerModelName: process.env.AGENT_PRE_REPLY_MEMORY_REASONER_MODEL || 'gpt-5.4',
   presentSelfReconstructionEnabled: false,
   presentSelfReconstructionModelName: process.env.AGENT_PRESENT_SELF_RECONSTRUCTION_MODEL || 'gpt-5.4',
+  // Custom web_search (client-executed in agent-service → Tavily/Google CSE,
+  // never through the Anthropic cloak). Static per process so the cached tools
+  // prefix stays byte-stable across the main loop and its forks.
   webSearchEnabled: readBooleanEnv('AGENT_WEB_SEARCH_ENABLED', true),
-  webSearchContextSize: readWebSearchContextSize(),
-  webSearchExternalAccess: readBooleanEnv('AGENT_WEB_SEARCH_EXTERNAL_ACCESS', true),
+  webSearchDefaultSource: (process.env.AGENT_WEB_SEARCH_DEFAULT_SOURCE === 'searxng' ? 'searxng' : 'tavily') as 'tavily' | 'searxng',
+  webSearchMaxResults: readIntegerEnv('AGENT_WEB_SEARCH_MAX_RESULTS', 6),
+  webSearchTimeoutMs: readIntegerEnv('AGENT_WEB_SEARCH_TIMEOUT_MS', 15000),
+  // Oversized results spill here; both agent-service and xiaoni-executor mount
+  // this host dir RW, so 小腻's exec_command can grep/cat the same file.
+  webSearchResultDir: process.env.AGENT_WEB_SEARCH_RESULT_DIR
+    || `${process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime'}/web-search`,
+  webSearchResultPageChars: readIntegerEnv('AGENT_WEB_SEARCH_PAGE_CHARS', 6000),
+  webSearchResultTtlDays: readIntegerEnv('AGENT_WEB_SEARCH_RESULT_TTL_DAYS', 7),
+  webSearchDailyLimit: readIntegerEnv('AGENT_WEB_SEARCH_DAILY_LIMIT', 200),
+  // Tavily (default source): hosted, one call returns content. Key in agent-service.env.
+  tavilyApiKey: process.env.AGENT_WEB_SEARCH_TAVILY_API_KEY || '',
+  tavilyApiUrl: process.env.AGENT_WEB_SEARCH_TAVILY_URL || 'https://api.tavily.com/search',
+  // SearXNG (source=searxng): self-hosted OSS metasearch, no key/quota. Internal
+  // container; JSON output + limiter:false must be enabled in its settings.yml.
+  searxngUrl: process.env.AGENT_WEB_SEARCH_SEARXNG_URL || 'http://qqbot-searxng:8080/search',
   // Anthropic computer-use browser tool (Claude models only). Static per process so
   // the cached tools prefix stays byte-stable across the main loop and its forks.
   computerUseEnabled: readBooleanEnv('AGENT_COMPUTER_USE_ENABLED', false),

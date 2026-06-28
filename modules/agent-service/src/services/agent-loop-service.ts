@@ -33,6 +33,19 @@ import {
 import { resolveModelContextPolicy } from './model-context-policy';
 import { estimateRequestTokens } from './token-estimator';
 import {
+  runWebSearch,
+  normalizeWebSearchSource,
+  type WebSearchClientConfig
+} from './web-search-client';
+import {
+  renderResultsMarkdown,
+  writeResultsFile,
+  readResultsPage,
+  paginate,
+  sanitizeRef,
+  checkDailyUsage
+} from './web-search-archive';
+import {
   ResponseActionRouter,
   type ResponsePostAction,
   type ReplayableModelOutput,
@@ -717,6 +730,9 @@ const TOOL_NAMES = {
   groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
   compressCoreMemory: 'compress_core_memory',
+  // Custom web search (client-executed in agent-service → Tavily/SearXNG, never
+  // through the Anthropic cloak). Restores the web_search name as a function tool.
+  webSearch: 'web_search',
   // Anthropic computer-use tool; Claude returns a tool_use named "computer".
   computerUse: 'computer'
 } as const;
@@ -729,6 +745,7 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.execCommand]: 0.002,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020,
+  [TOOL_NAMES.webSearch]: 0.030,
   [TOOL_NAMES.computerUse]: 0.004
 };
 
@@ -746,6 +763,52 @@ const COMPUTER_USE_TOOL: OpenResponseToolDefinition = {
   display_width_px: COMPUTER_USE_DISPLAY_WIDTH,
   display_height_px: COMPUTER_USE_DISPLAY_HEIGHT,
   enable_zoom: true
+};
+
+const WEB_SEARCH_DESCRIPTION = [
+  'Search the live web. Returns ranked results (title, url, content) as a windowed view.',
+  'Default source "tavily" returns cleaned page text; "searxng" is a self-hosted metasearch with snippets only.',
+  'Large result sets are saved to a file under /xiaoni-runtime/web-search/ — the result shows the path, total pages, and a result_ref.',
+  'To read more, call again with the same result_ref and page=2 (no new search is run), or grep/cat the file with exec_command.'
+].join(' ');
+
+const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  name: TOOL_NAMES.webSearch,
+  description: WEB_SEARCH_DESCRIPTION,
+  strict: false,
+  function: {
+    name: TOOL_NAMES.webSearch,
+    description: WEB_SEARCH_DESCRIPTION,
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query.'
+        },
+        source: {
+          type: 'string',
+          enum: ['tavily', 'searxng'],
+          description: 'Search backend. Defaults to tavily (returns page content). Use searxng for open-source metasearch breadth.'
+        },
+        page: {
+          type: 'number',
+          description: 'Page of a prior search to read (use with result_ref). Defaults to 1.'
+        },
+        result_ref: {
+          type: 'string',
+          description: 'Reference returned by a prior web_search call. Pass it with page>=2 to read more WITHOUT running a new search.'
+        },
+        max_results: {
+          type: 'number',
+          description: 'Maximum number of results to fetch on a fresh search.'
+        }
+      },
+      required: ['query'],
+      additionalProperties: false
+    }
+  }
 };
 
 const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
@@ -1750,10 +1813,15 @@ function renderRecoverEnergyRejectedReminder(input: {
 
 function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
   void modelName;
-  // web_search removed (Anthropic's server-side web_search doesn't work on the
-  // subscription cloak — see project_web_search_oauth_throttle; a custom search
-  // will replace it). exec_command is the base tool.
+  // exec_command is the base tool. web_search is our custom client-executed tool
+  // (Tavily/SearXNG — never the Anthropic cloak); gated by a static config flag so
+  // when on it is present identically in every main-loop AND fork request, keeping
+  // the cached tools prefix byte-stable. Order (exec, web_search, ...) is asserted
+  // by agent-loop-service.test.ts GROUP_LOOP_TOOLS — keep it.
   const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
+  if (agentConfig.webSearchEnabled) {
+    tools.push(WEB_SEARCH_TOOL);
+  }
   // 缓存对齐：compress_core_memory 必须始终在主 loop 工具定义里（连同
   // resolveMainLoopToolChoice 的 auto allowed-tools），否则压缩 fork 的 tools 前缀
   // 与主 agent 不一致 → 冷读。禁止随意移除。详见 resolveMainLoopToolChoice 的不变量。
@@ -1803,6 +1871,11 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     { type: 'function', name: TOOL_NAMES.inspectImage },
     { type: 'function', name: TOOL_NAMES.imageTask }
   ];
+  // web_search leads the allowed list (asserted by GROUP_ALLOWED_TOOLS). Gated by
+  // the same static flag as the tool definition so the prefix stays aligned.
+  if (agentConfig.webSearchEnabled) {
+    tools.unshift({ type: 'function', name: TOOL_NAMES.webSearch });
+  }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
   tools.push({ type: 'function', name: TOOL_NAMES.compressCoreMemory });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
@@ -4634,6 +4707,8 @@ export function applyToolResultToLoopInput(
         ? String(toolResult.rejection_output).trim()
       : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
         ? toolResult.codex_output
+        : toolCall.name === TOOL_NAMES.webSearch && typeof toolResult.output_text === 'string'
+          ? String(toolResult.output_text).trim()
         : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
           ? String(toolResult.output_xml).trim()
           : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
@@ -6456,6 +6531,27 @@ export class AgentLoopService {
                   toolResult
                 }).catch((error) => {
                   moduleLogger.warn('Failed to record recover_energy life event', {
+                    traceId: payload.traceId,
+                    runId: queueMessage.id,
+                    error: error instanceof Error ? error.message : String(error)
+                  });
+                });
+              }
+            }
+            if (toolCall.name === TOOL_NAMES.webSearch
+              && toolResult.is_fresh_search === true
+              && toolResult.has_results === true) {
+              const webSearchRecorder = (this.store as RuntimeStore & {
+                recordWebSearchResultLifeEvent?: RuntimeStore['recordWebSearchResultLifeEvent'];
+              }).recordWebSearchResultLifeEvent;
+              if (typeof webSearchRecorder === 'function') {
+                await webSearchRecorder.call(this.store, {
+                  queueMessage: payload,
+                  runId: queueMessage.id,
+                  toolName: toolCall.name,
+                  toolResult
+                }).catch((error) => {
+                  moduleLogger.warn('Failed to record web_search_result life event', {
                     traceId: payload.traceId,
                     runId: queueMessage.id,
                     error: error instanceof Error ? error.message : String(error)
@@ -9993,6 +10089,9 @@ export class AgentLoopService {
       case TOOL_NAMES.execCommand: {
         return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
+      case TOOL_NAMES.webSearch: {
+        return this.executeWebSearch(toolCall, queueMessage);
+      }
       case TOOL_NAMES.computerUse: {
         return this.executeComputerAction(toolCall);
       }
@@ -10116,6 +10215,121 @@ export class AgentLoopService {
       });
       return null;
     }
+  }
+
+  // Custom web search. Runs against Tavily (default, returns content) or the
+  // self-hosted SearXNG (source=searxng) — never the Anthropic cloak. Full results
+  // spill to /xiaoni-runtime/web-search/<ref>.md (executor reads the same path);
+  // only a fixed-size window enters the loop. Paging via result_ref runs no new
+  // API call. Never throws — failures become a tool_error result.
+  private async executeWebSearch(
+    toolCall: AgentToolCall,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<Record<string, unknown>> {
+    const args = toolCall.args && typeof toolCall.args === 'object' && !Array.isArray(toolCall.args)
+      ? (toolCall.args as Record<string, unknown>)
+      : {};
+    const query = typeof args.query === 'string' ? args.query.trim() : '';
+    const source = normalizeWebSearchSource(args.source, agentConfig.webSearchDefaultSource);
+    const requestedPage = Number.isFinite(Number(args.page)) ? Math.max(1, Math.trunc(Number(args.page))) : 1;
+    const providedRef = typeof args.result_ref === 'string' ? args.result_ref.trim() : '';
+    const dir = agentConfig.webSearchResultDir;
+    const pageChars = agentConfig.webSearchResultPageChars;
+    const energyCost = RUNTIME_TOOL_COSTS[TOOL_NAMES.webSearch];
+
+    // Paging path: a prior result_ref slices its file, no API call, no new material.
+    if (providedRef) {
+      const view = await readResultsPage(dir, providedRef, requestedPage, pageChars);
+      if (view.found) {
+        return {
+          output_text: `${view.text}\n\n—— 第 ${view.page}/${view.totalPages} 页 · result_ref="${providedRef}" · 全文 ${view.filePath}`,
+          result_ref: providedRef,
+          source,
+          page: view.page,
+          total_pages: view.totalPages,
+          is_fresh_search: false,
+          has_results: false,
+          energy_cost: energyCost
+        };
+      }
+      // ref/file gone (pruned) — fall through to a fresh search if we have a query.
+    }
+
+    if (!query) {
+      return {
+        output_text: 'web_search 需要 query（或一个还在的 result_ref）。',
+        tool_error: true,
+        has_results: false,
+        energy_cost: energyCost
+      };
+    }
+
+    // Soft per-day cap to protect free API quota (best-effort).
+    const today = new Date().toISOString().slice(0, 10);
+    const usage = await checkDailyUsage(dir, today, agentConfig.webSearchDailyLimit);
+    if (!usage.allowed) {
+      return {
+        output_text: `今天的 web_search 次数到上限了（${usage.limit}/天），先省着用，或用 exec_command 直接查。`,
+        tool_error: true,
+        has_results: false,
+        energy_cost: energyCost
+      };
+    }
+
+    const maxResults = Number.isFinite(Number(args.max_results)) && Number(args.max_results) > 0
+      ? Math.trunc(Number(args.max_results))
+      : agentConfig.webSearchMaxResults;
+    const clientConfig: WebSearchClientConfig = {
+      defaultSource: agentConfig.webSearchDefaultSource,
+      maxResults,
+      timeoutMs: agentConfig.webSearchTimeoutMs,
+      tavilyApiKey: agentConfig.tavilyApiKey,
+      tavilyApiUrl: agentConfig.tavilyApiUrl,
+      searxngUrl: agentConfig.searxngUrl
+    };
+
+    const outcome = await runWebSearch(query, source, clientConfig);
+    if (!outcome.ok) {
+      return {
+        output_text: `web_search（${source}）出错了：${outcome.error}`,
+        tool_error: true,
+        web_search_error: outcome.error,
+        web_search_rate_limited: outcome.rateLimited,
+        has_results: false,
+        energy_cost: energyCost
+      };
+    }
+
+    const generatedAt = new Date().toISOString();
+    const markdown = renderResultsMarkdown({ query, source, results: outcome.results, generatedAt });
+    const ref = sanitizeRef(`ws-${createHash('sha1').update(`${query}:${toolCall.callId}`).digest('hex').slice(0, 12)}`);
+    let filePath = `${dir}/${ref}.md`;
+    try {
+      filePath = await writeResultsFile(dir, ref, markdown);
+    } catch (error) {
+      moduleLogger.warn('Failed to write web_search result file', {
+        traceId: queueMessage.traceId,
+        ref,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    const view = paginate(markdown, 1, pageChars);
+    const hasResults = outcome.results.length > 0;
+    const footer = hasResults
+      ? `—— 第 ${view.page}/${view.totalPages} 页 · 共 ${outcome.results.length} 条 · source=${source}\n全文 ${filePath}（result_ref="${ref}"）。要下一页：web_search(result_ref="${ref}", page=2)；或 exec_command 自己 grep/cat 这个文件。`
+      : `（${source} 没搜到结果）`;
+    return {
+      output_text: `${view.text}\n\n${footer}`,
+      result_ref: ref,
+      source,
+      page: view.page,
+      total_pages: view.totalPages,
+      total_results: outcome.results.length,
+      result_file: filePath,
+      has_results: hasResults,
+      is_fresh_search: true,
+      energy_cost: energyCost
+    };
   }
 
   // Execute one computer-use action against the host Playwright bridge and return

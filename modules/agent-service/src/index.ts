@@ -4,6 +4,7 @@ import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService } from './services/agent-loop-service';
+import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
@@ -348,6 +349,22 @@ async function start() {
     }
   } catch (error) {
     moduleLogger.warn('Failed to reap orphaned fork runs on startup', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  // Age-prune spilled web_search result files so /xiaoni-runtime/web-search
+  // doesn't grow unbounded (best-effort; the dir may not exist yet).
+  try {
+    const removed = await pruneOldResultFiles(
+      agentConfig.webSearchResultDir,
+      agentConfig.webSearchResultTtlDays,
+      Date.now()
+    );
+    if (removed > 0) {
+      moduleLogger.info('Pruned stale web_search result files on startup', { removed });
+    }
+  } catch (error) {
+    moduleLogger.warn('Failed to prune web_search result files on startup', {
       error: error instanceof Error ? error.message : String(error)
     });
   }
