@@ -282,7 +282,10 @@ async function triggerRuntimePauseAfterCoreMemoryCompression() {
     reason: 'core_memory_compression_completed'
   }, databaseConfig);
   runtimeEnabled = control.enabled !== false;
-  if (!runtimeEnabled && control.postCompressionPauseTriggeredAt) {
+  // Only log a real pause-this-call. Previously this fired whenever the runtime
+  // was disabled (for ANY reason, incl. a manual toggle) and a stale
+  // triggered_at existed, falsely attributing the disable to compression.
+  if (control.pauseJustTriggered) {
     moduleLogger.warn('Xiaoni runtime paused after core memory compression', {
       identityKey: control.identityKey,
       triggeredAt: control.postCompressionPauseTriggeredAt,
