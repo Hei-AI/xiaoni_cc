@@ -115,10 +115,18 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
         ? (providerConnected ? 'online' : 'offline')
         : 'offline';
 
+      // Inbound liveness: NapCat can be reachable+online while its receive pipe
+      // is dead ("green but dead"). provider /health computes the verdict; we
+      // fold it into the dashboard health so a dead pipe shows as degraded.
+      const inboundLiveness = providerPayload.inboundLiveness && typeof providerPayload.inboundLiveness === 'object'
+        ? providerPayload.inboundLiveness as Record<string, any>
+        : null;
+      const inboundHealthy = inboundLiveness ? inboundLiveness.healthy !== false : true;
+
       const overallStatus =
         !providerProbe.ok
           ? 'offline'
-          : !databaseLive || !providerConnected
+          : !databaseLive || !providerConnected || !inboundHealthy
             ? 'degraded'
             : 'healthy';
 
@@ -136,6 +144,14 @@ export function createStatusRoutes(database: DatabaseManager, logger: winston.Lo
             errorMessage: providerProbe.ok ? (napcat.error || null) : (providerProbe.error || 'provider-service health check failed'),
             url: PROVIDER_SERVICE_URL,
             healthStatusCode: providerProbe.statusCode
+          },
+          inbound: {
+            live: inboundHealthy,
+            status: !inboundLiveness ? 'unknown' : (inboundHealthy ? 'online' : 'degraded'),
+            state: inboundLiveness?.state ?? null,
+            detail: inboundLiveness?.detail ?? null,
+            lastEventAt: inboundLiveness?.lastEventAt ?? null,
+            staleForMs: inboundLiveness?.staleForMs ?? null
           },
           admin: {
             live: true,
