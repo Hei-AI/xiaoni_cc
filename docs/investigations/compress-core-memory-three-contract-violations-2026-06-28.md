@@ -123,7 +123,17 @@ cutoff 推进实证:
   - 代价 = 已接受的「差一轮」:跨过 500k 那轮 + 重启后首轮不设防地跑一次,真实、罕见、500k 软线下有余量。
 - 落点:删 `:6150-6157` 的内联估算调度、`:8078`/`:11787` 的 tiktoken 触发条件、`:11695-11726` 的 `tokenizerCalibration` 整套、`estimateLoopInputTokens`/`estimateRequestTokens` 在压缩路径上的调用;触发改为内存计数器(在主 turn usage 回填处更新,约 `:5535`)。
 
-### REQ 2 — 压缩完成后 STW 原子替换
+### 实施状态(2026-06-28)
+- ✅ **REQ1 + REQ3 已实现 + 提交 + 测试绿**(commit `caf5e6fc`,doc `9b73e58c`):真实 input_tokens 连续 2 轮 >500k 触发、tail-30 head-only cutoff、tiktoken 整套删除。26 个压缩相关测试全绿;唯一其余失败是 4 个**预先就坏**的 image/subconscious fork 测试(baseline 同样失败,与本次无关)。
+- ⏳ **REQ2(STW)未实现** —— 需在有人盯的情况下做。原因见下:commit/替换当前发生在 **压缩 fork 执行中途**(`agent-loop-service.ts:9727`,fork 调用 compress_core_memory 那一刻),与主 loop / 其它 fork 并发。正确的 STW 必须先把「fork 产出摘要」与「commit 落地」解耦,再把 commit 收口到静默点。盲改热路径有「死锁 / 压缩永不 commit → 上下文无限增长」的风险,且 REQ1 已消除今晚事故(6 次击穿全来自真实 <500k 的误触发,现在根本不会触发),故 hold 给监督实现。
+- **REQ2 实现就绪设计(给监督实现用):**
+  1. 把 `:9727` 的 `commitCoreMemoryCompression` 从 fork 执行中途**移出**:fork 只产出 summary + 计划 cutoff,落 `completeCoreMemoryCompressionForkRun`,然后**置一个 in-process pending-commit**(contextSessionKey → {readCutoff, summary, coveredEnd}),不立即 commit。
+  2. 在 `processRuntimeFrame`(`:5988`)入口、开新 turn 之前,检查 pending-commit:若静默(见下)则**原子应用**(commit cutoff + 写 summary = 近况替换与上下文重组一次性),清 pending;否则跳过,下个 frame 边界再试。
+  3. **静默判定:**主 agent = 当前 turn(model slice)已结束(frame 边界天然满足);所有 fork = `coreMemoryCompressionForks` 空 + `subconsciousAgentForkInFlight===null` + image-vision fork 空。触发本次的 compression fork 此时已 completed(它把活交给了 pending-commit),不算。
+  4. **防饿死兜底:**pending-commit 超过 K 个 frame / 或真实 input 逼近模型真实硬窗口时,强制在下一个 frame 边界 commit(避免极端忙时永不替换 → 上下文无限增长)。
+  5. 测试:fork 完成后 pending 不立即 commit;有 fork 在跑时 frame 边界不 commit;全静默的 frame 边界 commit 且只 commit 一次;兜底强制 commit。
+
+### REQ 2 — 压缩完成后 STW 原子替换(spec,未实现)
 - fork 慢慢算那 1-2 分钟**不停世界**;只有最后"换近况 + 重组上下文"那一下进 STW。
 - **静默定义(已锁):**
   - **小腻主 agent:当前 turn(当前 model slice)跑完即可**——不切 turn 中间,当前 turn 一返回就是安全点。
