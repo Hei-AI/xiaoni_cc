@@ -724,7 +724,6 @@ const TOOL_NAMES = {
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.groupReply]: 0.015,
   [TOOL_NAMES.privateReply]: 0.015,
-  web_search: 0.080,
   [TOOL_NAMES.inspectImage]: 0.040,
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.002,
@@ -755,12 +754,6 @@ const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
   'qq-send-image': 0.002,
   'xiaoni-site': 0.002,
   'xiaoni-browser': 0.004
-};
-
-const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
-  type: 'web_search',
-  search_context_size: agentConfig.webSearchContextSize,
-  external_web_access: agentConfig.webSearchExternalAccess
 };
 
 const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
@@ -1757,9 +1750,10 @@ function renderRecoverEnergyRejectedReminder(input: {
 
 function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
   void modelName;
-  const tools: OpenResponseToolDefinition[] = agentConfig.webSearchEnabled
-    ? [EXEC_COMMAND_TOOL, WEB_SEARCH_TOOL]
-    : [EXEC_COMMAND_TOOL];
+  // web_search removed (Anthropic's server-side web_search doesn't work on the
+  // subscription cloak — see project_web_search_oauth_throttle; a custom search
+  // will replace it). exec_command is the base tool.
+  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
   // 缓存对齐：compress_core_memory 必须始终在主 loop 工具定义里（连同
   // resolveMainLoopToolChoice 的 auto allowed-tools），否则压缩 fork 的 tools 前缀
   // 与主 agent 不一致 → 冷读。禁止随意移除。详见 resolveMainLoopToolChoice 的不变量。
@@ -1809,9 +1803,6 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     { type: 'function', name: TOOL_NAMES.inspectImage },
     { type: 'function', name: TOOL_NAMES.imageTask }
   ];
-  if (agentConfig.webSearchEnabled) {
-    tools.unshift({ type: 'web_search' });
-  }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
   tools.push({ type: 'function', name: TOOL_NAMES.compressCoreMemory });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
