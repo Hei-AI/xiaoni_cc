@@ -191,14 +191,19 @@ services:
       - AGENT_PRE_REPLY_MEMORY_REASONER_MODEL=gpt-5.4
       - AGENT_PRESENT_SELF_RECONSTRUCTION_ENABLED=true
       - AGENT_PRESENT_SELF_RECONSTRUCTION_MODEL=gpt-5.4
-      # web_search removed: Anthropic's server-side web_search doesn't work on the Claude Code
-      # subscription cloak (web_search_20260209 code-exec is gated; see project memory). A
-      # custom web_search will replace it. The tool is no longer surfaced to the agent.
+      # Custom web_search (client-executed in agent-service → Tavily/SearXNG, never
+      # the Anthropic cloak). Replaces the removed server-side web_search. Static flag
+      # so the cached tools prefix stays byte-stable. Tavily key comes from the
+      # env_file; SearXNG is the in-stack container below (no key).
+      - AGENT_WEB_SEARCH_ENABLED=${AGENT_WEB_SEARCH_ENABLED:-true}
+      - AGENT_WEB_SEARCH_SEARXNG_URL=http://qqbot-searxng:8080/search
       # Computer use (client-executed via the host Playwright bridge) IS honored on the cloak.
       - AGENT_COMPUTER_USE_ENABLED=${AGENT_COMPUTER_USE_ENABLED:-true}
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
       - BOT_QQ_NUMBER=1129974489
       - NODE_TLS_REJECT_UNAUTHORIZED=0
+    env_file:
+      - /home/liahua/.qqbot-local/agent-service.env
     depends_on:
       - postgres
       - provider-service
@@ -211,6 +216,19 @@ services:
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
       - ./docs/xiaoni_prompt:/app/docs/xiaoni_prompt:ro
       - ./modules/http-traffic-monitor/transparent-proxy/mitmproxy-data/mitmproxy-ca-cert.pem:/certs/mitmproxy-ca-cert.pem:ro
+
+  # SearXNG — self-hosted OSS metasearch backing web_search source=searxng.
+  # Internal only (no published port); agent-service reaches it on the shared network.
+  searxng:
+    image: searxng/searxng:latest
+    container_name: qqbot-searxng
+    environment:
+      - SEARXNG_BASE_URL=http://qqbot-searxng:8080/
+    volumes:
+      - /home/liahua/.qqbot-local/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped
+    networks:
+      - qq_bot_network
 
   # Admin Panel Backend
   admin-backend:
