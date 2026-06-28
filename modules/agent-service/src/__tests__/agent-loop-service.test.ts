@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
 import type { QueueMessagePayload } from '../types';
@@ -10399,13 +10400,16 @@ test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and us
   assert.ok(localOverflow);
 });
 
-test('buildContextBudgetPlan uses local overflow point to plan a deferred compression cutoff', async () => {
+test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered', async () => {
+  // REQ3: 新上下文 = 整段尾部 HISTORY_COMPACT_KEEP(30) 条 + 之后新增。触发用真实
+  // input_tokens 计数器(此处用 forceCompression 走同一条 tail-30 cutoff)。需 >30 条
+  // 才有可压缩的头部。见 docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const history = Array.from({ length: 12 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -10429,7 +10433,8 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:test-global'
+    contextSessionKey: 'xiaoni:test-global',
+    forceCompression: true
   });
 
   assert.equal(plan.cutoffRecomputed, false);
@@ -10439,8 +10444,10 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
   assert.equal(plan.readCutoffAfterConversationId, null);
   assert.equal(plan.previousReadCutoffAfterConversationId, null);
   assert.equal(plan.retainedHistory.length, history.length);
-  assert.ok(plan.coreMemoryCompression?.readCutoffAfterConversationId !== null);
-  assert.ok(plan.coreMemoryCompression?.compressionCoveredEndConversationId !== null);
+  // tail-30 head-only: keep last 30 (turns 6..35) verbatim; cutoff lands after turn 5
+  // and the summary covers exactly the evicted head (ends at turn 5 == the cutoff).
+  assert.equal(plan.coreMemoryCompression?.readCutoffAfterConversationId, 5);
+  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndConversationId, 5);
   assert.ok(
     plan.coreMemoryCompression!.readCutoffAfterConversationId <=
     plan.coreMemoryCompression!.compressionCoveredEndConversationId!
@@ -10449,7 +10456,7 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
   assert.match(JSON.stringify(plan.summarySourceInput), /核心记忆近况/);
   assert.match(JSON.stringify(plan.summarySourceInput), /global history 1(?!\d)/);
   assert.match(JSON.stringify(plan.requestInput), /global history 1(?!\d)/);
-  assert.match(JSON.stringify(plan.requestInput), /global history 12/);
+  assert.match(JSON.stringify(plan.requestInput), /global history 35/);
 
   const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
     history,
@@ -10458,7 +10465,8 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:test-global'
+    contextSessionKey: 'xiaoni:test-global',
+    forceCompression: true
   });
 
   assert.ok(checkpoint);
@@ -10496,13 +10504,15 @@ test('buildContextBudgetPlan uses local overflow point to plan a deferred compre
   );
 });
 
-test('buildContextBudgetPlan still advances when the first stack block overflows by itself', async () => {
+test('buildContextBudgetPlan does not compress at or under the keep window', async () => {
+  // REQ3: 保留整段尾部 30 条。history <= HISTORY_COMPACT_KEEP(30) 时没有可逐出的头部,
+  // 即便强制触发也是 no-op(不再像旧的 token 二分那样把单个 block 当溢出去砍)。
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const history = Array.from({ length: 3 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: 30 }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -10526,15 +10536,14 @@ test('buildContextBudgetPlan still advances when the first stack block overflows
     loopContinuation: [],
     runtimeIdentityFacts: [],
     developerContextBlock: null,
-    contextSessionKey: 'xiaoni:test-global'
+    contextSessionKey: 'xiaoni:test-global',
+    forceCompression: true
   });
 
   assert.equal(plan.readCutoffAfterConversationId, null);
-  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndConversationId, 1);
-  assert.equal(plan.coreMemoryCompression?.readCutoffAfterConversationId, 1);
-  const summaryText = JSON.stringify(plan.summarySourceInput);
-  assert.match(summaryText, /global history 1(?!\d)/);
-  assert.doesNotMatch(summaryText, /global history 2/);
+  assert.equal(plan.coreMemoryCompression, null);
+  assert.equal(plan.summarySourceInput, null);
+  assert.equal(plan.retainedHistory.length, history.length);
 });
 
 test('runtime frame does not schedule compression from turn count alone', async () => {
@@ -10841,7 +10850,10 @@ test('core memory compression runs in an isolated background fork alongside the 
       }
     }
   });
-  const history = Array.from({ length: 12 }, (_, index) => createConversationTurn({
+  // REQ3: need >HISTORY_COMPACT_KEEP(30) turns so the tail-30 cutoff has an evicted
+  // head to summarize. REQ1: arm the auto trigger by seeding the real-input debounce
+  // counter (instead of the deleted estimate>window path).
+  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -10849,6 +10861,7 @@ test('core memory compression runs in an isolated background fork alongside the 
     userMessage: `global history ${index + 1} ${'x '.repeat(180)}`,
     aiResponse: `global os ${index + 1} ${'y '.repeat(180)}`
   }));
+  __setCompressionTriggerCounterForTest(getGlobalPromptContextSessionKey(), 2);
   const summaryWrites: any[] = [];
   const cutoffWrites: any[] = [];
   const conversations: any[] = [];
@@ -11102,10 +11115,10 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.match(mainText, /global history 12/);
 
   assert.equal(conversations.length, 1);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 12);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 35);
   assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
   assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 12);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 35);
   assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_cutoff_after_conversation_id, null);
   assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.cutoff_recomputed, false);
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
@@ -11679,8 +11692,9 @@ test('manual core memory compression forces a compaction past the keep window wi
   assert.equal(result.status, 'scheduled');
   assert.equal(result.triggered, true);
   assert.equal(result.retainedHistoryTurns, 35);
-  // keep last HISTORY_COMPACT_KEEP (30): cutoff at id 5 (index 35-30-1=4), covered to newest id 35
-  assert.equal(result.compressionCoveredEndConversationId, 35);
+  // head-only (option A): keep last 30 verbatim (turns 6..35); summarize only the
+  // evicted head (turns 1..5). cutoff == covered == id 5 (the last evicted turn).
+  assert.equal(result.compressionCoveredEndConversationId, 5);
   assert.equal(result.readCutoffAfterConversationId, 5);
 });
 
@@ -11736,7 +11750,8 @@ test('manual core memory compression delegates to the single-flight fork schedul
   assert.equal(result.status, 'already_running');
   assert.equal(result.triggered, false);
   assert.ok(scheduleArgs, 'scheduleCoreMemoryCompressionFork was not invoked');
-  assert.equal(scheduleArgs.compression.compressionCoveredEndConversationId, 35);
+  // head-only: covered == cutoff == id 5 (evicted head turns 1..5; tail 6..35 kept)
+  assert.equal(scheduleArgs.compression.compressionCoveredEndConversationId, 5);
   assert.equal(scheduleArgs.compression.readCutoffAfterConversationId, 5);
   assert.ok(Array.isArray(scheduleArgs.baseRequest.input));
 });

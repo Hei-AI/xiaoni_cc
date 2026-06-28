@@ -603,6 +603,43 @@ const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
 const HISTORY_COMPACT_KEEP = 30;
+// REQ1: 压缩触发只看模型返回的真实 input_tokens(不是 tiktoken 估算)。
+// 软线 500k(opus-4-6 真实窗口远在其上,留足余量);连续 N=2 轮真实 input
+// 都 > 软线才触发,滤掉单轮尖峰(一次性大 tool result / 图片 burst)。
+// 计数器只放内存 + 重启清零:重启后靠首轮真实测量重判,绝不对过期数字误压。
+// 见 docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
+const COMPRESSION_TRIGGER_INPUT_TOKENS = 500_000;
+const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
+const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
+function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
+  if (!sessionKey) {
+    return;
+  }
+  const over = typeof actualInputTokens === 'number'
+    && Number.isFinite(actualInputTokens)
+    && actualInputTokens > COMPRESSION_TRIGGER_INPUT_TOKENS;
+  if (over) {
+    consecutiveOverCompressionThresholdBySession.set(
+      sessionKey,
+      (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) + 1
+    );
+  } else if (typeof actualInputTokens === 'number' && Number.isFinite(actualInputTokens)) {
+    // a real measurement at/under the soft line resets the debounce
+    consecutiveOverCompressionThresholdBySession.set(sessionKey, 0);
+  }
+}
+function shouldTriggerCompressionFromRealInput(sessionKey: string): boolean {
+  return (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) >= COMPRESSION_TRIGGER_CONSECUTIVE_TURNS;
+}
+function resetCompressionTriggerCounter(sessionKey: string): void {
+  consecutiveOverCompressionThresholdBySession.set(sessionKey, 0);
+}
+// test-only seam: seed the in-memory compression-trigger debounce counter so an
+// integration test can deterministically arm the auto trigger without sending two
+// real >500k turns. Not used in production.
+export function __setCompressionTriggerCounterForTest(sessionKey: string, count: number): void {
+  consecutiveOverCompressionThresholdBySession.set(sessionKey, count);
+}
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_WRITER_ENABLED = false;
@@ -7993,18 +8030,11 @@ export class AgentLoopService {
       params.runtimePrompt.modelName,
       params.runtimePrompt.parameters as Record<string, unknown> | undefined
     );
-    const rawContextWindowTokens = policy?.contextWindowTokens ?? null;
-    const calibrationSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
-    if (!tokenizerCalibrationBySession.has(calibrationSessionKey)) {
-      // seed with the model-specific baseline (1.2 expansion for Claude) before refining
-      tokenizerCalibrationBySession.set(calibrationSessionKey, defaultCalibrationForModel(params.runtimePrompt.modelName));
-    }
-    const tokenizerCalibration = getTokenizerCalibration(calibrationSessionKey);
-    // o200k_base undercounts Claude => calibration > 1 => shrink the effective
-    // window so compression triggers at the model's real token budget.
-    const contextWindowTokens = rawContextWindowTokens
-      ? Math.max(1, Math.floor(rawContextWindowTokens / tokenizerCalibration))
-      : null;
+    // REQ1: tiktoken estimate + calibration removed. The compression trigger no
+    // longer estimates the live window; it reacts to the model's real input_tokens
+    // (consecutiveOverCompressionThresholdBySession). contextWindowTokens is now the
+    // raw policy window, kept only for observability in the turn record.
+    const contextWindowTokens = policy?.contextWindowTokens ?? null;
     const targetBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO)) : null;
     const hardBudgetTokens = contextWindowTokens ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO)) : null;
     const contextSessionKey = params.contextSessionKey || getGlobalPromptContextSessionKey();
@@ -8045,11 +8075,9 @@ export class AgentLoopService {
       precomputedCurrentTurnInputItems: currentTurnInputItems
     });
     const selfContinuationInputItem = appendedSelfContinuationInputItems[0] ?? null;
-    const estimate = await estimateLoopInputTokens({
-      modelName: params.runtimePrompt.modelName,
-      queueMessage: params.queueMessage,
-      loopInput: requestInput
-    });
+    // REQ1: no tiktoken pre-estimate. These fields stay in the plan/turn-record for
+    // backward-compatible logging only; the real signal is the provider's input_tokens.
+    const estimate = { inputTokens: 0, encoding: null, source: null as 'tiktoken' | 'heuristic' | null };
 
     if (!contextWindowTokens || !targetBudgetTokens || !hardBudgetTokens) {
       return {
@@ -8075,7 +8103,9 @@ export class AgentLoopService {
       };
     }
 
-    if (!params.forceCompression && (estimate.inputTokens <= contextWindowTokens || initialRetainedHistory.length === 0)) {
+    // REQ1: 触发只看模型返回的真实 input_tokens —— 连续 N 轮 > 软线(内存计数器,
+    // 重启清零)。不再用 tiktoken 估算 vs window 当判据。forceCompression(手动)照旧强压。
+    if (!params.forceCompression && (!shouldTriggerCompressionFromRealInput(contextSessionKey) || initialRetainedHistory.length === 0)) {
       return {
         requestInput,
         currentTurnInputItems,
@@ -8099,23 +8129,12 @@ export class AgentLoopService {
       };
     }
 
-    const compressionPoint = params.forceCompression
-      ? planReadCutoffForForcedCompression(initialRetainedHistory)
-      : await planReadCutoffFromFirstOverflow({
-          history: initialRetainedHistory,
-          queueMessage: params.queueMessage,
-          runtimePrompt: params.runtimePrompt,
-          loopContinuation: params.loopContinuation,
-          contextWindowTokens,
-          runtimeIdentityFacts: params.runtimeIdentityFacts,
-          contextSummary,
-          pendingProactiveShare,
-          developerContextBlock: params.developerContextBlock ?? null,
-          runtimeEnergyState: params.runtimeEnergyState ?? null,
-          triggerInputMode,
-          appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-          loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
-        });
+    // REQ3: 新上下文 = 压缩前整段尾部 HISTORY_COMPACT_KEEP 条 + 之后新增。
+    // 触发(auto 与 forced)统一用整段尾部 30 的 cutoff —— 删掉旧的 token 二分
+    // (planReadCutoffFromFirstOverflow),它按估算"刚好不溢出"一条一条 nibble,
+    // 导致每次只砍 1 条、反复触发、反复打穿 cache。见
+    // docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
+    const compressionPoint = planReadCutoffForForcedCompression(initialRetainedHistory);
     if (!compressionPoint) {
       return {
         requestInput,
@@ -9345,6 +9364,10 @@ export class AgentLoopService {
     bypassRuntimeEnabledGate?: boolean;
   }) {
     const key = params.compression.contextSessionKey || params.contextSessionKey;
+    // REQ1: compression is now scheduled — clear the real-input debounce counter so
+    // it does NOT re-fire on every main turn while the ~1-2min fork runs. Post-
+    // compression the next real measurement (lower) repopulates the counter from 0.
+    resetCompressionTriggerCounter(key);
     const existing = this.coreMemoryCompressionForks.get(key);
     const compression = existing?.compression ?? params.compression;
     const artifact = {
@@ -11685,167 +11708,33 @@ function buildLoopRequestInput(params: {
   ];
 }
 
-// Tokenizer calibration. The local pre-estimate (token_count.py) uses tiktoken
-// o200k_base, which is NOT Claude's tokenizer. After each main turn we calibrate
-// from the real input_tokens the provider returned, and scale the effective
-// context window so the compression trigger matches the model's actual token
-// accounting. The uncompressed history is always re-estimated fresh each turn
-// (planReadCutoffFromFirstOverflow recomputes it), so only the calibration
-// factor is carried across turns. EMA-smoothed + clamped to avoid jitter.
-const tokenizerCalibrationBySession = new Map<string, number>();
-const TOKENIZER_CALIBRATION_MIN = 0.5;
-const TOKENIZER_CALIBRATION_MAX = 2.0;
-// tiktoken o200k_base undercounts Claude's tokenizer; Anthropic guidance is a
-// ~1.2-1.25 expansion factor. Seed the calibration with this so the FIRST turn
-// already accounts for it, before self-calibration (from real input_tokens) refines.
-const CLAUDE_TIKTOKEN_EXPANSION = 1.2;
-
-function defaultCalibrationForModel(modelName?: string): number {
-  const normalized = typeof modelName === 'string' ? modelName.trim().toLowerCase() : '';
-  return normalized.startsWith('claude') || normalized.includes('claude-') ? CLAUDE_TIKTOKEN_EXPANSION : 1;
-}
-
-function getTokenizerCalibration(sessionKey: string): number {
-  const value = tokenizerCalibrationBySession.get(sessionKey);
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
-}
-
-function updateTokenizerCalibration(
-  sessionKey: string,
-  actualInputTokens: number | null,
-  estimatedInputTokens: number | null
-): void {
-  if (!actualInputTokens || !estimatedInputTokens || actualInputTokens <= 0 || estimatedInputTokens <= 0) {
-    return;
-  }
-  const observed = actualInputTokens / estimatedInputTokens;
-  const previous = getTokenizerCalibration(sessionKey);
-  const blended = previous * 0.5 + observed * 0.5;
-  const clamped = Math.min(TOKENIZER_CALIBRATION_MAX, Math.max(TOKENIZER_CALIBRATION_MIN, blended));
-  tokenizerCalibrationBySession.set(sessionKey, clamped);
-}
-
-async function estimateLoopInputTokens(params: {
-  modelName: string;
-  queueMessage: QueueMessageRecord['payload'];
-  loopInput: OpenResponseInputItem[];
-}) {
-  const canonicalRequest = buildCanonicalAgentTurnRequest(
-    params.modelName,
-    params.loopInput,
-    params.queueMessage.chatType
-  );
-  return estimateRequestTokens({
-    model: params.modelName,
-    request: canonicalRequest
-  });
-}
-
-async function planReadCutoffFromFirstOverflow(params: {
-  history: ConversationTurn[];
-  queueMessage: QueueMessageRecord['payload'];
-  runtimePrompt: ResolvedAgentRuntimePrompt;
-  loopContinuation: OpenResponseInputItem[];
-  contextWindowTokens: number;
-  runtimeIdentityFacts: RuntimeIdentityFactProjection[];
-  contextSummary?: string | null;
-  pendingProactiveShare?: string | null;
-  developerContextBlock?: string | null;
-  runtimeEnergyState?: RuntimeEnergyState | null;
-  triggerInputMode?: RuntimeTriggerInputMode;
-  appendSelfContinuationOnTerminalFinalAnswer?: boolean;
-  loopContinuationBeforeCurrentTrigger?: boolean;
-}) {
-  if (params.history.length === 0) {
-    return null;
-  }
-
-  const estimatePrefix = async (prefixLength: number) => estimateLoopInputTokens({
-    modelName: params.runtimePrompt.modelName,
-    queueMessage: params.queueMessage,
-    loopInput: buildLoopRequestInput({
-      history: params.history.slice(0, prefixLength),
-      queueMessage: params.queueMessage,
-      runtimePrompt: params.runtimePrompt,
-      loopContinuation: params.loopContinuation,
-      runtimeIdentityFacts: params.runtimeIdentityFacts,
-      contextSummary: params.contextSummary,
-      pendingProactiveShare: params.pendingProactiveShare,
-      developerContextBlock: params.developerContextBlock,
-      runtimeEnergyState: params.runtimeEnergyState ?? null,
-      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
-      appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false
-    })
-  });
-
-  let low = 1;
-  let high = params.history.length;
-  let firstOverflowPrefixLength: number | null = null;
-  while (low <= high) {
-    const midpoint = Math.floor((low + high) / 2);
-    const estimate = await estimatePrefix(midpoint);
-    if (estimate.inputTokens > params.contextWindowTokens) {
-      firstOverflowPrefixLength = midpoint;
-      high = midpoint - 1;
-    } else {
-      low = midpoint + 1;
-    }
-  }
-
-  if (firstOverflowPrefixLength === null) {
-    return null;
-  }
-
-  const sourceLength = Math.max(1, firstOverflowPrefixLength - 1);
-  const summarySourceHistory = params.history.slice(0, sourceLength);
-  const sourceEnd = summarySourceHistory[summarySourceHistory.length - 1];
-  if (!sourceEnd) {
-    return null;
-  }
-  const overlapCount = Math.min(HISTORY_COMPACT_KEEP, Math.max(0, summarySourceHistory.length - 1));
-  const readCutoffIndex = Math.max(0, summarySourceHistory.length - overlapCount - 1);
-  const readCutoffAfterConversationId = summarySourceHistory[readCutoffIndex]?.id ?? sourceEnd.id;
-
-  return {
-    firstOverflowPrefixLength,
-    summarySourceHistory,
-    readCutoffAfterConversationId,
-    compressionCoveredEndConversationId: sourceEnd.id,
-    overlapCount
-  };
-}
-
-// Forced/manual compaction cutoff. Unlike planReadCutoffFromFirstOverflow (which
-// binary-searches the token-overflow point), this is purely turn-count driven:
-// summarize the whole retained window and advance the read cutoff to keep only the
-// most recent HISTORY_COMPACT_KEEP turns live. Returns the SAME shape so the
-// downstream compression-plan / fork machinery is shared byte-for-byte. Returns
-// null when there is nothing strictly before the safety overlap to evict (history
-// at or under the keep window) — that is the only true no-op for a manual trigger.
+// REQ3 compaction cutoff — turn-count driven, head-only (option A). The unified
+// trigger path (auto via real-input counter, or forced/manual) keeps the most
+// recent HISTORY_COMPACT_KEEP turns verbatim and summarizes ONLY the evicted head.
+// The retained tail is NOT re-summarized (no overlap), so the summary == the近况 of
+// exactly what was compressed away. Returns null when history <= keep window (no
+// head to evict). See docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
 //
 //   history (oldest -> newest)
-//   [ ............ evicted head ............ | last HISTORY_COMPACT_KEEP turns ]
-//                                            ^ readCutoffAfterConversationId
-//   summarySourceHistory = whole window (head + overlap, same as the overflow path)
-//   compressionCoveredEndConversationId = newest retained turn
+//   [ ......... evicted head (summarized) ......... | last HISTORY_COMPACT_KEEP turns (verbatim) ]
+//                                                   ^ readCutoffAfterConversationId == covered end
 function planReadCutoffForForcedCompression(history: ConversationTurn[]) {
   if (history.length <= HISTORY_COMPACT_KEEP) {
     return null;
   }
-  const summarySourceHistory = history;
+  const summarySourceHistory = history.slice(0, history.length - HISTORY_COMPACT_KEEP);
   const sourceEnd = summarySourceHistory[summarySourceHistory.length - 1];
   if (!sourceEnd) {
     return null;
   }
-  const overlapCount = Math.min(HISTORY_COMPACT_KEEP, Math.max(0, summarySourceHistory.length - 1));
-  const readCutoffIndex = Math.max(0, summarySourceHistory.length - overlapCount - 1);
-  const readCutoffAfterConversationId = summarySourceHistory[readCutoffIndex]?.id ?? sourceEnd.id;
+  const readCutoffAfterConversationId = sourceEnd.id;
   return {
     firstOverflowPrefixLength: summarySourceHistory.length,
     summarySourceHistory,
     readCutoffAfterConversationId,
+    // head-only: the summary covers exactly the evicted head; its end IS the cutoff.
     compressionCoveredEndConversationId: sourceEnd.id,
-    overlapCount
+    overlapCount: 0
   };
 }
 
@@ -11883,12 +11772,11 @@ function attachActualUsageToTurnBudget(
   record.cachedInputTokens = readOptionalNumber(modelResult.usage_details?.cached_input_tokens);
   record.reasoningTokens = readOptionalNumber(modelResult.usage_details?.reasoning_tokens);
   record.processingTimeMs = readOptionalNumber(modelResult.performance?.processing_time_ms);
-  // Calibrate the local tokenizer estimate against the model's real input_tokens
-  // for the next turn (keyed by the single global runtime session).
-  updateTokenizerCalibration(
+  // REQ1: feed the real input_tokens into the compression trigger's debounce
+  // counter (consecutive turns over the soft line). In-memory, reset on restart.
+  recordMainTurnInputTokensForCompression(
     getGlobalPromptContextSessionKey(),
-    record.actualInputTokens,
-    record.estimatedInputTokens
+    record.actualInputTokens
   );
 }
 
