@@ -933,6 +933,16 @@ function buildStreamEntries(
     const ref: StreamForkRef = { runId: run.forkRunId, kind: forkKind, label: forkLabelForRun(run) };
     const trigger = buildForkTriggerItem(run);
     if (trigger) {
+      // The trigger explains why 小腻 entered the fork, so it leads (sits just
+      // below the fork's oldest event in newest-first order). Stamp it with the
+      // fork's minimum event orderSeq − 0.5 so it sorts inline with the fork
+      // instead of sinking to the un-stamped historical tier at the very bottom.
+      const eventSeqs = (run.events || [])
+        .map((event) => streamMetaNumber(event.metadata?.orderSeq))
+        .filter((seq) => Number.isFinite(seq));
+      if (eventSeqs.length) {
+        trigger.metadata = { ...trigger.metadata, orderSeq: Math.min(...eventSeqs) - 0.5 };
+      }
       entries.push({ id: trigger.id, lane: 'fork', timestamp: run.startedAt, item: trigger, fork: ref });
     }
     for (const event of run.events || []) {
