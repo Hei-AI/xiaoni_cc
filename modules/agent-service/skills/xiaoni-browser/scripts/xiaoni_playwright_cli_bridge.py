@@ -135,10 +135,27 @@ def _run_cli_capture(extra_args, timeout=60):
 
 
 def _extract_sentinel(stdout):
-    idx = stdout.rfind(_COMPUTER_SENTINEL)
-    if idx < 0:
+    # playwright-cli prints the run-code return value inside a block:
+    #   ### Result
+    #   <json-encoded value>
+    #   ### Ran Playwright code
+    #   ```js ... ```
+    # We must anchor on the "### Result" block, NOT a raw sentinel search: the CLI
+    # also echoes our code (which literally contains the sentinel), so rfind would
+    # match the echo. The value is JSON-encoded (a quoted string), so json.loads it.
+    m = re.search(r"### Result\s*\n(.*?)\n### ", stdout, re.S)
+    if not m:
+        m = re.search(r"### Result\s*\n(.*)\Z", stdout, re.S)
+    if not m:
         return None
-    return stdout[idx + len(_COMPUTER_SENTINEL):].strip()
+    val = m.group(1).strip()
+    try:
+        decoded = json.loads(val)
+    except Exception:
+        decoded = val
+    if isinstance(decoded, str) and decoded.startswith(_COMPUTER_SENTINEL):
+        return decoded[len(_COMPUTER_SENTINEL):]
+    return None
 
 
 def _computer_viewport():
