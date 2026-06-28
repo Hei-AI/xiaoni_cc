@@ -607,9 +607,10 @@ const HISTORY_COMPACT_KEEP = 30;
 // 都 > 软线才触发,滤掉单轮尖峰(一次性大 tool result / 图片 burst)。
 // 计数器只放内存 + 重启清零:重启后靠首轮真实测量重判,绝不对过期数字误压。
 // 见 docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
-// TEMPORARY 观察值:先降到 100k 让压缩频繁触发、好实地观察整条链路是否健康,
-// 稳定后调回 500_000(真实目标软线)。改回时只动这一个常量 + rebuild + 重启 agent-service。
-const COMPRESSION_TRIGGER_INPUT_TOKENS = 100_000;
+// TEMPORARY 观察值:300k —— 真实上下文常在 135-265k,300k 让大多数时候不压、偶尔涨上去才压,
+// 信号清楚好观察(100k 太低几乎每轮都压,看不出现象)。稳定后调回 500_000(真实目标软线)。
+// 改回时只动这一个常量 + rebuild + 重启 agent-service。
+const COMPRESSION_TRIGGER_INPUT_TOKENS = 300_000;
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
 function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
