@@ -843,7 +843,7 @@ test('Xiaoni action stream paginates the merged main and fork timeline', async (
   assert.deepEqual(stream.items.map((item) => item.id), ['llm-slice:slice_newer']);
 });
 
-test('Xiaoni action stream cursor follows visible main items instead of older fork runs', async () => {
+test('Xiaoni action stream cursor is the oldest visible activity, including fork runs', async () => {
   const persistence = createPersistence({
     llmRequestSliceRows: [{
       id: '20',
@@ -885,10 +885,79 @@ test('Xiaoni action stream cursor follows visible main items instead of older fo
   const stream = await persistence.getXiaoniActionStream({ limit: 2 });
 
   assert.equal(stream.pagination.hasMore, true);
-  assert.equal(stream.pagination.nextCursor, '2026-06-05T10:10:00.000Z');
+  // The visible page is [main@10:10, fork@09:00]; the cursor is the floor — the
+  // oldest visible activity (the fork's start) — so the next page continues
+  // strictly below it without re-showing the fork that already paged in.
+  assert.equal(stream.pagination.nextCursor, '2026-06-05T09:00:00.000Z');
   assert.deepEqual(stream.items.map((item) => item.id), ['llm-slice:slice_visible_main']);
   assert.deepEqual(stream.subconsciousForkTimeline.runs.map((run) => run.forkRunId), [
     'subconscious_fork_older_than_visible_main'
+  ]);
+});
+
+test('Xiaoni action stream pages a fork by its newest activity, not its start (no scroll cluster)', async () => {
+  // Regression for the "scroll cluster" bug: a fork that STARTED early but whose
+  // events landed late (forks run async — items persist when they actually run,
+  // so their occurred_seq / created_at are recent) must page in alongside the
+  // recent main rows it interleaves. The old pagination positioned the whole run
+  // at started_at, so it sorted to an older page while its recent events sat on
+  // the next page — rendering as a fork-only block under a newer main row.
+  const persistence = createPersistence({
+    llmRequestSliceRows: [{
+      id: '30',
+      sliceId: 'slice_newest_main',
+      llmCallId: 'llm_newest_main',
+      identityKey: 'xiaoni',
+      status: 'completed',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      canonicalRequest: { input: [{ role: 'user', content: 'newest main' }] },
+      wireResponse: { id: 'resp_newest_main' },
+      createdAt: '2026-06-05T11:09:00.000Z',
+      completedAt: '2026-06-05T11:09:01.000Z'
+    }, {
+      id: '31',
+      sliceId: 'slice_mid_main',
+      llmCallId: 'llm_mid_main',
+      identityKey: 'xiaoni',
+      status: 'completed',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      canonicalRequest: { input: [{ role: 'user', content: 'mid main' }] },
+      wireResponse: { id: 'resp_mid_main' },
+      createdAt: '2026-06-05T11:05:00.000Z',
+      completedAt: '2026-06-05T11:05:01.000Z'
+    }],
+    subconsciousForkRuns: [{
+      id: '32',
+      fork_run_id: 'subconscious_fork_started_early_ran_late',
+      identity_key: 'xiaoni',
+      status: 'completed',
+      summary_text: '晚到的潜意识',
+      // started long before both main rows, but its work completed AFTER the
+      // newest main row — its real activity is recent.
+      started_at: '2026-06-05T11:00:00.000Z',
+      completed_at: '2026-06-05T11:08:00.000Z',
+      created_at: '2026-06-05T11:00:00.000Z',
+      updated_at: '2026-06-05T11:08:00.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 2 });
+
+  // Only 3 entries total and the fork's recent activity drags its older start
+  // into the same page (floor pull-in), so everything fits on page 1.
+  assert.equal(stream.pagination.hasMore, false);
+  assert.equal(stream.pagination.nextCursor, null);
+  // The fork is NOT deferred to a later page (the old bug); it pages in here.
+  assert.deepEqual(stream.subconsciousForkTimeline.runs.map((run) => run.forkRunId), [
+    'subconscious_fork_started_early_ran_late'
+  ]);
+  assert.deepEqual(stream.items.map((item) => item.id), [
+    'llm-slice:slice_newest_main',
+    'llm-slice:slice_mid_main'
   ]);
 });
 

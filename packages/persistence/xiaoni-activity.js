@@ -2841,24 +2841,55 @@ function filterActionStreamForkRunsByTags(runs, selectedTags) {
     .filter(Boolean);
 }
 
-function actionStreamEntryTimestamp(entry) {
-  return entry.kind === 'fork' ? entry.run.startedAt : entry.item.timestamp;
-}
-
-function actionStreamPaginationCursor(visibleEntries) {
-  const visibleMainEntries = visibleEntries
-    .filter((entry) => entry.kind === 'main' && actionStreamEntryTimestamp(entry));
-  if (visibleMainEntries.length > 0) {
-    return actionStreamEntryTimestamp(visibleMainEntries[visibleMainEntries.length - 1]);
+// Every wall-clock instant an entry occupies. A main item is a single point;
+// a fork run spans [startedAt … events … completedAt]. The frontend renders by
+// occurred_seq and flattens each fork run into its individual events, so the
+// backend page-cut has to keep a fork run together with the main rows that
+// interleave it by seq — otherwise the fork's events arrive on a page whose
+// interleaving main rows are still unloaded and they render as a fork-only
+// cluster. occurred_seq ≈ wall-clock for appended rows (fork items persist when
+// the fork actually runs, not at run start), so a wall-clock activity slice is a
+// faithful proxy for the seq order the frontend uses.
+function actionStreamEntryTimestamps(entry) {
+  const out = [];
+  const push = (value) => {
+    if (!value) {
+      return;
+    }
+    const ms = new Date(value).getTime();
+    if (Number.isFinite(ms)) {
+      out.push(ms);
+    }
+  };
+  if (entry.kind === 'fork') {
+    push(entry.run.startedAt);
+    push(entry.run.completedAt);
+    for (const event of entry.run.events || []) {
+      push(event.occurredAt || event.timestamp);
+    }
+  } else {
+    push(entry.item.timestamp);
   }
-  return actionStreamEntryTimestamp(visibleEntries[visibleEntries.length - 1]);
+  return out;
 }
 
+function actionStreamEntryNewestMs(entry) {
+  const times = actionStreamEntryTimestamps(entry);
+  return times.length ? Math.max(...times) : 0;
+}
+
+function actionStreamEntryOldestMs(entry) {
+  const times = actionStreamEntryTimestamps(entry);
+  return times.length ? Math.min(...times) : 0;
+}
+
+// Newest activity first. A fork run sorts by its most recent event, not its
+// (often much earlier) startedAt — that is what stopped fork events from
+// matching their occurred_seq neighbours.
 function sortActionStreamEntries(left, right) {
-  const rightMs = new Date(actionStreamEntryTimestamp(right)).getTime() || 0;
-  const leftMs = new Date(actionStreamEntryTimestamp(left)).getTime() || 0;
-  if (rightMs !== leftMs) {
-    return rightMs - leftMs;
+  const diff = actionStreamEntryNewestMs(right) - actionStreamEntryNewestMs(left);
+  if (diff !== 0) {
+    return diff;
   }
   if (left.kind !== right.kind) {
     return left.kind === 'fork' ? -1 : 1;
@@ -2870,7 +2901,7 @@ function sortActionStreamEntries(left, right) {
 
 function paginateActionStreamEntries(entries, limit) {
   const ordered = entries
-    .filter((entry) => actionStreamEntryTimestamp(entry))
+    .filter((entry) => actionStreamEntryNewestMs(entry) > 0)
     .sort(sortActionStreamEntries);
   if (ordered.length <= limit) {
     return {
@@ -2880,18 +2911,40 @@ function paginateActionStreamEntries(entries, limit) {
     };
   }
 
-  const boundaryTimestamp = actionStreamEntryTimestamp(ordered[limit - 1]);
+  // Initial cut by newest activity, widened across any entry sharing the exact
+  // boundary instant so a tie never splits across a page seam.
+  const boundaryMs = actionStreamEntryNewestMs(ordered[limit - 1]);
   let visibleCount = limit;
-  while (visibleCount < ordered.length && actionStreamEntryTimestamp(ordered[visibleCount]) === boundaryTimestamp) {
+  while (visibleCount < ordered.length && actionStreamEntryNewestMs(ordered[visibleCount]) === boundaryMs) {
+    visibleCount += 1;
+  }
+
+  // The page floor is the OLDEST activity instant among the visible entries.
+  // A fork run is atomic across pages, so a visible fork drags the floor down to
+  // its oldest event; we then pull in every later entry whose newest activity
+  // still sits at/above the floor — the main rows that interleave that fork by
+  // occurred_seq. Pulling them in is what keeps the fork from clustering. The
+  // cursor is the floor, and the next page fetches strictly below it (endTime =
+  // cursor − 1ms), so the slices stay gap-free with no run split in two.
+  let floorMs = Math.min(
+    ...ordered.slice(0, visibleCount)
+      .map(actionStreamEntryOldestMs)
+      .filter((ms) => ms > 0)
+  );
+  while (visibleCount < ordered.length && actionStreamEntryNewestMs(ordered[visibleCount]) >= floorMs) {
+    const pulledOldest = actionStreamEntryOldestMs(ordered[visibleCount]);
+    if (pulledOldest > 0 && pulledOldest < floorMs) {
+      floorMs = pulledOldest;
+    }
     visibleCount += 1;
   }
 
   const visibleEntries = ordered.slice(0, visibleCount);
-  const nextCursor = actionStreamPaginationCursor(visibleEntries);
+  const hasMore = visibleCount < ordered.length;
   return {
     visibleEntries,
-    hasMore: visibleCount < ordered.length,
-    nextCursor: visibleCount < ordered.length ? nextCursor : null
+    hasMore,
+    nextCursor: hasMore && Number.isFinite(floorMs) ? new Date(floorMs).toISOString() : null
   };
 }
 
@@ -4230,7 +4283,10 @@ function createXiaoniActivityPersistence({
     const limit = clampLimit(input.limit, 80, 200);
     const focusedSliceId = focusedLlmSliceIdFromInput(input);
     const selectedTags = selectedActionStreamTagKeys(input);
-    const feedLimit = selectedTags.length ? Math.max((limit + 1) * 3, 300) : limit + 1;
+    // Over-fetch beyond the display limit so paginateActionStreamEntries has the
+    // headroom to pull a visible fork's interleaving main rows onto the same page
+    // (the floor pull-in). +1 was only enough to detect hasMore; 2x gives slack.
+    const feedLimit = selectedTags.length ? Math.max((limit + 1) * 3, 300) : limit * 2 + 1;
     const feed = await getXiaoniActivityFeed({
       ...input,
       limit: feedLimit,
