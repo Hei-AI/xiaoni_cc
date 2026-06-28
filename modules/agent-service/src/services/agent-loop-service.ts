@@ -4674,12 +4674,13 @@ export class AgentLoopService {
   // Handoff from the last settled main-agent run to the subconscious fork. The fork is a
   // complete clone of the main agent (see GOVERNING PRINCIPLE on maybeRunSubconsciousAgentFork):
   // it clones this exact request (main's last request + the 当轮小腻os) and only appends the
-  // reminder. `runProducedToolCall` gates C2 — fork only on a pure-talk run. Consumed (set
-  // null) on each fork evaluation, so each main settle yields at most one fork; null after a
-  // restart (no fresh main run yet) ⇒ no fork until the next main run repopulates it.
+  // reminder. `settledOnFinalAnswer` gates C2 — fork when she settled on a final_answer
+  // (a pure-text, no-action response). Consumed (set null) on each fork evaluation, so each
+  // main settle yields at most one fork; null after a restart (no fresh main run yet) ⇒ no
+  // fork until the next main run repopulates it.
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
-    runProducedToolCall: boolean;
+    settledOnFinalAnswer: boolean;
   } | null = null;
 
   constructor(
@@ -4898,9 +4899,11 @@ export class AgentLoopService {
   // fork hit 55% vs main 98% because the fork rebuilt+stripped independently while the
   // main still carried intra-run text.
   //
-  // TRIGGER (C2): fork ONLY after a pure-talk run — one that produced zero tool calls.
-  // If the run made any function_call (send/exec/image…), `lastMainAgentForkSeed.runProducedToolCall`
-  // is true and the fork is skipped: she was living her life, the subconscious shouldn't push.
+  // TRIGGER (C2): fork when she settled on a final_answer — a pure-text response with no
+  // action — judged on THE SETTLING RESPONSE, not the whole run. A turn that makes a tool
+  // call never settles, so any settle on a final_answer means "she ended idle on a 小腻os":
+  // the fork gives her the next direction, regardless of how many tools the run used before
+  // settling (`lastMainAgentForkSeed.settledOnFinalAnswer`).
   //
   // CURRENT STATUS: satisfied. The fork clones `lastMainAgentForkSeed.canonicalRequest` (the
   // main's own last request, already incl. the 当轮小腻os) and only appends the reminder —
@@ -4939,9 +4942,11 @@ export class AgentLoopService {
       // to repopulate the seed rather than rebuilding context independently.
       return;
     }
-    // C2: only fork on a pure-talk run. If the run made ANY tool call (send/exec/image…),
-    // she was doing her own thing — don't push her with the subconscious.
-    if (seed.runProducedToolCall) {
+    // C2: fork only when she settled on a final_answer — a pure-text response with no
+    // action (judged on the settling response, not the whole run; a turn that makes a tool
+    // call never settles). So whenever she ends idle on a 小腻os, the subconscious gives her
+    // the next direction, no matter how many tools the run used before settling.
+    if (!seed.settledOnFinalAnswer) {
       return;
     }
 
@@ -6000,10 +6005,6 @@ export class AgentLoopService {
         : [];
       let requestInput = budgetPlan.requestInput;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
-      // C2 (subconscious-fork trigger): track whether THIS run made any tool call. The
-      // fork only fires on a pure-talk run (zero function_calls) — if she did anything
-      // (send/exec/image…), she's living her life and the subconscious shouldn't push.
-      let runProducedToolCall = false;
       if (coreMemoryCompressionCheckpoint) {
         await this.scheduleCoreMemoryCompressionFork({
           baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, coreMemoryCompressionCheckpoint.summarySourceInput, payload),
@@ -6209,9 +6210,6 @@ export class AgentLoopService {
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
         const hasToolCall = actionPlan.hasToolCall;
-        if (hasToolCall) {
-          runProducedToolCall = true;
-        }
         await this.executeResponsePostActions(actionPlan.postActions, {
           queueMessage: payload,
           runId: queueMessage.id,
@@ -6643,12 +6641,15 @@ export class AgentLoopService {
         // verbatim so the fork can clone it + append only the reminder — no rebuild, no
         // drift, rides the warm cache. requestInput here already includes the just-produced
         // 小腻os (D) at its tail (appended via appendLoopInputItems), so clone + reminder =
-        // 主agent上下文 + 当轮小腻os + 引导词. runProducedToolCall gates C2 (only pure-talk
-        // runs fork). Built with the main's own runtimePrompt/payload so bytes match the
-        // warm prefix the main just primed.
+        // 主agent上下文 + 当轮小腻os + 引导词. Built with the main's own runtimePrompt/payload
+        // so bytes match the warm prefix the main just primed.
+        // C2 gate (settledOnFinalAnswer): judged on THIS settling response, not the whole run.
+        // The settling response is pure text with no action (a turn with a function_call never
+        // settles), so any settle on a final_answer triggers the fork — regardless of how many
+        // tools the run used before settling. "她一 settle 在 final_answer 上就给方向。"
         this.lastMainAgentForkSeed = {
           canonicalRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
-          runProducedToolCall
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
