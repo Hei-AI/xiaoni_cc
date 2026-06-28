@@ -191,13 +191,11 @@ services:
       - AGENT_PRE_REPLY_MEMORY_REASONER_MODEL=gpt-5.4
       - AGENT_PRESENT_SELF_RECONSTRUCTION_ENABLED=true
       - AGENT_PRESENT_SELF_RECONSTRUCTION_MODEL=gpt-5.4
-      # Disabled: web_search_20260209's code-exec side_query is gated on the Claude Code
-      # subscription (OAuth) endpoint we cloak through -> code_execution_tool_result_error:
-      # too_many_requests (anthropics/claude-code#27074). Re-enable once web_search runs on an
-      # API-key path or the cloak sends the code-execution-web-tools-2026-02-09 beta.
-      - AGENT_WEB_SEARCH_ENABLED=${AGENT_WEB_SEARCH_ENABLED:-false}
-      - AGENT_WEB_SEARCH_CONTEXT_SIZE=${AGENT_WEB_SEARCH_CONTEXT_SIZE:-low}
-      - AGENT_WEB_SEARCH_EXTERNAL_ACCESS=${AGENT_WEB_SEARCH_EXTERNAL_ACCESS:-true}
+      # web_search removed: Anthropic's server-side web_search doesn't work on the Claude Code
+      # subscription cloak (web_search_20260209 code-exec is gated; see project memory). A
+      # custom web_search will replace it. The tool is no longer surfaced to the agent.
+      # Computer use (client-executed via the host Playwright bridge) IS honored on the cloak.
+      - AGENT_COMPUTER_USE_ENABLED=${AGENT_COMPUTER_USE_ENABLED:-true}
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
       - BOT_QQ_NUMBER=1129974489
       - NODE_TLS_REJECT_UNAUTHORIZED=0
