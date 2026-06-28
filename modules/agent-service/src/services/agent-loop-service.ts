@@ -9916,31 +9916,65 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt,
     forkTurn: number
   ) {
-    const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [NO_TRAFFIC_PERSIST_HEADER]: '1'
-      },
-      body: JSON.stringify({
-        trace_id: queueMessage.traceId,
-        run_id: queueMessage.runId,
-        agent_turn: forkTurn,
-        agent_type: 'subconscious_agent',
-        prompt_name: `${runtimePrompt.promptName}:subconscious_agent`,
-        executionMode: 'subconscious_agent_fork_no_persist',
-        model: runtimePrompt.modelName,
-        parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
-        canonicalRequest
-      })
+    // Mirror executeAgentTurn's transient-retry: the subconscious fork is the autonomous
+    // self-continuation engine (it fires on every idle settle, then enqueues the next
+    // direction back into the main loop). A bare single fetch meant one transient blip
+    // (e.g. "Client network socket disconnected before secure TLS") killed the whole fork
+    // with no retry, so she never got her next nudge and sat idle until the user spoke
+    // again. Retry transient provider/network failures exactly like the main agent does.
+    const body = JSON.stringify({
+      trace_id: queueMessage.traceId,
+      run_id: queueMessage.runId,
+      agent_turn: forkTurn,
+      agent_type: 'subconscious_agent',
+      prompt_name: `${runtimePrompt.promptName}:subconscious_agent`,
+      executionMode: 'subconscious_agent_fork_no_persist',
+      model: runtimePrompt.modelName,
+      parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+      canonicalRequest
     });
+    const maxAttempts = Math.max(1, agentConfig.providerExecutionRetryAttempts || 1);
+    let lastError: unknown = null;
 
-    const payload = await response.json() as ProviderAgentResponse;
-    if (!response.ok || !payload.success) {
-      throw new Error(payload.error || `Provider subconscious fork execute failed with ${response.status}`);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            [NO_TRAFFIC_PERSIST_HEADER]: '1'
+          },
+          body
+        });
+
+        const payload = await response.json() as ProviderAgentResponse;
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || `Provider subconscious fork execute failed with ${response.status}`);
+        }
+
+        return payload;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts || !isTransientProviderExecutionError(error)) {
+          throw error;
+        }
+        const retryDelayMs = computeProviderExecutionRetryDelayMs(attempt);
+        moduleLogger.warn('Retrying transient subconscious agent fork execute failure', {
+          traceId: queueMessage.traceId,
+          runId: queueMessage.runId,
+          forkTurn,
+          attempt,
+          maxAttempts,
+          retryDelayMs,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        if (retryDelayMs > 0) {
+          await sleep(retryDelayMs);
+        }
+      }
     }
 
-    return payload;
+    throw lastError instanceof Error ? lastError : new Error(String(lastError || 'Provider subconscious fork execute failed'));
   }
 
   private async executeCacheHeartbeatTurn(
