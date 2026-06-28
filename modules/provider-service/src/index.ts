@@ -11,7 +11,8 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { aiConfig, inboundLivenessConfig, selfEvolutionConfig, serverConfig, topicProjectionConfig } from './config';
+import { evaluateInboundLiveness } from './services/inbound-liveness';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -90,6 +91,10 @@ const GROUP_INFO_CACHE_TTL_MS = Number(process.env.NAPCAT_GROUP_INFO_CACHE_TTL_M
 const groupNameCache = new Map<number, { name: string; expiresAt: number }>();
 let groupNotificationAggregationFlushTimer: ReturnType<typeof setInterval> | null = null;
 let groupNotificationAggregationFlushBusy = false;
+// Last time NapCat pushed ANY event to /webhook. Seeded at boot so a fresh
+// restart doesn't instantly report the pipe as dead. /health reads this to
+// derive the inbound-liveness verdict ("green but dead" detection).
+let lastNapcatEventAt: number | null = Date.now();
 
 function parseDirectAgentTriggerUserIds() {
   const raw = process.env.XIAONI_DIRECT_AGENT_TRIGGER_USER_IDS
@@ -1402,17 +1407,26 @@ app.use(express.json({ limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.IMAGE_LAB_JSON_LIMIT || '50mb' }));
 
 app.get('/health', async (_req, res) => {
-  const [napcat, inbox] = await Promise.all([
+  const [napcat, inbox, liveness] = await Promise.all([
     napcatClient.probe(),
-    inboxService.getStats()
+    inboxService.getStats(),
+    napcatClient.probeLiveness()
   ]);
+
+  const inboundLiveness = evaluateInboundLiveness({
+    probe: liveness,
+    lastEventAt: lastNapcatEventAt,
+    now: Date.now(),
+    staleMs: inboundLivenessConfig.staleMs
+  });
 
   res.json({
     status: 'healthy',
     service: 'provider-service',
     timestamp: new Date().toISOString(),
     napcat,
-    inbox
+    inbox,
+    inboundLiveness
   });
 });
 
@@ -1768,6 +1782,11 @@ app.post('/api/internal/media-assets/register-local', async (req, res) => {
 app.post(['/webhook', '/api/onebot/events', '/api/onebot/webhook'], async (req, res) => {
   try {
     const event = (req.body || {}) as OneBotMessageEvent;
+    // Any delivered event (message, meta heartbeat, notice) proves the NapCat ->
+    // provider receive pipe is alive. Stamp before the post_type filter so the
+    // inbound watchdog stays quiet during legitimately quiet stretches as long
+    // as NapCat keeps pushing heartbeats.
+    lastNapcatEventAt = Date.now();
     if (event.post_type !== 'message') {
       return res.status(202).json({
         success: true,

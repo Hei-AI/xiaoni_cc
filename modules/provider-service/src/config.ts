@@ -78,6 +78,13 @@ export const agentRunConfig = {
   batchWindowMs: Math.max(200, Number.parseInt(process.env.AGENT_RUN_BATCH_WINDOW_MS || '4000', 10))
 };
 
+// Inbound liveness: how long NapCat can go without delivering ANY event to
+// /webhook (while online) before /health reports the receive pipe as "green but
+// dead". Surfaced in the admin dashboard health check; no QQ notification.
+export const inboundLivenessConfig = {
+  staleMs: Math.max(60_000, Number.parseInt(process.env.INBOUND_LIVENESS_STALE_MS || String(15 * 60 * 1000), 10))
+};
+
 export const selfEvolutionConfig = {
   enabled: process.env.SELF_EVOLUTION_ENABLED !== 'false',
   webhookUrl: process.env.SELF_EVOLUTION_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/self-evolution/execute`,
