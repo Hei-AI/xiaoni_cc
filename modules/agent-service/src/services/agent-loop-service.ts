@@ -4712,13 +4712,18 @@ export class AgentLoopService {
   private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
   // Handoff from the last settled main-agent run to the subconscious fork. The fork is a
   // complete clone of the main agent (see GOVERNING PRINCIPLE on maybeRunSubconsciousAgentFork):
-  // it clones this exact request (main's last request + the 当轮小腻os) and only appends the
-  // reminder. `settledOnFinalAnswer` gates C2 — fork when she settled on a final_answer
-  // (a pure-text, no-action response). Consumed (set null) on each fork evaluation, so each
-  // main settle yields at most one fork; null after a restart (no fresh main run yet) ⇒ no
-  // fork until the next main run repopulates it.
+  // `canonicalRequest` is the EXACT request the main loop just SENT (assistant-text-stripped,
+  // byte-identical to the warm prompt cache), so the fork's prefix reads that cache instead of
+  // cold-prefilling. `recentNarrationItems` is this settling turn's narration (D), stripped from
+  // the sent prefix but re-injected at the fork's TAIL so it still sees "what she just said"
+  // without diverging the cache lineage. Seeding from the UNstripped requestInput instead would
+  // drag every mid-run D back into the prefix and穿透 the whole body (see fork cache 击穿 fix).
+  // `settledOnFinalAnswer` gates C2 — fork when she settled on a final_answer (a pure-text,
+  // no-action response). Consumed (set null) on each fork evaluation, so each main settle yields
+  // at most one fork; null after a restart (no fresh main run yet) ⇒ no fork until the next run.
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
+    recentNarrationItems: OpenResponseInputItem[];
     settledOnFinalAnswer: boolean;
   } | null = null;
 
@@ -4994,11 +4999,13 @@ export class AgentLoopService {
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
 
-    // C1: the fork is a COMPLETE CLONE of the main agent. baseRequest is the main's own
-    // last request (already incl. the 当轮小腻os at its tail); runSubconsciousAgentFork only
-    // appends the developer reminder. No rebuild, no fork-side stripping, no re-injection.
+    // C1: the fork is a COMPLETE CLONE of the main agent. baseRequest is the main's own last
+    // SENT request (assistant-text-stripped → byte-identical to the warm cache); the settling
+    // narration (D) rides in as `recentNarrationItems`, re-injected at the fork's TAIL by
+    // buildSubconsciousAgentForkRequest. No fork-side rebuild or stripping; prefix stays warm.
     const fork = this.runSubconsciousAgentFork({
       baseRequest: seed.canonicalRequest,
+      recentNarrationItems: seed.recentNarrationItems,
       queueMessage: payload,
       runtimePrompt,
       contextSessionKey
@@ -6676,18 +6683,23 @@ export class AgentLoopService {
           continue;
         }
 
-        // C1 (subconscious fork = complete clone of main): stash this settled run's request
-        // verbatim so the fork can clone it + append only the reminder — no rebuild, no
-        // drift, rides the warm cache. requestInput here already includes the just-produced
-        // 小腻os (D) at its tail (appended via appendLoopInputItems), so clone + reminder =
-        // 主agent上下文 + 当轮小腻os + 引导词. Built with the main's own runtimePrompt/payload
-        // so bytes match the warm prefix the main just primed.
+        // C1 (subconscious fork = complete clone of main): stash the EXACT request the main
+        // just SENT — `currentCanonicalRequest` is built from the assistant-text-stripped
+        // `currentRequestInput`, so it is byte-identical to the warm prompt cache the main loop
+        // just primed. The fork clones it and only appends a TAIL, so its prefix reads that cache.
+        // Capture this settling turn's narration (D) separately: it is stripped from the sent
+        // prefix (and was appended to the UNstripped `requestInput` only for archival), so the
+        // fork re-injects it at its tail to keep "what she just said" without diverging the
+        // prefix. Seeding from `requestInput` instead would drag every mid-run D back into the
+        // prefix and cold-prefill the whole body (cache 击穿). Clone so a later mutation can't
+        // reach the stashed object.
         // C2 gate (settledOnFinalAnswer): judged on THIS settling response, not the whole run.
         // The settling response is pure text with no action (a turn with a function_call never
         // settles), so any settle on a final_answer triggers the fork — regardless of how many
         // tools the run used before settling. "她一 settle 在 final_answer 上就给方向。"
         this.lastMainAgentForkSeed = {
-          canonicalRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
+          canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
+          recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
           settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
         await this.store.logTimelineEvent({
@@ -8772,8 +8784,9 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     contextSessionKey: string;
-    // Optional extra items appended at the fork tail before the reminder. Unused on the
-    // clone path (the 当轮小腻os is already inside baseRequest); kept for flexibility.
+    // The settling turn's narration (D), appended at the fork tail before the reminder. D is
+    // stripped from baseRequest (the warm sent prefix), so this is how the fork still sees
+    // "what she just said" without diverging the cache lineage.
     recentNarrationItems?: OpenResponseInputItem[];
 	  }): Promise<boolean> {
     const forkRunId = `subconscious-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;

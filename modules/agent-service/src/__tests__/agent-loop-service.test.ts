@@ -1324,26 +1324,42 @@ test('buildInitialInput strips prior assistant text from the replayed context (e
   }
 });
 
-test('subconscious fork clones the main request (incl. its 小腻os) and only appends the reminder at the tail', () => {
-  // The fork is a complete clone of the main agent: baseRequest IS the main's last request,
-  // which already carries the 当轮小腻os (D) at its tail. buildSubconsciousAgentForkRequest
-  // must preserve that verbatim and only append the self-continuation reminder after it —
-  // no stripping, no re-injection.
-  const mainRequestInput = [
+test('subconscious fork keeps the stripped sent prefix byte-identical and re-injects D at the tail', () => {
+  // Cache-击穿 regression: the fork's baseRequest must be the main's EXACT sent request, which
+  // is assistant-text-stripped (no 小腻os D in the replayed history). buildSubconsciousAgentForkRequest
+  // must (1) preserve that prefix byte-for-byte so the fork reads the main's warm prompt cache,
+  // and (2) re-inject the settling narration (D) via recentNarrationItems at the TAIL — not back
+  // in the prefix. Seeding from the UNstripped requestInput dragged every mid-run D into the
+  // prefix and穿透 the whole body; this asserts D only ever appears after the cloned prefix.
+  const strippedSentInput = [
     { type: 'message', role: 'system', content: 'stable system prompt' },
     { type: 'message', role: 'user', content: [{ type: 'input_text', text: '主 agent 最后一次请求的场景' }] },
+    // A mid-history tool call survives stripping (function_call is not assistant text); the
+    // assistant narration that used to sit here is already gone from the sent request.
+    { type: 'function_call', call_id: 'call-mid-1', name: 'exec_command', arguments: '{}' },
+    { type: 'function_call_output', call_id: 'call-mid-1', output: 'ok' }
+  ] as any;
+  const baseRequest = buildCanonicalAgentTurnRequest('gpt-5.5', strippedSentInput, createQueuePayload().chatType);
+  const recentNarrationItems = [
     { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '等小伊接。' }] }
   ] as any;
-  const baseRequest = buildCanonicalAgentTurnRequest('gpt-5.5', mainRequestInput, createQueuePayload().chatType);
 
-  const forkRequest = buildSubconsciousAgentForkRequest(baseRequest, 1);
+  const forkRequest = buildSubconsciousAgentForkRequest(baseRequest, 1, recentNarrationItems);
 
+  // 1) The stripped sent prefix is preserved as an exact byte-identical prefix of the fork input.
+  const basePrefix = forkRequest.input.slice(0, baseRequest.input.length);
+  assert.deepEqual(basePrefix, baseRequest.input, 'fork prefix is byte-identical to the warm sent request');
+
+  // 2) The settling narration D appears ONLY after the cloned prefix (never inside it), and the
+  //    reminder follows D.
   const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接'));
-  // Identify the self-continuation reminder by its distinctive text (the base may carry
-  // other <system_reminder> blocks, so don't match on that generic tag).
   const reminderIndex = forkRequest.input.findIndex((item: any) => getMessageContent(item).includes('闲下来时的潜意识'));
-  assert.ok(dIndex >= 0, 'fork keeps the cloned 小腻os D verbatim');
-  assert.ok(reminderIndex > dIndex, 'reminder is appended after the cloned context tail');
+  assert.ok(dIndex >= baseRequest.input.length, 'D is re-injected at the tail, not in the warm prefix');
+  assert.ok(reminderIndex > dIndex, 'reminder is appended after the re-injected D');
+
+  // 3) The cloned prefix carries no assistant-text item at all (the sent request was stripped).
+  const assistantTextInPrefix = basePrefix.some((item: any) => item.type === 'message' && item.role === 'assistant');
+  assert.equal(assistantTextInPrefix, false, 'no assistant narration leaks into the warm prefix');
 });
 
 test('buildInitialInput never synthesizes raw xiaoni_os into model-visible history', () => {
