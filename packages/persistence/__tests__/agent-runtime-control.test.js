@@ -328,7 +328,8 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
 
   const triggerQuery = queries.at(-1);
   assert.match(triggerQuery.statement, /WHEN agent_runtime_control\.post_compression_pause_armed THEN FALSE/);
-  assert.deepEqual(triggerQuery.params, ['xiaoni', 'core_memory_compression_completed']);
+  assert.match(triggerQuery.statement, /SELECT was_armed FROM prev/);
+  assert.deepEqual(triggerQuery.params, ['xiaoni', 'xiaoni', 'core_memory_compression_completed']);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
     enabled: false,
@@ -339,6 +340,38 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     postCompressionPauseTriggeredAt: '2026-06-06T20:02:00.000+08:00',
     postCompressionPauseReason: 'core_memory_compression_completed',
     mainAgentPreModelYieldMs: 5000,
-    updatedAt: '2026-06-06T20:02:00.000+08:00'
+    updatedAt: '2026-06-06T20:02:00.000+08:00',
+    // armed was already false (no pause_just_triggered in the returned row) =>
+    // the upsert was a no-op; callers must NOT log "paused after compression".
+    pauseJustTriggered: false
   });
+});
+
+test('triggerPostCompressionRuntimePause reports pauseJustTriggered when armed fired', async () => {
+  const updatedAt = new Date('2026-06-06T12:02:00.000Z');
+  const triggeredAt = new Date('2026-06-06T12:02:00.000Z');
+  const { persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: false,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
+      post_compression_pause_armed: false,
+      post_compression_pause_armed_at: new Date('2026-06-06T12:01:00.000Z'),
+      post_compression_pause_triggered_at: triggeredAt,
+      post_compression_pause_reason: 'core_memory_compression_completed',
+      main_agent_pre_model_yield_ms: 5000,
+      updated_at: updatedAt,
+      // prev.was_armed: pause was armed before this upsert => it really fired now
+      pause_just_triggered: true
+    }]]
+  });
+
+  const control = await persistence.triggerPostCompressionRuntimePause({
+    identityKey: 'xiaoni',
+    reason: 'core_memory_compression_completed'
+  });
+
+  assert.equal(control.pauseJustTriggered, true);
+  assert.equal(control.enabled, false);
 });

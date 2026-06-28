@@ -296,8 +296,18 @@ function createAgentRuntimeControlPersistence(deps) {
     const sql = createSqlAdapter(config);
     try {
       await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      // `prev` captures whether the pause was armed BEFORE this upsert so callers
+      // can tell an actual pause-this-call apart from a no-op (armed already
+      // false). Without it, a committed compression on an unarmed/already-disabled
+      // runtime falsely reads as "paused after compression" off a stale
+      // triggered_at — the false-positive log that misled the 2026-06-28 incident.
       const rows = await sql.query(
         `
+          WITH prev AS (
+            SELECT post_compression_pause_armed AS was_armed
+            FROM agent_runtime_control
+            WHERE identity_key = ?
+          )
           INSERT INTO agent_runtime_control (
             identity_key,
             enabled,
@@ -322,10 +332,6 @@ function createAgentRuntimeControlPersistence(deps) {
               ELSE agent_runtime_control.post_compression_pause_reason
             END,
             post_compression_pause_armed = FALSE,
-            post_compression_pause_armed_at = CASE
-              WHEN agent_runtime_control.post_compression_pause_armed THEN agent_runtime_control.post_compression_pause_armed_at
-              ELSE agent_runtime_control.post_compression_pause_armed_at
-            END,
             updated_at = CASE
               WHEN agent_runtime_control.post_compression_pause_armed THEN NOW()
               ELSE agent_runtime_control.updated_at
@@ -335,11 +341,14 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
-            main_agent_pre_model_yield_ms
+            main_agent_pre_model_yield_ms,
+            (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
-        [identityKey, reason]
+        [identityKey, identityKey, reason]
       );
-      return normalizeRuntimeControl(rows[0]);
+      const normalized = normalizeRuntimeControl(rows[0]);
+      normalized.pauseJustTriggered = isTruthyDatabaseBoolean(rows[0] && rows[0].pause_just_triggered);
+      return normalized;
     } finally {
       await sql.close();
     }

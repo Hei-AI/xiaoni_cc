@@ -96,6 +96,14 @@ interface RuntimeStatusPayload {
     url: string;
     healthStatusCode: number | null;
   };
+  inbound?: {
+    live: boolean;
+    status: 'online' | 'degraded' | 'unknown';
+    state: string | null;
+    detail: string | null;
+    lastEventAt: number | null;
+    staleForMs: number | null;
+  };
   admin: {
     live: boolean;
     status: 'online' | 'offline';
@@ -152,8 +160,13 @@ function formatRuntimeSummary(runtimeStatus?: RuntimeStatusPayload): string {
     : 'Provider offline';
   const adminLabel = runtimeStatus.admin.live ? 'Admin live' : 'Admin offline';
   const databaseLabel = runtimeStatus.database.live ? 'PostgreSQL live' : 'PostgreSQL offline';
+  const inboundLabel = runtimeStatus.inbound
+    ? runtimeStatus.inbound.live
+      ? null
+      : `入站异常(${runtimeStatus.inbound.state ?? 'down'})`
+    : null;
 
-  return `${providerLabel} • ${adminLabel} • ${databaseLabel}`;
+  return [providerLabel, adminLabel, databaseLabel, inboundLabel].filter(Boolean).join(' • ');
 }
 
 function formatHeartbeat(lastHeartbeat: string | null | undefined): string | null {

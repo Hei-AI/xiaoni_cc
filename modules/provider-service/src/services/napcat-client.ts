@@ -129,6 +129,22 @@ export class NapcatClient {
     }
   }
 
+  // Liveness probe for the inbound watchdog. Wraps get_status so a failed call
+  // surfaces as reachable:false rather than throwing. `online` mirrors NapCat's
+  // login heartbeat — note it stays true even when the receive pipe is dead, so
+  // the watchdog must combine it with event staleness.
+  async probeLiveness(): Promise<{ reachable: boolean; online: boolean | null }> {
+    try {
+      const data = await this.callAction<{ online?: boolean }>('get_status', {});
+      return { reachable: true, online: typeof data?.online === 'boolean' ? data.online : null };
+    } catch (error) {
+      this.moduleLogger.warn('NapCat liveness probe failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { reachable: false, online: null };
+    }
+  }
+
   async sendPrivateMessage(userId: number, message: string): Promise<any> {
     return this.callAction('send_private_msg', {
       user_id: userId,
