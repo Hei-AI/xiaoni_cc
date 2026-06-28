@@ -108,7 +108,7 @@ export const agentConfig = {
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),
   cacheHeartbeatIntervalMs: Math.max(
     60 * 1000,
-    readIntegerEnv('AGENT_CACHE_HEARTBEAT_INTERVAL_MS', 10 * 60 * 1000)
+    readIntegerEnv('AGENT_CACHE_HEARTBEAT_INTERVAL_MS', 30 * 60 * 1000)
   ),
   cacheHeartbeatMaxOutputTokens: Math.max(
     1,
