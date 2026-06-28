@@ -3172,11 +3172,10 @@ function buildAttentionLeaseTemplateVariables(queueMessage: QueueMessageRecord['
 
 function renderAttentionLeaseReminder(queueMessage: QueueMessageRecord['payload']) {
   const rawPayload = queueMessage.rawPayload || {};
+  const chatPrefix = queueMessage.chatType === 'direct' ? '私聊' : '群';
   const chatLabel = typeof rawPayload.chat_label === 'string' && rawPayload.chat_label.trim()
     ? rawPayload.chat_label.trim()
-    : queueMessage.peerName
-      ? `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerName}`
-      : `${queueMessage.chatType === 'direct' ? '私聊' : '群'} ${queueMessage.peerId}`;
+    : `${chatPrefix} ${formatTagSpeaker(queueMessage.peerName, queueMessage.peerId)}`;
   return formatSystemReminderBlock(renderPromptSnippet('attention_lease_reminder.md', {
     CHAT_LABEL: chatLabel,
     ...buildAttentionLeaseTemplateVariables(queueMessage)

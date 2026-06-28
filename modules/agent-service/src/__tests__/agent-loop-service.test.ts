@@ -1832,7 +1832,7 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
 
   assert.match(rendered, /<system_reminder>/);
   assert.match(rendered, /意识牵连：正在消退的注意力残留/);
-  assert.match(rendered, /Test Group/);
+  assert.match(rendered, /群 Test Group\(101\)/);
   assert.match(rendered, /3 条新动静/);
   assert.match(rendered, /动静数量：又多了 3 条未读/);
   assert.match(rendered, /最新残影：Alice\(20001\) 刚说了句/);
