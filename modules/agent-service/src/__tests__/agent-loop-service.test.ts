@@ -4161,6 +4161,36 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
 });
 
+test('applyToolResultToLoopInput surfaces a rejected tool result verbatim, not as a JSON blob', () => {
+  // A disallowed/passive tool call returns a tool_rejected result; the model must read the
+  // clean rejection_output text (so it self-corrects), never the JSON-stringified record.
+  const rejectionText = '【分支能力受限：这个动作被拒绝了】\n你刚才调用的 `compress_core_memory` 不在允许范围内。';
+  const continuation = applyToolResultToLoopInput({
+    callId: 'call-reject-1',
+    name: 'compress_core_memory',
+    rawArguments: '{"text":"x"}'
+  }, {
+    success: false,
+    tool_rejected: true,
+    tool_name: 'compress_core_memory',
+    tool_call_id: 'call-reject-1',
+    rejection_output: rejectionText,
+    error_message: 'tool not permitted in this context: compress_core_memory'
+  }, {
+    loopInput: [],
+    speakingToolName: GROUP_REPLY_TOOL,
+    hasVisibleReply: false,
+    runtimeEnergyState: null
+  });
+
+  assert.equal(continuation.inputItems.length, 1);
+  const item = continuation.inputItems[0];
+  assert.equal(item.type, 'function_call_output');
+  const output = String(item.type === 'function_call_output' ? item.output : '');
+  assert.equal(output, rejectionText.trim());
+  assert.doesNotMatch(output, /tool_rejected|rejection_output|\{/);
+});
+
 test('applyToolResultToLoopInput replays image task output without follow-up reminder', () => {
   const loopInput = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
 

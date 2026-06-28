@@ -4593,6 +4593,25 @@ function buildToolErrorResult(
   };
 }
 
+// A controlled "拒绝" (not an error): the model emitted a tool that is NOT permitted in the
+// current context — a fork whose allowed-tool set excludes it, or the main loop's passive
+// compress_core_memory. The tool is never executed; `rejection_output` is surfaced verbatim as
+// the function_call_output text (see applyToolResultToLoopInput) so the agent reads a clear,
+// in-character reason and self-corrects, instead of seeing a raw error or a silently-dropped call.
+function buildToolRejectedResult(
+  toolCall: Pick<AgentToolCall, 'name' | 'callId'>,
+  rejectionOutput: string
+): Record<string, unknown> {
+  return {
+    success: false,
+    tool_rejected: true,
+    tool_name: toolCall.name,
+    tool_call_id: toolCall.callId,
+    rejection_output: rejectionOutput,
+    error_message: `tool not permitted in this context: ${toolCall.name}`
+  };
+}
+
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>,
@@ -4611,6 +4630,8 @@ export function applyToolResultToLoopInput(
     call_id: toolCall.callId,
     output: computerImageContent
       ? (computerImageContent as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
+      : toolResult.tool_rejected === true && typeof toolResult.rejection_output === 'string'
+        ? String(toolResult.rejection_output).trim()
       : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
         ? toolResult.codex_output
         : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
@@ -6320,25 +6341,26 @@ export class AgentLoopService {
           });
 
           try {
-            let rawToolResult = await this.executeTool(toolCall, payload, {
-              currentCanonicalRequest
-            });
             let compressedContextSummary: string | null = null;
+            let rawToolResult: Record<string, unknown>;
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
-              const commit = await this.commitCoreMemoryCompression({
-                rawToolResult,
+              // Hard execution-layer guard: 小腻 must NEVER self-trigger compression from the main
+              // loop. Compression is a passive, system-driven capability — the "躯体警告" pressure
+              // reminder goes to the background compression fork, never to her main loop, and only
+              // the fork (allowedToolNames = {compress}) is meant to commit it. The tool stays in
+              // allowed_tools every turn for cache alignment (resolveMainLoopToolChoice invariant),
+              // so the only thing stopping a self-call is this reject. We do NOT executeTool and do
+              // NOT commit: committing would rewrite the front-of-prompt <小腻近况> and穿透 the whole
+              // ~180K-token warm prefix (the breakdown that motivated this guard). 模块五 states the
+              // same rule in-prompt; this enforces it so a prompt slip can't cost a full re-prefill.
+              rawToolResult = buildToolRejectedResult(
                 toolCall,
-                compression: budgetPlan.coreMemoryCompression,
-                contextSessionKey,
-                sourceResponseId: modelResult.llm_call_id || null,
-                metadata: {
-                  trace_id: payload.traceId,
-                  execution_mode: 'main_loop'
-                }
+                renderPromptSnippet('compress_core_memory_self_call_rejected.md')
+              );
+            } else {
+              rawToolResult = await this.executeTool(toolCall, payload, {
+                currentCanonicalRequest
               });
-              coreMemoryCompressionArtifact = commit.artifact;
-              rawToolResult = commit.toolResult;
-              compressedContextSummary = commit.text;
             }
             const toolResult = rawToolResult;
             if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovery_session_requested === true) {
@@ -9015,12 +9037,18 @@ export class AgentLoopService {
           let toolStatus: 'completed' | 'failed' = 'completed';
           let toolErrorMessage: string | null = null;
           try {
-            if (!allowedToolNames.has(toolCall.name)) {
-              throw new Error(`subconscious agent fork tried unsupported tool: ${toolCall.name}`);
-            }
-            rawToolResult = await this.executeTool(toolCall, params.queueMessage, {
-              currentCanonicalRequest: forkRequest
-            });
+            // Disallowed tool → controlled rejection (not a throw/error): the fork is a
+            // think-only branch (allowedToolNames = {execCommand}); any speaking/image/compress
+            // tool it emits is rejected here and the reason fed back so it self-corrects and
+            // hands back directions, instead of crashing into a generic tool error.
+            rawToolResult = allowedToolNames.has(toolCall.name)
+              ? await this.executeTool(toolCall, params.queueMessage, {
+                  currentCanonicalRequest: forkRequest
+                })
+              : buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
+                  TOOL_NAME: toolCall.name,
+                  ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
+                }));
           } catch (error) {
             rawToolResult = buildToolErrorResult(toolCall, error);
             toolStatus = 'failed';
@@ -9535,9 +9563,6 @@ export class AgentLoopService {
           }
 
           const toolCall = replayItem.toolCall;
-          if (!allowedToolNames.has(toolCall.name)) {
-            throw new Error(`${TOOL_NAMES.compressCoreMemory} fork tried unsupported tool: ${toolCall.name}`);
-          }
           forkToolCallCount += 1;
           const forkToolExecutionId = `core-memory-fork-tool:${forkRunId}:${toolCall.callId}`;
           await this.recordCoreMemoryCompressionForkToolExecutionSafe({
@@ -9566,9 +9591,18 @@ export class AgentLoopService {
           });
 
           try {
-            const rawToolResult = await this.executeTool(toolCall, params.queueMessage, {
-              currentCanonicalRequest: forkRequest
-            });
+            // Disallowed tool → controlled rejection (not a throw that aborts the fork): the
+            // compression fork only permits compress_core_memory; anything else is rejected here
+            // and the reason fed back, so the summarizer retries toward compress instead of
+            // crashing the whole fork run.
+            const rawToolResult = allowedToolNames.has(toolCall.name)
+              ? await this.executeTool(toolCall, params.queueMessage, {
+                  currentCanonicalRequest: forkRequest
+                })
+              : buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
+                  TOOL_NAME: toolCall.name,
+                  ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
+                }));
 
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               const commit = await this.commitCoreMemoryCompression({
