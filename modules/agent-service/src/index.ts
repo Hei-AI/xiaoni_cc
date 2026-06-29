@@ -329,6 +329,64 @@ async function runTaskWorkerLoop() {
   }
 }
 
+const DEBUG_CACHE_HEARTBEAT_SUPERVISOR_TICK_MS = 10000;
+
+// Operator-set interval (agent_runtime_control.debug_cache_heartbeat_interval_ms,
+// 0 = off) that fires a debug cache heartbeat on its OWN timer — independent of the
+// main loop's enabled flag and the sleep-heartbeat pause switch — so the provider
+// prompt cache stays warm even while the runtime is stopped for 停机debug. The main
+// loop's scheduled heartbeat only runs while enabled=true, so it can't help here.
+//
+// Dual-cache note: this reuses the existing triggerCacheHeartbeatForDebug fork path
+// (a clone of the main agent request). Firing it more often only refreshes the
+// provider cache; it never mutates the main agent's live request or stack-replay
+// history (the heartbeat writes only its own cache_heartbeat fork ledger), so it
+// introduces no cacheable-prefix drift and no run-boundary breakdown.
+async function runDebugCacheHeartbeatLoop() {
+  let lastFiredAtMs = 0;
+  while (!stopping) {
+    let sleepMs = DEBUG_CACHE_HEARTBEAT_SUPERVISOR_TICK_MS;
+    try {
+      const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+      const intervalMs = Number.isFinite(control.debugCacheHeartbeatIntervalMs) && control.debugCacheHeartbeatIntervalMs > 0
+        ? control.debugCacheHeartbeatIntervalMs
+        : 0;
+      if (intervalMs > 0) {
+        const now = Date.now();
+        if (lastFiredAtMs === 0 || now - lastFiredAtMs >= intervalMs) {
+          lastFiredAtMs = now;
+          moduleLogger.info('Firing debug-interval cache heartbeat', { intervalMs });
+          try {
+            const result = await loopService.triggerCacheHeartbeatForDebug();
+            moduleLogger.info('Debug-interval cache heartbeat completed', {
+              triggered: result.triggered,
+              cachedInputTokens: result.cachedInputTokens,
+              runId: result.runId
+            });
+          } catch (error) {
+            moduleLogger.warn('Debug-interval cache heartbeat failed', {
+              intervalMs,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+        // Poll at least as often as the interval so a shortened interval reacts quickly.
+        sleepMs = Math.min(DEBUG_CACHE_HEARTBEAT_SUPERVISOR_TICK_MS, intervalMs);
+      } else {
+        // Disabled → reset so re-enabling fires promptly on the next tick.
+        lastFiredAtMs = 0;
+      }
+    } catch (error) {
+      moduleLogger.warn('Debug-interval cache heartbeat supervisor failed to read runtime control', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(sleepMs);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -396,6 +454,7 @@ async function start() {
     }
   }));
   void wait(500).then(() => runTaskWorkerLoop());
+  void wait(800).then(() => runDebugCacheHeartbeatLoop());
 }
 
 process.on('SIGINT', () => {
