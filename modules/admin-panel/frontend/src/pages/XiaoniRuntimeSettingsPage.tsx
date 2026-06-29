@@ -27,6 +27,7 @@ type RuntimeControl = {
   postCompressionPauseTriggeredAt: string | null;
   postCompressionPauseReason: string | null;
   mainAgentPreModelYieldMs: number;
+  debugCacheHeartbeatIntervalMs: number;
   updatedAt: string | null;
 };
 
@@ -39,7 +40,18 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs'>>;
+
+type CacheHeartbeatTriggerResult = {
+  triggered?: boolean;
+  reason?: string;
+  model?: string;
+  provider?: string;
+  cachedInputTokens?: number;
+  inputTokens?: number;
+  runId?: string;
+  traceId?: string;
+};
 
 type RuntimePromptReloadResult = {
   invalidated?: boolean;
@@ -131,6 +143,18 @@ async function forceLoadRuntimePrompt(): Promise<RuntimePromptReloadResult> {
   return payload.data;
 }
 
+async function triggerCacheHeartbeat(): Promise<CacheHeartbeatTriggerResult> {
+  const response = await fetch('/api/agent-runtime/cache-heartbeat/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const payload = await response.json() as ApiResponse<CacheHeartbeatTriggerResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to trigger cache heartbeat');
+  }
+  return payload.data;
+}
+
 async function triggerCoreMemoryCompression(): Promise<ManualCompressionResult> {
   const response = await fetch('/api/agent-runtime/core-memory-compression/trigger', {
     method: 'POST',
@@ -157,6 +181,7 @@ async function fetchCompressionForkStatus(coveredEnd: number): Promise<Compressi
 export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [yieldInput, setYieldInput] = React.useState('');
+  const [debugHeartbeatSecondsInput, setDebugHeartbeatSecondsInput] = React.useState('');
   const controlQuery = useQuery({
     queryKey: ['xiaoni-runtime-control'],
     queryFn: fetchRuntimeControl,
@@ -183,6 +208,12 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     onSuccess: () => {
       void controlQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['runtimeStatus'] });
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const heartbeatMutation = useMutation({
+    mutationFn: triggerCacheHeartbeat,
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
     }
   });
@@ -215,11 +246,19 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const currentYieldMs = typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
     ? pendingPatch.mainAgentPreModelYieldMs
     : control?.mainAgentPreModelYieldMs ?? 5000;
+  const currentDebugHeartbeatIntervalMs = typeof pendingPatch?.debugCacheHeartbeatIntervalMs === 'number'
+    ? pendingPatch.debugCacheHeartbeatIntervalMs
+    : control?.debugCacheHeartbeatIntervalMs ?? 0;
   React.useEffect(() => {
     if (!mutation.isPending && typeof control?.mainAgentPreModelYieldMs === 'number') {
       setYieldInput(String(control.mainAgentPreModelYieldMs));
     }
   }, [control?.mainAgentPreModelYieldMs, mutation.isPending]);
+  React.useEffect(() => {
+    if (!mutation.isPending && typeof control?.debugCacheHeartbeatIntervalMs === 'number') {
+      setDebugHeartbeatSecondsInput(String(Math.round(control.debugCacheHeartbeatIntervalMs / 1000)));
+    }
+  }, [control?.debugCacheHeartbeatIntervalMs, mutation.isPending]);
   const parsedYieldMs = /^\d+$/.test(yieldInput.trim())
     ? Number.parseInt(yieldInput.trim(), 10)
     : null;
@@ -245,6 +284,22 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     }
     mutation.mutate({ mainAgentPreModelYieldMs: parsedYieldMs });
   }, [mutation, parsedYieldMs, yieldInputValid]);
+  const parsedDebugHeartbeatSeconds = /^\d+$/.test(debugHeartbeatSecondsInput.trim())
+    ? Number.parseInt(debugHeartbeatSecondsInput.trim(), 10)
+    : null;
+  // 0 disables; below the ~10s supervisor tick is meaningless, so require >= 10s when on.
+  const debugHeartbeatInputValid = parsedDebugHeartbeatSeconds !== null
+    && Number.isSafeInteger(parsedDebugHeartbeatSeconds)
+    && (parsedDebugHeartbeatSeconds === 0 || parsedDebugHeartbeatSeconds >= 10);
+  const targetDebugHeartbeatMs = parsedDebugHeartbeatSeconds === null ? null : parsedDebugHeartbeatSeconds * 1000;
+  const debugHeartbeatInputDirty = debugHeartbeatInputValid && targetDebugHeartbeatMs !== currentDebugHeartbeatIntervalMs;
+  const handleDebugHeartbeatSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!debugHeartbeatInputValid || targetDebugHeartbeatMs === null) {
+      return;
+    }
+    mutation.mutate({ debugCacheHeartbeatIntervalMs: targetDebugHeartbeatMs });
+  }, [mutation, debugHeartbeatInputValid, targetDebugHeartbeatMs]);
 
   return (
     <PageShell className="max-w-4xl">
@@ -351,6 +406,13 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
         <ErrorState
           description={compressionMutation.error instanceof Error ? compressionMutation.error.message : '触发核心记忆压缩失败'}
           onRetry={() => compressionMutation.mutate()}
+        />
+      ) : null}
+
+      {heartbeatMutation.error ? (
+        <ErrorState
+          description={heartbeatMutation.error instanceof Error ? heartbeatMutation.error.message : '触发 cache heartbeat 失败'}
+          onRetry={() => heartbeatMutation.mutate()}
         />
       ) : null}
 
@@ -483,6 +545,79 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               aria-label="暂停睡眠保温 heartbeat"
             />
           </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="调试保温 heartbeat"
+        description="停机 debug 期间手动保温 provider prompt cache。一次性按钮立刻打一发；设定间隔后由 agent-service 独立定时器周期触发，不受主循环开关和上面的睡眠暂停影响（0 = 关闭）。"
+        icon={<HeartPulse className="h-4 w-4 text-primary" />}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">立即执行一次</div>
+              <div className="text-sm text-muted-foreground">绕过停机/暂停闸，立刻发起一次 cache heartbeat（需等待一轮模型返回）。</div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => heartbeatMutation.mutate()}
+              disabled={heartbeatMutation.isPending}
+            >
+              {heartbeatMutation.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <HeartPulse className="mr-2 h-4 w-4" />}
+              立即执行一次 heartbeat
+            </Button>
+          </div>
+
+          {heartbeatMutation.data ? (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              最近一次：{heartbeatMutation.data.triggered === false
+                ? `未触发（${heartbeatMutation.data.reason ?? 'unknown'}）`
+                : '已完成'}
+              {typeof heartbeatMutation.data.cachedInputTokens === 'number' ? ` · cache_read ${heartbeatMutation.data.cachedInputTokens}` : ''}
+              {heartbeatMutation.data.runId ? ` · run ${heartbeatMutation.data.runId}` : ''}
+            </div>
+          ) : null}
+
+          <form
+            className="flex flex-col gap-3 border-t border-border/50 pt-4 sm:flex-row sm:items-center sm:justify-between"
+            onSubmit={handleDebugHeartbeatSubmit}
+          >
+            <div className="space-y-1">
+              <div className="text-sm font-medium text-foreground">周期触发间隔</div>
+              <div className="text-sm text-muted-foreground">
+                {currentDebugHeartbeatIntervalMs > 0
+                  ? `当前：每 ${Math.round(currentDebugHeartbeatIntervalMs / 1000)} 秒自动保温一次（停机也生效）。`
+                  : '当前：已关闭（仅靠一次性按钮）。'}
+              </div>
+              <div className="text-xs text-muted-foreground">单位：秒；0 = 关闭；调度精度约 10 秒，建议 ≥ 60 秒。</div>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:w-56">
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                value={debugHeartbeatSecondsInput}
+                disabled={controlQuery.isLoading || mutation.isPending}
+                onChange={(event) => setDebugHeartbeatSecondsInput(event.target.value)}
+                aria-label="调试保温 heartbeat 间隔秒数"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={controlQuery.isLoading || mutation.isPending || !debugHeartbeatInputValid || !debugHeartbeatInputDirty}
+              >
+                {mutation.isPending && typeof pendingPatch?.debugCacheHeartbeatIntervalMs === 'number'
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : null}
+                保存
+              </Button>
+            </div>
+          </form>
         </div>
       </SectionPanel>
 
