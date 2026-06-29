@@ -88,7 +88,7 @@ export class OpenAIImageProvider {
   private readonly moduleLogger = logger.createModuleLogger('image-provider-openai');
 
   constructor(config: OpenAIImageProviderConfig = {}) {
-    this.openAiApiKey = config.apiKey || aiConfig.openai_api_key || process.env.OPENAI_API_KEY || undefined;
+    this.openAiApiKey = config.apiKey || process.env.IMAGE_PROVIDER_OPENAI_API_KEY || aiConfig.openai_api_key || process.env.OPENAI_API_KEY || undefined;
     this.openAiBaseUrl = this.normalizeBaseUrl(
       config.baseUrl || process.env.IMAGE_PROVIDER_OPENAI_BASE_URL || aiConfig.openai_base_url || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
     );
