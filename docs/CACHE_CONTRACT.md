@@ -1,0 +1,65 @@
+# 小腻 Prompt-Cache 契约（0 容忍·可执行）
+
+本文件是 agent-service / provider-service 上**所有缓存行为**的单一真相源。改主 agent、fork、压缩、provider 翻译前先读这里。配套不可变回归用例见 CLAUDE.md「缓存用例不可变 + 失败禁止部署」。
+
+---
+
+## 0. 底层机制（Anthropic prompt caching，按官方语义）
+
+- **前缀匹配 + 不可变条目**：缓存键 = 渲染请求到某个 `cache_control` 断点为止的**逐字节前缀**。前缀里改一个字节,**该断点及其后**全部失效;但**不会 evict / 改写**任何**别的**已写入条目(每条按自己字节 keyed、独立老化)。
+- **读 = 最长前缀匹配**:一次请求命中「比它短、且是它前缀的、最近写过的那条」。所以一个请求**不需要在某点自带断点**就能命中那点的条目——只要那条存在、且在回看窗内。
+- **20 块回看**:每个断点最多往回看 **20 个 content block** 找前序条目;相邻两个断点之间超过 20 块 → 勾不到 → 整条冷读。
+- **TTL**:`ephemeral` 默认 5m;`ttl:'1h'` 扩展缓存。TTL 过期与容量 LRU 淘汰是两回事——**1h 只防过期、不防 LRU**。
+- **并发写只在「同一前缀」上抢**:不同前缀各写各的,不互相阻塞。
+
+---
+
+## 1. 断点布局:**每个请求 = 头 1 个 + 尾 1 个**（主 agent 与每个 fork 都一样）
+
+落点:`modules/provider-service/.../anthropic-translate.ts`。
+
+- **头断点**:打在 **system 头(身份 + tools 那段永不变的前缀)**最后一块 → 一条**永久共享条目**,主、所有 fork、切换前后**都命中**。
+- **尾断点**:打在**本帧最后一个 `durable` 块**(`isDurableItem` 跳过 `cache_volatile`)→ ① 写「当前完整前缀」一条;② 读时按最长前缀匹配自动勾到最近的前序尾条目。
+- **≤2 个断点**,4 个额度里**留 2 个**专门用来在「单帧 >20 块」时**桥接**(见 §3)。
+- **TTL = 1h**(`ANTHROPIC_CACHE_TTL` 可回退 5m);每个断点同 TTL,无「长 TTL 必须在短 TTL 前」的排序约束。
+- **`cache_volatile`**:一切按 turn/run/时间漂移的内容(`[当前时间]` 戳、当前 trigger)必须打 `cache_volatile` 或排在尾断点**之后**,**绝不能落进头到尾之间的缓存前缀**,否则尾条目每帧变、谁都蹭不上。
+
+---
+
+## 2. fork = 主 agent 血缘线在「自己 fork 点 `P_n`」的冻结克隆
+
+- 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、潜意识 fork runSubconsciousAgentFork 均循环克隆 `params.baseRequest`)。
+- fork 命中 = 它尾部那个断点回看 ≤20 块,勾到**主在 turn-n 写的 `P_n` 尾条目**;fork **不需要自带 `P_n` 断点**,头+尾两个就够。
+- 6 个 fork 在不同点 = 老血缘线上 **6 条独立 keyed、各自命中**的条目;互不干涉。
+- fork 每帧也把尾断点前移到自己尾部、每帧增量 ≤5 块(<20),所以**fork 自身链**逐帧严丝合缝。
+
+---
+
+## 3. 两条硬结构约束（违反 = 确定性击穿）
+
+1. **单帧新增 < 20 个 content block**:相邻两个尾断点跨度 >20 → 回看勾不到 → 整条冷读。fork ≤5 块 ✓;**主 agent 一帧里 >~10 对并行 `tool_use`/`tool_result`(>20 块)时,必须用留出的额度在中间补一个桥接断点**。
+2. **头必须逐字节稳定**:system + tools 在整个 session(含切换前后、含所有 fork)字节不变;volatile 内容一律 `cache_volatile` 或排在尾断点后。
+
+外加运行时不变量(已有用例守):**进了 live 请求的内容必须能被 stack replay 逐字节重建**(run 边界),否则 replay 变短击穿。
+
+---
+
+## 4. REQ2 STW — 压缩切换
+
+落点:`agent-loop-service.ts` `applyPendingCompressionMidRunIfSilent`(主 loop turn 循环顶,turn 间静默点)。
+
+- **何时切**:① 有 pending 压缩(`pendingCompressionAppliedCutoffBySession`)且 live session cutoff 已推进过本 run 启动 cutoff;② **只等「产出本次 cutoff 的压缩 fork」跑完**(`coreMemoryCompressionForks` 该 key 空)。**不等潜意识/图像/心跳 fork。**
+- **为什么不等其它 fork**:它们是冻结在各自 `P_n` 的克隆,`P_n` 与切换写出的 `P_new` 是**互不波及的独立不可变条目**,切换既不 evict 也不改写 `P_n` → 在飞 fork 继续命中各自 `P_n`,**不穿透**。反之「等所有 fork」会在忙时(多 fork 错时)**确定性饿死**切换。
+- **切换动作(原子)**:用新 cutoff 重建 `requestInput` = 逐出 ≤cutoff 旧会话 + 换新近况 + **保留本 run 的 loopContinuation** + 复用本 run 那份 `cache_volatile` 当前 trigger;清 latch 使**只切一次**。
+- **只冷一次,且不全冷**:切换帧的尾前缀 `P_new` 没有前序尾条目可匹配,但**仍命中头条目** → 只冷读 `[新history][新近况][loopContinuation]`,**system+tools 不冷**。之后所有主 turn 延伸 `P_new`(暖)、之后 spawn 的新 fork 克隆 `P_new`(暖)。
+- **顺序**:切换帧必须**先于**「之后 spawn 的新 fork」冷写出 `P_new`(loop 里 fork 在主 turn 后才 spawn,天然满足),否则切换帧与新 fork 抢冷写 `P_new` = 两次冷读。
+
+---
+
+## 5. 不可变回归用例（任一失败禁止部署 agent-service）
+
+- `modules/agent-service/src/__tests__/cache-replay-consistency.test.ts`
+- `modules/agent-service/src/__tests__/fork-cache-alignment.test.ts`
+- `packages/persistence/__tests__/agent-stack-event-id-dedup{,.realdb}.test.js`
+
+每条都验过「改坏即红」。这些用例只能新增、不能为了通过而弱化断言(行为变更需 user 显式批准)。
