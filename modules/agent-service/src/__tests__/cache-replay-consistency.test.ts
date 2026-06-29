@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { agentConfig } from '../config';
-import { AgentLoopService, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, XIAONI_IDENTITY_KEY, buildInitialInput, buildCanonicalAgentTurnRequest, formatEast8Timestamp } from '../services/agent-loop-service';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 
 process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY = 'xiaoni:test-global';
@@ -441,4 +441,126 @@ test('provider TRANSIENT failure: folded notify stays NULL for the retry self-he
   const foldRow = stack.find((row) => row.trace_id === foldTrace && row.item_kind === 'runtime_input');
   assert.ok(foldRow, 'the folded notify must still be persisted');
   assert.equal(foldRow!.conversation_id, null, 'the folded notify must stay NULL for the retry self-heal');
+});
+
+// --- #1 + #2: main loop driven with type:text outputs + within-run prefix continuity ---
+//
+// The durable (non-cache_volatile) prefix of every provider request in a run must be
+// an exact ordered prefix of the next turn's durable prefix — the warm cache only ever
+// EXTENDS, it never diverges. This is the main loop's own 0-tolerance cache invariant.
+// The run includes a turn where the model returns a type:text assistant output (a real
+// production scenario) to prove text outputs don't perturb the cacheable prefix.
+
+function stripVolatile(input: any[]) {
+  return (input || []).filter((item) => !item || (item as any).cache_volatile !== true);
+}
+
+// Assert seqA is an exact ordered prefix of seqB (byte-identical, item by item).
+function assertOrderedPrefix(seqA: any[], seqB: any[], label: string) {
+  assert.ok(seqB.length >= seqA.length, `${label}: prefix must not shrink (${seqB.length} < ${seqA.length})`);
+  for (let i = 0; i < seqA.length; i += 1) {
+    assert.equal(
+      JSON.stringify(seqB[i]),
+      JSON.stringify(seqA[i]),
+      `${label}: durable item ${i} diverged — cache prefix is not byte-identical`
+    );
+  }
+}
+
+test('main loop: durable prefix is byte-identical and monotonically extends across turns (incl. a type:text turn)', async () => {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sentInputs: any[][] = [];
+  const modelOutputsByTurn: string[] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sentInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === 1) {
+      // PRODUCTION SCENARIO: model returns a plain type:text assistant output (narration).
+      modelOutputsByTurn.push('text');
+      return {
+        success: true, llm_call_id: 'llm-1', llm_request_slice_id: 'slice-1',
+        canonical_response: { output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '我先想想怎么接。' }] }] }
+      };
+    }
+    if (turn === 2 || turn === 3) {
+      modelOutputsByTurn.push('tool');
+      return {
+        success: true, llm_call_id: `llm-${turn}`, llm_request_slice_id: `slice-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] }
+      };
+    }
+    modelOutputsByTurn.push('final');
+    return {
+      success: true, llm_call_id: `llm-${turn}`, llm_request_slice_id: `slice-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好了。' }] }] }
+    };
+  };
+
+  const queueMessage = {
+    id: 'run-A', traceId: 'runtrace-A', batchId: 'batch-A', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z',
+    payload: baseQueuePayload()
+  };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  // The type:text scenario actually ran as turn 1, and the loop continued past it.
+  assert.equal(modelOutputsByTurn[0], 'text', 'turn 1 must have exercised a type:text output');
+  assert.ok(sentInputs.length >= 3, `expected a multi-turn run, got ${sentInputs.length} turns`);
+
+  // 0-tolerance: every turn's durable prefix is an exact ordered prefix of the next.
+  for (let i = 0; i + 1 < sentInputs.length; i += 1) {
+    assertOrderedPrefix(stripVolatile(sentInputs[i]), stripVolatile(sentInputs[i + 1]), `turn ${i + 1}->${i + 2}`);
+  }
+
+  // The volatile current-turn trigger is the ONLY thing allowed to vary turn to turn:
+  // it must be tagged cache_volatile so it never anchors the cached prefix.
+  for (let i = 0; i < sentInputs.length; i += 1) {
+    const volatileItems = (sentInputs[i] || []).filter((item: any) => item && item.cache_volatile === true);
+    assert.ok(volatileItems.length >= 1, `turn ${i + 1}: the current-turn trigger must be tagged cache_volatile`);
+  }
+});
+
+// --- #3: time-drift. The cacheable prefix must be byte-identical across a wall-clock
+// change. Any re-rendered timestamp (new Date()) that leaks into the durable prefix
+// (system instructions, tools, or non-volatile input) drifts the cached body at every
+// run/heartbeat boundary -> cache miss. Patch the global clock, rebuild, compare.
+const RealDate = Date;
+function patchClock(iso: string) {
+  const fixed = new RealDate(iso).getTime();
+  class FakeDate extends RealDate {
+    constructor(...args: any[]) { super(...((args.length ? args : [fixed]) as [])); }
+    static now() { return fixed; }
+  }
+  (globalThis as any).Date = FakeDate;
+}
+function restoreClock() { (globalThis as any).Date = RealDate; }
+
+test('main request: cacheable prefix (system + tools + durable input) is byte-identical across wall-clock change', () => {
+  try {
+    patchClock('2026-06-29T10:00:00+08:00');
+    const morningStamp = formatEast8Timestamp();
+    const reqMorning = buildCanonicalAgentTurnRequest(agentConfig.modelName, buildInitialInput([], baseQueuePayload() as any), 'group');
+
+    patchClock('2026-06-29T23:45:00+08:00');
+    const nightStamp = formatEast8Timestamp();
+    const reqNight = buildCanonicalAgentTurnRequest(agentConfig.modelName, buildInitialInput([], baseQueuePayload() as any), 'group');
+
+    // Sanity: the clock patch is effective (otherwise the test would be vacuous).
+    assert.notEqual(morningStamp, nightStamp, 'clock patch must change the wall-clock stamp');
+
+    // System prompt tier — the largest cached prefix — must be time-free.
+    assert.equal(JSON.stringify(reqMorning.instructions), JSON.stringify(reqNight.instructions), 'system instructions must not carry a wall-clock stamp');
+    assert.equal(JSON.stringify(reqMorning.tools), JSON.stringify(reqNight.tools), 'tools must not carry a wall-clock stamp');
+    // Durable (non-cache_volatile) input must be byte-identical both directions == equal.
+    assertOrderedPrefix(stripVolatile(reqMorning.input), stripVolatile(reqNight.input), 'time-drift fwd');
+    assertOrderedPrefix(stripVolatile(reqNight.input), stripVolatile(reqMorning.input), 'time-drift rev');
+  } finally {
+    restoreClock();
+  }
 });
