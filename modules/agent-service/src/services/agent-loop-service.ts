@@ -9511,12 +9511,18 @@ export class AgentLoopService {
   // prefix — and then everything rides the new warm cache: subsequent main turns
   // extend the rebuilt requestInput, and any fork scheduled afterwards clones it.
   //
-  // Silence (locked spec, docs/investigations/compress-core-memory-three-contract-
-  // violations-2026-06-28.md §REQ2): main agent = current turn (model slice) finished
-  // — naturally true at the loop top, between turns; all forks drained — no compression
-  // fork (coreMemoryCompressionForks empty) and no subconscious fork in flight. The
-  // image-vision fork runs inline inside a tool call, so it is already idle here. The
-  // fork that PRODUCED this compression has completed (that is why the map is empty).
+  // Silent point = main current turn finished (naturally true at the loop top) + the
+  // COMPRESSION fork that produced this cutoff has finished committing. We do NOT wait
+  // for subconscious / image / heartbeat forks — see docs/CACHE_CONTRACT.md §"切换不与
+  // fork 同步". Why: each fork is a frozen clone of the main lineage at its own fork
+  // point (P_n), and with the head+tail cache_control contract those P_n are INDEPENDENT
+  // prefix-keyed entries. Rewriting the main to P_new neither evicts nor mutates any P_n
+  // (cache entries are immutable, byte-keyed), so a mid-fork switch never 穿透s a running
+  // fork — it keeps hitting its frozen P_n. Waiting for ALL forks would instead
+  // deterministically STARVE the switch in a busy session (6 forks at staggered points →
+  // ~never all idle). Only the compression fork is load-bearing: its cutoff must be
+  // committed before the main can adopt it, which is exactly what coreMemoryCompressionForks
+  // (empty) + the live-cutoff check below enforce.
   private async applyPendingCompressionMidRunIfSilent(params: {
     contextSessionKey: string;
     appliedRunCutoff: number | null;
@@ -9535,10 +9541,13 @@ export class AgentLoopService {
     if (pending === null || pending <= (params.appliedRunCutoff ?? -1)) {
       return null; // nothing scheduled, or this run already built/switched to it
     }
-    // Drain gate: switch only when no fork is mid-flight. A fork is a clone of the main
-    // request; switching while one runs would strand it on a half-old/half-new base.
-    if (this.coreMemoryCompressionForks.size > 0 || this.subconsciousAgentForkInFlight !== null) {
-      return null; // not silent yet — retry at the next turn boundary
+    // Drain gate: wait ONLY for the compression fork that produced the cutoff to finish
+    // committing. Other forks (subconscious / image / heartbeat) are frozen clones on
+    // their own independent prefix-keyed cache entries and are NOT 穿透ed by the switch,
+    // so we deliberately do not wait for them (waiting would starve the switch — see the
+    // method comment + docs/CACHE_CONTRACT.md).
+    if (this.coreMemoryCompressionForks.size > 0) {
+      return null; // compression fork still running — retry at the next turn boundary
     }
     // Confirm the fork actually committed the new context window (cutoff + summary).
     const cutoffState = await this.store.getSessionReadCutoffState(key);

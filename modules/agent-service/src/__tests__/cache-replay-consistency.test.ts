@@ -879,3 +879,88 @@ test('REQ2 STW: mid-run compression switch cold-reads exactly once; later turns 
   const newBase = JSON.stringify(stripVolatile(sentInputs[firstNew]).slice(0, 3));
   assert.notEqual(newBase, preBase, 'the switch must change the cached prefix exactly once (the necessary cold read)');
 });
+
+// =====================================================================================
+// CONTRACT (docs/CACHE_CONTRACT.md §4): the STW drain gate waits ONLY for the
+// compression fork that produced the cutoff — NOT for subconscious / image / heartbeat
+// forks. Those are frozen clones on independent prefix-keyed entries and aren't 穿透ed
+// by the switch; waiting for them would starve the switch in a busy session.
+// =====================================================================================
+function buildStwScenario() {
+  const KEY = 'xiaoni:test-global';
+  const NEW_CUTOFF = 300;
+  const NEW_SUMMARY = '压缩后近况：只保留最近的事';
+  const historyTurns = [100, 200, 300, 400, 500].map((id) => ({ id, userMessage: `旧对话 ${id}`, aiResponse: null }));
+  let cutoffFlipped = false;
+  const timelineEvents: any[] = [];
+  const store: any = {
+    createLlmJob: async () => 'job-stw2',
+    logTimelineEvent: async (e: any) => { timelineEvents.push(e); },
+    listRecentTurns: async () => historyTurns,
+    listAgentStackItemsForConversations: async () => [],
+    getSessionReadCutoffState: async () => cutoffFlipped
+      ? { readCutoffAfterConversationId: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
+      : { readCutoffAfterConversationId: null, contextSummary: '旧近况', pendingProactiveShare: null, pendingProactiveShareAge: 0 },
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    getAgentStackHead: async () => 0,
+    appendAgentStackItems: async () => [],
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: async () => null,
+    createConversation: async () => 9999,
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  };
+  return { store, KEY, NEW_CUTOFF, timelineEvents, flip: () => { cutoffFlipped = true; } };
+}
+
+async function runStwScenario(setup: (service: any, scenario: ReturnType<typeof buildStwScenario>) => void) {
+  const scenario = buildStwScenario();
+  const service = new AgentLoopService(scenario.store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+  setup(service, scenario);
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 2) {
+      scenario.flip();
+      (service as any).pendingCompressionAppliedCutoffBySession.set(scenario.KEY, scenario.NEW_CUTOFF);
+    }
+    if (turn <= 4) {
+      return { success: true, llm_call_id: `llm-${turn}`, llm_request_slice_id: `slice-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] } };
+    }
+    return { success: true, llm_call_id: `llm-${turn}`, llm_request_slice_id: `slice-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+  const queueMessage = { id: 'run-STW2', traceId: 'runtrace-STW2', batchId: 'batch-STW2', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'runtrace-STW2', runId: 'run-STW2' }) };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+  return scenario.timelineEvents.filter((e) => e.eventName === 'core_memory_compression_applied_midrun');
+}
+
+test('STW drain gate: a subconscious fork in flight does NOT block the switch', async () => {
+  const midrun = await runStwScenario((service) => {
+    // A subconscious fork is mid-flight — per contract this must NOT gate the switch.
+    (service as any).subconsciousAgentForkInFlight = Promise.resolve(true);
+  });
+  assert.equal(midrun.length, 1, 'the switch must fire even while a subconscious fork runs');
+  assert.equal(midrun[0].metadata.applied_read_cutoff, 300);
+});
+
+test('STW drain gate: the compression fork that produced the cutoff DOES block the switch until it finishes', async () => {
+  const midrun = await runStwScenario((service) => {
+    // The compression fork for this session is still running — must suppress the switch.
+    (service as any).coreMemoryCompressionForks.set('xiaoni:test-global', { promise: Promise.resolve() });
+  });
+  assert.equal(midrun.length, 0, 'the switch must wait for the compression fork to finish committing');
+});

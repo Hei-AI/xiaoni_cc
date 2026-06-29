@@ -146,3 +146,52 @@ test('all forks share the SAME cloned prefix as each other (one warm cache entry
     assert.deepEqual(fork.tool_choice, base.tool_choice);
   }
 });
+
+// CONTRACT (docs/CACHE_CONTRACT.md §3.1): each fork appends fewer than 20 content
+// blocks past the cloned prefix, so the provider's 20-block lookback always finds the
+// main's P_n entry (the fork's tail breakpoint reads it). A fork whose cold tail
+// exceeds 20 blocks would stop hitting the shared prefix → full cold prefill.
+test('every fork appends < 20 content blocks past the cloned prefix (20-block lookback guard)', () => {
+  const base = buildBaseRequest();
+  const subc: any = buildSubconsciousAgentForkRequest(base, 1, [
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '刚才的叙述' }] }
+  ] as any[]);
+  const heartbeat: any = buildCacheHeartbeatForkRequest(base);
+  const imageVision: any = buildImageVisionForkRequest(base, 'data:image/png;base64,iVBORw0KGgo=', 'img-1', '/x/y.md', '旧观察');
+  for (const [label, fork] of [['subconscious', subc], ['heartbeat', heartbeat], ['image-vision', imageVision]] as const) {
+    const tail = fork.input.length - base.input.length;
+    assert.ok(tail > 0 && tail < 20, `${label} fork tail must be in (0,20) blocks, got ${tail}`);
+  }
+  // The compression fork builder is a pure clone (tail 0); its 1-item compression
+  // reminder is appended at dispatch (runCoreMemoryCompressionFork), well under 20.
+  const compression: any = buildCoreMemoryCompressionForkRequest(base, 1);
+  assert.equal(compression.input.length, base.input.length, 'compression fork builder must be a pure clone (tail added at dispatch)');
+});
+
+// CONTRACT (docs/CACHE_CONTRACT.md §2 + §4): a fork is a FROZEN clone of the main
+// lineage at its own fork point. Once built, the main advancing or doing an STW switch
+// must NOT mutate the fork's already-cloned prefix — each holds an independent deep
+// copy, so its P_n stays byte-identical and keeps hitting its own cache entry.
+test('forks at different points are frozen: the main advancing / switching does not mutate them', () => {
+  const base = buildBaseRequest();
+  // Fork A frozen at this point.
+  const forkA: any = buildSubconsciousAgentForkRequest(base, 1, []);
+  const forkASnapshot = JSON.stringify(forkA.input);
+  // Fork B frozen at a LATER point (the main has advanced two more blocks by now).
+  const advanced = buildCanonicalAgentTurnRequest(agentConfig.modelName, [
+    ...buildProductionMainLoopInput(),
+    { type: 'function_call', call_id: 'c2', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"ls"}' },
+    { type: 'function_call_output', call_id: 'c2', output: 'more' }
+  ] as any[], 'group');
+  const forkB: any = buildCoreMemoryCompressionForkRequest(advanced, 1);
+  const forkBSnapshot = JSON.stringify(forkB.input);
+
+  // Now the main advances further / does an STW switch — mutate BOTH base requests.
+  (base.input as any[]).push({ type: 'function_call', call_id: 'c-new', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"switch"}' });
+  (advanced.input as any[]).length = 0; // simulate an aggressive STW rebuild of the main
+  (base as any).instructions = 'MUTATED';
+
+  // Both forks are unaffected — frozen independent copies at their own P_n.
+  assert.equal(JSON.stringify(forkA.input), forkASnapshot, 'fork A prefix must be frozen against later main mutation');
+  assert.equal(JSON.stringify(forkB.input), forkBSnapshot, 'fork B prefix must be frozen against an STW rebuild of the main');
+});
