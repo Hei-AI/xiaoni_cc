@@ -2034,6 +2034,32 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        // Cache heartbeat fork ledger. The heartbeat is a fork agent that triggers a
+        // model request (keeps the warm prompt cache alive) but runs store=false and
+        // never appends to the main agent_stack_items, so historically it had no
+        // occurred_seq and sank to the bottom of the action stream. One row per fire,
+        // occurred_seq stamped by the shared agent_event_seq default (added below), so
+        // the heartbeat sorts inline by true creation order like every other fork. It's
+        // its own table, so this does NOT re-enter the main loop's replayable context.
+        `
+          CREATE TABLE IF NOT EXISTS cache_heartbeat_fork_items (
+            id BIGSERIAL PRIMARY KEY,
+            event_id VARCHAR(191) NOT NULL UNIQUE,
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            llm_call_id VARCHAR(128),
+            llm_request_slice_id VARCHAR(191),
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            conversation_id BIGINT,
+            model_name VARCHAR(191),
+            model_provider VARCHAR(64),
+            status VARCHAR(32),
+            content JSONB NOT NULL DEFAULT '{}'::jsonb,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
         // Global event-creation sequence: one shared counter stamped at insert
         // on every real stack/fork item, so the action stream can sort by true
         // creation order across the main loop and all forks. Added nullable +
@@ -2055,7 +2081,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               'agent_stack_items',
               'core_memory_compression_fork_items',
               'subconscious_agent_fork_items',
-              'image_vision_fork_items'
+              'image_vision_fork_items',
+              'cache_heartbeat_fork_items'
             ] LOOP
               IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -2116,7 +2143,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_runs_asset ON image_vision_fork_runs (asset_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_run_index ON image_vision_fork_items (fork_run_id, item_index)',
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_slice ON image_vision_fork_items (llm_request_slice_id)',
-        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_slices_run_turn ON image_vision_fork_slices (fork_run_id, agent_turn, id)'
+        'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_slices_run_turn ON image_vision_fork_slices (fork_run_id, agent_turn, id)',
+        'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_llm_call ON cache_heartbeat_fork_items (llm_call_id)',
+        'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_run ON cache_heartbeat_fork_items (run_id)',
+        'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_identity_time ON cache_heartbeat_fork_items (identity_key, created_at DESC, id DESC)'
       ]);
       await initializeLlmUsageRollupsIfNeeded(sql);
     });
@@ -2718,6 +2748,59 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         result.total += forkRunIds.length;
       }
       return result;
+    });
+  }
+
+  // Persist one ledger row per cache-heartbeat fire so the heartbeat fork gets a real
+  // global occurred_seq (stamped by the agent_event_seq DEFAULT) and sorts inline in the
+  // action stream like every other model-request trigger. event_id is the LLM call id
+  // (fallback: cache-heartbeat:<runId>), so a retried completion is idempotent.
+  async function recordCacheHeartbeatForkRun(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const llmCallId = firstString(input.llmCallId, input.llm_call_id);
+    const runId = firstString(input.runId, input.run_id);
+    const eventId = firstString(input.eventId, input.event_id, llmCallId)
+      || (runId ? `cache-heartbeat:${runId}` : null);
+    if (!eventId) {
+      return null;
+    }
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          INSERT INTO cache_heartbeat_fork_items (
+            event_id,
+            identity_key,
+            llm_call_id,
+            llm_request_slice_id,
+            trace_id,
+            run_id,
+            conversation_id,
+            model_name,
+            model_provider,
+            status,
+            content,
+            metadata
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
+          ON CONFLICT (event_id) DO NOTHING
+          RETURNING *
+        `,
+        [
+          eventId,
+          firstString(input.identityKey, input.identity_key, 'xiaoni'),
+          llmCallId,
+          firstString(input.llmRequestSliceId, input.llm_request_slice_id),
+          firstString(input.traceId, input.trace_id),
+          runId,
+          normalizeBigIntId(input.conversationId ?? input.conversation_id),
+          firstString(input.modelName, input.model_name),
+          firstString(input.modelProvider, input.model_provider),
+          firstString(input.status),
+          JSON.stringify(normalizeValue(input.content ?? {})),
+          JSON.stringify(normalizeJsonObject(input.metadata, {}))
+        ]
+      );
+      return rows[0] || null;
     });
   }
 
@@ -4701,6 +4784,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     completeImageVisionForkRun,
     appendImageVisionForkItems,
     recordImageVisionForkSlice,
+    recordCacheHeartbeatForkRun,
     listAgentStackItems,
     listAgentStackItemsForConversations,
     listLlmRequestSlices,

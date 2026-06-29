@@ -703,6 +703,30 @@ model SubconsciousAgentForkItem {
   @@map("subconscious_agent_fork_items")
 }
 
+model CacheHeartbeatForkItem {
+  id                   BigInt   @id @default(autoincrement()) @db.BigInt
+  event_id             String   @unique @db.VarChar(191)
+  identity_key         String   @default("xiaoni") @db.VarChar(191)
+  occurred_seq         BigInt?  @db.BigInt
+  llm_call_id          String?  @db.VarChar(128)
+  llm_request_slice_id String?  @db.VarChar(191)
+  trace_id             String?  @db.VarChar(128)
+  run_id               String?  @db.VarChar(128)
+  conversation_id      BigInt?  @db.BigInt
+  model_name           String?  @db.VarChar(191)
+  model_provider       String?  @db.VarChar(64)
+  status               String?  @db.VarChar(32)
+  content              Json     @default("{}")
+  metadata             Json     @default("{}")
+  created_at           DateTime @default(now()) @db.Timestamptz(3)
+  updated_at           DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([llm_call_id], map: "idx_cache_heartbeat_fork_items_llm_call")
+  @@index([run_id], map: "idx_cache_heartbeat_fork_items_run")
+  @@index([identity_key, created_at, id], map: "idx_cache_heartbeat_fork_items_identity_time")
+  @@map("cache_heartbeat_fork_items")
+}
+
 model SubconsciousAgentForkSlice {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
   slice_id               String    @unique @db.VarChar(191)

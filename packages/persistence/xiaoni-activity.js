@@ -1422,7 +1422,7 @@ function tokenSummaryFromCodexProviderUsageEvent(row) {
   };
 }
 
-function summarizeCacheHeartbeatEvent(row) {
+function summarizeCacheHeartbeatEvent(row, occurredSeq = null) {
   const tokenSummary = tokenSummaryFromCodexProviderUsageEvent(row);
   const eventId = tokenSummary.eventId || firstString(row.id) || `cache-heartbeat:${Date.now()}`;
   const traceId = firstString(row.traceId, row.trace_id);
@@ -1467,6 +1467,10 @@ function summarizeCacheHeartbeatEvent(row) {
     metadata: normalizeValue({
       forkKind: 'cache_heartbeat',
       sourceKind: 'cache_heartbeat',
+      // Global creation sequence from the cache_heartbeat_fork_items ledger. Present for
+      // heartbeats fired after the fork-ledger migration; null for historical rows (they
+      // keep falling back to created_at in the frontend, sorting below stamped rows).
+      orderSeq: streamNumberOrNull(occurredSeq),
       llmRequestSliceId: eventId,
       llmCallId: tokenSummary.llmCallId,
       providerRequestSpanId,
@@ -1485,8 +1489,8 @@ function summarizeCacheHeartbeatEvent(row) {
   };
 }
 
-function summarizeCacheHeartbeatRun(row) {
-  const event = summarizeCacheHeartbeatEvent(row);
+function summarizeCacheHeartbeatRun(row, occurredSeq = null) {
+  const event = summarizeCacheHeartbeatEvent(row, occurredSeq);
   const startedAt = event.timestamp;
   const completedAt = normalizeDate(row.completedAt || row.completed_at || row.updatedAt || row.updated_at);
   const startedMs = new Date(startedAt).getTime();
@@ -1522,11 +1526,57 @@ function summarizeCacheHeartbeatRun(row) {
   };
 }
 
+// Look up the global occurred_seq for each heartbeat provider-usage row from the
+// cache_heartbeat_fork_items ledger (keyed by llm_call_id, run_id fallback). The
+// heartbeat runs store=false so it isn't on the agent stack; this ledger is the
+// only place it carries a real creation sequence. Wrapped so a missing table or
+// absent sql accessor degrades to "no seq" (historical fallback), never throws.
+async function loadCacheHeartbeatOccurredSeqMap(sql, rows) {
+  const result = { byCallId: new Map(), byRunId: new Map() };
+  if (!sql || typeof sql.query !== 'function' || !Array.isArray(rows) || rows.length === 0) {
+    return result;
+  }
+  const callIds = new Set();
+  const runIds = new Set();
+  for (const row of rows) {
+    const callId = firstString(row.llmCallId, row.llm_call_id);
+    const runId = firstString(row.runId, row.run_id);
+    if (callId) callIds.add(callId);
+    if (runId) runIds.add(runId);
+  }
+  if (callIds.size === 0 && runIds.size === 0) {
+    return result;
+  }
+  const keys = [...callIds, ...runIds];
+  const callPlaceholders = callIds.size ? [...callIds].map(() => '?').join(', ') : null;
+  const runPlaceholders = runIds.size ? [...runIds].map(() => '?').join(', ') : null;
+  const clauses = [];
+  if (callPlaceholders) clauses.push(`llm_call_id IN (${callPlaceholders})`);
+  if (runPlaceholders) clauses.push(`run_id IN (${runPlaceholders})`);
+  try {
+    const ledgerRows = await sql.query(
+      `SELECT llm_call_id, run_id, occurred_seq FROM cache_heartbeat_fork_items WHERE ${clauses.join(' OR ')}`,
+      keys
+    );
+    for (const ledger of Array.isArray(ledgerRows) ? ledgerRows : []) {
+      const seq = streamNumberOrNull(ledger.occurredSeq ?? ledger.occurred_seq);
+      if (seq === null) continue;
+      const callId = firstString(ledger.llmCallId, ledger.llm_call_id);
+      const runId = firstString(ledger.runId, ledger.run_id);
+      if (callId && !result.byCallId.has(callId)) result.byCallId.set(callId, seq);
+      if (runId && !result.byRunId.has(runId)) result.byRunId.set(runId, seq);
+    }
+  } catch {
+    return { byCallId: new Map(), byRunId: new Map() };
+  }
+  return result;
+}
+
 async function loadCacheHeartbeatTimeline({
   identityKey,
   timeWindow,
   limit
-}, config, listCodexProviderUsageEvents) {
+}, config, listCodexProviderUsageEvents, sql) {
   if (typeof listCodexProviderUsageEvents !== 'function') {
     return { runs: [] };
   }
@@ -1540,9 +1590,18 @@ async function loadCacheHeartbeatTimeline({
       chronological: false,
       limit: forkLimit
     }, config);
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const seqMap = await loadCacheHeartbeatOccurredSeqMap(sql, safeRows);
+    const resolveSeq = (row) => {
+      const callId = firstString(row.llmCallId, row.llm_call_id);
+      const runId = firstString(row.runId, row.run_id);
+      if (callId && seqMap.byCallId.has(callId)) return seqMap.byCallId.get(callId);
+      if (runId && seqMap.byRunId.has(runId)) return seqMap.byRunId.get(runId);
+      return null;
+    };
     return {
-      runs: (Array.isArray(rows) ? rows : [])
-        .map(summarizeCacheHeartbeatRun)
+      runs: safeRows
+        .map((row) => summarizeCacheHeartbeatRun(row, resolveSeq(row)))
         .filter((run) => run.startedAt)
     };
   } catch {
@@ -4125,7 +4184,7 @@ function createXiaoniActivityPersistence({
           identityKey,
           timeWindow,
           limit: perSourceLimit
-        }, config, listCodexProviderUsageEvents)
+        }, config, listCodexProviderUsageEvents, sql)
       ]);
 
       const latestPhoneNotificationQueue = latestByTimestamp(autonomousQueueItems.filter((row) => row.source === 'phone_notification'));

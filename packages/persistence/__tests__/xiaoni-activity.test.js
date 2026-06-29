@@ -53,6 +53,9 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM image_vision_fork_items')) {
           return overrides.imageVisionForkItems || [];
         }
+        if (statement.includes('FROM cache_heartbeat_fork_items')) {
+          return overrides.cacheHeartbeatForkItems || [];
+        }
         if (statement.includes('FROM subconscious_agent_fork_runs')) {
           return overrides.subconsciousForkRuns || [];
         }
@@ -1050,6 +1053,73 @@ test('Xiaoni action stream lets the LLM source tag select cache heartbeat provid
   assert.equal(run.tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
   assert.equal(run.events[0].tags.some((tag) => tag.key === 'source:llm_request'), true);
   assert.deepEqual(stream.filters.tags, ['source:llm_request']);
+});
+
+test('Xiaoni cache heartbeat carries the global occurred_seq from its fork ledger', async () => {
+  const persistence = createPersistence({
+    codexProviderUsageRows: [{
+      id: 'heartbeat-row-seq',
+      eventId: 'codex-provider:heartbeat-seq',
+      event_id: 'codex-provider:heartbeat-seq',
+      sourceKind: 'cache_heartbeat',
+      source_kind: 'cache_heartbeat',
+      identityKey: 'xiaoni',
+      llmCallId: 'llm_heartbeat_seq',
+      llm_call_id: 'llm_heartbeat_seq',
+      runId: 'run_heartbeat_seq',
+      run_id: 'run_heartbeat_seq',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      wireProviderFormat: 'codex-local/responses',
+      status: 'completed',
+      createdAt: '2026-06-05T10:05:00.000Z',
+      completedAt: '2026-06-05T10:05:01.000Z',
+      tokenUsage: { input_tokens: 42000, cached_input_tokens: 41000, output_tokens: 1 }
+    }],
+    // The ledger row (cache_heartbeat_fork_items) is what plugs the heartbeat into the
+    // global creation sequence. Joined back by llm_call_id.
+    cacheHeartbeatForkItems: [{
+      llm_call_id: 'llm_heartbeat_seq',
+      run_id: 'run_heartbeat_seq',
+      occurred_seq: 9000
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const run = stream.cacheHeartbeatTimeline.runs[0];
+  assert.ok(run);
+  // orderSeq present and finite ⇒ the frontend sorts it inline by true creation order
+  // instead of dropping it to the un-stamped historical tier at the bottom.
+  assert.equal(run.events[0].metadata.orderSeq, 9000);
+});
+
+test('Xiaoni cache heartbeat without a ledger row keeps orderSeq null (historical fallback)', async () => {
+  const persistence = createPersistence({
+    codexProviderUsageRows: [{
+      id: 'heartbeat-row-noseq',
+      eventId: 'codex-provider:heartbeat-noseq',
+      event_id: 'codex-provider:heartbeat-noseq',
+      sourceKind: 'cache_heartbeat',
+      source_kind: 'cache_heartbeat',
+      identityKey: 'xiaoni',
+      llmCallId: 'llm_heartbeat_noseq',
+      llm_call_id: 'llm_heartbeat_noseq',
+      runId: 'run_heartbeat_noseq',
+      run_id: 'run_heartbeat_noseq',
+      modelName: 'gpt-5.5',
+      modelProvider: 'codex-local',
+      status: 'completed',
+      createdAt: '2026-06-05T10:05:00.000Z',
+      completedAt: '2026-06-05T10:05:01.000Z',
+      tokenUsage: { input_tokens: 42000, cached_input_tokens: 41000, output_tokens: 1 }
+    }],
+    cacheHeartbeatForkItems: []
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const run = stream.cacheHeartbeatTimeline.runs[0];
+  assert.ok(run);
+  assert.equal(run.events[0].metadata.orderSeq, null);
 });
 
 test('Xiaoni action stream lets the LLM source tag select provider-backed image tasks', async () => {

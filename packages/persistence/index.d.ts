@@ -1128,6 +1128,7 @@ export type XiaoniAgentStackPersistenceApi = {
   completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
   appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
   recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
+  recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listAgentStackItemsForConversations(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
@@ -1168,6 +1169,7 @@ export function recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCall
 export function completeImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
 export function appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkItem[]>;
 export function recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
+export function recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listAgentStackItemsForConversations(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
