@@ -2030,7 +2030,7 @@ function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): Can
 // 压缩指令(buildCoreMemoryCompressionReminder)不在这里拼,而是作为 compressionReminderItems 在
 // runCoreMemoryCompressionFork 里【追加到 input 尾部】,与其它三个 fork 同形。baseRequest 必须是主 agent
 // 的完整 requestInput,【绝不】是 head-only 的 summarySourceInput(后者现在只是「需要压缩」的存在标志位)。
-function buildCoreMemoryCompressionForkRequest(
+export function buildCoreMemoryCompressionForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   forkTurn: number
 ): CanonicalAgentTurnRequest {
@@ -2079,7 +2079,7 @@ export function buildSubconsciousAgentForkRequest(
   return forkRequest;
 }
 
-function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
+export function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
   const heartbeatRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   heartbeatRequest.input = normalizeResponseInputItems([
     ...heartbeatRequest.input,
@@ -2113,7 +2113,7 @@ function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest):
   return heartbeatRequest;
 }
 
-function buildImageVisionForkRequest(
+export function buildImageVisionForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   imageDataUrl: string,
   imageId: string,
