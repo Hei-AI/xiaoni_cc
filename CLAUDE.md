@@ -153,6 +153,11 @@ messages: [
 
 ---
 
+**双缓存影响分析（主 agent 改动铁律）**：主 agent(`modules/agent-service`)上的**每一处**改动,提交前必须显式分析并在 commit/PR 写明对**两个缓存**的影响：① **fork agent 缓存**——潜意识/压缩/图像/心跳 fork 都是主 agent 请求的克隆,主请求体一变,fork 前缀同步变；② **下一次主 agent run 缓存**——下一个 run 靠 stack replay 重建历史,**凡进了 live 请求的内容必须能被 replay 逐字节重建**,否则在 run 边界击穿。
+**Why:** cacheable 前缀只要有一字节漂移(按 turn/run/时间变化的戳,或 live 请求与 stack replay 不一致),整段 message-tier 前缀失效、`cache_read` 塌到裸 system+tools。改动后必须用相邻两 slice 的 `wire_request` 实测 `cache_read_input_tokens` 验证,不能只靠推断。典型事故:折叠 notify 落库 event_id 碰撞导致 replay 变短(见 `docs/investigations/`)。
+
+---
+
 **Done Means**：改了 `docker-compose.yml` 托管的服务，完成判定必须包括：对应模块构建或测试 → `docker compose build <service>` → `docker compose up -d <service>` → `docker compose ps` → 日志/健康检查确认正常。
 **NEVER** 对主栈执行 `docker compose up -d --remove-orphans`，会误停不该动的容器。
 
