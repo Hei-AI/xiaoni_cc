@@ -4,6 +4,7 @@ import type {
   QqUsageThreadWindow
 } from '@qq-bot/persistence';
 import type { RuntimeStore } from './runtime-store';
+import { formatEast8Timestamp } from './east8-time';
 
 const WINDOW_SIZE = 10;
 
@@ -31,11 +32,15 @@ function formatTaggedBlock(tag: string, attrs: Record<string, unknown>, body = '
   return body ? `${open}\n${body}\n</${tag}>` : `${open}</${tag}>`;
 }
 
+// Render QQ message timestamps in East-8, matching every other timestamp that
+// enters Xiaoni's context (wake reminders, event timeline, time broadcast). The
+// stored value stays a UTC instant; only the rendered display is East-8 so she
+// never sees a UTC clock next to an East-8 one. (No "Z" suffix — bare East-8.)
 function toDateTime(value: unknown) {
   if (!value) return '';
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toISOString();
+  return formatEast8Timestamp(date);
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {

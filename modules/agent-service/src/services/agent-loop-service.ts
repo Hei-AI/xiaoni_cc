@@ -21,8 +21,7 @@ import {
 } from './agent-prompt-service';
 import {
   formatIdentity,
-  normalizeTranscriptMessageText,
-  renderRuntimeBatchInput
+  normalizeTranscriptMessageText
 } from './runtime-input-renderer';
 import {
   RuntimeStore,
@@ -44,6 +43,7 @@ import {
   sanitizeRef,
   checkDailyUsage
 } from './web-search-archive';
+import { formatEast8Timestamp } from './east8-time';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -1658,8 +1658,6 @@ function buildImageGenerationAllowedToolsToolChoice(): OpenResponseToolChoice {
   return buildAllowedToolsToolChoice([{ type: 'image_generation' }], 'required');
 }
 
-const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
-
 // Historical normalization only: persisted stack items written before runtime
 // time stamping was removed still carry a [当前时间: ...] prefix. We no longer ADD
 // these synthetic "current time" stamps to system_reminders, but
@@ -1668,21 +1666,10 @@ const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
 const RUNTIME_TIME_PREFIX_PATTERN = /^\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\n?/;
 const LEGACY_EAST8_TIME_PREFIX_PATTERN = /^\[当前时间 东八区: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\+08:00\]\n?/;
 
-function padTwoDigits(value: number) {
-  return String(value).padStart(2, '0');
-}
-
-// Formats a concrete event timestamp (e.g. when a tool completed or a message
-// arrived) in East-8. This is NOT the removed synthetic "current time" reminder
-// stamp — it renders real per-event times in conversation/timeline history.
-export function formatEast8Timestamp(now: Date = new Date()) {
-  const timestamp = now instanceof Date ? now.getTime() : Number.NaN;
-  const date = new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + EAST8_OFFSET_MS);
-  return [
-    `${date.getUTCFullYear()}-${padTwoDigits(date.getUTCMonth() + 1)}-${padTwoDigits(date.getUTCDate())}`,
-    `${padTwoDigits(date.getUTCHours())}:${padTwoDigits(date.getUTCMinutes())}:${padTwoDigits(date.getUTCSeconds())}`
-  ].join(' ');
-}
+// formatEast8Timestamp moved to ./east8-time so every context-bound timestamp
+// sink (this loop, qq-usage, web_search) shares one zone + format. Re-exported
+// here to keep existing importers (tests) working.
+export { formatEast8Timestamp };
 
 export function stripRuntimeTextEast8TimePrefix(text: string) {
   return String(text || '')
@@ -1836,6 +1823,7 @@ function renderRecoverEnergyCompletedReminder(input: {
           ? 'recover_energy_forced_completed_reminder.md'
           : 'recover_energy_completed_reminder.md';
   return formatSystemReminderBlock(renderPromptSnippet(template, {
+    CURRENT_TIME: formatEast8Timestamp(),
     SLEEP_MINUTES: Math.max(0, Math.round(input.sleepMinutes)),
     WAKE_CAUSE: wakeCause,
     WAKE_CALL_COUNT: input.wakeCallCount ?? 0,
@@ -2375,10 +2363,6 @@ function renderTranscriptBatchMessage(
     group: message.chatType === 'group' ? formatTagSpeaker(message.peerName, message.peerId) : undefined,
     private_peer: message.chatType === 'direct' ? formatTagSpeaker(message.peerName, message.peerId) : undefined
   }, lines.join('\n') || '(空消息)');
-}
-
-function buildCurrentTurnMessage(queueMessage: QueueMessageRecord['payload']) {
-  return renderRuntimeBatchInput(queueMessage);
 }
 
 function buildAgentTurnMetadata(
@@ -10486,7 +10470,9 @@ export class AgentLoopService {
       };
     }
 
-    const generatedAt = new Date().toISOString();
+    // East-8 to match every other context-bound timestamp (she reads this in the
+    // result window / spilled file). Storage/refs elsewhere stay UTC.
+    const generatedAt = formatEast8Timestamp();
     const markdown = renderResultsMarkdown({ query, source, results: outcome.results, generatedAt });
     const ref = sanitizeRef(`ws-${createHash('sha1').update(`${query}:${toolCall.callId}`).digest('hex').slice(0, 12)}`);
     let filePath = `${dir}/${ref}.md`;

@@ -1,4 +1,4 @@
-import { FinalizedInboundContext, InboundMentionedUser, QueueBatchMessage, QueueMessagePayload } from '../types';
+import { FinalizedInboundContext, InboundMentionedUser } from '../types';
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -20,13 +20,6 @@ export function formatIdentity(label?: string, id?: string) {
   return '{unknown}';
 }
 
-function formatReplyTarget(inboundContext: FinalizedInboundContext) {
-  return formatIdentity(
-    inboundContext.ReplyToSenderName || inboundContext.ReplyToSender,
-    inboundContext.ReplyToSenderId
-  );
-}
-
 function getMentionPatterns(mentionedUser: InboundMentionedUser) {
   const userId = typeof mentionedUser?.userId === 'string' ? mentionedUser.userId.trim() : '';
   const label = typeof mentionedUser?.label === 'string' ? mentionedUser.label.trim() : '';
@@ -34,14 +27,6 @@ function getMentionPatterns(mentionedUser: InboundMentionedUser) {
   return [label ? `@${label}` : null, userId ? `@${userId}` : null]
     .filter((pattern): pattern is string => Boolean(pattern))
     .sort((left, right) => right.length - left.length);
-}
-
-function extractVisibleMessageText(message: QueueBatchMessage) {
-  const rawBody = typeof message.rawBody === 'string' ? message.rawBody.trim() : '';
-  if (rawBody) {
-    return rawBody;
-  }
-  return typeof message.bodyForAgent === 'string' ? message.bodyForAgent.trim() : '';
 }
 
 function stripLeadingMentionToken(
@@ -64,43 +49,6 @@ function stripLeadingMentionToken(
   }
 
   return text;
-}
-
-function toDisplayTimestamp(message: QueueBatchMessage) {
-  const value = message.messageTimestamp || message.receivedAt;
-  if (!value) {
-    return '';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')} ${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
-}
-
-export function renderRuntimeBatchMessage(message: QueueBatchMessage, index: number) {
-  const lines = [
-    `${toDisplayTimestamp(message) || `第${index + 1}条`} ${formatIdentity(message.senderName, message.senderId)}`
-  ];
-
-  if (message.inboundContext.ReplyToBody) {
-    const prefix = message.inboundContext.ReplyToIsQuote ? '引用' : '回复给';
-    lines.push(`[${prefix} ${formatReplyTarget(message.inboundContext)}：${message.inboundContext.ReplyToBody}]`);
-  }
-
-  const body = normalizeTranscriptMessageText(
-    extractVisibleMessageText(message),
-    message.inboundContext.MentionedUsers
-  );
-  lines.push(body || '(空消息)');
-
-  return lines.join('\n');
-}
-
-export function renderRuntimeBatchInput(queueMessage: QueueMessagePayload) {
-  return queueMessage.messages.map((message, index) => renderRuntimeBatchMessage(message, index)).join('\n\n');
 }
 
 export function normalizeTranscriptMessageText(

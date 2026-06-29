@@ -1,5 +1,6 @@
 import { agentConfig } from '../config';
 import { QueueMessagePayload } from '../types';
+import { formatEast8Timestamp } from './east8-time';
 import {
   XIAONI_MAIN_AGENT_PROMPT_ID,
   XIAONI_MAIN_AGENT_PROMPT_NAME
@@ -69,19 +70,20 @@ function renderPromptTemplate(
     return stringifyTemplateValue(allVariables[key]);
   });
 
+  // Every time token entering Xiaoni's context is East-8 ("YYYY-MM-DD HH:MM:SS").
+  // This renders into the current-turn trigger (cache_volatile), never the cached
+  // system-prompt prefix, so it does not affect prompt-cache stability.
   rendered = rendered.replace(/\{\{now\.(\w+)\}\}/g, (_match, format) => {
-    const now = new Date();
+    const east8 = formatEast8Timestamp();
     switch (format) {
-      case 'iso':
-        return now.toISOString();
       case 'date':
-        return now.toDateString();
+        return east8.slice(0, 10);
       case 'time':
-        return now.toTimeString();
+        return east8.slice(11);
+      case 'iso':
       case 'locale':
-        return now.toLocaleString('zh-CN');
       default:
-        return now.toISOString();
+        return east8;
     }
   });
 
