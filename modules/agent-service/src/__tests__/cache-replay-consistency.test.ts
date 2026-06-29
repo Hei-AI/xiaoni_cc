@@ -564,3 +564,69 @@ test('main request: cacheable prefix (system + tools + durable input) is byte-id
     restoreClock();
   }
 });
+
+// --- compression fork FULL trigger->dispatch e2e ---
+// Calls the REAL runCoreMemoryCompressionFork with the baseRequest the main loop
+// passes (buildMainAgentCanonicalRequest(prompt, requestInput, payload) @ 6302),
+// captures the request actually handed to the provider seam
+// (executeCoreMemoryCompressionForkTurn), and asserts its prefix is byte-identical
+// to the main request. This catches the wiring class of bug the compression fork
+// historically had: a head-only baseRequest that cold-prefilled a separate request
+// instead of riding the main loop's warm cache.
+test('compression fork dispatch: real runCoreMemoryCompressionFork sends a byte-identical prefix + reminder tail', async () => {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).recordCoreMemoryCompressionForkRunSafe = async () => {};
+
+  // Production-shaped main request (what the main loop passes as baseRequest): user
+  // message, assistant type:text output, a tool pair, and a system_reminder.
+  const mainInput = [
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: '群里在聊桌游' }] },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '我看看他们聊到哪了。' }] },
+    { type: 'function_call', call_id: 'c1', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"ls"}' },
+    { type: 'function_call_output', call_id: 'c1', output: 'notes.md' },
+    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<system_reminder>x</system_reminder>' }] }
+  ] as any[];
+  const baseRequest = buildCanonicalAgentTurnRequest(agentConfig.modelName, mainInput, 'group');
+  const baseSnapshot = JSON.stringify(baseRequest.input);
+  const reminderTail = [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<compress>把旧上下文压缩成近况</compress>' }] }] as any[];
+
+  let captured: any = null;
+  (service as any).executeCoreMemoryCompressionForkTurn = async (forkRequest: any) => {
+    captured = forkRequest;
+    throw new Error('__CAPTURED_FORK__');
+  };
+
+  await assert.rejects(() => (service as any).runCoreMemoryCompressionFork({
+    baseRequest,
+    queueMessage: baseQueuePayload(),
+    runtimePrompt: createRuntimePrompt(),
+    compression: {
+      contextSessionKey: 'xiaoni:test-global',
+      readCutoffAfterConversationId: 5,
+      previousReadCutoffAfterConversationId: null,
+      compressionCoveredEndConversationId: 5
+    },
+    contextSessionKey: 'xiaoni:test-global',
+    compressionReminderItems: reminderTail,
+    bypassRuntimeEnabledGate: true
+  }), /__CAPTURED_FORK__/);
+
+  assert.ok(captured, 'the compression fork must have dispatched a model turn');
+  // 0-tolerance: the dispatched fork's cloned prefix is byte-identical to the main request.
+  assert.equal(
+    JSON.stringify(captured.input.slice(0, baseRequest.input.length)),
+    baseSnapshot,
+    'compression fork dispatched prefix must equal the main request (NOT head-only)'
+  );
+  assert.deepEqual(captured.instructions, baseRequest.instructions, 'system instructions must match the main loop');
+  assert.deepEqual(captured.tools, baseRequest.tools, 'tools must match the main loop');
+  assert.deepEqual(captured.tool_choice, baseRequest.tool_choice, 'tool_choice must match the main loop');
+  // The compression instruction rides as the tail, not spliced into the prefix.
+  const tail = captured.input.slice(baseRequest.input.length);
+  assert.ok(JSON.stringify(tail).includes('把旧上下文压缩成近况'), 'compression reminder must ride as a cold tail');
+  // Building the fork must not mutate the base request the main turn reuses.
+  assert.equal(JSON.stringify(baseRequest.input), baseSnapshot, 'fork dispatch must not mutate the base request');
+});
