@@ -39,6 +39,7 @@ test('ensureAgentRuntimeControlSchema creates an enabled-by-default control tabl
   assert.match(createTable, /cache_heartbeat_paused BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(createTable, /post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(createTable, /main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000/);
+  assert.match(createTable, /debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0/);
 });
 
 test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', async () => {
@@ -56,6 +57,7 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
+    debugCacheHeartbeatIntervalMs: 0,
     updatedAt: null
   });
 });
@@ -115,6 +117,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     false,
     5000,
+    0,
     true,
     false,
     false,
@@ -130,7 +133,9 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     false,
     false,
-    5000
+    5000,
+    false,
+    0
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -142,6 +147,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
+    debugCacheHeartbeatIntervalMs: 0,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -179,6 +185,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     false,
     5000,
+    0,
     false,
     true,
     true,
@@ -194,7 +201,9 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     false,
     false,
-    5000
+    5000,
+    false,
+    0
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -206,6 +215,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
+    debugCacheHeartbeatIntervalMs: 0,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -243,6 +253,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     true,
     true,
     5000,
+    0,
     false,
     true,
     false,
@@ -258,7 +269,9 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     true,
     true,
     false,
-    5000
+    5000,
+    false,
+    0
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -270,6 +283,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     postCompressionPauseTriggeredAt: null,
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
+    debugCacheHeartbeatIntervalMs: 0,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -298,9 +312,43 @@ test('updateAgentRuntimeControl persists main agent pre-model yield milliseconds
 
   const updateQuery = queries.at(-1);
   assert.match(updateQuery.statement, /main_agent_pre_model_yield_ms = CASE/);
-  assert.equal(updateQuery.params.at(-2), true);
-  assert.equal(updateQuery.params.at(-1), 25);
+  // Trailing params are now [hasMainYield, mainYield, hasDebugInterval, debugInterval].
+  assert.equal(updateQuery.params.at(-4), true);
+  assert.equal(updateQuery.params.at(-3), 25);
+  assert.equal(updateQuery.params.at(-2), false);
+  assert.equal(updateQuery.params.at(-1), 0);
   assert.equal(control.mainAgentPreModelYieldMs, 25);
+});
+
+test('updateAgentRuntimeControl persists debug cache heartbeat interval milliseconds', async () => {
+  const updatedAt = new Date('2026-06-06T12:05:00.000Z');
+  const { queries, persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
+      post_compression_pause_armed: false,
+      post_compression_pause_armed_at: null,
+      post_compression_pause_triggered_at: null,
+      post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 5000,
+      debug_cache_heartbeat_interval_ms: 60000,
+      updated_at: updatedAt
+    }]]
+  });
+
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    debugCacheHeartbeatIntervalMs: 60000
+  });
+
+  const updateQuery = queries.at(-1);
+  assert.match(updateQuery.statement, /debug_cache_heartbeat_interval_ms = CASE/);
+  // Last two params drive the debug-interval upsert branch: [hasDebugInterval, debugInterval].
+  assert.equal(updateQuery.params.at(-2), true);
+  assert.equal(updateQuery.params.at(-1), 60000);
+  assert.equal(control.debugCacheHeartbeatIntervalMs, 60000);
 });
 
 test('triggerPostCompressionRuntimePause disables runtime only when armed', async () => {
@@ -340,6 +388,7 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     postCompressionPauseTriggeredAt: '2026-06-06T20:02:00.000+08:00',
     postCompressionPauseReason: 'core_memory_compression_completed',
     mainAgentPreModelYieldMs: 5000,
+    debugCacheHeartbeatIntervalMs: 0,
     updatedAt: '2026-06-06T20:02:00.000+08:00',
     // armed was already false (no pause_just_triggered in the returned row) =>
     // the upsert was a no-op; callers must NOT log "paused after compression".

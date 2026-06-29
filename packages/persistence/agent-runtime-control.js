@@ -8,6 +8,7 @@ function isTruthyDatabaseBoolean(value) {
 
 function normalizeRuntimeControl(row) {
   const rawMainAgentPreModelYieldMs = Number.parseInt(String(row?.main_agent_pre_model_yield_ms ?? ''), 10);
+  const rawDebugCacheHeartbeatIntervalMs = Number.parseInt(String(row?.debug_cache_heartbeat_interval_ms ?? ''), 10);
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
@@ -20,6 +21,12 @@ function normalizeRuntimeControl(row) {
     mainAgentPreModelYieldMs: Number.isFinite(rawMainAgentPreModelYieldMs) && rawMainAgentPreModelYieldMs >= 0
       ? rawMainAgentPreModelYieldMs
       : 5000,
+    // 0 = off. Operator-set interval that fires a debug cache heartbeat on its own
+    // timer (agent-service supervisor) so the prompt cache stays warm even while the
+    // main loop is stopped for 停机debug — see modules/agent-service/src/index.ts.
+    debugCacheHeartbeatIntervalMs: Number.isFinite(rawDebugCacheHeartbeatIntervalMs) && rawDebugCacheHeartbeatIntervalMs >= 0
+      ? rawDebugCacheHeartbeatIntervalMs
+      : 0,
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -56,6 +63,7 @@ function createAgentRuntimeControlPersistence(deps) {
         post_compression_pause_triggered_at TIMESTAMPTZ(3),
         post_compression_pause_reason TEXT,
         main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000,
+        debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -66,6 +74,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_triggered_at TIMESTAMPTZ(3)');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_reason TEXT');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0');
     await sql.execute(`
       DO $$
       BEGIN
@@ -145,6 +154,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , post_compression_pause_triggered_at
             , post_compression_pause_reason
             , main_agent_pre_model_yield_ms
+            , debug_cache_heartbeat_interval_ms
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
@@ -183,6 +193,14 @@ function createAgentRuntimeControlPersistence(deps) {
       const mainAgentPreModelYieldMs = hasMainAgentPreModelYieldMs
         ? parsedMainAgentPreModelYieldMs
         : 5000;
+      const rawDebugCacheHeartbeatIntervalMs = input.debugCacheHeartbeatIntervalMs ?? input.debug_cache_heartbeat_interval_ms;
+      const parsedDebugCacheHeartbeatIntervalMs = Number.parseInt(String(rawDebugCacheHeartbeatIntervalMs ?? ''), 10);
+      const hasDebugCacheHeartbeatIntervalMs = rawDebugCacheHeartbeatIntervalMs !== undefined
+        && Number.isFinite(parsedDebugCacheHeartbeatIntervalMs)
+        && parsedDebugCacheHeartbeatIntervalMs >= 0;
+      const debugCacheHeartbeatIntervalMs = hasDebugCacheHeartbeatIntervalMs
+        ? parsedDebugCacheHeartbeatIntervalMs
+        : 0;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -196,6 +214,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
+            debug_cache_heartbeat_interval_ms,
             updated_at
           )
           VALUES (
@@ -207,6 +226,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             NOW()
           )
@@ -246,13 +266,18 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.main_agent_pre_model_yield_ms
             END,
+            debug_cache_heartbeat_interval_ms = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.debug_cache_heartbeat_interval_ms
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
             post_compression_pause_armed_at,
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
-            main_agent_pre_model_yield_ms
+            main_agent_pre_model_yield_ms,
+            debug_cache_heartbeat_interval_ms
         `,
         [
           identityKey,
@@ -262,6 +287,7 @@ function createAgentRuntimeControlPersistence(deps) {
           postCompressionPauseArmed,
           hasPostCompressionPauseArmed && postCompressionPauseArmed,
           mainAgentPreModelYieldMs,
+          debugCacheHeartbeatIntervalMs,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -277,7 +303,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasPostCompressionPauseArmed,
           postCompressionPauseArmed,
           hasMainAgentPreModelYieldMs,
-          mainAgentPreModelYieldMs
+          mainAgentPreModelYieldMs,
+          hasDebugCacheHeartbeatIntervalMs,
+          debugCacheHeartbeatIntervalMs
         ]
       );
       return normalizeRuntimeControl(rows[0]);
@@ -342,6 +370,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
+            debug_cache_heartbeat_interval_ms,
             (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
         [identityKey, identityKey, reason]
