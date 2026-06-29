@@ -630,3 +630,145 @@ test('compression fork dispatch: real runCoreMemoryCompressionFork sends a byte-
   // Building the fork must not mutate the base request the main turn reuses.
   assert.equal(JSON.stringify(baseRequest.input), baseSnapshot, 'fork dispatch must not mutate the base request');
 });
+
+// =====================================================================================
+// REAL-Postgres runtime replay e2e.
+//
+// In production the main agent rebuilds history by reading agent_stack_items FROM the
+// database. So the truest test of the cache-prefix invariant drives processRuntimeFrame
+// against a REAL Postgres: the fold path appends rows to the DB, settle backfills their
+// conversation id by trace, and the replay read (listAgentStackItemsForConversations)
+// reconstructs history from the DB — exactly the production path. This also exercises
+// the real UNIQUE(event_id) + ON CONFLICT, so it validates the event_id fix end to end.
+//
+// Isolated throwaway DB (qqbot_cache_test); never touches qqbot_db. Skips if no DB.
+// =====================================================================================
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const persistencePkg: any = require('@qq-bot/persistence');
+
+const REALDB_HOST = process.env.DB_HOST || 'localhost';
+const REALDB_PORT = process.env.DB_PORT || '5432';
+const REALDB_USER = process.env.DB_USER || 'qqbot_user';
+const REALDB_PW = process.env.DB_PASSWORD || 'qqbot_password';
+const REALDB_NAME = 'qqbot_cache_test';
+const REALDB_URL = process.env.CACHE_TEST_DATABASE_URL
+  || `postgresql://${REALDB_USER}:${REALDB_PW}@${REALDB_HOST}:${REALDB_PORT}/${REALDB_NAME}`;
+const REALDB_ADMIN_URL = `postgresql://${REALDB_USER}:${REALDB_PW}@${REALDB_HOST}:${REALDB_PORT}/postgres`;
+
+let realSql: any = null;
+let realPersistence: any = null;
+let realDbReady = false;
+
+test.before(async () => {
+  try {
+    const admin = persistencePkg.createSqlAdapter({ databaseUrl: REALDB_ADMIN_URL });
+    try {
+      if (!(await admin.testConnection())) throw new Error('no maintenance DB');
+      const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname = ?', [REALDB_NAME]);
+      if (existing.length === 0) await admin.execute(`CREATE DATABASE ${REALDB_NAME}`, []);
+    } finally {
+      await admin.close().catch(() => {});
+    }
+    realSql = persistencePkg.createSqlAdapter({ databaseUrl: REALDB_URL });
+    if (!(await realSql.testConnection())) throw new Error('testConnection false');
+    realPersistence = persistencePkg.createXiaoniAgentStackPersistence({ sqlAdapter: realSql });
+    await realPersistence.ensureXiaoniAgentStackSchema();
+    realDbReady = true;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.log(`[skip] runtime real-DB replay e2e: ${error instanceof Error ? error.message : String(error)}`);
+    realDbReady = false;
+  }
+});
+
+test.after(async () => {
+  if (realSql) await realSql.close().catch(() => {});
+});
+
+// A store whose STACK methods hit real Postgres (mirroring RuntimeStore's wrappers),
+// everything else mocked. The cache-critical append/backfill/replay-read path is real.
+function createDbBackedStore() {
+  const conversations: Array<{ id: number; traceId: string }> = [];
+  let conversationSeq = 9000;
+  return {
+    createLlmJob: async () => 'job-realdb',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async () => conversations.map((c) => ({ id: c.id, userMessage: '', aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' })),
+    getSessionReadCutoffState: async () => null,
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: (() => {
+      const folds: any[] = [
+        foldedNotify('run-RDB', 'batch-RDB', 'runtrace-rdb-fold-1', '【实库】又堆积了 1 条新动静：阿花修好了做图'),
+        foldedNotify('run-RDB', 'batch-RDB', 'runtrace-rdb-fold-2', '【实库】又堆积了 2 条新动静：群里 @了你')
+      ];
+      return async () => folds.shift() || null;
+    })(),
+    // --- the 4 stack methods delegate to REAL Postgres (mirror RuntimeStore) ---
+    appendAgentStackItems: async (params: any) => realPersistence.appendAgentStackItems({ identityKey: 'xiaoni', ...params }),
+    listAgentStackItemsForConversations: async (params: any) => realPersistence.listAgentStackItemsForConversations({ identityKey: 'xiaoni', ...params }),
+    attachConversationIdToTrace: async (traceId: string, conversationId: number) =>
+      realPersistence.attachConversationIdToAgentStackByTrace({ traceId, conversationId }),
+    getAgentStackHead: async () => realPersistence.getAgentStackHead({ identityKey: 'xiaoni' }),
+    createConversation: async (params: any) => { conversationSeq += 1; conversations.push({ id: conversationSeq, traceId: params.traceId }); return conversationSeq; },
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    retryQueueMessage: async () => 1,
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {},
+    __conversations: conversations
+  } as any;
+}
+
+test('runtime replay from REAL Postgres reproduces every folded notify (production DB path)', async (t) => {
+  if (!realDbReady) { t.skip('real cache test DB unavailable'); return; }
+  await realSql.execute('TRUNCATE agent_stack_items RESTART IDENTITY', []);
+
+  const store = createDbBackedStore();
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn <= 2) {
+      return { success: true, llm_call_id: `llm-rdb-${turn}`, llm_request_slice_id: `slice-rdb-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-rdb-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] } };
+    }
+    return { success: true, llm_call_id: `llm-rdb-${turn}`, llm_request_slice_id: `slice-rdb-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const queueMessage = {
+    id: 'run-RDB', traceId: 'runtrace-RDB', batchId: 'batch-RDB', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z',
+    payload: baseQueuePayload({ traceId: 'runtrace-RDB', runId: 'run-RDB', batchId: 'batch-RDB' })
+  };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  const convId = store.__conversations[0]?.id;
+  assert.ok(convId, 'the run must have created a conversation');
+
+  // Replay EXACTLY as production does: read agent_stack_items from Postgres by conversation.
+  const replayed = await (service as any).attachStackReplayItemsToHistory(
+    [{ id: Number(convId), userMessage: '', aiResponse: null }],
+    'runtrace-REPLAY'
+  );
+  const replayText = JSON.stringify(replayed[0]?.stackReplayItems || []);
+  assert.ok(replayText.includes('阿花修好了做图'), 'DB replay must reproduce folded reminder 1');
+  assert.ok(replayText.includes('群里 @了你'), 'DB replay must reproduce folded reminder 2');
+
+  // And the underlying rows: both folds persisted with distinct event_ids (the fix),
+  // backfilled to the conversation (NOT dropped by ON CONFLICT on real PG).
+  const rows = await realPersistence.listAgentStackItemsForConversations({ identityKey: 'xiaoni', conversationIds: [convId], limit: 1000 });
+  const runtimeInputs = rows.filter((r: any) => r.itemKind === 'runtime_input');
+  const eventIds = runtimeInputs.map((r: any) => r.eventId);
+  assert.equal(new Set(eventIds).size, eventIds.length, 'every runtime_input must have a distinct event_id on real PG');
+});
