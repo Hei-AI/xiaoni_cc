@@ -7322,6 +7322,20 @@ export class AgentLoopService {
         }
       }
       if (options.queueBacked && !queueRetryScheduled) {
+        // Mirror the settled-path fold backfill (attachConversationIdToTrace loop
+        // above): a TERMINALLY-failed run won't reprocess, so its folded-notify stack
+        // rows must be attached to THIS failed conversation now, or replay drops them
+        // (groupStackRowsByConversationId skips NULL conversation_id). The provider may
+        // still hold this run's cached prefix INCLUDING those folds, so the next run's
+        // stack-replay must reproduce them byte-for-byte or the prompt cache breaks at
+        // the run boundary. Guarded on !queueRetryScheduled: attachConversationIdToTrace
+        // is COALESCE (first-write-wins), so backfilling to the FAILED conversation on a
+        // retry path would pin the folds here and block the retry's success-settle from
+        // attaching them to the real conversation — re-creating the very breakdown. On
+        // retry the folds stay NULL and ride the reprocessed run's settle instead.
+        for (const continuationQueueMessage of continuationQueueMessages) {
+          await this.store.attachConversationIdToTrace(continuationQueueMessage.payload.traceId, conversationId);
+        }
         // Folded notify messages share this run's run_id, so failing queueMessage.id
         // fails them too. When a retry IS scheduled, retryQueueMessage(queueMessage.id)
         // resets them to pending alongside the main message (reprocessed, not lost).
