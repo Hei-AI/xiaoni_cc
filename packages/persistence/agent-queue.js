@@ -381,6 +381,95 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
+  // Fold any pending doorbell messages into an ALREADY-RUNNING parent run,
+  // WITHOUT minting a new agent_runs / agent_message_batches row. This is the
+  // non-blocking notify-append path: one execution consuming an extra notify,
+  // not a second run. By keying the folded messages to the parent run_id, the
+  // existing settle/fail/retry functions (all WHERE run_id = ?) cover them, so:
+  //   * parent settles  -> folded messages settle (acked only on success)
+  //   * parent retries   -> folded messages reset to pending (reprocessed, not lost)
+  //   * parent fails     -> folded messages fail (recorded, not silently dropped)
+  // The old path used claimNextAgentQueueMessage here, which minted a phantom
+  // run/batch row (the "two runs on one conversation" artifact) AND acked the
+  // message at fold time, so a transient parent failure dropped it forever.
+  async function foldPendingNotifyMessagesIntoRun(input = {}, config = {}) {
+    const workerId = normalizeOptionalString(input.workerId || input.worker_id) || 'agent-worker';
+    const parentRunId = normalizeOptionalString(input.parentRunId || input.parent_run_id);
+    const parentBatchId = normalizeOptionalString(input.parentBatchId || input.parent_batch_id);
+    if (!parentRunId || !parentBatchId) {
+      throw new Error('foldPendingNotifyMessagesIntoRun requires parentRunId and parentBatchId');
+    }
+    const { sql, shouldClose } = createSql(input, config);
+    try {
+      return await sql.withTransaction(async (tx) => {
+        const rows = await tx.query(
+          `
+            SELECT *
+            FROM agent_queue_messages
+            WHERE status = 'pending'
+              AND available_at <= NOW()
+            ORDER BY available_at ASC, id ASC
+            FOR UPDATE SKIP LOCKED
+          `
+        );
+
+        if (rows.length === 0) {
+          return null;
+        }
+
+        const now = Date.now();
+        const placeholders = rows.map(() => '?').join(', ');
+        const queueIds = rows.map((row) => Number(row.id));
+
+        await tx.execute(
+          `
+            UPDATE agent_queue_messages
+            SET status = 'consumed',
+                attempts = attempts + 1,
+                locked_at = NOW(),
+                locked_by = ?,
+                processing_started_at = COALESCE(processing_started_at, NOW()),
+                batch_id = ?,
+                run_id = ?,
+                result = ?::jsonb,
+                updated_at = NOW()
+            WHERE id IN (${placeholders})
+          `,
+          [
+            workerId,
+            parentBatchId,
+            parentRunId,
+            JSON.stringify({
+              folded_nonblocking_notify: true,
+              parent_run_id: parentRunId,
+              folded_at: new Date(now).toISOString(),
+              worker_id: workerId
+            }),
+            ...queueIds
+          ]
+        );
+
+        // Preserve each folded message's own trace_id (NOT overwritten above) for
+        // archival lineage; key the returned record to the parent run/batch so the
+        // caller settles/fails/retries it through the parent's lifecycle.
+        return mapClaimedRun({
+          runId: parentRunId,
+          batchId: parentBatchId,
+          traceId: rows[rows.length - 1].trace_id,
+          rows: rows.map((row) => ({
+            ...row,
+            batch_id: parentBatchId,
+            run_id: parentRunId
+          }))
+        });
+      });
+    } finally {
+      if (shouldClose) {
+        await sql.close();
+      }
+    }
+  }
+
   async function settleAgentQueueMessages(input = {}, config = {}) {
     const runId = normalizeOptionalString(input.runId || input.run_id);
     if (!runId) {
@@ -490,6 +579,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     enqueueAgentQueueMessage,
     claimNextAgentQueueMessage,
+    foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,
     failAgentQueueMessage,
     retryAgentQueueMessage

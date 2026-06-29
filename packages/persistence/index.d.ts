@@ -1930,6 +1930,15 @@ export type AgentQueueClaimedMessage = {
   };
 };
 export function claimNextAgentQueueMessage(input?: AgentQueueClaimInput, config?: DatabaseUrlConfig): Promise<AgentQueueClaimedMessage | null>;
+export function foldPendingNotifyMessagesIntoRun(input: {
+  parentRunId?: string;
+  parent_run_id?: string;
+  parentBatchId?: string;
+  parent_batch_id?: string;
+  workerId?: string;
+  worker_id?: string;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<AgentQueueClaimedMessage | null>;
 export function settleAgentQueueMessages(input: {
   runId?: string;
   run_id?: string;

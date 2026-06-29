@@ -174,6 +174,116 @@ test('claimNextAgentQueueMessage drains all currently due pending bucket message
   assert.deepEqual(executes[0].params.slice(-2), [10, 11]);
 });
 
+test('foldPendingNotifyMessagesIntoRun folds pending notify into the parent run without minting a run/batch', async () => {
+  const inserts = [];
+  const executes = [];
+  const rows = [
+    createQueueRow({
+      id: 42,
+      source: 'system_reminder',
+      message_sid: 'sid-fork-42',
+      trace_id: 'runtrace_fork_own',
+      body_for_agent: '潜意识念头'
+    })
+  ];
+  const tx = {
+    query: async (sql, params = []) => {
+      if (sql.includes('FOR UPDATE SKIP LOCKED')) {
+        assert.deepEqual(params, []);
+        return rows;
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    insert: async (sql, params = []) => {
+      inserts.push({ sql, params });
+      return { insertId: 1, affectedRows: 1 };
+    },
+    execute: async (sql, params = []) => {
+      executes.push({ sql, params });
+      return 1;
+    }
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => {
+      throw new Error('Prisma should not be used for fold');
+    },
+    createSqlAdapter: () => ({
+      withTransaction: async (callback) => callback(tx),
+      close: async () => undefined
+    })
+  });
+
+  const folded = await persistence.foldPendingNotifyMessagesIntoRun({
+    parentRunId: 'run_parent_123',
+    parentBatchId: 'batch_parent_123',
+    workerId: 'worker-7'
+  });
+
+  assert.ok(folded);
+  // No agent_runs / agent_message_batches row minted — only the queue UPDATE runs.
+  assert.equal(inserts.length, 0, 'fold must NOT insert agent_runs/agent_message_batches');
+  assert.equal(executes.length, 1);
+  // Keyed to the PARENT run/batch so settle/fail/retry (WHERE run_id = ?) cover it.
+  assert.equal(folded.id, 'run_parent_123');
+  assert.equal(folded.batchId, 'batch_parent_123');
+  // Folded message keeps its OWN trace lineage for archival.
+  assert.equal(folded.traceId, 'runtrace_fork_own');
+  assert.deepEqual(folded.queueMessageIds, [42]);
+  assert.ok(executes[0].sql.includes('UPDATE agent_queue_messages'));
+  assert.ok(executes[0].sql.includes("status = 'consumed'"));
+  assert.ok(executes[0].sql.includes('run_id = ?'));
+  assert.equal(executes[0].params[0], 'worker-7');
+  assert.equal(executes[0].params[1], 'batch_parent_123');
+  assert.equal(executes[0].params[2], 'run_parent_123');
+  const foldResult = JSON.parse(executes[0].params[3]);
+  assert.equal(foldResult.folded_nonblocking_notify, true);
+  assert.equal(foldResult.parent_run_id, 'run_parent_123');
+  assert.deepEqual(executes[0].params.slice(-1), [42]);
+});
+
+test('foldPendingNotifyMessagesIntoRun returns null when nothing is pending', async () => {
+  const tx = {
+    query: async () => [],
+    insert: async () => {
+      throw new Error('insert should not run with no pending rows');
+    },
+    execute: async () => {
+      throw new Error('execute should not run with no pending rows');
+    }
+  };
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => {
+      throw new Error('Prisma should not be used for fold');
+    },
+    createSqlAdapter: () => ({
+      withTransaction: async (callback) => callback(tx),
+      close: async () => undefined
+    })
+  });
+
+  const folded = await persistence.foldPendingNotifyMessagesIntoRun({
+    parentRunId: 'run_parent_123',
+    parentBatchId: 'batch_parent_123',
+    workerId: 'worker-7'
+  });
+
+  assert.equal(folded, null);
+});
+
+test('foldPendingNotifyMessagesIntoRun requires parentRunId and parentBatchId', async () => {
+  const persistence = createAgentQueuePersistence({
+    getPrismaClient: () => undefined,
+    createSqlAdapter: () => ({
+      withTransaction: async (callback) => callback({}),
+      close: async () => undefined
+    })
+  });
+  await assert.rejects(
+    () => persistence.foldPendingNotifyMessagesIntoRun({ workerId: 'worker-7' }),
+    /requires parentRunId and parentBatchId/
+  );
+});
+
 test('retryAgentQueueMessage returns a consumed run to pending without resetting attempts', async () => {
   const executes = [];
   const persistence = createAgentQueuePersistence({
