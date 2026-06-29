@@ -8142,8 +8142,11 @@ export class AgentLoopService {
 
     // Single-flight latch: a previously scheduled compression stays "pending" until the
     // main loop's live cutoff reaches its target (i.e., it has actually been applied).
-    // Clear it once applied; while pending, suppress new triggers (the counter may keep
-    // accumulating on the stale window — that's fine — but it must not fire a 2nd fork).
+    // While pending, suppress new triggers. On apply we BOTH clear the latch AND reset
+    // the trigger counter: the counter that armed on the PRE-compression (large) context
+    // of the previous conversation must not carry into the now-compressed (small) one and
+    // fire a redundant 2nd compression. The new context re-arms from scratch if it is
+    // still genuinely over the soft line. (实测 12:53/15:18/21:02 的多余第二次压缩根因。)
     const appliedReadCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
     const pendingCompressionCutoff = this.pendingCompressionAppliedCutoffBySession.get(contextSessionKey) ?? null;
     if (
@@ -8152,6 +8155,7 @@ export class AgentLoopService {
       && appliedReadCutoff >= pendingCompressionCutoff
     ) {
       this.pendingCompressionAppliedCutoffBySession.delete(contextSessionKey);
+      resetCompressionTriggerCounter(contextSessionKey);
     }
     const compressionPendingApply = this.pendingCompressionAppliedCutoffBySession.has(contextSessionKey);
 

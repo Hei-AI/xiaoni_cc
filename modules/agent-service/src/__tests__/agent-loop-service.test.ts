@@ -10623,8 +10623,10 @@ test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is
   assert.equal(suppressed.coreMemoryCompression, null, 'must NOT compress again while the prior compression is pending-apply');
   assert.equal((svcPending as any).pendingCompressionAppliedCutoffBySession.has('xiaoni:test-global'), true, 'latch stays set until the prior compression is applied');
 
-  // --- prior compression now applied (live cutoff 5 >= target 5): latch clears, a fresh
-  //     real-input trigger is allowed to compress again ---
+  // --- prior compression now applied (live cutoff 5 >= target 5): latch clears AND the
+  //     stale counter (armed on the previous conversation's pre-compression large context)
+  //     is RESET, so it does NOT immediately fire a redundant 2nd compression on the now-
+  //     applied (smaller) context. This is the 12:53/15:18/21:02 production bug. ---
   const svcApplied = new AgentLoopService({
     getSessionReadCutoffState: async () => ({
       sessionKey: 'xiaoni:test-global',
@@ -10639,9 +10641,15 @@ test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is
   } as any);
   __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
   (svcApplied as any).pendingCompressionAppliedCutoffBySession.set('xiaoni:test-global', 5);
-  const allowed = await (svcApplied as any).buildContextBudgetPlan(planArgs);
-  assert.ok(allowed.coreMemoryCompression, 'after the prior compression is applied, a fresh trigger may compress again');
+  const appliedPlan = await (svcApplied as any).buildContextBudgetPlan(planArgs);
+  assert.equal(appliedPlan.coreMemoryCompression, null, 'on apply the stale counter resets — no redundant 2nd compression');
   assert.equal((svcApplied as any).pendingCompressionAppliedCutoffBySession.has('xiaoni:test-global'), false, 'latch cleared once the live cutoff reaches the target');
+
+  // --- after apply, a FRESH real-input trigger (2 new over-line turns on the new context)
+  //     is allowed to compress again — the reset only drops the stale carryover ---
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  const reArmedPlan = await (svcApplied as any).buildContextBudgetPlan(planArgs);
+  assert.ok(reArmedPlan.coreMemoryCompression, 'a fresh trigger on the applied context may still compress');
 });
 
 test('runtime frame does not schedule compression from turn count alone', async () => {
