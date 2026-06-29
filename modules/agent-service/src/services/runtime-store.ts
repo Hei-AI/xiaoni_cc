@@ -96,6 +96,7 @@ import {
   incrementRelationshipTrust,
   enqueueAgentQueueMessage,
   claimNextAgentQueueMessage,
+  foldPendingNotifyMessagesIntoRun,
   settleAgentQueueMessages,
   failAgentQueueMessage,
   retryAgentQueueMessage,
@@ -1917,6 +1918,19 @@ export class RuntimeStore {
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {
     return claimNextAgentQueueMessage({
       workerId,
+      sqlAdapter: this.sql
+    }, databaseConfig) as Promise<QueueMessageRecord | null>;
+  }
+
+  async foldPendingNotifyIntoRun(params: {
+    parentRunId: string;
+    parentBatchId: string;
+    workerId: string;
+  }): Promise<QueueMessageRecord | null> {
+    return foldPendingNotifyMessagesIntoRun({
+      parentRunId: params.parentRunId,
+      parentBatchId: params.parentBatchId,
+      workerId: params.workerId,
       sqlAdapter: this.sql
     }, databaseConfig) as Promise<QueueMessageRecord | null>;
   }

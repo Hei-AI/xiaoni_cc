@@ -6326,13 +6326,24 @@ export class AgentLoopService {
         if (!runtimePrompt) {
           return;
         }
-        const claimer = (this.store as RuntimeStore & {
-          claimNextQueueMessage?: RuntimeStore['claimNextQueueMessage'];
-        }).claimNextQueueMessage;
-        if (typeof claimer !== 'function') {
+        // Fold the pending notify into the ALREADY-RUNNING parent run instead of
+        // claiming it as a new run. Keying it to the parent run/batch means it
+        // rides the parent's settle/fail/retry lifecycle: acked only when this run
+        // succeeds, reset to pending (reprocessed, not dropped) if the run fails
+        // transiently. The old path used claimNextQueueMessage, which minted a
+        // phantom run/batch row (the "two runs on one conversation" artifact) and
+        // acked the message at fold time, losing it when the parent failed.
+        const folder = (this.store as RuntimeStore & {
+          foldPendingNotifyIntoRun?: RuntimeStore['foldPendingNotifyIntoRun'];
+        }).foldPendingNotifyIntoRun;
+        if (typeof folder !== 'function') {
           return;
         }
-        const claimed = await claimer.call(this.store, agentConfig.workerId);
+        const claimed = await folder.call(this.store, {
+          parentRunId: queueMessage.id,
+          parentBatchId: queueMessage.batchId,
+          workerId: agentConfig.workerId
+        });
         if (!claimed) {
           return;
         }
@@ -7103,20 +7114,12 @@ export class AgentLoopService {
           lease_release_reason: leaseRelease.reason,
           continuation_queue_message_ids: continuationQueueMessages.flatMap((message) => message.queueMessageIds)
         };
+        // Folded notify messages share this run's run_id, so a single settle keyed
+        // on queueMessage.id acks the parent AND every folded message at once.
         await this.store.settleQueueMessages(queueMessage.id, {
           conversationId,
           result: queueSettleResult
         });
-        for (const continuationQueueMessage of continuationQueueMessages) {
-          await this.store.settleQueueMessages(continuationQueueMessage.id, {
-            conversationId,
-            result: {
-              ...queueSettleResult,
-              consumed_as_nonblocking_notify: true,
-              parent_run_id: queueMessage.id
-            }
-          });
-        }
       }
       const presenceOutcome = sentMessages.length > 0 ? 'replied' : 'silent';
       if (presenceContext) {
@@ -7146,17 +7149,6 @@ export class AgentLoopService {
           modelRequestSlices: turnsExecuted,
           conversationId
         });
-        for (const continuationQueueMessage of continuationQueueMessages) {
-          await this.store.releaseExecutionLease(continuationQueueMessage.id, {
-            status: 'settled',
-            leaseRelease,
-            noVisibleDelivery: leaseRelease.no_visible_delivery,
-            finalResponse,
-            sentMessages,
-            modelRequestSlices: turnsExecuted,
-            conversationId
-          });
-        }
       }
       if (jobId) {
         await this.store.updateLlmJob(jobId, {
@@ -7325,10 +7317,10 @@ export class AgentLoopService {
         }
       }
       if (options.queueBacked && !queueRetryScheduled) {
+        // Folded notify messages share this run's run_id, so failing queueMessage.id
+        // fails them too. When a retry IS scheduled, retryQueueMessage(queueMessage.id)
+        // resets them to pending alongside the main message (reprocessed, not lost).
         await this.store.failQueueMessage(queueMessage.id, message, conversationId);
-        for (const continuationQueueMessage of continuationQueueMessages) {
-          await this.store.failQueueMessage(continuationQueueMessage.id, message, conversationId);
-        }
       }
       if (presenceContext) {
         const sidecarRecorder = (this.store as RuntimeStore & {
@@ -7358,18 +7350,6 @@ export class AgentLoopService {
           errorMessage: message,
           conversationId
         });
-        for (const continuationQueueMessage of continuationQueueMessages) {
-          await this.store.releaseExecutionLease(continuationQueueMessage.id, {
-            status: 'failed',
-            leaseRelease,
-            noVisibleDelivery: leaseRelease.no_visible_delivery,
-            finalResponse: sentMessages.length > 0 ? sentMessages.join('\n\n') : null,
-            sentMessages,
-            modelRequestSlices: turnsExecuted,
-            errorMessage: message,
-            conversationId
-          });
-        }
       }
       if (jobId) {
         await this.store.updateLlmJob(jobId, {
