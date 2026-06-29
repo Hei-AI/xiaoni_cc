@@ -6291,6 +6291,9 @@ export class AgentLoopService {
           )
         : [];
       let requestInput = budgetPlan.requestInput;
+      // The read cutoff THIS run's requestInput is currently built with. A mid-run STW
+      // compression switch advances it (see applyPendingCompressionMidRunIfSilent).
+      let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterConversationId ?? null;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
       if (coreMemoryCompressionCheckpoint) {
         // Fork = clone of the main agent (same iron law as subconscious / image-vision /
@@ -6432,6 +6435,28 @@ export class AgentLoopService {
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
+        // REQ2 STW: between turns (current model slice done, before the next is built)
+        // is a silent point — if a background compression fork has committed a new
+        // context window and all forks have drained, atomically switch this running
+        // run to the compressed (smaller) context now. Costs one cold prefill; every
+        // later turn + cloned fork rides the new warm cache.
+        const midRunCompressionApply = await this.applyPendingCompressionMidRunIfSilent({
+          contextSessionKey,
+          appliedRunCutoff,
+          fullHistory: history,
+          loopContinuation,
+          queueMessage: payload,
+          runtimePrompt,
+          runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
+          pendingProactiveShare: budgetPlan.pendingProactiveShare,
+          developerContextBlock,
+          runtimeEnergyState: initialRuntimeEnergyState,
+          precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems
+        });
+        if (midRunCompressionApply) {
+          requestInput = midRunCompressionApply.requestInput;
+          appliedRunCutoff = midRunCompressionApply.appliedCutoff;
+        }
         turnsExecuted = turn;
         const turnBudgetRecord: ContextBudgetTurnRecord = {
           turn,
@@ -9477,6 +9502,86 @@ export class AgentLoopService {
       payload,
       availableAt: now
     });
+  }
+
+  // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns
+  // silent point, so a long-lived run (a busy group that keeps folding messages into
+  // one run) actually shrinks instead of waiting for a settle that may never come.
+  // The switch costs EXACTLY ONE cold prefill — the new <小腻近况> changes the cached
+  // prefix — and then everything rides the new warm cache: subsequent main turns
+  // extend the rebuilt requestInput, and any fork scheduled afterwards clones it.
+  //
+  // Silence (locked spec, docs/investigations/compress-core-memory-three-contract-
+  // violations-2026-06-28.md §REQ2): main agent = current turn (model slice) finished
+  // — naturally true at the loop top, between turns; all forks drained — no compression
+  // fork (coreMemoryCompressionForks empty) and no subconscious fork in flight. The
+  // image-vision fork runs inline inside a tool call, so it is already idle here. The
+  // fork that PRODUCED this compression has completed (that is why the map is empty).
+  private async applyPendingCompressionMidRunIfSilent(params: {
+    contextSessionKey: string;
+    appliedRunCutoff: number | null;
+    fullHistory: ConversationTurn[];
+    loopContinuation: OpenResponseInputItem[];
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    runtimeIdentityFacts: RuntimeIdentityFactProjection[];
+    pendingProactiveShare: string | null;
+    developerContextBlock: string | null;
+    runtimeEnergyState: RuntimeEnergyState | null;
+    precomputedCurrentTurnInputItems: OpenResponseInputItem[];
+  }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
+    const key = params.contextSessionKey;
+    const pending = this.pendingCompressionAppliedCutoffBySession.get(key) ?? null;
+    if (pending === null || pending <= (params.appliedRunCutoff ?? -1)) {
+      return null; // nothing scheduled, or this run already built/switched to it
+    }
+    // Drain gate: switch only when no fork is mid-flight. A fork is a clone of the main
+    // request; switching while one runs would strand it on a half-old/half-new base.
+    if (this.coreMemoryCompressionForks.size > 0 || this.subconsciousAgentForkInFlight !== null) {
+      return null; // not silent yet — retry at the next turn boundary
+    }
+    // Confirm the fork actually committed the new context window (cutoff + summary).
+    const cutoffState = await this.store.getSessionReadCutoffState(key);
+    const liveCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
+    if (liveCutoff === null || liveCutoff < pending || liveCutoff <= (params.appliedRunCutoff ?? -1)) {
+      return null; // commit not landed yet, or no real advance
+    }
+    // Atomic context reorganization: drop history <= the new cutoff, swap in the new
+    // <小腻近况>, KEEP this run's accumulated loopContinuation (its own turns are all
+    // above the cutoff). Reuse the run's exact (cache_volatile) current-turn trigger so
+    // the rebuilt prefix is byte-stable — only THIS turn cold-reads; every later main
+    // turn and every fork cloned afterwards hits the new warm cache.
+    const retainedHistory = params.fullHistory.filter((turn) => turn.id > liveCutoff);
+    const requestInput = buildLoopRequestInput({
+      history: retainedHistory,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      loopContinuation: params.loopContinuation,
+      runtimeIdentityFacts: params.runtimeIdentityFacts,
+      contextSummary: cutoffState?.contextSummary ?? null,
+      pendingProactiveShare: params.pendingProactiveShare,
+      developerContextBlock: params.developerContextBlock,
+      runtimeEnergyState: params.runtimeEnergyState,
+      triggerInputMode: 'fresh_trigger',
+      precomputedCurrentTurnInputItems: params.precomputedCurrentTurnInputItems
+    });
+    // One-cold-only: clear the latch so the switch fires exactly once; reset the trigger
+    // counter so the now-small context re-arms from scratch if still genuinely over line.
+    this.pendingCompressionAppliedCutoffBySession.delete(key);
+    resetCompressionTriggerCounter(key);
+    await this.store.logTimelineEvent({
+      traceId: params.queueMessage.traceId,
+      eventType: 'memory',
+      eventName: 'core_memory_compression_applied_midrun',
+      eventPhase: null,
+      metadata: {
+        context_session_key: key,
+        previous_run_cutoff: params.appliedRunCutoff,
+        applied_read_cutoff: liveCutoff,
+        retained_history_count: retainedHistory.length
+      }
+    }).catch(() => {});
+    return { requestInput, appliedCutoff: liveCutoff };
   }
 
   private async scheduleCoreMemoryCompressionFork(params: {

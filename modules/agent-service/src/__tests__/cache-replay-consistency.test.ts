@@ -772,3 +772,110 @@ test('runtime replay from REAL Postgres reproduces every folded notify (producti
   const eventIds = runtimeInputs.map((r: any) => r.eventId);
   assert.equal(new Set(eventIds).size, eventIds.length, 'every runtime_input must have a distinct event_id on real PG');
 });
+
+// =====================================================================================
+// REQ2 STW: mid-run compression switch — "one cold only" invariant.
+//
+// When a background compression fork commits mid-run, the running main agent switches
+// to the compressed (smaller) context at the next between-turns silent point. That ONE
+// switch turn must cold-read (the new <小腻近况> changes the cached prefix — necessary),
+// and EVERY turn after it, plus any fork cloned afterwards, must stay warm (byte-
+// identical prefix on the new baseline). No drift, no second 穿透.
+// =====================================================================================
+test('REQ2 STW: mid-run compression switch cold-reads exactly once; later turns stay warm', async () => {
+  const KEY = 'xiaoni:test-global';
+  const OLD_SUMMARY = '旧近况：很久以前的一大堆上下文';
+  const NEW_SUMMARY = '压缩后近况：只保留最近的事';
+  const NEW_CUTOFF = 300;
+
+  const historyTurns = [100, 200, 300, 400, 500].map((id) => ({ id, userMessage: `旧对话 ${id}`, aiResponse: null }));
+  let cutoffFlipped = false;
+
+  const timelineEvents: any[] = [];
+  const store: any = {
+    createLlmJob: async () => 'job-stw',
+    logTimelineEvent: async (e: any) => { timelineEvents.push(e); },
+    listRecentTurns: async () => historyTurns,
+    // Render each history turn so eviction visibly shrinks the prefix.
+    listAgentStackItemsForConversations: async (params: any) => {
+      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
+      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
+        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
+      }));
+    },
+    // OLD cutoff (keep all) until the fork "commits", then NEW cutoff + summary.
+    getSessionReadCutoffState: async () => cutoffFlipped
+      ? { readCutoffAfterConversationId: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
+      : { readCutoffAfterConversationId: null, contextSummary: OLD_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 },
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    getAgentStackHead: async () => 0,
+    appendAgentStackItems: async () => [],
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: async () => null,
+    createConversation: async () => 9999,
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  };
+
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sentInputs: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sentInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    // After turn 2 a background compression "commits": arm the pending latch + flip the
+    // session cutoff. The forks map is empty (no fork running) → turn 3's loop top will
+    // adopt it (silent).
+    if (turn === 2) {
+      cutoffFlipped = true;
+      (service as any).pendingCompressionAppliedCutoffBySession.set(KEY, NEW_CUTOFF);
+    }
+    if (turn <= 5) {
+      return { success: true, llm_call_id: `llm-stw-${turn}`, llm_request_slice_id: `slice-stw-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-stw-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] } };
+    }
+    return { success: true, llm_call_id: `llm-stw-${turn}`, llm_request_slice_id: `slice-stw-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const queueMessage = { id: 'run-STW', traceId: 'runtrace-STW', batchId: 'batch-STW', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'runtrace-STW', runId: 'run-STW' }) };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  const has = (input: any[], needle: string) => JSON.stringify(input).includes(needle);
+  // Which turns carry the OLD vs NEW 近况.
+  const epochs = sentInputs.map((inp) => has(inp, NEW_SUMMARY) ? 'new' : (has(inp, OLD_SUMMARY) ? 'old' : '?'));
+  const firstNew = epochs.indexOf('new');
+  assert.ok(firstNew >= 1, `expected a switch to the compressed 近况, epochs=${epochs.join(',')}`);
+  // Exactly one transition old->new, never back.
+  assert.ok(epochs.slice(0, firstNew).every((e) => e === 'old'), `pre-switch turns must all carry OLD 近况: ${epochs}`);
+  assert.ok(epochs.slice(firstNew).every((e) => e === 'new'), `post-switch turns must all carry NEW 近况 (no flip back): ${epochs}`);
+  // The switch actually SHRANK the context (not just swapped the summary): the apply
+  // evicted history <= cutoff 300, retaining only the 2 turns above it (400, 500).
+  const midrunEvents = timelineEvents.filter((e) => e.eventName === 'core_memory_compression_applied_midrun');
+  assert.equal(midrunEvents.length, 1, 'the mid-run switch must apply exactly once');
+  assert.equal(midrunEvents[0].metadata.applied_read_cutoff, NEW_CUTOFF);
+  assert.equal(midrunEvents[0].metadata.retained_history_count, 2, 'compression must shrink retained history to the 2 turns above the cutoff');
+
+  // ONE cold only: the switch turn's durable prefix differs from the prior turn (cold),
+  // and every later turn is a byte-identical extension of the switch baseline (warm).
+  for (let i = firstNew; i + 1 < sentInputs.length; i += 1) {
+    assertOrderedPrefix(stripVolatile(sentInputs[i]), stripVolatile(sentInputs[i + 1]), `post-switch turn ${i}->${i + 1} (must stay warm)`);
+  }
+  const preBase = JSON.stringify(stripVolatile(sentInputs[firstNew - 1]).slice(0, 3));
+  const newBase = JSON.stringify(stripVolatile(sentInputs[firstNew]).slice(0, 3));
+  assert.notEqual(newBase, preBase, 'the switch must change the cached prefix exactly once (the necessary cold read)');
+});
