@@ -158,6 +158,15 @@ messages: [
 
 ---
 
+**缓存用例不可变 + 失败禁止部署(铁律)**：以下缓存回归用例**禁止为了通过而直接修改/弱化断言**(只能新增,或在改动行为时由 user 显式批准);**任何一个执行失败 = 禁止部署 agent-service**:
+- `modules/agent-service/src/__tests__/cache-replay-consistency.test.ts`(主 run 边界 replay、主 loop turn 间前缀单调、时钟漂移、压缩 fork dispatch、**REQ2 STW 一次冷读**、真库 replay)
+- `modules/agent-service/src/__tests__/fork-cache-alignment.test.ts`(四个 fork 克隆前缀逐字节一致)
+- `packages/persistence/__tests__/agent-stack-event-id-dedup{,.realdb}.test.js`(ON CONFLICT/COALESCE 机制,含真 PG)
+
+**Why:** 这些用例是缓存 0 容忍的可执行契约,每条都验过「改坏即红」。改了主 agent / fork / 持久化后,这些必须先全绿(真库用例需 `qqbot_cache_test` 可达)才允许 `docker compose build/up agent-service`。**压缩切换专项:只允许主 agent 在 STW 切换那一帧冷读一次,同时/之后的 fork 与后续主 turn 一律不许穿透。**
+
+---
+
 **Done Means**：改了 `docker-compose.yml` 托管的服务，完成判定必须包括：对应模块构建或测试 → `docker compose build <service>` → `docker compose up -d <service>` → `docker compose ps` → 日志/健康检查确认正常。
 **NEVER** 对主栈执行 `docker compose up -d --remove-orphans`，会误停不该动的容器。
 

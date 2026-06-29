@@ -56,6 +56,7 @@
 - 未经明确评审确认 ORM 无法合理表达前，禁止新增原生 SQL；即使必须使用原生 SQL，也只能封装在 `packages/persistence` 内，不能绕过持久层下沉到业务模块
 - 管理端页面中的 Playground，以及对话流中的 Playground 导入，必须严格与我们提供的通用 Provider 参数契约保持一致；禁止自行扩展、重命名、省略或映射出另一套参数语义。这是管理面这两块业务的红线
 - **主 agent 上的每一处改动,提交前必须显式分析两个缓存影响,并在 PR / commit 里写明结论:① 对 fork agent 缓存的影响(潜意识 / 压缩 / 图像 / 心跳 fork 都是主 agent 请求的克隆,主 agent 请求体一旦变,fork 前缀同步变);② 对下一次主 agent run 缓存的影响(下一个 run 靠 stack replay 重建历史,凡进了 live 请求的内容必须能被 replay 逐字节重建,否则在 run 边界击穿)。判定基线:cacheable 前缀逐字节不变 = 安全;任何按 turn / run / 时间漂移的字节,或 live 请求与 stack replay 不一致 = 击穿。改动后用相邻两个 slice 的 `wire_request` 实测 `cache_read_input_tokens` 验证,不能只靠推断。背景见 `docs/investigations/` 与记忆 [[project_run_boundary_cache_breakdown_eventid]]**
+- **缓存回归用例不可变 + 失败禁止部署**:`modules/agent-service/src/__tests__/cache-replay-consistency.test.ts`、`modules/agent-service/src/__tests__/fork-cache-alignment.test.ts`、`packages/persistence/__tests__/agent-stack-event-id-dedup{,.realdb}.test.js` 这几支缓存契约用例**禁止为了通过而直接改/弱化断言**(只能新增,行为变更需 user 显式批准);**任一执行失败一律禁止 build/部署 agent-service**。压缩切换专项:STW 那一帧只准主 agent 冷读一次,fork 与后续主 turn 不许穿透。真库用例需 `qqbot_cache_test` 可达。
 - 仓库文档是可追溯真相源；聊天、口头说明、临时记录都不算交付
 - 整个项目文档默认遵循渐进式披露：入口文档只放判断、边界和下一跳；细节放到被链接的专项文档，不在多个入口重复展开
 - 真实密钥、token、调试认证信息统一从 `/home/liahua/.qqbot-local/` 读取；`.env.docker.example` 只是模板，不能回填真实 secret
