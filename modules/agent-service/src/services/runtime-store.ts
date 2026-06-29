@@ -37,6 +37,7 @@ import {
   completeImageVisionForkRun as completeImageVisionForkRunPersistence,
   appendImageVisionForkItems as appendImageVisionForkItemsPersistence,
   recordImageVisionForkSlice as recordImageVisionForkSlicePersistence,
+  recordCacheHeartbeatForkRun as recordCacheHeartbeatForkRunPersistence,
   attachConversationIdToAgentStackByTrace,
   ensureIdentityLineageSchema,
   ensureXiaoniIdentityRoot,
@@ -1337,6 +1338,27 @@ export class RuntimeStore {
 
   async clearAgentRecoveryCacheHeartbeatSchedule(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection | null> {
     return clearAgentRecoveryCacheHeartbeatSchedulePersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  // One ledger row per heartbeat fire so the cache-heartbeat fork carries a real global
+  // occurred_seq and sorts inline in the action stream (see cache_heartbeat_fork_items).
+  async recordCacheHeartbeatForkRun(params: {
+    llmCallId?: string | null;
+    llmRequestSliceId?: string | null;
+    traceId?: string | null;
+    runId?: string | null;
+    conversationId?: number | null;
+    modelName?: string | null;
+    modelProvider?: string | null;
+    status?: string | null;
+    content?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordCacheHeartbeatForkRunPersistence({
+      identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);

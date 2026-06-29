@@ -5614,7 +5614,54 @@ export class AgentLoopService {
       provider: result.provider,
       cachedInputTokens: result.cachedInputTokens
     });
+    await this.persistCacheHeartbeatForkLedger(result);
     return result;
+  }
+
+  // Persist one cache_heartbeat_fork_items ledger row so the heartbeat fork gets a real
+  // global occurred_seq and sorts inline in the action stream (it runs store=false and
+  // never appends to the agent stack, so this ledger is its only ordering anchor). The
+  // reader joins occurred_seq back by llm_call_id / run_id. Best-effort: a write failure
+  // must never fail the heartbeat itself.
+  private async persistCacheHeartbeatForkLedger(result: CacheHeartbeatRunResult) {
+    if (!result.triggered) {
+      return;
+    }
+    const store = this.store as RuntimeStore & {
+      recordCacheHeartbeatForkRun?: RuntimeStore['recordCacheHeartbeatForkRun'];
+    };
+    if (typeof store.recordCacheHeartbeatForkRun !== 'function') {
+      return;
+    }
+    try {
+      await store.recordCacheHeartbeatForkRun.call(this.store, {
+        llmCallId: result.llmCallId ?? null,
+        llmRequestSliceId: result.llmCallId ?? null,
+        traceId: result.traceId ?? null,
+        runId: result.runId ?? null,
+        modelName: result.model ?? null,
+        modelProvider: result.provider ?? null,
+        status: 'completed',
+        content: {
+          inputTokens: result.inputTokens ?? null,
+          outputTokens: result.outputTokens ?? null,
+          totalTokens: result.totalTokens ?? null,
+          cachedInputTokens: result.cachedInputTokens ?? null,
+          processingTimeMs: result.processingTimeMs ?? null
+        },
+        metadata: {
+          executionMode: result.executionMode,
+          promptName: result.promptName ?? null,
+          promptCacheKey: result.promptCacheKey ?? null
+        }
+      });
+    } catch (error) {
+      moduleLogger.warn('Failed to persist Xiaoni cache heartbeat fork ledger', {
+        traceId: result.traceId,
+        runId: result.runId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private buildCacheHeartbeatRunResult(
