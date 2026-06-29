@@ -3537,6 +3537,14 @@ function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payloa
     .filter(Boolean);
 }
 
+// Byte-stable, number-free compression instruction. Shared by the auto and manual
+// dispatch paths so both build an identical fork tail. The cutoff math stays in
+// code/metadata (planReadCutoffForForcedCompression) — the reminder only tells the
+// summarizer WHAT to do, never WHERE the boundary is, so the precise tail-30 eviction
+// is code-enforced and the reminder stays cache-stable.
+const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
+  '把当前可压缩的稳定旧上下文整理成新的核心记忆近况，保留最近的衔接内容继续往下做。';
+
 function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
   readCutoffAfterConversationId: number | null;
@@ -5417,11 +5425,18 @@ export class AgentLoopService {
     }
 
     const artifact = await this.scheduleCoreMemoryCompressionFork({
-      baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.summarySourceInput, payload),
+      // Fork = clone of the main agent: base off the FULL main request input
+      // (byte-identical warm prefix), with the compression instruction as a tail item.
+      baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, budgetPlan.requestInput, payload),
       queueMessage: payload,
       runtimePrompt,
       compression: budgetPlan.coreMemoryCompression,
       contextSessionKey,
+      compressionReminderItems: [buildCoreMemoryCompressionReminder({
+        contextSessionKey,
+        readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
+        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
+      })],
       // Manual trigger: run even while the loop is stopped (see fork gate).
       bypassRuntimeEnabledGate: true
     });
@@ -6209,12 +6224,22 @@ export class AgentLoopService {
       let requestInput = budgetPlan.requestInput;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
       if (coreMemoryCompressionCheckpoint) {
+        // Fork = clone of the main agent (same iron law as subconscious / image-vision /
+        // heartbeat forks): base off the FULL main request input (byte-identical warm
+        // prefix), not a separately-built head-only request, and carry the compression
+        // instruction as a tail item. The precise tail-30 eviction stays code-enforced
+        // via the cutoff, so the summary scope being instruction-driven is safe.
         await this.scheduleCoreMemoryCompressionFork({
-          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, coreMemoryCompressionCheckpoint.summarySourceInput, payload),
+          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
           queueMessage: payload,
           runtimePrompt,
           compression: coreMemoryCompressionCheckpoint.compression,
-          contextSessionKey
+          contextSessionKey,
+          compressionReminderItems: [buildCoreMemoryCompressionReminder({
+            contextSessionKey,
+            readCutoffAfterConversationId: coreMemoryCompressionCheckpoint.compression.readCutoffAfterConversationId,
+            pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
+          })]
         });
       }
       const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
@@ -8201,17 +8226,16 @@ export class AgentLoopService {
     // fork metadata) — they are noise to 小腻 and, because they change every run, they
     // churned the reminder tail and worked against a stable cache. The reminder only
     // needs to tell the summarizer what to do; the cutoff math stays in code/metadata.
-    const pressureSummary = '把当前可压缩的稳定旧上下文整理成新的核心记忆近况，保留最近的衔接内容继续往下做。';
-    // NOTE: the compression fork is deliberately fed the HEAD slice only
-    // (summarySourceHistory), NOT the full retained history — so the summarizer
-    // compresses exactly the evicted head and never re-summarizes retained-tail
-    // items (enforced by the "isolated background fork" test). This head-only input
-    // is a separately-built prefix, so on Claude it does NOT byte-match the main
-    // turn's warm requestInput entry; the compression fork's first read is therefore
-    // a one-time cold prefill. We accept that: compression is rare, and the post-
-    // compression rebuild (new M1 summary at the head) invalidates the messages-tier
-    // prefix cache anyway, so warming the head read would be a small, rare, largely-
-    // negated win at the cost of breaking the head-only summarization invariant.
+    const pressureSummary = CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY;
+    // summarySourceInput is now ONLY a "compression is needed" presence flag for the
+    // checkpoint/manual gates — it is NO LONGER the fork's request body. The fork is a
+    // CLONE of the main agent (same iron law as subconscious / image-vision / heartbeat
+    // forks): it bases off the full main requestInput (byte-identical warm prefix) and
+    // carries the compression instruction as a tail item, so it rides the warm cache
+    // instead of cold-prefilling a head-only request. The summarizer is steered to
+    // compress only the stable old context by the tail reminder + the execution-layer
+    // tool restriction; the precise tail-30 eviction stays code-enforced via the cutoff,
+    // so it never matters if the model's summary scope is fuzzy near the boundary.
     const summarySourceInput = buildLoopRequestInput({
       history: compressionPoint.summarySourceHistory,
       queueMessage: params.queueMessage,
@@ -8234,15 +8258,11 @@ export class AgentLoopService {
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
-    // Cache reuse for the compression fork: rebuild the main turn's requestInput with
-    // a cache breakpoint pinned at the compression head boundary (the last turn the
-    // fork will summarize). The main turn then writes/refreshes the [..H_X] entry
-    // every turn it runs, so when the (head-only) compression fork reads up to H_X it
-    // hits that warm entry via the 20-block lookback instead of cold-prefilling the
-    // whole near-window history. The anchor is a non-content marker, so requestInput's
-    // bytes (and token estimate) are unchanged and its head stays identical to the
-    // fork's head. We keep the fork head-only — this does NOT change what the
-    // summarizer reads, only where the main turn places its cache breakpoint.
+    // Retained as a stable mid-history cache breakpoint at the compression head
+    // boundary. Now that the fork clones the FULL main requestInput, it already rides
+    // the whole warm prefix; this anchor just pins an extra breakpoint so the main turn
+    // keeps the [..H_X] segment refreshed across the boundary. The anchor is a
+    // non-content marker, so requestInput's bytes (and token estimate) are unchanged.
     const compressionHeadBoundaryConversationId =
       compressionPoint.summarySourceHistory.length > 0
         ? (compressionPoint.summarySourceHistory[compressionPoint.summarySourceHistory.length - 1] as { id?: number } | undefined)?.id ?? null
@@ -9382,6 +9402,9 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt;
     compression: CoreMemoryCompressionPlan;
     contextSessionKey: string;
+    // Forwarded verbatim to runCoreMemoryCompressionFork (see params). Tail
+    // compression instruction; baseRequest is the cloned full main-agent request.
+    compressionReminderItems?: OpenResponseInputItem[];
     // Manual admin triggers run as a maintenance action while the loop is
     // intentionally stopped; they must not park at the runtime-enabled gate.
     // Auto-overflow forks leave this false so they still respect the pause.
@@ -9496,6 +9519,11 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt;
     compression: CoreMemoryCompressionPlan;
     contextSessionKey: string;
+    // Tail-appended compression instruction. baseRequest is a CLONE of the main
+    // agent's full request (byte-identical warm prefix, same as every other fork);
+    // the reminder rides as a small cold tail so the fork hits the main loop's cache
+    // instead of cold-prefilling a separately-built head-only request.
+    compressionReminderItems?: OpenResponseInputItem[];
     bypassRuntimeEnabledGate?: boolean;
   }): Promise<CoreMemoryCompressionCommit> {
     const forkRunId = `core-memory-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
@@ -9503,7 +9531,10 @@ export class AgentLoopService {
       TOOL_NAMES.execCommand,
       TOOL_NAMES.compressCoreMemory
     ]);
-    let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    let forkInput = [
+      ...cloneCanonicalAgentTurnRequest(params.baseRequest).input,
+      ...(params.compressionReminderItems ?? [])
+    ];
     let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
     let forkToolCallCount = 0;
     let forkNoToolRetryCount = 0;

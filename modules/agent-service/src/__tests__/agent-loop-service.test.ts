@@ -11142,11 +11142,19 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.deepEqual(forkRequests[0]?.tools, mainRequests[0]?.tools);
 
   const firstForkText = (forkRequests[0]?.input || []).map(getMessageContent).join('\n');
+  // Fork = clone of the main agent (same iron law as subconscious / image-vision /
+  // heartbeat forks): the fork carries the FULL retained history (turns 1..35),
+  // byte-identical to the concurrent main request's prefix, so it rides the warm cache
+  // instead of cold-prefilling a separately-built head-only request. The compression
+  // instruction rides as a tail item; the precise tail-30 eviction stays code-enforced
+  // via the cutoff. This is the regression guard for the cache-penetration bug.
   assert.match(firstForkText, /躯体警告|当前压力:/);
   assert.match(firstForkText, /global history 1(?!\d)/);
-  assert.doesNotMatch(firstForkText, /global history 12/);
-
+  assert.match(firstForkText, /global history 12/);
+  assert.match(firstForkText, /global history 35(?!\d)/);
+  // The fork's history prefix matches the main request's (full clone, not head-only).
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
+  assert.match(mainText, /global history 35(?!\d)/);
   assert.doesNotMatch(mainText, /<小腻近况>|压缩后的近况/);
   assert.doesNotMatch(mainText, /躯体警告|当前压力:/);
   assert.doesNotMatch(mainText, /call-archive|call-compress|archived to \/tmp\/xiaoni-memory\.md/);
