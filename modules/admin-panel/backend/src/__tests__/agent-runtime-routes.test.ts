@@ -406,6 +406,95 @@ describe('agent runtime control routes', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.error).toBe('agent-service unavailable');
   });
+
+  it('patches the debug cache heartbeat interval in milliseconds', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: false,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null,
+      postCompressionPauseArmed: false,
+      postCompressionPauseArmedAt: null,
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
+      debugCacheHeartbeatIntervalMs: 60000,
+      updatedAt: '2026-06-13T20:04:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ debugCacheHeartbeatIntervalMs: 60000 });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      debugCacheHeartbeatIntervalMs: 60000
+    });
+    expect(response.body.data.debugCacheHeartbeatIntervalMs).toBe(60000);
+  });
+
+  it('rejects invalid debug cache heartbeat interval values', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ debugCacheHeartbeatIntervalMs: -1 });
+
+    expect(response.status).toBe(400);
+    expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
+  });
+
+  it('proxies one-shot cache heartbeat triggers to agent-service', async () => {
+    const database = createDatabaseMock();
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      status: 200,
+      data: {
+        success: true,
+        result: {
+          triggered: true,
+          cachedInputTokens: 123456,
+          runId: 'run-abc'
+        }
+      }
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/cache-heartbeat/trigger')
+      .send({});
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.triggered).toBe(true);
+    expect(response.body.data.cachedInputTokens).toBe(123456);
+    expect(axios.post).toHaveBeenCalledWith(
+      'http://qqbot-agent-service:8092/api/internal/runtime/cache-heartbeat',
+      {},
+      expect.objectContaining({
+        timeout: 120000
+      })
+    );
+  });
+
+  it('returns agent-service cache heartbeat trigger failures', async () => {
+    const database = createDatabaseMock();
+    (axios.post as jest.Mock).mockResolvedValueOnce({
+      status: 500,
+      data: {
+        success: false,
+        error: 'heartbeat request builder unavailable'
+      }
+    });
+
+    const response = await request(createApp(database))
+      .post('/api/agent-runtime/cache-heartbeat/trigger')
+      .send({});
+
+    expect(response.status).toBe(500);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toBe('heartbeat request builder unavailable');
+  });
 });
 
 describe('agent runtime recovery session routes', () => {

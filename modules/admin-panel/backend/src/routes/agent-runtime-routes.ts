@@ -1325,6 +1325,18 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         }
         patch.mainAgentPreModelYieldMs = value;
       }
+      if (Object.prototype.hasOwnProperty.call(body, 'debugCacheHeartbeatIntervalMs')) {
+        const value = parseNonNegativeInteger(body.debugCacheHeartbeatIntervalMs);
+        if (value === null) {
+          res.status(400).json({
+            success: false,
+            error: 'debugCacheHeartbeatIntervalMs must be a non-negative integer millisecond value (0 disables)',
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        patch.debugCacheHeartbeatIntervalMs = value;
+      }
       const control = await updateAgentRuntimeControl(patch);
       res.json({
         success: true,
@@ -1444,6 +1456,42 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(502).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to force-load Xiaoni runtime prompt',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  router.post('/agent-runtime/cache-heartbeat/trigger', async (_req, res) => {
+    try {
+      // Unlike the compression trigger (schedules a background fork and returns), the
+      // debug heartbeat awaits a full model turn, so allow a longer timeout.
+      const response = await axios.post(`${AGENT_SERVICE_URL}/api/internal/runtime/cache-heartbeat`, {}, {
+        timeout: 120000,
+        validateStatus: () => true
+      });
+      const payload = response.data && typeof response.data === 'object'
+        ? response.data as Record<string, unknown>
+        : {};
+      if (response.status < 200 || response.status >= 300 || payload.success === false) {
+        res.status(response.status >= 400 ? response.status : 502).json({
+          success: false,
+          error: typeof payload.error === 'string'
+            ? payload.error
+            : `agent-service cache heartbeat trigger returned HTTP ${response.status}`,
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: payload.result && typeof payload.result === 'object' ? payload.result : payload,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(502).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to trigger Xiaoni cache heartbeat',
         timestamp: new Date().toISOString()
       });
     }
