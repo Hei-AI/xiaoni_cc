@@ -12080,7 +12080,18 @@ function buildRuntimeInputStackItem(params: {
     : buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt))
     .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
   return {
-    eventId: `stack:${params.runId || params.queueMessage.traceId}:runtime-input`,
+    // Key the dedupe event_id on the notify's OWN traceId, not the runId. Folded
+    // nonblocking notifies ride the PARENT run (claimed.id === parentRunId), so a
+    // runId-keyed event_id collapses every runtime_input of a run onto ONE id —
+    // appendAgentStackItems' ON CONFLICT (event_id) then silently drops all but the
+    // first fold's content. The live loopContinuation still carries every fold, so
+    // the next run's stack-replay rebuilds a SHORTER body than the run that folded
+    // them, diverging the cached prefix at the first dropped reminder and breaking
+    // the whole prompt cache at the run boundary. Each folded message preserves its
+    // own trace_id (foldPendingNotifyMessagesIntoRun), so a traceId-keyed event_id
+    // is unique per fold yet still idempotent on same-notify reprocessing. The
+    // run-trace fallback keeps the initial trigger stable across run retries.
+    eventId: `stack:${params.queueMessage.traceId || params.runId}:runtime-input`,
     itemKind: 'runtime_input',
     role: currentInputItems.some((item) => item.type === 'message' && item.role === 'user') ? 'user' : 'developer',
     phase: null,
