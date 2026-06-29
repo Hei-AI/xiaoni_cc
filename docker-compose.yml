@@ -186,6 +186,8 @@ services:
       - PROVIDER_SERVICE_URL=http://qqbot-provider-service:8090
       - XIAONI_EXECUTOR_URL=http://qqbot-xiaoni-executor:8093
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
+      # 画图已迁到 Claude flow:image_task 走 openai-image-provider → cliproxyapi gpt-image-2(忽略 codex_base_request)
+      - XIAONI_IMAGE_TASK_ENABLED=true
       - AI_MODEL_NAME=gpt-5-mini
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-opus-4-6}
       # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
