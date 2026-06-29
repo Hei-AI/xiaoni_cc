@@ -10585,6 +10585,65 @@ test('buildContextBudgetPlan does not compress at or under the keep window', asy
   assert.equal(plan.retainedHistory.length, history.length);
 });
 
+test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is applied (single-flight latch)', async () => {
+  // BUG (实测 12:53/15:18):第一个 fork 提交→主 loop 应用 之间的空窗里,计数器在旧大上下文上
+  // 重攒会放出多余的第二次压缩。修法:压缩调度后记 pending 目标 cutoff,在主 loop 生效 cutoff
+  // 追上它之前抑制新触发。下面无 fix 时第一段会规划出第二次压缩 → 测试失败。
+  const history = Array.from({ length: 40 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `h ${index + 1}`,
+    aiResponse: `o ${index + 1}`
+  }));
+  const runtimePrompt = createRuntimePrompt({
+    parameters: { model_config: { contextWindowTokens: 4000, maxOutputTokens: 1000 } }
+  });
+  const planArgs = {
+    history,
+    queueMessage: createRuntimeLoopPayload(),
+    runtimePrompt,
+    loopContinuation: [],
+    runtimeIdentityFacts: [],
+    developerContextBlock: null,
+    contextSessionKey: 'xiaoni:test-global'
+  };
+
+  // --- prior compression scheduled (pending target cutoff=5) but NOT yet applied to the
+  //     main loop (live cutoff still null) → must NOT plan a 2nd compression ---
+  const svcPending = new AgentLoopService({
+    getSessionReadCutoffState: async () => null
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  (svcPending as any).pendingCompressionAppliedCutoffBySession.set('xiaoni:test-global', 5);
+  const suppressed = await (svcPending as any).buildContextBudgetPlan(planArgs);
+  assert.equal(suppressed.coreMemoryCompression, null, 'must NOT compress again while the prior compression is pending-apply');
+  assert.equal((svcPending as any).pendingCompressionAppliedCutoffBySession.has('xiaoni:test-global'), true, 'latch stays set until the prior compression is applied');
+
+  // --- prior compression now applied (live cutoff 5 >= target 5): latch clears, a fresh
+  //     real-input trigger is allowed to compress again ---
+  const svcApplied = new AgentLoopService({
+    getSessionReadCutoffState: async () => ({
+      sessionKey: 'xiaoni:test-global',
+      readCutoffAfterConversationId: 5,
+      contextSummary: null,
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0,
+      updatedAt: null
+    })
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  (svcApplied as any).pendingCompressionAppliedCutoffBySession.set('xiaoni:test-global', 5);
+  const allowed = await (svcApplied as any).buildContextBudgetPlan(planArgs);
+  assert.ok(allowed.coreMemoryCompression, 'after the prior compression is applied, a fresh trigger may compress again');
+  assert.equal((svcApplied as any).pendingCompressionAppliedCutoffBySession.has('xiaoni:test-global'), false, 'latch cleared once the live cutoff reaches the target');
+});
+
 test('runtime frame does not schedule compression from turn count alone', async () => {
   const queueMessage = {
     id: 'run-compression-background-checkpoint',

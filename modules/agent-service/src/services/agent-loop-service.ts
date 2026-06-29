@@ -4882,6 +4882,12 @@ export class AgentLoopService {
   private readonly responseActionRouter = new ResponseActionRouter();
   private stableRuntimePrompt: ResolvedAgentRuntimePrompt | null = null;
   private readonly coreMemoryCompressionForks = new Map<string, CoreMemoryCompressionForkState>();
+  // Single-flight compression spanning trigger -> APPLIED (not just fork-in-flight).
+  // 已经压了但主 loop 还没用上,就不准再压:记下这次压缩的目标 cutoff;在主 loop 的
+  // 生效 cutoff 追上它之前,抑制新的触发。否则「fork 提交(锁释放)→ 主 loop 下个新对话
+  // 才应用」之间的空窗里,计数器在旧大上下文上重攒会放出多余的第二次压缩(实测 12:53/15:18
+  // 各一次)。清除时机:主 loop 生效 cutoff >= 目标(已应用),或 fork 失败未提交(可重试)。
+  private readonly pendingCompressionAppliedCutoffBySession = new Map<string, number>();
   private cacheHeartbeatLastStartedAtMs = 0;
   private cacheHeartbeatInFlight: Promise<void> | null = null;
   private subconsciousAgentForkBackoffUntilMs = 0;
@@ -8154,6 +8160,21 @@ export class AgentLoopService {
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
+    // Single-flight latch: a previously scheduled compression stays "pending" until the
+    // main loop's live cutoff reaches its target (i.e., it has actually been applied).
+    // Clear it once applied; while pending, suppress new triggers (the counter may keep
+    // accumulating on the stale window — that's fine — but it must not fire a 2nd fork).
+    const appliedReadCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
+    const pendingCompressionCutoff = this.pendingCompressionAppliedCutoffBySession.get(contextSessionKey) ?? null;
+    if (
+      pendingCompressionCutoff !== null
+      && appliedReadCutoff !== null
+      && appliedReadCutoff >= pendingCompressionCutoff
+    ) {
+      this.pendingCompressionAppliedCutoffBySession.delete(contextSessionKey);
+    }
+    const compressionPendingApply = this.pendingCompressionAppliedCutoffBySession.has(contextSessionKey);
+
     // Build the current-turn reminder ONCE. The sent request (below, incl. the
     // anchored variant) and the runtime_input 存档 (processRuntimeFrame persist)
     // both reuse this exact array. Previously each rebuilt it via its own
@@ -8212,7 +8233,8 @@ export class AgentLoopService {
 
     // REQ1: 触发只看模型返回的真实 input_tokens —— 连续 N 轮 > 软线(内存计数器,
     // 重启清零)。不再用 tiktoken 估算 vs window 当判据。forceCompression(手动)照旧强压。
-    if (!params.forceCompression && (!shouldTriggerCompressionFromRealInput(contextSessionKey) || initialRetainedHistory.length === 0)) {
+    // compressionPendingApply: 已经压了但主 loop 还没用上 → 不准再压(消掉空窗里的多余第二次)。
+    if (!params.forceCompression && (!shouldTriggerCompressionFromRealInput(contextSessionKey) || compressionPendingApply || initialRetainedHistory.length === 0)) {
       return {
         requestInput,
         currentTurnInputItems,
@@ -9556,6 +9578,12 @@ export class AgentLoopService {
       compression: params.compression,
       startedAtMs: Date.now()
     });
+    // Latch this compression as pending-apply: suppress any further trigger until the
+    // main loop's live cutoff reaches this target (cleared in buildContextBudgetPlan).
+    const plannedAppliedCutoff = params.compression.readCutoffAfterConversationId;
+    if (typeof plannedAppliedCutoff === 'number' && Number.isFinite(plannedAppliedCutoff)) {
+      this.pendingCompressionAppliedCutoffBySession.set(key, plannedAppliedCutoff);
+    }
     void fork.catch((error) => {
       moduleLogger.warn('Background core memory compression fork failed', {
         traceId: params.queueMessage.traceId,
@@ -9563,6 +9591,8 @@ export class AgentLoopService {
         contextSessionKey: key,
         error: error instanceof Error ? error.message : String(error)
       });
+      // fork failed — it may not have committed; release the latch so a retry can fire.
+      this.pendingCompressionAppliedCutoffBySession.delete(key);
     }).finally(() => {
       if (this.coreMemoryCompressionForks.get(key)?.promise === fork) {
         this.coreMemoryCompressionForks.delete(key);
