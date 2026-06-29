@@ -22,10 +22,13 @@ match, x and y scale by the same factor.
 
 from __future__ import annotations
 
-# Anthropic recommends keeping the display at/under ~1280px on the long edge
-# (XGA/WXGA); higher resolutions degrade click accuracy and inflate tokens.
-DECLARED_W = 1280
-DECLARED_H = 800
+# Fallback declared size only — the live path receives display_width_px/height_px
+# from agent-loop (COMPUTER_USE_DISPLAY_*) and passes them explicitly to map_point,
+# so these constants are not used when the bridge is driven normally. Kept in sync
+# with agent-loop: ~2.03:1 to match Xiaoni's Chrome viewport (native 2561x1263 @
+# DPR2), well under Anthropic's ~1280 long-edge guidance to cut image tokens.
+DECLARED_W = 1024
+DECLARED_H = 506
 
 
 def choose_declared(live_w: int, live_h: int, long_edge: int = 1280) -> tuple[int, int]:

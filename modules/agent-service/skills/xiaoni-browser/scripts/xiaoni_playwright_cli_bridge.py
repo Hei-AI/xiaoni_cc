@@ -227,7 +227,9 @@ def _build_action_statements(action, css, css_end):
 def _resize_png_to_declared(png_b64, dw, dh):
     raw = base64.b64decode(png_b64)
     img = Image.open(io.BytesIO(raw)).convert("RGB")
-    img = img.resize((dw, dh))
+    # LANCZOS is markedly sharper than the default (BICUBIC) when downscaling the
+    # native 2561px-wide capture to the declared display — matters for small CJK text.
+    img = img.resize((dw, dh), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
@@ -385,8 +387,8 @@ class Handler(BaseHTTPRequestHandler):
             action = payload.get("action")
             if not isinstance(action, dict) or not isinstance(action.get("action"), str):
                 raise ValueError("action must be an object with a string 'action' field")
-            dw = int(payload.get("display_width_px") or 1280)
-            dh = int(payload.get("display_height_px") or 800)
+            dw = int(payload.get("display_width_px") or 1024)
+            dh = int(payload.get("display_height_px") or 506)
             result = _run_computer_action(action, dw, dh)
             self._json(200, result)
         except Exception as error:

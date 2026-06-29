@@ -798,10 +798,15 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
 // across every request (it is part of the cached tools prefix) — never set it to
 // the live window size, or the prefix changes on each resize. The bridge always
 // resizes screenshots to exactly this and maps action coordinates from this space
-// back to the live host-Chrome CSS viewport (see computer_coords.py). WXGA per
-// Anthropic's resolution guidance (accuracy degrades above ~1280 long edge).
-const COMPUTER_USE_DISPLAY_WIDTH = 1280;
-const COMPUTER_USE_DISPLAY_HEIGHT = 800;
+// back to the live host-Chrome CSS viewport (see computer_coords.py).
+// Sized to match Xiaoni's actual Chrome viewport aspect (~2.03:1, native
+// 2561x1263 @ DPR2) so the downscale has no anamorphic distortion, and kept well
+// under Anthropic's ~1280 long-edge guidance to cut per-frame image tokens
+// (~691 vs ~1366 at 1280x800 — every computer action returns a screenshot, and
+// scroll-to-read is the dominant frame source). Source is 2561px wide, so this is
+// a clean LANCZOS downscale, never an upscale; CJK stays legible (verified).
+const COMPUTER_USE_DISPLAY_WIDTH = 1024;
+const COMPUTER_USE_DISPLAY_HEIGHT = 506;
 
 const COMPUTER_USE_TOOL: OpenResponseToolDefinition = {
   type: 'computer_use',
@@ -10520,7 +10525,7 @@ export class AgentLoopService {
 
   // Execute one computer-use action against the host Playwright bridge and return
   // the resulting screenshot as an input_image (rendered by applyToolResultToLoopInput).
-  // The bridge owns coordinate mapping (declared 1280x800 -> live CSS px) and resizes
+  // The bridge owns coordinate mapping (declared 1024x506 -> live CSS px) and resizes
   // the screenshot back to the declared display; agent-service is a thin forwarder.
   private async executeComputerAction(
     toolCall: AgentToolCall
