@@ -2010,6 +2010,33 @@ function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): Can
   return JSON.parse(JSON.stringify(request)) as CanonicalAgentTurnRequest;
 }
 
+// ┌───────────────────────────── FORK 铁律 (READ BEFORE EDITING ANY FORK) ─────────────────────────────┐
+// │ 每一个 model-request fork —— subconscious / image-vision / cache-heartbeat / core-memory-compression │
+// │ —— 必须是主 agent 当轮请求的【字节克隆】:                                                            │
+// │                                                                                                     │
+// │   forkRequest = cloneCanonicalAgentTurnRequest(baseRequest)   // 同 system + 同 tools + 同全部历史   │
+// │   forkRequest.input = [ ...baseRequest.input, ...小段尾部追加 ] // fork 专属指令只在【尾部】追加      │
+// │                                                                                                     │
+// │ 为什么:Anthropic prompt cache 是【前缀】缓存。只要 fork 前缀和主 loop 逐字节一致,fork 就直接命中    │
+// │ 那份热缓存(主 loop 已 ~194K cache-read);追加的尾部是一小段 cold tail。任何「另建请求 / 砍历史 /    │
+// │ 改 tools / 改 tool_choice / 重排 input」都会让前缀分叉 → fork 每次冷读整窗(压缩 fork 曾因 head-only │
+// │ 重建,turn-1 恒冷读重写 ~67K,cache_read 卡在 12249 = 仅 system+tools)。见 cb7911b8。                │
+// │                                                                                                     │
+// │ 推论(都踩过坑,别再犯):                                                                            │
+// │  1. 「fork 只该看/做某子集」属于【行为范围】,用【执行层】约束(allowedToolNames 在执行时拒非法工具,│
+// │     见 runCoreMemoryCompressionFork ~9772 / think-only fork ~9203),【绝不】靠删 input / 删 tools。  │
+// │  2. 「该压/读哪一段」由【代码】精确定死(cutoff / tail-30),不靠裁请求体、不靠模型猜边界。           │
+// │  3. tool_choice 永远 AUTO、tools 永远全量:forced tool_choice 会让 provider 关 extended thinking、丢 │
+// │     历史 thinking block → 前缀又分叉(见 buildXiaoniRuntimeTurnRequest 注释 ~1895 + anthropic-       │
+// │     translate.ts:521-527)。                                                                          │
+// │  4. 回归守卫:agent-loop-service.test.ts 断言 fork.tool_choice === 主.tool_choice、fork 看到 full     │
+// │     history。改 fork 前先跑压缩相关测试。                                                            │
+// └─────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+// 压缩 fork 的克隆。遵守上面的 FORK 铁律:这里只 clone baseRequest(= 主 agent 完整请求)并打 metadata;
+// 压缩指令(buildCoreMemoryCompressionReminder)不在这里拼,而是作为 compressionReminderItems 在
+// runCoreMemoryCompressionFork 里【追加到 input 尾部】,与其它三个 fork 同形。baseRequest 必须是主 agent
+// 的完整 requestInput,【绝不】是 head-only 的 summarySourceInput(后者现在只是「需要压缩」的存在标志位)。
 function buildCoreMemoryCompressionForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   forkTurn: number
