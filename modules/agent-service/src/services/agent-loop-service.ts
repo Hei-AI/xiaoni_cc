@@ -5582,10 +5582,27 @@ export class AgentLoopService {
       ? Number(await headReader.call(this.store, XIAONI_IDENTITY_KEY).catch(() => 0)) || 0
       : 0;
     const cutoffStackIndex = cutoff?.readCutoffAfterStackIndex ?? null;
-    // Floor the read so a null/old cutoff still caps to the recent tail.
+    // Floor the read at the COMPRESSION CUTOFF when one exists, verbatim. The cutoff is
+    // the only stable, run-invariant anchor: it moves ONLY when a compression fork commits
+    // a new head boundary, so two consecutive runs over the same compressed epoch read from
+    // the SAME floor and reconstruct a byte-identical durable prefix → the next run's first
+    // turn hits the warm cache instead of cold-prefilling the whole history.
+    //
+    // The head-relative backstop (head - 200) must NEVER override a present cutoff: `head`
+    // grows ~2 blocks per turn, so max(cutoff, head-200) SLIDES the window front up on every
+    // run as soon as the cutoff is >200 blocks behind head. That slide drops the front blocks
+    // run N established → run N+1's durable prefix diverges at block 0 → full message-tier
+    // cache 击穿 at EVERY run boundary (observed 2026-06-30: cache_read stuck at 12249 =
+    // system+tools head only, cache_creation 64-75k on every fresh run's turn 1). Bounding
+    // context growth is COMPRESSION's job (input-token trigger → keepBlocks), not the read
+    // floor's; a sliding read floor does not actually shrink the model's context, it only
+    // corrupts the cache. The backstop therefore applies ONLY when the cutoff is null
+    // (genuinely fresh/unmigrated session), as a one-shot safety cap against loading the
+    // whole stack — and even then it is a fixed floor for that single read, not a per-run
+    // sliding window (a fresh session has no prior warm prefix to preserve).
     const backstopFloor = head > 0 ? head - STACK_HISTORY_READ_BACKSTOP_BLOCKS : null;
     const effectiveFloor = cutoffStackIndex !== null
-      ? (backstopFloor !== null ? Math.max(cutoffStackIndex, backstopFloor) : cutoffStackIndex)
+      ? cutoffStackIndex
       : backstopFloor;
 
     let rows: Array<Record<string, unknown>> = [];
