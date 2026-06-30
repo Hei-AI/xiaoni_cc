@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
@@ -10681,6 +10681,66 @@ test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is
   __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
   const reArmedPlan = await (svcApplied as any).buildContextBudgetPlan(planArgs);
   assert.ok(reArmedPlan.coreMemoryCompression, 'a fresh trigger on the applied context may still compress');
+});
+
+test('compression-trigger counter survives a restart via persisted re-hydration', async () => {
+  // Simulate a fresh process after a restart: the in-memory debounce Map is empty, but the
+  // persisted cutoff state carries consecutiveOverCompressionTurns = 2 (armed before the
+  // restart). buildContextBudgetPlan must seed the Map from the persisted value so the auto
+  // trigger fires WITHOUT two fresh over-line turns. Counter is timing-only — it never
+  // enters the cacheable prefix.
+  const history = Array.from({ length: 40 }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `h ${index + 1}`,
+    aiResponse: `o ${index + 1}`
+  }));
+  const runtimePrompt = createRuntimePrompt({
+    parameters: { model_config: { contextWindowTokens: 4000, maxOutputTokens: 1000 } }
+  });
+
+  const persistedSets: Array<{ sessionKey: string; consecutiveOverCompressionTurns: number }> = [];
+  const svc = new AgentLoopService({
+    getSessionReadCutoffState: async () => ({
+      sessionKey: 'xiaoni:test-global',
+      readCutoffAfterStackIndex: null,
+      contextSummary: null,
+      pendingProactiveShare: null,
+      pendingProactiveShareAge: 0,
+      consecutiveOverCompressionTurns: 2,
+      updatedAt: null
+    }),
+    setSessionCompressionTriggerCounter: async (params: any) => {
+      persistedSets.push(params);
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  // Fresh process: clear any carryover from earlier tests in this file.
+  __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+
+  const planArgs = {
+    history,
+    queueMessage: createRuntimeLoopPayload(),
+    runtimePrompt,
+    loopContinuation: [],
+    runtimeIdentityFacts: [],
+    developerContextBlock: null,
+    contextSessionKey: 'xiaoni:test-global'
+  };
+
+  const plan = await (svc as any).buildContextBudgetPlan(planArgs);
+  assert.ok(
+    plan.coreMemoryCompression,
+    're-hydrated debounce count (2) arms the trigger immediately on a fresh process — no fresh over-line turns needed'
+  );
+
+  // The seeded re-hydration left 'xiaoni:test-global' armed in the shared in-memory Map;
+  // clear it so later tests in this file start from a clean (fresh-process) count.
+  __clearCompressionTriggerCounterForTest('xiaoni:test-global');
 });
 
 test('runtime frame does not schedule compression from turn count alone', async () => {

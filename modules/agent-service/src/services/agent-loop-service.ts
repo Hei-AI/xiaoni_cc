@@ -668,14 +668,34 @@ function recordMainTurnInputTokensForCompression(sessionKey: string, actualInput
 function shouldTriggerCompressionFromRealInput(sessionKey: string): boolean {
   return (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) >= COMPRESSION_TRIGGER_CONSECUTIVE_TURNS;
 }
+// Current in-memory debounce count for a session (0 when unseen). Read by the
+// fire-and-forget persistence write and by the restart re-hydration seed check.
+function getCompressionTriggerCounter(sessionKey: string): number {
+  return consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0;
+}
 function resetCompressionTriggerCounter(sessionKey: string): void {
   consecutiveOverCompressionThresholdBySession.set(sessionKey, 0);
+}
+// Single setter for the in-memory Map. Used by the restart re-hydration seed and by the
+// test seam below. Production turn-by-turn updates go through
+// recordMainTurnInputTokensForCompression / resetCompressionTriggerCounter, which mutate
+// the same Map.
+function setCompressionTriggerCounter(sessionKey: string, count: number): void {
+  consecutiveOverCompressionThresholdBySession.set(sessionKey, count);
+}
+function hasCompressionTriggerCounter(sessionKey: string): boolean {
+  return consecutiveOverCompressionThresholdBySession.has(sessionKey);
 }
 // test-only seam: seed the in-memory compression-trigger debounce counter so an
 // integration test can deterministically arm the auto trigger without sending two
 // real >500k turns. Not used in production.
 export function __setCompressionTriggerCounterForTest(sessionKey: string, count: number): void {
-  consecutiveOverCompressionThresholdBySession.set(sessionKey, count);
+  setCompressionTriggerCounter(sessionKey, count);
+}
+// test-only seam: clear the in-memory Map entry to simulate a fresh process (restart)
+// so a test can prove the re-hydration path seeds from persisted state.
+export function __clearCompressionTriggerCounterForTest(sessionKey: string): void {
+  consecutiveOverCompressionThresholdBySession.delete(sessionKey);
 }
 const FEEDBACK_MEMORY_SUBAGENT_TYPE = 'feedback_memory_writer';
 const CONTEXT_COMPRESSION_MEMORY_SUBAGENT_TYPE = 'context_compression_memory_writer';
@@ -6544,6 +6564,10 @@ export class AgentLoopService {
           }
         );
         attachActualUsageToTurnBudget(turnBudgetRecord, modelResult);
+        // Persist the (just incremented/reset) compression-trigger debounce counter so it
+        // survives a restart. Fire-and-forget; timing-only, never blocks the turn and never
+        // touches the cacheable prefix.
+        this.persistCompressionTriggerCounter(getGlobalPromptContextSessionKey());
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         const outputStackRows = await this.appendAgentStackItemsSafe({
@@ -8201,6 +8225,23 @@ export class AgentLoopService {
     }
   }
 
+  // Fire-and-forget persistence of the compression-trigger debounce counter for a
+  // session. TIMING-ONLY state (decides WHEN compression fires) — never enters the
+  // cacheable request prefix, so this can never block or perturb a turn. Errors are
+  // swallowed: a missed write just means the next process start re-reads a slightly
+  // stale count, which the next real over/under-line turn corrects anyway.
+  private persistCompressionTriggerCounter(sessionKey: string): void {
+    if (!sessionKey || typeof this.store.setSessionCompressionTriggerCounter !== 'function') {
+      return;
+    }
+    void this.store
+      .setSessionCompressionTriggerCounter({
+        sessionKey,
+        consecutiveOverCompressionTurns: getCompressionTriggerCounter(sessionKey)
+      })
+      .catch(() => {});
+  }
+
   private async buildContextBudgetPlan(params: {
     history: StackBackedConversationTurn[];
     queueMessage: QueueMessageRecord['payload'];
@@ -8241,6 +8282,19 @@ export class AgentLoopService {
     const contextSummary = cutoffState?.contextSummary ?? null;
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
+    // RESTART RE-HYDRATION: the compression-trigger debounce counter lives in an in-memory
+    // Map that resets to 0 on every process start. With frequent deploys it never reached
+    // COMPRESSION_TRIGGER_CONSECUTIVE_TURNS. Seed it ONCE per process from the persisted
+    // value (Map.has gates it to the first time we see this session this process) so a
+    // restart mid-debounce doesn't throw the count away. TIMING-ONLY: this only affects
+    // WHEN compression fires; it never touches the cacheable request prefix below.
+    if (!hasCompressionTriggerCounter(contextSessionKey)) {
+      const persistedCount = cutoffState?.consecutiveOverCompressionTurns ?? 0;
+      setCompressionTriggerCounter(
+        contextSessionKey,
+        Math.min(COMPRESSION_TRIGGER_CONSECUTIVE_TURNS, Math.max(0, persistedCount))
+      );
+    }
     const initialRetainedHistory = applyReadCutoff(params.history, cutoffState);
     const triggerInputMode = params.triggerInputMode ?? 'fresh_trigger';
 
@@ -8260,6 +8314,7 @@ export class AgentLoopService {
     ) {
       this.pendingCompressionAppliedCutoffBySession.delete(contextSessionKey);
       resetCompressionTriggerCounter(contextSessionKey);
+      this.persistCompressionTriggerCounter(contextSessionKey);
     }
     const compressionPendingApply = this.pendingCompressionAppliedCutoffBySession.has(contextSessionKey);
 
@@ -9653,6 +9708,7 @@ export class AgentLoopService {
     // counter so the now-small context re-arms from scratch if still genuinely over line.
     this.pendingCompressionAppliedCutoffBySession.delete(key);
     resetCompressionTriggerCounter(key);
+    this.persistCompressionTriggerCounter(key);
     await this.store.logTimelineEvent({
       traceId: params.queueMessage.traceId,
       eventType: 'memory',
@@ -9687,6 +9743,7 @@ export class AgentLoopService {
     // it does NOT re-fire on every main turn while the ~1-2min fork runs. Post-
     // compression the next real measurement (lower) repopulates the counter from 0.
     resetCompressionTriggerCounter(key);
+    this.persistCompressionTriggerCounter(key);
     const existing = this.coreMemoryCompressionForks.get(key);
     const compression = existing?.compression ?? params.compression;
     const artifact = {

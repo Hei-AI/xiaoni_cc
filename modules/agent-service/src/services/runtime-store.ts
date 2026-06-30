@@ -117,6 +117,7 @@ import {
   commitSessionContextSummaryAndReadCutoff as commitSessionContextSummaryAndReadCutoffPersistence,
   upsertProactiveShareState as upsertProactiveShareStatePersistence,
   upsertSessionContextSummary as upsertSessionContextSummaryPersistence,
+  setSessionCompressionTriggerCounter as setSessionCompressionTriggerCounterPersistence,
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
@@ -344,6 +345,9 @@ export type SessionReadCutoffState = {
   contextSummary: string | null;
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
+  // Persisted compression-trigger debounce counter (timing-only; never enters the
+  // cacheable request prefix). Re-hydrated into the in-memory Map on a fresh process.
+  consecutiveOverCompressionTurns: number;
   updatedAt: string | null;
 };
 
@@ -2632,6 +2636,18 @@ export class RuntimeStore {
     contextSummary: string;
   }) {
     await upsertSessionContextSummaryPersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  // Targeted writer for the compression-trigger debounce counter (timing-only; never
+  // enters the cacheable request prefix). Writes ONLY consecutive_over_compression_turns.
+  async setSessionCompressionTriggerCounter(params: {
+    sessionKey: string;
+    consecutiveOverCompressionTurns: number;
+  }) {
+    await setSessionCompressionTriggerCounterPersistence({
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig);
