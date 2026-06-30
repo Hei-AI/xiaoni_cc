@@ -1106,7 +1106,6 @@ export type XiaoniAgentStackPersistenceApi = {
   appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
   appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
-  getLatestMainAgentCanonicalRequest(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
   recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
   updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
   recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;
@@ -1148,7 +1147,6 @@ export function getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, 
 export function appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
 export function appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
-export function getLatestMainAgentCanonicalRequest(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
 export function recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
 export function updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
 export function recordToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution | null>;

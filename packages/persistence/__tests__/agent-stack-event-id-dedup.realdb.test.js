@@ -197,46 +197,6 @@ dbTest('replay read path reproduces every backfilled fold on real PG', async () 
   assert.ok(text.includes('初始触发'), 'replay must reproduce the initial trigger');
 });
 
-// Real-PG regression for the cache-heartbeat literal-clone source (fork iron law): the
-// heartbeat clones the main agent's LAST request, read via getLatestMainAgentCanonicalRequest.
-// This must return the latest COMPLETED slice whose canonical_request carries NO fork marker
-// (core_memory_compression_fork / subconscious_agent_fork / image_vision_fork / cache_heartbeat),
-// so a fork request — even a newer one — is never mistaken for the main's request.
-dbTest('getLatestMainAgentCanonicalRequest returns the latest MAIN slice, excluding fork slices', async () => {
-  await sql.execute('TRUNCATE llm_request_slices RESTART IDENTITY', []);
-  await sql.execute('TRUNCATE llm_usage_rollup_sources', []).catch(() => {});
-
-  const mainReq = (marker) => ({
-    model: 'claude-opus-4-6', instructions: 'You are 小腻.', tools: [], tool_choice: 'auto',
-    input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text: marker }] }], metadata: {}
-  });
-  const forkReq = (marker, forkKey) => ({
-    model: 'claude-opus-4-6', instructions: 'You are 小腻.', tools: [], tool_choice: 'auto',
-    input: [{ type: 'message', role: 'developer', content: [{ type: 'input_text', text: marker }] }],
-    metadata: { [forkKey]: 'true' }
-  });
-
-  // 1) An older main request.
-  await persistence.recordLlmRequestSlice({ sliceId: 'slice-main-1', identityKey: 'xiaoni', traceId: 'rt-m1', runId: 'run-m1', status: 'completed', canonicalRequest: mainReq('MAIN-1') });
-  // 2) A NEWER fork request (compression + heartbeat) — must be excluded.
-  await persistence.recordLlmRequestSlice({ sliceId: 'slice-fork-c', identityKey: 'xiaoni', traceId: 'rt-fc', runId: 'run-fc', status: 'completed', canonicalRequest: forkReq('FORK-COMPRESSION', 'core_memory_compression_fork') });
-  await persistence.recordLlmRequestSlice({ sliceId: 'slice-fork-h', identityKey: 'xiaoni', traceId: 'rt-fh', runId: 'run-fh', status: 'completed', canonicalRequest: forkReq('FORK-HEARTBEAT', 'cache_heartbeat') });
-
-  const r1 = await persistence.getLatestMainAgentCanonicalRequest({ identityKey: 'xiaoni' });
-  assert.ok(r1, 'a main request must be found');
-  assert.equal(JSON.stringify(r1.input).includes('MAIN-1'), true, 'must return the main request, not a newer fork');
-  assert.equal(JSON.stringify(r1).includes('FORK-'), false, 'a fork request must never be returned as the main request');
-
-  // 3) A newer MAIN request now wins.
-  await persistence.recordLlmRequestSlice({ sliceId: 'slice-main-2', identityKey: 'xiaoni', traceId: 'rt-m2', runId: 'run-m2', status: 'completed', canonicalRequest: mainReq('MAIN-2') });
-  const r2 = await persistence.getLatestMainAgentCanonicalRequest({ identityKey: 'xiaoni' });
-  assert.equal(JSON.stringify(r2.input).includes('MAIN-2'), true, 'must return the latest main request');
-
-  // 4) A different identity must not leak in.
-  const other = await persistence.getLatestMainAgentCanonicalRequest({ identityKey: 'someone-else' });
-  assert.equal(other, null, 'no main request for an unrelated identity');
-});
-
 // #2 notify consumption (no double-consume) — cache-穿透 angle on real PG. If the SAME notify
 // is consumed by TWO runs (a phantom/re-claim across run rows, NOT same-run reprocess), the
 // traceId-keyed event_id must still dedupe to ONE runtime_input — so the next run's stack-replay
