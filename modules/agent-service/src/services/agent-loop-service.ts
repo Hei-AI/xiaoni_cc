@@ -2085,6 +2085,14 @@ export function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRe
     ...heartbeatRequest.input,
     {
       type: 'message',
+      // role MUST stay 'developer'. The heartbeat is a cache PRE-WARM — its job is to WRITE the
+      // entry the next main run READS. The tail cache_control breakpoint anchors on the last
+      // DURABLE block (anthropic-translate `isDurableItem`), and developer/system messages are
+      // never durable, so this placeholder stays AFTER the breakpoint: the heartbeat warms exactly
+      // [..history] (what the wake run reads) and the model still reads this block (uncached tail)
+      // to return "1". Do NOT change this to a durable role (user/assistant/tool output) — that
+      // moves the breakpoint onto the placeholder and warms [..history, tail], an entry the wake
+      // run can never hit, forcing a full cold-read of the history (the F1 over-extension bug).
       role: 'developer',
       content: CACHE_HEARTBEAT_DEVELOPER_CONTENT
     }

@@ -1271,15 +1271,16 @@ test('restart recovery: a recovered run orders loopContinuation BEFORE the trigg
 // =====================================================================================
 test('STW run boundary: the next run reconstructs the committed compressed近况 the switch produced', async () => {
   const NEW_SUMMARY = '压缩后近况：只保留最近的事'; // the summary buildStwScenario commits on flip()
+  const OLD_MARKER = '旧近况'; // the pre-switch summary buildStwScenario serves before flip()
   const scenario = buildStwScenario();
   const service = new AgentLoopService(scenario.store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
   (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
 
-  const sentCarriesNewSummary: boolean[] = [];
+  const run1Inputs: any[][] = [];
   let turn = 0;
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     turn += 1;
-    sentCarriesNewSummary.push(JSON.stringify(canonicalRequest.input || []).includes(NEW_SUMMARY));
+    run1Inputs.push(canonicalRequest.input || []);
     if (turn === 2) {
       // The background compression commits mid-run-1: arm the latch + flip the live cutoff/summary.
       scenario.flip();
@@ -1302,18 +1303,45 @@ test('STW run boundary: the next run reconstructs the committed compressed近况
   assert.equal(midrun.length, 1, 'run 1 must have performed the STW switch');
 
   // Run 2: the NEXT run — single final-answer turn — must read the committed cutoff/summary.
-  const run2Carries: boolean[] = [];
+  const run2Inputs: any[][] = [];
   let turn2 = 0;
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     turn2 += 1;
-    run2Carries.push(JSON.stringify(canonicalRequest.input || []).includes(NEW_SUMMARY));
+    run2Inputs.push(canonicalRequest.input || []);
     return { success: true, llm_call_id: `r2-${turn2}`, llm_request_slice_id: `r2s-${turn2}`,
       canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
   };
   await (service as any).processRuntimeFrame(mk('run-STW-B'), { queueBacked: true });
 
-  assert.ok(run2Carries.length >= 1, 'the next run must have sent a request');
-  assert.equal(run2Carries[0], true, 'the next run must reconstruct the committed compressed近况 from the STW switch (run-boundary continuity)');
+  assert.ok(run1Inputs.length >= 2 && run2Inputs.length >= 1, 'both runs must have sent requests');
+  const run1PreSwitch = run1Inputs[0];                           // OLD compressed base (before flip)
+  const run1PostSwitch = run1Inputs[run1Inputs.length - 1];      // NEW compressed base (after switch)
+  const run2First = run2Inputs[0];                               // the next run's opening durable prefix
+
+  // The switch took effect within run 1: the post-switch turn carries the NEW 近况, the pre-switch
+  // turn carries the OLD one. (Anchors the epochs the continuity assertion compares.)
+  assert.ok(JSON.stringify(run1PreSwitch).includes(OLD_MARKER), 'run-1 pre-switch turn must carry the OLD 近况');
+  assert.ok(JSON.stringify(run1PostSwitch).includes(NEW_SUMMARY) && !JSON.stringify(run1PostSwitch).includes(OLD_MARKER),
+    'run-1 post-switch turn must carry the NEW 近况 and have dropped the OLD');
+
+  // RUN-BOUNDARY CACHE CONTINUITY (the real purpose, not a substring check): the next run's durable
+  // prefix must be a BYTE-IDENTICAL ordered prefix of run-1's post-switch durable prefix — run 2
+  // extends the exact committed compressed base [system, 压缩近况@cutoff] the switch produced, so the
+  // warm entry carries ACROSS the run boundary instead of cold-reading a re-rendered base.
+  const run2Durable = stripVolatile(run2First);
+  const run1PostDurable = stripVolatile(run1PostSwitch);
+  assert.ok(run2Durable.length >= 2 && JSON.stringify(run2Durable).includes(NEW_SUMMARY),
+    'precondition: the next run\'s DURABLE (cached) prefix must carry the committed 压缩近况');
+  assertOrderedPrefix(run2Durable, run1PostDurable, 'STW run-boundary continuity (next run extends the committed compressed base)');
+
+  // DISCRIMINATION: the same durable prefix is NOT an ordered prefix of run-1's PRE-switch (OLD)
+  // base — so the continuity assertion is keyed to the committed compressed state, not trivially
+  // true of any prefix. A regression that left run 2 reading the OLD base would fail the assertion
+  // above AND make this throw fail to throw.
+  assert.throws(() => assertOrderedPrefix(run2Durable, stripVolatile(run1PreSwitch), 'must-diverge-from-OLD'),
+    'the next run\'s durable prefix must DIVERGE from the pre-switch OLD base (proves the continuity check discriminates)');
+  assert.ok(!JSON.stringify(run2First).includes(OLD_MARKER),
+    'the next run must NOT carry the stale pre-switch 近况');
 });
 
 // =====================================================================================
@@ -1370,11 +1398,25 @@ test('pause→resume across wall-clock drift keeps the cacheable prefix byte-ide
   // 0-tolerance: the post-resume turn's durable prefix is an exact ordered prefix of the pre-pause
   // turn's — nothing in the cacheable prefix re-rendered across the paused wall-clock drift.
   assertOrderedPrefix(stripVolatile(sent[0]), stripVolatile(sent[1]), 'pause->resume drift');
+
+  // CLOSING THE stripVolatile BLIND SPOT: assertOrderedPrefix only inspects the DURABLE tier, so a
+  // re-rendered wall-clock hiding in the VOLATILE current-turn trigger would slip past it. The pause
+  // drifted the clock from 2026-06-29 to 2026-06-30; that DRIFTED date must appear in NEITHER tier of
+  // EITHER turn. If a [当前时间]-style stamp is ever reintroduced into the request (any tier), the
+  // post-resume build reads the drifted clock and this goes red — the inert ordered-prefix check
+  // (no time content exists to drift today) cannot catch that on its own.
+  const DRIFTED_DATE = '2026-06-30';
+  assert.ok(!JSON.stringify(sent[0]).includes(DRIFTED_DATE),
+    'precondition: the pre-pause turn (clock 2026-06-29) must not contain the post-resume drifted date');
+  assert.ok(!JSON.stringify(sent[1]).includes(DRIFTED_DATE),
+    'no wall-clock value from the paused drift may render into the post-resume request (durable OR volatile tier)');
+
   // The current-turn trigger that survives the pause must be reused byte-for-byte, not rebuilt
-  // on the resumed (drifted) clock.
-  const trig0 = JSON.stringify((sent[0] || []).filter((i: any) => i && i.cache_volatile === true));
-  const trig1 = JSON.stringify((sent[1] || []).filter((i: any) => i && i.cache_volatile === true));
-  assert.equal(trig0, trig1, 'the current-turn trigger must be reused byte-for-byte across the pause, not re-rendered');
+  // on the resumed (drifted) clock — and the check must not be vacuous (there IS a volatile trigger).
+  const vol0 = (sent[0] || []).filter((i: any) => i && i.cache_volatile === true);
+  const vol1 = (sent[1] || []).filter((i: any) => i && i.cache_volatile === true);
+  assert.ok(vol0.length >= 1 && vol1.length >= 1, 'precondition: each turn carries a volatile current-turn trigger to compare');
+  assert.equal(JSON.stringify(vol0), JSON.stringify(vol1), 'the current-turn trigger must be reused byte-for-byte across the pause, not re-rendered');
 });
 
 // Shared committed-state store for the heartbeat business scenarios. It serves a stable committed
