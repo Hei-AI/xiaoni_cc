@@ -236,3 +236,25 @@ dbTest('getLatestMainAgentCanonicalRequest returns the latest MAIN slice, exclud
   const other = await persistence.getLatestMainAgentCanonicalRequest({ identityKey: 'someone-else' });
   assert.equal(other, null, 'no main request for an unrelated identity');
 });
+
+// #2 notify consumption (no double-consume) — cache-穿透 angle on real PG. If the SAME notify
+// is consumed by TWO runs (a phantom/re-claim across run rows, NOT same-run reprocess), the
+// traceId-keyed event_id must still dedupe to ONE runtime_input — so the next run's stack-replay
+// body does not grow and the cached prefix stays stable across the run boundary.
+dbTest('a notify consumed across TWO different runs persists exactly one replay copy (cross-run dedup)', async () => {
+  const evt = 'stack:rt-fold-X:runtime-input';
+  await persistence.appendAgentStackItems({
+    identityKey: 'xiaoni', traceId: 'rt-fold-X', runId: 'run-A',
+    sourceType: 'agent_queue_messages', sourceId: 'run-A',
+    items: [runtimeInputItem(evt, 'rt-fold-X', '视线边缘：同一条 notify')]
+  });
+  // A DIFFERENT run re-consumes the same notify (same trace_id) — the phantom-run / re-claim case.
+  await persistence.appendAgentStackItems({
+    identityKey: 'xiaoni', traceId: 'rt-fold-X', runId: 'run-B',
+    sourceType: 'agent_queue_messages', sourceId: 'run-B',
+    items: [runtimeInputItem(evt, 'rt-fold-X', '视线边缘：同一条 notify')]
+  });
+  assert.equal(await countRuntimeInputs(), 1, 'a notify consumed by two runs must persist exactly one replay copy');
+  const persisted = await persistence.findAgentStackItemByEventId(evt);
+  assert.equal(persisted.content.text, '视线边缘：同一条 notify');
+});
