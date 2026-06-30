@@ -167,7 +167,7 @@ function createMockSql() {
         return rows.forkRun.filter((row) =>
           row.context_session_key === params[0]
           && row.status === 'running'
-          && String(row.metadata?.compression_covered_end_conversation_id) === String(params[1])
+          && String(row.metadata?.compression_covered_end_stack_index) === String(params[1])
         ).slice(0, 1);
       }
       if (sql.includes('INSERT INTO core_memory_compression_fork_items')) {
@@ -1479,19 +1479,19 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
     readCutoffAfterStackIndex: 171,
     previousReadCutoffAfterStackIndex: 99,
     metadata: {
-      compression_covered_end_conversation_id: 201
+      compression_covered_end_stack_index: 201
     }
   });
 
   const active = await persistence.findActiveCoreMemoryCompressionForkRun({
     contextSessionKey: 'xiaoni:test-global',
-    compressionCoveredEndConversationId: 201,
+    compressionCoveredEndStackIndex: 201,
     staleAfterMinutes: 30
   });
   const query = sql.calls.find((call) =>
     call.kind === 'query'
     && call.sql.includes('FROM core_memory_compression_fork_runs')
-    && call.sql.includes("metadata->>'compression_covered_end_conversation_id'")
+    && call.sql.includes("metadata->>'compression_covered_end_stack_index'")
   );
 
   assert.ok(active);
