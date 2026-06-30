@@ -7303,7 +7303,17 @@ export class AgentLoopService {
           queue_retry_eligible: transientQueueRetryEligible
         }
       });
-      await this.store.attachConversationIdToTrace(payload.traceId, conversationId);
+      // Same guard rationale as the folded-notify backfill below: this run-trace backfill is
+      // a cache-replay safeguard, NOT a settle/retry prerequisite. A transient DB error here
+      // must not propagate past the retry/fail handling below — otherwise the run is left
+      // neither retried nor failed (a locked orphan). A NULL trace only costs a cold read.
+      await this.store.attachConversationIdToTrace(payload.traceId, conversationId).catch((backfillError) => {
+        moduleLogger.warn('run-trace backfill attachConversationIdToTrace failed; trace stays NULL', {
+          traceId: payload.traceId,
+          conversationId,
+          error: backfillError instanceof Error ? backfillError.message : String(backfillError)
+        });
+      });
       let queueRetryScheduled = false;
       if (transientQueueRetryEligible) {
         const retryStore = this.store as RuntimeStore & {

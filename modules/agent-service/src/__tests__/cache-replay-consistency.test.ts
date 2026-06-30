@@ -366,12 +366,20 @@ test('next run replay reproduces every folded notify the folding run sent (cache
 
 // Drives a folding run whose provider throws on the turn AFTER the fold, then
 // returns the captured store calls. errorMessage decides transient vs terminal.
-async function runFoldingRunThatFails(errorMessage: string) {
+// throwOnAttach injects a DB error into the fold-backfill call to prove the terminal-path
+// guard (.catch per call) keeps failQueueMessage running instead of stranding the run.
+async function runFoldingRunThatFails(errorMessage: string, options: { throwOnAttach?: boolean } = {}) {
   const foldTrace = 'runtrace-fold-fail';
   const reminder = '【掉线前】又有 1 条新动静：阿花在等你回';
   const built = createFaithfulStore({
     foldsToServe: [foldedNotify('run-A', 'batch-A', foldTrace, reminder)]
   });
+  if (options.throwOnAttach) {
+    built.store.attachConversationIdToTrace = async (traceId: string, conversationId: number) => {
+      built.calls.attachConversationIdToTrace.push({ traceId, conversationId, threw: true });
+      throw new Error('DB blip during fold backfill');
+    };
+  }
   const service = new AgentLoopService(built.store, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
@@ -441,6 +449,18 @@ test('provider TRANSIENT failure: folded notify stays NULL for the retry self-he
   const foldRow = stack.find((row) => row.trace_id === foldTrace && row.item_kind === 'runtime_input');
   assert.ok(foldRow, 'the folded notify must still be persisted');
   assert.equal(foldRow!.conversation_id, null, 'the folded notify must stay NULL for the retry self-heal');
+});
+
+// A transient DB error during the terminal-path fold-backfill must NOT propagate past
+// failQueueMessage. The backfill is a cache-replay safeguard, not a settle prerequisite:
+// a fold left NULL costs only a run-boundary cold read, but a skipped failQueueMessage
+// leaves the run as a locked, never-retried orphan. Before the .catch() guard the throw
+// escaped past failQueueMessage (改坏即红).
+test('provider TERMINAL failure: a backfill DB blip must NOT strand the run (failQueueMessage still fires)', async () => {
+  const { calls } = await runFoldingRunThatFails('模型返回了不可恢复的错误', { throwOnAttach: true });
+  assert.ok(calls.attachConversationIdToTrace.length >= 1, 'the fold-backfill must have been attempted');
+  assert.equal(calls.failQueueMessage.length, 1, 'a backfill throw must NOT skip failQueueMessage — the run must still be marked failed');
+  assert.equal(calls.retryQueueMessage.length, 0, 'still a terminal failure — no retry');
 });
 
 // --- #1 + #2: main loop driven with type:text outputs + within-run prefix continuity ---
@@ -963,6 +983,17 @@ test('STW drain gate: the compression fork that produced the cutoff DOES block t
     (service as any).coreMemoryCompressionForks.set('xiaoni:test-global', { promise: Promise.resolve() });
   });
   assert.equal(midrun.length, 0, 'the switch must wait for the compression fork to finish committing');
+});
+
+// CONTRACT (docs/CACHE_CONTRACT.md §4): the drain gate is PER-KEY ("该 key 空"). A
+// compression fork on a DIFFERENT session must not gate this session's switch. The old
+// global `.size > 0` gate would block here (cross-session starvation); the per-key
+// `.has(key)` gate ignores the foreign fork and fires (改坏即红 if it regresses to .size).
+test('STW drain gate: a compression fork on ANOTHER session does NOT block this session\'s switch (per-key)', async () => {
+  const midrun = await runStwScenario((service) => {
+    (service as any).coreMemoryCompressionForks.set('xiaoni:some-OTHER-session', { promise: Promise.resolve() });
+  });
+  assert.equal(midrun.length, 1, 'a foreign-session compression fork must not gate this session\'s switch');
 });
 
 // =====================================================================================
