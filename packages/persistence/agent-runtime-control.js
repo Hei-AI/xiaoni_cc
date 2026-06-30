@@ -9,6 +9,7 @@ function isTruthyDatabaseBoolean(value) {
 function normalizeRuntimeControl(row) {
   const rawMainAgentPreModelYieldMs = Number.parseInt(String(row?.main_agent_pre_model_yield_ms ?? ''), 10);
   const rawDebugCacheHeartbeatIntervalMs = Number.parseInt(String(row?.debug_cache_heartbeat_interval_ms ?? ''), 10);
+  const rawCompressionTriggerInputTokens = Number.parseInt(String(row?.compression_trigger_input_tokens ?? ''), 10);
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
@@ -27,6 +28,13 @@ function normalizeRuntimeControl(row) {
     debugCacheHeartbeatIntervalMs: Number.isFinite(rawDebugCacheHeartbeatIntervalMs) && rawDebugCacheHeartbeatIntervalMs >= 0
       ? rawDebugCacheHeartbeatIntervalMs
       : 0,
+    // 小腻's compression trigger: when the model's REAL input_tokens exceed this for
+    // N consecutive turns, core memory compression fires (agent-loop-service). Admin-
+    // configurable and dynamically applied (no restart). Timing-only — never enters the
+    // cacheable request prefix. Default 80000 mirrors the historical hardcoded const.
+    compressionTriggerInputTokens: Number.isFinite(rawCompressionTriggerInputTokens) && rawCompressionTriggerInputTokens > 0
+      ? rawCompressionTriggerInputTokens
+      : 80000,
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -64,6 +72,7 @@ function createAgentRuntimeControlPersistence(deps) {
         post_compression_pause_reason TEXT,
         main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000,
         debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0,
+        compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -75,6 +84,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS post_compression_pause_reason TEXT');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000');
     await sql.execute(`
       DO $$
       BEGIN
@@ -155,6 +165,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , post_compression_pause_reason
             , main_agent_pre_model_yield_ms
             , debug_cache_heartbeat_interval_ms
+            , compression_trigger_input_tokens
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
@@ -201,6 +212,14 @@ function createAgentRuntimeControlPersistence(deps) {
       const debugCacheHeartbeatIntervalMs = hasDebugCacheHeartbeatIntervalMs
         ? parsedDebugCacheHeartbeatIntervalMs
         : 0;
+      const rawCompressionTriggerInputTokens = input.compressionTriggerInputTokens ?? input.compression_trigger_input_tokens;
+      const parsedCompressionTriggerInputTokens = Number.parseInt(String(rawCompressionTriggerInputTokens ?? ''), 10);
+      const hasCompressionTriggerInputTokens = rawCompressionTriggerInputTokens !== undefined
+        && Number.isFinite(parsedCompressionTriggerInputTokens)
+        && parsedCompressionTriggerInputTokens > 0;
+      const compressionTriggerInputTokens = hasCompressionTriggerInputTokens
+        ? parsedCompressionTriggerInputTokens
+        : 80000;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -215,6 +234,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
+            compression_trigger_input_tokens,
             updated_at
           )
           VALUES (
@@ -226,6 +246,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             ?,
             NOW()
@@ -270,6 +291,10 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.debug_cache_heartbeat_interval_ms
             END,
+            compression_trigger_input_tokens = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.compression_trigger_input_tokens
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -277,7 +302,8 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_triggered_at,
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
-            debug_cache_heartbeat_interval_ms
+            debug_cache_heartbeat_interval_ms,
+            compression_trigger_input_tokens
         `,
         [
           identityKey,
@@ -288,6 +314,7 @@ function createAgentRuntimeControlPersistence(deps) {
           hasPostCompressionPauseArmed && postCompressionPauseArmed,
           mainAgentPreModelYieldMs,
           debugCacheHeartbeatIntervalMs,
+          compressionTriggerInputTokens,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -305,7 +332,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasMainAgentPreModelYieldMs,
           mainAgentPreModelYieldMs,
           hasDebugCacheHeartbeatIntervalMs,
-          debugCacheHeartbeatIntervalMs
+          debugCacheHeartbeatIntervalMs,
+          hasCompressionTriggerInputTokens,
+          compressionTriggerInputTokens
         ]
       );
       return normalizeRuntimeControl(rows[0]);
@@ -371,6 +400,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
+            compression_trigger_input_tokens,
             (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
         [identityKey, identityKey, reason]

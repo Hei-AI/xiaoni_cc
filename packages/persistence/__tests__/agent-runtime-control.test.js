@@ -40,6 +40,7 @@ test('ensureAgentRuntimeControlSchema creates an enabled-by-default control tabl
   assert.match(createTable, /post_compression_pause_armed BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(createTable, /main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000/);
   assert.match(createTable, /debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0/);
+  assert.match(createTable, /compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000/);
 });
 
 test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', async () => {
@@ -58,6 +59,7 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
     debugCacheHeartbeatIntervalMs: 0,
+    compressionTriggerInputTokens: 80000,
     updatedAt: null
   });
 });
@@ -118,6 +120,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     5000,
     0,
+    80000,
     true,
     false,
     false,
@@ -135,7 +138,9 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     5000,
     false,
-    0
+    0,
+    false,
+    80000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -148,6 +153,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
     debugCacheHeartbeatIntervalMs: 0,
+    compressionTriggerInputTokens: 80000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -186,6 +192,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     5000,
     0,
+    80000,
     false,
     true,
     true,
@@ -203,7 +210,9 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     5000,
     false,
-    0
+    0,
+    false,
+    80000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -216,6 +225,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
     debugCacheHeartbeatIntervalMs: 0,
+    compressionTriggerInputTokens: 80000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -254,6 +264,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     true,
     5000,
     0,
+    80000,
     false,
     true,
     false,
@@ -271,7 +282,9 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     false,
     5000,
     false,
-    0
+    0,
+    false,
+    80000
   ]);
   assert.deepEqual(control, {
     identityKey: 'xiaoni',
@@ -284,6 +297,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     postCompressionPauseReason: null,
     mainAgentPreModelYieldMs: 5000,
     debugCacheHeartbeatIntervalMs: 0,
+    compressionTriggerInputTokens: 80000,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
 });
@@ -312,11 +326,14 @@ test('updateAgentRuntimeControl persists main agent pre-model yield milliseconds
 
   const updateQuery = queries.at(-1);
   assert.match(updateQuery.statement, /main_agent_pre_model_yield_ms = CASE/);
-  // Trailing params are now [hasMainYield, mainYield, hasDebugInterval, debugInterval].
-  assert.equal(updateQuery.params.at(-4), true);
-  assert.equal(updateQuery.params.at(-3), 25);
+  // Trailing params are now [hasMainYield, mainYield, hasDebugInterval, debugInterval,
+  // hasCompressionTrigger, compressionTrigger].
+  assert.equal(updateQuery.params.at(-6), true);
+  assert.equal(updateQuery.params.at(-5), 25);
+  assert.equal(updateQuery.params.at(-4), false);
+  assert.equal(updateQuery.params.at(-3), 0);
   assert.equal(updateQuery.params.at(-2), false);
-  assert.equal(updateQuery.params.at(-1), 0);
+  assert.equal(updateQuery.params.at(-1), 80000);
   assert.equal(control.mainAgentPreModelYieldMs, 25);
 });
 
@@ -345,10 +362,62 @@ test('updateAgentRuntimeControl persists debug cache heartbeat interval millisec
 
   const updateQuery = queries.at(-1);
   assert.match(updateQuery.statement, /debug_cache_heartbeat_interval_ms = CASE/);
-  // Last two params drive the debug-interval upsert branch: [hasDebugInterval, debugInterval].
-  assert.equal(updateQuery.params.at(-2), true);
-  assert.equal(updateQuery.params.at(-1), 60000);
+  // The debug-interval upsert branch params are now [hasDebugInterval, debugInterval]
+  // at .at(-4)/.at(-3); the last two drive the compression-trigger branch.
+  assert.equal(updateQuery.params.at(-4), true);
+  assert.equal(updateQuery.params.at(-3), 60000);
   assert.equal(control.debugCacheHeartbeatIntervalMs, 60000);
+});
+
+test('updateAgentRuntimeControl persists compression trigger input tokens', async () => {
+  const updatedAt = new Date('2026-06-06T12:06:00.000Z');
+  const { queries, persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      cache_heartbeat_paused: false,
+      cache_heartbeat_paused_at: null,
+      post_compression_pause_armed: false,
+      post_compression_pause_armed_at: null,
+      post_compression_pause_triggered_at: null,
+      post_compression_pause_reason: null,
+      main_agent_pre_model_yield_ms: 5000,
+      debug_cache_heartbeat_interval_ms: 0,
+      compression_trigger_input_tokens: 120000,
+      updated_at: updatedAt
+    }]]
+  });
+
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    compressionTriggerInputTokens: 120000
+  });
+
+  const updateQuery = queries.at(-1);
+  assert.match(updateQuery.statement, /compression_trigger_input_tokens = CASE/);
+  // Last two params drive the compression-trigger upsert branch: [hasCompressionTrigger, compressionTrigger].
+  assert.equal(updateQuery.params.at(-2), true);
+  assert.equal(updateQuery.params.at(-1), 120000);
+  assert.equal(control.compressionTriggerInputTokens, 120000);
+});
+
+test('getAgentRuntimeControl defaults compression trigger to 80000 and round-trips a set value', async () => {
+  // No row => default 80000.
+  const defaultRun = createPersistence({ rows: [[]] });
+  const defaultControl = await defaultRun.persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+  assert.equal(defaultControl.compressionTriggerInputTokens, 80000);
+
+  // Row with a stored value => round-trips that value.
+  const storedRun = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      compression_trigger_input_tokens: 95000,
+      updated_at: null
+    }]]
+  });
+  const storedControl = await storedRun.persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+  assert.equal(storedControl.compressionTriggerInputTokens, 95000);
 });
 
 test('triggerPostCompressionRuntimePause disables runtime only when armed', async () => {
@@ -389,6 +458,7 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     postCompressionPauseReason: 'core_memory_compression_completed',
     mainAgentPreModelYieldMs: 5000,
     debugCacheHeartbeatIntervalMs: 0,
+    compressionTriggerInputTokens: 80000,
     updatedAt: '2026-06-06T20:02:00.000+08:00',
     // armed was already false (no pause_just_triggered in the returned row) =>
     // the upsert was a no-op; callers must NOT log "paused after compression".

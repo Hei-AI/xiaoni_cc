@@ -2381,6 +2381,7 @@ export type AgentRuntimeControlProjection = {
   postCompressionPauseReason: string | null;
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
+  compressionTriggerInputTokens: number;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
