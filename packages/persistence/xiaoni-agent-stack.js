@@ -3932,6 +3932,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('conversation_id = ?');
       params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
     }
+    // Stack-native range read: keep only blocks after a stack_index cutoff. This is how the
+    // compressed context replays its retained tail (everything > read_cutoff_after_stack_index),
+    // replacing the legacy per-conversation grouping.
+    const afterStackIndex = input.afterStackIndex ?? input.after_stack_index;
+    if (afterStackIndex !== null && typeof afterStackIndex !== 'undefined') {
+      clauses.push('stack_index > ?');
+      params.push(normalizeBigIntId(afterStackIndex));
+    }
     appendTimeClauses(clauses, params, input, 'created_at');
     params.push(limit);
 
