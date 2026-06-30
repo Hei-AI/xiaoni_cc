@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService } from './services/agent-loop-service';
+import { AgentLoopService, setCompressionTriggerInputTokens } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -240,6 +240,10 @@ async function pollTaskQueueOnce() {
 async function isRuntimeEnabled() {
   try {
     const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+    // Dynamically apply the admin-configurable compression trigger threshold each main-loop
+    // poll so changes take effect within one iteration without a restart. Timing-only; never
+    // touches the cacheable request prefix.
+    setCompressionTriggerInputTokens(control.compressionTriggerInputTokens);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {

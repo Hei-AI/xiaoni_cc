@@ -627,9 +627,19 @@ const HISTORY_COMPACT_KEEP = 30;
 // into the 近况 capsule. So this is the upper bound of 小腻's live context; she sawtooths up to it,
 // then back down to the kept block tail. Lowering it tightens the context (and compresses more
 // often = more STW switch cold-reads); it does NOT change the cacheable prefix bytes, only the
-// timing of compression switches. Set to 80k per user (was 150k). Change = this constant + rebuild +
-// restart agent-service.
-const COMPRESSION_TRIGGER_INPUT_TOKENS = 80_000;
+// timing of compression switches. Default 80k (was 150k). Now admin-configurable and
+// dynamically applied at runtime (no restart) via setCompressionTriggerInputTokens, which
+// modules/agent-service/src/index.ts pushes each main-loop poll from
+// agent_runtime_control.compression_trigger_input_tokens — see that knob. This is timing
+// logic ONLY; it never enters the cacheable request prefix, so changing it is cache-safe.
+let COMPRESSION_TRIGGER_INPUT_TOKENS = 80_000;
+// Runtime setter for the admin-configurable compression trigger threshold. Ignores
+// non-finite / <= 0 so a malformed control row can't disarm compression entirely.
+export function setCompressionTriggerInputTokens(value: number): void {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    COMPRESSION_TRIGGER_INPUT_TOKENS = Math.floor(value);
+  }
+}
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
 function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
