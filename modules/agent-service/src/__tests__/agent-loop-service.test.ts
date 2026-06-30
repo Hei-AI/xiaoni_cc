@@ -206,8 +206,8 @@ function assertPendingImageTaskContract(result: any, taskId: string) {
   assert.match(result.status_text, /当前状态: 渲染进行中/);
   assert.match(result.status_text, /\*\*没有\*\*成品的图片 ID/);
   assert.match(result.status_text, /\*\*没有\*\*本地实体路径/);
-  assert.match(result.status_text, /绝对不要试图靠直觉、时间戳.*盲猜/);
-  assert.match(result.status_text, /必须等到你的感官真正收到“造物出炉”的明确通知/);
+  assert.match(result.status_text, /凭直觉、时间戳或习惯拼出来的.*路径只会是幻觉/);
+  assert.match(result.status_text, /图片 ID 和路径只认“造物出炉”的正式通知/);
 }
 
 async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown, options: Record<string, unknown> = {}) {
