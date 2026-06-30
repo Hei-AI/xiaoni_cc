@@ -1377,13 +1377,10 @@ test('pause→resume across wall-clock drift keeps the cacheable prefix byte-ide
   assert.equal(trig0, trig1, 'the current-turn trigger must be reused byte-for-byte across the pause, not re-rendered');
 });
 
-// Shared committed-state store for the two heartbeat business scenarios. It serves a stable
-// committed context (history + cutoff/energy) that both the heartbeat and a fresh run read.
-// `poisonLastRequest`, when set, exposes a getLatestMainAgentCanonicalRequest that returns a
-// MID-FLIGHT (in-flight loopContinuation) request — to prove the heartbeat IGNORES the pre-
-// shutdown state and rebuilds the fresh frame (a regression that clones it would surface the
-// poison marker).
-function buildHeartbeatScenarioStore(poisonLastRequest?: any) {
+// Shared committed-state store for the heartbeat business scenarios. It serves a stable committed
+// context (history + cutoff/energy) — with visibility:'model_visible' so the history actually
+// renders into the request — that both the heartbeat and a fresh wake run read.
+function buildHeartbeatScenarioStore() {
   const historyTurns = [100, 200].map((id) => ({ id, userMessage: `历史 ${id}`, aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' }));
   const store: any = {
     createLlmJob: async () => 'job-hbs',
@@ -1393,6 +1390,7 @@ function buildHeartbeatScenarioStore(poisonLastRequest?: any) {
       const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
       return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
         conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+        visibility: 'model_visible',
         content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
       }));
     },
@@ -1417,9 +1415,6 @@ function buildHeartbeatScenarioStore(poisonLastRequest?: any) {
     releaseExecutionLease: async () => {},
     updateLlmJob: async () => {}
   };
-  if (poisonLastRequest) {
-    store.getLatestMainAgentCanonicalRequest = async () => poisonLastRequest;
-  }
   return store;
 }
 
@@ -1473,34 +1468,40 @@ test('scenario 1 (slept 3h → wake): the wake-up run hits the cache entry the h
 
   assert.ok(heartbeatReq && wakeInputs.length >= 1, 'heartbeat + wake run must have dispatched');
   const wakeDurable = stripVolatile(wakeInputs[0]);
-  assert.ok(wakeDurable.length >= 1 && JSON.stringify(wakeDurable[0]).length > 500, 'precondition: substantial durable prefix');
-  // The wake-up run (3h later) hits exactly what the heartbeat warmed: its durable prefix is a
-  // byte-identical ordered prefix of the heartbeat's, despite the clock drift across the sleep.
-  assertOrderedPrefix(wakeDurable, stripVolatile(heartbeatReq.input || []),
-    'slept 3h: the wake-up run must hit the heartbeat-warmed prefix byte-for-byte');
+  assert.ok(wakeDurable.length >= 2 && JSON.stringify(wakeDurable[0]).length > 500,
+    'precondition: substantial durable prefix WITH rendered history (not just the skills block)');
+  // The wake-up run (3h later) hits EXACTLY what the heartbeat warmed: two-directional byte-equality
+  // (heartbeat minus its trailing dev item == the wake's durable prefix), so heartbeat OVER-extension
+  // would also fail here — not just a one-way ordered prefix.
+  const hbDurable = stripVolatile(heartbeatReq.input || []);
+  assert.equal(JSON.stringify(hbDurable.slice(0, -1)), JSON.stringify(wakeDurable),
+    'slept 3h: the heartbeat must warm exactly the wake-up run\'s durable prefix (no over-extension)');
 });
 
 // =====================================================================================
-// SCENARIO 2 (运行循环关闭 → 隔几小时开启开关): the loop was switched OFF while a run was mid-flight
-// (an in-flight loopContinuation) or mid-compression. We do NOT care what it was doing before. On
-// switch-ON the first request is a FRESH frame over the COMMITTED state; the heartbeat must warm
-// exactly that. Cloning the messy pre-shutdown request would warm [history, LC]; the fresh switch-
-// on run [history] would then MISS and cold-read the whole history. This pins: the heartbeat
-// IGNORES the in-flight pre-shutdown state (no LC marker) and its prefix == a real fresh run's.
-// (改坏即红: a regression that clones the last persisted request surfaces the poison marker.)
+// F1 (review-found bug): when the raw history ends in an assistant final_answer — the NORMAL
+// idle state (小腻 finished replying, then went idle/asleep) — the heartbeat appended a DURABLE
+// self-continuation tail (buildUserSceneInputItem, role:'user', no cache_volatile). A notify-
+// driven wake run is queue-backed and does NOT append it (shouldAllowSelfContinuationOnTerminal
+// FinalAnswer requires !queueBacked), so its durable prefix is [..history]. The heartbeat warmed
+// [..history, self-cont]; the notify wake's [..history] was never written as a breakpoint →
+// longest-prefix-match falls back to [system+tools] → COLD-READS the whole history. The heartbeat
+// must warm [..history] (== the notify wake), NOT over-extend. AND it must STILL HOLD as a
+// heartbeat (max_output_tokens=1, store=false, ends with the 'Return exactly: 1' dev item).
 // =====================================================================================
-test('scenario 2 (switch off mid-run/mid-compression → switch on): heartbeat warms the fresh frame, ignoring the in-flight state', async () => {
-  const IN_FLIGHT_LC_MARKER = '<<IN_FLIGHT_LC_FROM_BEFORE_SHUTDOWN>>';
-  // The last persisted main request was a MID-RUN turn carrying an in-flight loopContinuation —
-  // the state the loop was in when switched off. The heartbeat must ignore it.
-  const poison = {
-    model: 'claude-opus-4-6', instructions: 'You are 小腻.', tools: [], tool_choice: 'auto',
-    input: [
-      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills_instructions> 头 </skills_instructions>' }] },
-      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: IN_FLIGHT_LC_MARKER }] }
-    ]
+test('F1: heartbeat does NOT over-extend with a self-continuation tail on final_answer history (== notify wake; still a valid heartbeat)', async () => {
+  const store = buildHeartbeatScenarioStore();
+  // Make the raw history END in an assistant final_answer so the self-continuation predicate fires.
+  store.listAgentStackItemsForConversations = async (params: any) => {
+    const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
+    return [100, 200].filter((id) => ids.has(id)).map((id) => ({
+      conversation_id: id, conversationId: id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+      visibility: 'model_visible',
+      content: { input_items: id === 200
+        ? [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '答完了。' }] }]
+        : [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${id}` }] }] }
+    }));
   };
-  const store = buildHeartbeatScenarioStore(poison);
   const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
   (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
 
@@ -1508,30 +1509,38 @@ test('scenario 2 (switch off mid-run/mid-compression → switch on): heartbeat w
   agentConfig.cacheHeartbeatMaxOutputTokens = 1;
   let heartbeatReq: any = null;
   const restoreFetch = interceptHeartbeatFetch((r) => { heartbeatReq = r; });
-  const switchOnInputs: any[][] = [];
+  const wakeInputs: any[][] = [];
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
-    switchOnInputs.push(canonicalRequest.input || []);
-    return { success: true, llm_call_id: 'on-1', llm_request_slice_id: 'ons-1',
+    wakeInputs.push(canonicalRequest.input || []);
+    return { success: true, llm_call_id: 'wake-1', llm_request_slice_id: 'wakes-1',
       canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
   };
 
   try {
-    await service.triggerCacheHeartbeatForDebug();             // heartbeat while switched off
-    const on = { id: 'run-ON', traceId: 'rt-ON', batchId: 'b-ON', status: 'processing',
-      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-ON', runId: 'run-ON' }) };
-    await (service as any).processRuntimeFrame(on, { queueBacked: true }); // switch on → fresh run
+    await service.triggerCacheHeartbeatForDebug();
+    // A NOTIFY-driven wake run (queueBacked, the common "someone messaged her" wake).
+    const wake = { id: 'run-NWAKE', traceId: 'rt-NWAKE', batchId: 'b-NWAKE', status: 'processing',
+      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-NWAKE', runId: 'run-NWAKE' }) };
+    await (service as any).processRuntimeFrame(wake, { queueBacked: true });
   } finally {
     restoreFetch();
     agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
   }
 
-  assert.ok(heartbeatReq && switchOnInputs.length >= 1, 'heartbeat + switch-on run must have dispatched');
-  // The heartbeat must NOT reproduce the in-flight pre-shutdown state — it rebuilt the fresh frame.
-  assert.ok(!JSON.stringify(heartbeatReq.input || []).includes(IN_FLIGHT_LC_MARKER),
-    'heartbeat must IGNORE the in-flight pre-shutdown loopContinuation (rebuild the fresh frame, not clone it)');
-  // And it warms exactly what the fresh switch-on run hits.
-  const onDurable = stripVolatile(switchOnInputs[0]);
-  assert.ok(onDurable.length >= 1 && JSON.stringify(onDurable[0]).length > 500, 'precondition: substantial durable prefix');
-  assertOrderedPrefix(onDurable, stripVolatile(heartbeatReq.input || []),
-    'switch-on fresh run must hit the heartbeat-warmed prefix byte-for-byte');
+  assert.ok(heartbeatReq && wakeInputs.length >= 1, 'heartbeat + notify wake must have dispatched');
+  // The heartbeat STILL HOLDS as a heartbeat (the user's caveat): tiny output, no persist, and it
+  // ends with the 'Return exactly: 1' developer item that makes max_output_tokens=1 valid.
+  assert.ok(heartbeatReq.max_output_tokens <= 16, 'heartbeat must keep a tiny output budget');
+  assert.equal(heartbeatReq.store, false, 'heartbeat must not persist');
+  const hbDurable = stripVolatile(heartbeatReq.input || []);
+  assert.ok(JSON.stringify(hbDurable[hbDurable.length - 1] || {}).includes('Heartbeat'),
+    'heartbeat must still end with the Heartbeat / "Return exactly: 1" developer item');
+
+  // THE FIX CONTRACT: drop the heartbeat dev tail and the remaining durable prefix must EQUAL the
+  // notify wake's durable prefix BYTE-FOR-BYTE (two-directional, not one-way ordered-prefix) — i.e.
+  // the heartbeat warms exactly [..history], with NO extra self-continuation item.
+  const hbWarmedPrefix = hbDurable.slice(0, -1); // drop the trailing heartbeat dev item
+  const wakeDurable = stripVolatile(wakeInputs[0]);
+  assert.equal(JSON.stringify(hbWarmedPrefix), JSON.stringify(wakeDurable),
+    'heartbeat must warm exactly the notify-wake durable prefix (no self-continuation over-extension)');
 });

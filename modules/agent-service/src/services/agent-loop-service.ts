@@ -5735,13 +5735,16 @@ export class AgentLoopService {
       triggerInputMode: 'suppress_current_trigger',
       appendSelfContinuationOnTerminalFinalAnswer
     });
-    let budgetPlan = await buildBudgetPlan(false);
-    // Detect the terminal final_answer from raw history (D is stripped from requestInput
-    // now, so its last item is no longer a final_answer) so the heartbeat warms the same
-    // self-continuation tail the main loop appends.
-    if (lastHistoryTurnEndsWithAssistantFinalAnswer(history)) {
-      budgetPlan = await buildBudgetPlan(true);
-    }
+    // F1: do NOT append the self-continuation tail, even when the raw history ends in an
+    // assistant final_answer. The heartbeat's target is the entry the next NOTIFY-driven wake run
+    // hits — that run is queue-backed, so it does NOT append a self-continuation
+    // (shouldAllowSelfContinuationOnTerminalFinalAnswer requires !queueBacked). The self-cont item
+    // is DURABLE (buildUserSceneInputItem, role:'user'), so appending it would move the tail
+    // breakpoint to [..history, self-cont]; the notify wake's [..history] was never written as a
+    // breakpoint and would cold-read the whole history. Warming the plain [..history] gives the
+    // notify wake a full hit and a self-continuation wake a near-full hit (only its 1-item tail
+    // cold). The buildBudgetPlan(true) overload is retained for callers that genuinely self-continue.
+    const budgetPlan = await buildBudgetPlan(false);
 
     return {
       canonicalRequest: buildCacheHeartbeatForkRequest(
