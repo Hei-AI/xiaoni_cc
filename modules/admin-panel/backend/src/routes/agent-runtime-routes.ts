@@ -1337,6 +1337,18 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         }
         patch.debugCacheHeartbeatIntervalMs = value;
       }
+      if (Object.prototype.hasOwnProperty.call(body, 'compressionTriggerInputTokens')) {
+        const value = parseNonNegativeInteger(body.compressionTriggerInputTokens);
+        if (value === null || value < 10000 || value > 1000000) {
+          res.status(400).json({
+            success: false,
+            error: 'compressionTriggerInputTokens must be an integer between 10000 and 1000000',
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        patch.compressionTriggerInputTokens = value;
+      }
       const control = await updateAgentRuntimeControl(patch);
       res.json({
         success: true,

@@ -89,6 +89,7 @@ describe('agent runtime control routes', () => {
       postCompressionPauseTriggeredAt: null,
       postCompressionPauseReason: null,
       mainAgentPreModelYieldMs: 5000,
+      compressionTriggerInputTokens: 80000,
       updatedAt: '2026-06-13T20:00:00.000+08:00'
     });
 
@@ -100,6 +101,7 @@ describe('agent runtime control routes', () => {
     expect(response.body.data.cacheHeartbeatPaused).toBe(true);
     expect(response.body.data.postCompressionPauseArmed).toBe(true);
     expect(response.body.data.mainAgentPreModelYieldMs).toBe(5000);
+    expect(response.body.data.compressionTriggerInputTokens).toBe(80000);
     expect(getAgentRuntimeControl).toHaveBeenCalledWith({ identityKey: 'xiaoni' });
   });
 
@@ -441,6 +443,68 @@ describe('agent runtime control routes', () => {
     const response = await request(createApp(database))
       .patch('/api/agent-runtime/control')
       .send({ debugCacheHeartbeatIntervalMs: -1 });
+
+    expect(response.status).toBe(400);
+    expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
+  });
+
+  it('patches the compression trigger input tokens', async () => {
+    const database = createDatabaseMock();
+    (updateAgentRuntimeControl as jest.Mock).mockResolvedValueOnce({
+      identityKey: 'xiaoni',
+      enabled: true,
+      cacheHeartbeatPaused: false,
+      cacheHeartbeatPausedAt: null,
+      postCompressionPauseArmed: false,
+      postCompressionPauseArmedAt: null,
+      postCompressionPauseTriggeredAt: null,
+      postCompressionPauseReason: null,
+      mainAgentPreModelYieldMs: 5000,
+      debugCacheHeartbeatIntervalMs: 0,
+      compressionTriggerInputTokens: 120000,
+      updatedAt: '2026-06-13T20:05:00.000+08:00'
+    });
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ compressionTriggerInputTokens: 120000 });
+
+    expect(response.status).toBe(200);
+    expect(updateAgentRuntimeControl).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      compressionTriggerInputTokens: 120000
+    });
+    expect(response.body.data.compressionTriggerInputTokens).toBe(120000);
+  });
+
+  it('rejects compression trigger input tokens below the lower bound', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ compressionTriggerInputTokens: 5000 });
+
+    expect(response.status).toBe(400);
+    expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
+  });
+
+  it('rejects compression trigger input tokens above the upper bound', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ compressionTriggerInputTokens: 2000000 });
+
+    expect(response.status).toBe(400);
+    expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-integer compression trigger input tokens', async () => {
+    const database = createDatabaseMock();
+
+    const response = await request(createApp(database))
+      .patch('/api/agent-runtime/control')
+      .send({ compressionTriggerInputTokens: 'lots' });
 
     expect(response.status).toBe(400);
     expect(updateAgentRuntimeControl).not.toHaveBeenCalled();
