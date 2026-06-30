@@ -1423,60 +1423,62 @@ test('buildInitialInput never synthesizes raw xiaoni_os into model-visible histo
 });
 
 test('buildInitialInput replays stack runtime_input wrapper items in original order', async () => {
-  const turn = createConversationTurn({
-    id: 49,
-    userMessage: '',
-    aiResponse: null
-  }) as any;
-  turn.items = [];
-  const store = {
-    listAgentStackItemsForConversations: async () => [
-      {
-        conversationId: turn.id,
-        itemKind: 'runtime_input',
-        visibility: 'model_visible',
-        content: {
-          source: 'self_continuation',
-          input_items: [{
-            type: 'message',
-            role: 'developer',
-            content: [{
-              type: 'input_text',
-              text: '<system_reminder>\n上一轮真实进入 LLM 的 developer reminder。\n</system_reminder>'
-            }]
-          }]
-        }
-      },
-      {
-        conversationId: turn.id,
-        visibility: 'model_visible',
-        content: {
-          type: 'reasoning',
-          summary: [],
-          encrypted_content: 'enc-after-developer-reminder'
-        }
-      },
-      {
-        conversationId: turn.id,
-        visibility: 'model_visible',
-        content: {
+  // Three BLOCKS on the flat stack (developer reminder, reasoning, stripped os) — the
+  // stack-native loader returns one history block per row, in stack order.
+  const blocks = [
+    {
+      stack_index: 491, stackIndex: 491, item_kind: 'runtime_input', itemKind: 'runtime_input',
+      visibility: 'model_visible',
+      content: {
+        source: 'self_continuation',
+        input_items: [{
           type: 'message',
-          role: 'assistant',
-          phase: 'commentary',
+          role: 'developer',
           content: [{
-            type: 'output_text',
-            text: '<xiaoni_os>\n真实模型输出。\n</xiaoni_os>'
+            type: 'input_text',
+            text: '<system_reminder>\n上一轮真实进入 LLM 的 developer reminder。\n</system_reminder>'
           }]
-        }
+        }]
       }
-    ]
+    },
+    {
+      stack_index: 492, stackIndex: 492, item_kind: 'reasoning', itemKind: 'reasoning',
+      visibility: 'model_visible',
+      content: {
+        type: 'reasoning',
+        summary: [],
+        encrypted_content: 'enc-after-developer-reminder'
+      }
+    },
+    {
+      stack_index: 493, stackIndex: 493, item_kind: 'assistant_output', itemKind: 'assistant_output',
+      visibility: 'model_visible',
+      content: {
+        type: 'message',
+        role: 'assistant',
+        phase: 'commentary',
+        content: [{
+          type: 'output_text',
+          text: '<xiaoni_os>\n真实模型输出。\n</xiaoni_os>'
+        }]
+      }
+    }
+  ];
+  const store = {
+    getSessionReadCutoffState: async () => null,
+    getAgentStackHead: async () => 493,
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    }
   };
   const service = new AgentLoopService(store as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const [stackBackedTurn] = await (service as any).attachStackReplayItemsToHistory([turn], 'trace-runtime-input-replay');
+  const stackBackedTurns = await (service as any).loadStackHistoryBlocks(null, 'trace-runtime-input-replay');
 
-  const loopInput = buildInitialInput([stackBackedTurn], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
+  const loopInput = buildInitialInput(stackBackedTurns, createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }));
   const reminderIndex = loopInput.findIndex((item: any) => (
     item.type === 'message'
     && item.role === 'developer'
@@ -3364,9 +3366,9 @@ async function runCompressionForkProbingGate(bypassRuntimeEnabledGate: boolean):
       runtimePrompt: { modelName: 'test-model' },
       compression: {
         contextSessionKey: 'xiaoni:test-global',
-        readCutoffAfterConversationId: 60573,
-        previousReadCutoffAfterConversationId: 60561,
-        compressionCoveredEndConversationId: 60573
+        readCutoffAfterStackIndex: 60573,
+        previousReadCutoffAfterStackIndex: 60561,
+        compressionCoveredEndStackIndex: 60573
       },
       contextSessionKey: 'xiaoni:test-global',
       bypassRuntimeEnabledGate
@@ -3476,7 +3478,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
     listRecentTurns: async () => recentTail,
     getSessionReadCutoffState: async () => ({
       sessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 200,
+      readCutoffAfterStackIndex: 200,
       lastContextWindowTokens: 400000,
       lastTargetBudgetTokens: 280000,
       lastHardBudgetTokens: 380000,
@@ -3507,9 +3509,9 @@ test('core memory compression commit no-ops when durable cutoff already covers t
     compression: {
       required: true,
       contextSessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 171,
-      previousReadCutoffAfterConversationId: null,
-      compressionCoveredEndConversationId: 201,
+      readCutoffAfterStackIndex: 171,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 201,
       historyUserId: 303,
       historyGroupId: null,
       historyScope: 'global',
@@ -3527,7 +3529,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
 
   assert.equal(commit.text, '旧 fork 晚返回的近况。');
   assert.equal(commit.artifact.superseded, true);
-  assert.equal(commit.artifact.read_cutoff_after_conversation_id, 200);
+  assert.equal(commit.artifact.read_cutoff_after_stack_index, 200);
   assert.equal(commit.toolResult.context_summary_written, false);
   assert.equal(commit.toolResult.read_cutoff_written, false);
   assert.equal(commit.toolResult.superseded, true);
@@ -3556,7 +3558,7 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
         committed: true,
         state: {
           sessionKey: params.sessionKey,
-          readCutoffAfterConversationId: params.readCutoffAfterConversationId,
+          readCutoffAfterStackIndex: params.readCutoffAfterStackIndex,
           lastContextWindowTokens: params.lastContextWindowTokens,
           lastTargetBudgetTokens: params.lastTargetBudgetTokens,
           lastHardBudgetTokens: params.lastHardBudgetTokens,
@@ -3592,9 +3594,9 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
     compression: {
       required: true,
       contextSessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 171,
-      previousReadCutoffAfterConversationId: null,
-      compressionCoveredEndConversationId: 201,
+      readCutoffAfterStackIndex: 171,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 201,
       historyUserId: 303,
       historyGroupId: null,
       historyScope: 'global',
@@ -3614,14 +3616,14 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
   assert.deepEqual(atomicWrites[0], {
     sessionKey: 'xiaoni:test-global',
     contextSummary: '原子写入的近况。',
-    readCutoffAfterConversationId: 171,
+    readCutoffAfterStackIndex: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
     lastHardBudgetTokens: 380000
   });
   assert.equal(commit.toolResult.context_summary_written, true);
   assert.equal(commit.toolResult.read_cutoff_written, true);
-  assert.equal(commit.artifact.read_cutoff_after_conversation_id, 171);
+  assert.equal(commit.artifact.read_cutoff_after_stack_index, 171);
   assert.equal(timelineEvents[0]?.eventName, 'core_memory_compressed');
 });
 
@@ -4593,7 +4595,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
       })
     ],
     getSessionReadCutoffState: async () => ({
-      readCutoffAfterConversationId: null,
+      readCutoffAfterStackIndex: null,
       contextSummary: '最近在认真区分占位符和真实图片内容。',
       pendingProactiveShare: null,
       pendingProactiveShareAge: 0
@@ -5657,7 +5659,7 @@ test('runtime frame persists delivered assistant transcript items with final pha
     markLeaseVisibleDeliveryCommitted: [],
     ensureXiaoniIdentityRoot: [],
     recordAgentStackToolExecution: [],
-    listRecentTurns: []
+    listAgentStackItems: []
   };
   let deliveryPhase = 'reasoning_open';
 
@@ -5665,8 +5667,8 @@ test('runtime frame persists delivered assistant transcript items with final pha
     createLlmJob: async () => 'job-success',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async (params: any) => {
-      storeCalls.listRecentTurns.push(params);
+    listAgentStackItems: async (params: any) => {
+      storeCalls.listAgentStackItems.push(params);
       return [];
     },
     getSessionReadCutoffState: async () => null,
@@ -5787,12 +5789,12 @@ test('runtime frame persists delivered assistant transcript items with final pha
   assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
   assert.equal(storeCalls.createConversation[0]?.sessionKey, 'qq:group:101');
   assert.equal(storeCalls.createConversation[0]?.userMessage, '');
-  assert.deepEqual(storeCalls.listRecentTurns[0], {
-    userId: 202,
-    groupId: 101,
-    afterConversationId: null,
-    scope: 'global'
-  });
+  // Stack-native history load: a flat range read with a null cutoff (no head reader here →
+  // floor null), chronological, identity-keyed.
+  assert.equal(storeCalls.listAgentStackItems.length >= 1, true);
+  assert.equal(storeCalls.listAgentStackItems[0]?.afterStackIndex, null);
+  assert.equal(storeCalls.listAgentStackItems[0]?.chronological, true);
+  assert.equal(storeCalls.listAgentStackItems[0]?.identityKey, XIAONI_IDENTITY_KEY);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
   assert.deepEqual(
     storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
@@ -6251,18 +6253,19 @@ test('runtime frame records final_answer without eager self continuation when qu
 });
 
 test('no-notify continuation inserts self continuation after prior final_answer', async () => {
-  const priorTurn = createConversationTurn({
-    id: 1998,
-    userMessage: '',
-    aiResponse: null
-  });
   const priorFinalAnswerReplay = {
     type: 'message',
     role: 'assistant',
     phase: 'final_answer',
     content: [{ type: 'output_text', text: '留白。' }]
   };
-  attachStackReplayItems(priorTurn, [priorFinalAnswerReplay]);
+  // One BLOCK on the flat stack ending in an assistant final_answer (stack_index above the
+  // 1001-head backstop floor so a null-cutoff read keeps it).
+  const finalAnswerBlock = {
+    stack_index: 998, stackIndex: 998, item_kind: 'assistant_output', itemKind: 'assistant_output',
+    visibility: 'model_visible',
+    content: priorFinalAnswerReplay
+  };
   const queueMessage = {
     id: 'runtime-no-notify-after-final',
     traceId: 'trace-runtime-no-notify-after-final',
@@ -6287,12 +6290,11 @@ test('no-notify continuation inserts self continuation after prior final_answer'
     createLlmJob: async () => 'job-runtime-no-notify-after-final',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [priorTurn],
-    listAgentStackItemsForConversations: async () => [{
-      conversationId: priorTurn.id,
-      visibility: 'model_visible',
-      content: priorFinalAnswerReplay
-    }],
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return [finalAnswerBlock].filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    },
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
@@ -6373,11 +6375,6 @@ test('no-notify continuation inserts self continuation after prior final_answer'
 });
 
 test('no-notify continuation does not append self continuation after tool output', async () => {
-  const priorTurn = createConversationTurn({
-    id: 1997,
-    userMessage: '',
-    aiResponse: null
-  });
   const priorFinalAnswerReplay = {
     type: 'message',
     role: 'assistant',
@@ -6385,7 +6382,7 @@ test('no-notify continuation does not append self continuation after tool output
     content: [{ type: 'output_text', text: '上一轮收尾。' }]
   };
   const generatedReminder = buildInitialInput([
-    Object.assign(priorTurn, { stackReplayItems: [priorFinalAnswerReplay] })
+    { id: 994, stackReplayItems: [priorFinalAnswerReplay] } as any
   ], createQueuePayload(), createRuntimePrompt({ modelName: 'gpt-5.5' }), [], null, null, null, 'suppress_current_trigger', true)
     .find((item: any) => item.type === 'message' && item.role === 'user' && getMessageContent(item).includes('<system_reminder>'));
   assert.ok(generatedReminder);
@@ -6422,33 +6419,18 @@ test('no-notify continuation does not append self continuation after tool output
     createLlmJob: async () => 'job-runtime-no-notify-after-tool-output',
     logTimelineEvent: async () => {},
     loadSessionReplayState: async () => ({ summaryText: null, summarizedThroughConversationId: null }),
-    listRecentTurns: async () => [priorTurn],
-    listAgentStackItemsForConversations: async () => [
-      {
-        conversationId: priorTurn.id,
-        visibility: 'model_visible',
-        content: priorFinalAnswerReplay
-      },
-      {
-        conversationId: priorTurn.id,
-        itemKind: 'runtime_input',
-        visibility: 'model_visible',
-        content: {
-          source: 'self_continuation',
-          input_items: [generatedReminder]
-        }
-      },
-      {
-        conversationId: priorTurn.id,
-        visibility: 'model_visible',
-        content: priorToolCallReplay
-      },
-      {
-        conversationId: priorTurn.id,
-        visibility: 'model_visible',
-        content: priorToolOutputReplay
-      }
-    ],
+    // Four BLOCKS in stack order ending in a tool_output (so no self-continuation is appended).
+    listAgentStackItems: async (params: any) => {
+      const blocks = [
+        { stack_index: 994, stackIndex: 994, item_kind: 'assistant_output', itemKind: 'assistant_output', visibility: 'model_visible', content: priorFinalAnswerReplay },
+        { stack_index: 995, stackIndex: 995, item_kind: 'runtime_input', itemKind: 'runtime_input', visibility: 'model_visible', content: { source: 'self_continuation', input_items: [generatedReminder] } },
+        { stack_index: 996, stackIndex: 996, item_kind: 'function_call', itemKind: 'function_call', tool_call_id: 'call-prior-send', toolCallId: 'call-prior-send', visibility: 'model_visible', content: priorToolCallReplay },
+        { stack_index: 997, stackIndex: 997, item_kind: 'function_call_output', itemKind: 'function_call_output', tool_call_id: 'call-prior-send', toolCallId: 'call-prior-send', visibility: 'model_visible', content: priorToolOutputReplay }
+      ];
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    },
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
@@ -8487,7 +8469,7 @@ test('runtime iteration starts subconscious fork on empty notify after final_ans
   }]);
   const storeCalls: Record<string, any[]> = {
     claimNextQueueMessage: [],
-    listRecentTurns: []
+    listAgentStackItems: []
   };
   const store = {
     getActiveAgentRecoverySession: async () => null,
@@ -8497,17 +8479,15 @@ test('runtime iteration starts subconscious fork on empty notify after final_ans
       lastWakeAt: null
     }),
     getSessionReadCutoffState: async () => null,
-    listRecentTurns: async (params: any) => {
-      storeCalls.listRecentTurns.push(params);
-      return [priorTurn];
-    },
-    listAgentStackItemsForConversations: async () => [
-      {
-        conversationId: priorTurn.id,
+    listAgentStackItems: async (params: any) => {
+      storeCalls.listAgentStackItems.push(params);
+      return [{
+        stack_index: priorTurn.id, stackIndex: priorTurn.id,
+        item_kind: 'assistant_output', itemKind: 'assistant_output',
         visibility: 'model_visible',
         content: (priorTurn as any).stackReplayItems[0]
-      }
-    ],
+      }];
+    },
     claimNextQueueMessage: async (workerId: string) => {
       storeCalls.claimNextQueueMessage.push({ workerId });
       return null;
@@ -8532,7 +8512,8 @@ test('runtime iteration starts subconscious fork on empty notify after final_ans
   });
 
   assert.deepEqual(storeCalls.claimNextQueueMessage, [{ workerId: 'worker-subconscious-empty' }]);
-  assert.equal(storeCalls.listRecentTurns[0]?.scope, 'global');
+  // Stack-native flat history read drove the fork's base request.
+  assert.equal(storeCalls.listAgentStackItems.length >= 1, true);
   assert.equal(frames.length, 0);
   assert.equal(forkCalls.length, 1);
   assert.match(JSON.stringify(forkCalls[0]?.baseRequest?.input || []), /先停在这里/);
@@ -8568,7 +8549,7 @@ test('runtime iteration does not wait for an in-flight subconscious fork before 
   };
   const storeCalls: Record<string, any[]> = {
     claimNextQueueMessage: [],
-    listRecentTurns: []
+    listAgentStackItems: []
   };
   let claimCount = 0;
   const store = {
@@ -8579,17 +8560,15 @@ test('runtime iteration does not wait for an in-flight subconscious fork before 
       lastWakeAt: null
     }),
     getSessionReadCutoffState: async () => null,
-    listRecentTurns: async (params: any) => {
-      storeCalls.listRecentTurns.push(params);
-      return [priorTurn];
-    },
-    listAgentStackItemsForConversations: async () => [
-      {
-        conversationId: priorTurn.id,
+    listAgentStackItems: async (params: any) => {
+      storeCalls.listAgentStackItems.push(params);
+      return [{
+        stack_index: priorTurn.id, stackIndex: priorTurn.id,
+        item_kind: 'assistant_output', itemKind: 'assistant_output',
         visibility: 'model_visible',
         content: (priorTurn as any).stackReplayItems[0]
-      }
-    ],
+      }];
+    },
     claimNextQueueMessage: async (workerId: string) => {
       storeCalls.claimNextQueueMessage.push({ workerId });
       claimCount += 1;
@@ -9312,7 +9291,7 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
       completeAgentRecoveryCacheHeartbeat: [],
       listAgentRecoveryWakeNotifications: [],
       updateAgentRecoverySessionProgress: [],
-      listRecentTurns: [],
+      listAgentStackItems: [],
       claimNextQueueMessage: [],
       appendAgentStackItems: []
     };
@@ -9341,8 +9320,8 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
         return activeSession;
       },
       getSessionReadCutoffState: async () => null,
-      listRecentTurns: async (params: any) => {
-        storeCalls.listRecentTurns.push(params);
+      listAgentStackItems: async (params: any) => {
+        storeCalls.listAgentStackItems.push(params);
         return [];
       },
       getCurrentXiaoniEnergyState: async () => ({
@@ -9381,13 +9360,10 @@ test('runtime recovery cache heartbeat warms provider cache without touching the
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.status, 'completed');
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.startedAt, '2026-06-13T01:05:00.000Z');
     assert.equal(storeCalls.completeAgentRecoveryCacheHeartbeat[0]?.cachedInputTokens, 123);
-    assert.equal(storeCalls.listRecentTurns.length, 1);
-    assert.deepEqual(storeCalls.listRecentTurns[0], {
-      userId: 1129974489,
-      groupId: null,
-      afterConversationId: null,
-      scope: 'global'
-    });
+    assert.equal(storeCalls.listAgentStackItems.length, 1);
+    assert.equal(storeCalls.listAgentStackItems[0]?.afterStackIndex, null);
+    assert.equal(storeCalls.listAgentStackItems[0]?.chronological, true);
+    assert.equal(storeCalls.listAgentStackItems[0]?.identityKey, XIAONI_IDENTITY_KEY);
     assert.equal(fetchCalls.length, 1);
     assert.match(fetchCalls[0]!.url, /\/api\/internal\/llm\/debug$/);
     assert.equal((fetchCalls[0]!.init.headers as Record<string, string>)?.['x-qqbot-no-traffic-persist'], '1');
@@ -9719,14 +9695,14 @@ test('manual cache heartbeat trigger returns validation summary without touching
 
   try {
     const storeCalls: Record<string, any[]> = {
-      listRecentTurns: [],
+      listAgentStackItems: [],
       claimNextQueueMessage: [],
       appendAgentStackItems: []
     };
     const store = {
       getSessionReadCutoffState: async () => null,
-      listRecentTurns: async (params: any) => {
-        storeCalls.listRecentTurns.push(params);
+      listAgentStackItems: async (params: any) => {
+        storeCalls.listAgentStackItems.push(params);
         return [];
       },
       getCurrentXiaoniEnergyState: async () => ({
@@ -10136,22 +10112,16 @@ test('no-notify continuation preserves global OS context during recover_energy t
   const store = {
     createLlmJob: async () => 'job-runtime-loop-recover',
     logTimelineEvent: async () => {},
-    listRecentTurns: async (params: any) => {
+    listAgentStackItems: async (params: any) => {
       listRecentTurnsCalls.push(params);
-      return [priorTurn];
+      const blocks = [
+        { stack_index: priorTurn.id, stackIndex: priorTurn.id, item_kind: 'assistant_output', itemKind: 'assistant_output', visibility: 'model_visible', content: priorFinalAnswerReplay },
+        { stack_index: priorTurn.id + 1, stackIndex: priorTurn.id + 1, item_kind: 'assistant_output', itemKind: 'assistant_output', visibility: 'model_visible', content: priorOsReplay }
+      ];
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
-    listAgentStackItemsForConversations: async () => [
-      {
-        conversationId: priorTurn.id,
-        visibility: 'model_visible',
-        content: priorFinalAnswerReplay
-      },
-      {
-        conversationId: priorTurn.id,
-        visibility: 'model_visible',
-        content: priorOsReplay
-      }
-    ],
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
@@ -10229,8 +10199,8 @@ test('no-notify continuation preserves global OS context during recover_energy t
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(listRecentTurnsCalls[0]?.scope, 'global');
-  assert.equal(listRecentTurnsCalls[0]?.limit, undefined);
+  assert.equal(listRecentTurnsCalls[0]?.afterStackIndex, null);
+  assert.equal(listRecentTurnsCalls[0]?.chronological, true);
   assert.equal(outboundSendFetchCalled, false);
   assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
@@ -10274,23 +10244,24 @@ test('runtime frame fetches global history after persisted read cutoff', async (
   const store = {
     createLlmJob: async () => 'job-runtime-loop-cutoff',
     logTimelineEvent: async () => {},
-    listRecentTurns: async (params: any) => {
+    listAgentStackItems: async (params: any) => {
       listRecentTurnsCalls.push(params);
-      return [createConversationTurn({
-        id: 172,
-        userId: 85178516,
-        groupId: null,
-        sessionKey: 'private:85178516',
-        userMessage: 'cutoff 之后的新历史',
-        aiResponse: '我记得。'
-      })];
+      // One BLOCK above the cutoff (stack_index 172 > 171).
+      const blocks = [{
+        stack_index: 172, stackIndex: 172, item_kind: 'runtime_input', itemKind: 'runtime_input',
+        visibility: 'model_visible',
+        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'cutoff 之后的新历史' }] }] }
+      }];
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
     getSessionReadCutoffState: async (sessionKey: string) => {
       cutoffReadCount += 1;
       assert.equal(sessionKey, 'xiaoni:test-global');
       return {
         sessionKey: 'xiaoni:test-global',
-        readCutoffAfterConversationId: 171,
+        readCutoffAfterStackIndex: 171,
         lastContextWindowTokens: 400000,
         lastTargetBudgetTokens: 280000,
         lastHardBudgetTokens: 380000,
@@ -10350,12 +10321,9 @@ test('runtime frame fetches global history after persisted read cutoff', async (
   });
 
   assert.equal(cutoffReadCount, 1);
-  assert.deepEqual(listRecentTurnsCalls[0], {
-    userId: 303,
-    groupId: null,
-    afterConversationId: 171,
-    scope: 'global'
-  });
+  // The flat stack read is floored to the committed cutoff (171) — only blocks above it load.
+  assert.equal(listRecentTurnsCalls[0]?.afterStackIndex, 171);
+  assert.equal(listRecentTurnsCalls[0]?.chronological, true);
 });
 
 test('buildContextBudgetPlan keeps the main request append-only and does not plan compression', async () => {
@@ -10385,8 +10353,8 @@ test('buildContextBudgetPlan keeps the main request append-only and does not pla
   assert.equal(plan.retainedHistory.length, 201);
   assert.equal(plan.retainedHistory[0]?.id, 1);
   assert.equal(plan.retainedHistory[200]?.id, 201);
-  assert.equal(plan.readCutoffAfterConversationId, null);
-  assert.equal(plan.previousReadCutoffAfterConversationId, null);
+  assert.equal(plan.readCutoffAfterStackIndex, null);
+  assert.equal(plan.previousReadCutoffAfterStackIndex, null);
   assert.equal(plan.cutoffRecomputed, false);
   assert.equal(plan.coreMemoryCompression, null);
   assert.equal(plan.summarySourceInput, null);
@@ -10543,16 +10511,16 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
   assert.equal(plan.contextWindowTokens, 4000);
   assert.equal(plan.targetBudgetTokens, 2800);
   assert.equal(plan.hardBudgetTokens, 3800);
-  assert.equal(plan.readCutoffAfterConversationId, null);
-  assert.equal(plan.previousReadCutoffAfterConversationId, null);
+  assert.equal(plan.readCutoffAfterStackIndex, null);
+  assert.equal(plan.previousReadCutoffAfterStackIndex, null);
   assert.equal(plan.retainedHistory.length, history.length);
   // tail-30 head-only: keep last 30 (turns 6..35) verbatim; cutoff lands after turn 5
   // and the summary covers exactly the evicted head (ends at turn 5 == the cutoff).
-  assert.equal(plan.coreMemoryCompression?.readCutoffAfterConversationId, 5);
-  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndConversationId, 5);
+  assert.equal(plan.coreMemoryCompression?.readCutoffAfterStackIndex, 5);
+  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndStackIndex, 5);
   assert.ok(
-    plan.coreMemoryCompression!.readCutoffAfterConversationId <=
-    plan.coreMemoryCompression!.compressionCoveredEndConversationId!
+    plan.coreMemoryCompression!.readCutoffAfterStackIndex <=
+    plan.coreMemoryCompression!.compressionCoveredEndStackIndex!
   );
   assert.equal(plan.summarySourceInput !== null, true);
   assert.match(JSON.stringify(plan.summarySourceInput), /核心记忆近况/);
@@ -10572,7 +10540,7 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
   });
 
   assert.ok(checkpoint);
-  assert.equal(checkpoint.compression.readCutoffAfterConversationId, plan.coreMemoryCompression?.readCutoffAfterConversationId);
+  assert.equal(checkpoint.compression.readCutoffAfterStackIndex, plan.coreMemoryCompression?.readCutoffAfterStackIndex);
   assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
   assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
 
@@ -10642,7 +10610,7 @@ test('buildContextBudgetPlan does not compress at or under the keep window', asy
     forceCompression: true
   });
 
-  assert.equal(plan.readCutoffAfterConversationId, null);
+  assert.equal(plan.readCutoffAfterStackIndex, null);
   assert.equal(plan.coreMemoryCompression, null);
   assert.equal(plan.summarySourceInput, null);
   assert.equal(plan.retainedHistory.length, history.length);
@@ -10693,7 +10661,7 @@ test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is
   const svcApplied = new AgentLoopService({
     getSessionReadCutoffState: async () => ({
       sessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 5,
+      readCutoffAfterStackIndex: 5,
       contextSummary: null,
       pendingProactiveShare: null,
       pendingProactiveShareAge: 0,
@@ -10726,27 +10694,28 @@ test('runtime frame does not schedule compression from turn count alone', async 
     queueMessageIds: [],
     payload: createRuntimeLoopPayload()
   };
-  const history = Array.from({ length: 202 }, (_, index) => createConversationTurn({
-    id: index + 1,
-    userId: 85178516,
-    groupId: null,
-    sessionKey: 'private:85178516',
-    userMessage: `global history ${index + 1}`,
-    aiResponse: `global os ${index + 1}`
+  // 200 BLOCKS (== the stack-history backstop) so a null-cutoff flat read renders the
+  // whole tail without clipping — exercising the "large under-budget history does NOT
+  // schedule compression and stays append-only" path.
+  const blockCount = 200;
+  const blocks = Array.from({ length: blockCount }, (_, index) => ({
+    stack_index: index + 1, stackIndex: index + 1, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `global history ${index + 1}` }] }] }
   }));
-  const listRecentTurnsCalls: any[] = [];
+  const listAgentStackItemsCalls: any[] = [];
   const conversations: any[] = [];
   const mainRequests: any[] = [];
   const scheduledForks: any[] = [];
   const store = {
     createLlmJob: async () => 'job-compression-background-checkpoint',
     logTimelineEvent: async () => {},
-    listRecentTurns: async (params: any = {}) => {
-      listRecentTurnsCalls.push(params);
-      if (typeof params.limit === 'number') {
-        return history.slice(-params.limit);
-      }
-      return history;
+    getAgentStackHead: async () => blockCount,
+    listAgentStackItems: async (params: any = {}) => {
+      listAgentStackItemsCalls.push(params);
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
     getSessionReadCutoffState: async () => null,
     upsertSessionReadCutoffState: async () => {},
@@ -10795,21 +10764,19 @@ test('runtime frame does not schedule compression from turn count alone', async 
     logQueueLifecycle: false
   });
 
-  assert.deepEqual(listRecentTurnsCalls[0], {
-    userId: 303,
-    groupId: null,
-    afterConversationId: null,
-    scope: 'global'
-  });
+  // The flat stack read ran (no conversation grouping) — with a null cutoff it floors to
+  // head - backstop, i.e. afterStackIndex == 0 here (head 200 - 200), so the whole tail loads.
+  assert.equal(listAgentStackItemsCalls.length >= 1, true);
+  assert.equal(listAgentStackItemsCalls[0]?.afterStackIndex, 0);
   assert.equal(mainRequests.length, 1);
   assert.equal(scheduledForks.length, 0);
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
   assert.match(mainText, /global history 1(?!\d)/);
-  assert.match(mainText, /global history 202/);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 202);
+  assert.match(mainText, /global history 200/);
+  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 200);
   assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 202);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_stack_index, null);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 200);
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
 });
 
@@ -10825,9 +10792,9 @@ test('core memory compression commit uses the planned source-overlap cutoff', as
   const cutoff = await (service as any).resolveCoreMemoryCompressionCommitCutoff({
     required: true,
     contextSessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: 170,
-    previousReadCutoffAfterConversationId: null,
-    compressionCoveredEndConversationId: 200,
+    readCutoffAfterStackIndex: 170,
+    previousReadCutoffAfterStackIndex: null,
+    compressionCoveredEndStackIndex: 200,
     historyUserId: 303,
     historyGroupId: null,
     historyScope: 'global',
@@ -10844,9 +10811,9 @@ test('core memory compression scheduling dedupes an in-process fork before durab
   const compression = {
     required: true,
     contextSessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: null,
-    compressionCoveredEndConversationId: 201,
+    readCutoffAfterStackIndex: 171,
+    previousReadCutoffAfterStackIndex: null,
+    compressionCoveredEndStackIndex: 201,
     historyUserId: 303,
     historyGroupId: null,
     historyScope: 'global',
@@ -10887,9 +10854,9 @@ test('core memory compression scheduling skips when durable cutoff already cover
   const compression = {
     required: true,
     contextSessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: 99,
-    compressionCoveredEndConversationId: 201,
+    readCutoffAfterStackIndex: 171,
+    previousReadCutoffAfterStackIndex: 99,
+    compressionCoveredEndStackIndex: 201,
     historyUserId: 303,
     historyGroupId: null,
     historyScope: 'global',
@@ -10902,7 +10869,7 @@ test('core memory compression scheduling skips when durable cutoff already cover
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => ({
       sessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 171,
+      readCutoffAfterStackIndex: 171,
       lastContextWindowTokens: 400000,
       lastTargetBudgetTokens: 280000,
       lastHardBudgetTokens: 380000,
@@ -10934,8 +10901,8 @@ test('core memory compression scheduling skips when durable cutoff already cover
   assert.equal(startedFork, false);
   assert.equal(activeFinderCalled, false);
   assert.equal(artifact.status, 'already_covered');
-  assert.equal(artifact.read_cutoff_after_conversation_id, 171);
-  assert.equal(artifact.planned_read_cutoff_after_conversation_id, 171);
+  assert.equal(artifact.read_cutoff_after_stack_index, 171);
+  assert.equal(artifact.planned_read_cutoff_after_stack_index, 171);
 });
 
 test('core memory compression scheduling dedupes a durable running fork', async () => {
@@ -10943,9 +10910,9 @@ test('core memory compression scheduling dedupes a durable running fork', async 
   const compression = {
     required: true,
     contextSessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: 99,
-    compressionCoveredEndConversationId: 201,
+    readCutoffAfterStackIndex: 171,
+    previousReadCutoffAfterStackIndex: 99,
+    compressionCoveredEndStackIndex: 201,
     historyUserId: 303,
     historyGroupId: null,
     historyScope: 'global',
@@ -10958,7 +10925,7 @@ test('core memory compression scheduling dedupes a durable running fork', async 
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => ({
       sessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 99,
+      readCutoffAfterStackIndex: 99,
       lastContextWindowTokens: 400000,
       lastTargetBudgetTokens: 280000,
       lastHardBudgetTokens: 380000,
@@ -10993,7 +10960,7 @@ test('core memory compression scheduling dedupes a durable running fork', async 
   assert.equal(startedFork, false);
   assert.deepEqual(activeQueries, [{
     contextSessionKey: 'xiaoni:test-global',
-    compressionCoveredEndConversationId: 201
+    compressionCoveredEndStackIndex: 201
   }]);
   assert.equal(artifact.status, 'already_running_durable');
   assert.equal(artifact.persisted_fork_run_id, 'fork-active');
@@ -11293,10 +11260,10 @@ test('core memory compression runs in an isolated background fork alongside the 
 
   assert.equal(conversations.length, 1);
   assert.equal(conversations[0]?.rawRequest?.retained_history_count, 35);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_conversation_id, null);
+  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_stack_index, null);
   assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
   assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 35);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_cutoff_after_conversation_id, null);
+  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_cutoff_after_stack_index, null);
   assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.cutoff_recomputed, false);
   assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
   assert.doesNotMatch(JSON.stringify(conversations[0]?.rawResponse?.responses_replay_items || []), /call-archive|call-compress|archived/);
@@ -11365,11 +11332,11 @@ test('core memory compression runs in an isolated background fork alongside the 
     sessionKey: 'xiaoni:test-global',
     contextSummary: '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。'
   }]);
-  const plannedCutoff = scheduledForks[0]?.compression?.readCutoffAfterConversationId;
+  const plannedCutoff = scheduledForks[0]?.compression?.readCutoffAfterStackIndex;
   assert.ok(plannedCutoff !== null && typeof plannedCutoff === 'number');
   assert.deepEqual(cutoffWrites, [{
     sessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: plannedCutoff,
+    readCutoffAfterStackIndex: plannedCutoff,
     lastContextWindowTokens: 4000,
     lastTargetBudgetTokens: 2800,
     lastHardBudgetTokens: 3800
@@ -11491,9 +11458,9 @@ test('core memory compression fork retries final_answer without tool call and th
     compression: {
       required: true,
       contextSessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 171,
-      previousReadCutoffAfterConversationId: null,
-      compressionCoveredEndConversationId: 200,
+      readCutoffAfterStackIndex: 171,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 200,
       historyUserId: 303,
       historyGroupId: null,
       historyScope: 'global',
@@ -11523,7 +11490,7 @@ test('core memory compression fork retries final_answer without tool call and th
   }]);
   assert.deepEqual(cutoffWrites, [{
     sessionKey: 'xiaoni:test-global',
-    readCutoffAfterConversationId: 171,
+    readCutoffAfterStackIndex: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
     lastHardBudgetTokens: 380000
@@ -11604,9 +11571,9 @@ test('core memory compression fork fails after ten no-tool retries', async () =>
       compression: {
         required: true,
         contextSessionKey: 'xiaoni:test-global',
-        readCutoffAfterConversationId: 171,
-        previousReadCutoffAfterConversationId: null,
-        compressionCoveredEndConversationId: 200,
+        readCutoffAfterStackIndex: 171,
+        previousReadCutoffAfterStackIndex: null,
+        compressionCoveredEndStackIndex: 200,
         historyUserId: 303,
         historyGroupId: null,
         historyScope: 'global',
@@ -11828,9 +11795,21 @@ test('group loop no longer exposes recall_long_term_learning as a pre-reply tool
 });
 
 function buildManualCompressionStore(history: ReturnType<typeof createConversationTurn>[]) {
+  // Stack-native: one BLOCK per history turn (stack_index = turn id), served as a flat
+  // range read. No tool pairs → the block-budget planner keeps an exact 30-block tail.
+  const blocks = history.map((turn) => ({
+    stack_index: turn.id, stackIndex: turn.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: turn.userMessage }] }] }
+  }));
   return {
     getSessionReadCutoffState: async () => null,
-    listRecentTurns: async () => history,
+    getAgentStackHead: async () => (blocks.length > 0 ? blocks[blocks.length - 1]!.stack_index : 0),
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    },
     getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null })
   } as any;
 }
@@ -11869,10 +11848,10 @@ test('manual core memory compression forces a compaction past the keep window wi
   assert.equal(result.status, 'scheduled');
   assert.equal(result.triggered, true);
   assert.equal(result.retainedHistoryTurns, 35);
-  // head-only (option A): keep last 30 verbatim (turns 6..35); summarize only the
-  // evicted head (turns 1..5). cutoff == covered == id 5 (the last evicted turn).
-  assert.equal(result.compressionCoveredEndConversationId, 5);
-  assert.equal(result.readCutoffAfterConversationId, 5);
+  // head-only: keep last 30 BLOCKS verbatim (blocks 6..35); summarize only the evicted
+  // head (blocks 1..5). cutoff == covered == stack_index 5 (the last evicted block).
+  assert.equal(result.compressionCoveredEndStackIndex, 5);
+  assert.equal(result.readCutoffAfterStackIndex, 5);
 });
 
 test('manual core memory compression is a no-op when history is at or under the keep window', async () => {
@@ -11927,8 +11906,8 @@ test('manual core memory compression delegates to the single-flight fork schedul
   assert.equal(result.status, 'already_running');
   assert.equal(result.triggered, false);
   assert.ok(scheduleArgs, 'scheduleCoreMemoryCompressionFork was not invoked');
-  // head-only: covered == cutoff == id 5 (evicted head turns 1..5; tail 6..35 kept)
-  assert.equal(scheduleArgs.compression.compressionCoveredEndConversationId, 5);
-  assert.equal(scheduleArgs.compression.readCutoffAfterConversationId, 5);
+  // head-only: covered == cutoff == stack_index 5 (evicted head blocks 1..5; tail 6..35 kept)
+  assert.equal(scheduleArgs.compression.compressionCoveredEndStackIndex, 5);
+  assert.equal(scheduleArgs.compression.readCutoffAfterStackIndex, 5);
   assert.ok(Array.isArray(scheduleArgs.baseRequest.input));
 });
