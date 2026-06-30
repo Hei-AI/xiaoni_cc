@@ -44,6 +44,7 @@ import {
   checkDailyUsage
 } from './web-search-archive';
 import { formatEast8Timestamp } from './east8-time';
+import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -239,9 +240,23 @@ type LeaseReleaseRecord = {
 
 type ReplayableToolCallOutput = Extract<ReplayableModelOutput, { type: 'tool_call' }>;
 
+// One BLOCK of the flat agent stack (one agent_stack_items row), modeled as a
+// degenerate single-block "turn" so the existing assembly loop (buildInitialInput) and
+// the cutoff filter (applyReadCutoff: id > cutoff) work unchanged. `id` is the dense
+// ascending stack_index (NOT a conversation_id). `opensCallId`/`closesCallId` carry the
+// tool-pair info the block-budget planner needs to cut on a clean boundary. There is no
+// conversation/turn concept: the only unit is the BLOCK.
 type StackBackedConversationTurn = ConversationTurn & {
   stackReplayItems?: OpenResponseInputItem[];
+  opensCallId?: string | null;
+  closesCallId?: string | null;
 };
+
+// Backstop cap (blocks): when the stack cutoff is null (fresh/stale session) or older than
+// this many blocks behind the head, the flat history read is floored to head - cap so a
+// missing/old cutoff can never load the whole stack into context. Comfortably above
+// HISTORY_COMPACT_KEEP (30) so it never clips the normally-retained tail.
+const STACK_HISTORY_READ_BACKSTOP_BLOCKS = 200;
 
 type PreSleepToolTimelineEntry = {
   call_id: string;
@@ -305,8 +320,8 @@ type ManualCoreMemoryCompressionResult = {
   traceId: string;
   runId: string;
   retainedHistoryTurns?: number;
-  readCutoffAfterConversationId?: number | null;
-  compressionCoveredEndConversationId?: number | null;
+  readCutoffAfterStackIndex?: number | null;
+  compressionCoveredEndStackIndex?: number | null;
   artifact?: Record<string, unknown> | null;
 };
 
@@ -317,7 +332,7 @@ type ManualCoreMemoryCompressionResult = {
 type CoreMemoryCompressionForkStatusResult = {
   running: boolean;
   contextSessionKey: string;
-  compressionCoveredEndConversationId: number;
+  compressionCoveredEndStackIndex: number;
   forkRunId?: string | null;
   runId?: string | null;
   startedAt?: string | null;
@@ -423,7 +438,7 @@ type ContextBudgetTurnRecord = {
   reasoningTokens: number | null;
   processingTimeMs: number | null;
   readHistoryCount: number;
-  readCutoffAfterConversationId: number | null;
+  readCutoffAfterStackIndex: number | null;
   contextWindowTokens: number | null;
   targetBudgetTokens: number | null;
   hardBudgetTokens: number | null;
@@ -435,9 +450,9 @@ type ContextBudgetTurnRecord = {
 type CoreMemoryCompressionPlan = {
   required: true;
   contextSessionKey: string;
-  readCutoffAfterConversationId: number | null;
-  previousReadCutoffAfterConversationId: number | null;
-  compressionCoveredEndConversationId: number | null;
+  readCutoffAfterStackIndex: number | null;
+  previousReadCutoffAfterStackIndex: number | null;
+  compressionCoveredEndStackIndex: number | null;
   historyUserId: number;
   historyGroupId: number | null;
   historyScope: 'global';
@@ -461,8 +476,8 @@ type ContextBudgetPlan = {
   summarySourceInput: OpenResponseInputItem[] | null;
   retainedHistory: ConversationTurn[];
   runtimeIdentityFacts: RuntimeIdentityFactProjection[];
-  readCutoffAfterConversationId: number | null;
-  previousReadCutoffAfterConversationId: number | null;
+  readCutoffAfterStackIndex: number | null;
+  previousReadCutoffAfterStackIndex: number | null;
   estimatedInputTokens: number;
   contextWindowTokens: number | null;
   targetBudgetTokens: number | null;
@@ -3571,11 +3586,11 @@ const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
 
 function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
-  readCutoffAfterConversationId: number | null;
+  readCutoffAfterStackIndex: number | null;
   pressureSummary: string;
 }) {
   void input.contextSessionKey;
-  void input.readCutoffAfterConversationId;
+  void input.readCutoffAfterStackIndex;
   const item = buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
@@ -5395,9 +5410,9 @@ export class AgentLoopService {
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const store = this.store as RuntimeStore & {
       getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
-      listRecentTurns?: RuntimeStore['listRecentTurns'];
+      listAgentStackItems?: RuntimeStore['listAgentStackItems'];
     };
-    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listRecentTurns !== 'function') {
+    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listAgentStackItems !== 'function') {
       return {
         triggered: false,
         status: 'request_builder_unavailable',
@@ -5408,13 +5423,7 @@ export class AgentLoopService {
     }
 
     const cutoffState = await store.getSessionReadCutoffState.call(this.store, contextSessionKey);
-    const sessionIds = resolveSessionTargets(payload);
-    const history = await this.attachStackReplayItemsToHistory(await store.listRecentTurns.call(this.store, {
-      userId: sessionIds.userId,
-      groupId: sessionIds.groupId,
-      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      scope: 'global' as const
-    }), payload.traceId);
+    const history = await this.loadStackHistoryBlocks(cutoffState, payload.traceId);
     const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
     const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(payload);
     const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(payload);
@@ -5464,7 +5473,7 @@ export class AgentLoopService {
       contextSessionKey,
       compressionReminderItems: [buildCoreMemoryCompressionReminder({
         contextSessionKey,
-        readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
+        readCutoffAfterStackIndex: budgetPlan.coreMemoryCompression.readCutoffAfterStackIndex,
         pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
       })],
       // Manual trigger: run even while the loop is stopped (see fork gate).
@@ -5478,8 +5487,8 @@ export class AgentLoopService {
       runId: payload.runId,
       contextSessionKey,
       status: artifactStatus,
-      readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
-      compressionCoveredEndConversationId: budgetPlan.coreMemoryCompression.compressionCoveredEndConversationId
+      readCutoffAfterStackIndex: budgetPlan.coreMemoryCompression.readCutoffAfterStackIndex,
+      compressionCoveredEndStackIndex: budgetPlan.coreMemoryCompression.compressionCoveredEndStackIndex
     });
     return {
       triggered: artifactStatus === 'scheduled',
@@ -5488,8 +5497,8 @@ export class AgentLoopService {
       traceId: payload.traceId,
       runId: payload.runId,
       retainedHistoryTurns: history.length,
-      readCutoffAfterConversationId: budgetPlan.coreMemoryCompression.readCutoffAfterConversationId,
-      compressionCoveredEndConversationId: budgetPlan.coreMemoryCompression.compressionCoveredEndConversationId,
+      readCutoffAfterStackIndex: budgetPlan.coreMemoryCompression.readCutoffAfterStackIndex,
+      compressionCoveredEndStackIndex: budgetPlan.coreMemoryCompression.compressionCoveredEndStackIndex,
       artifact: artifact as Record<string, unknown>
     };
   }
@@ -5498,18 +5507,18 @@ export class AgentLoopService {
   // the given covered range? Reuses the durable 30-minute running-window guard, so
   // running=false means "no fork running" (done | failed | never started).
   async getCoreMemoryCompressionForkStatus(
-    compressionCoveredEndConversationId: number
+    compressionCoveredEndStackIndex: number
   ): Promise<CoreMemoryCompressionForkStatusResult> {
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const finder = (this.store as RuntimeStore & {
       findActiveCoreMemoryCompressionForkRun?: RuntimeStore['findActiveCoreMemoryCompressionForkRun'];
     }).findActiveCoreMemoryCompressionForkRun;
-    if (typeof finder !== 'function' || !Number.isFinite(compressionCoveredEndConversationId)) {
-      return { running: false, contextSessionKey, compressionCoveredEndConversationId };
+    if (typeof finder !== 'function' || !Number.isFinite(compressionCoveredEndStackIndex)) {
+      return { running: false, contextSessionKey, compressionCoveredEndStackIndex };
     }
     const active = await finder.call(this.store, {
       contextSessionKey,
-      compressionCoveredEndConversationId
+      compressionCoveredEndStackIndex
     }) as {
       forkRunId?: string | null;
       runId?: string | null;
@@ -5517,12 +5526,12 @@ export class AgentLoopService {
       status?: string | null;
     } | null;
     if (!active) {
-      return { running: false, contextSessionKey, compressionCoveredEndConversationId };
+      return { running: false, contextSessionKey, compressionCoveredEndStackIndex };
     }
     return {
       running: true,
       contextSessionKey,
-      compressionCoveredEndConversationId,
+      compressionCoveredEndStackIndex,
       forkRunId: active.forkRunId ?? null,
       runId: active.runId ?? null,
       startedAt: active.startedAt ? String(active.startedAt) : null,
@@ -5530,65 +5539,58 @@ export class AgentLoopService {
     };
   }
 
-  private async attachStackReplayItemsToHistory(history: ConversationTurn[], traceId: string): Promise<StackBackedConversationTurn[]> {
-    if (history.length === 0) {
-      return [];
-    }
-    const batchReader = (this.store as RuntimeStore & {
-      listAgentStackItemsForConversations?: RuntimeStore['listAgentStackItemsForConversations'];
-    }).listAgentStackItemsForConversations;
-    if (typeof batchReader === 'function') {
-      try {
-        const rows = await batchReader.call(this.store, {
-          identityKey: XIAONI_IDENTITY_KEY,
-          conversationIds: history.map((turn) => turn.id),
-          limit: Math.max(1000, history.length * 1000)
-        }) as Array<Record<string, unknown>>;
-        const rowsByConversationId = groupStackRowsByConversationId(rows);
-        return history.map((turn) => ({
-          ...turn,
-          stackReplayItems: extractResponseReplayInputItemsFromStackRows(rowsByConversationId.get(turn.id) || [])
-        }));
-      } catch (error) {
-        moduleLogger.warn('Failed to load Xiaoni stack replay items for conversation history', {
-          traceId,
-          conversationCount: history.length,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    }
-
+  // Stack-native history loader. The model-visible history is the FLAT agent stack read
+  // as a stack_index range (> cutoff), one BLOCK per row — NO conversation/turn grouping.
+  // Each block becomes a degenerate single-block "turn" (id = stack_index) so the existing
+  // assembly (buildInitialInput) and the cutoff filter (applyReadCutoff: id > cutoff) work
+  // unchanged. Concatenating the per-block stackReplayItems in stack order yields exactly
+  // extractResponseReplayInputItemsFromStackRows(all rows) → byte-identical to the prior
+  // per-conversation replay (same rows, same render helper).
+  //
+  // BOUNDED READ (safety net): the read floor is max(cutoff ?? -1, head - backstop). A
+  // null/stale cutoff therefore can NEVER load the whole stack — it is capped to the most
+  // recent backstop blocks. The cutoff normally bounds it far tighter (compression keeps
+  // ~30 blocks); the cap is purely the blow-up guard.
+  private async loadStackHistoryBlocks(
+    cutoff: SessionReadCutoffState | null,
+    traceId: string
+  ): Promise<StackBackedConversationTurn[]> {
     const reader = (this.store as RuntimeStore & {
       listAgentStackItems?: RuntimeStore['listAgentStackItems'];
     }).listAgentStackItems;
     if (typeof reader !== 'function') {
-      return history.map((turn) => ({ ...turn, stackReplayItems: [] }));
+      return [];
     }
+    const headReader = (this.store as RuntimeStore & {
+      getAgentStackHead?: RuntimeStore['getAgentStackHead'];
+    }).getAgentStackHead;
+    const head = typeof headReader === 'function'
+      ? Number(await headReader.call(this.store, XIAONI_IDENTITY_KEY).catch(() => 0)) || 0
+      : 0;
+    const cutoffStackIndex = cutoff?.readCutoffAfterStackIndex ?? null;
+    // Floor the read so a null/old cutoff still caps to the recent tail.
+    const backstopFloor = head > 0 ? head - STACK_HISTORY_READ_BACKSTOP_BLOCKS : null;
+    const effectiveFloor = cutoffStackIndex !== null
+      ? (backstopFloor !== null ? Math.max(cutoffStackIndex, backstopFloor) : cutoffStackIndex)
+      : backstopFloor;
 
-    const rowsByConversationId = new Map<number, Array<Record<string, unknown>>>();
-    await Promise.all(history.map(async (turn) => {
-      try {
-        const rows = await reader.call(this.store, {
-          identityKey: XIAONI_IDENTITY_KEY,
-          conversationId: turn.id,
-          chronological: true,
-          limit: 1000
-        }) as Array<Record<string, unknown>>;
-        rowsByConversationId.set(turn.id, rows);
-      } catch (error) {
-        moduleLogger.warn('Failed to load Xiaoni stack replay items for conversation turn', {
-          traceId,
-          conversationId: turn.id,
-          error: error instanceof Error ? error.message : String(error)
-        });
-        rowsByConversationId.set(turn.id, []);
-      }
-    }));
-
-    return history.map((turn) => ({
-      ...turn,
-      stackReplayItems: extractResponseReplayInputItemsFromStackRows(rowsByConversationId.get(turn.id) || [])
-    }));
+    let rows: Array<Record<string, unknown>> = [];
+    try {
+      rows = await reader.call(this.store, {
+        identityKey: XIAONI_IDENTITY_KEY,
+        afterStackIndex: effectiveFloor,
+        chronological: true,
+        limit: 1000
+      }) as Array<Record<string, unknown>>;
+    } catch (error) {
+      moduleLogger.warn('Failed to load Xiaoni stack history blocks', {
+        traceId,
+        effectiveFloor,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+    return rows.map((row) => mapStackRowToHistoryBlock(row));
   }
 
   private async runCacheHeartbeatDuringRecovery(): Promise<CacheHeartbeatRunResult> {
@@ -5699,9 +5701,9 @@ export class AgentLoopService {
   } | null> {
     const store = this.store as RuntimeStore & {
       getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
-      listRecentTurns?: RuntimeStore['listRecentTurns'];
+      listAgentStackItems?: RuntimeStore['listAgentStackItems'];
     };
-    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listRecentTurns !== 'function') {
+    if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listAgentStackItems !== 'function') {
       return null;
     }
 
@@ -5716,13 +5718,7 @@ export class AgentLoopService {
     // 'wall-clock drift' regressions).
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const cutoffState = await store.getSessionReadCutoffState.call(this.store, contextSessionKey);
-    const sessionIds = resolveSessionTargets(queueMessage);
-    const history = await this.attachStackReplayItemsToHistory(await store.listRecentTurns.call(this.store, {
-      userId: sessionIds.userId,
-      groupId: sessionIds.groupId,
-      afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      scope: 'global' as const
-    }), queueMessage.traceId);
+    const history = await this.loadStackHistoryBlocks(cutoffState, queueMessage.traceId);
     const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
     const runtimeIdentityFacts = await this.loadRuntimeIdentityFacts(queueMessage);
     const baseDeveloperContextBlock = await this.buildDeveloperContextBlock(queueMessage);
@@ -6145,8 +6141,8 @@ export class AgentLoopService {
       summarySourceInput: null,
       retainedHistory: [],
       runtimeIdentityFacts: [],
-      readCutoffAfterConversationId: null,
-      previousReadCutoffAfterConversationId: null,
+      readCutoffAfterStackIndex: null,
+      previousReadCutoffAfterStackIndex: null,
       estimatedInputTokens: 0,
       contextWindowTokens: null,
       targetBudgetTokens: null,
@@ -6213,18 +6209,7 @@ export class AgentLoopService {
       }
       const contextSessionKey = getGlobalPromptContextSessionKey();
       const cutoffState = await this.store.getSessionReadCutoffState(contextSessionKey);
-      const historyQuery: {
-        userId: number;
-        groupId: number | null;
-        afterConversationId: number | null;
-        scope: 'global';
-      } = {
-        userId: sessionIds.userId,
-        groupId: sessionIds.groupId,
-        afterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        scope: 'global' as const
-      };
-      const history = await this.attachStackReplayItemsToHistory(await this.store.listRecentTurns(historyQuery), payload.traceId);
+      const history = await this.loadStackHistoryBlocks(cutoffState, payload.traceId);
       historyCount = history.length;
       const allowSelfContinuationOnTerminalFinalAnswer = shouldAllowSelfContinuationOnTerminalFinalAnswer(options);
 
@@ -6304,16 +6289,16 @@ export class AgentLoopService {
       }
       // Compute evicted turns once at the start: turns pushed out by the new cutoff that
       // weren't already excluded by the previous cutoff.
-      const evictedTurns: ConversationTurn[] = budgetPlan.cutoffRecomputed && budgetPlan.readCutoffAfterConversationId !== null
+      const evictedTurns: ConversationTurn[] = budgetPlan.cutoffRecomputed && budgetPlan.readCutoffAfterStackIndex !== null
         ? history.filter((t) =>
-            t.id <= budgetPlan.readCutoffAfterConversationId! &&
-            (budgetPlan.previousReadCutoffAfterConversationId === null || t.id > budgetPlan.previousReadCutoffAfterConversationId)
+            t.id <= budgetPlan.readCutoffAfterStackIndex! &&
+            (budgetPlan.previousReadCutoffAfterStackIndex === null || t.id > budgetPlan.previousReadCutoffAfterStackIndex)
           )
         : [];
       let requestInput = budgetPlan.requestInput;
       // The read cutoff THIS run's requestInput is currently built with. A mid-run STW
       // compression switch advances it (see applyPendingCompressionMidRunIfSilent).
-      let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterConversationId ?? null;
+      let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterStackIndex ?? null;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
       if (coreMemoryCompressionCheckpoint) {
         // Fork = clone of the main agent (same iron law as subconscious / image-vision /
@@ -6329,7 +6314,7 @@ export class AgentLoopService {
           contextSessionKey,
           compressionReminderItems: [buildCoreMemoryCompressionReminder({
             contextSessionKey,
-            readCutoffAfterConversationId: coreMemoryCompressionCheckpoint.compression.readCutoffAfterConversationId,
+            readCutoffAfterStackIndex: coreMemoryCompressionCheckpoint.compression.readCutoffAfterStackIndex,
             pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
           })]
         });
@@ -6489,7 +6474,7 @@ export class AgentLoopService {
           reasoningTokens: null,
           processingTimeMs: null,
           readHistoryCount: budgetPlan.retainedHistory.length,
-          readCutoffAfterConversationId: budgetPlan.readCutoffAfterConversationId,
+          readCutoffAfterStackIndex: budgetPlan.readCutoffAfterStackIndex,
           contextWindowTokens: budgetPlan.contextWindowTokens,
           targetBudgetTokens: budgetPlan.targetBudgetTokens,
           hardBudgetTokens: budgetPlan.hardBudgetTokens,
@@ -7103,7 +7088,7 @@ export class AgentLoopService {
             estimated_input_tokens: budgetPlan.estimatedInputTokens,
             tokenizer_encoding: budgetPlan.tokenizerEncoding,
             tokenizer_source: budgetPlan.tokenizerSource,
-            read_cutoff_after_conversation_id: budgetPlan.readCutoffAfterConversationId,
+            read_cutoff_after_stack_index: budgetPlan.readCutoffAfterStackIndex,
             cutoff_recomputed: budgetPlan.cutoffRecomputed
           },
           prompt: {
@@ -7299,7 +7284,7 @@ export class AgentLoopService {
             estimated_input_tokens: budgetPlan.estimatedInputTokens,
             tokenizer_encoding: budgetPlan.tokenizerEncoding,
             tokenizer_source: budgetPlan.tokenizerSource,
-            read_cutoff_after_conversation_id: budgetPlan.readCutoffAfterConversationId,
+            read_cutoff_after_stack_index: budgetPlan.readCutoffAfterStackIndex,
             cutoff_recomputed: budgetPlan.cutoffRecomputed
           },
           prompt: {
@@ -7380,11 +7365,13 @@ export class AgentLoopService {
       if (options.queueBacked && !queueRetryScheduled) {
         // Mirror the settled-path fold backfill (attachConversationIdToTrace loop
         // above): a TERMINALLY-failed run won't reprocess, so its folded-notify stack
-        // rows must be attached to THIS failed conversation now, or replay drops them
-        // (groupStackRowsByConversationId skips NULL conversation_id). The provider may
-        // still hold this run's cached prefix INCLUDING those folds, so the next run's
-        // stack-replay must reproduce them byte-for-byte or the prompt cache breaks at
-        // the run boundary. Guarded on !queueRetryScheduled: attachConversationIdToTrace
+        // rows must be attached to THIS failed conversation now to keep the external
+        // conversation_id linkage intact (provider/admin). Replay itself is now stack-
+        // native (a stack_index range read, no conversation grouping), so the folds are
+        // reproduced by their stack_index regardless; the backfill is the linkage write.
+        // The provider may still hold this run's cached prefix INCLUDING those folds, so
+        // the next run's stack-replay must reproduce them byte-for-byte or the prompt cache
+        // breaks at the run boundary. Guarded on !queueRetryScheduled: attachConversationIdToTrace
         // is COALESCE (first-write-wins), so backfilling to the FAILED conversation on a
         // retry path would pin the folds here and block the retry's success-settle from
         // attaching them to the real conversation — re-creating the very breakdown. On
@@ -8184,7 +8171,7 @@ export class AgentLoopService {
   }
 
   private async buildContextBudgetPlan(params: {
-    history: ConversationTurn[];
+    history: StackBackedConversationTurn[];
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     loopContinuation: OpenResponseInputItem[];
@@ -8233,7 +8220,7 @@ export class AgentLoopService {
     // of the previous conversation must not carry into the now-compressed (small) one and
     // fire a redundant 2nd compression. The new context re-arms from scratch if it is
     // still genuinely over the soft line. (实测 12:53/15:18/21:02 的多余第二次压缩根因。)
-    const appliedReadCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
+    const appliedReadCutoff = cutoffState?.readCutoffAfterStackIndex ?? null;
     const pendingCompressionCutoff = this.pendingCompressionAppliedCutoffBySession.get(contextSessionKey) ?? null;
     if (
       pendingCompressionCutoff !== null
@@ -8285,8 +8272,8 @@ export class AgentLoopService {
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        readCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
+        previousReadCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
         estimatedInputTokens: estimate.inputTokens,
         contextWindowTokens,
         targetBudgetTokens,
@@ -8312,8 +8299,8 @@ export class AgentLoopService {
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        readCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
+        previousReadCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
         estimatedInputTokens: estimate.inputTokens,
         contextWindowTokens,
         targetBudgetTokens,
@@ -8342,8 +8329,8 @@ export class AgentLoopService {
         summarySourceInput: null,
         retainedHistory: initialRetainedHistory,
         runtimeIdentityFacts: params.runtimeIdentityFacts,
-        readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-        previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+        readCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
+        previousReadCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
         estimatedInputTokens: estimate.inputTokens,
         contextWindowTokens,
         targetBudgetTokens,
@@ -8361,9 +8348,9 @@ export class AgentLoopService {
     const compression = {
       required: true as const,
       contextSessionKey,
-      readCutoffAfterConversationId: compressionPoint.readCutoffAfterConversationId,
-      previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      compressionCoveredEndConversationId: compressionPoint.compressionCoveredEndConversationId,
+      readCutoffAfterStackIndex: compressionPoint.readCutoffAfterStackIndex,
+      previousReadCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
+      compressionCoveredEndStackIndex: compressionPoint.compressionCoveredEndStackIndex,
       historyUserId: historyTargets.userId,
       historyGroupId: historyTargets.groupId,
       historyScope: 'global' as const,
@@ -8394,7 +8381,7 @@ export class AgentLoopService {
         ...params.loopContinuation,
         buildCoreMemoryCompressionReminder({
           contextSessionKey,
-          readCutoffAfterConversationId: compressionPoint.readCutoffAfterConversationId,
+          readCutoffAfterStackIndex: compressionPoint.readCutoffAfterStackIndex,
           pressureSummary
         })
       ],
@@ -8413,13 +8400,13 @@ export class AgentLoopService {
     // the whole warm prefix; this anchor just pins an extra breakpoint so the main turn
     // keeps the [..H_X] segment refreshed across the boundary. The anchor is a
     // non-content marker, so requestInput's bytes (and token estimate) are unchanged.
-    const compressionHeadBoundaryConversationId =
+    const compressionHeadBoundaryStackIndex =
       compressionPoint.summarySourceHistory.length > 0
         ? (compressionPoint.summarySourceHistory[compressionPoint.summarySourceHistory.length - 1] as { id?: number } | undefined)?.id ?? null
         : null;
     let anchoredRequestInput = requestInput;
     let anchoredSelfContinuationInputItem = selfContinuationInputItem;
-    if (typeof compressionHeadBoundaryConversationId === 'number') {
+    if (typeof compressionHeadBoundaryStackIndex === 'number') {
       const rebuiltSelfContinuation: OpenResponseInputItem[] = [];
       anchoredRequestInput = buildLoopRequestInput({
         history: initialRetainedHistory,
@@ -8435,7 +8422,7 @@ export class AgentLoopService {
         appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
         appendedSelfContinuationInputItems: rebuiltSelfContinuation,
         loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
-        cacheAnchorAfterConversationId: compressionHeadBoundaryConversationId,
+        cacheAnchorAfterStackIndex: compressionHeadBoundaryStackIndex,
         precomputedCurrentTurnInputItems: currentTurnInputItems
       });
       anchoredSelfContinuationInputItem = rebuiltSelfContinuation[0] ?? selfContinuationInputItem;
@@ -8448,8 +8435,8 @@ export class AgentLoopService {
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
-      readCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
-      previousReadCutoffAfterConversationId: cutoffState?.readCutoffAfterConversationId ?? null,
+      readCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
+      previousReadCutoffAfterStackIndex: cutoffState?.readCutoffAfterStackIndex ?? null,
       estimatedInputTokens: estimate.inputTokens,
       contextWindowTokens,
       targetBudgetTokens,
@@ -8465,7 +8452,7 @@ export class AgentLoopService {
   }
 
   private async buildCoreMemoryCompressionCheckpoint(params: {
-    history: ConversationTurn[];
+    history: StackBackedConversationTurn[];
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
     loopContinuation: OpenResponseInputItem[];
@@ -8942,11 +8929,11 @@ export class AgentLoopService {
   }
 
   private async resolveCoreMemoryCompressionCommitCutoff(compression: CoreMemoryCompressionPlan): Promise<number | null> {
-    const plannedCutoffId = compression.readCutoffAfterConversationId;
+    const plannedCutoffId = compression.readCutoffAfterStackIndex;
     if (typeof plannedCutoffId !== 'number' || !Number.isFinite(plannedCutoffId)) {
       return null;
     }
-    const coveredEndId = compression.compressionCoveredEndConversationId;
+    const coveredEndId = compression.compressionCoveredEndStackIndex;
     if (typeof coveredEndId !== 'number' || !Number.isFinite(coveredEndId)) {
       return plannedCutoffId;
     }
@@ -8969,17 +8956,17 @@ export class AgentLoopService {
     }
 
     const compressionSessionKey = params.compression?.contextSessionKey ?? params.contextSessionKey;
-    const committedReadCutoffAfterConversationId = params.compression
+    const committedReadCutoffAfterStackIndex = params.compression
       ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
       : null;
-    const buildSupersededCommit = async (currentReadCutoffAfterConversationId: number | null) => {
+    const buildSupersededCommit = async (currentReadCutoffAfterStackIndex: number | null) => {
       const artifact = {
         tool_name: params.toolCall.name,
         context_session_key: compressionSessionKey,
-        read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
-        planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
-        previous_read_cutoff_after_conversation_id: params.compression?.previousReadCutoffAfterConversationId ?? null,
-        compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
+        read_cutoff_after_stack_index: currentReadCutoffAfterStackIndex,
+        planned_read_cutoff_after_stack_index: params.compression?.readCutoffAfterStackIndex ?? null,
+        previous_read_cutoff_after_stack_index: params.compression?.previousReadCutoffAfterStackIndex ?? null,
+        compression_covered_end_stack_index: params.compression?.compressionCoveredEndStackIndex ?? null,
         source_response_id: params.sourceResponseId,
         tool_call_id: params.toolCall.callId,
         text_length: text.length,
@@ -8992,9 +8979,9 @@ export class AgentLoopService {
         context_summary_written: false,
         read_cutoff_written: false,
         context_session_key: compressionSessionKey,
-        read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
-        planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
-        compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
+        read_cutoff_after_stack_index: currentReadCutoffAfterStackIndex,
+        planned_read_cutoff_after_stack_index: params.compression?.readCutoffAfterStackIndex ?? null,
+        compression_covered_end_stack_index: params.compression?.compressionCoveredEndStackIndex ?? null,
         superseded: true,
         superseded_reason: 'current_read_cutoff_already_covers_fork'
       };
@@ -9012,7 +8999,7 @@ export class AgentLoopService {
       };
     };
 
-    if (params.compression && committedReadCutoffAfterConversationId !== null) {
+    if (params.compression && committedReadCutoffAfterStackIndex !== null) {
       const atomicCommitter = (this.store as RuntimeStore & {
         commitSessionContextSummaryAndReadCutoff?: RuntimeStore['commitSessionContextSummaryAndReadCutoff'];
       }).commitSessionContextSummaryAndReadCutoff;
@@ -9020,22 +9007,22 @@ export class AgentLoopService {
         const atomicCommit = await atomicCommitter.call(this.store, {
           sessionKey: params.compression.contextSessionKey,
           contextSummary: text,
-          readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
+          readCutoffAfterStackIndex: committedReadCutoffAfterStackIndex,
           lastContextWindowTokens: params.compression.lastContextWindowTokens,
           lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
           lastHardBudgetTokens: params.compression.lastHardBudgetTokens
         });
         if (!atomicCommit.committed) {
-          return buildSupersededCommit(atomicCommit.state?.readCutoffAfterConversationId ?? null);
+          return buildSupersededCommit(atomicCommit.state?.readCutoffAfterStackIndex ?? null);
         }
       } else {
         const currentCutoffState = await this.store.getSessionReadCutoffState(params.compression.contextSessionKey);
-        const currentReadCutoffAfterConversationId = currentCutoffState?.readCutoffAfterConversationId ?? null;
+        const currentReadCutoffAfterStackIndex = currentCutoffState?.readCutoffAfterStackIndex ?? null;
         if (
-          currentReadCutoffAfterConversationId !== null &&
-          currentReadCutoffAfterConversationId >= committedReadCutoffAfterConversationId
+          currentReadCutoffAfterStackIndex !== null &&
+          currentReadCutoffAfterStackIndex >= committedReadCutoffAfterStackIndex
         ) {
-          return buildSupersededCommit(currentReadCutoffAfterConversationId);
+          return buildSupersededCommit(currentReadCutoffAfterStackIndex);
         }
         await this.store.upsertSessionContextSummary({
           sessionKey: compressionSessionKey,
@@ -9043,7 +9030,7 @@ export class AgentLoopService {
         });
         await this.store.upsertSessionReadCutoffState({
           sessionKey: params.compression.contextSessionKey,
-          readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
+          readCutoffAfterStackIndex: committedReadCutoffAfterStackIndex,
           lastContextWindowTokens: params.compression.lastContextWindowTokens,
           lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
           lastHardBudgetTokens: params.compression.lastHardBudgetTokens
@@ -9055,10 +9042,10 @@ export class AgentLoopService {
         contextSummary: text
       });
     }
-    if (params.compression && committedReadCutoffAfterConversationId === null) {
+    if (params.compression && committedReadCutoffAfterStackIndex === null) {
       await this.store.upsertSessionReadCutoffState({
         sessionKey: params.compression.contextSessionKey,
-        readCutoffAfterConversationId: committedReadCutoffAfterConversationId,
+        readCutoffAfterStackIndex: committedReadCutoffAfterStackIndex,
         lastContextWindowTokens: params.compression.lastContextWindowTokens,
         lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
         lastHardBudgetTokens: params.compression.lastHardBudgetTokens
@@ -9068,10 +9055,10 @@ export class AgentLoopService {
     const artifact = {
       tool_name: params.toolCall.name,
       context_session_key: compressionSessionKey,
-      read_cutoff_after_conversation_id: committedReadCutoffAfterConversationId,
-      planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
-      previous_read_cutoff_after_conversation_id: params.compression?.previousReadCutoffAfterConversationId ?? null,
-      compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null,
+      read_cutoff_after_stack_index: committedReadCutoffAfterStackIndex,
+      planned_read_cutoff_after_stack_index: params.compression?.readCutoffAfterStackIndex ?? null,
+      previous_read_cutoff_after_stack_index: params.compression?.previousReadCutoffAfterStackIndex ?? null,
+      compression_covered_end_stack_index: params.compression?.compressionCoveredEndStackIndex ?? null,
       source_response_id: params.sourceResponseId,
       tool_call_id: params.toolCall.callId,
       text_length: text.length,
@@ -9082,9 +9069,9 @@ export class AgentLoopService {
       context_summary_written: true,
       read_cutoff_written: Boolean(params.compression),
       context_session_key: compressionSessionKey,
-      read_cutoff_after_conversation_id: committedReadCutoffAfterConversationId,
-      planned_read_cutoff_after_conversation_id: params.compression?.readCutoffAfterConversationId ?? null,
-      compression_covered_end_conversation_id: params.compression?.compressionCoveredEndConversationId ?? null
+      read_cutoff_after_stack_index: committedReadCutoffAfterStackIndex,
+      planned_read_cutoff_after_stack_index: params.compression?.readCutoffAfterStackIndex ?? null,
+      compression_covered_end_stack_index: params.compression?.compressionCoveredEndStackIndex ?? null
     };
     await this.store.logTimelineEvent({
       traceId: String(params.metadata?.trace_id || ''),
@@ -9569,7 +9556,7 @@ export class AgentLoopService {
   private async applyPendingCompressionMidRunIfSilent(params: {
     contextSessionKey: string;
     appliedRunCutoff: number | null;
-    fullHistory: ConversationTurn[];
+    fullHistory: StackBackedConversationTurn[];
     loopContinuation: OpenResponseInputItem[];
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
@@ -9588,9 +9575,9 @@ export class AgentLoopService {
     loopContinuationBeforeCurrentTrigger: boolean;
   }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
     const key = params.contextSessionKey;
-    // Floor for "this run hasn't built/switched to any cutoff yet". Conversation ids are
-    // positive serials, so -1 sorts below every real cutoff; the <= comparisons below then
-    // treat a null prior cutoff as "nothing applied yet" without a separate null branch.
+    // Floor for "this run hasn't built/switched to any cutoff yet". stack_index is a
+    // positive dense ascending serial, so -1 sorts below every real cutoff; the <= comparisons
+    // below then treat a null prior cutoff as "nothing applied yet" without a separate null branch.
     const priorCutoff = params.appliedRunCutoff ?? -1;
     const pending = this.pendingCompressionAppliedCutoffBySession.get(key) ?? null;
     if (pending === null || pending <= priorCutoff) {
@@ -9607,7 +9594,7 @@ export class AgentLoopService {
     }
     // Confirm the fork actually committed the new context window (cutoff + summary).
     const cutoffState = await this.store.getSessionReadCutoffState(key);
-    const liveCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
+    const liveCutoff = cutoffState?.readCutoffAfterStackIndex ?? null;
     if (liveCutoff === null || liveCutoff < pending || liveCutoff <= priorCutoff) {
       return null; // commit not landed yet, or no real advance
     }
@@ -9674,9 +9661,9 @@ export class AgentLoopService {
     const artifact = {
       tool_name: TOOL_NAMES.compressCoreMemory,
       context_session_key: key,
-      read_cutoff_after_conversation_id: compression.readCutoffAfterConversationId,
-      previous_read_cutoff_after_conversation_id: compression.previousReadCutoffAfterConversationId,
-      compression_covered_end_conversation_id: compression.compressionCoveredEndConversationId,
+      read_cutoff_after_stack_index: compression.readCutoffAfterStackIndex,
+      previous_read_cutoff_after_stack_index: compression.previousReadCutoffAfterStackIndex,
+      compression_covered_end_stack_index: compression.compressionCoveredEndStackIndex,
       execution_mode: 'compression_fork_background',
       status: existing ? 'already_running' : 'scheduled'
     };
@@ -9691,16 +9678,16 @@ export class AgentLoopService {
     if (plannedCommitCutoff !== null && typeof cutoffReader === 'function') {
       try {
         const currentCutoffState = await cutoffReader.call(this.store, key);
-        const currentReadCutoffAfterConversationId = currentCutoffState?.readCutoffAfterConversationId ?? null;
+        const currentReadCutoffAfterStackIndex = currentCutoffState?.readCutoffAfterStackIndex ?? null;
         if (
-          currentReadCutoffAfterConversationId !== null
-          && currentReadCutoffAfterConversationId >= plannedCommitCutoff
+          currentReadCutoffAfterStackIndex !== null
+          && currentReadCutoffAfterStackIndex >= plannedCommitCutoff
         ) {
           return {
             ...artifact,
             status: 'already_covered',
-            read_cutoff_after_conversation_id: currentReadCutoffAfterConversationId,
-            planned_read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId
+            read_cutoff_after_stack_index: currentReadCutoffAfterStackIndex,
+            planned_read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex
           };
         }
       } catch (error) {
@@ -9719,13 +9706,13 @@ export class AgentLoopService {
     }).findActiveCoreMemoryCompressionForkRun;
     if (
       typeof durableFinder === 'function'
-      && typeof params.compression.compressionCoveredEndConversationId === 'number'
-      && Number.isFinite(params.compression.compressionCoveredEndConversationId)
+      && typeof params.compression.compressionCoveredEndStackIndex === 'number'
+      && Number.isFinite(params.compression.compressionCoveredEndStackIndex)
     ) {
       try {
         const activeFork = await durableFinder.call(this.store, {
           contextSessionKey: key,
-          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId
+          compressionCoveredEndStackIndex: params.compression.compressionCoveredEndStackIndex
         });
         if (activeFork) {
           return {
@@ -9740,7 +9727,7 @@ export class AgentLoopService {
           traceId: params.queueMessage.traceId,
           runId: params.queueMessage.runId,
           contextSessionKey: key,
-          compressionCoveredEndConversationId: params.compression.compressionCoveredEndConversationId,
+          compressionCoveredEndStackIndex: params.compression.compressionCoveredEndStackIndex,
           error: error instanceof Error ? error.message : String(error)
         });
       }
@@ -9754,7 +9741,7 @@ export class AgentLoopService {
     });
     // Latch this compression as pending-apply: suppress any further trigger until the
     // main loop's live cutoff reaches this target (cleared in buildContextBudgetPlan).
-    const plannedAppliedCutoff = params.compression.readCutoffAfterConversationId;
+    const plannedAppliedCutoff = params.compression.readCutoffAfterStackIndex;
     if (typeof plannedAppliedCutoff === 'number' && Number.isFinite(plannedAppliedCutoff)) {
       this.pendingCompressionAppliedCutoffBySession.set(key, plannedAppliedCutoff);
     }
@@ -9803,9 +9790,9 @@ export class AgentLoopService {
     let forkNoToolRetryTotal = 0;
     const baseForkMetadata = {
       context_session_key: params.compression.contextSessionKey,
-      read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
-      previous_read_cutoff_after_conversation_id: params.compression.previousReadCutoffAfterConversationId,
-      compression_covered_end_conversation_id: params.compression.compressionCoveredEndConversationId,
+      read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
+      previous_read_cutoff_after_stack_index: params.compression.previousReadCutoffAfterStackIndex,
+      compression_covered_end_stack_index: params.compression.compressionCoveredEndStackIndex,
       history_user_id: params.compression.historyUserId,
       history_group_id: params.compression.historyGroupId,
       history_scope: params.compression.historyScope,
@@ -9822,8 +9809,8 @@ export class AgentLoopService {
       status: 'running',
       traceId: params.queueMessage.traceId,
       runId: params.queueMessage.runId,
-      readCutoffAfterConversationId: params.compression.readCutoffAfterConversationId,
-      previousReadCutoffAfterConversationId: params.compression.previousReadCutoffAfterConversationId,
+      readCutoffAfterStackIndex: params.compression.readCutoffAfterStackIndex,
+      previousReadCutoffAfterStackIndex: params.compression.previousReadCutoffAfterStackIndex,
       metadata: baseForkMetadata
     });
 
@@ -9835,7 +9822,7 @@ export class AgentLoopService {
       metadata: {
         fork_run_id: forkRunId,
         context_session_key: params.compression.contextSessionKey,
-        read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
+        read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
         no_main_stack_persist: true
       }
     });
@@ -10109,7 +10096,7 @@ export class AgentLoopService {
                   status: 'completed',
                   fork_run_id: forkRunId,
                   context_session_key: params.compression.contextSessionKey,
-                  read_cutoff_after_conversation_id: params.compression.readCutoffAfterConversationId,
+                  read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
                   fork_turn_count: forkTurn,
                   fork_tool_call_count: forkToolCallCount,
                   fork_no_tool_retry_count: forkNoToolRetryTotal
@@ -11926,15 +11913,15 @@ export class AgentLoopService {
   }
 }
 
-function applyReadCutoffAfterConversationId(history: ConversationTurn[], readCutoffAfterConversationId: number | null | undefined) {
-  if (typeof readCutoffAfterConversationId !== 'number' || !Number.isFinite(readCutoffAfterConversationId)) {
+function applyReadCutoffAfterStackIndex<T extends ConversationTurn>(history: T[], readCutoffAfterStackIndex: number | null | undefined): T[] {
+  if (typeof readCutoffAfterStackIndex !== 'number' || !Number.isFinite(readCutoffAfterStackIndex)) {
     return history.slice();
   }
-  return history.filter((turn) => turn.id > readCutoffAfterConversationId);
+  return history.filter((turn) => turn.id > readCutoffAfterStackIndex);
 }
 
-function applyReadCutoff(history: ConversationTurn[], cutoffState: SessionReadCutoffState | null) {
-  return applyReadCutoffAfterConversationId(history, cutoffState?.readCutoffAfterConversationId);
+function applyReadCutoff<T extends ConversationTurn>(history: T[], cutoffState: SessionReadCutoffState | null): T[] {
+  return applyReadCutoffAfterStackIndex(history, cutoffState?.readCutoffAfterStackIndex);
 }
 
 function isTransientProviderExecutionError(error: unknown) {
@@ -12017,46 +12004,53 @@ function buildLoopRequestInput(params: {
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
-  cacheAnchorAfterConversationId?: number | null;
+  cacheAnchorAfterStackIndex?: number | null;
   // When provided, the fresh_trigger current-turn items reuse this exact array
   // instead of rebuilding, so the sent request and the 存档 stay byte-identical.
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterConversationId ?? null, params.precomputedCurrentTurnInputItems ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterStackIndex ?? null, params.precomputedCurrentTurnInputItems ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterConversationId ?? null, params.precomputedCurrentTurnInputItems ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterStackIndex ?? null, params.precomputedCurrentTurnInputItems ?? null),
     ...params.loopContinuation
   ];
 }
 
-// REQ3 compaction cutoff — turn-count driven, head-only (option A). The unified
-// trigger path (auto via real-input counter, or forced/manual) keeps the most
-// recent HISTORY_COMPACT_KEEP turns verbatim and summarizes ONLY the evicted head.
-// The retained tail is NOT re-summarized (no overlap), so the summary == the近况 of
-// exactly what was compressed away. Returns null when history <= keep window (no
-// head to evict). See docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
+// REQ3 compaction cutoff — BLOCK-budget driven, head-only. The unified trigger path
+// (auto via real-input counter, or forced/manual) keeps the most recent HISTORY_COMPACT_KEEP
+// BLOCKS verbatim (floated UP to a clean tool-pair boundary so a function_call/output pair is
+// never split) and summarizes ONLY the evicted head. The retained tail is NOT re-summarized
+// (no overlap), so the summary == the 近况 of exactly what was compressed away. The retained
+// tail is a VERBATIM SUFFIX of the input (blocks.slice(evictedBlockCount)) — append-only stack,
+// no block rewritten. Returns null when nothing can be cleanly evicted (history <= keep, or no
+// clean boundary keeps >= keep). The unit is the BLOCK (one agent_stack_item); no conversation/
+// turn concept. See docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
 //
-//   history (oldest -> newest)
-//   [ ......... evicted head (summarized) ......... | last HISTORY_COMPACT_KEEP turns (verbatim) ]
-//                                                   ^ readCutoffAfterConversationId == covered end
-function planReadCutoffForForcedCompression(history: ConversationTurn[]) {
-  if (history.length <= HISTORY_COMPACT_KEEP) {
+//   history (oldest -> newest), one block per entry
+//   [ ......... evicted head (summarized) ......... | last >= HISTORY_COMPACT_KEEP blocks (verbatim) ]
+//                                                   ^ readCutoffAfterStackIndex == last evicted block's stack_index
+function planReadCutoffForForcedCompression(history: StackBackedConversationTurn[]) {
+  const blocks: StackBlockRef[] = history.map((turn) => ({
+    stackIndex: turn.id,
+    opensCallId: turn.opensCallId ?? null,
+    closesCallId: turn.closesCallId ?? null
+  }));
+  const plan = planStackReadCutoffByBlockBudget(blocks, { keepBlocks: HISTORY_COMPACT_KEEP });
+  if (!plan) {
     return null;
   }
-  const summarySourceHistory = history.slice(0, history.length - HISTORY_COMPACT_KEEP);
-  const sourceEnd = summarySourceHistory[summarySourceHistory.length - 1];
-  if (!sourceEnd) {
-    return null;
-  }
-  const readCutoffAfterConversationId = sourceEnd.id;
+  // The retained tail is the verbatim suffix history.slice(evictedBlockCount); the summary
+  // source is the evicted head history.slice(0, evictedBlockCount). The cutoff stack_index is
+  // the last evicted block's id (every kept block has a strictly greater stack_index).
+  const summarySourceHistory = history.slice(0, plan.evictedBlockCount);
   return {
     firstOverflowPrefixLength: summarySourceHistory.length,
     summarySourceHistory,
-    readCutoffAfterConversationId,
+    readCutoffAfterStackIndex: plan.readCutoffAfterStackIndex,
     // head-only: the summary covers exactly the evicted head; its end IS the cutoff.
-    compressionCoveredEndConversationId: sourceEnd.id,
+    compressionCoveredEndStackIndex: plan.readCutoffAfterStackIndex,
     overlapCount: 0
   };
 }
@@ -12114,7 +12108,7 @@ function serializeContextBudgetTurnRecord(record: ContextBudgetTurnRecord) {
     reasoning_tokens: record.reasoningTokens,
     processing_time_ms: record.processingTimeMs,
     read_history_count: record.readHistoryCount,
-    read_cutoff_after_conversation_id: record.readCutoffAfterConversationId,
+    read_cutoff_after_stack_index: record.readCutoffAfterStackIndex,
     context_window_tokens: record.contextWindowTokens,
     target_budget_tokens: record.targetBudgetTokens,
     hard_budget_tokens: record.hardBudgetTokens,
@@ -12388,7 +12382,7 @@ export function buildInitialInput(
   runtimeEnergyState: RuntimeEnergyState | null = null,
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
-  cacheAnchorAfterConversationId: number | null = null,
+  cacheAnchorAfterStackIndex: number | null = null,
   precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
@@ -12419,9 +12413,9 @@ export function buildInitialInput(
   // prefix stays byte-identical to the fork's head and they share the same entry.
   const markAnchorIfBoundary = (turnId: unknown) => {
     if (
-      cacheAnchorAfterConversationId === null
+      cacheAnchorAfterStackIndex === null
       || typeof turnId !== 'number'
-      || turnId !== cacheAnchorAfterConversationId
+      || turnId !== cacheAnchorAfterStackIndex
       || items.length === 0
     ) {
       return;
@@ -12552,22 +12546,30 @@ function stackRowContentAsReplayInputItems(row: Record<string, unknown>): unknow
   return [content];
 }
 
-function groupStackRowsByConversationId(rows: Array<Record<string, unknown>>) {
-  const grouped = new Map<number, Array<Record<string, unknown>>>();
-  for (const row of rows) {
-    const rawConversationId = row.conversationId ?? row.conversation_id;
-    const conversationId = typeof rawConversationId === 'number'
-      ? rawConversationId
-      : Number(rawConversationId);
-    if (!Number.isFinite(conversationId)) {
-      continue;
-    }
-    const key = Math.trunc(conversationId);
-    const bucket = grouped.get(key) || [];
-    bucket.push(row);
-    grouped.set(key, bucket);
-  }
-  return grouped;
+// Map one flat agent_stack_items row to a degenerate single-block history "turn".
+// id = stack_index (dense ascending; replaces conversation_id as the order/cutoff key).
+// stackReplayItems = this block's model-visible replay items. opensCallId/closesCallId
+// expose the tool-pair info the block-budget planner needs to cut on a clean boundary:
+// a function_call OPENS its tool_call_id, a function_call_output CLOSES it.
+function mapStackRowToHistoryBlock(row: Record<string, unknown>): StackBackedConversationTurn {
+  const rawStackIndex = row.stackIndex ?? row.stack_index;
+  const stackIndex = typeof rawStackIndex === 'number' ? rawStackIndex : Number(rawStackIndex);
+  const itemKind = String(row.itemKind ?? row.item_kind ?? '');
+  const rawToolCallId = row.toolCallId ?? row.tool_call_id ?? null;
+  const toolCallId = rawToolCallId === null || typeof rawToolCallId === 'undefined' ? null : String(rawToolCallId);
+  return {
+    id: Number.isFinite(stackIndex) ? Math.trunc(stackIndex) : 0,
+    userId: 0,
+    groupId: null,
+    batchId: null,
+    sessionKey: null,
+    userMessage: '',
+    aiResponse: null,
+    items: [],
+    opensCallId: itemKind === 'function_call' ? toolCallId : null,
+    closesCallId: itemKind === 'function_call_output' ? toolCallId : null,
+    stackReplayItems: extractResponseReplayInputItemsFromStackRows([row])
+  };
 }
 
 function extractResponseReplayInputItemsFromStackRows(rows: Array<Record<string, unknown>>): ResponseReplayInputItem[] {

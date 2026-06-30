@@ -88,12 +88,12 @@ app.post('/api/internal/runtime/core-memory-compression/trigger', async (_req, r
 
 app.get('/api/internal/runtime/core-memory-compression/status', async (req, res) => {
   try {
-    const raw = req.query.compression_covered_end_conversation_id;
+    const raw = req.query.compression_covered_end_stack_index ?? req.query.compression_covered_end_conversation_id;
     const coveredEnd = Number(Array.isArray(raw) ? raw[0] : raw);
     if (!Number.isFinite(coveredEnd)) {
       res.status(400).json({
         success: false,
-        error: 'compression_covered_end_conversation_id query param required'
+        error: 'compression_covered_end_stack_index query param required'
       });
       return;
     }

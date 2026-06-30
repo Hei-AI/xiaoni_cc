@@ -337,7 +337,7 @@ export type ExecutionLeaseDeliveryState = {
 
 export type SessionReadCutoffState = {
   sessionKey: string;
-  readCutoffAfterConversationId: number | null;
+  readCutoffAfterStackIndex: number | null;
   lastContextWindowTokens: number | null;
   lastTargetBudgetTokens: number | null;
   lastHardBudgetTokens: number | null;
@@ -2101,6 +2101,7 @@ export class RuntimeStore {
     traceId?: string | null;
     runId?: string | null;
     conversationId?: number | string | null;
+    afterStackIndex?: number | string | null;
     itemKind?: string | null;
     limit?: number;
     chronological?: boolean;
@@ -2110,6 +2111,7 @@ export class RuntimeStore {
       traceId: params.traceId || null,
       runId: params.runId || null,
       conversationId: params.conversationId ?? null,
+      afterStackIndex: params.afterStackIndex ?? null,
       itemKind: params.itemKind || null,
       limit: params.limit,
       chronological: params.chronological,
@@ -2192,8 +2194,8 @@ export class RuntimeStore {
     traceId: string;
     runId: string;
     conversationId?: number | null;
-    readCutoffAfterConversationId?: number | null;
-    previousReadCutoffAfterConversationId?: number | null;
+    readCutoffAfterStackIndex?: number | null;
+    previousReadCutoffAfterStackIndex?: number | null;
     summaryText?: string | null;
     artifact?: Record<string, unknown>;
     errorMessage?: string | null;
@@ -2222,7 +2224,7 @@ export class RuntimeStore {
 
   async findActiveCoreMemoryCompressionForkRun(params: {
     contextSessionKey: string;
-    compressionCoveredEndConversationId: number;
+    compressionCoveredEndStackIndex: number;
     staleAfterMinutes?: number;
   }) {
     return findActiveCoreMemoryCompressionForkRunPersistence({
@@ -2591,7 +2593,7 @@ export class RuntimeStore {
 
   async upsertSessionReadCutoffState(params: {
     sessionKey: string;
-    readCutoffAfterConversationId: number | null;
+    readCutoffAfterStackIndex: number | null;
     lastContextWindowTokens: number;
     lastTargetBudgetTokens: number;
     lastHardBudgetTokens: number;
@@ -2605,7 +2607,7 @@ export class RuntimeStore {
   async commitSessionContextSummaryAndReadCutoff(params: {
     sessionKey: string;
     contextSummary: string;
-    readCutoffAfterConversationId: number;
+    readCutoffAfterStackIndex: number;
     lastContextWindowTokens: number;
     lastTargetBudgetTokens: number;
     lastHardBudgetTokens: number;
