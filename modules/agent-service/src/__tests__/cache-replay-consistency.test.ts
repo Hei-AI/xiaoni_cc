@@ -1379,3 +1379,64 @@ test('STW run boundary: the next run reconstructs the committed compressed近况
   assert.ok(run2Carries.length >= 1, 'the next run must have sent a request');
   assert.equal(run2Carries[0], true, 'the next run must reconstruct the committed compressed近况 from the STW switch (run-boundary continuity)');
 });
+
+// =====================================================================================
+// PURPOSE (#4 小腻主流程暂停后回复): a run can be PAUSED mid-loop at the runtime-enabled gate
+// (waitForRuntimeEnabledBeforeModelSlice) and resumed arbitrarily later. A pause spans wall-clock
+// time; if ANYTHING in the next turn's cacheable prefix re-renders on resume (a timestamp, a
+// rebuilt trigger), the warm cache the paused run held is busted. This drives the REAL gate
+// (isRuntimeEnabled false for one poll) mid-loop, advances the clock during the block, and asserts
+// the post-resume turn's durable prefix is byte-identical to the pre-pause turn's.
+// =====================================================================================
+test('pause→resume across wall-clock drift keeps the cacheable prefix byte-identical (real runtime gate)', async () => {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  let paused = false;
+  let turn = 0;
+  const service = new AgentLoopService(
+    store,
+    { resolveForQueueMessage: async () => createRuntimePrompt() } as any,
+    {
+      runtimePausePollMs: 50,
+      isRuntimeEnabled: async () => {
+        // Pause exactly once at the top of turn 2 (after turn 1 ran), drifting the clock 17.5h
+        // during the block; then resume.
+        if (turn === 1 && !paused) { paused = true; patchClock('2026-06-30T03:30:00+08:00'); return false; }
+        return true;
+      }
+    } as any
+  );
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sent: any[][] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sent.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === 1) {
+      return { success: true, llm_call_id: 'p-1', llm_request_slice_id: 'ps-1',
+        canonical_response: { output: [{ type: 'function_call', call_id: 'pc-1', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"echo 1"}' }] } };
+    }
+    return { success: true, llm_call_id: `p-${turn}`, llm_request_slice_id: `ps-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  patchClock('2026-06-29T10:00:00+08:00');
+  try {
+    const queueMessage = { id: 'run-PAUSE', traceId: 'rt-PAUSE', batchId: 'b-PAUSE', status: 'processing',
+      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-PAUSE', runId: 'run-PAUSE' }) };
+    await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+  } finally {
+    restoreClock();
+  }
+
+  assert.ok(paused, 'the real pause gate must have blocked at least once');
+  assert.ok(sent.length >= 2, 'the pause must span a turn boundary (>=2 turns sent)');
+  assert.ok(stripVolatile(sent[0]).length >= 1, 'precondition: non-empty durable prefix');
+  // 0-tolerance: the post-resume turn's durable prefix is an exact ordered prefix of the pre-pause
+  // turn's — nothing in the cacheable prefix re-rendered across the paused wall-clock drift.
+  assertOrderedPrefix(stripVolatile(sent[0]), stripVolatile(sent[1]), 'pause->resume drift');
+  // The current-turn trigger that survives the pause must be reused byte-for-byte, not rebuilt
+  // on the resumed (drifted) clock.
+  const trig0 = JSON.stringify((sent[0] || []).filter((i: any) => i && i.cache_volatile === true));
+  const trig1 = JSON.stringify((sent[1] || []).filter((i: any) => i && i.cache_volatile === true));
+  assert.equal(trig0, trig1, 'the current-turn trigger must be reused byte-for-byte across the pause, not re-rendered');
+});
