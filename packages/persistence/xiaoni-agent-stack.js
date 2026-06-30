@@ -692,12 +692,12 @@ function normalizeCompressionForkRunRow(row) {
     conversationId: row.conversation_id === null || typeof row.conversation_id === 'undefined'
       ? null
       : String(row.conversation_id),
-    readCutoffAfterConversationId: row.read_cutoff_after_conversation_id === null || typeof row.read_cutoff_after_conversation_id === 'undefined'
+    readCutoffAfterStackIndex: row.read_cutoff_after_stack_index === null || typeof row.read_cutoff_after_stack_index === 'undefined'
       ? null
-      : String(row.read_cutoff_after_conversation_id),
-    previousReadCutoffAfterConversationId: row.previous_read_cutoff_after_conversation_id === null || typeof row.previous_read_cutoff_after_conversation_id === 'undefined'
+      : String(row.read_cutoff_after_stack_index),
+    previousReadCutoffAfterStackIndex: row.previous_read_cutoff_after_stack_index === null || typeof row.previous_read_cutoff_after_stack_index === 'undefined'
       ? null
-      : String(row.previous_read_cutoff_after_conversation_id),
+      : String(row.previous_read_cutoff_after_stack_index),
     summaryText: row.summary_text || null,
     artifact: normalizeJsonObject(row.artifact, {}),
     errorMessage: row.error_message || null,
@@ -1739,6 +1739,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             conversation_id BIGINT,
             read_cutoff_after_conversation_id BIGINT,
             previous_read_cutoff_after_conversation_id BIGINT,
+            read_cutoff_after_stack_index BIGINT,
+            previous_read_cutoff_after_stack_index BIGINT,
             summary_text TEXT,
             artifact JSONB NOT NULL DEFAULT '{}'::jsonb,
             error_message TEXT,
@@ -2120,6 +2122,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_trace ON tool_executions (trace_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_tool_call ON tool_executions (tool_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_tool_executions_slice ON tool_executions (llm_request_slice_id)',
+        // Stack-native read cutoff on the compression fork ledger. The old
+        // *_conversation_id columns stay as dead bookkeeping; the runtime now records the
+        // cutoff in stack_index space (fresh-null, recomputed by compression in stack space).
+        'ALTER TABLE core_memory_compression_fork_runs ADD COLUMN IF NOT EXISTS read_cutoff_after_stack_index BIGINT',
+        'ALTER TABLE core_memory_compression_fork_runs ADD COLUMN IF NOT EXISTS previous_read_cutoff_after_stack_index BIGINT',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_runs_trace ON core_memory_compression_fork_runs (trace_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_runs_run ON core_memory_compression_fork_runs (run_id, started_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_core_memory_fork_items_run_index ON core_memory_compression_fork_items (fork_run_id, item_index)',
@@ -2626,8 +2633,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             trace_id,
             run_id,
             conversation_id,
-            read_cutoff_after_conversation_id,
-            previous_read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
+            previous_read_cutoff_after_stack_index,
             summary_text,
             artifact,
             error_message,
@@ -2642,8 +2649,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             trace_id = COALESCE(EXCLUDED.trace_id, core_memory_compression_fork_runs.trace_id),
             run_id = COALESCE(EXCLUDED.run_id, core_memory_compression_fork_runs.run_id),
             conversation_id = COALESCE(EXCLUDED.conversation_id, core_memory_compression_fork_runs.conversation_id),
-            read_cutoff_after_conversation_id = COALESCE(EXCLUDED.read_cutoff_after_conversation_id, core_memory_compression_fork_runs.read_cutoff_after_conversation_id),
-            previous_read_cutoff_after_conversation_id = COALESCE(EXCLUDED.previous_read_cutoff_after_conversation_id, core_memory_compression_fork_runs.previous_read_cutoff_after_conversation_id),
+            read_cutoff_after_stack_index = COALESCE(EXCLUDED.read_cutoff_after_stack_index, core_memory_compression_fork_runs.read_cutoff_after_stack_index),
+            previous_read_cutoff_after_stack_index = COALESCE(EXCLUDED.previous_read_cutoff_after_stack_index, core_memory_compression_fork_runs.previous_read_cutoff_after_stack_index),
             summary_text = COALESCE(EXCLUDED.summary_text, core_memory_compression_fork_runs.summary_text),
             artifact = EXCLUDED.artifact,
             error_message = EXCLUDED.error_message,
@@ -2660,8 +2667,8 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
           normalizeBigIntId(input.conversationId ?? input.conversation_id),
-          normalizeBigIntId(input.readCutoffAfterConversationId ?? input.read_cutoff_after_conversation_id),
-          normalizeBigIntId(input.previousReadCutoffAfterConversationId ?? input.previous_read_cutoff_after_conversation_id),
+          normalizeBigIntId(input.readCutoffAfterStackIndex ?? input.read_cutoff_after_stack_index),
+          normalizeBigIntId(input.previousReadCutoffAfterStackIndex ?? input.previous_read_cutoff_after_stack_index),
           firstString(input.summaryText, input.summary_text),
           JSON.stringify(normalizeJsonObject(input.artifact, {})),
           firstString(input.errorMessage, input.error_message),

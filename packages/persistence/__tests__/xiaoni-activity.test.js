@@ -549,10 +549,10 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
       status: 'completed',
       trace_id: 'trace_codex_stream',
       run_id: 'run_internal_lease_1',
-      read_cutoff_after_conversation_id: '200',
-      previous_read_cutoff_after_conversation_id: '100',
+      read_cutoff_after_stack_index: '200',
+      previous_read_cutoff_after_stack_index: '100',
       summary_text: '新的小腻近况',
-      artifact: { read_cutoff_after_conversation_id: '200' },
+      artifact: { read_cutoff_after_stack_index: '200' },
       metadata: { trigger: 'core_memory_pressure' },
       started_at: '2026-06-05T10:05:00.000Z',
       completed_at: '2026-06-05T10:05:12.000Z',
@@ -625,7 +625,7 @@ test('Xiaoni action stream returns compression fork overlay without polluting ma
   assert.equal(forkRun.startedAt, '2026-06-05T10:05:00.000Z');
   assert.equal(forkRun.completedAt, '2026-06-05T10:05:12.000Z');
   assert.equal(forkRun.durationMs, 12000);
-  assert.equal(forkRun.readCutoffAfterConversationId, '200');
+  assert.equal(forkRun.readCutoffAfterStackIndex, '200');
   assert.equal(forkRun.tags.some((tag) => tag.key === 'source:core_memory_compression_fork'), true);
   // call + execution collapse into one call-first card, so the fork yields the
   // slice + the merged 请求工具 row (result folded into toolResultPreview).

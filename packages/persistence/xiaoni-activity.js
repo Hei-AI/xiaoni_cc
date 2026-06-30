@@ -1238,8 +1238,8 @@ function summarizeCompressionForkRun(row, events) {
     traceId: row.traceId || row.trace_id || null,
     runId: row.runId || row.run_id || null,
     conversationId: row.conversationId || row.conversation_id || null,
-    readCutoffAfterConversationId: row.readCutoffAfterConversationId || row.read_cutoff_after_conversation_id || null,
-    previousReadCutoffAfterConversationId: row.previousReadCutoffAfterConversationId || row.previous_read_cutoff_after_conversation_id || null,
+    readCutoffAfterStackIndex: row.readCutoffAfterStackIndex || row.read_cutoff_after_stack_index || null,
+    previousReadCutoffAfterStackIndex: row.previousReadCutoffAfterStackIndex || row.previous_read_cutoff_after_stack_index || null,
     eventCount: eventList.length,
     events: normalizeValue(eventList),
     metadata: normalizeValue({
@@ -1376,8 +1376,8 @@ function summarizeSubconsciousForkRun(row, events) {
     kind: 'subconscious_agent_fork',
     title: '潜意识 Agent',
     body: truncateText(firstString(row.error_message, row.errorMessage, row.summary_text, row.summaryText, artifact.summary_text), 520),
-    readCutoffAfterConversationId: null,
-    previousReadCutoffAfterConversationId: null,
+    readCutoffAfterStackIndex: null,
+    previousReadCutoffAfterStackIndex: null,
     events: normalizeValue([...events].sort(compareTimelineEvents)),
     metadata: normalizeValue({
       forkRunId,

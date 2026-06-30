@@ -178,6 +178,7 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
     CREATE TABLE IF NOT EXISTS agent_session_context_windows (
       session_key VARCHAR(191) PRIMARY KEY,
       read_cutoff_after_conversation_id BIGINT,
+      read_cutoff_after_stack_index BIGINT,
       last_context_window_tokens INTEGER,
       last_target_budget_tokens INTEGER,
       last_hard_budget_tokens INTEGER,
@@ -195,6 +196,26 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share TEXT`,
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share_age INTEGER DEFAULT 0`,
+  // Stack-native read cutoff: the agent runtime no longer counts conversations — the
+  // retained-context boundary is a stack_index (one agent_stack_item). conversation_id
+  // stays as a dead external-linkage column only. See project_remove_conversation_concept.
+  `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS read_cutoff_after_stack_index BIGINT`,
+  // ONE-TIME MAPPING MIGRATION (idempotent, one-time): translate the legacy
+  // conversation_id cutoff to its EXACT stack_index equivalent so the retained tail is
+  // byte-identical to today (blocks with stack_index > mapped == blocks with
+  // conversation_id > old cutoff). The `read_cutoff_after_stack_index IS NULL` guard makes
+  // it fire only once: once filled here (or recomputed by compression in stack space) it is
+  // never overwritten. The runtime reads conversation_id ONLY here, at migration; never again.
+  `
+    UPDATE agent_session_context_windows w
+       SET read_cutoff_after_stack_index = (
+         SELECT MAX(s.stack_index) FROM agent_stack_items s
+          WHERE s.identity_key = 'xiaoni'
+            AND s.conversation_id IS NOT NULL
+            AND s.conversation_id <= w.read_cutoff_after_conversation_id)
+     WHERE w.read_cutoff_after_stack_index IS NULL
+       AND w.read_cutoff_after_conversation_id IS NOT NULL
+  `,
   'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)',
   'CREATE INDEX IF NOT EXISTS idx_conversations_trace_id ON conversations (trace_id)'
 ];
@@ -324,7 +345,7 @@ function mapSessionReadCutoffState(row) {
   }
   return {
     sessionKey: row.session_key,
-    readCutoffAfterConversationId: row.read_cutoff_after_conversation_id === null ? null : Number(row.read_cutoff_after_conversation_id),
+    readCutoffAfterStackIndex: row.read_cutoff_after_stack_index === null || typeof row.read_cutoff_after_stack_index === 'undefined' ? null : Number(row.read_cutoff_after_stack_index),
     lastContextWindowTokens: row.last_context_window_tokens === null ? null : Number(row.last_context_window_tokens),
     lastTargetBudgetTokens: row.last_target_budget_tokens === null ? null : Number(row.last_target_budget_tokens),
     lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
@@ -1006,7 +1027,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           SELECT
             session_key,
-            read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
@@ -1034,7 +1055,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           INSERT INTO agent_session_context_windows (
             session_key,
-            read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
@@ -1043,7 +1064,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT (session_key)
           DO UPDATE SET
-            read_cutoff_after_conversation_id = EXCLUDED.read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index = EXCLUDED.read_cutoff_after_stack_index,
             last_context_window_tokens = EXCLUDED.last_context_window_tokens,
             last_target_budget_tokens = EXCLUDED.last_target_budget_tokens,
             last_hard_budget_tokens = EXCLUDED.last_hard_budget_tokens,
@@ -1051,7 +1072,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `,
         [
           input.sessionKey,
-          input.readCutoffAfterConversationId,
+          input.readCutoffAfterStackIndex,
           input.lastContextWindowTokens,
           input.lastTargetBudgetTokens,
           input.lastHardBudgetTokens
@@ -1062,8 +1083,8 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
 
   async function commitSessionContextSummaryAndReadCutoff(input = {}, config = {}) {
     const sessionKey = typeof input.sessionKey === 'string' ? input.sessionKey : '';
-    const readCutoffAfterConversationId = toNumericConversationId(input.readCutoffAfterConversationId);
-    if (!sessionKey || readCutoffAfterConversationId === null) {
+    const readCutoffAfterStackIndex = toNumericConversationId(input.readCutoffAfterStackIndex);
+    if (!sessionKey || readCutoffAfterStackIndex === null) {
       return {
         committed: false,
         state: null
@@ -1077,7 +1098,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           SELECT
             session_key,
-            read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
@@ -1093,9 +1114,9 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
       );
       const existing = mapSessionReadCutoffState(existingRows[0]);
       if (
-        existing?.readCutoffAfterConversationId !== null &&
-        typeof existing?.readCutoffAfterConversationId === 'number' &&
-        existing.readCutoffAfterConversationId >= readCutoffAfterConversationId
+        existing?.readCutoffAfterStackIndex !== null &&
+        typeof existing?.readCutoffAfterStackIndex === 'number' &&
+        existing.readCutoffAfterStackIndex >= readCutoffAfterStackIndex
       ) {
         return {
           committed: false,
@@ -1107,7 +1128,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           INSERT INTO agent_session_context_windows (
             session_key,
             context_summary,
-            read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
@@ -1117,14 +1138,14 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           ON CONFLICT (session_key)
           DO UPDATE SET
             context_summary = EXCLUDED.context_summary,
-            read_cutoff_after_conversation_id = EXCLUDED.read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index = EXCLUDED.read_cutoff_after_stack_index,
             last_context_window_tokens = EXCLUDED.last_context_window_tokens,
             last_target_budget_tokens = EXCLUDED.last_target_budget_tokens,
             last_hard_budget_tokens = EXCLUDED.last_hard_budget_tokens,
             updated_at = CURRENT_TIMESTAMP
           RETURNING
             session_key,
-            read_cutoff_after_conversation_id,
+            read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
@@ -1136,7 +1157,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         [
           sessionKey,
           input.contextSummary,
-          readCutoffAfterConversationId,
+          readCutoffAfterStackIndex,
           input.lastContextWindowTokens,
           input.lastTargetBudgetTokens,
           input.lastHardBudgetTokens

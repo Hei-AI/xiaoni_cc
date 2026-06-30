@@ -73,8 +73,8 @@ function createMockSql() {
           trace_id: params[4],
           run_id: params[5],
           conversation_id: params[6],
-          read_cutoff_after_conversation_id: params[7],
-          previous_read_cutoff_after_conversation_id: params[8],
+          read_cutoff_after_stack_index: params[7],
+          previous_read_cutoff_after_stack_index: params[8],
           summary_text: params[9],
           artifact: JSON.parse(params[10]),
           error_message: params[11],
@@ -121,8 +121,8 @@ function createMockSql() {
             trace_id: 'trace-1',
             run_id: 'run-1',
             conversation_id: null,
-            read_cutoff_after_conversation_id: null,
-            previous_read_cutoff_after_conversation_id: null,
+            read_cutoff_after_stack_index: null,
+            previous_read_cutoff_after_stack_index: null,
             created_at: '2026-06-11T00:00:00.000Z'
           }),
           status: params[0],
@@ -1390,8 +1390,8 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
     status: 'running',
     traceId: 'trace-1',
     runId: 'run-1',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: 99,
+    readCutoffAfterStackIndex: 171,
+    previousReadCutoffAfterStackIndex: 99,
     metadata: { no_main_stack_persist: true }
   });
   const itemRows = await persistence.appendCoreMemoryCompressionForkItems({
@@ -1453,7 +1453,7 @@ test('core memory compression fork ledger stores run, slice, items, and tool exe
   });
 
   assert.equal(run.forkRunId, 'fork-1');
-  assert.equal(run.readCutoffAfterConversationId, '171');
+  assert.equal(run.readCutoffAfterStackIndex, '171');
   assert.equal(itemRows.length, 2);
   assert.equal(itemRows[0].itemIndex, 3);
   assert.equal(itemRows[0].forkRunId, 'fork-1');
@@ -1476,8 +1476,8 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
     status: 'running',
     traceId: 'trace-active',
     runId: 'run-active',
-    readCutoffAfterConversationId: 171,
-    previousReadCutoffAfterConversationId: 99,
+    readCutoffAfterStackIndex: 171,
+    previousReadCutoffAfterStackIndex: 99,
     metadata: {
       compression_covered_end_conversation_id: 201
     }
