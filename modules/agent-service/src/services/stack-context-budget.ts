@@ -1,42 +1,49 @@
 // Stack-native context retention.
 //
-// This replaces the legacy conversation-turn counting (HISTORY_COMPACT_KEEP=30 *conversations*,
-// `planReadCutoffForForcedCompression`) with a BLOCK budget over the flat agent stack. There is no
-// conversation/turn concept here — the only units are:
-//   - BLOCK: one agent_stack_item, the thing the request actually pays for / caches;
-//   - FRAME: a completed request cycle ending in an assistant `final_answer`. A frame is the only
-//     SAFE cut boundary — cutting anywhere else could split a function_call from its
-//     function_call_output and break replay. Frames are derived purely from stack structure
-//     (`isFrameEnd`), never from conversation_id.
+// Replaces the legacy conversation-turn counting (HISTORY_COMPACT_KEEP=30 *conversations*) with a
+// BLOCK budget over the flat agent stack. No conversation/turn concept — the only unit is the BLOCK
+// (one agent_stack_item).
 //
-// Policy: keep the most recent `keepBlocks` blocks (the original HISTORY_COMPACT_KEEP=30 INTENT —
-// "keep the last 30", which the legacy code mis-applied to conversations, so it kept ~30 cycles
-// ≈ 360 blocks instead). WHEN to compress is decided elsewhere by the token trigger (REQ1); this
-// function only decides WHERE to cut. The cutoff it returns is a `stack_index`, not a conversation_id.
+// Two hard requirements shape the cut:
+//   1. PAIRING (Claude): tool_use / tool_result must be paired in-context. Cutting mid-pair would
+//      drop a tool result (orphan) or fabricate a `[no result recorded]` placeholder at wire time —
+//      both falsify the wire view. So the cutoff must land on a "clean" boundary: a stack_index
+//      where every function_call before it already has its function_call_output before it.
+//   2. VERBATIM SUFFIX (immutability / replay): the retained tail must be byte-identical to the same
+//      tail before compression — compression only drops the head and prepends a capsule, it never
+//      rewrites a kept block. This planner selects a SUFFIX by stack_index (the stack is append-only
+//      immutable), so the kept blocks ARE the pre-compression tail verbatim. The assembly layer
+//      (P1.1) verifies the assembled tail hash equals the pre-compression tail hash.
+//
+// Policy: `keepBlocks` is a FLOOR. Keep the most recent keepBlocks blocks, FLOATED UP to the nearest
+// clean boundary (so a pair is never split). WHEN to compress is decided elsewhere by the token
+// trigger (REQ1); this only decides WHERE to cut. The cutoff is a stack_index, never a conversation_id.
 
 export interface StackBlockRef {
   /** dense ascending append index on the main stack (agent_stack_items.stack_index) */
   stackIndex: number;
-  /** true when this block closes a request cycle (assistant final_answer) — a safe cut boundary */
-  isFrameEnd: boolean;
+  /** call_id this block OPENS (a function_call / tool_use); else null */
+  opensCallId?: string | null;
+  /** call_id this block CLOSES (a function_call_output / tool_result); else null */
+  closesCallId?: string | null;
 }
 
 export interface StackCutoffPlan {
-  /** evict every block with stack_index <= this; the cutoff always lands on a frame-end block */
+  /** evict every block with stack_index <= this; the cutoff always lands on a clean (paired) boundary */
   readCutoffAfterStackIndex: number;
+  /** floats >= keepBlocks up to the minimal complete offset */
   retainedBlockCount: number;
   evictedBlockCount: number;
 }
 
 /**
- * Decide where to cut the stack so the retained tail is the most recent `keepBlocks` blocks, snapped
- * UP to a whole frame (so a request cycle is never split). Returns null when nothing should be
- * evicted: the stack is already at/under `keepBlocks`, or there is no earlier safe frame boundary to
- * cut at (the budget-meeting tail is one open cycle — keep it whole, the next final_answer makes a
- * boundary). Hysteresis is implicit: a small `keepBlocks` leaves the post-cut stack far below the
- * token trigger, so it takes many turns to climb back — no vacuum-edge thrash.
+ * Decide where to cut the stack so the retained tail is the most recent `keepBlocks` blocks, floated
+ * UP to the nearest clean boundary (no open tool_use straddling the cut). Returns null when nothing
+ * should be evicted (already at/under keepBlocks, or no clean boundary keeps >= keepBlocks — then keep
+ * everything; the next final_answer creates a clean boundary).
  *
- * `blocks` MUST be in ascending stack order.
+ * `blocks` MUST be in ascending stack order. The retained tail is exactly the suffix
+ * `blocks[evictedBlockCount..]` — a verbatim suffix of the input, never reordered or altered.
  */
 export function planStackReadCutoffByBlockBudget(
   blocks: StackBlockRef[],
@@ -46,20 +53,30 @@ export function planStackReadCutoffByBlockBudget(
   if (total === 0 || total <= options.keepBlocks) {
     return null;
   }
-  // Walk from the tail accumulating kept blocks. Once we've met the keep budget, cut at the first
-  // frame boundary at or before that point — keep at least `keepBlocks`, snapped up to a whole frame.
-  let kept = 0;
-  for (let i = total - 1; i >= 0; i -= 1) {
-    kept += 1;
-    if (kept >= options.keepBlocks && i - 1 >= 0 && blocks[i - 1]!.isFrameEnd) {
-      const cutIdx = i - 1; // last evicted block (a frame-end / safe boundary)
+
+  // cleanAfter[i] = cutting AFTER block i leaves no open tool_use (every function_call in [0..i] has
+  // its function_call_output in [0..i]) → the kept tail [i+1..] has no orphaned tool_result.
+  const open = new Set<string>();
+  const cleanAfter: boolean[] = new Array(total).fill(false);
+  for (let i = 0; i < total; i += 1) {
+    const b = blocks[i]!;
+    if (b.opensCallId) open.add(b.opensCallId);
+    if (b.closesCallId) open.delete(b.closesCallId);
+    cleanAfter[i] = open.size === 0;
+  }
+
+  // Largest clean boundary p whose kept count (total-1-p) >= keepBlocks → the minimal complete tail
+  // that still covers the budget. Start at the exact-keepBlocks cut and float EARLIER while unclean.
+  const exactCutIdx = total - options.keepBlocks - 1;
+  for (let p = exactCutIdx; p >= 0; p -= 1) {
+    if (cleanAfter[p]) {
       return {
-        readCutoffAfterStackIndex: blocks[cutIdx]!.stackIndex,
-        retainedBlockCount: total - (cutIdx + 1),
-        evictedBlockCount: cutIdx + 1
+        readCutoffAfterStackIndex: blocks[p]!.stackIndex,
+        retainedBlockCount: total - (p + 1),
+        evictedBlockCount: p + 1
       };
     }
   }
-  // No safe boundary below the kept region → cannot cut without splitting a cycle. Keep everything.
+  // No clean boundary that keeps >= keepBlocks → cannot cut without splitting a pair. Keep all.
   return null;
 }
