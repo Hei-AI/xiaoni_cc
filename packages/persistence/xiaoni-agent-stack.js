@@ -4670,6 +4670,51 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     return rows[0] || null;
   }
 
+  // The cache heartbeat keeps the prompt cache warm while the runtime is stopped by CLONING
+  // the main agent's last request (fork iron law: clone, never rebuild). The main agent's
+  // request is persisted per turn as llm_request_slices.canonical_request; every FORK request
+  // carries a fork marker in its canonical_request.metadata (core_memory_compression_fork /
+  // subconscious_agent_fork / image_vision_fork / cache_heartbeat). So the latest completed
+  // slice WITHOUT any fork marker is the main agent's last request. Returns the parsed
+  // canonical request, or null on a cold start (no main request persisted yet → caller falls
+  // back to a rebuild).
+  async function getLatestMainAgentCanonicalRequest(input = {}, config = {}) {
+    await ensureXiaoniAgentStackSchema(input, config);
+    const identityKey = firstString(input.identityKey, input.identity_key) || 'xiaoni';
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        `
+          SELECT canonical_request
+            FROM llm_request_slices
+           WHERE identity_key = ?
+             AND status = 'completed'
+             AND canonical_request IS NOT NULL
+             AND (canonical_request->'metadata'->>'core_memory_compression_fork') IS NULL
+             AND (canonical_request->'metadata'->>'subconscious_agent_fork') IS NULL
+             AND (canonical_request->'metadata'->>'image_vision_fork') IS NULL
+             AND (canonical_request->'metadata'->>'cache_heartbeat') IS NULL
+           ORDER BY created_at DESC, id DESC
+           LIMIT 1
+        `,
+        [identityKey]
+      );
+      if (!rows || rows.length === 0) {
+        return null;
+      }
+      let canonicalRequest = rows[0].canonical_request;
+      if (typeof canonicalRequest === 'string') {
+        try {
+          canonicalRequest = JSON.parse(canonicalRequest);
+        } catch (error) {
+          return null;
+        }
+      }
+      return (canonicalRequest && typeof canonicalRequest === 'object' && Object.keys(canonicalRequest).length > 0)
+        ? canonicalRequest
+        : null;
+    });
+  }
+
   async function attachConversationIdToAgentStackByTrace(input = {}, config = {}) {
     const traceId = firstString(input.traceId, input.trace_id);
     const conversationId = normalizeBigIntId(input.conversationId ?? input.conversation_id);
@@ -4762,6 +4807,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     appendAgentStackItem,
     appendAgentStackItems,
     recordLlmRequestSlice,
+    getLatestMainAgentCanonicalRequest,
     recordCodexProviderUsageEvent,
     updateLlmRequestSliceStackLinks,
     recordToolExecution,
