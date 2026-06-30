@@ -1279,6 +1279,7 @@ export type AgentRuntimePersistenceApi = {
   }>;
   upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  setSessionCompressionTriggerCounter(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
     summaryText: string | null;
     summarizedThroughConversationId: number | null;
@@ -1333,6 +1334,7 @@ export function commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePer
 }>;
 export function upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+export function setSessionCompressionTriggerCounter(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
   summaryText: string | null;
   summarizedThroughConversationId: number | null;

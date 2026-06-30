@@ -185,6 +185,7 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
       context_summary TEXT,
       pending_proactive_share TEXT,
       pending_proactive_share_age INTEGER DEFAULT 0,
+      consecutive_over_compression_turns INTEGER NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `,
@@ -196,6 +197,12 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share TEXT`,
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share_age INTEGER DEFAULT 0`,
+  // Persist the compression-trigger debounce counter (consecutive main turns whose
+  // real input_tokens exceeded COMPRESSION_TRIGGER_INPUT_TOKENS). It used to be in-memory
+  // only and zeroed on every agent-service restart, so frequent deploys kept compression
+  // from ever reaching its consecutive-turn threshold. TIMING-ONLY: it decides WHEN
+  // compression fires; it never enters the cacheable request prefix.
+  `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS consecutive_over_compression_turns INTEGER NOT NULL DEFAULT 0`,
   // Stack-native read cutoff: the agent runtime no longer counts conversations — the
   // retained-context boundary is a stack_index (one agent_stack_item). conversation_id
   // stays as a dead external-linkage column only. See project_remove_conversation_concept.
@@ -352,6 +359,7 @@ function mapSessionReadCutoffState(row) {
     contextSummary: row.context_summary ?? null,
     pendingProactiveShare: row.pending_proactive_share ?? null,
     pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
+    consecutiveOverCompressionTurns: row.consecutive_over_compression_turns == null ? 0 : Number(row.consecutive_over_compression_turns),
     updatedAt: toIso(row.updated_at)
   };
 }
@@ -1034,6 +1042,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             context_summary,
             pending_proactive_share,
             pending_proactive_share_age,
+            consecutive_over_compression_turns,
             updated_at
           FROM agent_session_context_windows
           WHERE session_key = ?
@@ -1206,6 +1215,28 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             updated_at = CURRENT_TIMESTAMP
         `,
         [input.sessionKey, input.contextSummary]
+      );
+    });
+  }
+
+  async function setSessionCompressionTriggerCounter(input = {}, config = {}) {
+    // Targeted writer for ONLY consecutive_over_compression_turns. Must not clobber the
+    // read cutoff / summary / proactive-share columns — the compression debounce counter
+    // is written far more often (every main turn) than those. TIMING-ONLY state; it never
+    // enters the cacheable request prefix.
+    const rawCount = Number(input.consecutiveOverCompressionTurns);
+    const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 0;
+    await withSql(input, config, async (sql) => {
+      await sql.execute(
+        `
+          INSERT INTO agent_session_context_windows (session_key, consecutive_over_compression_turns, updated_at)
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT (session_key)
+          DO UPDATE SET
+            consecutive_over_compression_turns = EXCLUDED.consecutive_over_compression_turns,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        [input.sessionKey, count]
       );
     });
   }
@@ -1468,6 +1499,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     commitSessionContextSummaryAndReadCutoff,
     upsertProactiveShareState,
     upsertSessionContextSummary,
+    setSessionCompressionTriggerCounter,
     loadSessionReplayState,
     listStoredConversationTurns,
     createStoredConversation,

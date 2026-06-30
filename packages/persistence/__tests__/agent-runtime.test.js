@@ -302,3 +302,101 @@ test('commitSessionContextSummaryAndReadCutoff no-ops when current cutoff alread
   assert.equal(queries.length, 2);
   assert.equal(queries.some((entry) => entry.sql.includes('INSERT INTO agent_session_context_windows')), false);
 });
+
+// In-memory stateful adapter modelling the single agent_session_context_windows row by
+// session_key, just enough to round-trip setSessionCompressionTriggerCounter ->
+// getSessionReadCutoffState. Only interprets the two statements those two functions emit.
+function createInMemorySessionContextAdapter() {
+  const rows = new Map();
+  function ensure(sessionKey) {
+    let row = rows.get(sessionKey);
+    if (!row) {
+      row = {
+        session_key: sessionKey,
+        read_cutoff_after_stack_index: null,
+        last_context_window_tokens: null,
+        last_target_budget_tokens: null,
+        last_hard_budget_tokens: null,
+        context_summary: null,
+        pending_proactive_share: null,
+        pending_proactive_share_age: 0,
+        consecutive_over_compression_turns: 0,
+        updated_at: new Date()
+      };
+      rows.set(sessionKey, row);
+    }
+    return row;
+  }
+  return {
+    execute: async (sql, params = []) => {
+      if (sql.includes('INSERT INTO agent_session_context_windows') && sql.includes('consecutive_over_compression_turns')) {
+        const [sessionKey, count] = params;
+        const row = ensure(sessionKey);
+        row.consecutive_over_compression_turns = count;
+        row.updated_at = new Date();
+        return 1;
+      }
+      throw new Error(`unexpected execute: ${sql}`);
+    },
+    query: async (sql, params = []) => {
+      if (sql.includes('FROM agent_session_context_windows') && sql.includes('WHERE session_key = ?')) {
+        const row = rows.get(params[0]);
+        return row ? [row] : [];
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+    withTransaction: async () => {
+      throw new Error('setSessionCompressionTriggerCounter should not open a transaction');
+    },
+    close: async () => undefined
+  };
+}
+
+test('setSessionCompressionTriggerCounter round-trips through getSessionReadCutoffState', async () => {
+  const persistence = createAgentRuntimePersistence({ sqlAdapter: createInMemorySessionContextAdapter() });
+
+  await persistence.setSessionCompressionTriggerCounter({
+    sessionKey: 'xiaoni:test-global',
+    consecutiveOverCompressionTurns: 2
+  });
+
+  const state = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
+  assert.equal(state.consecutiveOverCompressionTurns, 2);
+
+  // overwrite back down to 0 (the reset path) survives the round-trip too
+  await persistence.setSessionCompressionTriggerCounter({
+    sessionKey: 'xiaoni:test-global',
+    consecutiveOverCompressionTurns: 0
+  });
+  const reset = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
+  assert.equal(reset.consecutiveOverCompressionTurns, 0);
+});
+
+test('getSessionReadCutoffState maps a missing/null compression counter to 0', async () => {
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      query: async () => [
+        {
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 12,
+          last_context_window_tokens: null,
+          last_target_budget_tokens: null,
+          last_hard_budget_tokens: null,
+          context_summary: null,
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          // column absent on a row created before the migration
+          updated_at: new Date()
+        }
+      ],
+      execute: async () => 1,
+      withTransaction: async () => {
+        throw new Error('no transaction expected');
+      },
+      close: async () => undefined
+    }
+  });
+
+  const state = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
+  assert.equal(state.consecutiveOverCompressionTurns, 0);
+});
