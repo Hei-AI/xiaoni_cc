@@ -1627,3 +1627,103 @@ test('F1: heartbeat does NOT over-extend with a self-continuation tail on final_
   assert.equal(JSON.stringify(hbWarmedPrefix), JSON.stringify(wakeDurable),
     'heartbeat must warm exactly the notify-wake durable prefix (no self-continuation over-extension)');
 });
+
+// =====================================================================================
+// RUN-BOUNDARY SLIDING-FLOOR 击穿 (regression for 2026-06-30 incident).
+//
+// PURPOSE (not implementation): two consecutive runs over the SAME compressed epoch
+// (the read cutoff does NOT move between them) must read the stack from the SAME floor,
+// so run N+1's durable history prefix is byte-identical to run N's at block 0 → the
+// next run's first turn hits the warm cache. The ONLY thing that may move the floor is
+// a compression commit (which legitimately costs one STW cold frame).
+//
+// THE BUG this guards: loadStackHistoryBlocks floored the read at
+// max(cutoffStackIndex, head - STACK_HISTORY_READ_BACKSTOP_BLOCKS). `head` grows ~2
+// blocks per turn, so once the cutoff is >200 blocks behind head, the head-relative term
+// wins and the window FRONT slides UP by however many blocks were appended since the
+// prior run. The dropped front blocks make run N+1's durable prefix diverge at the first
+// retained block → the entire message-tier prefix cold-reads at EVERY run boundary
+// (observed: cache_read pinned at the system+tools head ~12249, cache_creation 64-75k on
+// every fresh run's turn 1).
+//
+// WHY THE OLD SUITE MISSED IT: every prior harness either passed afterStackIndex through
+// without growing `head` across a run boundary, or served a fixed history list. None
+// drove TWO runs through loadStackHistoryBlocks with getAgentStackHead returning a LARGER
+// head on run 2 while the cutoff stayed put — the exact condition that makes the
+// head-relative floor override the stable cutoff. This test grows head across the boundary
+// through the REAL floor math.
+// =====================================================================================
+test('run boundary: stable cutoff → next run reads from the SAME floor (no sliding-backstop 击穿)', async () => {
+  // A long frozen stack: indices 1..400, each a model-visible block. The compression
+  // cutoff sits at 100 and does NOT move. Head will be read as 360 on run 1 and 392 on
+  // run 2 — both >300 blocks past the cutoff, so the OLD floor max(100, head-200) would
+  // slide from 160 to 192 (front blocks 161..192 silently dropped on run 2).
+  const FROZEN_CUTOFF = 100;
+  const stack: Array<Record<string, unknown>> = [];
+  for (let i = 1; i <= 400; i += 1) {
+    // Alternate the block role/kind so the front-of-window block KIND (which decides
+    // whether it merges into message[0]) actually depends on where the floor lands —
+    // i.e. a slid floor genuinely changes the assembled prefix, not just its length.
+    const isUserInput = i % 3 === 0;
+    stack.push({
+      stack_index: i, stackIndex: i,
+      item_kind: isUserInput ? 'runtime_input' : 'assistant_output',
+      itemKind: isUserInput ? 'runtime_input' : 'assistant_output',
+      role: isUserInput ? 'user' : 'assistant',
+      visibility: 'model_visible',
+      content: { input_items: [{
+        type: 'message',
+        role: isUserInput ? 'user' : 'assistant',
+        content: [{ type: isUserInput ? 'input_text' : 'output_text', text: `历史块-${i}` }]
+      }] }
+    });
+  }
+
+  let headToReturn = 360;
+  const store: any = {
+    getAgentStackHead: async () => headToReturn,
+    getSessionReadCutoffState: async () => ({
+      readCutoffAfterStackIndex: FROZEN_CUTOFF, contextSummary: '近况', pendingProactiveShare: null, pendingProactiveShareAge: 0
+    }),
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? params.after_stack_index ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return stack.filter((row) => Number(row.stack_index) > floor).map((row) => ({ ...row }));
+    }
+  };
+
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+
+  // Run 1: head = 360. Run 2 (boundary): head grew to 392 (32 blocks appended), cutoff unchanged.
+  const cutoffState = await store.getSessionReadCutoffState();
+
+  headToReturn = 360;
+  const run1History = await (service as any).loadStackHistoryBlocks(cutoffState, 'rt-run1');
+  headToReturn = 392;
+  const run2History = await (service as any).loadStackHistoryBlocks(cutoffState, 'rt-run2');
+
+  // THE CONTRACT: the floor is the cutoff on BOTH runs, so both windows START at the same
+  // frozen block (cutoff + 1 = 101). The front is byte-identical; run 2 only EXTENDS the tail.
+  assert.ok(run1History.length > 0 && run2History.length > 0, 'both runs must retain history');
+  assert.equal(
+    (run1History[0] as any).id, FROZEN_CUTOFF + 1,
+    `run 1 window must start at the cutoff floor (${FROZEN_CUTOFF + 1}), got ${(run1History[0] as any).id}`
+  );
+  assert.equal(
+    (run2History[0] as any).id, FROZEN_CUTOFF + 1,
+    `run 2 window must start at the SAME cutoff floor (${FROZEN_CUTOFF + 1}), not a slid head-relative floor — got ${(run2History[0] as any).id}`
+  );
+
+  // Build the actual provider input for each run and assert run 2's durable prefix is a
+  // byte-identical ordered prefix of run 1's (i.e. the cacheable message-tier prefix is
+  // reusable across the boundary — the warm cache survives, no full cold read).
+  const payload = baseQueuePayload({ traceId: 'rt-run2', runId: 'run-2' });
+  const run1Input = buildInitialInput(run1History, payload as any, createRuntimePrompt(), [], '近况');
+  const run2Input = buildInitialInput(run2History, payload as any, createRuntimePrompt(), [], '近况');
+  assertOrderedPrefix(
+    stripVolatile(run1Input), stripVolatile(run2Input),
+    'run boundary: run 2 durable prefix must be a byte-identical ordered prefix of run 1 (no sliding-floor 击穿)'
+  );
+});
