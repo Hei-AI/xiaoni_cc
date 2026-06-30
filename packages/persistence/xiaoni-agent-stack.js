@@ -2909,10 +2909,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
   async function findActiveCoreMemoryCompressionForkRun(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const contextSessionKey = firstString(input.contextSessionKey, input.context_session_key);
-    const compressionCoveredEndConversationId = normalizeBigIntId(
-      input.compressionCoveredEndConversationId ?? input.compression_covered_end_conversation_id
+    const compressionCoveredEndStackIndex = normalizeBigIntId(
+      input.compressionCoveredEndStackIndex ?? input.compression_covered_end_stack_index
     );
-    if (!contextSessionKey || compressionCoveredEndConversationId === null) {
+    if (!contextSessionKey || compressionCoveredEndStackIndex === null) {
       return null;
     }
     const staleAfterMinutes = Number.parseInt(String(input.staleAfterMinutes ?? input.stale_after_minutes ?? 30), 10);
@@ -2926,14 +2926,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           FROM core_memory_compression_fork_runs
           WHERE context_session_key = ?
             AND status = 'running'
-            AND metadata->>'compression_covered_end_conversation_id' = ?
+            AND metadata->>'compression_covered_end_stack_index' = ?
             AND started_at > NOW() - (?::text || ' minutes')::interval
           ORDER BY started_at DESC, id DESC
           LIMIT 1
         `,
         [
           contextSessionKey,
-          String(compressionCoveredEndConversationId),
+          String(compressionCoveredEndStackIndex),
           String(effectiveStaleAfterMinutes)
         ]
       );
