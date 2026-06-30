@@ -6451,7 +6451,8 @@ export class AgentLoopService {
           pendingProactiveShare: budgetPlan.pendingProactiveShare,
           developerContextBlock,
           runtimeEnergyState: initialRuntimeEnergyState,
-          precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems
+          precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems,
+          loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
         });
         if (midRunCompressionApply) {
           requestInput = midRunCompressionApply.requestInput;
@@ -9513,8 +9514,8 @@ export class AgentLoopService {
   //
   // Silent point = main current turn finished (naturally true at the loop top) + the
   // COMPRESSION fork that produced this cutoff has finished committing. We do NOT wait
-  // for subconscious / image / heartbeat forks — see docs/CACHE_CONTRACT.md §"切换不与
-  // fork 同步". Why: each fork is a frozen clone of the main lineage at its own fork
+  // for subconscious / image / heartbeat forks — see docs/CACHE_CONTRACT.md §4
+  // (REQ2 STW — "为什么不等其它 fork"). Why: each fork is a frozen clone of the main lineage at its own fork
   // point (P_n), and with the head+tail cache_control contract those P_n are INDEPENDENT
   // prefix-keyed entries. Rewriting the main to P_new neither evicts nor mutates any P_n
   // (cache entries are immutable, byte-keyed), so a mid-fork switch never 穿透s a running
@@ -9535,6 +9536,14 @@ export class AgentLoopService {
     developerContextBlock: string | null;
     runtimeEnergyState: RuntimeEnergyState | null;
     precomputedCurrentTurnInputItems: OpenResponseInputItem[];
+    // The run's OWN loopContinuation/trigger ordering flag (= initial build's
+    // options.initialLoopContinuationBeforeCurrentTrigger). The STW rebuild MUST reuse it
+    // so the switched live body orders loopContinuation relative to the trigger identically
+    // to how the run was originally built. Defaulting it to false here would emit
+    // [history, trigger, loopContinuation] while a resumed run was built (and stack-replay
+    // reconstructs) as [history, loopContinuation, trigger] → a run-boundary item-order
+    // divergence = the exact §3 byte-replay break this branch exists to prevent.
+    loopContinuationBeforeCurrentTrigger: boolean;
   }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
     const key = params.contextSessionKey;
     const pending = this.pendingCompressionAppliedCutoffBySession.get(key) ?? null;
@@ -9572,6 +9581,7 @@ export class AgentLoopService {
       developerContextBlock: params.developerContextBlock,
       runtimeEnergyState: params.runtimeEnergyState,
       triggerInputMode: 'fresh_trigger',
+      loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger,
       precomputedCurrentTurnInputItems: params.precomputedCurrentTurnInputItems
     });
     // One-cold-only: clear the latch so the switch fires exactly once; reset the trigger
