@@ -28,6 +28,7 @@ type RuntimeControl = {
   postCompressionPauseReason: string | null;
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
+  compressionTriggerInputTokens: number;
   updatedAt: string | null;
 };
 
@@ -40,7 +41,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -182,6 +183,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [yieldInput, setYieldInput] = React.useState('');
   const [debugHeartbeatSecondsInput, setDebugHeartbeatSecondsInput] = React.useState('');
+  const [compressionTriggerInput, setCompressionTriggerInput] = React.useState('');
   const controlQuery = useQuery({
     queryKey: ['xiaoni-runtime-control'],
     queryFn: fetchRuntimeControl,
@@ -249,6 +251,9 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const currentDebugHeartbeatIntervalMs = typeof pendingPatch?.debugCacheHeartbeatIntervalMs === 'number'
     ? pendingPatch.debugCacheHeartbeatIntervalMs
     : control?.debugCacheHeartbeatIntervalMs ?? 0;
+  const currentCompressionTriggerInputTokens = typeof pendingPatch?.compressionTriggerInputTokens === 'number'
+    ? pendingPatch.compressionTriggerInputTokens
+    : control?.compressionTriggerInputTokens ?? 80000;
   React.useEffect(() => {
     if (!mutation.isPending && typeof control?.mainAgentPreModelYieldMs === 'number') {
       setYieldInput(String(control.mainAgentPreModelYieldMs));
@@ -259,6 +264,11 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       setDebugHeartbeatSecondsInput(String(Math.round(control.debugCacheHeartbeatIntervalMs / 1000)));
     }
   }, [control?.debugCacheHeartbeatIntervalMs, mutation.isPending]);
+  React.useEffect(() => {
+    if (!mutation.isPending && typeof control?.compressionTriggerInputTokens === 'number') {
+      setCompressionTriggerInput(String(control.compressionTriggerInputTokens));
+    }
+  }, [control?.compressionTriggerInputTokens, mutation.isPending]);
   const parsedYieldMs = /^\d+$/.test(yieldInput.trim())
     ? Number.parseInt(yieldInput.trim(), 10)
     : null;
@@ -300,6 +310,23 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     }
     mutation.mutate({ debugCacheHeartbeatIntervalMs: targetDebugHeartbeatMs });
   }, [mutation, debugHeartbeatInputValid, targetDebugHeartbeatMs]);
+  const parsedCompressionTrigger = /^\d+$/.test(compressionTriggerInput.trim())
+    ? Number.parseInt(compressionTriggerInput.trim(), 10)
+    : null;
+  // Mirror the backend bounds (10000..1000000).
+  const compressionTriggerInputValid = parsedCompressionTrigger !== null
+    && Number.isSafeInteger(parsedCompressionTrigger)
+    && parsedCompressionTrigger >= 10000
+    && parsedCompressionTrigger <= 1000000;
+  const compressionTriggerInputDirty = compressionTriggerInputValid
+    && parsedCompressionTrigger !== currentCompressionTriggerInputTokens;
+  const handleCompressionTriggerSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!compressionTriggerInputValid || parsedCompressionTrigger === null) {
+      return;
+    }
+    mutation.mutate({ compressionTriggerInputTokens: parsedCompressionTrigger });
+  }, [mutation, compressionTriggerInputValid, parsedCompressionTrigger]);
 
   return (
     <PageShell className="max-w-4xl">
@@ -513,6 +540,43 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               disabled={controlQuery.isLoading || mutation.isPending || !yieldInputValid || !yieldInputDirty}
             >
               {mutation.isPending && typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : null}
+              保存
+            </Button>
+          </div>
+        </form>
+      </SectionPanel>
+
+      <SectionPanel
+        title="压缩触发阈值"
+        description="小腻的核心记忆压缩触发线：当模型返回的真实 input_tokens 连续若干轮超过该值时，后台压缩 fork 会启动。仅影响压缩时机，不进入可缓存请求前缀；改后无需重启，下一轮主循环即生效。"
+        icon={<Shrink className="h-4 w-4 text-primary" />}
+      >
+        <form className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between" onSubmit={handleCompressionTriggerSubmit}>
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">压缩触发阈值 (input tokens)</div>
+            <div className="text-sm text-muted-foreground">当前值：{currentCompressionTriggerInputTokens.toLocaleString()} tokens</div>
+            <div className="text-xs text-muted-foreground">范围：10000 – 1000000；默认 80000。</div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-56">
+            <Input
+              type="number"
+              min={10000}
+              max={1000000}
+              step={1000}
+              inputMode="numeric"
+              value={compressionTriggerInput}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onChange={(event) => setCompressionTriggerInput(event.target.value)}
+              aria-label="压缩触发阈值 input tokens"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={controlQuery.isLoading || mutation.isPending || !compressionTriggerInputValid || !compressionTriggerInputDirty}
+            >
+              {mutation.isPending && typeof pendingPatch?.compressionTriggerInputTokens === 'number'
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 : null}
               保存
