@@ -205,3 +205,44 @@ test('appendAgentStackItems: same-notify reprocessing stays idempotent on its ow
   assert.equal(reminders.length, 1, 'same-notify reprocessing must not duplicate');
   assert.equal(reminderTextOf(reminders[0]), '视线边缘：又堆积了 1 条新动静');
 });
+
+// =====================================================================================
+// Defense-in-depth (docs/CACHE_CONTRACT.md §3): the breakdown's root is a non-unique
+// event_id. buildRuntimeInputStackItem keys on `stack:<traceId>:runId-fallback`, so an
+// EMPTY trace_id collapses every such row onto the runId and re-creates the collision on
+// the empty-traceId path. enqueueAgentQueueMessage is the boundary that decides the
+// persisted trace_id; it must never store an empty one. Production callers always supply a
+// real trace_id (provider-service createTraceId); this guards simulator/internal/replay
+// callers that don't. Found by gstack adversarial review (F3).
+// =====================================================================================
+const { createAgentQueuePersistence } = require('../agent-queue');
+
+test('enqueueAgentQueueMessage resolves an empty trace_id to a unique generated id', async () => {
+  const created = [];
+  const fakePrisma = {
+    agentQueueMessage: {
+      create: async ({ data }) => {
+        const row = { id: created.length + 1, status: 'pending', attempts: 0, ...data };
+        created.push(row);
+        return row;
+      }
+    }
+  };
+  const queue = createAgentQueuePersistence({ getPrismaClient: () => fakePrisma, createSqlAdapter: () => ({}) });
+
+  // Two distinct messages, NEITHER carrying a traceId (the anomalous simulator/internal path).
+  await queue.enqueueAgentQueueMessage({ message: { source: 'simulator', messageSid: 'm1', sessionKey: 's', peerId: 'p' } });
+  await queue.enqueueAgentQueueMessage({ message: { source: 'simulator', messageSid: 'm2', sessionKey: 's', peerId: 'p' } });
+
+  assert.ok(created[0].trace_id && created[0].trace_id.length > 0, 'empty traceId must resolve to a non-empty trace_id');
+  assert.match(created[0].trace_id, /^runtrace_/, 'the generated fallback uses the runtrace_ prefix');
+  assert.notEqual(
+    created[0].trace_id,
+    created[1].trace_id,
+    'two empty-traceId enqueues must get DISTINCT trace_ids so their downstream event_ids cannot collide'
+  );
+
+  // A real trace_id is preserved verbatim (no spurious regeneration).
+  await queue.enqueueAgentQueueMessage({ message: { source: 'napcat', messageSid: 'm3', traceId: 'napcat_trace_xyz', sessionKey: 's', peerId: 'p' } });
+  assert.equal(created[2].trace_id, 'napcat_trace_xyz', 'a supplied trace_id must be preserved');
+});

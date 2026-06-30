@@ -183,11 +183,20 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       || `${message.source}:${message.messageSid || message.message_sid}`;
     const payload = normalizeJsonObject(input.payload, message);
     const availableAt = input.availableAt || input.available_at || new Date();
+    // Defense-in-depth (docs/CACHE_CONTRACT.md §3): a trace_id must never persist empty. The
+    // stack runtime-input event_id keys on it (stack:<traceId>:runtime-input); an empty
+    // trace_id collapses onto the runId fallback, and two such rows in one run then collide
+    // under appendAgentStackItems' ON CONFLICT(event_id) — the second's content is dropped,
+    // the next run's stack-replay rebuilds a shorter body, and the prompt cache breaks at the
+    // run boundary. Production callers always supply a real trace_id (provider-service
+    // createTraceId); this guards simulator / internal / replay callers that don't.
+    const resolvedTraceId = normalizeOptionalString(message.traceId || message.trace_id)
+      || `runtrace_${Date.now()}_${randomUUID().slice(0, 8)}`;
 
     try {
       const created = await prisma.agentQueueMessage.create({
         data: {
-          trace_id: String(message.traceId || message.trace_id || ''),
+          trace_id: resolvedTraceId,
           source: String(message.source || 'provider'),
           message_sid: String(message.messageSid || message.message_sid || dedupeKey),
           dedupe_key: dedupeKey,
@@ -216,7 +225,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       });
       return normalizeQueueRow(existing, payload) || {
         queueId: 0,
-        traceId: String(message.traceId || message.trace_id || ''),
+        traceId: resolvedTraceId,
         dedupeKey,
         status: 'pending',
         attempts: 0,
