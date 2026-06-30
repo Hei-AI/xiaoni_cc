@@ -221,11 +221,17 @@ function createFaithfulStore(opts: { foldsToServe: Array<ReturnType<typeof folde
       }
       return out;
     },
-    listAgentStackItemsForConversations: async (params: any) => {
-      const ids = new Set((params.conversationIds || []).map((id: any) => Number(id)));
-      return stack
-        .filter((row) => row.conversation_id !== null && ids.has(Number(row.conversation_id)))
+    // Stack-native flat range read (the production replay path): blocks with
+    // stack_index > afterStackIndex, in stack order. This is what loadStackHistoryBlocks
+    // consumes — no conversation grouping.
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? params.after_stack_index ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      const rows = stack
+        .filter((row) => Number(row.stack_index) > floor)
         .map((row) => ({ ...row }));
+      rows.sort((a, b) => Number(a.stack_index) - Number(b.stack_index));
+      return params.chronological === false ? rows.reverse() : rows;
     },
     createConversation: async (params: any) => {
       calls.createConversation.push(params);
@@ -349,16 +355,15 @@ test('next run replay reproduces every folded notify the folding run sent (cache
   const eventIds = runtimeInputs.map((row) => row.event_id);
   assert.equal(new Set(eventIds).size, eventIds.length, 'every runtime_input must have a unique event_id');
 
-  // Both folds were backfilled with the run's conversation id (settled path).
-  assert.ok(runtimeInputs.every((row) => row.conversation_id !== null), 'all folds must be attached to the conversation');
+  // Both folds were backfilled with the run's conversation id (external linkage stays
+  // written even though replay no longer keys on it — settled path).
+  assert.ok(runtimeInputs.every((row) => row.conversation_id !== null), 'all folds must be attached to the conversation (external linkage)');
 
-  // --- What the NEXT run's stack-replay REBUILDS for that conversation ---
-  const convId = (calls.createConversation.length, store) && stack.find((r) => r.item_kind === 'runtime_input')?.conversation_id;
-  const replayed = await (service as any).attachStackReplayItemsToHistory(
-    [{ id: Number(convId), userMessage: '', aiResponse: null }],
-    'runtrace-B'
-  );
-  const replayText = JSON.stringify(replayed[0]?.stackReplayItems || []);
+  // --- What the NEXT run's STACK-NATIVE replay REBUILDS (flat stack range, no cutoff) ---
+  // Production reads the flat stack via loadStackHistoryBlocks(cutoff). With no cutoff the
+  // whole tail replays; the assembled per-block replay items must reproduce BOTH folds.
+  const replayed = await (service as any).loadStackHistoryBlocks(null, 'runtrace-B');
+  const replayText = JSON.stringify(replayed.flatMap((b: any) => b.stackReplayItems || []));
   // The acceptance criterion: the next run's rebuilt input reproduces BOTH folds.
   assert.ok(replayText.includes(reminder1), 'replay must reproduce folded reminder 1 (else cache prefix diverges)');
   assert.ok(replayText.includes(reminder2), 'replay must reproduce folded reminder 2 (else cache prefix diverges)');
@@ -625,9 +630,9 @@ test('compression fork dispatch: real runCoreMemoryCompressionFork sends a byte-
     runtimePrompt: createRuntimePrompt(),
     compression: {
       contextSessionKey: 'xiaoni:test-global',
-      readCutoffAfterConversationId: 5,
-      previousReadCutoffAfterConversationId: null,
-      compressionCoveredEndConversationId: 5
+      readCutoffAfterStackIndex: 5,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 5
     },
     contextSessionKey: 'xiaoni:test-global',
     compressionReminderItems: reminderTail,
@@ -731,8 +736,10 @@ function createDbBackedStore() {
       ];
       return async () => folds.shift() || null;
     })(),
-    // --- the 4 stack methods delegate to REAL Postgres (mirror RuntimeStore) ---
+    // --- the stack methods delegate to REAL Postgres (mirror RuntimeStore) ---
     appendAgentStackItems: async (params: any) => realPersistence.appendAgentStackItems({ identityKey: 'xiaoni', ...params }),
+    // Stack-native flat range read against real PG — the production replay path.
+    listAgentStackItems: async (params: any) => realPersistence.listAgentStackItems({ identityKey: 'xiaoni', ...params }),
     listAgentStackItemsForConversations: async (params: any) => realPersistence.listAgentStackItemsForConversations({ identityKey: 'xiaoni', ...params }),
     attachConversationIdToTrace: async (traceId: string, conversationId: number) =>
       realPersistence.attachConversationIdToAgentStackByTrace({ traceId, conversationId }),
@@ -774,14 +781,12 @@ test('runtime replay from REAL Postgres reproduces every folded notify (producti
   await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
 
   const convId = store.__conversations[0]?.id;
-  assert.ok(convId, 'the run must have created a conversation');
+  assert.ok(convId, 'the run must have created a conversation (external linkage)');
 
-  // Replay EXACTLY as production does: read agent_stack_items from Postgres by conversation.
-  const replayed = await (service as any).attachStackReplayItemsToHistory(
-    [{ id: Number(convId), userMessage: '', aiResponse: null }],
-    'runtrace-REPLAY'
-  );
-  const replayText = JSON.stringify(replayed[0]?.stackReplayItems || []);
+  // Replay EXACTLY as production does: read agent_stack_items from Postgres as a flat
+  // stack range (no cutoff → whole tail) via loadStackHistoryBlocks — no conversation grouping.
+  const replayed = await (service as any).loadStackHistoryBlocks(null, 'runtrace-REPLAY');
+  const replayText = JSON.stringify(replayed.flatMap((b: any) => b.stackReplayItems || []));
   assert.ok(replayText.includes('阿花修好了做图'), 'DB replay must reproduce folded reminder 1');
   assert.ok(replayText.includes('群里 @了你'), 'DB replay must reproduce folded reminder 2');
 
@@ -808,26 +813,29 @@ test('REQ2 STW: mid-run compression switch cold-reads exactly once; later turns 
   const NEW_SUMMARY = '压缩后近况：只保留最近的事';
   const NEW_CUTOFF = 300;
 
-  const historyTurns = [100, 200, 300, 400, 500].map((id) => ({ id, userMessage: `旧对话 ${id}`, aiResponse: null }));
+  // Stack BLOCKS (one agent_stack_item each), stack_index ascending. Eviction by a
+  // stack_index cutoff shrinks the rendered prefix.
+  const historyBlocks = [100, 200, 300, 400, 500].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
   let cutoffFlipped = false;
 
   const timelineEvents: any[] = [];
   const store: any = {
     createLlmJob: async () => 'job-stw',
     logTimelineEvent: async (e: any) => { timelineEvents.push(e); },
-    listRecentTurns: async () => historyTurns,
-    // Render each history turn so eviction visibly shrinks the prefix.
-    listAgentStackItemsForConversations: async (params: any) => {
-      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
-      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
-        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
-        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
-      }));
+    // Stack-native flat range read: blocks with stack_index > afterStackIndex, in order.
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return historyBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
     // OLD cutoff (keep all) until the fork "commits", then NEW cutoff + summary.
     getSessionReadCutoffState: async () => cutoffFlipped
-      ? { readCutoffAfterConversationId: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
-      : { readCutoffAfterConversationId: null, contextSummary: OLD_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 },
+      ? { readCutoffAfterStackIndex: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
+      : { readCutoffAfterStackIndex: null, contextSummary: OLD_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 },
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     recordRuntimeIdentityActivation: async () => {},
@@ -898,6 +906,26 @@ test('REQ2 STW: mid-run compression switch cold-reads exactly once; later turns 
   const preBase = JSON.stringify(stripVolatile(sentInputs[firstNew - 1]).slice(0, 3));
   const newBase = JSON.stringify(stripVolatile(sentInputs[firstNew]).slice(0, 3));
   assert.notEqual(newBase, preBase, 'the switch must change the cached prefix exactly once (the necessary cold read)');
+
+  // VERBATIM-SUFFIX (user requirement): compression only DROPS the head (+ swaps 近况); it
+  // never rewrites a kept block. So the retained-tail blocks (400, 500 — the two above the
+  // 300 cutoff) must render BYTE-IDENTICALLY before and after the switch. Extract each
+  // rendered history block (items whose text carries 历史消息-) from the pre- and post-switch
+  // requests and assert the post-switch tail items hash-equal the SAME blocks in the
+  // pre-switch request — a pure suffix selection, no mutation.
+  const historyBlockItems = (input: any[], idsKept: number[]) =>
+    (input || []).filter((it) => idsKept.some((id) => JSON.stringify(it).includes(`历史消息-${id}`)));
+  const preTailItems = historyBlockItems(sentInputs[firstNew - 1], [400, 500]);
+  const postTailItems = historyBlockItems(sentInputs[firstNew], [400, 500]);
+  assert.equal(postTailItems.length, 2, 'the retained tail must render both kept blocks (400, 500) post-switch');
+  assert.equal(
+    JSON.stringify(postTailItems),
+    JSON.stringify(preTailItems),
+    'retained tail must be a VERBATIM SUFFIX: blocks 400/500 render byte-identically before and after compression (no rewrite)'
+  );
+  // And the switch genuinely DROPPED the evicted head (no 历史消息-100/200/300 survive).
+  assert.equal(historyBlockItems(sentInputs[firstNew], [100, 200, 300]).length, 0,
+    'the evicted head (blocks 100/200/300) must NOT survive in the post-switch request');
 });
 
 // =====================================================================================
@@ -910,17 +938,24 @@ function buildStwScenario() {
   const KEY = 'xiaoni:test-global';
   const NEW_CUTOFF = 300;
   const NEW_SUMMARY = '压缩后近况：只保留最近的事';
-  const historyTurns = [100, 200, 300, 400, 500].map((id) => ({ id, userMessage: `旧对话 ${id}`, aiResponse: null }));
+  const historyBlocks = [100, 200, 300, 400, 500].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
   let cutoffFlipped = false;
   const timelineEvents: any[] = [];
   const store: any = {
     createLlmJob: async () => 'job-stw2',
     logTimelineEvent: async (e: any) => { timelineEvents.push(e); },
-    listRecentTurns: async () => historyTurns,
-    listAgentStackItemsForConversations: async () => [],
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return historyBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    },
     getSessionReadCutoffState: async () => cutoffFlipped
-      ? { readCutoffAfterConversationId: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
-      : { readCutoffAfterConversationId: null, contextSummary: '旧近况', pendingProactiveShare: null, pendingProactiveShareAge: 0 },
+      ? { readCutoffAfterStackIndex: NEW_CUTOFF, contextSummary: NEW_SUMMARY, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
+      : { readCutoffAfterStackIndex: null, contextSummary: '旧近况', pendingProactiveShare: null, pendingProactiveShareAge: 0 },
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     recordRuntimeIdentityActivation: async () => {},
@@ -1067,20 +1102,21 @@ test('REQ2 STW: the switch preserves the run\'s loopContinuation-before-trigger 
 // real request after wake cold-reads = the heartbeat failed its only job. That goes RED here.
 // =====================================================================================
 test('cache continuity: the heartbeat warms exactly what the next main-agent run hits (same cacheable prefix)', async () => {
-  const historyTurns = [100, 200].map((id) => ({ id, userMessage: `历史对话 ${id}`, aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' }));
+  // A non-trivial replayed history (stack blocks) both paths consume identically.
+  const historyBlocks = [100, 200].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
   const store: any = {
     createLlmJob: async () => 'job-hbcont',
     logTimelineEvent: async () => {},
-    listRecentTurns: async () => historyTurns,
-    // A non-trivial replayed history both paths consume identically.
-    listAgentStackItemsForConversations: async (params: any) => {
-      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
-      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
-        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
-        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
-      }));
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return historyBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
-    getSessionReadCutoffState: async () => ({ readCutoffAfterConversationId: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
+    getSessionReadCutoffState: async () => ({ readCutoffAfterStackIndex: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     recordRuntimeIdentityActivation: async () => {},
@@ -1423,20 +1459,22 @@ test('pause→resume across wall-clock drift keeps the cacheable prefix byte-ide
 // context (history + cutoff/energy) — with visibility:'model_visible' so the history actually
 // renders into the request — that both the heartbeat and a fresh wake run read.
 function buildHeartbeatScenarioStore() {
-  const historyTurns = [100, 200].map((id) => ({ id, userMessage: `历史 ${id}`, aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' }));
+  // Stack BLOCKS (model_visible so the history renders into the request) that both the
+  // heartbeat and a fresh wake run read via loadStackHistoryBlocks.
+  const historyBlocks = [100, 200].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
   const store: any = {
     createLlmJob: async () => 'job-hbs',
     logTimelineEvent: async () => {},
-    listRecentTurns: async () => historyTurns,
-    listAgentStackItemsForConversations: async (params: any) => {
-      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
-      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
-        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
-        visibility: 'model_visible',
-        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
-      }));
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return historyBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
     },
-    getSessionReadCutoffState: async () => ({ readCutoffAfterConversationId: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
+    getSessionReadCutoffState: async () => ({ readCutoffAfterStackIndex: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
     upsertSessionReadCutoffState: async () => {},
     upsertProactiveShareState: async () => {},
     recordRuntimeIdentityActivation: async () => {},
@@ -1533,16 +1571,19 @@ test('scenario 1 (slept 3h → wake): the wake-up run hits the cache entry the h
 // =====================================================================================
 test('F1: heartbeat does NOT over-extend with a self-continuation tail on final_answer history (== notify wake; still a valid heartbeat)', async () => {
   const store = buildHeartbeatScenarioStore();
-  // Make the raw history END in an assistant final_answer so the self-continuation predicate fires.
-  store.listAgentStackItemsForConversations = async (params: any) => {
-    const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
-    return [100, 200].filter((id) => ids.has(id)).map((id) => ({
-      conversation_id: id, conversationId: id, item_kind: 'runtime_input', itemKind: 'runtime_input',
-      visibility: 'model_visible',
-      content: { input_items: id === 200
-        ? [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '答完了。' }] }]
-        : [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${id}` }] }] }
-    }));
+  // Make the raw history END in an assistant final_answer (the last BLOCK) so the
+  // self-continuation predicate fires.
+  const finalAnswerBlocks = [100, 200].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: stackIndex === 200
+      ? [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '答完了。' }] }]
+      : [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
+  store.listAgentStackItems = async (params: any) => {
+    const after = params.afterStackIndex ?? null;
+    const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+    return finalAnswerBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
   };
   const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
   (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
