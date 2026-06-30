@@ -113,7 +113,6 @@ import {
   createConversationWithItems,
   attachConversationIdToRuntimeTrace,
   getSessionReadCutoffState as getSessionReadCutoffStatePersistence,
-  getLatestMainAgentCanonicalRequest as getLatestMainAgentCanonicalRequestPersistence,
   upsertSessionReadCutoffState as upsertSessionReadCutoffStatePersistence,
   commitSessionContextSummaryAndReadCutoff as commitSessionContextSummaryAndReadCutoffPersistence,
   upsertProactiveShareState as upsertProactiveShareStatePersistence,
@@ -2588,15 +2587,6 @@ export class RuntimeStore {
       sessionKey,
       sqlAdapter: this.sql
     }, databaseConfig) as Promise<SessionReadCutoffState | null>;
-  }
-
-  // The cache heartbeat clones THIS to keep the prompt cache warm while stopped (fork iron
-  // law: clone the main agent's last request, never rebuild). null on a cold start.
-  async getLatestMainAgentCanonicalRequest(identityKey?: string): Promise<any | null> {
-    return getLatestMainAgentCanonicalRequestPersistence({
-      identityKey: identityKey || 'xiaoni',
-      sqlAdapter: this.sql
-    }, databaseConfig) as Promise<any | null>;
   }
 
   async upsertSessionReadCutoffState(params: {

@@ -1172,70 +1172,6 @@ test('cache continuity: the heartbeat warms exactly what the next main-agent run
 });
 
 // =====================================================================================
-// PURPOSE (user iron law): a fork must CLONE the main agent's request, NEVER self-rebuild.
-// While stopped there is no live run, so "the main agent's request" = the LAST one it
-// actually sent, persisted as llm_request_slices.canonical_request. The heartbeat must load
-// and BYTE-CLONE that persisted request (appending only its heartbeat tail), so it warms the
-// exact cache entry the next run continues — immune to any buildContextBudgetPlan drift.
-// The current code REBUILDS via buildContextBudgetPlan and ignores the persisted request, so
-// the marker below is absent → this is RED until the literal clone is implemented.
-// =====================================================================================
-test('cache heartbeat clones the LAST PERSISTED main request, not a rebuild (fork iron law)', async () => {
-  const MARKER = '<<LAST_PERSISTED_MAIN_REQUEST_MARKER>>';
-  // The last request the main agent actually sent (its persisted canonical_request). Its
-  // durable prefix carries the marker; a buildContextBudgetPlan rebuild over empty history would NOT.
-  const lastMainCanonicalRequest = {
-    model: 'claude-opus-4-6',
-    instructions: 'You are 小腻.',
-    tools: [{ type: 'function', name: 'exec_command' }],
-    tool_choice: 'auto',
-    prompt_cache_key: 'xiaoni:test-global',
-    input: [
-      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills_instructions> 固定头 </skills_instructions>' }] },
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史一' }] },
-      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: MARKER }] }
-    ]
-  };
-
-  const store: any = {
-    getSessionReadCutoffState: async () => null,
-    listRecentTurns: async () => [],
-    getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null }),
-    // The new read path the literal-clone heartbeat must consume.
-    getLatestMainAgentCanonicalRequest: async () => lastMainCanonicalRequest,
-    claimNextQueueMessage: async () => null,
-    appendAgentStackItems: async () => []
-  };
-  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
-
-  const previousFetch = globalThis.fetch;
-  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
-  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
-  let captured: any = null;
-  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
-    captured = JSON.parse(String(init?.body || '{}')).canonicalRequest;
-    return new Response(JSON.stringify({
-      success: true, llm_call_id: 'llm-hb', model: 'gpt-5-mini', provider: 'codex-local',
-      usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }, usage_details: { cached_input_tokens: 9 }
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }) as typeof fetch;
-  try {
-    await service.triggerCacheHeartbeatForDebug();
-  } finally {
-    globalThis.fetch = previousFetch;
-    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
-  }
-
-  assert.ok(captured, 'the heartbeat must have dispatched a request');
-  // The heartbeat must be a CLONE of the last persisted main request: every durable item of
-  // that request is present, byte-identical and in order, at the head of the heartbeat request.
-  assertOrderedPrefix(stripVolatile(lastMainCanonicalRequest.input), stripVolatile(captured.input || []),
-    'heartbeat must byte-clone the last persisted main request (not rebuild)');
-  assert.ok(JSON.stringify(captured.input || []).includes(MARKER),
-    'heartbeat must carry the last persisted main request content (marker) — a rebuild would drop it');
-});
-
-// =====================================================================================
 // PURPOSE (#3 provider request exception): when a provider call fails TRANSIENTLY and the run
 // is retried, the reprocessed attempt must send a request whose cacheable prefix is BYTE-
 // IDENTICAL to the first attempt's — so the provider's still-warm cache from attempt 1 is HIT
@@ -1439,4 +1375,163 @@ test('pause→resume across wall-clock drift keeps the cacheable prefix byte-ide
   const trig0 = JSON.stringify((sent[0] || []).filter((i: any) => i && i.cache_volatile === true));
   const trig1 = JSON.stringify((sent[1] || []).filter((i: any) => i && i.cache_volatile === true));
   assert.equal(trig0, trig1, 'the current-turn trigger must be reused byte-for-byte across the pause, not re-rendered');
+});
+
+// Shared committed-state store for the two heartbeat business scenarios. It serves a stable
+// committed context (history + cutoff/energy) that both the heartbeat and a fresh run read.
+// `poisonLastRequest`, when set, exposes a getLatestMainAgentCanonicalRequest that returns a
+// MID-FLIGHT (in-flight loopContinuation) request — to prove the heartbeat IGNORES the pre-
+// shutdown state and rebuilds the fresh frame (a regression that clones it would surface the
+// poison marker).
+function buildHeartbeatScenarioStore(poisonLastRequest?: any) {
+  const historyTurns = [100, 200].map((id) => ({ id, userMessage: `历史 ${id}`, aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' }));
+  const store: any = {
+    createLlmJob: async () => 'job-hbs',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async () => historyTurns,
+    listAgentStackItemsForConversations: async (params: any) => {
+      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
+      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
+        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
+      }));
+    },
+    getSessionReadCutoffState: async () => ({ readCutoffAfterConversationId: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null }),
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    getAgentStackHead: async () => 0,
+    appendAgentStackItems: async () => [],
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: async () => null,
+    createConversation: async () => 9999,
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  };
+  if (poisonLastRequest) {
+    store.getLatestMainAgentCanonicalRequest = async () => poisonLastRequest;
+  }
+  return store;
+}
+
+function interceptHeartbeatFetch(capture: (req: any) => void) {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    capture(JSON.parse(String(init?.body || '{}')).canonicalRequest);
+    return new Response(JSON.stringify({
+      success: true, llm_call_id: 'llm-hb', model: 'gpt-5-mini', provider: 'codex-local',
+      usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }, usage_details: { cached_input_tokens: 9 }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  return () => { globalThis.fetch = previousFetch; };
+}
+
+// =====================================================================================
+// SCENARIO 1 (小腻睡眠 3h 后睡醒): while 小腻 sleeps there is NO live run; a heartbeat fires to
+// keep the prompt cache warm. 3 HOURS LATER she wakes and her first FRESH run must HIT that warm
+// entry — same byte-identical cacheable prefix despite the long idle gap. This fires the heartbeat
+// at T, drifts the clock +3h, then drives the wake-up run, and asserts the wake run's durable
+// prefix is byte-identical at the head of what the heartbeat warmed.
+// =====================================================================================
+test('scenario 1 (slept 3h → wake): the wake-up run hits the cache entry the heartbeat kept warm', async () => {
+  const store = buildHeartbeatScenarioStore();
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+  let heartbeatReq: any = null;
+  const restoreFetch = interceptHeartbeatFetch((r) => { heartbeatReq = r; });
+  const wakeInputs: any[][] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    wakeInputs.push(canonicalRequest.input || []);
+    return { success: true, llm_call_id: 'wake-1', llm_request_slice_id: 'wakes-1',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  try {
+    patchClock('2026-06-29T10:00:00+08:00');
+    await service.triggerCacheHeartbeatForDebug();              // heartbeat while asleep
+    patchClock('2026-06-29T13:00:00+08:00');                    // slept 3 hours
+    const wake = { id: 'run-WAKE', traceId: 'rt-WAKE', batchId: 'b-WAKE', status: 'processing',
+      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-WAKE', runId: 'run-WAKE' }) };
+    await (service as any).processRuntimeFrame(wake, { queueBacked: true }); // she wakes, fresh run
+  } finally {
+    restoreFetch();
+    restoreClock();
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
+  }
+
+  assert.ok(heartbeatReq && wakeInputs.length >= 1, 'heartbeat + wake run must have dispatched');
+  const wakeDurable = stripVolatile(wakeInputs[0]);
+  assert.ok(wakeDurable.length >= 1 && JSON.stringify(wakeDurable[0]).length > 500, 'precondition: substantial durable prefix');
+  // The wake-up run (3h later) hits exactly what the heartbeat warmed: its durable prefix is a
+  // byte-identical ordered prefix of the heartbeat's, despite the clock drift across the sleep.
+  assertOrderedPrefix(wakeDurable, stripVolatile(heartbeatReq.input || []),
+    'slept 3h: the wake-up run must hit the heartbeat-warmed prefix byte-for-byte');
+});
+
+// =====================================================================================
+// SCENARIO 2 (运行循环关闭 → 隔几小时开启开关): the loop was switched OFF while a run was mid-flight
+// (an in-flight loopContinuation) or mid-compression. We do NOT care what it was doing before. On
+// switch-ON the first request is a FRESH frame over the COMMITTED state; the heartbeat must warm
+// exactly that. Cloning the messy pre-shutdown request would warm [history, LC]; the fresh switch-
+// on run [history] would then MISS and cold-read the whole history. This pins: the heartbeat
+// IGNORES the in-flight pre-shutdown state (no LC marker) and its prefix == a real fresh run's.
+// (改坏即红: a regression that clones the last persisted request surfaces the poison marker.)
+// =====================================================================================
+test('scenario 2 (switch off mid-run/mid-compression → switch on): heartbeat warms the fresh frame, ignoring the in-flight state', async () => {
+  const IN_FLIGHT_LC_MARKER = '<<IN_FLIGHT_LC_FROM_BEFORE_SHUTDOWN>>';
+  // The last persisted main request was a MID-RUN turn carrying an in-flight loopContinuation —
+  // the state the loop was in when switched off. The heartbeat must ignore it.
+  const poison = {
+    model: 'claude-opus-4-6', instructions: 'You are 小腻.', tools: [], tool_choice: 'auto',
+    input: [
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills_instructions> 头 </skills_instructions>' }] },
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: IN_FLIGHT_LC_MARKER }] }
+    ]
+  };
+  const store = buildHeartbeatScenarioStore(poison);
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+  let heartbeatReq: any = null;
+  const restoreFetch = interceptHeartbeatFetch((r) => { heartbeatReq = r; });
+  const switchOnInputs: any[][] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    switchOnInputs.push(canonicalRequest.input || []);
+    return { success: true, llm_call_id: 'on-1', llm_request_slice_id: 'ons-1',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  try {
+    await service.triggerCacheHeartbeatForDebug();             // heartbeat while switched off
+    const on = { id: 'run-ON', traceId: 'rt-ON', batchId: 'b-ON', status: 'processing',
+      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-ON', runId: 'run-ON' }) };
+    await (service as any).processRuntimeFrame(on, { queueBacked: true }); // switch on → fresh run
+  } finally {
+    restoreFetch();
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
+  }
+
+  assert.ok(heartbeatReq && switchOnInputs.length >= 1, 'heartbeat + switch-on run must have dispatched');
+  // The heartbeat must NOT reproduce the in-flight pre-shutdown state — it rebuilt the fresh frame.
+  assert.ok(!JSON.stringify(heartbeatReq.input || []).includes(IN_FLIGHT_LC_MARKER),
+    'heartbeat must IGNORE the in-flight pre-shutdown loopContinuation (rebuild the fresh frame, not clone it)');
+  // And it warms exactly what the fresh switch-on run hits.
+  const onDurable = stripVolatile(switchOnInputs[0]);
+  assert.ok(onDurable.length >= 1 && JSON.stringify(onDurable[0]).length > 500, 'precondition: substantial durable prefix');
+  assertOrderedPrefix(onDurable, stripVolatile(heartbeatReq.input || []),
+    'switch-on fresh run must hit the heartbeat-warmed prefix byte-for-byte');
 });
