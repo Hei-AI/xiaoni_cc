@@ -5692,9 +5692,32 @@ export class AgentLoopService {
     const store = this.store as RuntimeStore & {
       getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
       listRecentTurns?: RuntimeStore['listRecentTurns'];
+      getLatestMainAgentCanonicalRequest?: (identityKey?: string) => Promise<CanonicalAgentTurnRequest | null>;
     };
     if (typeof store.getSessionReadCutoffState !== 'function' || typeof store.listRecentTurns !== 'function') {
       return null;
+    }
+
+    // FORK IRON LAW: the heartbeat CLONES the main agent's last request — it does NOT rebuild
+    // its own. Load the last persisted main canonical_request and clone it (+ heartbeat tail)
+    // so the heartbeat refreshes the EXACT cache entry the next main run will hit, immune to
+    // any buildContextBudgetPlan drift. Fall back to a rebuild ONLY on a cold start (no main
+    // request persisted yet) — the one case where there is no warm main entry to keep alive.
+    if (typeof store.getLatestMainAgentCanonicalRequest === 'function') {
+      try {
+        const lastMainRequest = await store.getLatestMainAgentCanonicalRequest.call(this.store, XIAONI_IDENTITY_KEY);
+        if (lastMainRequest && typeof lastMainRequest === 'object' && Array.isArray((lastMainRequest as CanonicalAgentTurnRequest).input)) {
+          const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
+          return {
+            canonicalRequest: buildCacheHeartbeatForkRequest(lastMainRequest as CanonicalAgentTurnRequest),
+            runtimePrompt
+          };
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to load last main request for cache heartbeat clone; falling back to rebuild', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     const contextSessionKey = getGlobalPromptContextSessionKey();

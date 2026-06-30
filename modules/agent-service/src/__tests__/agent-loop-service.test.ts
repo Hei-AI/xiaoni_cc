@@ -9780,6 +9780,69 @@ test('manual cache heartbeat trigger returns validation summary without touching
   }
 });
 
+test('cache heartbeat (while stopped) rebuilds a byte-identical request across wall-clock drift (fork must clone the main, not a drifting rebuild)', async () => {
+  // BUSINESS REQUIREMENT (docs/CACHE_CONTRACT.md §2 + the fork iron law): a fork MUST be a
+  // clone of the main agent's request, NEVER a self-rebuild that can drift. The stopped
+  // cache-heartbeat builds its base via buildContextBudgetPlan + buildMainAgentCanonicalRequest
+  // (a rebuild from persisted state). If ANY wall-clock / energy / developer-context value
+  // leaks into the cacheable prefix, two firings at different times warm DIFFERENT cache
+  // entries and the paused run still goes cold on resume. This pins the cacheable prefix
+  // byte-identical across a 17h clock drift; any leak goes RED.
+  const RealDate = Date;
+  const previousFetch = globalThis.fetch;
+  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+  const captured: any[] = [];
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    captured.push(body.canonicalRequest);
+    return new Response(JSON.stringify({
+      success: true, llm_call_id: 'llm-hb', model: 'gpt-5-mini', provider: 'codex-local',
+      usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }, usage_details: { cached_input_tokens: 9 }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  function patchClock(iso: string) {
+    const fixed = new RealDate(iso).getTime();
+    class FakeDate extends RealDate {
+      constructor(...args: any[]) { super(...((args.length ? args : [fixed]) as [])); }
+      static now() { return fixed; }
+    }
+    (globalThis as any).Date = FakeDate;
+  }
+  try {
+    const store = {
+      getSessionReadCutoffState: async () => null,
+      listRecentTurns: async () => [],
+      getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null }),
+      claimNextQueueMessage: async () => null,
+      appendAgentStackItems: async () => []
+    } as any;
+    const service = new AgentLoopService(store, {
+      resolveForQueueMessage: async () => createRuntimePrompt({ promptName: '小腻主AGENT', promptId: 'prompt-1' })
+    } as any);
+
+    patchClock('2026-06-29T10:00:00+08:00');
+    await service.triggerCacheHeartbeatForDebug();
+    patchClock('2026-06-30T03:30:00+08:00'); // 17.5h later — energy held constant, only time drifts
+    await service.triggerCacheHeartbeatForDebug();
+
+    assert.equal(captured.length, 2, 'two heartbeat firings captured');
+    const [h1, h2] = captured;
+    assert.deepEqual(h1.instructions, h2.instructions, 'heartbeat system prompt must be byte-identical across the clock drift');
+    assert.deepEqual(h1.tools, h2.tools, 'heartbeat tools must be byte-identical across the clock drift');
+    assert.deepEqual(h1.tool_choice, h2.tool_choice, 'heartbeat tool_choice must be stable');
+    // The cacheable prefix (non-volatile input) must not re-render across time — else the
+    // rebuild warms a different entry than the main run's frozen P_n.
+    const durable = (input: any[]) => JSON.stringify((input || []).filter((i: any) => i && i.cache_volatile !== true));
+    assert.equal(durable(h1.input), durable(h2.input),
+      'heartbeat cacheable input prefix must be byte-identical across the clock drift (no time/energy/dev-context leak)');
+  } finally {
+    (globalThis as any).Date = RealDate;
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
+  }
+});
+
 test('runtime iteration settles persisted recovery session after restart with original tool callback', async () => {
   const storeCalls: Record<string, any[]> = {
     appendAgentStackItems: [],

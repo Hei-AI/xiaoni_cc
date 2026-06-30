@@ -1054,3 +1054,183 @@ test('REQ2 STW: the switch preserves the run\'s loopContinuation-before-trigger 
   const f = order(fresh.requestInput);
   assert.ok(f.lc > f.trig, `fresh run: loopContinuation stays AFTER the trigger (lc=${f.lc}, trig=${f.trig})`);
 });
+
+// =====================================================================================
+// PURPOSE (not implementation): the cache heartbeat exists ONLY to keep the prompt cache
+// warm while the runtime is stopped, so that when the switch is flipped back on and the
+// main agent runs its next request (no notify), that request HITS the warm cache instead
+// of cold-prefilling. The single outcome that matters: the heartbeat's request and a real
+// main-agent run's request must share a byte-identical cacheable (non-volatile) prefix over
+// the SAME history. We drive both through their REAL entry points (triggerCacheHeartbeatForDebug
+// + processRuntimeFrame) and compare the OUTCOMES — we do NOT mirror which builder/flag each
+// uses. If the heartbeat warms a different/shorter prefix than the main run needs, the first
+// real request after wake cold-reads = the heartbeat failed its only job. That goes RED here.
+// =====================================================================================
+test('cache continuity: the heartbeat warms exactly what the next main-agent run hits (same cacheable prefix)', async () => {
+  const historyTurns = [100, 200].map((id) => ({ id, userMessage: `历史对话 ${id}`, aiResponse: null, createdAt: '2026-06-29T08:00:00.000Z' }));
+  const store: any = {
+    createLlmJob: async () => 'job-hbcont',
+    logTimelineEvent: async () => {},
+    listRecentTurns: async () => historyTurns,
+    // A non-trivial replayed history both paths consume identically.
+    listAgentStackItemsForConversations: async (params: any) => {
+      const ids = new Set((params.conversationIds || []).map((x: any) => Number(x)));
+      return historyTurns.filter((t) => ids.has(t.id)).map((t) => ({
+        conversation_id: t.id, conversationId: t.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
+        content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${t.id}` }] }] }
+      }));
+    },
+    getSessionReadCutoffState: async () => ({ readCutoffAfterConversationId: null, contextSummary: null, pendingProactiveShare: null, pendingProactiveShareAge: 0 }),
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null }),
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    getAgentStackHead: async () => 0,
+    appendAgentStackItems: async () => [],
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: async () => null,
+    createConversation: async () => 9999,
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  };
+
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  // Capture the HEARTBEAT request (its real dispatch goes through fetch).
+  const previousFetch = globalThis.fetch;
+  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+  let heartbeatRequest: any = null;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    heartbeatRequest = JSON.parse(String(init?.body || '{}')).canonicalRequest;
+    return new Response(JSON.stringify({
+      success: true, llm_call_id: 'llm-hbc', model: 'gpt-5-mini', provider: 'codex-local',
+      usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }, usage_details: { cached_input_tokens: 9 }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  // Capture the MAIN-AGENT request (turn 1 of a fresh single-turn run).
+  const mainSentInputs: any[][] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    mainSentInputs.push(canonicalRequest.input || []);
+    return { success: true, llm_call_id: 'llm-main', llm_request_slice_id: 'slice-main',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  let mainInstructions: any = null;
+  let mainTools: any = null;
+  const realExecute = (service as any).executeAgentTurn;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    mainInstructions = canonicalRequest.instructions;
+    mainTools = canonicalRequest.tools;
+    return realExecute(canonicalRequest);
+  };
+
+  try {
+    // 1) Heartbeat fires while stopped (store=false, mutates nothing).
+    await service.triggerCacheHeartbeatForDebug();
+    // 2) Switch on: a real main run over the SAME history (a notify frame; its trigger is volatile).
+    const queueMessage = { id: 'run-HBC', traceId: 'runtrace-HBC', batchId: 'batch-HBC', status: 'processing',
+      attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'runtrace-HBC', runId: 'run-HBC' }) };
+    await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
+  }
+
+  assert.ok(heartbeatRequest, 'the heartbeat must have dispatched a request');
+  assert.ok(mainSentInputs.length >= 1, 'the main run must have sent at least one request');
+  const mainInput = mainSentInputs[0];
+  const mainDurable = stripVolatile(mainInput);
+  const heartbeatDurable = stripVolatile(heartbeatRequest.input || []);
+
+  // The stable head (system + tools) the heartbeat warms must be the main run's head.
+  assert.deepEqual(heartbeatRequest.instructions, mainInstructions, 'heartbeat system prompt must equal the main run\'s');
+  assert.deepEqual(heartbeatRequest.tools, mainTools, 'heartbeat tools must equal the main run\'s');
+
+  // Non-vacuous: the durable prefix being compared must carry real, substantial content
+  // (the developer/skills tier), not an empty list that trivially satisfies ordered-prefix.
+  assert.ok(mainDurable.length >= 1, 'precondition: the main run must have a non-empty durable prefix');
+  assert.ok(JSON.stringify(mainDurable[0]).length > 500,
+    'precondition: the compared durable head must be substantial real content (not a stub)');
+
+  // THE PURPOSE: every durable (non-volatile) item the main run sends must be present,
+  // byte-identical and in order, at the head of the heartbeat's request — i.e. the next
+  // real run hits exactly what the heartbeat warmed. A divergence (heartbeat warms a
+  // different/shorter prefix) means the first request after wake cold-reads.
+  assertOrderedPrefix(mainDurable, heartbeatDurable,
+    'heartbeat must warm the main run\'s exact cacheable prefix (cache continuity)');
+});
+
+// =====================================================================================
+// PURPOSE (user iron law): a fork must CLONE the main agent's request, NEVER self-rebuild.
+// While stopped there is no live run, so "the main agent's request" = the LAST one it
+// actually sent, persisted as llm_request_slices.canonical_request. The heartbeat must load
+// and BYTE-CLONE that persisted request (appending only its heartbeat tail), so it warms the
+// exact cache entry the next run continues — immune to any buildContextBudgetPlan drift.
+// The current code REBUILDS via buildContextBudgetPlan and ignores the persisted request, so
+// the marker below is absent → this is RED until the literal clone is implemented.
+// =====================================================================================
+test('cache heartbeat clones the LAST PERSISTED main request, not a rebuild (fork iron law)', async () => {
+  const MARKER = '<<LAST_PERSISTED_MAIN_REQUEST_MARKER>>';
+  // The last request the main agent actually sent (its persisted canonical_request). Its
+  // durable prefix carries the marker; a buildContextBudgetPlan rebuild over empty history would NOT.
+  const lastMainCanonicalRequest = {
+    model: 'claude-opus-4-6',
+    instructions: 'You are 小腻.',
+    tools: [{ type: 'function', name: 'exec_command' }],
+    tool_choice: 'auto',
+    prompt_cache_key: 'xiaoni:test-global',
+    input: [
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills_instructions> 固定头 </skills_instructions>' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史一' }] },
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: MARKER }] }
+    ]
+  };
+
+  const store: any = {
+    getSessionReadCutoffState: async () => null,
+    listRecentTurns: async () => [],
+    getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null }),
+    // The new read path the literal-clone heartbeat must consume.
+    getLatestMainAgentCanonicalRequest: async () => lastMainCanonicalRequest,
+    claimNextQueueMessage: async () => null,
+    appendAgentStackItems: async () => []
+  };
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+
+  const previousFetch = globalThis.fetch;
+  const previousMax = agentConfig.cacheHeartbeatMaxOutputTokens;
+  agentConfig.cacheHeartbeatMaxOutputTokens = 1;
+  let captured: any = null;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    captured = JSON.parse(String(init?.body || '{}')).canonicalRequest;
+    return new Response(JSON.stringify({
+      success: true, llm_call_id: 'llm-hb', model: 'gpt-5-mini', provider: 'codex-local',
+      usage: { input_tokens: 10, output_tokens: 1, total_tokens: 11 }, usage_details: { cached_input_tokens: 9 }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  try {
+    await service.triggerCacheHeartbeatForDebug();
+  } finally {
+    globalThis.fetch = previousFetch;
+    agentConfig.cacheHeartbeatMaxOutputTokens = previousMax;
+  }
+
+  assert.ok(captured, 'the heartbeat must have dispatched a request');
+  // The heartbeat must be a CLONE of the last persisted main request: every durable item of
+  // that request is present, byte-identical and in order, at the head of the heartbeat request.
+  assertOrderedPrefix(stripVolatile(lastMainCanonicalRequest.input), stripVolatile(captured.input || []),
+    'heartbeat must byte-clone the last persisted main request (not rebuild)');
+  assert.ok(JSON.stringify(captured.input || []).includes(MARKER),
+    'heartbeat must carry the last persisted main request content (marker) — a rebuild would drop it');
+});
