@@ -1234,3 +1234,148 @@ test('cache heartbeat clones the LAST PERSISTED main request, not a rebuild (for
   assert.ok(JSON.stringify(captured.input || []).includes(MARKER),
     'heartbeat must carry the last persisted main request content (marker) — a rebuild would drop it');
 });
+
+// =====================================================================================
+// PURPOSE (#3 provider request exception): when a provider call fails TRANSIENTLY and the run
+// is retried, the reprocessed attempt must send a request whose cacheable prefix is BYTE-
+// IDENTICAL to the first attempt's — so the provider's still-warm cache from attempt 1 is HIT
+// on the retry instead of cold-prefilling. If anything (re-fold order, re-read history, a
+// re-stamped value) drifts between attempts, the retry cold-reads and the cost doubles.
+// =====================================================================================
+test('provider TRANSIENT retry: attempt-2 sends a byte-identical cacheable prefix as attempt-1 (warm cache on retry)', async () => {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const attemptInputs: any[][][] = [[], []]; // [attempt1 turns, attempt2 turns]
+  let currentAttempt = 0;
+  let turnInAttempt = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    attemptInputs[currentAttempt].push(canonicalRequest.input || []);
+    turnInAttempt += 1;
+    if (currentAttempt === 0) {
+      if (turnInAttempt === 1) {
+        return { success: true, llm_call_id: 'a1-1', llm_request_slice_id: 'a1s1',
+          canonical_response: { output: [{ type: 'function_call', call_id: 'c1', name: EXEC_COMMAND_TOOL, arguments: '{"cmd":"echo 1"}' }] } };
+      }
+      throw new Error('fetch failed: socket timeout'); // transient -> retry scheduled
+    }
+    return { success: true, llm_call_id: 'a2-1', llm_request_slice_id: 'a2s1',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const mk = (attempts: number) => ({ id: 'run-RETRY', traceId: 'rt-RETRY', batchId: 'b-RETRY', status: 'processing',
+    attempts, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-RETRY', runId: 'run-RETRY' }) });
+
+  await (service as any).processRuntimeFrame(mk(1), { queueBacked: true }); // attempt 1: transient fail
+  currentAttempt = 1; turnInAttempt = 0;
+  await (service as any).processRuntimeFrame(mk(2), { queueBacked: true }); // attempt 2: reprocess, succeed
+
+  assert.ok(attemptInputs[0].length >= 1 && attemptInputs[1].length >= 1, 'both attempts must have sent a first turn');
+  const a1 = stripVolatile(attemptInputs[0][0]);
+  const a2 = stripVolatile(attemptInputs[1][0]);
+  assert.ok(a1.length >= 1 && JSON.stringify(a1[0]).length > 500, 'precondition: a substantial durable prefix is being compared');
+  // Warm cache on retry: every durable item attempt-1 sent must be present, byte-identical and
+  // in order, at the HEAD of attempt-2's request — so the provider's warm prefix from attempt 1
+  // is hit on the retry. Attempt 2 legitimately EXTENDS it (it resumes from attempt 1's recovered
+  // loopContinuation), but it must never drop, reorder or re-render attempt 1's warm prefix.
+  assertOrderedPrefix(a1, a2, 'transient retry: attempt-1 warm prefix must be preserved at attempt-2\'s head');
+});
+
+// =====================================================================================
+// PURPOSE (#5 restart recovery): after a restart, a recovered run reprocesses with a non-empty
+// initialLoopContinuation (before=true → [history, loopContinuation, trigger]). Its live request
+// item order must match what the next run's stack-replay reconstructs for that lineage, or the
+// run boundary cold-reads (the F1 failure class). F1's regression (1009) pins this at the
+// applyPendingCompressionMidRunIfSilent unit boundary; this lifts it to the FULL frame: a real
+// processRuntimeFrame driven as a recovered run must order loopContinuation BEFORE the trigger.
+// =====================================================================================
+test('restart recovery: a recovered run orders loopContinuation BEFORE the trigger end-to-end (frame level)', async () => {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const LC_MARKER = '<<RECOVERED_LOOP_CONTINUATION>>';
+  const recoveredLoopContinuation = [
+    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: LC_MARKER }] }
+  ];
+  const sent: any[][] = [];
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sent.push(canonicalRequest.input || []);
+    return { success: true, llm_call_id: 'rec-1', llm_request_slice_id: 'recs-1',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const queueMessage = { id: 'run-REC', traceId: 'rt-REC', batchId: 'b-REC', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'rt-REC', runId: 'run-REC' }) };
+  // Drive it as a RECOVERED run: the restart handed back accumulated loopContinuation.
+  await (service as any).processRuntimeFrame(queueMessage, {
+    queueBacked: true,
+    initialLoopContinuation: recoveredLoopContinuation,
+    initialLoopContinuationBeforeCurrentTrigger: true
+  });
+
+  assert.ok(sent.length >= 1, 'the recovered run must have sent a request');
+  const input = sent[0];
+  const lcIdx = input.findIndex((i: any) => JSON.stringify(i).includes(LC_MARKER));
+  const trigIdx = input.findIndex((i: any) => i && i.cache_volatile === true);
+  assert.ok(lcIdx >= 0, 'the recovered loopContinuation must be present in the live request');
+  assert.ok(trigIdx >= 0, 'the current-turn trigger (cache_volatile) must be present');
+  assert.ok(lcIdx < trigIdx, `recovered run must order loopContinuation BEFORE the trigger (lc=${lcIdx}, trig=${trigIdx}) to match stack-replay`);
+});
+
+// =====================================================================================
+// PURPOSE (#1 STW run boundary): a run performs an STW switch, committing a new cutoff +
+// compressed近况. The NEXT run must reconstruct that SAME compressed context from the committed
+// cutoff/summary — so the switched run's compressed prefix is exactly what the next run extends
+// (continuity across the run boundary). The existing STW test (805) only covers WITHIN-run warm
+// continuity; this covers the NEXT run reading the committed compression. (Full history-byte
+// replay of the switched body needs the real-Postgres runtime harness — see the 'REAL Postgres'
+// test; the in-memory harness does not render replayed history into the request.)
+// =====================================================================================
+test('STW run boundary: the next run reconstructs the committed compressed近况 the switch produced', async () => {
+  const NEW_SUMMARY = '压缩后近况：只保留最近的事'; // the summary buildStwScenario commits on flip()
+  const scenario = buildStwScenario();
+  const service = new AgentLoopService(scenario.store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sentCarriesNewSummary: boolean[] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    turn += 1;
+    sentCarriesNewSummary.push(JSON.stringify(canonicalRequest.input || []).includes(NEW_SUMMARY));
+    if (turn === 2) {
+      // The background compression commits mid-run-1: arm the latch + flip the live cutoff/summary.
+      scenario.flip();
+      (service as any).pendingCompressionAppliedCutoffBySession.set(scenario.KEY, scenario.NEW_CUTOFF);
+    }
+    if (turn <= 4) {
+      return { success: true, llm_call_id: `r1-${turn}`, llm_request_slice_id: `r1s-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `c-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] } };
+    }
+    return { success: true, llm_call_id: `r1-${turn}`, llm_request_slice_id: `r1s-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const mk = (runId: string) => ({ id: runId, traceId: `rt-${runId}`, batchId: `b-${runId}`, status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: `rt-${runId}`, runId }) });
+
+  // Run 1: performs the STW switch (commits cutoff + NEW_SUMMARY).
+  await (service as any).processRuntimeFrame(mk('run-STW-A'), { queueBacked: true });
+  const midrun = scenario.timelineEvents.filter((e: any) => e.eventName === 'core_memory_compression_applied_midrun');
+  assert.equal(midrun.length, 1, 'run 1 must have performed the STW switch');
+
+  // Run 2: the NEXT run — single final-answer turn — must read the committed cutoff/summary.
+  const run2Carries: boolean[] = [];
+  let turn2 = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    turn2 += 1;
+    run2Carries.push(JSON.stringify(canonicalRequest.input || []).includes(NEW_SUMMARY));
+    return { success: true, llm_call_id: `r2-${turn2}`, llm_request_slice_id: `r2s-${turn2}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+  await (service as any).processRuntimeFrame(mk('run-STW-B'), { queueBacked: true });
+
+  assert.ok(run2Carries.length >= 1, 'the next run must have sent a request');
+  assert.equal(run2Carries[0], true, 'the next run must reconstruct the committed compressed近况 from the STW switch (run-boundary continuity)');
+});
