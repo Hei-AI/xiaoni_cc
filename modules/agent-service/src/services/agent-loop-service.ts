@@ -9533,8 +9533,9 @@ export class AgentLoopService {
   // fork — it keeps hitting its frozen P_n. Waiting for ALL forks would instead
   // deterministically STARVE the switch in a busy session (6 forks at staggered points →
   // ~never all idle). Only the compression fork is load-bearing: its cutoff must be
-  // committed before the main can adopt it, which is exactly what coreMemoryCompressionForks
-  // (empty) + the live-cutoff check below enforce.
+  // committed before the main can adopt it, which is exactly what the per-key compression-fork
+  // gate (no in-flight compression fork for THIS contextSessionKey) + the live-cutoff check
+  // below enforce.
   private async applyPendingCompressionMidRunIfSilent(params: {
     contextSessionKey: string;
     appliedRunCutoff: number | null;
@@ -9557,22 +9558,27 @@ export class AgentLoopService {
     loopContinuationBeforeCurrentTrigger: boolean;
   }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
     const key = params.contextSessionKey;
+    // Floor for "this run hasn't built/switched to any cutoff yet". Conversation ids are
+    // positive serials, so -1 sorts below every real cutoff; the <= comparisons below then
+    // treat a null prior cutoff as "nothing applied yet" without a separate null branch.
+    const priorCutoff = params.appliedRunCutoff ?? -1;
     const pending = this.pendingCompressionAppliedCutoffBySession.get(key) ?? null;
-    if (pending === null || pending <= (params.appliedRunCutoff ?? -1)) {
+    if (pending === null || pending <= priorCutoff) {
       return null; // nothing scheduled, or this run already built/switched to it
     }
     // Drain gate: wait ONLY for the compression fork that produced the cutoff to finish
-    // committing. Other forks (subconscious / image / heartbeat) are frozen clones on
-    // their own independent prefix-keyed cache entries and are NOT 穿透ed by the switch,
-    // so we deliberately do not wait for them (waiting would starve the switch — see the
-    // method comment + docs/CACHE_CONTRACT.md).
-    if (this.coreMemoryCompressionForks.size > 0) {
-      return null; // compression fork still running — retry at the next turn boundary
+    // committing. Per-key (.has(key)) to match the contract ("该 key 空") and the per-key
+    // latch above — a compression fork on ANOTHER session must not gate this one. Other
+    // forks (subconscious / image / heartbeat) are frozen clones on their own independent
+    // prefix-keyed cache entries and are NOT 穿透ed by the switch, so we deliberately do not
+    // wait for them (waiting would starve the switch — see the method comment + CACHE_CONTRACT.md §4).
+    if (this.coreMemoryCompressionForks.has(key)) {
+      return null; // this key's compression fork still running — retry at the next turn boundary
     }
     // Confirm the fork actually committed the new context window (cutoff + summary).
     const cutoffState = await this.store.getSessionReadCutoffState(key);
     const liveCutoff = cutoffState?.readCutoffAfterConversationId ?? null;
-    if (liveCutoff === null || liveCutoff < pending || liveCutoff <= (params.appliedRunCutoff ?? -1)) {
+    if (liveCutoff === null || liveCutoff < pending || liveCutoff <= priorCutoff) {
       return null; // commit not landed yet, or no real advance
     }
     // Atomic context reorganization: drop history <= the new cutoff, swap in the new
