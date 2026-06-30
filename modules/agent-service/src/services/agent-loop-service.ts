@@ -7359,8 +7359,19 @@ export class AgentLoopService {
         // retry path would pin the folds here and block the retry's success-settle from
         // attaching them to the real conversation — re-creating the very breakdown. On
         // retry the folds stay NULL and ride the reprocessed run's settle instead.
+        // Best-effort, per-call guarded: this backfill is a cache-replay safeguard, NOT a
+        // settle prerequisite. A transient DB error on one fold must NOT propagate past
+        // failQueueMessage below — otherwise the run is left neither failed nor retried
+        // (a locked, orphaned queue row), which is strictly worse than a fold staying NULL.
+        // A NULL fold only costs a run-boundary cold read; a stranded run costs the run.
         for (const continuationQueueMessage of continuationQueueMessages) {
-          await this.store.attachConversationIdToTrace(continuationQueueMessage.payload.traceId, conversationId);
+          await this.store.attachConversationIdToTrace(continuationQueueMessage.payload.traceId, conversationId).catch((backfillError) => {
+            moduleLogger.warn('failed-path fold-backfill attachConversationIdToTrace failed; fold stays NULL', {
+              traceId: continuationQueueMessage.payload.traceId,
+              conversationId,
+              error: backfillError instanceof Error ? backfillError.message : String(backfillError)
+            });
+          });
         }
         // Folded notify messages share this run's run_id, so failing queueMessage.id
         // fails them too. When a retry IS scheduled, retryQueueMessage(queueMessage.id)
