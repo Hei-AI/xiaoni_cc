@@ -621,11 +621,15 @@ const HISTORY_COMPACT_KEEP = 30;
 // 软线 500k(opus-4-6 真实窗口远在其上,留足余量);连续 N=2 轮真实 input
 // 都 > 软线才触发,滤掉单轮尖峰(一次性大 tool result / 图片 burst)。
 // 计数器只放内存 + 重启清零:重启后靠首轮真实测量重判,绝不对过期数字误压。
-// 见 docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
-// TEMPORARY 观察值:150k —— 压缩后约 108-125k,150k 让它涨回去更快、压缩触发更频繁,
-// 好快速验证 counter-reset 修复(300k 涨回来太慢,等太久)。稳定后调回 500_000(真实目标软线)。
-// 改回时只动这一个常量 + rebuild + 重启 agent-service。
-const COMPRESSION_TRIGGER_INPUT_TOKENS = 150_000;
+// COMPRESSION TRIGGER (REQ1): the working-context cap. When the model's REAL input_tokens exceed
+// this for COMPRESSION_TRIGGER_CONSECUTIVE_TURNS consecutive turns, compress — keeping the last
+// HISTORY_COMPACT_KEEP blocks (stack-native, planStackReadCutoffByBlockBudget) and folding the rest
+// into the 近况 capsule. So this is the upper bound of 小腻's live context; she sawtooths up to it,
+// then back down to the kept block tail. Lowering it tightens the context (and compresses more
+// often = more STW switch cold-reads); it does NOT change the cacheable prefix bytes, only the
+// timing of compression switches. Set to 80k per user (was 150k). Change = this constant + rebuild +
+// restart agent-service.
+const COMPRESSION_TRIGGER_INPUT_TOKENS = 80_000;
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
 function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
