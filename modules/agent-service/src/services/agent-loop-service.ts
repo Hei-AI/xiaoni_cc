@@ -2142,7 +2142,13 @@ export function buildSubconsciousAgentForkRequest(
     // the shared cache-warm prefix (baseRequest.input), so the fork keeps the continuity
     // it needs to see — "what she just narrated" — as a small cold tail, the same pattern
     // as the reminders below, without diverging the cache lineage from the main loop.
-    ...recentNarrationItems,
+    // Mark cache_volatile: these are assistant messages (durable by role), so without it the
+    // last one becomes `lastDurable` (anthropic-translate :343) and drags the tail cache_control
+    // breakpoint off the shared warm history — the same cold-read shape the image-vision fork hit.
+    ...recentNarrationItems.map((item) => ({
+      ...(item as Record<string, unknown>),
+      cache_volatile: true
+    }) as unknown as OpenResponseInputItem),
     buildDeveloperInputItem([renderSelfContinuationReminder()]),
     buildDeveloperInputItem([renderSubconsciousForkToolRestrictionReminder()])
   ]);
@@ -2212,21 +2218,30 @@ export function buildImageVisionForkRequest(
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   const imageVisionCallId = buildImageVisionForkCallId(imageId);
-  const existingObservationReminder = existingObservation && existingObservation.trim()
-    ? [buildImageVisionExistingObservationReminder(existingObservation)]
-    : [];
+  // Cache-alignment (Layer 1 — the image-vision cold-read fix, see
+  // project_image_vision_fork_cache_breakdown): the tail cache_control breakpoint anchors on the
+  // LAST DURABLE block (anthropic-translate `isDurableItem`, :343). This fork appends the inspected
+  // image, and both the assistant tool_use (durable by ROLE) and the function_call_output holding
+  // the base64 image (durable by TYPE) would otherwise become `lastDurable` and drag the breakpoint
+  // PAST the shared history onto the new image — the fork then cold-reads the whole history every
+  // turn (cache_read stuck at the system+tools floor). So mark BOTH cache_volatile → non-durable →
+  // the breakpoint stays on the last SHARED history block and the fork rides the main loop's warm
+  // prefix; the image is a cold tail written once. The developer system_reminder (③) is ALREADY
+  // non-durable by role; cache_volatile on it is defensive belt-and-suspenders, NOT load-bearing.
   forkRequest.input = [
     ...forkRequest.input,
+    // ① the real inspect_image_placeholder tool_use (cache_volatile: durable-by-role, MUST be marked)
     {
       type: 'message',
       role: 'assistant',
+      cache_volatile: true,
       content: [
         {
           type: 'output_text',
           text: IMAGE_VISION_FORK_SENTINEL
         }
       ]
-    },
+    } as unknown as OpenResponseInputItem,
     {
       type: 'function_call',
       call_id: imageVisionCallId,
@@ -2234,26 +2249,28 @@ export function buildImageVisionForkRequest(
       arguments: JSON.stringify({
         image_id: imageId,
         detail: 'original'
-      })
-    },
+      }),
+      cache_volatile: true
+    } as unknown as OpenResponseInputItem,
+    // ② the image callback (cache_volatile: durable-by-type, the block that was stealing the breakpoint)
     {
       type: 'function_call_output',
       call_id: imageVisionCallId,
+      cache_volatile: true,
       output: [{
         type: 'input_image',
         image_url: imageDataUrl,
         detail: 'original'
       }]
-    },
-    ...existingObservationReminder,
-    buildImageVisionFileWriteReminder(outputPath)
+    } as unknown as OpenResponseInputItem,
+    // ③ ONE developer system_reminder folding the write-instruction + any existing observation
+    //    (already non-durable by role).
+    buildImageVisionFileWriteReminder(outputPath, existingObservation)
   ];
-  // Cache-alignment (Layer 1): keep the main loop's tool_choice/tools unchanged so
-  // the fork's tools+system+history prefix is byte-identical and reads the main's
-  // warm in-context cache. Tool restriction to exec_command is enforced at
-  // execution time (Layer 2): only execCommand calls run; any other tool the model
-  // emits gets buildImageVisionUnsupportedToolOutput and is never executed. The
-  // appended write reminder hard-steers the model to exec_command only.
+  // Tool restriction to exec_command is enforced at execution time (Layer 2): only execCommand
+  // calls run; any other tool the model emits gets buildImageVisionUnsupportedToolOutput and is
+  // never executed. tool_choice/tools stay the main loop's (FORK 铁律). The appended write
+  // reminder hard-steers the model to exec_command only.
   forkRequest.parallel_tool_calls = true;
   forkRequest.store = false;
   forkRequest.metadata = {
@@ -2270,21 +2287,26 @@ function buildImageVisionObservationPath(imageId: string) {
   return `${IMAGE_VISION_OBSERVATION_DIR}/${imageId}.md`;
 }
 
-function buildImageVisionFileWriteReminder(outputPath: string): OpenResponseInputItem {
+// ONE developer system_reminder for the image-vision fork: the write-instruction, with any
+// existing observation folded in (replaces the old separate existing-observation reminder — the
+// simplification the fix calls for). Developer role → non-durable → keeps the tail breakpoint on
+// the shared history.
+function buildImageVisionFileWriteReminder(
+  outputPath: string,
+  existingObservation: string | null = null
+): OpenResponseInputItem {
+  const existingBlock = existingObservation && existingObservation.trim()
+    ? renderPromptSnippet('image_vision_existing_observation_reminder.md', {
+        EXISTING_OBSERVATION: existingObservation.trim()
+      })
+    : '';
+  const rendered = renderPromptSnippet('image_vision_write_description_reminder.md', {
+    CURRENT_TIME: formatEast8Timestamp(),
+    OUTPUT_PATH: outputPath,
+    EXISTING_OBSERVATION_BLOCK: existingBlock ? `\n${existingBlock}\n` : ''
+  });
   return buildDeveloperInputItem([
-    renderPromptSnippet('image_vision_write_description_reminder.md', {
-      CURRENT_TIME: formatEast8Timestamp(),
-      OUTPUT_PATH: outputPath
-    })
-  ]);
-}
-
-function buildImageVisionExistingObservationReminder(existingObservation: string): OpenResponseInputItem {
-  return buildDeveloperInputItem([
-    renderPromptSnippet('image_vision_existing_observation_reminder.md', {
-      CURRENT_TIME: formatEast8Timestamp(),
-      EXISTING_OBSERVATION: existingObservation.trim()
-    })
+    removePlaceholderOnlyLines(rendered, ['EXISTING_OBSERVATION_BLOCK'])
   ]);
 }
 
