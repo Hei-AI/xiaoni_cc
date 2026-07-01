@@ -3673,7 +3673,7 @@ function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payloa
 const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
   '把当前可压缩的稳定旧上下文整理成新的核心记忆近况，保留最近的衔接内容继续往下做。';
 
-function buildCoreMemoryCompressionReminder(input: {
+export function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
   readCutoffAfterStackIndex: number | null;
   pressureSummary: string;
@@ -3693,7 +3693,7 @@ function buildCoreMemoryCompressionReminder(input: {
   return item;
 }
 
-function buildCoreMemoryCompressionForkRetryReminder(input: {
+export function buildCoreMemoryCompressionForkRetryReminder(input: {
   forkTurn: number;
   reason: string;
   retryCount: number;

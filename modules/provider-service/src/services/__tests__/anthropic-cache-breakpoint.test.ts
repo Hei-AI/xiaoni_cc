@@ -125,6 +125,52 @@ test('image-vision fork: a DURABLE image tail moves the breakpoint off the share
     'durable image tail: breakpoint must have moved OFF the shared history (this is the cold-read bug)');
 });
 
+// 4-BREAKPOINT BUDGET (Anthropic hard cap: a request may carry at most 4 cache_control
+// markers). `placeCacheBreakpoints` allocates them: [1] end of system (tools+system floor),
+// [2..3] up to TWO mid-history anchors (cache_anchor items), [4] the last durable block (live
+// tail). It reserves the last slot for the tail (`used >= MAX-1` break), so the tail ALWAYS
+// gets a breakpoint and any anchors beyond the budget are DROPPED — never the tail. This guards
+// the cap directly: a regression that emits a 5th marker is a 400 from Anthropic; one that lets
+// an anchor steal the tail's reserved slot silently cold-reads the live tail every turn.
+function countCacheControls(body: any): number {
+  let n = 0;
+  for (const s of body.system || []) if (s && s.cache_control) n += 1;
+  for (const msg of body.messages || []) {
+    for (const block of (Array.isArray(msg.content) ? msg.content : [])) {
+      if (block && block.cache_control) n += 1;
+    }
+  }
+  return n;
+}
+
+test('cache breakpoints never exceed 4: system + 2 anchors + last-durable tail; excess anchors dropped, tail always kept', () => {
+  // THREE cache_anchor items requested but the budget only fits TWO (system+2 anchors = 3, tail = 4).
+  const body = translateCanonicalToMessages({
+    model: 'claude-opus-4-6',
+    instructions: 'You are 小腻.',
+    max_output_tokens: 1,
+    tool_choice: 'auto',
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史0 <<H0>>' }] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚1 <<A1>>' }], cache_anchor: true },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史2 <<H2>>' }] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚2 <<A2>>' }], cache_anchor: true },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史4 <<H4>>' }] },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚3 <<A3>>' }], cache_anchor: true },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '活体尾 <<TAIL>>' }] }
+    ]
+  } as any).body;
+
+  assert.ok(countCacheControls(body) <= 4, `must never emit more than 4 cache_control markers, got ${countCacheControls(body)}`);
+  // The live tail (last durable) ALWAYS keeps its reserved breakpoint.
+  assert.ok(lastMessageCacheBreakpoint(body).includes('TAIL'),
+    'the last-durable live tail must always get a cache breakpoint (its slot is reserved)');
+  // The 3rd anchor is the one dropped for budget — NOT the tail.
+  const marked = JSON.stringify(body.messages);
+  const anchoredA3 = body.messages.some((m: any) => (m.content || []).some((b: any) => b.cache_control && String(b.text).includes('A3')));
+  assert.ok(!anchoredA3, 'the 3rd anchor must be dropped when the 4-breakpoint budget is full (tail keeps priority)');
+});
+
 test('image-vision fork: an all-non-durable tail keeps the breakpoint on the shared warm history (the fix)', () => {
   // The FIX shape: same three appended items, but ALL marked cache_volatile, plus a developer
   // system_reminder. Every appended item is non-durable → `lastDurable` stays on the shared

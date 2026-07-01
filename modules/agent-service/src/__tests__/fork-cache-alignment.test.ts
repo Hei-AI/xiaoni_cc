@@ -4,6 +4,8 @@ import { agentConfig } from '../config';
 import {
   buildCanonicalAgentTurnRequest,
   buildCoreMemoryCompressionForkRequest,
+  buildCoreMemoryCompressionReminder,
+  buildCoreMemoryCompressionForkRetryReminder,
   buildSubconsciousAgentForkRequest,
   buildCacheHeartbeatForkRequest,
   buildImageVisionForkRequest
@@ -205,6 +207,41 @@ test('every fork appends ONLY non-durable tail items (breakpoint stays on shared
       );
     });
   }
+});
+
+// GAP the builder-based check above CANNOT see: the compression fork builder is a PURE
+// clone (tail 0) — its steering tail (the pressure reminder, and retry reminders on later
+// turns) is appended DOWNSTREAM at dispatch (runCoreMemoryCompressionFork:
+// forkInput = [...base.input, ...compressionReminderItems]). So the non-durability of THAT
+// tail is not exercised by "every fork appends ONLY non-durable tail items". Assert the
+// dispatch-appended items directly: if either reminder were built as a durable role
+// (user/assistant) instead of developer, it would become `lastDurable` and drag the
+// compression fork's breakpoint off the shared warm history — the same cold-read bug,
+// invisible to the builder check because the builder never appends it.
+test('compression fork DISPATCH tail (pressure + retry reminders) is NON-durable', () => {
+  const pressure = buildCoreMemoryCompressionReminder({
+    contextSessionKey: 'xiaoni:global',
+    readCutoffAfterStackIndex: 12345,
+    pressureSummary: '上下文接近预算上限'
+  });
+  assert.equal(
+    isDurableItem(pressure),
+    false,
+    'compression pressure reminder must be NON-durable (developer role): it is appended at ' +
+    'dispatch as the fork tail; a durable one would move the breakpoint off the shared history'
+  );
+  const retry = buildCoreMemoryCompressionForkRetryReminder({
+    forkTurn: 2,
+    reason: 'no_tool_call',
+    retryCount: 1,
+    maxRetries: 3
+  });
+  assert.equal(
+    isDurableItem(retry),
+    false,
+    'compression fork retry reminder must be NON-durable (developer role): it too is appended ' +
+    'as a dispatch-time tail on retry turns'
+  );
 });
 
 // CONTRACT (docs/CACHE_CONTRACT.md §3.1): each fork appends fewer than 20 content
