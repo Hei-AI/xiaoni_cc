@@ -2208,6 +2208,28 @@ function attachImageVisionForkTokenMetadata(timeline, tokenSummaryBySliceId) {
   };
 }
 
+// Stamp each image-vision fork event's stream orderSeq from its occurredSeq (and derive the
+// 模型请求 slice orderSeq from its output-neighbour), exactly like the compression and
+// subconscious fork timelines already do (loadCompressionForkTimeline / loadSubconscious...
+// call attachStreamOrderMetadata per run). Without this the image-vision fork events carry
+// occurredSeq but NO orderSeq, so the frontend (buildStreamEntries) drops the whole fork into
+// the un-stamped "historical" tier and it sinks to the bottom of the action stream instead of
+// sorting inline by its real global sequence. Called AFTER slice events are attached so the
+// slice rows are available for the outputStart-index derivation.
+function attachImageVisionForkStreamOrder(timeline, sliceRows) {
+  return {
+    ...timeline,
+    runs: (Array.isArray(timeline?.runs) ? timeline.runs : []).map((run) => {
+      const events = (Array.isArray(run?.events) ? run.events : []).map((event) => ({
+        ...event,
+        metadata: event && typeof event.metadata === 'object' && event.metadata ? { ...event.metadata } : {}
+      }));
+      attachStreamOrderMetadata(events, sliceRows);
+      return { ...run, events };
+    })
+  };
+}
+
 function summarizeQueueMessage(row, staleCutoffMs) {
   const lockedAt = row.locked_at instanceof Date ? row.locked_at.getTime() : row.locked_at ? new Date(row.locked_at).getTime() : 0;
   const isStaleProcessing = row.status === 'processing' && lockedAt > 0 && Date.now() - lockedAt > staleCutoffMs;
@@ -4258,6 +4280,7 @@ function createXiaoniActivityPersistence({
       });
       const imageVisionForkTimelineWithSlices = attachImageVisionForkSliceEvents(imageVisionForkTimeline, normalizedLlmRequestSliceRows);
       const imageVisionForkTimelineWithTokens = attachImageVisionForkTokenMetadata(imageVisionForkTimelineWithSlices, tokenSummaryBySliceId);
+      const imageVisionForkTimelineWithOrder = attachImageVisionForkStreamOrder(imageVisionForkTimelineWithTokens, normalizedLlmRequestSliceRows);
 
       const projectedItems = dedupeFeedItems([
         ...normalizedLlmRequestSliceRows.filter((row) => !isSelfActionSearchLlm(row)).map(summarizeLlmRequestSlice),
@@ -4330,7 +4353,7 @@ function createXiaoniActivityPersistence({
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
         subconsciousForkTimeline: normalizeValue(subconsciousForkTimeline),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
-        imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithTokens)
+        imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
     } finally {
       await sql.close();

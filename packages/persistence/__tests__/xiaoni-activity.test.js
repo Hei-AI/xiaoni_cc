@@ -1218,6 +1218,7 @@ test('Xiaoni action stream projects image vision fork observations outside main 
       fork_run_id: 'image-vision-fork:run_vision_1:media_vision_1',
       identity_key: 'xiaoni',
       item_index: 1,
+      occurred_seq: 4242,
       item_kind: 'function_call',
       tool_call_id: 'call_exec_vision_1',
       llm_request_slice_id: 'vision_llm_1',
@@ -1259,6 +1260,12 @@ test('Xiaoni action stream projects image vision fork observations outside main 
   assert.ok(forkToolEvent);
   assert.equal(forkToolEvent.metadata.providerRawTraceAvailable, false);
   assert.equal(forkToolEvent.metadata.providerRequestSpanId, 'provider-request:wire:vision_llm_1');
+  // Regression: the image-vision fork used to sink to the bottom of the action stream because
+  // its events carried occurredSeq but never got orderSeq stamped (attachStreamOrderMetadata was
+  // called for the compression/subconscious fork timelines but NOT the image-vision one). The
+  // frontend drops events with no orderSeq into the un-stamped "historical" tier. Assert the fork
+  // item now gets orderSeq from its occurredSeq so it sorts inline by true global sequence.
+  assert.equal(forkToolEvent.metadata.orderSeq, 4242, 'image-vision fork item must get orderSeq stamped from occurredSeq (else the fork sinks to the bottom)');
   assert.equal(stream.items.some((item) => item.source === 'media_observation'), false);
   assert.equal(
     listSliceInputs.some((input) => input.sliceId === 'vision_llm_1' && input.sourceKind === 'image_vision_fork'),
