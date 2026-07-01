@@ -29,6 +29,13 @@ import {
 
 const EXEC_COMMAND_TOOL = 'exec_command';
 
+// The real inspect_image_placeholder call the main agent emitted (call_id + arguments), threaded
+// into the image-vision fork so it carries the genuine call rather than a fabricated one.
+const IMAGE_VISION_SOURCE_CALL = {
+  callId: 'call-inspect-image',
+  arguments: JSON.stringify({ image_id: 'img-1', detail: 'original' })
+};
+
 // A production-shaped main-loop input: every item kind the real loop sends.
 function buildProductionMainLoopInput() {
   return [
@@ -118,7 +125,8 @@ test('image-vision fork: cloned prefix byte-identical + appends inspect/observe 
     'data:image/png;base64,iVBORw0KGgo=',
     'img-1',
     '/xiaoni-runtime/image-vision/observations/img-1.md',
-    null
+    null,
+    IMAGE_VISION_SOURCE_CALL
   );
   assertForkPrefixByteIdentical(fork, base, 'image-vision');
   assert.ok(fork.input.length > base.input.length, 'image-vision fork must append the inspect/observe tail');
@@ -134,7 +142,7 @@ test('all forks share the SAME cloned prefix as each other (one warm cache entry
     buildCoreMemoryCompressionForkRequest(base, 1),
     buildSubconsciousAgentForkRequest(base, 1, []),
     buildCacheHeartbeatForkRequest(base),
-    buildImageVisionForkRequest(base, 'data:image/png;base64,iVBORw0KGgo=', 'img-1', '/x/y.md', null)
+    buildImageVisionForkRequest(base, 'data:image/png;base64,iVBORw0KGgo=', 'img-1', '/x/y.md', null, IMAGE_VISION_SOURCE_CALL)
   ];
   const basePrefix = JSON.stringify(base.input.slice(0, prefixLen));
   for (const fork of forks) {
@@ -192,7 +200,8 @@ test('every fork appends ONLY non-durable tail items (breakpoint stays on shared
       'data:image/png;base64,iVBORw0KGgo=',
       'img-1',
       '/xiaoni-runtime/image-vision/observations/img-1.md',
-      '旧观察'
+      '旧观察',
+      IMAGE_VISION_SOURCE_CALL
     )]
   ];
   for (const [label, fork] of forks) {
@@ -254,7 +263,7 @@ test('every fork appends < 20 content blocks past the cloned prefix (20-block lo
     { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '刚才的叙述' }] }
   ] as any[]);
   const heartbeat: any = buildCacheHeartbeatForkRequest(base);
-  const imageVision: any = buildImageVisionForkRequest(base, 'data:image/png;base64,iVBORw0KGgo=', 'img-1', '/x/y.md', '旧观察');
+  const imageVision: any = buildImageVisionForkRequest(base, 'data:image/png;base64,iVBORw0KGgo=', 'img-1', '/x/y.md', '旧观察', IMAGE_VISION_SOURCE_CALL);
   for (const [label, fork] of [['subconscious', subc], ['heartbeat', heartbeat], ['image-vision', imageVision]] as const) {
     const tail = fork.input.length - base.input.length;
     assert.ok(tail > 0 && tail < 20, `${label} fork tail must be in (0,20) blocks, got ${tail}`);

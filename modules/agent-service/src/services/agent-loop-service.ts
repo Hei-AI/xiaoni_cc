@@ -123,7 +123,6 @@ type OpenResponseInputContentPart =
     };
 
 const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
-const OPENAI_CALL_ID_MAX_LENGTH = 64;
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
@@ -960,7 +959,6 @@ const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
   background: 'auto'
 };
 
-const IMAGE_VISION_FORK_SENTINEL = '让我来看看这个图是啥意思';
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
@@ -2214,48 +2212,41 @@ export function buildImageVisionForkRequest(
   imageDataUrl: string,
   imageId: string,
   outputPath: string,
-  existingObservation: string | null = null
+  existingObservation: string | null = null,
+  sourceCall: { callId: string; arguments: string }
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
-  const imageVisionCallId = buildImageVisionForkCallId(imageId);
+  // The main agent REALLY emitted this inspect_image_placeholder call — its turn's output is a genuine
+  // tool_use. The fork carries that real call forward (its call_id + arguments verbatim) instead of
+  // fabricating a narration + synthetic id. The function callback then swaps in the real image; the
+  // text observation the fork writes is what the MAIN agent gets back for this same call.
+  const callId = sourceCall.callId;
+  const callArguments = sourceCall.arguments;
   // Cache-alignment (Layer 1 — the image-vision cold-read fix, see
   // project_image_vision_fork_cache_breakdown): the tail cache_control breakpoint anchors on the
-  // LAST DURABLE block (anthropic-translate `isDurableItem`, :343). This fork appends the inspected
-  // image, and both the assistant tool_use (durable by ROLE) and the function_call_output holding
-  // the base64 image (durable by TYPE) would otherwise become `lastDurable` and drag the breakpoint
-  // PAST the shared history onto the new image — the fork then cold-reads the whole history every
-  // turn (cache_read stuck at the system+tools floor). So mark BOTH cache_volatile → non-durable →
-  // the breakpoint stays on the last SHARED history block and the fork rides the main loop's warm
+  // LAST DURABLE block (anthropic-translate `isDurableItem`, :343). The real inspect_image_placeholder
+  // tool_use (durable by ROLE once translated to an assistant turn) and the function_call_output
+  // holding the base64 image (durable by TYPE) would otherwise become `lastDurable` and drag the
+  // breakpoint PAST the shared history onto the new image — the fork then cold-reads the whole history
+  // every turn (cache_read stuck at the system+tools floor). So mark BOTH cache_volatile → non-durable
+  // → the breakpoint stays on the last SHARED history block and the fork rides the main loop's warm
   // prefix; the image is a cold tail written once. The developer system_reminder (③) is ALREADY
-  // non-durable by role; cache_volatile on it is defensive belt-and-suspenders, NOT load-bearing.
+  // non-durable by role.
   forkRequest.input = [
     ...forkRequest.input,
-    // ① the real inspect_image_placeholder tool_use (cache_volatile: durable-by-role, MUST be marked)
-    {
-      type: 'message',
-      role: 'assistant',
-      cache_volatile: true,
-      content: [
-        {
-          type: 'output_text',
-          text: IMAGE_VISION_FORK_SENTINEL
-        }
-      ]
-    } as unknown as OpenResponseInputItem,
+    // ① the REAL inspect_image_placeholder tool_use (cache_volatile: durable-by-role, MUST be marked)
     {
       type: 'function_call',
-      call_id: imageVisionCallId,
+      call_id: callId,
       name: 'inspect_image_placeholder',
-      arguments: JSON.stringify({
-        image_id: imageId,
-        detail: 'original'
-      }),
+      arguments: callArguments,
       cache_volatile: true
     } as unknown as OpenResponseInputItem,
-    // ② the image callback (cache_volatile: durable-by-type, the block that was stealing the breakpoint)
+    // ② the real function callback carrying the inspected image (cache_volatile: durable-by-type, the
+    //    block that would otherwise steal the breakpoint)
     {
       type: 'function_call_output',
-      call_id: imageVisionCallId,
+      call_id: callId,
       cache_volatile: true,
       output: [{
         type: 'input_image',
@@ -2338,14 +2329,6 @@ function buildImageVisionFailedDescription(outputPath: string) {
     CURRENT_TIME: formatEast8Timestamp(),
     OUTPUT_PATH: outputPath
   });
-}
-
-function buildImageVisionForkCallId(imageId: string): string {
-  const digest = createHash('sha256').update(imageId).digest('hex').slice(0, 32);
-  const callId = `call_image_vision_${digest}`;
-  return callId.length <= OPENAI_CALL_ID_MAX_LENGTH
-    ? callId
-    : `call_img_${digest}`;
 }
 
 function buildImageVisionForkRunId(runId: string | null | undefined, imageId: string): string {
@@ -10669,7 +10652,7 @@ export class AgentLoopService {
         return this.executeComputerAction(toolCall);
       }
       case TOOL_NAMES.inspectImage: {
-        return this.inspectImagePlaceholder(toolCall.args, queueMessage, context);
+        return this.inspectImagePlaceholder(toolCall, queueMessage, context);
       }
       case TOOL_NAMES.imageTask: {
         return this.requestImageTask(toolCall.args, queueMessage, context);
@@ -11180,10 +11163,11 @@ export class AgentLoopService {
   }
 
   private async inspectImagePlaceholder(
-    args: Record<string, unknown>,
+    toolCall: AgentToolCall,
     queueMessage: QueueMessageRecord['payload'],
     context: ToolExecutionContext
   ) {
+    const args = toolCall.args;
     const imageId = typeof args.image_id === 'string' && args.image_id.trim()
       ? args.image_id.trim()
       : '';
@@ -11264,7 +11248,8 @@ export class AgentLoopService {
       materialized.dataUrl,
       assetId,
       outputPath,
-      existingObservation.text
+      existingObservation.text,
+      { callId: toolCall.callId, arguments: toolCall.rawArguments }
     );
     await this.recordImageVisionForkRunSafe({
       forkRunId,

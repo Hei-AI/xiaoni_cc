@@ -4542,8 +4542,13 @@ test('inspect_image_placeholder returns a recoverable message for a missing imag
 
   const result = await (service as any).inspectImagePlaceholder(
     {
-      image_id: 'missing-image-id',
-      reason: '想看图。'
+      callId: 'call-inspect-missing',
+      name: 'inspect_image_placeholder',
+      args: {
+        image_id: 'missing-image-id',
+        reason: '想看图。'
+      },
+      rawArguments: JSON.stringify({ image_id: 'missing-image-id', reason: '想看图。' })
     },
     createQueuePayload(),
     {}
@@ -4858,7 +4863,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   const forkRequest = executeCalls[0]?.body?.canonicalRequest;
   assert.ok(mainRequest);
   assert.ok(forkRequest);
-  assert.deepEqual(forkRequest.input.slice(0, -4), mainRequest.input);
+  assert.deepEqual(forkRequest.input.slice(0, -3), mainRequest.input);
   assert.equal(forkRequest.instructions, mainRequest.instructions);
   assert.deepEqual(forkRequest.tools, mainRequest.tools);
   // cache-alignment (Layer 1): the fork inherits the main loop's full auto
@@ -4872,25 +4877,18 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   assert.equal(forkRequest.store, false);
 
   const appendedItems = forkRequest.input.slice(mainRequest.input.length);
-  assert.equal(appendedItems.length, 4);
-  const [visionCommentary, visionCall, visionOutput, writeReminder] = appendedItems;
-  assert.equal(visionCommentary?.type, 'message');
-  assert.equal(visionCommentary?.role, 'assistant');
-  assert.equal(getMessageContent(visionCommentary), '让我来看看这个图是啥意思');
-  assert.equal(
-    Array.isArray(visionCommentary?.content)
-      ? visionCommentary.content.some((part: any) => part.type === 'input_image')
-      : false,
-    false
-  );
+  assert.equal(appendedItems.length, 3);
+  // The fork carries the REAL inspect_image_placeholder call (no fabricated narration): the real
+  // call_id + arguments the main agent emitted, then the function callback with the real image, then
+  // the write reminder. The image is a cold tail; the main agent's return stays text.
+  const [visionCall, visionOutput, writeReminder] = appendedItems;
   assert.equal(visionCall?.type, 'function_call');
   assert.equal(visionCall?.name, 'inspect_image_placeholder');
+  assert.equal(visionCall?.call_id, 'call-inspect-image');
   assert.deepEqual(JSON.parse(visionCall?.arguments), {
     image_id: imageAssetId,
-    detail: 'original'
+    reason: '需要真正看图才能接话。'
   });
-  assert.equal(visionCall.call_id.length <= 64, true);
-  assert.doesNotMatch(visionCall.call_id, new RegExp(imageAssetId));
   assert.equal(visionOutput?.type, 'function_call_output');
   assert.equal(visionOutput?.call_id, visionCall?.call_id);
   assert.deepEqual(visionOutput?.output, [{
@@ -4899,7 +4897,7 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
     detail: 'original'
   }]);
   assert.equal(appendedItems.some((item: any) => item.role === 'user'), false);
-  assert.doesNotMatch(JSON.stringify([visionCommentary, visionCall]), /data:image/);
+  assert.doesNotMatch(JSON.stringify([visionCall]), /data:image/);
   assert.match(JSON.stringify(visionOutput?.output), /data:image\/png;base64,QUJDREVGRw==/);
   assert.equal(writeReminder?.type, 'message');
   assert.equal(writeReminder?.role, 'developer');
