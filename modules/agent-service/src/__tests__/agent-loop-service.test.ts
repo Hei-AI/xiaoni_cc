@@ -5095,6 +5095,39 @@ test('send_in_group uses explicit group target when provided', async () => {
   });
 });
 
+test('sendMessage records a self-sent outbound row so qq_usage can show her own words', async () => {
+  const recorded: any[] = [];
+  const service = new AgentLoopService({
+    recordQqUsageOutboundMessage: async (input: any) => { recorded.push(input); return { id: 1 }; }
+  } as any);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: any }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), body: JSON.parse(String(init?.body || '{}')) });
+    return { ok: true, json: async () => ({ success: true, data: { message_id: 8888 } }) } as any;
+  }) as typeof fetch;
+
+  try {
+    await (service as any).sendMessage('private', { user_id: 85178516, message: '在的，刚在看书' }, createQueuePayload());
+    await (service as any).sendMessage('group', { group_id: 999999, message: '收到' }, createQueuePayload());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(recorded.length, 2, '两次发送各落一条 outbound');
+  const priv = recorded.find((r) => r.chatType === 'direct');
+  assert.ok(priv, 'private send recorded');
+  assert.match(priv.sessionKey, /^qq:direct:\d+:85178516$/);
+  assert.equal(priv.senderName, '小腻');
+  assert.equal(priv.contentKind, 'text');
+  // 记录的 body 与真正发出去的文本一致
+  const privSent = calls.find((c) => c.url.endsWith('/send_private'))?.body?.messages?.[0];
+  assert.equal(priv.bodyForAgent, privSent);
+  const grp = recorded.find((r) => r.chatType === 'group');
+  assert.ok(grp, 'group send recorded');
+  assert.equal(grp.sessionKey, 'qq:group:999999');
+});
+
 test('send_in_group returns a retryable tool error without explicit group target', async () => {
   const service = new AgentLoopService({} as any);
   const originalFetch = globalThis.fetch;

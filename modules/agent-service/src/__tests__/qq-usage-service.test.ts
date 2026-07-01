@@ -228,6 +228,66 @@ test('QqUsageService keeps a self-sent image placeholder id intact so she can in
   assert.match(result.content, /\[图片:media_1699_abcd\]/);
 });
 
+test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fields, keeps message_id', async () => {
+  const service = new QqUsageService({
+    clearQqUsageActiveSurface: async () => undefined,
+    listQqUsageThreads: async () => ({
+      offset: 0, limit: 10, searchQuery: '', chatType: null,
+      hasOlderThreads: false, hasNewerThreads: false,
+      threads: [{
+        threadKey: 'qq:direct:1129974489:85178516', chatType: 'direct', peerId: '85178516',
+        peerName: '李阿花', accountId: '1129974489', imReceiveEnabled: true,
+        notificationMuted: false, notificationAggregationSeconds: 0,
+        unreadCount: 3, directMentions: 0, totalMessages: 10,
+        lastReceivedAt: '2026-06-19T02:00:00.000Z',
+        latestMessage: { sender_id: '85178516', sender_name: '李阿花', raw_body: '在吗', received_at: '2026-06-19T02:00:00.000Z' }
+      }]
+    }),
+    listQqUsageThreadWindow: async () => ({
+      threadKey: 'qq:direct:1129974489:85178516', mode: 'latest', windowSize: 10,
+      cursorAnchor: '100:101', hasOlderMessages: true, hasNewerMessages: false,
+      newerAvailable: 0, unreadBeforeWindow: 2, unreadAfterWindow: 0,
+      reachedReadHistory: true, unreadCount: 1, directMentions: 0,
+      latestMessageId: 101, earliestMessageId: 100, windowUnreadCount: 1,
+      messages: [
+        { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '读过的', received_at: '2026-06-19T02:00:00.000Z', is_read: 1, was_mentioned: 0 },
+        { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '没读的', received_at: '2026-06-19T02:00:20.000Z', is_read: 0, was_mentioned: 0, reply_to_id: '100' }
+      ]
+    }),
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any);
+
+  const inbox = await service.openInbox();
+  // 私聊 THREAD：无内部 id / 冗余命令 / 群专属字段
+  for (const noise of [/thread_key=/, /focus_target=/, /surface=/, /offset=/,
+    /notification_muted=/, /notification_aggregation_seconds=/, /direct_mentions=/]) {
+    assert.doesNotMatch(inbox.content, noise);
+  }
+  // 保留她真正要用的
+  assert.match(inbox.content, /peer_id="85178516"/);
+  assert.match(inbox.content, /chat_type="私聊"/);
+  assert.match(inbox.content, /unread_count="3"/);
+
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  // 会话窗口：删纯内部记账字段
+  for (const noise of [/surface=/, /thread_key=/, /cursor_anchor=/, /window_size=/, /newer_available=/]) {
+    assert.doesNotMatch(win.content, noise);
+  }
+  // 保留导航信号
+  assert.match(win.content, /mode="conversation"/);
+  assert.match(win.content, /unread_before_window="2"/);
+  assert.match(win.content, /has_older_messages="true"/);
+  // message_id 保留（reply_to 的锚）
+  assert.match(win.content, /message_id="100"/);
+  assert.match(win.content, /message_id="101"[^>]*reply_to="100"/);
+  // read_state 只在未读那条出现（读过的默认态不渲染）→ 恰好一次
+  assert.equal((win.content.match(/read_state=/g) || []).length, 1);
+  assert.match(win.content, /read_state="unread"/);
+  // 两条都没 @ 小腻 → mentions_xiaoni 一次都不出现
+  assert.doesNotMatch(win.content, /mentions_xiaoni=/);
+});
+
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
   const service = new FakeQqUsageService();
   const runtime = new QqUsageSkillRuntime(service as any);

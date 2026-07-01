@@ -113,32 +113,31 @@ function senderLabel(message: Record<string, unknown> | null) {
 }
 
 function renderThread(thread: QqUsageThreadSummary) {
-  const focusTarget = thread.chatType === 'group'
-    ? `focus_group ${thread.peerId}`
-    : `focus_private ${thread.peerId}`;
+  // 精简：删 thread_key(内部id,SKILL叫她别用)、focus_target(chat_type+peer_id 已足够,
+  // SKILL 已教 focus_private/group,一屏10行重复浪费)。群专属三件套仅群聊渲染,私聊恒0/无意义。
+  const isGroup = thread.chatType === 'group';
   return formatTaggedBlock('THREAD', {
-    thread_key: thread.threadKey,
-    chat_type: thread.chatType === 'group' ? '群聊' : '私聊',
+    chat_type: isGroup ? '群聊' : '私聊',
     peer_id: thread.peerId,
-    focus_target: focusTarget,
     display_name: displayName(thread),
-    notification_muted: String(thread.notificationMuted === true),
-    notification_aggregation_seconds: thread.notificationAggregationSeconds,
+    ...(isGroup ? {
+      notification_muted: String(thread.notificationMuted === true),
+      notification_aggregation_seconds: thread.notificationAggregationSeconds,
+      direct_mentions: thread.directMentions
+    } : {}),
     unread_count: thread.unreadCount,
-    direct_mentions: thread.directMentions,
     latest_sender: senderLabel(thread.latestMessage),
     latest_preview: normalizePreview(thread.latestMessage)
   });
 }
 
 function renderThreadListWindow(result: QqUsageThreadList) {
+  // 精简：删 surface(恒定)、offset/window_size(内部分页,她用 older/newer 翻)。
+  // query/chat_type 无值时 formatTaggedBlock 已自动省略。
   return formatTaggedBlock('IM_INBOX_WINDOW', {
     mode: result.searchQuery ? 'search_results' : 'thread_list',
-    surface: 'qq',
     query: result.searchQuery,
     chat_type: result.chatType,
-    offset: result.offset,
-    window_size: result.limit,
     has_older_threads: String(result.hasOlderThreads),
     has_newer_threads: String(result.hasNewerThreads)
   }, result.threads.map(renderThread).join('\n'));
@@ -151,30 +150,32 @@ function renderMessage(message: Record<string, unknown>) {
   // outgoing = 小腻自己发的（来自 agent_outbound_messages，见 persistence 合并）。
   // 默认 incoming 保持 inbound 行的历史行为不变。
   const direction = message.direction === 'outgoing' ? 'outgoing' : 'incoming';
+  // message_id 保留：它是 reply_to 的对应锚（reply_to="X" 要能在窗口里找到 message_id="X"）。
+  // read_state 只在未读时透出（读过是默认态）；mentions_xiaoni 只在被@时透出（否则恒 false 是噪音）。
+  const isUnread = Number(message.is_read) !== 1;
+  const wasMentioned = Number(message.was_mentioned) === 1;
   return formatTaggedBlock('MESSAGE', {
     message_id: message.id,
     timestamp: toDateTime(message.message_timestamp || message.received_at),
     sender: senderLabel(message),
     direction,
-    read_state: Number(message.is_read) === 1 ? 'read' : 'unread',
-    mentions_xiaoni: String(Number(message.was_mentioned) === 1),
+    ...(isUnread ? { read_state: 'unread' } : {}),
+    ...(wasMentioned ? { mentions_xiaoni: 'true' } : {}),
     ...(replyTo ? { reply_to: replyTo } : {})
   }, escapeXmlText(renderMessageBody(message)));
 }
 
 function renderConversationWindow(result: QqUsageThreadWindow) {
+  // 精简：删掉纯内部记账字段——surface(恒定)、thread_key(内部id且SKILL叫她别用)、
+  // cursor_anchor(内部id对,翻页不靠它)、window_size(可数)、newer_available(与 has_newer_messages 重复)。
+  // 翻页锚点走结果对象的 earliest/latest_message_id（runtime 内部 state），不受此渲染影响。
   return formatTaggedBlock('IM_INBOX_WINDOW', {
     mode: 'conversation',
-    surface: 'qq',
-    thread_key: result.threadKey,
-    cursor_anchor: result.cursorAnchor,
-    window_size: result.windowSize,
     unread_before_window: result.unreadBeforeWindow,
     unread_after_window: result.unreadAfterWindow,
     reached_read_history: String(result.reachedReadHistory),
     has_older_messages: String(result.hasOlderMessages),
-    has_newer_messages: String(result.hasNewerMessages),
-    newer_available: result.newerAvailable
+    has_newer_messages: String(result.hasNewerMessages)
   }, result.messages.map(renderMessage).join('\n'));
 }
 
@@ -315,10 +316,9 @@ export class QqUsageService {
   constructor(private readonly store: RuntimeStore) {}
 
   async ambientUnread() {
+    // 精简：app/surface 都是恒定值，标签名 PHONE_NOTIFICATION 已表意，删掉。
     const summary = await this.store.getQqUsageUnreadSummary();
     return formatTaggedBlock('PHONE_NOTIFICATION', {
-      app: 'qq',
-      surface: 'status_bar',
       unread_count: summary.unreadCount,
       direct_mentions: summary.directMentions
     });
@@ -437,8 +437,6 @@ export class QqUsageService {
         thread_key: result.threadKey,
         content: formatTaggedBlock('IM_INBOX_WINDOW', {
           mode: 'closed',
-          surface: 'qq',
-          thread_key: result.threadKey,
           cleared_unread_badge: String(true),
           cleared_count: result.clearedCount
         }, 'QQ 已放下。清掉未读角标不等于已经看过未显示的消息。')
@@ -451,7 +449,6 @@ export class QqUsageService {
       thread_key: null,
       content: formatTaggedBlock('IM_INBOX_WINDOW', {
         mode: 'closed',
-        surface: 'qq',
         cleared_unread_badge: String(false),
         cleared_count: 0
       }, 'QQ 列表已关闭。')
