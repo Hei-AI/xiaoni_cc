@@ -45,6 +45,7 @@ import {
 } from './web-search-archive';
 import { formatEast8Timestamp } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
+import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -123,6 +124,25 @@ type OpenResponseInputContentPart =
     };
 
 const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
+
+// 固化 head avatar: a byte-STABLE image pinned at the head of every main-agent request
+// (below <小腻近况>), so小腻's context is ALWAYS image-bearing. Every build renders the
+// exact same bytes → it stays inside the cached prefix and never triggers a text↔image
+// messages-tier transition when a computer_use screenshot turn appends an image.
+// Sourced固化 from docs/xiaoni.jpg (see services/xiaoni-avatar.ts). Empty string = disabled.
+
+function buildXiaoniHeadAvatarInputItem(): OpenResponseInputItem | null {
+  const url = XIAONI_HEAD_AVATAR_DATA_URL.trim();
+  if (!url) {
+    return null;
+  }
+  return {
+    type: 'message',
+    role: 'user',
+    content: [{ type: 'input_image', image_url: url, detail: 'auto' }]
+  } as unknown as OpenResponseInputItem;
+}
+
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
@@ -12676,6 +12696,18 @@ export function buildInitialInput(
 
   if (contextSummary) {
     items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
+  }
+
+  // 固化 head avatar, below <小腻近况>: keeps the head "user list" (skills + CAPABILITIES +
+  // <小腻近况> + avatar) image-bearing on EVERY build, so a later computer_use screenshot turn
+  // does not flip the request text→image. Byte-stable → sits in the cached prefix; no-op when
+  // XIAONI_HEAD_AVATAR_DATA_URL is unset. Added on every buildInitialInput → main loop, forks
+  // (they clone the built request), and the post-compression rebuild all carry the same avatar.
+  {
+    const avatarItem = buildXiaoniHeadAvatarInputItem();
+    if (avatarItem) {
+      items.push(avatarItem);
+    }
   }
 
   // Pin a cache breakpoint on the last block this turn renders, when it is the
