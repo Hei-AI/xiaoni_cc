@@ -570,8 +570,31 @@ function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): bo
   return true;
 }
 
+// The previous request's tail boundary, approximated statelessly from the CURRENT request's
+// structure: the last `user`-role message strictly before the live tail's message. In a tool loop
+// each turn ends with a user tool_result, so this is the previous turn's end. Placing a breakpoint
+// here creates a 2-wide sliding window with the live tail: request N pins [prevBoundary(N), tail(N)];
+// request N+1 (which appended one turn) pins [prevBoundary(N+1)=tail(N), tail(N+1)] — they SHARE
+// tail(N), so the next-hop request always carries a cache_control the previous request wrote at, and
+// the older breakpoint is dropped automatically. This is wire-side only (does not touch the canonical
+// input), so it is byte-safe for replay/retry consistency.
+function computePreviousTurnBoundary(body: AnthropicMessagesRequest, lastDurable: BlockRef | null): BlockRef | null {
+  if (!lastDurable) {
+    return null;
+  }
+  for (let i = lastDurable.msgIdx - 1; i >= 0; i -= 1) {
+    const msg = body.messages[i];
+    if (msg && msg.role === 'user' && Array.isArray(msg.content) && msg.content.length > 0) {
+      return { msgIdx: i, blockIdx: msg.content.length - 1 };
+    }
+  }
+  return null;
+}
+
 function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: BlockRef | null, anchors: BlockRef[] = []): void {
   let used = 0;
+  const seen = new Set<string>();
+  const key = (ref: BlockRef) => `${ref.msgIdx}:${ref.blockIdx}`;
   // breakpoint 1: end of system (caches tools + system together) — stable prefix
   if (body.system && body.system.length > 0) {
     const lastSystem = body.system[body.system.length - 1];
@@ -580,19 +603,26 @@ function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: Bloc
       used += 1;
     }
   }
-  // mid-history anchors (e.g. the compression head boundary). Explicitly pinning
-  // them every turn keeps [..anchor] warm across turns even when it drifts past the
-  // 20-block lookback of the live tail, so forks reading exactly that prefix hit it.
-  // Dedup against the live tail and reserve one slot for it.
-  const seen = new Set<string>();
-  const key = (ref: BlockRef) => `${ref.msgIdx}:${ref.blockIdx}`;
-  const tailKey = lastDurable ? key(lastDurable) : null;
+  // Sliding-window tail pair: the live tail (own breakpoint) + the previous turn boundary (the
+  // breakpoint the previous request wrote at). Reserve their slots up front so consecutive requests
+  // always share the boundary breakpoint even when a compression anchor is also present.
+  const tailPair: BlockRef[] = [];
+  if (lastDurable) {
+    tailPair.push(lastDurable);
+  }
+  const prevBoundary = computePreviousTurnBoundary(body, lastDurable);
+  if (prevBoundary && !tailPair.some((t) => key(t) === key(prevBoundary))) {
+    tailPair.push(prevBoundary);
+  }
+  // mid-history anchors (e.g. the compression head boundary). Explicitly pinning them every turn
+  // keeps [..anchor] warm across turns even when it drifts past the 20-block lookback. Cap so the
+  // tail pair always keeps its slots.
   for (const anchor of anchors) {
-    if (used >= MAX_CACHE_BREAKPOINTS - 1) {
-      break; // keep a slot for the live tail
+    if (used >= MAX_CACHE_BREAKPOINTS - tailPair.length) {
+      break;
     }
     const k = key(anchor);
-    if (k === tailKey || seen.has(k)) {
+    if (tailPair.some((t) => key(t) === k) || seen.has(k)) {
       continue;
     }
     if (setBlockCacheControl(body, anchor)) {
@@ -600,10 +630,20 @@ function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: Bloc
       used += 1;
     }
   }
-  // final breakpoint: end of the last DURABLE block (caches the replayable history
-  // prefix; the volatile developer/runtime-reminder tail stays uncached after it).
-  if (lastDurable && used < MAX_CACHE_BREAKPOINTS && !seen.has(key(lastDurable))) {
-    setBlockCacheControl(body, lastDurable);
+  // Place the tail pair: previous-boundary first (older, deeper in the prefix), then the live tail,
+  // so the live tail always wins the last slot if the budget is tight.
+  for (const ref of [...tailPair].reverse()) {
+    if (used >= MAX_CACHE_BREAKPOINTS) {
+      break;
+    }
+    const k = key(ref);
+    if (seen.has(k)) {
+      continue;
+    }
+    if (setBlockCacheControl(body, ref)) {
+      seen.add(k);
+      used += 1;
+    }
   }
 }
 

@@ -190,3 +190,42 @@ test('image-vision fork: an all-non-durable tail keeps the breakpoint on the sha
   assert.ok(bp.includes('H_TAIL'),
     'all-non-durable tail: the breakpoint must anchor on the shared warm history block — the fork rides the main cache');
 });
+
+// Sliding-window staircase (provider-side, wire-only): each request pins TWO message-tier
+// breakpoints — the live tail AND the previous turn boundary (the last user message before the
+// tail's message). Consecutive requests in a tool loop therefore share exactly one breakpoint (the
+// previous request's tail becomes the next request's previous-boundary), so the next-hop request
+// always carries a cache_control the previous one wrote at, and the older breakpoint drops off. This
+// is placed at wire-translate time only; it never touches the canonical input, so it is byte-safe
+// for the replay/retry consistency invariants (which compare the canonical `input`).
+function allMessageCacheBreakpoints(body: any): string[] {
+  const out: string[] = [];
+  for (const msg of body.messages || []) {
+    const content = Array.isArray(msg.content) ? msg.content : [];
+    for (const block of content) {
+      if (block && block.cache_control) {
+        out.push(JSON.stringify(block));
+      }
+    }
+  }
+  return out;
+}
+
+test('sliding window: a continuing tool loop pins BOTH the live tail and the previous turn boundary', () => {
+  const req = {
+    model: 'claude-opus-4-6', instructions: 'You are 小腻.', max_output_tokens: 1, tool_choice: 'auto',
+    input: [
+      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills> head </skills>' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史 <<H>>' }] },
+      { type: 'function_call', call_id: 'a', name: 'exec_command', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'a', output: 'RESULT_A <<TR_A>>' },
+      { type: 'function_call', call_id: 'b', name: 'exec_command', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'b', output: 'RESULT_B <<TR_B>>' }
+    ]
+  };
+  const { body } = translateCanonicalToMessages(req as any);
+  const bps = allMessageCacheBreakpoints(body);
+  assert.ok(bps.some((b) => b.includes('TR_B')), 'live tail (tool_result B) must be pinned');
+  assert.ok(bps.some((b) => b.includes('TR_A')),
+    'previous turn boundary (tool_result A) must ALSO be pinned — the next-hop request carries the previous breakpoint');
+});
