@@ -913,6 +913,35 @@ model AgentInboundMessage {
   @@map("agent_inbound_messages")
 }
 
+// 小腻自己发出去的 QQ 消息（文字 reply + 发图）。inbound 表按定义只装「收到的」，
+// 她自己说的话从来不落这张表，所以 qq_usage 会话窗口只能是单向的（见根因调查）。
+// 这张表是「她说了啥」的持久事实源，供 qq_usage 会话窗口按时间线并进 inbound 一起渲染。
+// 铁律：这张表绝不参与未读计数 / notify bucket / 唤醒——只在她翻开会话时可见。
+model AgentOutboundMessage {
+  id                  BigInt    @id @default(autoincrement()) @db.BigInt
+  chat_type           String    @db.VarChar(16)
+  session_key         String    @db.VarChar(191)
+  peer_id             String    @db.VarChar(191)
+  peer_name           String?   @db.VarChar(255)
+  account_id          String    @db.VarChar(191)
+  sender_id           String    @db.VarChar(191)
+  sender_name         String?   @db.VarChar(255)
+  delivery_message_id String?   @db.VarChar(191)
+  content_kind        String    @default("text") @db.VarChar(16)
+  body_for_agent      String
+  raw_body            String?
+  reply_to_id         String?   @db.VarChar(191)
+  reply_to_body       String?
+  reply_to_sender     String?   @db.VarChar(255)
+  sent_at             DateTime  @db.Timestamptz(3)
+  trace_id            String?   @db.VarChar(128)
+  run_id              String?   @db.VarChar(128)
+  created_at          DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([session_key, sent_at, id], map: "idx_agent_outbound_messages_session_sent")
+  @@map("agent_outbound_messages")
+}
+
 model AgentInboundThreadState {
   session_key           String    @id @db.VarChar(191)
   chat_type             String    @db.VarChar(16)
