@@ -326,3 +326,98 @@ test('markQqUsageThreadRead refreshes latest unread timestamp with unread cursor
   assert.equal(calls.upserts[0].update.latest_unread_received_at, null);
   assert.equal(calls.upserts[0].update.last_read_received_at, latestReceivedAt);
 });
+
+test('recordQqUsageOutboundMessage persists a self-sent message into agent_outbound_messages', async () => {
+  const calls = { execute: [], query: [] };
+  const prisma = {
+    $executeRawUnsafe: async (...args) => { calls.execute.push(args); },
+    $queryRawUnsafe: async (...args) => {
+      calls.query.push(args);
+      return [{ id: 7n }];
+    }
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const result = await persistence.recordQqUsageOutboundMessage({
+    sessionKey: 'qq:direct:1129974489:85178516',
+    chatType: 'direct',
+    peerId: '85178516',
+    peerName: '李阿花',
+    accountId: '1129974489',
+    senderId: '1129974489',
+    deliveryMessageId: '9001',
+    bodyForAgent: '在的，怎么啦',
+    sentAt: '2026-06-19T02:00:00.000Z',
+    traceId: 'trace-1',
+    runId: 'run-1'
+  });
+
+  assert.deepEqual(result, { id: 7 });
+  // ensure schema ran (CREATE TABLE + index), then a single INSERT ... RETURNING id
+  assert.ok(calls.execute.length >= 1);
+  assert.match(calls.execute[0][0], /CREATE TABLE IF NOT EXISTS agent_outbound_messages/);
+  assert.equal(calls.query.length, 1);
+  assert.match(calls.query[0][0], /INSERT INTO agent_outbound_messages/);
+  assert.equal(calls.query[0][2], 'qq:direct:1129974489:85178516'); // $2 session_key
+  assert.equal(calls.query[0][7], '小腻'); // $7 sender_name (defaulted)
+  assert.equal(calls.query[0][8], '9001'); // $8 delivery_message_id
+  assert.equal(calls.query[0][10], '在的，怎么啦'); // $10 body_for_agent
+});
+
+test('listQqUsageThreadWindow interleaves self-sent messages by timestamp without touching anchors/unread', async () => {
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const inbound1 = {
+    id: 100n, session_key: threadKey, chat_type: 'direct', peer_id: '85178516', peer_name: '李阿花',
+    sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
+    received_at: new Date('2026-06-19T02:00:00.000Z'), body_for_agent: '在吗', raw_body: '在吗',
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  };
+  const inbound2 = {
+    id: 101n, session_key: threadKey, chat_type: 'direct', peer_id: '85178516', peer_name: '李阿花',
+    sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
+    received_at: new Date('2026-06-19T02:00:20.000Z'), body_for_agent: '在干嘛', raw_body: '在干嘛',
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  };
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({
+        session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489',
+        unread_count: 0, direct_mentions: 0, last_read_received_at: null
+      })
+    },
+    agentInboundMessage: {
+      findMany: async () => [inbound2, inbound1], // desc; service reverses to asc
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async () => ([
+      // one self-sent message between the two inbound messages (desc order; service reverses)
+      {
+        id: 500n, chat_type: 'direct', session_key: threadKey, peer_id: '85178516', peer_name: '李阿花',
+        account_id: '1129974489', sender_id: '1129974489', sender_name: '小腻',
+        delivery_message_id: '9001', content_kind: 'text',
+        body_for_agent: '在的，刚在看书', raw_body: '在的，刚在看书', reply_to_id: null,
+        sent_at: new Date('2026-06-19T02:00:10.000Z')
+      }
+    ])
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: 10 });
+
+  // merged, timestamp-ordered: inbound(在吗) -> outbound(在的...) -> inbound(在干嘛)
+  assert.equal(window.messages.length, 3);
+  assert.equal(window.messages[0].direction, 'incoming');
+  assert.equal(window.messages[0].body_for_agent, '在吗');
+  assert.equal(window.messages[1].direction, 'outgoing');
+  assert.equal(window.messages[1].body_for_agent, '在的，刚在看书');
+  assert.equal(window.messages[1].sender_name, '小腻');
+  assert.equal(window.messages[2].direction, 'incoming');
+  assert.equal(window.messages[2].body_for_agent, '在干嘛');
+  // anchors + latest/earliest stay inbound-only (never an outbound id)
+  assert.equal(window.earliestMessageId, 100);
+  assert.equal(window.latestMessageId, 101);
+  assert.equal(window.cursorAnchor, '100:101');
+  assert.equal(window.unreadCount, 0);
+});

@@ -1418,6 +1418,29 @@ export function setQqUsageGroupNotificationAggregationSeconds(
   input?: { groupId?: string | number | bigint; group_id?: string | number | bigint; seconds?: number | string; notificationAggregationSeconds?: number | string; notification_aggregation_seconds?: number | string },
   config?: DatabaseUrlConfig
 ): Promise<{ groupId: number; notificationAggregationSeconds: number }>;
+export function recordQqUsageOutboundMessage(
+  input?: {
+    sessionKey?: string;
+    chatType?: 'direct' | 'group';
+    peerId?: string | number | bigint;
+    peerName?: string | null;
+    accountId?: string | number | bigint;
+    senderId?: string | number | bigint;
+    senderName?: string | null;
+    deliveryMessageId?: string | number | bigint | null;
+    contentKind?: 'text' | 'image';
+    bodyForAgent?: string;
+    body?: string;
+    rawBody?: string | null;
+    replyToId?: string | number | bigint | null;
+    replyToBody?: string | null;
+    replyToSender?: string | null;
+    sentAt?: string | number | Date | null;
+    traceId?: string | null;
+    runId?: string | null;
+  },
+  config?: DatabaseUrlConfig
+): Promise<{ id: number | null } | null>;
 export function ensureQqGroupNotificationAggregationSchema(
   input?: { sqlAdapter?: SqlAdapter },
   config?: DatabaseUrlConfig
