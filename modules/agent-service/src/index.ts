@@ -205,10 +205,14 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
         const runtimePictureRoot = `${(process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '')}/picture/`;
 
         // 优先用持久归档副本做 source_locator（一定在 picture 根下、重启不丢）；
-        // 没归档成功时退化到原图，且仅当原图本就在 provider 可读的 picture 根下。
-        // 二者都拿不到才不注册 id——绝不给她一个 inspect 解不出的假占位符。
-        const sourceLocator = archivedPath
-          || (imagePath && imagePath.startsWith(runtimePictureRoot) ? imagePath : null);
+        // 没归档成功时退化到原图。铁律：无论归档还是原图，都必须在 provider materialize 可读的
+        // picture 根下才拿来注册——否则 inspect 解不出，绝不给她一个假占位符。对两者一视同仁地校验，
+        // 使「id 必可解」成为结构不变量，而不是依赖 XIAONI_RUNTIME_ROOT 两服务恰好一致。
+        const underPictureRoot = (p: string | null): p is string =>
+          Boolean(p) && (p as string).startsWith(runtimePictureRoot);
+        const sourceLocator = underPictureRoot(archivedPath)
+          ? archivedPath
+          : (underPictureRoot(imagePath) ? imagePath : null);
         let imageId: string | null = null;
         if (sourceLocator) {
           try {
