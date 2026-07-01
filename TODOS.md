@@ -2,6 +2,33 @@
 
 ## LLM runtime
 
+### In-memory append context buffer (replace per-run stack re-read at scale)
+
+**What:** 主 loop 现在每个 run 都从 DB 全量重放 `stack_index > floor` 的历史
+(`loadStackHistoryBlocks` → `listAgentStackItems`)。改成:冷启动读一次全量建
+in-memory append buffer,之后每个 run 只 append 本轮新落库的 item,不再全量重读。
+
+**Why:** 重读量 ≈ 压缩阈值 / 每 item token 数。当前 500k → ~1.7k 行,便宜。但
+未来把压缩阈值抬到 1M / 模型上到 2M context 时,每 run 会从 PG 拉几千到几万行、
+且 content 带 base64 图 → 单 run 拉几十 MB、GC/DB load 每 run 重复。LLM prefill 仍
+是大头,但 DB 带宽/内存/负载在高阈值下变成真实的次级成本,in-memory 能省掉。
+
+**Context / 约束:**
+- fork(潜意识/压缩/图像/心跳)已是主 request 的**内存 clone**
+  (`buildMainAgentCanonicalRequest(..., budgetPlan.requestInput, ...)`,
+  `fork-cache-alignment.test.ts` 逐字节断言),**不受此改动影响**——它们 clone 的是
+  主 request 本身,不管它来自重读还是 buffer。
+- 主 loop 是单 worker 顺序处理(`while(!stopping)` + 单 `workerId`),buffer 无并发 desync。
+- 代价 = 放弃「request = 已提交栈状态的纯函数」这条无状态纯度(3am 可调试性:
+  「重读永远对」vs「buffer 可能因漏 append / 压缩 trim 不一致 / 带外写 而 drift」)。
+  buffer 必须与重启后的栈重放**逐字节等价**(重启 rebuild + 冷启动仍走重放)。
+- 触发时机建议:**当压缩阈值抬到 1M+ 时再做**,别在 500k(重读本就便宜)时提前优化;
+  且它是结构改动,别和行为改动同时上(Beck:make the change easy, then the easy change)。
+
+**Effort:** L
+**Priority:** P3（scale-gated:压缩阈值抬到 1M+ 前不启动）
+**Depends on:** 先落地 `fix/stack-read-window-no-limit`(去 read LIMIT + floor 唯一边界 + overrun halt 阀)
+
 
 对比这两个trace,我们已经发现了问题了, 要包含请求头, 请求体
 
