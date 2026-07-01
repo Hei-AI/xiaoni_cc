@@ -641,7 +641,18 @@ export function setCompressionTriggerInputTokens(value: number): void {
   }
 }
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
+// EMERGENCY HALT VALVE: when real input_tokens run this far PAST the compression trigger for
+// COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS consecutive turns, compression has demonstrably failed to
+// bring the epoch back down (it already fired at the trigger). That is a genuinely stalled/failed
+// compression — independent of the removed read-window LIMIT — so instead of climbing toward the model's
+// hard context ceiling we halt the run switch and keep the cache heartbeat warm for a clean manual
+// resume (see haltRuntimeForCompressionOverrun). The 100k margin sits above compression's async commit
+// latency so a legitimately-mid-compression turn can't trip it. This is timing/ops logic only; it never
+// enters the cacheable request prefix.
+const COMPRESSION_OVERRUN_MARGIN_TOKENS = 100_000;
+const COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
+const consecutiveOverOverrunThresholdBySession = new Map<string, number>();
 function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
   if (!sessionKey) {
     return;
@@ -664,9 +675,31 @@ function recordMainTurnInputTokensForCompression(sessionKey: string, actualInput
     // a real measurement at/under the soft line resets the debounce
     consecutiveOverCompressionThresholdBySession.set(sessionKey, 0);
   }
+  // Parallel debounce for the emergency halt valve: input past (trigger + margin) means compression
+  // already fired at the trigger and did NOT bring the epoch down.
+  const overOverrun = typeof actualInputTokens === 'number'
+    && Number.isFinite(actualInputTokens)
+    && actualInputTokens > COMPRESSION_TRIGGER_INPUT_TOKENS + COMPRESSION_OVERRUN_MARGIN_TOKENS;
+  if (overOverrun) {
+    consecutiveOverOverrunThresholdBySession.set(
+      sessionKey,
+      Math.min(
+        COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS,
+        (consecutiveOverOverrunThresholdBySession.get(sessionKey) ?? 0) + 1
+      )
+    );
+  } else if (typeof actualInputTokens === 'number' && Number.isFinite(actualInputTokens)) {
+    consecutiveOverOverrunThresholdBySession.set(sessionKey, 0);
+  }
 }
 function shouldTriggerCompressionFromRealInput(sessionKey: string): boolean {
   return (consecutiveOverCompressionThresholdBySession.get(sessionKey) ?? 0) >= COMPRESSION_TRIGGER_CONSECUTIVE_TURNS;
+}
+function shouldHaltForCompressionOverrun(sessionKey: string): boolean {
+  return (consecutiveOverOverrunThresholdBySession.get(sessionKey) ?? 0) >= COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS;
+}
+function resetCompressionOverrunCounter(sessionKey: string): void {
+  consecutiveOverOverrunThresholdBySession.set(sessionKey, 0);
 }
 // Current in-memory debounce count for a session (0 when unseen). Read by the
 // fire-and-forget persistence write and by the restart re-hydration seed check.
@@ -5581,10 +5614,13 @@ export class AgentLoopService {
   // extractResponseReplayInputItemsFromStackRows(all rows) → byte-identical to the prior
   // per-conversation replay (same rows, same render helper).
   //
-  // BOUNDED READ (safety net): the read floor is max(cutoff ?? -1, head - backstop). A
-  // null/stale cutoff therefore can NEVER load the whole stack — it is capped to the most
-  // recent backstop blocks. The cutoff normally bounds it far tighter (compression keeps
-  // ~30 blocks); the cap is purely the blow-up guard.
+  // FLOOR-BOUNDED READ: the compression floor (cutoff) is the SOLE bound — this reads EVERYTHING
+  // after it (no row LIMIT; see the reader call below for why a LIMIT was a self-locking bug). When
+  // the cutoff is null (fresh/unmigrated session with no compression epoch yet) the head-relative
+  // backstop (head - STACK_HISTORY_READ_BACKSTOP_BLOCKS) stands in as a one-shot floor so a null
+  // cutoff still can't load the whole stack. Under a live cutoff, compression keeps the epoch bounded
+  // (it fires on real input_tokens and advances the floor); a genuinely stalled compression that lets
+  // the epoch run away is caught by the token-based overrun halt valve, not by clamping this read.
   private async loadStackHistoryBlocks(
     cutoff: SessionReadCutoffState | null,
     traceId: string
@@ -5631,7 +5667,14 @@ export class AgentLoopService {
         identityKey: XIAONI_IDENTITY_KEY,
         afterStackIndex: effectiveFloor,
         chronological: true,
-        limit: 1000
+        // No row LIMIT: the compression floor is the SOLE bound on this read. A fixed LIMIT here
+        // (was 1000) sat BELOW the compression trigger (1000 blocks ≈ 290k tokens < 500k), so it
+        // clamped the window and — with ASC ordering — froze it at the oldest 1000 blocks, which in
+        // turn capped real input_tokens below the 500k trigger so compression never fired and never
+        // advanced the floor: a self-lock (see cache-replay-consistency 'self-lock' regression).
+        // Runaway growth (a genuinely stalled compression) is now caught LOUDLY by the token-based
+        // compression-overrun halt valve, not silently by truncating history.
+        unbounded: true
       }) as Array<Record<string, unknown>>;
     } catch (error) {
       moduleLogger.warn('Failed to load Xiaoni stack history blocks', {
@@ -6568,6 +6611,15 @@ export class AgentLoopService {
         // survives a restart. Fire-and-forget; timing-only, never blocks the turn and never
         // touches the cacheable prefix.
         this.persistCompressionTriggerCounter(getGlobalPromptContextSessionKey());
+        // EMERGENCY HALT VALVE: if real input_tokens ran past (trigger + margin) for the debounce
+        // window, compression already fired at the trigger and did NOT bring the epoch down. Halt the
+        // run switch + keep the heartbeat warm for a clean manual resume, rather than climb toward the
+        // model's hard context ceiling. Fire-and-forget; timing-only, never touches the cacheable prefix.
+        this.maybeHaltForCompressionOverrun(
+          getGlobalPromptContextSessionKey(),
+          payload.traceId,
+          turnBudgetRecord.actualInputTokens
+        );
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         const outputStackRows = await this.appendAgentStackItemsSafe({
@@ -8240,6 +8292,56 @@ export class AgentLoopService {
         consecutiveOverCompressionTurns: getCompressionTriggerCounter(sessionKey)
       })
       .catch(() => {});
+  }
+
+  // EMERGENCY HALT VALVE (fire-and-forget). When real input_tokens have run past (trigger + margin) for
+  // COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS turns, compression already fired at the trigger and did
+  // NOT bring the epoch down — a genuinely stalled/failed compression, independent of the read-window
+  // fix. Halt the run switch (enabled=FALSE) and keep the cache heartbeat warm so the prefix survives
+  // for a clean manual resume (manual compress → re-enable), instead of climbing to the model's hard
+  // context ceiling and hard-erroring. The paused state surfaces on the runtime health/status panel via
+  // enabled=false + post_compression_pause_reason. Timing/ops only; never touches the cacheable prefix.
+  private maybeHaltForCompressionOverrun(
+    sessionKey: string,
+    traceId: string,
+    actualInputTokens: number | null
+  ): void {
+    if (!sessionKey || !shouldHaltForCompressionOverrun(sessionKey)) {
+      return;
+    }
+    const store = this.store as RuntimeStore & {
+      haltRuntimeForCompressionOverrun?: (params: {
+        identityKey?: string;
+        reason?: string;
+        heartbeatIntervalMs?: number;
+      }) => Promise<{ haltJustTriggered?: boolean } | null>;
+    };
+    if (typeof store.haltRuntimeForCompressionOverrun !== 'function') {
+      return;
+    }
+    // Reset so the remaining turns in this run (which finish before the halt is picked up at the next
+    // loop iteration) don't re-issue the idempotent DB write every turn.
+    resetCompressionOverrunCounter(sessionKey);
+    void store
+      .haltRuntimeForCompressionOverrun({ identityKey: XIAONI_IDENTITY_KEY, reason: 'compression_overrun' })
+      .then((result) => {
+        if (result?.haltJustTriggered) {
+          moduleLogger.warn('Xiaoni runtime HALTED: compression overrun', {
+            traceId,
+            sessionKey,
+            actualInputTokens,
+            compressionTriggerInputTokens: COMPRESSION_TRIGGER_INPUT_TOKENS,
+            overrunMarginTokens: COMPRESSION_OVERRUN_MARGIN_TOKENS,
+            note: 'compression did not reduce the epoch after firing; run switch OFF, heartbeat kept warm. Manual compress + re-enable to resume.'
+          });
+        }
+      })
+      .catch((error) => {
+        moduleLogger.warn('Failed to halt Xiaoni runtime for compression overrun', {
+          traceId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
   }
 
   private async buildContextBudgetPlan(params: {

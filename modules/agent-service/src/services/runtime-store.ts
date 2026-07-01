@@ -118,6 +118,7 @@ import {
   upsertProactiveShareState as upsertProactiveShareStatePersistence,
   upsertSessionContextSummary as upsertSessionContextSummaryPersistence,
   setSessionCompressionTriggerCounter as setSessionCompressionTriggerCounterPersistence,
+  haltRuntimeForCompressionOverrun as haltRuntimeForCompressionOverrunPersistence,
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
   type AgentLifeEventProjection,
@@ -2109,6 +2110,7 @@ export class RuntimeStore {
     itemKind?: string | null;
     limit?: number;
     chronological?: boolean;
+    unbounded?: boolean;
   } = {}) {
     return listAgentStackItemsPersistence({
       identityKey: params.identityKey || 'xiaoni',
@@ -2119,7 +2121,20 @@ export class RuntimeStore {
       itemKind: params.itemKind || null,
       limit: params.limit,
       chronological: params.chronological,
+      unbounded: params.unbounded === true,
       sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async haltRuntimeForCompressionOverrun(params: {
+    identityKey?: string;
+    reason?: string;
+    heartbeatIntervalMs?: number;
+  } = {}) {
+    return haltRuntimeForCompressionOverrunPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      reason: params.reason || 'compression_overrun',
+      heartbeatIntervalMs: params.heartbeatIntervalMs
     }, databaseConfig);
   }
 
