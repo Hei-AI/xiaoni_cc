@@ -32,6 +32,9 @@ export type QqSendImageToolResult = {
   message_id?: string | null;
   // 已发送图片的解析后本地路径 + mime，供上层把它注册成可 inspect 的 media asset（回看用）。
   image_path?: string;
+  // 持久归档副本路径（/xiaoni-runtime/picture/outbound 下）；上层优先用它做 source_locator，
+  // 保证重启/清理后 inspect 仍可解。
+  archived_path?: string;
   mime_type?: string;
 };
 
@@ -206,6 +209,16 @@ function extractMessageId(providerResponse: unknown) {
   return null;
 }
 
+function mimeToExt(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/png': return 'png';
+    case 'image/jpeg': return 'jpg';
+    case 'image/gif': return 'gif';
+    case 'image/webp': return 'webp';
+    default: return 'png';
+  }
+}
+
 function sniffMime(data: Buffer) {
   if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
     return 'image/png';
@@ -291,6 +304,23 @@ export class QqSendImageService {
     } catch {
       return inputPath;
     }
+  }
+
+  // 把发出去的图按内容哈希存一份到持久归档目录，返回归档路径。内容哈希 → 同图幂等、不重复占空间。
+  // 目录在 picture 根下（provider 的 materialize-image 只读 LOCAL_RUNTIME_PICTURE_ROOT），
+  // 且 /xiaoni-runtime 是 host bind mount，重启容器不丢。
+  private async archiveSentImage(data: Buffer, mimeType: string): Promise<string> {
+    const dir = path.join(this.runtimeRoot, 'picture', 'outbound');
+    await fs.mkdir(dir, { recursive: true });
+    const hash = createHash('sha256').update(data).digest('hex').slice(0, 32);
+    const ext = mimeToExt(mimeType);
+    const dest = path.join(dir, `${hash}.${ext}`);
+    try {
+      await fs.access(dest);
+    } catch {
+      await fs.writeFile(dest, data);
+    }
+    return dest;
   }
 
   private async readImage(imagePath: string) {
@@ -437,6 +467,15 @@ export class QqSendImageService {
       };
       await this.writeStatus(sentRecord);
 
+      // 耐久性：把她发出去的图拷进持久归档目录（/xiaoni-runtime/picture/outbound，host bind mount，
+      // 重启容器不丢）。inspect 用这份归档做 source_locator，原图被清理/覆盖也不影响回看。最佳努力。
+      let archivedPath: string | undefined;
+      try {
+        archivedPath = await this.archiveSentImage(image.data, image.mimeType);
+      } catch {
+        archivedPath = undefined;
+      }
+
       const content = formatTaggedBlock('QQ_IMAGE_SEND_RESULT', {
         success: 'true',
         [targetField]: target.value,
@@ -454,6 +493,7 @@ export class QqSendImageService {
         status_key: statusRecord.status_key,
         message_id: messageId,
         image_path: imagePath,
+        archived_path: archivedPath,
         mime_type: image.mimeType
       };
     } catch (error) {

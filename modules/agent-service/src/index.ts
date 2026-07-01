@@ -199,13 +199,18 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
         const sessionKey = isGroup ? `qq:group:${peerId}` : `qq:direct:${botAccountId}:${peerId}`;
         const caption = optionalString(args.caption);
         const deliveryMessageId = optionalString((result as { message_id?: unknown }).message_id);
+        const archivedPath = optionalString((result as { archived_path?: unknown }).archived_path);
         const imagePath = optionalString((result as { image_path?: unknown }).image_path);
         const mimeType = optionalString((result as { mime_type?: unknown }).mime_type);
         const runtimePictureRoot = `${(process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '')}/picture/`;
 
-        // 只有图确实在 provider 可读的 picture 根下，才注册 media asset 拿到可 inspect 的 id
+        // 优先用持久归档副本做 source_locator（一定在 picture 根下、重启不丢）；
+        // 没归档成功时退化到原图，且仅当原图本就在 provider 可读的 picture 根下。
+        // 二者都拿不到才不注册 id——绝不给她一个 inspect 解不出的假占位符。
+        const sourceLocator = archivedPath
+          || (imagePath && imagePath.startsWith(runtimePictureRoot) ? imagePath : null);
         let imageId: string | null = null;
-        if (imagePath && imagePath.startsWith(runtimePictureRoot)) {
+        if (sourceLocator) {
           try {
             const asset = await store.upsertMediaAsset({
               source: 'xiaoni_outbound',
@@ -220,7 +225,7 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
               placeholder: '[图片]',
               mediaType: 'image',
               mimeType: mimeType || undefined,
-              sourceLocator: imagePath,
+              sourceLocator,
               traceId: optionalString(context.trace_id ?? context.traceId)
             });
             imageId = optionalString((asset as { id?: unknown })?.id);
