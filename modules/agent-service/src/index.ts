@@ -183,6 +183,9 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
     sessionKey: optionalString(context.session_key ?? context.sessionKey)
   });
   // 记录小腻自己发出去的图片，供 qq_usage 会话窗口回看（同文字 reply）。最佳努力，不阻塞响应。
+  // 铁律：窗口里给她的图片占位符 [图片:<id>] 必须是她 inspect_image_placeholder 真能解出的
+  // id——只有当图落在 provider 能 materialize 的 /xiaoni-runtime/picture 下才注册成 media asset
+  // 并渲染 id；否则只给纯 [图片] 标记，绝不给一个她解不出的假 id。
   try {
     if (result && !result.failed
       && (result.action === 'qq_send_image.send_private' || result.action === 'qq_send_image.send_group')) {
@@ -192,16 +195,50 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
         : (args.user_id ?? args.userId ?? args.target_user_id));
       if (peerId) {
         const botAccountId = agentConfig.botAccountId || '1129974489';
+        const chatType = isGroup ? 'group' : 'direct';
+        const sessionKey = isGroup ? `qq:group:${peerId}` : `qq:direct:${botAccountId}:${peerId}`;
         const caption = optionalString(args.caption);
-        const body = caption ? `${caption}\n[图片]` : '[图片]';
+        const deliveryMessageId = optionalString((result as { message_id?: unknown }).message_id);
+        const imagePath = optionalString((result as { image_path?: unknown }).image_path);
+        const mimeType = optionalString((result as { mime_type?: unknown }).mime_type);
+        const runtimePictureRoot = `${(process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '')}/picture/`;
+
+        // 只有图确实在 provider 可读的 picture 根下，才注册 media asset 拿到可 inspect 的 id
+        let imageId: string | null = null;
+        if (imagePath && imagePath.startsWith(runtimePictureRoot)) {
+          try {
+            const asset = await store.upsertMediaAsset({
+              source: 'xiaoni_outbound',
+              sessionKey,
+              chatType,
+              peerId,
+              accountId: botAccountId,
+              senderId: botAccountId,
+              senderName: '小腻',
+              messageSid: deliveryMessageId || undefined,
+              mediaTag: 'image_1',
+              placeholder: '[图片]',
+              mediaType: 'image',
+              mimeType: mimeType || undefined,
+              sourceLocator: imagePath,
+              traceId: optionalString(context.trace_id ?? context.traceId)
+            });
+            imageId = optionalString((asset as { id?: unknown })?.id);
+          } catch {
+            imageId = null;
+          }
+        }
+
+        const imageMarker = imageId ? `[图片:${imageId}]` : '[图片]';
+        const body = caption ? `${caption}\n${imageMarker}` : imageMarker;
         await store.recordQqUsageOutboundMessage({
-          sessionKey: isGroup ? `qq:group:${peerId}` : `qq:direct:${botAccountId}:${peerId}`,
-          chatType: isGroup ? 'group' : 'direct',
+          sessionKey,
+          chatType,
           peerId,
           accountId: botAccountId,
           senderId: botAccountId,
           senderName: '小腻',
-          deliveryMessageId: optionalString((result as { message_id?: unknown }).message_id),
+          deliveryMessageId,
           contentKind: 'image',
           bodyForAgent: body,
           rawBody: body,

@@ -30,6 +30,9 @@ export type QqSendImageToolResult = {
   failed?: boolean;
   status_key?: string;
   message_id?: string | null;
+  // 已发送图片的解析后本地路径 + mime，供上层把它注册成可 inspect 的 media asset（回看用）。
+  image_path?: string;
+  mime_type?: string;
 };
 
 export type QqSendImageServiceOptions = {
@@ -449,7 +452,9 @@ export class QqSendImageService {
         action: `qq_send_image.send_${mode === 'private' ? 'private' : 'group'}`,
         content,
         status_key: statusRecord.status_key,
-        message_id: messageId
+        message_id: messageId,
+        image_path: imagePath,
+        mime_type: image.mimeType
       };
     } catch (error) {
       if (statusRecord) {

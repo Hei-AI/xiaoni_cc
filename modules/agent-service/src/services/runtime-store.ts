@@ -44,6 +44,7 @@ import {
   ensureFeedbackReflectionSchema,
   getAgentMediaAssetByTag,
   getAgentMediaAssetById,
+  upsertAgentMediaAsset,
   getFeedbackLearningState,
   listAgentMediaAssets,
   listAcceptedIdentityFacts,
@@ -1911,6 +1912,10 @@ export class RuntimeStore {
     return getAgentMediaAssetById({
       id: assetId
     }, databaseConfig);
+  }
+
+  async upsertMediaAsset(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return upsertAgentMediaAsset(input, databaseConfig);
   }
 
   async recordMediaObservation(input: Record<string, unknown>) {

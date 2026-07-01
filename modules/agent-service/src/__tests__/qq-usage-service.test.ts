@@ -193,6 +193,41 @@ test('QqUsageService renders self-sent messages as direction=outgoing in the con
   assert.match(result.content, /在的，刚在看书/);
 });
 
+test('QqUsageService keeps a self-sent image placeholder id intact so she can inspect it from history', async () => {
+  const service = new QqUsageService({
+    listQqUsageThreadWindow: async () => ({
+      threadKey: 'qq:direct:1129974489:85178516',
+      mode: 'latest',
+      windowSize: 10,
+      cursorAnchor: '100:100',
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+      newerAvailable: 0,
+      unreadBeforeWindow: 0,
+      unreadAfterWindow: 0,
+      reachedReadHistory: true,
+      unreadCount: 0,
+      directMentions: 0,
+      latestMessageId: 100,
+      earliestMessageId: 100,
+      windowUnreadCount: 0,
+      messages: [{
+        id: 700, peer_id: '85178516', account_id: '1129974489', sender_id: '1129974489',
+        sender_name: '小腻', raw_body: '给你看这个\n[图片:media_1699_abcd]',
+        received_at: '2026-06-19T02:05:00.000Z', is_read: 1, was_mentioned: 0, direction: 'outgoing'
+      }]
+    }),
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any);
+
+  const result = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+
+  // 占位符 id 原样透出，和收到的图一样能喂给 inspect_image_placeholder
+  assert.match(result.content, /direction="outgoing"/);
+  assert.match(result.content, /\[图片:media_1699_abcd\]/);
+});
+
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
   const service = new FakeQqUsageService();
   const runtime = new QqUsageSkillRuntime(service as any);
