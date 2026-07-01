@@ -165,12 +165,27 @@ function renderMessage(message: Record<string, unknown>) {
   }, escapeXmlText(renderMessageBody(message)));
 }
 
+// 从内部 threadKey 解出她真正要用的干净 id：群 -> 群号，私聊 -> 对方 QQ 号。
+// 这是 SKILL 叫她用的「QQ id/群 id」，不是被删掉的内部 thread_key。
+function threadIdentity(threadKey: string): { chatType: 'group' | 'direct'; peerId: string } {
+  if (typeof threadKey === 'string' && threadKey.startsWith('qq:group:')) {
+    return { chatType: 'group', peerId: threadKey.slice('qq:group:'.length) };
+  }
+  const parts = typeof threadKey === 'string' ? threadKey.split(':') : [];
+  return { chatType: 'direct', peerId: parts[parts.length - 1] || '' };
+}
+
 function renderConversationWindow(result: QqUsageThreadWindow) {
   // 精简：删掉纯内部记账字段——surface(恒定)、thread_key(内部id且SKILL叫她别用)、
   // cursor_anchor(内部id对,翻页不靠它)、window_size(可数)、newer_available(与 has_newer_messages 重复)。
   // 翻页锚点走结果对象的 earliest/latest_message_id（runtime 内部 state），不受此渲染影响。
+  // 逻辑闭环：保留干净的 chat_type + peer_id——她后续 scroll_/jump_/put_away/send 这条会话都要这个 id。
+  // 群会话里成员各说各的，群号只能从这里拿；私聊也一并给出，窗口自成闭环、不依赖跨轮记忆。
+  const identity = threadIdentity(result.threadKey);
   return formatTaggedBlock('IM_INBOX_WINDOW', {
     mode: 'conversation',
+    chat_type: identity.chatType === 'group' ? '群聊' : '私聊',
+    peer_id: identity.peerId,
     unread_before_window: result.unreadBeforeWindow,
     unread_after_window: result.unreadAfterWindow,
     reached_read_history: String(result.reachedReadHistory),

@@ -243,8 +243,8 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
         latestMessage: { sender_id: '85178516', sender_name: '李阿花', raw_body: '在吗', received_at: '2026-06-19T02:00:00.000Z' }
       }]
     }),
-    listQqUsageThreadWindow: async () => ({
-      threadKey: 'qq:direct:1129974489:85178516', mode: 'latest', windowSize: 10,
+    listQqUsageThreadWindow: async (params: any) => ({
+      threadKey: params?.threadKey || 'qq:direct:1129974489:85178516', mode: 'latest', windowSize: 10,
       cursorAnchor: '100:101', hasOlderMessages: true, hasNewerMessages: false,
       newerAvailable: 0, unreadBeforeWindow: 2, unreadAfterWindow: 0,
       reachedReadHistory: true, unreadCount: 1, directMentions: 0,
@@ -274,8 +274,10 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   for (const noise of [/surface=/, /thread_key=/, /cursor_anchor=/, /window_size=/, /newer_available=/]) {
     assert.doesNotMatch(win.content, noise);
   }
-  // 保留导航信号
+  // 保留导航信号 + 逻辑闭环：她后续 scroll/jump/put_away/send 这条会话要用的干净 id
   assert.match(win.content, /mode="conversation"/);
+  assert.match(win.content, /chat_type="私聊"/);
+  assert.match(win.content, /peer_id="85178516"/);
   assert.match(win.content, /unread_before_window="2"/);
   assert.match(win.content, /has_older_messages="true"/);
   // message_id 保留（reply_to 的锚）
@@ -286,6 +288,12 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   assert.match(win.content, /read_state="unread"/);
   // 两条都没 @ 小腻 → mentions_xiaoni 一次都不出现
   assert.doesNotMatch(win.content, /mentions_xiaoni=/);
+
+  // 群会话闭环：群号只能从窗口拿（成员各说各的），scroll_group/put_group_away/send_group 都要它
+  const gwin = await service.focusThread('qq:group:253631878', {}, 'qq_usage.focus_group');
+  assert.match(gwin.content, /chat_type="群聊"/);
+  assert.match(gwin.content, /peer_id="253631878"/);
+  assert.doesNotMatch(gwin.content, /thread_key=/);
 });
 
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
