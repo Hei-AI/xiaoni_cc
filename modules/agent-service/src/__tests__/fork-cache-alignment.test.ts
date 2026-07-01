@@ -147,6 +147,66 @@ test('all forks share the SAME cloned prefix as each other (one warm cache entry
   }
 });
 
+// Replicated contract from provider-service anthropic-translate.ts:343 `isDurableItem`
+// (agent-service can't cross-import provider-service: rootDir ./src, no dependency edge).
+// Keep BYTE-IDENTICAL to that function — it is the sole determinant of WHERE the tail
+// cache_control breakpoint lands:
+//   - a cache_volatile item is NON-durable (returns false)
+//   - a 'message' is durable UNLESS role is 'developer' or 'system'
+//   - every other item kind (function_call, function_call_output, ...) is durable.
+// The tail breakpoint anchors on the LAST DURABLE block, so if ANY appended tail item is
+// durable it becomes `lastDurable` and drags the breakpoint OFF the shared warm history →
+// the fork can no longer read the main loop's warm prefix (the image-vision cold-read bug).
+function isDurableItem(item: any): boolean {
+  if (item && item.cache_volatile === true) {
+    return false;
+  }
+  if (item && item.type === 'message') {
+    return item.role !== 'developer' && item.role !== 'system';
+  }
+  return true;
+}
+
+// The cache-KEY guard input byte-identity CANNOT catch: every item a fork APPENDS past the
+// cloned prefix must be NON-durable, so the tail cache_control breakpoint stays anchored on
+// the last DURABLE block of the SHARED history (which the main loop keeps warm). A single
+// durable appended item (an assistant/user message, a function_call, or a function_call_output
+// without cache_volatile) becomes `lastDurable` and moves the breakpoint onto NEW content —
+// the fork then cold-reads the whole history every turn (the image-vision fork bug: it
+// appended a durable assistant sentinel + function_call + a function_call_output holding the
+// base64 image, so its breakpoint sat on the image, past the shared prefix).
+test('every fork appends ONLY non-durable tail items (breakpoint stays on shared warm history)', () => {
+  const base = buildBaseRequest();
+  const recentNarration = [
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '刚才我说要看看群里。' }] }
+  ] as any[];
+  const forks: Array<[string, any]> = [
+    // compression builder is a pure clone (tail 0); reminder appended at dispatch.
+    ['compression', buildCoreMemoryCompressionForkRequest(base, 1)],
+    ['subconscious', buildSubconsciousAgentForkRequest(base, 1, recentNarration)],
+    ['heartbeat', buildCacheHeartbeatForkRequest(base)],
+    ['image-vision', buildImageVisionForkRequest(
+      base,
+      'data:image/png;base64,iVBORw0KGgo=',
+      'img-1',
+      '/xiaoni-runtime/image-vision/observations/img-1.md',
+      '旧观察'
+    )]
+  ];
+  for (const [label, fork] of forks) {
+    const tail = fork.input.slice(base.input.length) as any[];
+    tail.forEach((item, i) => {
+      assert.equal(
+        isDurableItem(item),
+        false,
+        `${label}: appended tail item #${i} (type=${item?.type} role=${item?.role}) must be NON-durable ` +
+        `(cache_volatile OR developer/system message). A durable tail item moves the cache breakpoint ` +
+        `off the shared warm history and forces a cold-read every turn.`
+      );
+    });
+  }
+});
+
 // CONTRACT (docs/CACHE_CONTRACT.md §3.1): each fork appends fewer than 20 content
 // blocks past the cloned prefix, so the provider's 20-block lookback always finds the
 // main's P_n entry (the fork's tail breakpoint reads it). A fork whose cold tail

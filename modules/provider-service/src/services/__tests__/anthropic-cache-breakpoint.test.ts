@@ -90,3 +90,57 @@ test('cache heartbeat and the notify wake run anchor the breakpoint on the SAME 
   assert.equal(hbBp, wakeBp,
     'heartbeat and wake run must anchor the cache breakpoint on the byte-identical history block');
 });
+
+// FORK CACHE-ALIGNMENT (the image-vision cold-read bug, project_image_vision_fork_cache_breakdown):
+// a fork clones the main request and APPENDS a small tail. To ride the main loop's warm history
+// prefix, the fork's message-tier breakpoint must anchor on a block that ALSO exists in the base's
+// translated history — NOT on an appended block. The image-vision fork used to append a DURABLE
+// tail (an assistant sentinel + a function_call + a function_call_output holding the base64 image),
+// so `lastDurable` landed on the image and the breakpoint sat PAST the shared prefix → the fork
+// cold-read the whole history every turn (cache_read stuck at system+tools floor).
+const FORK_BASE_INPUT = [
+  { type: 'message', role: 'user', content: [{ type: 'input_text', text: '群里发了张图 <<H1>>' }] },
+  { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '看看再说 <<H_TAIL>>' }] }
+];
+const mkForkRequest = (tail: any[]) => ({
+  model: 'claude-opus-4-6',
+  instructions: 'You are 小腻.',
+  max_output_tokens: 256,
+  tool_choice: 'auto',
+  input: [...FORK_BASE_INPUT, ...tail]
+});
+
+test('image-vision fork: a DURABLE image tail moves the breakpoint off the shared history (the bug)', () => {
+  // The OLD shape: durable assistant sentinel + function_call + function_call_output(image).
+  const buggy = translateCanonicalToMessages(mkForkRequest([
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '让我来看看这个图 <<SENTINEL>>' }] },
+    { type: 'function_call', call_id: 'call-img', name: 'inspect_image_placeholder', arguments: '{"image_id":"img-1"}' },
+    { type: 'function_call_output', call_id: 'call-img',
+      output: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'original' }] },
+    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '写死到本地 <<REMINDER>>' }] }
+  ]) as any);
+  const bp = lastMessageCacheBreakpoint(buggy.body);
+  // The breakpoint lands on the appended image tool_result — NOT on the shared history block.
+  assert.ok(!bp.includes('H_TAIL'),
+    'durable image tail: breakpoint must have moved OFF the shared history (this is the cold-read bug)');
+});
+
+test('image-vision fork: an all-non-durable tail keeps the breakpoint on the shared warm history (the fix)', () => {
+  // The FIX shape: same three appended items, but ALL marked cache_volatile, plus a developer
+  // system_reminder. Every appended item is non-durable → `lastDurable` stays on the shared
+  // history block (<<H_TAIL>>), so the fork reads the main loop's warm prefix.
+  const fixed = translateCanonicalToMessages(mkForkRequest([
+    { type: 'message', role: 'assistant', cache_volatile: true,
+      content: [{ type: 'input_text', text: '让我来看看这个图' }],
+      // an assistant tool_use carried as a function_call (still cache_volatile → non-durable)
+    },
+    { type: 'function_call', call_id: 'call-img', name: 'inspect_image_placeholder',
+      arguments: '{"image_id":"img-1"}', cache_volatile: true },
+    { type: 'function_call_output', call_id: 'call-img', cache_volatile: true,
+      output: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'original' }] },
+    { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<system_reminder>\n【视觉感知：画面消化与刻印】\n</system_reminder>' }] }
+  ]) as any);
+  const bp = lastMessageCacheBreakpoint(fixed.body);
+  assert.ok(bp.includes('H_TAIL'),
+    'all-non-durable tail: the breakpoint must anchor on the shared warm history block — the fork rides the main cache');
+});
