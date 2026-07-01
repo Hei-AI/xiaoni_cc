@@ -3897,6 +3897,14 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     await ensureXiaoniAgentStackSchema(input, config);
     const clauses = ['identity_key = ?'];
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
+    // `unbounded`: the main-loop history replay (loadStackHistoryBlocks) reads EVERYTHING after the
+    // compression floor — the floor is the sole bound, not a row count. A fixed row LIMIT here was the
+    // bug we removed: at ~290 tok/item, LIMIT 1000 ≈ 290k tokens < the 500k compression trigger, so the
+    // read clamped BELOW the compression ceiling and (with ASC) froze the window at the oldest 1000,
+    // starving the token growth compression needs to fire → self-lock. Runaway growth is now caught by
+    // the compression-overrun halt valve (token-based), not by silently truncating the read. Every OTHER
+    // caller (admin/trace views) omits `unbounded` and keeps the capped page size below.
+    const unbounded = input.unbounded === true || input.no_limit === true;
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
     const sourceKind = normalizeStackSourceKind(input.sourceKind ?? input.source_kind);
     const tableName = forkStackItemsTableForSource(sourceKind);
@@ -3948,7 +3956,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       params.push(normalizeBigIntId(afterStackIndex));
     }
     appendTimeClauses(clauses, params, input, 'created_at');
-    params.push(limit);
+    if (!unbounded) {
+      params.push(limit);
+    }
 
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
@@ -3957,7 +3967,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           FROM ${tableName}
           WHERE ${clauses.join(' AND ')}
           ORDER BY ${sourceKind === USAGE_SOURCE_MAIN ? 'stack_index' : 'item_index'} ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
-          LIMIT ?
+          ${unbounded ? '' : 'LIMIT ?'}
         `,
         params
       );

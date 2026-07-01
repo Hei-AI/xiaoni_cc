@@ -413,11 +413,78 @@ function createAgentRuntimeControlPersistence(deps) {
     }
   }
 
+  // Emergency valve: real input_tokens ran past (compression_trigger + margin) for enough consecutive
+  // turns, i.e. compression had its shot at the trigger and did NOT bring the epoch down — a genuinely
+  // stalled/failed compression, independent of the read-window fix. Rather than let context climb toward
+  // the model's hard context ceiling and hard-error, HALT the run switch (enabled=FALSE) and keep the
+  // cache heartbeat ticking so the warm prefix survives for a clean manual resume. Idempotent via
+  // `was_enabled`: only the first over-line turn flips the switch; re-checks each turn are no-ops.
+  async function haltRuntimeForCompressionOverrun(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const reason = typeof input.reason === 'string' && input.reason.trim()
+      ? input.reason.trim()
+      : 'compression_overrun';
+    const rawHeartbeatIntervalMs = input.heartbeatIntervalMs ?? input.heartbeat_interval_ms;
+    const parsedHeartbeatIntervalMs = Number.parseInt(String(rawHeartbeatIntervalMs ?? ''), 10);
+    const heartbeatIntervalMs = Number.isFinite(parsedHeartbeatIntervalMs) && parsedHeartbeatIntervalMs > 0
+      ? parsedHeartbeatIntervalMs
+      : 300000;
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          WITH prev AS (
+            SELECT enabled AS was_enabled FROM agent_runtime_control WHERE identity_key = ?
+          )
+          INSERT INTO agent_runtime_control (
+            identity_key, enabled, cache_heartbeat_paused,
+            post_compression_pause_triggered_at, post_compression_pause_reason,
+            debug_cache_heartbeat_interval_ms, updated_at
+          )
+          VALUES (?, FALSE, FALSE, NOW(), ?, ?, NOW())
+          ON CONFLICT (identity_key)
+          DO UPDATE SET
+            enabled = FALSE,
+            cache_heartbeat_paused = FALSE,
+            post_compression_pause_triggered_at = CASE
+              WHEN agent_runtime_control.enabled THEN NOW()
+              ELSE agent_runtime_control.post_compression_pause_triggered_at
+            END,
+            post_compression_pause_reason = CASE
+              WHEN agent_runtime_control.enabled THEN ?
+              ELSE agent_runtime_control.post_compression_pause_reason
+            END,
+            debug_cache_heartbeat_interval_ms = CASE
+              WHEN COALESCE(agent_runtime_control.debug_cache_heartbeat_interval_ms, 0) > 0
+                THEN agent_runtime_control.debug_cache_heartbeat_interval_ms
+              ELSE ?
+            END,
+            updated_at = NOW()
+          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
+            post_compression_pause_armed, post_compression_pause_armed_at,
+            post_compression_pause_triggered_at, post_compression_pause_reason,
+            main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms, compression_trigger_input_tokens,
+            (SELECT was_enabled FROM prev) AS was_enabled
+        `,
+        [identityKey, identityKey, reason, heartbeatIntervalMs, reason, heartbeatIntervalMs]
+      );
+      const normalized = normalizeRuntimeControl(rows[0]);
+      normalized.haltJustTriggered = isTruthyDatabaseBoolean(rows[0] && rows[0].was_enabled);
+      return normalized;
+    } finally {
+      await sql.close();
+    }
+  }
+
   return {
     ensureAgentRuntimeControlSchema,
     getAgentRuntimeControl,
     updateAgentRuntimeControl,
-    triggerPostCompressionRuntimePause
+    triggerPostCompressionRuntimePause,
+    haltRuntimeForCompressionOverrun
   };
 }
 

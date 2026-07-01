@@ -2390,3 +2390,4 @@ export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Pro
 export function getAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { pauseJustTriggered: boolean }>;
+export function haltRuntimeForCompressionOverrun(input?: { identityKey?: string; reason?: string; heartbeatIntervalMs?: number }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { haltJustTriggered: boolean }>;

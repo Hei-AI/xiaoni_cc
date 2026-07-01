@@ -2003,3 +2003,33 @@ test('reapOrphanedForkRuns fails every running fork-run row across all three led
     assert.equal(update.params[update.params.length - 1], 'xiaoni');
   }
 });
+
+// REGRESSION (read-window freeze / self-lock): the main-loop history replay must read EVERYTHING after
+// the compression floor — no row LIMIT. A fixed LIMIT (was 1000) sat below the 500k compression trigger
+// (~290 tok/item → 1000 blocks ≈ 290k), so with ASC ordering the window FROZE at the oldest 1000 blocks
+// and capped real input below the trigger → compression never fired → floor never advanced (self-lock).
+// If someone re-adds a LIMIT to the unbounded/main-loop read, this goes red.
+test('listAgentStackItems: unbounded read is floor-bounded with NO LIMIT (frozen-window/self-lock guard)', async () => {
+  const findStackRead = (sql) => sql.calls
+    .filter((c) => c.kind === 'query' && /SELECT\s+\*\s+FROM/i.test(c.sql) && /ORDER BY stack_index/i.test(c.sql))
+    .pop();
+
+  // unbounded (the main-loop replay path): floor-bounded, no LIMIT clause, no trailing limit param.
+  const sqlUnbounded = createMockSql();
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sqlUnbounded });
+  await persistence.listAgentStackItems({ identityKey: 'xiaoni', afterStackIndex: 100, chronological: true, unbounded: true });
+  const unboundedRead = findStackRead(sqlUnbounded);
+  assert.ok(unboundedRead, 'expected a main stack read query');
+  assert.ok(!/\bLIMIT\b/i.test(unboundedRead.sql), 'unbounded main-loop read must NOT emit a LIMIT (the frozen-window bug)');
+  assert.match(unboundedRead.sql, /stack_index > \?/, 'unbounded read must still be floor-bounded (floor is the sole bound)');
+  // last param is the after-floor cutoff (100), NOT a row limit (normalized to BigInt)
+  assert.equal(String(unboundedRead.params[unboundedRead.params.length - 1]), '100');
+
+  // default (admin/trace callers): keeps the capped page size below.
+  const sqlCapped = createMockSql();
+  const persistence2 = createXiaoniAgentStackPersistence({ sqlAdapter: sqlCapped });
+  await persistence2.listAgentStackItems({ identityKey: 'xiaoni', afterStackIndex: 100, chronological: true });
+  const cappedRead = findStackRead(sqlCapped);
+  assert.ok(cappedRead, 'expected a capped stack read query');
+  assert.match(cappedRead.sql, /\bLIMIT\b/i, 'default (non-unbounded) callers keep the capped page size');
+});
