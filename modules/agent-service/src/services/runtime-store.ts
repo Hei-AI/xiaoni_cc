@@ -57,6 +57,7 @@ import {
   markQqUsageThreadRead,
   setQqUsageGroupNotificationMode,
   setQqUsageGroupNotificationAggregationSeconds,
+  recordQqUsageOutboundMessage,
   setQqUsageActiveSurface,
   clearQqUsageActiveSurface,
   renewQqAttentionLease,
@@ -2949,6 +2950,25 @@ export class RuntimeStore {
       groupId: params.groupId,
       seconds: params.seconds
     }, databaseConfig);
+  }
+
+  async recordQqUsageOutboundMessage(params: {
+    sessionKey: string;
+    chatType: 'direct' | 'group';
+    peerId: string;
+    peerName?: string | null;
+    accountId: string;
+    senderId?: string | null;
+    senderName?: string | null;
+    deliveryMessageId?: string | number | null;
+    contentKind?: 'text' | 'image';
+    bodyForAgent: string;
+    rawBody?: string | null;
+    sentAt?: Date | string | null;
+    traceId?: string | null;
+    runId?: string | null;
+  }): Promise<{ id: number | null } | null> {
+    return recordQqUsageOutboundMessage(params, databaseConfig);
   }
 
   async setQqUsageActiveSurface(params: {

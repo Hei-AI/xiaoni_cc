@@ -1425,7 +1425,7 @@ export function recordQqUsageOutboundMessage(
     peerId?: string | number | bigint;
     peerName?: string | null;
     accountId?: string | number | bigint;
-    senderId?: string | number | bigint;
+    senderId?: string | number | bigint | null;
     senderName?: string | null;
     deliveryMessageId?: string | number | bigint | null;
     contentKind?: 'text' | 'image';

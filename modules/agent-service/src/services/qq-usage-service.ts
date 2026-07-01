@@ -148,11 +148,14 @@ function renderMessage(message: Record<string, unknown>) {
   const replyTo = typeof message.reply_to_id === 'string' && message.reply_to_id.trim()
     ? message.reply_to_id.trim()
     : null;
+  // outgoing = 小腻自己发的（来自 agent_outbound_messages，见 persistence 合并）。
+  // 默认 incoming 保持 inbound 行的历史行为不变。
+  const direction = message.direction === 'outgoing' ? 'outgoing' : 'incoming';
   return formatTaggedBlock('MESSAGE', {
     message_id: message.id,
     timestamp: toDateTime(message.message_timestamp || message.received_at),
     sender: senderLabel(message),
-    direction: 'incoming',
+    direction,
     read_state: Number(message.is_read) === 1 ? 'read' : 'unread',
     mentions_xiaoni: String(Number(message.was_mentioned) === 1),
     ...(replyTo ? { reply_to: replyTo } : {})

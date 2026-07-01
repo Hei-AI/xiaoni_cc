@@ -11954,6 +11954,16 @@ export class AgentLoopService {
         throw new Error(payload.error || `${TOOL_NAMES.privateReply} failed with ${response.status}`);
       }
       await this.recordPresenceAssistantAction(queueMessage);
+      await this.recordOutboundQqMessages({
+        chatType: 'direct',
+        peerId: String(userId),
+        peerName: queueMessage.chatType !== 'group' && String(queueMessage.peerId) === String(userId)
+          ? (queueMessage.peerName ?? null)
+          : null,
+        messages,
+        delivery: payload.data || null,
+        queueMessage
+      });
       return {
         message_type: 'private',
         target_user_id: userId,
@@ -12030,6 +12040,16 @@ export class AgentLoopService {
           peerName: undefined
         };
     await this.recordPresenceAssistantAction(presenceQueueMessage);
+    await this.recordOutboundQqMessages({
+      chatType: 'group',
+      peerId: String(groupId),
+      peerName: queueMessage.chatType === 'group' && String(queueMessage.peerId) === String(groupId)
+        ? (queueMessage.peerName ?? null)
+        : null,
+      messages: selectedMessages,
+      delivery: payload.data || null,
+      queueMessage
+    });
     return {
       message_type: 'group',
       target_group_id: groupId,
@@ -12040,6 +12060,61 @@ export class AgentLoopService {
       second_beat_suppressed: plannedDelivery.secondBeatSuppressed,
       delivery: payload.data || null
     };
+  }
+
+  // 落库小腻自己发出去的 QQ 消息，供 qq_usage 会话窗口回看（她发完就看不到自己说了啥的根因）。
+  // 纯 fire-and-forget 旁路：任何失败都不能影响发送本身。绝不参与未读/notify/唤醒。
+  private async recordOutboundQqMessages(params: {
+    chatType: 'direct' | 'group';
+    peerId: string;
+    peerName?: string | null;
+    messages: unknown;
+    delivery: unknown;
+    contentKind?: 'text' | 'image';
+    queueMessage: QueueMessageRecord['payload'];
+  }): Promise<void> {
+    try {
+      const store = this.store as RuntimeStore & {
+        recordQqUsageOutboundMessage?: RuntimeStore['recordQqUsageOutboundMessage'];
+      };
+      if (typeof store.recordQqUsageOutboundMessage !== 'function') {
+        return;
+      }
+      const botAccountId = agentConfig.botAccountId || '1129974489';
+      const peerId = String(params.peerId);
+      if (!peerId) {
+        return;
+      }
+      const sessionKey = params.chatType === 'group'
+        ? `qq:group:${peerId}`
+        : `qq:direct:${botAccountId}:${peerId}`;
+      const bodies = (Array.isArray(params.messages) ? params.messages : [params.messages])
+        .map((entry) => String(entry ?? '').trim())
+        .filter((entry) => entry.length > 0);
+      if (bodies.length === 0) {
+        return;
+      }
+      const deliveryIds = extractDeliveryMessageIds(params.delivery);
+      for (let index = 0; index < bodies.length; index += 1) {
+        await store.recordQqUsageOutboundMessage({
+          sessionKey,
+          chatType: params.chatType,
+          peerId,
+          peerName: params.peerName ?? null,
+          accountId: botAccountId,
+          senderId: botAccountId,
+          senderName: '小腻',
+          deliveryMessageId: deliveryIds[index] ?? null,
+          contentKind: params.contentKind || 'text',
+          bodyForAgent: bodies[index],
+          rawBody: bodies[index],
+          traceId: params.queueMessage.traceId ?? null,
+          runId: params.queueMessage.runId ?? null
+        }).catch(() => undefined);
+      }
+    } catch {
+      // 记录自发消息是最佳努力，绝不阻塞发送
+    }
   }
 
   private async recordPresenceAssistantAction(queueMessage: QueueMessageRecord['payload']) {

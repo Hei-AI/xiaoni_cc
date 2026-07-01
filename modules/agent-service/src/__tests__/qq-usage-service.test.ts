@@ -150,6 +150,49 @@ test('QqUsageService records active surface internally when focusing and clears 
   assert.deepEqual(calls[3]?.args[0], { threadKey: 'qq:group:253631878' });
 });
 
+test('QqUsageService renders self-sent messages as direction=outgoing in the conversation window', async () => {
+  const service = new QqUsageService({
+    listQqUsageThreadWindow: async () => ({
+      threadKey: 'qq:direct:1129974489:85178516',
+      mode: 'latest',
+      windowSize: 10,
+      cursorAnchor: '100:101',
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+      newerAvailable: 0,
+      unreadBeforeWindow: 0,
+      unreadAfterWindow: 0,
+      reachedReadHistory: true,
+      unreadCount: 0,
+      directMentions: 0,
+      latestMessageId: 101,
+      earliestMessageId: 100,
+      windowUnreadCount: 0,
+      messages: [
+        {
+          id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516',
+          sender_name: '李阿花', raw_body: '在吗', received_at: '2026-06-19T02:00:00.000Z',
+          is_read: 1, was_mentioned: 0, direction: 'incoming'
+        },
+        {
+          id: 500, peer_id: '85178516', account_id: '1129974489', sender_id: '1129974489',
+          sender_name: '小腻', raw_body: '在的，刚在看书', received_at: '2026-06-19T02:00:10.000Z',
+          is_read: 1, was_mentioned: 0, direction: 'outgoing'
+        }
+      ]
+    }),
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any);
+
+  const result = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+
+  // 对方的话仍是 incoming，小腻自己回的那条是 outgoing —— 她翻开会话能看到自己说了啥
+  assert.match(result.content, /direction="incoming"[^>]*>\s*在吗/);
+  assert.match(result.content, /direction="outgoing"/);
+  assert.match(result.content, /在的，刚在看书/);
+});
+
 test('QqUsageSkillRuntime executes skill commands through engineering service state', async () => {
   const service = new FakeQqUsageService();
   const runtime = new QqUsageSkillRuntime(service as any);

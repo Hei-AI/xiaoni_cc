@@ -182,6 +182,37 @@ app.post('/api/internal/qq-send-image', async (req, res) => {
     toolName: optionalString(context.tool_name ?? context.toolName),
     sessionKey: optionalString(context.session_key ?? context.sessionKey)
   });
+  // 记录小腻自己发出去的图片，供 qq_usage 会话窗口回看（同文字 reply）。最佳努力，不阻塞响应。
+  try {
+    if (result && !result.failed
+      && (result.action === 'qq_send_image.send_private' || result.action === 'qq_send_image.send_group')) {
+      const isGroup = result.action === 'qq_send_image.send_group';
+      const peerId = optionalString(isGroup
+        ? (args.group_id ?? args.groupId ?? args.target_group_id)
+        : (args.user_id ?? args.userId ?? args.target_user_id));
+      if (peerId) {
+        const botAccountId = agentConfig.botAccountId || '1129974489';
+        const caption = optionalString(args.caption);
+        const body = caption ? `${caption}\n[图片]` : '[图片]';
+        await store.recordQqUsageOutboundMessage({
+          sessionKey: isGroup ? `qq:group:${peerId}` : `qq:direct:${botAccountId}:${peerId}`,
+          chatType: isGroup ? 'group' : 'direct',
+          peerId,
+          accountId: botAccountId,
+          senderId: botAccountId,
+          senderName: '小腻',
+          deliveryMessageId: optionalString((result as { message_id?: unknown }).message_id),
+          contentKind: 'image',
+          bodyForAgent: body,
+          rawBody: body,
+          traceId: optionalString(context.trace_id ?? context.traceId),
+          runId: optionalString(context.run_id ?? context.runId)
+        }).catch(() => undefined);
+      }
+    }
+  } catch {
+    // 记录自发图片是最佳努力，绝不阻塞发送响应
+  }
   res.json({
     success: true,
     result
