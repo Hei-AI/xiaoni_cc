@@ -14,24 +14,30 @@
 
 ---
 
-## 1. 断点布局:**每个请求 = 头 1 个 + 尾 1 个**（主 agent 与每个 fork 都一样）
+## 1. 断点布局:**每个请求 = 头 1 个 + 尾部滑窗 2 个**（主 agent 与每个 fork 都一样）
 
-落点:`modules/provider-service/.../anthropic-translate.ts`。
+落点:`modules/provider-service/.../anthropic-translate.ts`(`buildMessages` 算出锚点,`placeCacheBreakpoints` 落 `cache_control`)。**全在 wire 翻译期落点,不碰 canonical `input`** → 对 replay/retry 逐字节不变量天然安全(那些用例比的是 canonical)。
 
 - **头断点**:打在 **system 头(身份 + tools 那段永不变的前缀)**最后一块 → 一条**永久共享条目**,主、所有 fork、切换前后**都命中**。
-- **尾断点**:打在**本帧最后一个 `durable` 块**(`isDurableItem` 跳过 `cache_volatile`)→ ① 写「当前完整前缀」一条;② 读时按最长前缀匹配自动勾到最近的前序尾条目。
-- **≤2 个断点**,4 个额度里**留 2 个**专门用来在「单帧 >20 块」时**桥接**(见 §3)。
+- **尾部滑窗(2 个,`isDurableItem` 跳过 `cache_volatile`)**:
+  - **live tail**:本帧最后一个 `durable` 块。写「当前完整前缀」一条。
+  - **prevBoundary(上一帧尾)**:**上一轮模型响应之前的最后一个 durable 块** = 「最后一个 durable assistant message 之前」那个 durable 块(`buildMessages` 里 `beforeLastAssistant`)。这个定义 durability-aware,**能跳过 fork 的 `cache_volatile` 图片尾**,也能处理「共享历史以 assistant final 收尾(小腻空闲)」的 fork base。
+  - **滑窗性质**:请求 N 打 `[prevBoundary(N), tail(N)]`;请求 N+1(晚一轮)打 `[tail(N), tail(N+1)]` —— **N+1 的 prevBoundary 恰好是 N 的 tail**,两请求**共享正好一个断点**,更老的断点自动丢掉。→ **下一跳请求必带上一条请求写过的那个 `cache_control`**,不靠也不只靠 20 块回看。
+- **预算 4 个**:system(1) + 压缩头 anchor(≤1) + prevBoundary(1) + tail(1) = 4。滑窗尾对优先占位,anchor 超预算才丢。
 - **TTL = 1h**(`ANTHROPIC_CACHE_TTL` 可回退 5m);每个断点同 TTL,无「长 TTL 必须在短 TTL 前」的排序约束。
-- **`cache_volatile`**:一切按 turn/run/时间漂移的内容(`[当前时间]` 戳、当前 trigger)必须打 `cache_volatile` 或排在尾断点**之后**,**绝不能落进头到尾之间的缓存前缀**,否则尾条目每帧变、谁都蹭不上。
+- **`cache_volatile`**:一切按 turn/run/时间漂移的内容(`[当前时间]` 戳、当前 trigger、fork 的合成图片尾)必须打 `cache_volatile` 或排在尾断点**之后**,**绝不能落进头到尾之间的缓存前缀**,否则尾条目每帧变、谁都蹭不上;`beforeLastAssistant` 也因此把它们跳过。
 
 ---
 
 ## 2. fork = 主 agent 血缘线在「自己 fork 点 `P_n`」的冻结克隆
 
-- 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、潜意识 fork runSubconsciousAgentFork 均循环克隆 `params.baseRequest`)。
-- fork 命中 = 它尾部那个断点回看 ≤20 块,勾到**主在 turn-n 写的 `P_n` 尾条目**;fork **不需要自带 `P_n` 断点**,头+尾两个就够。
+- 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、潜意识 fork runSubconsciousAgentFork、看图 fork runImageVisionForkToFile 均循环克隆 `params.baseRequest`)。
+- **fork 走同一条 wire 翻译 → 同一套滑窗**,所以三种切换都满足「下一跳带上一条的 cache_control」:
+  - **主 → 派生 fork(fork 点)**:fork 的 `cache_volatile` 尾非 durable,fork 的 `tail` 与 `prevBoundary` **和主派生它那一刻的 `tail`/`prevBoundary` 逐位相同** → fork 直接带着主的尾断点,命中主写的 `P_n` 条目。
+  - **fork 内部 → 下一条 fork 内部**:fork 每轮追加 durable exec 结果,滑窗把上一轮 fork 尾当作本轮 prevBoundary(durability-aware 跳过合成图片)→ fork 自身链逐轮共享。
+  - **主 → 下一跳主**:同 §1 滑窗。
+- 兜底:fork 尾断点回看 ≤20 块也能勾到 `P_n`;滑窗是把它变**确定性**(不依赖回看窗口)。
 - 6 个 fork 在不同点 = 老血缘线上 **6 条独立 keyed、各自命中**的条目;互不干涉。
-- fork 每帧也把尾断点前移到自己尾部、每帧增量 ≤5 块(<20),所以**fork 自身链**逐帧严丝合缝。
 
 ---
 

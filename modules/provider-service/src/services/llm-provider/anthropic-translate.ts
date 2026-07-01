@@ -362,10 +362,19 @@ interface BlockRef {
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean
-): { messages: AnthropicMessage[]; lastDurable: BlockRef | null; anchors: BlockRef[] } {
+): { messages: AnthropicMessage[]; lastDurable: BlockRef | null; anchors: BlockRef[]; prevTurnBoundary: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
   let lastDurable: BlockRef | null = null;
   const anchors: BlockRef[] = [];
+  // Sliding-window: the previous request's tail = the last durable block BEFORE the current turn's
+  // response, i.e. the durable block immediately before the LAST durable assistant message (each
+  // model turn starts a fresh assistant message; everything from it to the end is "this turn"). This
+  // is the byte-safe definition that covers every shape: a tool-loop tail (previous user tool_result)
+  // AND a shared history that ends in an assistant final answer (小腻 idle — the image-vision fork's
+  // common base). Computed here (durability-aware) so cache_volatile fork tails are excluded and the
+  // boundary lands on the fork's real shared-history tail, not on the synthetic image.
+  let beforeLastAssistant: BlockRef | null = null;
+  let lastAssistantMsgIdx = -1;
 
   for (const item of input) {
     const mapped = itemToRoleBlocks(item, thinkingEnabled);
@@ -380,6 +389,11 @@ function buildMessages(
     }
     const here: BlockRef = { msgIdx: messages.length - 1, blockIdx: messages[messages.length - 1]!.content.length - 1 };
     if (isDurableItem(item)) {
+      if (mapped.role === 'assistant' && here.msgIdx !== lastAssistantMsgIdx) {
+        // lastDurable is still the durable block BEFORE this (new) assistant turn.
+        beforeLastAssistant = lastDurable;
+        lastAssistantMsgIdx = here.msgIdx;
+      }
       lastDurable = here;
     }
     // A cache_anchor item marks a stable mid-history boundary the agent-service
@@ -396,12 +410,13 @@ function buildMessages(
     messages.unshift({ role: 'user', content: [{ type: 'text', text: '(对话开始)' }] });
     const shift = (ref: BlockRef | null): BlockRef | null => (ref ? { msgIdx: ref.msgIdx + 1, blockIdx: ref.blockIdx } : ref);
     lastDurable = shift(lastDurable);
+    beforeLastAssistant = shift(beforeLastAssistant);
     for (let i = 0; i < anchors.length; i += 1) {
       anchors[i] = shift(anchors[i]!)!;
     }
   }
 
-  return { messages, lastDurable, anchors };
+  return { messages, lastDurable, anchors, prevTurnBoundary: beforeLastAssistant };
 }
 
 interface ToolPlan {
@@ -570,28 +585,21 @@ function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): bo
   return true;
 }
 
-// The previous request's tail boundary, approximated statelessly from the CURRENT request's
-// structure: the last `user`-role message strictly before the live tail's message. In a tool loop
-// each turn ends with a user tool_result, so this is the previous turn's end. Placing a breakpoint
-// here creates a 2-wide sliding window with the live tail: request N pins [prevBoundary(N), tail(N)];
-// request N+1 (which appended one turn) pins [prevBoundary(N+1)=tail(N), tail(N+1)] — they SHARE
-// tail(N), so the next-hop request always carries a cache_control the previous request wrote at, and
-// the older breakpoint is dropped automatically. This is wire-side only (does not touch the canonical
-// input), so it is byte-safe for replay/retry consistency.
-function computePreviousTurnBoundary(body: AnthropicMessagesRequest, lastDurable: BlockRef | null): BlockRef | null {
-  if (!lastDurable) {
-    return null;
-  }
-  for (let i = lastDurable.msgIdx - 1; i >= 0; i -= 1) {
-    const msg = body.messages[i];
-    if (msg && msg.role === 'user' && Array.isArray(msg.content) && msg.content.length > 0) {
-      return { msgIdx: i, blockIdx: msg.content.length - 1 };
-    }
-  }
-  return null;
-}
-
-function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: BlockRef | null, anchors: BlockRef[] = []): void {
+// Sliding-window staircase: each request pins TWO message-tier breakpoints — the live tail
+// (lastDurable) AND the previous turn boundary (the second-to-last durable USER turn, computed
+// durability-aware in buildMessages so cache_volatile fork tails are excluded). Consecutive requests
+// therefore share exactly one breakpoint: request N pins [prevBoundary(N), tail(N)]; request N+1
+// (one turn later) pins [prevBoundary(N+1)=tail(N), tail(N+1)] — so the next-hop request always
+// carries a cache_control the previous request wrote at, and the older breakpoint drops off. Applies
+// uniformly to main→next-main, fork-internal→next-fork-internal, and main→derived-fork (all go
+// through this translate). Wire-side only (does not touch the canonical input), so it is byte-safe
+// for the replay/retry consistency invariants that compare the canonical.
+function placeCacheBreakpoints(
+  body: AnthropicMessagesRequest,
+  lastDurable: BlockRef | null,
+  anchors: BlockRef[] = [],
+  prevTurnBoundary: BlockRef | null = null
+): void {
   let used = 0;
   const seen = new Set<string>();
   const key = (ref: BlockRef) => `${ref.msgIdx}:${ref.blockIdx}`;
@@ -610,9 +618,8 @@ function placeCacheBreakpoints(body: AnthropicMessagesRequest, lastDurable: Bloc
   if (lastDurable) {
     tailPair.push(lastDurable);
   }
-  const prevBoundary = computePreviousTurnBoundary(body, lastDurable);
-  if (prevBoundary && !tailPair.some((t) => key(t) === key(prevBoundary))) {
-    tailPair.push(prevBoundary);
+  if (prevTurnBoundary && !tailPair.some((t) => key(t) === key(prevTurnBoundary))) {
+    tailPair.push(prevTurnBoundary);
   }
   // mid-history anchors (e.g. the compression head boundary). Explicitly pinning them every turn
   // keeps [..anchor] warm across turns even when it drifts past the 20-block lookback. Cap so the
@@ -668,7 +675,7 @@ export function translateCanonicalToMessages(
     && !plan.forced
     && plan.toolChoice?.type !== 'none';
 
-  const { messages, lastDurable, anchors } = buildMessages(
+  const { messages, lastDurable, anchors, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
     thinkingEnabled
   );
@@ -712,7 +719,7 @@ export function translateCanonicalToMessages(
     // Keep it omitted to avoid 400s on unknown keys.
   }
 
-  placeCacheBreakpoints(body, lastDurable, anchors);
+  placeCacheBreakpoints(body, lastDurable, anchors, prevTurnBoundary);
 
   // Final step: optionally sign the billing block's cch over the fully-assembled body.
   // Must run last (after system/messages/tools/breakpoints are all set) so the checksum

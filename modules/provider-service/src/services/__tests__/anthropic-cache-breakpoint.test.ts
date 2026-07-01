@@ -191,41 +191,92 @@ test('image-vision fork: an all-non-durable tail keeps the breakpoint on the sha
     'all-non-durable tail: the breakpoint must anchor on the shared warm history block — the fork rides the main cache');
 });
 
-// Sliding-window staircase (provider-side, wire-only): each request pins TWO message-tier
-// breakpoints — the live tail AND the previous turn boundary (the last user message before the
-// tail's message). Consecutive requests in a tool loop therefore share exactly one breakpoint (the
-// previous request's tail becomes the next request's previous-boundary), so the next-hop request
-// always carries a cache_control the previous one wrote at, and the older breakpoint drops off. This
-// is placed at wire-translate time only; it never touches the canonical input, so it is byte-safe
-// for the replay/retry consistency invariants (which compare the canonical `input`).
-function allMessageCacheBreakpoints(body: any): string[] {
-  const out: string[] = [];
+// ============================================================================================
+// Sliding-window staircase (provider-side, wire-only). Each request pins TWO message-tier
+// breakpoints — the live tail AND the previous turn boundary (the durable block before the last
+// durable assistant message, computed durability-aware so cache_volatile fork tails are excluded).
+// Consecutive requests share exactly one breakpoint (the previous request's tail becomes the next
+// request's previous-boundary), so the NEXT-HOP request always carries a cache_control the previous
+// one wrote at, and the older breakpoint drops off. Placed at wire-translate time only — never
+// touches the canonical input — so it is byte-safe for the replay/retry consistency invariants.
+//
+// These lock the three transitions the requirement names: main→next-main, fork-internal→next-fork-
+// internal, and main→derived-fork.
+// ============================================================================================
+function pinned(body: any, marker: string): boolean {
   for (const msg of body.messages || []) {
-    const content = Array.isArray(msg.content) ? msg.content : [];
-    for (const block of content) {
-      if (block && block.cache_control) {
-        out.push(JSON.stringify(block));
+    for (const block of (Array.isArray(msg.content) ? msg.content : [])) {
+      if (block && block.cache_control && JSON.stringify(block).includes(marker)) {
+        return true;
       }
     }
   }
-  return out;
+  return false;
 }
+const mkSlideReq = (input: any[]) => ({
+  model: 'claude-opus-4-6', instructions: 'You are 小腻.', max_output_tokens: 1, tool_choice: 'auto', input
+});
+const SLIDE_HEAD = [
+  { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills> head </skills>' }] },
+  { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史 <<H>>' }] }
+];
+const turnA = [
+  { type: 'function_call', call_id: 'a', name: 'exec_command', arguments: '{}' },
+  { type: 'function_call_output', call_id: 'a', output: 'RESULT_A <<TR_A>>' }
+];
+const turnB = [
+  { type: 'function_call', call_id: 'b', name: 'exec_command', arguments: '{}' },
+  { type: 'function_call_output', call_id: 'b', output: 'RESULT_B <<TR_B>>' }
+];
 
-test('sliding window: a continuing tool loop pins BOTH the live tail and the previous turn boundary', () => {
-  const req = {
-    model: 'claude-opus-4-6', instructions: 'You are 小腻.', max_output_tokens: 1, tool_choice: 'auto',
-    input: [
-      { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<skills> head </skills>' }] },
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史 <<H>>' }] },
-      { type: 'function_call', call_id: 'a', name: 'exec_command', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'a', output: 'RESULT_A <<TR_A>>' },
-      { type: 'function_call', call_id: 'b', name: 'exec_command', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'b', output: 'RESULT_B <<TR_B>>' }
-    ]
-  };
-  const { body } = translateCanonicalToMessages(req as any);
-  const bps = allMessageCacheBreakpoints(body);
-  assert.ok(bps.some((b) => b.includes('TR_B')), 'live tail (tool_result B) must be pinned');
-  assert.ok(bps.some((b) => b.includes('TR_A')),
-    'previous turn boundary (tool_result A) must ALSO be pinned — the next-hop request carries the previous breakpoint');
+test('sliding window (main -> next-main): consecutive main turns SHARE the boundary breakpoint', () => {
+  const reqN = translateCanonicalToMessages(mkSlideReq([...SLIDE_HEAD, ...turnA]) as any).body;
+  const reqN1 = translateCanonicalToMessages(mkSlideReq([...SLIDE_HEAD, ...turnA, ...turnB]) as any).body;
+  assert.ok(pinned(reqN, 'TR_A'), 'req N pins its live tail (tool_result A)');
+  assert.ok(pinned(reqN1, 'TR_B'), 'req N+1 pins its own live tail (tool_result B)');
+  // The shared breakpoint: req N's tail (TR_A) is req N+1's previous boundary → BOTH pin it.
+  assert.ok(pinned(reqN1, 'TR_A'),
+    'req N+1 must ALSO carry req N tail (TR_A) — the next-hop carries the previous breakpoint');
+});
+
+// The image-vision fork base: a shared history ending in an assistant final answer (小腻 idle),
+// then a cache_volatile inspect/image/reminder tail. Fork-internal turns append durable exec results.
+const FORK_HIST = [
+  { type: 'message', role: 'user', content: [{ type: 'input_text', text: '群里发了张图 <<FH1>>' }] },
+  { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '看看再说 <<FHTAIL>>' }] }
+];
+const forkVolatileTail = [
+  { type: 'function_call', call_id: 'img', name: 'inspect_image_placeholder', arguments: '{"image_id":"i"}', cache_volatile: true },
+  { type: 'function_call_output', call_id: 'img', cache_volatile: true,
+    output: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'original' }] },
+  { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<system_reminder> write it </system_reminder>' }] }
+];
+const forkExec = [
+  { type: 'function_call', call_id: 'e', name: 'exec_command', arguments: '{}' },
+  { type: 'function_call_output', call_id: 'e', output: 'EXEC_OUT <<FEXEC>>' }
+];
+
+test('sliding window (main -> derived fork): the fork carries the main agent tail at fork time', () => {
+  const mainReq = translateCanonicalToMessages(mkSlideReq([...FORK_HIST]) as any).body;
+  const forkT1 = translateCanonicalToMessages(mkSlideReq([...FORK_HIST, ...forkVolatileTail]) as any).body;
+  // Main's tail is the shared history's assistant final answer (FHTAIL). The fork's cache_volatile
+  // tail is non-durable, so the fork's tail is ALSO FHTAIL → the fork carries the main's breakpoint.
+  assert.ok(pinned(mainReq, 'FHTAIL'), 'main request pins the shared history tail (assistant final)');
+  assert.ok(pinned(forkT1, 'FHTAIL'),
+    'derived fork must carry the main tail (FHTAIL) — the volatile image/reminder tail is NOT the tail');
+});
+
+test('sliding window (fork-internal -> next fork-internal): consecutive fork turns SHARE the boundary, skipping the volatile image', () => {
+  const forkT1 = translateCanonicalToMessages(mkSlideReq([...FORK_HIST, ...forkVolatileTail]) as any).body;
+  const forkT2 = translateCanonicalToMessages(mkSlideReq([...FORK_HIST, ...forkVolatileTail, ...forkExec]) as any).body;
+  // Fork turn 1's tail = FHTAIL (volatile appends excluded). Fork turn 2 appends a durable exec turn,
+  // so its tail = FEXEC and its previous boundary = FHTAIL (the volatile image is skipped, NOT treated
+  // as a boundary). So both pin FHTAIL — the next fork request carries the previous fork request's tail.
+  assert.ok(pinned(forkT1, 'FHTAIL'), 'fork turn 1 tail is the shared history tail FHTAIL');
+  assert.ok(pinned(forkT2, 'FEXEC'), 'fork turn 2 pins its own live tail FEXEC');
+  assert.ok(pinned(forkT2, 'FHTAIL'),
+    'fork turn 2 must carry fork turn 1 tail (FHTAIL) — the durability-aware boundary skips the volatile image');
+  // The volatile image block must NEVER be a breakpoint.
+  assert.ok(!pinned(forkT2, '"type":"image"') && !pinned(forkT2, '"type": "image"'),
+    'the cache_volatile image block must never anchor a cache breakpoint');
 });
