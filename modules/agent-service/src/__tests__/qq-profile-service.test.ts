@@ -132,6 +132,21 @@ test('view_profile with no qq defaults to the bot self and renders a card', asyn
   assert.match(res.content, /busy 忙碌/, 'status code 50 -> human word');
 });
 
+test('view_profile shows 在线 for the default resting status (nc returns 0 or null, not a set enum)', async () => {
+  for (const restStatus of [0, null]) {
+    const captured: Captured[] = [];
+    const service = new QqProfileService({
+      providerServiceUrl: 'http://provider',
+      botAccountId: '1129974489',
+      fetchImpl: fakeFetchReturning(captured, { user_id: 1129974489, nickname: '小腻', long_nick: 'x', status: restStatus })
+    });
+    const res = await service.getProfile({});
+    assert.notEqual(res.failed, true, `restStatus=${restStatus}`);
+    assert.match(res.content, /online_status="online 在线"/, `restStatus=${restStatus} -> 在线`);
+    assert.doesNotMatch(res.content, /status=0/, `restStatus=${restStatus} must not leak raw status=0`);
+  }
+});
+
 test('view_profile <qq> targets another user and marks it read-only', async () => {
   const captured: Captured[] = [];
   const service = new QqProfileService({

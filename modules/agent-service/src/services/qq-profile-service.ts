@@ -259,10 +259,19 @@ export class QqProfileService {
     }
     const response = await this.providerPost('/api/internal/get_profile', { user_id: numeric });
     const data = (response?.data && typeof response.data === 'object' ? response.data : {}) as Record<string, unknown>;
-    const statusCode = Number(data.status);
-    const statusLabel = Number.isFinite(statusCode)
-      ? (ONLINE_STATUS_LABELS[statusCode] || `status=${statusCode}`)
-      : 'unknown';
+    // nc_get_user_status 在「没设特殊状态」时返回 0(有时干脆 null,实测会飘)——那就是 QQ 的默认
+    // 在线态(get_status.online=true 印证)。所以 0/null → 「在线」;10/30/40/50/60/70 是显式设的
+    // 枚举 → 人话;其它非零码原样 honest 显示(不猜)。
+    const rawStatus = data.status;
+    const statusCode = Number(rawStatus);
+    let statusLabel: string;
+    if (Number.isFinite(statusCode) && ONLINE_STATUS_LABELS[statusCode]) {
+      statusLabel = ONLINE_STATUS_LABELS[statusCode];
+    } else if (rawStatus === null || typeof rawStatus === 'undefined' || statusCode === 0) {
+      statusLabel = 'online 在线';
+    } else {
+      statusLabel = `status=${statusCode}`;
+    }
     const longNick = typeof data.long_nick === 'string' ? data.long_nick : '';
     return {
       qq_profile: true,
