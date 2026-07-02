@@ -20,6 +20,10 @@ import {
   listToolExecutions,
   listAgentTasks,
   updateAgentRuntimeControl,
+  setAgentEnergyPolicy,
+  recordAgentLifeEvent,
+  getActiveAgentRecoverySession,
+  finalizeAgentRecoverySession,
 } from '@qq-bot/persistence';
 import { DatabaseManager } from '../services/database';
 import {
@@ -1256,7 +1260,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' });
       res.json({
         success: true,
-        data: control,
+        data: { ...control, energyPolicyDefaults: ENERGY_POLICY_DEFAULTS },
         timestamp: new Date().toISOString()
       });
     } catch (error) {
@@ -1331,6 +1335,116 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to update Xiaoni runtime control',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Energy-policy overrides (admin-configurable, hot-reloaded by agent-service, no restart).
+  // Ranges here mirror the authoritative clamps in agent-service mergeRecoverEnergyPolicy — the
+  // agent re-clamps regardless, so these are early validation + UI guidance. Energy is
+  // runtime-internal and NEVER enters the LLM request prefix → zero prompt-cache impact.
+  const ENERGY_POLICY_FIELD_SPECS: Array<{ key: string; min: number; max: number; default: number }> = [
+    { key: 'wakeTauMinutes', min: 1, max: 10_000_000, default: 1920 },
+    { key: 'sleepTauMinutes', min: 1, max: 10_000_000, default: 252 },
+    { key: 'forcedSleepPressure', min: 0.1, max: 1.6, default: 1.3 },
+    { key: 'normalSleepOnsetPressure', min: 0.05, max: 1.6, default: 0.3 },
+    { key: 'fullRecoveryMinutes', min: 5, max: 1440, default: 480 },
+    { key: 'actionCostScale', min: 0, max: 1, default: 1 }
+  ];
+  const ENERGY_POLICY_DEFAULTS = Object.fromEntries(ENERGY_POLICY_FIELD_SPECS.map((s) => [s.key, s.default]));
+
+  router.put('/agent-runtime/energy-policy', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as Record<string, unknown>
+        : {};
+      // Explicit clear → revert to code defaults.
+      if (body.reset === true || body.energyPolicy === null) {
+        const control = await setAgentEnergyPolicy({ identityKey: 'xiaoni', energyPolicy: null });
+        res.json({ success: true, data: { ...control, energyPolicyDefaults: ENERGY_POLICY_DEFAULTS }, timestamp: new Date().toISOString() });
+        return;
+      }
+      const source = body.energyPolicy && typeof body.energyPolicy === 'object' && !Array.isArray(body.energyPolicy)
+        ? body.energyPolicy as Record<string, unknown>
+        : body;
+      const overrides: Record<string, number> = {};
+      for (const spec of ENERGY_POLICY_FIELD_SPECS) {
+        if (!Object.prototype.hasOwnProperty.call(source, spec.key)) {
+          continue;
+        }
+        const raw = source[spec.key];
+        if (raw === null || raw === '') {
+          continue; // omitted → falls back to default
+        }
+        const numeric = Number(raw);
+        if (!Number.isFinite(numeric) || numeric < spec.min || numeric > spec.max) {
+          res.status(400).json({
+            success: false,
+            error: `${spec.key} must be a number between ${spec.min} and ${spec.max}`,
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        overrides[spec.key] = numeric;
+      }
+      const control = await setAgentEnergyPolicy({
+        identityKey: 'xiaoni',
+        energyPolicy: Object.keys(overrides).length > 0 ? overrides : null
+      });
+      res.json({
+        success: true,
+        data: { ...control, energyPolicyDefaults: ENERGY_POLICY_DEFAULTS },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to update Xiaoni energy policy',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Instant full-energy restore: wake any active recovery session at full + append a sleep_period
+  // reset event so the next life-projection refresh zeroes homeostatic pressure + action debt.
+  router.post('/agent-runtime/energy/restore-full', async (_req, res) => {
+    try {
+      let finalizedSessionId: number | string | null = null;
+      const active = await getActiveAgentRecoverySession({ identityKey: 'xiaoni' }).catch(() => null);
+      if (active && (active as { id?: number | string }).id) {
+        const fin = await finalizeAgentRecoverySession({
+          id: (active as { id: number | string }).id,
+          status: 'completed',
+          wakeCause: 'hard_cap',
+          currentEnergy: 1,
+          currentPressure: 0,
+          result: { source: 'admin_restore_full', at: new Date().toISOString() }
+        });
+        finalizedSessionId = (fin as { id?: number | string } | null)?.id ?? (active as { id: number | string }).id;
+      }
+      const now = new Date();
+      const event = await recordAgentLifeEvent({
+        identityKey: 'xiaoni',
+        eventKind: 'sleep_period',
+        occurredAt: now,
+        visibility: 'self_private',
+        dedupeKey: `admin-restore-full-${now.toISOString()}`,
+        payload: { energy: 1, max_energy: 1, source: 'admin_restore_full' }
+      });
+      res.json({
+        success: true,
+        data: {
+          finalizedSessionId,
+          resetEventId: (event as { id?: number | string } | null)?.id ?? null,
+          note: '精力已复位为满，下一次 life-projection 刷新（≤数秒）生效'
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to restore Xiaoni energy',
         timestamp: new Date().toISOString()
       });
     }
