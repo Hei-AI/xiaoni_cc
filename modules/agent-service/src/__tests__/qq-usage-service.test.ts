@@ -575,3 +575,14 @@ test('focus around anchorMissing falls back to latest window with a note', async
   assert.match(win.content, /<QQ_USAGE_NOTE reason="定位的消息已不在记录里，已打开最新窗口"/);
   assert.equal(win.latest_message_id, 101);
 });
+
+test('reply preview is not rendered on outgoing messages (no false 原消息已不在记录)', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 700, direction: 'outgoing', peer_id: '85178516', account_id: '1129974489', sender_id: '1129974489', sender_name: '小腻', raw_body: '我回你这句', received_at: '2026-07-02T03:00:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-whatever' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /direction="outgoing"/);
+  assert.doesNotMatch(win.content, /「引用/);
+  assert.doesNotMatch(win.content, /原消息已不在记录/);
+  assert.doesNotMatch(win.content, /reply_to=/);
+});

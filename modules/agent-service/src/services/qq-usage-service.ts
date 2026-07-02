@@ -184,10 +184,12 @@ function renderReplyPreview(message: Record<string, unknown>): { attr: string | 
 }
 
 function renderMessage(message: Record<string, unknown>) {
-  const reply = renderReplyPreview(message);
   // outgoing = 小腻自己发的（来自 agent_outbound_messages，见 persistence 合并）。
   // 默认 incoming 保持 inbound 行的历史行为不变。
   const direction = message.direction === 'outgoing' ? 'outgoing' : 'incoming';
+  // 回复引用预览只对 incoming（别人引用了某条）——outbound 行不带 reply_to_body /
+  // reply_to_message_id，无法正确渲染，跳过以免在她自己的消息上误显示「原消息已不在记录」。
+  const reply = direction === 'incoming' ? renderReplyPreview(message) : { attr: null, line: null };
   // message_id 保留：它是 reply_to 的对应锚（reply_to="X" 现在与 message_id 同命名空间，
   // 且能用 focus_private/focus_group <id> 定位）。
   // read_state 只在未读时透出（读过是默认态）；mentions_xiaoni 只在被@时透出（否则恒 false 是噪音）。
