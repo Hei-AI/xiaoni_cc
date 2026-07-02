@@ -333,3 +333,76 @@ test('returns null for share segment with no url and no title', () => {
   });
   assert.equal(ctx, null);
 });
+
+// 124 之谜:经典 QQ 表情的 data.raw.faceText 为空,NapCat 只回传裸数字 id。
+// 接收端(小腻)以前只看到 "124",无法解码。现在靠静态权威表还原成 [OK]/[笑哭]。
+test('decodes classic face id to name when faceText is empty', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2101,
+      message: [
+        { type: 'text', data: { text: '在吗' } },
+        { type: 'face', data: { id: '124', raw: { faceText: '', faceIndex: 124 } } },
+        { type: 'face', data: { id: '182', raw: { faceText: null } } }
+      ]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.RawBody, '在吗[OK][笑哭]');
+});
+
+// 新表情:NapCat 回填 data.raw.faceText(带前导 '/'),优先直接采用。
+test('decodes new-style face from raw.faceText, stripping the leading slash', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2102,
+      message: [{ type: 'face', data: { id: '265', raw: { faceText: '/辣眼睛' } } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.RawBody, '[辣眼睛]');
+});
+
+// 未知 id(表里没有、faceText 也空):给带标签占位,绝不再露裸数字。
+test('unknown face id renders labeled placeholder, never a bare number', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2103,
+      message: [{ type: 'face', data: { id: '99999', raw: { faceText: '' } } }]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.RawBody, '[表情:99999]');
+});
+
+// 字符串 CQ 码回退路径:以前一律拍成 [Emoji],现在也按 id 查表。
+test('decodes face from raw CQ-code fallback path', () => {
+  const ctx = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 2104,
+      raw_message: '收到[CQ:face,id=124]'
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+  assert.ok(ctx);
+  assert.equal(ctx.RawBody, '收到[OK]');
+});

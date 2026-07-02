@@ -3,6 +3,7 @@ import {
   InboundContext,
   InboundMentionedUser,
 } from '../types';
+import { QQ_FACE_NAMES } from '../data/qq-face-names';
 
 type OneBotMessageSegment = {
   type?: string;
@@ -252,11 +253,43 @@ function isImageLikeFile(data: Record<string, unknown>, fileName?: string, mimeT
   return Boolean(asNonEmptyString(data.picWidth) || asNonEmptyString(data.picHeight));
 }
 
+function normalizeFaceName(value: string | undefined): string | undefined {
+  const trimmed = (value || '').trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  // NapCat 的 data.raw.faceText 与 QQ face_config 的 QDes 都带前导 '/'(如 '/流泪'),
+  // QQ 客户端渲染成 '[流泪]'。剥掉斜杠后我们统一包成 [名字]。
+  const stripped = trimmed.replace(/^\/+/, '').trim();
+  return stripped.length > 0 ? stripped : undefined;
+}
+
+function renderFaceById(faceId: string | undefined): string | undefined {
+  if (!faceId) {
+    return undefined;
+  }
+  const mapped = QQ_FACE_NAMES[faceId];
+  if (mapped) {
+    return `[${mapped}]`;
+  }
+  // 未知 id 也绝不再暴露裸数字(接收端会当成暗号,见 124 之谜)。
+  return `[表情:${faceId}]`;
+}
+
 function renderEmojiPlaceholder(data?: Record<string, unknown>) {
-  return asNonEmptyString(data?.text)
-    || asNonEmptyString(data?.name)
-    || asNonEmptyString(data?.id)
-    || '[Emoji]';
+  // 部分 emoji 段自带可读文本。
+  const explicit = asNonEmptyString(data?.text) || asNonEmptyString(data?.name);
+  if (explicit) {
+    return explicit;
+  }
+  // NapCat 只在部分新表情上回填 data.raw.faceText;经典表情(124=OK、182=笑哭…)为空。
+  const rawRecord = sanitizeRawRecord(data?.raw);
+  const faceText = normalizeFaceName(asNonEmptyString(rawRecord?.faceText));
+  if (faceText) {
+    return `[${faceText}]`;
+  }
+  // 经典表情靠静态权威表还原;彻底不再落到裸数字。
+  return renderFaceById(asNonEmptyString(data?.id)) || '[Emoji]';
 }
 
 function renderJsonCardText(segment: OneBotMessageSegment): string | null {
@@ -483,7 +516,10 @@ function renderFromRawMessage(
       .replace(/\[CQ:(?:record|audio),[^\]]*\]/g, '<media:audio>')
       .replace(/\[CQ:video,[^\]]*\]/g, '[Video]')
       .replace(/\[CQ:file,[^\]]*?(?:name=([^,\]]+))?[^\]]*\]/g, (_match, name) => renderFilePlaceholder(name))
-      .replace(/\[CQ:(?:face|emoji),[^\]]*\]/g, '[Emoji]')
+      .replace(/\[CQ:(?:face|emoji),([^\]]*)\]/g, (_match, params) => {
+        const faceId = /(?:^|,)id=(\d+)/.exec(String(params || ''))?.[1];
+        return renderFaceById(faceId) || '[Emoji]';
+      })
   );
 
   const commandBody = normalizeWhitespace(
