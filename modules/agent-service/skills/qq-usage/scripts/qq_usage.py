@@ -135,6 +135,16 @@ def build_parser():
 
     subcommands.add_parser("put_qq_away")
 
+    # 资料面（只改你自己的）：换头像 / 改签名 / 改在线状态。
+    set_avatar = subcommands.add_parser("set_avatar")
+    set_avatar.add_argument("file")  # 小腻 runtime 下头像图片路径（如 /xiaoni-runtime/picture/xxx.png）
+
+    set_signature = subcommands.add_parser("set_signature")
+    set_signature.add_argument("text")  # 个性签名文本；传空串 "" = 清空
+
+    set_status = subcommands.add_parser("set_status")
+    set_status.add_argument("status", choices=["online", "away", "invisible", "busy", "qme", "dnd"])
+
     return parser
 
 
