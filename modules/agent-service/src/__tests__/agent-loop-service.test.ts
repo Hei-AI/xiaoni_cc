@@ -532,7 +532,7 @@ test('buildInitialInput reuses precomputed current-turn items instead of rebuild
 
   const withPrecomputed = buildInitialInput(
     [], createQueuePayload(), createRuntimePrompt(),
-    [], null, null, null, 'fresh_trigger', false, null, null, [], null,
+    [], null, null, null, 'fresh_trigger', false, null, null, [],
     precomputed
   );
   const withoutPrecomputed = buildInitialInput([], createQueuePayload());

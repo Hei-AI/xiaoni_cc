@@ -132,10 +132,10 @@ test('image-vision fork: a DURABLE image tail moves the breakpoint off the share
 
 // 4-BREAKPOINT BUDGET (Anthropic hard cap: a request may carry at most 4 cache_control
 // markers). `placeCacheBreakpoints` fills them in strict priority order: [1] system head,
-// [2] prevBoundary, [3] true-end tail, [4] compression anchors, then lastDurable last. So the
-// deterministic sliding-window pair (prevBoundary+tail) and the compression anchor ALWAYS beat
-// lastDurable; excess anchors and lastDurable are dropped before the essentials. This guards the
-// cap directly: a regression that emits a 5th marker is a 400 from Anthropic.
+// [2] prevBoundary, [3] true-end tail, [4] lastDurable. The tail set is at most 3 distinct
+// points, so system + tail set is always <= 4 — a full 3-point nudged turn fits exactly, and
+// nothing needs to be dropped. (The compression cache_anchor was removed — the compression fork
+// full-clones and rides the whole warm prefix, so a separate [..H_X] breakpoint had no reader.)
 function countCacheControls(body: any): number {
   let n = 0;
   for (const s of body.system || []) if (s && s.cache_control) n += 1;
@@ -147,8 +147,9 @@ function countCacheControls(body: any): number {
   return n;
 }
 
-test('cache breakpoints never exceed 4: system + prevBoundary + tail + one anchor; excess anchors dropped, tail always kept', () => {
-  // THREE cache_anchor items requested but the budget fits only ONE (system + prevBoundary + tail = 3, anchor = 4).
+test('cache breakpoints never exceed 4: a full 3-point nudged tail set fits exactly (system + prevBoundary + tail + lastDurable)', () => {
+  // Nudged turn = [..history.., assistant, tool_result(TR), <system_reminder nudge>]. Three DISTINCT
+  // tail points (prevBoundary=MID, lastDurable=TR, true-end tail=NUDGE) + system = exactly 4.
   const body = translateCanonicalToMessages({
     model: 'claude-opus-4-6',
     instructions: 'You are 小腻.',
@@ -156,38 +157,6 @@ test('cache breakpoints never exceed 4: system + prevBoundary + tail + one ancho
     tool_choice: 'auto',
     input: [
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史0 <<H0>>' }] },
-      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚1 <<A1>>' }], cache_anchor: true },
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史2 <<H2>>' }] },
-      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚2 <<A2>>' }], cache_anchor: true },
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '历史4 <<H4>>' }] },
-      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '锚3 <<A3>>' }], cache_anchor: true },
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '活体尾 <<TAIL>>' }] }
-    ]
-  } as any).body;
-
-  assert.ok(countCacheControls(body) <= 4, `must never emit more than 4 cache_control markers, got ${countCacheControls(body)}`);
-  // The live tail (last durable) ALWAYS keeps its reserved breakpoint.
-  assert.ok(lastMessageCacheBreakpoint(body).includes('TAIL'),
-    'the last-durable live tail must always get a cache breakpoint (its slot is reserved)');
-  // The 3rd anchor is the one dropped for budget — NOT the tail.
-  const marked = JSON.stringify(body.messages);
-  const anchoredA3 = body.messages.some((m: any) => (m.content || []).some((b: any) => b.cache_control && String(b.text).includes('A3')));
-  assert.ok(!anchoredA3, 'the 3rd anchor must be dropped when the 4-breakpoint budget is full (tail keeps priority)');
-});
-
-// ANCHOR PRIORITY (regression for the true-end-tail crowd-out): during a compression window a
-// nudged turn has a full 3-point tail (prevBoundary, lastDurable, true-end nudge) AND a
-// compression anchor — 4 tail-ish points + system = 5 > budget. The anchor must WIN the last slot
-// over lastDurable (H_X continuity matters mid-compression; lastDurable is only the idle/drift
-// fallback). Guards the 100cac96 regression where a 3-point tail silently evicted the anchor.
-test('anchor priority: on a nudged compression turn, the compression anchor beats lastDurable', () => {
-  const body = translateCanonicalToMessages({
-    model: 'claude-opus-4-6',
-    instructions: 'You are 小腻.',
-    max_output_tokens: 1,
-    tool_choice: 'auto',
-    input: [
-      { type: 'message', role: 'user', content: [{ type: 'input_text', text: '压缩头 <<HX>>' }], cache_anchor: true },
       { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '旧回复 <<AOLD>>' }] },
       { type: 'message', role: 'user', content: [{ type: 'input_text', text: '中段 <<MID>>' }] },
       { type: 'function_call', call_id: 'a', name: 'exec_command', arguments: '{}' },
@@ -196,11 +165,11 @@ test('anchor priority: on a nudged compression turn, the compression anchor beat
         content: [{ type: 'input_text', text: '<system_reminder> 堆积 1 条 <<NUDGE>> </system_reminder>' }] }
     ]
   } as any).body;
-  assert.ok(countCacheControls(body) <= 4, `must never exceed 4 markers, got ${countCacheControls(body)}`);
-  assert.ok(pinned(body, 'NUDGE'), 'the true-end nudge (tail) must be pinned');
-  assert.ok(pinned(body, 'HX'), 'the compression anchor must survive the 3-point tail (beats lastDurable)');
-  // lastDurable (TR) is the one dropped — it is only the idle/drift fallback, low-value here.
-  assert.ok(!pinned(body, 'TR'), 'lastDurable (tool_result) is dropped in favor of the anchor when budget is tight');
+
+  assert.equal(countCacheControls(body), 4, `a full 3-point nudged turn must place exactly 4 markers, got ${countCacheControls(body)}`);
+  assert.ok(pinned(body, 'NUDGE'), 'the true-end nudge (tail) must be pinned — cached in-turn');
+  assert.ok(pinned(body, 'MID'), 'prevBoundary (block before the last assistant) must be pinned — deterministic sharing');
+  assert.ok(pinned(body, 'TR'), 'lastDurable (tool_result) must be pinned — idle/drift fallback fits since no anchor competes');
 });
 
 test('image-vision fork: an all-non-durable tail keeps the breakpoint on the shared warm history (the fix)', () => {

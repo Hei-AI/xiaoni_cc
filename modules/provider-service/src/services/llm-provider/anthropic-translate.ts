@@ -28,9 +28,9 @@
  * crop tools / drop thinking and accept a cold prefix. Tool restriction for the
  * aligned forks is enforced at execution time (allowlist reject) in agent-service,
  * not via tool_choice — see the Layer-1/Layer-2 split. We place up to 4 ephemeral
- * breakpoints (system head + a tail set: prevBoundary + true-end tail + lastDurable,
- * plus optional compression anchors); see placeCacheBreakpoints and
- * docs/CACHE_CONTRACT.md §1. Model is set per-request by the caller (claude-opus-4-6).
+ * breakpoints (system head + a tail set: prevBoundary + true-end tail + lastDurable);
+ * see placeCacheBreakpoints and docs/CACHE_CONTRACT.md §1. Model is set per-request by
+ * the caller (claude-opus-4-6).
  */
 
 import { signClaudeBillingCch } from './anthropic-cch';
@@ -363,9 +363,8 @@ interface BlockRef {
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean
-): { messages: AnthropicMessage[]; tail: BlockRef | null; lastDurable: BlockRef | null; anchors: BlockRef[]; prevTurnBoundary: BlockRef | null } {
+): { messages: AnthropicMessage[]; tail: BlockRef | null; lastDurable: BlockRef | null; prevTurnBoundary: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
-  const anchors: BlockRef[] = [];
   // Sliding-window tail SET (all wire-side; never touches the canonical `input`, so byte-safe for the
   // replay/retry invariants that compare the canonical). Three message-tier breakpoints, each with a
   // distinct job — together they fix the frozen-nudge double-read WITHOUT regressing the idle/wake
@@ -411,12 +410,6 @@ function buildMessages(
     if (isDurableItem(item)) {
       lastDurable = here;
     }
-    // A cache_anchor item marks a stable mid-history boundary the agent-service
-    // wants kept warm across turns (e.g. the compression head boundary, so a
-    // compression fork reading [..H_X] reuses this entry instead of cold-prefilling).
-    if ((item as { cache_anchor?: unknown }).cache_anchor === true) {
-      anchors.push(here);
-    }
   }
 
   // Anthropic requires the first message to be 'user'. In practice the leading
@@ -427,12 +420,9 @@ function buildMessages(
     lastBlockAny = shift(lastBlockAny);
     lastDurable = shift(lastDurable);
     beforeLastAssistant = shift(beforeLastAssistant);
-    for (let i = 0; i < anchors.length; i += 1) {
-      anchors[i] = shift(anchors[i]!)!;
-    }
   }
 
-  return { messages, tail: lastBlockAny, lastDurable, anchors, prevTurnBoundary: beforeLastAssistant };
+  return { messages, tail: lastBlockAny, lastDurable, prevTurnBoundary: beforeLastAssistant };
 }
 
 interface ToolPlan {
@@ -615,7 +605,6 @@ function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): bo
 function placeCacheBreakpoints(
   body: AnthropicMessagesRequest,
   tail: BlockRef | null,
-  anchors: BlockRef[] = [],
   prevTurnBoundary: BlockRef | null = null,
   lastDurable: BlockRef | null = null
 ): void {
@@ -643,25 +632,17 @@ function placeCacheBreakpoints(
       used += 1;
     }
   }
-  // Budget = 4 total. Priority order (highest first) so the right breakpoint is dropped when tight:
+  // Budget = 4 total; tail set fills in priority order so the right one drops when tight:
   //   1. system head (above)
   //   2. prevBoundary — the block before the last assistant message = the PREVIOUS request's true
   //      tail; prevBoundary(N+1)==tail(N) gives DETERMINISTIC next-hop sharing.
   //   3. tail — the TRUE last block; caches the full request incl. a trailing frozen cache_volatile
   //      nudge so the next hop reads it warm.
-  //   4. compression-head anchors — [..H_X] continuity across the compression window.
-  //   5. lastDurable — LOWEST: only the idle/heartbeat final-answer keep-warm + drift fallback,
-  //      which matters on idle turns (where no anchor competes, so it still gets a slot) but is
-  //      low-value on an active anchored turn. So the anchor beats it (fixes the anchor being
-  //      crowded out by a 3-point tail — the 2-wide design kept the anchor).
+  //   4. lastDurable — keeps the idle/heartbeat final answer warm + drift fallback. Distinct from
+  //      tail only on a nudged/idle turn; with the compression anchor now removed, system + these
+  //      three always fit in 4, so nothing contends.
   place(prevTurnBoundary);
   place(tail);
-  for (const anchor of anchors) {
-    if (used >= MAX_CACHE_BREAKPOINTS) {
-      break;
-    }
-    place(anchor);
-  }
   place(lastDurable);
 }
 
@@ -686,7 +667,7 @@ export function translateCanonicalToMessages(
     && !plan.forced
     && plan.toolChoice?.type !== 'none';
 
-  const { messages, tail, lastDurable, anchors, prevTurnBoundary } = buildMessages(
+  const { messages, tail, lastDurable, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
     thinkingEnabled
   );
@@ -730,7 +711,7 @@ export function translateCanonicalToMessages(
     // Keep it omitted to avoid 400s on unknown keys.
   }
 
-  placeCacheBreakpoints(body, tail, anchors, prevTurnBoundary, lastDurable);
+  placeCacheBreakpoints(body, tail, prevTurnBoundary, lastDurable);
 
   // Final step: optionally sign the billing block's cch over the fully-assembled body.
   // Must run last (after system/messages/tools/breakpoints are all set) so the checksum

@@ -8418,43 +8418,15 @@ export class AgentLoopService {
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false
     });
 
-    // Retained as a stable mid-history cache breakpoint at the compression head
-    // boundary. Now that the fork clones the FULL main requestInput, it already rides
-    // the whole warm prefix; this anchor just pins an extra breakpoint so the main turn
-    // keeps the [..H_X] segment refreshed across the boundary. The anchor is a
-    // non-content marker, so requestInput's bytes (and token estimate) are unchanged.
-    const compressionHeadBoundaryStackIndex =
-      compressionPoint.summarySourceHistory.length > 0
-        ? (compressionPoint.summarySourceHistory[compressionPoint.summarySourceHistory.length - 1] as { id?: number } | undefined)?.id ?? null
-        : null;
-    let anchoredRequestInput = requestInput;
-    let anchoredSelfContinuationInputItem = selfContinuationInputItem;
-    if (typeof compressionHeadBoundaryStackIndex === 'number') {
-      const rebuiltSelfContinuation: OpenResponseInputItem[] = [];
-      anchoredRequestInput = buildLoopRequestInput({
-        history: initialRetainedHistory,
-        queueMessage: params.queueMessage,
-        runtimePrompt: params.runtimePrompt,
-        loopContinuation: params.loopContinuation,
-        runtimeIdentityFacts: params.runtimeIdentityFacts,
-        contextSummary,
-        pendingProactiveShare,
-        developerContextBlock: params.developerContextBlock ?? null,
-        runtimeEnergyState: params.runtimeEnergyState ?? null,
-        triggerInputMode,
-        appendSelfContinuationOnTerminalFinalAnswer: params.appendSelfContinuationOnTerminalFinalAnswer ?? false,
-        appendedSelfContinuationInputItems: rebuiltSelfContinuation,
-        loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger ?? false,
-        cacheAnchorAfterStackIndex: compressionHeadBoundaryStackIndex,
-        precomputedCurrentTurnInputItems: currentTurnInputItems
-      });
-      anchoredSelfContinuationInputItem = rebuiltSelfContinuation[0] ?? selfContinuationInputItem;
-    }
-
+    // (Removed: the compression-head cache_anchor. The compression fork now clones the
+    // FULL main requestInput and rides the whole warm prefix, so a separate [..H_X]
+    // breakpoint had no reader; keeping it only wasted a slot in the 4-breakpoint budget
+    // — it would evict the useful lastDurable on a nudged compression turn. See
+    // docs/CACHE_CONTRACT.md §1 and the provider tail-set priority.)
     return {
-      requestInput: anchoredRequestInput,
+      requestInput,
       currentTurnInputItems,
-      selfContinuationInputItem: anchoredSelfContinuationInputItem,
+      selfContinuationInputItem,
       summarySourceInput,
       retainedHistory: initialRetainedHistory,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
@@ -12106,16 +12078,15 @@ function buildLoopRequestInput(params: {
   appendSelfContinuationOnTerminalFinalAnswer?: boolean;
   appendedSelfContinuationInputItems?: OpenResponseInputItem[];
   loopContinuationBeforeCurrentTrigger?: boolean;
-  cacheAnchorAfterStackIndex?: number | null;
   // When provided, the fresh_trigger current-turn items reuse this exact array
   // instead of rebuilding, so the sent request and the 存档 stay byte-identical.
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.cacheAnchorAfterStackIndex ?? null, params.precomputedCurrentTurnInputItems ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.cacheAnchorAfterStackIndex ?? null, params.precomputedCurrentTurnInputItems ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null),
     ...params.loopContinuation
   ];
 }
@@ -12484,7 +12455,6 @@ export function buildInitialInput(
   runtimeEnergyState: RuntimeEnergyState | null = null,
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
-  cacheAnchorAfterStackIndex: number | null = null,
   precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
@@ -12520,27 +12490,6 @@ export function buildInitialInput(
     }
   }
 
-  // Pin a cache breakpoint on the last block this turn renders, when it is the
-  // compression head boundary (H_X). The provider keeps [..H_X] warm every turn so a
-  // compression fork reading exactly the head reuses it instead of cold-prefilling.
-  // The marker is a non-content field (does not change the rendered text), so the
-  // prefix stays byte-identical to the fork's head and they share the same entry.
-  const markAnchorIfBoundary = (turnId: unknown) => {
-    if (
-      cacheAnchorAfterStackIndex === null
-      || typeof turnId !== 'number'
-      || turnId !== cacheAnchorAfterStackIndex
-      || items.length === 0
-    ) {
-      return;
-    }
-    const lastIdx = items.length - 1;
-    items[lastIdx] = {
-      ...(items[lastIdx] as Record<string, unknown>),
-      cache_anchor: true
-    } as unknown as OpenResponseInputItem;
-  };
-
   // Drop prior turns' assistant TEXT outputs (D — final_answer/commentary narration,
   // and inline <xiaoni_os>) from the replayed context on EVERY build: main loop,
   // heartbeat, and subconscious fork all share ONE stripped prefix, so the single cache
@@ -12575,7 +12524,6 @@ export function buildInitialInput(
 
     if (transcriptItems.length === 0) {
       appendKnownReplayItems();
-      markAnchorIfBoundary((turn as { id?: unknown }).id);
       continue;
     }
 
@@ -12587,7 +12535,6 @@ export function buildInitialInput(
     }
 
     appendKnownReplayItems();
-    markAnchorIfBoundary((turn as { id?: unknown }).id);
   }
 
   items.push(...inputItemsBeforeCurrentTurn);
