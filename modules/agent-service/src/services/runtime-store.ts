@@ -2709,7 +2709,7 @@ export class RuntimeStore {
 
   async listQqUsageThreadWindow(params: {
     threadKey: string;
-    mode?: 'latest' | 'older' | 'newer';
+    mode?: 'latest' | 'older' | 'newer' | 'around';
     anchorMessageId?: number | string | null;
     limit?: number;
   }): Promise<QqUsageThreadWindow> {

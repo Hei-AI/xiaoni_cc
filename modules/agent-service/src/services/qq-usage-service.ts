@@ -143,17 +143,58 @@ function renderThreadListWindow(result: QqUsageThreadList) {
   }, result.threads.map(renderThread).join('\n'));
 }
 
-function renderMessage(message: Record<string, unknown>) {
-  const replyTo = typeof message.reply_to_id === 'string' && message.reply_to_id.trim()
-    ? message.reply_to_id.trim()
+// Bounded reply preview per「只给必要信息 + 必要信息触达所有路径」:
+// - reply_to carries the quoted row's INTERNAL id (reply_to_message_id) — the same
+//   namespace as message_id, so she can `focus_private <user_id> <id>` to open it.
+// - a short inline snippet lets her know WHAT was quoted without a round-trip.
+// - the snippet is marker-free ONLY when it is the entire quoted text; otherwise it
+//   says so (…截断 / 非文字消息 / 原消息已不在记录) so she never mistakes a partial
+//   preview for the whole thing, and knows whether a reachable path exists.
+const REPLY_SNIPPET_MAX = 40;
+function renderReplyPreview(message: Record<string, unknown>): { attr: string | null; line: string | null } {
+  const anchorId = message.reply_to_message_id != null && Number.isFinite(Number(message.reply_to_message_id))
+    ? String(Number(message.reply_to_message_id))
     : null;
+  const hasReply = anchorId !== null
+    || (typeof message.reply_to_id === 'string' && message.reply_to_id.trim() !== '')
+    || (typeof message.reply_to_body === 'string' && message.reply_to_body.trim() !== '');
+  if (!hasReply) {
+    return { attr: null, line: null };
+  }
+  const sender = typeof message.reply_to_sender === 'string' && message.reply_to_sender.trim()
+    ? message.reply_to_sender.trim()
+    : '';
+  const bodyRaw = typeof message.reply_to_body === 'string'
+    ? message.reply_to_body.replace(/\s+/g, ' ').trim()
+    : '';
+  let preview: string;
+  if (!bodyRaw) {
+    preview = '(非文字消息)';
+  } else {
+    const chars = Array.from(bodyRaw);
+    preview = chars.length > REPLY_SNIPPET_MAX
+      ? `${chars.slice(0, REPLY_SNIPPET_MAX).join('')}…(截断)`
+      : bodyRaw;
+  }
+  // Reachability: anchorId present → reply_to attr is a real focus_* handle. Absent
+  // → the quoted row is pruned/unresolved; say so, don't emit a phantom id.
+  const gone = anchorId === null ? '（原消息已不在记录）' : '';
+  const senderPart = sender ? `${sender}: ` : '';
+  return { attr: anchorId, line: `「引用 ${senderPart}${preview}${gone}」` };
+}
+
+function renderMessage(message: Record<string, unknown>) {
+  const reply = renderReplyPreview(message);
   // outgoing = 小腻自己发的（来自 agent_outbound_messages，见 persistence 合并）。
   // 默认 incoming 保持 inbound 行的历史行为不变。
   const direction = message.direction === 'outgoing' ? 'outgoing' : 'incoming';
-  // message_id 保留：它是 reply_to 的对应锚（reply_to="X" 要能在窗口里找到 message_id="X"）。
+  // message_id 保留：它是 reply_to 的对应锚（reply_to="X" 现在与 message_id 同命名空间，
+  // 且能用 focus_private/focus_group <id> 定位）。
   // read_state 只在未读时透出（读过是默认态）；mentions_xiaoni 只在被@时透出（否则恒 false 是噪音）。
   const isUnread = Number(message.is_read) !== 1;
   const wasMentioned = Number(message.was_mentioned) === 1;
+  const body = renderMessageBody(message);
+  const bodyWithReply = reply.line ? `${reply.line}\n${body}` : body;
   return formatTaggedBlock('MESSAGE', {
     message_id: message.id,
     timestamp: toDateTime(message.message_timestamp || message.received_at),
@@ -161,8 +202,8 @@ function renderMessage(message: Record<string, unknown>) {
     direction,
     ...(isUnread ? { read_state: 'unread' } : {}),
     ...(wasMentioned ? { mentions_xiaoni: 'true' } : {}),
-    ...(replyTo ? { reply_to: replyTo } : {})
-  }, escapeXmlText(renderMessageBody(message)));
+    ...(reply.attr ? { reply_to: reply.attr } : {})
+  }, escapeXmlText(bodyWithReply));
 }
 
 // 从内部 threadKey 解出她真正要用的干净 id：群 -> 群号，私聊 -> 对方 QQ 号。
@@ -293,6 +334,16 @@ function normalizeDirection(value: unknown): 'older' | 'newer' {
   return value === 'newer' ? 'newer' : 'older';
 }
 
+// Optional focus target: the internal message_id 小腻 sees on a <MESSAGE> (and in a
+// reply_to attribute). Positive integer or null. She never passes a QQ message_sid.
+function normalizeMessageId(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
 function normalizeGroupNotificationMode(value: unknown): 'all' | 'mentions_only' {
   const normalized = String(value || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
   if (normalized === 'mentions' || normalized === 'mention_only') {
@@ -386,8 +437,21 @@ export class QqUsageService {
     };
   }
 
-  async focusThread(threadKey: string, context: QqUsageActionContext = {}, actionLabel = 'qq_usage.focus_thread'): Promise<QqUsageToolResult> {
-    const result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
+  async focusThread(threadKey: string, context: QqUsageActionContext = {}, actionLabel = 'qq_usage.focus_thread', atMessageId: number | null = null): Promise<QqUsageToolResult> {
+    // atMessageId set (e.g. the id a reply quotes) → open centered on that message
+    // so she lands in context and scroll_* continues from there. If the anchor is
+    // gone/unknown, fall back to latest and say so — honest, never a phantom window.
+    let result;
+    let anchorMissing = false;
+    if (atMessageId != null) {
+      result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: atMessageId, limit: WINDOW_SIZE });
+      if ((result as { anchorMissing?: boolean }).anchorMissing) {
+        anchorMissing = true;
+        result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
+      }
+    } else {
+      result = await this.store.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: WINDOW_SIZE });
+    }
     await this.store.recordQqUsageThreadSeen(result, actionLabel, context).catch(() => undefined);
     await this.store.setQqUsageActiveSurface({
       threadKey: result.threadKey,
@@ -395,10 +459,13 @@ export class QqUsageService {
       peerId: inferPeerIdFromThreadKey(result.threadKey, result.messages),
       accountId: normalizeIdentifier(result.messages[result.messages.length - 1]?.account_id || result.messages[result.messages.length - 1]?.accountId)
     });
+    const window = renderConversationWindow(result);
     return {
       qq_usage: true,
       action: actionLabel,
-      content: renderConversationWindow(result),
+      content: anchorMissing
+        ? `<QQ_USAGE_NOTE reason="定位的消息已不在记录里，已打开最新窗口"></QQ_USAGE_NOTE>\n${window}`
+        : window,
       thread_key: result.threadKey,
       earliest_message_id: result.earliestMessageId,
       latest_message_id: result.latestMessageId
@@ -563,17 +630,19 @@ export class QqUsageSkillRuntime {
       } else if (action === 'focus_private') {
         const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
         if (!threadKey) throw new Error('user_id is required');
+        const atMessageId = normalizeMessageId(args.message_id ?? args.messageId);
         if (this.state.activeThreadKey && this.state.activeThreadKey !== threadKey) {
           await this.service.putAway(this.state.activeThreadKey);
         }
-        result = await this.service.focusThread(threadKey, context, 'qq_usage.focus_private');
+        result = await this.service.focusThread(threadKey, context, 'qq_usage.focus_private', atMessageId);
       } else if (action === 'focus_group') {
         const threadKey = resolveGroupThreadKey(args);
         if (!threadKey) throw new Error('group_id is required');
+        const atMessageId = normalizeMessageId(args.message_id ?? args.messageId);
         if (this.state.activeThreadKey && this.state.activeThreadKey !== threadKey) {
           await this.service.putAway(this.state.activeThreadKey);
         }
-        result = await this.service.focusThread(threadKey, context, 'qq_usage.focus_group');
+        result = await this.service.focusThread(threadKey, context, 'qq_usage.focus_group', atMessageId);
       } else if (action === 'scroll_private') {
         const threadKey = resolvePrivateThreadKey(args, this.botAccountId);
         if (!threadKey) throw new Error('user_id is required');
