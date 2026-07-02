@@ -6,9 +6,11 @@ import {
 } from './presence-context';
 import {
   DEFAULT_RECOVER_ENERGY_POLICY,
+  DEFAULT_ACTION_COST_SCALE,
   clampNumber,
   computeAwakePressureBetween,
-  energyToPressure
+  energyToPressure,
+  type RecoverEnergyPolicy
 } from './recover-energy-policy';
 
 export const XIAONI_LIFE_PROJECTION_VERSION = 'xiaoni-life-v3-pressure-anchors';
@@ -78,6 +80,10 @@ type ReducerInternalState = {
   pressureUpdatedAt: Date | null;
   materialEventCount: number;
   contributors: XiaoniLifeStateExplanation['contributors'];
+  // Effective energy policy for this reduction (admin-configurable, resolved upstream in
+  // runtime-store). Carried on state so the per-event helpers don't need an extra param.
+  policy: RecoverEnergyPolicy;
+  actionCostScale: number;
 };
 
 export type ReduceXiaoniLifeStateInput = {
@@ -88,6 +94,10 @@ export type ReduceXiaoniLifeStateInput = {
   legacyAnchors?: PresenceAnchors | null;
   cooldownMs?: number;
   startupGraceMs?: number;
+  // Admin-configurable effective policy + action-cost multiplier. Default to code baseline when
+  // absent so all existing callers/tests stay byte-identical.
+  policy?: RecoverEnergyPolicy;
+  actionCostScale?: number;
 };
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -191,11 +201,19 @@ function normalizeProjection(value: Record<string, unknown> | XiaoniLifeStatePro
 }
 
 function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerInternalState; rebuiltFromEvents: boolean } {
+  const policy = input.policy ?? DEFAULT_RECOVER_ENERGY_POLICY;
+  const actionCostScale = clampNumber(
+    Number.isFinite(Number(input.actionCostScale)) ? Number(input.actionCostScale) : DEFAULT_ACTION_COST_SCALE,
+    0,
+    1
+  );
   const previous = normalizeProjection(input.previousProjection || null);
   if (previous) {
     return {
       rebuiltFromEvents: false,
       state: {
+        policy,
+        actionCostScale,
         serviceStartedAt: toDate(previous.anchors.serviceStartedAt),
         lastMeaningfulActivityAt: toDate(previous.anchors.lastMeaningfulActivityAt),
         lastBoredomResetAt: toDate(previous.anchors.lastBoredomResetAt),
@@ -230,6 +248,8 @@ function initialState(input: ReduceXiaoniLifeStateInput): { state: ReducerIntern
   return {
     rebuiltFromEvents: true,
     state: {
+      policy,
+      actionCostScale,
       serviceStartedAt,
       lastMeaningfulActivityAt,
       lastBoredomResetAt,
@@ -283,13 +303,12 @@ function resolveActionCost(eventKind: string, eventCost: number) {
 
 function applyActionCost(state: ReducerInternalState, eventKind: string, eventCost: number) {
   const resolvedCost = resolveActionCost(eventKind, eventCost);
-  // TEMP(2026-07-02): energy cost curve flattened by request — action debt
-  // accrual is disabled so per-action energy expenditure is ~0 and energy
-  // declines as slowly as possible. Restore the `state.actionDebt +=` line
-  // below to bring back normal action-cost drain.
-  // if (resolvedCost > 0) {
-  //   state.actionDebt = clampPressure(state.actionDebt + resolvedCost);
-  // }
+  // actionCostScale (admin-configurable, 0..1) scales per-action energy debt. 0 = no action
+  // drain (flat cost curve); 1 = normal. Keeps resolvedCost intact for the contributor text.
+  const scaledCost = resolvedCost * state.actionCostScale;
+  if (scaledCost > 0) {
+    state.actionDebt = clampPressure(state.actionDebt + scaledCost);
+  }
   return resolvedCost;
 }
 
@@ -320,7 +339,8 @@ function advanceAwakePressure(state: ReducerInternalState, at: Date | null) {
     computeAwakePressureBetween({
       startPressure: state.homeostaticPressure,
       startedAt: state.pressureUpdatedAt,
-      endedAt: at
+      endedAt: at,
+      policy: state.policy
     }),
     0,
     DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling

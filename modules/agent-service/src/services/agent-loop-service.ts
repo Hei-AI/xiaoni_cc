@@ -56,10 +56,12 @@ import {
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import {
   DEFAULT_RECOVER_ENERGY_POLICY,
+  DEFAULT_ACTION_COST_SCALE,
   LEGACY_RECOVER_ENERGY_POLICY,
   LEGACY_RECOVER_ENERGY_POLICY_VERSION,
   RECOVER_ENERGY_CLOCK_MAX_MINUTES,
   type RecoverySessionPolicy,
+  type EffectiveEnergyPolicy,
   createRecoveryPolicySnapshot,
   estimateNaturalWakeAt,
   estimateSessionWakeAt,
@@ -5877,6 +5879,25 @@ export class AgentLoopService {
     };
   }
 
+  // Effective energy policy (code defaults + admin overrides, hot-reloaded via runtime-store cache).
+  // Fails soft to code defaults. Used at the recovery decision/snapshot sites below so the
+  // admin-configured forced/onset thresholds + sleep/full-recovery timing apply without restart.
+  private async resolveEffectiveEnergyPolicy(): Promise<EffectiveEnergyPolicy> {
+    const store = this.store as RuntimeStore & {
+      getEffectiveEnergyPolicy?: () => Promise<EffectiveEnergyPolicy>;
+    };
+    if (typeof store.getEffectiveEnergyPolicy === 'function') {
+      try {
+        return await store.getEffectiveEnergyPolicy.call(this.store);
+      } catch (error) {
+        moduleLogger.warn('Failed to resolve effective energy policy; using code defaults', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    return { policy: DEFAULT_RECOVER_ENERGY_POLICY, actionCostScale: DEFAULT_ACTION_COST_SCALE };
+  }
+
   private async reconcileActiveRecoverySession(_params: AgentRuntimeIterationParams): Promise<{
     status: 'none' | 'active' | 'settled';
     inputItems: OpenResponseInputItem[];
@@ -5900,11 +5921,12 @@ export class AgentLoopService {
       const recoveryWakeCountStartQueueMessageId = await this.readRecoveryQueueHighWatermark();
       const energyState = await this.getCurrentRuntimeEnergyState(buildRuntimeLoopFrameQueueMessage().payload).catch(() => null);
       const pressure = energyState ? 1 - (energyState.energy / Math.max(0.001, energyState.maxEnergy)) : 0;
-      if (!energyState || pressure < DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure || typeof store.createAgentRecoverySession !== 'function') {
+      const effectiveEnergyPolicy = await this.resolveEffectiveEnergyPolicy();
+      if (!energyState || pressure < effectiveEnergyPolicy.policy.forcedSleepPressure || typeof store.createAgentRecoverySession !== 'function') {
         return { status: 'none', inputItems: [] };
       }
       const startedAt = new Date();
-      const policySnapshot = createRecoveryPolicySnapshot(startedAt);
+      const policySnapshot = createRecoveryPolicySnapshot(startedAt, effectiveEnergyPolicy.policy);
       const sessionPolicy = recoverySessionPolicyFromSnapshot(policySnapshot)!;
       const naturalWakeAt = estimateNaturalWakeAt({
         startEnergy: energyState.energy,
@@ -5927,7 +5949,7 @@ export class AgentLoopService {
         wakeCountStartQueueMessageId: recoveryWakeCountStartQueueMessageId,
         metadata: {
           source: 'runtime_forced_recovery',
-          forced_sleep_pressure: DEFAULT_RECOVER_ENERGY_POLICY.forcedSleepPressure,
+          forced_sleep_pressure: effectiveEnergyPolicy.policy.forcedSleepPressure,
           recovery_policy_snapshot: policySnapshot
         }
       });
@@ -10462,7 +10484,8 @@ export class AgentLoopService {
       case TOOL_NAMES.recoverEnergy: {
         const energyState = await this.getCurrentRuntimeEnergyState(queueMessage);
         const now = new Date();
-        const policySnapshot = createRecoveryPolicySnapshot(now);
+        const effectiveEnergyPolicy = await this.resolveEffectiveEnergyPolicy();
+        const policySnapshot = createRecoveryPolicySnapshot(now, effectiveEnergyPolicy.policy);
         const sessionPolicy = recoverySessionPolicyFromSnapshot(policySnapshot)!;
         const gate = energyState
           ? shouldAcceptVoluntaryRecovery({

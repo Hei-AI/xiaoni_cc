@@ -3,6 +3,7 @@ import {
   createAgentTask,
   createFeedbackEpisode,
   createSqlAdapter,
+  getAgentRuntimeControl,
   createFeedbackReflection,
   appendIdentityChangeCandidate,
   createAcceptedIdentityFact,
@@ -144,6 +145,12 @@ import {
   type XiaoniLifeStateExplanation,
   type XiaoniLifeStateProjection
 } from './xiaoni-life-reducer';
+import {
+  mergeRecoverEnergyPolicy,
+  DEFAULT_RECOVER_ENERGY_POLICY,
+  DEFAULT_ACTION_COST_SCALE,
+  type EffectiveEnergyPolicy
+} from './recover-energy-policy';
 import type { UnreadMeaningSocialActType } from '../types/social-act-type';
 import {
   ConversationTranscriptItem,
@@ -158,6 +165,12 @@ import {
 const moduleLogger = logger.createModuleLogger('runtime-store');
 const LIFE_PROJECTION_EVENT_BATCH_LIMIT = 1000;
 const LIFE_PROJECTION_MAX_BATCHES = 50;
+
+// Hot-reload window for admin energy-policy overrides ("策略下发"): a config change on the admin
+// page takes effect within this TTL, no restart. Short so it's snappy; energy is runtime-internal
+// so re-reading it never affects the prompt cache.
+const ENERGY_POLICY_CACHE_TTL_MS = 5000;
+let cachedEffectiveEnergyPolicy: { value: EffectiveEnergyPolicy; expiresAt: number } | null = null;
 
 export type AgentLifeStateRow = {
   last_active_at?: Date | string | null;
@@ -1132,6 +1145,28 @@ export class RuntimeStore {
     }
   }
 
+  // Resolve the effective energy policy (code defaults merged with admin overrides from
+  // agent_runtime_control.energy_policy_json), cached briefly for hot-reload. Fails soft to
+  // code defaults so a DB blip never stalls the sleep/wake engine.
+  async getEffectiveEnergyPolicy(now = new Date()): Promise<EffectiveEnergyPolicy> {
+    const ts = now.getTime();
+    if (cachedEffectiveEnergyPolicy && cachedEffectiveEnergyPolicy.expiresAt > ts) {
+      return cachedEffectiveEnergyPolicy.value;
+    }
+    let value: EffectiveEnergyPolicy;
+    try {
+      const control = await getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+      value = mergeRecoverEnergyPolicy((control as { energyPolicy?: unknown } | null)?.energyPolicy ?? null);
+    } catch (error) {
+      moduleLogger.warn('Failed to load energy policy overrides; using code defaults', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      value = { policy: DEFAULT_RECOVER_ENERGY_POLICY, actionCostScale: DEFAULT_ACTION_COST_SCALE };
+    }
+    cachedEffectiveEnergyPolicy = { value, expiresAt: ts + ENERGY_POLICY_CACHE_TTL_MS };
+    return value;
+  }
+
   private async refreshXiaoniLifeProjection(now = new Date()) {
     const life = (await getAgentLifeState('xiaoni', databaseConfig) || await ensureAgentLifeState('xiaoni', databaseConfig)) as AgentLifeStateRow;
     const projectionIsCurrent = life.projection_version === XIAONI_LIFE_PROJECTION_VERSION;
@@ -1177,12 +1212,15 @@ export class RuntimeStore {
         break;
       }
     }
+    const effectiveEnergyPolicy = await this.getEffectiveEnergyPolicy(now);
     const { projection, explanation } = reduceXiaoniLifeState({
       identityKey: 'xiaoni',
       now,
       events,
       previousProjection,
-      legacyAnchors: buildPresenceAnchorsFromLife(life, now)
+      legacyAnchors: buildPresenceAnchorsFromLife(life, now),
+      policy: effectiveEnergyPolicy.policy,
+      actionCostScale: effectiveEnergyPolicy.actionCostScale
     });
     const reducedThroughEventIdForDb = projection.reducedThroughEventId
       ? projectionEventId(projection.reducedThroughEventId)

@@ -34,11 +34,7 @@ export const RECOVER_ENERGY_CLOCK_MAX_MINUTES = 120;
 export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   pressureFloor: 0.05,
   sleepTauMinutes: 252,
-  // TEMP(2026-07-02): energy cost curve flattened by request — natural fatigue
-  // (homeostatic wake pressure) accumulates via wakeTauMinutes. A huge tau makes
-  // exp(-t/tau) ≈ 1, so pressure barely rises → energy decays as slowly as
-  // possible. Restore to 1920 (32h) to return to normal decline.
-  wakeTauMinutes: 10_000_000,
+  wakeTauMinutes: 1920,
   wakePressureCeiling: 1,
   hardPressureCeiling: 1.6,
   hardMaxRecoveryMinutes: 480,
@@ -310,6 +306,59 @@ export function recoverySessionPolicyFromSnapshot(value: unknown): RecoverySessi
     fullRecoveryMinutes,
     sessionMaxRecoveryMinutes,
     sessionCapWakeCause
+  };
+}
+
+// Admin-configurable subset of the energy policy (stored in agent_runtime_control.energy_policy_json,
+// see packages/persistence/agent-runtime-control.js). Any field may be absent → falls back to the
+// code default below. `actionCostScale` (0..1, default 1) multiplies per-action energy debt; 0 = no
+// action drain. This is a focused MVP subset — the daytime cost curve (wakeTau + action drain) plus
+// the sleep/wake thresholds. Energy is runtime-internal, so these NEVER touch the prompt cache.
+export type EnergyPolicyOverrides = {
+  wakeTauMinutes?: number | null;
+  sleepTauMinutes?: number | null;
+  forcedSleepPressure?: number | null;
+  normalSleepOnsetPressure?: number | null;
+  fullRecoveryMinutes?: number | null;
+  actionCostScale?: number | null;
+};
+
+export type EffectiveEnergyPolicy = {
+  policy: RecoverEnergyPolicy;
+  actionCostScale: number;
+};
+
+export const DEFAULT_ACTION_COST_SCALE = 1;
+
+function overrideNumber(value: unknown, fallback: number, min: number, max: number) {
+  if (value === null || value === undefined || value === '') {
+    return fallback;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return clampNumber(numeric, min, max);
+}
+
+// Pure merge of admin overrides over DEFAULT_RECOVER_ENERGY_POLICY. Clamps every field to a sane
+// range so a bad admin value can never poison the sleep/wake engine (e.g. tau <= 0 → division blowup).
+export function mergeRecoverEnergyPolicy(overrides?: EnergyPolicyOverrides | null): EffectiveEnergyPolicy {
+  const source = overrides && typeof overrides === 'object' ? overrides : {};
+  const base = DEFAULT_RECOVER_ENERGY_POLICY;
+  const policy: RecoverEnergyPolicy = {
+    ...base,
+    // 1 min .. ~19 years. Huge tau ⇒ near-flat decline ("as slowly as possible").
+    wakeTauMinutes: overrideNumber(source.wakeTauMinutes, base.wakeTauMinutes, 1, 10_000_000),
+    sleepTauMinutes: overrideNumber(source.sleepTauMinutes, base.sleepTauMinutes, 1, 10_000_000),
+    forcedSleepPressure: overrideNumber(source.forcedSleepPressure, base.forcedSleepPressure, 0.1, base.hardPressureCeiling),
+    normalSleepOnsetPressure: overrideNumber(source.normalSleepOnsetPressure, base.normalSleepOnsetPressure, 0.05, base.hardPressureCeiling),
+    fullRecoveryMinutes: overrideNumber(source.fullRecoveryMinutes, base.fullRecoveryMinutes ?? base.hardMaxRecoveryMinutes, 5, 1440),
+    hardMaxRecoveryMinutes: overrideNumber(source.fullRecoveryMinutes, base.hardMaxRecoveryMinutes, 5, 1440)
+  };
+  return {
+    policy,
+    actionCostScale: overrideNumber(source.actionCostScale, DEFAULT_ACTION_COST_SCALE, 0, 1)
   };
 }
 
