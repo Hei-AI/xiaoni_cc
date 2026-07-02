@@ -46,7 +46,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_statu
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_status online
 ```
 
-- `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows. Group rows include `notification_muted` and `notification_aggregation_seconds`.
+- `open_inbox` opens the QQ thread list. It returns one `<IM_INBOX_WINDOW mode="thread_list">` with up to 10 `<THREAD>` rows. Group rows include `notification_mode` (`all` / `mentions_only` — so you can see and confirm what you set with `set_group_notification_mode`), `notification_muted`, and `notification_aggregation_seconds`.
 - `scroll_inbox older|newer` pages the thread list by 10.
 - `search_inbox query` searches private and group chats by visible chat name, group name, or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
 - `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.

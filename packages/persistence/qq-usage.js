@@ -255,7 +255,7 @@ async function getThreadNotificationStates(prisma, threadStates) {
     prisma.groupChatSetting && groupIds.length > 0
       ? prisma.groupChatSetting.findMany({
           where: { group_id: { in: groupIds } },
-          select: { group_id: true, is_enabled: true, notification_aggregation_seconds: true }
+          select: { group_id: true, is_enabled: true, notification_mode: true, notification_aggregation_seconds: true }
         })
       : [],
     prisma.privateChatSetting && directUserIds.length > 0
@@ -270,6 +270,7 @@ async function getThreadNotificationStates(prisma, threadStates) {
     result.set(`group:${String(row.group_id)}`, {
       imReceiveEnabled: Number(row.is_enabled) === 1,
       notificationMuted: Number(row.is_enabled) !== 1,
+      notificationMode: normalizeGroupNotificationMode(row.notification_mode) || 'all',
       notificationAggregationSeconds: normalizeAggregationSeconds(row.notification_aggregation_seconds)
     });
   }
@@ -402,6 +403,7 @@ async function listQqUsageThreads(input = {}, config = {}) {
       const notificationState = notificationStates.get(`${chatType === 'group' ? 'group' : 'direct'}:${peerId}`) || {
         imReceiveEnabled: true,
         notificationMuted: false,
+        notificationMode: 'all',
         notificationAggregationSeconds: 0
       };
       return {
@@ -412,6 +414,7 @@ async function listQqUsageThreads(input = {}, config = {}) {
         accountId: state.account_id || latest?.account_id || null,
         imReceiveEnabled: notificationState.imReceiveEnabled,
         notificationMuted: notificationState.notificationMuted,
+        notificationMode: notificationState.notificationMode || 'all',
         notificationAggregationSeconds: notificationState.notificationAggregationSeconds,
         unreadCount: Number(state.unread_count || 0),
         directMentions: Number(state.direct_mentions || 0),

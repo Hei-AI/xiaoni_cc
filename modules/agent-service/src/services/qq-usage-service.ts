@@ -122,6 +122,7 @@ function renderThread(thread: QqUsageThreadSummary) {
     display_name: displayName(thread),
     ...(isGroup ? {
       notification_muted: String(thread.notificationMuted === true),
+      notification_mode: thread.notificationMode || 'all',
       notification_aggregation_seconds: thread.notificationAggregationSeconds,
       direct_mentions: thread.directMentions
     } : {}),

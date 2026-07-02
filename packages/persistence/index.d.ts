@@ -1355,6 +1355,7 @@ export type QqUsageThreadSummary = {
   accountId: string | null;
   imReceiveEnabled: boolean;
   notificationMuted: boolean;
+  notificationMode: QqUsageGroupNotificationMode;
   notificationAggregationSeconds: number;
   unreadCount: number;
   directMentions: number;
