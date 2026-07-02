@@ -34,7 +34,11 @@ export const RECOVER_ENERGY_CLOCK_MAX_MINUTES = 120;
 export const DEFAULT_RECOVER_ENERGY_POLICY: RecoverEnergyPolicy = {
   pressureFloor: 0.05,
   sleepTauMinutes: 252,
-  wakeTauMinutes: 1920,
+  // TEMP(2026-07-02): energy cost curve flattened by request — natural fatigue
+  // (homeostatic wake pressure) accumulates via wakeTauMinutes. A huge tau makes
+  // exp(-t/tau) ≈ 1, so pressure barely rises → energy decays as slowly as
+  // possible. Restore to 1920 (32h) to return to normal decline.
+  wakeTauMinutes: 10_000_000,
   wakePressureCeiling: 1,
   hardPressureCeiling: 1.6,
   hardMaxRecoveryMinutes: 480,

@@ -283,9 +283,13 @@ function resolveActionCost(eventKind: string, eventCost: number) {
 
 function applyActionCost(state: ReducerInternalState, eventKind: string, eventCost: number) {
   const resolvedCost = resolveActionCost(eventKind, eventCost);
-  if (resolvedCost > 0) {
-    state.actionDebt = clampPressure(state.actionDebt + resolvedCost);
-  }
+  // TEMP(2026-07-02): energy cost curve flattened by request — action debt
+  // accrual is disabled so per-action energy expenditure is ~0 and energy
+  // declines as slowly as possible. Restore the `state.actionDebt +=` line
+  // below to bring back normal action-cost drain.
+  // if (resolvedCost > 0) {
+  //   state.actionDebt = clampPressure(state.actionDebt + resolvedCost);
+  // }
   return resolvedCost;
 }
 
