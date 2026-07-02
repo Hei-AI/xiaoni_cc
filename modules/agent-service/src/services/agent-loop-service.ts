@@ -3234,6 +3234,15 @@ function phoneNotificationMessageSummary(message: QueueBatchMessage) {
       normalizeTranscriptMessageText(rawPreview, message.inboundContext?.MentionedUsers)
     );
   }
+  // 通知类消息的 bodyForAgent/RawBody 被 provider 故意写成了「群X 有 N 条新消息」这种
+  // 身份摘要句(见 inbound-agent-trigger buildPhoneNotificationMessage / 聚合 buildAggregatedMessage)。
+  // 消息摘要只能取干净正文预览(source_preview/latest_preview);正文为空(图片/表情等)就返回空,
+  // 由调用方回退到「无摘要」,绝不拿身份句当摘要 → 避免摘要与昵称/群名/条数重复。
+  const isNotificationMessage = message.source === 'phone_notification'
+    || message.inboundContext?.Surface === 'phone_notification';
+  if (isNotificationMessage) {
+    return '';
+  }
   return truncateNotificationSummary(
     normalizeTranscriptMessageText(message.bodyForAgent || '', message.inboundContext?.MentionedUsers)
   );
