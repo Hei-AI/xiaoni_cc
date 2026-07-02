@@ -191,6 +191,33 @@ export class NapcatClient {
     return result || null;
   }
 
+  // 资料面写入（只作用于登录账号自己）——见 docs/XIAONI_QQ_PROFILE_OPS_RESEARCH.md 的真机验证。
+  // NapCat 无法修改他人头像/签名/状态，故这几个都只写自己。
+
+  // 更换自己头像。file 可为本地路径 / http(s) URL / data:image;base64 / base64://。
+  async setQqAvatar(file: string): Promise<any> {
+    return this.callAction('set_qq_avatar', {
+      file: normalizeImageFileReference(file)
+    });
+  }
+
+  // 更改自己的个性签名（longNick）。空串合法（清空签名）。
+  async setSelfLongnick(longNick: string): Promise<any> {
+    return this.callAction('set_self_longnick', {
+      longNick
+    });
+  }
+
+  // 更改自己的在线状态。status 用 NapCat/go-cqhttp 枚举（10 在线 / 30 离开 / 40 隐身 /
+  // 50 忙碌 / 60 Q我吧 / 70 请勿打扰）；DIY 状态用 status=10 + extStatus。
+  async setOnlineStatus(status: number, extStatus = 0, batteryStatus = 0): Promise<any> {
+    return this.callAction('set_online_status', {
+      status,
+      ext_status: extStatus,
+      battery_status: batteryStatus
+    });
+  }
+
   private async callAction<T>(action: string, params: Record<string, unknown>): Promise<T> {
     const response = await this.httpClient.post<NapcatActionResponse<T>>(`/${action}`, params);
     const payload = response.data;

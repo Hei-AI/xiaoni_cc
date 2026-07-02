@@ -1583,6 +1583,86 @@ app.post('/api/internal/send_private_image', async (req, res) => {
   }
 });
 
+// ---- 资料面写入（只作用于登录账号自己）----
+// 见 docs/XIAONI_QQ_PROFILE_OPS_RESEARCH.md。NapCat 无法改他人头像/签名/状态。
+
+// 更换自己头像。data_url/image_file/url 与发图同款；base64 会先 materialize 成 provider
+// 托管 URL 供 napcat 拉取（napcat 独立容器，读不到 agent 侧文件）。
+app.post('/api/internal/set_qq_avatar', async (req, res) => {
+  try {
+    const imageFile = typeof req.body?.image_file === 'string'
+      ? req.body.image_file
+      : typeof req.body?.data_url === 'string'
+        ? req.body.data_url
+        : typeof req.body?.url === 'string'
+          ? req.body.url
+          : '';
+    if (!imageFile.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: image_file/data_url/url'
+      });
+    }
+    const deliverableImageFile = await materializeRuntimeImageAsset(imageFile);
+    const data = await napcatClient.setQqAvatar(deliverableImageFile);
+    res.json({ success: true, data, timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to set QQ avatar',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 更改自己的个性签名。long_nick 空串合法（清空）。
+app.post('/api/internal/set_self_longnick', async (req, res) => {
+  try {
+    const longNick = typeof req.body?.long_nick === 'string'
+      ? req.body.long_nick
+      : typeof req.body?.longNick === 'string'
+        ? req.body.longNick
+        : null;
+    if (longNick === null) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: long_nick'
+      });
+    }
+    const data = await napcatClient.setSelfLongnick(longNick);
+    res.json({ success: true, data, timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to set signature',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 更改自己的在线状态。status 必填（枚举见 NapcatClient.setOnlineStatus）。
+app.post('/api/internal/set_online_status', async (req, res) => {
+  try {
+    const status = Number(req.body?.status);
+    if (!Number.isFinite(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing or invalid required parameter: status'
+      });
+    }
+    const extStatus = Number.isFinite(Number(req.body?.ext_status)) ? Number(req.body.ext_status) : 0;
+    const batteryStatus = Number.isFinite(Number(req.body?.battery_status)) ? Number(req.body.battery_status) : 0;
+    const data = await napcatClient.setOnlineStatus(status, extStatus, batteryStatus);
+    res.json({ success: true, data, timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to set online status',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.get('/api/internal/runtime-assets/:filename', async (req, res) => {
   try {
     const filename = path.basename(req.params.filename || '');
