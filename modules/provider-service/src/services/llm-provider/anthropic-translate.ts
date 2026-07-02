@@ -27,10 +27,10 @@
  * + auto + adaptive thinking); only genuinely forced-tool phases (compression)
  * crop tools / drop thinking and accept a cold prefix. Tool restriction for the
  * aligned forks is enforced at execution time (allowlist reject) in agent-service,
- * not via tool_choice — see the Layer-1/Layer-2 split. We place <=2 ephemeral
- * breakpoints (system + last durable message block); a fork's appended tail stays
- * after them and reads the main's entry via the 20-block lookback. Model is set
- * per-request by the caller (claude-opus-4-6).
+ * not via tool_choice — see the Layer-1/Layer-2 split. We place up to 4 ephemeral
+ * breakpoints (system head + a tail set: prevBoundary + true-end tail + lastDurable,
+ * plus optional compression anchors); see placeCacheBreakpoints and
+ * docs/CACHE_CONTRACT.md §1. Model is set per-request by the caller (claude-opus-4-6).
  */
 
 import { signClaudeBillingCch } from './anthropic-cch';
@@ -336,15 +336,16 @@ function itemToRoleBlocks(
 
 /**
  * Durable items persist into replay history; volatile items (developer / system
- * runtime reminders) are one-shot and re-appended fresh each turn. The cache
- * breakpoint must land on the last DURABLE block so the volatile tail stays
- * after the last breakpoint (uncached, cheap) and the durable prefix is reused.
+ * runtime reminders, the current-turn trigger) are one-shot. Used to compute the
+ * `lastDurable` breakpoint — the LOWEST-priority tail-set slot (placeCacheBreakpoints):
+ * it keeps the idle/heartbeat final answer warm and is the drift fallback if the
+ * true-end tail ever changes in history. The tail set's PRIMARY breakpoints are the
+ * true-end tail and prevBoundary; lastDurable is not the sole anchor anymore.
  */
 function isDurableItem(item: OpenResponseInputItem): boolean {
-  // The agent marks the volatile current-turn trigger (fresh [当前时间] stamp every build)
-  // cache_volatile so the breakpoint never anchors on a per-turn-varying block — it lands
-  // on the last frozen (replayed) message instead, keeping the cached prefix byte-stable
-  // across the live build, the persisted replay, and the heartbeat fork.
+  // A cache_volatile item (the current-turn trigger, fork synthetic tails) is non-durable, so
+  // lastDurable skips it and lands on the last frozen (replayed) block — keeping that fallback
+  // breakpoint byte-stable across the live build, the persisted replay, and the heartbeat fork.
   if ((item as { cache_volatile?: unknown }).cache_volatile === true) {
     return false;
   }
@@ -621,6 +622,19 @@ function placeCacheBreakpoints(
   let used = 0;
   const seen = new Set<string>();
   const key = (ref: BlockRef) => `${ref.msgIdx}:${ref.blockIdx}`;
+  const place = (ref: BlockRef | null): void => {
+    if (!ref || used >= MAX_CACHE_BREAKPOINTS) {
+      return;
+    }
+    const k = key(ref);
+    if (seen.has(k)) {
+      return;
+    }
+    if (setBlockCacheControl(body, ref)) {
+      seen.add(k);
+      used += 1;
+    }
+  };
   // breakpoint 1: end of system (caches tools + system together) — stable prefix
   if (body.system && body.system.length > 0) {
     const lastSystem = body.system[body.system.length - 1];
@@ -629,52 +643,26 @@ function placeCacheBreakpoints(
       used += 1;
     }
   }
-  // Sliding-window tail pair: the live tail (own breakpoint) + the previous turn boundary (the
-  // breakpoint the previous request wrote at). Reserve their slots up front so consecutive requests
-  // always share the boundary breakpoint even when a compression anchor is also present.
-  // Ordered by drop-priority when the budget is tight: prevBoundary (deterministic sharing) and the
-  // live true-end tail are placed LAST (kept); lastDurable is placed first (dropped first). Deduped
-  // so a bare turn (tail==lastDurable) or an idle turn collapses cleanly.
-  const tailPair: BlockRef[] = [];
-  const pushUnique = (ref: BlockRef | null): void => {
-    if (ref && !tailPair.some((t) => key(t) === key(ref))) {
-      tailPair.push(ref);
-    }
-  };
-  pushUnique(lastDurable);
-  pushUnique(prevTurnBoundary);
-  pushUnique(tail);
-  // mid-history anchors (e.g. the compression head boundary). Explicitly pinning them every turn
-  // keeps [..anchor] warm across turns even when it drifts past the 20-block lookback. Cap so the
-  // tail pair always keeps its slots.
+  // Budget = 4 total. Priority order (highest first) so the right breakpoint is dropped when tight:
+  //   1. system head (above)
+  //   2. prevBoundary — the block before the last assistant message = the PREVIOUS request's true
+  //      tail; prevBoundary(N+1)==tail(N) gives DETERMINISTIC next-hop sharing.
+  //   3. tail — the TRUE last block; caches the full request incl. a trailing frozen cache_volatile
+  //      nudge so the next hop reads it warm.
+  //   4. compression-head anchors — [..H_X] continuity across the compression window.
+  //   5. lastDurable — LOWEST: only the idle/heartbeat final-answer keep-warm + drift fallback,
+  //      which matters on idle turns (where no anchor competes, so it still gets a slot) but is
+  //      low-value on an active anchored turn. So the anchor beats it (fixes the anchor being
+  //      crowded out by a 3-point tail — the 2-wide design kept the anchor).
+  place(prevTurnBoundary);
+  place(tail);
   for (const anchor of anchors) {
-    if (used >= MAX_CACHE_BREAKPOINTS - tailPair.length) {
-      break;
-    }
-    const k = key(anchor);
-    if (tailPair.some((t) => key(t) === k) || seen.has(k)) {
-      continue;
-    }
-    if (setBlockCacheControl(body, anchor)) {
-      seen.add(k);
-      used += 1;
-    }
-  }
-  // Place the tail pair: previous-boundary first (older, deeper in the prefix), then the live tail,
-  // so the live tail always wins the last slot if the budget is tight.
-  for (const ref of [...tailPair].reverse()) {
     if (used >= MAX_CACHE_BREAKPOINTS) {
       break;
     }
-    const k = key(ref);
-    if (seen.has(k)) {
-      continue;
-    }
-    if (setBlockCacheControl(body, ref)) {
-      seen.add(k);
-      used += 1;
-    }
+    place(anchor);
   }
+  place(lastDurable);
 }
 
 export interface TranslateOptions {

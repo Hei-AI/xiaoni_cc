@@ -24,7 +24,7 @@
   - **prevBoundary(上一帧尾)**:**最后一个 assistant message 之前**那一块 = 上一条请求的真·末块(非 durability-aware,逐字节等于上一跳的 `tail`)。滑窗:请求 N 打 `tail(N)`,请求 N+1 的 `prevBoundary(N+1)==tail(N)` → 两请求**共享正好这一个断点**,**下一跳确定性地带上一条写过的 `cache_control`**,更老的断点自动丢掉。
   - **lastDurable(最后一个 durable 块)**:`isDurableItem` 跳过 developer/system 与 `cache_volatile`。空闲/心跳老巢:历史以 assistant final 收尾、后面接非 durable 的 trigger/placeholder 时,这条把 `[..final]` 保暖,让**队列唤醒的 wake run(尾巴不同)也能读到 final 暖**。它同时是**漂移兜底**:万一尾部 `cache_volatile` 内容真在历史里变了字节,下一帧退回到这条 durable 条目,前缀不塌。
   - 稳态里三者会**塌并**:纯 `[tool_result]` 帧 tail==lastDurable → 只 2 个断点;带提示的帧才需要 3 个。
-- **预算 4 个**:system(1) + 压缩头 anchor(≤1) + 尾部集合(≤3)= 4。尾部集合优先占位(`anchors` cap = `MAX - tailSet.length`);带提示的 3-断点帧会把 anchor 挤掉(靠 20 块回看兜底),压缩期的非提示帧仍留得下 anchor。
+- **预算 4 个,严格优先级填充**(`placeCacheBreakpoints`,tight 时按此顺序丢):① system 头 → ② prevBoundary(确定性滑窗共享)→ ③ true-end tail(缓存冻结提示)→ ④ 压缩头 anchor(`[..H_X]` 连续性)→ ⑤ lastDurable(**最低**,只是空闲 final 保暖 + 漂移兜底)。所以**空闲帧**(无 anchor 竞争)照样给 lastDurable 留槽保住 final;**压缩期的带提示帧**(prevBoundary+tail+anchor 已占满)则丢 lastDurable、**保住 anchor**(lastDurable 在活跃帧本就低价值)。稳态无提示帧尾部塌到 2,四槽都够。
 - **TTL = 1h**(`ANTHROPIC_CACHE_TTL` 可回退 5m);每个断点同 TTL,无排序约束。
 - **`cache_volatile`**:仍是内部标记、**绝不上 wire**。但它**不再等于「绝不打断点」**——真·末块即便是 `cache_volatile` 也会被 `tail` 打上(因为它下一帧就冻结进历史);真正防漂移靠的是**始终存在的 `lastDurable` 兜底断点**,不是「不给 volatile 打断点」。**前提**:尾部内容一旦进历史必须逐字节冻结(已对活体 slice 验证;`[当前时间]` 这类会在历史里漂移的戳早已移除)。**若将来重新引入会漂移的尾部内容,它必须排在 `lastDurable` 之后、且明知 `tail` 那次写入会被浪费**。
 
