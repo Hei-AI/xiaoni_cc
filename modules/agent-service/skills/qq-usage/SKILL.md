@@ -23,7 +23,9 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbo
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_inbox older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_inbox 阿花
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516 27590
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123 88012
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private 85178516 older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_group 123 older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest 85178516
@@ -41,7 +43,8 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 - `scroll_inbox older|newer` pages the thread list by 10.
 - `search_inbox query` searches private and group chats by visible chat name, group name, or QQ id, and returns `<IM_INBOX_WINDOW mode="search_results">`.
 - `focus_private user_id` opens a private chat by the other person's QQ id and returns one `<IM_INBOX_WINDOW mode="conversation">` with child `<MESSAGE>` rows.
-- `focus_group group_id` opens a group by QQ group id.
+- `focus_private user_id message_id` opens that chat centered on a specific message instead of the latest screen — pass the id shown as `reply_to="<id>"` or `message_id="<id>"` (e.g. the message a reply quotes). Then `scroll_private` forward/back from there. If that message is no longer stored it opens the latest screen and says so via `<QQ_USAGE_NOTE>`.
+- `focus_group group_id` opens a group by QQ group id. `focus_group group_id message_id` opens it centered on a specific message, same as private.
 - `scroll_private user_id older|newer` and `scroll_group group_id older|newer` scroll the current conversation window by 10 messages.
 - `jump_private_to_latest user_id` and `jump_group_to_latest group_id` jump to the latest visible screen for that conversation.
 - `put_private_away user_id` and `put_group_away group_id` close QQ and clear that conversation's unread badge.
@@ -61,16 +64,17 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_aw
 - `phone_notification` reminders and legacy `<PHONE_NOTIFICATION ... />` blocks are only status-bar notifications. They may contain a short latest-message preview and sender label for allowed notifications; use `focus_private user_id` or `focus_group group_id` to open the matching conversation before treating it as the full thread.
 - Thread previews are raw latest visible text, truncated to 20 visible characters. Non-text previews use `[图片]`, `[表情]`, or `[文件]`.
 - Conversation messages appear as child `<MESSAGE>` rows inside one `<IM_INBOX_WINDOW>`, not as top-level `<INPUT_MESSAGE>` blocks.
-- Message bodies may include media markers such as `[图片:pic_hash]`.
+- Message bodies may include media markers such as `[图片:pic_hash]`. Feed the `pic_hash` to `inspect_image_placeholder` to actually see the image. Shared links/cards already carry their URL inline (`[卡片] … https://…`, `[链接] … https://…`) — open it with the browser skill.
+- A `<MESSAGE>` that quotes an earlier one shows `reply_to="<message_id>"` plus an inline `「引用 <sender>: <snippet>」`. The snippet is the quoted text; it is marker-free only when complete. `…(截断)` means it was cut — open the original for the full text. `(非文字消息)` means the quote had no text (image/file/card). Open the quoted original in context with `focus_private user_id <reply_to>` or `focus_group group_id <reply_to>`. `（原消息已不在记录）` means the quoted message is no longer stored — there is no path to it.
 - Opening a thread shows the latest visible 10-message screen. If there are more than 10 unread messages, only the latest 10 appear and `unread_before_window` reports the earlier unread count.
 - If fewer than 10 unread messages exist, the window may include read history and `reached_read_history="true"`.
 - New arrivals for an already viewed conversation are not shown automatically. Use `scroll_private user_id newer` / `scroll_group group_id newer` or the matching `jump_*_to_latest` command to reveal them.
 
 ## Badge Rules
 
-- Switching conversations can clear the previous conversation's unread badge, including messages not displayed in the visible window.
-- `put_qq_away` clears the currently open conversation's unread badge. If only the inbox list is open, it clears no conversation badge.
-- Clearing a badge does not mean unseen messages were read. If you want to continue later, record that intention in `xiaoni_os`.
+- This works exactly like phone QQ. Opening a conversation (`focus_private` / `focus_group` / `jump_*_to_latest`) clears that conversation's unread badge — the whole conversation, not just the visible screen. Messages you did not scroll to are also marked read but stay in history; `scroll_*` to re-read them.
+- The badge clears when you OPEN a conversation, not when you leave it. Switching to another conversation, `put_private_away` / `put_group_away`, and `put_qq_away` do NOT clear unread. A conversation you never opened keeps its unread badge.
+- A freshly opened window still reports `unread_before_window` / `unread_after_window` from the moment you opened it, so you can see that older/newer unread existed (and scroll to them) even though the badge is now clear.
 
 ## Failure
 
