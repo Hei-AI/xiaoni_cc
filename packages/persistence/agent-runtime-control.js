@@ -6,6 +6,26 @@ function isTruthyDatabaseBoolean(value) {
   return value === true || value === 't' || value === 'true' || value === 1;
 }
 
+// jsonb columns may come back as a parsed object (prisma-backed adapters) or a
+// raw JSON string (raw pg adapters). Normalize to a plain object or null.
+function parseJsonObject(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function normalizeRuntimeControl(row) {
   const rawMainAgentPreModelYieldMs = Number.parseInt(String(row?.main_agent_pre_model_yield_ms ?? ''), 10);
   const rawDebugCacheHeartbeatIntervalMs = Number.parseInt(String(row?.debug_cache_heartbeat_interval_ms ?? ''), 10);
@@ -35,6 +55,9 @@ function normalizeRuntimeControl(row) {
     compressionTriggerInputTokens: Number.isFinite(rawCompressionTriggerInputTokens) && rawCompressionTriggerInputTokens > 0
       ? rawCompressionTriggerInputTokens
       : 80000,
+    // Partial energy-policy overrides object (or null = all code defaults). Merged over the
+    // agent-service DEFAULT_RECOVER_ENERGY_POLICY at read time. See energy_policy_json column.
+    energyPolicy: parseJsonObject(row?.energy_policy_json),
     updatedAt: serializeTimestampForApi(row?.updated_at)
   };
 }
@@ -73,6 +96,7 @@ function createAgentRuntimeControlPersistence(deps) {
         main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000,
         debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0,
         compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000,
+        energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -85,6 +109,11 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000');
+    // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
+    // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
+    // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
+    // the cacheable LLM request prefix, so changing it has zero prompt-cache impact.
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS energy_policy_json JSONB');
     await sql.execute(`
       DO $$
       BEGIN
@@ -166,6 +195,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , main_agent_pre_model_yield_ms
             , debug_cache_heartbeat_interval_ms
             , compression_trigger_input_tokens
+            , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
           LIMIT 1
@@ -343,6 +373,41 @@ function createAgentRuntimeControlPersistence(deps) {
     }
   }
 
+  // Focused writer for the admin-configurable energy policy overrides. Kept separate from the
+  // giant updateAgentRuntimeControl upsert so the energy page can PUT just this column without
+  // touching the run switch / heartbeat / compression knobs. Pass energyPolicy=null to clear
+  // (revert to code defaults). Energy is runtime-internal → zero prompt-cache impact.
+  async function setAgentEnergyPolicy(input = {}, config = {}) {
+    const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
+      ? input.identityKey.trim()
+      : 'xiaoni';
+    const overrides = parseJsonObject(input.energyPolicy);
+    const jsonParam = overrides && Object.keys(overrides).length > 0 ? JSON.stringify(overrides) : null;
+    const sql = createSqlAdapter(config);
+    try {
+      await ensureAgentRuntimeControlSchemaWithSql(sql, config);
+      const rows = await sql.query(
+        `
+          INSERT INTO agent_runtime_control (identity_key, enabled, energy_policy_json, updated_at)
+          VALUES (?, TRUE, ?::jsonb, NOW())
+          ON CONFLICT (identity_key)
+          DO UPDATE SET
+            energy_policy_json = ?::jsonb,
+            updated_at = NOW()
+          RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
+            post_compression_pause_armed, post_compression_pause_armed_at,
+            post_compression_pause_triggered_at, post_compression_pause_reason,
+            main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms,
+            compression_trigger_input_tokens, energy_policy_json
+        `,
+        [identityKey, jsonParam, jsonParam]
+      );
+      return normalizeRuntimeControl(rows[0]);
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function triggerPostCompressionRuntimePause(input = {}, config = {}) {
     const identityKey = typeof input.identityKey === 'string' && input.identityKey.trim()
       ? input.identityKey.trim()
@@ -483,6 +548,7 @@ function createAgentRuntimeControlPersistence(deps) {
     ensureAgentRuntimeControlSchema,
     getAgentRuntimeControl,
     updateAgentRuntimeControl,
+    setAgentEnergyPolicy,
     triggerPostCompressionRuntimePause,
     haltRuntimeForCompressionOverrun
   };

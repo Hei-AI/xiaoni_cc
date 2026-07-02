@@ -2407,10 +2407,12 @@ export type AgentRuntimeControlProjection = {
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
+  energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };
 export function ensureAgentRuntimeControlSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function getAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function updateAgentRuntimeControl(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
+export function setAgentEnergyPolicy(input?: { identityKey?: string; energyPolicy?: Record<string, number> | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { pauseJustTriggered: boolean }>;
 export function haltRuntimeForCompressionOverrun(input?: { identityKey?: string; reason?: string; heartbeatIntervalMs?: number }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { haltJustTriggered: boolean }>;
