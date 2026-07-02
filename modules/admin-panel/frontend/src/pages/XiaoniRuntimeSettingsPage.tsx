@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset } from 'lucide-react';
+import { BatteryFull, Bot, Gauge, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset, Zap } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -29,7 +29,48 @@ type RuntimeControl = {
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
+  energyPolicy: Record<string, number> | null;
+  energyPolicyDefaults?: Record<string, number>;
   updatedAt: string | null;
+};
+
+type EnergyPolicyFieldSpec = {
+  key: string;
+  label: string;
+  hint: string;
+  step: number;
+  min: number;
+  max: number;
+};
+
+const ENERGY_POLICY_FIELDS: EnergyPolicyFieldSpec[] = [
+  { key: 'wakeTauMinutes', label: '自然疲劳 tau（分钟）', hint: '越大，白天精力下滑越慢。默认 1920（32h）', step: 1, min: 1, max: 10_000_000 },
+  { key: 'sleepTauMinutes', label: '睡眠恢复 tau（分钟）', hint: '越小恢复越快。默认 252（4.2h）', step: 1, min: 1, max: 10_000_000 },
+  { key: 'actionCostScale', label: '行动消耗系数（0–1）', hint: '0 = 行动不再消耗精力；默认 1', step: 0.05, min: 0, max: 1 },
+  { key: 'forcedSleepPressure', label: '强制入睡压力', hint: '压力达到即强制休息。默认 1.3', step: 0.05, min: 0.1, max: 1.6 },
+  { key: 'normalSleepOnsetPressure', label: '自愿入睡门槛', hint: '低于此压力睡不着。默认 0.3', step: 0.05, min: 0.05, max: 1.6 },
+  { key: 'fullRecoveryMinutes', label: '满恢复时长（分钟）', hint: '一觉睡满的目标时长。默认 480（8h）', step: 5, min: 5, max: 1440 }
+];
+
+const ENERGY_POLICY_FALLBACK_DEFAULTS: Record<string, number> = {
+  wakeTauMinutes: 1920,
+  sleepTauMinutes: 252,
+  actionCostScale: 1,
+  forcedSleepPressure: 1.3,
+  normalSleepOnsetPressure: 0.3,
+  fullRecoveryMinutes: 480
+};
+
+// "极缓" preset — near-flat decline: huge wake tau + zero action drain.
+const ENERGY_POLICY_FLAT_PRESET: Record<string, number> = {
+  wakeTauMinutes: 10_000_000,
+  actionCostScale: 0
+};
+
+type RestoreFullResult = {
+  finalizedSessionId: number | string | null;
+  resetEventId: number | string | null;
+  note: string;
 };
 
 async function fetchRuntimeControl(): Promise<RuntimeControl> {
@@ -115,6 +156,32 @@ async function updateRuntimeControl(patch: RuntimeControlPatch): Promise<Runtime
   const payload = await response.json() as ApiResponse<RuntimeControl>;
   if (!response.ok || !payload.success) {
     throw new Error(payload.error || 'Failed to update runtime control');
+  }
+  return payload.data;
+}
+
+async function updateEnergyPolicy(input: { energyPolicy: Record<string, number> | null; reset?: boolean }): Promise<RuntimeControl> {
+  const response = await fetch('/api/agent-runtime/energy-policy', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  const payload = await response.json() as ApiResponse<RuntimeControl>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to update energy policy');
+  }
+  return payload.data;
+}
+
+async function restoreFullEnergy(): Promise<RestoreFullResult> {
+  const response = await fetch('/api/agent-runtime/energy/restore-full', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({})
+  });
+  const payload = await response.json() as ApiResponse<RestoreFullResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to restore energy');
   }
   return payload.data;
 }
@@ -216,6 +283,20 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const heartbeatMutation = useMutation({
     mutationFn: triggerCacheHeartbeat,
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+    }
+  });
+  const [energyForm, setEnergyForm] = React.useState<Record<string, string>>({});
+  const energyMutation = useMutation({
+    mutationFn: updateEnergyPolicy,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['xiaoni-runtime-control'], data);
+    }
+  });
+  const restoreFullMutation = useMutation({
+    mutationFn: restoreFullEnergy,
+    onSuccess: () => {
+      void controlQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
     }
   });
@@ -328,6 +409,51 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     mutation.mutate({ compressionTriggerInputTokens: parsedCompressionTrigger });
   }, [mutation, compressionTriggerInputValid, parsedCompressionTrigger]);
 
+  const energyDefaults = control?.energyPolicyDefaults ?? ENERGY_POLICY_FALLBACK_DEFAULTS;
+  const energyOverrides = control?.energyPolicy ?? null;
+  React.useEffect(() => {
+    if (energyMutation.isPending) {
+      return;
+    }
+    const next: Record<string, string> = {};
+    for (const spec of ENERGY_POLICY_FIELDS) {
+      const override = energyOverrides ? energyOverrides[spec.key] : undefined;
+      next[spec.key] = override === undefined || override === null ? '' : String(override);
+    }
+    setEnergyForm(next);
+  }, [energyOverrides, energyMutation.isPending]);
+  const buildEnergyOverridesFromForm = React.useCallback((): { overrides: Record<string, number>; error: string | null } => {
+    const overrides: Record<string, number> = {};
+    for (const spec of ENERGY_POLICY_FIELDS) {
+      const raw = (energyForm[spec.key] ?? '').trim();
+      if (raw === '') {
+        continue; // empty → falls back to default
+      }
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric) || numeric < spec.min || numeric > spec.max) {
+        return { overrides, error: `${spec.label} 必须在 ${spec.min} 到 ${spec.max} 之间` };
+      }
+      overrides[spec.key] = numeric;
+    }
+    return { overrides, error: null };
+  }, [energyForm]);
+  const energyFormError = buildEnergyOverridesFromForm().error;
+  const handleEnergySave = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const { overrides, error } = buildEnergyOverridesFromForm();
+    if (error) {
+      return;
+    }
+    energyMutation.mutate({ energyPolicy: Object.keys(overrides).length > 0 ? overrides : null });
+  }, [buildEnergyOverridesFromForm, energyMutation]);
+  const applyEnergyPreset = React.useCallback((preset: Record<string, number> | null) => {
+    if (preset === null) {
+      energyMutation.mutate({ energyPolicy: null, reset: true });
+      return;
+    }
+    energyMutation.mutate({ energyPolicy: preset });
+  }, [energyMutation]);
+
   return (
     <PageShell className="max-w-4xl">
       <PageHeader
@@ -340,6 +466,17 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="default"
+              size="sm"
+              onClick={() => restoreFullMutation.mutate()}
+              disabled={restoreFullMutation.isPending}
+            >
+              {restoreFullMutation.isPending
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <BatteryFull className="mr-2 h-4 w-4" />}
+              立即恢复满
+            </Button>
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => recoverMutation.mutate()}
               disabled={recoverMutation.isPending}
@@ -510,6 +647,99 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
             />
           </div>
         </div>
+      </SectionPanel>
+
+      {restoreFullMutation.error ? (
+        <ErrorState
+          description={restoreFullMutation.error instanceof Error ? restoreFullMutation.error.message : '恢复满精力失败'}
+          onRetry={() => restoreFullMutation.mutate()}
+        />
+      ) : null}
+      {energyMutation.error ? (
+        <ErrorState
+          description={energyMutation.error instanceof Error ? energyMutation.error.message : '更新精力策略失败'}
+          onRetry={handleEnergySave as unknown as () => void}
+        />
+      ) : null}
+
+      <SectionPanel
+        title="精力策略"
+        description="调节小腻精力的消耗与恢复曲线。热加载下发：保存后 agent-service 会在数秒内自动生效，无需重启。精力是运行时内部状态，不进入模型请求前缀，改动对 prompt 缓存零影响。"
+        icon={<Gauge className="h-4 w-4 text-primary" />}
+      >
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => applyEnergyPreset(null)}
+            disabled={energyMutation.isPending}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" />
+            正常（默认曲线）
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => applyEnergyPreset(ENERGY_POLICY_FLAT_PRESET)}
+            disabled={energyMutation.isPending}
+          >
+            <Zap className="mr-2 h-4 w-4" />
+            极缓（几乎不下滑）
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => restoreFullMutation.mutate()}
+            disabled={restoreFullMutation.isPending}
+          >
+            {restoreFullMutation.isPending
+              ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              : <BatteryFull className="mr-2 h-4 w-4" />}
+            立即恢复满
+          </Button>
+          {energyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+          <span className="text-xs text-muted-foreground">
+            {energyOverrides && Object.keys(energyOverrides).length > 0 ? '当前：自定义覆盖生效中' : '当前：全部使用默认'}
+          </span>
+        </div>
+        {restoreFullMutation.data ? (
+          <div className="mb-4 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            {restoreFullMutation.data.note}
+            {restoreFullMutation.data.finalizedSessionId ? ` · 结束恢复会话 #${restoreFullMutation.data.finalizedSessionId}` : ''}
+            {restoreFullMutation.data.resetEventId ? ` · 复位事件 #${restoreFullMutation.data.resetEventId}` : ''}
+          </div>
+        ) : null}
+        <form onSubmit={handleEnergySave} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            {ENERGY_POLICY_FIELDS.map((spec) => (
+              <div key={spec.key} className="space-y-1.5">
+                <div className="text-sm font-medium text-foreground">{spec.label}</div>
+                <Input
+                  type="number"
+                  step={spec.step}
+                  min={spec.min}
+                  max={spec.max}
+                  inputMode="decimal"
+                  placeholder={`默认 ${energyDefaults[spec.key] ?? ENERGY_POLICY_FALLBACK_DEFAULTS[spec.key]}`}
+                  value={energyForm[spec.key] ?? ''}
+                  disabled={controlQuery.isLoading || energyMutation.isPending}
+                  onChange={(event) => setEnergyForm((prev) => ({ ...prev, [spec.key]: event.target.value }))}
+                  aria-label={spec.label}
+                />
+                <div className="text-xs text-muted-foreground">{spec.hint}（留空=默认）</div>
+              </div>
+            ))}
+          </div>
+          {energyFormError ? (
+            <div className="text-xs text-destructive">{energyFormError}</div>
+          ) : null}
+          <div className="flex justify-end">
+            <Button type="submit" size="sm" disabled={controlQuery.isLoading || energyMutation.isPending || Boolean(energyFormError)}>
+              {energyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              保存精力策略
+            </Button>
+          </div>
+        </form>
       </SectionPanel>
 
       <SectionPanel
