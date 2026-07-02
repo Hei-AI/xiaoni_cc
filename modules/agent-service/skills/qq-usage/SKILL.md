@@ -37,6 +37,8 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_delay 123 30
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_delay 123 0
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py view_profile
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py view_profile 85178516
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_avatar /xiaoni-runtime/picture/new_avatar.png
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_signature "今天也在好好生活"
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_signature ""
@@ -59,8 +61,9 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_statu
 
 ## Your Own Profile (avatar / signature / online status)
 
-These change **your own QQ profile** and everyone who looks at your card sees it. You cannot change anyone else's avatar, signature, or status — that is impossible on QQ, so there is no command for it. Each returns one `<QQ_PROFILE_RESULT>` on success or `<QQ_PROFILE_ERROR>` on failure.
+Open your profile card first, then edit. These edits change **your own QQ profile** and everyone who looks at your card sees it. You cannot change anyone else's avatar, signature, or status — that is impossible on QQ. Edits return `<QQ_PROFILE_RESULT>` on success or `<QQ_PROFILE_ERROR>` on failure.
 
+- `view_profile` opens **your own** profile card — current nickname, 个性签名, online status, QQ level, and `avatar_url` (open it in the browser skill to actually see the image). This is the "look" step before you edit: read your current signature/status, then change it. `view_profile <qq>` opens someone else's card (read-only — you still can't edit theirs). Returns `<QQ_PROFILE_CARD>`.
 - `set_avatar <path>` replaces your own avatar. `<path>` is a local image file under your runtime — the same paths `qq-send-image` uses: a generated/local image like `/xiaoni-runtime/picture/xxx.png`, or an image someone sent you like `/xiaoni-runtime/media/inbound/<hash>.jpg`. png/jpeg/webp/gif. If the path is missing, not an image, or outside the allowed root, the `<QQ_PROFILE_ERROR>` reason tells you the exact boundary.
 - `set_signature "<text>"` sets your own 个性签名. You write the text yourself. Pass an empty string `""` to clear it.
 - `set_status <online|away|invisible|busy|qme|dnd>` sets your own online status: `online` 在线, `away` 离开, `invisible` 隐身, `busy` 忙碌, `qme` Q我吧, `dnd` 请勿打扰. Pick one of those six words — nothing else to look up.

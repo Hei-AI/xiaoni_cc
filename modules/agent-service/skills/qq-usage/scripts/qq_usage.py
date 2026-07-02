@@ -135,7 +135,10 @@ def build_parser():
 
     subcommands.add_parser("put_qq_away")
 
-    # 资料面（只改你自己的）：换头像 / 改签名 / 改在线状态。
+    # 资料面：先看资料卡（自己/别人），再改自己的头像 / 签名 / 在线状态。
+    view_profile = subcommands.add_parser("view_profile")
+    view_profile.add_argument("qq", nargs="?")  # 省略=看自己；给 QQ 号=看别人（只读）
+
     set_avatar = subcommands.add_parser("set_avatar")
     set_avatar.add_argument("file")  # 小腻 runtime 下头像图片路径（如 /xiaoni-runtime/picture/xxx.png）
 

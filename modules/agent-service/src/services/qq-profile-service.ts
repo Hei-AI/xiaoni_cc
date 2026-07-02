@@ -41,6 +41,7 @@ export type QqProfileServiceOptions = {
   allowedRoots?: string[];
   maxBytes?: number;
   fetchImpl?: FetchLike;
+  botAccountId?: string;
 };
 
 const DEFAULT_RUNTIME_ROOT = '/xiaoni-runtime';
@@ -62,7 +63,18 @@ const ONLINE_STATUS_CODES: Record<string, number> = {
   请勿打扰: 70
 };
 
+// 读侧展示：枚举码 -> 人话（set 用的同一套枚举，round-trips）。用于资料卡上的在线状态。
+const ONLINE_STATUS_LABELS: Record<number, string> = {
+  10: 'online 在线',
+  30: 'away 离开',
+  40: 'invisible 隐身',
+  50: 'busy 忙碌',
+  60: 'qme Q我吧',
+  70: 'dnd 请勿打扰'
+};
+
 const QQ_PROFILE_ACTION_LABELS: Record<string, string> = {
+  view_profile: 'qq_profile.view_profile',
   set_avatar: 'qq_profile.set_avatar',
   set_signature: 'qq_profile.set_signature',
   set_status: 'qq_profile.set_status'
@@ -156,6 +168,7 @@ export class QqProfileService {
   private readonly explicitAllowedRoots?: string[];
   private readonly maxBytes: number;
   private readonly fetchImpl: FetchLike;
+  private readonly botAccountId: string;
 
   constructor(options: QqProfileServiceOptions = {}) {
     this.providerServiceUrl = (options.providerServiceUrl || process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, '');
@@ -163,6 +176,7 @@ export class QqProfileService {
     this.explicitAllowedRoots = options.allowedRoots;
     this.maxBytes = options.maxBytes || Number.parseInt(process.env.QQ_SEND_IMAGE_MAX_BYTES || '', 10) || DEFAULT_MAX_BYTES;
     this.fetchImpl = options.fetchImpl || fetch;
+    this.botAccountId = firstNonEmptyString(options.botAccountId, process.env.XIAONI_BOT_ACCOUNT_ID) || '1129974489';
   }
 
   private async configuredAllowedRoots() {
@@ -232,6 +246,39 @@ export class QqProfileService {
       throw new Error(String(parsed.error || `provider-service returned HTTP ${response.status}`));
     }
     return parsed;
+  }
+
+  // 打开资料卡（默认自己；给 qq 就看别人）。这是编辑前的「看」——头像/签名/在线状态一屏看全。
+  async getProfile(args: Record<string, unknown>): Promise<QqProfileToolResult> {
+    const requested = firstNonEmptyString(args.qq, args.user_id, args.userId);
+    const isSelf = !requested;
+    const targetId = requested || this.botAccountId;
+    const numeric = Number(targetId);
+    if (!Number.isSafeInteger(numeric) || numeric <= 0) {
+      throw new Error(`invalid QQ id "${targetId}"`);
+    }
+    const response = await this.providerPost('/api/internal/get_profile', { user_id: numeric });
+    const data = (response?.data && typeof response.data === 'object' ? response.data : {}) as Record<string, unknown>;
+    const statusCode = Number(data.status);
+    const statusLabel = Number.isFinite(statusCode)
+      ? (ONLINE_STATUS_LABELS[statusCode] || `status=${statusCode}`)
+      : 'unknown';
+    const longNick = typeof data.long_nick === 'string' ? data.long_nick : '';
+    return {
+      qq_profile: true,
+      action: QQ_PROFILE_ACTION_LABELS.view_profile,
+      content: formatTaggedBlock('QQ_PROFILE_CARD', {
+        who: isSelf ? 'self' : 'other',
+        user_id: numeric,
+        nickname: data.nickname ?? '',
+        signature: longNick,
+        online_status: statusLabel,
+        qq_level: data.qq_level ?? '',
+        avatar_url: data.avatar_url ?? ''
+      }, isSelf
+        ? `这是你自己的资料卡。签名${longNick ? `：${longNick}` : '为空'}；在线状态：${statusLabel}。头像用 avatar_url（可在浏览器打开查看）。改头像/签名/状态用 set_avatar / set_signature / set_status。`
+        : `这是 ${numeric} 的资料卡（只读，改不了别人的）。签名${longNick ? `：${longNick}` : '为空'}；在线状态：${statusLabel}。`)
+    };
   }
 
   async setAvatar(args: Record<string, unknown>): Promise<QqProfileToolResult> {
@@ -306,13 +353,16 @@ export class QqProfileService {
   }
 }
 
-export const QQ_PROFILE_ACTIONS = new Set(['set_avatar', 'set_signature', 'set_status']);
+export const QQ_PROFILE_ACTIONS = new Set(['view_profile', 'set_avatar', 'set_signature', 'set_status']);
 
 export class QqProfileSkillRuntime {
   constructor(private readonly service: QqProfileService) {}
 
   async execute(action: string, args: Record<string, unknown> = {}, _context: QqProfileActionContext = {}): Promise<QqProfileToolResult> {
     try {
+      if (action === 'view_profile') {
+        return await this.service.getProfile(args);
+      }
       if (action === 'set_avatar') {
         return await this.service.setAvatar(args);
       }

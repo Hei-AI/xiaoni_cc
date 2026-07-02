@@ -1663,6 +1663,45 @@ app.post('/api/internal/set_online_status', async (req, res) => {
   }
 });
 
+// 查看资料卡（自己或别人）：合并 get_stranger_info + nc_get_user_status，并给出头像 URL。
+// 这是「打开 QQ 资料卡」这一步的读侧——编辑前先能看到当前头像/签名/在线状态。
+app.post('/api/internal/get_profile', async (req, res) => {
+  try {
+    const userId = Number(req.body?.user_id);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing or invalid required parameter: user_id'
+      });
+    }
+    const profile = await napcatClient.getStrangerProfile(userId);
+    // 在线状态用 nc_get_user_status（与 set 同枚举，可展示）；失败不阻塞资料卡。
+    let liveStatus: { status?: number; ext_status?: number } | null = null;
+    try {
+      liveStatus = await napcatClient.getUserStatus(userId);
+    } catch {
+      liveStatus = null;
+    }
+    const data = {
+      user_id: userId,
+      nickname: profile?.nickname ?? profile?.nick ?? null,
+      long_nick: profile?.long_nick ?? profile?.longNick ?? '',
+      sex: profile?.sex ?? null,
+      qq_level: profile?.qqLevel ?? null,
+      status: liveStatus?.status ?? null,
+      ext_status: liveStatus?.ext_status ?? null,
+      avatar_url: `https://q1.qlogo.cn/g?b=qq&nk=${userId}&s=640`
+    };
+    res.json({ success: true, data, timestamp: new Date().toISOString() });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get profile',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.get('/api/internal/runtime-assets/:filename', async (req, res) => {
   try {
     const filename = path.basename(req.params.filename || '');

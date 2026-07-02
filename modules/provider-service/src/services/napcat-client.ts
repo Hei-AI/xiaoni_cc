@@ -218,6 +218,23 @@ export class NapcatClient {
     });
   }
 
+  // 查看任意人的资料卡（昵称/个性签名/等级/性别等）。自己和别人都可查。
+  async getStrangerProfile(userId: number): Promise<Record<string, any> | null> {
+    const result = await this.callAction<Record<string, any>>('get_stranger_info', {
+      user_id: userId
+    });
+    return result || null;
+  }
+
+  // 查看任意人的在线状态。返回 { status, ext_status }，status 与 setOnlineStatus 同一套枚举
+  // （set 忙碌(50) → 这里读回 50），比 get_stranger_info 的内部态编码更适合展示。
+  async getUserStatus(userId: number): Promise<{ status?: number; ext_status?: number } | null> {
+    const result = await this.callAction<{ status?: number; ext_status?: number }>('nc_get_user_status', {
+      user_id: userId
+    });
+    return result || null;
+  }
+
   private async callAction<T>(action: string, params: Record<string, unknown>): Promise<T> {
     const response = await this.httpClient.post<NapcatActionResponse<T>>(`/${action}`, params);
     const payload = response.data;

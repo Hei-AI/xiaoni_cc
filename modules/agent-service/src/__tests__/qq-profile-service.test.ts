@@ -107,6 +107,45 @@ test('set_avatar refuses a path outside the allowed roots (no traversal)', async
   }
 });
 
-test('QQ_PROFILE_ACTIONS is exactly the three profile actions', () => {
-  assert.deepEqual([...QQ_PROFILE_ACTIONS].sort(), ['set_avatar', 'set_signature', 'set_status']);
+function fakeFetchReturning(captured: Captured[], data: any) {
+  return (async (url: string, init: { body: string }) => {
+    captured.push({ url, body: JSON.parse(init.body) });
+    return { ok: true, status: 200, text: async () => JSON.stringify({ success: true, data }) };
+  }) as any;
+}
+
+test('view_profile with no qq defaults to the bot self and renders a card', async () => {
+  const captured: Captured[] = [];
+  const service = new QqProfileService({
+    providerServiceUrl: 'http://provider',
+    botAccountId: '1129974489',
+    fetchImpl: fakeFetchReturning(captured, {
+      user_id: 1129974489, nickname: '小腻', long_nick: '在好好生活', status: 50, avatar_url: 'https://q1.qlogo.cn/g?b=qq&nk=1129974489&s=640'
+    })
+  });
+  const res = await service.getProfile({});
+  assert.notEqual(res.failed, true);
+  assert.equal(captured[0].url, 'http://provider/api/internal/get_profile');
+  assert.equal(captured[0].body.user_id, 1129974489, 'no qq -> self bot id');
+  assert.match(res.content, /who="self"/);
+  assert.match(res.content, /signature="在好好生活"/);
+  assert.match(res.content, /busy 忙碌/, 'status code 50 -> human word');
+});
+
+test('view_profile <qq> targets another user and marks it read-only', async () => {
+  const captured: Captured[] = [];
+  const service = new QqProfileService({
+    providerServiceUrl: 'http://provider',
+    botAccountId: '1129974489',
+    fetchImpl: fakeFetchReturning(captured, { user_id: 85178516, nickname: '阿花', long_nick: '', status: 10 })
+  });
+  const res = await service.getProfile({ qq: '85178516' });
+  assert.notEqual(res.failed, true);
+  assert.equal(captured[0].body.user_id, 85178516);
+  assert.match(res.content, /who="other"/);
+  assert.match(res.content, /online 在线/);
+});
+
+test('QQ_PROFILE_ACTIONS is exactly the four profile actions', () => {
+  assert.deepEqual([...QQ_PROFILE_ACTIONS].sort(), ['set_avatar', 'set_signature', 'set_status', 'view_profile']);
 });

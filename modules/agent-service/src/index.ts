@@ -29,7 +29,8 @@ const qqSendImageRuntime = new QqSendImageSkillRuntime(new QqSendImageService({
   providerServiceUrl: agentConfig.providerServiceUrl
 }));
 const qqProfileRuntime = new QqProfileSkillRuntime(new QqProfileService({
-  providerServiceUrl: agentConfig.providerServiceUrl
+  providerServiceUrl: agentConfig.providerServiceUrl,
+  botAccountId: agentConfig.botAccountId
 }));
 
 let stopping = false;
