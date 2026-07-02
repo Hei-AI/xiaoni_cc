@@ -74,6 +74,45 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
         patched = bridge._ensure_powershell_env_line(text, "PLAYWRIGHT_EXTENSION_PROTOCOL", "1", "\n")
         self.assertEqual(patched.strip(), '$env:PLAYWRIGHT_EXTENSION_PROTOCOL = "1"')
 
+    def test_session_missing_detects_not_open_message(self):
+        self.assertTrue(
+            bridge._session_missing(
+                "The browser 'xiaoni-host' is not open, please run open first", ""
+            )
+        )
+        self.assertTrue(
+            bridge._session_missing("", "is not open, please run open first\n")
+        )
+
+    def test_session_missing_ignores_normal_output(self):
+        self.assertFalse(bridge._session_missing("### Snapshot\n- link [ref=e6]", ""))
+
+    def test_auto_attachable_for_normal_commands(self):
+        self.assertTrue(bridge._is_auto_attachable(["-s=xiaoni-host", "goto", "https://x"]))
+        self.assertTrue(bridge._is_auto_attachable(["-s=xiaoni-host", "snapshot"]))
+        self.assertTrue(bridge._is_auto_attachable(["-s=xiaoni-host", "tab-list"]))
+
+    def test_auto_attachable_excludes_control_commands(self):
+        # These must not trigger auto-attach recursion or fight the removed-fallback gate.
+        for control in (
+            ["-s=xiaoni-host", "attach", "--extension=chrome"],
+            ["ensure-extension"],
+            ["-s=xiaoni-host", "open"],
+            ["--help"],
+        ):
+            self.assertFalse(bridge._is_auto_attachable(control), control)
+
+    def test_attach_failed_flags_target_closed(self):
+        # The self-heal trigger: attach created a session then the target closed
+        # because the running Chrome had no patched extension loaded.
+        self.assertTrue(
+            bridge._attach_failed(
+                "### Session `xiaoni-host` created, attached to `chrome`.\n"
+                "### Error\nError: Target page, context or browser has been closed",
+                "",
+            )
+        )
+
     def test_minimal_connect_script_drives_extension_messages(self):
         script = bridge._minimal_connect_script("token")
         self.assertIn('type: "connectionRequested"', script)

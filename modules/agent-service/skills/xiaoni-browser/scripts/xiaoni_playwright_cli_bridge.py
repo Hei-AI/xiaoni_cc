@@ -339,44 +339,35 @@ class Handler(BaseHTTPRequestHandler):
             _ensure_cli_wrapper_exit_code()
             is_extension_attach = _is_extension_attach(args)
             timeout_seconds = _command_timeout_seconds(args, payload.get("timeout_seconds"))
-            try:
-                if is_extension_attach:
-                    completed = _run_extension_attach(args, timeout_seconds)
-                    self._json(200, {
-                        "ok": completed["returncode"] == 0,
-                        "returncode": completed["returncode"],
-                        "stdout": completed["stdout"],
-                        "stderr": completed["stderr"],
-                        **({"timed_out": True} if completed.get("timed_out") else {}),
-                    })
-                    return
-                completed = subprocess.run(
-                    [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
-                    cwd=INSTALL_DIR_WSL,
-                    env=_windows_cli_env(),
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=timeout_seconds,
-                )
+            if is_extension_attach:
+                completed = _run_extension_attach_with_heal(args, timeout_seconds)
                 self._json(200, {
-                    "ok": completed.returncode == 0,
-                    "returncode": completed.returncode,
-                    "stdout": _augment_browser_artifacts(completed.stdout, args),
-                    "stderr": completed.stderr,
+                    "ok": completed["returncode"] == 0,
+                    "returncode": completed["returncode"],
+                    "stdout": completed["stdout"],
+                    "stderr": completed["stderr"],
+                    **({"timed_out": True} if completed.get("timed_out") else {}),
                 })
-            except subprocess.TimeoutExpired as error:
-                stdout = _decode_timeout_output(error.stdout)
-                stderr = _decode_timeout_output(error.stderr)
-                self._json(200, {
-                    "ok": False,
-                    "returncode": 124,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "timed_out": True,
-                })
+                return
+            completed = _run_passthrough(args, timeout_seconds)
+            # Session lifecycle is the bridge's job, not Xiaoni's. If a normal
+            # command finds no live session (Chrome was restarted without the
+            # patched extension, or the daemon died), silently attach — healing a
+            # missing extension by relaunching Chrome with it — and retry once.
+            if (
+                completed["returncode"] != 0
+                and _is_auto_attachable(args)
+                and _session_missing(completed["stdout"], completed["stderr"])
+                and _auto_attach_session(args, timeout_seconds)
+            ):
+                completed = _run_passthrough(args, timeout_seconds)
+            self._json(200, {
+                "ok": completed["returncode"] == 0,
+                "returncode": completed["returncode"],
+                "stdout": _augment_browser_artifacts(completed["stdout"], args),
+                "stderr": completed["stderr"],
+                **({"timed_out": True} if completed.get("timed_out") else {}),
+            })
         except Exception as error:
             self._json(500, {"ok": False, "error": str(error)})
 
@@ -633,6 +624,95 @@ def _remember_attach_process(session_name, process, stdout_chunks, stderr_chunks
             "process": process,
             "stdout": stdout_chunks,
             "stderr": stderr_chunks,
+        }
+
+
+def _forget_attach_process(session_name):
+    with ATTACH_LOCK:
+        entry = ATTACH_PROCESSES.pop(session_name, None)
+    if entry and entry.get("process") and entry["process"].poll() is None:
+        try:
+            entry["process"].terminate()
+        except Exception:
+            pass
+
+
+def _session_missing(stdout, stderr):
+    # The official playwright-cli prints this when the named session has no live
+    # browser (never attached, or the attach daemon / Chrome target died).
+    text = f"{stdout}\n{stderr}"
+    return "is not open" in text and "open first" in text
+
+
+_AUTO_ATTACH_CONTROL_COMMANDS = {
+    "",
+    "attach",
+    "open",
+    "ensure-extension",
+    "ensure-cdp",
+    "help",
+    "--help",
+    "-h",
+}
+
+
+def _is_auto_attachable(args):
+    # Ordinary session commands (goto, snapshot, click, tab-list, ...) should
+    # auto-attach on a missing session; control/attach commands should not, to
+    # avoid recursion.
+    return _primary_command(args) not in _AUTO_ATTACH_CONTROL_COMMANDS
+
+
+def _run_extension_attach_with_heal(args, timeout_seconds):
+    # An attach that fails with the extension-not-loaded signature means the
+    # running Chrome lost the patched extension (normal restart drops the
+    # ephemeral --load-extension flag). Relaunch Chrome WITH the extension once
+    # and retry, so callers never have to run `ensure-extension --restart` by hand.
+    completed = _run_extension_attach(args, timeout_seconds)
+    if completed["returncode"] != 0 and (
+        completed.get("timed_out") or _attach_failed(completed["stdout"], completed["stderr"])
+    ):
+        _forget_attach_process(_session_name(args))
+        _launch_chrome_with_extension(True)
+        completed = _run_extension_attach(args, timeout_seconds)
+    return completed
+
+
+def _auto_attach_session(args, timeout_seconds):
+    session = _session_name(args)
+    _forget_attach_process(session)
+    attach_args = [f"-s={session}", "attach", "--extension=chrome"]
+    completed = _run_extension_attach_with_heal(
+        attach_args, _command_timeout_seconds(attach_args, timeout_seconds)
+    )
+    return completed["returncode"] == 0
+
+
+def _run_passthrough(args, timeout_seconds):
+    try:
+        completed = subprocess.run(
+            [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
+            cwd=INSTALL_DIR_WSL,
+            env=_windows_cli_env(),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_seconds,
+        )
+        return {
+            "returncode": completed.returncode,
+            "stdout": completed.stdout,
+            "stderr": completed.stderr,
+            "timed_out": False,
+        }
+    except subprocess.TimeoutExpired as error:
+        return {
+            "returncode": 124,
+            "stdout": _decode_timeout_output(error.stdout),
+            "stderr": _decode_timeout_output(error.stderr),
+            "timed_out": True,
         }
 
 

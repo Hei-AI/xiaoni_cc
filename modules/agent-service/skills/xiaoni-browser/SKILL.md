@@ -24,29 +24,28 @@ energy_cost: 0.004
 - Your `exec_command` runs inside `qqbot-xiaoni-executor`, so call the bridge client below instead of running `playwright-cli` directly.
 - Removed fallback paths: do not use `open`, `--browser`, `--headed`, `ensure-cdp`, or `attach --cdp`. Those create or target browser sessions that are not guaranteed to be the operator's visible Chrome `Profile 2`. The bridge rejects them.
 
-## Start Or Reattach
+## Just Use It (the bridge attaches for you)
 
-The host bridge must already be running. Ensure the patched extension is installed and loaded, then attach through official `playwright-cli` extension mode:
-
-```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- ensure-extension
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host attach --extension=chrome
-```
-
-`attach --extension=chrome` creates a daemon session. The bridge only reports attach success after the official CLI's initial snapshot succeeds. If stdout contains `Session ... created` followed by `### Error`, treat the session as failed; run `tab-list` to confirm before relying on it.
-
-If attach opens a blocked `chrome-extension://.../connect.html` page, times out before the initial snapshot, or says Chrome is already running without the patched extension, restart the real visible Chrome with the patched extension:
-
-```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- ensure-extension --restart
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host attach --extension=chrome
-```
-
-After attach, navigate normally:
+The host bridge owns the session lifecycle. Run any command directly with the
+`-s=xiaoni-host` session name — you do **not** run `open`, `ensure-extension`, or
+`attach` yourself. If the session isn't live, the bridge attaches automatically;
+if the operator's Chrome was restarted and lost the patched extension, the bridge
+relaunches Chrome with it (restoring the previous tabs) and retries. So the normal
+first command is just navigating:
 
 ```bash
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host goto https://example.com
 ```
+
+Use one session name: `-s=xiaoni-host`.
+
+### If it still fails
+
+Auto-attach self-heals the common cases (session died, or Chrome was restarted
+without the patched extension). If a command *still* reports an attach error after
+that automatic retry, the extension attach is genuinely broken at the host — report
+it (see **Host Bridge Maintenance**) instead of falling back to `open`/CDP, which
+are blocked because they do not target the operator's real visible Profile 2.
 
 ## Use Official Playwright CLI Commands
 
@@ -73,12 +72,10 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 ## Workflow
 
-1. Run `ensure-extension`; if Chrome was already launched with the patched extension, attach with `--extension=chrome`.
-2. If attach fails or the browser shows the extension connect page, ask before `ensure-extension --restart` because it closes and reopens the operator's Chrome profile.
-3. Treat attach as attached only when it reports `Session ... created` and also includes a successful `### Snapshot`/`### Result`, or when a follow-up `tab-list` succeeds.
-4. Use `snapshot` to get refs such as `e6`.
-5. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
-6. Prefer one session name: `-s=xiaoni-host`.
+1. Just run the command you want (`goto`, `snapshot`, `click`, ...) with `-s=xiaoni-host`. The bridge attaches and self-heals automatically; you do not run `open`/`ensure-extension`/`attach` yourself.
+2. Use `snapshot` to get refs such as `e6`.
+3. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
+4. If a command reports an attach error even after the automatic retry, the extension attach is broken at the host; report it (see **Host Bridge Maintenance**) instead of using `open`/CDP.
 
 ## Computer Use Mode (native `computer` tool)
 
