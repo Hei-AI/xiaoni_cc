@@ -327,24 +327,27 @@ test('response with tool_use -> commentary phase + function_call item', () => {
   assert.equal(call.arguments, JSON.stringify({ cmd: 'ls' }));
 });
 
-test('cache breakpoint anchors on the last frozen message, not the volatile trigger', () => {
+test('cache breakpoint: the frozen reply keeps a breakpoint (lastDurable) even with a volatile trigger tail', () => {
   const req: OpenResponseCreateRequest = {
     model: 'claude-opus-4-6',
     input: [
       { type: 'message', role: 'user', content: '历史触发' },
       { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '冻结回复' }] },
-      // current-turn trigger: fresh [当前时间] stamp, marked cache_volatile by the agent
-      { type: 'message', role: 'user', content: '[当前时间: 02:43:28] 当前触发', cache_volatile: true } as any
+      // current-turn trigger, marked cache_volatile by the agent
+      { type: 'message', role: 'user', content: '当前触发', cache_volatile: true } as any
     ]
   };
   const { body } = translateCanonicalToMessages(req);
   const assistantMsg = body.messages.find((m) => m.role === 'assistant')!;
   const lastMsg = body.messages[body.messages.length - 1]!;
-  // breakpoint lands on the frozen assistant reply...
-  assert.ok(assistantMsg.content.some((b) => (b as any).cache_control), 'frozen reply carries the breakpoint');
-  // ...NOT on the volatile current-turn trigger (the last message)
+  // The frozen assistant reply carries a breakpoint via `lastDurable` — this is the protection that
+  // keeps the durable prefix cached regardless of what the trailing volatile trigger does. If the
+  // trigger ever drifts in history, the next turn falls back to THIS lastDurable entry.
+  assert.ok(assistantMsg.content.some((b) => (b as any).cache_control), 'frozen reply keeps the lastDurable breakpoint');
+  // The volatile trigger is the TRUE tail, so it ALSO gets a breakpoint now (caches the full request;
+  // read warm next turn when frozen — the nudge/trigger double-read fix). This is intentional.
   assert.equal(lastMsg.role, 'user');
-  assert.ok(!lastMsg.content.some((b) => (b as any).cache_control), 'volatile trigger has no breakpoint');
+  assert.ok(lastMsg.content.some((b) => (b as any).cache_control), 'the true-tail trigger is pinned (cached in-turn)');
   // the cache_volatile marker is internal — it must never reach the wire
   body.messages.forEach((m) => m.content.forEach((b) => assert.equal((b as any).cache_volatile, undefined)));
   assert.equal((lastMsg as any).cache_volatile, undefined);

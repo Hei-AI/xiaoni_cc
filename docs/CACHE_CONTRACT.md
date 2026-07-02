@@ -14,18 +14,19 @@
 
 ---
 
-## 1. 断点布局:**每个请求 = 头 1 个 + 尾部滑窗 2 个**（主 agent 与每个 fork 都一样）
+## 1. 断点布局:**每个请求 = 头 1 个 + 尾部集合(最多 3 个,滑窗)**（主 agent 与每个 fork 都一样）
 
 落点:`modules/provider-service/.../anthropic-translate.ts`(`buildMessages` 算出锚点,`placeCacheBreakpoints` 落 `cache_control`)。**全在 wire 翻译期落点,不碰 canonical `input`** → 对 replay/retry 逐字节不变量天然安全(那些用例比的是 canonical)。
 
 - **头断点**:打在 **system 头(身份 + tools 那段永不变的前缀)**最后一块 → 一条**永久共享条目**,主、所有 fork、切换前后**都命中**。
-- **尾部滑窗(2 个,`isDurableItem` 跳过 `cache_volatile`)**:
-  - **live tail**:本帧最后一个 `durable` 块。写「当前完整前缀」一条。
-  - **prevBoundary(上一帧尾)**:**上一轮模型响应之前的最后一个 durable 块** = 「最后一个 durable assistant message 之前」那个 durable 块(`buildMessages` 里 `beforeLastAssistant`)。这个定义 durability-aware,**能跳过 fork 的 `cache_volatile` 图片尾**,也能处理「共享历史以 assistant final 收尾(小腻空闲)」的 fork base。
-  - **滑窗性质**:请求 N 打 `[prevBoundary(N), tail(N)]`;请求 N+1(晚一轮)打 `[tail(N), tail(N+1)]` —— **N+1 的 prevBoundary 恰好是 N 的 tail**,两请求**共享正好一个断点**,更老的断点自动丢掉。→ **下一跳请求必带上一条请求写过的那个 `cache_control`**,不靠也不只靠 20 块回看。
-- **预算 4 个**:system(1) + 压缩头 anchor(≤1) + prevBoundary(1) + tail(1) = 4。滑窗尾对优先占位,anchor 超预算才丢。
-- **TTL = 1h**(`ANTHROPIC_CACHE_TTL` 可回退 5m);每个断点同 TTL,无「长 TTL 必须在短 TTL 前」的排序约束。
-- **`cache_volatile`**:一切按 turn/run/时间漂移的内容(`[当前时间]` 戳、当前 trigger、fork 的合成图片尾)必须打 `cache_volatile` 或排在尾断点**之后**,**绝不能落进头到尾之间的缓存前缀**,否则尾条目每帧变、谁都蹭不上;`beforeLastAssistant` 也因此把它们跳过。
+- **尾部集合(最多 3 个,三个各有分工)**:
+  - **tail(真·末块)**:请求**真正的最后一个 content block**(不是最后一个 durable 块)。→ 把**整条请求**(含尾部那条会冻结进历史的 `cache_volatile` 提示,`<system_reminder>`/`<xiaoni_plan>`/当前 trigger)也缓存下来,**下一跳整条读暖**。老的「最后一个 durable 块」尾把这条提示甩在断点**之后** → 本帧不缓存、下一帧再以 `cache_creation` 全价重写(**每个带提示的帧都双份冷读**;实测 turn12→13 gap=187 就是这条提示)。
+  - **prevBoundary(上一帧尾)**:**最后一个 assistant message 之前**那一块 = 上一条请求的真·末块(非 durability-aware,逐字节等于上一跳的 `tail`)。滑窗:请求 N 打 `tail(N)`,请求 N+1 的 `prevBoundary(N+1)==tail(N)` → 两请求**共享正好这一个断点**,**下一跳确定性地带上一条写过的 `cache_control`**,更老的断点自动丢掉。
+  - **lastDurable(最后一个 durable 块)**:`isDurableItem` 跳过 developer/system 与 `cache_volatile`。空闲/心跳老巢:历史以 assistant final 收尾、后面接非 durable 的 trigger/placeholder 时,这条把 `[..final]` 保暖,让**队列唤醒的 wake run(尾巴不同)也能读到 final 暖**。它同时是**漂移兜底**:万一尾部 `cache_volatile` 内容真在历史里变了字节,下一帧退回到这条 durable 条目,前缀不塌。
+  - 稳态里三者会**塌并**:纯 `[tool_result]` 帧 tail==lastDurable → 只 2 个断点;带提示的帧才需要 3 个。
+- **预算 4 个**:system(1) + 压缩头 anchor(≤1) + 尾部集合(≤3)= 4。尾部集合优先占位(`anchors` cap = `MAX - tailSet.length`);带提示的 3-断点帧会把 anchor 挤掉(靠 20 块回看兜底),压缩期的非提示帧仍留得下 anchor。
+- **TTL = 1h**(`ANTHROPIC_CACHE_TTL` 可回退 5m);每个断点同 TTL,无排序约束。
+- **`cache_volatile`**:仍是内部标记、**绝不上 wire**。但它**不再等于「绝不打断点」**——真·末块即便是 `cache_volatile` 也会被 `tail` 打上(因为它下一帧就冻结进历史);真正防漂移靠的是**始终存在的 `lastDurable` 兜底断点**,不是「不给 volatile 打断点」。**前提**:尾部内容一旦进历史必须逐字节冻结(已对活体 slice 验证;`[当前时间]` 这类会在历史里漂移的戳早已移除)。**若将来重新引入会漂移的尾部内容,它必须排在 `lastDurable` 之后、且明知 `tail` 那次写入会被浪费**。
 
 ---
 
@@ -33,8 +34,8 @@
 
 - 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、潜意识 fork runSubconsciousAgentFork、看图 fork runImageVisionForkToFile 均循环克隆 `params.baseRequest`)。
 - **fork 走同一条 wire 翻译 → 同一套滑窗**,所以三种切换都满足「下一跳带上一条的 cache_control」:
-  - **主 → 派生 fork(fork 点)**:fork 的 `cache_volatile` 尾非 durable,fork 的 `tail` 与 `prevBoundary` **和主派生它那一刻的 `tail`/`prevBoundary` 逐位相同** → fork 直接带着主的尾断点,命中主写的 `P_n` 条目。
-  - **fork 内部 → 下一条 fork 内部**:fork 每轮追加 durable exec 结果,滑窗把上一轮 fork 尾当作本轮 prevBoundary(durability-aware 跳过合成图片)→ fork 自身链逐轮共享。
+  - **主 → 派生 fork(fork 点)**:fork 克隆主请求后追加合成尾(inspect/图片/reminder)。fork 的 `prevBoundary` = 「fork 合成 assistant 之前那一块」= **主派生它那一刻的真·末块**(逐位相同)→ fork 直接带着主写过的尾断点,命中主的 `P_n` 条目;fork 的 `lastDurable` 落在主历史 final 上,再兜一层。
+  - **fork 内部 → 下一条 fork 内部**:fork 每轮追加 durable exec 结果,滑窗把**上一轮 fork 的真·末块(那条 reminder)**当作本轮 `prevBoundary` → fork 自身链逐轮共享那条 reminder(合成图片块**永不**被打断点)。
   - **主 → 下一跳主**:同 §1 滑窗。
 - 兜底:fork 尾断点回看 ≤20 块也能勾到 `P_n`;滑窗是把它变**确定性**(不依赖回看窗口)。
 - 6 个 fork 在不同点 = 老血缘线上 **6 条独立 keyed、各自命中**的条目;互不干涉。

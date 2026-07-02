@@ -362,18 +362,29 @@ interface BlockRef {
 function buildMessages(
   input: OpenResponseInputItem[],
   thinkingEnabled: boolean
-): { messages: AnthropicMessage[]; lastDurable: BlockRef | null; anchors: BlockRef[]; prevTurnBoundary: BlockRef | null } {
+): { messages: AnthropicMessage[]; tail: BlockRef | null; lastDurable: BlockRef | null; anchors: BlockRef[]; prevTurnBoundary: BlockRef | null } {
   const messages: AnthropicMessage[] = [];
-  let lastDurable: BlockRef | null = null;
   const anchors: BlockRef[] = [];
-  // Sliding-window: the previous request's tail = the last durable block BEFORE the current turn's
-  // response, i.e. the durable block immediately before the LAST durable assistant message (each
-  // model turn starts a fresh assistant message; everything from it to the end is "this turn"). This
-  // is the byte-safe definition that covers every shape: a tool-loop tail (previous user tool_result)
-  // AND a shared history that ends in an assistant final answer (小腻 idle — the image-vision fork's
-  // common base). Computed here (durability-aware) so cache_volatile fork tails are excluded and the
-  // boundary lands on the fork's real shared-history tail, not on the synthetic image.
+  // Sliding-window tail SET (all wire-side; never touches the canonical `input`, so byte-safe for the
+  // replay/retry invariants that compare the canonical). Three message-tier breakpoints, each with a
+  // distinct job — together they fix the frozen-nudge double-read WITHOUT regressing the idle/wake
+  // path (see docs/CACHE_CONTRACT.md §1):
+  //   - tail         = the TRUE last content block. Caches the FULL request so the next hop reads all
+  //                    of it warm, INCLUDING a trailing cache_volatile nudge (<system_reminder> /
+  //                    <xiaoni_plan>). Those nudges freeze byte-identical once in history (verified on
+  //                    live slices), so a "last DURABLE block" tail would leave them PAST the
+  //                    breakpoint → uncached in turn N, re-created at full price in turn N+1.
+  //   - prevBoundary = the block immediately BEFORE the last assistant message = the PREVIOUS
+  //                    request's true tail. Request N pins tail(N); request N+1 (one turn later) has
+  //                    prevBoundary(N+1)=tail(N) → they SHARE exactly that block, so the next hop
+  //                    DETERMINISTICALLY carries the breakpoint the previous request wrote at.
+  //   - lastDurable  = the last DURABLE block. Idle/heartbeat home turf: when history ends in an
+  //                    assistant final answer (durable) followed by a non-durable trigger/placeholder,
+  //                    this keeps [..final] warm so the queue-backed wake run (different tail) still
+  //                    reads the final answer warm — the exact continuity the F1/heartbeat tests guard.
   let beforeLastAssistant: BlockRef | null = null;
+  let lastBlockAny: BlockRef | null = null;
+  let lastDurable: BlockRef | null = null;
   let lastAssistantMsgIdx = -1;
 
   for (const item of input) {
@@ -388,12 +399,15 @@ function buildMessages(
       messages.push({ role: mapped.role, content: [...mapped.blocks] });
     }
     const here: BlockRef = { msgIdx: messages.length - 1, blockIdx: messages[messages.length - 1]!.content.length - 1 };
+    if (mapped.role === 'assistant' && here.msgIdx !== lastAssistantMsgIdx) {
+      // A new assistant message begins; the block right before it is the previous request's true
+      // tail. Tracked NON-durability-aware so it aligns byte-for-byte with the previous request's
+      // `tail` (which is also the true last block).
+      beforeLastAssistant = lastBlockAny;
+      lastAssistantMsgIdx = here.msgIdx;
+    }
+    lastBlockAny = here;
     if (isDurableItem(item)) {
-      if (mapped.role === 'assistant' && here.msgIdx !== lastAssistantMsgIdx) {
-        // lastDurable is still the durable block BEFORE this (new) assistant turn.
-        beforeLastAssistant = lastDurable;
-        lastAssistantMsgIdx = here.msgIdx;
-      }
       lastDurable = here;
     }
     // A cache_anchor item marks a stable mid-history boundary the agent-service
@@ -409,6 +423,7 @@ function buildMessages(
   if (messages.length > 0 && messages[0]!.role === 'assistant') {
     messages.unshift({ role: 'user', content: [{ type: 'text', text: '(对话开始)' }] });
     const shift = (ref: BlockRef | null): BlockRef | null => (ref ? { msgIdx: ref.msgIdx + 1, blockIdx: ref.blockIdx } : ref);
+    lastBlockAny = shift(lastBlockAny);
     lastDurable = shift(lastDurable);
     beforeLastAssistant = shift(beforeLastAssistant);
     for (let i = 0; i < anchors.length; i += 1) {
@@ -416,7 +431,7 @@ function buildMessages(
     }
   }
 
-  return { messages, lastDurable, anchors, prevTurnBoundary: beforeLastAssistant };
+  return { messages, tail: lastBlockAny, lastDurable, anchors, prevTurnBoundary: beforeLastAssistant };
 }
 
 interface ToolPlan {
@@ -585,20 +600,23 @@ function setBlockCacheControl(body: AnthropicMessagesRequest, ref: BlockRef): bo
   return true;
 }
 
-// Sliding-window staircase: each request pins TWO message-tier breakpoints — the live tail
-// (lastDurable) AND the previous turn boundary (the second-to-last durable USER turn, computed
-// durability-aware in buildMessages so cache_volatile fork tails are excluded). Consecutive requests
-// therefore share exactly one breakpoint: request N pins [prevBoundary(N), tail(N)]; request N+1
-// (one turn later) pins [prevBoundary(N+1)=tail(N), tail(N+1)] — so the next-hop request always
-// carries a cache_control the previous request wrote at, and the older breakpoint drops off. Applies
-// uniformly to main→next-main, fork-internal→next-fork-internal, and main→derived-fork (all go
-// through this translate). Wire-side only (does not touch the canonical input), so it is byte-safe
-// for the replay/retry consistency invariants that compare the canonical.
+// Sliding-window staircase: each request pins a small message-tier tail SET — the live tail (TRUE
+// last block), the last DURABLE block, and the previous turn boundary (the block before the last
+// assistant message = the previous request's true tail). Consecutive requests share exactly the
+// tail(N)=prevBoundary(N+1) breakpoint, so the next-hop request DETERMINISTICALLY carries a
+// cache_control the previous request wrote at. The true-end tail caches a trailing cache_volatile
+// nudge (frozen into history next turn); the last-durable point keeps the idle/heartbeat final-answer
+// warm for the wake run. In steady state these collapse (a bare tool_result turn has tail==lastDurable
+// → 2 breakpoints); a nudged turn needs all three. Applies uniformly to main→next-main,
+// fork-internal→next-fork-internal, and main→derived-fork (all go through this translate). Wire-side
+// only (does not touch the canonical input), so it is byte-safe for the replay/retry consistency
+// invariants that compare the canonical.
 function placeCacheBreakpoints(
   body: AnthropicMessagesRequest,
-  lastDurable: BlockRef | null,
+  tail: BlockRef | null,
   anchors: BlockRef[] = [],
-  prevTurnBoundary: BlockRef | null = null
+  prevTurnBoundary: BlockRef | null = null,
+  lastDurable: BlockRef | null = null
 ): void {
   let used = 0;
   const seen = new Set<string>();
@@ -614,13 +632,18 @@ function placeCacheBreakpoints(
   // Sliding-window tail pair: the live tail (own breakpoint) + the previous turn boundary (the
   // breakpoint the previous request wrote at). Reserve their slots up front so consecutive requests
   // always share the boundary breakpoint even when a compression anchor is also present.
+  // Ordered by drop-priority when the budget is tight: prevBoundary (deterministic sharing) and the
+  // live true-end tail are placed LAST (kept); lastDurable is placed first (dropped first). Deduped
+  // so a bare turn (tail==lastDurable) or an idle turn collapses cleanly.
   const tailPair: BlockRef[] = [];
-  if (lastDurable) {
-    tailPair.push(lastDurable);
-  }
-  if (prevTurnBoundary && !tailPair.some((t) => key(t) === key(prevTurnBoundary))) {
-    tailPair.push(prevTurnBoundary);
-  }
+  const pushUnique = (ref: BlockRef | null): void => {
+    if (ref && !tailPair.some((t) => key(t) === key(ref))) {
+      tailPair.push(ref);
+    }
+  };
+  pushUnique(lastDurable);
+  pushUnique(prevTurnBoundary);
+  pushUnique(tail);
   // mid-history anchors (e.g. the compression head boundary). Explicitly pinning them every turn
   // keeps [..anchor] warm across turns even when it drifts past the 20-block lookback. Cap so the
   // tail pair always keeps its slots.
@@ -675,7 +698,7 @@ export function translateCanonicalToMessages(
     && !plan.forced
     && plan.toolChoice?.type !== 'none';
 
-  const { messages, lastDurable, anchors, prevTurnBoundary } = buildMessages(
+  const { messages, tail, lastDurable, anchors, prevTurnBoundary } = buildMessages(
     normalizeToolCallPairs(normalizeInputItems(request.input)),
     thinkingEnabled
   );
@@ -719,7 +742,7 @@ export function translateCanonicalToMessages(
     // Keep it omitted to avoid 400s on unknown keys.
   }
 
-  placeCacheBreakpoints(body, lastDurable, anchors, prevTurnBoundary);
+  placeCacheBreakpoints(body, tail, anchors, prevTurnBoundary, lastDurable);
 
   // Final step: optionally sign the billing block's cch over the fully-assembled body.
   // Must run last (after system/messages/tools/breakpoints are all set) so the checksum

@@ -2,18 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { translateCanonicalToMessages } from '../llm-provider/anthropic-translate';
 
-// CONTRACT (docs/CACHE_CONTRACT.md §1 + Anthropic prompt-caching): the message-tier cache_control
-// breakpoint anchors on the LAST DURABLE block. `isDurableItem` treats developer/system messages
-// and any cache_volatile item as NON-durable, so a tail of those kinds stays AFTER the breakpoint
-// (uncached, cheap) and the durable history prefix before it is what gets cached/reused.
+// CONTRACT (docs/CACHE_CONTRACT.md §1 + Anthropic prompt-caching): each request pins a small
+// message-tier tail SET (wire-side only, never touching the canonical input):
+//   - tail        = the TRUE last content block (caches the full request, incl. a trailing frozen
+//                   cache_volatile nudge, so the next hop reads it warm),
+//   - prevBoundary= the block BEFORE the last assistant message = the previous request's true tail
+//                   (deterministic sliding-window sharing: prevBoundary(N+1) == tail(N)),
+//   - lastDurable = the last DURABLE block (`isDurableItem` treats developer/system messages and any
+//                   cache_volatile item as NON-durable); keeps the idle/heartbeat final answer warm.
 //
 // This is the cache-KEY determinant — input byte-identity is necessary but NOT sufficient. The
 // cache heartbeat is a PRE-WARM: it WRITES the entry the next main run READS. It appends a
-// role:'developer' "Return exactly: 1" placeholder, which is non-durable by ROLE, so the breakpoint
-// stays on the shared history block and the heartbeat warms exactly [..history]. The real failure
-// mode this guards (the F1 over-extension bug) is appending a DURABLE tail — e.g. a role:'user'
-// self-continuation item — which moves the breakpoint past the history, warming [..history, tail]:
-// an entry the queue-backed wake run (which reads [..history]) can never hit → full cold-read.
+// role:'developer' "Return exactly: 1" placeholder (non-durable by ROLE), so `lastDurable` stays on
+// the shared history block (the assistant final answer) and the heartbeat warms it. The failure mode
+// this guards (the F1 over-extension bug) is appending a DURABLE tail — e.g. a role:'user'
+// self-continuation item — which becomes `lastDurable` and drags it off the final answer, so a
+// queue-backed wake run (which reads [..final]) can no longer hit it → cold-read of the final.
 
 function lastMessageCacheBreakpoint(body: any): string {
   let last = '';
@@ -42,31 +46,30 @@ const mkRequest = (tail: any) => ({
   input: [...BASE_INPUT, tail]
 });
 
-test('message-tier cache breakpoint stays on the shared history for a developer tail, moves for a durable user tail', () => {
+test('lastDurable keeps the shared history final warm for a developer tail, loses it for a durable user tail', () => {
   // GOOD — the heartbeat's "Return exactly: 1" placeholder is role:'developer' → non-durable by
-  // role → the breakpoint stays on the last durable history block (the assistant final answer).
+  // role → `lastDurable` stays on the shared history block (the assistant final answer), so it keeps
+  // a breakpoint that the queue-backed wake run also pins. The true-end tail (placeholder) ALSO gets
+  // a breakpoint now, but that is harmless — the point is the FINAL stays warm.
   const heartbeatTail = translateCanonicalToMessages(mkRequest({
     type: 'message', role: 'developer',
     content: [{ type: 'input_text', text: 'Heartbeat. Return exactly: 1 <<PLACEHOLDER_MARKER>>' }]
   }) as any);
-  const goodBp = lastMessageCacheBreakpoint(heartbeatTail.body);
-  assert.ok(goodBp.includes('FINAL_MARKER'),
-    'developer tail: the cache breakpoint must anchor on the shared history block (assistant final)');
-  assert.ok(!goodBp.includes('PLACEHOLDER_MARKER'),
-    'developer tail: the cache breakpoint must NOT anchor on the heartbeat placeholder');
+  assert.ok(pinned(heartbeatTail.body, 'FINAL_MARKER'),
+    'developer tail: the shared history final answer must keep a breakpoint (lastDurable) so the wake run reads it warm');
 
-  // BAD (the F1 bug this guards) — a DURABLE role:'user' self-continuation tail moves the breakpoint
-  // onto itself, so a heartbeat ending this way would warm [..history, self-cont]: an entry the
-  // queue-backed wake run (which appends NO self-continuation) can never read → cold-read of history.
+  // BAD (the F1 bug this guards) — a DURABLE role:'user' self-continuation tail becomes `lastDurable`
+  // and drags it off the final answer, so a heartbeat ending this way warms [..self-cont] but NOT
+  // [..final]: the queue-backed wake run (which appends NO self-continuation) can no longer hit the
+  // final → cold-read of the final answer.
   const selfContTail = translateCanonicalToMessages(mkRequest({
     type: 'message', role: 'user',
     content: [{ type: 'input_text', text: '[继续] 接着做 <<SELFCONT_MARKER>>' }]
   }) as any);
-  const badBp = lastMessageCacheBreakpoint(selfContTail.body);
-  assert.ok(badBp.includes('SELFCONT_MARKER'),
-    'durable user tail moves the breakpoint onto itself — the over-extension shape the heartbeat must avoid');
-  assert.ok(!badBp.includes('FINAL_MARKER'),
-    'durable user tail: the breakpoint no longer sits on the shared history block');
+  assert.ok(pinned(selfContTail.body, 'SELFCONT_MARKER'),
+    'durable user tail becomes lastDurable and gets its own breakpoint — the over-extension shape');
+  assert.ok(!pinned(selfContTail.body, 'FINAL_MARKER'),
+    'durable user tail: the shared history final answer no longer has a breakpoint (lost warmth)');
 });
 
 test('cache heartbeat and the notify wake run anchor the breakpoint on the SAME shared history block', () => {
@@ -83,12 +86,11 @@ test('cache heartbeat and the notify wake run anchor the breakpoint on the SAME 
     cache_volatile: true
   }) as any);
 
-  const hbBp = lastMessageCacheBreakpoint(heartbeat.body);
-  const wakeBp = lastMessageCacheBreakpoint(wake.body);
-  assert.ok(hbBp.includes('FINAL_MARKER') && wakeBp.includes('FINAL_MARKER'),
-    'both breakpoints must anchor on the shared history block (assistant final)');
-  assert.equal(hbBp, wakeBp,
-    'heartbeat and wake run must anchor the cache breakpoint on the byte-identical history block');
+  // Both tails are non-durable, so `lastDurable` lands on the identical history block (the assistant
+  // final answer) in BOTH — the heartbeat warms the exact FINAL entry the wake run reads. Their
+  // true-end tails differ (placeholder vs trigger) and each gets its own harmless breakpoint.
+  assert.ok(pinned(heartbeat.body, 'FINAL_MARKER') && pinned(wake.body, 'FINAL_MARKER'),
+    'heartbeat and wake run must BOTH keep a breakpoint on the shared history final answer (cache continuity)');
 });
 
 // FORK CACHE-ALIGNMENT (the image-vision cold-read bug, project_image_vision_fork_cache_breakdown):
@@ -119,10 +121,13 @@ test('image-vision fork: a DURABLE image tail moves the breakpoint off the share
       output: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'original' }] },
     { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '写死到本地 <<REMINDER>>' }] }
   ]) as any);
-  const bp = lastMessageCacheBreakpoint(buggy.body);
-  // The breakpoint lands on the appended image tool_result — NOT on the shared history block.
-  assert.ok(!bp.includes('H_TAIL'),
-    'durable image tail: breakpoint must have moved OFF the shared history (this is the cold-read bug)');
+  // The durable image tool_result becomes `lastDurable`, and the durable sentinel merges the shared
+  // history final (H_TAIL) into a non-breakpoint assistant message — so H_TAIL loses its breakpoint.
+  // (The sliding-window prevBoundary still keeps the block before it warm, but the fork would
+  // cold-read the shared history's final block — why the production fix appends an ALL-volatile tail,
+  // see the next test.)
+  assert.ok(!pinned(buggy.body, 'H_TAIL'),
+    'durable image tail: the shared history final block loses its breakpoint (the cold-read bug)');
 });
 
 // 4-BREAKPOINT BUDGET (Anthropic hard cap: a request may carry at most 4 cache_control
@@ -186,19 +191,22 @@ test('image-vision fork: an all-non-durable tail keeps the breakpoint on the sha
       output: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'original' }] },
     { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<system_reminder>\n【视觉感知：画面消化与刻印】\n</system_reminder>' }] }
   ]) as any);
-  const bp = lastMessageCacheBreakpoint(fixed.body);
-  assert.ok(bp.includes('H_TAIL'),
-    'all-non-durable tail: the breakpoint must anchor on the shared warm history block — the fork rides the main cache');
+  // Every appended item is non-durable → `lastDurable` stays on the shared history final (H_TAIL),
+  // so the fork keeps a breakpoint there and rides the main loop's warm prefix. The true-end tail
+  // (the reminder) additionally gets its own breakpoint (harmless; caches the fork's own steering).
+  assert.ok(pinned(fixed.body, 'H_TAIL'),
+    'all-non-durable tail: the shared warm history final must keep a breakpoint (lastDurable) — the fork rides the main cache');
 });
 
 // ============================================================================================
-// Sliding-window staircase (provider-side, wire-only). Each request pins TWO message-tier
-// breakpoints — the live tail AND the previous turn boundary (the durable block before the last
-// durable assistant message, computed durability-aware so cache_volatile fork tails are excluded).
-// Consecutive requests share exactly one breakpoint (the previous request's tail becomes the next
-// request's previous-boundary), so the NEXT-HOP request always carries a cache_control the previous
-// one wrote at, and the older breakpoint drops off. Placed at wire-translate time only — never
-// touches the canonical input — so it is byte-safe for the replay/retry consistency invariants.
+// Sliding-window staircase (provider-side, wire-only). Each request pins a message-tier tail SET —
+// the live tail (TRUE last block), the previous turn boundary (the block before the last assistant
+// message = the previous request's true tail), and the last durable block. Consecutive requests
+// share exactly one breakpoint: prevBoundary(N+1) == tail(N), so the NEXT-HOP request always carries
+// a cache_control the previous one wrote at, and the older breakpoint drops off. Because the tail is
+// the true last block, a trailing frozen cache_volatile nudge is cached in-turn and read warm next
+// turn (no double cold-read). Placed at wire-translate time only — never touches the canonical input
+// — so it is byte-safe for the replay/retry consistency invariants.
 //
 // These lock the three transitions the requirement names: main→next-main, fork-internal→next-fork-
 // internal, and main→derived-fork.
@@ -266,17 +274,38 @@ test('sliding window (main -> derived fork): the fork carries the main agent tai
     'derived fork must carry the main tail (FHTAIL) — the volatile image/reminder tail is NOT the tail');
 });
 
-test('sliding window (fork-internal -> next fork-internal): consecutive fork turns SHARE the boundary, skipping the volatile image', () => {
+test('sliding window (fork-internal -> next fork-internal): consecutive fork turns SHARE fork T1 true tail (the reminder), never the image', () => {
   const forkT1 = translateCanonicalToMessages(mkSlideReq([...FORK_HIST, ...forkVolatileTail]) as any).body;
   const forkT2 = translateCanonicalToMessages(mkSlideReq([...FORK_HIST, ...forkVolatileTail, ...forkExec]) as any).body;
-  // Fork turn 1's tail = FHTAIL (volatile appends excluded). Fork turn 2 appends a durable exec turn,
-  // so its tail = FEXEC and its previous boundary = FHTAIL (the volatile image is skipped, NOT treated
-  // as a boundary). So both pin FHTAIL — the next fork request carries the previous fork request's tail.
-  assert.ok(pinned(forkT1, 'FHTAIL'), 'fork turn 1 tail is the shared history tail FHTAIL');
+  // Fork turn 1's TRUE tail is the trailing reminder ("write it"); it also keeps FHTAIL warm via
+  // lastDurable. Fork turn 2 appends a durable exec turn, so its live tail = FEXEC and its previous
+  // boundary = fork T1's true tail (the reminder, the block before turn 2's exec assistant). So both
+  // pin the reminder — the next fork request carries the previous fork request's true tail.
+  assert.ok(pinned(forkT1, 'write it'), 'fork turn 1 pins its own true tail (the reminder)');
+  assert.ok(pinned(forkT1, 'FHTAIL'), 'fork turn 1 keeps the shared history final (FHTAIL) warm via lastDurable');
   assert.ok(pinned(forkT2, 'FEXEC'), 'fork turn 2 pins its own live tail FEXEC');
-  assert.ok(pinned(forkT2, 'FHTAIL'),
-    'fork turn 2 must carry fork turn 1 tail (FHTAIL) — the durability-aware boundary skips the volatile image');
+  assert.ok(pinned(forkT2, 'write it'),
+    'fork turn 2 must carry fork turn 1 true tail (the reminder) — the sliding-window shared boundary');
   // The volatile image block must NEVER be a breakpoint.
   assert.ok(!pinned(forkT2, '"type":"image"') && !pinned(forkT2, '"type": "image"'),
     'the cache_volatile image block must never anchor a cache breakpoint');
+});
+
+// The core regression this whole change fixes: a live tail of [tool_result, <system_reminder nudge>]
+// must pin the TRUE last block (the nudge), so the nudge is cached in-turn and the NEXT turn — whose
+// previous boundary lands exactly on that nudge — reads it warm. The old "last durable block" tail
+// left the nudge PAST the breakpoint → uncached in turn N, re-created at full price in turn N+1.
+test('sliding window: a trailing cache_volatile nudge is pinned in-turn and carried by the next turn (no double cold-read)', () => {
+  const nudge = { type: 'message', role: 'developer', cache_volatile: true,
+    content: [{ type: 'input_text', text: '<system_reminder> QQ 堆积了 1 条 <<NUDGE>> </system_reminder>' }] };
+  const turnN = translateCanonicalToMessages(mkSlideReq([...SLIDE_HEAD, ...turnA, nudge]) as any).body;
+  const turnN1 = translateCanonicalToMessages(mkSlideReq([...SLIDE_HEAD, ...turnA, nudge, ...turnB]) as any).body;
+  // turn N: the nudge is the true tail → it MUST get a breakpoint (old design left it uncached).
+  assert.ok(pinned(turnN, 'NUDGE'),
+    'turn N must pin the trailing nudge (true tail) so it is cached in-turn, not left past the breakpoint');
+  assert.ok(pinned(turnN, 'TR_A'), 'turn N still pins the durable tool_result (lastDurable)');
+  // turn N+1: its previous boundary is the nudge (block before turn N+1s exec assistant) → carried.
+  assert.ok(pinned(turnN1, 'NUDGE'),
+    'turn N+1 must carry turn N tail (the nudge) as its previous boundary → reads the nudge warm');
+  assert.ok(pinned(turnN1, 'TR_B'), 'turn N+1 pins its own live tail TR_B');
 });
