@@ -267,6 +267,7 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
             reply_to_id VARCHAR(191) NULL,
             reply_to_body TEXT NULL,
             reply_to_sender VARCHAR(255) NULL,
+            reply_to_message_id BIGINT NULL,
             raw_payload JSONB NOT NULL,
             inbound_context JSONB NOT NULL,
             created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -297,6 +298,14 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
       );
       await sql.execute(
         `ALTER TABLE ${THREAD_STATE_TABLE_NAME} ADD COLUMN IF NOT EXISTS latest_unread_received_at TIMESTAMPTZ(3) NULL`
+      );
+      // reply_to_message_id: internal id of the quoted row (resolved from the QQ
+      // message_sid in reply_to_id at ingestion). Lets the reply reference render
+      // the SAME message_id 小腻 sees + passes to focus, so `reply_to` is a usable
+      // handle rather than a dangling QQ message_sid she can't act on. Idempotent
+      // ALTER so existing main-stack DBs pick it up at startup.
+      await sql.execute(
+        `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS reply_to_message_id BIGINT NULL`
       );
 
       const rows = await sql.query(
