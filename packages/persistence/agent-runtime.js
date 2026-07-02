@@ -194,48 +194,6 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)'
 ];
 
-const CONVERSATION_STORE_DDLS = [
-  'CREATE INDEX IF NOT EXISTS idx_conversations_user_group_time ON conversations (user_id, group_id, id DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_conversations_group_time ON conversations (group_id, id DESC)',
-  `ALTER TABLE private_chat_settings
-   ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`,
-  `ALTER TABLE group_chat_settings
-   ADD COLUMN IF NOT EXISTS continuous_learning_enabled INTEGER NOT NULL DEFAULT 1`,
-  `ALTER TABLE group_chat_settings
-   ADD COLUMN IF NOT EXISTS notification_mode TEXT NOT NULL DEFAULT 'all'`,
-  `ALTER TABLE group_chat_settings
-   ADD COLUMN IF NOT EXISTS notification_aggregation_seconds INTEGER NOT NULL DEFAULT 0`,
-  `ALTER TABLE private_chat_settings
-   ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`,
-  `ALTER TABLE group_chat_settings
-   ADD COLUMN IF NOT EXISTS transcript_compact_offset INTEGER NOT NULL DEFAULT 6`,
-  `CREATE TABLE IF NOT EXISTS agent_qq_group_notification_aggregations (
-      session_key VARCHAR(191) PRIMARY KEY,
-      peer_id VARCHAR(191) NOT NULL,
-      peer_name VARCHAR(255),
-      account_id VARCHAR(191) NOT NULL,
-      unread_delta INTEGER NOT NULL DEFAULT 1,
-      direct_mentions INTEGER NOT NULL DEFAULT 0,
-      latest_message_id BIGINT,
-      latest_message_sid VARCHAR(191) NOT NULL,
-      message_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      due_at TIMESTAMPTZ(3) NOT NULL,
-      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`,
-  'CREATE INDEX IF NOT EXISTS idx_agent_qq_group_notification_aggregations_due ON agent_qq_group_notification_aggregations (due_at)',
-  `CREATE TABLE IF NOT EXISTS agent_qq_usage_surface_state (
-      identity_key VARCHAR(191) PRIMARY KEY DEFAULT 'xiaoni',
-      active_thread_key VARCHAR(191),
-      active_chat_type VARCHAR(16),
-      active_peer_id VARCHAR(191),
-      account_id VARCHAR(191),
-      opened_at TIMESTAMPTZ(3),
-      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`,
-  'CREATE INDEX IF NOT EXISTS idx_agent_qq_usage_surface_state_active_thread ON agent_qq_usage_surface_state (active_thread_key)'
-];
-
 function normalizeJsonObject(value, fallback = {}) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value;
@@ -343,26 +301,6 @@ function normalizeTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function mapConversationItem(row) {
-  return {
-    id: Number(row.id),
-    conversationId: Number(row.conversation_id),
-    sessionKey: row.session_key,
-    role: row.role === 'assistant' ? 'assistant' : 'user',
-    phase: row.phase === 'commentary' || row.phase === 'final_answer' ? row.phase : null,
-    content: row.content,
-    groupIndex: Number(row.group_index),
-    itemIndex: Number(row.item_index),
-    source: row.source === 'delivery'
-      || row.source === 'presence_action'
-      ? row.source
-      : 'inbound_batch',
-    deliveryMessageId: row.delivery_message_id === null ? null : Number(row.delivery_message_id),
-    runId: row.run_id,
-    traceId: row.trace_id
-  };
-}
-
 function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
   function createSql(input = {}, config = {}) {
     if (input?.sqlAdapter) {
@@ -416,12 +354,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
-  async function ensureConversationStoreSchema(input = {}, config = {}) {
-    await withSql(input, config, async (sql) => {
-      await executeDdls(sql, CONVERSATION_STORE_DDLS);
-    });
-  }
-
   async function logRuntimeTimelineEvent(input = {}, config = {}) {
     await withSql(input, config, async (sql) => {
       await sql.insert(
@@ -447,38 +379,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           JSON.stringify(normalizeJsonObject(input.metadata))
         ]
       );
-    });
-  }
-
-  async function attachConversationIdToRuntimeTrace(input = {}, config = {}) {
-    const traceId = typeof input.traceId === 'string' ? input.traceId : input.trace_id;
-    const conversationId = toNumericConversationId(input.conversationId ?? input.conversation_id);
-    if (!traceId || conversationId === null) {
-      return 0;
-    }
-    const tables = [
-      'agent_queue_messages',
-      'agent_runs',
-      'agent_message_batches',
-      'llm_jobs',
-      'timeline_events'
-    ];
-    return withSql(input, config, async (sql) => {
-      let updated = 0;
-      for (const table of tables) {
-        if (input.useCoalesceAssignment) {
-          updated += await sql.execute(
-            `UPDATE ${table} SET conversation_id = COALESCE(conversation_id, ?) WHERE trace_id = ?`,
-            [conversationId, traceId]
-          );
-        } else {
-          updated += await sql.execute(
-            `UPDATE ${table} SET conversation_id = ? WHERE trace_id = ? AND conversation_id IS NULL`,
-            [conversationId, traceId]
-          );
-        }
-      }
-      return updated;
     });
   }
 
@@ -829,166 +729,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
-  async function listRecentConversationTurns(input = {}, config = {}) {
-    return withSql(input, config, async (sql) => {
-      const limit = typeof input.limit === 'number'
-        ? Math.max(1, Math.min(input.limit, 1000))
-        : null;
-      const conditions = [];
-      const values = [];
-
-      if (input.scope !== 'global') {
-        if (input.groupId && Number.isFinite(Number(input.groupId))) {
-          conditions.push('group_id = ?');
-          values.push(input.groupId);
-        } else {
-          conditions.push('group_id IS NULL');
-          conditions.push('user_id = ?');
-          values.push(input.userId);
-        }
-      }
-
-      if (input.afterConversationId && Number.isFinite(Number(input.afterConversationId))) {
-        conditions.push('id > ?');
-        values.push(input.afterConversationId);
-      }
-
-      const rows = await sql.query(
-        `
-          SELECT id, batch_id, trace_id, user_id, group_id, user_message, ai_response, raw_response
-          FROM conversations
-          WHERE ${conditions.length > 0 ? conditions.join(' AND ') : 'TRUE'}
-          ORDER BY id DESC
-          ${limit ? `LIMIT ${limit}` : ''}
-        `,
-        values
-      );
-      const orderedRows = rows.reverse();
-      const conversationIds = orderedRows.map((row) => Number(row.id));
-      const itemRows = conversationIds.length > 0
-        ? await sql.query(
-          `
-            SELECT
-              id,
-              conversation_id,
-              session_key,
-              role,
-              phase,
-              content,
-              group_index,
-              item_index,
-              source,
-              delivery_message_id,
-              run_id,
-              trace_id
-            FROM conversation_items
-            WHERE conversation_id IN (${conversationIds.map(() => '?').join(', ')})
-            ORDER BY conversation_id ASC, group_index ASC, item_index ASC, id ASC
-          `,
-          conversationIds
-        )
-        : [];
-
-      const itemsByConversationId = new Map();
-      for (const row of itemRows) {
-        const conversationId = Number(row.conversation_id);
-        const items = itemsByConversationId.get(conversationId) || [];
-        items.push(mapConversationItem(row));
-        itemsByConversationId.set(conversationId, items);
-      }
-
-      return orderedRows.map((row) => {
-        const conversationId = Number(row.id);
-        return {
-          id: conversationId,
-          userId: Number(row.user_id),
-          groupId: row.group_id === null ? null : Number(row.group_id),
-          batchId: row.batch_id === null ? null : Number(row.batch_id),
-          sessionKey: buildTranscriptSessionId(Number(row.user_id), row.group_id === null ? null : Number(row.group_id)),
-          userMessage: row.user_message,
-          aiResponse: row.ai_response,
-          items: itemsByConversationId.get(conversationId) || [],
-          rawResponse: parseJson(row.raw_response, {})
-        };
-      });
-    });
-  }
-
-  async function createConversationWithItems(input = {}, config = {}) {
-    return withSql(input, config, async (sql) => {
-      const result = await sql.insert(
-        `
-          INSERT INTO conversations (
-            batch_id,
-            user_id,
-            group_id,
-            user_message,
-            ai_response,
-            response_time,
-            status,
-            error_reason,
-            model_name,
-            raw_request,
-            raw_response,
-            trace_id
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
-        `,
-        [
-          input.batchId ?? null,
-          input.userId,
-          input.groupId ?? null,
-          input.userMessage,
-          input.aiResponse ?? null,
-          input.responseTimeMs,
-          input.status,
-          input.errorReason ?? null,
-          input.modelName ?? null,
-          JSON.stringify(normalizeJsonObject(input.rawRequest)),
-          JSON.stringify(normalizeJsonObject(input.rawResponse)),
-          input.traceId
-        ]
-      );
-
-      const conversationId = Number(result.insertId);
-      const transcriptItems = Array.isArray(input.transcriptItems) ? input.transcriptItems : [];
-      for (const item of transcriptItems) {
-        await sql.insert(
-          `
-            INSERT INTO conversation_items (
-              conversation_id,
-              session_key,
-              role,
-              phase,
-              content,
-              group_index,
-              item_index,
-              source,
-              delivery_message_id,
-              run_id,
-              trace_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            conversationId,
-            item.sessionKey ?? input.sessionKey ?? null,
-            item.role,
-            item.phase ?? null,
-            item.content,
-            item.groupIndex,
-            item.itemIndex,
-            item.source,
-            item.deliveryMessageId ?? null,
-            item.runId ?? null,
-            item.traceId ?? input.traceId
-          ]
-        );
-      }
-      return conversationId;
-    });
-  }
-
   async function getSessionReadCutoffState(input = {}, config = {}) {
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
@@ -1224,145 +964,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
-  async function listStoredConversationTurns(input = {}, config = {}) {
-    return withSql(input, config, async (sql) => {
-      const limit = typeof input.limit === 'number'
-        ? Math.max(1, Math.min(input.limit, 1000))
-        : null;
-      const conditions = [];
-      const values = [];
-
-      if (input.groupId && Number.isFinite(Number(input.groupId))) {
-        conditions.push('group_id = ?');
-        values.push(input.groupId);
-      } else {
-        conditions.push('group_id IS NULL');
-        conditions.push('user_id = ?');
-        values.push(input.userId);
-      }
-
-      if (input.afterConversationId && Number.isFinite(Number(input.afterConversationId))) {
-        conditions.push('id > ?');
-        values.push(input.afterConversationId);
-      }
-
-      const rows = await sql.query(
-        `
-          SELECT
-            id,
-            user_id,
-            group_id,
-            user_message,
-            ai_response,
-            timestamp,
-            response_time,
-            status,
-            error_reason,
-            model_name,
-            raw_request,
-            raw_response,
-            trace_id
-          FROM conversations
-          WHERE ${conditions.join(' AND ')}
-          ORDER BY id DESC
-          ${limit ? `LIMIT ${limit}` : ''}
-        `,
-        values
-      );
-
-      const traceIds = Array.from(new Set(rows
-        .map((row) => (typeof row.trace_id === 'string' ? row.trace_id.trim() : ''))
-        .filter(Boolean)));
-      const queueRows = traceIds.length > 0
-        ? await sql.query(
-          `
-            SELECT
-              trace_id,
-              message_sid,
-              payload
-            FROM agent_queue_messages
-            WHERE trace_id IN (${traceIds.map(() => '?').join(', ')})
-            ORDER BY id ASC
-          `,
-          traceIds
-        )
-        : [];
-      const messageIdsByTrace = new Map();
-      const messageSidsByTrace = new Map();
-
-      for (const row of queueRows) {
-        const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-        if (!traceId) {
-          continue;
-        }
-        const payload = parseJson(row.payload, {});
-        const sourceMessageId = Number(payload.messageId);
-        const sourceMessageIds = messageIdsByTrace.get(traceId) || [];
-        if (Number.isFinite(sourceMessageId) && sourceMessageId > 0 && !sourceMessageIds.includes(sourceMessageId)) {
-          sourceMessageIds.push(sourceMessageId);
-          messageIdsByTrace.set(traceId, sourceMessageIds);
-        }
-
-        const sourceMessageSid = typeof row.message_sid === 'string' ? row.message_sid.trim() : '';
-        const sourceMessageSids = messageSidsByTrace.get(traceId) || [];
-        if (sourceMessageSid && !sourceMessageSids.includes(sourceMessageSid)) {
-          sourceMessageSids.push(sourceMessageSid);
-          messageSidsByTrace.set(traceId, sourceMessageSids);
-        }
-      }
-
-      return rows.reverse().map((row) => {
-        const traceId = typeof row.trace_id === 'string' ? row.trace_id.trim() : '';
-        const rawRequest = parseJson(row.raw_request, {});
-        const rawResponse = parseJson(row.raw_response, {});
-        return {
-          ...row,
-          raw_request: rawRequest,
-          raw_response: rawResponse,
-          source_message_ids: messageIdsByTrace.get(traceId) || normalizeNumberArray(rawRequest.source_message_ids),
-          source_message_sids: messageSidsByTrace.get(traceId) || normalizeStringArray(rawRequest.source_message_sids)
-        };
-      });
-    });
-  }
-
-  async function createStoredConversation(input = {}, config = {}) {
-    return withSql(input, config, async (sql) => {
-      const result = await sql.insert(
-        `
-          INSERT INTO conversations (
-            user_id,
-            group_id,
-            user_message,
-            ai_response,
-            response_time,
-            status,
-            error_reason,
-            model_name,
-            raw_request,
-            raw_response,
-            trace_id
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?)
-        `,
-        [
-          input.userId,
-          input.groupId ?? null,
-          input.userMessage,
-          input.aiResponse ?? null,
-          Math.max(0, Math.round(input.responseTimeMs || 0)),
-          input.status || 'completed',
-          input.errorReason ?? null,
-          input.modelName ?? null,
-          JSON.stringify(normalizeJsonObject(input.rawRequest)),
-          JSON.stringify(normalizeJsonObject(input.rawResponse)),
-          input.traceId ?? null
-        ]
-      );
-      return result.insertId;
-    });
-  }
-
   async function getTranscriptSnapshotBySessionId(input = {}, config = {}) {
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
@@ -1434,9 +1035,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
   return {
     ensureAgentRuntimeSchema,
     ensureTranscriptSnapshotSchema,
-    ensureConversationStoreSchema,
     logRuntimeTimelineEvent,
-    attachConversationIdToRuntimeTrace,
     recoverStaleProcessingLeases,
     enqueueSelfContinuationQueueMessage,
     releaseExecutionLease,
@@ -1445,8 +1044,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     markLeaseDeliveryBlocked,
     createLlmJob,
     updateLlmJob,
-    listRecentConversationTurns,
-    createConversationWithItems,
     getSessionReadCutoffState,
     upsertSessionReadCutoffState,
     commitSessionContextSummaryAndReadCutoff,
@@ -1454,8 +1051,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     upsertSessionContextSummary,
     setSessionCompressionTriggerCounter,
     loadSessionReplayState,
-    listStoredConversationTurns,
-    createStoredConversation,
     getTranscriptSnapshotBySessionId,
     upsertTranscriptSnapshot
   };
