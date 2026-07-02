@@ -97,6 +97,8 @@ function mapRow(row) {
     replyToId: row.reply_to_id || undefined,
     replyToBody: row.reply_to_body || undefined,
     replyToSender: row.reply_to_sender || undefined,
+    // Prisma/pg returns BIGINT as string|BigInt; normalize to Number like id (line 77).
+    replyToMessageId: row.reply_to_message_id != null ? Number(row.reply_to_message_id) : undefined,
     rawPayload: parseJsonRecord(row.raw_payload),
     inboundContext: parseJsonRecord(row.inbound_context)
   };
@@ -267,6 +269,7 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
             reply_to_id VARCHAR(191) NULL,
             reply_to_body TEXT NULL,
             reply_to_sender VARCHAR(255) NULL,
+            reply_to_message_id BIGINT NULL,
             raw_payload JSONB NOT NULL,
             inbound_context JSONB NOT NULL,
             created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -298,6 +301,37 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
       await sql.execute(
         `ALTER TABLE ${THREAD_STATE_TABLE_NAME} ADD COLUMN IF NOT EXISTS latest_unread_received_at TIMESTAMPTZ(3) NULL`
       );
+      // reply_to_message_id: internal id of the quoted row (resolved from the QQ
+      // message_sid in reply_to_id at ingestion). Lets the reply reference render
+      // the SAME message_id 小腻 sees + passes to focus, so `reply_to` is a usable
+      // handle rather than a dangling QQ message_sid she can't act on. Idempotent
+      // ALTER so existing main-stack DBs pick it up at startup.
+      // Pre-check column existence so the historical backfill runs EXACTLY ONCE
+      // (only on the deploy that first adds the column) — not a per-startup scan.
+      const replyMsgIdColRows = await sql.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = ? AND column_name = 'reply_to_message_id'`,
+        [TABLE_NAME]
+      );
+      await sql.execute(
+        `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS reply_to_message_id BIGINT NULL`
+      );
+      if (replyMsgIdColRows.length === 0) {
+        // One-time backfill for rows that arrived before this column existed:
+        // resolve each reply's QQ message_sid to the quoted row's internal id in
+        // the same session. Rows whose quoted message was pruned stay NULL (the
+        // read path renders a "原消息已不在记录里" marker — an honest dead-end, not
+        // a phantom path). Uses idx_agent_inbound_messages_message_sid.
+        await sql.execute(
+          `UPDATE ${TABLE_NAME} AS child
+           SET reply_to_message_id = (
+             SELECT p.id FROM ${TABLE_NAME} p
+             WHERE p.message_sid = child.reply_to_id AND p.session_key = child.session_key
+             ORDER BY p.received_at DESC, p.id DESC LIMIT 1
+           )
+           WHERE child.reply_to_id IS NOT NULL AND child.reply_to_message_id IS NULL`
+        );
+      }
 
       const rows = await sql.query(
         `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ?`,
@@ -481,9 +515,10 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
               reply_to_id,
               reply_to_body,
               reply_to_sender,
+              reply_to_message_id,
               raw_payload,
               inbound_context
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT m.id FROM ${TABLE_NAME} m WHERE m.message_sid = ? AND m.session_key = ? ORDER BY m.received_at DESC, m.id DESC LIMIT 1), CAST(? AS jsonb), CAST(? AS jsonb))
             ON CONFLICT (dedupe_key) DO NOTHING
             RETURNING *, TRUE AS inserted
           ),
@@ -526,6 +561,11 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           inboundContext.ReplyToId || null,
           inboundContext.ReplyToBody || null,
           inboundContext.ReplyToSender || null,
+          // reply_to_message_id subquery params: resolve the quoted QQ message_sid
+          // to the internal id of that row in the same session (the quoted message
+          // arrived before this reply, so it is already persisted). NULL if unmatched.
+          inboundContext.ReplyToId || null,
+          sessionKey,
           rawPayloadJson,
           inboundContextJson,
           traceId,

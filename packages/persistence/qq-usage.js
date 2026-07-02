@@ -463,12 +463,59 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
     throw new Error('thread_key is required');
   }
   const limit = Math.max(1, Math.min(50, Number(input.limit) || 10));
-  const mode = input.mode === 'older' || input.mode === 'newer' ? input.mode : 'latest';
+  const mode = input.mode === 'older' || input.mode === 'newer' || input.mode === 'around' ? input.mode : 'latest';
   const anchor = mode === 'latest' ? null : await getMessageAnchor(prisma, input.anchorMessageId);
   const threadState = await getThreadState(prisma, threadKey) || await refreshThreadState(prisma, threadKey);
 
+  // 'around': center a window on a specific message (e.g. the one a reply quotes).
+  // If the anchor is unknown/pruned or belongs to another thread, there is no
+  // reachable path — return anchorMissing so the caller renders an honest
+  // "原消息已不在记录里" instead of a phantom window.
+  if (mode === 'around' && (!anchor || anchor.session_key !== threadKey)) {
+    return {
+      threadKey,
+      mode,
+      windowSize: limit,
+      cursorAnchor: null,
+      hasOlderMessages: false,
+      hasNewerMessages: false,
+      newerAvailable: 0,
+      unreadBeforeWindow: 0,
+      unreadAfterWindow: 0,
+      reachedReadHistory: false,
+      unreadCount: Number(threadState?.unread_count || 0),
+      directMentions: Number(threadState?.direct_mentions || 0),
+      messages: [],
+      latestMessageId: null,
+      earliestMessageId: null,
+      windowUnreadCount: 0,
+      anchorMissing: true
+    };
+  }
+
   let rows;
-  if (mode === 'older') {
+  if (mode === 'around') {
+    // Split the budget around the anchor: floor older + anchor + ceil newer.
+    const olderHalf = Math.floor((limit - 1) / 2);
+    const newerHalf = limit - 1 - olderHalf;
+    const [olderRows, newerRows] = await Promise.all([
+      olderHalf > 0
+        ? prisma.agentInboundMessage.findMany({
+            where: buildOlderWhere(threadKey, anchor),
+            orderBy: [{ received_at: 'desc' }, { id: 'desc' }],
+            take: olderHalf
+          })
+        : Promise.resolve([]),
+      newerHalf > 0
+        ? prisma.agentInboundMessage.findMany({
+            where: buildNewerWhere(threadKey, anchor),
+            orderBy: [{ received_at: 'asc' }, { id: 'asc' }],
+            take: newerHalf
+          })
+        : Promise.resolve([])
+    ]);
+    rows = [...olderRows.reverse(), anchor, ...newerRows];
+  } else if (mode === 'older') {
     rows = await prisma.agentInboundMessage.findMany({
       where: buildOlderWhere(threadKey, anchor),
       orderBy: [{ received_at: 'desc' }, { id: 'desc' }],

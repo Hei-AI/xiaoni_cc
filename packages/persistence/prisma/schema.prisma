@@ -883,6 +883,7 @@ model AgentInboundMessage {
   reply_to_id       String?   @db.VarChar(191)
   reply_to_body     String?
   reply_to_sender   String?   @db.VarChar(255)
+  reply_to_message_id BigInt? @db.BigInt
   raw_payload       Json
   inbound_context   Json
   created_at        DateTime  @default(now()) @db.Timestamptz(3)

@@ -20,8 +20,8 @@ class FakeQqUsageService {
     return { qq_usage: true as const, action: chatType === 'direct' ? 'qq_usage.search_private' : chatType === 'group' ? 'qq_usage.search_group' : 'qq_usage.search_inbox', content: '<IM_INBOX_WINDOW mode="search_results"></IM_INBOX_WINDOW>', inbox_offset: 0 };
   }
 
-  async focusThread(threadKey: string, context = {}, actionLabel = 'qq_usage.focus_thread') {
-    this.calls.push({ method: 'focusThread', args: [threadKey, context, actionLabel] });
+  async focusThread(threadKey: string, context = {}, actionLabel = 'qq_usage.focus_thread', atMessageId: number | null = null) {
+    this.calls.push({ method: 'focusThread', args: [threadKey, context, actionLabel, atMessageId] });
     return { qq_usage: true as const, action: actionLabel, content: '<IM_INBOX_WINDOW></IM_INBOX_WINDOW>', thread_key: threadKey, earliest_message_id: 10, latest_message_id: 19 };
   }
 
@@ -135,10 +135,11 @@ test('QqUsageService records active surface internally when focusing and clears 
   await service.focusThread('qq:group:253631878', {}, 'qq_usage.focus_group');
   await service.putAway('qq:group:253631878');
 
+  // 手机 QQ 交互：打开会话时清未读（在真实 recordQqUsageThreadSeen 内部完成，见 runtime-store），
+  // 放下只释放 active surface、不再清。所以 putAway 不再调 markQqUsageThreadRead。
   assert.deepEqual(calls.map((call) => call.method), [
     'recordQqUsageThreadSeen',
     'setQqUsageActiveSurface',
-    'markQqUsageThreadRead',
     'clearQqUsageActiveSurface'
   ]);
   assert.deepEqual(calls[1]?.args[0], {
@@ -147,7 +148,7 @@ test('QqUsageService records active surface internally when focusing and clears 
     peerId: '253631878',
     accountId: '1129974489'
   });
-  assert.deepEqual(calls[3]?.args[0], { threadKey: 'qq:group:253631878' });
+  assert.deepEqual(calls[2]?.args[0], { threadKey: 'qq:group:253631878' });
 });
 
 test('QqUsageService renders self-sent messages as direction=outgoing in the conversation window', async () => {
@@ -251,7 +252,7 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
       latestMessageId: 101, earliestMessageId: 100, windowUnreadCount: 1,
       messages: [
         { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '读过的', received_at: '2026-06-19T02:00:00.000Z', is_read: 1, was_mentioned: 0 },
-        { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '没读的', received_at: '2026-06-19T02:00:20.000Z', is_read: 0, was_mentioned: 0, reply_to_id: '100' }
+        { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '没读的', received_at: '2026-06-19T02:00:20.000Z', is_read: 0, was_mentioned: 0, reply_to_id: 'sid-100', reply_to_message_id: 100, reply_to_body: '读过的', reply_to_sender: '李阿花' }
       ]
     }),
     recordQqUsageThreadSeen: async () => undefined,
@@ -280,9 +281,12 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   assert.match(win.content, /peer_id="85178516"/);
   assert.match(win.content, /unread_before_window="2"/);
   assert.match(win.content, /has_older_messages="true"/);
-  // message_id 保留（reply_to 的锚）
+  // message_id 保留；reply_to 现在渲染 reply_to_message_id(内部 id)——与 message_id 同命名空间，
+  // 她能 focus_private 85178516 100 定位到原消息。短且完整的引用正文内联透出、无截断标记。
   assert.match(win.content, /message_id="100"/);
   assert.match(win.content, /message_id="101"[^>]*reply_to="100"/);
+  assert.match(win.content, /「引用 李阿花: 读过的」/);
+  assert.doesNotMatch(win.content, /截断|非文字消息|原消息已不在记录/);
   // read_state 只在未读那条出现（读过的默认态不渲染）→ 恰好一次
   assert.equal((win.content.match(/read_state=/g) || []).length, 1);
   assert.match(win.content, /read_state="unread"/);
@@ -331,7 +335,7 @@ test('QqUsageSkillRuntime passes runtime trace context to thread-reading actions
 
   assert.deepEqual(service.calls[0], {
     method: 'focusThread',
-    args: ['qq:group:123', context, 'qq_usage.focus_group']
+    args: ['qq:group:123', context, 'qq_usage.focus_group', null]
   });
 });
 
@@ -367,7 +371,7 @@ test('QqUsageSkillRuntime opens private chats by user id using the configured bo
   assert.equal(focusResult.action, 'qq_usage.focus_private');
   assert.equal(scrollResult.action, 'qq_usage.scroll_private');
   assert.equal(jumpResult.action, 'qq_usage.jump_private_to_latest');
-  assert.deepEqual(service.calls[0]?.args, ['qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private']);
+  assert.deepEqual(service.calls[0]?.args, ['qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private', null]);
   assert.deepEqual(service.calls[1]?.args, ['qq:direct:1129974489:85178516', 'newer', 19, {}, 'qq_usage.scroll_private']);
   assert.deepEqual(service.calls[2]?.args, ['qq:direct:1129974489:85178516', {}, 'qq_usage.jump_private_to_latest']);
   assert.deepEqual(service.calls[3]?.args, ['qq:direct:1129974489:85178516']);
@@ -416,7 +420,7 @@ test('QqUsageSkillRuntime opens groups by group id', async () => {
     'jumpToLatest',
     'putAway'
   ]);
-  assert.deepEqual(service.calls[0]?.args, ['qq:group:123', {}, 'qq_usage.focus_group']);
+  assert.deepEqual(service.calls[0]?.args, ['qq:group:123', {}, 'qq_usage.focus_group', null]);
   assert.deepEqual(service.calls[1]?.args, ['qq:group:123', 'older', 10, {}, 'qq_usage.scroll_group']);
   assert.deepEqual(service.calls[2]?.args, ['qq:group:123', {}, 'qq_usage.jump_group_to_latest']);
   assert.deepEqual(service.calls[3]?.args, ['qq:group:123']);
@@ -484,4 +488,101 @@ test('QqUsageSkillRuntime returns truthful QQ usage errors without throwing', as
   assert.equal(result.failed, true);
   assert.match(result.content, /<QQ_USAGE_ERROR/);
   assert.match(result.content, /focus_group or jump_group_to_latest/);
+});
+
+test('focus_private/focus_group pass message_id through as the around anchor', async () => {
+  const service = new FakeQqUsageService();
+  const runtime = new QqUsageSkillRuntime(service as any, { botAccountId: '1129974489' });
+
+  await runtime.execute('focus_private', { user_id: '85178516', message_id: '27590' });
+  await runtime.execute('focus_group', { group_id: '123', message_id: 456 });
+  await runtime.execute('focus_private', { user_id: '85178516' }); // no message_id → null
+
+  // switching threads inserts putAway calls, so filter to the focusThread calls
+  const focusCalls = service.calls.filter((c) => c.method === 'focusThread');
+  assert.equal(focusCalls[0]?.args[3], 27590); // parsed to number
+  assert.equal(focusCalls[1]?.args[3], 456);
+  assert.equal(focusCalls[2]?.args[3], null);
+});
+
+function windowStore(messages: Record<string, unknown>[]) {
+  return {
+    listQqUsageThreadWindow: async () => ({
+      threadKey: 'qq:direct:1129974489:85178516', mode: 'latest', windowSize: 10,
+      cursorAnchor: null, hasOlderMessages: false, hasNewerMessages: false, newerAvailable: 0,
+      unreadBeforeWindow: 0, unreadAfterWindow: 0, reachedReadHistory: true, unreadCount: 0,
+      directMentions: 0, messages, latestMessageId: 999, earliestMessageId: 100, windowUnreadCount: 0
+    }),
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any;
+}
+
+test('reply preview: short full text renders with no marker + usable reply_to id', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个你看看', received_at: '2026-07-02T01:31:50.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-x', reply_to_message_id: 27590, reply_to_body: '话说 你现在用qqusage', reply_to_sender: '李阿花' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /reply_to="27590"/);
+  assert.match(win.content, /「引用 李阿花: 话说 你现在用qqusage」/);
+  assert.doesNotMatch(win.content, /截断|非文字消息|原消息已不在记录/);
+});
+
+test('reply preview: long body is truncated with an explicit marker but still reachable', async () => {
+  const long = '一二三四五六七八九十'.repeat(6); // 60 chars > REPLY_SNIPPET_MAX(40)
+  const service = new QqUsageService(windowStore([
+    { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '看这段', received_at: '2026-07-02T01:32:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-y', reply_to_message_id: 500, reply_to_body: long, reply_to_sender: '楠楠' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /reply_to="500"/);
+  assert.match(win.content, /…\(截断\)/);
+});
+
+test('reply preview: media/link quote (no text) says so, still reachable', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 102, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个', received_at: '2026-07-02T01:33:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-z', reply_to_message_id: 610, reply_to_body: '', reply_to_sender: '李阿花' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /reply_to="610"/);
+  assert.match(win.content, /非文字消息/);
+});
+
+test('reply preview: quoted row gone → honest dead-end, no phantom reply_to id', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 103, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '还记得吗', received_at: '2026-07-02T01:34:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-gone', reply_to_body: '很久以前的话' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /原消息已不在记录/);
+  assert.doesNotMatch(win.content, /reply_to=/); // no usable id → no phantom handle
+});
+
+test('focus around anchorMissing falls back to latest window with a note', async () => {
+  let calls = 0;
+  const store = {
+    listQqUsageThreadWindow: async (p: any) => {
+      calls += 1;
+      if (p.mode === 'around') {
+        return { threadKey: p.threadKey, mode: 'around', windowSize: 10, cursorAnchor: null, hasOlderMessages: false, hasNewerMessages: false, newerAvailable: 0, unreadBeforeWindow: 0, unreadAfterWindow: 0, reachedReadHistory: false, unreadCount: 0, directMentions: 0, messages: [], latestMessageId: null, earliestMessageId: null, windowUnreadCount: 0, anchorMissing: true };
+      }
+      return { threadKey: p.threadKey, mode: 'latest', windowSize: 10, cursorAnchor: '100:101', hasOlderMessages: true, hasNewerMessages: false, newerAvailable: 0, unreadBeforeWindow: 0, unreadAfterWindow: 0, reachedReadHistory: true, unreadCount: 0, directMentions: 0, messages: [{ id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '最新', received_at: '2026-07-02T02:00:00.000Z', is_read: 1, was_mentioned: 0 }], latestMessageId: 101, earliestMessageId: 100, windowUnreadCount: 0 };
+    },
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any;
+  const service = new QqUsageService(store);
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private', 999999);
+  assert.equal(calls, 2); // around (missing) then latest fallback
+  assert.match(win.content, /<QQ_USAGE_NOTE reason="定位的消息已不在记录里，已打开最新窗口"/);
+  assert.equal(win.latest_message_id, 101);
+});
+
+test('reply preview is not rendered on outgoing messages (no false 原消息已不在记录)', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 700, direction: 'outgoing', peer_id: '85178516', account_id: '1129974489', sender_id: '1129974489', sender_name: '小腻', raw_body: '我回你这句', received_at: '2026-07-02T03:00:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-whatever' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /direction="outgoing"/);
+  assert.doesNotMatch(win.content, /「引用/);
+  assert.doesNotMatch(win.content, /原消息已不在记录/);
+  assert.doesNotMatch(win.content, /reply_to=/);
 });

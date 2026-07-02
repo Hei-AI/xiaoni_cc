@@ -97,9 +97,13 @@ def build_parser():
 
     focus_private = subcommands.add_parser("focus_private")
     focus_private.add_argument("user_id")
+    # optional: open centered on a specific message_id (e.g. the one a reply quotes,
+    # shown as reply_to="<id>"). Omit to open at the latest screen.
+    focus_private.add_argument("message_id", nargs="?")
 
     focus_group = subcommands.add_parser("focus_group")
     focus_group.add_argument("group_id")
+    focus_group.add_argument("message_id", nargs="?")
 
     scroll_private = subcommands.add_parser("scroll_private")
     scroll_private.add_argument("user_id")

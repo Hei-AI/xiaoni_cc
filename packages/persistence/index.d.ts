@@ -1388,6 +1388,7 @@ export type QqUsageThreadWindow = {
   latestMessageId: number | null;
   earliestMessageId: number | null;
   windowUnreadCount: number;
+  anchorMissing?: boolean;
 };
 export type QqUsageGroupNotificationMode = 'all' | 'mentions_only';
 export function getQqUsageUnreadSummary(
@@ -1403,7 +1404,7 @@ export function searchQqUsageThreads(
   config?: DatabaseUrlConfig
 ): Promise<QqUsageThreadList>;
 export function listQqUsageThreadWindow(
-  input?: { threadKey?: string; mode?: 'latest' | 'older' | 'newer'; anchorMessageId?: string | number | bigint | null; limit?: number },
+  input?: { threadKey?: string; mode?: 'latest' | 'older' | 'newer' | 'around'; anchorMessageId?: string | number | bigint | null; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<QqUsageThreadWindow>;
 export function markQqUsageThreadRead(
