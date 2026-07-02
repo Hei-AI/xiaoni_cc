@@ -32,7 +32,7 @@
 
 ## 2. fork = 主 agent 血缘线在「自己 fork 点 `P_n`」的冻结克隆
 
-- 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、潜意识 fork runSubconsciousAgentFork、看图 fork runImageVisionForkToFile 均循环克隆 `params.baseRequest`)。
+- 每个 fork 在 spawn 时**冻结**主 agent 当时的请求(= `P_n`),整段 4-5 turn **只克隆这同一份冻结 base**,**从不回读主 live**(实证:压缩 fork `agent-loop-service.ts` runCoreMemoryCompressionFork、自驱动 fork runSubconsciousAgentFork、看图 fork runImageVisionForkToFile 均循环克隆 `params.baseRequest`)。
 - **fork 走同一条 wire 翻译 → 同一套滑窗**,所以三种切换都满足「下一跳带上一条的 cache_control」:
   - **主 → 派生 fork(fork 点)**:fork 克隆主请求后追加合成尾(inspect/图片/reminder)。fork 的 `prevBoundary` = 「fork 合成 assistant 之前那一块」= **主派生它那一刻的真·末块**(逐位相同)→ fork 直接带着主写过的尾断点,命中主的 `P_n` 条目;fork 的 `lastDurable` 落在主历史 final 上,再兜一层。
   - **fork 内部 → 下一条 fork 内部**:fork 每轮追加 durable exec 结果,滑窗把**上一轮 fork 的真·末块(那条 reminder)**当作本轮 `prevBoundary` → fork 自身链逐轮共享那条 reminder(合成图片块**永不**被打断点)。
@@ -55,7 +55,7 @@
 
 落点:`agent-loop-service.ts` `applyPendingCompressionMidRunIfSilent`(主 loop turn 循环顶,turn 间静默点)。
 
-- **何时切**:① 有 pending 压缩(`pendingCompressionAppliedCutoffBySession`)且 live session cutoff 已推进过本 run 启动 cutoff;② **只等「产出本次 cutoff 的压缩 fork」跑完**(`coreMemoryCompressionForks` 该 key 空)。**不等潜意识/图像/心跳 fork。**
+- **何时切**:① 有 pending 压缩(`pendingCompressionAppliedCutoffBySession`)且 live session cutoff 已推进过本 run 启动 cutoff;② **只等「产出本次 cutoff 的压缩 fork」跑完**(`coreMemoryCompressionForks` 该 key 空)。**不等自驱动/图像/心跳 fork。**
 - **为什么不等其它 fork**:它们是冻结在各自 `P_n` 的克隆,`P_n` 与切换写出的 `P_new` 是**互不波及的独立不可变条目**,切换既不 evict 也不改写 `P_n` → 在飞 fork 继续命中各自 `P_n`,**不穿透**。反之「等所有 fork」会在忙时(多 fork 错时)**确定性饿死**切换。
 - **切换动作(原子)**:用新 cutoff 重建 `requestInput` = 逐出 ≤cutoff 旧会话 + 换新近况 + **保留本 run 的 loopContinuation** + 复用本 run 那份 `cache_volatile` 当前 trigger;清 latch 使**只切一次**。
 - **只冷一次,且不全冷**:切换帧的尾前缀 `P_new` 没有前序尾条目可匹配,但**仍命中头条目** → 只冷读 `[新history][新近况][loopContinuation]`,**system+tools 不冷**。之后所有主 turn 延伸 `P_new`(暖)、之后 spawn 的新 fork 克隆 `P_new`(暖)。

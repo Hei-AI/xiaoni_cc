@@ -2106,7 +2106,7 @@ function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): Can
 }
 
 // ┌───────────────────────────── FORK 铁律 (READ BEFORE EDITING ANY FORK) ─────────────────────────────┐
-// │ 每一个 model-request fork —— subconscious / image-vision / cache-heartbeat / core-memory-compression │
+// │ 每一个 model-request fork —— self-driven / image-vision / cache-heartbeat / core-memory-compression │
 // │ —— 必须是主 agent 当轮请求的【字节克隆】:                                                            │
 // │                                                                                                     │
 // │   forkRequest = cloneCanonicalAgentTurnRequest(baseRequest)   // 同 system + 同 tools + 同全部历史   │
@@ -3078,7 +3078,7 @@ function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
 }
 
-// Layer-2 soft-enforcement reminder for the subconscious fork. The fork inherits
+// Layer-2 soft-enforcement reminder for the self-driven (subconscious) fork. The fork inherits
 // the main loop's full auto tool_choice (for cache alignment), so this hard-steers
 // the model to exec_command and away from any outward-facing tool. Kept separate
 // from the shared self_continuation_reminder, which must stay permissive for the
@@ -3119,16 +3119,16 @@ function isAssistantFinalAnswerInputItem(item: OpenResponseInputItem | undefined
 // any build (buildInitialInput strips it unconditionally): replaying her idle narration
 // makes a "摸鱼"/等待 decision self-reinforce turn after turn (the model reads its own
 // "我先等着" and keeps waiting). Stripping on every build (main loop, heartbeat,
-// subconscious fork) keeps one shared cache-warm prefix. Tool calls and their outputs
+// self-driven fork) keeps one shared cache-warm prefix. Tool calls and their outputs
 // (function_call / function_call_output) are NOT text — they carry what she actually did
-// and said, so they stay and tool continuity is preserved. The subconscious fork still
+// and said, so they stay and tool continuity is preserved. The self-driven fork still
 // needs the latest narration to plan the next direction, so it re-injects the most recent
 // D at its TAIL (buildSubconsciousAgentForkRequest), not via the shared prefix.
 function isAssistantTextOutputReplayItem(item: OpenResponseInputItem | undefined): boolean {
   return Boolean(isOpenResponseMessageInputItem(item) && item.role === 'assistant');
 }
 
-// The subconscious-fork idle gate used to read the last item of the (suppress-mode)
+// The self-driven-fork idle gate used to read the last item of the (suppress-mode)
 // requestInput. Now that assistant text (D) is stripped from every replay, requestInput
 // no longer ends in a final_answer, so the gate reads the RAW history instead: did the
 // most recent turn settle on an assistant final_answer (i.e. she is idle)?
@@ -5014,7 +5014,7 @@ export class AgentLoopService {
   private cacheHeartbeatInFlight: Promise<void> | null = null;
   private subconsciousAgentForkBackoffUntilMs = 0;
   private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
-  // Handoff from the last settled main-agent run to the subconscious fork. The fork is a
+  // Handoff from the last settled main-agent run to the self-driven fork. The fork is a
   // complete clone of the main agent (see GOVERNING PRINCIPLE on maybeRunSubconsciousAgentFork):
   // `canonicalRequest` is the EXACT request the main loop just SENT (assistant-text-stripped,
   // byte-identical to the warm prompt cache), so the fork's prefix reads that cache instead of
@@ -5226,9 +5226,9 @@ export class AgentLoopService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // SUBCONSCIOUS FORK — GOVERNING PRINCIPLE (do not violate)
+  // SELF-DRIVEN FORK — GOVERNING PRINCIPLE (do not violate)
   //
-  // The subconscious (self-driven) fork is a COMPLETE CLONE of the main agent: its
+  // The self-driven (对小腻而言是潜意识) fork is a COMPLETE CLONE of the main agent: its
   // request must be the main agent's own context, byte-for-byte, plus the just-produced
   // output D, plus the self-continuation developer reminder appended at the tail. That is
   // the whole fork: clone(main) + D + reminder.
@@ -5292,7 +5292,7 @@ export class AgentLoopService {
     }
     // C2: fork only when she settled on a final_answer — a pure-text response with no
     // action (judged on the settling response, not the whole run; a turn that makes a tool
-    // call never settles). So whenever she ends idle on a 小腻os, the subconscious gives her
+    // call never settles). So whenever she ends idle on a 小腻os, the self-driven fork gives her
     // the next direction, no matter how many tools the run used before settling.
     if (!seed.settledOnFinalAnswer) {
       return;
@@ -7152,7 +7152,7 @@ export class AgentLoopService {
           continue;
         }
 
-        // C1 (subconscious fork = complete clone of main): stash the EXACT request the main
+        // C1 (self-driven fork = complete clone of main): stash the EXACT request the main
         // just SENT — `currentCanonicalRequest` is built from the assistant-text-stripped
         // `currentRequestInput`, so it is byte-identical to the warm prompt cache the main loop
         // just primed. The fork clones it and only appends a TAIL, so its prefix reads that cache.
@@ -8411,7 +8411,7 @@ export class AgentLoopService {
     const pressureSummary = CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY;
     // summarySourceInput is now ONLY a "compression is needed" presence flag for the
     // checkpoint/manual gates — it is NO LONGER the fork's request body. The fork is a
-    // CLONE of the main agent (same iron law as subconscious / image-vision / heartbeat
+    // CLONE of the main agent (same iron law as self-driven / image-vision / heartbeat
     // forks): it bases off the full main requestInput (byte-identical warm prefix) and
     // carries the compression instruction as a tail item, so it rides the warm cache
     // instead of cold-prefilling a head-only request. The summarizer is steered to
@@ -9559,7 +9559,7 @@ export class AgentLoopService {
   //
   // Silent point = main current turn finished (naturally true at the loop top) + the
   // COMPRESSION fork that produced this cutoff has finished committing. We do NOT wait
-  // for subconscious / image / heartbeat forks — see docs/CACHE_CONTRACT.md §4
+  // for self-driven / image / heartbeat forks — see docs/CACHE_CONTRACT.md §4
   // (REQ2 STW — "为什么不等其它 fork"). Why: each fork is a frozen clone of the main lineage at its own fork
   // point (P_n), and with the head+tail cache_control contract those P_n are INDEPENDENT
   // prefix-keyed entries. Rewriting the main to P_new neither evicts nor mutates any P_n
@@ -9603,7 +9603,7 @@ export class AgentLoopService {
     // Drain gate: wait ONLY for the compression fork that produced the cutoff to finish
     // committing. Per-key (.has(key)) to match the contract ("该 key 空") and the per-key
     // latch above — a compression fork on ANOTHER session must not gate this one. Other
-    // forks (subconscious / image / heartbeat) are frozen clones on their own independent
+    // forks (self-driven / image / heartbeat) are frozen clones on their own independent
     // prefix-keyed cache entries and are NOT 穿透ed by the switch, so we deliberately do not
     // wait for them (waiting would starve the switch — see the method comment + CACHE_CONTRACT.md §4).
     if (this.coreMemoryCompressionForks.has(key)) {
@@ -10262,7 +10262,7 @@ export class AgentLoopService {
     runtimePrompt: ResolvedAgentRuntimePrompt,
     forkTurn: number
   ) {
-    // Mirror executeAgentTurn's transient-retry: the subconscious fork is the autonomous
+    // Mirror executeAgentTurn's transient-retry: the self-driven fork is the autonomous
     // self-continuation engine (it fires on every idle settle, then enqueues the next
     // direction back into the main loop). A bare single fetch meant one transient blip
     // (e.g. "Client network socket disconnected before secure TLS") killed the whole fork
@@ -12223,7 +12223,7 @@ function extractCanonicalResponseOutputItems(modelResult: ProviderAgentResponse)
     .map((item) => ({ ...item }));
 }
 
-// The subconscious fork is instructed (self_continuation_reminder) to emit its plan
+// The self-driven fork is instructed (self_continuation_reminder) to emit its plan
 // wrapped in <xiaoni_plan>...</xiaoni_plan>. subconscious_agent_notify.md re-wraps the
 // extracted text in <xiaoni_plan>, so without this strip the main loop would receive
 // doubly-nested tags (and the model would learn to echo the double wrap). Unwrap the
@@ -12515,12 +12515,12 @@ export function buildInitialInput(
 
   // Drop prior turns' assistant TEXT outputs (D — final_answer/commentary narration,
   // and inline <xiaoni_os>) from the replayed context on EVERY build: main loop,
-  // heartbeat, and subconscious fork all share ONE stripped prefix, so the single cache
+  // heartbeat, and self-driven fork all share ONE stripped prefix, so the single cache
   // heartbeat keeps them all warm (no prefix-cache 穿透 / lineage fork). They stay
   // recorded (stack row + action-stream card). The main agent's next turn therefore
   // sees A B C E, not A B C D E, so her idle narration can't compound into a perpetual
   // "摸鱼" loop; deliberate memory she wants to keep flows through compress_core_memory,
-  // not raw replay accumulation. The subconscious fork re-injects the most recent D at
+  // not raw replay accumulation. The self-driven fork re-injects the most recent D at
   // its TAIL (buildSubconsciousAgentForkRequest) so it keeps the continuity it needs
   // without diverging the cache prefix. Tool calls/outputs are never text and are
   // always retained.

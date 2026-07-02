@@ -767,7 +767,7 @@ function forkAgentLabel(forkKind: string) {
     return 'Cache Heartbeat Fork';
   }
   if (forkKind === 'subconscious_agent') {
-    return '潜意识 Agent';
+    return '自驱动 Agent';
   }
   return 'Memory Compress Fork';
 }
@@ -856,7 +856,7 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
     const sessionKey = metadataText(run.metadata, 'contextSessionKey');
     body = notifyId
       ? `由 Notify Bucket #${notifyId} (phone_notification) 唤醒`
-      : '潜意识自主触发';
+      : '自驱动自主触发';
     if (sessionKey) {
       body += ` · ${sessionKey}`;
     }

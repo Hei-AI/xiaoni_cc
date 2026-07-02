@@ -12,7 +12,7 @@
 
 1. **幻影 run（已修）**：`appendAvailableQueueNotifyToLoop`（运行中把新到的 notify 折叠进当前 run）误用了会 mint
    `agent_runs`/`agent_message_batches` 的 claim，于是一次执行被记成两行 run。见文末「已完成」。
-2. **doorbell 不塌缩（本设计要解决的）**：潜意识 fork 的 `system_reminder` 用了**每次运行唯一**的 dedupe key，所以多次 fork
+2. **doorbell 不塌缩（本设计要解决的）**：自驱动 fork 的 `system_reminder` 用了**每次运行唯一**的 dedupe key，所以多次 fork
    输出在 Notify Bucket 里**各占一行、永不合并**。事故里就有 `runtime_...781` 和 `runtime_...947` 两条 fork 消息同时挂着、都没被主 agent 成功消费。
 
 ## 2. 核心原则（用户定义）
@@ -21,7 +21,7 @@
 
 - 「没被成功消费的数据要参与聚合」→ 最新那条作为塌缩后的单条进入下一次聚合，不丢。
 - 「LLM 挂 10min 恢复后不能把一个群提示提示 5 次」→ 因为是 latest-wins 塌缩，每类只进来**一条**，永不 5 次。
-- 「潜意识 fork 跑了两次都没被消费，前一次有啥意义？」→ 旧的无意义，**新的覆盖旧的**（latest-wins）。
+- 「自驱动 fork 跑了两次都没被消费，前一次有啥意义？」→ 旧的无意义，**新的覆盖旧的**（latest-wins）。
 
 ### 2.1 不可变量（铁律，凌驾一切塌缩逻辑）
 

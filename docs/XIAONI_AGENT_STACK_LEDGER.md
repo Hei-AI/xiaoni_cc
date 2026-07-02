@@ -13,7 +13,7 @@
 发生在 runtime loop 内部。主 agent 阻塞在 Notify Bucket 上：没有 notify 时不继续
 发起普通主模型 slice。claim 不到 notify 时，只有已存在的工具恢复回调可以继续；如果
 当前 stack 的最后可回放输入仍停在 `assistant final_answer`，runtime 会启动一个
-no-persist 的潜意识 / 自驱 fork。fork 看到主 agent 当前上下文，并在请求尾部追加
+no-persist 的自驱动（self-driven）fork（工程名；对小腻而言是潜意识）。fork 看到主 agent 当前上下文，并在请求尾部追加
 `docs/xiaoni_prompt/self_continuation_reminder.md` 作为 developer message；它的最终产出
 必须是一段自然语言。fork 可以多轮运行，并可用受限工具（当前是 `exec_command`，以及
 配置开启时的 `web_search`）先寻找“还没做完的事 / 可继续 seed / 可找的乐子”。工程只把
@@ -36,7 +36,7 @@ agent_stack_items[0..n]
 输出形态；当前 frame 只记录这个 `final_answer` 并 yield 回
 `AgentLoopService.runRuntimeLoop()` 主 `while` 顶部。下一次 runtime iteration 会先重新
 pick notify。claim 不到 notify 且没有恢复回调时，主 agent 不直接收到
-`self_continuation`；runtime 只会在尾项仍是 `assistant final_answer` 时运行潜意识 fork，
+`self_continuation`；runtime 只会在尾项仍是 `assistant final_answer` 时运行自驱动 fork，
 由 fork 决定是否产出一段新的自然语言刺激。fork 无输出、失败或选择休息时只记录 fork run，
 不投递 notify，也不调用主 agent。
 
@@ -56,7 +56,7 @@ flowchart TD
   J --> K[build requestInput from stack window + appended runtime input]
   I -- yes --> K
   I -- no --> Q{last stack input is assistant final_answer?}
-  Q -- yes --> W[run subconscious/self-driven fork]
+  Q -- yes --> W[run self-driven fork]
   Q -- no --> E
   W --> Y{fork output natural language?}
   Y -- yes --> Z[enqueue output text to Notify Bucket]
@@ -181,7 +181,7 @@ attention lease；`open_inbox` 只表示看列表，不给所有会话开 lease�
 `phone_notification`、`attention_lease`、`image_task_notification`、普通
 `system_reminder` 都是当前输入，不是 QQ 正文，也不是 assistant 历史。无 notify
 场景不再给主 agent 直接追加 `self_continuation`；旧的 self-continuation 策略只作为
-潜意识 fork 尾部 developer message，fork 产出的自然语言再以普通 `system_reminder`
+自驱动 fork 尾部 developer message，fork 产出的自然语言再以普通 `system_reminder`
 notify 被主 agent claim。
 它们可以作为 `agent_stack_items.item_kind=runtime_input` 记录本轮事实，但不得写入
 `conversation_items` 或 `conversations.user_message`。
@@ -221,9 +221,11 @@ fork 只允许执行 `exec_command`；如果模型请求其它业务工具，工
 已有观察文件会被注入给 fork 作为先前记录，模型应基于当前图片 bytes 修正或补充，而不是把
 旧文本当成不可变真相。
 
-### Subconscious Agent Fork
+### Self-Driven Agent Fork（自驱动 fork）
 
-潜意识 / 自驱 fork 是空 Notify Bucket 后的刺激生成器，不是主 agent 的旁路输入通道。
+自驱动（self-driven）fork 是空 Notify Bucket 后的刺激生成器，不是主 agent 的旁路输入通道。
+（工程上称自驱动 fork；对小腻而言仍是潜意识，见 `system_prompt.md` 的 `<xiaoni_plan>`。
+持久化层表名、`source`/`kind` 仍保留 `subconscious_agent_fork*` 不变。）
 触发条件必须同时满足：`claimNextQueueMessage()` 没有消息、没有待处理工具恢复回调、
 当前 stack 尾项仍是 `assistant final_answer`。fork 复用主 agent 当前上下文，但在请求尾部
 追加 `docs/xiaoni_prompt/self_continuation_reminder.md` 作为 developer message。普通主
@@ -291,7 +293,7 @@ Prisma Client 表达。业务模块只调用 persistence helper，不直接拼 S
 
 `system_prompt` 和稳定 developer prompt 不作为普通行动卡写入 stack；它们属于 request
 assembly 固定前缀。`phone_notification`、`image_task_notification`、
-潜意识 fork 投递回来的 `system_reminder`、`core_memory_pressure` 这类 reminder
+自驱动 fork 投递回来的 `system_reminder`、`core_memory_pressure` 这类 reminder
 只属于当前输入，可写入 stack 作为本轮 `runtime_input`，但不能写成 QQ 正文或
 assistant 历史。
 
@@ -328,7 +330,7 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 `raw_response` 和本次 slice 覆盖的 stack item 范围。
 
 `llm_request_slices` 是完整 provider evidence，不是后续上下文 replay。后续请求要
-吃到哪些模型可见 item 由 runtime replay / stack window 决定；其中潜意识 fork 产出的
+吃到哪些模型可见 item 由 runtime replay / stack window 决定；其中自驱动 fork 产出的
 自然语言必须先成为 Notify Bucket row，再被主 agent claim 为本轮 `runtime_input`，
 不能作为隐藏旁路直接塞进主 request。
 
@@ -372,11 +374,11 @@ Raw Trace 的 LLM span detail 应直接展示 `canonical_request`、`wire_reques
 | --- | --- |
 | `core_memory_compression_fork_runs/items/slices/tool_executions` | 上下文压力触发的记忆压缩 fork。fork 可重试；如果模型没有调用 `compress_core_memory` 而返回 `final_answer`，工程会按 retry reminder 再跑，成功后把 text 写入未来 `<小腻近况>`。 |
 | `image_vision_fork_runs/items/slices` | 图片理解 fork。保存 no-persist vision 请求的文字栈、输出和 usage；base64 不进入主 stack。 |
-| `subconscious_agent_fork_runs/items/slices/tool_executions` | 空 Notify Bucket 且主 stack 停在 `final_answer` 时触发的潜意识 fork。保存多轮 fork 输入、自然语言输出、受限工具调用、provider wire payload、usage，并关联后续投递到 Notify Bucket 的 queue id。 |
+| `subconscious_agent_fork_runs/items/slices/tool_executions` | 空 Notify Bucket 且主 stack 停在 `final_answer` 时触发的自驱动 fork。保存多轮 fork 输入、自然语言输出、受限工具调用、provider wire payload、usage，并关联后续投递到 Notify Bucket 的 queue id。 |
 | `codex_provider_usage_events` | Codex provider 侧生成图、修图、prompt assistant、sleep cache heartbeat 等非主 loop provider 用量事件。 |
 
 LLM usage observatory 会合并主 `llm_request_slices`、compression fork、image vision fork、
-subconscious fork 和 Codex provider usage。call bucket 太密时会自动下采样到 hour/day/month；搜索 overlay
+自驱动 fork 和 Codex provider usage。call bucket 太密时会自动下采样到 hour/day/month；搜索 overlay
 只用于定位证据，不改变主事实源。
 
 ### Time Semantics
@@ -411,7 +413,7 @@ request =
   和同一响应产生的 tool output。`final_answer` 后不在当前 frame 追加
   `self_continuation`；下一轮如果没有 notify，主 agent 不发起普通 slice。只有没有
   待处理工具恢复回调且候选 requestInput 最后一个 input item 仍是
-  `assistant final_answer`，才运行潜意识 fork。fork 产出自然语言后写入 Notify Bucket，
+  `assistant final_answer`，才运行自驱动 fork。fork 产出自然语言后写入 Notify Bucket，
   主 agent 下一轮按普通 notify 消费。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
@@ -429,7 +431,7 @@ request =
 
 应该生成卡片：
 
-- `runtime_input`：真实 notify、潜意识 fork 投递的 `system_reminder`、记忆压力等当前输入。
+- `runtime_input`：真实 notify、自驱动 fork 投递的 `system_reminder`、记忆压力等当前输入。
 - `function_call`：模型请求工具。
 - `function_call_output` / `tool_executions`：工具实际执行结果。
 - `visible_delivery`：QQ 发言、图片发送等外界可见动作。
@@ -496,16 +498,16 @@ node --test packages/persistence/__tests__/*.test.js
 - 一个 LLM response 的 output items 按顺序追加到 `agent_stack_items`。
 - tool call 和 `function_call_output` 用同一个 `tool_call_id` 回连。
 - 没有 Notify Bucket row 时，主 agent 不继续发起普通模型 slice；如果有待处理工具恢复
-  回调则先恢复回调，否则只有尾项是 `assistant final_answer` 才启动潜意识 fork。
-- 潜意识 fork 输出非空自然语言后，原文被写入 `agent_queue_messages`；主 agent 只能在
+  回调则先恢复回调，否则只有尾项是 `assistant final_answer` 才启动自驱动 fork。
+- 自驱动 fork 输出非空自然语言后，原文被写入 `agent_queue_messages`；主 agent 只能在
   下一轮通过 queue claim 消费这条内部 notify。
-- 潜意识 fork 可以多轮使用受限工具查找 seed；只有最终自然语言会进入 Notify。工具结果
+- 自驱动 fork 可以多轮使用受限工具查找 seed；只有最终自然语言会进入 Notify。工具结果
   只在 fork 内部 replay 和 ledger 中流转。
-- 潜意识 fork 输出为空、失败、达到轮数上限或选择休息时，只记录 fork run，不投递 notify，
+- 自驱动 fork 输出为空、失败、达到轮数上限或选择休息时，只记录 fork run，不投递 notify，
   不调用主 agent。
 - `final_answer` 后没有工具调用时不产生 final-answer 专用 reminder，也不提前写入
   `responses_replay_items`；下一轮如果没有 Notify Bucket row 可 pick，且候选 requestInput
-  最后一个 input item 仍是 `assistant final_answer`，只能通过潜意识 fork 生成新的
+  最后一个 input item 仍是 `assistant final_answer`，只能通过自驱动 fork 生成新的
   notify 刺激。
 - `recover_energy` 不写 `release_lease` tool result，不 enqueue 恢复用
   `self_continuation` notify；模型主动调用后的成功休息、被打断、clock 醒来和工程拒绝
