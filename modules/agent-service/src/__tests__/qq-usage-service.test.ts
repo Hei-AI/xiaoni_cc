@@ -135,10 +135,11 @@ test('QqUsageService records active surface internally when focusing and clears 
   await service.focusThread('qq:group:253631878', {}, 'qq_usage.focus_group');
   await service.putAway('qq:group:253631878');
 
+  // 手机 QQ 交互：打开会话时清未读（在真实 recordQqUsageThreadSeen 内部完成，见 runtime-store），
+  // 放下只释放 active surface、不再清。所以 putAway 不再调 markQqUsageThreadRead。
   assert.deepEqual(calls.map((call) => call.method), [
     'recordQqUsageThreadSeen',
     'setQqUsageActiveSurface',
-    'markQqUsageThreadRead',
     'clearQqUsageActiveSurface'
   ]);
   assert.deepEqual(calls[1]?.args[0], {
@@ -147,7 +148,7 @@ test('QqUsageService records active surface internally when focusing and clears 
     peerId: '253631878',
     accountId: '1129974489'
   });
-  assert.deepEqual(calls[3]?.args[0], { threadKey: 'qq:group:253631878' });
+  assert.deepEqual(calls[2]?.args[0], { threadKey: 'qq:group:253631878' });
 });
 
 test('QqUsageService renders self-sent messages as direction=outgoing in the conversation window', async () => {

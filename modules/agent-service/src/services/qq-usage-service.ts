@@ -511,17 +511,16 @@ export class QqUsageService {
 
   async putAway(threadKey?: string | null): Promise<QqUsageToolResult> {
     if (threadKey && threadKey.trim()) {
-      const result = await this.store.markQqUsageThreadRead({ threadKey: threadKey.trim() });
+      // 手机 QQ 交互：放下/关闭不清未读——未读在「打开会话」那一刻就清了（见
+      // recordQqUsageThreadSeen）。这里只释放 active surface。没打开看过的会话仍留未读。
       await this.store.clearQqUsageActiveSurface({ threadKey: threadKey.trim() });
       return {
         qq_usage: true,
         action: 'qq_usage.put_qq_away',
-        thread_key: result.threadKey,
+        thread_key: threadKey.trim(),
         content: formatTaggedBlock('IM_INBOX_WINDOW', {
-          mode: 'closed',
-          cleared_unread_badge: String(true),
-          cleared_count: result.clearedCount
-        }, 'QQ 已放下。清掉未读角标不等于已经看过未显示的消息。')
+          mode: 'closed'
+        }, 'QQ 已放下。未读以你打开看过的为准——没打开的会话仍留未读。')
       };
     }
     await this.store.clearQqUsageActiveSurface();

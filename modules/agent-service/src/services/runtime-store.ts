@@ -2737,6 +2737,11 @@ export class RuntimeStore {
     if (!result.threadKey || messages.length === 0) {
       return;
     }
+    // 手机 QQ 交互：打开会话即把该会话未读角标清零（看到=已读，会话级，不是逐条）。
+    // focus/scroll/jump 都属于「人在这个会话里」，一并清。放下/切走不再清（打开时已清）。
+    // 未滚动到的旧未读也随之标读，但仍留在历史里可 scroll 回看——与手机 QQ 一致。
+    // is_read 只影响 qq_usage 未读展示，不驱动 notify bucket / 唤醒，安全。
+    await markQqUsageThreadRead({ threadKey: result.threadKey }, databaseConfig).catch(() => undefined);
     const latest = messages[messages.length - 1] || {};
     const chatType = latest.chat_type === 'group' ? 'group' : 'direct';
     const peerId = String(latest.peer_id || '');
