@@ -56,11 +56,24 @@ export function planStackReadCutoffByBlockBudget(
 
   // cleanAfter[i] = cutting AFTER block i leaves no open tool_use (every function_call in [0..i] has
   // its function_call_output in [0..i]) → the kept tail [i+1..] has no orphaned tool_result.
+  //
+  // PERMANENT ORPHAN GUARD: a function_call whose function_call_output never appears ANYWHERE in the
+  // window is a permanent orphan — its run died between emitting the call and persisting the output, and
+  // the append-only stack can never heal it. Such a call must NOT count as "open": otherwise it poisons
+  // `open` for every later boundary and pins the cutoff just before it forever, so compression can never
+  // advance past it and the context grows unbounded (observed incident: cutoff frozen at orphan_index-1,
+  // ~1000+ blocks ≈ 300k retained). The wire layer already treats it as resolved (anthropic-translate
+  // `normalizeToolCallPairs` fabricates a `[no result recorded]` output), and this boundary math MUST
+  // agree with that view. Only an open that has a REAL close in the window can still pin a boundary (a
+  // genuine straddling pair); a permanent orphan is inert here and is simply summarized into the evicted
+  // head like any other block. Purely structural (a function of the persisted rows), so live / replay /
+  // restart / fork all compute the identical answer — no cache-prefix drift.
+  const closedCallIds = new Set(blocks.map((b) => b.closesCallId).filter((id): id is string => Boolean(id)));
   const open = new Set<string>();
   const cleanAfter: boolean[] = new Array(total).fill(false);
   for (let i = 0; i < total; i += 1) {
     const b = blocks[i]!;
-    if (b.opensCallId) open.add(b.opensCallId);
+    if (b.opensCallId && closedCallIds.has(b.opensCallId)) open.add(b.opensCallId);
     if (b.closesCallId) open.delete(b.closesCallId);
     cleanAfter[i] = open.size === 0;
   }

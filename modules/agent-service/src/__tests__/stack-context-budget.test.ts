@@ -110,3 +110,40 @@ test('nested/multiple open pairs: floats to where ALL are closed', () => {
   assert.equal(plan!.readCutoffAfterStackIndex, 1006, 'cut after index 6 — the last point before any open use');
   assert.equal(plan!.retainedBlockCount, 33);
 });
+
+test('permanent orphan (open with NO close anywhere) does NOT pin the cutoff — the 141260 regression', () => {
+  // A function_call whose function_call_output never lands (the run died mid-flight) sits at the window
+  // FRONT. Distinct from the 'no clean boundary → null' case above, where the open DOES have a close (a
+  // real straddling pair). Before the fix this permanent orphan poisoned `open` for the whole evictable
+  // range → planner returned null → compression FROZE and context grew unbounded (real incident: cutoff
+  // stuck at orphan_index-1, ~1000+ blocks ≈ 300k retained). The orphan must be treated as resolved (the
+  // wire layer fabricates `[no result recorded]`), so the cut advances and the orphan is summarized into
+  // the evicted head. This test is RED before the fix (returns null) and GREEN after.
+  const specs: Spec[] = plain(40);
+  specs[0] = { open: 'orphan' }; // opened, never closed ANYWHERE in the window
+  const stack = build(specs);
+  const plan = planStackReadCutoffByBlockBudget(stack, { keepBlocks: 30 });
+  assert.ok(plan, 'must NOT return null — a permanent orphan is inert, every boundary stays clean');
+  assert.equal(plan!.retainedBlockCount, 30, 'keep exactly 30; the orphan is evicted into the summarized head');
+  assert.equal(plan!.readCutoffAfterStackIndex, stack[9]!.stackIndex, 'cut at the exact-30 boundary (index 9)');
+});
+
+test('permanent orphan is ignored, but a REAL straddling pair still floats the cut (no over-loosening)', () => {
+  // Guards that the orphan guard only unpins PERMANENT orphans and never weakens real-pair protection.
+  // Orphan at index 3 (no close) must not affect the cut; a genuine pair straddling the exact-30 boundary
+  // (open@9, close@11) must still float earlier to keep the pair whole.
+  const specs: Spec[] = plain(40);
+  specs[3] = { open: 'orphan' }; // permanent orphan, no close in window
+  specs[9] = { open: 'a' };
+  specs[11] = { close: 'a' };    // real straddling pair — its close IS in the window
+  const stack = build(specs);
+  const plan = planStackReadCutoffByBlockBudget(stack, { keepBlocks: 30 });
+  assert.ok(plan);
+  assert.equal(plan!.retainedBlockCount, 31, 'float +1 for the real pair only; the orphan is ignored');
+  assert.equal(plan!.readCutoffAfterStackIndex, stack[8]!.stackIndex, 'cut after index 8 — keeps pair a whole');
+  // the kept tail must not orphan a result whose use was evicted (unchanged invariant)
+  const cutIdx = stack.findIndex((b) => b.stackIndex === plan!.readCutoffAfterStackIndex);
+  const evictedOpens = new Set(stack.slice(0, cutIdx + 1).map((b) => b.opensCallId).filter(Boolean));
+  const keptCloses = stack.slice(cutIdx + 1).map((b) => b.closesCallId).filter(Boolean);
+  assert.ok(keptCloses.every((id) => !evictedOpens.has(id!)), 'no orphaned tool_result at the kept-tail boundary');
+});
