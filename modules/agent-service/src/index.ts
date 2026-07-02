@@ -8,6 +8,7 @@ import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
+import { QqProfileService, QqProfileSkillRuntime, QQ_PROFILE_ACTIONS } from './services/qq-profile-service';
 import { XiaoniPromptDirectoryWatcher } from './prompts/xiaoni-prompt-directory-watcher';
 import { XiaoniPromptReloadPolicy } from './prompts/xiaoni-prompt-reload-policy';
 
@@ -25,6 +26,9 @@ const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
   botAccountId: agentConfig.botAccountId
 });
 const qqSendImageRuntime = new QqSendImageSkillRuntime(new QqSendImageService({
+  providerServiceUrl: agentConfig.providerServiceUrl
+}));
+const qqProfileRuntime = new QqProfileSkillRuntime(new QqProfileService({
   providerServiceUrl: agentConfig.providerServiceUrl
 }));
 
@@ -149,14 +153,19 @@ app.post('/api/internal/qq-usage', async (req, res) => {
   const context = body.context && typeof body.context === 'object' && !Array.isArray(body.context)
     ? body.context as Record<string, unknown>
     : {};
-  const result = await qqUsageRuntime.execute(action, args, {
+  const ctx = {
     traceId: optionalString(context.trace_id ?? context.traceId),
     runId: optionalString(context.run_id ?? context.runId),
     batchId: optionalString(context.batch_id ?? context.batchId),
     toolCallId: optionalString(context.tool_call_id ?? context.toolCallId),
     toolName: optionalString(context.tool_name ?? context.toolName),
     sessionKey: optionalString(context.session_key ?? context.sessionKey)
-  });
+  };
+  // 资料面动作（换自己头像/改签名/改在线状态）委派给 qqProfileRuntime，走 provider->NapCat；
+  // 其余导航/窗口动作仍由 qqUsageRuntime 处理（读写 PostgreSQL）。CLI 统一走这个端点。
+  const result = QQ_PROFILE_ACTIONS.has(action)
+    ? await qqProfileRuntime.execute(action, args, ctx)
+    : await qqUsageRuntime.execute(action, args, ctx);
   res.json({
     success: true,
     result
