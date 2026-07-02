@@ -421,3 +421,73 @@ test('listQqUsageThreadWindow interleaves self-sent messages by timestamp withou
   assert.equal(window.cursorAnchor, '100:101');
   assert.equal(window.unreadCount, 0);
 });
+
+test('listQqUsageThreadWindow mode=around centers on the anchor and seeds scroll cursors', async () => {
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const mk = (id, ts, body) => ({
+    id: BigInt(id), session_key: threadKey, chat_type: 'direct', peer_id: '85178516', peer_name: '李阿花',
+    sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
+    received_at: new Date(ts), body_for_agent: body, raw_body: body,
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  });
+  const anchorRow = mk(200, '2026-07-02T01:27:31.000Z', '话说 你现在用qqusage');
+  const older = [mk(199, '2026-07-02T01:26:00.000Z', 'older-a'), mk(198, '2026-07-02T01:25:00.000Z', 'older-b')]; // desc
+  const newer = [mk(201, '2026-07-02T01:31:50.000Z', '这个你看看')]; // asc
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({
+        session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489',
+        unread_count: 0, direct_mentions: 0, last_read_received_at: null
+      })
+    },
+    agentInboundMessage: {
+      findUnique: async ({ where }) => (String(where.id) === '200' ? anchorRow : null),
+      findMany: async (q) => {
+        const dir = Array.isArray(q.orderBy) ? q.orderBy[0].received_at : q.orderBy.received_at;
+        return dir === 'desc' ? older.slice(0, q.take) : newer.slice(0, q.take);
+      },
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async () => ([])
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: 200, limit: 10 });
+
+  // older (reversed to asc) + anchor + newer, ascending, anchor in the middle
+  assert.equal(window.anchorMissing, undefined);
+  assert.deepEqual(window.messages.map((m) => m.body_for_agent), ['older-b', 'older-a', '话说 你现在用qqusage', '这个你看看']);
+  // cursors seed from the window edges so scroll_private older/newer continues from here
+  assert.equal(window.earliestMessageId, 198);
+  assert.equal(window.latestMessageId, 201);
+});
+
+test('listQqUsageThreadWindow mode=around returns anchorMissing when the quoted message is gone', async () => {
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({
+        session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489',
+        unread_count: 0, direct_mentions: 0, last_read_received_at: null
+      })
+    },
+    agentInboundMessage: {
+      findUnique: async () => null, // pruned / unknown id → no reachable path
+      findMany: async () => [],
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async () => ([])
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: 999999, limit: 10 });
+
+  assert.equal(window.anchorMissing, true);
+  assert.equal(window.messages.length, 0);
+  assert.equal(window.earliestMessageId, null);
+  assert.equal(window.latestMessageId, null);
+});

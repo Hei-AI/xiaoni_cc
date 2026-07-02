@@ -73,8 +73,9 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
         reply_to_id: insertParams[17],
         reply_to_body: insertParams[18],
         reply_to_sender: insertParams[19],
-        raw_payload: insertParams[20],
-        inbound_context: insertParams[21]
+        // 20,21 = reply_to_message_id resolve subquery params (message_sid, session_key)
+        raw_payload: insertParams[22],
+        inbound_context: insertParams[23]
       })];
     },
     withTransaction: async () => {
@@ -126,7 +127,14 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
   assert.equal(queries[0].params[10], '1129974489');
   assert.equal(queries[0].params[13], 'hello');
   assert.equal(queries[0].params[16], 1);
-  assert.deepEqual(JSON.parse(queries[0].params[20]), { post_type: 'message' });
+  assert.equal(queries[0].params[17], 'reply-1');
+  assert.equal(queries[0].params[19], 'Bob');
+  // reply_to_message_id resolves the quoted QQ message_sid → internal id via subquery
+  assert.ok(queries[0].sql.includes('reply_to_message_id'));
+  assert.match(queries[0].sql, /SELECT m\.id FROM agent_inbound_messages m WHERE m\.message_sid = \? AND m\.session_key = \?/);
+  assert.equal(queries[0].params[20], 'reply-1');
+  assert.equal(queries[0].params[21], 'qq:group:42');
+  assert.deepEqual(JSON.parse(queries[0].params[22]), { post_type: 'message' });
   assert.equal(executes.length, 1);
   assert.ok(executes[0].sql.includes('INSERT INTO agent_inbound_thread_states'));
   assert.match(executes[0].sql, /GROUP BY lr\.last_read_received_at/);
