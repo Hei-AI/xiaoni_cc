@@ -3352,36 +3352,11 @@ function createXiaoniActivityPersistence({
   }
 
   async function resolveConversationIdFromTarget(target, config = {}) {
-    if (!target || target.conversationId) {
-      return target?.conversationId || null;
-    }
-    const sql = createSqlAdapter(config);
-    try {
-      if (target.internalExecutionLeaseId) {
-        const runRows = await sql.query(
-          'SELECT conversation_id FROM agent_runs WHERE id = ? LIMIT 1',
-          [target.internalExecutionLeaseId]
-        );
-        const conversationId = runRows[0]?.conversation_id;
-        if (conversationId) {
-          return String(conversationId);
-        }
-      }
-
-      if (target.traceId) {
-        const conversationRows = await sql.query(
-          'SELECT id FROM conversations WHERE trace_id = ? ORDER BY id DESC LIMIT 1',
-          [target.traceId]
-        );
-        const conversationId = conversationRows[0]?.id;
-        if (conversationId) {
-          return String(conversationId);
-        }
-      }
-    } finally {
-      await sql.close();
-    }
-    return null;
+    // conversation concept retired (P5): conversationId is no longer written and the
+    // `conversations` table / `agent_runs.conversation_id` column are being dropped.
+    // Only honor an explicitly-supplied conversationId (tombstone-safe); never query
+    // the retired table/column — doing so crash-loops the service once the table is gone.
+    return target?.conversationId || null;
   }
 
   async function enrichTraceTarget(target, config = {}) {

@@ -157,23 +157,7 @@ const TRANSCRIPT_SNAPSHOT_DDLS = [
 
 const AGENT_RUNTIME_EXTRA_DDLS = [
   ...TRANSCRIPT_SNAPSHOT_DDLS,
-  `
-    CREATE TABLE IF NOT EXISTS conversation_items (
-      id BIGSERIAL PRIMARY KEY,
-      conversation_id BIGINT NOT NULL,
-      session_key VARCHAR(191),
-      role VARCHAR(16) NOT NULL,
-      phase VARCHAR(32),
-      content TEXT NOT NULL,
-      group_index INTEGER NOT NULL DEFAULT 0,
-      item_index INTEGER NOT NULL DEFAULT 0,
-      source VARCHAR(32) NOT NULL,
-      delivery_message_id BIGINT,
-      run_id VARCHAR(128),
-      trace_id VARCHAR(128),
-      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
+  // conversation_items table retired (P5): no longer created/indexed; the runtime never reads it.
   `
     CREATE TABLE IF NOT EXISTS agent_session_context_windows (
       session_key VARCHAR(191) PRIMARY KEY,
@@ -193,8 +177,6 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_commit_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS blocked_delivery_attempt_count INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS last_blocked_delivery_reason TEXT`,
-  'CREATE INDEX IF NOT EXISTS idx_conversation_items_conversation_group_item ON conversation_items (conversation_id, group_index, item_index, id)',
-  'CREATE INDEX IF NOT EXISTS idx_conversation_items_session_created ON conversation_items (session_key, created_at, id)',
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share TEXT`,
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS pending_proactive_share_age INTEGER DEFAULT 0`,
   // Persist the compression-trigger debounce counter (consecutive main turns whose
@@ -213,18 +195,9 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   // conversation_id > old cutoff). The `read_cutoff_after_stack_index IS NULL` guard makes
   // it fire only once: once filled here (or recomputed by compression in stack space) it is
   // never overwritten. The runtime reads conversation_id ONLY here, at migration; never again.
-  `
-    UPDATE agent_session_context_windows w
-       SET read_cutoff_after_stack_index = (
-         SELECT MAX(s.stack_index) FROM agent_stack_items s
-          WHERE s.identity_key = 'xiaoni'
-            AND s.conversation_id IS NOT NULL
-            AND s.conversation_id <= w.read_cutoff_after_conversation_id)
-     WHERE w.read_cutoff_after_stack_index IS NULL
-       AND w.read_cutoff_after_conversation_id IS NOT NULL
-  `,
-  'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)',
-  'CREATE INDEX IF NOT EXISTS idx_conversations_trace_id ON conversations (trace_id)'
+  // one-time conversation_id→stack_index cutoff migration retired (P5): completed long ago
+  // (guard matched 0 rows) and referenced the now-dropped conversation_id columns.
+  'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)'
 ];
 
 const CONVERSATION_STORE_DDLS = [
@@ -729,7 +702,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
               sent_messages = ?::jsonb,
               total_turns = ?,
               error_message = ?,
-              conversation_id = COALESCE(?, conversation_id),
               completed_at = NOW(),
               updated_at = NOW()
           WHERE id = ?
@@ -744,7 +716,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           JSON.stringify(input.sentMessages || []),
           input.modelRequestSlices ?? 0,
           input.errorMessage ?? null,
-          input.conversationId ?? null,
           input.runId
         ]
       );
@@ -753,12 +724,11 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           UPDATE agent_message_batches
           SET status = ?,
-              conversation_id = COALESCE(?, conversation_id),
               completed_at = NOW(),
               updated_at = NOW()
           WHERE id = (SELECT batch_id FROM agent_runs WHERE id = ?)
         `,
-        [input.status, input.conversationId ?? null, input.runId]
+        [input.status, input.runId]
       );
     });
   }
@@ -849,7 +819,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
               final_response = ?,
               error_message = ?,
               total_turns = ?,
-              conversation_id = COALESCE(?, conversation_id),
               metadata = COALESCE(?::jsonb, metadata),
               completed_at = CASE WHEN ? IN ('completed', 'failed') THEN NOW() ELSE completed_at END,
               updated_at = NOW()
@@ -860,7 +829,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           input.finalResponse ?? null,
           input.errorMessage ?? null,
           input.totalTurns ?? 0,
-          input.conversationId ?? null,
           input.metadata ? JSON.stringify(input.metadata) : null,
           input.status,
           input.jobId

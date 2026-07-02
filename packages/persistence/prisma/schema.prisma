@@ -35,7 +35,6 @@ model AgentQueueMessage {
   locked_by             String?   @db.VarChar(128)
   processing_started_at DateTime? @db.Timestamptz(3)
   completed_at          DateTime? @db.Timestamptz(3)
-  conversation_id       BigInt?   @db.BigInt
   error_message         String?
   result                Json?
   created_at            DateTime  @default(now()) @db.Timestamptz(3)
@@ -139,7 +138,6 @@ model AgentRecoverySession {
   tool_call_id                        String?   @db.VarChar(191)
   trace_id                            String?   @db.VarChar(128)
   run_id                              String?   @db.VarChar(128)
-  conversation_id                     BigInt?   @db.BigInt
   queue_message_id                    String?   @db.VarChar(128)
   wake_count_start_queue_message_id   BigInt?   @db.BigInt
   last_wake_counted_queue_message_id  BigInt?   @db.BigInt
@@ -293,7 +291,6 @@ model AgentLifeEvent {
   message_sid          String?  @db.VarChar(191)
   message_id           String?  @db.VarChar(128)
   batch_id             String?  @db.VarChar(128)
-  conversation_id      BigInt?  @db.BigInt
   conversation_item_id BigInt?  @db.BigInt
   queue_message_id     BigInt?  @db.BigInt
   run_id               String?  @db.VarChar(128)
@@ -342,7 +339,6 @@ model AgentStackItem {
   source_id            String?   @db.VarChar(191)
   trace_id             String?   @db.VarChar(128)
   run_id               String?   @db.VarChar(128)
-  conversation_id      BigInt?   @db.BigInt
   metadata             Json      @default("{}")
   created_at           DateTime  @default(now()) @db.Timestamptz(3)
   updated_at           DateTime  @updatedAt @db.Timestamptz(3)
@@ -376,7 +372,6 @@ model LlmRequestSlice {
   token_usage            Json      @default("{}")
   trace_id               String?   @db.VarChar(128)
   run_id                 String?   @db.VarChar(128)
-  conversation_id        BigInt?   @db.BigInt
   agent_turn             Int?
   model_name             String?   @db.VarChar(191)
   model_provider         String?   @db.VarChar(64)
@@ -403,7 +398,6 @@ model CodexProviderUsageEvent {
   llm_call_id            String?   @db.VarChar(128)
   trace_id               String?   @db.VarChar(128)
   run_id                 String?   @db.VarChar(128)
-  conversation_id        BigInt?   @db.BigInt
   canonical_request      Json      @default("{}")
   wire_request           Json?
   canonical_response     Json?
@@ -506,7 +500,6 @@ model ToolExecution {
   side_effect          Boolean   @default(false)
   trace_id             String?   @db.VarChar(128)
   run_id               String?   @db.VarChar(128)
-  conversation_id      BigInt?   @db.BigInt
   agent_turn           Int?
   stack_call_item_id   BigInt?   @db.BigInt
   stack_output_item_id BigInt?   @db.BigInt
@@ -530,9 +523,6 @@ model CoreMemoryCompressionForkRun {
   status                                     String    @default("running") @db.VarChar(32)
   trace_id                                   String?   @db.VarChar(128)
   run_id                                     String?   @db.VarChar(128)
-  conversation_id                            BigInt?   @db.BigInt
-  read_cutoff_after_conversation_id          BigInt?   @db.BigInt
-  previous_read_cutoff_after_conversation_id BigInt?   @db.BigInt
   summary_text                               String?
   artifact                                   Json      @default("{}")
   error_message                              String?
@@ -566,7 +556,6 @@ model CoreMemoryCompressionForkItem {
   source_id            String?  @db.VarChar(191)
   trace_id             String?  @db.VarChar(128)
   run_id               String?  @db.VarChar(128)
-  conversation_id      BigInt?  @db.BigInt
   metadata             Json     @default("{}")
   created_at           DateTime @default(now()) @db.Timestamptz(3)
   updated_at           DateTime @updatedAt @db.Timestamptz(3)
@@ -599,7 +588,6 @@ model CoreMemoryCompressionForkSlice {
   token_usage            Json      @default("{}")
   trace_id               String?   @db.VarChar(128)
   run_id                 String?   @db.VarChar(128)
-  conversation_id        BigInt?   @db.BigInt
   agent_turn             Int?
   model_name             String?   @db.VarChar(191)
   model_provider         String?   @db.VarChar(64)
@@ -632,7 +620,6 @@ model CoreMemoryCompressionForkToolExecution {
   side_effect          Boolean   @default(false)
   trace_id             String?   @db.VarChar(128)
   run_id               String?   @db.VarChar(128)
-  conversation_id      BigInt?   @db.BigInt
   agent_turn           Int?
   stack_call_item_id   BigInt?   @db.BigInt
   stack_output_item_id BigInt?   @db.BigInt
@@ -656,7 +643,6 @@ model SubconsciousAgentForkRun {
   status                  String    @default("running") @db.VarChar(32)
   trace_id                String?   @db.VarChar(128)
   run_id                  String?   @db.VarChar(128)
-  conversation_id         BigInt?   @db.BigInt
   notify_queue_message_id BigInt?   @db.BigInt
   summary_text            String?
   artifact                Json      @default("{}")
@@ -691,7 +677,6 @@ model SubconsciousAgentForkItem {
   source_id            String?  @db.VarChar(191)
   trace_id             String?  @db.VarChar(128)
   run_id               String?  @db.VarChar(128)
-  conversation_id      BigInt?  @db.BigInt
   metadata             Json     @default("{}")
   created_at           DateTime @default(now()) @db.Timestamptz(3)
   updated_at           DateTime @updatedAt @db.Timestamptz(3)
@@ -712,7 +697,6 @@ model CacheHeartbeatForkItem {
   llm_request_slice_id String?  @db.VarChar(191)
   trace_id             String?  @db.VarChar(128)
   run_id               String?  @db.VarChar(128)
-  conversation_id      BigInt?  @db.BigInt
   model_name           String?  @db.VarChar(191)
   model_provider       String?  @db.VarChar(64)
   status               String?  @db.VarChar(32)
@@ -748,7 +732,6 @@ model SubconsciousAgentForkSlice {
   token_usage            Json      @default("{}")
   trace_id               String?   @db.VarChar(128)
   run_id                 String?   @db.VarChar(128)
-  conversation_id        BigInt?   @db.BigInt
   agent_turn             Int?
   model_name             String?   @db.VarChar(191)
   model_provider         String?   @db.VarChar(64)
@@ -781,7 +764,6 @@ model SubconsciousAgentForkToolExecution {
   side_effect          Boolean   @default(false)
   trace_id             String?   @db.VarChar(128)
   run_id               String?   @db.VarChar(128)
-  conversation_id      BigInt?   @db.BigInt
   agent_turn           Int?
   stack_call_item_id   BigInt?   @db.BigInt
   stack_output_item_id BigInt?   @db.BigInt
@@ -967,7 +949,6 @@ model HttpTrafficLog {
   id                    BigInt    @id @default(autoincrement()) @db.BigInt
   request_id            String?   @db.VarChar(100)
   trace_id              String?   @db.VarChar(100)
-  conversation_id       BigInt?   @db.BigInt
   user_id               String?   @db.VarChar(100)
   session_id            String?   @db.VarChar(100)
   agent_turn            Int?
@@ -1001,26 +982,6 @@ model HttpTrafficLog {
   created_at            DateTime  @default(now()) @db.Timestamptz(3)
 
   @@map("http_traffic_logs")
-}
-
-model ConversationItem {
-  id                 BigInt   @id @default(autoincrement()) @db.BigInt
-  conversation_id    BigInt   @db.BigInt
-  session_key        String?  @db.VarChar(191)
-  role               String   @db.VarChar(16)
-  phase              String?  @db.VarChar(32)
-  content            String
-  group_index        Int      @default(0)
-  item_index         Int      @default(0)
-  source             String   @db.VarChar(32)
-  delivery_message_id BigInt? @db.BigInt
-  run_id             String?  @db.VarChar(128)
-  trace_id           String?  @db.VarChar(128)
-  created_at         DateTime @default(now()) @db.Timestamptz(3)
-
-  @@index([conversation_id, group_index, item_index, id], map: "idx_conversation_items_conversation_group_item")
-  @@index([session_key, created_at, id], map: "idx_conversation_items_session_created")
-  @@map("conversation_items")
 }
 
 model TrafficReplayHistory {
@@ -1397,7 +1358,6 @@ model AgentFeedbackEpisode {
   event_kind             String    @db.VarChar(32)
   excerpt_text           String?
   source_message_ids     Json
-  source_conversation_id BigInt?   @db.BigInt
   event_importance       Float     @default(0)
   source_salience        Float     @default(0)
   metadata               Json?
@@ -1431,7 +1391,6 @@ model AgentFeedbackReflection {
   embedding_text          String?
   source_message_ids      Json
   source_episode_ids      Json
-  source_conversation_id  BigInt?   @db.BigInt
   supersedes_reflection_id BigInt?  @db.BigInt
   conflict_group_key      String?   @db.VarChar(191)
   metadata                Json?
@@ -1474,7 +1433,6 @@ model AgentMemoryObservation {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
   session_key            String    @db.VarChar(191)
   group_id               BigInt?   @db.BigInt
-  source_conversation_id BigInt?   @db.BigInt
   source_turn_ids        Json
   source_message_ids     Json
   topic                  String    @db.VarChar(191)
@@ -1498,7 +1456,6 @@ model AgentMemoryAssertion {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
   session_key            String    @db.VarChar(191)
   group_id               BigInt?   @db.BigInt
-  source_conversation_id BigInt?   @db.BigInt
   source_turn_ids        Json
   source_message_ids     Json
   text                   String
@@ -1521,7 +1478,6 @@ model AgentMemoryReflection {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
   session_key            String    @db.VarChar(191)
   group_id               BigInt?   @db.BigInt
-  source_conversation_id BigInt?   @db.BigInt
   text                   String
   kind                   String    @db.VarChar(32)
   subjects               Json
@@ -1625,7 +1581,6 @@ model IdentityEvidenceRef {
   source_id         String   @db.VarChar(191)
   trace_id          String?  @db.VarChar(128)
   run_id            String?  @db.VarChar(128)
-  conversation_id   BigInt?  @db.BigInt
   redaction_status  String   @default("visible") @db.VarChar(32)
   confidence        String   @default("medium") @db.VarChar(16)
   metadata          Json?
@@ -1669,7 +1624,6 @@ model RuntimeIdentityActivationTrace {
   identity_key       String   @db.VarChar(191)
   run_id             String?  @db.VarChar(128)
   trace_id           String?  @db.VarChar(128)
-  conversation_id    BigInt?  @db.BigInt
   scene_fingerprint  String?
   cue_summary        String?
   activated_refs     Json
