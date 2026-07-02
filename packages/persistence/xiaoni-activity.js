@@ -38,7 +38,6 @@ const QUEUE_ACTIVITY_SELECT = `
     locked_by,
     processing_started_at,
     completed_at,
-    conversation_id,
     error_message,
     result,
     created_at,
@@ -1588,6 +1587,9 @@ async function loadCacheHeartbeatTimeline({
       startTime: timeWindow?.startTime || null,
       endTime: timeWindow?.endTime || null,
       chronological: false,
+      // The feed only renders token/model/status for heartbeat rows; skip the multi-MB
+      // provider wire payloads (see listCodexProviderUsageEvents summaryOnly).
+      summaryOnly: true,
       limit: forkLimit
     }, config);
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -1631,7 +1633,6 @@ const FORK_SLICE_ACTION_STREAM_SELECT = `
   token_usage,
   trace_id,
   run_id,
-  conversation_id,
   agent_turn,
   model_name,
   model_provider,
@@ -1642,6 +1643,42 @@ const FORK_SLICE_ACTION_STREAM_SELECT = `
   created_at,
   completed_at,
   updated_at
+`;
+
+// Fork-item `content` is the cloned main-agent context (a single runtime_input item can
+// be up to ~15MB when it carries base64 images / the whole replayed history). The feed only
+// ever renders a ≤420-char preview of it (summarizeCompression/Subconscious/ImageVisionForkItem),
+// so materializing the raw blob is pure waste and — across the 30-120 most-recent fork runs —
+// is what blew getXiaoniActivityFeed's heap past 2GB on a single request. Cap the column in SQL:
+// oversized content collapses to a tiny `{_truncated_bytes}` marker (still enough for the preview
+// path to render a placeholder), keeping the working set bounded regardless of payload size.
+const FORK_ITEM_CONTENT_PREVIEW_MAX_BYTES = 32768;
+const FORK_ITEM_ACTION_STREAM_SELECT = `
+  id,
+  event_id,
+  fork_run_id,
+  identity_key,
+  item_index,
+  item_kind,
+  role,
+  phase,
+  provider_item_id,
+  tool_call_id,
+  llm_request_slice_id,
+  CASE
+    WHEN octet_length(content::text) > ${FORK_ITEM_CONTENT_PREVIEW_MAX_BYTES}
+    THEN jsonb_build_object('_truncated_bytes', octet_length(content::text))
+    ELSE content
+  END AS content,
+  visibility,
+  source_type,
+  source_id,
+  trace_id,
+  run_id,
+  metadata,
+  created_at,
+  updated_at,
+  occurred_seq
 `;
 
 async function loadCoreMemoryCompressionForkTimeline(sql, {
@@ -1675,7 +1712,7 @@ async function loadCoreMemoryCompressionForkTimeline(sql, {
         ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
       `, forkRunIds),
       sql.query(`
-        SELECT *
+        SELECT ${FORK_ITEM_ACTION_STREAM_SELECT}
         FROM core_memory_compression_fork_items
         WHERE fork_run_id IN (${placeholders})
         ORDER BY fork_run_id ASC, item_index ASC, id ASC
@@ -1753,7 +1790,7 @@ async function loadSubconsciousAgentForkTimeline(sql, {
         ORDER BY fork_run_id ASC, agent_turn ASC NULLS LAST, id ASC
       `, forkRunIds),
       sql.query(`
-        SELECT *
+        SELECT ${FORK_ITEM_ACTION_STREAM_SELECT}
         FROM subconscious_agent_fork_items
         WHERE fork_run_id IN (${placeholders})
         ORDER BY fork_run_id ASC, item_index ASC, id ASC
@@ -1801,7 +1838,9 @@ async function loadSubconsciousAgentForkTimeline(sql, {
 }
 
 function summarizeTask(row) {
-  const artifactCount = Array.isArray(row.artifacts) ? row.artifacts.length : 0;
+  const artifactCount = typeof row._count?.artifacts === 'number'
+    ? row._count.artifacts
+    : Array.isArray(row.artifacts) ? row.artifacts.length : 0;
   const resultJson = normalizeJsonObject(row.result_json, {});
   const providerExchange = normalizeJsonObject(resultJson.provider_exchange || resultJson.providerExchange, null);
   const providerRawTraceAvailable = Boolean(providerExchange?.request || providerExchange?.response);
@@ -4069,10 +4108,11 @@ function createXiaoniActivityPersistence({
           where: taskWhere,
           orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
           take: perSourceLimit,
+          // summarizeTask only needs the artifact COUNT — never the artifact rows themselves.
+          // Loading the full artifact set pulled every `data_url` (base64 image, up to ~4MB each),
+          // tens of MB of blobs the feed immediately discards. Fetch the count only.
           include: {
-            artifacts: {
-              orderBy: [{ created_at: 'desc' }, { id: 'desc' }]
-            }
+            _count: { select: { artifacts: true } }
           }
         }),
         prisma.agentMediaAsset.findMany({
@@ -4086,7 +4126,7 @@ function createXiaoniActivityPersistence({
           }
         }),
         sql.query(`
-          SELECT *
+          SELECT ${FORK_ITEM_ACTION_STREAM_SELECT}
           FROM image_vision_fork_items
           WHERE identity_key = ?
           ${imageVisionForkItemTimePredicate.clause ? `AND ${imageVisionForkItemTimePredicate.clause}` : ''}
@@ -4112,7 +4152,13 @@ function createXiaoniActivityPersistence({
             sqlAdapter: sql,
             identityKey,
             limit: perSourceLimit,
-            summaryOnly: actionStreamProjection,
+            // Always summary-only for the feed: the activity feed / action stream only render a
+            // truncated provider preview + `providerRawTraceAvailable` flag (both preserved by the
+            // summary projection). Loading the full wire_request/response — a whole ~400k-token
+            // context that can be multiple MB per slice, ×perSourceLimit rows — was a primary
+            // driver of the >2GB heap. The full wire payload is fetched on demand by the dedicated
+            // Raw Trace view (listLlmRequestSlices with rawTraceOnly, keyed by sliceId).
+            summaryOnly: true,
             startTime: timeWindow.startTime,
             endTime: timeWindow.endTime
           }, config).catch(() => [])

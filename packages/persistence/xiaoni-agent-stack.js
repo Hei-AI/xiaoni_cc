@@ -4012,7 +4012,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           token_usage,
           trace_id,
           run_id,
-          conversation_id,
           agent_turn,
           model_name,
           model_provider,
@@ -4048,7 +4047,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           token_usage,
           trace_id,
           run_id,
-          conversation_id,
           agent_turn,
           model_name,
           model_provider,
@@ -4115,6 +4113,40 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const clauses = ['identity_key = ?'];
     const params = [firstString(input.identityKey, input.identity_key, 'xiaoni')];
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
+    // summaryOnly drops the provider wire payloads (wire_request/response, raw_response,
+    // canonical_*, output_items) from the projection. A single cache-heartbeat event's
+    // wire_request can be ~7MB (the whole cloned context); the activity feed only renders
+    // token/model/status from these rows, so `SELECT *` was pulling >100MB it discards.
+    const summaryOnly = input.summaryOnly === true || input.summary_only === true;
+    const selectColumns = summaryOnly
+      ? `
+          id,
+          event_id,
+          source_kind,
+          source_id,
+          identity_key,
+          llm_call_id,
+          trace_id,
+          run_id,
+          '{}'::jsonb AS canonical_request,
+          NULL::jsonb AS wire_request,
+          NULL::jsonb AS canonical_response,
+          NULL::jsonb AS wire_response,
+          NULL::jsonb AS raw_response,
+          '[]'::jsonb AS output_items,
+          status,
+          token_usage,
+          model_name,
+          model_provider,
+          request_format_version,
+          wire_provider_format,
+          processing_time_ms,
+          metadata,
+          created_at,
+          completed_at,
+          updated_at
+        `
+      : '*';
     const eventId = firstString(input.eventId, input.event_id, input.sliceId, input.slice_id);
     const sourceKind = firstString(input.sourceKind, input.source_kind);
     const sourceId = firstString(input.sourceId, input.source_id, input.forkRunId, input.fork_run_id);
@@ -4156,7 +4188,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     return withSql(input, config, async (sql) => {
       const rows = await sql.query(
         `
-          SELECT *
+          SELECT ${selectColumns}
           FROM codex_provider_usage_events
           WHERE ${clauses.join(' AND ')}
           ORDER BY created_at ${input.chronological ? 'ASC' : 'DESC'}, id ${input.chronological ? 'ASC' : 'DESC'}
