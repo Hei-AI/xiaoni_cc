@@ -27,7 +27,7 @@ python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py
 - `send_group group_id image_path` sends the image to a QQ group, for example group `123`.
 - `send_private user_id image_path` sends the image to a QQ private chat, for example user `85178516`.
 - `image_path` must be the exact local image path under `/xiaoni-runtime` unless the operator explicitly configured extra image roots.
-- `--caption` is optional. Omit it when you only want to send the image.
+- `--caption` is optional text sent with the image. Write it exactly like a normal private/group reply — plain text, with 表情 written as `[表情:名字]` (例如 `[表情:笑哭]`) or a Unicode emoji like 😂. Omit it when you only want to send the image.
 - Successful sends include `message_id` when NapCat returns one, plus a local `status_key`.
 
 ## Check Status

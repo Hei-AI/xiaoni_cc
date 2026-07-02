@@ -86,6 +86,12 @@ Open your profile card first, then edit. These edits change **your own QQ profil
 - If fewer than 10 unread messages exist, the window may include read history and `reached_read_history="true"`.
 - New arrivals for an already viewed conversation are not shown automatically. Use `scroll_private user_id newer` / `scroll_group group_id newer` or the matching `jump_*_to_latest` command to reveal them.
 
+## 表情（收到的 / 你自己发的）
+
+- 收到别人的 QQ 表情,你会看到方括号里的名字,例如 `[笑哭]`、`[OK]`、`[辣眼睛]`。通用 emoji(如 `😂`)按字符本身显示。
+- 你自己要发同一个表情,就在消息文字里写 `[表情:名字]` —— 看到 `[笑哭]` 就写 `[表情:笑哭]`,名字就是方括号里那个词。或者直接打 Unicode emoji `😂`。
+- 这对所有出站文字完全一样:私聊回复、群回复、以及 `qq-send-image` 的图片说明(caption)。没有例外,不用记不同写法。
+
 ## Badge Rules
 
 - This works exactly like phone QQ. Opening a conversation (`focus_private` / `focus_group` / `jump_*_to_latest`) clears that conversation's unread badge — the whole conversation, not just the visible screen. Messages you did not scroll to are also marked read but stay in history; `scroll_*` to re-read them.
