@@ -2211,10 +2211,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 source_id,
                 trace_id,
                 run_id,
-                conversation_id,
                 metadata
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb)
               ON CONFLICT (event_id) DO UPDATE SET
                 updated_at = agent_stack_items.updated_at
               RETURNING *
@@ -2235,7 +2234,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               firstString(item.sourceId, item.source_id, input.sourceId, input.source_id),
               firstString(item.traceId, item.trace_id, input.traceId, input.trace_id),
               firstString(item.runId, item.run_id, input.runId, input.run_id),
-              normalizeBigIntId(item.conversationId ?? item.conversation_id ?? input.conversationId ?? input.conversation_id),
               JSON.stringify(normalizeJsonObject(item.metadata, {}))
             ]
           );
@@ -2289,7 +2287,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage,
               trace_id,
               run_id,
-              conversation_id,
               agent_turn,
               model_name,
               model_provider,
@@ -2299,7 +2296,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               metadata,
               completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
+            VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
             ON CONFLICT (slice_id) DO UPDATE SET
               llm_call_id = EXCLUDED.llm_call_id,
               input_start_index = EXCLUDED.input_start_index,
@@ -2317,7 +2314,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage = EXCLUDED.token_usage,
               trace_id = EXCLUDED.trace_id,
               run_id = EXCLUDED.run_id,
-              conversation_id = EXCLUDED.conversation_id,
               agent_turn = EXCLUDED.agent_turn,
               model_name = EXCLUDED.model_name,
               model_provider = EXCLUDED.model_provider,
@@ -2348,7 +2344,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             normalizeInteger(input.agentTurn ?? input.agent_turn),
             firstString(input.modelName, input.model_name),
             firstString(input.modelProvider, input.model_provider),
@@ -2386,7 +2381,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               llm_call_id,
               trace_id,
               run_id,
-              conversation_id,
               canonical_request,
               wire_request,
               canonical_response,
@@ -2404,7 +2398,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               created_at,
               completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
             ON CONFLICT (event_id) DO UPDATE SET
               source_kind = EXCLUDED.source_kind,
               source_id = EXCLUDED.source_id,
@@ -2412,7 +2406,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               llm_call_id = EXCLUDED.llm_call_id,
               trace_id = EXCLUDED.trace_id,
               run_id = EXCLUDED.run_id,
-              conversation_id = EXCLUDED.conversation_id,
               canonical_request = EXCLUDED.canonical_request,
               wire_request = EXCLUDED.wire_request,
               canonical_response = EXCLUDED.canonical_response,
@@ -2439,7 +2432,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             firstString(input.llmCallId, input.llm_call_id),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
             input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
             input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
@@ -2528,7 +2520,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect,
             trace_id,
             run_id,
-            conversation_id,
             agent_turn,
             stack_call_item_id,
             stack_output_item_id,
@@ -2536,7 +2527,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (execution_id) DO UPDATE SET
             llm_request_slice_id = EXCLUDED.llm_request_slice_id,
             llm_call_id = EXCLUDED.llm_call_id,
@@ -2550,7 +2541,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect = EXCLUDED.side_effect,
             trace_id = EXCLUDED.trace_id,
             run_id = EXCLUDED.run_id,
-            conversation_id = EXCLUDED.conversation_id,
             agent_turn = EXCLUDED.agent_turn,
             stack_call_item_id = COALESCE(EXCLUDED.stack_call_item_id, tool_executions.stack_call_item_id),
             stack_output_item_id = COALESCE(EXCLUDED.stack_output_item_id, tool_executions.stack_output_item_id),
@@ -2574,7 +2564,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           normalizeBoolean(input.sideEffect ?? input.side_effect),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           normalizeInteger(input.agentTurn ?? input.agent_turn),
           normalizeBigIntId(input.stackCallItemId ?? input.stack_call_item_id),
           normalizeBigIntId(input.stackOutputItemId ?? input.stack_output_item_id),
@@ -2632,7 +2621,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             status,
             trace_id,
             run_id,
-            conversation_id,
             read_cutoff_after_stack_index,
             previous_read_cutoff_after_stack_index,
             summary_text,
@@ -2642,13 +2630,12 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (fork_run_id) DO UPDATE SET
             context_session_key = COALESCE(EXCLUDED.context_session_key, core_memory_compression_fork_runs.context_session_key),
             status = EXCLUDED.status,
             trace_id = COALESCE(EXCLUDED.trace_id, core_memory_compression_fork_runs.trace_id),
             run_id = COALESCE(EXCLUDED.run_id, core_memory_compression_fork_runs.run_id),
-            conversation_id = COALESCE(EXCLUDED.conversation_id, core_memory_compression_fork_runs.conversation_id),
             read_cutoff_after_stack_index = COALESCE(EXCLUDED.read_cutoff_after_stack_index, core_memory_compression_fork_runs.read_cutoff_after_stack_index),
             previous_read_cutoff_after_stack_index = COALESCE(EXCLUDED.previous_read_cutoff_after_stack_index, core_memory_compression_fork_runs.previous_read_cutoff_after_stack_index),
             summary_text = COALESCE(EXCLUDED.summary_text, core_memory_compression_fork_runs.summary_text),
@@ -2666,7 +2653,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           firstString(input.status, 'running'),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           normalizeBigIntId(input.readCutoffAfterStackIndex ?? input.read_cutoff_after_stack_index),
           normalizeBigIntId(input.previousReadCutoffAfterStackIndex ?? input.previous_read_cutoff_after_stack_index),
           firstString(input.summaryText, input.summary_text),
@@ -2781,14 +2767,13 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             llm_request_slice_id,
             trace_id,
             run_id,
-            conversation_id,
             model_name,
             model_provider,
             status,
             content,
             metadata
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)
           ON CONFLICT (event_id) DO NOTHING
           RETURNING *
         `,
@@ -2799,7 +2784,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           firstString(input.llmRequestSliceId, input.llm_request_slice_id),
           firstString(input.traceId, input.trace_id),
           runId,
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           firstString(input.modelName, input.model_name),
           firstString(input.modelProvider, input.model_provider),
           firstString(input.status),
@@ -2824,7 +2808,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             status,
             trace_id,
             run_id,
-            conversation_id,
             notify_queue_message_id,
             summary_text,
             artifact,
@@ -2833,13 +2816,12 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (fork_run_id) DO UPDATE SET
             context_session_key = COALESCE(EXCLUDED.context_session_key, subconscious_agent_fork_runs.context_session_key),
             status = EXCLUDED.status,
             trace_id = COALESCE(EXCLUDED.trace_id, subconscious_agent_fork_runs.trace_id),
             run_id = COALESCE(EXCLUDED.run_id, subconscious_agent_fork_runs.run_id),
-            conversation_id = COALESCE(EXCLUDED.conversation_id, subconscious_agent_fork_runs.conversation_id),
             notify_queue_message_id = COALESCE(EXCLUDED.notify_queue_message_id, subconscious_agent_fork_runs.notify_queue_message_id),
             summary_text = COALESCE(EXCLUDED.summary_text, subconscious_agent_fork_runs.summary_text),
             artifact = EXCLUDED.artifact,
@@ -2856,7 +2838,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           firstString(input.status, 'running'),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           normalizeBigIntId(input.notifyQueueMessageId ?? input.notify_queue_message_id),
           firstString(input.summaryText, input.summary_text),
           JSON.stringify(normalizeJsonObject(input.artifact, {})),
@@ -2985,10 +2966,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 source_id,
                 trace_id,
                 run_id,
-                conversation_id,
                 metadata
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb)
               RETURNING *
             `,
             [
@@ -3008,7 +2988,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               firstString(item.sourceId, item.source_id, input.sourceId, input.source_id),
               firstString(item.traceId, item.trace_id, input.traceId, input.trace_id),
               firstString(item.runId, item.run_id, input.runId, input.run_id),
-              normalizeBigIntId(item.conversationId ?? item.conversation_id ?? input.conversationId ?? input.conversation_id),
               JSON.stringify(normalizeJsonObject(item.metadata, {}))
             ]
           );
@@ -3071,10 +3050,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 source_id,
                 trace_id,
                 run_id,
-                conversation_id,
                 metadata
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb)
               RETURNING *
             `,
             [
@@ -3094,7 +3072,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               firstString(item.sourceId, item.source_id, input.sourceId, input.source_id),
               firstString(item.traceId, item.trace_id, input.traceId, input.trace_id),
               firstString(item.runId, item.run_id, input.runId, input.run_id),
-              normalizeBigIntId(item.conversationId ?? item.conversation_id ?? input.conversationId ?? input.conversation_id),
               JSON.stringify(normalizeJsonObject(item.metadata, {}))
             ]
           );
@@ -3145,7 +3122,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage,
               trace_id,
               run_id,
-              conversation_id,
               agent_turn,
               model_name,
               model_provider,
@@ -3155,7 +3131,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               metadata,
               completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
             ON CONFLICT (slice_id) DO UPDATE SET
               fork_run_id = EXCLUDED.fork_run_id,
               llm_call_id = EXCLUDED.llm_call_id,
@@ -3174,7 +3150,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage = EXCLUDED.token_usage,
               trace_id = EXCLUDED.trace_id,
               run_id = EXCLUDED.run_id,
-              conversation_id = EXCLUDED.conversation_id,
               agent_turn = EXCLUDED.agent_turn,
               model_name = EXCLUDED.model_name,
               model_provider = EXCLUDED.model_provider,
@@ -3206,7 +3181,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             normalizeInteger(input.agentTurn ?? input.agent_turn),
             firstString(input.modelName, input.model_name),
             firstString(input.modelProvider, input.model_provider),
@@ -3259,7 +3233,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage,
               trace_id,
               run_id,
-              conversation_id,
               agent_turn,
               model_name,
               model_provider,
@@ -3269,7 +3242,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               metadata,
               completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
             ON CONFLICT (slice_id) DO UPDATE SET
               fork_run_id = EXCLUDED.fork_run_id,
               llm_call_id = EXCLUDED.llm_call_id,
@@ -3288,7 +3261,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage = EXCLUDED.token_usage,
               trace_id = EXCLUDED.trace_id,
               run_id = EXCLUDED.run_id,
-              conversation_id = EXCLUDED.conversation_id,
               agent_turn = EXCLUDED.agent_turn,
               model_name = EXCLUDED.model_name,
               model_provider = EXCLUDED.model_provider,
@@ -3320,7 +3292,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             normalizeInteger(input.agentTurn ?? input.agent_turn),
             firstString(input.modelName, input.model_name),
             firstString(input.modelProvider, input.model_provider),
@@ -3353,7 +3324,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             status,
             trace_id,
             run_id,
-            conversation_id,
             asset_id,
             image_id,
             media_tag,
@@ -3365,12 +3335,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (fork_run_id) DO UPDATE SET
             status = EXCLUDED.status,
             trace_id = COALESCE(EXCLUDED.trace_id, image_vision_fork_runs.trace_id),
             run_id = COALESCE(EXCLUDED.run_id, image_vision_fork_runs.run_id),
-            conversation_id = COALESCE(EXCLUDED.conversation_id, image_vision_fork_runs.conversation_id),
             asset_id = COALESCE(EXCLUDED.asset_id, image_vision_fork_runs.asset_id),
             image_id = COALESCE(EXCLUDED.image_id, image_vision_fork_runs.image_id),
             media_tag = COALESCE(EXCLUDED.media_tag, image_vision_fork_runs.media_tag),
@@ -3389,7 +3358,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           firstString(input.status, 'running'),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           firstString(input.assetId, input.asset_id),
           firstString(input.imageId, input.image_id),
           firstString(input.mediaTag, input.media_tag),
@@ -3486,10 +3454,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
                 source_id,
                 trace_id,
                 run_id,
-                conversation_id,
                 metadata
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb)
               RETURNING *
             `,
             [
@@ -3509,7 +3476,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               firstString(item.sourceId, item.source_id, input.sourceId, input.source_id),
               firstString(item.traceId, item.trace_id, input.traceId, input.trace_id),
               firstString(item.runId, item.run_id, input.runId, input.run_id),
-              normalizeBigIntId(item.conversationId ?? item.conversation_id ?? input.conversationId ?? input.conversation_id),
               JSON.stringify(normalizeJsonObject(item.metadata, {}))
             ]
           );
@@ -3560,7 +3526,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage,
               trace_id,
               run_id,
-              conversation_id,
               agent_turn,
               model_name,
               model_provider,
@@ -3570,7 +3535,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               metadata,
               completed_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
             ON CONFLICT (slice_id) DO UPDATE SET
               fork_run_id = EXCLUDED.fork_run_id,
               llm_call_id = EXCLUDED.llm_call_id,
@@ -3589,7 +3554,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               token_usage = EXCLUDED.token_usage,
               trace_id = EXCLUDED.trace_id,
               run_id = EXCLUDED.run_id,
-              conversation_id = EXCLUDED.conversation_id,
               agent_turn = EXCLUDED.agent_turn,
               model_name = EXCLUDED.model_name,
               model_provider = EXCLUDED.model_provider,
@@ -3621,7 +3585,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             normalizeInteger(input.agentTurn ?? input.agent_turn),
             firstString(input.modelName, input.model_name),
             firstString(input.modelProvider, input.model_provider),
@@ -3668,7 +3631,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect,
             trace_id,
             run_id,
-            conversation_id,
             agent_turn,
             stack_call_item_id,
             stack_output_item_id,
@@ -3676,7 +3638,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (execution_id) DO UPDATE SET
             fork_run_id = EXCLUDED.fork_run_id,
             llm_request_slice_id = EXCLUDED.llm_request_slice_id,
@@ -3691,7 +3653,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect = EXCLUDED.side_effect,
             trace_id = EXCLUDED.trace_id,
             run_id = EXCLUDED.run_id,
-            conversation_id = EXCLUDED.conversation_id,
             agent_turn = EXCLUDED.agent_turn,
             stack_call_item_id = COALESCE(EXCLUDED.stack_call_item_id, core_memory_compression_fork_tool_executions.stack_call_item_id),
             stack_output_item_id = COALESCE(EXCLUDED.stack_output_item_id, core_memory_compression_fork_tool_executions.stack_output_item_id),
@@ -3716,7 +3677,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           normalizeBoolean(input.sideEffect ?? input.side_effect),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           normalizeInteger(input.agentTurn ?? input.agent_turn),
           normalizeBigIntId(input.stackCallItemId ?? input.stack_call_item_id),
           normalizeBigIntId(input.stackOutputItemId ?? input.stack_output_item_id),
@@ -3755,7 +3715,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect,
             trace_id,
             run_id,
-            conversation_id,
             agent_turn,
             stack_call_item_id,
             stack_output_item_id,
@@ -3763,7 +3722,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             started_at,
             completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, COALESCE(?::timestamptz, CURRENT_TIMESTAMP), ?::timestamptz)
           ON CONFLICT (execution_id) DO UPDATE SET
             fork_run_id = EXCLUDED.fork_run_id,
             llm_request_slice_id = EXCLUDED.llm_request_slice_id,
@@ -3778,7 +3737,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             side_effect = EXCLUDED.side_effect,
             trace_id = EXCLUDED.trace_id,
             run_id = EXCLUDED.run_id,
-            conversation_id = EXCLUDED.conversation_id,
             agent_turn = EXCLUDED.agent_turn,
             stack_call_item_id = COALESCE(EXCLUDED.stack_call_item_id, subconscious_agent_fork_tool_executions.stack_call_item_id),
             stack_output_item_id = COALESCE(EXCLUDED.stack_output_item_id, subconscious_agent_fork_tool_executions.stack_output_item_id),
@@ -3803,7 +3761,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           normalizeBoolean(input.sideEffect ?? input.side_effect),
           firstString(input.traceId, input.trace_id),
           firstString(input.runId, input.run_id),
-          normalizeBigIntId(input.conversationId ?? input.conversation_id),
           normalizeInteger(input.agentTurn ?? input.agent_turn),
           normalizeBigIntId(input.stackCallItemId ?? input.stack_call_item_id),
           normalizeBigIntId(input.stackOutputItemId ?? input.stack_output_item_id),

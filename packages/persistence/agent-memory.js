@@ -128,7 +128,6 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
       data: {
         session_key: String(input.sessionKey || ''),
         group_id: normalizeOptionalBigInt(input.groupId),
-        source_conversation_id: normalizeOptionalBigInt(input.sourceConversationId),
         source_turn_ids: normalizeJsonArray(input.sourceTurnIds),
         source_message_ids: normalizeJsonArray(input.sourceMessageIds),
         topic: String(input.topic || ''),
@@ -150,7 +149,6 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
       data: {
         session_key: String(input.sessionKey || ''),
         group_id: normalizeOptionalBigInt(input.groupId),
-        source_conversation_id: normalizeOptionalBigInt(input.sourceConversationId),
         source_turn_ids: normalizeJsonArray(input.sourceTurnIds),
         source_message_ids: normalizeJsonArray(input.sourceMessageIds),
         text: String(input.text || ''),
@@ -171,7 +169,6 @@ function createAgentMemoryPersistence({ getPrismaClient, createSqlAdapter }) {
       data: {
         session_key: String(input.sessionKey || ''),
         group_id: normalizeOptionalBigInt(input.groupId),
-        source_conversation_id: normalizeOptionalBigInt(input.sourceConversationId),
         text: String(input.text || ''),
         kind: String(input.kind || 'group_norm'),
         subjects: normalizeJsonArray(input.subjects),

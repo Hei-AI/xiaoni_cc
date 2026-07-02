@@ -287,7 +287,6 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
       message_sid: normalizeOptionalString(input.messageSid || input.message_sid),
       message_id: normalizeOptionalString(input.messageId || input.message_id),
       batch_id: normalizeOptionalString(input.batchId || input.batch_id),
-      conversation_id: normalizeBigIntInput(input.conversationId || input.conversation_id),
       conversation_item_id: normalizeBigIntInput(input.conversationItemId || input.conversation_item_id),
       queue_message_id: normalizeBigIntInput(input.queueMessageId || input.queue_message_id),
       run_id: normalizeOptionalString(input.runId || input.run_id),

@@ -434,7 +434,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           INSERT INTO timeline_events (
             trace_id,
-            conversation_id,
             event_type,
             event_name,
             event_phase,
@@ -442,11 +441,10 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             duration_ms,
             metadata
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb)
+          VALUES (?, ?, ?, ?, ?, ?, ?::jsonb)
         `,
         [
           input.traceId,
-          input.conversationId ?? null,
           input.eventType,
           input.eventName,
           input.eventPhase ?? null,
@@ -1216,7 +1214,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         `
           SELECT
             summary_text,
-            summarized_through_conversation_id,
             summary_status
           FROM chat_transcript_snapshots
           WHERE session_id = ?
@@ -1228,9 +1225,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
       const snapshot = snapshotRows[0];
       return {
         summaryText: snapshot?.summary_text?.trim() || null,
-        summarizedThroughConversationId: snapshot
-          ? Number(snapshot.summarized_through_conversation_id)
-          : null
+        summarizedThroughConversationId: null
       };
     });
   }
@@ -1385,7 +1380,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             group_id,
             summary_text,
             summary_format_version,
-            summarized_through_conversation_id,
             summary_status,
             summary_job_id,
             last_compacted_at,
@@ -1412,19 +1406,17 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             group_id,
             summary_text,
             summary_format_version,
-            summarized_through_conversation_id,
             summary_status,
             summary_job_id,
             last_compacted_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (session_id) DO UPDATE SET
             chat_type = EXCLUDED.chat_type,
             private_user_id = EXCLUDED.private_user_id,
             group_id = EXCLUDED.group_id,
             summary_text = EXCLUDED.summary_text,
             summary_format_version = EXCLUDED.summary_format_version,
-            summarized_through_conversation_id = EXCLUDED.summarized_through_conversation_id,
             summary_status = EXCLUDED.summary_status,
             summary_job_id = EXCLUDED.summary_job_id,
             last_compacted_at = EXCLUDED.last_compacted_at,
@@ -1437,7 +1429,6 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           input.groupId ?? null,
           input.summaryText,
           input.summaryFormatVersion,
-          input.summarizedThroughConversationId,
           input.summaryStatus || 'ready',
           input.summaryJobId ?? null,
           normalizeTimestamp(input.lastCompactedAt)

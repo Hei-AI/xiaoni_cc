@@ -36,7 +36,7 @@ test('ensureAgentRuntimeSchema includes agent-only runtime tables and delivery c
   assert.equal(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS tool_execution_logs')), false);
   assert.equal(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS xiaoni_replay_events')), false);
   assert.ok(createAgentQueueIndex < alterAgentQueueIndex);
-  assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS conversation_items')));
+  assert.equal(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS conversation_items')), false);
   assert.ok(statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS agent_session_context_windows')));
   assert.ok(statements.some((sql) => sql.includes('ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS delivery_phase')));
 });
@@ -165,7 +165,6 @@ test('upsertTranscriptSnapshot preserves pending and ready snapshot fields', asy
     groupId: 42,
     summaryText: 'summary',
     summaryFormatVersion: 'v1',
-    summarizedThroughConversationId: 99,
     summaryStatus: 'ready',
     summaryJobId: 'job-1',
     lastCompactedAt: '2026-06-09T12:00:00.000Z'
@@ -176,8 +175,8 @@ test('upsertTranscriptSnapshot preserves pending and ready snapshot fields', asy
   assert.equal(executes[0].params[0], 'group:42');
   assert.equal(executes[0].params[1], 'group');
   assert.equal(executes[0].params[3], 42);
-  assert.equal(executes[0].params[7], 'ready');
-  assert.equal(executes[0].params[8], 'job-1');
+  assert.equal(executes[0].params[6], 'ready');
+  assert.equal(executes[0].params[7], 'job-1');
 });
 
 test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one locked transaction', async () => {

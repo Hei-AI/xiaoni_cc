@@ -406,11 +406,9 @@ test('recordRuntimeIdentityActivationTrace stores runtime-only activation eviden
   });
 
   assert.equal(createPayload.identity_key, 'xiaoni');
-  assert.equal(createPayload.conversation_id, 998n);
   assert.deepEqual(createPayload.activated_refs, [{ sourceType: 'accepted_identity_fact', sourceId: '21' }]);
   assert.deepEqual(createPayload.suppressed_refs, [{ sourceType: 'identity_evidence_ref', sourceId: '22' }]);
   assert.equal(result.id, 30);
-  assert.equal(result.conversation_id, 998);
 });
 
 test('ensureIdentityLineageSchema creates new Phase 1 tables and migrates legacy sidecars', async () => {

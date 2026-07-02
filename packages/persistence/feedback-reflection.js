@@ -255,7 +255,6 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
         event_kind: String(input.eventKind || 'feedback'),
         excerpt_text: normalizeOptionalString(input.excerptText),
         source_message_ids: normalizeJsonArray(input.sourceMessageIds),
-        source_conversation_id: normalizeOptionalBigInt(input.sourceConversationId),
         event_importance: normalizeOptionalNumber(input.eventImportance),
         source_salience: normalizeOptionalNumber(input.sourceSalience),
         metadata: normalizeJsonObject(input.metadata)
@@ -307,7 +306,6 @@ function createFeedbackReflectionPersistence({ getPrismaClient, createSqlAdapter
         embedding_text: normalizeOptionalString(input.embeddingText),
         source_message_ids: normalizeJsonArray(input.sourceMessageIds),
         source_episode_ids: normalizeJsonArray(input.sourceEpisodeIds),
-        source_conversation_id: normalizeOptionalBigInt(input.sourceConversationId),
         supersedes_reflection_id: normalizeOptionalBigInt(input.supersedesReflectionId),
         conflict_group_key: normalizeOptionalString(input.conflictGroupKey),
         metadata: normalizeJsonObject(input.metadata),

@@ -319,7 +319,6 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
               tool_call_id,
               trace_id,
               run_id,
-              conversation_id,
               queue_message_id,
               wake_count_start_queue_message_id,
               last_wake_counted_queue_message_id,
@@ -334,7 +333,7 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
               hard_wake_at,
               metadata
             )
-            VALUES (?, ?, 'active', ?, ?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::timestamptz, ?::timestamptz, ?::jsonb)
+            VALUES (?, ?, 'active', ?, ?, ?, ?::timestamptz, ?::timestamptz, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::timestamptz, ?::timestamptz, ?::jsonb)
             RETURNING *
           `,
           [
@@ -351,7 +350,6 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             firstString(input.toolCallId, input.tool_call_id),
             firstString(input.traceId, input.trace_id),
             firstString(input.runId, input.run_id),
-            normalizeBigIntId(input.conversationId ?? input.conversation_id),
             firstString(input.queueMessageId, input.queue_message_id),
             wakeStartId,
             wakeStartId,

@@ -69,8 +69,7 @@ function createDedupeAwareSql() {
           source_id: params[12],
           trace_id: params[13],
           run_id: params[14],
-          conversation_id: params[15],
-          metadata: JSON.parse(params[16]),
+          metadata: JSON.parse(params[15]),
           created_at: '2026-06-29T00:00:00.000Z',
           updated_at: '2026-06-29T00:00:00.000Z'
         };

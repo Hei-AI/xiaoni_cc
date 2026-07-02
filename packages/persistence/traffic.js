@@ -239,7 +239,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
           client_ip, user_agent,
           request_size, response_size,
           error_message,
-          conversation_id, user_id, session_id
+          user_id, session_id
         FROM http_traffic_logs
         ${where}
         ORDER BY request_timestamp DESC
@@ -268,7 +268,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const rows = await prisma.$queryRaw(
       Prisma.sql`
         SELECT
-          id, request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          id, request_id, trace_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
           container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
           request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
           response_size, duration_ms, request_timestamp::text as request_timestamp, response_timestamp::text as response_timestamp,
@@ -292,14 +292,11 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     if (params.traceId) {
       where.push(Prisma.sql`trace_id = ${params.traceId}`);
     }
-    if (conversationId !== null) {
-      where.push(Prisma.sql`conversation_id = ${conversationId}`);
-    }
 
     const rows = await prisma.$queryRaw(
       Prisma.sql`
         SELECT
-          id, request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          id, request_id, trace_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
           container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
           request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
           response_size, duration_ms, request_timestamp::text as request_timestamp, response_timestamp::text as response_timestamp,
@@ -570,7 +567,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const rows = search
       ? await prisma.$queryRaw(
           Prisma.sql`
-            SELECT id, trace_id, conversation_id, method, host, path, url, api_type, service_name,
+            SELECT id, trace_id, method, host, path, url, api_type, service_name,
                    response_status, duration_ms, request_timestamp::text as request_timestamp
             FROM http_traffic_logs
             WHERE is_ai_request = TRUE
@@ -585,7 +582,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
         )
       : await prisma.$queryRaw(
           Prisma.sql`
-            SELECT id, trace_id, conversation_id, method, host, path, url, api_type, service_name,
+            SELECT id, trace_id, method, host, path, url, api_type, service_name,
                    response_status, duration_ms, request_timestamp::text as request_timestamp
             FROM http_traffic_logs
             WHERE is_ai_request = TRUE
@@ -609,7 +606,6 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
       return Prisma.sql`(
         ${record.request_id || null},
         ${record.trace_id || null},
-        ${toOptionalBigIntId(record.conversation_id)},
         ${record.user_id || null},
         ${record.session_id || null},
         ${toIntegerValue(record.agent_turn)},
@@ -646,7 +642,7 @@ function createTrafficPersistence({ getPrismaClient, Prisma }) {
     const insertedCount = await prisma.$executeRaw(
       Prisma.sql`
         INSERT INTO http_traffic_logs (
-          request_id, trace_id, conversation_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
+          request_id, trace_id, user_id, session_id, agent_turn, llm_call_id, tool_call_id,
           container_name, service_name, method, url, host, path, query_params, request_headers, request_body,
           request_content_type, request_size, response_status, response_headers, response_body, response_content_type,
           response_size, duration_ms, request_timestamp, response_timestamp, is_ai_request, api_type, api_version,

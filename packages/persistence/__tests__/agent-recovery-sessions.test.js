@@ -98,20 +98,19 @@ test('agent recovery sessions persist wake-count high watermark and settle activ
           tool_call_id: params[10],
           trace_id: params[11],
           run_id: params[12],
-          conversation_id: params[13],
-          queue_message_id: params[14],
-          wake_count_start_queue_message_id: params[15],
-          last_wake_counted_queue_message_id: params[16],
-          wake_call_count: params[17],
-          wake_required_count: params[18],
-          start_pressure: params[19],
-          current_pressure: params[20],
-          start_energy: params[21],
-          current_energy: params[22],
-          max_energy: params[23],
-          planned_natural_wake_at: params[24],
-          hard_wake_at: params[25],
-          metadata: params[26]
+          queue_message_id: params[13],
+          wake_count_start_queue_message_id: params[14],
+          last_wake_counted_queue_message_id: params[15],
+          wake_call_count: params[16],
+          wake_required_count: params[17],
+          start_pressure: params[18],
+          current_pressure: params[19],
+          start_energy: params[20],
+          current_energy: params[21],
+          max_energy: params[22],
+          planned_natural_wake_at: params[23],
+          hard_wake_at: params[24],
+          metadata: params[25]
         });
         return [activeRow];
       }
@@ -383,8 +382,8 @@ test('agent recovery sessions serialize Date timestamp parameters as instants', 
   const finalizeCall = queryCalls.find((entry) => entry.statement.includes('SET status = ?'));
   assert.equal(insertCall.params[6], '2026-06-13T05:52:16.209Z');
   assert.equal(insertCall.params[5], '2026-06-13T06:52:16.209Z');
-  assert.equal(insertCall.params[24], '2026-06-13T07:52:16.209Z');
-  assert.equal(insertCall.params[25], '2026-06-13T08:52:16.209Z');
+  assert.equal(insertCall.params[23], '2026-06-13T07:52:16.209Z');
+  assert.equal(insertCall.params[24], '2026-06-13T08:52:16.209Z');
   assert.equal(finalizeCall.params[2], '2026-06-13T08:52:16.209Z');
   assert.equal(finalizeCall.params[3], '2026-06-13T08:52:16.209Z');
 });

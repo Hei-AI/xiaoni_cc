@@ -490,7 +490,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
         `
           UPDATE agent_queue_messages
           SET status = 'settled',
-              conversation_id = COALESCE(?, conversation_id),
               result = ?::jsonb,
               completed_at = NOW(),
               updated_at = NOW(),
@@ -498,7 +497,6 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           WHERE run_id = ?
         `,
         [
-          input.conversationId ?? input.conversation_id ?? null,
           JSON.stringify(normalizeJsonObject(input.result)),
           runId
         ]
@@ -522,14 +520,12 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           UPDATE agent_queue_messages
           SET status = 'failed',
               error_message = ?,
-              conversation_id = COALESCE(?, conversation_id),
               completed_at = NOW(),
               updated_at = NOW()
           WHERE run_id = ?
         `,
         [
           String(input.errorMessage || input.error_message || ''),
-          input.conversationId ?? input.conversation_id ?? null,
           runId
         ]
       );
