@@ -3452,8 +3452,12 @@ function buildAttentionLeaseTemplateVariables(queueMessage: QueueMessageRecord['
     UNREAD_DELTA: unreadDelta,
     DIRECT_MENTION_COUNT: directMentions,
     LATEST_SENDER_LABEL: normalizeAttentionLeaseSenderLabel(queueMessage),
+    // 摘要只取干净正文预览字段。绝不回退到 rawBody/bodyForAgent——通知类 queue message 的这两个
+    // 字段按 provider 设计可能装着身份句「群X 有 N 条新消息」,回退会让摘要与昵称/群名共用
+    // (同 phone_notification 已修的那类)。source_preview 恒有值(空正文→'无摘要'),空则由
+    // normalizeAttentionLeasePreview 兜「无摘要」。
     LATEST_MESSAGE_PREVIEW: normalizeAttentionLeasePreview(
-      rawPayload.source_preview ?? rawPayload.latest_preview ?? queueMessage.rawBody ?? queueMessage.bodyForAgent
+      rawPayload.source_preview ?? rawPayload.latest_preview
     ),
     FOCUS_TARGET_ACTION: focusTargetAction || (queueMessage.chatType === 'direct' ? 'focus_private' : 'focus_group'),
     FOCUS_TARGET_ID: focusTargetIdParts.join(' ') || queueMessage.peerId
