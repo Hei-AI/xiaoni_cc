@@ -11,7 +11,7 @@ import {
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
 } from '@qq-bot/persistence';
-import { aiConfig, inboundLivenessConfig, selfEvolutionConfig, serverConfig } from './config';
+import { aiConfig, inboundLivenessConfig, serverConfig } from './config';
 import { evaluateInboundLiveness } from './services/inbound-liveness';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
@@ -26,8 +26,6 @@ import {
 } from './services/agent-im-input-adapter';
 import { InboundInboxService } from './services/inbound-inbox-service';
 import RelationshipLedgerService from './services/relationship-ledger-service';
-import SelfEvolutionExecutorService from './services/self-evolution-executor-service';
-import { SelfEvolutionService } from './services/self-evolution-service';
 import TopicReviewMaterializationService from './services/topic-review-materialization-service';
 import { GroupParticipationService } from './services/group-participation-service';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
@@ -207,15 +205,6 @@ const relationshipLedgerService = new RelationshipLedgerService({
         receivedAtMs: new Date(message.receivedAt).getTime()
       }));
   }
-});
-const selfEvolutionService = new SelfEvolutionService({
-  enabled: selfEvolutionConfig.enabled,
-  webhookUrl: selfEvolutionConfig.webhookUrl,
-  minNewTurns: selfEvolutionConfig.minNewTurns,
-  minNewLedgerEvents: selfEvolutionConfig.minNewLedgerEvents
-});
-const selfEvolutionExecutorService = new SelfEvolutionExecutorService({
-  modelName: selfEvolutionConfig.modelName
 });
 const topicReviewMaterializationService = new TopicReviewMaterializationService();
 

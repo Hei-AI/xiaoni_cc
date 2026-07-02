@@ -10,16 +10,10 @@ import {
   cancelQqGroupNotificationAggregation,
   recordCodexProviderUsageEvent as persistCodexProviderUsageEvent,
   recordLlmRequestSlice,
-  attachConversationIdToRuntimeTrace,
   type SqlAdapter
 } from '@qq-bot/persistence';
 import { agentRunConfig, databaseConfig } from '../config';
 import { FinalizedInboundContext, InboxMessageRecord, SemanticInboundMessage } from '../types';
-
-function toNumericConversationId(value: unknown): number | null {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
 
 function toFiniteNumber(value: unknown): number {
   const numeric = Number(value);
@@ -303,19 +297,6 @@ export class RuntimeStoreService {
         provider_response_status_text: params.wireResponseStatusText || null,
         recorded_by: 'provider-service'
       }
-    }, databaseConfig);
-  }
-
-  async attachConversationIdToTrace(traceId: string, conversationId: unknown) {
-    const numericConversationId = toNumericConversationId(conversationId);
-    if (!traceId || numericConversationId === null) {
-      return;
-    }
-
-    await attachConversationIdToRuntimeTrace({
-      traceId,
-      conversationId: numericConversationId,
-      sqlAdapter: this.sql
     }, databaseConfig);
   }
 

@@ -1243,15 +1243,7 @@ export type AgentRuntimePersistenceApi = {
     profile?: 'agent' | 'provider' | string;
   }, config?: DatabaseUrlConfig): Promise<void>;
   ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-  ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-  attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
-    traceId?: string;
-    trace_id?: string;
-    conversationId?: number | string | null;
-    conversation_id?: number | string | null;
-    useCoalesceAssignment?: boolean;
-  }, config?: DatabaseUrlConfig): Promise<number>;
   recoverStaleProcessingLeases(input?: AgentRuntimePersistenceCallInput & {
     staleMs?: number;
     stale_ms?: number;
@@ -1269,8 +1261,6 @@ export type AgentRuntimePersistenceApi = {
   markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
   createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
   updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-  listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
-  createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
   getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
   upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
@@ -1284,8 +1274,6 @@ export type AgentRuntimePersistenceApi = {
     summaryText: string | null;
     summarizedThroughConversationId: number | null;
   }>;
-  listStoredConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
-  createStoredConversation(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
   getTranscriptSnapshotBySessionId(input?: AgentRuntimePersistenceCallInput & { sessionId?: string }, config?: DatabaseUrlConfig): Promise<any | null>;
   upsertTranscriptSnapshot(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 };
@@ -1298,15 +1286,7 @@ export function ensureAgentRuntimeSchema(input?: AgentRuntimePersistenceCallInpu
   profile?: 'agent' | 'provider' | string;
 }, config?: DatabaseUrlConfig): Promise<void>;
 export function ensureTranscriptSnapshotSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-export function ensureConversationStoreSchema(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function logRuntimeTimelineEvent(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-export function attachConversationIdToRuntimeTrace(input?: AgentRuntimePersistenceCallInput & {
-  traceId?: string;
-  trace_id?: string;
-  conversationId?: number | string | null;
-  conversation_id?: number | string | null;
-  useCoalesceAssignment?: boolean;
-}, config?: DatabaseUrlConfig): Promise<number>;
 export function recoverStaleProcessingLeases(input?: AgentRuntimePersistenceCallInput & {
   staleMs?: number;
   stale_ms?: number;
@@ -1324,8 +1304,6 @@ export function markLeaseVisibleDeliveryCommitted(input?: AgentRuntimePersistenc
 export function markLeaseDeliveryBlocked(input?: AgentRuntimePersistenceCallInput & { runId?: string; reason?: string }, config?: DatabaseUrlConfig): Promise<void>;
 export function createLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<string>;
 export function updateLlmJob(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
-export function listRecentConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
-export function createConversationWithItems(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export function getSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any | null>;
 export function upsertSessionReadCutoffState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
@@ -1339,8 +1317,6 @@ export function loadSessionReplayState(input?: AgentRuntimePersistenceCallInput,
   summaryText: string | null;
   summarizedThroughConversationId: number | null;
 }>;
-export function listStoredConversationTurns(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<any[]>;
-export function createStoredConversation(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export function getTranscriptSnapshotBySessionId(input?: AgentRuntimePersistenceCallInput & { sessionId?: string }, config?: DatabaseUrlConfig): Promise<any | null>;
 export function upsertTranscriptSnapshot(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export type QqUsageUnreadSummary = {

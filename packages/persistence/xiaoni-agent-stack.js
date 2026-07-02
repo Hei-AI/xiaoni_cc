@@ -3882,10 +3882,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('event_id = ?');
       params.push(eventId);
     }
-    if (input.conversationId || input.conversation_id) {
-      clauses.push('conversation_id = ?');
-      params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
-    }
     // Stack-native range read: keep only blocks after a stack_index cutoff. This is how the
     // compressed context replays its retained tail (everything > read_cutoff_after_stack_index),
     // replacing the legacy per-conversation grouping.
@@ -4068,10 +4064,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('fork_run_id = ?');
       params.push(forkRunId);
     }
-    if (input.conversationId || input.conversation_id) {
-      clauses.push('conversation_id = ?');
-      params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
-    }
     appendTimeClauses(clauses, params, input, 'created_at');
     params.push(limit);
 
@@ -4159,10 +4151,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     if (llmCallId) {
       clauses.push('llm_call_id = ?');
       params.push(llmCallId);
-    }
-    if (input.conversationId || input.conversation_id) {
-      clauses.push('conversation_id = ?');
-      params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
     }
     appendTimeClauses(clauses, params, input, 'created_at');
     params.push(limit);
@@ -4632,10 +4620,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     if (llmRequestSliceId) {
       clauses.push('llm_request_slice_id = ?');
       params.push(llmRequestSliceId);
-    }
-    if (input.conversationId || input.conversation_id) {
-      clauses.push('conversation_id = ?');
-      params.push(normalizeBigIntId(input.conversationId ?? input.conversation_id));
     }
     appendTimeClauses(clauses, params, input, 'COALESCE(started_at, created_at)');
     params.push(limit, offset);
