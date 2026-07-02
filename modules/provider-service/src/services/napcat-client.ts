@@ -1,6 +1,55 @@
 import axios, { AxiosInstance } from 'axios';
 import { napcatConfig } from '../config';
 import { logger } from '../utils/logger';
+import { QQ_FACE_IDS } from '../data/qq-face-names';
+
+// 出站表情编码:把显式记号 [表情:名字] 替换成 NapCat 系统表情 CQ 码 [CQ:face,id=N]。
+// 只认带 "表情:" 前缀的显式 sigil —— 裸 [OK]/[流泪] 等字面文本原样通过,不会被误当成表情
+// (与入站解码对称但不贪婪:入站把 face 段渲染成可读的 [笑哭],出站要求显式 [表情:笑哭] 才编码)。
+// 已存在的 [CQ:...](如 at、raw face)不匹配此正则,原样透传。未知名字保持字面。
+const FACE_SIGIL_REGEX = /\[表情:([^\]]{1,16})\]/g;
+
+// 字符串消息路(send_private_msg / send_group_msg):把 [表情:名字] 编成 [CQ:face,id=N]。
+// NapCat 对字符串消息解析 CQ 码,所以这里输出 CQ 码即可。裸 [CQ:...] 原样透传(NapCat 自解析)。
+export function encodeOutboundFaces(text: string): string {
+  if (!text) {
+    return text;
+  }
+  return text.replace(FACE_SIGIL_REGEX, (whole, rawName: string) => {
+    const id = QQ_FACE_IDS[rawName.trim()];
+    return id ? `[CQ:face,id=${id}]` : whole;
+  });
+}
+
+// 数组消息路(图片 caption):数组里的 text 段是字面、NapCat 不解析 CQ,所以不能靠 CQ 码,
+// 必须把 [表情:名字](或裸 [CQ:face,id=N])拆出来注入真正的 {type:'face'} 段。与字符串路
+// 共用同一张 QQ_FACE_IDS 反表 —— 内容同源,只是信封格式不同,故行为一致:两条路都出真表情。
+const CAPTION_FACE_TOKEN_REGEX = /\[表情:([^\]]{1,16})\]|\[CQ:face,id=(\d+)\]/g;
+
+export function encodeCaptionSegments(caption: string): Array<Record<string, unknown>> {
+  const segments: Array<Record<string, unknown>> = [];
+  let lastIndex = 0;
+  for (const match of caption.matchAll(CAPTION_FACE_TOKEN_REGEX)) {
+    const id = match[2] ?? QQ_FACE_IDS[(match[1] ?? '').trim()];
+    if (!id) {
+      continue; // 未知名字:保留字面,交给后续 text 段原样带出
+    }
+    const before = caption.slice(lastIndex, match.index);
+    if (before) {
+      segments.push({ type: 'text', data: { text: before } });
+    }
+    segments.push({ type: 'face', data: { id } });
+    lastIndex = (match.index ?? 0) + match[0].length;
+  }
+  const rest = caption.slice(lastIndex);
+  if (rest) {
+    segments.push({ type: 'text', data: { text: rest } });
+  }
+  if (segments.length === 0 && caption) {
+    segments.push({ type: 'text', data: { text: caption } });
+  }
+  return segments;
+}
 
 type NapcatActionResponse<T> = {
   status?: string;
@@ -44,19 +93,22 @@ export function buildGroupMessageText(message: string, mentionUserIds: Array<str
     throw new Error('Group message text cannot be empty');
   }
 
+  // 先编码正文里的表情记号,再拼 @ 前缀。at 的 [CQ:at,...] 不匹配表情正则,互不干扰。
+  const encodedBody = encodeOutboundFaces(trimmedMessage);
+
   const normalizedMentionIds = Array.from(new Set(
     mentionUserIds.map((value) => normalizeMentionUserId(value))
   ));
 
   if (normalizedMentionIds.length === 0) {
-    return trimmedMessage;
+    return encodedBody;
   }
 
   const mentionPrefix = normalizedMentionIds
     .map((userId) => `[CQ:at,qq=${userId}]`)
     .join(' ');
 
-  return `${mentionPrefix} ${trimmedMessage}`;
+  return `${mentionPrefix} ${encodedBody}`;
 }
 
 export function normalizeImageFileReference(value: string) {
@@ -73,7 +125,7 @@ export function normalizeImageFileReference(value: string) {
   return trimmed;
 }
 
-function buildImageMessage(imageFile: string, caption?: string) {
+export function buildImageMessage(imageFile: string, caption?: string) {
   const message: Array<Record<string, unknown>> = [
     {
       type: 'image',
@@ -83,12 +135,8 @@ function buildImageMessage(imageFile: string, caption?: string) {
     }
   ];
   if (typeof caption === 'string' && caption.trim()) {
-    message.push({
-      type: 'text',
-      data: {
-        text: caption.trim()
-      }
-    });
+    // caption 里的表情记号拆成 face 段(与文字路同表同行为);无表情时就是单一 text 段,和原来一样。
+    message.push(...encodeCaptionSegments(caption.trim()));
   }
   return message;
 }
@@ -148,7 +196,7 @@ export class NapcatClient {
   async sendPrivateMessage(userId: number, message: string): Promise<any> {
     return this.callAction('send_private_msg', {
       user_id: userId,
-      message
+      message: encodeOutboundFaces(message)
     });
   }
 
