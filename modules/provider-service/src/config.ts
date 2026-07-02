@@ -94,6 +94,19 @@ export const selfEvolutionConfig = {
   timeoutMs: Math.max(1000, Number.parseInt(process.env.SELF_EVOLUTION_TIMEOUT_MS || '90000', 10))
 };
 
+// Gemini media-analysis tool: a fast multimodal side model (audio / video /
+// image understanding) exposed to 小腻 as a tool. Routed through CLIProxyAPI's
+// native Gemini generateContent surface — the same proxy 小腻's codex image-gen
+// already uses (host.docker.internal:8317), so the upstream Google key lives
+// only in CLIProxyAPI, not here. The proxy key defaults to the codex one.
+export const geminiMediaConfig = {
+  model: process.env.GEMINI_MEDIA_MODEL || 'gemini-3.5-flash',
+  baseUrl: (process.env.GEMINI_MEDIA_BASE_URL || 'http://host.docker.internal:8317').replace(/\/$/, ''),
+  apiKey: process.env.GEMINI_MEDIA_API_KEY || process.env.CODEX_PROXY_API_KEY || '',
+  timeoutMs: Math.max(1000, Number.parseInt(process.env.GEMINI_MEDIA_TIMEOUT_MS || '120000', 10)),
+  maxInlineBytes: Math.max(1, Number.parseInt(process.env.GEMINI_MEDIA_MAX_INLINE_BYTES || String(20 * 1024 * 1024), 10))
+};
+
 export const topicProjectionConfig = {
   enabled: process.env.TOPIC_PROJECTION_ENABLED !== 'false',
   webhookUrl: process.env.TOPIC_PROJECTION_WEBHOOK_URL || `http://127.0.0.1:${serverConfig.port}/api/internal/topic-projection/execute`,

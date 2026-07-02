@@ -32,6 +32,12 @@ import TopicReviewMaterializationService from './services/topic-review-materiali
 import { GroupParticipationService } from './services/group-participation-service';
 import { ImagePromptAssistantService, ImageProviderError, OpenAIImageProvider } from './services/image-provider';
 import {
+  GeminiMediaService,
+  GeminiMediaConfigError,
+  GeminiMediaRequestError,
+  GeminiMediaValidationError
+} from './services/gemini-media-service';
+import {
   buildSimpleQueueSimulationContext,
   type ProviderMessageType,
   type SimpleQueueSimulationPayload,
@@ -74,6 +80,7 @@ const NAPCAT_QQ_CONTAINER_ROOT = '/app/.config/QQ';
 const embeddingService = new EmbeddingService(aiConfig);
 const imageProvider = new OpenAIImageProvider();
 const imagePromptAssistant = new ImagePromptAssistantService();
+const geminiMediaService = new GeminiMediaService();
 const napcatClient = new NapcatClient();
 const napcatWebuiClient = new NapcatWebuiClient();
 const inboxService = new InboundInboxService();
@@ -1973,6 +1980,34 @@ app.post('/api/internal/image/prompt-assistant', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Image prompt assistant failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+app.post('/api/internal/media/analyze', async (req, res) => {
+  try {
+    const data = await geminiMediaService.analyze(req.body || {});
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    const statusCode = error instanceof GeminiMediaRequestError
+      ? error.statusCode
+      : error instanceof GeminiMediaValidationError
+        ? 400
+        : error instanceof GeminiMediaConfigError
+          ? 500
+          : 500;
+    moduleLogger.error('Gemini media analysis request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      statusCode
+    });
+    res.status(statusCode).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Gemini media analysis failed',
       timestamp: new Date().toISOString()
     });
   }
