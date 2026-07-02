@@ -35,7 +35,6 @@ const COMMON_RUNTIME_DDLS = [
       locked_by VARCHAR(128),
       processing_started_at TIMESTAMPTZ(3),
       completed_at TIMESTAMPTZ(3),
-      conversation_id BIGINT,
       error_message TEXT,
       result JSONB,
       created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -51,7 +50,6 @@ const COMMON_RUNTIME_DDLS = [
     CREATE TABLE IF NOT EXISTS agent_message_batches (
       id VARCHAR(128) PRIMARY KEY,
       trace_id VARCHAR(128) NOT NULL,
-      conversation_id BIGINT,
       session_key VARCHAR(191) NOT NULL,
       chat_type VARCHAR(16) NOT NULL,
       peer_id VARCHAR(191) NOT NULL,
@@ -83,7 +81,6 @@ const COMMON_RUNTIME_DDLS = [
       id VARCHAR(128) PRIMARY KEY,
       batch_id VARCHAR(128) NOT NULL,
       trace_id VARCHAR(128) NOT NULL,
-      conversation_id BIGINT,
       session_key VARCHAR(191) NOT NULL,
       chat_type VARCHAR(16) NOT NULL,
       peer_id VARCHAR(191) NOT NULL,
@@ -109,7 +106,6 @@ const COMMON_RUNTIME_DDLS = [
       id BIGSERIAL PRIMARY KEY,
       job_id VARCHAR(128) NOT NULL UNIQUE,
       trace_id VARCHAR(128) NOT NULL,
-      conversation_id BIGINT,
       session_id VARCHAR(191),
       agent_type VARCHAR(64),
       status VARCHAR(32) NOT NULL DEFAULT 'pending',
@@ -142,7 +138,6 @@ const TRANSCRIPT_SNAPSHOT_DDLS = [
       group_id BIGINT NULL,
       summary_text TEXT NOT NULL,
       summary_format_version VARCHAR(32) NOT NULL,
-      summarized_through_conversation_id BIGINT NOT NULL,
       summary_status VARCHAR(16) NOT NULL DEFAULT 'ready',
       summary_job_id VARCHAR(128) NULL,
       last_compacted_at TIMESTAMPTZ(3) NULL,
@@ -161,7 +156,6 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   `
     CREATE TABLE IF NOT EXISTS agent_session_context_windows (
       session_key VARCHAR(191) PRIMARY KEY,
-      read_cutoff_after_conversation_id BIGINT,
       read_cutoff_after_stack_index BIGINT,
       last_context_window_tokens INTEGER,
       last_target_budget_tokens INTEGER,

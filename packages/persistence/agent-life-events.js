@@ -227,7 +227,6 @@ function createAgentLifeEventPersistence({ getPrismaClient, createSqlAdapter }) 
           message_sid VARCHAR(191) NULL,
           message_id VARCHAR(128) NULL,
           batch_id VARCHAR(128) NULL,
-          conversation_id BIGINT NULL,
           conversation_item_id BIGINT NULL,
           queue_message_id BIGINT NULL,
           run_id VARCHAR(128) NULL,

@@ -256,7 +256,6 @@ function createAgentRecoverySessionPersistence({ createSqlAdapter, sqlAdapter } 
             tool_call_id VARCHAR(191),
             trace_id VARCHAR(128),
             run_id VARCHAR(128),
-            conversation_id BIGINT,
             queue_message_id VARCHAR(128),
             wake_count_start_queue_message_id BIGINT,
             last_wake_counted_queue_message_id BIGINT,

@@ -1,0 +1,78 @@
+-- =====================================================================
+-- conversation 残留 schema-drop —— 已执行记录 (APPLIED)
+-- =====================================================================
+-- 执行时间: 2026-07-02 ~16:38 CST
+-- 目标库:   主栈 qqbot_db (docker container qqbot-postgres)
+-- 授权:     user「都做完但不push」+「不用回退正常节奏」
+-- 备份:     pg_dump --schema-only ->
+--           ~/.qqbot-local/db-backups/schema-preconvdrop-20260702-conv-drop.sql
+--
+-- 提案稿见同目录 conversation-residue-drop.sql。实际执行的是下面这段动态 DO 块
+-- (从 information_schema 枚举所有 %conversation_id% 列并排除 cleanup_*/ops_backup_*
+--  历史备份表),单个原子事务:
+--
+--   BEGIN;
+--   DROP INDEX IF EXISTS idx_conversation_request_time_id;
+--   DO $$ DECLARE r RECORD; BEGIN
+--     FOR r IN SELECT table_name, column_name FROM information_schema.columns
+--       WHERE table_schema='public' AND column_name LIKE '%conversation_id%'
+--         AND table_name NOT LIKE 'cleanup_%' AND table_name NOT LIKE 'ops_backup_%'
+--         AND table_name NOT IN ('conversations','conversation_items')
+--       ORDER BY table_name, column_name
+--     LOOP EXECUTE format('ALTER TABLE public.%I DROP COLUMN IF EXISTS %I', r.table_name, r.column_name); END LOOP;
+--   END $$;
+--   DROP TABLE IF EXISTS conversation_items;
+--   DROP TABLE IF EXISTS conversations;
+--   COMMIT;
+--
+-- 实际掉的列 (36 列 + 2 表，来自执行时的 RAISE NOTICE):
+--   agent_feedback_episodes.source_conversation_id
+--   agent_feedback_reflections.source_conversation_id
+--   agent_life_events.conversation_id
+--   agent_memory_assertions.source_conversation_id
+--   agent_memory_observations.source_conversation_id
+--   agent_memory_reflections.source_conversation_id
+--   agent_message_batches.conversation_id
+--   agent_queue_messages.conversation_id
+--   agent_recovery_sessions.conversation_id
+--   agent_runs.conversation_id
+--   agent_session_context_windows.read_cutoff_after_conversation_id
+--   agent_stack_items.conversation_id
+--   cache_heartbeat_fork_items.conversation_id
+--   chat_transcript_snapshots.summarized_through_conversation_id
+--   codex_provider_usage_events.conversation_id
+--   core_memory_compression_fork_items.conversation_id
+--   core_memory_compression_fork_runs.conversation_id
+--   core_memory_compression_fork_runs.previous_read_cutoff_after_conversation_id
+--   core_memory_compression_fork_runs.read_cutoff_after_conversation_id
+--   core_memory_compression_fork_slices.conversation_id
+--   core_memory_compression_fork_tool_executions.conversation_id
+--   http_traffic_logs.conversation_id (+ idx_conversation_request_time_id)
+--   identity_activation_traces.conversation_id
+--   identity_evidence_refs.conversation_id
+--   image_vision_fork_items.conversation_id
+--   image_vision_fork_runs.conversation_id
+--   image_vision_fork_slices.conversation_id
+--   llm_jobs.conversation_id
+--   llm_request_slices.conversation_id
+--   runtime_identity_activation_traces.conversation_id
+--   subconscious_agent_fork_items.conversation_id
+--   subconscious_agent_fork_runs.conversation_id
+--   subconscious_agent_fork_slices.conversation_id
+--   subconscious_agent_fork_tool_executions.conversation_id
+--   timeline_events.conversation_id
+--   tool_executions.conversation_id
+--   + DROP TABLE conversation_items, conversations
+--
+-- 代码同步 (让新环境 ensureSchema 不再重建这些列 —— 已在同一批提交里做完):
+--   - raw-DDL CREATE TABLE 去列: agent-runtime.js / xiaoni-agent-stack.js /
+--     agent-memory.js / feedback-reflection.js / identity-lineage.js /
+--     agent-life-events.js / agent-recovery-sessions.js  (33 列)
+--   - 全 live INSERT/UPSERT/UPDATE/Prisma-create 停写 (commit 3b8d7e23)
+--   - admin 删 idx_conversation_request_time_id 启动索引 (commit b729cfe7)
+--   验证: 全新 scratch DB 跑 8 个 ensure*Schema -> 0 个 conversation_id 列、0 语法错。
+--
+-- 未做 (dead code, 不执行, drop-safe): CONVERSATION_STORE_DDLS(CREATE TABLE
+--   conversations/conversation_items) 及 attachConversationIdTo* / createStoredConversation
+--   等死函数 —— 见 conversation-residue-drop.sql 的收尾清单。
+-- =====================================================================
