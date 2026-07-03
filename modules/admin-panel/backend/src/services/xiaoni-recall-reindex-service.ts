@@ -9,7 +9,6 @@ import {
   upsertRecallCues,
   pruneFileChunks,
   countRecallCues
-  // @ts-ignore — JS persistence package, no bundled types for these helpers
 } from '@qq-bot/persistence';
 
 // 小腻被动浮现召回语料 reindex/ingest。扫动作流 + 文件底,只对内容变了的重嵌,写向量。

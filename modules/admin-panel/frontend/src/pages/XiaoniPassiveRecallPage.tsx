@@ -37,6 +37,7 @@ type RecallPreviewData = {
   band: { floor: number | null; ceiling: number };
   silent: boolean;
   corpusCount: number;
+  corpusTruncated?: boolean;
   surfaced: RecallSurfaced[];
   droppedCounts: Record<string, number>;
   droppedSample: Array<{ verdict: string; cos: number | null; sourceRef: string; cueClass: string | null; leadTemplate: string | null }>;
@@ -428,6 +429,7 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
                   {recallResult.silent ? '静默（什么都不冒）' : `${recallResult.surfaced.length} 条浮现`}
                 </StatusPill>
                 <span>语料 {recallResult.corpusCount}</span>
+                {recallResult.corpusTruncated ? <StatusPill tone="warning">语料截断</StatusPill> : null}
                 <span>band [{recallResult.band.floor ?? '—'}, {recallResult.band.ceiling}]</span>
                 <span>
                   剔：似 {recallResult.droppedCounts.drop_too_similar || 0} / 在场 {recallResult.droppedCounts.drop_in_context || 0} / 远 {recallResult.droppedCounts.drop_too_far || 0}

@@ -1122,7 +1122,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         throw new Error('failed to embed query text');
       }
 
-      const candidates = await listRecallCandidates({ identityKey, excludeSourceRefs: excludeRefs, limit: 5000 });
+      const CORPUS_SCAN_CAP = 50000;
+      const candidates = await listRecallCandidates({ identityKey, excludeSourceRefs: excludeRefs, limit: CORPUS_SCAN_CAP });
+      const corpusTruncated = candidates.length >= CORPUS_SCAN_CAP;
       const result = bandpassRecall({
         query: { vector: queryVector, contextRefs: excludeRefs, taskLocked },
         candidates: candidates.map((cue: any) => ({
@@ -1159,6 +1161,7 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           band: { floor: result.floor, ceiling: result.ceiling },
           silent: result.silent,
           corpusCount: candidates.length,
+          corpusTruncated,
           surfaced: result.surfaced.map((entry: any) => ({
             lead: renderRecallLead(entry.candidate),
             cos: entry.cos,

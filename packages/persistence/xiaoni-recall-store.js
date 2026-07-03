@@ -81,7 +81,9 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
         identity_key: identityKey,
         ...(excludeSourceRefs.length ? { source_ref: { notIn: excludeSourceRefs } } : {})
       },
-      orderBy: { occurred_at: 'desc' },
+      // band-pass 要扫整个语料(相关性不是时近性),按稳定 id 排(occurred_at 对 file_chunk 恒 null,
+      // 会把文件记忆全排到截断边缘)。截断由 take 上限兜,调用方应传满并看 truncated。
+      orderBy: { id: 'desc' },
       take: limit
     });
     return rows.map(parseRow);

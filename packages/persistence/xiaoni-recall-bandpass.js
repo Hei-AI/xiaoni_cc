@@ -85,12 +85,12 @@ function bandpassRecall(params) {
     return { candidate, verdict, cos };
   });
 
-  const surfaced = scored
+  const qualified = scored
     .filter((entry) => entry.verdict === 'surfaced')
-    .sort((left, right) => right.cos - left.cos)
-    .slice(0, Math.max(1, limit));
-  const surfacedSet = new Set(surfaced);
-  const dropped = scored.filter((entry) => !surfacedSet.has(entry));
+    .sort((left, right) => right.cos - left.cos);
+  const surfaced = qualified.slice(0, Math.max(1, limit));
+  // dropped 只装「没过带」的;超出 limit 的合格项既不进 surfaced,也不误标成 dropped:'surfaced'。
+  const dropped = scored.filter((entry) => entry.verdict !== 'surfaced');
 
   return {
     surfaced,
