@@ -1876,10 +1876,31 @@ app.post(['/webhook', '/api/onebot/events', '/api/onebot/webhook'], async (req, 
 });
 
 app.post('/api/internal/llm/debug', async (req, res) => {
+  // Cancel the upstream provider call if the client disconnects before we respond.
+  // The cache-heartbeat path aborts its fetch at a client-side timeout; that closes
+  // this socket. We listen on the RESPONSE's 'close' (not `req`'s — an already-parsed
+  // POST body stream closes as soon as it is consumed, which would abort every call
+  // milliseconds in). `res` 'close' fires when the response finishes OR the connection
+  // drops; `res.writableEnded` is true only in the former, so we abort exclusively on
+  // a premature client disconnect. Without this, provider-service would keep the ~437K
+  // upstream request running to completion as an orphaned, still-billed call.
+  const abortController = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+  });
   try {
-    const result = await executeDebugRequest(req.body || {});
+    const result = await executeDebugRequest(req.body || {}, abortController.signal);
     res.json(result);
   } catch (error) {
+    if (abortController.signal.aborted) {
+      moduleLogger.warn('LLM debug request cancelled by client disconnect', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      // Client is already gone; nothing to send. Avoid a bogus 500 log/response.
+      return;
+    }
     moduleLogger.error('LLM debug request failed', {
       error: error instanceof Error ? error.message : String(error)
     });

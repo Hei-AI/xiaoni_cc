@@ -254,7 +254,8 @@ export function buildRequestFromMessages(
 async function executeProviderRequest(
   payload: AgentExecutePayload,
   executionMode: string,
-  persistLlmCall: boolean
+  persistLlmCall: boolean,
+  signal?: AbortSignal
 ) {
   const llmCallId = payload.llm_call_id || `llm_${Date.now()}_${uuidv4().slice(0, 8)}`;
   const canonicalRequest = payload.canonicalRequest && typeof payload.canonicalRequest === 'object'
@@ -305,7 +306,8 @@ async function executeProviderRequest(
     request,
     modelName,
     providerConfig: config,
-    context: providerContext
+    context: providerContext,
+    signal
   });
   const finishedAt = Date.now();
   const contextPolicy = resolveModelContextPolicy(modelName, config);
@@ -450,11 +452,12 @@ async function executeProviderRequest(
   };
 }
 
-export async function executeDebugRequest(payload: DebugPayload) {
+export async function executeDebugRequest(payload: DebugPayload, signal?: AbortSignal) {
   return executeProviderRequest(
     payload,
     payload.executionMode || (payload.canonicalRequest ? 'exact_replay' : 'prompt_debug'),
-    false
+    false,
+    signal
   );
 }
 

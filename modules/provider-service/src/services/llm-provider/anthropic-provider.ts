@@ -262,7 +262,11 @@ export class AnthropicProvider implements LLMProvider {
         method: 'post',
         timeout,
         data: body,
-        headers
+        headers,
+        // Cancellation: when the caller aborts (e.g. cache-heartbeat client timeout),
+        // axios tears down the in-flight upstream request so it stops burning tokens
+        // instead of orphaning it to completion. Undefined signal → no-op.
+        signal: input.signal
       };
 
       this.lastWireExchange = {
@@ -284,6 +288,19 @@ export class AnthropicProvider implements LLMProvider {
         };
         return response.data as AnthropicMessagesResponse;
       } catch (error: any) {
+        // Caller aborted (heartbeat client timeout / disconnect): bail immediately.
+        // An axios cancel has no `error.response`, so without this guard it would fall
+        // into the connection-level retry below and re-issue the very request we just
+        // cancelled — defeating the whole point. Never retry an aborted request.
+        if (
+          input.signal?.aborted ||
+          axios.isCancel(error) ||
+          error?.code === 'ERR_CANCELED' ||
+          error?.name === 'CanceledError' ||
+          error?.name === 'AbortError'
+        ) {
+          throw error;
+        }
         const status: number | undefined = error?.response?.status;
         if (error?.response) {
           this.lastWireExchange = {

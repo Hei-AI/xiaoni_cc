@@ -254,6 +254,10 @@ export interface LLMProviderContentRequest {
   modelName: string;
   providerConfig?: UnifiedLLMConfig;
   context?: LLMProviderContext;
+  // Optional cancellation. When the caller (e.g. the cache-heartbeat path) aborts,
+  // the provider must cancel the in-flight upstream HTTP call instead of letting it
+  // run to completion as an orphaned, still-billed request. Omitted → no cancellation.
+  signal?: AbortSignal;
 }
 
 export interface LLMProviderTextResult {
