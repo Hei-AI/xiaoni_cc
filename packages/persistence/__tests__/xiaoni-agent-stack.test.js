@@ -1998,6 +1998,71 @@ test('getXiaoniLlmUsageTimeline search overlay is scoped to the stack ledger, no
   assert.doesNotMatch(executable, /canonical_request/);
 });
 
+test('getXiaoniLlmUsageTimeline deep search scope opts into the raw payload snapshots', async () => {
+  // D1: opt-in "deep" scope restores the old brute-force grep over the cumulative
+  // payload sources for the rare case of finding a string that lives ONLY in a
+  // raw provider envelope / codex payload / fork clone. Default stays 'stack'.
+  const sql = createUsageTimelineSqlMock({
+    totalCount: 1,
+    pointRows: [
+      {
+        key: 'slice-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        bucket_start: '2026-06-13T00:10:00.000+08:00',
+        bucket_end: '2026-06-13T00:10:00.000+08:00',
+        call_count: 1,
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        llm_request_slice_id: 'slice-1',
+        llm_call_id: 'llm-1',
+        trace_id: 'trace-1',
+        top_llm_request_slice_id: 'slice-1',
+        top_llm_call_id: 'llm-1',
+        top_trace_id: 'trace-1',
+        top_timestamp: '2026-06-13T00:10:00.000+08:00',
+        top_input_tokens: 1000,
+        top_cached_tokens: 200,
+        top_output_tokens: 50
+      }
+    ],
+    searchRows: [
+      {
+        llm_request_slice_id: 'slice-1',
+        source_kind: 'main',
+        trace_id: 'trace-1',
+        timestamp: '2026-06-13T00:10:00.000+08:00',
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        match_field: 'wire_response',
+        snippet: '{"output":"needle"}'
+      }
+    ]
+  });
+  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
+
+  const timeline = await persistence.getXiaoniLlmUsageTimeline({
+    identityKey: 'xiaoni',
+    bucket: 'call',
+    maxPoints: 100,
+    includeOverlays: 'search',
+    searchQuery: 'needle',
+    searchScope: 'deep'
+  });
+
+  assert.equal(timeline.overlays.searchHits.length, 1);
+  assert.ok(timeline.warnings.includes('search_overlay_deep_scope'));
+  const searchCall = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('AS match_field'));
+  assert.ok(searchCall, 'a search overlay query must be issued');
+  const executable = searchCall.sql.replace(/--.*$/gm, '');
+  assert.match(executable, /FROM llm_request_slices/);
+  assert.match(executable, /FROM codex_provider_usage_events/);
+  assert.match(executable, /FROM subconscious_agent_fork_slices/);
+  assert.match(executable, /canonical_request::text ILIKE/);
+  assert.doesNotMatch(executable, /FROM agent_stack_items/);
+});
+
 test('reapOrphanedForkRuns fails every running fork-run row across all three ledgers', async () => {
   const calls = [];
   const adapter = {
