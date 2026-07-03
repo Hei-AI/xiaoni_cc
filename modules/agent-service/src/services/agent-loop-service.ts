@@ -2826,7 +2826,7 @@ function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): st
   }
   // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
   // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
-  return `完整输出已落盘。按范围回读（别对大文件直接 cat，会再次截断；小文件可用更大 max_output_tokens 一次读完）：sed -n '起,止p' <文件> / head -c 4000 <文件> / tail -c 4000 <文件> / grep 关键词 <文件>\n  ${parts.join('\n  ')}`;
+  return `完整输出已落盘（别 cat 大文件会再截断，按范围读；或调大 max_output_tokens 一次读完）：\n  ${parts.join('\n  ')}`;
 }
 
 export async function pruneExecOutput(root = EXEC_OUTPUT_ROOT, ttlDays = EXEC_OUTPUT_TTL_DAYS, now = Date.now()): Promise<number> {
@@ -2895,7 +2895,7 @@ function buildCodexExecOutput(input: {
   }
   lines.push(`Original token count: ${input.originalTokenCount ?? Math.max(0, Math.ceil(input.output.length / 4))}`);
   if (input.truncated) {
-    lines.push('Output was truncated to max_output_tokens.');
+    lines.push('Output was truncated to max_output_tokens（头尾保留，中间截断）.');
     if (input.spillNote) {
       lines.push(input.spillNote);
     }
