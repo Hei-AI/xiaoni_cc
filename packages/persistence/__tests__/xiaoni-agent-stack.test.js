@@ -25,7 +25,10 @@ function createMockSql() {
     subconsciousForkTool: [],
     providerEvent: [],
     rollupSource: [],
-    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 3 }]
+    // Keep in sync with USAGE_ROLLUP_VERSION so ensureSchema doesn't fire a spurious
+    // rollup rebuild (whose INSERT ... SELECT FROM llm_request_slices would pollute the
+    // captured-query list these mock tests inspect).
+    rollupState: [{ initialized_at: '2026-06-11T00:00:00.000Z', version: 4 }]
   };
   let stackId = 10;
   let forkItemId = 70;
@@ -1535,7 +1538,8 @@ function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows
         }];
       }
       if (sql.includes('SELECT initialized_at') && sql.includes('FROM llm_usage_rollup_state')) {
-        return [{ initialized_at: '2026-06-13T00:00:00.000+08:00', version: 3 }];
+        // Keep in sync with USAGE_ROLLUP_VERSION so no spurious rebuild fires.
+        return [{ initialized_at: '2026-06-13T00:00:00.000+08:00', version: 4 }];
       }
       if (sql.includes('SELECT COUNT(*) AS total_count') && sql.includes('FROM llm_usage_rollup_sources')) {
         return [{ total_count: totalCount }];
@@ -1793,12 +1797,15 @@ test('getXiaoniLlmUsageTimeline includes image vision fork slices with fork anch
   assert.equal(timeline.summary.cachedTokens, 2100);
 });
 
-test('getXiaoniLlmUsageTimeline includes Codex Provider image events', async () => {
+test('getXiaoniLlmUsageTimeline projects Codex Provider events into the cost timeline', async () => {
+  // 投影层：rollup 里的 codex_provider 事件（这里用 cache_heartbeat）应正常进 LLM Cost。
+  // 生图类 source_kind 在 rollup 的 SELECT 阶段就被挡掉（见
+  // usage-rollup-image-exclusion.realdb.test.js），根本不会走到这个投影层。
   const sql = createUsageTimelineSqlMock({
     totalCount: 1,
     pointRows: [
       {
-        key: 'image_generation:codex-provider:image-generate-1',
+        key: 'cache_heartbeat:codex-provider:heartbeat-1',
         timestamp: '2026-06-13T00:10:00.000+08:00',
         bucket_start: '2026-06-13T00:10:00.000+08:00',
         bucket_end: '2026-06-13T00:10:00.000+08:00',
@@ -1806,16 +1813,16 @@ test('getXiaoniLlmUsageTimeline includes Codex Provider image events', async () 
         input_tokens: 120,
         cached_tokens: 20,
         output_tokens: 40,
-        source_kind: 'image_generation',
-        fork_run_id: 'image-run-1',
-        llm_request_slice_id: 'codex-provider:image-generate-1',
+        source_kind: 'cache_heartbeat',
+        fork_run_id: 'heartbeat-run-1',
+        llm_request_slice_id: 'codex-provider:heartbeat-1',
         llm_call_id: null,
-        trace_id: 'trace-image-1',
-        top_llm_request_slice_id: 'codex-provider:image-generate-1',
-        top_source_kind: 'image_generation',
-        top_fork_run_id: 'image-run-1',
+        trace_id: 'trace-heartbeat-1',
+        top_llm_request_slice_id: 'codex-provider:heartbeat-1',
+        top_source_kind: 'cache_heartbeat',
+        top_fork_run_id: 'heartbeat-run-1',
         top_llm_call_id: null,
-        top_trace_id: 'trace-image-1',
+        top_trace_id: 'trace-heartbeat-1',
         top_timestamp: '2026-06-13T00:10:00.000+08:00',
         top_input_tokens: 120,
         top_cached_tokens: 20,
@@ -1832,9 +1839,9 @@ test('getXiaoniLlmUsageTimeline includes Codex Provider image events', async () 
   });
 
   assert.equal(timeline.points.length, 1);
-  assert.equal(timeline.points[0].sourceKind, 'image_generation');
-  assert.equal(timeline.points[0].forkRunId, 'image-run-1');
-  assert.equal(timeline.points[0].anchorEventId, 'codex-provider:image-generate-1');
+  assert.equal(timeline.points[0].sourceKind, 'cache_heartbeat');
+  assert.equal(timeline.points[0].forkRunId, 'heartbeat-run-1');
+  assert.equal(timeline.points[0].anchorEventId, 'codex-provider:heartbeat-1');
   assert.equal(timeline.summary.inputTokens, 120);
   assert.equal(timeline.summary.outputTokens, 40);
 });

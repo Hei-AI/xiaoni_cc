@@ -16,7 +16,9 @@ const EAST8_OFFSET_MS = 8 * HOUR_MS;
 const USAGE_SEARCH_MAX_WINDOW_MS = 30 * DAY_MS;
 const USAGE_SEARCH_MAX_HITS = 120;
 const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
-const USAGE_ROLLUP_VERSION = 3;
+// v4: 从 LLM Cost 聚合里排除 image_generation / image_edit / image_prompt_assistant
+// source_kind。bump 触发一次全量重建，把历史 image 行从 rollup 里清掉。
+const USAGE_ROLLUP_VERSION = 4;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
@@ -550,6 +552,10 @@ function usageRollupSourceFromCodexProviderSelectSql() {
         WHERE image_vision_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
       )
     )
+    -- 生图/改图/生图 prompt 助手不进 LLM Cost 聚合：它们是按图计费的 image 请求，
+    -- token 口径和主 loop 的对话 token 不可比，混进来会让 LLM Cost 折线和缓存击穿
+    -- 分析失真。每条生图的 token「cost」仍在其行动流卡片上单独展示（summarizeTask）。
+    AND source_kind NOT IN ('image_generation', 'image_edit', 'image_prompt_assistant')
   `;
 }
 
