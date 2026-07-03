@@ -16,6 +16,7 @@ const WEBP_HEAD = Buffer.concat([Buffer.from('RIFF', 'ascii'), Buffer.alloc(4, 0
 type Harness = {
   postedDataUrl: string | null;
   encoderCalls: Array<{ mode: WebpEncodeMode; inputLen: number }>;
+  logs: Array<{ message: string; fields: Record<string, unknown> }>;
   result: Awaited<ReturnType<QqSendImageService['sendPrivate']>>;
 };
 
@@ -31,11 +32,13 @@ async function sendWith(opts: {
   await fs.writeFile(srcPath, opts.source);
 
   const encoderCalls: Array<{ mode: WebpEncodeMode; inputLen: number }> = [];
+  const logs: Array<{ message: string; fields: Record<string, unknown> }> = [];
   let postedDataUrl: string | null = null;
 
   const service = new QqSendImageService({
     runtimeRoot,
     allowedRoots: [runtimeRoot],
+    logImageSend: (message, fields) => { logs.push({ message, fields }); },
     webpEncoder: async (input: Buffer, mode: WebpEncodeMode) => {
       encoderCalls.push({ mode, inputLen: input.length });
       return opts.encoder(input, mode);
@@ -48,7 +51,7 @@ async function sendWith(opts: {
   });
 
   const result = await service.sendPrivate({ user_id: 85178516, image_path: srcPath });
-  return { postedDataUrl, encoderCalls, result, runtimeRoot, source: opts.source, srcPath };
+  return { postedDataUrl, encoderCalls, logs, result, runtimeRoot, source: opts.source, srcPath };
 }
 
 function decodeDataUrl(dataUrl: string): { mime: string; bytes: Buffer } {
@@ -128,6 +131,34 @@ test('skip GIF (maybe animated): passthrough, encoder not called', async () => {
     assert.deepEqual(wire.bytes, gif);
   } finally {
     await fs.rm(h.runtimeRoot, { recursive: true, force: true });
+  }
+});
+
+test('per-send observability: log carries source/wire bytes + transcoded flag', async () => {
+  // 转码成功
+  const png = Buffer.concat([PNG_SIG, Buffer.alloc(1000, 9)]);
+  const webp = Buffer.from('SMALL-WEBP', 'ascii');
+  const ok = await sendWith({ source: png, ext: 'png', encoder: async () => webp });
+  try {
+    assert.equal(ok.logs.length, 1, '每次发送恰好一条 wire 日志');
+    const f = ok.logs[0].fields;
+    assert.equal(f.transcoded, true, 'transcoded=true');
+    assert.equal(f.source_mime, 'image/png');
+    assert.equal(f.source_bytes, png.length);
+    assert.equal(f.wire_mime, 'image/webp');
+    assert.equal(f.wire_bytes, webp.length);
+    assert.equal(f.saved_bytes, png.length - webp.length, 'saved = 源 - wire');
+  } finally {
+    await fs.rm(ok.runtimeRoot, { recursive: true, force: true });
+  }
+  // 静默回退也要能一眼看出
+  const gif = Buffer.concat([GIF_SIG, Buffer.alloc(32, 4)]);
+  const fb = await sendWith({ source: gif, ext: 'gif', encoder: async () => { throw new Error('nope'); } });
+  try {
+    assert.equal(fb.logs[0].fields.transcoded, false, '回退/跳过 -> transcoded=false 可辨');
+    assert.equal(fb.logs[0].fields.saved_bytes, 0);
+  } finally {
+    await fs.rm(fb.runtimeRoot, { recursive: true, force: true });
   }
 });
 
