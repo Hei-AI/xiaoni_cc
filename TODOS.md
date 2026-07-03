@@ -209,3 +209,28 @@ poll 才触发)。spill 改动只是让①每条 session 略重、并让②的 r
 让小腻可以把普通群消息收进 QQ inbox 但不敲状态栏；群 @ 仍会提醒。
 
 **Completed in:** `feature/xiaoni-group-notification-mode`
+
+## Passive recall (被动浮现 shadow v1)
+
+### 按真实嵌入分布重标 band-pass 阈值（FLOOR / CEILING）
+
+**What:** 在 `/xiaoni-passive-recall` 页拿几个真实「当下内容」时刻做 query，眼调
+`xiaoni-recall-bandpass.js` 的 `DEFAULT_FLOOR`(现 0.35) / `TASK_LOCK_FLOOR`(现 0.60) /
+`DEFAULT_CEILING`(现 0.92)。
+
+**Why:** shadow v1 live 部署后实测(2026-07-03，语料 1628+ 时)：一次召回 `drop_too_far=0`
+——1600+ 条候选没一条被判「太远」，浮现的全贴着 0.90 逼近 ceiling。说明这个**本地
+embedding-server 的余弦分布很挤**(无关文本也 ~0.8+)，保守默认 `FLOOR 0.35` 形同虚设，
+band-pass 退化成「取最像的 top-k」——正是「关联−在场」要避免的。八成要把 FLOOR 大幅抬到
+~0.85+、CEILING 收一点，让中段真的只留「相关但不在场」。
+
+**Context / 约束:**
+- 常量在 `packages/persistence/xiaoni-recall-bandpass.js` 顶部，标了「待真数据调」。
+- 改完要重建 admin-backend 才生效(或先把阈值做成 `/recall` 的 query 参数，页面即调即看免重建——可一并做)。
+- 判据 = 手标几个时刻「该浮现什么 / 哪些是已在场噪音」，对着页面 surfaced + droppedCounts 调。
+- 设计与验收见 `docs/XIAONI_PASSIVE_RECALL_SURFACING.md`。
+
+**Effort:** S（纯调参 + 可选把阈值提成 query 参数）
+**Priority:** P2（v1 已部署可看，但没调准前召回质量≈top-k，价值打折）
+**Deployed:** shadow v1 已合入 `refactor/runtime-gateway` 并部署主栈 admin-backend/frontend
+（表 `xiaoni_recall_cues` 已在 qqbot_db，语料后台增量灌中）。仅 shadow，不投递给小腻。
