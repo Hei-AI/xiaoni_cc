@@ -2501,9 +2501,12 @@ function isLlmProviderBackedActionStreamItem(item, source) {
   if (LLM_PROVIDER_ACTION_STREAM_SOURCES.has(source)) {
     return true;
   }
+  // 生图/改图任务本质就是一次 codex/openai LLM 请求，无论是否抓到 provider_exchange
+  // raw trace，都属于 LLM-backed 事件，应进「source: LLM」过滤。raw trace 是否可点由
+  // traceTarget 单独决定（openai fallback 路径不落 exchange 时 traceTarget 为 null），
+  // 不再作为「算不算 LLM 事件」的前提，否则 openai 生图会整条从 source:LLM 消失。
   return source === 'task'
-    && item.metadata?.providerRawTraceAvailable === true
-    && item.traceTarget?.sourceKind === 'image_task';
+    && (item.kind === 'image_generate' || item.kind === 'image_edit');
 }
 
 function actionStreamItemTags(item) {

@@ -1157,6 +1157,44 @@ test('Xiaoni action stream lets the LLM source tag select provider-backed image 
   assert.equal(stream.items[0].tags.some((tag) => tag.key === 'source:task'), true);
 });
 
+test('Xiaoni action stream tags image tasks as LLM even without a captured provider_exchange (openai fallback)', async () => {
+  // 回归：openai fallback 生图路径不落 provider_exchange，providerRawTraceAvailable=false、
+  // traceTarget=null。此前「source: LLM」标签被 providerRawTraceAvailable 门控，导致这类生图
+  // 整条从 source:LLM 过滤里消失。生图本质仍是一次 LLM 请求，必须带 source:llm_request 标签；
+  // raw trace 不可点（traceTarget 为 null）是另一回事。
+  const persistence = createPersistence({
+    tasks: [{
+      id: 'image-task-openai',
+      task_type: 'image_generate',
+      status: 'completed',
+      session_key: 'group:1040740258',
+      peer_name: '测试群',
+      target_description: '画一张狗图',
+      prompt: 'dog',
+      source_trace_id: 'trace_image_task_openai',
+      source_run_id: 'run_image_task_openai',
+      result_json: {
+        model: 'gpt-image-2',
+        provider_exchange: null
+      },
+      artifacts: [],
+      attempts: 1,
+      created_at: '2026-06-05T10:07:00.000Z',
+      completed_at: '2026-06-05T10:07:10.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({
+    limit: 10,
+    tags: ['source:llm_request']
+  });
+
+  assert.deepEqual(stream.items.map((item) => item.id), ['task:image-task-openai']);
+  assert.equal(stream.items[0].tags.some((tag) => tag.key === 'source:llm_request' && tag.label === 'source: LLM'), true);
+  // 关键：没有抓到 provider_exchange raw trace，但仍被归为 LLM-backed 事件。
+  assert.equal(stream.items[0].metadata.providerRawTraceAvailable, false);
+});
+
 test('Xiaoni action stream projects image vision fork observations outside main items', async () => {
   const listSliceInputs = [];
   const persistence = createPersistence({
