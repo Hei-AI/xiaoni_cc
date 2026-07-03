@@ -11629,14 +11629,13 @@ export class AgentLoopService {
     queueMessage: QueueMessageRecord['payload'],
     context: ToolExecutionContext = {}
   ) {
-    // Image generation is temporarily disabled during the Codex->Claude migration.
-    // The image path dispatches `codex_base_request` (a clone of the current canonical
-    // turn) to the Codex image Responses endpoint to reuse the main agent's prefix
-    // cache — but the main agent now runs on Claude, so that base request is Claude-
-    // shaped and the Codex reuse is moot/broken. Return a graceful "unavailable"
-    // result so the model tells the user it can't make images right now instead of
-    // queuing a broken task. Re-enable with XIAONI_IMAGE_TASK_ENABLED=true once the
-    // image path is ported to the Claude flow.
+    // Image generation is gated by XIAONI_IMAGE_TASK_ENABLED (currently 'true' in
+    // compose -> ENABLED and working). The runtime path is the OpenAI-compatible image
+    // provider (cliproxyapi -> gpt-image-2, /v1/images/generations). The `codex_base_request`
+    // clone stuffed into the task below is ONLY consumed by the provider's legacy
+    // codex-transport mode (openai-image-provider.ts, `transport.mode === 'codex'`); the
+    // current openai mode ignores it. Flip the flag to anything other than 'true' to
+    // hard-disable and return the graceful "unavailable" stub instead of queuing a task.
     if (process.env.XIAONI_IMAGE_TASK_ENABLED !== 'true') {
       void context;
       return {
