@@ -152,7 +152,15 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 
 ## Xiaoni executor
 
-### Session lifecycle hardening (evict sessions map + serialize snapshot writes)
+### Session lifecycle hardening (evict sessions map + serialize snapshot writes) — ✅ RESOLVED 2026-07-03
+
+**已修复**(refactor/runtime-gateway,commits `e8ea0f0f` + `50d80062`,已 build+up 主栈 executor 并真机验证):
+- ② persistSession 改单飞 coalescing + temp/rename 原子写(writer state 挂在 RuntimeSession 上,随 eviction 回收);close 最终快照恒为最后落盘(running:false + 真 exit_code)。
+- ① 新增 `closedAt` + `setInterval(unref)` sweeper `pruneClosedSessions`,只 evict closed 且超 10min TTL 的 session;running 永不 evict(保住 killSession handle + pollSession 重启孤儿推断)。顺带用 closedAt 冻结 duration_ms。
+- 21 个 executor 测试全绿;真机跑 exec_command 验证 running=false/exit_code=0/无 .tmp-* 残留。executor 在主 agent LLM 链路之外,零 prompt/缓存影响。
+- 未 push(refactor/runtime-gateway 仍本地累积)。
+
+<details><summary>原始记录</summary>
 
 **What:** 两个 pre-existing 问题,exec_command spill 截断改动
 (`modules/xiaoni-executor/src/index.ts`, commit `310051e5`)时由 review 暴露但**未在该 PR 修**:
@@ -183,6 +191,8 @@ poll 才触发)。spill 改动只是让①每条 session 略重、并让②的 r
 **Effort:** M
 **Priority:** P3（pre-existing,非阻塞;长跑内存 + 罕见并发损坏,当前未见实际故障)
 **Depends on:** 无(独立于 spill 改动)
+
+</details>
 
 ## Completed
 
