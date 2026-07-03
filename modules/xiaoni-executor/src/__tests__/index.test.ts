@@ -280,7 +280,7 @@ test('formatCodexOutput: Original token count uses the true pre-truncation total
     originalTokenCount: 1000
   });
   assert.match(out, /Original token count: 1000/);
-  assert.match(out, /Output was truncated to max_output_tokens\./);
+  assert.match(out, /Output was truncated to max_output_tokens（头尾保留，中间截断）\./);
 });
 
 test('formatCodexOutput: spill note is surfaced in the header, right after the truncation line', () => {
@@ -295,7 +295,7 @@ test('formatCodexOutput: spill note is surfaced in the header, right after the t
     spillNote: note
   });
   const lines = out.split('\n');
-  const truncIdx = lines.findIndex((l) => l === 'Output was truncated to max_output_tokens.');
+  const truncIdx = lines.findIndex((l) => l === 'Output was truncated to max_output_tokens（头尾保留，中间截断）.');
   assert.ok(truncIdx >= 0, 'truncation line present');
   assert.equal(lines[truncIdx + 1], '完整输出已落盘，可读回：', 'spill note immediately follows the truncation line');
   assert.ok(out.indexOf('/xiaoni-runtime/exec-output/x.stdout.txt') < out.indexOf('Output:'), 'path appears in the header, above the body');

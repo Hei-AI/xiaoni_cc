@@ -244,7 +244,7 @@ export function formatCodexOutput(input: {
   // knows it (the capped `output` string undercounts once truncated).
   lines.push(`Original token count: ${input.originalTokenCount ?? estimateTokenCount(input.output)}`);
   if (input.truncated) {
-    lines.push('Output was truncated to max_output_tokens.');
+    lines.push('Output was truncated to max_output_tokens（头尾保留，中间截断）.');
     // Surface where the full output lives right here in the header, so she sees
     // it immediately instead of having to scroll to the mid-output elision marker.
     if (input.spillNote) {
@@ -511,7 +511,7 @@ export function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCaptu
   }
   // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
   // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
-  return `完整输出已落盘。按范围回读（别对大文件直接 cat，会再次截断；小文件可用更大 max_output_tokens 一次读完）：sed -n '起,止p' <文件> / head -c 4000 <文件> / tail -c 4000 <文件> / grep 关键词 <文件>\n  ${parts.join('\n  ')}`;
+  return `完整输出已落盘（别 cat 大文件会再截断，按范围读；或调大 max_output_tokens 一次读完）：\n  ${parts.join('\n  ')}`;
 }
 
 // Age-prune spilled exec-output files so /xiaoni-runtime/exec-output doesn't grow
