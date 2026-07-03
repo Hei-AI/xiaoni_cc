@@ -173,6 +173,37 @@ def _computer_viewport():
         return {"ok": False, "error": f"viewport parse failed: {exc}"}
 
 
+def _computer_page_label():
+    # Read the active page's URL basename + title so a bare `screenshot` gets a
+    # human-readable filename (xiaoni-computer-<ts>-blinds.png) instead of an
+    # opaque timestamp. Computer-use's screenshot action carries no caption, so
+    # the page itself is the only label source. Best-effort: any failure returns
+    # empty and the caller falls back to the plain timestamp name.
+    js = ("async (page) => { const v = await page.evaluate(() => ({"
+          "path: (location.pathname || '').split('/').pop() || '', "
+          "title: (document.title || '').trim()})); return '" + _COMPUTER_SENTINEL
+          + "' + JSON.stringify(v); }")
+    try:
+        rc, out, _err = _run_cli_capture(["run-code", js])
+        raw = _extract_sentinel(out)
+        if rc != 0 or not raw:
+            return {"path": "", "title": ""}
+        v = json.loads(raw)
+        return {"path": str(v.get("path") or ""), "title": str(v.get("title") or "")}
+    except Exception:
+        return {"path": "", "title": ""}
+
+
+def _slug_for_label(path="", title=""):
+    # URL basename wins (stable, predictable: blinds.html -> blinds); title is a
+    # fallback. CJK titles slug to empty under [^A-Za-z0-9], which is exactly why
+    # basename is preferred. Returns None when nothing usable remains.
+    base = re.sub(r"\.\w+$", "", path or "")
+    raw = base or title or ""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", raw).strip("-").lower()[:40].strip("-")
+    return slug or None
+
+
 def _build_action_statements(action, css, css_end):
     name = action.get("action")
     text = action.get("text") or ""
@@ -283,7 +314,9 @@ def _run_computer_action(action, dw, dh):
     # send via qq-send-image. The vision base64 alone is not a sendable artifact.
     if name == "screenshot":
         try:
-            result["saved_path"] = _save_png_to_runtime_picture_dir(base64.b64decode(raw_b64))
+            label = _slug_for_label(**_computer_page_label())
+            result["saved_path"] = _save_png_to_runtime_picture_dir(
+                base64.b64decode(raw_b64), label=label)
         except Exception:
             pass
     return result
@@ -1292,14 +1325,17 @@ def _copy_to_runtime_picture_dir(source_path):
     return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"
 
 
-def _save_png_to_runtime_picture_dir(png_bytes):
+def _save_png_to_runtime_picture_dir(png_bytes, label=None):
     # Persist computer-use screenshot bytes (the bridge holds them in-memory; unlike
     # the playwright-cli path there is no host file to copy) into the shared runtime
     # picture dir and return the container-visible path qq-send-image can read.
+    # An optional page-derived label disambiguates the filename so 116 shots don't
+    # all read as bare timestamps (blinds vs diary was picked wrong for exactly this).
     picture_dir = Path(RUNTIME_HOST_ROOT) / "picture"
     picture_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    destination_name = f"xiaoni-computer-{timestamp}.png"
+    suffix = f"-{label}" if label else ""
+    destination_name = f"xiaoni-computer-{timestamp}{suffix}.png"
     destination = picture_dir / destination_name
     destination.write_bytes(png_bytes)
     return f"{RUNTIME_CONTAINER_ROOT}/picture/{destination_name}"

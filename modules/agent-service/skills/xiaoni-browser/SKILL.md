@@ -84,6 +84,12 @@ commands above — you call the `computer` tool directly (not through `exec_comm
   what the task needs.
 - The bridge maps your 1280×800 coordinates to the live page automatically; you do
   not compute pixels yourself. Read the latest screenshot before each action.
+- A bare `screenshot` action also persists the full-res PNG and returns a
+  `saved_path` under `/xiaoni-runtime/picture/xiaoni-computer-<ts>-<page>.png`
+  (the `<page>` slug is derived from the page URL, e.g. `-blinds`; it falls back
+  to a bare timestamp for CJK-only titles). Send that exact `saved_path` right
+  after capture rather than fishing an old timestamp out of the picture dir — the
+  slug is the only thing that tells two computer screenshots apart.
 
 ## Boundaries
 

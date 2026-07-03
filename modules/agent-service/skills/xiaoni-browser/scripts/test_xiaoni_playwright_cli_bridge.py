@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import tempfile
 import unittest
+from pathlib import Path
 
 import xiaoni_playwright_cli_bridge as bridge
 
@@ -171,6 +173,56 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
         self.assertIn('type: "connectionRequested"', script)
         self.assertIn('type: "connectToTab"', script)
         self.assertIn('chrome.tabs.create({ url: "about:blank", active: true })', script)
+
+    def test_slug_prefers_url_basename_over_title(self):
+        self.assertEqual(
+            bridge._slug_for_label(path="blinds.html", title="小伊的日记"),
+            "blinds",
+        )
+
+    def test_slug_strips_extension_and_lowercases(self):
+        self.assertEqual(bridge._slug_for_label(path="Diary.HTML"), "diary")
+
+    def test_slug_falls_back_to_title_when_no_path(self):
+        self.assertEqual(
+            bridge._slug_for_label(path="", title="Blinds All Open"),
+            "blinds-all-open",
+        )
+
+    def test_slug_cjk_only_title_yields_none(self):
+        # CJK slugs to empty; caller then keeps the bare timestamp name.
+        self.assertIsNone(bridge._slug_for_label(path="", title="小伊的日记"))
+
+    def test_slug_empty_inputs_yield_none(self):
+        self.assertIsNone(bridge._slug_for_label(path="", title=""))
+
+    def test_slug_caps_length(self):
+        self.assertLessEqual(len(bridge._slug_for_label(path="a" * 200)), 40)
+
+    def test_save_png_appends_label_suffix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original = bridge.RUNTIME_HOST_ROOT
+            bridge.RUNTIME_HOST_ROOT = tmp
+            try:
+                path = bridge._save_png_to_runtime_picture_dir(b"\x89PNG", label="blinds")
+            finally:
+                bridge.RUNTIME_HOST_ROOT = original
+            self.assertTrue(path.endswith("-blinds.png"))
+            self.assertIn("xiaoni-computer-", path)
+            written = Path(tmp) / "picture" / Path(path).name
+            self.assertEqual(written.read_bytes(), b"\x89PNG")
+
+    def test_save_png_without_label_keeps_bare_timestamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            original = bridge.RUNTIME_HOST_ROOT
+            bridge.RUNTIME_HOST_ROOT = tmp
+            try:
+                path = bridge._save_png_to_runtime_picture_dir(b"\x89PNG", label=None)
+            finally:
+                bridge.RUNTIME_HOST_ROOT = original
+            name = Path(path).name
+            self.assertTrue(name.startswith("xiaoni-computer-"))
+            self.assertTrue(name.endswith("Z.png"))
 
 
 if __name__ == "__main__":
