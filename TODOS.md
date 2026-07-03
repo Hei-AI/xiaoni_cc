@@ -150,6 +150,40 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Priority:** P3（体验优化,非阻塞;当前自愈已闭环）
 **Depends on:** 操作者同意写 Chrome 策略 + 一次真实重启验证窗口
 
+## Xiaoni executor
+
+### Session lifecycle hardening (evict sessions map + serialize snapshot writes)
+
+**What:** 两个 pre-existing 问题,exec_command spill 截断改动
+(`modules/xiaoni-executor/src/index.ts`, commit `310051e5`)时由 review 暴露但**未在该 PR 修**:
+1. **`sessions` Map 从不 evict** —— 每次 exec_command 留一个 `RuntimeSession`(现在带两个
+   `StreamCapture`,head/tail 串 + StringDecoder,比旧的 capped-string 略重)在内存里,直到容器
+   生命周期结束。长跑 executor 内存随累计命令数线性涨(当前实测 8 天累计 183 个 running:true
+   快照)。修法:closed session 过 TTL 后从 map 删掉,晚到的 poll 落到 JSON 快照分支(现已能正确
+   处理:重启孤儿报 running:false + caveat)。
+2. **`persistSession` 每 chunk 无序 `writeFile('w')`** —— `void persistSession(session)` 在每个
+   data chunk fire-and-forget 写同一个 `sessions/<id>.json`。并发写可交错 → `pollSession` 的
+   `JSON.parse` 抛 → 对一个活 session 返回 404「session not found」;且一个滞后 chunk 写在 close
+   写之后完成会把最终快照 clobber 回 `running:true` + 陈旧 exit_code(即那 183 个 running:true 快照
+   的一个成因)。修法:单飞 + dirty flag,或 write-temp+rename 原子替换。
+
+**Why:** 都是 pre-existing(旧的 capped-string 版也这样),不是 spill 改动引入的,所以按「right-sized
+diff / 不扩散 scope」当时没修。①是缓慢内存泄漏(长跑容器才显),②是罕见快照损坏/误报(并发 exec +
+poll 才触发)。spill 改动只是让①每条 session 略重、并让②的 running:true clobber 后果稍微更误导
+(现由 pollSession 重启 caveat 缓解)。
+
+**Context / 约束:**
+- ①的 eviction 若只删 **closed** session,则「不在 map + running:true 快照 ⟹ 重启孤儿」这条判断仍成立
+  (pollSession 的 caveat 逻辑不破)。别删 running 的。
+- ②改原子写要保证 close 的最终快照永远是最后落盘的那份(exit_code/running:false 不被滞后 chunk 覆盖)。
+- 两者可一起做(都在 executor session 生命周期这一块),也可分开。executor 是自包含 ~700 行服务。
+- 动 executor = 主栈共享容器,重建重启会杀掉容器内小腻在跑的进程(如 http.server 3458),部署前先看
+  `docker exec … ps` 有没有活进程 + 事后重拉起。
+
+**Effort:** M
+**Priority:** P3（pre-existing,非阻塞;长跑内存 + 罕见并发损坏,当前未见实际故障)
+**Depends on:** 无(独立于 spill 改动)
+
 ## Completed
 
 ### Enrich System Reminder group notification previews
