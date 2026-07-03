@@ -439,3 +439,81 @@ test('projection can resume from previous reduced state', () => {
   assert.equal(second.projection.counters.eventCount, 2);
   assert.ok(second.explanation.contributors.some((entry) => entry.eventKind === 'send_in_group'));
 });
+
+test('manual_energy_override with energy sets current energy directly', () => {
+  const now = new Date('2026-05-31T15:00:00.000Z');
+  const result = reduceXiaoniLifeState({
+    now,
+    events: [
+      event({
+        id: 'override-1',
+        eventKind: 'manual_energy_override',
+        occurredAt: '2026-05-31T15:00:00.000Z',
+        payload: { energy: 0.1, max_energy: 1, source: 'admin_energy_set' }
+      })
+    ]
+  });
+  // energy 0.1 → total pressure ≈ 0.9, comfortably above the default sleep-onset (0.3).
+  assertApprox(result.projection.state.energy, 0.1, 0.02);
+  assertApprox(result.projection.state.homeostaticPressure, 0.9, 0.02);
+  assertApprox(result.projection.state.actionDebt, 0, 1e-9);
+});
+
+test('manual_energy_override opens the voluntary-sleep gate without stamping lastRestAt', () => {
+  // Establish a prior projection whose last real rest was hours ago.
+  const restAt = new Date('2026-05-31T09:00:00.000Z');
+  const first = reduceXiaoniLifeState({
+    now: restAt,
+    events: [
+      event({
+        id: 'prior-sleep',
+        eventKind: 'sleep_period',
+        occurredAt: restAt.toISOString(),
+        payload: { energy: 1, max_energy: 1 }
+      })
+    ]
+  });
+  assert.equal(first.projection.anchors.lastRestAt, restAt.toISOString());
+
+  const now = new Date('2026-05-31T15:00:00.000Z');
+  const result = reduceXiaoniLifeState({
+    now,
+    previousProjection: first.projection,
+    events: [
+      event({
+        id: 'override-sleep',
+        eventKind: 'manual_energy_override',
+        occurredAt: now.toISOString(),
+        payload: { energy: 0.1, max_energy: 1 }
+      })
+    ]
+  });
+  // Override must NOT bump lastRestAt to now — a fresh rest would inflate requiredPressure (fresh-wake
+  // penalty) and block the very sleep the operator is trying to enable.
+  assert.equal(result.projection.anchors.lastRestAt, restAt.toISOString());
+  const decision = shouldAcceptVoluntaryRecovery({
+    energy: result.projection.state.energy,
+    maxEnergy: 1,
+    lastWakeAt: result.projection.anchors.lastRestAt,
+    now
+  });
+  assert.equal(decision.accepted, true);
+});
+
+test('manual_energy_override with explicit pressure split sets both components', () => {
+  const now = new Date('2026-05-31T15:00:00.000Z');
+  const result = reduceXiaoniLifeState({
+    now,
+    events: [
+      event({
+        id: 'override-split',
+        eventKind: 'manual_energy_override',
+        occurredAt: '2026-05-31T15:00:00.000Z',
+        payload: { homeostatic_pressure: 0.6, action_debt: 0.2 }
+      })
+    ]
+  });
+  assertApprox(result.projection.state.homeostaticPressure, 0.6, 0.02);
+  assertApprox(result.projection.state.actionDebt, 0.2, 0.02);
+  assertApprox(result.projection.state.energy, 0.2, 0.03);
+});

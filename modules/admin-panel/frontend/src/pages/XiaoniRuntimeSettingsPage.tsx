@@ -186,6 +186,49 @@ async function restoreFullEnergy(): Promise<RestoreFullResult> {
   return payload.data;
 }
 
+type EnergyStateData = {
+  energy: number | null;
+  pressure: number | null;
+  homeostaticPressure: number | null;
+  actionDebt: number | null;
+  sleepOnsetThreshold: number;
+  forcedSleepPressure: number;
+  canSleepApprox: boolean;
+  projectionUpdatedAt: string | null;
+  note: string;
+};
+
+type EnergySetResult = {
+  eventId: number | string | null;
+  appliedFields: string[];
+  target: { energy: number | null; pressure: number | null; exact: boolean };
+  note: string;
+};
+
+async function fetchEnergyState(): Promise<EnergyStateData> {
+  const response = await fetch('/api/agent-runtime/energy/state');
+  const payload = await response.json() as ApiResponse<EnergyStateData>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to read energy state');
+  }
+  return payload.data;
+}
+
+async function setCurrentEnergy(
+  input: { energy: number } | { homeostaticPressure: number; actionDebt: number }
+): Promise<EnergySetResult> {
+  const response = await fetch('/api/agent-runtime/energy/set', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  const payload = await response.json() as ApiResponse<EnergySetResult>;
+  if (!response.ok || !payload.success) {
+    throw new Error(payload.error || 'Failed to set current energy');
+  }
+  return payload.data;
+}
+
 async function recoverRuntimeNow(): Promise<RuntimeRecoverNowResult> {
   const response = await fetch('/api/agent-runtime/recover-now', {
     method: 'POST',
@@ -298,6 +341,22 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     onSuccess: () => {
       void controlQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+      void energyStateQuery.refetch();
+    }
+  });
+  const [energySetInput, setEnergySetInput] = React.useState('');
+  const energyStateQuery = useQuery({
+    queryKey: ['xiaoni-energy-state'],
+    queryFn: fetchEnergyState,
+    refetchInterval: 5000
+  });
+  const setEnergyMutation = useMutation({
+    mutationFn: setCurrentEnergy,
+    onSuccess: () => {
+      void controlQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['xiaoni-action-stream'] });
+      // Give agent-service a beat to refresh the projection, then re-read.
+      window.setTimeout(() => { void energyStateQuery.refetch(); }, 1500);
     }
   });
   const [trackedCoveredEnd, setTrackedCoveredEnd] = React.useState<number | null>(null);
@@ -453,6 +512,21 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     }
     energyMutation.mutate({ energyPolicy: preset });
   }, [energyMutation]);
+  const parsedSetEnergy = energySetInput.trim() === '' ? null : Number(energySetInput.trim());
+  const setEnergyValid = parsedSetEnergy !== null && Number.isFinite(parsedSetEnergy) && parsedSetEnergy >= 0 && parsedSetEnergy <= 1;
+  const handleSetEnergySubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!setEnergyValid || parsedSetEnergy === null) {
+      return;
+    }
+    setEnergyMutation.mutate({ energy: parsedSetEnergy });
+  }, [setEnergyValid, parsedSetEnergy, setEnergyMutation]);
+  const applyEnergyLevel = React.useCallback((energy: number) => {
+    setEnergySetInput(String(energy));
+    setEnergyMutation.mutate({ energy });
+  }, [setEnergyMutation]);
+  const energyState = energyStateQuery.data;
+  const formatMeter = (value: number | null | undefined) => (typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—');
 
   return (
     <PageShell className="max-w-4xl">
@@ -661,6 +735,92 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
           onRetry={handleEnergySave as unknown as () => void}
         />
       ) : null}
+      {setEnergyMutation.error ? (
+        <ErrorState
+          description={setEnergyMutation.error instanceof Error ? setEnergyMutation.error.message : '设定当前精力失败'}
+          onRetry={() => energyStateQuery.refetch()}
+        />
+      ) : null}
+
+      <SectionPanel
+        title="当前精力 / 压力（立即设定）"
+        description="直接改写小腻此刻的精力与疲劳压力（写入一条 manual_energy_override life 事件），下一次投影刷新（≤数秒）后生效。压力 = 1 − 精力（总疲劳）；压力 ≥ 自愿入睡门槛她才睡得着。运行时内部状态，不进入模型请求前缀，零缓存影响。"
+        icon={<HeartPulse className="h-4 w-4 text-primary" />}
+      >
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: '当前精力', value: formatMeter(energyState?.energy) },
+            { label: '总压力', value: formatMeter(energyState?.pressure) },
+            { label: '自然疲劳', value: formatMeter(energyState?.homeostaticPressure) },
+            { label: '行动透支', value: formatMeter(energyState?.actionDebt) }
+          ].map((tile) => (
+            <div key={tile.label} className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+              <div className="text-xs text-muted-foreground">{tile.label}</div>
+              <div className="text-lg font-semibold tabular-nums text-foreground">{tile.value}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mb-4 text-xs text-muted-foreground">
+          自愿入睡门槛：<span className="font-medium text-foreground">{formatMeter(energyState?.sleepOnsetThreshold)}</span>
+          {' · '}强制入睡压力：<span className="font-medium text-foreground">{formatMeter(energyState?.forcedSleepPressure)}</span>
+          {energyState ? (
+            <span className={energyState.canSleepApprox ? 'ml-2 text-emerald-600 dark:text-emerald-400' : 'ml-2 text-amber-600 dark:text-amber-400'}>
+              {energyState.canSleepApprox ? '· 当前压力已过门槛，可入睡' : '· 当前压力低于门槛，睡不着'}
+            </span>
+          ) : null}
+          {energyState?.projectionUpdatedAt ? (
+            <span className="ml-2">· 投影更新：{formatTimestamp(energyState.projectionUpdatedAt, { fallback: energyState.projectionUpdatedAt })}</span>
+          ) : null}
+        </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button variant="default" size="sm" onClick={() => applyEnergyLevel(0.05)} disabled={setEnergyMutation.isPending}>
+            {setEnergyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <TimerReset className="mr-2 h-4 w-4" />}
+            让她能睡（精力 0.05）
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyEnergyLevel(0.4)} disabled={setEnergyMutation.isPending}>
+            半困（0.40）
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyEnergyLevel(0.85)} disabled={setEnergyMutation.isPending}>
+            清醒（0.85）
+          </Button>
+        </div>
+        <form onSubmit={handleSetEnergySubmit} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium text-foreground">设定当前精力（0–1）</div>
+            <Input
+              type="number"
+              step={0.05}
+              min={0}
+              max={1}
+              inputMode="decimal"
+              placeholder="例如 0.1"
+              value={energySetInput}
+              disabled={setEnergyMutation.isPending}
+              onChange={(event) => setEnergySetInput(event.target.value)}
+              aria-label="设定当前精力"
+              className="w-40"
+            />
+            <div className="text-xs text-muted-foreground">
+              {parsedSetEnergy !== null && setEnergyValid
+                ? `→ 压力 ${(1 - parsedSetEnergy).toFixed(2)}`
+                : '压力 = 1 − 精力'}
+            </div>
+          </div>
+          <Button type="submit" size="sm" disabled={setEnergyMutation.isPending || !setEnergyValid}>
+            {setEnergyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            设定
+          </Button>
+        </form>
+        {setEnergyMutation.data ? (
+          <div className="mt-4 rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            {setEnergyMutation.data.note}
+            {setEnergyMutation.data.eventId ? ` · 事件 #${setEnergyMutation.data.eventId}` : ''}
+            {typeof setEnergyMutation.data.target.energy === 'number'
+              ? ` · 目标精力 ${setEnergyMutation.data.target.energy.toFixed(2)}${setEnergyMutation.data.target.exact ? '' : '（近似）'}`
+              : ''}
+          </div>
+        ) : null}
+      </SectionPanel>
 
       <SectionPanel
         title="精力策略"

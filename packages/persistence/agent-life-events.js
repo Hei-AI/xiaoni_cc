@@ -27,7 +27,11 @@ const B1_EVENT_KINDS = new Set([
   'visible_delivery_committed',
   'post_commit_side_effect_blocked',
   'rest_period',
-  'sleep_period'
+  'sleep_period',
+  // Admin-panel manual override: directly set Xiaoni's current energy/pressure. Payload carries
+  // either { energy } or { homeostatic_pressure, action_debt }. Runtime-internal life state only —
+  // never enters the model request prefix, so it has zero prompt-cache impact.
+  'manual_energy_override'
 ]);
 
 const LIFE_EVENT_VISIBILITIES = new Set([

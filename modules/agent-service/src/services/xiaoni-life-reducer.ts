@@ -457,6 +457,33 @@ function applyEvent(state: ReducerInternalState, event: AgentLifeEventProjection
       state.pressureUpdatedAt = occurredAt || state.pressureUpdatedAt;
       rememberContributor(state, event, `刚才记录了一次休息恢复，恢复后疲劳压力=${formatCost(totalPressure(state))}`);
       break;
+    case 'manual_energy_override': {
+      // Admin-panel direct override of current energy/pressure. Unlike sleep_period this deliberately
+      // does NOT move lastRestAt — recording a rest would add a fresh-wake penalty in
+      // computeRequiredSleepPressure and fight the operator's intent (e.g. "make her able to sleep").
+      advanceAwakePressure(state, occurredAt);
+      const maxEnergy = Math.max(0.001, numberValue(payload.max_energy, 1));
+      const hasHomeostatic = typeof payload.homeostatic_pressure === 'number';
+      const hasActionDebt = typeof payload.action_debt === 'number';
+      if (hasHomeostatic || hasActionDebt) {
+        if (hasHomeostatic) {
+          state.homeostaticPressure = clampNumber(
+            numberValue(payload.homeostatic_pressure, state.homeostaticPressure),
+            0,
+            DEFAULT_RECOVER_ENERGY_POLICY.wakePressureCeiling
+          );
+        }
+        if (hasActionDebt) {
+          state.actionDebt = clampPressure(numberValue(payload.action_debt, state.actionDebt));
+        }
+      } else if (typeof payload.energy === 'number') {
+        applySleepPressure(state, energyToPressure(payload.energy, maxEnergy));
+      }
+      state.pressureUpdatedAt = occurredAt || state.pressureUpdatedAt;
+      state.materialEventCount += 1;
+      rememberContributor(state, event, `管理端手动设定精力/压力，设定后疲劳压力=${formatCost(totalPressure(state))}`);
+      break;
+    }
     default:
       advanceAwakePressure(state, occurredAt);
       applyActionCost(state, event.eventKind, actionCost);

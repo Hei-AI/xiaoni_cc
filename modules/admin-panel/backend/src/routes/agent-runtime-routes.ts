@@ -1450,6 +1450,159 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  // Read current energy/pressure snapshot (stored life projection) plus the thresholds that decide
+  // whether Xiaoni can voluntarily fall asleep. Cheap read — the projection is maintained by
+  // agent-service; this only reflects the last refresh (≤ a few seconds behind live).
+  router.get('/agent-runtime/energy/state', async (_req, res) => {
+    try {
+      const [life, control] = await Promise.all([
+        getAgentLifeState('xiaoni').catch(() => null),
+        getAgentRuntimeControl({ identityKey: 'xiaoni' }).catch(() => null)
+      ]);
+      const lifeState = normalizeRecoveryLifeState(life);
+      const overrides = (control as { energyPolicy?: Record<string, unknown> } | null)?.energyPolicy ?? {};
+      const sleepOnsetThreshold = finiteNumber(overrides?.normalSleepOnsetPressure) ?? 0.3;
+      const forcedSleepPressure = finiteNumber(overrides?.forcedSleepPressure) ?? 1.3;
+      const energy = lifeState?.projection.state.energy ?? null;
+      const actionDebt = lifeState?.projection.state.actionCost ?? null;
+      // pressure = 1 − energy = total fatigue (homeostatic + action debt); can exceed 1 up to the
+      // hard ceiling (1.6), so it is NOT clamped to 0..1.
+      const pressure = energy === null ? null : 1 - energy;
+      const homeostaticPressure = (pressure === null || actionDebt === null)
+        ? null
+        : Math.max(0, pressure - actionDebt);
+      res.json({
+        success: true,
+        data: {
+          energy,
+          pressure,
+          homeostaticPressure,
+          actionDebt,
+          sleepOnsetThreshold,
+          forcedSleepPressure,
+          canSleepApprox: pressure !== null && pressure >= sleepOnsetThreshold,
+          projectionUpdatedAt: lifeState?.projectionUpdatedAt ?? null,
+          note: '压力 = 1 − 精力（总疲劳）。压力 ≥ 自愿入睡门槛才睡得着；刚休息过会叠加额外的清醒惩罚，实际门槛可能更高。'
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read Xiaoni energy state',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // Directly set Xiaoni's current energy/pressure by appending a manual_energy_override life event.
+  // Body accepts either { energy } (0..1, absolute) OR a pressure split
+  // { homeostaticPressure (0..1), actionDebt (0..0.6) }. The two forms are mutually exclusive.
+  // Takes effect within a few seconds on the next life-projection refresh. Runtime-internal state
+  // only — never enters the model request prefix, so zero prompt-cache impact.
+  router.post('/agent-runtime/energy/set', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
+        ? req.body as Record<string, unknown>
+        : {};
+      const rejectRange = (label: string, min: number, max: number) => {
+        res.status(400).json({
+          success: false,
+          error: `${label} 必须是 ${min} 到 ${max} 之间的数字`,
+          timestamp: new Date().toISOString()
+        });
+      };
+      const present = (value: unknown) => value !== undefined && value !== null && value !== '';
+      const energyRaw = body.energy;
+      const homeoRaw = body.homeostaticPressure ?? body.homeostatic_pressure;
+      const debtRaw = body.actionDebt ?? body.action_debt;
+      const hasEnergy = present(energyRaw);
+      const hasHomeo = present(homeoRaw);
+      const hasDebt = present(debtRaw);
+      if (!hasEnergy && !hasHomeo && !hasDebt) {
+        res.status(400).json({
+          success: false,
+          error: '请提供 energy（0–1）或压力分量 homeostaticPressure / actionDebt',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      if (hasEnergy && (hasHomeo || hasDebt)) {
+        res.status(400).json({
+          success: false,
+          error: 'energy 与压力分量（homeostaticPressure / actionDebt）不能同时设置',
+          timestamp: new Date().toISOString()
+        });
+        return;
+      }
+      const payload: Record<string, unknown> = { source: 'admin_energy_set', max_energy: 1 };
+      let targetEnergy: number | null = null;
+      let targetPressure: number | null = null;
+      if (hasEnergy) {
+        const energy = Number(energyRaw);
+        if (!Number.isFinite(energy) || energy < 0 || energy > 1) {
+          rejectRange('energy', 0, 1);
+          return;
+        }
+        payload.energy = energy;
+        targetEnergy = energy;
+        targetPressure = 1 - energy;
+      } else {
+        let homeo = 0;
+        let debt = 0;
+        if (hasHomeo) {
+          homeo = Number(homeoRaw);
+          if (!Number.isFinite(homeo) || homeo < 0 || homeo > 1) {
+            rejectRange('homeostaticPressure', 0, 1);
+            return;
+          }
+          payload.homeostatic_pressure = homeo;
+        }
+        if (hasDebt) {
+          debt = Number(debtRaw);
+          if (!Number.isFinite(debt) || debt < 0 || debt > 0.6) {
+            rejectRange('actionDebt', 0, 0.6);
+            return;
+          }
+          payload.action_debt = debt;
+        }
+        // Approximate: any component not supplied keeps its prior projected value, so this target is
+        // exact only when both are provided.
+        targetPressure = (hasHomeo ? homeo : 0) + (hasDebt ? debt : 0);
+        targetEnergy = 1 - targetPressure;
+      }
+      const now = new Date();
+      const event = await recordAgentLifeEvent({
+        identityKey: 'xiaoni',
+        eventKind: 'manual_energy_override',
+        occurredAt: now,
+        visibility: 'self_private',
+        dedupeKey: `admin-energy-set-${now.toISOString()}`,
+        payload
+      });
+      res.json({
+        success: true,
+        data: {
+          eventId: (event as { id?: number | string } | null)?.id ?? null,
+          appliedFields: Object.keys(payload).filter((key) => key !== 'source' && key !== 'max_energy'),
+          target: {
+            energy: targetEnergy,
+            pressure: targetPressure,
+            exact: hasEnergy || (hasHomeo && hasDebt)
+          },
+          note: '已写入手动精力覆盖，下一次 life-projection 刷新（≤数秒）后生效'
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to set Xiaoni energy',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.post('/agent-runtime/recover-now', async (req, res) => {
     try {
       const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body)
