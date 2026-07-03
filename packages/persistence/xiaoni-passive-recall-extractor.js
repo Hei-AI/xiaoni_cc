@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 const XIAONI_RUNTIME_ROOT = '/xiaoni-runtime';
 const HOST_XIAONI_RUNTIME_ROOT = '/home/liahua/.qqbot-local/xiaoni-runtime';
 
@@ -406,9 +408,109 @@ function extractPassiveRecallCuesFromActionStream(items = []) {
     .filter(Boolean);
 }
 
+// ── 召回语料 ingest 侧(黑名单排除,统一记录)────────────────────────────────
+//
+// 上面的 sourceKindForItem 是「白名单包含」——只认 file/qq_usage/spoken,其它 return null。
+// 白名单永远补不全(自己看过/做过/别人做过…)。召回语料反过来:非 operator/debug 噪音的
+// 每一条动作流条目都是 cue。kind 只用来选 lead 措辞(缺则通用),不是收不收的门。
+// 详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md。
+
+function contentHashOf(text) {
+  return crypto.createHash('sha256').update(typeof text === 'string' ? text : '').digest('hex');
+}
+
+function indexableRuntimePathsForItem(item, command) {
+  return extractRuntimePaths(command || '')
+    .map((entry) => ({ ...entry, operation: inferFileOperation(command, entry.path) }))
+    .filter((entry) => entry.indexable);
+}
+
+function leadTemplateForItem(item, { runtimePaths }) {
+  const source = firstString(item.source);
+  const kind = firstString(item.kind);
+  const toolName = firstString(item?.metadata?.toolName, source === 'tool_execution' ? kind : null);
+  if (SPOKEN_KINDS.has(kind) || (source === 'tool_execution' && SPOKEN_KINDS.has(toolName))) {
+    return 'db_spoken_fragment';
+  }
+  if (runtimePaths.some((entry) => entry.indexable)) {
+    return 'db_file_provenance';
+  }
+  // 入站/别人说过:有 sender/peer 且不是她自己发的可见话语。
+  const peer = firstString(item.senderName, item.peerName, item?.metadata?.senderName, item?.metadata?.peerName);
+  if (peer) {
+    return 'peer_message';
+  }
+  return null; // → 通用兜底
+}
+
+// 把任意动作流条目(非 operator 噪音)转成统一的可召回记忆记录,或 null。
+// 返回 { sourceKind, sourceRef, occurredAt, embeddingText, provenance, contentHash }。
+function buildRecallCueFromActionStreamItem(item) {
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  const source = firstString(item.source);
+  // 黑名单:operator/debug 轨迹(llm 请求 / provider payload / fork 内务)不进语料。
+  if (source && OPERATIONAL_SOURCES.has(source)) {
+    return null;
+  }
+  const sourceRef = firstString(item.id, item.eventId);
+  if (!sourceRef) {
+    return null; // 无稳定引用无法 upsert / 排除已在场。
+  }
+  const kind = firstString(item.kind);
+  const metadata = item.metadata && typeof item.metadata === 'object' ? item.metadata : {};
+  const toolName = firstString(metadata.toolName, source === 'tool_execution' ? kind : null);
+  const command = toolName === 'exec_command' ? extractCommand(item) : null;
+  const runtimePaths = indexableRuntimePathsForItem(item, command);
+
+  const title = firstString(item.title);
+  const body = firstString(item.body);
+  const embeddingText = truncateText([title, body].filter(Boolean).join('\n'), 1200);
+  if (!embeddingText) {
+    return null; // 没有可嵌内容。
+  }
+
+  const cueClass = sourceKindForItem(item) || 'db_life_cue';
+  const leadTemplate = leadTemplateForItem(item, { runtimePaths });
+  const primaryPath = runtimePaths.find((entry) => entry.indexable) || null;
+
+  const provenance = {
+    source: source || null,
+    kind: kind || null,
+    toolName: toolName || null,
+    peer: firstString(item.senderName, item.peerName, metadata.senderName, metadata.peerName),
+    ts: firstString(item.timestamp),
+    path: primaryPath ? primaryPath.path : null,
+    privacyScope: privacyScopeForItem(item, cueClass),
+    cueClass,
+    leadTemplate
+  };
+
+  return {
+    sourceKind: 'action_stream',
+    sourceRef,
+    occurredAt: firstString(item.timestamp),
+    embeddingText,
+    provenance,
+    contentHash: contentHashOf(embeddingText)
+  };
+}
+
+function buildRecallCuesFromActionStream(items = []) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.map(buildRecallCueFromActionStreamItem).filter(Boolean);
+}
+
 module.exports = {
+  OPERATIONAL_SOURCES,
   classifyRuntimePath,
+  contentHashOf,
   extractPassiveRecallCueFromActionStreamItem,
   extractPassiveRecallCuesFromActionStream,
-  extractRuntimePaths
+  extractRuntimePaths,
+  buildRecallCueFromActionStreamItem,
+  buildRecallCuesFromActionStream
 };
