@@ -1789,3 +1789,25 @@ model GoldenChatCase {
   @@index([source_projection_version_id, created_at], map: "idx_golden_chat_cases_source_version")
   @@map("golden_chat_cases")
 }
+
+// 小腻被动浮现召回语料。每条 = 一个可召回记忆单元(动作流事件 或 文件块)。
+// embedding 存 float[] JSON(v1;pgvector 是 scale 后续,列名不变)。
+// 只被 admin-backend(shadow)+ 未来 v2 live 读取,agent-service 不引用。
+// 详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md
+model XiaoniRecallCue {
+  id             BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key   String    @db.VarChar(64)
+  source_kind    String    @db.VarChar(32)   // action_stream | file_chunk
+  source_ref     String    @db.VarChar(512)  // stack_index/event_id  或  path#chunkIdx
+  provenance     Json      @default("{}")     // {source,kind,toolName,peer,ts,path,privacyScope,cueClass,leadTemplate}
+  occurred_at    DateTime? @db.Timestamptz(3)
+  embedding_text String
+  embedding      Json                          // float[]
+  content_hash   String    @db.VarChar(64)     // 变更重嵌 + 去重
+  created_at     DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([identity_key, source_ref], map: "uniq_xiaoni_recall_cue_identity_source")
+  @@index([identity_key, occurred_at], map: "idx_xiaoni_recall_cue_identity_occurred")
+  @@map("xiaoni_recall_cues")
+}
