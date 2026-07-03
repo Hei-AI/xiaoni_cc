@@ -159,13 +159,22 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   const existing = await existingHashesBatched(identityKey, all.map((record) => record.sourceRef));
   const changed = all.filter((record) => existing.get(record.sourceRef) !== record.contentHash);
 
-  const embeddings = await embedTexts(changed.map((record) => record.embeddingText));
-  changed.forEach((record, index) => {
-    record.embedding = embeddings[index];
-  });
-  const usable = changed.filter((record) => Array.isArray(record.embedding) && record.embedding.length > 0);
-
-  const { upserted } = await upsertRecallCues(identityKey, usable);
+  // 增量:逐块 embed→upsert,进度即时落库、坏块不拖垮全局(local CPU 嵌入器单槽慢,
+  // 全部嵌完再写会让语料长时间为 0、且中途失败全丢)。
+  const UPSERT_CHUNK = 64;
+  let embedded = 0;
+  let upserted = 0;
+  for (let i = 0; i < changed.length; i += UPSERT_CHUNK) {
+    const slice = changed.slice(i, i + UPSERT_CHUNK);
+    const vectors = await embedTexts(slice.map((record) => record.embeddingText));
+    slice.forEach((record, index) => {
+      record.embedding = vectors[index];
+    });
+    const usable = slice.filter((record) => Array.isArray(record.embedding) && record.embedding.length > 0);
+    const res = await upsertRecallCues(identityKey, usable);
+    embedded += usable.length;
+    upserted += res.upserted;
+  }
 
   // 文件重扫后清掉不再存在的旧块(文件被删短)。
   let prunedPaths = 0;
@@ -178,7 +187,7 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   return {
     scanned: all.length,
     changed: changed.length,
-    embedded: usable.length,
+    embedded,
     upserted,
     prunedPaths,
     counts
