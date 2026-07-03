@@ -753,6 +753,20 @@ test('ensureXiaoniAgentStackSchema creates main and fork ledger tables', async (
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_items/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_slices/);
   assert.match(ddl, /CREATE TABLE IF NOT EXISTS subconscious_agent_fork_tool_executions/);
+
+  // Late-added columns must be guarded by an information_schema pre-check, not a
+  // bare `ADD COLUMN IF NOT EXISTS`. A bare ALTER takes ACCESS EXCLUSIVE on every
+  // ensureSchema call (every persistence op) even as a no-op, so one long reader
+  // can pin an exclusive request at the head of the FIFO lock queue and freeze
+  // the table (the 49-connection convoy). The guard makes the steady-state cost
+  // a plain AccessShare SELECT.
+  assert.doesNotMatch(ddl, /ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS/);
+  assert.doesNotMatch(ddl, /ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS/);
+  assert.doesNotMatch(ddl, /ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS/);
+  assert.match(ddl, /information_schema\.columns/);
+  assert.match(ddl, /column_name = 'source_kind'/);
+  assert.match(ddl, /EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_kind/);
+  assert.match(ddl, /EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_source_kind/);
 });
 
 test('subconscious agent fork ledger records natural-language notify linkage and usage source', async () => {

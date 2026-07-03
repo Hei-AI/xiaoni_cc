@@ -1649,8 +1649,31 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
-        "ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider'",
-        'ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_id VARCHAR(191)',
+        // Guarded ADD COLUMN. A bare `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+        // still takes ACCESS EXCLUSIVE on the table every time ensureSchema runs
+        // (i.e. every persistence op), even when the column already exists — the
+        // lock is acquired before IF NOT EXISTS is evaluated. One long reader can
+        // then pin that exclusive request at the head of the FIFO lock queue and
+        // freeze the whole table (the 49-connection convoy incident). The
+        // information_schema pre-check is a plain AccessShare SELECT that never
+        // conflicts; the ALTER fires once, ever. Mirrors the occurred_seq guard.
+        `
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''codex_provider''';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_id VARCHAR(191)';
+            END IF;
+          END $$;
+        `,
         `
           CREATE TABLE IF NOT EXISTS llm_usage_rollups (
             id BIGSERIAL PRIMARY KEY,
@@ -1676,10 +1699,38 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             UNIQUE(identity_key, bucket, bucket_start)
           )
         `,
-        "ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'main'",
-        'ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS fork_run_id VARCHAR(191)',
-        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_source_kind VARCHAR(32)',
-        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_fork_run_id VARCHAR(191)',
+        // Guarded ADD COLUMN (same rationale as the codex_provider_usage_events
+        // guard above): skip the per-op ACCESS EXCLUSIVE lock once the columns
+        // exist.
+        `
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollup_sources' AND column_name = 'source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollup_sources ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''main''';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollup_sources' AND column_name = 'fork_run_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollup_sources ADD COLUMN fork_run_id VARCHAR(191)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollups' AND column_name = 'top_source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_source_kind VARCHAR(32)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollups' AND column_name = 'top_fork_run_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_fork_run_id VARCHAR(191)';
+            END IF;
+          END $$;
+        `,
         `
           CREATE TABLE IF NOT EXISTS llm_usage_rollup_state (
             identity_key VARCHAR(191) PRIMARY KEY,
