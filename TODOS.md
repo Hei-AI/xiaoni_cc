@@ -121,6 +121,35 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Priority:** P3
 **Depends on:** 再次出现可复现或高频样本
 
+## Xiaoni browser
+
+### Zero-restart-ever extension persistence (kill the one auto-relaunch)
+
+**What:** 让补丁 Playwright 扩展在操作者的 Chrome 里**持久加载**,这样任何 Chrome 启动
+(操作者手动开、重启、自动更新拉起)都自动带上扩展,`attach` 永远能连上,连一次
+自动重启 Chrome 都不需要。
+
+**Why:** 当前自愈方案(commit `2ad72e05`)已经让小腻 `goto` 直接可用、跨 Chrome 重启
+自愈,但机制是「检测到扩展没加载 → 自动用 `--load-extension` 重新拉起 Chrome」。残留代价:
+操作者手动重启 Chrome 后,小腻的**第一条**浏览器命令会触发一次自动 Chrome 重启
+(`--restore-last-session` 恢复标签页)。根因是 `--load-extension` 是一次性启动参数,
+不跨正常重启存活。持久加载能消掉这最后一次重启。
+
+**Context / 约束:**
+- 路线:Chrome 策略强制安装 —— 写
+  `HKCU\Software\Policies\Google\Chrome\ExtensionInstallForcelist`(HKCU 不需要管理员),
+  指向本地自托管的 CRX + update manifest(`file:///`)。
+- 需要生成一对签名密钥,把补丁扩展打包成 CRX,使其 id 与桥里 `EXTENSION_ID`
+  (由 `EXTENSION_KEY` 推导)一致;force-install 绕过 Web Store 校验并防止被禁用。
+  Web Store 原版不能用(必须是打了 Xiaoni-only connector 补丁的版本)。
+- 风险:往操作者的 Chrome 用户策略里写东西,是真实机器改动;且「跨真实重启仍加载」
+  没法在不重启/重启系统的情况下验证。**做之前先要操作者点头。**
+- 现状足够:小腻现在永远能用网页,这条只是消掉那一次自动重启的体验优化。
+
+**Effort:** M
+**Priority:** P3（体验优化,非阻塞;当前自愈已闭环）
+**Depends on:** 操作者同意写 Chrome 策略 + 一次真实重启验证窗口
+
 ## Completed
 
 ### Enrich System Reminder group notification previews
