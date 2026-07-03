@@ -5024,7 +5024,14 @@ export class AgentLoopService {
   // 各一次)。清除时机:主 loop 生效 cutoff >= 目标(已应用),或 fork 失败未提交(可重试)。
   private readonly pendingCompressionAppliedCutoffBySession = new Map<string, number>();
   private cacheHeartbeatLastStartedAtMs = 0;
-  private cacheHeartbeatInFlight: Promise<void> | null = null;
+  // Single-flight lock shared by ALL heartbeat entry points: the main-loop
+  // recovery scheduler (scheduleCacheHeartbeatDuringRecovery), the debug-interval
+  // supervisor and the manual admin button (both via triggerCacheHeartbeatForDebug).
+  // While one heartbeat is in flight, every other entry point skips (never queues),
+  // so overlapping 437K clone requests can't stack up. Typed `unknown` because the
+  // recovery path stores a void bookkeeping promise while the debug path stores the
+  // CacheHeartbeatRunResult promise; the lock only cares whether one is running.
+  private cacheHeartbeatInFlight: Promise<unknown> | null = null;
   private subconsciousAgentForkBackoffUntilMs = 0;
   private subconsciousAgentForkInFlight: Promise<boolean> | null = null;
   // Handoff from the last settled main-agent run to the self-driven fork. The fork is a
@@ -5497,7 +5504,26 @@ export class AgentLoopService {
   }
 
   async triggerCacheHeartbeatForDebug(): Promise<CacheHeartbeatRunResult> {
-    return this.runCacheHeartbeatDuringRecovery();
+    // Acquire the shared single-flight lock. If a heartbeat (recovery, debug
+    // supervisor, or another manual click) is already running, skip immediately
+    // instead of firing a second concurrent 437K clone. The check and the
+    // assignment run in one synchronous tick (no await between them), so two
+    // concurrent callers can't both pass the guard.
+    if (this.cacheHeartbeatInFlight) {
+      return {
+        triggered: false,
+        reason: 'heartbeat_in_flight',
+        executionMode: CACHE_HEARTBEAT_EXECUTION_MODE
+      };
+    }
+    const run = this.runCacheHeartbeatDuringRecovery();
+    this.cacheHeartbeatInFlight = run;
+    run.finally(() => {
+      if (this.cacheHeartbeatInFlight === run) {
+        this.cacheHeartbeatInFlight = null;
+      }
+    }).catch(() => undefined);
+    return run;
   }
 
   // Operator-forced core memory compaction. Mirrors the cache-heartbeat prelude
