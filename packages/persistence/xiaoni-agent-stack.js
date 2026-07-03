@@ -434,6 +434,157 @@ function normalizeUsageSearchHit(row, query) {
   };
 }
 
+function normalizeUsageSearchScope(value) {
+  // 'stack' (default): fast first-appearance grep over the append-only main
+  // stack ledger. 'deep': the old brute-force grep over the cumulative payload
+  // snapshots (llm_request_slices), fork slices and codex provider events —
+  // opt-in only, since it detoasts multi-MB blobs and is the slow path.
+  return firstString(value) === 'deep' ? 'deep' : 'stack';
+}
+
+// Builds the usage-search overlay query for the requested scope. Returns
+// { text, params } so getXiaoniLlmUsageTimeline stays a thin dispatcher.
+function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchLimit }) {
+  if (scope === 'deep') {
+    const tokenSql = usageTokenSql('token_usage');
+    return {
+      text: `
+        -- DEEP scope (opt-in): brute-force ILIKE over the cumulative payload
+        -- snapshots. Detoasts multi-MB canonical/wire/response blobs across the
+        -- window -> slow and lock-heavy; only for finding strings that live ONLY
+        -- in a raw provider envelope / codex payload / fork clone and never in
+        -- the main stack ledger. Guarded by the same 30-day window cap.
+        WITH searchable AS (
+          SELECT slice_id, ?::varchar AS source_kind, NULL::varchar AS fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM llm_request_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
+          SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM core_memory_compression_fork_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
+          SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM subconscious_agent_fork_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
+          SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM image_vision_fork_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
+          SELECT event_id AS slice_id, source_kind, source_id AS fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM codex_provider_usage_events WHERE identity_key = ? ${timeWhere.clause}
+        )
+        SELECT
+          slice_id AS llm_request_slice_id,
+          source_kind,
+          fork_run_id,
+          llm_call_id,
+          trace_id,
+          created_at AS timestamp,
+          ${tokenSql.input} AS input_tokens,
+          ${tokenSql.cached} AS cached_tokens,
+          ${tokenSql.output} AS output_tokens,
+          CASE
+            WHEN canonical_request::text ILIKE ? THEN 'canonical_request'
+            WHEN COALESCE(wire_request::text, '') ILIKE ? THEN 'wire_request'
+            WHEN COALESCE(canonical_response::text, '') ILIKE ? THEN 'canonical_response'
+            WHEN COALESCE(wire_response::text, '') ILIKE ? THEN 'wire_response'
+            WHEN COALESCE(raw_response::text, '') ILIKE ? THEN 'raw_response'
+            WHEN COALESCE(output_items::text, '') ILIKE ? THEN 'output_items'
+            WHEN COALESCE(metadata::text, '') ILIKE ? THEN 'metadata'
+            ELSE source_kind
+          END AS match_field,
+          LEFT(CONCAT_WS(' ', canonical_request::text, COALESCE(wire_request::text, ''), COALESCE(canonical_response::text, ''), COALESCE(wire_response::text, ''), COALESCE(raw_response::text, ''), COALESCE(output_items::text, ''), COALESCE(metadata::text, '')), 280) AS snippet
+        FROM searchable
+        WHERE
+          canonical_request::text ILIKE ?
+          OR COALESCE(wire_request::text, '') ILIKE ?
+          OR COALESCE(canonical_response::text, '') ILIKE ?
+          OR COALESCE(wire_response::text, '') ILIKE ?
+          OR COALESCE(raw_response::text, '') ILIKE ?
+          OR COALESCE(output_items::text, '') ILIKE ?
+          OR COALESCE(metadata::text, '') ILIKE ?
+        ORDER BY created_at ASC, source_kind ASC, slice_id ASC
+        LIMIT ?
+      `,
+      params: [
+        USAGE_SOURCE_MAIN,
+        identityKey,
+        ...timeWhere.params,
+        USAGE_SOURCE_COMPRESSION_FORK,
+        identityKey,
+        ...timeWhere.params,
+        USAGE_SOURCE_SUBCONSCIOUS_FORK,
+        identityKey,
+        ...timeWhere.params,
+        USAGE_SOURCE_IMAGE_VISION_FORK,
+        identityKey,
+        ...timeWhere.params,
+        identityKey,
+        ...timeWhere.params,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        pattern,
+        searchLimit
+      ]
+    };
+  }
+  return {
+    text: `
+      -- STACK scope (default): fast first-appearance grep over the append-only
+      -- main stack ledger. Each agent_stack_items row is one real block at the
+      -- moment it FIRST entered context (avg ~1.7KB), so ORDER BY created_at ASC
+      -- gives true first-appearance and the scan is ~1.6s over 342MB — vs the
+      -- 3-minute lock-convoy grep over the 91GB cumulative payload snapshots.
+      -- Predicate pushed into the table WHERE (not a post-filter over a
+      -- materialized CTE) so the ILIKE is applied during the scan.
+      SELECT
+        COALESCE(llm_request_slice_id, event_id) AS llm_request_slice_id,
+        event_id AS stack_event_id,
+        ?::varchar AS source_kind,
+        NULL::varchar AS fork_run_id,
+        NULL::varchar AS llm_call_id,
+        trace_id,
+        created_at AS timestamp,
+        0 AS input_tokens,
+        0 AS cached_tokens,
+        0 AS output_tokens,
+        CASE
+          WHEN content::text ILIKE ? THEN 'content'
+          WHEN COALESCE(metadata::text, '') ILIKE ? THEN 'metadata'
+          ELSE 'content'
+        END AS match_field,
+        LEFT(CONCAT_WS(' ', content::text, COALESCE(metadata::text, '')), 280) AS snippet
+      FROM agent_stack_items
+      WHERE identity_key = ?
+        ${timeWhere.clause}
+        AND (
+          content::text ILIKE ?
+          OR COALESCE(metadata::text, '') ILIKE ?
+        )
+      ORDER BY created_at ASC, event_id ASC
+      LIMIT ?
+    `,
+    params: [
+      USAGE_SOURCE_MAIN,
+      pattern,
+      pattern,
+      identityKey,
+      ...timeWhere.params,
+      pattern,
+      pattern,
+      searchLimit
+    ]
+  };
+}
+
 function usageAnchorEventId(sliceId, sourceKind) {
   if (!sliceId) {
     return null;
@@ -1649,8 +1800,31 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
-        "ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'codex_provider'",
-        'ALTER TABLE codex_provider_usage_events ADD COLUMN IF NOT EXISTS source_id VARCHAR(191)',
+        // Guarded ADD COLUMN. A bare `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+        // still takes ACCESS EXCLUSIVE on the table every time ensureSchema runs
+        // (i.e. every persistence op), even when the column already exists — the
+        // lock is acquired before IF NOT EXISTS is evaluated. One long reader can
+        // then pin that exclusive request at the head of the FIFO lock queue and
+        // freeze the whole table (the 49-connection convoy incident). The
+        // information_schema pre-check is a plain AccessShare SELECT that never
+        // conflicts; the ALTER fires once, ever. Mirrors the occurred_seq guard.
+        `
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''codex_provider''';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'codex_provider_usage_events' AND column_name = 'source_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE codex_provider_usage_events ADD COLUMN source_id VARCHAR(191)';
+            END IF;
+          END $$;
+        `,
         `
           CREATE TABLE IF NOT EXISTS llm_usage_rollups (
             id BIGSERIAL PRIMARY KEY,
@@ -1676,10 +1850,38 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             UNIQUE(identity_key, bucket, bucket_start)
           )
         `,
-        "ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS source_kind VARCHAR(32) NOT NULL DEFAULT 'main'",
-        'ALTER TABLE llm_usage_rollup_sources ADD COLUMN IF NOT EXISTS fork_run_id VARCHAR(191)',
-        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_source_kind VARCHAR(32)',
-        'ALTER TABLE llm_usage_rollups ADD COLUMN IF NOT EXISTS top_fork_run_id VARCHAR(191)',
+        // Guarded ADD COLUMN (same rationale as the codex_provider_usage_events
+        // guard above): skip the per-op ACCESS EXCLUSIVE lock once the columns
+        // exist.
+        `
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollup_sources' AND column_name = 'source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollup_sources ADD COLUMN source_kind VARCHAR(32) NOT NULL DEFAULT ''main''';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollup_sources' AND column_name = 'fork_run_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollup_sources ADD COLUMN fork_run_id VARCHAR(191)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollups' AND column_name = 'top_source_kind'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_source_kind VARCHAR(32)';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'llm_usage_rollups' AND column_name = 'top_fork_run_id'
+            ) THEN
+              EXECUTE 'ALTER TABLE llm_usage_rollups ADD COLUMN top_fork_run_id VARCHAR(191)';
+            END IF;
+          END $$;
+        `,
         `
           CREATE TABLE IF NOT EXISTS llm_usage_rollup_state (
             identity_key VARCHAR(191) PRIMARY KEY,
@@ -4361,6 +4563,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
 
       const includeOverlays = firstString(input.includeOverlays, input.include_overlays) || '';
       const searchQuery = normalizeUsageSearchQuery(input.searchQuery ?? input.search_q);
+      const searchScope = normalizeUsageSearchScope(input.searchScope ?? input.search_scope);
       let searchHits = [];
       if (searchQuery) {
         const searchWindowMs = endTime.getTime() - startTime.getTime();
@@ -4369,178 +4572,17 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         } else {
           const pattern = `%${searchQuery}%`;
           const searchLimit = Math.min(USAGE_SEARCH_MAX_HITS, Math.max(25, Math.floor(maxPoints / 2)));
-          const searchRows = await sql.query(
-            `
-              WITH searchable AS (
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  NULL::varchar AS fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM llm_request_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM core_memory_compression_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM subconscious_agent_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM image_vision_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  event_id AS slice_id,
-                  source_kind,
-                  source_id AS fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM codex_provider_usage_events
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-              )
-              SELECT
-                slice_id AS llm_request_slice_id,
-                source_kind,
-                fork_run_id,
-                llm_call_id,
-                trace_id,
-                created_at AS timestamp,
-                ${tokenSql.input} AS input_tokens,
-                ${tokenSql.cached} AS cached_tokens,
-                ${tokenSql.output} AS output_tokens,
-                CASE
-                  WHEN canonical_request::text ILIKE ? THEN 'canonical_request'
-                  WHEN COALESCE(wire_request::text, '') ILIKE ? THEN 'wire_request'
-                  WHEN COALESCE(canonical_response::text, '') ILIKE ? THEN 'canonical_response'
-                  WHEN COALESCE(wire_response::text, '') ILIKE ? THEN 'wire_response'
-                  WHEN COALESCE(raw_response::text, '') ILIKE ? THEN 'raw_response'
-                  WHEN COALESCE(output_items::text, '') ILIKE ? THEN 'output_items'
-                  WHEN COALESCE(metadata::text, '') ILIKE ? THEN 'metadata'
-                  ELSE source_kind
-                END AS match_field,
-                LEFT(CONCAT_WS(
-                  ' ',
-                  canonical_request::text,
-                  COALESCE(wire_request::text, ''),
-                  COALESCE(canonical_response::text, ''),
-                  COALESCE(wire_response::text, ''),
-                  COALESCE(raw_response::text, ''),
-                  COALESCE(output_items::text, ''),
-                  COALESCE(metadata::text, '')
-                ), 280) AS snippet
-              FROM searchable
-              WHERE
-                canonical_request::text ILIKE ?
-                OR COALESCE(wire_request::text, '') ILIKE ?
-                OR COALESCE(canonical_response::text, '') ILIKE ?
-                OR COALESCE(wire_response::text, '') ILIKE ?
-                OR COALESCE(raw_response::text, '') ILIKE ?
-                OR COALESCE(output_items::text, '') ILIKE ?
-                OR COALESCE(metadata::text, '') ILIKE ?
-              ORDER BY created_at ASC, source_kind ASC, slice_id ASC
-              LIMIT ?
-            `,
-            [
-              USAGE_SOURCE_MAIN,
-              identityKey,
-              ...timeWhere.params,
-              USAGE_SOURCE_COMPRESSION_FORK,
-              identityKey,
-              ...timeWhere.params,
-              USAGE_SOURCE_SUBCONSCIOUS_FORK,
-              identityKey,
-              ...timeWhere.params,
-              USAGE_SOURCE_IMAGE_VISION_FORK,
-              identityKey,
-              ...timeWhere.params,
-              identityKey,
-              ...timeWhere.params,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              searchLimit
-            ]
-          );
+          const { text: searchSql, params: searchParams } = buildUsageSearchQuery({
+            scope: searchScope,
+            pattern,
+            identityKey,
+            timeWhere,
+            searchLimit
+          });
+          if (searchScope === 'deep') {
+            warnings.push('search_overlay_deep_scope');
+          }
+          const searchRows = await sql.query(searchSql, searchParams);
           searchHits = searchRows.map((row) => normalizeUsageSearchHit(row, searchQuery));
           if (!includeOverlays.includes('search')) {
             warnings.push('search_overlay_included_without_flag');

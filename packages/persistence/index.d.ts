@@ -1008,6 +1008,11 @@ export type XiaoniLlmUsageTimelineInput = XiaoniAgentStackPersistenceCallInput &
   include_overlays?: string;
   searchQuery?: string | null;
   search_q?: string | null;
+  /** 'stack' (default): fast first-appearance grep over agent_stack_items.
+   *  'deep': opt-in brute-force grep over the raw payload snapshots
+   *  (llm_request_slices + fork slices + codex events). Slow/detoast-heavy. */
+  searchScope?: string | null;
+  search_scope?: string | null;
 };
 export type XiaoniLlmUsagePoint = {
   key: string;

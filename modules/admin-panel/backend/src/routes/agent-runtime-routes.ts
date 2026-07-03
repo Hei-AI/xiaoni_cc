@@ -1216,7 +1216,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         includePeaks: parseQueryBoolean(req.query.include_peaks ?? req.query.includePeaks, true),
         includeMiniMap: parseQueryBoolean(req.query.include_minimap ?? req.query.includeMiniMap, false),
         includeOverlays: firstQueryString(req.query.include_overlays ?? req.query.includeOverlays) ?? undefined,
-        searchQuery: firstQueryString(req.query.search_q ?? req.query.searchQuery)
+        searchQuery: firstQueryString(req.query.search_q ?? req.query.searchQuery),
+        searchScope: firstQueryString(req.query.search_scope ?? req.query.searchScope)
       });
 
       res.json({

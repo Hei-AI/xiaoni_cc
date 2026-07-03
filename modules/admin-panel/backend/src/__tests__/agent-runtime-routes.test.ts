@@ -1137,7 +1137,8 @@ describe('agent runtime action event trace routes', () => {
       includePeaks: true,
       includeMiniMap: false,
       includeOverlays: 'compression_fork',
-      searchQuery: null
+      searchQuery: null,
+      searchScope: null
     });
   });
 
