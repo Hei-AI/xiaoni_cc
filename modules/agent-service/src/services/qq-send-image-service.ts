@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 type FetchResponseLike = {
@@ -13,6 +15,50 @@ type FetchLike = (url: string, init: {
   headers: Record<string, string>;
   body: string;
 }) => Promise<FetchResponseLike>;
+
+// 出站传输压缩:把「上线给 NapCat 的那一份」转成 webp 省流量。铁律(见 docs/XIAONI_SEND_IMAGE_WEBP_PLAN.md §4):
+// 转码产物只允许流向 data_url,绝不进 archiveSentImage / result.mime_type / result.image_path，
+// 否则回看画质、local-image-visibility(PNG-only)、看图 fork 历史理解三条读路会被打穿。
+export type WebpEncodeMode = 'lossless' | 'lossy';
+// input 原始图字节 → webp 字节。抛错/返回空 = 编码器不可用，上层回退原图。可注入以便测试与将来换 sharp。
+export type WebpEncoder = (input: Buffer, mode: WebpEncodeMode) => Promise<Buffer>;
+
+const CWEBP_TIMEOUT_MS = 15000;
+
+// 默认编码器:shell 到 cwebp(libwebp-tools)。用临时文件而非 stdin —— cwebp 解 PNG/JPEG 需要可 seek 输入，
+// 管道不可 seek 会失败;临时文件确定可靠，用完即删。容器缺 cwebp 时抛错，toWireImage 回退原图。
+function defaultCwebpEncoder(input: Buffer, mode: WebpEncodeMode): Promise<Buffer> {
+  return (async () => {
+    const dir = await fs.mkdtemp(path.join(tmpdir(), 'xn-webp-'));
+    const inPath = path.join(dir, 'in');
+    const outPath = path.join(dir, 'out.webp');
+    try {
+      await fs.writeFile(inPath, input);
+      await new Promise<void>((resolve, reject) => {
+        const args = mode === 'lossless'
+          ? ['-quiet', '-lossless', inPath, '-o', outPath]
+          : ['-quiet', '-q', '80', inPath, '-o', outPath];
+        const child = spawn('cwebp', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(new Error('cwebp timeout'));
+        }, CWEBP_TIMEOUT_MS);
+        timer.unref?.();
+        child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+        child.on('error', (error) => { clearTimeout(timer); reject(error); });
+        child.on('close', (code) => {
+          clearTimeout(timer);
+          if (code === 0) resolve();
+          else reject(new Error(`cwebp exit ${code}: ${stderr.slice(0, 200)}`));
+        });
+      });
+      return await fs.readFile(outPath);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  })();
+}
 
 export type QqSendImageActionContext = {
   traceId?: string | null;
@@ -45,6 +91,7 @@ export type QqSendImageServiceOptions = {
   allowedRoots?: string[];
   maxBytes?: number;
   fetchImpl?: FetchLike;
+  webpEncoder?: WebpEncoder;
 };
 
 type SendMode = 'private' | 'group';
@@ -242,6 +289,7 @@ export class QqSendImageService {
   private readonly explicitAllowedRoots?: string[];
   private readonly maxBytes: number;
   private readonly fetchImpl: FetchLike;
+  private readonly webpEncoder: WebpEncoder;
 
   constructor(options: QqSendImageServiceOptions = {}) {
     this.providerServiceUrl = (options.providerServiceUrl || process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, '');
@@ -250,6 +298,29 @@ export class QqSendImageService {
     this.explicitAllowedRoots = options.allowedRoots;
     this.maxBytes = options.maxBytes || Number.parseInt(process.env.QQ_SEND_IMAGE_MAX_BYTES || '', 10) || DEFAULT_MAX_BYTES;
     this.fetchImpl = options.fetchImpl || fetch;
+    this.webpEncoder = options.webpEncoder || defaultCwebpEncoder;
+  }
+
+  // 只转 wire 那一份:PNG→无损 webp、JPEG→有损 q80;GIF(可能动图)/已 webp/其它一律原样。
+  // 编码失败、转完更大、返回空 —— 全部回退原图。绝不改动传入 data(调用方仍用原图归档)。
+  private async toWireImage(data: Buffer, mimeType: string): Promise<{ data: Buffer; mimeType: string }> {
+    let mode: WebpEncodeMode;
+    if (mimeType === 'image/png') {
+      mode = 'lossless';
+    } else if (mimeType === 'image/jpeg') {
+      mode = 'lossy';
+    } else {
+      return { data, mimeType };
+    }
+    try {
+      const encoded = await this.webpEncoder(data, mode);
+      if (!encoded || encoded.length === 0 || encoded.length >= data.length) {
+        return { data, mimeType };
+      }
+      return { data: encoded, mimeType: 'image/webp' };
+    } catch {
+      return { data, mimeType };
+    }
   }
 
   private statusDir() {
@@ -444,10 +515,12 @@ export class QqSendImageService {
       });
       await this.writeStatus(statusRecord);
 
+      // 传输压缩:只有发给 NapCat 的 data_url 用 webp;归档/mime_type/image_path 一律保持原图(见 §4 铁律)。
+      const wire = await this.toWireImage(image.data, image.mimeType);
       const targetField = mode === 'private' ? 'user_id' : 'group_id';
       const payload: Record<string, unknown> = {
         [targetField]: target.value,
-        data_url: `data:${image.mimeType};base64,${image.data.toString('base64')}`
+        data_url: `data:${wire.mimeType};base64,${wire.data.toString('base64')}`
       };
       if (caption) {
         payload.caption = caption;
