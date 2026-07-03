@@ -2394,3 +2394,45 @@ export function updateAgentRuntimeControl(input?: Record<string, unknown>, confi
 export function setAgentEnergyPolicy(input?: { identityKey?: string; energyPolicy?: Record<string, number> | null }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection>;
 export function triggerPostCompressionRuntimePause(input?: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { pauseJustTriggered: boolean }>;
 export function haltRuntimeForCompressionOverrun(input?: { identityKey?: string; reason?: string; heartbeatIntervalMs?: number }, config?: DatabaseUrlConfig): Promise<AgentRuntimeControlProjection & { haltJustTriggered: boolean }>;
+
+// ── 小腻被动浮现召回(shadow v1)。详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md ──
+export interface XiaoniRecallCueRecord {
+  sourceKind: string;
+  sourceRef: string;
+  occurredAt: string | null;
+  embeddingText: string;
+  provenance: Record<string, unknown>;
+  contentHash: string;
+  embedding?: number[];
+}
+export interface XiaoniRecallLead {
+  kind: string;
+  pointer: string | null;
+  hint: string;
+  privacyScope: string;
+  text: string;
+}
+export interface XiaoniRecallBandpassResult {
+  surfaced: Array<{ candidate: any; verdict: string; cos: number }>;
+  dropped: Array<{ candidate: any; verdict: string; cos: number | null }>;
+  silent: boolean;
+  floor: number | null;
+  ceiling: number;
+}
+export const OPERATIONAL_SOURCES: Set<string>;
+export const DEFAULT_FLOOR: number;
+export const TASK_LOCK_FLOOR: number;
+export const DEFAULT_CEILING: number;
+export function cosineSimilarity(a: number[], b: number[]): number;
+export function bandpassRecall(params: any): XiaoniRecallBandpassResult;
+export function renderRecallLead(candidate: any): XiaoniRecallLead;
+export function chunkRuntimeFile(params: { path: string; content: string; privacyScope?: string }): XiaoniRecallCueRecord[];
+export function buildRecallCueFromActionStreamItem(item: Record<string, unknown>): XiaoniRecallCueRecord | null;
+export function buildRecallCuesFromActionStream(items?: Array<Record<string, unknown>>): XiaoniRecallCueRecord[];
+export function contentHashOf(text: string): string;
+export function getExistingContentHashes(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<Map<string, string>>;
+export function upsertRecallCues(identityKey: string, records?: XiaoniRecallCueRecord[], config?: DatabaseUrlConfig): Promise<{ upserted: number }>;
+export function listRecallCandidates(params?: { identityKey?: string; excludeSourceRefs?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
+export function getRecallCueByRef(identityKey: string, sourceRef: string, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord | null>;
+export function countRecallCues(identityKey: string, config?: DatabaseUrlConfig): Promise<{ total: number; byKind: Record<string, number> }>;
+export function pruneFileChunks(identityKey: string, path: string, keepSourceRefs?: string[], config?: DatabaseUrlConfig): Promise<{ deleted: number }>;

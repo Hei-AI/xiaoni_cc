@@ -29,6 +29,27 @@ type ApiResponse<T> = {
   error?: string;
 };
 
+type RecallLead = { kind: string; pointer: string | null; hint: string; privacyScope: string; text: string };
+type RecallSurfaced = { lead: RecallLead; cos: number; sourceRef: string; provenance: Record<string, unknown> };
+type RecallPreviewData = {
+  deliveryMode: string;
+  query: { ref: string | null; text: string; taskLocked: boolean };
+  band: { floor: number | null; ceiling: number };
+  silent: boolean;
+  corpusCount: number;
+  surfaced: RecallSurfaced[];
+  droppedCounts: Record<string, number>;
+  droppedSample: Array<{ verdict: string; cos: number | null; sourceRef: string; cueClass: string | null; leadTemplate: string | null }>;
+};
+type ReindexData = {
+  scanned: number;
+  changed: number;
+  embedded: number;
+  upserted: number;
+  prunedPaths: number;
+  counts: { total: number; byKind: Record<string, number> };
+};
+
 type PassiveRecallCue = {
   cueClass: 'db_life_cue' | 'db_file_provenance' | 'db_spoken_fragment' | string;
   itemId: string | null;
@@ -274,6 +295,59 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
   const [limitInput, setLimitInput] = React.useState('80');
   const [fileLimitInput, setFileLimitInput] = React.useState('20');
   const [includeFiles, setIncludeFiles] = React.useState(true);
+  const [recallText, setRecallText] = React.useState('');
+  const [recallTaskLocked, setRecallTaskLocked] = React.useState(false);
+  const [recallBusy, setRecallBusy] = React.useState(false);
+  const [recallError, setRecallError] = React.useState<string | null>(null);
+  const [recallResult, setRecallResult] = React.useState<RecallPreviewData | null>(null);
+  const [reindexBusy, setReindexBusy] = React.useState(false);
+  const [reindexInfo, setReindexInfo] = React.useState<string | null>(null);
+
+  const runRecall = React.useCallback(async () => {
+    if (!recallText.trim()) {
+      setRecallError('输入一段「当下内容」当 query');
+      return;
+    }
+    setRecallBusy(true);
+    setRecallError(null);
+    try {
+      const params = new URLSearchParams({ query_text: recallText.trim(), task_locked: String(recallTaskLocked), limit: '3' });
+      const response = await fetch(`/api/xiaoni/passive-recall/recall?${params.toString()}`);
+      const json = (await response.json()) as ApiResponse<RecallPreviewData>;
+      if (!json.success) {
+        throw new Error(json.error || '召回失败');
+      }
+      setRecallResult(json.data);
+    } catch (error) {
+      setRecallError(error instanceof Error ? error.message : '召回失败');
+      setRecallResult(null);
+    } finally {
+      setRecallBusy(false);
+    }
+  }, [recallText, recallTaskLocked]);
+
+  const runReindex = React.useCallback(async () => {
+    setReindexBusy(true);
+    setReindexInfo(null);
+    try {
+      const response = await fetch('/api/xiaoni/passive-recall/reindex', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = (await response.json()) as ApiResponse<ReindexData>;
+      if (!json.success) {
+        throw new Error(json.error || '重建失败');
+      }
+      const d = json.data;
+      setReindexInfo(`语料 ${d.counts.total} 条(扫 ${d.scanned}、嵌 ${d.embedded}、写 ${d.upserted}、清 ${d.prunedPaths} 文件)`);
+    } catch (error) {
+      setReindexInfo(error instanceof Error ? `失败：${error.message}` : '重建失败');
+    } finally {
+      setReindexBusy(false);
+    }
+  }, []);
+
   const limit = Math.max(1, Math.min(200, Number.parseInt(limitInput, 10) || 80));
   const fileLimit = Math.max(0, Math.min(100, Number.parseInt(fileLimitInput, 10) || 20));
   const queryUrl = React.useMemo(
@@ -314,6 +388,63 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
           onRetry={() => void query.refetch()}
         />
       ) : null}
+
+      <SectionPanel
+        title="召回预览"
+        description="给一段「当下内容」当 query，看 band-pass 会浮出什么 lead、剔掉什么。只展示，不投递。"
+        icon={<Search className="h-4 w-4 text-primary" />}
+        action={
+          <Button variant="outline" size="sm" onClick={() => void runReindex()} disabled={reindexBusy}>
+            {reindexBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
+            重建语料
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-[280px] flex-1 space-y-1.5">
+              <span className="text-xs font-medium text-muted-foreground">当下内容（query）</span>
+              <Input
+                value={recallText}
+                onChange={(event) => setRecallText(event.target.value)}
+                placeholder="例如她刚 cat 的一段笔记 / 刚收到的一句话"
+              />
+            </label>
+            <label className="flex items-center gap-2 pb-2">
+              <Switch checked={recallTaskLocked} onCheckedChange={setRecallTaskLocked} />
+              <span className="text-xs text-muted-foreground">task-locked（抬高 floor）</span>
+            </label>
+            <Button size="sm" onClick={() => void runRecall()} disabled={recallBusy}>
+              {recallBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
+              跑召回
+            </Button>
+          </div>
+          {reindexInfo ? <p className="text-xs text-muted-foreground">{reindexInfo}</p> : null}
+          {recallError ? <p className="text-xs text-destructive">{recallError}</p> : null}
+          {recallResult ? (
+            <div className="space-y-2 rounded-md border border-border/60 p-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <StatusPill tone={recallResult.silent ? 'warning' : 'success'}>
+                  {recallResult.silent ? '静默（什么都不冒）' : `${recallResult.surfaced.length} 条浮现`}
+                </StatusPill>
+                <span>语料 {recallResult.corpusCount}</span>
+                <span>band [{recallResult.band.floor ?? '—'}, {recallResult.band.ceiling}]</span>
+                <span>
+                  剔：似 {recallResult.droppedCounts.drop_too_similar || 0} / 在场 {recallResult.droppedCounts.drop_in_context || 0} / 远 {recallResult.droppedCounts.drop_too_far || 0}
+                </span>
+              </div>
+              {recallResult.surfaced.map((entry) => (
+                <div key={entry.sourceRef} className="rounded-md bg-muted/40 p-2 text-sm">
+                  <div className="font-medium">{entry.lead.text}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    cos {entry.cos.toFixed(3)} · {entry.lead.kind} · {entry.lead.privacyScope} · {entry.sourceRef}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </SectionPanel>
 
       <SectionPanel
         title="过滤"

@@ -6,6 +6,10 @@ import path from 'path';
 import {
   classifyRuntimePath,
   extractPassiveRecallCuesFromActionStream,
+  bandpassRecall,
+  renderRecallLead,
+  listRecallCandidates,
+  getRecallCueByRef,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
   getXiaoniLlmUsageTimeline,
@@ -31,6 +35,7 @@ import {
   buildStackTraceSpanDetail,
   buildStackRawProviderTrace
 } from '../services/trace-span-builder';
+import { reindexXiaoniRecall, embedTexts } from '../services/xiaoni-recall-reindex-service';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
 const AGENT_REQUEST_TIMEOUT_MS = 5000;
@@ -1082,6 +1087,110 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load Xiaoni passive recall shadow cues',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 召回预览(shadow):给一个内容落地时刻当 query → band-pass → 会浮出的 lead + 剔除原因。
+  // 只展示,不投递、不让小腻消费。deliveryMode 恒 shadow_only。
+  router.get('/xiaoni/passive-recall/recall', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const queryRef = firstQueryString(req.query.query_ref ?? req.query.queryRef);
+      let queryText = firstQueryString(req.query.query_text ?? req.query.queryText) || null;
+      const taskLocked = parseQueryBoolean(req.query.task_locked ?? req.query.taskLocked, false);
+      const limit = parsePositiveInteger(req.query.limit, 1, 10);
+      const excludeRefs: string[] = [];
+
+      if (queryRef) {
+        const cue = await getRecallCueByRef(identityKey, queryRef);
+        if (cue) {
+          queryText = queryText || cue.embeddingText;
+          excludeRefs.push(queryRef);
+        }
+      }
+      if (!queryText) {
+        res.status(400).json({ success: false, error: 'query_ref (indexed) 或 query_text 至少给一个', timestamp: new Date().toISOString() });
+        return;
+      }
+
+      const [queryVector] = await embedTexts([queryText]);
+      if (!Array.isArray(queryVector) || queryVector.length === 0) {
+        throw new Error('failed to embed query text');
+      }
+
+      const candidates = await listRecallCandidates({ identityKey, excludeSourceRefs: excludeRefs, limit: 5000 });
+      const result = bandpassRecall({
+        query: { vector: queryVector, contextRefs: excludeRefs, taskLocked },
+        candidates: candidates.map((cue: any) => ({
+          sourceRef: cue.sourceRef,
+          embedding: cue.embedding,
+          provenance: cue.provenance,
+          embeddingText: cue.embeddingText
+        })),
+        limit
+      });
+
+      const droppedCounts: Record<string, number> = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0 };
+      for (const entry of result.dropped) {
+        droppedCounts[entry.verdict] = (droppedCounts[entry.verdict] || 0) + 1;
+      }
+      const droppedSample = result.dropped
+        .filter((entry: any) => typeof entry.cos === 'number')
+        .sort((a: any, b: any) => b.cos - a.cos)
+        .slice(0, 20)
+        .map((entry: any) => ({
+          verdict: entry.verdict,
+          cos: entry.cos,
+          sourceRef: entry.candidate.sourceRef,
+          cueClass: entry.candidate.provenance?.cueClass || null,
+          leadTemplate: entry.candidate.provenance?.leadTemplate || null
+        }));
+
+      res.json({
+        success: true,
+        data: {
+          streamKind: 'xiaoni_passive_recall',
+          deliveryMode: 'shadow_only',
+          query: { ref: queryRef || null, text: queryText.slice(0, 240), taskLocked },
+          band: { floor: result.floor, ceiling: result.ceiling },
+          silent: result.silent,
+          corpusCount: candidates.length,
+          surfaced: result.surfaced.map((entry: any) => ({
+            lead: renderRecallLead(entry.candidate),
+            cos: entry.cos,
+            sourceRef: entry.candidate.sourceRef,
+            provenance: entry.candidate.provenance
+          })),
+          droppedCounts,
+          droppedSample
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to run Xiaoni passive recall',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 重建召回语料(动作流 + 文件底 → 嵌入 → upsert)。内容 hash 没变的跳过。
+  router.post('/xiaoni/passive-recall/reindex', async (req, res) => {
+    try {
+      const body = (req.body && typeof req.body === 'object') ? req.body : {};
+      const identityKey = typeof body.identity_key === 'string' && body.identity_key.trim() ? body.identity_key.trim() : 'xiaoni';
+      const actionStreamLimit = Number.isFinite(Number(body.action_stream_limit)) ? Number(body.action_stream_limit) : undefined;
+      const result = await reindexXiaoniRecall({ identityKey, actionStreamLimit });
+      res.json({ success: true, data: result, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to reindex Xiaoni passive recall corpus',
         timestamp: new Date().toISOString()
       });
     }
