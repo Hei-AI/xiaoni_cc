@@ -15,23 +15,18 @@ energy_cost: 0.004
 
 ## Browser Truth
 
-- Browser profile: host Chrome `Profile 2`.
-- Primary attach mode: official Playwright Extension code, loaded as Xiaoni's own unpacked extension id. The source Web Store id is `mmlmfjhmonkocbjadbfplnigmagldckm`, but the running id and Playwright CLI preflight are patched by the host bridge to avoid Chrome blocking the Web Store id in automation launches.
-- Host bridge maintains a patched unpacked copy of Playwright Extension `0.2.1` under `C:\temp\xiaoni-playwright-extension-<id>-0.2.1`. The patch keeps the registered `connect.html` path but replaces `/lib/ui/connect.js` with a Xiaoni-only minimal connector, auto-selects a debuggable tab when the CLI token is valid, creates an `about:blank` tab if no debuggable tab exists, and filters `chrome-extension:` tabs out of selection. On `ensure-extension --restart`, the bridge clears Chrome's service-worker `ScriptCache` and `Database` after closing Chrome so the patched background script is registered and reloaded.
-- Chrome is visible and headed. The bridge may close and reopen host Chrome once when `ensure-extension --restart` is used so `--load-extension` takes effect for the real `Profile 2`. Do not add `--disable-extensions-except`; it can make Chrome block the unpacked extension page with `ERR_BLOCKED_BY_CLIENT`.
-- Host CLI install: `C:\temp\xiaoni-playwright-cli`.
-- Host bridge: `http://127.0.0.1:9977/run` or `http://172.18.0.1:9977/run` from executor containers. A test bridge may also run on `9976`.
+- The browser is the operator's real, visible host Chrome `Profile 2`.
+- The bridge connects to Chrome through a patched copy of the official Playwright Extension and keeps it loaded for you. Connecting, reloading the extension, and relaunching Chrome when needed are all automatic — there is nothing for you to set up or repair.
+- Host bridge: `http://127.0.0.1:9977/run` or `http://172.18.0.1:9977/run` from executor containers.
 - Your `exec_command` runs inside `qqbot-xiaoni-executor`, so call the bridge client below instead of running `playwright-cli` directly.
-- Removed fallback paths: do not use `open`, `--browser`, `--headed`, `ensure-cdp`, or `attach --cdp`. Those create or target browser sessions that are not guaranteed to be the operator's visible Chrome `Profile 2`. The bridge rejects them.
 
-## Just Use It (the bridge attaches for you)
+## Just Use It
 
-The host bridge owns the session lifecycle. Run any command directly with the
-`-s=xiaoni-host` session name — you do **not** run `open`, `ensure-extension`, or
-`attach` yourself. If the session isn't live, the bridge attaches automatically;
-if the operator's Chrome was restarted and lost the patched extension, the bridge
-relaunches Chrome with it (restoring the previous tabs) and retries. So the normal
-first command is just navigating:
+The bridge manages the browser session for you. Run any command directly with the
+`-s=xiaoni-host` session name — the session is handled for you, nothing to set up.
+If it isn't live the bridge connects it automatically; if Chrome was restarted it
+reloads the extension (restoring your tabs) and retries; if a page's "leave site?"
+dialog blocks navigation it clears it. So the normal first command is just navigating:
 
 ```bash
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host goto https://example.com
@@ -41,11 +36,9 @@ Use one session name: `-s=xiaoni-host`.
 
 ### If it still fails
 
-Auto-attach self-heals the common cases (session died, or Chrome was restarted
-without the patched extension). If a command *still* reports an attach error after
-that automatic retry, the extension attach is genuinely broken at the host — report
-it (see **Host Bridge Maintenance**) instead of falling back to `open`/CDP, which
-are blocked because they do not target the operator's real visible Profile 2.
+The bridge self-heals the common cases automatically. If a command *still* fails
+after that automatic retry, the browser is broken at the host — not something you
+can work around — so report it (see **Host Bridge Maintenance**).
 
 ## Use Official Playwright CLI Commands
 
@@ -64,18 +57,12 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 When `screenshot` succeeds, the official CLI path is a host-side `.playwright-cli\...png` path. The bridge also copies the image into Xiaoni's shared runtime and prints a `### Xiaoni runtime artifacts` section. Use the `/xiaoni-runtime/picture/xiaoni-browser-...png` path from that section when you need Xiaoni to read, inspect, or send the image.
 
-Show the full official command surface:
-
-```bash
-python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- --help
-```
-
 ## Workflow
 
-1. Just run the command you want (`goto`, `snapshot`, `click`, ...) with `-s=xiaoni-host`. The bridge attaches and self-heals automatically; you do not run `open`/`ensure-extension`/`attach` yourself.
+1. Run the command you want (`goto`, `snapshot`, `click`, ...) with `-s=xiaoni-host`. Sessions are managed for you; just navigate and act.
 2. Use `snapshot` to get refs such as `e6`.
 3. Use normal `playwright-cli` commands for actions, tabs, storage, network, console, screenshots, tracing, and video.
-4. If a command reports an attach error even after the automatic retry, the extension attach is broken at the host; report it (see **Host Bridge Maintenance**) instead of using `open`/CDP.
+4. If a command still fails after the automatic retry, the browser is broken at the host; report it (see **Host Bridge Maintenance**).
 
 ## Computer Use Mode (native `computer` tool)
 
@@ -103,7 +90,6 @@ commands above — you call the `computer` tool directly (not through `exec_comm
 - This controls the operator's real visible browser. Avoid destructive account actions unless the operator explicitly asked for them.
 - `cookie-list`, storage commands, and request/response body commands can expose sensitive credentials. Do not run or repeat their output unless it is necessary and explicitly requested.
 - Do not close all browser tabs as cleanup. Inspect with `tab-list` first.
-- Do not use CDP mirror profiles or `playwright-cli open` as recovery paths. If `attach --extension=chrome` fails, the browser skill is broken; run `ensure-extension --restart`, reattach, and report the attach error if it still fails.
 
 ## Host Bridge Maintenance
 
