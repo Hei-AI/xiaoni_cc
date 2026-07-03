@@ -1877,11 +1877,11 @@ test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => 
         llm_call_id: 'llm-1',
         trace_id: 'trace-1',
         timestamp: '2026-06-13T00:10:00.000+08:00',
-        input_tokens: 1000,
-        cached_tokens: 200,
-        output_tokens: 50,
-        match_field: 'wire_response',
-        snippet: '{"output":"needle"}'
+        input_tokens: 0,
+        cached_tokens: 0,
+        output_tokens: 0,
+        match_field: 'content',
+        snippet: '{"content":"needle"}'
       }
     ]
   });
@@ -1897,51 +1897,63 @@ test('getXiaoniLlmUsageTimeline returns search hit overlay points', async () => 
 
   assert.equal(timeline.overlays.searchHits.length, 1);
   assert.equal(timeline.overlays.searchHits[0].anchorEventId, 'llm-slice:slice-1');
-  assert.equal(timeline.overlays.searchHits[0].field, 'wire_response');
+  assert.equal(timeline.overlays.searchHits[0].field, 'content');
   assert.equal(timeline.overlays.searchHits[0].query, 'needle');
-  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('AS match_field') && call.params.includes('%needle%')));
+  const searchCall = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('AS match_field'));
+  assert.ok(searchCall, 'a search overlay query must be issued');
+  assert.ok(searchCall.params.includes('%needle%'), 'search pattern must be bound');
+  // First-appearance contract: search the append-only stack ledger ordered by
+  // created_at ASC, NOT the cumulative payload snapshots.
+  assert.match(searchCall.sql, /FROM agent_stack_items/);
+  assert.match(searchCall.sql, /ORDER BY created_at ASC/);
+  assert.doesNotMatch(searchCall.sql, /FROM llm_request_slices/);
 });
 
-test('getXiaoniLlmUsageTimeline searches Codex Provider usage events', async () => {
+test('getXiaoniLlmUsageTimeline search overlay is scoped to the stack ledger, not payload snapshots or fork clones', async () => {
+  // Contract: the "where did this first appear" search greps agent_stack_items
+  // (each row = one real delta block at first appearance, ~1.7KB avg) and MUST
+  // NOT grep the cumulative sources:
+  //   * llm_request_slices — re-snapshots the whole growing context every turn
+  //     (~10MB x2/row, 91GB) → the 3-minute lock-convoy query this replaces;
+  //   * codex_provider_usage_events — codex sub-agent payloads, not the stack;
+  //   * *_fork_{items,slices} — each fork input is a ~16MB clone of the whole
+  //     main context, so a match reappears in every fork, not "first" appearance.
   const sql = createUsageTimelineSqlMock({
     totalCount: 1,
     pointRows: [
       {
-        key: 'image_vision_fork:codex-provider:vision-1',
+        key: 'slice-1',
         timestamp: '2026-06-13T00:10:00.000+08:00',
         bucket_start: '2026-06-13T00:10:00.000+08:00',
         bucket_end: '2026-06-13T00:10:00.000+08:00',
         call_count: 1,
-        input_tokens: 33,
-        cached_tokens: 12,
-        output_tokens: 7,
-        source_kind: 'image_vision_fork',
-        fork_run_id: 'media-observation-1',
-        llm_request_slice_id: 'codex-provider:vision-1',
-        trace_id: 'trace-vision',
-        top_llm_request_slice_id: 'codex-provider:vision-1',
-        top_source_kind: 'image_vision_fork',
-        top_fork_run_id: 'media-observation-1',
-        top_trace_id: 'trace-vision',
+        input_tokens: 1000,
+        cached_tokens: 200,
+        output_tokens: 50,
+        llm_request_slice_id: 'slice-1',
+        llm_call_id: 'llm-1',
+        trace_id: 'trace-1',
+        top_llm_request_slice_id: 'slice-1',
+        top_llm_call_id: 'llm-1',
+        top_trace_id: 'trace-1',
         top_timestamp: '2026-06-13T00:10:00.000+08:00',
-        top_input_tokens: 33,
-        top_cached_tokens: 12,
-        top_output_tokens: 7
+        top_input_tokens: 1000,
+        top_cached_tokens: 200,
+        top_output_tokens: 50
       }
     ],
     searchRows: [
       {
-        llm_request_slice_id: 'codex-provider:vision-1',
-        source_kind: 'image_vision_fork',
-        fork_run_id: 'media-observation-1',
-        llm_call_id: 'vision-1',
-        trace_id: 'trace-vision',
+        llm_request_slice_id: 'stack:evt-1:runtime-input',
+        stack_event_id: 'stack:evt-1:runtime-input',
+        source_kind: 'main',
+        trace_id: 'trace-1',
         timestamp: '2026-06-13T00:10:00.000+08:00',
-        input_tokens: 33,
-        cached_tokens: 12,
-        output_tokens: 7,
-        match_field: 'canonical_request',
-        snippet: '{"content":"image_vision_fork needle"}'
+        input_tokens: 0,
+        cached_tokens: 0,
+        output_tokens: 0,
+        match_field: 'content',
+        snippet: '{"content":"needle"}'
       }
     ]
   });
@@ -1952,13 +1964,24 @@ test('getXiaoniLlmUsageTimeline searches Codex Provider usage events', async () 
     bucket: 'call',
     maxPoints: 100,
     includeOverlays: 'search',
-    searchQuery: 'image_vision_fork'
+    searchQuery: 'needle'
   });
 
   assert.equal(timeline.overlays.searchHits.length, 1);
-  assert.equal(timeline.overlays.searchHits[0].sourceKind, 'image_vision_fork');
-  assert.equal(timeline.overlays.searchHits[0].anchorEventId, 'codex-provider:vision-1');
-  assert.ok(sql.calls.some((call) => call.kind === 'query' && call.sql.includes('FROM codex_provider_usage_events')));
+  assert.equal(timeline.overlays.searchHits[0].field, 'content');
+
+  const searchCall = sql.calls.find((call) => call.kind === 'query' && call.sql.includes('AS match_field'));
+  assert.ok(searchCall, 'a search overlay query must be issued');
+  // Strip `-- ...` comment lines so the scope assertions test the actual query,
+  // not the rationale comment (which names the excluded tables on purpose).
+  const executable = searchCall.sql.replace(/--.*$/gm, '');
+  assert.match(executable, /FROM agent_stack_items/);
+  assert.match(executable, /content::text ILIKE/);
+  assert.doesNotMatch(executable, /FROM\s+llm_request_slices/);
+  assert.doesNotMatch(executable, /FROM\s+codex_provider_usage_events/);
+  assert.doesNotMatch(executable, /FROM\s+\w*fork_items/);
+  assert.doesNotMatch(executable, /FROM\s+\w*fork_slices/);
+  assert.doesNotMatch(executable, /canonical_request/);
 });
 
 test('reapOrphanedForkRuns fails every running fork-run row across all three ledgers', async () => {

@@ -4371,171 +4371,64 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           const searchLimit = Math.min(USAGE_SEARCH_MAX_HITS, Math.max(25, Math.floor(maxPoints / 2)));
           const searchRows = await sql.query(
             `
-              WITH searchable AS (
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  NULL::varchar AS fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM llm_request_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM core_memory_compression_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM subconscious_agent_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  slice_id,
-                  ?::varchar AS source_kind,
-                  fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM image_vision_fork_slices
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-                UNION ALL
-                SELECT
-                  event_id AS slice_id,
-                  source_kind,
-                  source_id AS fork_run_id,
-                  llm_call_id,
-                  trace_id,
-                  created_at,
-                  token_usage,
-                  canonical_request,
-                  wire_request,
-                  canonical_response,
-                  wire_response,
-                  raw_response,
-                  output_items,
-                  metadata
-                FROM codex_provider_usage_events
-                WHERE identity_key = ?
-                ${timeWhere.clause}
-              )
+              -- Search ONLY the main append-only stack ledger (agent_stack_items),
+              -- NOT the cumulative llm_request_slices payload snapshots and NOT the
+              -- fork item tables. Rationale:
+              --   * Each agent_stack_items row is one real block at the moment it
+              --     FIRST entered context (avg ~1.7KB), so ORDER BY created_at ASC
+              --     gives true first-appearance and the scan is ~1.6s over 342MB.
+              --   * llm_request_slices stores the whole growing context re-snapshotted
+              --     every turn (~10MB x2 per row, 91GB total) -> detoasting it for an
+              --     ILIKE grep is the 3-minute lock-convoy query this replaces.
+              --   * The *_fork_items tables look small (13-454 rows) but each fork
+              --     input item is a CLONE of the entire main context (~16MB/row,
+              --     7.4GB for subconscious alone). Searching them is both slow (~60s)
+              --     and redundant: a message shows up in every fork's full-context
+              --     clone, not just where it first appeared. Fork OUTPUTS that matter
+              --     (compression summaries, vision descriptions) are written back into
+              --     agent_stack_items anyway.
+              -- Predicate is pushed into the table WHERE (not a post-filter over a
+              -- materialized CTE) so Postgres applies the ILIKE during the scan.
+              -- Only content/metadata are searchable; raw provider response envelopes
+              -- and codex_provider_usage_events payloads are intentionally out of
+              -- scope (see the deep-search note in the PR).
               SELECT
-                slice_id AS llm_request_slice_id,
-                source_kind,
-                fork_run_id,
-                llm_call_id,
+                COALESCE(llm_request_slice_id, event_id) AS llm_request_slice_id,
+                event_id AS stack_event_id,
+                ?::varchar AS source_kind,
+                NULL::varchar AS fork_run_id,
+                NULL::varchar AS llm_call_id,
                 trace_id,
                 created_at AS timestamp,
-                ${tokenSql.input} AS input_tokens,
-                ${tokenSql.cached} AS cached_tokens,
-                ${tokenSql.output} AS output_tokens,
+                0 AS input_tokens,
+                0 AS cached_tokens,
+                0 AS output_tokens,
                 CASE
-                  WHEN canonical_request::text ILIKE ? THEN 'canonical_request'
-                  WHEN COALESCE(wire_request::text, '') ILIKE ? THEN 'wire_request'
-                  WHEN COALESCE(canonical_response::text, '') ILIKE ? THEN 'canonical_response'
-                  WHEN COALESCE(wire_response::text, '') ILIKE ? THEN 'wire_response'
-                  WHEN COALESCE(raw_response::text, '') ILIKE ? THEN 'raw_response'
-                  WHEN COALESCE(output_items::text, '') ILIKE ? THEN 'output_items'
+                  WHEN content::text ILIKE ? THEN 'content'
                   WHEN COALESCE(metadata::text, '') ILIKE ? THEN 'metadata'
-                  ELSE source_kind
+                  ELSE 'content'
                 END AS match_field,
                 LEFT(CONCAT_WS(
                   ' ',
-                  canonical_request::text,
-                  COALESCE(wire_request::text, ''),
-                  COALESCE(canonical_response::text, ''),
-                  COALESCE(wire_response::text, ''),
-                  COALESCE(raw_response::text, ''),
-                  COALESCE(output_items::text, ''),
+                  content::text,
                   COALESCE(metadata::text, '')
                 ), 280) AS snippet
-              FROM searchable
-              WHERE
-                canonical_request::text ILIKE ?
-                OR COALESCE(wire_request::text, '') ILIKE ?
-                OR COALESCE(canonical_response::text, '') ILIKE ?
-                OR COALESCE(wire_response::text, '') ILIKE ?
-                OR COALESCE(raw_response::text, '') ILIKE ?
-                OR COALESCE(output_items::text, '') ILIKE ?
-                OR COALESCE(metadata::text, '') ILIKE ?
-              ORDER BY created_at ASC, source_kind ASC, slice_id ASC
+              FROM agent_stack_items
+              WHERE identity_key = ?
+                ${timeWhere.clause}
+                AND (
+                  content::text ILIKE ?
+                  OR COALESCE(metadata::text, '') ILIKE ?
+                )
+              ORDER BY created_at ASC, event_id ASC
               LIMIT ?
             `,
             [
               USAGE_SOURCE_MAIN,
+              pattern,
+              pattern,
               identityKey,
               ...timeWhere.params,
-              USAGE_SOURCE_COMPRESSION_FORK,
-              identityKey,
-              ...timeWhere.params,
-              USAGE_SOURCE_SUBCONSCIOUS_FORK,
-              identityKey,
-              ...timeWhere.params,
-              USAGE_SOURCE_IMAGE_VISION_FORK,
-              identityKey,
-              ...timeWhere.params,
-              identityKey,
-              ...timeWhere.params,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
-              pattern,
               pattern,
               pattern,
               searchLimit
