@@ -1239,10 +1239,12 @@ function XiaoniUsageObservatory({
   isQuotaLoading,
   bucket,
   searchQuery,
+  deepScope,
   isLoading,
   isFetching,
   onBucketChange,
   onSearchQueryChange,
+  onDeepScopeChange,
   onSelectWindow,
   onFocusPoint,
 }: {
@@ -1251,10 +1253,12 @@ function XiaoniUsageObservatory({
   isQuotaLoading: boolean;
   bucket: UsageBucket;
   searchQuery: string;
+  deepScope: boolean;
   isLoading: boolean;
   isFetching: boolean;
   onBucketChange: (bucket: UsageBucket) => void;
   onSearchQueryChange: (query: string) => void;
+  onDeepScopeChange: (deep: boolean) => void;
   onSelectWindow: (startTime: Date, endTime: Date, options?: { endIsNow?: boolean }) => void;
   onFocusPoint: (point: XiaoniLlmUsagePoint) => void;
 }) {
@@ -1569,6 +1573,15 @@ function XiaoniUsageObservatory({
         </div>
         <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={submitSearch}>
           叠层
+        </Button>
+        <Button
+          size="sm"
+          variant={deepScope ? 'default' : 'outline'}
+          className="h-8 px-2 text-xs"
+          onClick={() => onDeepScopeChange(!deepScope)}
+          title="深搜:直接 grep 原始 request/response payload(慢,仅在栈内找不到时用)。默认只搜行动栈,快。"
+        >
+          深搜
         </Button>
         {searchQuery ? (
           <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => onSearchQueryChange('')}>
@@ -2207,6 +2220,7 @@ export const XiaoniActivityPage: React.FC = () => {
   const timeRange = coerceTimeRange(searchParams.get('range'));
   const usageBucket = coerceUsageBucket(searchParams.get('bucket'));
   const usageSearch = searchParams.get('usage_search') || '';
+  const usageSearchDeep = searchParams.get('usage_search_scope') === 'deep';
   const actionTagParam = searchParams.get('tags') || '';
   const refreshValue = coerceActionStreamRefresh(searchParams.get('refresh'));
   const refreshInterval = getActionStreamRefreshInterval(refreshValue);
@@ -2286,7 +2300,7 @@ export const XiaoniActivityPage: React.FC = () => {
     error: usageError,
     refetch: refetchUsage,
   } = useQuery<XiaoniLlmUsageTimeline>({
-    queryKey: ['xiaoni-llm-usage', timeRange, startTime, endTime, usageBucket, usageSearch],
+    queryKey: ['xiaoni-llm-usage', timeRange, startTime, endTime, usageBucket, usageSearch, usageSearchDeep],
     queryFn: async () => {
       const params = new URLSearchParams({
         range: timeRange,
@@ -2306,6 +2320,9 @@ export const XiaoniActivityPage: React.FC = () => {
       if (usageSearch.trim()) {
         params.set('include_overlays', 'search');
         params.set('search_q', usageSearch.trim());
+        if (usageSearchDeep) {
+          params.set('search_scope', 'deep');
+        }
       }
       const response = await fetch(`/api/xiaoni/action-stream/llm-usage?${params}`);
       const payload = await response.json() as ApiResponse<XiaoniLlmUsageTimeline>;
@@ -2459,6 +2476,17 @@ export const XiaoniActivityPage: React.FC = () => {
         nextParams.set('usage_search', trimmed);
       } else {
         nextParams.delete('usage_search');
+        nextParams.delete('usage_search_scope');
+      }
+    });
+  }, [updateSearchParam]);
+
+  const handleUsageDeepScopeChange = React.useCallback((deep: boolean) => {
+    updateSearchParam((nextParams) => {
+      if (deep) {
+        nextParams.set('usage_search_scope', 'deep');
+      } else {
+        nextParams.delete('usage_search_scope');
       }
     });
   }, [updateSearchParam]);
@@ -2633,10 +2661,12 @@ export const XiaoniActivityPage: React.FC = () => {
         isQuotaLoading={isCcTimelineLoading}
         bucket={usageBucket}
         searchQuery={usageSearch}
+        deepScope={usageSearchDeep}
         isLoading={isUsageLoading}
         isFetching={isUsageFetching}
         onBucketChange={handleUsageBucketChange}
         onSearchQueryChange={handleUsageSearchChange}
+        onDeepScopeChange={handleUsageDeepScopeChange}
         onSelectWindow={handleUsageWindowSelect}
         onFocusPoint={handleUsagePointFocus}
       />
