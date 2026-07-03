@@ -2015,6 +2015,10 @@ function StreamRow({
   const inputTokens = formatTokenCount(metadataNumber(item.metadata, 'inputTokens'));
   const cachedTokens = formatTokenCount(metadataNumber(item.metadata, 'cachedInputTokens'));
   const outputTokens = formatTokenCount(metadataNumber(item.metadata, 'outputTokens'));
+  // 生图/改图任务不进上方 LLM Cost 聚合，但卡片仍单独标出它自己的 token cost。
+  const isImageTask = item.source === 'task' && (item.kind === 'image_generate' || item.kind === 'image_edit');
+  const hasImageTokens = isImageTask
+    && (metadataNumber(item.metadata, 'inputTokens') !== null || metadataNumber(item.metadata, 'outputTokens') !== null);
   return (
     <button
       type="button"
@@ -2039,6 +2043,12 @@ function StreamRow({
           {modelName ? <span className="hidden shrink truncate text-muted-foreground sm:inline">{modelName}</span> : null}
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">cached</span> <span className="text-emerald-700">{cachedTokens ?? '0'}</span></span>
+          <span className="shrink-0 font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
+        </span>
+      ) : hasImageTokens ? (
+        <span className="flex min-w-0 flex-1 items-center gap-2.5 text-[11px]">
+          <span className="min-w-0 shrink truncate text-[12.5px] text-foreground/90">{snippet || '—'}</span>
+          <span className="ml-auto shrink-0 font-mono" title="生图 token cost（不计入上方 LLM Cost）"><span className="text-muted-foreground">in</span> <span className="text-sky-700">{inputTokens ?? '—'}</span></span>
           <span className="shrink-0 font-mono"><span className="text-muted-foreground">out</span> <span className="text-violet-700">{outputTokens ?? '—'}</span></span>
         </span>
       ) : (

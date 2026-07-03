@@ -1195,6 +1195,44 @@ test('Xiaoni action stream tags image tasks as LLM even without a captured provi
   assert.equal(stream.items[0].metadata.providerRawTraceAvailable, false);
 });
 
+test('Xiaoni action stream surfaces per-image token cost on the task card metadata', async () => {
+  // 生图不进 LLM Cost 聚合，但卡片要单独显示这条任务自己的 token cost（provider usage）。
+  const persistence = createPersistence({
+    tasks: [{
+      id: 'image-task-usage',
+      task_type: 'image_generate',
+      status: 'completed',
+      session_key: 'group:1040740258',
+      peer_name: '测试群',
+      target_description: '画一张猫图',
+      prompt: 'cat',
+      source_trace_id: 'trace_image_usage',
+      source_run_id: 'run_image_usage',
+      result_json: {
+        model: 'gpt-image-2',
+        usage: {
+          input_tokens: 157,
+          total_tokens: 5645,
+          output_tokens: 5488,
+          input_tokens_details: { text_tokens: 157, cached_tokens: 12 }
+        }
+      },
+      artifacts: [],
+      attempts: 1,
+      created_at: '2026-06-05T10:08:00.000Z',
+      completed_at: '2026-06-05T10:08:10.000Z'
+    }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const card = stream.items.find((item) => item.id === 'task:image-task-usage');
+  assert.ok(card);
+  assert.equal(card.metadata.inputTokens, 157);
+  assert.equal(card.metadata.outputTokens, 5488);
+  assert.equal(card.metadata.cachedInputTokens, 12);
+  assert.equal(card.metadata.totalTokens, 5645);
+});
+
 test('Xiaoni action stream projects image vision fork observations outside main items', async () => {
   const listSliceInputs = [];
   const persistence = createPersistence({

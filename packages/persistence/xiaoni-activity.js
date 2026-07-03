@@ -1844,6 +1844,17 @@ function summarizeTask(row) {
   const resultJson = normalizeJsonObject(row.result_json, {});
   const providerExchange = normalizeJsonObject(resultJson.provider_exchange || resultJson.providerExchange, null);
   const providerRawTraceAvailable = Boolean(providerExchange?.request || providerExchange?.response);
+  // 生图不进 LLM Cost 聚合（见 usageRollupSourceFromCodexProviderSelectSql 的排除），
+  // 但每条任务自己的 token cost 仍要在行动流卡片上单独展示，取值就是 provider 回的 usage。
+  const usage = normalizeJsonObject(resultJson.usage, {});
+  const usageDetails = normalizeJsonObject(usage.input_tokens_details || usage.inputTokensDetails, {});
+  const finiteOrNull = (value) => (Number.isFinite(value) ? value : null);
+  const usageInputTokens = finiteOrNull(Number(usage.input_tokens ?? usage.inputTokens));
+  const usageOutputTokens = finiteOrNull(Number(usage.output_tokens ?? usage.outputTokens));
+  const usageCachedTokens = finiteOrNull(Number(
+    usage.cached_input_tokens ?? usage.cachedInputTokens ?? usageDetails.cached_tokens ?? usageDetails.cachedTokens
+  ));
+  const usageTotalTokens = finiteOrNull(Number(usage.total_tokens ?? usage.totalTokens));
   const providerRequestSpanId = providerRawTraceAvailable ? `provider-request:image-task:${row.id}` : null;
   const body = row.error_message
     ? row.error_message
@@ -1878,7 +1889,12 @@ function summarizeTask(row) {
       claimedAt: normalizeDate(row.claimed_at),
       artifactCount,
       providerRawTraceAvailable,
-      providerRequestSpanId
+      providerRequestSpanId,
+      // 卡片单独展示的 token cost（不进 LLM Cost 聚合）。
+      inputTokens: usageInputTokens,
+      cachedInputTokens: usageCachedTokens,
+      outputTokens: usageOutputTokens,
+      totalTokens: usageTotalTokens
     }
   };
 }
