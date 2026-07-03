@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
@@ -85,6 +85,11 @@ type RuntimeSession = {
   closed: boolean;
   gitArchiveDir: string | null;
   gitArchiveError: string | null;
+  // Single-flight snapshot writer state (see persistSession). Kept on the
+  // session object itself so it is reclaimed with the session on eviction —
+  // no side Map that would need its own cleanup.
+  persistWriting: boolean;
+  persistDirty: boolean;
 };
 
 type CommandPolicyVerdict = {
@@ -544,13 +549,48 @@ async function ensureRuntimeDirectories() {
   ].map((dir) => mkdir(path.join(runtimeRoot, dir), { recursive: true })));
 }
 
-function buildSessionFilePath(sessionId: string): string {
-  return path.join(runtimeRoot, 'sessions', `${sessionId}.json`);
+function buildSessionFilePath(sessionId: string, root = runtimeRoot): string {
+  return path.join(root, 'sessions', `${sessionId}.json`);
 }
 
-async function persistSession(session: RuntimeSession) {
-  const snapshot = sessionToSnapshot(session);
-  await writeFile(buildSessionFilePath(session.id), JSON.stringify(snapshot, null, 2));
+// Serialize the current session state to disk atomically (write-temp + rename)
+// so a reader — pollSession after a restart, or any external reader of the
+// sessions dir — never observes a torn file, and a crash mid-write can only
+// orphan a .tmp-* file rather than truncate the live snapshot.
+async function writeSnapshotAtomic(session: RuntimeSession, root: string): Promise<void> {
+  const finalPath = buildSessionFilePath(session.id, root);
+  const tmpPath = `${finalPath}.tmp-${process.pid}-${randomUUID().slice(0, 8)}`;
+  await writeFile(tmpPath, JSON.stringify(sessionToSnapshot(session), null, 2));
+  await rename(tmpPath, finalPath);
+}
+
+// Single-flight, coalescing snapshot writer. persistSession is called
+// fire-and-forget on every stdout/stderr chunk AND on close; without
+// serialization those unordered writeFile('w') calls interleave (torn reads →
+// false 404) and can land out of order (a laggard chunk write clobbers the
+// final close snapshot back to running:true — the source of stale snapshots).
+//
+// Contract: at most one write is ever in flight for a given session's file. A
+// call arriving while a write is in flight only sets `persistDirty`; the active
+// writer then re-serializes the CURRENT session object once more. Because the
+// serialization always reflects the live session at write time — and Node
+// delivers every 'data' event before 'close' for the same child — any write
+// dispatched at or after the close handler observes closed===true, so the final
+// on-disk snapshot always converges to running:false + the real exit_code.
+export async function persistSession(session: RuntimeSession, root = runtimeRoot): Promise<void> {
+  if (session.persistWriting) {
+    session.persistDirty = true;
+    return;
+  }
+  session.persistWriting = true;
+  try {
+    do {
+      session.persistDirty = false;
+      await writeSnapshotAtomic(session, root);
+    } while (session.persistDirty);
+  } finally {
+    session.persistWriting = false;
+  }
 }
 
 async function appendAudit(event: string, payload: Record<string, unknown>, root = runtimeRoot) {
@@ -758,7 +798,9 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     signal: null,
     closed: false,
     gitArchiveDir: gitArchive.dir,
-    gitArchiveError: gitArchive.error
+    gitArchiveError: gitArchive.error,
+    persistWriting: false,
+    persistDirty: false
   };
   sessions.set(session.id, session);
   await persistSession(session);

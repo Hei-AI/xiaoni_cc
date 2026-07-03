@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,11 +8,48 @@ import {
   StreamCapture,
   evaluateCommandPolicy,
   formatCodexOutput,
+  persistSession,
   pruneExecOutput,
   spillHeaderNote,
   storePicture,
   translateCommandPaths
 } from '../index';
+
+// Minimal RuntimeSession-shaped object for exercising persistSession /
+// pruneClosedSessions in isolation. Real StreamCaptures so sessionToSnapshot's
+// totalChars + spillHeaderNote reads behave like production.
+function makeSession(overrides: Record<string, unknown> = {}): Parameters<typeof persistSession>[0] {
+  const spill = () => path.join(tmpdir(), 'xiaoni-exec-test-unused-spill');
+  return {
+    id: 'exec_test',
+    chunkId: 'chunk123',
+    cmd: 'echo hi',
+    translatedCmd: 'echo hi',
+    workdir: '/workspace/qq_bot',
+    shell: '/bin/bash',
+    login: true,
+    tty: false,
+    sandboxPermissions: 'use_default',
+    startedAt: Date.now() - 1000,
+    stdout: '',
+    stderr: '',
+    stdoutCap: new StreamCapture(1000, spill),
+    stderrCap: new StreamCapture(1000, spill),
+    truncated: false,
+    maxOutputChars: 1000,
+    timedOut: false,
+    child: undefined,
+    exitCode: null,
+    signal: null,
+    closed: false,
+    closedAt: null,
+    gitArchiveDir: null,
+    gitArchiveError: null,
+    persistWriting: false,
+    persistDirty: false,
+    ...overrides
+  } as unknown as Parameters<typeof persistSession>[0];
+}
 
 // Feed `text` to a capture as either one chunk or N byte-sized chunks and return
 // the settled capture. Byte-slicing forces multibyte chars across chunk edges.
@@ -309,6 +346,58 @@ test('pruneExecOutput removes spill files past the TTL and keeps recent ones', a
     assert.equal(removed, 1);
     assert.equal(existsSync(oldFile), false, 'past-TTL file pruned');
     assert.equal(existsSync(newFile), true, 'recent file kept (survives into a later run that reads it)');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('persistSession: a coalesced chunk burst + close converges to running:false + real exit_code', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'xiaoni-exec-persist-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    const session = makeSession({ id: 'exec_persist_conv' });
+    // Simulate the production call pattern: fire-and-forget per-chunk writes
+    // while running, then the close handler mutates the session and writes once
+    // more. The first call becomes the active single-flight writer; the rest
+    // coalesce into it. Only awaiting the active writer drains everything.
+    const active = persistSession(session, root);
+    persistSession(session, root); // coalesced -> dirty
+    persistSession(session, root); // coalesced -> dirty
+    // close handler runs (synchronous), THEN its persist call coalesces in
+    (session as { closed: boolean }).closed = true;
+    (session as { exitCode: number | null }).exitCode = 0;
+    persistSession(session, root); // coalesced -> dirty, now carrying closed state
+    await active;
+
+    const snap = JSON.parse(await readFile(path.join(root, 'sessions', 'exec_persist_conv.json'), 'utf8'));
+    assert.equal(snap.running, false, 'final snapshot must not be clobbered back to running:true');
+    assert.equal(snap.exit_code, 0, 'final snapshot carries the real exit_code, not a stale null');
+    // temp+rename leaves no torn/leftover files behind
+    assert.deepEqual((await readdir(path.join(root, 'sessions'))).sort(), ['exec_persist_conv.json']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('persistSession: overlapping writers never leave a torn (unparseable) snapshot', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'xiaoni-exec-torn-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    const session = makeSession({ id: 'exec_persist_torn' });
+    const target = path.join(root, 'sessions', 'exec_persist_torn.json');
+    // Kick off a large synchronous burst; single-flight collapses it, temp+rename
+    // keeps every observable state a complete JSON document.
+    const writers: Promise<void>[] = [];
+    for (let i = 0; i < 50; i += 1) {
+      (session as { stdout: string }).stdout = 'x'.repeat(i * 200);
+      writers.push(persistSession(session, root));
+    }
+    await Promise.all(writers);
+    // The file must always parse cleanly and no .tmp-* orphan is left.
+    const files = await readdir(path.join(root, 'sessions'));
+    assert.deepEqual(files, ['exec_persist_torn.json'], 'no leftover .tmp-* after the burst');
+    const raw = await readFile(target, 'utf8');
+    assert.doesNotThrow(() => JSON.parse(raw));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
