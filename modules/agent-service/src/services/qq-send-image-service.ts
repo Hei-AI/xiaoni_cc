@@ -92,6 +92,8 @@ export type QqSendImageServiceOptions = {
   maxBytes?: number;
   fetchImpl?: FetchLike;
   webpEncoder?: WebpEncoder;
+  // 每次发送记一行:源→wire 字节、压了还是回退。关闭「静默回退」盲点(默认 no-op，测试静默)。
+  logImageSend?: (message: string, fields: Record<string, unknown>) => void;
 };
 
 type SendMode = 'private' | 'group';
@@ -290,6 +292,7 @@ export class QqSendImageService {
   private readonly maxBytes: number;
   private readonly fetchImpl: FetchLike;
   private readonly webpEncoder: WebpEncoder;
+  private readonly logImageSend: (message: string, fields: Record<string, unknown>) => void;
 
   constructor(options: QqSendImageServiceOptions = {}) {
     this.providerServiceUrl = (options.providerServiceUrl || process.env.PROVIDER_SERVICE_URL || 'http://127.0.0.1:8091').replace(/\/$/, '');
@@ -299,6 +302,7 @@ export class QqSendImageService {
     this.maxBytes = options.maxBytes || Number.parseInt(process.env.QQ_SEND_IMAGE_MAX_BYTES || '', 10) || DEFAULT_MAX_BYTES;
     this.fetchImpl = options.fetchImpl || fetch;
     this.webpEncoder = options.webpEncoder || defaultCwebpEncoder;
+    this.logImageSend = options.logImageSend || (() => {});
   }
 
   // 只转 wire 那一份:PNG→无损 webp、JPEG→有损 q80;GIF(可能动图)/已 webp/其它一律原样。
@@ -517,6 +521,17 @@ export class QqSendImageService {
 
       // 传输压缩:只有发给 NapCat 的 data_url 用 webp;归档/mime_type/image_path 一律保持原图(见 §4 铁律)。
       const wire = await this.toWireImage(image.data, image.mimeType);
+      const wireTranscoded = wire.mimeType !== image.mimeType;
+      // per-send 观察:压了还是静默回退,一眼可辨(见方案 §7)。
+      this.logImageSend('qq_send_image wire prepared', {
+        mode,
+        source_mime: image.mimeType,
+        source_bytes: image.size,
+        wire_mime: wire.mimeType,
+        wire_bytes: wire.data.length,
+        transcoded: wireTranscoded,
+        saved_bytes: wireTranscoded ? image.size - wire.data.length : 0
+      });
       const targetField = mode === 'private' ? 'user_id' : 'group_id';
       const payload: Record<string, unknown> = {
         [targetField]: target.value,

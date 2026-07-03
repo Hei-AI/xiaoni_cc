@@ -25,8 +25,10 @@ const taskWorkerService = new AgentTaskWorkerService();
 const qqUsageRuntime = new QqUsageSkillRuntime(new QqUsageService(store), {
   botAccountId: agentConfig.botAccountId
 });
+const qqSendImageLog = logger.createModuleLogger('qq-send-image');
 const qqSendImageRuntime = new QqSendImageSkillRuntime(new QqSendImageService({
-  providerServiceUrl: agentConfig.providerServiceUrl
+  providerServiceUrl: agentConfig.providerServiceUrl,
+  logImageSend: (message, fields) => qqSendImageLog.info(message, fields)
 }));
 const qqProfileRuntime = new QqProfileSkillRuntime(new QqProfileService({
   providerServiceUrl: agentConfig.providerServiceUrl,
