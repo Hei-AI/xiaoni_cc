@@ -83,6 +83,9 @@ type RuntimeSession = {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   closed: boolean;
+  // Wall-clock of the close/error transition. Freezes duration_ms (so a closed
+  // session stops accruing wall time) and drives TTL eviction from the map.
+  closedAt: number | null;
   gitArchiveDir: string | null;
   gitArchiveError: string | null;
   // Single-flight snapshot writer state (see persistSession). Kept on the
@@ -291,6 +294,13 @@ function normalizeExecEnv(value: unknown): Record<string, string> {
 const EXEC_OUTPUT_SUBDIR = 'exec-output';
 const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
 const EXEC_OUTPUT_TTL_DAYS = 7;
+// Grace period a CLOSED session lingers in the in-memory map before eviction.
+// A late poll after eviction falls through to the on-disk snapshot branch,
+// which already reports running:false. Only closed sessions are evicted, so the
+// pollSession "not in map + running:true => restart orphan" inference is
+// preserved. Large enough that the close-time snapshot write has long settled.
+const SESSION_EVICT_TTL_MS = 10 * 60 * 1000;
+const SESSION_EVICT_INTERVAL_MS = 60 * 1000;
 
 function isHighSurrogate(code: number): boolean {
   return code >= 0xd800 && code <= 0xdbff;
@@ -536,6 +546,30 @@ export async function pruneExecOutput(root = runtimeRoot, ttlDays = EXEC_OUTPUT_
   return removed;
 }
 
+// Evict CLOSED sessions from the in-memory map once their close is older than
+// the TTL, bounding memory on a long-running executor (the map otherwise keeps
+// one RuntimeSession — a ChildProcess ref + two StreamCaptures — per command
+// for the container's lifetime). Running sessions are NEVER evicted: a live
+// poll must resolve from memory, and dropping a running session would also
+// make killSession lose its only handle to the child (an unkillable process)
+// and make pollSession falsely report it as a restart orphan. Late polls after
+// eviction fall through to the on-disk snapshot (running:false). Exported +
+// store-injectable for unit testing, mirroring pruneExecOutput.
+export function pruneClosedSessions(
+  now = Date.now(),
+  ttlMs = SESSION_EVICT_TTL_MS,
+  store = sessions
+): number {
+  let removed = 0;
+  for (const [id, session] of store) {
+    if (session.closed && session.closedAt !== null && now - session.closedAt > ttlMs) {
+      store.delete(id);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 async function ensureRuntimeDirectories() {
   await Promise.all([
     'sessions',
@@ -600,6 +634,14 @@ async function appendAudit(event: string, payload: Record<string, unknown>, root
   await appendFile(path.join(logsDir, 'exec-command.jsonl'), `${line}\n`);
 }
 
+// Elapsed wall time for the command. A closed session freezes at closedAt so
+// the value stops growing across repeated polls and matches the on-disk
+// snapshot (the live in-memory path and the post-eviction snapshot path must
+// report the same duration for the same closed session).
+function sessionDurationMs(session: RuntimeSession): number {
+  return (session.closedAt ?? Date.now()) - session.startedAt;
+}
+
 function sessionToSnapshot(session: RuntimeSession) {
   return {
     id: session.id,
@@ -612,7 +654,7 @@ function sessionToSnapshot(session: RuntimeSession) {
     tty: session.tty,
     sandbox_permissions: session.sandboxPermissions,
     started_at: new Date(session.startedAt).toISOString(),
-    duration_ms: Date.now() - session.startedAt,
+    duration_ms: sessionDurationMs(session),
     stdout: session.stdout,
     stderr: session.stderr,
     truncated: session.truncated,
@@ -630,7 +672,7 @@ function sessionToSnapshot(session: RuntimeSession) {
 function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
   const output = session.stdout + session.stderr;
   const originalChars = session.stdoutCap.totalChars + session.stderrCap.totalChars;
-  const durationMs = Date.now() - session.startedAt;
+  const durationMs = sessionDurationMs(session);
   return {
     cmd: session.cmd,
     translated_cmd: session.translatedCmd === session.cmd ? undefined : session.translatedCmd,
@@ -797,6 +839,7 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     exitCode: null,
     signal: null,
     closed: false,
+    closedAt: null,
     gitArchiveDir: gitArchive.dir,
     gitArchiveError: gitArchive.error,
     persistWriting: false,
@@ -830,6 +873,7 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     session.exitCode = null;
     session.signal = null;
     session.closed = true;
+    session.closedAt = Date.now();
     void persistSession(session);
     void appendAudit('exec_error', { session_id: session.id, error_message: message });
   });
@@ -842,6 +886,7 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     session.exitCode = typeof code === 'number' ? code : null;
     session.signal = signal || null;
     session.closed = true;
+    session.closedAt = Date.now();
     void persistSession(session);
     void appendAudit('exec_close', { session_id: session.id, exit_code: session.exitCode, signal: session.signal });
   });
@@ -1032,6 +1077,10 @@ async function route(req: IncomingMessage, res: ServerResponse) {
 export async function createExecutorServer() {
   await ensureRuntimeDirectories();
   await pruneExecOutput().catch(() => 0);
+  // Bound in-memory session growth on a long-running executor. unref() so the
+  // sweeper never keeps the process alive on shutdown, matching the file's
+  // other background timers.
+  setInterval(() => pruneClosedSessions(), SESSION_EVICT_INTERVAL_MS).unref();
   return createServer((req, res) => {
     route(req, res).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);

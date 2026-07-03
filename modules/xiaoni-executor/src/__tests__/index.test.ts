@@ -9,6 +9,7 @@ import {
   evaluateCommandPolicy,
   formatCodexOutput,
   persistSession,
+  pruneClosedSessions,
   pruneExecOutput,
   spillHeaderNote,
   storePicture,
@@ -401,4 +402,44 @@ test('persistSession: overlapping writers never leave a torn (unparseable) snaps
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('persistSession freezes duration_ms at closedAt for a closed session (no wall-clock drift)', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'xiaoni-exec-dur-'));
+  try {
+    await mkdir(path.join(root, 'sessions'), { recursive: true });
+    const startedAt = Date.now() - 5_000;
+    const session = makeSession({ id: 'exec_dur', startedAt, closed: true, closedAt: startedAt + 1234, exitCode: 0 });
+    await persistSession(session, root);
+    const snap = JSON.parse(await readFile(path.join(root, 'sessions', 'exec_dur.json'), 'utf8'));
+    assert.equal(snap.duration_ms, 1234, 'duration frozen at close, not growing with wall clock');
+    assert.equal(snap.running, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('pruneClosedSessions evicts closed sessions past the TTL and keeps recent closed ones', () => {
+  const now = 1_000_000_000;
+  const ttl = 10 * 60 * 1000;
+  const store = new Map([
+    ['old', makeSession({ id: 'old', closed: true, closedAt: now - (ttl + 1) })],
+    ['fresh', makeSession({ id: 'fresh', closed: true, closedAt: now - 60_000 })]
+  ]) as unknown as Parameters<typeof pruneClosedSessions>[2];
+  const removed = pruneClosedSessions(now, ttl, store);
+  assert.equal(removed, 1);
+  assert.equal(store!.has('old'), false, 'past-TTL closed session evicted');
+  assert.equal(store!.has('fresh'), true, 'recent closed session kept for late polls');
+});
+
+test('pruneClosedSessions NEVER evicts a running session, even one older than the TTL', () => {
+  const now = 1_000_000_000;
+  const ttl = 10 * 60 * 1000;
+  // running: closed=false, closedAt=null, started a full day ago
+  const store = new Map([
+    ['run', makeSession({ id: 'run', closed: false, closedAt: null, startedAt: now - 24 * 60 * 60 * 1000 })]
+  ]) as unknown as Parameters<typeof pruneClosedSessions>[2];
+  const removed = pruneClosedSessions(now, ttl, store);
+  assert.equal(removed, 0, 'a live session is never evicted');
+  assert.equal(store!.has('run'), true, 'live session stays in the map so poll/kill resolve from memory + can still kill the child');
 });
