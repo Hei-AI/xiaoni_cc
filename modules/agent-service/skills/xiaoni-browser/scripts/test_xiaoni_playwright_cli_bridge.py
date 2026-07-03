@@ -113,6 +113,34 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
             )
         )
 
+    def test_is_navigation(self):
+        self.assertTrue(bridge._is_navigation(["-s=xiaoni-host", "goto", "https://x"]))
+        self.assertFalse(bridge._is_navigation(["-s=xiaoni-host", "snapshot"]))
+        self.assertFalse(bridge._is_navigation(["-s=xiaoni-host", "click", "e6"]))
+
+    def test_nav_timeout_detected_from_body_or_returncode(self):
+        # The CLI can report a nav timeout as rc 0 with a TimeoutError body...
+        self.assertTrue(
+            bridge._looks_like_nav_timeout(
+                {
+                    "returncode": 0,
+                    "stdout": "### Error\nTimeoutError: Timeout 60000ms exceeded.\n  - navigating to \"https://example.com/\"",
+                    "stderr": "",
+                }
+            )
+        )
+        # ...or as a bridge-level timeout (rc 124 / timed_out).
+        self.assertTrue(
+            bridge._looks_like_nav_timeout({"returncode": 124, "stdout": "", "stderr": "", "timed_out": True})
+        )
+
+    def test_nav_timeout_false_on_success(self):
+        self.assertFalse(
+            bridge._looks_like_nav_timeout(
+                {"returncode": 0, "stdout": "### Page\n- Page URL: https://example.com/", "stderr": ""}
+            )
+        )
+
     def test_minimal_connect_script_drives_extension_messages(self):
         script = bridge._minimal_connect_script("token")
         self.assertIn('type: "connectionRequested"', script)

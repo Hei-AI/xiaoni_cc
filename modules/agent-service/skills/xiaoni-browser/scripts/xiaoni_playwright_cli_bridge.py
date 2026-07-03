@@ -361,6 +361,15 @@ class Handler(BaseHTTPRequestHandler):
                 and _auto_attach_session(args, timeout_seconds)
             ):
                 completed = _run_passthrough(args, timeout_seconds)
+            # A blocking `beforeunload` dialog (interactive pages — games, editors,
+            # canvas apps) freezes every navigation with a 60s TimeoutError. A
+            # `goto` means "leave this page", so accept the dialog and retry once.
+            if _is_navigation(args) and _looks_like_nav_timeout(completed):
+                session = _session_name(args)
+                modal = _run_passthrough([f"-s={session}", "tab-list"], 20)
+                if "beforeunload" in (modal["stdout"] or ""):
+                    _run_passthrough([f"-s={session}", "dialog-accept"], 20)
+                    completed = _run_passthrough(args, timeout_seconds)
             self._json(200, {
                 "ok": completed["returncode"] == 0,
                 "returncode": completed["returncode"],
@@ -686,6 +695,19 @@ def _auto_attach_session(args, timeout_seconds):
         attach_args, _command_timeout_seconds(attach_args, timeout_seconds)
     )
     return completed["returncode"] == 0
+
+
+def _is_navigation(args):
+    return _primary_command(args) in ("goto", "navigate")
+
+
+def _looks_like_nav_timeout(result):
+    text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}"
+    return bool(
+        result.get("timed_out")
+        or result.get("returncode") == 124
+        or ("TimeoutError" in text and "navigating to" in text)
+    )
 
 
 def _run_passthrough(args, timeout_seconds):
