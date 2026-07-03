@@ -349,6 +349,12 @@ class Handler(BaseHTTPRequestHandler):
                     **({"timed_out": True} if completed.get("timed_out") else {}),
                 })
                 return
+            media_url = _media_goto_url(args)
+            if media_url:
+                # Raw image/SVG top-level navigation hangs the relay and wedges the
+                # session (later commands + computer-use screenshots then time out).
+                # Load the media inside an HTML wrapper so the top document is HTML.
+                args = _wrap_media_goto_args(_session_name(args), media_url)
             completed = _run_passthrough(args, timeout_seconds)
             # Session lifecycle is the bridge's job, not Xiaoni's. If a normal
             # command finds no live session (Chrome was restarted without the
@@ -699,6 +705,53 @@ def _auto_attach_session(args, timeout_seconds):
 
 def _is_navigation(args):
     return _primary_command(args) in ("goto", "navigate")
+
+
+_MEDIA_GOTO_EXT_RE = re.compile(r"\.(svg|png|jpe?g|gif|webp|bmp|ico|avif)(?:$|[?#])", re.IGNORECASE)
+
+
+def _goto_target_url(args):
+    if _primary_command(args) != "goto":
+        return None
+    skip_next = False
+    saw_goto = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("-s", "--s", "--session"):
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        if not saw_goto:
+            saw_goto = arg == "goto"
+            continue
+        return arg
+    return None
+
+
+def _media_goto_url(args):
+    url = _goto_target_url(args)
+    if url and url[:4].lower() in ("http",) and _MEDIA_GOTO_EXT_RE.search(url):
+        return url
+    return None
+
+
+def _wrap_media_goto_args(session, url):
+    # A raw image/SVG as the top-level document never settles the extension relay's
+    # navigation wait — it hangs and wedges the whole session. Render it INSIDE an
+    # HTML page instead (top document stays HTML), so navigation completes and the
+    # image is visible to snapshot / computer-use screenshots.
+    js_url = url.replace("\\", "\\\\").replace("'", "\\'")
+    html_url = js_url.replace('"', "%22")
+    js = (
+        "async (page) => { await page.setContent("
+        "'<body style=\"margin:0;display:flex;justify-content:center;background:#fff\">"
+        "<img src=\"" + html_url + "\" style=\"max-width:100vw;max-height:100vh\"></body>', "
+        "{waitUntil:'load', timeout:15000}); return 'loaded image: " + js_url + "'; }"
+    )
+    return [f"-s={session}", "run-code", js]
 
 
 def _looks_like_nav_timeout(result):

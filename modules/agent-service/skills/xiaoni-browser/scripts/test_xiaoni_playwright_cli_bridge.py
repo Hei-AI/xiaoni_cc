@@ -113,6 +113,31 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
             )
         )
 
+    def test_media_goto_url_detects_image_documents(self):
+        self.assertEqual(
+            bridge._media_goto_url(["-s=xiaoni-host", "goto", "https://x.top/temp-coach.svg"]),
+            "https://x.top/temp-coach.svg",
+        )
+        self.assertEqual(
+            bridge._media_goto_url(["-s=xiaoni-host", "goto", "https://x.top/a.png?v=2"]),
+            "https://x.top/a.png?v=2",
+        )
+
+    def test_media_goto_url_ignores_html_pages(self):
+        self.assertIsNone(bridge._media_goto_url(["-s=xiaoni-host", "goto", "https://example.com"]))
+        self.assertIsNone(bridge._media_goto_url(["-s=xiaoni-host", "goto", "https://x.top/page.html"]))
+        # non-goto commands never rewrite
+        self.assertIsNone(bridge._media_goto_url(["-s=xiaoni-host", "snapshot"]))
+
+    def test_wrap_media_goto_builds_setcontent_run_code(self):
+        wrapped = bridge._wrap_media_goto_args("xiaoni-host", "https://x.top/a.svg")
+        self.assertEqual(wrapped[0], "-s=xiaoni-host")
+        self.assertEqual(wrapped[1], "run-code")
+        self.assertIn("setContent", wrapped[2])
+        self.assertIn("https://x.top/a.svg", wrapped[2])
+        # top document stays HTML (an <img>), never a raw top-level image nav
+        self.assertIn("<img", wrapped[2])
+
     def test_is_navigation(self):
         self.assertTrue(bridge._is_navigation(["-s=xiaoni-host", "goto", "https://x"]))
         self.assertFalse(bridge._is_navigation(["-s=xiaoni-host", "snapshot"]))
