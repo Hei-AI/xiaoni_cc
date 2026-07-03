@@ -20,6 +20,9 @@ const { createXiaoniAgentStackPersistence } = require('./xiaoni-agent-stack');
 const { createCcUsagePersistence } = require('./cc-usage');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const passiveRecallExtractor = require('./xiaoni-passive-recall-extractor');
+const recallBandpass = require('./xiaoni-recall-bandpass');
+const recallFileChunker = require('./xiaoni-recall-file-chunker');
+const { createXiaoniRecallStorePersistence } = require('./xiaoni-recall-store');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
 const { createAgentMemoryPersistence } = require('./agent-memory');
@@ -430,6 +433,10 @@ const feedbackReflectionPersistence = createFeedbackReflectionPersistence({
   createSqlAdapter
 });
 
+const xiaoniRecallStorePersistence = createXiaoniRecallStorePersistence({
+  getPrismaClient
+});
+
 const identityLineagePersistence = createIdentityLineagePersistence({
   getPrismaClient,
   createSqlAdapter
@@ -566,6 +573,9 @@ module.exports = {
   ...ccUsagePersistence,
   ...xiaoniActivityPersistence,
   ...passiveRecallExtractor,
+  ...recallBandpass,
+  ...recallFileChunker,
+  ...xiaoniRecallStorePersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,
   ...agentMemoryPersistence,

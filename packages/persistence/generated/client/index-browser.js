@@ -1573,6 +1573,20 @@ exports.Prisma.GoldenChatCaseScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.XiaoniRecallCueScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  source_kind: 'source_kind',
+  source_ref: 'source_ref',
+  provenance: 'provenance',
+  occurred_at: 'occurred_at',
+  embedding_text: 'embedding_text',
+  embedding: 'embedding',
+  content_hash: 'content_hash',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1674,7 +1688,8 @@ exports.Prisma.ModelName = {
   TopicVersionRelationship: 'TopicVersionRelationship',
   TopicVersionEvidence: 'TopicVersionEvidence',
   TopicReviewEvent: 'TopicReviewEvent',
-  GoldenChatCase: 'GoldenChatCase'
+  GoldenChatCase: 'GoldenChatCase',
+  XiaoniRecallCue: 'XiaoniRecallCue'
 };
 
 /**
