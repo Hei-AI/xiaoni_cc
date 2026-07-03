@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
+import { createWriteStream, mkdirSync } from 'node:fs';
+import { readdir as fsReaddir, rm as fsRm, stat as fsStat } from 'node:fs/promises';
+import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
@@ -2613,12 +2617,244 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
-function appendCappedOutput(current: string, chunk: Buffer, maxChars: number) {
-  if (current.length >= maxChars) {
-    return current;
+// exec_command output capture — MUST stay behaviourally in sync with the live
+// path in modules/xiaoni-executor/src/index.ts (StreamCapture). This copy only
+// runs in the non-Docker local-dev fallback (executor URL unset), so local
+// testing sees the same head+tail+spill behaviour as production. Kept a copy
+// (not a shared import) because the two modules build into separate containers
+// with no shared runtime package. `path` is aliased to `nodePath` here only to
+// avoid identifier collisions in this large file.
+const EXEC_OUTPUT_SUBDIR = 'exec-output';
+const EXEC_OUTPUT_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
+const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
+const EXEC_OUTPUT_TTL_DAYS = 7;
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function sliceHead(str: string, n: number): string {
+  if (n >= str.length) {
+    return str;
   }
-  const next = current + chunk.toString('utf8');
-  return next.length > maxChars ? next.slice(0, maxChars) : next;
+  let end = n;
+  if (end > 0 && isHighSurrogate(str.charCodeAt(end - 1))) {
+    end -= 1;
+  }
+  return str.slice(0, end);
+}
+
+function sliceTail(str: string, n: number): string {
+  if (n >= str.length) {
+    return str;
+  }
+  let start = str.length - n;
+  if (start > 0 && isLowSurrogate(str.charCodeAt(start))) {
+    start += 1;
+  }
+  return str.slice(start);
+}
+
+function execOutputPath(spillId: string, stream: 'stdout' | 'stderr'): string {
+  return nodePath.join(EXEC_OUTPUT_ROOT, EXEC_OUTPUT_SUBDIR, `${spillId}.${stream}.txt`);
+}
+
+export class StreamCapture {
+  private readonly decoder = new StringDecoder('utf8');
+  private readonly headBudget: number;
+  private readonly tailBudget: number;
+  private head = '';
+  private tail = '';
+  private full: string | null = '';
+  private rawBuffer: Buffer[] | null = [];
+  private spillStream: ReturnType<typeof createWriteStream> | null = null;
+  private spilledBytes = 0;
+  private spillFinished: Promise<void> | null = null;
+  totalChars = 0;
+  truncated = false;
+  spillPath: string | null = null;
+  spillError = false;
+  spillCeilingHit = false;
+
+  constructor(
+    private readonly maxChars: number,
+    private readonly makeSpillPath: () => string,
+    private readonly spillCeilingBytes = SPILL_CEILING_BYTES
+  ) {
+    this.headBudget = Math.max(1, Math.floor(maxChars / 2));
+    this.tailBudget = Math.max(1, maxChars - this.headBudget);
+  }
+
+  // Await the spill write-stream flushing to disk. Awaited before the fallback
+  // resolves so "完整输出已落盘" is true-by-construction (kept identical to the
+  // xiaoni-executor copy).
+  async settled(): Promise<void> {
+    if (this.spillFinished) {
+      await this.spillFinished;
+    }
+  }
+
+  push(chunk: Buffer): void {
+    if (!this.spillError) {
+      if (this.spillStream) {
+        this.writeSpill(chunk);
+      } else if (this.rawBuffer) {
+        this.rawBuffer.push(chunk);
+      }
+    }
+    this.ingest(this.decoder.write(chunk));
+  }
+
+  end(): void {
+    this.ingest(this.decoder.end());
+    if (this.spillStream) {
+      try {
+        this.spillStream.end();
+      } catch {
+        // best-effort flush
+      }
+      this.spillStream = null;
+    }
+  }
+
+  private ingest(text: string): void {
+    if (!text) {
+      return;
+    }
+    this.totalChars += text.length;
+    if (this.head.length < this.headBudget) {
+      this.head = sliceHead(this.head + text, this.headBudget);
+    }
+    this.tail = sliceTail(this.tail + text, this.tailBudget);
+    if (this.full !== null) {
+      this.full += text;
+    }
+    if (!this.truncated && this.totalChars > this.maxChars) {
+      this.truncated = true;
+      this.full = null;
+      this.openSpillAndFlush();
+    }
+  }
+
+  private openSpillAndFlush(): void {
+    if (this.spillError || this.spillStream) {
+      return;
+    }
+    try {
+      const target = this.makeSpillPath();
+      mkdirSync(nodePath.dirname(target), { recursive: true });
+      const stream = createWriteStream(target, { flags: 'w' });
+      stream.on('error', () => {
+        this.spillError = true;
+        this.spillPath = null;
+      });
+      this.spillFinished = new Promise<void>((resolve) => {
+        stream.on('close', () => resolve());
+        stream.on('error', () => resolve());
+      });
+      this.spillStream = stream;
+      this.spillPath = target;
+      const buffered = this.rawBuffer || [];
+      this.rawBuffer = null;
+      for (const buf of buffered) {
+        this.writeSpill(buf);
+      }
+    } catch {
+      this.spillError = true;
+      this.spillPath = null;
+      this.rawBuffer = null;
+    }
+  }
+
+  private writeSpill(chunk: Buffer): void {
+    if (this.spillError || !this.spillStream) {
+      return;
+    }
+    if (this.spilledBytes >= this.spillCeilingBytes) {
+      this.spillCeilingHit = true;
+      return;
+    }
+    try {
+      const room = this.spillCeilingBytes - this.spilledBytes;
+      const toWrite = chunk.length <= room ? chunk : chunk.subarray(0, room);
+      this.spillStream.write(toWrite);
+      this.spilledBytes += toWrite.length;
+      if (toWrite.length < chunk.length) {
+        this.spillCeilingHit = true;
+      }
+    } catch {
+      this.spillError = true;
+      this.spillPath = null;
+    }
+  }
+
+  render(): string {
+    if (!this.truncated) {
+      return this.full ?? this.head;
+    }
+    const elided = Math.max(0, this.totalChars - this.head.length - this.tail.length);
+    // Actionable path + read-back instructions live in the header (spillHeaderNote);
+    // this in-body marker only marks WHERE the cut is.
+    const note = (this.spillError || !this.spillPath)
+      ? `…[中间约 ${elided} 字符已省略；完整输出写盘失败，无法回看]…`
+      : `…[中间约 ${elided} 字符已省略，完整见上方落盘文件]…`;
+    return `${this.head}\n${note}\n${this.tail}`;
+  }
+}
+
+function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): string | undefined {
+  const parts: string[] = [];
+  const add = (name: string, cap: StreamCapture) => {
+    if (!cap.truncated) {
+      return;
+    }
+    if (cap.spillError || !cap.spillPath) {
+      parts.push(`完整 ${name} 写盘失败，中间内容无法回看`);
+    } else {
+      const ceilLabel = `${Math.round(SPILL_CEILING_BYTES / 1024 / 1024)}MB`;
+      parts.push(`完整 ${name}: ${cap.spillPath}${cap.spillCeilingHit ? `（文件也在 ${ceilLabel} 处截断）` : ''}`);
+    }
+  };
+  add('stdout', stdoutCap);
+  add('stderr', stderrCap);
+  if (parts.length === 0) {
+    return undefined;
+  }
+  // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
+  // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
+  return `完整输出已落盘。按范围回读（别对大文件直接 cat，会再次截断；小文件可用更大 max_output_tokens 一次读完）：sed -n '起,止p' <文件> / head -c 4000 <文件> / tail -c 4000 <文件> / grep 关键词 <文件>\n  ${parts.join('\n  ')}`;
+}
+
+export async function pruneExecOutput(root = EXEC_OUTPUT_ROOT, ttlDays = EXEC_OUTPUT_TTL_DAYS, now = Date.now()): Promise<number> {
+  const dir = nodePath.join(root, EXEC_OUTPUT_SUBDIR);
+  let entries: string[];
+  try {
+    entries = await fsReaddir(dir);
+  } catch {
+    return 0;
+  }
+  const cutoff = now - ttlDays * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.endsWith('.txt')) {
+      continue;
+    }
+    const full = nodePath.join(dir, entry);
+    try {
+      const info = await fsStat(full);
+      if (info.mtimeMs < cutoff) {
+        await fsRm(full, { force: true });
+        removed += 1;
+      }
+    } catch {
+      // ignore individual file errors
+    }
+  }
+  return removed;
 }
 
 function resolveExecShellArgs(shell: string, cmd: string, login: boolean) {
@@ -2639,6 +2875,8 @@ function buildCodexExecOutput(input: {
   sessionId?: string;
   blocked?: boolean;
   truncated?: boolean;
+  originalTokenCount?: number;
+  spillNote?: string;
 }) {
   const lines = [
     `Chunk ID: ${input.chunkId}`,
@@ -2655,9 +2893,12 @@ function buildCodexExecOutput(input: {
   } else {
     lines.push('Process exited without an exit code');
   }
-  lines.push(`Original token count: ${Math.max(0, Math.ceil(input.output.length / 4))}`);
+  lines.push(`Original token count: ${input.originalTokenCount ?? Math.max(0, Math.ceil(input.output.length / 4))}`);
   if (input.truncated) {
     lines.push('Output was truncated to max_output_tokens.');
+    if (input.spillNote) {
+      lines.push(input.spillNote);
+    }
   }
   lines.push('Output:', input.output);
   return lines.join('\n');
@@ -10919,6 +11160,9 @@ export class AgentLoopService {
     const startedAt = Date.now();
 
     return await new Promise<Record<string, unknown>>((resolve) => {
+      const spillId = uuidv4();
+      const stdoutCap = new StreamCapture(maxOutputChars, () => execOutputPath(spillId, 'stdout'));
+      const stderrCap = new StreamCapture(maxOutputChars, () => execOutputPath(spillId, 'stderr'));
       let stdout = '';
       let stderr = '';
       let timedOut = false;
@@ -10933,7 +11177,12 @@ export class AgentLoopService {
         errorMessage?: string | null;
       }) => {
         const durationMs = Date.now() - startedAt;
-        const truncated = stdout.length >= maxOutputChars || stderr.length >= maxOutputChars;
+        stdoutCap.end();
+        stderrCap.end();
+        stdout = stdoutCap.render();
+        stderr = stderrCap.render();
+        const truncated = stdoutCap.truncated || stderrCap.truncated;
+        const originalChars = stdoutCap.totalChars + stderrCap.totalChars;
         return {
           cmd,
           workdir,
@@ -10954,7 +11203,9 @@ export class AgentLoopService {
             exitCode: input.exitCode,
             signal: input.signal || null,
             output: stdout + stderr,
-            truncated
+            truncated,
+            originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
+            spillNote: spillHeaderNote(stdoutCap, stderrCap)
           }),
           ...(input.errorMessage ? { error_message: input.errorMessage } : {})
         };
@@ -10967,7 +11218,10 @@ export class AgentLoopService {
         if (timeout) {
           clearTimeout(timeout);
         }
-        resolve(result);
+        // buildResult already end()ed the caps; await the spill flush before
+        // resolving so the "完整输出已落盘" path is fully written (parity with the
+        // xiaoni-executor live path). No-op when nothing spilled.
+        void Promise.all([stdoutCap.settled(), stderrCap.settled()]).then(() => resolve(result));
       };
 
       let child: ReturnType<typeof spawn>;
@@ -10982,7 +11236,7 @@ export class AgentLoopService {
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        stderr = appendCappedOutput(stderr, Buffer.from(message), maxOutputChars);
+        stderrCap.push(Buffer.from(message, 'utf8'));
         finish(buildResult({
           exitCode: null,
           signal: null,
@@ -11003,14 +11257,14 @@ export class AgentLoopService {
       timeout.unref();
 
       child.stdout?.on('data', (chunk: Buffer) => {
-        stdout = appendCappedOutput(stdout, chunk, maxOutputChars);
+        stdoutCap.push(chunk);
       });
       child.stderr?.on('data', (chunk: Buffer) => {
-        stderr = appendCappedOutput(stderr, chunk, maxOutputChars);
+        stderrCap.push(chunk);
       });
       child.on('error', (error) => {
         const message = error instanceof Error ? error.message : String(error);
-        stderr = appendCappedOutput(stderr, Buffer.from(message), maxOutputChars);
+        stderrCap.push(Buffer.from(message, 'utf8'));
         finish(buildResult({
           exitCode: null,
           signal: null,

@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, setCompressionTriggerInputTokens } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -519,6 +519,18 @@ async function start() {
     }
   } catch (error) {
     moduleLogger.warn('Failed to prune web_search result files on startup', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  // Parity with xiaoni-executor: age-prune spilled exec_command output files
+  // (only the local-dev fallback writes these; prod spills come from the executor).
+  try {
+    const removed = await pruneExecOutput();
+    if (removed > 0) {
+      moduleLogger.info('Pruned stale exec_command spill files on startup', { removed });
+    }
+  } catch (error) {
+    moduleLogger.warn('Failed to prune exec_command spill files on startup', {
       error: error instanceof Error ? error.message : String(error)
     });
   }
