@@ -31,6 +31,21 @@ interface RecallRecord {
   embedding?: number[];
 }
 
+async function embedBatch(batch: string[]): Promise<number[][]> {
+  const resp = await axios.post(
+    `${PROVIDER_SERVICE_URL}/v1/embeddings`,
+    { input: batch },
+    { timeout: 120000 }
+  );
+  const data = resp.data?.data;
+  if (!Array.isArray(data) || data.length !== batch.length) {
+    throw new Error(`embedding response count mismatch (want ${batch.length}, got ${Array.isArray(data) ? data.length : 'n/a'})`);
+  }
+  return data.map((entry: { embedding?: number[] }) => (Array.isArray(entry?.embedding) ? entry.embedding : []));
+}
+
+// 逐批嵌入;整批失败(某条过长/异常触发上游 500)时,退回逐条重试,坏的给空向量跳过,
+// 好的照存 —— 绝不因一条坏输入让整轮 reindex 归零(all-or-nothing 是真实事故:实测一批 500 → 0 写入)。
 export async function embedTexts(texts: string[]): Promise<number[][]> {
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += EMBED_BATCH) {
@@ -38,17 +53,17 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
     if (batch.length === 0) {
       continue;
     }
-    const resp = await axios.post(
-      `${PROVIDER_SERVICE_URL}/v1/embeddings`,
-      { input: batch },
-      { timeout: 120000 }
-    );
-    const data = resp.data?.data;
-    if (!Array.isArray(data) || data.length !== batch.length) {
-      throw new Error(`embedding response count mismatch (want ${batch.length}, got ${Array.isArray(data) ? data.length : 'n/a'})`);
-    }
-    for (const entry of data) {
-      out.push(Array.isArray(entry?.embedding) ? entry.embedding : []);
+    try {
+      out.push(...(await embedBatch(batch)));
+    } catch {
+      for (const text of batch) {
+        try {
+          const [vector] = await embedBatch([text]);
+          out.push(Array.isArray(vector) ? vector : []);
+        } catch {
+          out.push([]); // 这条跳过(usable 过滤会丢掉空向量),不阻断其余。
+        }
+      }
     }
   }
   return out;
