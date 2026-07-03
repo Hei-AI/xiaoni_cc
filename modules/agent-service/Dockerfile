@@ -55,7 +55,9 @@ RUN --mount=type=cache,target=/root/.npm \
   && npm config delete registry
 
 FROM node:18-alpine AS runtime
-RUN apk add --no-cache tzdata python3 py3-pip ca-certificates
+# libwebp-tools 提供 cwebp:qq-send-image 出站把图转 webp 省传输(docs/XIAONI_SEND_IMAGE_WEBP_PLAN.md)。
+# alpine 主仓包,确定性安装;缺了也只是回退发原图,不致命。
+RUN apk add --no-cache tzdata python3 py3-pip ca-certificates libwebp-tools
 WORKDIR /app/modules/agent-service
 ENV TZ=Asia/Shanghai
 ENV VIRTUAL_ENV=/opt/agent-tokenizer-venv
