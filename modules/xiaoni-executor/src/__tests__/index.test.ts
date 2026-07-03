@@ -1,9 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { evaluateCommandPolicy, formatCodexOutput, storePicture, translateCommandPaths } from '../index';
+import {
+  StreamCapture,
+  evaluateCommandPolicy,
+  formatCodexOutput,
+  pruneExecOutput,
+  spillHeaderNote,
+  storePicture,
+  translateCommandPaths
+} from '../index';
+
+// Feed `text` to a capture as either one chunk or N byte-sized chunks and return
+// the settled capture. Byte-slicing forces multibyte chars across chunk edges.
+async function feed(text: string, maxChars: number, spillPath: () => string, mode: 'whole' | 'bytes', ceiling?: number): Promise<StreamCapture> {
+  const cap = new StreamCapture(maxChars, spillPath, ceiling);
+  const buf = Buffer.from(text, 'utf8');
+  if (mode === 'whole') {
+    cap.push(buf);
+  } else {
+    for (let i = 0; i < buf.length; i += 1) {
+      cap.push(buf.subarray(i, i + 1));
+    }
+  }
+  cap.end();
+  await cap.settled();
+  return cap;
+}
 
 test('translateCommandPaths maps agent /app paths into the mounted workspace', () => {
   assert.equal(
@@ -56,6 +82,233 @@ test('storePicture writes a generated image into the runtime picture directory',
     assert.equal(stored.mime_type, 'image/png');
     assert.equal(stored.bytes, 5);
     assert.equal((await readFile(stored.path)).toString('utf8'), 'hello');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: under cap returns full output inline and writes no spill file', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-cap-'));
+  try {
+    const spill = path.join(root, 's.stdout.txt');
+    const cap = await feed('hello world', 100, () => spill, 'whole');
+    assert.equal(cap.truncated, false);
+    assert.equal(cap.render(), 'hello world');
+    assert.equal(cap.spillPath, null);
+    assert.equal(existsSync(spill), false, 'non-truncated must not litter a spill file');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: over cap keeps head+tail inline, spills FULL bytes, marker carries path', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-trunc-'));
+  try {
+    const spill = path.join(root, 's.stdout.txt');
+    const text = Array.from({ length: 40 }, (_, i) => `line${i}`).join('\n');
+    const cap = await feed(text, 20, () => spill, 'whole'); // maxChars 20 → head 10 + tail 10
+    assert.equal(cap.truncated, true);
+    const rendered = cap.render();
+    // Head is the oldest bytes, tail is the NEWEST — the qq-usage fix.
+    assert.ok(rendered.startsWith(text.slice(0, 10)), 'head preview = start of output');
+    assert.ok(rendered.endsWith(text.slice(-10)), 'tail preview = newest output');
+    assert.equal(cap.spillPath, spill, 'spill path is exposed (surfaced in the header, not the marker)');
+    assert.ok(rendered.includes('已省略'), 'in-body marker states the middle was elided');
+    // The actionable path lives in the HEADER note, not the in-body marker.
+    assert.ok(spillHeaderNote(cap, new StreamCapture(20, () => spill))!.includes(spill), 'header note carries the spill path');
+    // Spill file is the COMPLETE output, byte-for-byte (the tail head-keep used to drop).
+    assert.equal((await readFile(spill)).toString('utf8'), text);
+    assert.equal(cap.totalChars, text.length, 'totalChars is the TRUE pre-truncation size');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: streaming-equivalence — one chunk vs one-byte chunks are byte-identical', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-stream-'));
+  try {
+    const text = '状态行\n' + Array.from({ length: 60 }, (_, i) => `第${i}行内容`).join('\n');
+    const whole = await feed(text, 40, () => path.join(root, 'whole.txt'), 'whole');
+    const bytes = await feed(text, 40, () => path.join(root, 'bytes.txt'), 'bytes');
+    // Normalize the injected spill path (the only intentional difference) so the
+    // structural preview is compared.
+    const norm = (c: StreamCapture) => c.render().replace(c.spillPath ?? '', 'PATH');
+    assert.equal(norm(whole), norm(bytes), 'render identical regardless of chunking');
+    assert.equal(whole.totalChars, bytes.totalChars);
+    assert.equal(whole.truncated, bytes.truncated);
+    const a = (await readFile(path.join(root, 'whole.txt'))).toString('utf8');
+    const b = (await readFile(path.join(root, 'bytes.txt'))).toString('utf8');
+    assert.equal(a, b, 'spill files byte-identical');
+    assert.equal(a, text, 'spill reconstructs the exact original');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: multibyte survives chunk boundaries and cut boundaries (no mojibake)', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-mb-'));
+  try {
+    // Emoji (4-byte, surrogate pair) + CJK, delivered one byte at a time.
+    const text = 'aaaa😀你好世界🎉bbbb';
+    const cap = await feed(text, 1000, () => path.join(root, 'x.txt'), 'bytes');
+    assert.equal(cap.truncated, false);
+    assert.ok(!cap.render().includes('�'), 'no U+FFFD replacement chars');
+    assert.equal(cap.render(), text, 'reassembled exactly');
+
+    // Head cut lands inside the emoji surrogate pair — must not split it.
+    const cut = 'aaaa😀' + '你好世界这是一段很长的中文用来撑爆容量限制'.repeat(5);
+    const capCut = await feed(cut, 10, () => path.join(root, 'y.txt'), 'bytes'); // head 5
+    assert.ok(capCut.truncated);
+    assert.ok(!capCut.render().includes('�'), 'no replacement chars at head cut');
+    const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    assert.ok(!loneSurrogate.test(capCut.render()), 'no split surrogate anywhere in preview');
+    assert.equal((await readFile(path.join(root, 'y.txt'))).toString('utf8'), cut, 'spill still exact');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: cap boundary triple — ==cap no truncate/no file, cap+1 truncates', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-bound-'));
+  try {
+    const atCap = await feed('a'.repeat(10), 10, () => path.join(root, 'at.txt'), 'whole');
+    assert.equal(atCap.truncated, false, '==cap is not truncation');
+    assert.equal(existsSync(path.join(root, 'at.txt')), false);
+
+    const overCap = await feed('a'.repeat(11), 10, () => path.join(root, 'over.txt'), 'whole');
+    assert.equal(overCap.truncated, true, 'cap+1 truncates');
+    assert.equal(existsSync(path.join(root, 'over.txt')), true);
+    // head 5 + tail 5, exactly 1 char elided, no overlap/duplication at the seam.
+    assert.equal(overCap.render(), 'aaaaa\n…[中间约 1 字符已省略，完整见上方落盘文件]…\naaaaa');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: spill ceiling caps the file and flags it', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-ceil-'));
+  try {
+    const spill = path.join(root, 'c.txt');
+    const cap = await feed('a'.repeat(500), 20, () => spill, 'whole', 100); // 100-byte ceiling
+    assert.equal(cap.truncated, true);
+    assert.equal(cap.spillCeilingHit, true, 'ceiling hit is flagged');
+    assert.equal((await stat(spill)).size, 100, 'spill file capped at the ceiling');
+    assert.ok(spillHeaderNote(cap, new StreamCapture(20, () => spill))!.includes('50MB'), 'header note warns the file is also capped');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: spill IO failure degrades to inline preview, never throws', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-io-'));
+  try {
+    // Make the spill parent a FILE so mkdir/open fails.
+    const blocker = path.join(root, 'blocker');
+    await writeFile(blocker, 'x');
+    const badPath = path.join(blocker, 'nested', 's.txt');
+    const cap = await feed('a'.repeat(100), 20, () => badPath, 'whole');
+    assert.equal(cap.truncated, true);
+    assert.equal(cap.spillError, true, 'IO error flagged');
+    assert.ok(cap.render().includes('写盘失败'), 'marker tells her the full output is unavailable');
+    assert.ok(!cap.render().includes(badPath), 'no phantom path when write failed');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('StreamCapture: qq-usage symptom — newest-at-tail message stays visible after truncation', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-qq-'));
+  try {
+    // Transcript oldest→newest; the notified line is the LAST one.
+    const lines = Array.from({ length: 30 }, (_, i) => `<MESSAGE id=${i}>旧消息填充内容内容内容</MESSAGE>`);
+    lines.push('<MESSAGE id=99>我引用的这个是啥意思</MESSAGE>');
+    const text = lines.join('\n');
+    const cap = await feed(text, 80, () => path.join(root, 'qq.txt'), 'whole');
+    assert.equal(cap.truncated, true);
+    assert.ok(cap.render().includes('我引用的这个是啥意思'), 'the newest notified message survives in the tail preview');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('formatCodexOutput: Original token count uses the true pre-truncation total when provided', () => {
+  // The capped `output` is short, but the real output was 4000 chars → 1000 tokens.
+  const out = formatCodexOutput({
+    chunkId: 'abc123',
+    durationMs: 10,
+    exitCode: 0,
+    output: 'HEAD…elided…TAIL',
+    truncated: true,
+    originalTokenCount: 1000
+  });
+  assert.match(out, /Original token count: 1000/);
+  assert.match(out, /Output was truncated to max_output_tokens\./);
+});
+
+test('formatCodexOutput: spill note is surfaced in the header, right after the truncation line', () => {
+  const note = '完整输出已落盘，可读回：\n  完整 stdout: /xiaoni-runtime/exec-output/x.stdout.txt';
+  const out = formatCodexOutput({
+    chunkId: 'abc123',
+    durationMs: 10,
+    exitCode: 0,
+    output: 'HEAD…\n…[中间约 9 字符已省略，完整见上方落盘文件]…\n…TAIL',
+    truncated: true,
+    originalTokenCount: 1000,
+    spillNote: note
+  });
+  const lines = out.split('\n');
+  const truncIdx = lines.findIndex((l) => l === 'Output was truncated to max_output_tokens.');
+  assert.ok(truncIdx >= 0, 'truncation line present');
+  assert.equal(lines[truncIdx + 1], '完整输出已落盘，可读回：', 'spill note immediately follows the truncation line');
+  assert.ok(out.indexOf('/xiaoni-runtime/exec-output/x.stdout.txt') < out.indexOf('Output:'), 'path appears in the header, above the body');
+});
+
+test('spillHeaderNote: lists spilled streams, flags IO failure and ceiling, empty when nothing truncated', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-hdr-'));
+  try {
+    const okCap = await feed('a'.repeat(50), 20, () => path.join(root, 'ok.txt'), 'whole');
+    const emptyCap = new StreamCapture(20, () => path.join(root, 'none.txt'));
+    const note = spillHeaderNote(okCap, emptyCap);
+    assert.ok(note && note.includes(path.join(root, 'ok.txt')), 'names the spilled stdout file');
+    assert.ok(note!.includes('stdout') && !note!.includes('stderr'), 'only lists the stream that actually truncated');
+
+    // Both streams truncated → both listed, stdout before stderr (order guard).
+    const bothOut = await feed('a'.repeat(50), 20, () => path.join(root, 'both-out.txt'), 'whole');
+    const bothErr = await feed('b'.repeat(50), 20, () => path.join(root, 'both-err.txt'), 'whole');
+    const bothNote = spillHeaderNote(bothOut, bothErr)!;
+    assert.ok(bothNote.indexOf('完整 stdout') < bothNote.indexOf('完整 stderr'), 'stdout listed before stderr');
+
+    // stderr-only → note names stderr, not stdout.
+    const errOut = new StreamCapture(20, () => path.join(root, 'eo-out.txt'));
+    const errErr = await feed('c'.repeat(50), 20, () => path.join(root, 'eo-err.txt'), 'whole');
+    const errNote = spillHeaderNote(errOut, errErr)!;
+    assert.ok(errNote.includes('完整 stderr') && !errNote.includes('完整 stdout'), 'stderr-only names stderr not stdout');
+
+    // Nothing truncated → no note at all (header stays clean).
+    const smallA = await feed('hi', 100, () => path.join(root, 'a.txt'), 'whole');
+    const smallB = new StreamCapture(100, () => path.join(root, 'b.txt'));
+    assert.equal(spillHeaderNote(smallA, smallB), undefined, 'no note when nothing truncated');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('pruneExecOutput removes spill files past the TTL and keeps recent ones', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-prune-'));
+  try {
+    const dir = path.join(root, 'exec-output');
+    await mkdir(dir, { recursive: true });
+    const oldFile = path.join(dir, 'old.stdout.txt');
+    const newFile = path.join(dir, 'new.stdout.txt');
+    await writeFile(oldFile, 'old');
+    await writeFile(newFile, 'new');
+    const now = Date.now();
+    const old = new Date(now - 10 * 24 * 60 * 60 * 1000);
+    await utimes(oldFile, old, old);
+    const removed = await pruneExecOutput(root, 7, now);
+    assert.equal(removed, 1);
+    assert.equal(existsSync(oldFile), false, 'past-TTL file pruned');
+    assert.equal(existsSync(newFile), true, 'recent file kept (survives into a later run that reads it)');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

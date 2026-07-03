@@ -1,6 +1,8 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -72,6 +74,8 @@ type RuntimeSession = {
   startedAt: number;
   stdout: string;
   stderr: string;
+  stdoutCap: StreamCapture;
+  stderrCap: StreamCapture;
   truncated: boolean;
   maxOutputChars: number;
   timedOut: boolean;
@@ -210,6 +214,8 @@ export function formatCodexOutput(input: {
   blocked?: boolean;
   output: string;
   truncated?: boolean;
+  originalTokenCount?: number;
+  spillNote?: string;
 }): string {
   const lines = [
     `Chunk ID: ${input.chunkId}`,
@@ -226,9 +232,16 @@ export function formatCodexOutput(input: {
   } else {
     lines.push('Process exited without an exit code');
   }
-  lines.push(`Original token count: ${estimateTokenCount(input.output)}`);
+  // Original token count reflects the TRUE pre-truncation size when the caller
+  // knows it (the capped `output` string undercounts once truncated).
+  lines.push(`Original token count: ${input.originalTokenCount ?? estimateTokenCount(input.output)}`);
   if (input.truncated) {
     lines.push('Output was truncated to max_output_tokens.');
+    // Surface where the full output lives right here in the header, so she sees
+    // it immediately instead of having to scroll to the mid-output elision marker.
+    if (input.spillNote) {
+      lines.push(input.spillNote);
+    }
   }
   lines.push('Output:', input.output);
   return lines.join('\n');
@@ -264,15 +277,258 @@ function normalizeExecEnv(value: unknown): Record<string, string> {
   return env;
 }
 
-function appendCappedOutput(current: string, chunk: Buffer, maxChars: number): { value: string; truncated: boolean } {
-  if (current.length >= maxChars) {
-    return { value: current, truncated: true };
+// Full command output is never discarded on truncation. When a stream crosses
+// max_output_tokens we keep a HEAD + TAIL preview inline (so the newest bytes —
+// e.g. the latest qq-usage messages, which render at the tail — stay visible)
+// and stream the FULL raw bytes to a spill file under /xiaoni-runtime/exec-output,
+// which she can `tail`/`cat`/`sed` via another exec_command (same RW mount). The
+// middle is elided with a marker that carries the spill path. Nothing is lost.
+const EXEC_OUTPUT_SUBDIR = 'exec-output';
+const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
+const EXEC_OUTPUT_TTL_DAYS = 7;
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+// Slice the first `n` UTF-16 units without splitting a surrogate pair (emoji).
+function sliceHead(str: string, n: number): string {
+  if (n >= str.length) {
+    return str;
   }
-  const next = current + chunk.toString('utf8');
-  if (next.length <= maxChars) {
-    return { value: next, truncated: false };
+  let end = n;
+  if (end > 0 && isHighSurrogate(str.charCodeAt(end - 1))) {
+    end -= 1;
   }
-  return { value: next.slice(0, maxChars), truncated: true };
+  return str.slice(0, end);
+}
+
+// Keep the last `n` UTF-16 units without splitting a surrogate pair (emoji).
+function sliceTail(str: string, n: number): string {
+  if (n >= str.length) {
+    return str;
+  }
+  let start = str.length - n;
+  if (start > 0 && isLowSurrogate(str.charCodeAt(start))) {
+    start += 1;
+  }
+  return str.slice(start);
+}
+
+function execOutputPath(sessionId: string, stream: 'stdout' | 'stderr', root = runtimeRoot): string {
+  return path.join(root, EXEC_OUTPUT_SUBDIR, `${sessionId}.${stream}.txt`);
+}
+
+// Per-stream streaming capture. Bytes go through a single StringDecoder so a
+// multibyte char (CJK / emoji) split across two `data` events survives — the
+// previous `chunk.toString('utf8')` per-chunk decode mojibake'd those. The spill
+// file is written as RAW bytes (exact), the preview from decoded chars.
+export class StreamCapture {
+  private readonly decoder = new StringDecoder('utf8');
+  private readonly headBudget: number;
+  private readonly tailBudget: number;
+  private head = '';
+  private tail = '';
+  private full: string | null = ''; // holds everything until we cross the cap
+  private rawBuffer: Buffer[] | null = []; // raw chunks buffered until first cross
+  private spillStream: WriteStream | null = null;
+  private spilledBytes = 0;
+  private spillFinished: Promise<void> | null = null;
+  totalChars = 0;
+  truncated = false;
+  spillPath: string | null = null;
+  spillError = false;
+  spillCeilingHit = false;
+
+  constructor(
+    private readonly maxChars: number,
+    private readonly makeSpillPath: () => string,
+    private readonly spillCeilingBytes = SPILL_CEILING_BYTES
+  ) {
+    this.headBudget = Math.max(1, Math.floor(maxChars / 2));
+    this.tailBudget = Math.max(1, maxChars - this.headBudget);
+  }
+
+  // Await the spill write-stream flushing to disk (the stream closes async after
+  // end()). Tests read the spill file only after this resolves.
+  async settled(): Promise<void> {
+    if (this.spillFinished) {
+      await this.spillFinished;
+    }
+  }
+
+  push(chunk: Buffer): void {
+    // Handle raw bytes first (buffer pre-cross, stream post-cross) so the spill
+    // file is exact bytes regardless of where multibyte chars land.
+    if (!this.spillError) {
+      if (this.spillStream) {
+        this.writeSpill(chunk);
+      } else if (this.rawBuffer) {
+        this.rawBuffer.push(chunk);
+      }
+    }
+    this.ingest(this.decoder.write(chunk));
+  }
+
+  end(): void {
+    this.ingest(this.decoder.end());
+    if (this.spillStream) {
+      try {
+        this.spillStream.end();
+      } catch {
+        // best-effort flush
+      }
+      this.spillStream = null;
+    }
+  }
+
+  private ingest(text: string): void {
+    if (!text) {
+      return;
+    }
+    this.totalChars += text.length;
+    if (this.head.length < this.headBudget) {
+      this.head = sliceHead(this.head + text, this.headBudget);
+    }
+    this.tail = sliceTail(this.tail + text, this.tailBudget);
+    if (this.full !== null) {
+      this.full += text;
+    }
+    if (!this.truncated && this.totalChars > this.maxChars) {
+      this.truncated = true;
+      this.full = null; // release; render() switches to head + marker + tail
+      this.openSpillAndFlush();
+    }
+  }
+
+  private openSpillAndFlush(): void {
+    if (this.spillError || this.spillStream) {
+      return;
+    }
+    try {
+      const target = this.makeSpillPath();
+      mkdirSync(path.dirname(target), { recursive: true });
+      const stream = createWriteStream(target, { flags: 'w' });
+      // Degrade-don't-fail: a spill IO error must never turn her command into a
+      // hard error — fall back to inline-preview-only.
+      stream.on('error', () => {
+        this.spillError = true;
+        this.spillPath = null;
+      });
+      this.spillFinished = new Promise<void>((resolve) => {
+        stream.on('close', () => resolve());
+        stream.on('error', () => resolve());
+      });
+      this.spillStream = stream;
+      this.spillPath = target;
+      const buffered = this.rawBuffer || [];
+      this.rawBuffer = null;
+      for (const buf of buffered) {
+        this.writeSpill(buf);
+      }
+    } catch {
+      this.spillError = true;
+      this.spillPath = null;
+      this.rawBuffer = null;
+    }
+  }
+
+  private writeSpill(chunk: Buffer): void {
+    if (this.spillError || !this.spillStream) {
+      return;
+    }
+    if (this.spilledBytes >= this.spillCeilingBytes) {
+      this.spillCeilingHit = true;
+      return;
+    }
+    try {
+      const room = this.spillCeilingBytes - this.spilledBytes;
+      const toWrite = chunk.length <= room ? chunk : chunk.subarray(0, room);
+      this.spillStream.write(toWrite);
+      this.spilledBytes += toWrite.length;
+      if (toWrite.length < chunk.length) {
+        this.spillCeilingHit = true;
+      }
+    } catch {
+      this.spillError = true;
+      this.spillPath = null;
+    }
+  }
+
+  render(): string {
+    if (!this.truncated) {
+      return this.full ?? this.head;
+    }
+    const elided = Math.max(0, this.totalChars - this.head.length - this.tail.length);
+    // The actionable path + read-back instructions live in the header (see
+    // spillHeaderNote); this in-body marker only marks WHERE the cut is.
+    const note = (this.spillError || !this.spillPath)
+      ? `…[中间约 ${elided} 字符已省略；完整输出写盘失败，无法回看]…`
+      : `…[中间约 ${elided} 字符已省略，完整见上方落盘文件]…`;
+    return `${this.head}\n${note}\n${this.tail}`;
+  }
+}
+
+// Header note pointing to the spilled full-output file(s). Empty when nothing
+// truncated. Placed right after "Output was truncated…" so it's the first thing
+// she sees, not buried mid-output.
+export function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): string | undefined {
+  const parts: string[] = [];
+  const add = (name: string, cap: StreamCapture) => {
+    if (!cap.truncated) {
+      return;
+    }
+    if (cap.spillError || !cap.spillPath) {
+      parts.push(`完整 ${name} 写盘失败，中间内容无法回看`);
+    } else {
+      const ceilLabel = `${Math.round(SPILL_CEILING_BYTES / 1024 / 1024)}MB`;
+      parts.push(`完整 ${name}: ${cap.spillPath}${cap.spillCeilingHit ? `（文件也在 ${ceilLabel} 处截断）` : ''}`);
+    }
+  };
+  add('stdout', stdoutCap);
+  add('stderr', stderrCap);
+  if (parts.length === 0) {
+    return undefined;
+  }
+  // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
+  // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
+  return `完整输出已落盘。按范围回读（别对大文件直接 cat，会再次截断；小文件可用更大 max_output_tokens 一次读完）：sed -n '起,止p' <文件> / head -c 4000 <文件> / tail -c 4000 <文件> / grep 关键词 <文件>\n  ${parts.join('\n  ')}`;
+}
+
+// Age-prune spilled exec-output files so /xiaoni-runtime/exec-output doesn't grow
+// forever (mirrors the web_search spill prune). Only the path enters her context;
+// deleting a file is a runtime miss (file-not-found on a stale re-read), never a
+// cache break — the path string was already frozen verbatim in the stack.
+export async function pruneExecOutput(root = runtimeRoot, ttlDays = EXEC_OUTPUT_TTL_DAYS, now = Date.now()): Promise<number> {
+  const dir = path.join(root, EXEC_OUTPUT_SUBDIR);
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return 0;
+  }
+  const cutoff = now - ttlDays * 24 * 60 * 60 * 1000;
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.endsWith('.txt')) {
+      continue;
+    }
+    const full = path.join(dir, entry);
+    try {
+      const info = await stat(full);
+      if (info.mtimeMs < cutoff) {
+        await rm(full, { force: true });
+        removed += 1;
+      }
+    } catch {
+      // ignore individual file errors
+    }
+  }
+  return removed;
 }
 
 async function ensureRuntimeDirectories() {
@@ -283,7 +539,8 @@ async function ensureRuntimeDirectories() {
     'services',
     'artifacts',
     'registry',
-    'git-archives'
+    'git-archives',
+    EXEC_OUTPUT_SUBDIR
   ].map((dir) => mkdir(path.join(runtimeRoot, dir), { recursive: true })));
 }
 
@@ -319,6 +576,8 @@ function sessionToSnapshot(session: RuntimeSession) {
     stdout: session.stdout,
     stderr: session.stderr,
     truncated: session.truncated,
+    original_chars: session.stdoutCap.totalChars + session.stderrCap.totalChars,
+    spill_note: spillHeaderNote(session.stdoutCap, session.stderrCap) ?? null,
     timed_out: session.timedOut,
     exit_code: session.exitCode,
     signal: session.signal,
@@ -330,6 +589,7 @@ function sessionToSnapshot(session: RuntimeSession) {
 
 function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
   const output = session.stdout + session.stderr;
+  const originalChars = session.stdoutCap.totalChars + session.stderrCap.totalChars;
   const durationMs = Date.now() - session.startedAt;
   return {
     cmd: session.cmd,
@@ -360,7 +620,9 @@ function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
       running: !session.closed,
       sessionId: session.id,
       output,
-      truncated: session.truncated
+      truncated: session.truncated,
+      originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
+      spillNote: spillHeaderNote(session.stdoutCap, session.stderrCap)
     })
   };
 }
@@ -479,6 +741,8 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     startedAt: Date.now(),
     stdout: '',
     stderr: '',
+    stdoutCap: new StreamCapture(maxOutputChars, () => execOutputPath(sessionId, 'stdout')),
+    stderrCap: new StreamCapture(maxOutputChars, () => execOutputPath(sessionId, 'stderr')),
     truncated: false,
     maxOutputChars,
     timedOut: false,
@@ -500,23 +764,27 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
   await persistSession(session);
   await appendAudit('exec_start', { session_id: session.id, cmd: originalCmd, translated_cmd: translatedCmd, workdir, shell, git_archive_dir: gitArchive.dir, git_archive_error: gitArchive.error });
 
+  const refreshRendered = () => {
+    session.stdout = session.stdoutCap.render();
+    session.stderr = session.stderrCap.render();
+    session.truncated = session.stdoutCap.truncated || session.stderrCap.truncated;
+  };
   session.child.stdout?.on('data', (chunk: Buffer) => {
-    const next = appendCappedOutput(session.stdout, chunk, session.maxOutputChars);
-    session.stdout = next.value;
-    session.truncated = session.truncated || next.truncated;
+    session.stdoutCap.push(chunk);
+    refreshRendered();
     void persistSession(session);
   });
   session.child.stderr?.on('data', (chunk: Buffer) => {
-    const next = appendCappedOutput(session.stderr, chunk, session.maxOutputChars);
-    session.stderr = next.value;
-    session.truncated = session.truncated || next.truncated;
+    session.stderrCap.push(chunk);
+    refreshRendered();
     void persistSession(session);
   });
   session.child.on('error', (error) => {
     const message = error instanceof Error ? error.message : String(error);
-    const next = appendCappedOutput(session.stderr, Buffer.from(message), session.maxOutputChars);
-    session.stderr = next.value;
-    session.truncated = session.truncated || next.truncated;
+    session.stderrCap.push(Buffer.from(message, 'utf8'));
+    session.stderrCap.end();
+    session.stdoutCap.end();
+    refreshRendered();
     session.exitCode = null;
     session.signal = null;
     session.closed = true;
@@ -524,6 +792,11 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     void appendAudit('exec_error', { session_id: session.id, error_message: message });
   });
   session.child.on('close', (code, signal) => {
+    // Flush the decoders (drop any trailing partial multibyte bytes) and close
+    // the spill streams before the final snapshot.
+    session.stdoutCap.end();
+    session.stderrCap.end();
+    refreshRendered();
     session.exitCode = typeof code === 'number' ? code : null;
     session.signal = signal || null;
     session.closed = true;
@@ -531,21 +804,29 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     void appendAudit('exec_close', { session_id: session.id, exit_code: session.exitCode, signal: session.signal });
   });
 
-  return await new Promise((resolve) => {
-    const done = () => resolve(buildResultFromSession(session));
+  return await new Promise<ExecCommandResult>((resolve) => {
+    // When the process has CLOSED, wait for the spill streams to finish flushing
+    // before resolving — otherwise the header advertises "完整输出已落盘" while the
+    // file is still mid-flush (the read comes a round-trip later, but make it
+    // true-by-construction). Not awaited on the yield path: a still-running command
+    // keeps its stream open and is polled later.
+    const resolveClosed = async () => {
+      await Promise.all([session.stdoutCap.settled(), session.stderrCap.settled()]);
+      resolve(buildResultFromSession(session));
+    };
     if (session.closed) {
-      done();
+      void resolveClosed();
       return;
     }
-    const timeout = setTimeout(done, yieldMs);
+    const timeout = setTimeout(() => resolve(buildResultFromSession(session)), yieldMs);
     timeout.unref();
     session.child.once('close', () => {
       clearTimeout(timeout);
-      done();
+      void resolveClosed();
     });
     session.child.once('error', () => {
       clearTimeout(timeout);
-      done();
+      void resolveClosed();
     });
   });
 }
@@ -561,6 +842,18 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
     const output = `${typeof snapshot.stdout === 'string' ? snapshot.stdout : ''}${typeof snapshot.stderr === 'string' ? snapshot.stderr : ''}`;
     const chunkId = typeof snapshot.chunk_id === 'string' ? snapshot.chunk_id : randomUUID().slice(0, 8);
     const durationMs = typeof snapshot.duration_ms === 'number' ? snapshot.duration_ms : 0;
+    const originalChars = typeof snapshot.original_chars === 'number' ? snapshot.original_chars : output.length;
+    // Sessions are never evicted from the in-memory map within a process lifetime,
+    // so reaching the snapshot branch means a DIFFERENT process wrote it — i.e. the
+    // executor restarted. A snapshot still marked running:true is therefore an
+    // orphaned dead process; its spill file only flushed up to the crash point.
+    // Report it as not-running (so the caller stops polling forever) and caveat the
+    // spill note so a partial file is never presented as "完整".
+    const wasRunning = Boolean(snapshot.running);
+    const rawSpillNote = typeof snapshot.spill_note === 'string' ? snapshot.spill_note : undefined;
+    const spillNote = wasRunning && rawSpillNote
+      ? `${rawSpillNote}\n  ⚠ 执行器已重启，此命令进程已丢失，落盘文件可能不完整`
+      : rawSpillNote;
     return {
       cmd: typeof snapshot.cmd === 'string' ? snapshot.cmd : '',
       translated_cmd: typeof snapshot.translated_cmd === 'string' ? snapshot.translated_cmd : undefined,
@@ -579,7 +872,7 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
       executor: 'xiaoni-executor',
       session_id: sessionId,
       chunk_id: chunkId,
-      running: Boolean(snapshot.running),
+      running: false,
       git_archive_dir: typeof snapshot.git_archive_dir === 'string' ? snapshot.git_archive_dir : null,
       git_archive_error: typeof snapshot.git_archive_error === 'string' ? snapshot.git_archive_error : null,
       codex_output: formatCodexOutput({
@@ -587,10 +880,12 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
         durationMs,
         exitCode: typeof snapshot.exit_code === 'number' ? snapshot.exit_code : null,
         signal: typeof snapshot.signal === 'string' ? snapshot.signal as NodeJS.Signals : null,
-        running: Boolean(snapshot.running),
+        running: false,
         sessionId,
         output,
-        truncated: Boolean(snapshot.truncated)
+        truncated: Boolean(snapshot.truncated),
+        originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
+        spillNote
       })
     };
   } catch {
@@ -694,6 +989,7 @@ async function route(req: IncomingMessage, res: ServerResponse) {
 
 export async function createExecutorServer() {
   await ensureRuntimeDirectories();
+  await pruneExecOutput().catch(() => 0);
   return createServer((req, res) => {
     route(req, res).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
