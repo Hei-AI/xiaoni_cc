@@ -5330,6 +5330,23 @@ function buildToolRejectedResult(
   };
 }
 
+// inspect_image_placeholder already resolves the image server-side and has its local
+// executor-container path in hand (materialized.executorPath, see inspectImagePlaceholder),
+// but the vision fork's output_xml is a DESCRIPTION only — that path is otherwise dropped.
+// Append it as a compact machine-readable marker `localpath:<path>` so 小腻 can grab the on-disk
+// path and hand it to $qq-send-image (or read/edit it) to forward/resend an image someone sent
+// her. Without it she only holds an opaque media id and has no way to reach the file on disk.
+// Deterministic and frozen into stack content (buildToolResultStackItems persists the rendered
+// function_call_output verbatim), so live build == stack replay == fork clone → zero cache drift.
+function appendInspectImageLocalPath(outputXml: string, toolResult: Record<string, unknown>): string {
+  const rawPath = (toolResult as { executor_path?: unknown }).executor_path;
+  const path = typeof rawPath === 'string' ? rawPath.trim() : '';
+  if (path.startsWith('/')) {
+    return `${outputXml}\nlocalpath:${path}`;
+  }
+  return outputXml;
+}
+
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>,
@@ -5371,7 +5388,7 @@ export function applyToolResultToLoopInput(
         : toolCall.name === TOOL_NAMES.webSearch && typeof toolResult.output_text === 'string'
           ? String(toolResult.output_text).trim()
         : toolCall.name === TOOL_NAMES.inspectImage && typeof toolResult.output_xml === 'string'
-          ? String(toolResult.output_xml).trim()
+          ? appendInspectImageLocalPath(String(toolResult.output_xml).trim(), toolResult)
           : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
             ? String(toolResult.system_reminder).trim()
             : JSON.stringify(toolResult)

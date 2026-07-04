@@ -8159,6 +8159,9 @@ test('applyToolResultToLoopInput passes inspect_image text output through withou
   const inspectOutput = String(inspectContinuation.inputItems[0]?.output || '');
   assert.doesNotMatch(inspectOutput, EAST8_TIME_PREFIX_PATTERN);
   assert.match(inspectOutput, /<image id="img-1">含义是: 一只猫<\/image>/);
+  // No executor_path on the result → no local-path marker appended (path-less inspects
+  // stay byte-identical to before this feature).
+  assert.doesNotMatch(inspectOutput, /localpath:/);
 
   const jsonContinuation = applyToolResultToLoopInput({
     callId: 'call-image-task-json',
@@ -8174,6 +8177,40 @@ test('applyToolResultToLoopInput passes inspect_image text output through withou
   const jsonOutput = String(jsonReplay && jsonReplay.type === 'function_call_output' ? jsonReplay.output : '');
   assert.doesNotMatch(jsonOutput, EAST8_TIME_PREFIX_PATTERN);
   assert.equal(JSON.parse(jsonOutput).status_text, '图片任务已排队');
+});
+
+// inspect_image_placeholder resolves an image server-side and holds its local executor path
+// (executor_path). Append it as a compact `localpath:<path>` marker in the function_call_output
+// so 小腻 can grab the on-disk path (e.g. to hand to $qq-send-image) — otherwise she only has
+// an opaque media id.
+test('applyToolResultToLoopInput surfaces the inspected image local path for re-send', () => {
+  const withPath = applyToolResultToLoopInput({
+    callId: 'call-inspect-path',
+    name: INSPECT_IMAGE_TOOL,
+    rawArguments: '{"image_id":"media_ab12"}'
+  }, {
+    output_xml: '<image id="media_ab12">含义是: 一只猫</image>',
+    executor_path: '/xiaoni-runtime/media/inbound/ab12cd34.jpg'
+  });
+
+  assert.equal(withPath.inputItems[0]?.type, 'function_call_output');
+  const output = String(withPath.inputItems[0]?.output || '');
+  // description preserved
+  assert.match(output, /<image id="media_ab12">含义是: 一只猫<\/image>/);
+  // + the real local path as a machine-readable marker on its own trailing line
+  assert.match(output, /\nlocalpath:\/xiaoni-runtime\/media\/inbound\/ab12cd34\.jpg$/);
+
+  // A non-local executor_path (e.g. a URL, or missing) must NOT be surfaced as a sendable path.
+  const urlPath = applyToolResultToLoopInput({
+    callId: 'call-inspect-url',
+    name: INSPECT_IMAGE_TOOL,
+    rawArguments: '{"image_id":"media_url"}'
+  }, {
+    output_xml: '<image id="media_url">含义是: 一只狗</image>',
+    executor_path: 'https://example.com/x.jpg'
+  });
+  const urlOutput = String(urlPath.inputItems[0]?.output || '');
+  assert.doesNotMatch(urlOutput, /localpath:/);
 });
 
 test('legacy speech tool aliases are rejected instead of dispatching', async () => {
