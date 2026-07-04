@@ -29,6 +29,7 @@ type RuntimeControl = {
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
+  compressionTriggerWireBytes: number;
   energyPolicy: Record<string, number> | null;
   energyPolicyDefaults?: Record<string, number>;
   updatedAt: string | null;
@@ -82,7 +83,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -294,6 +295,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const [yieldInput, setYieldInput] = React.useState('');
   const [debugHeartbeatSecondsInput, setDebugHeartbeatSecondsInput] = React.useState('');
   const [compressionTriggerInput, setCompressionTriggerInput] = React.useState('');
+  const [compressionWireMiBInput, setCompressionWireMiBInput] = React.useState('');
   const controlQuery = useQuery({
     queryKey: ['xiaoni-runtime-control'],
     queryFn: fetchRuntimeControl,
@@ -394,6 +396,9 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const currentCompressionTriggerInputTokens = typeof pendingPatch?.compressionTriggerInputTokens === 'number'
     ? pendingPatch.compressionTriggerInputTokens
     : control?.compressionTriggerInputTokens ?? 80000;
+  const currentCompressionTriggerWireBytes = typeof pendingPatch?.compressionTriggerWireBytes === 'number'
+    ? pendingPatch.compressionTriggerWireBytes
+    : control?.compressionTriggerWireBytes ?? 25165824;
   React.useEffect(() => {
     if (!mutation.isPending && typeof control?.mainAgentPreModelYieldMs === 'number') {
       setYieldInput(String(control.mainAgentPreModelYieldMs));
@@ -409,6 +414,11 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
       setCompressionTriggerInput(String(control.compressionTriggerInputTokens));
     }
   }, [control?.compressionTriggerInputTokens, mutation.isPending]);
+  React.useEffect(() => {
+    if (!mutation.isPending && typeof control?.compressionTriggerWireBytes === 'number') {
+      setCompressionWireMiBInput(String(Math.round(control.compressionTriggerWireBytes / (1024 * 1024))));
+    }
+  }, [control?.compressionTriggerWireBytes, mutation.isPending]);
   const parsedYieldMs = /^\d+$/.test(yieldInput.trim())
     ? Number.parseInt(yieldInput.trim(), 10)
     : null;
@@ -467,6 +477,24 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     }
     mutation.mutate({ compressionTriggerInputTokens: parsedCompressionTrigger });
   }, [mutation, compressionTriggerInputValid, parsedCompressionTrigger]);
+  const parsedCompressionWireMiB = /^\d+$/.test(compressionWireMiBInput.trim())
+    ? Number.parseInt(compressionWireMiBInput.trim(), 10)
+    : null;
+  // Input is MiB for readability; store bytes. Mirror the backend bounds (1..30 MiB).
+  const compressionWireInputValid = parsedCompressionWireMiB !== null
+    && Number.isSafeInteger(parsedCompressionWireMiB)
+    && parsedCompressionWireMiB >= 1
+    && parsedCompressionWireMiB <= 30;
+  const targetCompressionWireBytes = parsedCompressionWireMiB === null ? null : parsedCompressionWireMiB * 1024 * 1024;
+  const compressionWireInputDirty = compressionWireInputValid
+    && targetCompressionWireBytes !== currentCompressionTriggerWireBytes;
+  const handleCompressionWireSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!compressionWireInputValid || targetCompressionWireBytes === null) {
+      return;
+    }
+    mutation.mutate({ compressionTriggerWireBytes: targetCompressionWireBytes });
+  }, [mutation, compressionWireInputValid, targetCompressionWireBytes]);
 
   const energyDefaults = control?.energyPolicyDefaults ?? ENERGY_POLICY_FALLBACK_DEFAULTS;
   const energyOverrides = control?.energyPolicy ?? null;
@@ -967,6 +995,43 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               disabled={controlQuery.isLoading || mutation.isPending || !compressionTriggerInputValid || !compressionTriggerInputDirty}
             >
               {mutation.isPending && typeof pendingPatch?.compressionTriggerInputTokens === 'number'
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : null}
+              保存
+            </Button>
+          </div>
+        </form>
+      </SectionPanel>
+
+      <SectionPanel
+        title="压缩触发阈值（字节）"
+        description="图片字节压缩触发线：图片 token 便宜但字节巨大，token 触发线对图密集的 run 是盲区。当组装的请求 wire 字节连续若干轮超过该软线时，后台压缩 fork 也会启动，把老图折叠出读取窗口，避免撞 Anthropic 32MB 单请求硬上限。硬停机线 = 软线 + 6 MiB：超硬线会在发送前 halt 停机（关行动开关、保 heartbeat 温暖）等人工压缩/恢复。仅影响压缩时机，不进可缓存前缀；改后无需重启。"
+        icon={<Shrink className="h-4 w-4 text-primary" />}
+      >
+        <form className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between" onSubmit={handleCompressionWireSubmit}>
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">压缩触发软线 (MiB)</div>
+            <div className="text-sm text-muted-foreground">当前值：{(currentCompressionTriggerWireBytes / (1024 * 1024)).toFixed(0)} MiB（{currentCompressionTriggerWireBytes.toLocaleString()} 字节）</div>
+            <div className="text-xs text-muted-foreground">范围：1 – 30 MiB；默认 24 MiB。硬停机线 = 软线 + 6 MiB，建议软线 ≤ 26 MiB。</div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-56">
+            <Input
+              type="number"
+              min={1}
+              max={30}
+              step={1}
+              inputMode="numeric"
+              value={compressionWireMiBInput}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onChange={(event) => setCompressionWireMiBInput(event.target.value)}
+              aria-label="压缩触发软线 MiB"
+            />
+            <Button
+              type="submit"
+              size="sm"
+              disabled={controlQuery.isLoading || mutation.isPending || !compressionWireInputValid || !compressionWireInputDirty}
+            >
+              {mutation.isPending && typeof pendingPatch?.compressionTriggerWireBytes === 'number'
                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 : null}
               保存

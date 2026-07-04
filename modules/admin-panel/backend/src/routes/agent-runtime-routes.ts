@@ -1438,6 +1438,21 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         }
         patch.compressionTriggerInputTokens = value;
       }
+      if (Object.prototype.hasOwnProperty.call(body, 'compressionTriggerWireBytes')) {
+        const value = parseNonNegativeInteger(body.compressionTriggerWireBytes);
+        // Soft BYTE line for the image-heavy compression trigger. The hard pre-send halt line is
+        // soft + 6 MiB margin, so keep soft <= ~26 MiB or the hard line exceeds Anthropic's 32MB
+        // per-request wall and a 413 lands before the halt can fire. Min 1 MiB, max 30 MiB.
+        if (value === null || value < 1048576 || value > 31457280) {
+          res.status(400).json({
+            success: false,
+            error: 'compressionTriggerWireBytes must be an integer between 1048576 (1 MiB) and 31457280 (30 MiB)',
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        patch.compressionTriggerWireBytes = value;
+      }
       const control = await updateAgentRuntimeControl(patch);
       res.json({
         success: true,
