@@ -775,7 +775,24 @@ const consecutiveOverWireTriggerBySession = new Map<string, number>();
 export function estimateCanonicalRequestWireBytes(canonicalRequest: unknown): number {
   let raw = 0;
   try {
-    raw = JSON.stringify(canonicalRequest)?.length ?? 0;
+    // Project the canonical onto what actually goes on the wire before measuring: an
+    // input_image that carries a Files API `file_id` is sent as a ~60-byte file reference,
+    // NOT its base64 image_url (which the canonical keeps as the durable fallback — double
+    // store). Counting the base64 here would let the hard HALT false-positive on a request
+    // whose real wire is tiny and wrongly stall the loop. The replacer drops image_url/source
+    // from any file_id-bearing input_image so the estimate tracks the real wire body.
+    raw = JSON.stringify(canonicalRequest, (_key, value) => {
+      if (
+        value && typeof value === 'object' && !Array.isArray(value)
+        && (value as { type?: unknown }).type === 'input_image'
+        && typeof (value as { anthropic_file_id?: unknown }).anthropic_file_id === 'string'
+        && (value as { anthropic_file_id: string }).anthropic_file_id.length > 0
+      ) {
+        const v = value as { anthropic_file_id: string; detail?: unknown };
+        return { type: 'input_image', anthropic_file_id: v.anthropic_file_id, detail: v.detail };
+      }
+      return value;
+    })?.length ?? 0;
   } catch {
     raw = 0;
   }
@@ -846,6 +863,60 @@ export async function transcodeInputImageItemsToWebpLossless(
       return { ...rec, image_url: `data:image/webp;base64,${webp.toString('base64')}` } as unknown as OpenResponseInputItem;
     } catch {
       return item; // cwebp missing / timeout — keep the original, never block the tool
+    }
+  }));
+}
+// T9: at-ingest image externalization. Runs RIGHT AFTER the webp transcode and BEFORE the image
+// enters the durable stack. For each input_image data URL, ask provider-service to upload it to the
+// Anthropic Files API and stamp the returned file_id onto the item as `anthropic_file_id` (keeping
+// image_url as the durable base64 fallback — double store). The wire builder (anthropic-translate
+// partsToBlocks) then emits a ~60-byte {type:'file',file_id} block instead of the base64 — the fix
+// for the 32MB request cap. Because the file_id is frozen into the canonical here (before first send)
+// and persisted with the stack item, the live build, the stack replay, and every fork clone all
+// reconstruct the SAME file source byte-for-byte → zero prompt-cache drift (same invariant the webp
+// pass relies on). Degrade is graceful: on disabled / below-threshold / upload failure the item is
+// returned unchanged (base64 only), a one-time persisted decision — NEVER a per-request retry, which
+// would make the wire non-deterministic across replay and punch the cache. Never blocks the tool.
+export async function externalizeInputImageItemsToAnthropicFile(
+  items: OpenResponseInputItem[]
+): Promise<OpenResponseInputItem[]> {
+  if (process.env.ANTHROPIC_FILES_API_UPLOAD_ENABLED === 'false') {
+    return items;
+  }
+  return Promise.all(items.map(async (item) => {
+    const rec = item as Record<string, unknown>;
+    if (!rec || rec.type !== 'input_image' || typeof rec.image_url !== 'string') {
+      return item;
+    }
+    // Already externalized (e.g. re-normalized) — leave the frozen file_id in place.
+    if (typeof rec.anthropic_file_id === 'string' && rec.anthropic_file_id) {
+      return item;
+    }
+    if (!rec.image_url.startsWith('data:image/')) {
+      return item;
+    }
+    try {
+      const response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/media/upload-anthropic-file`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [NO_TRAFFIC_PERSIST_HEADER]: '1'
+        },
+        body: JSON.stringify({ data_url: rec.image_url })
+      });
+      if (!response.ok) {
+        return item; // degrade → keep base64
+      }
+      const payload = await response.json() as { data?: { file_id?: unknown } };
+      const fileId = typeof payload?.data?.file_id === 'string' && payload.data.file_id.trim()
+        ? payload.data.file_id.trim()
+        : null;
+      if (!fileId) {
+        return item; // below threshold / disabled / upload degraded → keep base64
+      }
+      return { ...rec, anthropic_file_id: fileId } as unknown as OpenResponseInputItem;
+    } catch {
+      return item; // provider-service unreachable → keep base64, never block the tool
     }
   }));
 }
@@ -11237,9 +11308,14 @@ export class AgentLoopService {
       const savedPath = typeof payload.saved_path === 'string' && payload.saved_path
         ? (payload.saved_path as string)
         : null;
-      const imageContent = await transcodeInputImageItemsToWebpLossless(
+      // At-ingest slimming then externalization, BEFORE the screenshot enters the durable stack:
+      // (1) lossless webp transcode (byte-smaller, byte-frozen), then (2) upload to the Files API
+      // and stamp anthropic_file_id so the wire carries a ~60-byte reference instead of the base64.
+      // Both are cache-safe because they run before first send and are frozen into the canonical.
+      const webpContent = await transcodeInputImageItemsToWebpLossless(
         [{ type: 'input_image', image_url: imageUrl, detail: 'original' }] as OpenResponseInputItem[]
       );
+      const imageContent = await externalizeInputImageItemsToAnthropicFile(webpContent);
       return {
         computer_action: actionName,
         image_content: imageContent,

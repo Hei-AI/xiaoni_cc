@@ -38,6 +38,22 @@ test('estimateCanonicalRequestWireBytes: unserializable input returns 0 (never f
   assert.equal(estimateCanonicalRequestWireBytes(circular), 0);
 });
 
+test('estimateCanonicalRequestWireBytes: a file_id image is counted at wire cost, NOT its base64', () => {
+  setCompressionWireBytesCalibrationFactor(1.0);
+  const bigBase64 = 'A'.repeat(4 * MiB);
+  // Same image, two representations. With an anthropic_file_id the wire sends a ~60-byte file
+  // reference, so the estimate must ignore the (retained, double-stored) base64 image_url —
+  // otherwise the hard HALT false-positives and stalls the loop on a request that's actually tiny.
+  const withFileId = estimateCanonicalRequestWireBytes({
+    input: [{ type: 'input_image', image_url: `data:image/webp;base64,${bigBase64}`, anthropic_file_id: 'file_x', detail: 'original' }]
+  });
+  const base64Only = estimateCanonicalRequestWireBytes({
+    input: [{ type: 'input_image', image_url: `data:image/webp;base64,${bigBase64}`, detail: 'original' }]
+  });
+  assert.ok(base64Only > 4 * MiB, 'base64-only image dominates the estimate');
+  assert.ok(withFileId < 1024, `file_id image estimate must be tiny, got ${withFileId}`);
+});
+
 test('soft trigger: fires only after the consecutive-over-soft debounce (mirrors the token side)', () => {
   const key = 'test-wire-soft';
   __setCompressionWireTriggerCounterForTest(key, 0);
