@@ -47,9 +47,12 @@ canonical 的 `input_image` item 同时保留：
   「只改 data_url 不动归档」）
 - `file_id`（**仅 wire 优化**）
 
-wire 构建优先 emit file_id；`file_id` 缺失或（未来）失效则回退 base64。Files 无文档 TTL（persist
-until deleted）但有 100GB org 上限：live 上下文里的 file 若被删 → replay 引用死 file_id 会 400，双存的
-base64 兜底可回退（代价 = 那次一次性前缀 bust，同 413 的 trace_only 兜底思路）。
+wire 构建优先 emit file_id；`file_id` 缺失则回退 base64。Files 无文档 TTL（persist until deleted）
+但有 100GB org 上限：live 上下文里的 file 若被删 → replay 引用死 file_id 会 400。**恢复杠杆**：
+provider 侧 `ANTHROPIC_FILES_API_WIRE_ENABLED=false` 让 translator 忽略所有已盖的 anthropic_file_id、
+改发双存的 base64——无需动 stack、零数据丢失，代价只是那一次已入上下文图片的前缀 bust（同 413 的
+trace_only 兜底思路）。这与 agent 侧 `ANTHROPIC_FILES_API_UPLOAD_ENABLED=false`（只停新上传、无法
+un-stamp 老 item）是两个独立杠杆。
 
 ## 4. 三层改动
 

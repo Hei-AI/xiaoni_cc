@@ -65,6 +65,24 @@ test('empty/whitespace anthropic_file_id → falls back to base64 (never emits a
   assert.equal((img!.source as { type: string }).type, 'base64');
 });
 
+test('ANTHROPIC_FILES_API_WIRE_ENABLED=false → ignores file_id, falls back to base64 (incident recovery)', () => {
+  const prev = process.env.ANTHROPIC_FILES_API_WIRE_ENABLED;
+  process.env.ANTHROPIC_FILES_API_WIRE_ENABLED = 'false';
+  try {
+    const { body } = translateCanonicalToMessages(
+      requestWithImage({ type: 'input_image', image_url: TINY_PNG, anthropic_file_id: 'file_stale_deleted' })
+    );
+    const img = firstImageBlock(body);
+    assert.ok(img, 'expected an image block');
+    // A stale/deleted file_id must NOT reach the wire when the kill switch is off — the
+    // double-stored base64 recovers with no data loss.
+    assert.equal((img!.source as { type: string }).type, 'base64');
+  } finally {
+    if (prev === undefined) delete process.env.ANTHROPIC_FILES_API_WIRE_ENABLED;
+    else process.env.ANTHROPIC_FILES_API_WIRE_ENABLED = prev;
+  }
+});
+
 test('the wire file source is byte-identical across repeated builds (replay/fork cache safety)', () => {
   const req = requestWithImage({ type: 'input_image', image_url: TINY_PNG, anthropic_file_id: 'file_stable' });
   const a = JSON.stringify(translateCanonicalToMessages(req).body);

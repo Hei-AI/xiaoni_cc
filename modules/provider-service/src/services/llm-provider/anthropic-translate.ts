@@ -170,6 +170,19 @@ export interface TranslateResult {
   thinkingEnabled: boolean;
 }
 
+// Wire-side kill switch for Files API image references. Default ON. When set to 'false', the
+// translator IGNORES any stamped anthropic_file_id and emits the double-stored base64 instead —
+// the incident-recovery lever for a stale/deleted file_id (Anthropic drops a referenced file via
+// the 100GB org cap or manual cleanup → otherwise every replay of that item 400s "file not found"
+// with no way out short of stack surgery). Because the base64 is always retained in the canonical,
+// this recovers with NO data loss; the only cost is a one-time prefix-cache bust for already-sent
+// images (same accepted tradeoff as the 413 trace_only rescue). Distinct from the agent-side
+// ANTHROPIC_FILES_API_UPLOAD_ENABLED (which only stops NEW uploads and can't un-stamp old items).
+// Read per-call so it stays testable and flips without a rebuild.
+function isFilesApiWireEnabled(): boolean {
+  return (process.env.ANTHROPIC_FILES_API_WIRE_ENABLED || 'true').trim() !== 'false';
+}
+
 function parseImageSource(imageUrl: string): AnthropicImageSource {
   if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
     const match = /^data:([^;]+);base64,(.*)$/s.exec(imageUrl);
@@ -200,7 +213,7 @@ function partsToBlocks(parts: OpenResponseMessageContentPart[]): AnthropicConten
       // NB: `anthropic_file_id` is the Anthropic Files API id — deliberately NOT `file_id`,
       // which elsewhere in the media path means a NapCat/QQ file id (a different namespace).
       const fileId = (part as any).anthropic_file_id;
-      if (typeof fileId === 'string' && fileId.length > 0) {
+      if (isFilesApiWireEnabled() && typeof fileId === 'string' && fileId.length > 0) {
         blocks.push({ type: 'image', source: { type: 'file', file_id: fileId } });
       } else {
         const url = (part as any).image_url || (part as any).source?.url;
