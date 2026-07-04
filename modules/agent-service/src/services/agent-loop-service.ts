@@ -2433,7 +2433,15 @@ export function buildImageVisionForkRequest(
   imageId: string,
   outputPath: string,
   existingObservation: string | null = null,
-  sourceCall: { callId: string; arguments: string }
+  sourceCall: { callId: string; arguments: string },
+  // Optional Files API id for the inspected image. When the caller externalized the image at
+  // fork-build (see inspectImagePlaceholder), the fork sends a ~60-byte file reference instead of
+  // the full base64 — the fix for the 看图 fork itself blowing past the 32MB cap on a huge image
+  // (received QQ image / playwright screenshot / any on-demand-viewed file all funnel through here).
+  // Cache-safe: this image is a cache_volatile tail (never the shared prefix, never replayed into the
+  // main stack), so a per-build file_id is fine and the fork still rides the main loop's warm prefix.
+  // image_url is retained as the durable fallback (double store + wire kill switch).
+  anthropicFileId: string | null = null
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   // The main agent REALLY emitted this inspect_image_placeholder call — its turn's output is a genuine
@@ -2471,7 +2479,10 @@ export function buildImageVisionForkRequest(
       output: [{
         type: 'input_image',
         image_url: imageDataUrl,
-        detail: 'original'
+        detail: 'original',
+        // Prefer the Files API reference on the wire when the caller externalized the image;
+        // image_url stays as the durable fallback (partsToBlocks + the wire kill switch handle it).
+        ...(anthropicFileId ? { anthropic_file_id: anthropicFileId } : {})
       }]
     } as unknown as OpenResponseInputItem,
     // ③ ONE developer system_reminder folding the write-instruction + any existing observation
@@ -11636,13 +11647,23 @@ export class AgentLoopService {
     const forkRunId = buildImageVisionForkRunId(queueMessage.runId, assetId);
     const outputPath = buildImageVisionObservationPath(assetId);
     const existingObservation = await this.readImageVisionObservationFile(outputPath, queueMessage);
+    // Externalize the inspected image to the Files API so the 看图 fork sends a ~60-byte file
+    // reference instead of a full-resolution base64 (a big received-QQ/playwright/browser image can
+    // otherwise push this fork past the 32MB cap and self-lock). Reuses the same threshold/dedup/
+    // degrade path as the screenshot ingest; on any degrade the file_id is null and the fork keeps
+    // the base64. The image is a cache_volatile tail, so a per-build file_id is cache-safe.
+    const [externalizedImage] = await externalizeInputImageItemsToAnthropicFile([
+      { type: 'input_image', image_url: materialized.dataUrl, detail: 'original' } as OpenResponseInputItem
+    ]);
+    const inspectedFileId = (externalizedImage as { anthropic_file_id?: unknown })?.anthropic_file_id;
     const forkRequest = buildImageVisionForkRequest(
       baseRequest,
       materialized.dataUrl,
       assetId,
       outputPath,
       existingObservation.text,
-      { callId: toolCall.callId, arguments: toolCall.rawArguments }
+      { callId: toolCall.callId, arguments: toolCall.rawArguments },
+      typeof inspectedFileId === 'string' && inspectedFileId ? inspectedFileId : null
     );
     await this.recordImageVisionForkRunSafe({
       forkRunId,

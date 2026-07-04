@@ -60,11 +60,19 @@ un-stamp 老 item）是两个独立杠杆。
    `{ data_url }` → `{ file_id }`（或 `{ file_id: null }` 降级）。复用 anthropic OAuth + cloak 头，
    multipart 上传。按 **内容 hash（sha256）去重**，映射持久化，避免同截图重复上传。
    `DEFAULT_ANTHROPIC_BETA` 追加 `files-api-2025-04-14`（上传 + 引用都要）。
-2. **agent-service** —— `externalizeInputImageItemsToFileId(items)`：对超过尺寸阈值的 `input_image`
-   调上传端点，把 `file_id` 盖回 item（保留 `image_url`）。与 webp 转码串成一个 ingest helper，在
-   `executeComputerAction`（screenshot，line ~11240）等 ingest 点调用。降级 → 不盖 file_id，保持
-   base64（一次性决策，持久化进 stack；**绝非**运行时 try-file_id-400-retry-base64）。
+2. **agent-service** —— `externalizeInputImageItemsToAnthropicFile(items)`：对超过尺寸阈值的
+   `input_image` 调上传端点，把 `file_id` 盖回 item（保留 `image_url`）。降级 → 不盖 file_id，保持
+   base64（一次性决策；**绝非**运行时 try-file_id-400-retry-base64）。两个 ingest 点都已接：
+   - **主栈 computer-use 截图**（`executeComputerAction`）：webp 转码后串联，file_id 冻结进 canonical、
+     随 stack 持久化 → live/replay/fork 逐字节一致。
+   - **看图 fork**（`inspectImagePlaceholder` → `buildImageVisionForkRequest`）：**所有按需看的图**
+     （收到的 QQ 图 / playwright / browser / 任意文件图）都从这里 materialize 进 fork。externalize 后
+     fork 只发 ~60 字节 file 引用，治「大图把看图 fork 自己撑爆 32MB 自锁」。cache-safe：该图是
+     `cache_volatile` 尾块（永不进共享前缀、永不 replay 进主栈），per-build file_id 无副作用。
+
    小尺寸固化头像（`buildXiaoniHeadAvatarInputItem`）不外置——它本就 byte-stable 在暖前缀里。
+   收到的 QQ 图/playwright 截图**不进主栈 base64**（存 media asset，看图时才 materialize→fork），
+   所以主栈侧无需另接；覆盖它们靠上面的看图 fork 一处即可。
 3. **anthropic-translate** —— `partsToBlocks` / `parseImageSource`：input_image part 带 `file_id`
    时 emit `{type:'image',source:{type:'file',file_id}}`，否则走 base64。纯函数，单测覆盖。
 
