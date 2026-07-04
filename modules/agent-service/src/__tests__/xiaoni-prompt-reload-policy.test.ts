@@ -25,6 +25,17 @@ test('prefix-sensitive prompt changes are consumed only after core memory compre
   assert.equal(policy.consumePostCompressionReload(), false);
 });
 
+test('skills_instructions.md is prefix-sensitive and reloads only after compression (R2)', () => {
+  const policy = new XiaoniPromptReloadPolicy();
+
+  const decision = policy.recordPromptDirectoryChange(change(['skills_instructions.md']));
+
+  assert.deepEqual(decision.prefixSensitiveFiles, ['skills_instructions.md']);
+  assert.equal(decision.reloadPolicy, 'after_core_memory_compression');
+  assert.equal(policy.consumePostCompressionReload(), true);
+  assert.equal(policy.consumePostCompressionReload(), false);
+});
+
 test('snippet-only prompt changes do not invalidate the stable prompt prefix', () => {
   const policy = new XiaoniPromptReloadPolicy();
 

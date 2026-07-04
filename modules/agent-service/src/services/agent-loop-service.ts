@@ -1162,14 +1162,6 @@ const WEB_SEARCH_TOOL: OpenResponseToolDefinition = {
   }
 };
 
-const RUNTIME_SKILL_COSTS: Record<string, number | null> = {
-  'skill-creator': 0.002,
-  'qq-usage': 0.002,
-  'qq-send-image': 0.002,
-  'xiaoni-site': 0.002,
-  'xiaoni-browser': 0.004
-};
-
 const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
   type: 'image_generation',
   model: 'gpt-image-2',
@@ -1892,37 +1884,6 @@ function buildSkillsInstructions() {
   return renderPromptSnippet('skills_instructions.md', {
     XIAONI_SKILL_ROOT
   });
-}
-
-export function buildCapabilitiesDeveloperBlock(input: {
-  toolCosts?: Record<string, number>;
-  skillCosts?: Record<string, number | null | undefined>;
-} = {}) {
-  const toolCosts = input.toolCosts || RUNTIME_TOOL_COSTS;
-  const skillCosts = input.skillCosts || RUNTIME_SKILL_COSTS;
-  const toolLines = Object.keys(toolCosts)
-    .sort((left, right) => left.localeCompare(right))
-    .map((name) => `- ${name}`);
-  const skillLines: string[] = [];
-  const warnings: string[] = [];
-  for (const [name, cost] of Object.entries(skillCosts).sort(([left], [right]) => left.localeCompare(right))) {
-    if (typeof cost !== 'number' || !Number.isFinite(cost)) {
-      warnings.push(`skill ${name} omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost`);
-      continue;
-    }
-    skillLines.push(`- ${name}`);
-  }
-  const block = [
-    '<CAPABILITIES>',
-    '<TOOLS>',
-    ...toolLines,
-    '</TOOLS>',
-    '<SKILLS>',
-    ...(skillLines.length > 0 ? skillLines : ['- none']),
-    '</SKILLS>',
-    '</CAPABILITIES>'
-  ].join('\n');
-  return { block, warnings };
 }
 
 function isPrivateReplyToolName(name: string) {
@@ -5618,7 +5579,13 @@ export class AgentLoopService {
 
   private async resolveStableRuntimePrompt(payload: QueueMessageRecord['payload']) {
     if (!this.stableRuntimePrompt) {
-      this.stableRuntimePrompt = await this.promptResolver.resolveForQueueMessage(payload);
+      const resolved = await this.promptResolver.resolveForQueueMessage(payload);
+      // Freeze skills_instructions into the same snapshot as systemPrompt. Rendered
+      // once here (not per build), so a live skills_instructions.md edit only takes
+      // effect when the snapshot is invalidated — i.e. at the core-memory-compression
+      // boundary (or a manual force). Keeps the head byte-stable between compressions
+      // so prompt-file edits can't 击穿 the cached prefix at a run boundary.
+      this.stableRuntimePrompt = { ...resolved, skillsInstructions: buildSkillsInstructions() };
     }
     return this.stableRuntimePrompt;
   }
@@ -13068,7 +13035,7 @@ function buildForkInputStackItem(params: {
 export function buildInitialInput(
   history: ConversationTurn[],
   queueMessage: QueueMessageRecord['payload'],
-  runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'systemPrompt' | 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'> = {
+  runtimePrompt: Pick<ResolvedAgentRuntimePrompt, 'systemPrompt' | 'skillsInstructions' | 'userPromptTemplate' | 'contextVariables' | 'runtimeVariables'> = {
     systemPrompt: agentConfig.systemPrompt,
     userPromptTemplate: null,
     contextVariables: {},
@@ -13097,9 +13064,14 @@ export function buildInitialInput(
     }
   ];
 
+  // Head skill manual only. The runtime <CAPABILITIES> block (per-action cost/
+  // capability enumeration) was retired — tools are already described by their
+  // function schemas + system_prompt 模块三, skills by skills_instructions. Use the
+  // frozen skills_instructions from the snapshot (R2) so a live edit only lands at
+  // the compression boundary; fall back to a fresh render for callers (tests/forks)
+  // that pass a bare runtimePrompt.
   items.push(buildDeveloperInputItem([
-    buildSkillsInstructions(),
-    buildCapabilitiesDeveloperBlock().block
+    runtimePrompt.skillsInstructions ?? buildSkillsInstructions()
   ].filter((part): part is string => Boolean(part))));
 
   if (contextSummary) {

@@ -129,18 +129,19 @@ test('Task 19 prompt body loads from docs/xiaoni_prompt/system_prompt.md', () =>
   assert.doesNotMatch(systemPrompt, /pressure|dopamine|多巴胺|压力指标|情绪数字/u);
 });
 
-test('Task 19 injects CAPABILITIES once near the start and lists compress_core_memory by name only', () => {
+test('Task 19 injects the skill manual once near the start with no retired <CAPABILITIES> block', () => {
   const input = buildInitialInput([], createQueuePayload(), createRuntimePrompt());
-  const capabilities = input.filter((item) => (
+  const headSkills = input.filter((item) => (
     item.type === 'message'
     && item.role === 'developer'
-    && getMessageContent(item).includes('<CAPABILITIES>')
+    && getMessageContent(item).includes('<skills_instructions>')
   ));
 
-  assert.equal(capabilities.length, 1);
-  assert.equal(input.indexOf(capabilities[0]!), 1);
-  assert.match(getMessageContent(capabilities[0]), /- compress_core_memory/);
-  assert.doesNotMatch(getMessageContent(capabilities[0]), /energy_cost/);
+  assert.equal(headSkills.length, 1);
+  assert.equal(input.indexOf(headSkills[0]!), 1);
+  // Retired runtime <CAPABILITIES>/<TOOLS>/<SKILLS> enumeration must be gone.
+  assert.equal(input.some((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>')), false);
+  assert.doesNotMatch(getMessageContent(headSkills[0]), /energy_cost/);
 });
 
 test('Task 19 defines compress_core_memory but keeps it unavailable until engineering injects core-memory pressure', async () => {

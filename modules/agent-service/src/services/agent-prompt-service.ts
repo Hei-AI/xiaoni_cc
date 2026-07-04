@@ -11,6 +11,11 @@ export type ResolvedAgentRuntimePrompt = {
   promptId: string | null;
   promptName: string;
   systemPrompt: string;
+  // Rendered skills_instructions.md, frozen alongside systemPrompt so it only
+  // refreshes when the stable snapshot is invalidated (i.e. at the compression
+  // boundary). Populated in AgentLoopService.resolveStableRuntimePrompt, not in
+  // the resolver, to avoid a circular import on buildSkillsInstructions.
+  skillsInstructions?: string;
   identityGenesisSnapshot: string;
   userPromptTemplate: string | null;
   contextVariables: Record<string, unknown>;

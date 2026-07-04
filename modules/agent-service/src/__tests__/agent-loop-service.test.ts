@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildCapabilitiesDeveloperBlock, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
@@ -589,9 +589,10 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.match(getMessageContent(headDeveloperInput as any), /读取技能手册时直接传完整路径，例如：\/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
   assert.match(getMessageContent(headDeveloperInput as any), /exec_command 路径: \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
   assert.match(getMessageContent(headDeveloperInput as any), /cat \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
+  // Runtime <CAPABILITIES> block retired — head carries skills_instructions only.
+  assert.doesNotMatch(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloperInput as any).content));
-  assert.ok(((headDeveloperInput as any).content as any[]).length >= 2);
+  assert.ok(((headDeveloperInput as any).content as any[]).length >= 1);
   assert.doesNotMatch(String(request.instructions), /Pre-reply memory gate:/);
   assert.doesNotMatch(String(request.instructions), /Present self reconstruction:/);
   const firstUserInput = request.input.find((item: any) => item.type === 'message' && item.role === 'user');
@@ -878,7 +879,7 @@ test('buildCanonicalAgentTurnRequest keeps the same group loop tools on the firs
   assert.doesNotMatch(String(request.instructions), /不要先调用 emit_unread_meaning/);
   const headDeveloperInput = request.input.find((item: any) => item.type === 'message' && item.role === 'developer');
   assert.ok(headDeveloperInput, 'developer context must be present');
-  assert.match(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
+  assert.doesNotMatch(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
   assert.doesNotMatch(getMessageContent(headDeveloperInput as any), new RegExp(REMOVED_LIFE_ACTION_TOOL));
 });
 
@@ -2568,9 +2569,9 @@ test('buildInitialInput puts skills in the head developer context for group chat
   assert.ok(headDeveloper, 'developer context with skills must exist');
   assert.match(getMessageContent(headDeveloper), /<skills_instructions>/);
   assert.match(getMessageContent(headDeveloper), /\/app\/modules\/agent-service\/skills\/skill-creator\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloper), /<CAPABILITIES>/);
+  assert.doesNotMatch(getMessageContent(headDeveloper), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloper as any).content));
-  assert.ok(((headDeveloper as any).content as any[]).length >= 2);
+  assert.ok(((headDeveloper as any).content as any[]).length >= 1);
 });
 
 test('buildInitialInput keeps direct chat system prompt free of runtime contract prose', () => {
@@ -11744,58 +11745,70 @@ test('buildInitialInput strips deprecated relationship layer while keeping head 
   assert.equal(items[1]?.type, 'message');
   assert.equal((items[1] as { role?: string })?.role, 'developer');
   assert.match(getMessageContent(items[1]), /<skills_instructions>/);
-  assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
+  assert.doesNotMatch(getMessageContent(items[1]), /<CAPABILITIES>/);
   assert.doesNotMatch(getMessageContent(items[1]), /current_relationship/);
   const rendered = items.map(getMessageContent).join('\n');
   assert.doesNotMatch(rendered, /current_relationship|当前关系层级|当前可开放的自己/);
   assert.doesNotMatch(rendered, /current_scene|消息密度|活跃人数/);
 });
 
-// I: developer role injection — capabilities are declared once at the top of the runtime input
-test('buildInitialInput injects CAPABILITIES at the beginning even when developerContextBlock is null', () => {
+// I: developer role injection — the skill manual is declared once at the top of the runtime input
+test('buildInitialInput injects skills_instructions at the beginning even when developerContextBlock is null', () => {
   const items = buildInitialInput([], createQueuePayload(), undefined, [], null, null, null);
   assert.equal((items[0] as { role?: string })?.role, 'system');
   assert.equal((items[1] as { role?: string })?.role, 'developer');
-  assert.match(getMessageContent(items[1]), /<CAPABILITIES>/);
+  assert.doesNotMatch(getMessageContent(items[1]), /<CAPABILITIES>/);
   assert.match(getMessageContent(items[1]), /<skills_instructions>/);
 });
 
-test('buildInitialInput appends CAPABILITIES once near the start', () => {
+test('buildInitialInput appends the skill manual once near the start (retired <CAPABILITIES>)', () => {
   const withSummary = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], '压缩后的近况');
-  const summaryCapabilities = withSummary.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
-  assert.equal(summaryCapabilities.length, 1);
+  const summarySkills = withSummary.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
+  assert.equal(summarySkills.length, 1);
   const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<小腻近况>'));
   assert.ok(summaryIndex >= 0);
-  assert.ok(withSummary.indexOf(summaryCapabilities[0]!) < summaryIndex);
-  const summaryCapabilitiesBlock = getMessageContent(summaryCapabilities[0]!);
-  assert.doesNotMatch(summaryCapabilitiesBlock, new RegExp(REMOVED_LIFE_ACTION_TOOL));
-  // CAPABILITIES lists tools/skills by name only — no energy_cost is exposed.
-  assert.doesNotMatch(summaryCapabilitiesBlock, /energy_cost/);
-  assert.match(summaryCapabilitiesBlock, /- recover_energy/);
-  assert.match(summaryCapabilitiesBlock, /- compress_core_memory/);
-  assert.doesNotMatch(summaryCapabilitiesBlock, /qq_usage_/);
-  assert.match(summaryCapabilitiesBlock, /- skill-creator/);
-  assert.match(summaryCapabilitiesBlock, /- qq-usage/);
-  assert.match(summaryCapabilitiesBlock, /- qq-send-image/);
+  assert.ok(withSummary.indexOf(summarySkills[0]!) < summaryIndex);
+  const summarySkillsBlock = getMessageContent(summarySkills[0]!);
+  // Retired runtime <CAPABILITIES> block must not reappear anywhere in the head.
+  assert.doesNotMatch(summarySkillsBlock, /<CAPABILITIES>|<TOOLS>|<SKILLS>/);
+  assert.doesNotMatch(summarySkillsBlock, new RegExp(REMOVED_LIFE_ACTION_TOOL));
+  assert.doesNotMatch(summarySkillsBlock, /energy_cost/);
+  assert.match(summarySkillsBlock, /skill-creator/);
+  assert.match(summarySkillsBlock, /qq-usage/);
+  assert.match(summarySkillsBlock, /qq-send-image/);
 
   const withRefresh = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], null, null, '<capability_refresh reason="operator" />');
-  const refreshCapabilities = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<CAPABILITIES>'));
-  assert.equal(refreshCapabilities.length, 1);
+  const refreshSkills = withRefresh.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
+  assert.equal(refreshSkills.length, 1);
 });
 
-test('buildCapabilitiesDeveloperBlock omits missing-cost skills without prompt-facing operator warning', () => {
-  const { block, warnings } = buildCapabilitiesDeveloperBlock({
-    skillCosts: {
-      'skill-creator': 0.002,
-      'missing-cost': null
-    }
+// R2: skills_instructions is frozen into the stable snapshot, so buildInitialInput
+// must use the snapshot's value verbatim (only refreshed at the compression boundary
+// via invalidateStableRuntimePrompt) and only fall back to a fresh render when a bare
+// runtimePrompt is passed (tests/legacy callers).
+test('buildInitialInput uses frozen skillsInstructions from the snapshot and falls back only when absent', () => {
+  const frozen = '<skills_instructions>FROZEN_SNAPSHOT_SENTINEL</skills_instructions>';
+  const withFrozen = buildInitialInput([], createQueuePayload(), {
+    systemPrompt: '你是小腻主AGENT',
+    skillsInstructions: frozen,
+    userPromptTemplate: null,
+    contextVariables: {},
+    runtimeVariables: {}
   });
+  const headFrozen = withFrozen.find((item: any) => item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
+  assert.ok(headFrozen, 'frozen skills_instructions must be present in head');
+  assert.match(getMessageContent(headFrozen), /FROZEN_SNAPSHOT_SENTINEL/);
 
-  assert.match(block, /- skill-creator/);
-  assert.doesNotMatch(block, /energy_cost/);
-  assert.doesNotMatch(block, /- missing-cost/);
-  assert.doesNotMatch(block, /operator_warning|missing-cost omitted/);
-  assert.deepEqual(warnings, ['skill missing-cost omitted from <CAPABILITIES>: missing ## Runtime Cost energy_cost']);
+  const withoutFrozen = buildInitialInput([], createQueuePayload(), {
+    systemPrompt: '你是小腻主AGENT',
+    userPromptTemplate: null,
+    contextVariables: {},
+    runtimeVariables: {}
+  });
+  const headFresh = withoutFrozen.find((item: any) => item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
+  assert.ok(headFresh, 'fresh skills_instructions fallback must be present');
+  assert.doesNotMatch(getMessageContent(headFresh), /FROZEN_SNAPSHOT_SENTINEL/);
+  assert.match(getMessageContent(headFresh), /skill-creator/);
 });
 
 test('recover_energy is exposed without prompt-facing rest_period or sleep_period tools', () => {
