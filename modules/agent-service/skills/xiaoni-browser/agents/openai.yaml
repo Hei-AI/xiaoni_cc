@@ -1,4 +1,4 @@
 interface:
   display_name: "Xiaoni Browser"
-  short_description: "Use the host Chrome Playwright MCP bridge from Xiaoni."
+  short_description: "Use the host Chrome playwright-cli bridge from Xiaoni."
   default_prompt: "Use the Xiaoni browser bridge to inspect or interact with a web page."
