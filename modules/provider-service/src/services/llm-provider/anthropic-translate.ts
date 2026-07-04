@@ -114,7 +114,14 @@ function isClaudeBillingCchSigningEnabled(): boolean {
 
 export type AnthropicImageSource =
   | { type: 'base64'; media_type: string; data: string }
-  | { type: 'url'; url: string };
+  | { type: 'url'; url: string }
+  // Files API reference — the image was uploaded at ingest and the durable stack item
+  // carries its file_id. Emitting this instead of base64 shrinks the wire block from
+  // megabytes to ~60 bytes (the fix for the 32MB request cap). The file_id is stamped
+  // into the canonical BEFORE first send and persisted, so both the live request and the
+  // stack replay reconstruct byte-identical → zero prompt-cache drift. Requires the
+  // files-api-2025-04-14 beta on the /v1/messages call (see anthropic-oauth DEFAULT_ANTHROPIC_BETA).
+  | { type: 'file'; file_id: string };
 
 export type AnthropicContentBlock =
   | { type: 'text'; text: string; cache_control?: EphemeralCacheControl }
@@ -184,9 +191,22 @@ function partsToBlocks(parts: OpenResponseMessageContentPart[]): AnthropicConten
     } else if (part.type === 'output_text' && typeof (part as any).text === 'string') {
       blocks.push({ type: 'text', text: (part as any).text });
     } else if (part.type === 'input_image') {
-      const url = (part as any).image_url || (part as any).source?.url;
-      if (typeof url === 'string' && url.length > 0) {
-        blocks.push({ type: 'image', source: parseImageSource(url) });
+      // Prefer a Files API reference when the ingest step stamped a file_id onto the item —
+      // it is byte-tiny on the wire and byte-stable across replay/fork (stamped into the
+      // canonical before first send). Fall back to base64/url (the item always keeps its
+      // image_url as the durable source of truth) when no file_id is present or it was a
+      // Files-API degrade at ingest. This is a static per-item read of the canonical, so the
+      // wire is deterministic across live build, stack replay and every fork clone.
+      // NB: `anthropic_file_id` is the Anthropic Files API id — deliberately NOT `file_id`,
+      // which elsewhere in the media path means a NapCat/QQ file id (a different namespace).
+      const fileId = (part as any).anthropic_file_id;
+      if (typeof fileId === 'string' && fileId.length > 0) {
+        blocks.push({ type: 'image', source: { type: 'file', file_id: fileId } });
+      } else {
+        const url = (part as any).image_url || (part as any).source?.url;
+        if (typeof url === 'string' && url.length > 0) {
+          blocks.push({ type: 'image', source: parseImageSource(url) });
+        }
       }
     }
   }
