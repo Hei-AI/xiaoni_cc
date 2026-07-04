@@ -27,7 +27,7 @@ const CWEBP_TIMEOUT_MS = 15000;
 
 // 默认编码器:shell 到 cwebp(libwebp-tools)。用临时文件而非 stdin —— cwebp 解 PNG/JPEG 需要可 seek 输入，
 // 管道不可 seek 会失败;临时文件确定可靠，用完即删。容器缺 cwebp 时抛错，toWireImage 回退原图。
-function defaultCwebpEncoder(input: Buffer, mode: WebpEncodeMode): Promise<Buffer> {
+export function defaultCwebpEncoder(input: Buffer, mode: WebpEncodeMode): Promise<Buffer> {
   return (async () => {
     const dir = await fs.mkdtemp(path.join(tmpdir(), 'xn-webp-'));
     const inPath = path.join(dir, 'in');

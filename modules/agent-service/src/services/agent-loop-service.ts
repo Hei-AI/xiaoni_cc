@@ -49,6 +49,7 @@ import {
 } from './web-search-archive';
 import { formatEast8Timestamp } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
+import { defaultCwebpEncoder } from './qq-send-image-service';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
 import {
   ResponseActionRouter,
@@ -250,7 +251,8 @@ type LeaseReleaseReason =
   | 'no_visible_delivery_observed'
   | 'runtime_frame_yielded'
   | 'runtime_error'
-  | 'prompt_binding_error';
+  | 'prompt_binding_error'
+  | 'wire_bytes_overrun';
 
 type LeaseReleaseRecord = {
   event_kind: 'lease_released';
@@ -725,6 +727,127 @@ function shouldHaltForCompressionOverrun(sessionKey: string): boolean {
 }
 function resetCompressionOverrunCounter(sessionKey: string): void {
   consecutiveOverOverrunThresholdBySession.set(sessionKey, 0);
+}
+// ── BYTE-side compression trigger (mirrors the token side above) ─────────────────────────────
+// Images are token-cheap but byte-huge, so the token trigger above is BLIND to image-heavy runs:
+// real input_tokens stay under the soft line while the wire request BYTES climb toward Anthropic's
+// hard 32MB per-request cap → 413 request_too_large, retryScheduled:false, the run dies. A parallel
+// byte-side trigger closes that blind spot:
+//   · SOFT line = COMPRESSION_TRIGGER_WIRE_BYTES (admin-configurable, default 24 MiB): for
+//     COMPRESSION_WIRE_TRIGGER_CONSECUTIVE_TURNS consecutive turns the assembly-time estimated wire
+//     bytes exceed it → run-boundary compression fires too (OR'd with the token soft line at 8619),
+//     folding old images out of the read window.
+//   · HARD line = soft + COMPRESSION_OVERRUN_MARGIN_BYTES (default 30 MiB): the moment a turn's
+//     assembly-time estimate exceeds it, HALT the run switch BEFORE sending (this request would 413),
+//     keep the cache heartbeat warm, and leave it for a human — reason 'wire_bytes_overrun'. Unlike
+//     the token overrun valve (which reads turn-AFTER real input_tokens), this MUST fire pre-send:
+//     the byte wall is hard and a single image burst can cross it within one run's tool turns.
+// Metric = JSON byte length of the assembled canonical request (base64 images dominate; ASCII, so
+// length ≈ UTF-8 bytes), scaled by a calibration factor learned from the prior turn's real wire size
+// (T6). Timing/ops logic ONLY — it NEVER enters the cacheable request prefix, so it is cache-safe.
+let COMPRESSION_TRIGGER_WIRE_BYTES = 25_165_824; // 24 MiB soft line
+// Runtime setter for the admin-configurable byte trigger. Ignores non-finite / <= 0 so a malformed
+// control row can't disarm the byte guard entirely. Mirrors setCompressionTriggerInputTokens.
+export function setCompressionTriggerWireBytes(value: number): void {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    COMPRESSION_TRIGGER_WIRE_BYTES = Math.floor(value);
+  }
+}
+// Hard-line margin above the soft line: how many bytes past soft counts as "compression didn't bring
+// it down / single-turn blowup", halt now. 24 MiB soft + 6 MiB margin = 30 MiB hard, leaving ~2 MiB
+// to the 32MB wall for this turn's own estimate error.
+const COMPRESSION_OVERRUN_MARGIN_BYTES = 6_291_456; // 6 MiB
+const COMPRESSION_WIRE_TRIGGER_CONSECUTIVE_TURNS = 2;
+// Calibration factor: real wire bytes / assembly estimate, clamped to [0.5, 2.0] so an anomalous
+// slice can't poison the estimator. Default 1.0 (uncalibrated). Fed by the prior turn's real wire
+// size (T6). Also NEVER enters the prefix — pure timing math.
+let compressionWireBytesCalibrationFactor = 1.0;
+export function setCompressionWireBytesCalibrationFactor(factor: number): void {
+  if (typeof factor === 'number' && Number.isFinite(factor) && factor > 0) {
+    compressionWireBytesCalibrationFactor = Math.min(2.0, Math.max(0.5, factor));
+  }
+}
+const consecutiveOverWireTriggerBySession = new Map<string, number>();
+// Assembly-time wire-byte estimate for a fully-built canonical request. JSON.stringify byte length ≈
+// the provider wire body (base64 images dominate and are ASCII, so .length ≈ UTF-8 bytes), scaled by
+// the calibration factor to correct the canonical→provider-wire transform bias. Returns 0 on any
+// serialization failure so a bad request can never falsely trip the halt.
+export function estimateCanonicalRequestWireBytes(canonicalRequest: unknown): number {
+  let raw = 0;
+  try {
+    raw = JSON.stringify(canonicalRequest)?.length ?? 0;
+  } catch {
+    raw = 0;
+  }
+  return Math.round(raw * compressionWireBytesCalibrationFactor);
+}
+// Record this turn's assembly-time estimate (pre-send) into the soft-line debounce. Mirrors the token
+// recorder: consecutive over-soft turns arm the run-boundary compression; a turn at/under soft resets.
+function recordMainTurnWireBytesForCompression(sessionKey: string, estimatedWireBytes: number): void {
+  if (!sessionKey || !Number.isFinite(estimatedWireBytes)) {
+    return;
+  }
+  if (estimatedWireBytes > COMPRESSION_TRIGGER_WIRE_BYTES) {
+    consecutiveOverWireTriggerBySession.set(
+      sessionKey,
+      Math.min(
+        COMPRESSION_WIRE_TRIGGER_CONSECUTIVE_TURNS,
+        (consecutiveOverWireTriggerBySession.get(sessionKey) ?? 0) + 1
+      )
+    );
+  } else {
+    consecutiveOverWireTriggerBySession.set(sessionKey, 0);
+  }
+}
+export function shouldTriggerCompressionFromWireBytes(sessionKey: string): boolean {
+  return (consecutiveOverWireTriggerBySession.get(sessionKey) ?? 0) >= COMPRESSION_WIRE_TRIGGER_CONSECUTIVE_TURNS;
+}
+function resetCompressionWireTriggerCounter(sessionKey: string): void {
+  consecutiveOverWireTriggerBySession.set(sessionKey, 0);
+}
+// Hard line: a single assembly-time estimate past (soft + margin) trips the pre-send halt. No
+// consecutive-turn debounce here — the byte wall is hard, so one over-hard turn halts immediately.
+export function isWireBytesOverrun(estimatedWireBytes: number): boolean {
+  return Number.isFinite(estimatedWireBytes)
+    && estimatedWireBytes > COMPRESSION_TRIGGER_WIRE_BYTES + COMPRESSION_OVERRUN_MARGIN_BYTES;
+}
+// test-only seam: seed the in-memory byte-trigger debounce so an integration test can arm the
+// run-boundary byte trigger without assembling two real >24MiB turns. Not used in production.
+export function __setCompressionWireTriggerCounterForTest(sessionKey: string, count: number): void {
+  consecutiveOverWireTriggerBySession.set(sessionKey, count);
+}
+// T8: at-ingest image slimming. computer-use screenshots are lossless PNG (1024×506, ~0.8-1.4MB) —
+// token-cheap but byte-huge, the main fuel for the 32MB wall. Transcode to LOSSLESS WebP before the
+// image enters the stack (same resolution, zero pixel loss, ~20-40% smaller on screenshot-type
+// content). The webp data_url goes straight into stack content, so replay reads back the exact webp
+// bytes — byte-identical, zero cache drift (unlike a decode-time transcode, whose output could shift
+// with cwebp versions and bust the prefix). The archived saved_path stays the original PNG. cwebp is
+// deterministic; on any failure / non-PNG-JPEG / no-shrink we keep the original data_url and never
+// block the tool.
+const INPUT_IMAGE_DATA_URL_RE = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/=\s]+)$/;
+export async function transcodeInputImageItemsToWebpLossless(
+  items: OpenResponseInputItem[]
+): Promise<OpenResponseInputItem[]> {
+  return Promise.all(items.map(async (item) => {
+    const rec = item as Record<string, unknown>;
+    if (!rec || rec.type !== 'input_image' || typeof rec.image_url !== 'string') {
+      return item;
+    }
+    const match = INPUT_IMAGE_DATA_URL_RE.exec(rec.image_url);
+    if (!match) {
+      return item;
+    }
+    try {
+      const input = Buffer.from(match[2], 'base64');
+      const webp = await defaultCwebpEncoder(input, 'lossless');
+      if (!webp || webp.length === 0 || webp.length >= input.length) {
+        return item; // encoder unavailable, or lossless didn't shrink — keep the original
+      }
+      return { ...rec, image_url: `data:image/webp;base64,${webp.toString('base64')}` } as unknown as OpenResponseInputItem;
+    } catch {
+      return item; // cwebp missing / timeout — keep the original, never block the tool
+    }
+  }));
 }
 // Current in-memory debounce count for a session (0 when unseen). Read by the
 // fire-and-forget persistence write and by the restart re-hydration seed check.
@@ -6919,6 +7042,31 @@ export class AgentLoopService {
         // cross-run prefix, so the warm cache prefix stays byte-identical.
         const currentRequestInput = currentRequestInputRaw.filter((item) => !isAssistantTextOutputReplayItem(item));
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, currentRequestInput, payload);
+        // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
+        // (below, turn-AFTER real input_tokens) is blind to an image burst that crosses Anthropic's hard
+        // 32MB per-request cap. Estimate the assembled wire bytes NOW and, if past the hard line, HALT the
+        // run switch BEFORE sending (this request would 413) and end this run — the byte wall can't wait
+        // for a turn-after signal. Soft-line over-turns are recorded here too, arming run-boundary
+        // compression (OR'd with the token trigger). Timing/ops only — the estimate never enters the
+        // cacheable prefix, and the request bytes are unchanged (we either send them or halt).
+        const estimatedWireBytes = estimateCanonicalRequestWireBytes(currentCanonicalRequest);
+        recordMainTurnWireBytesForCompression(getGlobalPromptContextSessionKey(), estimatedWireBytes);
+        if (isWireBytesOverrun(estimatedWireBytes)) {
+          // The turn loop's invariant is that every `break` carries a non-null leaseRelease (see the
+          // `if (!leaseRelease) continue` guard below) — the post-loop finalize dereferences it
+          // unconditionally. Set a no-visible-delivery lease release BEFORE breaking so the halt path
+          // runs the normal finalize instead of null-derefing. Zero output: nothing was sent.
+          leaseRelease = buildLeaseReleaseRecord({
+            reason: 'wire_bytes_overrun',
+            detail: 'Assembly-time wire bytes crossed the hard cap before send; request withheld and the runtime halted (run switch OFF, heartbeat warm) for a human to compress and re-enable.',
+            outcome: 'wire_bytes_overrun_halted',
+            noVisibleDelivery: deliveredMessages.length === 0,
+            visibleDeliveryCommitted: deliveredMessages.length > 0,
+            source: 'runtime:wire_bytes_overrun_halt'
+          });
+          await this.haltForWireBytesOverrun(getGlobalPromptContextSessionKey(), payload.traceId, estimatedWireBytes);
+          break;
+        }
         const inputEndIndex = await this.getAgentStackHeadSafe(payload.traceId);
         const inputStartIndex = inputEndIndex > 0 ? 1 : null;
         const modelResult = await this.executeAgentTurn(
@@ -8481,6 +8629,54 @@ export class AgentLoopService {
       });
   }
 
+  // BYTE-side pre-send halt: the assembled request's estimated wire bytes crossed the hard line
+  // (soft + margin), so sending it would hit Anthropic's 32MB cap and 413. Unlike the token overrun
+  // valve above (fire-and-forget, turn-after), this is AWAITED before the caller breaks the run loop:
+  // the run switch must be OFF in the DB before the run ends, so the next queued run stalls at
+  // waitForRuntimeEnabledBeforeModelSlice instead of re-assembling the same over-cap window and
+  // halting again. Same halt mechanism as the token valve (enabled=FALSE + heartbeat kept warm),
+  // only the reason differs — a human compresses / re-enables to resume. Timing/ops only; the
+  // cacheable prefix is never touched.
+  private async haltForWireBytesOverrun(
+    sessionKey: string,
+    traceId: string,
+    estimatedWireBytes: number
+  ): Promise<void> {
+    const store = this.store as RuntimeStore & {
+      haltRuntimeForCompressionOverrun?: (params: {
+        identityKey?: string;
+        reason?: string;
+        heartbeatIntervalMs?: number;
+      }) => Promise<{ haltJustTriggered?: boolean } | null>;
+    };
+    if (typeof store.haltRuntimeForCompressionOverrun !== 'function') {
+      return;
+    }
+    resetCompressionWireTriggerCounter(sessionKey);
+    try {
+      const result = await store.haltRuntimeForCompressionOverrun({
+        identityKey: XIAONI_IDENTITY_KEY,
+        reason: 'wire_bytes_overrun'
+      });
+      if (result?.haltJustTriggered) {
+        moduleLogger.warn('Xiaoni runtime HALTED: wire bytes overrun (pre-send)', {
+          traceId,
+          sessionKey,
+          estimatedWireBytes,
+          compressionTriggerWireBytes: COMPRESSION_TRIGGER_WIRE_BYTES,
+          overrunMarginBytes: COMPRESSION_OVERRUN_MARGIN_BYTES,
+          hardLineBytes: COMPRESSION_TRIGGER_WIRE_BYTES + COMPRESSION_OVERRUN_MARGIN_BYTES,
+          note: 'estimated wire bytes would exceed Anthropic 32MB cap; request NOT sent, run switch OFF, heartbeat kept warm. Manual compress + re-enable to resume.'
+        });
+      }
+    } catch (error) {
+      moduleLogger.warn('Failed to halt Xiaoni runtime for wire bytes overrun', {
+        traceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private async buildContextBudgetPlan(params: {
     history: StackBackedConversationTurn[];
     queueMessage: QueueMessageRecord['payload'];
@@ -8616,7 +8812,7 @@ export class AgentLoopService {
     // REQ1: 触发只看模型返回的真实 input_tokens —— 连续 N 轮 > 软线(内存计数器,
     // 重启清零)。不再用 tiktoken 估算 vs window 当判据。forceCompression(手动)照旧强压。
     // compressionPendingApply: 已经压了但主 loop 还没用上 → 不准再压(消掉空窗里的多余第二次)。
-    if (!params.forceCompression && (!shouldTriggerCompressionFromRealInput(contextSessionKey) || compressionPendingApply || initialRetainedHistory.length === 0)) {
+    if (!params.forceCompression && ((!shouldTriggerCompressionFromRealInput(contextSessionKey) && !shouldTriggerCompressionFromWireBytes(contextSessionKey)) || compressionPendingApply || initialRetainedHistory.length === 0)) {
       return {
         requestInput,
         currentTurnInputItems,
@@ -11041,9 +11237,12 @@ export class AgentLoopService {
       const savedPath = typeof payload.saved_path === 'string' && payload.saved_path
         ? (payload.saved_path as string)
         : null;
+      const imageContent = await transcodeInputImageItemsToWebpLossless(
+        [{ type: 'input_image', image_url: imageUrl, detail: 'original' }] as OpenResponseInputItem[]
+      );
       return {
         computer_action: actionName,
-        image_content: [{ type: 'input_image', image_url: imageUrl, detail: 'original' }],
+        image_content: imageContent,
         ...(savedPath ? { saved_path: savedPath } : {})
       };
     } catch (error) {
