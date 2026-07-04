@@ -32,8 +32,12 @@ const DEFAULT_CLIENT_VERSION = '2.1.77';
 // Match the current Claude Code CLI beta set so the request looks like the official
 // client (the endpoint server-side-validates this). Beta flags are opt-in enablers;
 // having them in the header does not change behavior unless the body opts in.
+// files-api-2025-04-14: enables uploading images to /v1/files and referencing them by
+// file_id in /v1/messages (image source {type:'file'}). Required on BOTH the upload call
+// and the messages call that references the file. Verified reachable through the
+// subscription cloak (GET/POST/DELETE /v1/files + file_id image in /v1/messages all 200).
 const DEFAULT_ANTHROPIC_BETA =
-  'claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
+  'claude-code-20250219,oauth-2025-04-20,files-api-2025-04-14,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28';
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
 export interface ClaudeOAuthSource {

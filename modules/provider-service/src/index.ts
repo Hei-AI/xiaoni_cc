@@ -42,6 +42,7 @@ import {
 } from './services/simple-queue-simulation-context';
 import { FinalizedInboundContext, InboxMessageRecord, InboundMediaAsset, SemanticInboundMessage } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
+import { uploadImageDataUrlToAnthropicFile } from './services/llm-provider/anthropic-files-service';
 import {
   applyForcedInboundAgentQueuePolicy,
   decideInboundAgentQueueTrigger,
@@ -2132,6 +2133,34 @@ app.post('/api/internal/media/materialize-image', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Media materialize failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Upload one base64 image to the Anthropic Files API and return its file_id, so agent-service
+// can stamp it into the durable stack item at INGEST (before first send) and let the wire carry
+// a ~60-byte file reference instead of megabytes of base64 (the 32MB request-cap fix). Degrade is
+// graceful: { file_id: null, reason } on disabled / too-small / bad-data / non-200 / timeout — the
+// caller then keeps the base64 image_url (double-store). See docs/XIAONI_FILES_API_IMAGE_UPLOAD.md.
+app.post('/api/internal/media/upload-anthropic-file', async (req, res) => {
+  try {
+    const dataUrl = req.body?.data_url;
+    const { fileId, reason } = await uploadImageDataUrlToAnthropicFile(dataUrl, aiConfig);
+    return res.json({
+      success: true,
+      data: { file_id: fileId, reason: reason || null },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    // Belt-and-suspenders: the service never throws, but a route-level failure must still not
+    // block ingest — return file_id:null so the caller falls back to base64.
+    moduleLogger.error('Anthropic file upload request failed', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return res.json({
+      success: true,
+      data: { file_id: null, reason: error instanceof Error ? error.message : 'route_error' },
       timestamp: new Date().toISOString()
     });
   }
