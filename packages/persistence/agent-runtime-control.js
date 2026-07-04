@@ -30,6 +30,7 @@ function normalizeRuntimeControl(row) {
   const rawMainAgentPreModelYieldMs = Number.parseInt(String(row?.main_agent_pre_model_yield_ms ?? ''), 10);
   const rawDebugCacheHeartbeatIntervalMs = Number.parseInt(String(row?.debug_cache_heartbeat_interval_ms ?? ''), 10);
   const rawCompressionTriggerInputTokens = Number.parseInt(String(row?.compression_trigger_input_tokens ?? ''), 10);
+  const rawCompressionTriggerWireBytes = Number.parseInt(String(row?.compression_trigger_wire_bytes ?? ''), 10);
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
@@ -55,6 +56,16 @@ function normalizeRuntimeControl(row) {
     compressionTriggerInputTokens: Number.isFinite(rawCompressionTriggerInputTokens) && rawCompressionTriggerInputTokens > 0
       ? rawCompressionTriggerInputTokens
       : 80000,
+    // 小腻's BYTE-side compression trigger: images are token-cheap but byte-huge, so the
+    // token trigger above sits in a blind spot for image-heavy runs. When the estimated wire
+    // request BYTES exceed this soft threshold on a run boundary, core memory compression
+    // fires too (agent-loop-service), folding old images out before the request hits
+    // Anthropic's hard 32MB per-request cap. Admin-configurable, dynamically applied (no
+    // restart). Timing-only — never enters the cacheable request prefix. Default 24 MiB
+    // leaves ~8MB headroom to the 32MB wall for the run's own new content + system/tools.
+    compressionTriggerWireBytes: Number.isFinite(rawCompressionTriggerWireBytes) && rawCompressionTriggerWireBytes > 0
+      ? rawCompressionTriggerWireBytes
+      : 25165824,
     // Partial energy-policy overrides object (or null = all code defaults). Merged over the
     // agent-service DEFAULT_RECOVER_ENERGY_POLICY at read time. See energy_policy_json column.
     energyPolicy: parseJsonObject(row?.energy_policy_json),
@@ -96,6 +107,7 @@ function createAgentRuntimeControlPersistence(deps) {
         main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000,
         debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0,
         compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000,
+        compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -109,6 +121,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS main_agent_pre_model_yield_ms INTEGER NOT NULL DEFAULT 5000');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -195,6 +208,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , main_agent_pre_model_yield_ms
             , debug_cache_heartbeat_interval_ms
             , compression_trigger_input_tokens
+            , compression_trigger_wire_bytes
             , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
@@ -250,6 +264,14 @@ function createAgentRuntimeControlPersistence(deps) {
       const compressionTriggerInputTokens = hasCompressionTriggerInputTokens
         ? parsedCompressionTriggerInputTokens
         : 80000;
+      const rawCompressionTriggerWireBytes = input.compressionTriggerWireBytes ?? input.compression_trigger_wire_bytes;
+      const parsedCompressionTriggerWireBytes = Number.parseInt(String(rawCompressionTriggerWireBytes ?? ''), 10);
+      const hasCompressionTriggerWireBytes = rawCompressionTriggerWireBytes !== undefined
+        && Number.isFinite(parsedCompressionTriggerWireBytes)
+        && parsedCompressionTriggerWireBytes > 0;
+      const compressionTriggerWireBytes = hasCompressionTriggerWireBytes
+        ? parsedCompressionTriggerWireBytes
+        : 25165824;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -265,6 +287,7 @@ function createAgentRuntimeControlPersistence(deps) {
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
             compression_trigger_input_tokens,
+            compression_trigger_wire_bytes,
             updated_at
           )
           VALUES (
@@ -276,6 +299,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             ?,
             ?,
@@ -325,6 +349,10 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.compression_trigger_input_tokens
             END,
+            compression_trigger_wire_bytes = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.compression_trigger_wire_bytes
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -333,7 +361,8 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_reason,
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens
+            compression_trigger_input_tokens,
+            compression_trigger_wire_bytes
         `,
         [
           identityKey,
@@ -345,6 +374,7 @@ function createAgentRuntimeControlPersistence(deps) {
           mainAgentPreModelYieldMs,
           debugCacheHeartbeatIntervalMs,
           compressionTriggerInputTokens,
+          compressionTriggerWireBytes,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -364,7 +394,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasDebugCacheHeartbeatIntervalMs,
           debugCacheHeartbeatIntervalMs,
           hasCompressionTriggerInputTokens,
-          compressionTriggerInputTokens
+          compressionTriggerInputTokens,
+          hasCompressionTriggerWireBytes,
+          compressionTriggerWireBytes
         ]
       );
       return normalizeRuntimeControl(rows[0]);
@@ -398,7 +430,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed, post_compression_pause_armed_at,
             post_compression_pause_triggered_at, post_compression_pause_reason,
             main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens, energy_policy_json
+            compression_trigger_input_tokens, compression_trigger_wire_bytes, energy_policy_json
         `,
         [identityKey, jsonParam, jsonParam]
       );
@@ -466,6 +498,7 @@ function createAgentRuntimeControlPersistence(deps) {
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
             compression_trigger_input_tokens,
+            compression_trigger_wire_bytes,
             (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
         [identityKey, identityKey, reason]
@@ -532,6 +565,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed, post_compression_pause_armed_at,
             post_compression_pause_triggered_at, post_compression_pause_reason,
             main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms, compression_trigger_input_tokens,
+            compression_trigger_wire_bytes,
             (SELECT was_enabled FROM prev) AS was_enabled
         `,
         [identityKey, identityKey, reason, heartbeatIntervalMs, reason, heartbeatIntervalMs]

@@ -2390,6 +2390,7 @@ export type AgentRuntimeControlProjection = {
   mainAgentPreModelYieldMs: number;
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
+  compressionTriggerWireBytes: number;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };
