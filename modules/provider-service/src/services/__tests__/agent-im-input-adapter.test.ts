@@ -174,6 +174,8 @@ test('maps media-only messages to AI-readable placeholders and media fields', ()
       mediaType: 'image',
       mimeType: 'image/png',
       locator: 'https://example.com/cat.png',
+      fileId: 'cat.png',
+      fileName: 'cat.png',
       messageSid: '1004'
     },
     {
@@ -184,6 +186,48 @@ test('maps media-only messages to AI-readable placeholders and media fields', ()
       locator: 'https://example.com/notes.txt',
       messageSid: '1004',
       fileName: 'notes.txt'
+    }
+  ]);
+});
+
+test('captures the NapCat file handle for images so a 400ing CDN url can fall back to getFile', () => {
+  // Regression: the failing image carried only a gchat.qpic.cn url (which 400s on
+  // our bare fetch even with a fresh rkey) plus a NapCat cache name in `data.file`.
+  // Without capturing that name as fileId, resolveInboundMediaBytes could never
+  // reach napcatClient.getFile(<name>) and the image stayed unmaterialized →
+  // later "图过期看不到".
+  const inboundContext = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 2294133947,
+      message_id: 2001,
+      message: [
+        {
+          type: 'image',
+          data: {
+            file: 'D16171879F5B110556880C9C837B7905.webp',
+            url: 'https://gchat.qpic.cn/download?appid=1406&fileid=EhR&rkey=CAQ&spec=0',
+            file_size: '1257736'
+          }
+        }
+      ]
+    },
+    fallbackBotAccountId: BOT_ID
+  });
+
+  assert.ok(inboundContext);
+  assert.deepEqual(inboundContext.MediaAssets, [
+    {
+      mediaTag: 'image_1',
+      placeholder: '[Image]',
+      mediaType: 'image',
+      mimeType: 'image/*',
+      locator: 'https://gchat.qpic.cn/download?appid=1406&fileid=EhR&rkey=CAQ&spec=0',
+      fileId: 'D16171879F5B110556880C9C837B7905.webp',
+      fileName: 'D16171879F5B110556880C9C837B7905.webp',
+      messageSid: '2001'
     }
   ]);
 });

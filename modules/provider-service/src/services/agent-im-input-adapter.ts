@@ -340,7 +340,21 @@ function renderMediaFromSegment(segment: OneBotMessageSegment): RenderedMedia | 
 
   switch (segment.type) {
     case 'image':
-      return { type: 'image', placeholder: '[Image]', locator, mimeType: mimeType || 'image/*' };
+      // Capture NapCat's local file handle (the NT cache name, e.g. "<HASH>.webp"
+      // in `data.file`) alongside the CDN url. The direct QQ image url can 400 on
+      // our bare fetch — gchat.qpic.cn rejects it even with a fresh rkey — leaving
+      // the image unmaterialized and later "过期看不到". With fileId set,
+      // resolveInboundMediaBytes falls back to napcatClient.getFile(<name>), which
+      // makes NapCat re-download the original via its authenticated QQ session and
+      // materialize it locally for the provider to read through the shared mount.
+      return {
+        type: 'image',
+        placeholder: '[Image]',
+        locator,
+        mimeType: mimeType || 'image/*',
+        fileId: asNonEmptyString(data.file),
+        fileName,
+      };
     case 'record':
     case 'audio':
       return { type: 'audio', placeholder: '<media:audio>', locator, mimeType: mimeType || 'audio/*' };
