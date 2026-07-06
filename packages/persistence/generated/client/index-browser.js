@@ -850,6 +850,8 @@ exports.Prisma.AgentInboundMessageScalarFieldEnum = {
   reply_to_body: 'reply_to_body',
   reply_to_sender: 'reply_to_sender',
   reply_to_message_id: 'reply_to_message_id',
+  napcat_msg_id: 'napcat_msg_id',
+  reply_to_native_id: 'reply_to_native_id',
   raw_payload: 'raw_payload',
   inbound_context: 'inbound_context',
   created_at: 'created_at',

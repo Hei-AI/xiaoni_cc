@@ -1424,6 +1424,13 @@ export function recordQqUsageOutboundMessage(
   },
   config?: DatabaseUrlConfig
 ): Promise<{ id: number | null } | null>;
+export function setQqUsageOutboundNapcatMsgId(
+  input?: {
+    deliveryMessageId?: string | number | bigint | null;
+    napcatMsgId?: string | number | bigint | null;
+  },
+  config?: DatabaseUrlConfig
+): Promise<{ updated: number }>;
 export function ensureQqGroupNotificationAggregationSchema(
   input?: { sqlAdapter?: SqlAdapter },
   config?: DatabaseUrlConfig

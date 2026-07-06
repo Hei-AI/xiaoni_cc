@@ -74,8 +74,10 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
         reply_to_body: insertParams[18],
         reply_to_sender: insertParams[19],
         // 20,21 = reply_to_message_id resolve subquery params (message_sid, session_key)
-        raw_payload: insertParams[22],
-        inbound_context: insertParams[23]
+        napcat_msg_id: insertParams[22],
+        reply_to_native_id: insertParams[23],
+        raw_payload: insertParams[24],
+        inbound_context: insertParams[25]
       })];
     },
     withTransaction: async () => {
@@ -134,7 +136,10 @@ test('persistInboundMessage writes expected agent_inbound_messages fields', asyn
   assert.match(queries[0].sql, /SELECT m\.id FROM agent_inbound_messages m WHERE m\.message_sid = \? AND m\.session_key = \?/);
   assert.equal(queries[0].params[20], 'reply-1');
   assert.equal(queries[0].params[21], 'qq:group:42');
-  assert.deepEqual(JSON.parse(queries[0].params[22]), { post_type: 'message' });
+  // 22 = napcat_msg_id (NativeMsgId), 23 = reply_to_native_id (NativeReplyMsgId)
+  assert.equal(queries[0].params[22], null);
+  assert.equal(queries[0].params[23], null);
+  assert.deepEqual(JSON.parse(queries[0].params[24]), { post_type: 'message' });
   assert.equal(executes.length, 1);
   assert.ok(executes[0].sql.includes('INSERT INTO agent_inbound_thread_states'));
   assert.match(executes[0].sql, /GROUP BY lr\.last_read_received_at/);

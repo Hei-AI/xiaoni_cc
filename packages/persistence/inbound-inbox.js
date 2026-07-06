@@ -99,6 +99,8 @@ function mapRow(row) {
     replyToSender: row.reply_to_sender || undefined,
     // Prisma/pg returns BIGINT as string|BigInt; normalize to Number like id (line 77).
     replyToMessageId: row.reply_to_message_id != null ? Number(row.reply_to_message_id) : undefined,
+    napcatMsgId: row.napcat_msg_id || undefined,
+    replyToNativeId: row.reply_to_native_id || undefined,
     rawPayload: parseJsonRecord(row.raw_payload),
     inboundContext: parseJsonRecord(row.inbound_context)
   };
@@ -270,6 +272,8 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
             reply_to_body TEXT NULL,
             reply_to_sender VARCHAR(255) NULL,
             reply_to_message_id BIGINT NULL,
+            napcat_msg_id VARCHAR(64) NULL,
+            reply_to_native_id VARCHAR(64) NULL,
             raw_payload JSONB NOT NULL,
             inbound_context JSONB NOT NULL,
             created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -316,6 +320,21 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
       await sql.execute(
         `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS reply_to_message_id BIGINT NULL`
       );
+      // napcat_msg_id: the NTQQ-native message id (raw.msgId) of THIS inbound row.
+      // It is the only identifier a raw-only reply carries to point at a quoted
+      // message (replyElement.sourceMsgIdInRecords), so we store it to resolve
+      // those replies to a jumpable OneBot-id handle across both tables. Additive,
+      // idempotent ALTER; historical rows stay NULL (not backfilled by design).
+      await sql.execute(
+        `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS napcat_msg_id VARCHAR(64) NULL`
+      );
+      // reply_to_native_id: NTQQ msgId of the QUOTED message, present only on
+      // raw-only replies (replyElement.sourceMsgIdInRecords) where OneBot message[]
+      // carried no reply id. Resolved at read time against napcat_msg_id on both
+      // tables to a jumpable OneBot-id handle. Additive, idempotent.
+      await sql.execute(
+        `ALTER TABLE ${TABLE_NAME} ADD COLUMN IF NOT EXISTS reply_to_native_id VARCHAR(64) NULL`
+      );
       if (replyMsgIdColRows.length === 0) {
         // One-time backfill for rows that arrived before this column existed:
         // resolve each reply's QQ message_sid to the quoted row's internal id in
@@ -359,6 +378,10 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
         {
           name: 'idx_agent_inbound_messages_message_sid',
           sql: `CREATE INDEX IF NOT EXISTS idx_agent_inbound_messages_message_sid ON ${TABLE_NAME} (message_sid)`
+        },
+        {
+          name: 'idx_agent_inbound_messages_napcat_msg_id',
+          sql: `CREATE INDEX IF NOT EXISTS idx_agent_inbound_messages_napcat_msg_id ON ${TABLE_NAME} (napcat_msg_id)`
         },
         {
           name: 'idx_agent_inbound_messages_peer',
@@ -516,9 +539,11 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
               reply_to_body,
               reply_to_sender,
               reply_to_message_id,
+              napcat_msg_id,
+              reply_to_native_id,
               raw_payload,
               inbound_context
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT m.id FROM ${TABLE_NAME} m WHERE m.message_sid = ? AND m.session_key = ? ORDER BY m.received_at DESC, m.id DESC LIMIT 1), CAST(? AS jsonb), CAST(? AS jsonb))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT m.id FROM ${TABLE_NAME} m WHERE m.message_sid = ? AND m.session_key = ? ORDER BY m.received_at DESC, m.id DESC LIMIT 1), ?, ?, CAST(? AS jsonb), CAST(? AS jsonb))
             ON CONFLICT (dedupe_key) DO NOTHING
             RETURNING *, TRUE AS inserted
           ),
@@ -566,6 +591,8 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
           // arrived before this reply, so it is already persisted). NULL if unmatched.
           inboundContext.ReplyToId || null,
           sessionKey,
+          inboundContext.NativeMsgId || null,
+          inboundContext.NativeReplyMsgId || null,
           rawPayloadJson,
           inboundContextJson,
           traceId,

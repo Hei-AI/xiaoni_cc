@@ -57,11 +57,25 @@ async function ensureQqUsageOutboundSchema(prisma) {
       sent_at TIMESTAMPTZ(3) NOT NULL,
       trace_id VARCHAR(128) NULL,
       run_id VARCHAR(128) NULL,
+      napcat_msg_id VARCHAR(64) NULL,
       created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  // napcat_msg_id: NTQQ-native message id of 小腻's own sent message, backfilled
+  // from NapCat's self-message push event (reportSelfMessage). Lets a raw-only
+  // reply that quotes 小腻 resolve to a jumpable OneBot-id handle. Additive +
+  // idempotent so existing main-stack DBs pick it up at startup.
+  await prisma.$executeRawUnsafe(
+    'ALTER TABLE agent_outbound_messages ADD COLUMN IF NOT EXISTS napcat_msg_id VARCHAR(64) NULL'
+  );
   await prisma.$executeRawUnsafe(
     'CREATE INDEX IF NOT EXISTS idx_agent_outbound_messages_session_sent ON agent_outbound_messages (session_key, sent_at, id)'
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS idx_agent_outbound_messages_napcat_msg_id ON agent_outbound_messages (napcat_msg_id)'
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE INDEX IF NOT EXISTS idx_agent_outbound_messages_delivery_message_id ON agent_outbound_messages (delivery_message_id)'
   );
   outboundSchemaReady.add(prisma);
 }
@@ -169,6 +183,31 @@ async function recordQqUsageOutboundMessage(input = {}, config = {}) {
   );
   const row = Array.isArray(rows) ? rows[0] : null;
   return { id: row?.id === undefined ? null : Number(row.id) };
+}
+
+// Backfill 小腻's own outbound row with the NTQQ-native msgId carried by NapCat's
+// self-message push event (reportSelfMessage). Matched by delivery_message_id (the
+// OneBot id both the send response and the self-event carry) — an EXACT join, not
+// content matching. Idempotent: only fills a still-empty napcat_msg_id. This is the
+// one identifier a raw-only reply that quotes 小腻 can resolve against.
+async function setQqUsageOutboundNapcatMsgId(input = {}, config = {}) {
+  const prisma = input.prisma || config.prisma || input.getPrismaClient?.(config) || config.getPrismaClient?.(config);
+  if (!prisma) {
+    throw new Error('setQqUsageOutboundNapcatMsgId requires a Prisma client');
+  }
+  const deliveryMessageId = normalizeOptionalString(input.deliveryMessageId);
+  const napcatMsgId = normalizeOptionalString(input.napcatMsgId);
+  if (!deliveryMessageId || !napcatMsgId) {
+    return { updated: 0 };
+  }
+  await ensureQqUsageOutboundSchema(prisma);
+  const affected = await prisma.$executeRawUnsafe(
+    `UPDATE agent_outbound_messages SET napcat_msg_id = $1
+       WHERE delivery_message_id = $2 AND (napcat_msg_id IS NULL OR napcat_msg_id = '')`,
+    napcatMsgId,
+    deliveryMessageId
+  );
+  return { updated: Number(affected) || 0 };
 }
 
 const GROUP_NOTIFICATION_MODES = new Set(['all', 'mentions_only']);
@@ -426,12 +465,139 @@ async function listQqUsageThreads(input = {}, config = {}) {
   };
 }
 
-async function getMessageAnchor(prisma, id) {
-  const messageId = toBigIntOrNull(id);
-  if (messageId === null) {
+// Anchor resolution by the OneBot message id (the globally-unique, cross-table
+// jumpable id 小腻 sees as message_id and passes to focus): message_sid on
+// inbound, delivery_message_id on outbound. Inbound anchors return the full row
+// (the around window folds it into `rows`); outbound anchors (小腻 quoting her
+// own message) return a marked stub — the window centers on its time and the
+// outbound merge re-adds the row, so we must NOT fold it into the inbound rows.
+async function getMessageAnchor(prisma, handle) {
+  const oneBotId = normalizeOptionalString(handle);
+  if (!oneBotId) {
     return null;
   }
-  return prisma.agentInboundMessage.findUnique({ where: { id: messageId } });
+  const inbound = await prisma.agentInboundMessage.findFirst({
+    where: { message_sid: oneBotId },
+    orderBy: [{ received_at: 'desc' }, { id: 'desc' }]
+  });
+  if (inbound) {
+    return inbound;
+  }
+  await ensureQqUsageOutboundSchema(prisma);
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, session_key, sent_at FROM agent_outbound_messages
+     WHERE delivery_message_id = $1 ORDER BY sent_at DESC, id DESC LIMIT 1`,
+    oneBotId
+  );
+  const out = rows && rows[0];
+  if (out) {
+    return {
+      id: out.id,
+      session_key: out.session_key,
+      received_at: out.sent_at,
+      __outbound: true
+    };
+  }
+  // scroll_* cursors feed back the window's earliest/latest, which are the internal
+  // inbound row id (machine-generated, never a QQ id). Fall back to an internal-id
+  // lookup so pagination keeps working. Internal ids are ≤5 digits today vs QQ
+  // message ids ≥8 digits, so this never collides with a message_sid / delivery id.
+  const internalId = toBigIntOrNull(handle);
+  if (internalId !== null) {
+    const byId = await prisma.agentInboundMessage.findUnique({ where: { id: internalId } });
+    if (byId) {
+      return byId;
+    }
+  }
+  return null;
+}
+
+// Resolve each rendered message's display id + jumpable reply handle into the
+// OneBot message-id namespace (message_sid inbound / delivery_message_id outbound)
+// — globally unique across both tables, unlike the internal autoincrement ids
+// (which 100% overlap). Sets m.onebot_id (what 小腻 sees + focuses on) and
+// m.reply_to_handle (the OneBot id of the quoted message, or null if unresolved).
+// message[] replies already carry the quoted OneBot id in reply_to_id; raw-only
+// replies carry only the quoted NTQQ id (reply_to_native_id) → resolved here
+// against napcat_msg_id on BOTH tables at READ time (outbound napcat_msg_id is
+// backfilled async by the self-message event, so ingest-time resolution would miss it).
+async function attachReplyJumpHandles(prisma, messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return;
+  }
+  for (const m of messages) {
+    m.onebot_id = m.direction === 'outgoing'
+      ? (normalizeOptionalString(m.delivery_message_id) || null)
+      : (normalizeOptionalString(m.message_sid) || null);
+  }
+  // Only incoming rows render a reply preview; collect their two kinds of pointer:
+  // message[]-path OneBot ids (reply_to_id, verify still exist) and raw-only NTQQ
+  // ids (reply_to_native_id, resolve to a OneBot id via napcat_msg_id).
+  const directIds = new Set();
+  const nativeIds = new Set();
+  for (const m of messages) {
+    if (m.direction === 'outgoing') continue;
+    const direct = normalizeOptionalString(m.reply_to_id);
+    if (direct) {
+      directIds.add(direct);
+      continue;
+    }
+    const native = normalizeOptionalString(m.reply_to_native_id);
+    if (native) {
+      nativeIds.add(native);
+    }
+  }
+  if (directIds.size === 0 && nativeIds.size === 0) {
+    return;
+  }
+  await ensureQqUsageOutboundSchema(prisma);
+  const existingOneBot = new Set();
+  if (directIds.size > 0) {
+    const arr = [...directIds];
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT message_sid AS id FROM agent_inbound_messages WHERE message_sid = ANY($1::text[])
+       UNION ALL
+       SELECT delivery_message_id AS id FROM agent_outbound_messages WHERE delivery_message_id = ANY($1::text[])`,
+      arr
+    );
+    for (const r of rows || []) {
+      if (r && r.id != null) existingOneBot.add(String(r.id));
+    }
+  }
+  const nativeToOneBot = new Map();
+  if (nativeIds.size > 0) {
+    const arr = [...nativeIds];
+    const resolved = await prisma.$queryRawUnsafe(
+      `SELECT napcat_msg_id AS native, message_sid AS onebot
+         FROM agent_inbound_messages WHERE napcat_msg_id = ANY($1::text[])
+       UNION ALL
+       SELECT napcat_msg_id AS native, delivery_message_id AS onebot
+         FROM agent_outbound_messages WHERE napcat_msg_id = ANY($1::text[])`,
+      arr
+    );
+    for (const r of resolved || []) {
+      const native = r && r.native != null ? String(r.native) : null;
+      const onebot = r && r.onebot != null ? String(r.onebot) : null;
+      if (native && onebot && !nativeToOneBot.has(native)) {
+        nativeToOneBot.set(native, onebot);
+      }
+    }
+  }
+  for (const m of messages) {
+    if (m.direction === 'outgoing') {
+      m.reply_to_handle = null;
+      continue;
+    }
+    const direct = normalizeOptionalString(m.reply_to_id);
+    if (direct) {
+      // Only emit a handle she can actually jump to — a pruned quote yields null
+      // (the render then shows the body inline without a phantom reply_to).
+      m.reply_to_handle = existingOneBot.has(direct) ? direct : null;
+      continue;
+    }
+    const native = normalizeOptionalString(m.reply_to_native_id);
+    m.reply_to_handle = native ? (nativeToOneBot.get(String(native)) || null) : null;
+  }
 }
 
 function buildOlderWhere(threadKey, anchor) {
@@ -517,7 +683,12 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
           })
         : Promise.resolve([])
     ]);
-    rows = [...olderRows.reverse(), anchor, ...newerRows];
+    // Outbound anchor (小腻's own quoted message): don't fold it into the inbound
+    // `rows` (it'd render as incoming + get double-added by the outbound merge).
+    // The merge picks it up by time; here we just center the inbound window on it.
+    rows = anchor.__outbound
+      ? [...olderRows.reverse(), ...newerRows]
+      : [...olderRows.reverse(), anchor, ...newerRows];
   } else if (mode === 'older') {
     rows = await prisma.agentInboundMessage.findMany({
       where: buildOlderWhere(threadKey, anchor),
@@ -611,6 +782,9 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
     || (a.dirRank - b.dirRank)
     || (Number(a.id) - Number(b.id)));
 
+  const messages = merged.map((entry) => entry.message);
+  await attachReplyJumpHandles(prisma, messages);
+
   return {
     threadKey,
     mode,
@@ -624,7 +798,7 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
     reachedReadHistory: rows.some((message) => !isEffectiveUnreadFromState(message, threadState)),
     unreadCount,
     directMentions,
-    messages: merged.map((entry) => entry.message),
+    messages,
     latestMessageId: last ? Number(last.id) : null,
     earliestMessageId: first ? Number(first.id) : null,
     windowUnreadCount: windowUnread.length
@@ -735,6 +909,9 @@ function createQqUsagePersistence(deps) {
     },
     recordQqUsageOutboundMessage(input = {}, config = {}) {
       return recordQqUsageOutboundMessage({ ...input, getPrismaClient: deps.getPrismaClient }, config);
+    },
+    setQqUsageOutboundNapcatMsgId(input = {}, config = {}) {
+      return setQqUsageOutboundNapcatMsgId({ ...input, getPrismaClient: deps.getPrismaClient }, config);
     }
   };
 }
