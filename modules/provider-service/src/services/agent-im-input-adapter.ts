@@ -165,8 +165,8 @@ function buildGroupSubject(groupId?: string) {
   return groupId ? `群 ${groupId}` : undefined;
 }
 
-function isMessageMeaningful(rawBody: string, replyMessageId?: string, media?: RenderedMedia[]) {
-  return rawBody.trim().length > 0 || Boolean(replyMessageId) || Boolean(media && media.length > 0);
+function isMessageMeaningful(rawBody: string, replyMessageId?: string, media?: RenderedMedia[], hasRawReply?: boolean) {
+  return rawBody.trim().length > 0 || Boolean(replyMessageId) || Boolean(media && media.length > 0) || Boolean(hasRawReply);
 }
 
 function extractReplyMessageIdFromRaw(rawMessage: string | undefined) {
@@ -178,45 +178,76 @@ function extractReplyMessageIdFromRaw(rawMessage: string | undefined) {
   return match?.[1];
 }
 
-function parseRawReplyMetadata(event: OneBotMessageEvent) {
-  const rawRecords = Array.isArray(event.raw?.records) ? event.raw.records : [];
-  for (const recordValue of rawRecords) {
-    const record = sanitizeRawRecord(recordValue);
-    if (!record) {
+// 从一组 NTQQ elements 里找出 replyElement 并整形成引用元数据。
+// 被引用原消息的昵称在 raw.records[] 里（record.sendNickName），按
+// replyElement.sourceMsgIdInRecords === record.msgId 关联；replyElement 自身
+// 只带裸号（senderUid/Uin），单用会渲染成「引用 1129974489:」而非「引用 小腻:」。
+function extractReplyFromElements(
+  elements: unknown,
+  records: Record<string, unknown>[],
+): { senderId?: string; senderName?: string; text?: string; nativeMsgId?: string } | undefined {
+  if (!Array.isArray(elements)) {
+    return undefined;
+  }
+  for (const elementValue of elements) {
+    const element = sanitizeRawRecord(elementValue);
+    const replyElement = sanitizeRawRecord(element?.replyElement);
+    if (!replyElement) {
       continue;
     }
 
-    const elements = Array.isArray(record.elements) ? record.elements : [];
-    for (const elementValue of elements) {
-      const element = sanitizeRawRecord(elementValue);
-      const replyElement = sanitizeRawRecord(element?.replyElement);
-      if (!replyElement) {
-        continue;
-      }
+    // NTQQ msgId of the quoted message — the only handle a raw-only reply carries
+    // (OneBot message[] is absent). Used downstream to resolve the quoted row via
+    // napcat_msg_id across both tables when the OneBot reply id is missing.
+    const sourceMsgId = asNonEmptyString(replyElement.sourceMsgIdInRecords);
+    const quotedRecord = (sourceMsgId
+      ? records.find((r) => asNonEmptyString(r.msgId) === sourceMsgId)
+      : undefined) || records[0];
 
-      const senderId = asNonEmptyString(record.senderUin)
-        || asNonEmptyString(replyElement.senderUin)
-        || asNonEmptyString(replyElement.senderUid);
-      const senderName = asNonEmptyString(record.sendNickName)
-        || asNonEmptyString(record.sendRemarkName)
-        || asNonEmptyString(record.sendMemberName)
-        || asNonEmptyString(replyElement.anonymousNickName);
-      const text = asNonEmptyString(replyElement.sourceMsgText)
-        || (Array.isArray(replyElement.sourceMsgTextElems)
-          ? replyElement.sourceMsgTextElems
-              .map((item) => sanitizeRawRecord(item))
-              .map((item) => asNonEmptyString(item?.textElemContent) || '')
-              .join('')
-          : undefined);
+    const senderId = asNonEmptyString(replyElement.senderUin)
+      || asNonEmptyString(replyElement.senderUid)
+      || asNonEmptyString(quotedRecord?.senderUin);
+    const senderName = asNonEmptyString(quotedRecord?.sendNickName)
+      || asNonEmptyString(quotedRecord?.sendRemarkName)
+      || asNonEmptyString(quotedRecord?.sendMemberName)
+      || asNonEmptyString(replyElement.anonymousNickName);
+    const text = asNonEmptyString(replyElement.sourceMsgText)
+      || (Array.isArray(replyElement.sourceMsgTextElems)
+        ? replyElement.sourceMsgTextElems
+            .map((item) => sanitizeRawRecord(item))
+            .map((item) => asNonEmptyString(item?.textElemContent) || '')
+            .join('')
+        : undefined);
 
-      return {
-        senderId,
-        senderName,
-        text: text ? normalizeWhitespace(normalizeText(text)) : undefined,
-      };
+    return {
+      senderId,
+      senderName,
+      text: text ? normalizeWhitespace(normalizeText(text)) : undefined,
+      nativeMsgId: sourceMsgId,
+    };
+  }
+  return undefined;
+}
+
+function parseRawReplyMetadata(event: OneBotMessageEvent) {
+  const raw = sanitizeRawRecord(event.raw);
+  const records = (Array.isArray(raw?.records) ? raw.records : [])
+    .map((value) => sanitizeRawRecord(value))
+    .filter((value): value is Record<string, unknown> => Boolean(value));
+
+  // 主源：引用消息自身顶层 raw.elements[] 里的 replyElement —— NapCat 对每条引用都给
+  // （真库实测 964/964 命中），且不依赖 OneBot message[] 是否带 reply 段（那个会缺）。
+  const fromTop = extractReplyFromElements(raw?.elements, records);
+  if (fromTop) {
+    return fromTop;
+  }
+  // 回退：老的 raw.records[].elements[] 扫描（真库 0/300 命中，仅留作嵌套引用兜底）。
+  for (const record of records) {
+    const fromRecord = extractReplyFromElements(record.elements, records);
+    if (fromRecord) {
+      return fromRecord;
     }
   }
-
   return undefined;
 }
 
@@ -734,15 +765,18 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     rawMentionNicknames.get(botAccountId),
     botAccountId,
   ].filter((value): value is string => Boolean(value));
+  // reply-mention：别人引用小腻的消息应唤醒她。旧写法用 `replyMessageId &&` 做闸，
+  // 但 raw-only 引用（NapCat 没把 reply 段放进 message[]）时 replyMessageId 为空 →
+  // 整个分支死掉，群里引用小腻不唤醒（真实事故行 id 29876）。改用「有任一引用信号」。
   const wasMentioned = messageType === 'group'
     ? rendered.mentionedUserIds.includes(botAccountId)
-      || Boolean(replyMessageId && (cachedReply?.isBot || rawReplyMetadata?.senderId === botAccountId))
+      || Boolean((replyMessageId || rawReplyMetadata) && (cachedReply?.isBot || rawReplyMetadata?.senderId === botAccountId))
     : false;
 
   const commandBody = stripBotMentionsAndMedia(rendered.commandBody, botAccountId, botLabels);
   const rawBody = rendered.rawBody;
 
-  if (!isMessageMeaningful(rawBody, replyMessageId, rendered.media)) {
+  if (!isMessageMeaningful(rawBody, replyMessageId, rendered.media, Boolean(rawReplyMetadata))) {
     return null;
   }
 
@@ -773,12 +807,18 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     Provider: 'qq',
     Surface: 'napcat',
     MessageSid: messageId,
+    // NativeMsgId: this row's own NTQQ-native msgId (raw.msgId). Stored as
+    // napcat_msg_id so a raw-only reply can later resolve to it across tables.
+    NativeMsgId: asNonEmptyString(sanitizeRawRecord(event.raw)?.msgId),
     ReplyToId: replyMessageId,
+    // NativeReplyMsgId: NTQQ msgId of the quoted message (raw-only replies carry
+    // only this, not the OneBot reply id). Used to resolve the quoted row.
+    NativeReplyMsgId: rawReplyMetadata?.nativeMsgId,
     ReplyToBody: cachedReply?.rawBody || rawReplyMetadata?.text,
     ReplyToSender: cachedReply?.senderName || rawReplyMetadata?.senderName || rawReplyMetadata?.senderId,
     ReplyToSenderId: cachedReply?.senderId || rawReplyMetadata?.senderId,
     ReplyToSenderName: cachedReply?.senderName || rawReplyMetadata?.senderName,
-    ReplyToIsQuote: replyMessageId ? true : undefined,
+    ReplyToIsQuote: (replyMessageId || rawReplyMetadata) ? true : undefined,
     Timestamp: occurredAtMs,
     WasMentioned: messageType === 'group' ? wasMentioned : undefined,
     MentionedUsers: mentionedUsers,

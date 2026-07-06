@@ -104,6 +104,80 @@ test('fills reply fields from recent message cache and treats replies to bot as 
   assert.equal(inboundContext.ReplyToIsQuote, true);
 });
 
+test('resolves reply from raw.elements[].replyElement when OneBot message[] omits the reply segment (30611 shape)', () => {
+  const inboundContext = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'private',
+      self_id: Number(BOT_ID),
+      user_id: 85178516,
+      message_id: 1446580943,
+      sender: { user_id: 85178516, nickname: '李阿花' },
+      raw_message: '这个',
+      message: [{ type: 'text', data: { text: '这个' } }],
+      raw: {
+        msgId: '7659245918938143285',
+        records: [{
+          msgId: '7659245918938143286',
+          senderUin: BOT_ID,
+          sendNickName: '小腻',
+          elements: [{ elementType: 1, textElement: { content: '找到了 identity-anchor里写得清清楚楚的' } }]
+        }],
+        elements: [
+          {
+            elementType: 7,
+            replyElement: {
+              senderUid: BOT_ID,
+              sourceMsgIdInRecords: '7659245918938143286',
+              sourceMsgTextElems: [{ textElemContent: '找到了 identity-anchor里写得清清楚楚的' }]
+            }
+          },
+          { elementType: 1, textElement: { content: '这个' } }
+        ]
+      }
+    },
+    fallbackBotAccountId: BOT_ID
+  } as any);
+
+  assert.ok(inboundContext);
+  assert.equal(inboundContext.ReplyToId, undefined); // OneBot message[] carried no reply id
+  assert.equal(inboundContext.ReplyToBody, '找到了 identity-anchor里写得清清楚楚的');
+  assert.equal(inboundContext.ReplyToSender, '小腻'); // joined from raw.records[].sendNickName, not the bare uid
+  assert.equal(inboundContext.NativeReplyMsgId, '7659245918938143286');
+  assert.equal(inboundContext.NativeMsgId, '7659245918938143285');
+  assert.equal(inboundContext.ReplyToIsQuote, true);
+});
+
+test('raw-only reply quoting the bot in a group marks WasMentioned (wake fix, id 29876 shape)', () => {
+  const inboundContext = buildNapcatInboundContext({
+    event: {
+      post_type: 'message',
+      message_type: 'group',
+      self_id: Number(BOT_ID),
+      user_id: 3627938985,
+      group_id: 253631878,
+      message_id: 999001,
+      sender: { user_id: 3627938985, nickname: '路人' },
+      raw_message: '四条腿走进华强北',
+      message: [{ type: 'text', data: { text: '四条腿走进华强北' } }],
+      raw: {
+        msgId: 'ntq-reply-self',
+        records: [{ msgId: 'quoted-1', senderUin: BOT_ID, sendNickName: '小腻', elements: [{ elementType: 1, textElement: { content: '原话' } }] }],
+        elements: [
+          { elementType: 7, replyElement: { senderUid: BOT_ID, sourceMsgIdInRecords: 'quoted-1', sourceMsgTextElems: [{ textElemContent: '原话' }] } },
+          { elementType: 1, textElement: { content: '四条腿走进华强北' } }
+        ]
+      }
+    },
+    fallbackBotAccountId: BOT_ID
+  } as any);
+
+  assert.ok(inboundContext);
+  assert.equal(inboundContext.WasMentioned, true); // quoting the bot must wake her, even raw-only
+  assert.equal(inboundContext.NativeReplyMsgId, 'quoted-1');
+  assert.equal(inboundContext.ReplyToIsQuote, true);
+});
+
 test('uses raw payload mention nicknames when segment payload does not include a label', () => {
   const inboundContext = buildNapcatInboundContext({
     event: {
