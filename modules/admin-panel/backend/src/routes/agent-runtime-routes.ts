@@ -10,6 +10,7 @@ import {
   renderRecallLead,
   listRecallCandidates,
   countRecallCues,
+  listRecallShadowLog,
   getRecallCueByRef,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
@@ -1196,6 +1197,29 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to reindex Xiaoni passive recall corpus',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 触发2 浮现流水 feed(每次落地自动召回的 shadow 留痕;只读展示,绝不投递)。
+  router.get('/xiaoni/passive-recall/shadow-log', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const limit = parsePositiveInteger(req.query.limit, 50, 500);
+      const onlySurfaced = parseQueryBoolean(req.query.only_surfaced ?? req.query.onlySurfaced, false);
+      const entries = await listRecallShadowLog({ identityKey, limit, onlySurfaced });
+      res.json({
+        success: true,
+        data: { streamKind: 'xiaoni_passive_recall_shadow_log', deliveryMode: 'shadow_only', entries },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni passive recall shadow log',
         timestamp: new Date().toISOString()
       });
     }
