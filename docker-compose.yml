@@ -19,7 +19,7 @@ x-build-no-proxy: &build_no_proxy
 services:
   # Shared PostgreSQL Database
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: qqbot-postgres
     command: ["postgres", "-c", "timezone=Asia/Shanghai", "-c", "max_connections=200"]
     environment:
