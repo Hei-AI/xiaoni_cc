@@ -148,6 +148,7 @@ export interface InboundContext {
   NativeMsgId?: string;
   ReplyToId?: string;
   NativeReplyMsgId?: string;
+  NativeReplyMsgSeq?: string;
   ReplyToBody?: string;
   ReplyToSender?: string;
   ReplyToSenderId?: string;

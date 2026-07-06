@@ -1078,6 +1078,27 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   }
   await enrichInboundContextWithGroupName(inboundContext, groupId);
   await prepareInboundMediaAssets(inboundContext);
+  // Raw-only reply quoting 小腻's OWN message: NapCat only put the reply in its native
+  // structure (no OneBot reply id), and 小腻's outbound NTQQ id is unreachable via
+  // send response / get_msg / inbound events. Bridge the reply's NTQQ conversation seq
+  // to the quoted message's OneBot id via history (read-only), making it jumpable.
+  // Gated to 小腻's own quote so we never add a history round-trip to other replies
+  // (those resolve locally via napcat_msg_id). Best-effort: a miss leaves it non-jumpable.
+  if (
+    inboundContext.ReplyToIsQuote === true
+    && !inboundContext.ReplyToId
+    && inboundContext.NativeReplyMsgSeq
+    && inboundContext.ReplyToSenderId === String(aiConfig.bot_qq_number)
+  ) {
+    const resolvedReplyId = await napcatClient.resolveOneBotMessageIdByReplySeq({
+      chatType: messageType === 'group' ? 'group' : 'direct',
+      peerId: messageType === 'group' ? Number(groupId) : Number(userId),
+      replySeq: inboundContext.NativeReplyMsgSeq
+    });
+    if (resolvedReplyId) {
+      inboundContext.ReplyToId = resolvedReplyId;
+    }
+  }
   const effectivePolicy = applyEffectiveInboundPolicy(policy, {
     messageType,
     userId,

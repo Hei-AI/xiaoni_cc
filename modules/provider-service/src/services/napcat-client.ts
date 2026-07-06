@@ -232,6 +232,47 @@ export class NapcatClient {
     return result?.messages ?? [];
   }
 
+  // Bridge a raw-only reply's NTQQ per-conversation sequence (replayMsgSeq) to the
+  // quoted message's OneBot message_id, by scanning the conversation history: each
+  // history record carries `real_seq` (== the NTQQ msgSeq) AND `message_id` (== the
+  // OneBot id we store as delivery_message_id / message_sid). This is the read-only
+  // path to jump to 小腻's OWN quoted message without WebSocket self-events (NapCat's
+  // send response and get_msg never expose the NTQQ id; only push events do). Best-
+  // effort: returns null on miss / error / out-of-window, and the caller then leaves
+  // the reply body inline without a jump handle.
+  async resolveOneBotMessageIdByReplySeq(params: {
+    chatType: 'group' | 'direct';
+    peerId: number;
+    replySeq: string;
+    count?: number;
+  }): Promise<string | null> {
+    const target = String(params.replySeq || '').trim();
+    if (!target || !Number.isFinite(params.peerId)) {
+      return null;
+    }
+    const count = params.count ?? 50;
+    try {
+      const data = params.chatType === 'group'
+        ? await this.callAction<{ messages?: Array<Record<string, unknown>> }>('get_group_msg_history', { group_id: params.peerId, count })
+        : await this.callAction<{ messages?: Array<Record<string, unknown>> }>('get_friend_msg_history', { user_id: params.peerId, count });
+      const messages = Array.isArray(data?.messages)
+        ? data!.messages
+        : (Array.isArray(data) ? data as unknown as Array<Record<string, unknown>> : []);
+      for (const m of messages) {
+        if (m && String((m as Record<string, unknown>).real_seq) === target) {
+          const id = (m as Record<string, unknown>).message_id;
+          return id != null ? String(id) : null;
+        }
+      }
+      return null;
+    } catch (error) {
+      this.moduleLogger.warn('resolveOneBotMessageIdByReplySeq failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   async getGroupInfo(groupId: number): Promise<NapcatGroupInfo | null> {
     const result = await this.callAction<NapcatGroupInfo>('get_group_info', {
       group_id: groupId

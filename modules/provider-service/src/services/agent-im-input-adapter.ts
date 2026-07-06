@@ -185,7 +185,7 @@ function extractReplyMessageIdFromRaw(rawMessage: string | undefined) {
 function extractReplyFromElements(
   elements: unknown,
   records: Record<string, unknown>[],
-): { senderId?: string; senderName?: string; text?: string; nativeMsgId?: string } | undefined {
+): { senderId?: string; senderName?: string; text?: string; nativeMsgId?: string; nativeMsgSeq?: string } | undefined {
   if (!Array.isArray(elements)) {
     return undefined;
   }
@@ -224,6 +224,10 @@ function extractReplyFromElements(
       senderName,
       text: text ? normalizeWhitespace(normalizeText(text)) : undefined,
       nativeMsgId: sourceMsgId,
+      // NTQQ per-conversation sequence of the quoted message — bridges to the OneBot
+      // message_id via conversation history (real_seq). Lets us jump to a quoted
+      // message we can't otherwise address (esp. 小腻's own outbound).
+      nativeMsgSeq: asNonEmptyString(replyElement.replayMsgSeq),
     };
   }
   return undefined;
@@ -814,6 +818,9 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     // NativeReplyMsgId: NTQQ msgId of the quoted message (raw-only replies carry
     // only this, not the OneBot reply id). Used to resolve the quoted row.
     NativeReplyMsgId: rawReplyMetadata?.nativeMsgId,
+    // NativeReplyMsgSeq: NTQQ per-conversation seq of the quoted message. Bridged to
+    // the OneBot message_id via history (real_seq) at ingest → sets ReplyToId.
+    NativeReplyMsgSeq: rawReplyMetadata?.nativeMsgSeq,
     ReplyToBody: cachedReply?.rawBody || rawReplyMetadata?.text,
     ReplyToSender: cachedReply?.senderName || rawReplyMetadata?.senderName || rawReplyMetadata?.senderId,
     ReplyToSenderId: cachedReply?.senderId || rawReplyMetadata?.senderId,

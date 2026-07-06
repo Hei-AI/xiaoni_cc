@@ -129,6 +129,7 @@ test('resolves reply from raw.elements[].replyElement when OneBot message[] omit
             replyElement: {
               senderUid: BOT_ID,
               sourceMsgIdInRecords: '7659245918938143286',
+              replayMsgSeq: '3446',
               sourceMsgTextElems: [{ textElemContent: '找到了 identity-anchor里写得清清楚楚的' }]
             }
           },
@@ -144,6 +145,7 @@ test('resolves reply from raw.elements[].replyElement when OneBot message[] omit
   assert.equal(inboundContext.ReplyToBody, '找到了 identity-anchor里写得清清楚楚的');
   assert.equal(inboundContext.ReplyToSender, '小腻'); // joined from raw.records[].sendNickName, not the bare uid
   assert.equal(inboundContext.NativeReplyMsgId, '7659245918938143286');
+  assert.equal(inboundContext.NativeReplyMsgSeq, '3446'); // bridges to OneBot id via history real_seq
   assert.equal(inboundContext.NativeMsgId, '7659245918938143285');
   assert.equal(inboundContext.ReplyToIsQuote, true);
 });
