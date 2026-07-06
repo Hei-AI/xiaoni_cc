@@ -70,22 +70,36 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return { upserted };
   }
 
-  // 召回候选池:该 identity 的全部 cue(排除当前上下文近窗的 sourceRef = 结构式在场排除的一半)。
+  // 召回候选池:pgvector 最近邻 top-K(排除近窗 sourceRef = 结构式在场排除的一半)。
+  //
+  // band-pass 要的是「相关但不在场」的中间带 —— 太远的下限剔本就不该 fetch,中间带都落在最近邻里,
+  // 所以 top-K 最近邻天然包含要浮现的带子。这也治本地干掉了旧全量 findMany 的 napi 击穿
+  // (76k 行 × 16KB Json embedding 一次序列化 >512MB → Failed to convert rust String into napi string)。
+  // 返回的 top-K 仍带 embedding(几百行 ~5MB,不炸),band-pass 在 JS 侧照旧算 cos + ④ 语义在场排除。
+  // 详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3。
   async function listRecallCandidates(params = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = params.identityKey || 'xiaoni';
+    const queryVector = Array.isArray(params.queryVector) ? params.queryVector : null;
     const excludeSourceRefs = Array.isArray(params.excludeSourceRefs) ? params.excludeSourceRefs : [];
-    const limit = Math.max(1, Math.min(Number(params.limit) || 5000, 50000));
-    const rows = await prisma.xiaoniRecallCue.findMany({
-      where: {
-        identity_key: identityKey,
-        ...(excludeSourceRefs.length ? { source_ref: { notIn: excludeSourceRefs } } : {})
-      },
-      // band-pass 要扫整个语料(相关性不是时近性),按稳定 id 排(occurred_at 对 file_chunk 恒 null,
-      // 会把文件记忆全排到截断边缘)。截断由 take 上限兜,调用方应传满并看 truncated。
-      orderBy: { id: 'desc' },
-      take: limit
-    });
+    const k = Math.max(1, Math.min(Number(params.limit) || 300, 2000));
+    if (!queryVector || queryVector.length === 0) {
+      return []; // 无 query 向量无法最近邻检索(旧全量扫描已废弃)。
+    }
+    // 向量参数走文本 + ::vector 转型(数字数组,注入安全);排除表走 $n::text[] 参数化。
+    const vecLiteral = `[${queryVector.map((x) => Number(x)).join(',')}]`;
+    const sqlParams = [identityKey, vecLiteral, k];
+    let where = 'identity_key = $1 AND embedding_vec IS NOT NULL';
+    if (excludeSourceRefs.length) {
+      sqlParams.push(excludeSourceRefs);
+      where += ' AND source_ref <> ALL($4::text[])';
+    }
+    const sql =
+      `SELECT id, identity_key, source_kind, source_ref, provenance, occurred_at, ` +
+      `embedding_text, embedding, content_hash ` +
+      `FROM xiaoni_recall_cues WHERE ${where} ` +
+      `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
+    const rows = await prisma.$queryRawUnsafe(sql, ...sqlParams);
     return rows.map(parseRow);
   }
 

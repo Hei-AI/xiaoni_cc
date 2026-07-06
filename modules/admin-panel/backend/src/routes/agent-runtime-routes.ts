@@ -9,6 +9,7 @@ import {
   bandpassRecall,
   renderRecallLead,
   listRecallCandidates,
+  countRecallCues,
   getRecallCueByRef,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
@@ -1122,9 +1123,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         throw new Error('failed to embed query text');
       }
 
-      const CORPUS_SCAN_CAP = 50000;
-      const candidates = await listRecallCandidates({ identityKey, excludeSourceRefs: excludeRefs, limit: CORPUS_SCAN_CAP });
-      const corpusTruncated = candidates.length >= CORPUS_SCAN_CAP;
+      // pgvector 最近邻 top-K(替代旧全量扫描 → 治 napi 击穿)。band-pass 仍在 JS 侧算。
+      const TOP_K = 300;
+      const candidates = await listRecallCandidates({ identityKey, queryVector, excludeSourceRefs: excludeRefs, limit: TOP_K });
+      const corpusStats = await countRecallCues(identityKey);
       const result = bandpassRecall({
         query: { vector: queryVector, contextRefs: excludeRefs, taskLocked },
         candidates: candidates.map((cue: any) => ({
@@ -1160,8 +1162,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           query: { ref: queryRef || null, text: queryText.slice(0, 240), taskLocked },
           band: { floor: result.floor, ceiling: result.ceiling },
           silent: result.silent,
-          corpusCount: candidates.length,
-          corpusTruncated,
+          corpusCount: corpusStats.total,
+          topK: candidates.length,
           surfaced: result.surfaced.map((entry: any) => ({
             lead: renderRecallLead(entry.candidate),
             cos: entry.cos,
