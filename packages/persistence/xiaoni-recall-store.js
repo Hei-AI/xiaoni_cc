@@ -109,6 +109,23 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return rows.map(parseRow);
   }
 
+  // ④ 语义式在场排除用:取一组 sourceRef 的向量(近窗条目)。只回 embedding,量小(近窗几条)。
+  async function getRecallCueVectorsByRefs(identityKey, sourceRefs = [], config = {}) {
+    const prisma = getClient(config);
+    const refs = Array.isArray(sourceRefs) ? sourceRefs.filter(Boolean) : [];
+    if (refs.length === 0) {
+      return [];
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT embedding FROM xiaoni_recall_cues WHERE identity_key = $1 AND source_ref = ANY($2::text[])`,
+      identityKey,
+      refs
+    );
+    return rows
+      .map((row) => (Array.isArray(row.embedding) ? row.embedding : null))
+      .filter((v) => Array.isArray(v) && v.length > 0);
+  }
+
   async function getRecallCueByRef(identityKey, sourceRef, config = {}) {
     const prisma = getClient(config);
     const row = await prisma.xiaoniRecallCue.findUnique({
@@ -217,6 +234,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     upsertRecallCues,
     listRecallCandidates,
     getRecallCueByRef,
+    getRecallCueVectorsByRefs,
     countRecallCues,
     pruneFileChunks,
     insertRecallShadowLog,
