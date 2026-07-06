@@ -152,9 +152,17 @@ function renderThreadListWindow(result: QqUsageThreadList) {
 //   says so (…截断 / 非文字消息 / 原消息已不在记录) so she never mistakes a partial
 //   preview for the whole thing, and knows whether a reachable path exists.
 const REPLY_SNIPPET_MAX = 40;
+// 无跳转锚点时（如引用小腻自己的 outbound，拿不到 focus 句柄）她无法跳过去看全文，
+// 内联多显示一些，让不跳也能完整识别被引用内容。有锚点则保持短，她可 focus 跳。
+const REPLY_SNIPPET_MAX_NO_ANCHOR = 200;
 function renderReplyPreview(message: Record<string, unknown>): { attr: string | null; line: string | null } {
-  const anchorId = message.reply_to_message_id != null && Number.isFinite(Number(message.reply_to_message_id))
-    ? String(Number(message.reply_to_message_id))
+  // reply_to_handle = the quoted message's OneBot id (message_sid / delivery_message_id),
+  // resolved cross-table in persistence (attachReplyJumpHandles). It shares the
+  // message_id namespace 小腻 sees, so `focus_* <peer> <reply_to>` lands on it.
+  // null when the quoted row can't be resolved (e.g. 小腻's outbound whose NTQQ id
+  // hasn't been backfilled yet) — then we show the body inline without a jump attr.
+  const anchorId = typeof message.reply_to_handle === 'string' && message.reply_to_handle.trim() !== ''
+    ? message.reply_to_handle.trim()
     : null;
   const hasReply = anchorId !== null
     || (typeof message.reply_to_id === 'string' && message.reply_to_id.trim() !== '')
@@ -168,18 +176,22 @@ function renderReplyPreview(message: Record<string, unknown>): { attr: string | 
   const bodyRaw = typeof message.reply_to_body === 'string'
     ? message.reply_to_body.replace(/\s+/g, ' ').trim()
     : '';
+  const snippetMax = anchorId === null ? REPLY_SNIPPET_MAX_NO_ANCHOR : REPLY_SNIPPET_MAX;
   let preview: string;
   if (!bodyRaw) {
     preview = '(非文字消息)';
   } else {
     const chars = Array.from(bodyRaw);
-    preview = chars.length > REPLY_SNIPPET_MAX
-      ? `${chars.slice(0, REPLY_SNIPPET_MAX).join('')}…(截断)`
+    preview = chars.length > snippetMax
+      ? `${chars.slice(0, snippetMax).join('')}…(截断)`
       : bodyRaw;
   }
-  // Reachability: anchorId present → reply_to attr is a real focus_* handle. Absent
-  // → the quoted row is pruned/unresolved; say so, don't emit a phantom id.
-  const gone = anchorId === null ? '（原消息已不在记录）' : '';
+  // Reachability:
+  // - anchorId present → reply_to attr 是可跳 focus_* 句柄。
+  // - anchorId 空但有正文 → 原消息可能仍在（如小腻自己的 outbound），只是没建跳转索引；
+  //   直接给正文，不喊「原消息已不在记录」（那会误导，消息其实还在窗口里）。
+  // - anchorId 空且无正文 → 真的什么都定位不到。
+  const gone = anchorId === null && !bodyRaw ? '（原消息已不在记录）' : '';
   const senderPart = sender ? `${sender}: ` : '';
   return { attr: anchorId, line: `「引用 ${senderPart}${preview}${gone}」` };
 }
@@ -198,8 +210,15 @@ function renderMessage(message: Record<string, unknown>) {
   const wasMentioned = Number(message.was_mentioned) === 1;
   const body = renderMessageBody(message);
   const bodyWithReply = reply.line ? `${reply.line}\n${body}` : body;
+  // message_id = the QQ/OneBot message id (message_sid inbound / delivery_message_id
+  // outbound), resolved in persistence as onebot_id. Globally unique across both
+  // tables + same namespace as reply_to, so `focus_* <peer> <message_id>` is a
+  // usable handle. Fallback to internal id only if onebot_id is somehow absent.
+  const displayId = typeof message.onebot_id === 'string' && message.onebot_id.trim() !== ''
+    ? message.onebot_id.trim()
+    : message.id;
   return formatTaggedBlock('MESSAGE', {
-    message_id: message.id,
+    message_id: displayId,
     timestamp: toDateTime(message.message_timestamp || message.received_at),
     sender: senderLabel(message),
     direction,
