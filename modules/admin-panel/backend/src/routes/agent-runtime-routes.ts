@@ -1202,6 +1202,23 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  // 语料构成:真 corpus 的 source_kind 分桶(file_chunk / action_stream / inbound)。
+  router.get('/xiaoni/passive-recall/corpus-stats', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const stats = await countRecallCues(identityKey);
+      res.json({ success: true, data: stats, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni recall corpus stats',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // 触发2 浮现流水 feed(每次落地自动召回的 shadow 留痕;只读展示,绝不投递)。
   router.get('/xiaoni/passive-recall/shadow-log', async (req, res) => {
     try {
