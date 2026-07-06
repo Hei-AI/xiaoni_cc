@@ -251,8 +251,8 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
       reachedReadHistory: true, unreadCount: 1, directMentions: 0,
       latestMessageId: 101, earliestMessageId: 100, windowUnreadCount: 1,
       messages: [
-        { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '读过的', received_at: '2026-06-19T02:00:00.000Z', is_read: 1, was_mentioned: 0 },
-        { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '没读的', received_at: '2026-06-19T02:00:20.000Z', is_read: 0, was_mentioned: 0, reply_to_id: 'sid-100', reply_to_message_id: 100, reply_to_body: '读过的', reply_to_sender: '李阿花' }
+        { id: 100, onebot_id: 'sid-100', peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '读过的', received_at: '2026-06-19T02:00:00.000Z', is_read: 1, was_mentioned: 0 },
+        { id: 101, onebot_id: 'sid-101', peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '没读的', received_at: '2026-06-19T02:00:20.000Z', is_read: 0, was_mentioned: 0, reply_to_id: 'sid-100', reply_to_handle: 'sid-100', reply_to_body: '读过的', reply_to_sender: '李阿花' }
       ]
     }),
     recordQqUsageThreadSeen: async () => undefined,
@@ -281,10 +281,11 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   assert.match(win.content, /peer_id="85178516"/);
   assert.match(win.content, /unread_before_window="2"/);
   assert.match(win.content, /has_older_messages="true"/);
-  // message_id 保留；reply_to 现在渲染 reply_to_message_id(内部 id)——与 message_id 同命名空间，
-  // 她能 focus_private 85178516 100 定位到原消息。短且完整的引用正文内联透出、无截断标记。
-  assert.match(win.content, /message_id="100"/);
-  assert.match(win.content, /message_id="101"[^>]*reply_to="100"/);
+  // message_id 现在是 OneBot 消息 id(onebot_id)；reply_to 是被引用消息的 OneBot id
+  // 句柄(reply_to_handle)——同命名空间，她能 focus_private 85178516 sid-100 定位原消息。
+  // 短且完整的引用正文内联透出、无截断标记。
+  assert.match(win.content, /message_id="sid-100"/);
+  assert.match(win.content, /message_id="sid-101"[^>]*reply_to="sid-100"/);
   assert.match(win.content, /「引用 李阿花: 读过的」/);
   assert.doesNotMatch(win.content, /截断|非文字消息|原消息已不在记录/);
   // read_state 只在未读那条出现（读过的默认态不渲染）→ 恰好一次
@@ -520,7 +521,7 @@ function windowStore(messages: Record<string, unknown>[]) {
 
 test('reply preview: short full text renders with no marker + usable reply_to id', async () => {
   const service = new QqUsageService(windowStore([
-    { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个你看看', received_at: '2026-07-02T01:31:50.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-x', reply_to_message_id: 27590, reply_to_body: '话说 你现在用qqusage', reply_to_sender: '李阿花' }
+    { id: 100, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个你看看', received_at: '2026-07-02T01:31:50.000Z', is_read: 1, was_mentioned: 0, reply_to_id: '27590', reply_to_handle: '27590', reply_to_body: '话说 你现在用qqusage', reply_to_sender: '李阿花' }
   ]));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
   assert.match(win.content, /reply_to="27590"/);
@@ -531,7 +532,7 @@ test('reply preview: short full text renders with no marker + usable reply_to id
 test('reply preview: long body is truncated with an explicit marker but still reachable', async () => {
   const long = '一二三四五六七八九十'.repeat(6); // 60 chars > REPLY_SNIPPET_MAX(40)
   const service = new QqUsageService(windowStore([
-    { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '看这段', received_at: '2026-07-02T01:32:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-y', reply_to_message_id: 500, reply_to_body: long, reply_to_sender: '楠楠' }
+    { id: 101, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '看这段', received_at: '2026-07-02T01:32:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: '500', reply_to_handle: '500', reply_to_body: long, reply_to_sender: '楠楠' }
   ]));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
   assert.match(win.content, /reply_to="500"/);
@@ -540,20 +541,33 @@ test('reply preview: long body is truncated with an explicit marker but still re
 
 test('reply preview: media/link quote (no text) says so, still reachable', async () => {
   const service = new QqUsageService(windowStore([
-    { id: 102, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个', received_at: '2026-07-02T01:33:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-z', reply_to_message_id: 610, reply_to_body: '', reply_to_sender: '李阿花' }
+    { id: 102, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '这个', received_at: '2026-07-02T01:33:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: '610', reply_to_handle: '610', reply_to_body: '', reply_to_sender: '李阿花' }
   ]));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
   assert.match(win.content, /reply_to="610"/);
   assert.match(win.content, /非文字消息/);
 });
 
-test('reply preview: quoted row gone → honest dead-end, no phantom reply_to id', async () => {
+test('reply preview: unresolvable handle but body known → show content inline, no phantom reply_to, no false alarm', async () => {
+  // reply_to_handle unresolved (quoted row not jumpable), but we DO have the quoted
+  // body. Show the content inline (she can still read what was quoted) without a
+  // phantom reply_to id and without the misleading 原消息已不在记录 (the content is right there).
   const service = new QqUsageService(windowStore([
-    { id: 103, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '还记得吗', received_at: '2026-07-02T01:34:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-gone', reply_to_body: '很久以前的话' }
+    { id: 103, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '还记得吗', received_at: '2026-07-02T01:34:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-gone', reply_to_body: '很久以前的话', reply_to_sender: '李阿花' }
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /「引用 李阿花: 很久以前的话」/);
+  assert.doesNotMatch(win.content, /reply_to=/); // no usable handle → no phantom id
+  assert.doesNotMatch(win.content, /原消息已不在记录/); // content is shown → don't false-alarm
+});
+
+test('reply preview: true dead-end (no handle, no body) → honest 原消息已不在记录', async () => {
+  const service = new QqUsageService(windowStore([
+    { id: 104, peer_id: '85178516', account_id: '1129974489', sender_id: '85178516', sender_name: '李阿花', raw_body: '还记得吗', received_at: '2026-07-02T01:34:30.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-gone2', reply_to_body: '' }
   ]));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
   assert.match(win.content, /原消息已不在记录/);
-  assert.doesNotMatch(win.content, /reply_to=/); // no usable id → no phantom handle
+  assert.doesNotMatch(win.content, /reply_to=/);
 });
 
 test('focus around anchorMissing falls back to latest window with a note', async () => {

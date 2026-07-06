@@ -145,7 +145,9 @@ export interface InboundContext {
   AccountId?: string;
   ParentSessionKey?: string;
   MessageSid?: string;
+  NativeMsgId?: string;
   ReplyToId?: string;
+  NativeReplyMsgId?: string;
   ReplyToBody?: string;
   ReplyToSender?: string;
   ReplyToSenderId?: string;

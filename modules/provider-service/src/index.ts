@@ -10,6 +10,7 @@ import {
   ensureSelfEvolutionSchema,
   ensureTopicLabSchema,
   upsertAgentMediaAssets,
+  setQqUsageOutboundNapcatMsgId,
 } from '@qq-bot/persistence';
 import { aiConfig, inboundLivenessConfig, serverConfig } from './config';
 import { evaluateInboundLiveness } from './services/inbound-liveness';
@@ -1853,6 +1854,36 @@ app.post(['/webhook', '/api/onebot/events', '/api/onebot/webhook'], async (req, 
     // inbound watchdog stays quiet during legitimately quiet stretches as long
     // as NapCat keeps pushing heartbeats.
     lastNapcatEventAt = Date.now();
+    // Self-sent message capture (reportSelfMessage). NapCat pushes 小腻's own sends
+    // back to us; we do NOT ingest them (no run, no unread, no notify) — the only
+    // thing we harvest is the NTQQ-native msgId (raw.msgId), keyed EXACTLY by the
+    // OneBot message_id both the send response and this event carry, so a later
+    // raw-only reply quoting 小腻 can resolve to a jumpable handle. Best-effort;
+    // this branch MUST return before the normal ingest path.
+    const ev = event as Record<string, unknown>;
+    const selfId = String(ev.self_id ?? '').trim();
+    const evUserId = String(ev.user_id ?? '').trim();
+    const isSelfSent = event.post_type === 'message_sent'
+      || (event.post_type === 'message' && selfId !== '' && selfId === evUserId);
+    if (isSelfSent) {
+      try {
+        const deliveryMessageId = String(ev.message_id ?? '').trim();
+        const rawMsgId = String((ev.raw as Record<string, unknown> | undefined)?.msgId ?? '').trim();
+        if (deliveryMessageId && rawMsgId) {
+          await setQqUsageOutboundNapcatMsgId({ deliveryMessageId, napcatMsgId: rawMsgId });
+        }
+      } catch (error) {
+        moduleLogger.warn('Failed to capture self-sent napcat_msg_id', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      return res.status(202).json({
+        success: true,
+        ignored: true,
+        reason: 'self_sent_captured',
+        timestamp: new Date().toISOString()
+      });
+    }
     if (event.post_type !== 'message') {
       return res.status(202).json({
         success: true,

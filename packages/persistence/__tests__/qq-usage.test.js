@@ -424,8 +424,11 @@ test('listQqUsageThreadWindow interleaves self-sent messages by timestamp withou
 
 test('listQqUsageThreadWindow mode=around centers on the anchor and seeds scroll cursors', async () => {
   const threadKey = 'qq:direct:1129974489:85178516';
+  // message_sid = the OneBot id (what 小腻 sees + passes to focus). Anchor now
+  // resolves by message_sid, not the internal autoincrement id.
   const mk = (id, ts, body) => ({
-    id: BigInt(id), session_key: threadKey, chat_type: 'direct', peer_id: '85178516', peer_name: '李阿花',
+    id: BigInt(id), message_sid: String(700000000 + id), session_key: threadKey, chat_type: 'direct',
+    peer_id: '85178516', peer_name: '李阿花',
     sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
     received_at: new Date(ts), body_for_agent: body, raw_body: body,
     was_mentioned: 0, raw_payload: {}, inbound_context: {}
@@ -441,7 +444,7 @@ test('listQqUsageThreadWindow mode=around centers on the anchor and seeds scroll
       })
     },
     agentInboundMessage: {
-      findUnique: async ({ where }) => (String(where.id) === '200' ? anchorRow : null),
+      findFirst: async ({ where }) => (String(where.message_sid) === anchorRow.message_sid ? anchorRow : null),
       findMany: async (q) => {
         const dir = Array.isArray(q.orderBy) ? q.orderBy[0].received_at : q.orderBy.received_at;
         return dir === 'desc' ? older.slice(0, q.take) : newer.slice(0, q.take);
@@ -454,7 +457,7 @@ test('listQqUsageThreadWindow mode=around centers on the anchor and seeds scroll
   };
   const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
 
-  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: 200, limit: 10 });
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: anchorRow.message_sid, limit: 10 });
 
   // older (reversed to asc) + anchor + newer, ascending, anchor in the middle
   assert.equal(window.anchorMissing, undefined);
@@ -474,8 +477,49 @@ test('listQqUsageThreadWindow mode=around returns anchorMissing when the quoted 
       })
     },
     agentInboundMessage: {
-      findUnique: async () => null, // pruned / unknown id → no reachable path
+      findFirst: async () => null, // pruned / unknown id → no inbound anchor by message_sid
+      findUnique: async () => null, // and no inbound anchor by internal-id fallback either
       findMany: async () => [],
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async () => ([]) // no outbound match either → anchorMissing
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: '999999', limit: 10 });
+
+  assert.equal(window.anchorMissing, true);
+  assert.equal(window.messages.length, 0);
+  assert.equal(window.earliestMessageId, null);
+  assert.equal(window.latestMessageId, null);
+});
+
+test('mode=around resolves a scroll cursor by internal id when message_sid does not match (regression)', async () => {
+  // scroll_private/scroll_group feed back the window's earliest/latest, which are the
+  // INTERNAL inbound row id — not a QQ message_sid. getMessageAnchor must fall back to
+  // an internal-id lookup or pagination breaks (the OneBot-id-handle switch regressed this).
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const mk = (id, ts, body) => ({
+    id: BigInt(id), message_sid: String(700000000 + id), session_key: threadKey, chat_type: 'direct',
+    peer_id: '85178516', peer_name: '李阿花', sender_id: '85178516', sender_name: '李阿花',
+    account_id: '1129974489', is_read: 1, received_at: new Date(ts), body_for_agent: body, raw_body: body,
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  });
+  const anchorRow = mk(201, '2026-07-02T01:27:31.000Z', 'anchor');
+  const older = [mk(200, '2026-07-02T01:26:00.000Z', 'older')];
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({ session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489', unread_count: 0, direct_mentions: 0, last_read_received_at: null })
+    },
+    agentInboundMessage: {
+      findFirst: async () => null, // cursor 201 is an internal id, not a QQ message_sid → no match
+      findUnique: async ({ where }) => (String(where.id) === '201' ? anchorRow : null), // internal-id fallback resolves it
+      findMany: async (q) => {
+        const dir = Array.isArray(q.orderBy) ? q.orderBy[0].received_at : q.orderBy.received_at;
+        return dir === 'desc' ? older.slice(0, q.take) : [];
+      },
       count: async () => 0,
       aggregate: async () => ({ _max: { received_at: null } })
     },
@@ -483,11 +527,7 @@ test('listQqUsageThreadWindow mode=around returns anchorMissing when the quoted 
     $queryRawUnsafe: async () => ([])
   };
   const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
-
-  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: 999999, limit: 10 });
-
-  assert.equal(window.anchorMissing, true);
-  assert.equal(window.messages.length, 0);
-  assert.equal(window.earliestMessageId, null);
-  assert.equal(window.latestMessageId, null);
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'around', anchorMessageId: 201, limit: 10 });
+  assert.equal(window.anchorMissing, undefined);
+  assert.deepEqual(window.messages.map((m) => m.body_for_agent), ['older', 'anchor']);
 });
