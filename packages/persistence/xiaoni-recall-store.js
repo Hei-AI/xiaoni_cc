@@ -146,13 +146,81 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return { deleted: result.count };
   }
 
+  // ── 触发2 shadow 留痕(只记录 + 管理端展示,绝不投递)──────────────────────
+  // raw SQL(和向量查询一致);Json 列走 ::jsonb 参数化。
+  async function insertRecallShadowLog(record = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = record.identityKey || 'xiaoni';
+    const occurredAt = toDateOrNull(record.occurredAt) || new Date(0); // 落地时刻由调用方给;缺则纪元占位(不注入时钟漂移)
+    const params = [
+      identityKey,
+      occurredAt,
+      record.queryRef || null,
+      typeof record.queryText === 'string' ? record.queryText.slice(0, 2000) : null,
+      !!record.taskLocked,
+      typeof record.bandFloor === 'number' ? record.bandFloor : null,
+      typeof record.bandCeiling === 'number' ? record.bandCeiling : null,
+      record.silent !== false,
+      Number.isFinite(record.corpusCount) ? record.corpusCount : 0,
+      Number.isFinite(record.topK) ? record.topK : 0,
+      JSON.stringify(Array.isArray(record.surfaced) ? record.surfaced : []),
+      JSON.stringify(record.droppedCounts && typeof record.droppedCounts === 'object' ? record.droppedCounts : {}),
+      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : [])
+    ];
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO xiaoni_recall_shadow_log
+         (identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
+          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb)
+       RETURNING id`,
+      ...params
+    );
+    const id = rows && rows[0] ? rows[0].id : null;
+    return { id: typeof id === 'bigint' ? id.toString() : id };
+  }
+
+  async function listRecallShadowLog(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const limit = Math.max(1, Math.min(Number(params.limit) || 50, 500));
+    const onlySurfaced = params.onlySurfaced === true; // 只看冒了东西的(过滤掉海量静默)
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
+              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample
+       FROM xiaoni_recall_shadow_log
+       WHERE identity_key = $1${onlySurfaced ? ' AND silent = false' : ''}
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT $2`,
+      identityKey,
+      limit
+    );
+    return rows.map((row) => ({
+      id: typeof row.id === 'bigint' ? row.id.toString() : row.id,
+      identityKey: row.identity_key,
+      occurredAt: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : row.occurred_at,
+      queryRef: row.query_ref,
+      queryText: row.query_text,
+      taskLocked: row.task_locked,
+      bandFloor: row.band_floor,
+      bandCeiling: row.band_ceiling,
+      silent: row.silent,
+      corpusCount: row.corpus_count,
+      topK: row.top_k,
+      surfaced: Array.isArray(row.surfaced) ? row.surfaced : [],
+      droppedCounts: row.dropped_counts && typeof row.dropped_counts === 'object' ? row.dropped_counts : {},
+      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : []
+    }));
+  }
+
   return {
     getExistingContentHashes,
     upsertRecallCues,
     listRecallCandidates,
     getRecallCueByRef,
     countRecallCues,
-    pruneFileChunks
+    pruneFileChunks,
+    insertRecallShadowLog,
+    listRecallShadowLog
   };
 }
 
