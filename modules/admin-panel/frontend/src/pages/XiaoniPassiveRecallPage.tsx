@@ -291,6 +291,84 @@ function FileCandidateRow({ candidate }: { candidate: RuntimeFileCandidate }) {
   );
 }
 
+interface ShadowLogLead {
+  lead?: { text?: string; kind?: string; pointer?: string | null };
+  cos?: number;
+  sourceRef?: string;
+  provenance?: { source?: string; cueClass?: string; leadTemplate?: string; peer?: string | null };
+}
+
+interface ShadowLogEntry {
+  id: string;
+  occurredAt: string;
+  queryText?: string;
+  queryRef?: string | null;
+  taskLocked?: boolean;
+  silent?: boolean;
+  bandFloor?: number | null;
+  bandCeiling?: number | null;
+  corpusCount?: number;
+  topK?: number;
+  surfaced: ShadowLogLead[];
+  droppedCounts?: Record<string, number>;
+}
+
+function legLabel(prov?: ShadowLogLead['provenance']): string {
+  const t = prov?.leadTemplate || prov?.cueClass || prov?.source || '';
+  if (prov?.source === 'qq_inbound' || t === 'peer_message') return '别人说过';
+  if (t === 'db_file_provenance' || t === 'file_chunk') return '文件记忆';
+  if (t === 'db_spoken_fragment') return '自己说过';
+  return '动作流';
+}
+
+function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
+  const dc = entry.droppedCounts || {};
+  return (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {entry.silent
+            ? <StatusPill tone="neutral">静默</StatusPill>
+            : <StatusPill tone="success">浮现</StatusPill>}
+          {entry.taskLocked ? <StatusPill tone="warning">task-locked</StatusPill> : null}
+          <span className="truncate text-sm text-foreground">「{entry.queryText || entry.queryRef || '—'}」</span>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground">{formatTimestamp(entry.occurredAt, { fallback: '-' })}</span>
+      </div>
+      {entry.surfaced?.length ? (
+        <div className="mt-2 space-y-1.5">
+          {entry.surfaced.map((s, index) => (
+            <div key={s.sourceRef || index} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
+              <div className="flex items-center gap-2">
+                <StatusPill tone="info">{legLabel(s.provenance)}</StatusPill>
+                <span className="text-xs text-muted-foreground">cos {typeof s.cos === 'number' ? s.cos.toFixed(3) : '-'}</span>
+              </div>
+              <div className="mt-1 break-words text-sm text-foreground">{s.lead?.text || s.sourceRef}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span>近邻 {entry.topK ?? 0}</span>
+        <span>带 [{typeof entry.bandFloor === 'number' ? entry.bandFloor.toFixed(2) : '-'}, {typeof entry.bandCeiling === 'number' ? entry.bandCeiling.toFixed(2) : '-'}]</span>
+        <span>太像 {dc.drop_too_similar ?? 0}</span>
+        <span>在场 {dc.drop_in_context ?? 0}</span>
+        <span>太远 {dc.drop_too_far ?? 0}</span>
+      </div>
+    </div>
+  );
+}
+
+async function fetchShadowLog(onlySurfaced: boolean): Promise<ShadowLogEntry[]> {
+  const params = new URLSearchParams({ limit: '80', only_surfaced: String(onlySurfaced) });
+  const response = await fetch(`/api/xiaoni/passive-recall/shadow-log?${params.toString()}`);
+  const json = (await response.json()) as ApiResponse<{ entries: ShadowLogEntry[] }>;
+  if (!json.success) {
+    throw new Error(json.error || '加载浮现流水失败');
+  }
+  return json.data.entries || [];
+}
+
 export const XiaoniPassiveRecallPage: React.FC = () => {
   const [range, setRange] = React.useState<TimeRange>('24h');
   const [limitInput, setLimitInput] = React.useState('80');
@@ -364,6 +442,14 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
   const counts = data?.counts || {};
   const cues = data?.cues || [];
   const fileCandidates = data?.fileCandidates || [];
+
+  const [onlySurfaced, setOnlySurfaced] = React.useState(true);
+  const shadowLogQuery = useQuery({
+    queryKey: ['xiaoni-passive-recall-shadow-log', onlySurfaced],
+    queryFn: () => fetchShadowLog(onlySurfaced),
+    refetchInterval: 15000,
+  });
+  const shadowLogEntries = shadowLogQuery.data || [];
 
   return (
     <PageShell className="max-w-7xl">
@@ -540,6 +626,34 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
           )}
         </SectionPanel>
       </div>
+
+      <SectionPanel
+        title="浮现流水（触发2 shadow）"
+        description="每次内容落地自动跑召回 → 只记录不投递。绝大多数落地应静默；浮现的按腿分组（别人说过 / 文件记忆 / 自己说过 / 动作流）。"
+        icon={<BrainCircuit className="h-4 w-4 text-primary" />}
+        action={
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">只看浮现</span>
+            <Switch checked={onlySurfaced} onCheckedChange={setOnlySurfaced} aria-label="只看浮现" />
+          </div>
+        }
+        contentClassName="space-y-2"
+      >
+        {shadowLogQuery.isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading 浮现流水...
+          </div>
+        ) : shadowLogEntries.length ? (
+          shadowLogEntries.map((entry) => <ShadowLogRow key={entry.id} entry={entry} />)
+        ) : (
+          <EmptyState
+            icon={<BellOff className="h-10 w-10" />}
+            title={onlySurfaced ? '还没有浮现记录' : '还没有浮现流水'}
+            description="钩子部署后，每次内容落地都会在这里留痕（多数静默）。"
+          />
+        )}
+      </SectionPanel>
 
       <div className={cn('rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground')}>
         生成时间：{formatTimestamp(data?.generatedAt, { fallback: '-' })} · 当前页面只展示 shadow 数据，不代表记忆已经浮现或被小腻看到。
