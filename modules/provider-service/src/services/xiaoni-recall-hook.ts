@@ -34,27 +34,20 @@ function getIngest() {
   return ingestSingleton;
 }
 
-// 入站消息落库后调用。同步返回,内部完全 fire-and-forget。
-export function fireInboundRecall(record: {
-  id?: number | string;
-  messageSid?: string;
-  chatType?: string;
-  senderName?: string;
-  peerName?: string;
-  bodyForAgent?: string;
-  messageTimestamp?: string;
-  receivedAt?: string;
-} | null | undefined): void {
+// 入站消息落库后调用。record 形状宽松(适配器防御式取字段);同步返回,内部完全 fire-and-forget。
+export function fireInboundRecall(record: object | null | undefined): void {
   if (!record || !EMBEDDING_BASE_URL) {
     return; // embedding 未配置则整体静默(不建 shadow 语料)。
   }
+  const r = record as Record<string, any>;
   const ingest = getIngest();
-  const landedRef = `inbound:${record.id ?? record.messageSid ?? ''}`;
-  const landedText = record.bodyForAgent || '';
-  const occurredAt = record.messageTimestamp || record.receivedAt || undefined;
+  const landedRef = `inbound:${r.id ?? r.messageSid ?? ''}`;
+  const landedText = typeof r.bodyForAgent === 'string' ? r.bodyForAgent : '';
+  const occurredAt = (typeof r.messageTimestamp === 'string' && r.messageTimestamp)
+    || (typeof r.receivedAt === 'string' && r.receivedAt) || undefined;
   // 触发1 + 触发2,均 fire-and-forget,失败吞掉。
   Promise.resolve()
-    .then(() => ingest.ingestInboundMessages([record]))
+    .then(() => ingest.ingestInboundMessages([r]))
     .catch(() => {});
   Promise.resolve()
     .then(() => ingest.runShadowRecall({ landedText, landedRef, contextRefs: [], taskLocked: false, occurredAt }))
