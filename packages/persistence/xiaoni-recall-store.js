@@ -99,7 +99,13 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       `embedding_text, embedding, content_hash ` +
       `FROM xiaoni_recall_cues WHERE ${where} ` +
       `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
-    const rows = await prisma.$queryRawUnsafe(sql, ...sqlParams);
+    // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
+    // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
+    const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
+    const [, rows] = await prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`),
+      prisma.$queryRawUnsafe(sql, ...sqlParams)
+    ]);
     return rows.map(parseRow);
   }
 
