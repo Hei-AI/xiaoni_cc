@@ -504,6 +504,51 @@ function buildRecallCuesFromActionStream(items = []) {
   return items.map(buildRecallCueFromActionStreamItem).filter(Boolean);
 }
 
+// agent_inbound_messages 行 → recall cue(补「别人说过 X」这条腿)。
+// 入站内容不是动作流条目(无 command/runtimePath),单独适配但复用同一 hash/截断/记录形状。
+// sourceKind='inbound' 单独成桶(feed 按腿分组);leadTemplate='peer_message'(措辞「XX 提过」)。
+// 返回 { sourceKind, sourceRef, occurredAt, embeddingText, provenance, contentHash } 或 null。
+function buildRecallCueFromInboundMessage(row) {
+  if (!row || typeof row !== 'object') {
+    return null;
+  }
+  const rawId = row.id != null ? String(row.id) : null;
+  const idRef = firstString(rawId, row.message_sid, row.messageSid);
+  if (!idRef) {
+    return null; // 无稳定引用无法 upsert / 在场排除。
+  }
+  const body = firstString(row.body_for_agent, row.bodyForAgent, row.raw_body, row.rawBody, row.body);
+  const embeddingText = truncateText(body, 1200);
+  if (!embeddingText) {
+    return null; // 没有可嵌内容(纯图片/纯指令等)。
+  }
+  const peer = firstString(row.sender_name, row.senderName, row.peer_name, row.peerName);
+  const chatType = firstString(row.chat_type, row.chatType);
+  const tsRaw = row.message_timestamp || row.messageTimestamp || row.received_at || row.receivedAt
+    || row.created_at || row.createdAt || null;
+  const ts = tsRaw instanceof Date ? tsRaw.toISOString() : firstString(tsRaw);
+  const privacyScope = chatType === 'group' ? 'group' : 'private_peer';
+  const provenance = {
+    source: 'qq_inbound',
+    kind: chatType ? `inbound_${chatType}` : 'inbound',
+    toolName: null,
+    peer: peer || null,
+    ts,
+    path: null,
+    privacyScope,
+    cueClass: 'db_life_cue',
+    leadTemplate: 'peer_message'
+  };
+  return {
+    sourceKind: 'inbound',
+    sourceRef: `inbound:${idRef}`,
+    occurredAt: ts,
+    embeddingText,
+    provenance,
+    contentHash: contentHashOf(embeddingText)
+  };
+}
+
 module.exports = {
   OPERATIONAL_SOURCES,
   classifyRuntimePath,
@@ -512,5 +557,6 @@ module.exports = {
   extractPassiveRecallCuesFromActionStream,
   extractRuntimePaths,
   buildRecallCueFromActionStreamItem,
-  buildRecallCuesFromActionStream
+  buildRecallCuesFromActionStream,
+  buildRecallCueFromInboundMessage
 };
