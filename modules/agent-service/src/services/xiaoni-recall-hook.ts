@@ -6,7 +6,6 @@
 // 轻量防抖:突发 append 合并,避免每次 append 都投影一遍头部。
 // docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3
 
-import axios from 'axios';
 import * as persistence from '@qq-bot/persistence';
 
 const IDENTITY_KEY = 'xiaoni';
@@ -16,20 +15,26 @@ const PROVIDER_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-
 const EMBEDDING_TIMEOUT_MS = Number.parseInt(process.env.EMBEDDING_TIMEOUT_MS || '30000', 10);
 const ENABLED = process.env.XIAONI_PASSIVE_RECALL_INGEST_ENABLED !== 'false'; // 默认开,可环境关
 
+// agent-service 无 axios 依赖 → 用 Node 18 全局 fetch(不加依赖)。
 async function embed(texts: string[]): Promise<number[][]> {
   if (!Array.isArray(texts) || texts.length === 0) {
     return [];
   }
-  const resp = await axios.post(
-    `${PROVIDER_URL}/v1/embeddings`,
-    { input: texts, encoding_format: 'float', normalize: 2 },
-    { timeout: EMBEDDING_TIMEOUT_MS, headers: { 'Content-Type': 'application/json' } }
-  );
-  const data = resp.data?.data;
+  const resp = await fetch(`${PROVIDER_URL}/v1/embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ input: texts, encoding_format: 'float', normalize: 2 }),
+    signal: AbortSignal.timeout(EMBEDDING_TIMEOUT_MS)
+  });
+  if (!resp.ok) {
+    return texts.map(() => []);
+  }
+  const json = (await resp.json()) as { data?: Array<{ embedding?: number[] }> };
+  const data = json?.data;
   if (!Array.isArray(data) || data.length !== texts.length) {
     return texts.map(() => []);
   }
-  return data.map((e: { embedding?: number[] }) => (Array.isArray(e?.embedding) ? e.embedding : []));
+  return data.map((e) => (Array.isArray(e?.embedding) ? e.embedding : []));
 }
 
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;
