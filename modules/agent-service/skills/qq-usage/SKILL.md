@@ -22,15 +22,15 @@ This skill opens, searches, scrolls, focuses, and closes QQ windows. It does not
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py open_inbox
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_inbox older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py search_inbox 阿花
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private 85178516 27590
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private <对方QQ号>
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_private <对方QQ号> 27590
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py focus_group 123 88012
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private 85178516 older
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_private <对方QQ号> older
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py scroll_group 123 older
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_private_to_latest <对方QQ号>
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py jump_group_to_latest 123
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_private_away 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_private_away <对方QQ号>
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_group_away 123
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 mentions_only
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_mode 123 all
@@ -38,7 +38,7 @@ python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_group_notification_delay 123 0
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py put_qq_away
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py view_profile
-python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py view_profile 85178516
+python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py view_profile <对方QQ号>
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_avatar /xiaoni-runtime/picture/new_avatar.png
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_signature "今天也在好好生活"
 python3 /app/modules/agent-service/skills/qq-usage/scripts/qq_usage.py set_signature ""
@@ -70,7 +70,7 @@ Open your profile card first, then edit. These edits change **your own QQ profil
 
 ## Conversation IDs
 
-- For private chats, use the other person's QQ id: `focus_private 85178516`.
+- For private chats, use the other person's QQ id: `focus_private <对方QQ号>`.
 - For groups, use the QQ group id: `focus_group 123`.
 - Do not pass internal `thread_key` / `session_key` values to this skill. Use the QQ id or group id instead.
 - If you only remember a name, use `search_inbox name` first. Search matches currently stored visible names, group names, and QQ ids; if a group only has a fallback name like `群 123`, search by the real group name will not find it until that name is stored.

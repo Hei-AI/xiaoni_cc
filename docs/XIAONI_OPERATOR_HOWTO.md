@@ -129,7 +129,7 @@ Examples:
 
 ```bash
 python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_group 123 /xiaoni-runtime/picture/example.png
-python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_private 85178516 /xiaoni-runtime/picture/example.png --caption "可选配文"
+python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py send_private <对方QQ号> /xiaoni-runtime/picture/example.png --caption "可选配文"
 python3 /app/modules/agent-service/skills/qq-send-image/scripts/qq_send_image.py check --status-key abc123
 ```
 
