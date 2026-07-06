@@ -6,6 +6,7 @@ import {
 } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
+import { fireInboundRecall } from './xiaoni-recall-hook';
 import {
   FinalizedInboundContext,
   InboxConversationSummary,
@@ -137,6 +138,9 @@ export class InboundInboxService {
     });
 
     this.addToUnreadBuffer(message);
+
+    // 被动浮现:入站落地 → fire-and-forget ingest + shadow 召回(不投递,零缓存,失败不影响主链)。
+    fireInboundRecall(message);
 
     return {
       traceId: message.traceId,
