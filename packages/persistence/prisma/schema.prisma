@@ -1805,7 +1805,8 @@ model XiaoniRecallCue {
   provenance     Json      @default("{}")     // {source,kind,toolName,peer,ts,path,privacyScope,cueClass,leadTemplate}
   occurred_at    DateTime? @db.Timestamptz(3)
   embedding_text String
-  embedding      Json                          // float[]
+  embedding      Json                          // float[](保留:回填源 + JS band-pass 兜底)
+  embedding_vec  Unsupported("vector(768)")?   // pgvector;由 DB 触发器从 embedding 派生(store 写路径不碰)
   content_hash   String    @db.VarChar(64)     // 变更重嵌 + 去重
   created_at     DateTime  @default(now()) @db.Timestamptz(3)
   updated_at     DateTime  @updatedAt @db.Timestamptz(3)
