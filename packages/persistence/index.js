@@ -418,6 +418,39 @@ async function getAgentInboundMessageByMessageSid(messageSid, filters = {}, conf
   return row ? normalizeRow(row) : null;
 }
 
+// Enumerate Anthropic Files API ids we uploaded and stamped into the durable stack,
+// where EVERY occurrence is older than the cutoff (so the id is guaranteed out of any
+// live read window and safe to delete from the org Files store). This is the authoritative
+// source for the provider-side TTL cleaner: the cloak's GET /v1/files LIST returns empty,
+// so we cannot enumerate from Anthropic — our own ledger is the only reliable list.
+// A file_id that also appears in ANY item newer than the cutoff is withheld (HAVING max<cutoff).
+async function listExpiredAnthropicFileIds({ olderThanMs, limit = 500 } = {}, config = {}) {
+  const ms = Number.isFinite(olderThanMs) && olderThanMs > 0 ? olderThanMs : 4 * 24 * 60 * 60 * 1000;
+  const cap = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 5000) : 500;
+  const cutoff = new Date(Date.now() - ms);
+  const sql = createSqlAdapter(config);
+  try {
+    const rows = await sql.query(
+      `SELECT fid
+         FROM (
+           SELECT (regexp_matches(content::text, '"anthropic_file_id"\\s*:\\s*"(file_[A-Za-z0-9]+)"', 'g'))[1] AS fid,
+                  created_at
+             FROM agent_stack_items
+            WHERE content::text LIKE '%anthropic_file_id%'
+         ) t
+        GROUP BY fid
+       HAVING MAX(created_at) < ?
+        LIMIT ?`,
+      [cutoff, cap]
+    );
+    return rows
+      .map((row) => (row && typeof row.fid === 'string' ? row.fid : null))
+      .filter((fid) => fid && fid.length > 0);
+  } finally {
+    await sql.close();
+  }
+}
+
 const trafficPersistence = createTrafficPersistence({
   getPrismaClient,
   Prisma
@@ -554,6 +587,7 @@ module.exports = {
   listAgentInboundMessagesByIds,
   getLatestUnreadAgentInboundMessage,
   getAgentInboundMessageByMessageSid,
+  listExpiredAnthropicFileIds,
   ...require('./time'),
   ...trafficPersistence,
   ...selfEvolutionPersistence,

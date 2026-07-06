@@ -617,6 +617,10 @@ export function resolveDatabaseUrl(config?: DatabaseUrlConfig): string;
 export function createSqlAdapter(config?: DatabaseUrlConfig): SqlAdapter;
 export function getPrismaClient(config?: DatabaseUrlConfig): PrismaClient;
 export function closePrismaClient(): Promise<void>;
+export function listExpiredAnthropicFileIds(
+  params?: { olderThanMs?: number; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<string[]>;
 export function resolveChatAgentPrompt(
   params: { chatType: 'direct' | 'group'; userId?: number | string | null; groupId?: number | string | null },
   config?: DatabaseUrlConfig

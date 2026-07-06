@@ -42,7 +42,11 @@ import {
 } from './services/simple-queue-simulation-context';
 import { FinalizedInboundContext, InboxMessageRecord, InboundMediaAsset, SemanticInboundMessage } from './types';
 import { runtimeStoreService } from './services/runtime-store-service';
-import { uploadImageDataUrlToAnthropicFile } from './services/llm-provider/anthropic-files-service';
+import {
+  uploadImageDataUrlToAnthropicFile,
+  sweepExpiredAnthropicFiles,
+  startAnthropicFilesCleanupSupervisor
+} from './services/llm-provider/anthropic-files-service';
 import {
   applyForcedInboundAgentQueuePolicy,
   decideInboundAgentQueueTrigger,
@@ -2166,6 +2170,18 @@ app.post('/api/internal/media/upload-anthropic-file', async (req, res) => {
   }
 });
 
+// Manually trigger one Anthropic Files API TTL sweep (delete our own uploads older
+// than the TTL). The periodic supervisor runs this on a timer; this route is for
+// on-demand runs and live verification. Never throws; returns the sweep stats.
+app.post('/api/internal/media/anthropic-files/sweep', async (_req, res) => {
+  const result = await sweepExpiredAnthropicFiles(aiConfig);
+  return res.json({
+    success: true,
+    data: result,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.post('/api/internal/transcript-summary/result', async (req, res) => {
   return respondRuntimeFeatureDisabled(res, 'transcript_summary');
 });
@@ -2685,6 +2701,7 @@ async function startServer() {
   await inboxService.initialize();
   await runtimeStoreService.initialize();
   startGroupNotificationAggregationFlushLoop();
+  startAnthropicFilesCleanupSupervisor(aiConfig);
 
   app.listen(serverConfig.port, serverConfig.host, () => {
     moduleLogger.info('Provider service started', {
