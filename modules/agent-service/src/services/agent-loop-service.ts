@@ -51,6 +51,7 @@ import { formatEast8Timestamp } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import { defaultCwebpEncoder } from './qq-send-image-service';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
+import { fireActionStreamRecall } from './xiaoni-recall-hook';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -9080,7 +9081,7 @@ export class AgentLoopService {
       return [];
     }
     try {
-      return await appender.call(this.store, {
+      const rows = await appender.call(this.store, {
         identityKey: XIAONI_IDENTITY_KEY,
         traceId: params.traceId,
         runId: params.runId,
@@ -9090,6 +9091,9 @@ export class AgentLoopService {
         conversationId: params.conversationId ?? null,
         items: params.items
       }) as Array<Record<string, unknown>>;
+      // 被动浮现:动作流落地 → 事件驱动 fire-and-forget ingest + shadow 召回(不投递,零缓存,失败不影响主链)。
+      fireActionStreamRecall();
+      return rows;
     } catch (error) {
       moduleLogger.warn('Failed to append Xiaoni agent stack items', {
         traceId: params.traceId,

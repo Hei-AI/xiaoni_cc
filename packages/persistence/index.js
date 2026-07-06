@@ -21,6 +21,7 @@ const { createCcUsagePersistence } = require('./cc-usage');
 const { createXiaoniActivityPersistence } = require('./xiaoni-activity');
 const passiveRecallExtractor = require('./xiaoni-passive-recall-extractor');
 const recallBandpass = require('./xiaoni-recall-bandpass');
+const recallIngest = require('./xiaoni-recall-ingest');
 const recallFileChunker = require('./xiaoni-recall-file-chunker');
 const { createXiaoniRecallStorePersistence } = require('./xiaoni-recall-store');
 const { createAbExperimentPersistence } = require('./ab-experiment');
@@ -608,6 +609,7 @@ module.exports = {
   ...xiaoniActivityPersistence,
   ...passiveRecallExtractor,
   ...recallBandpass,
+  ...recallIngest,
   ...recallFileChunker,
   ...xiaoniRecallStorePersistence,
   ...abExperimentPersistence,

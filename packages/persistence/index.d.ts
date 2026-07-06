@@ -2449,7 +2449,16 @@ export function buildRecallCuesFromActionStream(items?: Array<Record<string, unk
 export function contentHashOf(text: string): string;
 export function getExistingContentHashes(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<Map<string, string>>;
 export function upsertRecallCues(identityKey: string, records?: XiaoniRecallCueRecord[], config?: DatabaseUrlConfig): Promise<{ upserted: number }>;
-export function listRecallCandidates(params?: { identityKey?: string; excludeSourceRefs?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
+export function listRecallCandidates(params?: { identityKey?: string; queryVector?: number[]; excludeSourceRefs?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
 export function getRecallCueByRef(identityKey: string, sourceRef: string, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord | null>;
+export function getRecallCueVectorsByRefs(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<number[][]>;
 export function countRecallCues(identityKey: string, config?: DatabaseUrlConfig): Promise<{ total: number; byKind: Record<string, number> }>;
 export function pruneFileChunks(identityKey: string, path: string, keepSourceRefs?: string[], config?: DatabaseUrlConfig): Promise<{ deleted: number }>;
+export function buildRecallCueFromInboundMessage(row: Record<string, unknown>): XiaoniRecallCueRecord | null;
+export function insertRecallShadowLog(record: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<{ id: string | null }>;
+export function listRecallShadowLog(params?: { identityKey?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
+export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
+  ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
+  ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
+  runShadowRecall(params: Record<string, unknown>): Promise<XiaoniRecallBandpassResult | null>;
+};

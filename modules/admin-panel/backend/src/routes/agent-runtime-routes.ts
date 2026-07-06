@@ -9,6 +9,8 @@ import {
   bandpassRecall,
   renderRecallLead,
   listRecallCandidates,
+  countRecallCues,
+  listRecallShadowLog,
   getRecallCueByRef,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
@@ -1122,9 +1124,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         throw new Error('failed to embed query text');
       }
 
-      const CORPUS_SCAN_CAP = 50000;
-      const candidates = await listRecallCandidates({ identityKey, excludeSourceRefs: excludeRefs, limit: CORPUS_SCAN_CAP });
-      const corpusTruncated = candidates.length >= CORPUS_SCAN_CAP;
+      // pgvector 最近邻 top-K(替代旧全量扫描 → 治 napi 击穿)。band-pass 仍在 JS 侧算。
+      const TOP_K = 300;
+      const candidates = await listRecallCandidates({ identityKey, queryVector, excludeSourceRefs: excludeRefs, limit: TOP_K });
+      const corpusStats = await countRecallCues(identityKey);
       const result = bandpassRecall({
         query: { vector: queryVector, contextRefs: excludeRefs, taskLocked },
         candidates: candidates.map((cue: any) => ({
@@ -1160,8 +1163,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
           query: { ref: queryRef || null, text: queryText.slice(0, 240), taskLocked },
           band: { floor: result.floor, ceiling: result.ceiling },
           silent: result.silent,
-          corpusCount: candidates.length,
-          corpusTruncated,
+          corpusCount: corpusStats.total,
+          topK: candidates.length,
           surfaced: result.surfaced.map((entry: any) => ({
             lead: renderRecallLead(entry.candidate),
             cos: entry.cos,
@@ -1194,6 +1197,29 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to reindex Xiaoni passive recall corpus',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 触发2 浮现流水 feed(每次落地自动召回的 shadow 留痕;只读展示,绝不投递)。
+  router.get('/xiaoni/passive-recall/shadow-log', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const limit = parsePositiveInteger(req.query.limit, 50, 500);
+      const onlySurfaced = parseQueryBoolean(req.query.only_surfaced ?? req.query.onlySurfaced, false);
+      const entries = await listRecallShadowLog({ identityKey, limit, onlySurfaced });
+      res.json({
+        success: true,
+        data: { streamKind: 'xiaoni_passive_recall_shadow_log', deliveryMode: 'shadow_only', entries },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni passive recall shadow log',
         timestamp: new Date().toISOString()
       });
     }

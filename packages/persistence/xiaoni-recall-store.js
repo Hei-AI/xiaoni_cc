@@ -70,23 +70,60 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return { upserted };
   }
 
-  // 召回候选池:该 identity 的全部 cue(排除当前上下文近窗的 sourceRef = 结构式在场排除的一半)。
+  // 召回候选池:pgvector 最近邻 top-K(排除近窗 sourceRef = 结构式在场排除的一半)。
+  //
+  // band-pass 要的是「相关但不在场」的中间带 —— 太远的下限剔本就不该 fetch,中间带都落在最近邻里,
+  // 所以 top-K 最近邻天然包含要浮现的带子。这也治本地干掉了旧全量 findMany 的 napi 击穿
+  // (76k 行 × 16KB Json embedding 一次序列化 >512MB → Failed to convert rust String into napi string)。
+  // 返回的 top-K 仍带 embedding(几百行 ~5MB,不炸),band-pass 在 JS 侧照旧算 cos + ④ 语义在场排除。
+  // 详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3。
   async function listRecallCandidates(params = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = params.identityKey || 'xiaoni';
+    const queryVector = Array.isArray(params.queryVector) ? params.queryVector : null;
     const excludeSourceRefs = Array.isArray(params.excludeSourceRefs) ? params.excludeSourceRefs : [];
-    const limit = Math.max(1, Math.min(Number(params.limit) || 5000, 50000));
-    const rows = await prisma.xiaoniRecallCue.findMany({
-      where: {
-        identity_key: identityKey,
-        ...(excludeSourceRefs.length ? { source_ref: { notIn: excludeSourceRefs } } : {})
-      },
-      // band-pass 要扫整个语料(相关性不是时近性),按稳定 id 排(occurred_at 对 file_chunk 恒 null,
-      // 会把文件记忆全排到截断边缘)。截断由 take 上限兜,调用方应传满并看 truncated。
-      orderBy: { id: 'desc' },
-      take: limit
-    });
+    const k = Math.max(1, Math.min(Number(params.limit) || 300, 2000));
+    if (!queryVector || queryVector.length === 0) {
+      return []; // 无 query 向量无法最近邻检索(旧全量扫描已废弃)。
+    }
+    // 向量参数走文本 + ::vector 转型(数字数组,注入安全);排除表走 $n::text[] 参数化。
+    const vecLiteral = `[${queryVector.map((x) => Number(x)).join(',')}]`;
+    const sqlParams = [identityKey, vecLiteral, k];
+    let where = 'identity_key = $1 AND embedding_vec IS NOT NULL';
+    if (excludeSourceRefs.length) {
+      sqlParams.push(excludeSourceRefs);
+      where += ' AND source_ref <> ALL($4::text[])';
+    }
+    const sql =
+      `SELECT id, identity_key, source_kind, source_ref, provenance, occurred_at, ` +
+      `embedding_text, embedding, content_hash ` +
+      `FROM xiaoni_recall_cues WHERE ${where} ` +
+      `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
+    // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
+    // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
+    const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
+    const [, rows] = await prisma.$transaction([
+      prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`),
+      prisma.$queryRawUnsafe(sql, ...sqlParams)
+    ]);
     return rows.map(parseRow);
+  }
+
+  // ④ 语义式在场排除用:取一组 sourceRef 的向量(近窗条目)。只回 embedding,量小(近窗几条)。
+  async function getRecallCueVectorsByRefs(identityKey, sourceRefs = [], config = {}) {
+    const prisma = getClient(config);
+    const refs = Array.isArray(sourceRefs) ? sourceRefs.filter(Boolean) : [];
+    if (refs.length === 0) {
+      return [];
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT embedding FROM xiaoni_recall_cues WHERE identity_key = $1 AND source_ref = ANY($2::text[])`,
+      identityKey,
+      refs
+    );
+    return rows
+      .map((row) => (Array.isArray(row.embedding) ? row.embedding : null))
+      .filter((v) => Array.isArray(v) && v.length > 0);
   }
 
   async function getRecallCueByRef(identityKey, sourceRef, config = {}) {
@@ -126,13 +163,82 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return { deleted: result.count };
   }
 
+  // ── 触发2 shadow 留痕(只记录 + 管理端展示,绝不投递)──────────────────────
+  // raw SQL(和向量查询一致);Json 列走 ::jsonb 参数化。
+  async function insertRecallShadowLog(record = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = record.identityKey || 'xiaoni';
+    const occurredAt = toDateOrNull(record.occurredAt) || new Date(0); // 落地时刻由调用方给;缺则纪元占位(不注入时钟漂移)
+    const params = [
+      identityKey,
+      occurredAt,
+      record.queryRef || null,
+      typeof record.queryText === 'string' ? record.queryText.slice(0, 2000) : null,
+      !!record.taskLocked,
+      typeof record.bandFloor === 'number' ? record.bandFloor : null,
+      typeof record.bandCeiling === 'number' ? record.bandCeiling : null,
+      record.silent !== false,
+      Number.isFinite(record.corpusCount) ? record.corpusCount : 0,
+      Number.isFinite(record.topK) ? record.topK : 0,
+      JSON.stringify(Array.isArray(record.surfaced) ? record.surfaced : []),
+      JSON.stringify(record.droppedCounts && typeof record.droppedCounts === 'object' ? record.droppedCounts : {}),
+      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : [])
+    ];
+    const rows = await prisma.$queryRawUnsafe(
+      `INSERT INTO xiaoni_recall_shadow_log
+         (identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
+          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb)
+       RETURNING id`,
+      ...params
+    );
+    const id = rows && rows[0] ? rows[0].id : null;
+    return { id: typeof id === 'bigint' ? id.toString() : id };
+  }
+
+  async function listRecallShadowLog(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const limit = Math.max(1, Math.min(Number(params.limit) || 50, 500));
+    const onlySurfaced = params.onlySurfaced === true; // 只看冒了东西的(过滤掉海量静默)
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
+              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample
+       FROM xiaoni_recall_shadow_log
+       WHERE identity_key = $1${onlySurfaced ? ' AND silent = false' : ''}
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT $2`,
+      identityKey,
+      limit
+    );
+    return rows.map((row) => ({
+      id: typeof row.id === 'bigint' ? row.id.toString() : row.id,
+      identityKey: row.identity_key,
+      occurredAt: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : row.occurred_at,
+      queryRef: row.query_ref,
+      queryText: row.query_text,
+      taskLocked: row.task_locked,
+      bandFloor: row.band_floor,
+      bandCeiling: row.band_ceiling,
+      silent: row.silent,
+      corpusCount: row.corpus_count,
+      topK: row.top_k,
+      surfaced: Array.isArray(row.surfaced) ? row.surfaced : [],
+      droppedCounts: row.dropped_counts && typeof row.dropped_counts === 'object' ? row.dropped_counts : {},
+      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : []
+    }));
+  }
+
   return {
     getExistingContentHashes,
     upsertRecallCues,
     listRecallCandidates,
     getRecallCueByRef,
+    getRecallCueVectorsByRefs,
     countRecallCues,
-    pruneFileChunks
+    pruneFileChunks,
+    insertRecallShadowLog,
+    listRecallShadowLog
   };
 }
 

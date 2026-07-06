@@ -1805,7 +1805,8 @@ model XiaoniRecallCue {
   provenance     Json      @default("{}")     // {source,kind,toolName,peer,ts,path,privacyScope,cueClass,leadTemplate}
   occurred_at    DateTime? @db.Timestamptz(3)
   embedding_text String
-  embedding      Json                          // float[]
+  embedding      Json                          // float[](保留:回填源 + JS band-pass 兜底)
+  embedding_vec  Unsupported("vector(768)")?   // pgvector;由 DB 触发器从 embedding 派生(store 写路径不碰)
   content_hash   String    @db.VarChar(64)     // 变更重嵌 + 去重
   created_at     DateTime  @default(now()) @db.Timestamptz(3)
   updated_at     DateTime  @updatedAt @db.Timestamptz(3)
@@ -1813,4 +1814,27 @@ model XiaoniRecallCue {
   @@unique([identity_key, source_ref], map: "uniq_xiaoni_recall_cue_identity_source")
   @@index([identity_key, occurred_at], map: "idx_xiaoni_recall_cue_identity_occurred")
   @@map("xiaoni_recall_cues")
+}
+
+// 触发2(每次内容落地自动召回)的 shadow 留痕。只记录 + 管理端展示,绝不投递。
+// store 走 raw SQL(和向量查询一致);模型在此作 schema 事实源。
+// 详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §4。
+model XiaoniRecallShadowLog {
+  id             BigInt    @id @default(autoincrement()) @db.BigInt
+  identity_key   String    @db.VarChar(64)
+  occurred_at    DateTime  @default(now()) @db.Timestamptz(3)
+  query_ref      String?   @db.VarChar(512)   // 触发这次召回的落地内容 sourceRef(有则)
+  query_text     String?                       // query 预览(截断)
+  task_locked    Boolean   @default(false)
+  band_floor     Float?
+  band_ceiling   Float?
+  silent         Boolean   @default(true)      // 绝大多数落地应静默(什么都不冒)
+  corpus_count   Int       @default(0)
+  top_k          Int       @default(0)
+  surfaced       Json      @default("[]")       // [{lead, cos, sourceRef, provenance}]
+  dropped_counts Json      @default("{}")       // {drop_too_similar, drop_too_far, drop_in_context}
+  dropped_sample Json      @default("[]")       // 近带边缘剔除样例(调参用)
+
+  @@index([identity_key, occurred_at], map: "idx_xiaoni_recall_shadow_log_identity_occurred")
+  @@map("xiaoni_recall_shadow_log")
 }
