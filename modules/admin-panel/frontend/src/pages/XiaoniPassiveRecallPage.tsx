@@ -96,6 +96,47 @@ function CountTile({ label, value, tone = 'neutral' }: { label: string; value: n
   );
 }
 
+function SurfacedLead({ s }: { s: ShadowLogLead }) {
+  const [open, setOpen] = React.useState(false);
+  const [full, setFull] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(false);
+
+  const toggle = React.useCallback(async () => {
+    if (!open && full === null && s.sourceRef) {
+      setLoading(true);
+      try {
+        const resp = await fetch(`/api/xiaoni/passive-recall/cue?ref=${encodeURIComponent(s.sourceRef)}`);
+        const json = (await resp.json()) as ApiResponse<{ embeddingText?: string } | null>;
+        setFull(json?.data?.embeddingText || '（取不到全文，可能已被重建/删除）');
+      } catch {
+        setFull('（加载失败）');
+      } finally {
+        setLoading(false);
+      }
+    }
+    setOpen((o) => !o);
+  }, [open, full, s.sourceRef]);
+
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
+      <div className="flex items-center gap-2">
+        <StatusPill tone="info">{legLabel(s.provenance)}</StatusPill>
+        <span className="text-xs text-muted-foreground">cos {typeof s.cos === 'number' ? s.cos.toFixed(3) : '-'}</span>
+        {s.sourceRef ? (
+          <button type="button" className="ml-auto text-xs text-primary hover:underline" onClick={() => void toggle()}>
+            {open ? '收起' : loading ? '加载中…' : '展开全文'}
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-1 break-words text-sm text-foreground">{s.lead?.text || s.sourceRef}</div>
+      {open && full !== null ? (
+        <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-background p-2 text-xs leading-5 text-foreground">{full}</pre>
+      ) : null}
+      {s.sourceRef ? <div className="mt-1 break-all text-[11px] text-muted-foreground">{s.sourceRef}</div> : null}
+    </div>
+  );
+}
+
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
   const dc = entry.droppedCounts || {};
   return (
@@ -118,13 +159,7 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
         <div className="mt-2 space-y-1.5">
           <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">→ 勾起的记忆（果）</div>
           {entry.surfaced.map((s, index) => (
-            <div key={s.sourceRef || index} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
-              <div className="flex items-center gap-2">
-                <StatusPill tone="info">{legLabel(s.provenance)}</StatusPill>
-                <span className="text-xs text-muted-foreground">cos {typeof s.cos === 'number' ? s.cos.toFixed(3) : '-'}</span>
-              </div>
-              <div className="mt-1 break-words text-sm text-foreground">{s.lead?.text || s.sourceRef}</div>
-            </div>
+            <SurfacedLead key={s.sourceRef || index} s={s} />
           ))}
         </div>
       ) : null}

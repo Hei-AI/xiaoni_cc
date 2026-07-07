@@ -1210,6 +1210,28 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  // 按 sourceRef 取单条 cue 全文(feed 里"展开全文"用;file_chunk 全 chunk ~1200 字)。
+  router.get('/xiaoni/passive-recall/cue', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const ref = firstQueryString(req.query.ref ?? req.query.source_ref);
+      if (!ref) {
+        res.status(400).json({ success: false, error: 'ref 必填', timestamp: new Date().toISOString() });
+        return;
+      }
+      const cue = await getRecallCueByRef(identityKey, ref);
+      res.json({ success: true, data: cue, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni recall cue',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // 语料构成:真 corpus 的 source_kind 分桶(file_chunk / action_stream / inbound)。
   router.get('/xiaoni/passive-recall/corpus-stats', async (req, res) => {
     try {
