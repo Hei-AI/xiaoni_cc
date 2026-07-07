@@ -42,25 +42,40 @@ function resolveFloor({ taskLocked, floor }) {
   return taskLocked ? TASK_LOCK_FLOOR : DEFAULT_FLOOR;
 }
 
+// 去各向异性:减全库均值 μ 再算 cos。小嵌入模型向量挤在一个公共方向上(cos 整体抬到 ~0.9、
+// 少数向量成"跟谁都像"的枢纽);减 μ 后 cos 拉开、枢纽塌成 ~0。真库实测见 getRecallCorpusMeanVector。
+function subtractMean(vec, mu) {
+  if (!Array.isArray(mu) || !Array.isArray(vec) || mu.length !== vec.length) {
+    return vec;
+  }
+  const out = new Array(vec.length);
+  for (let i = 0; i < vec.length; i += 1) {
+    out[i] = vec[i] - mu[i];
+  }
+  return out;
+}
+
 // candidate: { sourceRef, embedding: number[], provenance, embeddingText }
-// query: { vector: number[], contextRefs?: string[], contextVectors?: number[][], taskLocked?: bool }
-function classifyCandidate(candidate, query, { floor, ceiling, contextRefSet }) {
+// query: { vector, contextRefs?, contextVectors?, meanVector?: number[](给了就去均值), taskLocked? }
+function classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, meanVector }) {
   const sourceRef = candidate && candidate.sourceRef;
   // 结构式在场排除:她刚做/刚读的那条,直接剔(不必算相似度)。
   if (sourceRef && contextRefSet.has(sourceRef)) {
     return { verdict: 'drop_in_context', cos: null };
   }
-  const cos = cosineSimilarity(query.vector, candidate.embedding);
+  const candVec = meanVector ? subtractMean(candidate.embedding, meanVector) : candidate.embedding;
+  const cos = cosineSimilarity(centeredQuery, candVec);
   if (cos > ceiling) {
     return { verdict: 'drop_too_similar', cos };
   }
   if (cos < floor) {
     return { verdict: 'drop_too_far', cos };
   }
-  // 语义式在场排除:和近窗任一条太像 = 换了说法的「刚做过」。
+  // 语义式在场排除:和近窗任一条太像 = 换了说法的「刚做过」(同样去均值后比)。
   const contextVectors = Array.isArray(query.contextVectors) ? query.contextVectors : [];
   for (const ctxVec of contextVectors) {
-    if (cosineSimilarity(candidate.embedding, ctxVec) > ceiling) {
+    const cv = meanVector ? subtractMean(ctxVec, meanVector) : ctxVec;
+    if (cosineSimilarity(candVec, cv) > ceiling) {
       return { verdict: 'drop_in_context', cos };
     }
   }
@@ -79,9 +94,14 @@ function bandpassRecall(params) {
   const ceiling = typeof params.ceiling === 'number' ? params.ceiling : DEFAULT_CEILING;
   const floor = resolveFloor({ taskLocked: !!query.taskLocked, floor: params.floor });
   const contextRefSet = new Set(Array.isArray(query.contextRefs) ? query.contextRefs : []);
+  // 去均值(给了 meanVector 且维度对得上才启用);query 只需中心化一次。
+  const meanVector = Array.isArray(query.meanVector) && query.meanVector.length === query.vector.length
+    ? query.meanVector
+    : null;
+  const centeredQuery = meanVector ? subtractMean(query.vector, meanVector) : query.vector;
 
   const scored = (Array.isArray(candidates) ? candidates : []).map((candidate) => {
-    const { verdict, cos } = classifyCandidate(candidate, query, { floor, ceiling, contextRefSet });
+    const { verdict, cos } = classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, meanVector });
     return { candidate, verdict, cos };
   });
 

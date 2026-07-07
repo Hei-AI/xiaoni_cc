@@ -17,12 +17,42 @@ const {
 const { bandpassRecall } = require('./xiaoni-recall-bandpass');
 const { renderRecallLead } = require('./xiaoni-recall-bandpass');
 
+// 去均值(anisotropy 修复)后 cos 分布整体下移 —— 阈值另设一套(env 可调,先给起点值,按 shadow 真分布再校)。
+const envNum = (name, dflt) => (Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : dflt);
+const CENTERED_FLOOR = envNum('XIAONI_RECALL_FLOOR', 0.15);
+const CENTERED_TASK_FLOOR = envNum('XIAONI_RECALL_TASK_FLOOR', 0.30);
+const CENTERED_CEILING = envNum('XIAONI_RECALL_CEILING', 0.60);
+const MEAN_TTL_MS = 10 * 60 * 1000; // μ 变化慢,缓存 10min,别每次落地扫全库
+
 function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
   }
   if (!persistence || typeof persistence.upsertRecallCues !== 'function') {
     throw new Error('createRecallIngest: persistence 必填');
+  }
+
+  // 全库均值 μ 缓存(去 anisotropy 用)。取不到就退回 raw cos(不阻断)。
+  let cachedMean = null;
+  let cachedMeanAt = 0;
+  async function getMeanVector() {
+    if (typeof persistence.getRecallCorpusMeanVector !== 'function') {
+      return null;
+    }
+    const now = Date.now();
+    if (cachedMean && (now - cachedMeanAt) < MEAN_TTL_MS) {
+      return cachedMean;
+    }
+    try {
+      const mu = await persistence.getRecallCorpusMeanVector(identityKey);
+      if (Array.isArray(mu) && mu.length) {
+        cachedMean = mu;
+        cachedMeanAt = now;
+      }
+    } catch {
+      // 保留旧缓存(若有),不阻断召回
+    }
+    return cachedMean;
   }
 
   // 建好的 cue → 嵌入(内容 hash 没变的跳过,省嵌入)→ upsert。
@@ -88,15 +118,21 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, contextRefs);
     }
 
+    // 去 anisotropy:取 μ 传入(去均值再算 cos)。有 μ 时用去均值空间的阈值。
+    const meanVector = await getMeanVector();
+    const bandParams = meanVector
+      ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING }
+      : {};
     const result = bandpassRecall({
-      query: { vector: queryVector, contextRefs: exclude, contextVectors, taskLocked: !!params.taskLocked },
+      query: { vector: queryVector, contextRefs: exclude, contextVectors, meanVector, taskLocked: !!params.taskLocked },
       candidates: candidates.map((c) => ({
         sourceRef: c.sourceRef,
         embedding: c.embedding,
         provenance: c.provenance,
         embeddingText: c.embeddingText
       })),
-      limit: Number(params.surfaceLimit) || 1
+      limit: Number(params.surfaceLimit) || 1,
+      ...bandParams
     });
 
     const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0 };

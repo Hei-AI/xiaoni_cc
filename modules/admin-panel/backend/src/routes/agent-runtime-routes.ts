@@ -11,6 +11,7 @@ import {
   listRecallCandidates,
   countRecallCues,
   listRecallShadowLog,
+  getRecallCorpusMeanVector,
   getRecallCueByRef,
   getXiaoniActionStream,
   getXiaoniActivityFeed,
@@ -1128,14 +1129,21 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const TOP_K = 300;
       const candidates = await listRecallCandidates({ identityKey, queryVector, excludeSourceRefs: excludeRefs, limit: TOP_K });
       const corpusStats = await countRecallCues(identityKey);
+      // 去 anisotropy:取 μ 去均值(和 shadow feed 用同一套),有 μ 时用去均值空间阈值(env 可调)。
+      const meanVector = await getRecallCorpusMeanVector(identityKey);
+      const centeredFloor = Number.isFinite(Number(process.env.XIAONI_RECALL_FLOOR)) ? Number(process.env.XIAONI_RECALL_FLOOR) : 0.15;
+      const centeredTaskFloor = Number.isFinite(Number(process.env.XIAONI_RECALL_TASK_FLOOR)) ? Number(process.env.XIAONI_RECALL_TASK_FLOOR) : 0.30;
+      const centeredCeiling = Number.isFinite(Number(process.env.XIAONI_RECALL_CEILING)) ? Number(process.env.XIAONI_RECALL_CEILING) : 0.60;
+      const centeredBand = meanVector ? { floor: taskLocked ? centeredTaskFloor : centeredFloor, ceiling: centeredCeiling } : {};
       const result = bandpassRecall({
-        query: { vector: queryVector, contextRefs: excludeRefs, taskLocked },
+        query: { vector: queryVector, contextRefs: excludeRefs, meanVector, taskLocked },
         candidates: candidates.map((cue: any) => ({
           sourceRef: cue.sourceRef,
           embedding: cue.embedding,
           provenance: cue.provenance,
           embeddingText: cue.embeddingText
         })),
+        ...centeredBand,
         limit
       });
 

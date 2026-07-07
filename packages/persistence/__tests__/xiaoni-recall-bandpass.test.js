@@ -97,3 +97,41 @@ test('lead rendering: file / peer / generic templates, pointer + teaser only (no
 test('DEFAULT_CEILING is a redundancy cutoff below 1', () => {
   assert.ok(DEFAULT_CEILING > 0 && DEFAULT_CEILING < 1);
 });
+
+test('去均值(meanVector)压掉枢纽:raw 高 cos 的枢纽,减 μ 后 cos 塌下去被剔', () => {
+  // query 与 hub 在原始空间几乎同向(raw cos≈1),但都贴着公共分量 μ;
+  // 另有一条真正"斜"的相关项(query 去 μ 后与它同向)。
+  const query = [1, 1, 0.02];
+  const mu = [1, 1, 0];               // 公共分量:query 和 hub 都被它主导
+  const hub = [1, 1, -0.02];          // raw 与 query cos≈1(都≈μ 方向);去 μ 后与 query 反向 → 掉出带
+  const real = [1.02, 1, 0.9];        // 去 μ 后 ≈ [0.02,0,0.9],和 query 去 μ 的 [0,0,0.02] 同侧(正 cos)
+
+  // raw 模式:hub 因为 cos≈1 > ceiling 被当"太像",real 反而可能太远 —— 即枢纽主导。
+  const raw = bandpassRecall({
+    query: { vector: query },
+    candidates: [
+      { sourceRef: 'hub', embedding: hub, provenance: {}, embeddingText: 'hub' },
+      { sourceRef: 'real', embedding: real, provenance: {}, embeddingText: 'real' }
+    ],
+    limit: 2
+  });
+
+  // 去均值模式:hub 减 μ 后与 query 去 μ 反向(cos<0)被剔;real 保留为正 cos。
+  const centered = bandpassRecall({
+    query: { vector: query, meanVector: mu },
+    candidates: [
+      { sourceRef: 'hub', embedding: hub, provenance: {}, embeddingText: 'hub' },
+      { sourceRef: 'real', embedding: real, provenance: {}, embeddingText: 'real' }
+    ],
+    floor: 0.1,
+    ceiling: 0.9,
+    limit: 2
+  });
+
+  // 关键断言:去均值后 hub 不再作为 surfaced 冒出来(raw 空间它 cos 最高)。
+  const centeredHub = centered.surfaced.find((e) => e.candidate.sourceRef === 'hub');
+  assert.strictEqual(centeredHub, undefined, '去均值后枢纽不该 surfaced');
+  // raw 空间 hub 的 cos 确实接近 1(证明"枢纽主导"的前提成立)。
+  const rawHubCos = cosineSimilarity(query, hub);
+  assert.ok(rawHubCos > 0.99, 'raw 空间枢纽 cos 接近 1');
+});

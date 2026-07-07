@@ -109,6 +109,27 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return rows.map(parseRow);
   }
 
+  // 去各向异性(anisotropy)用:全库均值向量 μ。band-pass 减 μ 再算 cos,压掉"跟谁都像"的枢纽。
+  // 真库实测:枢纽对随机 cue 平均 cos 0.784 → 去 μ 后 -0.044;不相关两两 0.826 → 0.039。
+  async function getRecallCorpusMeanVector(identityKey, config = {}) {
+    const prisma = getClient(config);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT avg(embedding_vec)::text AS mean FROM xiaoni_recall_cues
+       WHERE identity_key = $1 AND embedding_vec IS NOT NULL`,
+      identityKey
+    );
+    const meanText = rows && rows[0] ? rows[0].mean : null;
+    if (!meanText || typeof meanText !== 'string') {
+      return null;
+    }
+    try {
+      const arr = JSON.parse(meanText); // pgvector avg()::text = "[...]"(合法 JSON 数组)
+      return Array.isArray(arr) && arr.length ? arr : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ④ 语义式在场排除用:取一组 sourceRef 的向量(近窗条目)。只回 embedding,量小(近窗几条)。
   async function getRecallCueVectorsByRefs(identityKey, sourceRefs = [], config = {}) {
     const prisma = getClient(config);
@@ -235,6 +256,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     listRecallCandidates,
     getRecallCueByRef,
     getRecallCueVectorsByRefs,
+    getRecallCorpusMeanVector,
     countRecallCues,
     pruneFileChunks,
     insertRecallShadowLog,

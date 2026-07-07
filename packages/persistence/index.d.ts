@@ -2452,6 +2452,7 @@ export function upsertRecallCues(identityKey: string, records?: XiaoniRecallCueR
 export function listRecallCandidates(params?: { identityKey?: string; queryVector?: number[]; excludeSourceRefs?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
 export function getRecallCueByRef(identityKey: string, sourceRef: string, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord | null>;
 export function getRecallCueVectorsByRefs(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<number[][]>;
+export function getRecallCorpusMeanVector(identityKey: string, config?: DatabaseUrlConfig): Promise<number[] | null>;
 export function countRecallCues(identityKey: string, config?: DatabaseUrlConfig): Promise<{ total: number; byKind: Record<string, number> }>;
 export function pruneFileChunks(identityKey: string, path: string, keepSourceRefs?: string[], config?: DatabaseUrlConfig): Promise<{ deleted: number }>;
 export function buildRecallCueFromInboundMessage(row: Record<string, unknown>): XiaoniRecallCueRecord | null;
