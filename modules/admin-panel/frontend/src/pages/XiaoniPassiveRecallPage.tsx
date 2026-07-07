@@ -101,17 +101,22 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex items-center gap-2">
           {entry.silent
             ? <StatusPill tone="neutral">静默</StatusPill>
             : <StatusPill tone="success">浮现</StatusPill>}
           {entry.taskLocked ? <StatusPill tone="warning">task-locked</StatusPill> : null}
-          <span className="truncate text-sm text-foreground">「{entry.queryText || entry.queryRef || '—'}」</span>
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">{formatTimestamp(entry.occurredAt, { fallback: '-' })}</span>
       </div>
+      {/* 当下落地内容 = 触发这次召回的 query（因） */}
+      <div className="mt-2 rounded-md bg-muted/40 px-2.5 py-1.5">
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">当下落地（query）</div>
+        <div className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">{entry.queryText || entry.queryRef || '—'}</div>
+      </div>
       {entry.surfaced?.length ? (
         <div className="mt-2 space-y-1.5">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">→ 勾起的记忆（果）</div>
           {entry.surfaced.map((s, index) => (
             <div key={s.sourceRef || index} className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
               <div className="flex items-center gap-2">
