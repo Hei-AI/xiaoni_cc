@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { normalizeRecallText } = require('./xiaoni-passive-recall-extractor');
 
 // 小腻文件语料底(forever/notes/reading/toys)的分块 —— 纯函数,content 传入,不碰 fs。
 // 一个文件含多条不同记忆,整文件一个向量太粗;按标题/段落切块,lead 才能指到「某段」。
@@ -99,21 +100,29 @@ function chunkRuntimeFile(params) {
     }
   }
 
-  return merged.map((text, index) => ({
-    sourceKind: 'file_chunk',
-    sourceRef: `${path}#${index}`,
-    occurredAt: null,
-    embeddingText: text,
-    provenance: {
-      source: 'runtime_file',
-      kind: 'file_chunk',
-      path,
-      privacyScope,
-      cueClass: 'db_file_provenance',
-      leadTemplate: 'file_chunk'
-    },
-    contentHash: sha256(text)
-  }));
+  // embeddingText/contentHash 用清洗后文本(剥样板/工具输出);sourceRef/path 指针用原始位置,
+  // 保持稳定 + 让 lead 仍指向她真实文件(主动 cat 得到原文)。纯样板块清洗后为空 → 不入库。
+  return merged.map((rawText, index) => {
+    const text = normalizeRecallText(rawText);
+    if (!text) {
+      return null;
+    }
+    return {
+      sourceKind: 'file_chunk',
+      sourceRef: `${path}#${index}`,
+      occurredAt: null,
+      embeddingText: text,
+      provenance: {
+        source: 'runtime_file',
+        kind: 'file_chunk',
+        path,
+        privacyScope,
+        cueClass: 'db_file_provenance',
+        leadTemplate: 'file_chunk'
+      },
+      contentHash: sha256(text)
+    };
+  }).filter(Boolean);
 }
 
 module.exports = {

@@ -66,6 +66,34 @@ function truncateText(value, maxLength = 480) {
   return compact.length <= maxLength ? compact : `${compact.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
+// 召回文本清洗:剥掉脚手架/样板/注入模板,让 embedding 只反映"信号"而非"结构"。
+// 只作用于召回派生文本(cue 的 embedding_text + query 的 landedText),不碰小腻 agent 本体/指针。
+// 真库诊断:上万条 cue 因共享样板(path-check 工具输出 / system_reminder 模板 / 当前输入包壳)
+// 嵌成近似同向量,扎成"跟谁都像"的枢纽簇。详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md。
+// 返回 '' 表示"整条无记忆价值"(调用方据此不入库/不当 query)。
+function normalizeRecallText(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  let t = value.trim();
+  if (!t) {
+    return '';
+  }
+  // 1) 纯工具输出(check_markdown_local_paths.py 那几类)—— 零记忆价值,整条废。
+  if (/^(External URLs (ignored|not checked)|Markdown local path check|Latest phase pointers path check)\b/.test(t)) {
+    return '';
+  }
+  // 2) <system_reminder>…</system_reminder> = 注入模板(非她记忆)→ 整块移除(变量摘要另有 inbound cue)。
+  t = t.replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, ' ');
+  // 3) <xiaoni_plan> 包壳 + 固定模板句 → 剥壳,留她真 plan。
+  t = t.replace(/<\/?xiaoni_plan>/g, ' ');
+  t = t.replace(/歇了一下，脑子里冒出来接下来想干嘛的念头（要不要照做随你）：/g, ' ');
+  // 4) "当前输入" 包壳前缀 + 残留标签壳。
+  t = t.replace(/^当前输入\s*/, '');
+  t = t.replace(/<\/?(system_reminder|xiaoni_plan)>/g, ' ');
+  return t.replace(/\s+/g, ' ').trim();
+}
+
 function parseJsonPreview(value) {
   if (!value || typeof value !== 'string') {
     return null;
@@ -466,7 +494,7 @@ function buildRecallCueFromActionStreamItem(item) {
 
   const title = firstString(item.title);
   const body = firstString(item.body);
-  const embeddingText = truncateText([title, body].filter(Boolean).join('\n'), 1200);
+  const embeddingText = truncateText(normalizeRecallText([title, body].filter(Boolean).join('\n')), 1200);
   if (!embeddingText) {
     return null; // 没有可嵌内容。
   }
@@ -518,7 +546,7 @@ function buildRecallCueFromInboundMessage(row) {
     return null; // 无稳定引用无法 upsert / 在场排除。
   }
   const body = firstString(row.body_for_agent, row.bodyForAgent, row.raw_body, row.rawBody, row.body);
-  const embeddingText = truncateText(body, 1200);
+  const embeddingText = truncateText(normalizeRecallText(body), 1200);
   if (!embeddingText) {
     return null; // 没有可嵌内容(纯图片/纯指令等)。
   }
@@ -558,5 +586,6 @@ module.exports = {
   extractRuntimePaths,
   buildRecallCueFromActionStreamItem,
   buildRecallCuesFromActionStream,
-  buildRecallCueFromInboundMessage
+  buildRecallCueFromInboundMessage,
+  normalizeRecallText
 };

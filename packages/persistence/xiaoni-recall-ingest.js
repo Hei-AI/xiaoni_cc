@@ -12,7 +12,8 @@
 
 const {
   buildRecallCuesFromActionStream,
-  buildRecallCueFromInboundMessage
+  buildRecallCueFromInboundMessage,
+  normalizeRecallText
 } = require('./xiaoni-passive-recall-extractor');
 const { bandpassRecall } = require('./xiaoni-recall-bandpass');
 const { renderRecallLead } = require('./xiaoni-recall-bandpass');
@@ -92,7 +93,8 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
   // contextRefs = 近窗已在场的 sourceRef(结构式在场排除);若 persistence 提供
   // getRecallCueVectorsByRefs,则取近窗向量做 ④ 语义式在场排除。
   async function runShadowRecall(params = {}) {
-    const text = typeof params.landedText === 'string' ? params.landedText.trim() : '';
+    // query 侧同样清洗(剥样板/脚手架);清洗后为空 = 纯样板落地,不召回。
+    const text = normalizeRecallText(params.landedText || '');
     if (!text) {
       return null;
     }
