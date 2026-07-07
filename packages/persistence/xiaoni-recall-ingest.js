@@ -23,6 +23,8 @@ const envNum = (name, dflt) => (Number.isFinite(Number(process.env[name])) ? Num
 const CENTERED_FLOOR = envNum('XIAONI_RECALL_FLOOR', 0.15);
 const CENTERED_TASK_FLOOR = envNum('XIAONI_RECALL_TASK_FLOOR', 0.30);
 const CENTERED_CEILING = envNum('XIAONI_RECALL_CEILING', 0.60);
+// 自适应跳出门:top 需高出邻域基线 margin 才冒(治静默率)。env 可调,调大更静默。
+const CENTERED_STANDOUT_MARGIN = envNum('XIAONI_RECALL_STANDOUT_MARGIN', 0.08);
 const MEAN_TTL_MS = 10 * 60 * 1000; // μ 变化慢,缓存 10min,别每次落地扫全库
 
 function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {}) {
@@ -130,7 +132,7 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const meanVector = model ? model.mean : null;
     const components = model ? model.components : [];
     const bandParams = meanVector
-      ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING }
+      ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING, standoutMargin: CENTERED_STANDOUT_MARGIN }
       : {};
     const result = bandpassRecall({
       query: { vector: queryVector, text, contextRefs: exclude, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },

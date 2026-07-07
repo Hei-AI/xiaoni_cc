@@ -158,8 +158,28 @@ function bandpassRecall(params) {
   const deanis = mean ? { mean, components } : null;
   const centeredQuery = deanis ? subtractDeanisotropy(query.vector, deanis.mean, deanis.components) : query.vector;
 
-  const scored = (Array.isArray(candidates) ? candidates : []).map((candidate) => {
-    const { verdict, cos } = classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, deanis });
+  // 自适应"跳出"门(治静默率):固定 floor 切不干净(genuine 和弱关联的 cos 混在一起)。
+  // 只有 top 明显跳出这次候选群(cos ≥ 邻域基线均值 + margin)才算"冒出来";平淡查询静默。
+  // 基线**排除最高那条**(否则 outlier 抬高自己的基线);margin 由 params.standoutMargin 控制(env 可调)。
+  // 未给则退回纯固定 floor(不改行为)。
+  const cands = Array.isArray(candidates) ? candidates : [];
+  const cosList = cands.map((candidate) => {
+    const cv = deanis ? subtractDeanisotropy(candidate.embedding, deanis.mean, deanis.components) : candidate.embedding;
+    return cosineSimilarity(centeredQuery, cv);
+  });
+  let effectiveFloor = floor;
+  const standoutMargin = typeof params.standoutMargin === 'number' ? params.standoutMargin : null;
+  if (standoutMargin !== null) {
+    const finite = cosList.filter((c) => Number.isFinite(c)).sort((a, b) => b - a);
+    if (finite.length > 3) {
+      const rest = finite.slice(1); // 排除最高的那条,用其余作邻域基线
+      const baseline = rest.reduce((a, b) => a + b, 0) / rest.length;
+      effectiveFloor = Math.max(floor, baseline + standoutMargin);
+    }
+  }
+
+  const scored = cands.map((candidate) => {
+    const { verdict, cos } = classifyCandidate(candidate, query, { floor: effectiveFloor, ceiling, contextRefSet, centeredQuery, deanis });
     return { candidate, verdict, cos };
   });
 

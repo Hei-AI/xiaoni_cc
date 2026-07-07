@@ -1136,7 +1136,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const centeredFloor = Number.isFinite(Number(process.env.XIAONI_RECALL_FLOOR)) ? Number(process.env.XIAONI_RECALL_FLOOR) : 0.15;
       const centeredTaskFloor = Number.isFinite(Number(process.env.XIAONI_RECALL_TASK_FLOOR)) ? Number(process.env.XIAONI_RECALL_TASK_FLOOR) : 0.30;
       const centeredCeiling = Number.isFinite(Number(process.env.XIAONI_RECALL_CEILING)) ? Number(process.env.XIAONI_RECALL_CEILING) : 0.60;
-      const centeredBand = meanVector ? { floor: taskLocked ? centeredTaskFloor : centeredFloor, ceiling: centeredCeiling } : {};
+      const centeredStandoutMargin = Number.isFinite(Number(process.env.XIAONI_RECALL_STANDOUT_MARGIN)) ? Number(process.env.XIAONI_RECALL_STANDOUT_MARGIN) : 0.08;
+      const centeredBand = meanVector ? { floor: taskLocked ? centeredTaskFloor : centeredFloor, ceiling: centeredCeiling, standoutMargin: centeredStandoutMargin } : {};
       const result = bandpassRecall({
         query: { vector: queryVector, text: queryText, contextRefs: excludeRefs, meanVector, components, taskLocked },
         candidates: candidates.map((cue: any) => ({

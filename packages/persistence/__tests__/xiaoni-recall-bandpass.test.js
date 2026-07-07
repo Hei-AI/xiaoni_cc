@@ -145,3 +145,11 @@ test('BM25 双路:词面接地的候选赢过 dense 略高但零重叠的 hub', 
   const r = bandpassRecall({ query: q, candidates: cands, floor: 0.1, ceiling: 0.95, limit: 1 });
   assert.strictEqual(r.surfaced[0].candidate.sourceRef, 'zh', 'RRF 融合后词面接地的中文条应当 top-1');
 });
+
+test('自适应跳出门:平淡候选群静默,有明显跳出的才冒', () => {
+  const mk = (ref, c) => ({ sourceRef: ref, embedding: [c, Math.sqrt(1 - c * c), 0], provenance: {}, embeddingText: ref });
+  const flat = bandpassRecall({ query: { vector: [1, 0, 0], meanVector: [0, 0, 0] }, candidates: [mk('a', 0.55), mk('b', 0.54), mk('c', 0.53), mk('d', 0.52), mk('e', 0.51)], floor: 0.15, ceiling: 0.9, standoutMargin: 0.08, limit: 1 });
+  assert.strictEqual(flat.silent, true, '平淡群没人跳出 → 静默');
+  const peak = bandpassRecall({ query: { vector: [1, 0, 0], meanVector: [0, 0, 0] }, candidates: [mk('hit', 0.7), mk('b', 0.3), mk('c', 0.28), mk('d', 0.25), mk('e', 0.22)], floor: 0.15, ceiling: 0.9, standoutMargin: 0.08, limit: 1 });
+  assert.strictEqual(peak.surfaced[0].candidate.sourceRef, 'hit', '明显跳出的应冒');
+});
