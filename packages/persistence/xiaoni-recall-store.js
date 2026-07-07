@@ -130,6 +130,70 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     }
   }
 
+  // 去 anisotropy 升级版:mean + top-k 主成分(All-but-the-Top)。去均值压不死的残留泛枢纽,
+  // 靠减掉前几个主成分方向再削。PC 用幂迭代在样本上算(确定性初值,可复现),缓存在调用方。
+  function computeTopPCs(vectors, mean, numComponents) {
+    const dim = mean.length;
+    if (!vectors.length || numComponents <= 0) {
+      return [];
+    }
+    const dot = (a, b) => { let s = 0; for (let i = 0; i < dim; i += 1) s += a[i] * b[i]; return s; };
+    const norm = (v) => { const n = Math.sqrt(dot(v, v)) || 1; return v.map((x) => x / n); };
+    // 中心化副本(会被逐个主成分 deflate)
+    const residual = vectors.map((v) => { const c = new Array(dim); for (let i = 0; i < dim; i += 1) c[i] = v[i] - mean[i]; return c; });
+    const comps = [];
+    for (let c = 0; c < numComponents; c += 1) {
+      // 确定性初值:残差里第一条(避免 Math.random,可复现)
+      let v = norm(residual[0].slice());
+      for (let it = 0; it < 25; it += 1) {
+        const w = new Array(dim).fill(0);
+        for (const x of residual) {
+          const d = dot(x, v);
+          for (let i = 0; i < dim; i += 1) w[i] += d * x[i];
+        }
+        v = norm(w);
+      }
+      comps.push(v);
+      // deflate:residual -= (x·v) v
+      for (const x of residual) {
+        const d = dot(x, v);
+        for (let i = 0; i < dim; i += 1) x[i] -= d * v[i];
+      }
+    }
+    return comps;
+  }
+
+  // 返回 { mean: number[], components: number[][] };取不到返回 null(band-pass 退回 raw)。
+  async function getRecallDeanisotropyModel(identityKey, params = {}, config = {}) {
+    const prisma = getClient(config);
+    const sampleSize = Math.max(500, Math.min(Number(params.sampleSize) || 4000, 20000));
+    const numComponents = Math.max(0, Math.min(Number.isFinite(Number(params.numComponents)) ? Number(params.numComponents) : 4, 16));
+    const meanRows = await prisma.$queryRawUnsafe(
+      `SELECT avg(embedding_vec)::text AS mean FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL`,
+      identityKey
+    );
+    let mean = null;
+    try {
+      const m = JSON.parse((meanRows && meanRows[0] && meanRows[0].mean) || 'null');
+      if (Array.isArray(m) && m.length) mean = m;
+    } catch { mean = null; }
+    if (!mean) {
+      return null;
+    }
+    if (numComponents === 0) {
+      return { mean, components: [] };
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT embedding FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL ORDER BY id DESC LIMIT $2`,
+      identityKey,
+      sampleSize
+    );
+    const vectors = rows
+      .map((r) => (Array.isArray(r.embedding) ? r.embedding : null))
+      .filter((v) => Array.isArray(v) && v.length === mean.length);
+    return { mean, components: computeTopPCs(vectors, mean, numComponents) };
+  }
+
   // ④ 语义式在场排除用:取一组 sourceRef 的向量(近窗条目)。只回 embedding,量小(近窗几条)。
   async function getRecallCueVectorsByRefs(identityKey, sourceRefs = [], config = {}) {
     const prisma = getClient(config);
@@ -257,6 +321,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     getRecallCueByRef,
     getRecallCueVectorsByRefs,
     getRecallCorpusMeanVector,
+    getRecallDeanisotropyModel,
     countRecallCues,
     pruneFileChunks,
     insertRecallShadowLog,

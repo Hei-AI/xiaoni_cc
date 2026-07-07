@@ -33,27 +33,32 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     throw new Error('createRecallIngest: persistence 必填');
   }
 
-  // 全库均值 μ 缓存(去 anisotropy 用)。取不到就退回 raw cos(不阻断)。
-  let cachedMean = null;
-  let cachedMeanAt = 0;
-  async function getMeanVector() {
-    if (typeof persistence.getRecallCorpusMeanVector !== 'function') {
-      return null;
-    }
+  // 去 anisotropy 模型缓存(mean + top-k 主成分)。取不到就退回 raw cos(不阻断)。
+  let cachedModel = null;
+  let cachedModelAt = 0;
+  async function getDeanisModel() {
     const now = Date.now();
-    if (cachedMean && (now - cachedMeanAt) < MEAN_TTL_MS) {
-      return cachedMean;
+    if (cachedModel && (now - cachedModelAt) < MEAN_TTL_MS) {
+      return cachedModel;
     }
     try {
-      const mu = await persistence.getRecallCorpusMeanVector(identityKey);
-      if (Array.isArray(mu) && mu.length) {
-        cachedMean = mu;
-        cachedMeanAt = now;
+      if (typeof persistence.getRecallDeanisotropyModel === 'function') {
+        const m = await persistence.getRecallDeanisotropyModel(identityKey, { numComponents: 4, sampleSize: 4000 });
+        if (m && Array.isArray(m.mean) && m.mean.length) {
+          cachedModel = m;
+          cachedModelAt = now;
+        }
+      } else if (typeof persistence.getRecallCorpusMeanVector === 'function') {
+        const mu = await persistence.getRecallCorpusMeanVector(identityKey);
+        if (Array.isArray(mu) && mu.length) {
+          cachedModel = { mean: mu, components: [] };
+          cachedModelAt = now;
+        }
       }
     } catch {
       // 保留旧缓存(若有),不阻断召回
     }
-    return cachedMean;
+    return cachedModel;
   }
 
   // 建好的 cue → 嵌入(内容 hash 没变的跳过,省嵌入)→ upsert。
@@ -120,13 +125,15 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, contextRefs);
     }
 
-    // 去 anisotropy:取 μ 传入(去均值再算 cos)。有 μ 时用去均值空间的阈值。
-    const meanVector = await getMeanVector();
+    // 去 anisotropy(mean+主成分)+ BM25 双路:取模型传入,有模型时用去 anisotropy 空间阈值。
+    const model = await getDeanisModel();
+    const meanVector = model ? model.mean : null;
+    const components = model ? model.components : [];
     const bandParams = meanVector
       ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING }
       : {};
     const result = bandpassRecall({
-      query: { vector: queryVector, contextRefs: exclude, contextVectors, meanVector, taskLocked: !!params.taskLocked },
+      query: { vector: queryVector, text, contextRefs: exclude, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },
       candidates: candidates.map((c) => ({
         sourceRef: c.sourceRef,
         embedding: c.embedding,

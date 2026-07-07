@@ -135,3 +135,13 @@ test('去均值(meanVector)压掉枢纽:raw 高 cos 的枢纽,减 μ 后 cos 塌
   const rawHubCos = cosineSimilarity(query, hub);
   assert.ok(rawHubCos > 0.99, 'raw 空间枢纽 cos 接近 1');
 });
+
+test('BM25 双路:词面接地的候选赢过 dense 略高但零重叠的 hub', () => {
+  const q = { vector: [1, 0, 0], text: '兄弟对面少个人', meanVector: [0, 0, 0] };
+  const cands = [
+    { sourceRef: 'zh', embedding: [0.8, 0.6, 0], provenance: {}, embeddingText: '兄弟对面又少一个人了' },
+    { sourceRef: 'en', embedding: [0.82, 0.57, 0], provenance: {}, embeddingText: 'Private decompression only not for public' }
+  ];
+  const r = bandpassRecall({ query: q, candidates: cands, floor: 0.1, ceiling: 0.95, limit: 1 });
+  assert.strictEqual(r.surfaced[0].candidate.sourceRef, 'zh', 'RRF 融合后词面接地的中文条应当 top-1');
+});

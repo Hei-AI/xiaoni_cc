@@ -55,15 +55,69 @@ function subtractMean(vec, mu) {
   return out;
 }
 
+// 去 anisotropy 升级版(All-but-the-Top):减 mean + 减 top-k 主成分投影。
+// 减均值只去掉一个公共方向;残留泛枢纽(压缩快照/长文)靠再减前几个主成分方向压死。
+function subtractDeanisotropy(vec, mean, components) {
+  if (!Array.isArray(mean) || !Array.isArray(vec) || mean.length !== vec.length) {
+    return vec;
+  }
+  const out = new Array(vec.length);
+  for (let i = 0; i < vec.length; i += 1) out[i] = vec[i] - mean[i];
+  if (Array.isArray(components)) {
+    for (const pc of components) {
+      if (!Array.isArray(pc) || pc.length !== vec.length) continue;
+      let d = 0;
+      for (let i = 0; i < vec.length; i += 1) d += out[i] * pc[i];
+      for (let i = 0; i < vec.length; i += 1) out[i] -= d * pc[i];
+    }
+  }
+  return out;
+}
+
+// ── BM25 双路(字符 bigram,语言无关;在 top-K 候选集内做局部 BM25)──
+// 补 dense 的盲区:「中文 query × 英文文档」dense 说像但零词面重叠 → BM25≈0 → 融合压下去。
+function bigramTokens(text) {
+  const s = (typeof text === 'string' ? text : '').replace(/\s+/g, '');
+  const grams = [];
+  for (let i = 0; i < s.length - 1; i += 1) grams.push(s.slice(i, i + 2));
+  return grams;
+}
+
+function bm25Scores(queryText, candidates) {
+  const docs = candidates.map((c) => bigramTokens(c && c.embeddingText));
+  const N = docs.length || 1;
+  const avgLen = (docs.reduce((a, d) => a + d.length, 0) / N) || 1;
+  const df = new Map();
+  for (const d of docs) {
+    for (const t of new Set(d)) df.set(t, (df.get(t) || 0) + 1);
+  }
+  const q = new Set(bigramTokens(queryText));
+  const k1 = 1.5;
+  const b = 0.75;
+  return docs.map((d) => {
+    const tf = new Map();
+    for (const t of d) tf.set(t, (tf.get(t) || 0) + 1);
+    let score = 0;
+    for (const qt of q) {
+      const f = tf.get(qt) || 0;
+      if (!f) continue;
+      const n = df.get(qt) || 0;
+      const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
+      score += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (d.length / avgLen)));
+    }
+    return score;
+  });
+}
+
 // candidate: { sourceRef, embedding: number[], provenance, embeddingText }
-// query: { vector, contextRefs?, contextVectors?, meanVector?: number[](给了就去均值), taskLocked? }
-function classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, meanVector }) {
+// query: { vector, text?, contextRefs?, contextVectors?, meanVector?, components?, taskLocked? }
+function classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, deanis }) {
   const sourceRef = candidate && candidate.sourceRef;
   // 结构式在场排除:她刚做/刚读的那条,直接剔(不必算相似度)。
   if (sourceRef && contextRefSet.has(sourceRef)) {
     return { verdict: 'drop_in_context', cos: null };
   }
-  const candVec = meanVector ? subtractMean(candidate.embedding, meanVector) : candidate.embedding;
+  const candVec = deanis ? subtractDeanisotropy(candidate.embedding, deanis.mean, deanis.components) : candidate.embedding;
   const cos = cosineSimilarity(centeredQuery, candVec);
   if (cos > ceiling) {
     return { verdict: 'drop_too_similar', cos };
@@ -71,10 +125,10 @@ function classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, ce
   if (cos < floor) {
     return { verdict: 'drop_too_far', cos };
   }
-  // 语义式在场排除:和近窗任一条太像 = 换了说法的「刚做过」(同样去均值后比)。
+  // 语义式在场排除:和近窗任一条太像 = 换了说法的「刚做过」(同样去 anisotropy 后比)。
   const contextVectors = Array.isArray(query.contextVectors) ? query.contextVectors : [];
   for (const ctxVec of contextVectors) {
-    const cv = meanVector ? subtractMean(ctxVec, meanVector) : ctxVec;
+    const cv = deanis ? subtractDeanisotropy(ctxVec, deanis.mean, deanis.components) : ctxVec;
     if (cosineSimilarity(candVec, cv) > ceiling) {
       return { verdict: 'drop_in_context', cos };
     }
@@ -94,20 +148,38 @@ function bandpassRecall(params) {
   const ceiling = typeof params.ceiling === 'number' ? params.ceiling : DEFAULT_CEILING;
   const floor = resolveFloor({ taskLocked: !!query.taskLocked, floor: params.floor });
   const contextRefSet = new Set(Array.isArray(query.contextRefs) ? query.contextRefs : []);
-  // 去均值(给了 meanVector 且维度对得上才启用);query 只需中心化一次。
-  const meanVector = Array.isArray(query.meanVector) && query.meanVector.length === query.vector.length
+  // 去 anisotropy 模型:mean(+可选 top-k 主成分)。给了 meanVector 且维度对得上才启用。
+  const mean = Array.isArray(query.meanVector) && query.meanVector.length === query.vector.length
     ? query.meanVector
     : null;
-  const centeredQuery = meanVector ? subtractMean(query.vector, meanVector) : query.vector;
+  const components = mean && Array.isArray(query.components)
+    ? query.components.filter((pc) => Array.isArray(pc) && pc.length === query.vector.length)
+    : [];
+  const deanis = mean ? { mean, components } : null;
+  const centeredQuery = deanis ? subtractDeanisotropy(query.vector, deanis.mean, deanis.components) : query.vector;
 
   const scored = (Array.isArray(candidates) ? candidates : []).map((candidate) => {
-    const { verdict, cos } = classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, meanVector });
+    const { verdict, cos } = classifyCandidate(candidate, query, { floor, ceiling, contextRefSet, centeredQuery, deanis });
     return { candidate, verdict, cos };
   });
 
-  const qualified = scored
-    .filter((entry) => entry.verdict === 'surfaced')
-    .sort((left, right) => right.cos - left.cos);
+  let qualified = scored.filter((entry) => entry.verdict === 'surfaced');
+  // BM25 双路:带内候选做局部 BM25,dense 名次 + BM25 名次 RRF 融合重排(词面接地的优先当 top-1)。
+  // 给了 query.text 且带内 >1 条才融合;否则退回纯 cos 排序(纯语义远亲照旧能冒)。
+  if (qualified.length > 1 && typeof query.text === 'string' && query.text.trim()) {
+    const denseRank = new Map([...qualified].sort((a, b) => b.cos - a.cos).map((e, i) => [e, i]));
+    const bm = bm25Scores(query.text, qualified.map((e) => e.candidate));
+    const bmRank = new Map(
+      qualified.map((e, i) => ({ e, s: bm[i] })).sort((a, b) => b.s - a.s).map((x, i) => [x.e, i])
+    );
+    const RRF_K = 60;
+    qualified = qualified
+      .map((e) => ({ e, fused: 1 / (RRF_K + denseRank.get(e)) + 1 / (RRF_K + bmRank.get(e)) }))
+      .sort((a, b) => b.fused - a.fused)
+      .map((x) => x.e);
+  } else {
+    qualified = qualified.sort((left, right) => right.cos - left.cos);
+  }
   const surfaced = qualified.slice(0, Math.max(1, limit));
   // dropped 只装「没过带」的;超出 limit 的合格项既不进 surfaced,也不误标成 dropped:'surfaced'。
   const dropped = scored.filter((entry) => entry.verdict !== 'surfaced');
