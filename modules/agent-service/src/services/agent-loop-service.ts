@@ -6987,7 +6987,12 @@ export class AgentLoopService {
               queueMessage: claimed.payload,
               runId: claimed.id,
               runtimePrompt,
-              precomputedInputItems: claimedInputItems
+              precomputedInputItems: claimedInputItems,
+              // Key the dedupe event_id on the exact queue message(s) folded here, so two
+              // reminders of the SAME QQ event (shared evt_ trace_id) get distinct stack
+              // items instead of the second colliding away. Without this the next run's
+              // replay rebuilds a shorter body and busts the prompt cache at the run boundary.
+              queueMessageIds: claimed.queueMessageIds
             }) as Record<string, unknown>
           ]
         });
@@ -12925,24 +12930,37 @@ function buildRuntimeInputStackItem(params: {
   // share a mutable ref with the live request) instead of rebuilding with a fresh
   // clock. Falls back to a rebuild only for callers that have nothing prebuilt.
   precomputedInputItems?: OpenResponseInputItem[];
+  // The queue message id(s) this stack item folds. Present for folded nonblocking
+  // notifies (claimed.queueMessageIds); absent for the initial run trigger, which
+  // keys on its per-run-unique traceId. See the event_id comment below.
+  queueMessageIds?: number[];
 }) {
   const currentInputItems = (params.precomputedInputItems
     ? (JSON.parse(JSON.stringify(params.precomputedInputItems)) as OpenResponseInputItem[])
     : buildCurrentTurnInputItems(params.queueMessage, params.runtimePrompt))
     .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
+  // Dedupe key for ON CONFLICT (event_id). It must be UNIQUE per folded message yet
+  // STABLE across reprocessing (retry re-reads the same queue row → same key → idempotent
+  // dedupe, no duplicate row). runId-keying was too coarse (every fold of a run collapsed
+  // onto one id). traceId-keying (the prior fix, 70b187fb) was STILL too coarse: one QQ
+  // event fans out into multiple queue messages (a phone_notification + an attention_lease
+  // system_reminder) that SHARE one evt_ trace_id, so both folds computed the same event_id
+  // and ON CONFLICT silently dropped the second's content. The live loopContinuation carries
+  // every fold, so the next run's stack-replay then rebuilt a SHORTER body than the folding
+  // run's live request, diverging the cached prefix at the dropped reminder and breaking the
+  // whole prompt cache at the run boundary. The queue message id is the true per-message,
+  // minted-once-and-persisted unique key (the primary key), so keying on the sorted id set
+  // is collision-proof by construction regardless of how many messages (or which sources)
+  // one event fans out into. The traceId/runId fallback preserves the initial trigger path
+  // (per-run-unique trace) unchanged.
+  const dedupeQueueMessageIds = (params.queueMessageIds || [])
+    .filter((id) => Number.isFinite(id))
+    .slice()
+    .sort((a, b) => a - b);
   return {
-    // Key the dedupe event_id on the notify's OWN traceId, not the runId. Folded
-    // nonblocking notifies ride the PARENT run (claimed.id === parentRunId), so a
-    // runId-keyed event_id collapses every runtime_input of a run onto ONE id —
-    // appendAgentStackItems' ON CONFLICT (event_id) then silently drops all but the
-    // first fold's content. The live loopContinuation still carries every fold, so
-    // the next run's stack-replay rebuilds a SHORTER body than the run that folded
-    // them, diverging the cached prefix at the first dropped reminder and breaking
-    // the whole prompt cache at the run boundary. Each folded message preserves its
-    // own trace_id (foldPendingNotifyMessagesIntoRun), so a traceId-keyed event_id
-    // is unique per fold yet still idempotent on same-notify reprocessing. The
-    // run-trace fallback keeps the initial trigger stable across run retries.
-    eventId: `stack:${params.queueMessage.traceId || params.runId}:runtime-input`,
+    eventId: dedupeQueueMessageIds.length > 0
+      ? `stack:qmsg:${dedupeQueueMessageIds.join('-')}:runtime-input`
+      : `stack:${params.queueMessage.traceId || params.runId}:runtime-input`,
     itemKind: 'runtime_input',
     role: currentInputItems.some((item) => item.type === 'message' && item.role === 'user') ? 'user' : 'developer',
     phase: null,

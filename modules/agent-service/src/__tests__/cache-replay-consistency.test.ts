@@ -365,6 +365,76 @@ test('next run replay reproduces every folded notify the folding run sent (cache
   assert.ok(replayText.includes(reminder2), 'replay must reproduce folded reminder 2 (else cache prefix diverges)');
 });
 
+// The real incident (2026-07-08): one QQ event (evt_1783472143457) fans out into a
+// phone_notification AND an attention_lease system_reminder that SHARE one trace_id.
+// Both fold into the same run. The prior traceId-keyed event_id collapsed them — ON
+// CONFLICT(event_id) kept the first and silently dropped the second's content — so the
+// NEXT run's stack-replay rebuilt a SHORTER body than the folding run's live request,
+// diverging the cached prefix and cold-reprefilling ~120k tokens at the run boundary.
+// The first test above used DISTINCT traces per fold, so it never exercised this path.
+// Keying the event_id on the queue message id (unique per message, not per event) keeps
+// the two folds distinct. This test FAILS on the traceId-keyed code and passes on the fix.
+test('same-event fan-out: two folds sharing one trace_id but distinct queue ids both survive replay', async () => {
+  const sharedTrace = 'evt-1783472143457-shared';
+  const reminderPhone = '【视线边缘：状态栏闪烁】又堆积了 1 条新动静：Shawn 说听着怎么怪怪的';
+  const reminderLease = '【意识牵连：正在消退的注意力残留】Shawn 刚说了句听着怎么怪怪的';
+  // Same trace, DIFFERENT queue message ids (24967 attention_lease + 24968 phone_notification).
+  const foldLease = { ...foldedNotify('run-A', 'batch-A', sharedTrace, reminderLease), queueMessageIds: [24967] };
+  const foldPhone = { ...foldedNotify('run-A', 'batch-A', sharedTrace, reminderPhone), queueMessageIds: [24968] };
+
+  const { store, stack } = createFaithfulStore({ foldsToServe: [foldLease, foldPhone] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    // Turns 1 and 2 yield tool calls, so the loop folds a pending notify between them
+    // (exactly how the two same-trace reminders entered the folding run live).
+    if (turn <= 2) {
+      return {
+        success: true,
+        llm_call_id: `llm-A-${turn}`,
+        llm_request_slice_id: `slice-A-${turn}`,
+        canonical_response: {
+          output: [{ type: 'function_call', call_id: `call-A-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: `llm-A-${turn}`,
+      llm_request_slice_id: `slice-A-${turn}`,
+      canonical_response: {
+        output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好的。' }] }]
+      }
+    };
+  };
+
+  const queueMessage = {
+    id: 'run-A', traceId: 'runtrace-A', batchId: 'batch-A', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z',
+    payload: baseQueuePayload()
+  };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  // Both folds persisted as DISTINCT rows (not collapsed by ON CONFLICT).
+  const runtimeInputs = stack.filter((row) => row.item_kind === 'runtime_input');
+  const persisted = JSON.stringify(runtimeInputs.map((row) => row.content));
+  assert.ok(persisted.includes(reminderPhone), 'phone_notification fold must persist despite sharing a trace with the lease reminder');
+  assert.ok(persisted.includes(reminderLease), 'attention_lease fold must persist');
+  const eventIds = runtimeInputs.map((row) => row.event_id);
+  assert.equal(new Set(eventIds).size, eventIds.length, 'same-trace folds must still get unique event_ids (keyed on queue message id)');
+
+  // The next run's replay reproduces BOTH — the actual acceptance criterion (prefix parity).
+  const replayed = await (service as any).loadStackHistoryBlocks(null, 'runtrace-B');
+  const replayText = JSON.stringify(replayed.flatMap((b: any) => b.stackReplayItems || []));
+  assert.ok(replayText.includes(reminderPhone), 'replay must reproduce the phone_notification (else run-boundary cache breaks)');
+  assert.ok(replayText.includes(reminderLease), 'replay must reproduce the attention_lease reminder');
+});
+
 // Drives a folding run whose provider throws on the turn AFTER the fold, then
 // returns the captured store calls. errorMessage decides transient vs terminal.
 async function runFoldingRunThatFails(errorMessage: string) {
