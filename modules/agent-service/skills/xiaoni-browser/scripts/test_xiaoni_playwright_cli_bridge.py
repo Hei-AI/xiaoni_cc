@@ -225,5 +225,101 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
             self.assertTrue(name.endswith("Z.png"))
 
 
+    def test_patch_non_debuggable_schemes_adds_view_source(self):
+        # A view-source: tab poisons Target.setAutoAttach and wedges the whole
+        # session; the fix is to list view-source: as non-debuggable so the
+        # extension never attaches it.
+        patched = bridge._patch_non_debuggable_schemes(
+            'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:"];\n'
+        )
+        self.assertIn('"view-source:"', patched)
+        self.assertIn(
+            'const NON_DEBUGGABLE_SCHEMES = '
+            '["chrome:", "chrome-extension:", "edge:", "devtools:", "view-source:"];',
+            patched,
+        )
+
+    def test_patch_non_debuggable_schemes_is_idempotent(self):
+        # Re-patching an already-patched (4-item) file must still land view-source:,
+        # because the old 3-item literal no longer matches a plain string replace.
+        once = bridge._patch_non_debuggable_schemes(
+            'const NON_DEBUGGABLE_SCHEMES = '
+            '["chrome:", "chrome-extension:", "edge:", "devtools:"];\n'
+        )
+        self.assertIn('"view-source:"', once)
+        twice = bridge._patch_non_debuggable_schemes(once)
+        self.assertEqual(once, twice)
+        # Exactly one array literal, no duplication.
+        self.assertEqual(once.count("NON_DEBUGGABLE_SCHEMES = ["), 1)
+
+    def test_patch_non_debuggable_schemes_leaves_other_code_untouched(self):
+        source = (
+            "const FOO = 1;\n"
+            'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:"];\n'
+            "function isNonDebuggableUrl(url) { return url; }\n"
+        )
+        patched = bridge._patch_non_debuggable_schemes(source)
+        self.assertIn("const FOO = 1;", patched)
+        self.assertIn("function isNonDebuggableUrl(url)", patched)
+
+    def test_restricted_goto_wraps_view_source_of_http(self):
+        target = bridge._restricted_goto_target(
+            ["-s=xiaoni-host", "goto", "view-source:https://www.novalattice.online/graph.html"]
+        )
+        self.assertEqual(target, ("wrap", "https://www.novalattice.online/graph.html"))
+
+    def test_restricted_goto_refuses_chrome_and_devtools(self):
+        self.assertEqual(
+            bridge._restricted_goto_target(["-s=xiaoni-host", "goto", "chrome://settings"]),
+            ("refuse", "chrome:"),
+        )
+        self.assertEqual(
+            bridge._restricted_goto_target(["-s=xiaoni-host", "goto", "devtools://devtools/"]),
+            ("refuse", "devtools:"),
+        )
+
+    def test_restricted_goto_refuses_non_http_view_source(self):
+        self.assertEqual(
+            bridge._restricted_goto_target(["-s=xiaoni-host", "goto", "view-source:chrome://version"]),
+            ("refuse", "view-source:"),
+        )
+
+    def test_restricted_goto_ignores_plain_http_and_non_goto(self):
+        self.assertIsNone(
+            bridge._restricted_goto_target(["-s=xiaoni-host", "goto", "https://example.com"])
+        )
+        self.assertIsNone(
+            bridge._restricted_goto_target(["-s=xiaoni-host", "goto", "about:blank"])
+        )
+        self.assertIsNone(bridge._restricted_goto_target(["-s=xiaoni-host", "tab-list"]))
+
+    def test_wrap_view_source_builds_run_code_with_pre_and_escaping(self):
+        args = bridge._wrap_view_source_goto_args("xiaoni-host", "https://example.com/x.html")
+        self.assertEqual(args[0], "-s=xiaoni-host")
+        self.assertEqual(args[1], "run-code")
+        js = args[2]
+        self.assertIn("https://example.com/x.html", js)
+        self.assertIn("<pre", js)
+        self.assertIn("&amp;", js)  # runtime HTML-escaping of the fetched source
+        self.assertIn("page.goto(", js)
+
+    def test_wrap_view_source_has_no_space_inside_quoted_attrs(self):
+        # The run-code JS is one CLI arg re-parsed by the PowerShell -File wrapper;
+        # a space inside a double-quoted HTML attribute splits it in two
+        # ("too many arguments"). Guard against reintroducing that footgun.
+        js = bridge._wrap_view_source_goto_args("xiaoni-host", "https://example.com/")[2]
+        segments = js.split('"')
+        # Odd indices are the contents between double quotes.
+        for i in range(1, len(segments), 2):
+            self.assertNotIn(" ", segments[i], f"space inside quoted attr: {segments[i]!r}")
+
+    def test_refuse_restricted_goto_result_shape(self):
+        result = bridge._refuse_restricted_goto_result("chrome:")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["returncode"], 2)
+        self.assertIn("chrome:", result["stderr"])
+        self.assertIn("view-source:", result["stderr"])  # points to the safe path
+
+
 if __name__ == "__main__":
     unittest.main()

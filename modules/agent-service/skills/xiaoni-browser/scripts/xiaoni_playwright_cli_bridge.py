@@ -382,6 +382,16 @@ class Handler(BaseHTTPRequestHandler):
                     **({"timed_out": True} if completed.get("timed_out") else {}),
                 })
                 return
+            restricted = _restricted_goto_target(args)
+            if restricted is not None:
+                kind, value = restricted
+                if kind == "refuse":
+                    self._json(200, _refuse_restricted_goto_result(value))
+                    return
+                # kind == "wrap": view-source: of an http(s) page. Render the raw
+                # source inside an HTML wrapper instead of navigating to the
+                # never-settling view-source: document (which wedges the session).
+                args = _wrap_view_source_goto_args(_session_name(args), value)
             media_url = _media_goto_url(args)
             if media_url:
                 # Raw image/SVG top-level navigation hangs the relay and wedges the
@@ -787,6 +797,76 @@ def _wrap_media_goto_args(session, url):
     return [f"-s={session}", "run-code", js]
 
 
+# Restricted schemes the browser extension cannot drive. Two independent hazards:
+#   1. A pre-existing tab on such a scheme crashes attach (handled at the extension
+#      layer via NON_DEBUGGABLE_SCHEMES — the extension skips attaching it).
+#   2. Actively navigating the LIVE page to one wedges the session: view-source:
+#      as a top document never settles the navigation wait (like a raw image), and
+#      chrome:/devtools: detach the page mid-goto. Neither is preventable once the
+#      command reaches playwright, so intercept the goto here.
+_REFUSE_GOTO_SCHEMES = ("chrome:", "devtools:", "chrome-untrusted:", "edge:")
+
+
+def _restricted_goto_target(args):
+    # Returns ("wrap", inner_http_url) for a wrappable view-source: goto,
+    # ("refuse", scheme) for a scheme we must reject, or None otherwise.
+    url = _goto_target_url(args)
+    if not url:
+        return None
+    stripped = url.strip()
+    low = stripped.lower()
+    if low.startswith("view-source:"):
+        inner = stripped[len("view-source:"):]
+        if inner[:4].lower() == "http":
+            return ("wrap", inner)
+        return ("refuse", "view-source:")
+    for scheme in _REFUSE_GOTO_SCHEMES:
+        if low.startswith(scheme):
+            return ("refuse", scheme)
+    return None
+
+
+def _wrap_view_source_goto_args(session, inner_url):
+    # view-source:<url> as a top-level navigation never settles and wedges the
+    # session. Fetch the target and render its raw source inside an HTML <pre>
+    # wrapper (top document stays HTML) so Xiaoni still sees the source and no
+    # restricted/never-settling document is ever the active page.
+    # NOTE: no SPACES inside double-quoted HTML attribute values below. The run-code
+    # JS is one CLI arg forwarded through Python subprocess -> WSL interop -> the
+    # PowerShell -File wrapper (@args splat). A space inside a "-quoted attribute
+    # (e.g. font:12px/1.5 monospace) confuses that re-parsing and splits the arg in
+    # two ("too many arguments: expected 1, received 2"). Keep CSS space-free
+    # (font-family:monospace;font-size:12px), exactly like _wrap_media_goto_args.
+    js_url = inner_url.replace("\\", "\\\\").replace("'", "\\'")
+    js = (
+        "async (page) => { let body = '';"
+        " try { const resp = await page.goto('" + js_url + "', {waitUntil:'domcontentloaded', timeout:20000});"
+        " body = resp ? await resp.text() : await page.content(); }"
+        " catch (e) { try { body = await page.content(); } catch (e2) { body = String(e); } }"
+        " const esc = body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');"
+        " await page.setContent('<body style=\"margin:0\"><pre style=\"white-space:pre-wrap;"
+        "word-break:break-word;font-family:monospace;font-size:12px;padding:12px\">' + esc + '</pre></body>',"
+        " {waitUntil:'load', timeout:15000});"
+        " return 'view-source of " + js_url + "'; }"
+    )
+    return [f"-s={session}", "run-code", js]
+
+
+def _refuse_restricted_goto_result(scheme):
+    return {
+        "ok": False,
+        "returncode": 2,
+        "stdout": "",
+        "stderr": (
+            f"[bridge] Refused to navigate to a `{scheme}` URL. Restricted schemes "
+            "(chrome:, devtools:, chrome-untrusted:, edge:) are inaccessible to the "
+            "browser extension; navigating there wedges the automation session for "
+            "every site. To read page source use `goto view-source:<http-url>` (the "
+            "bridge renders it safely) or `run-code` returning `await page.content()`.\n"
+        ),
+    }
+
+
 def _looks_like_nav_timeout(result):
     text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}"
     return bool(
@@ -928,11 +1008,29 @@ def _patch_extension(connect_path, background_path, connect_html_path):
     _write_minimal_connect_page(connect_html_path, connect_path, token_override)
 
     background = background_path.read_text(encoding="utf-8")
-    background = background.replace(
-        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "edge:", "devtools:"];',
-        'const NON_DEBUGGABLE_SCHEMES = ["chrome:", "chrome-extension:", "edge:", "devtools:"];',
-    )
+    background = _patch_non_debuggable_schemes(background)
     background_path.write_text(background, encoding="utf-8")
+
+
+# The playwright extension only auto-attaches to tabs whose scheme is NOT in
+# NON_DEBUGGABLE_SCHEMES (isNonDebuggableUrl gates every attach site in
+# background.mjs). A tab the extension DOES try to attach on a restricted scheme
+# crashes Target.setAutoAttach ("Extension manifest must request permission to
+# access this host") and wedges the whole session for every site. Upstream ships
+# chrome:/edge:/devtools:; we add chrome-extension: and — critically — view-source:
+# (Xiaoni opens view-source: to read page source, which otherwise poisons attach).
+_NON_DEBUGGABLE_SCHEMES_RE = re.compile(r"const NON_DEBUGGABLE_SCHEMES = \[[^\]]*\];")
+_NON_DEBUGGABLE_SCHEMES_LINE = (
+    'const NON_DEBUGGABLE_SCHEMES = '
+    '["chrome:", "chrome-extension:", "edge:", "devtools:", "view-source:"];'
+)
+
+
+def _patch_non_debuggable_schemes(background):
+    # Idempotent: force the canonical skip-list regardless of the on-disk state
+    # (fresh 3-item download OR a previously-patched 4-item file), so re-patching
+    # always lands view-source: even when the old literal no longer matches.
+    return _NON_DEBUGGABLE_SCHEMES_RE.sub(_NON_DEBUGGABLE_SCHEMES_LINE, background)
 
 
 def _write_minimal_connect_page(connect_html_path, connect_script_path, token):
