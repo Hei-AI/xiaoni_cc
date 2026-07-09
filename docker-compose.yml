@@ -146,6 +146,7 @@ services:
     container_name: qqbot-xiaoni-executor
     ports:
       - "127.0.0.1:8093:8093"
+      - "127.0.0.1:3458:3458"
     environment:
       - HTTP_PORT=8093
       - XIAONI_SITE_PORT=3458
@@ -154,6 +155,9 @@ services:
       - WORKSPACE_ROOT=/workspace/qq_bot
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
       - QQ_USAGE_ENDPOINT=http://qqbot-agent-service:8092/api/internal/qq-usage
+      - XIAONI_PLAYWRIGHT_CLI_BRIDGE_URL=http://host.docker.internal:9977/run,http://172.19.0.1:9977/run
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./:/workspace/qq_bot
       - ${HOME}/.qqbot-local/xiaoni-runtime:/xiaoni-runtime
