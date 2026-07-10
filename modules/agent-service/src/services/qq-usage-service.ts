@@ -43,6 +43,15 @@ function toDateTime(value: unknown) {
   return formatEast8Timestamp(date);
 }
 
+// 把 East8 "YYYY-MM-DD HH:MM:SS" 拆成日期头 + 时刻。会话窗口把日期提到 `── 日期 ──`
+// 分隔行（同一天不重复），每条消息只带 time="HH:MM:SS"——发送时间不丢，日期不刷屏。
+// 解析失败（空/非标准）时 day 为空、time 回落到原串，绝不吞掉时间信息。
+function splitEast8(value: unknown): { day: string; time: string } {
+  const full = toDateTime(value);
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/.exec(full);
+  return match ? { day: match[1], time: match[2] } : { day: '', time: full };
+}
+
 function parseRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -106,6 +115,8 @@ function displayName(thread: QqUsageThreadSummary) {
 
 function senderLabel(message: Record<string, unknown> | null) {
   if (!message) return '';
+  // 出站 = 小腻自己发的。渲染成「我」，这样单独的 direction 字段就没信息了（可删）。
+  if (message.direction === 'outgoing') return '我';
   const name = String(message.sender_name || '').trim();
   const id = String(message.sender_id || '').trim();
   if (name && id && name !== id) return `${name}(${id})`;
@@ -198,15 +209,10 @@ function renderReplyPreview(message: Record<string, unknown>): { attr: string | 
 
 function renderMessage(message: Record<string, unknown>) {
   // outgoing = 小腻自己发的（来自 agent_outbound_messages，见 persistence 合并）。
-  // 默认 incoming 保持 inbound 行的历史行为不变。
   const direction = message.direction === 'outgoing' ? 'outgoing' : 'incoming';
   // 回复引用预览只对 incoming（别人引用了某条）——outbound 行不带 reply_to_body /
   // reply_to_message_id，无法正确渲染，跳过以免在她自己的消息上误显示「原消息已不在记录」。
   const reply = direction === 'incoming' ? renderReplyPreview(message) : { attr: null, line: null };
-  // message_id 保留：它是 reply_to 的对应锚（reply_to="X" 现在与 message_id 同命名空间，
-  // 且能用 focus_private/focus_group <id> 定位）。
-  // read_state 只在未读时透出（读过是默认态）；mentions_xiaoni 只在被@时透出（否则恒 false 是噪音）。
-  const isUnread = Number(message.is_read) !== 1;
   const wasMentioned = Number(message.was_mentioned) === 1;
   const body = renderMessageBody(message);
   const bodyWithReply = reply.line ? `${reply.line}\n${body}` : body;
@@ -217,12 +223,16 @@ function renderMessage(message: Record<string, unknown>) {
   const displayId = typeof message.onebot_id === 'string' && message.onebot_id.trim() !== ''
     ? message.onebot_id.trim()
     : message.id;
+  // 精简（不丢信息）：
+  // - direction 删——sender="我" 已经标出是她自己发的。
+  // - read_state 删——已读/未读改由窗口级单条分界/浮标标记（见 renderConversationWindow）。
+  // - timestamp 全量拆成 time="HH:MM:SS" + 窗口级 `── 日期 ──` 分隔行，日期不再逐条重复。
+  // - message_id / sender / mentions_xiaoni / reply_to 全保留（reply-locate、@、引用都要）。
+  const { time } = splitEast8(message.message_timestamp || message.received_at);
   return formatTaggedBlock('MESSAGE', {
+    time,
     message_id: displayId,
-    timestamp: toDateTime(message.message_timestamp || message.received_at),
     sender: senderLabel(message),
-    direction,
-    ...(isUnread ? { read_state: 'unread' } : {}),
     ...(wasMentioned ? { mentions_xiaoni: 'true' } : {}),
     ...(reply.attr ? { reply_to: reply.attr } : {})
   }, escapeXmlText(bodyWithReply));
@@ -238,23 +248,69 @@ function threadIdentity(threadKey: string): { chatType: 'group' | 'direct'; peer
   return { chatType: 'direct', peerId: parts[parts.length - 1] || '' };
 }
 
+// 把手机 QQ 会话「屏幕」原样序列化。未读只有两个 UI 元素，对应 before/after 两个计数：
+// ① 消息流内单条分界线（边界正好落在本屏时）；② 顶/底的「N 条新消息」浮标（边界在本屏之外，
+// 上方/下方）。逐条已读/未读标记不存在。三态互斥/可组合：
+//   A 边界在本屏（unreadBefore==0 且窗口内有未读）→ 首条未读前插 `———— 以下为未读（N）————`
+//   B 全屏都在未读区（unreadBefore>0）→ 顶部 `———— ↑ 上方还有 N 条未读 ————`，流内不插线
+//   C 未读在下方（unreadAfter>0，她往上滚了）→ 底部 `———— ↓ 下方还有 N 条未读 ————`
+// 未读是最新连续尾块（会话级标读 + watermark 保证），所以「首条未读」就是边界，无空洞。
 function renderConversationWindow(result: QqUsageThreadWindow) {
   // 精简：删掉纯内部记账字段——surface(恒定)、thread_key(内部id且SKILL叫她别用)、
-  // cursor_anchor(内部id对,翻页不靠它)、window_size(可数)、newer_available(与 has_newer_messages 重复)。
-  // 翻页锚点走结果对象的 earliest/latest_message_id（runtime 内部 state），不受此渲染影响。
-  // 逻辑闭环：保留干净的 chat_type + peer_id——她后续 scroll_/jump_/put_away/send 这条会话都要这个 id。
-  // 群会话里成员各说各的，群号只能从这里拿；私聊也一并给出，窗口自成闭环、不依赖跨轮记忆。
+  // cursor_anchor(内部id对,翻页不靠它)、window_size(可数)。
+  // 保留干净的 chat_type + peer_id（她后续 scroll_/jump_/put_away/send 都要这个 id），
+  // 外加 peer_name（群名/对方昵称，避免只看到裸号）。
+  // has_older/has_newer 三个导航布尔合成一个可选 more 字段。
   const identity = threadIdentity(result.threadKey);
+  const messages = Array.isArray(result.messages) ? result.messages : [];
+  const before = Number(result.unreadBeforeWindow || 0);
+  const after = Number(result.unreadAfterWindow || 0);
+  // 首条仍未读的消息下标（is_read !== 1）。unread 是连续尾块 → 这就是读/未读边界。
+  const firstUnreadIdx = messages.findIndex((message) => Number(message.is_read) !== 1);
+
+  const lines: string[] = [];
+  let lastDay = '';
+  const pushDayHeader = (day: string) => {
+    if (day && day !== lastDay) {
+      lines.push(`── ${day} ──`);
+      lastDay = day;
+    }
+  };
+
+  // Case B：未读一直延伸到本屏上方——顶部浮标，流内不再插分界线。
+  if (before > 0) {
+    lines.push(`———— ↑ 上方还有 ${before} 条未读 ————`);
+  }
+  messages.forEach((message, idx) => {
+    const { day } = splitEast8(message.message_timestamp || message.received_at);
+    pushDayHeader(day);
+    // Case A：边界正好落在本屏（上方无未读）——首条未读前插单条分界线。
+    if (before === 0 && firstUnreadIdx >= 0 && idx === firstUnreadIdx) {
+      const unreadBelow = (messages.length - firstUnreadIdx) + after;
+      lines.push(`———— 以下为未读（${unreadBelow}）————`);
+    }
+    lines.push(renderMessage(message));
+  });
+  // Case C：未读还在本屏下方（她往上滚了）——底部浮标。
+  if (after > 0) {
+    lines.push(`———— ↓ 下方还有 ${after} 条未读 ————`);
+  }
+
+  const more = result.hasOlderMessages && result.hasNewerMessages
+    ? 'both'
+    : result.hasOlderMessages
+      ? 'older'
+      : result.hasNewerMessages
+        ? 'newer'
+        : '';
+
   return formatTaggedBlock('IM_INBOX_WINDOW', {
     mode: 'conversation',
     chat_type: identity.chatType === 'group' ? '群聊' : '私聊',
     peer_id: identity.peerId,
-    unread_before_window: result.unreadBeforeWindow,
-    unread_after_window: result.unreadAfterWindow,
-    reached_read_history: String(result.reachedReadHistory),
-    has_older_messages: String(result.hasOlderMessages),
-    has_newer_messages: String(result.hasNewerMessages)
-  }, result.messages.map(renderMessage).join('\n'));
+    peer_name: result.peerName || '',
+    ...(more ? { more } : {})
+  }, lines.join('\n'));
 }
 
 function renderError(action: string, args: Record<string, unknown>, reason: string) {

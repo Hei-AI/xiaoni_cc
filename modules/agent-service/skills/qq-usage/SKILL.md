@@ -82,8 +82,13 @@ Open your profile card first, then edit. These edits change **your own QQ profil
 - Conversation messages appear as child `<MESSAGE>` rows inside one `<IM_INBOX_WINDOW>`, not as top-level `<INPUT_MESSAGE>` blocks.
 - Message bodies may include media markers such as `[图片:pic_hash]`. Feed the `pic_hash` to `inspect_image_placeholder` to actually see the image. Shared links/cards already carry their URL inline (`[卡片] … https://…`, `[链接] … https://…`) — open it with the browser skill.
 - A `<MESSAGE>` that quotes an earlier one shows `reply_to="<message_id>"` plus an inline `「引用 <sender>: <snippet>」`. The snippet is the quoted text; it is marker-free only when complete. `…(截断)` means it was cut — open the original for the full text. `(非文字消息)` means the quote had no text (image/file/card). Open the quoted original in context with `focus_private user_id <reply_to>` or `focus_group group_id <reply_to>`. `（原消息已不在记录）` means the quoted message is no longer stored — there is no path to it.
-- Opening a thread shows the latest visible 10-message screen. If there are more than 10 unread messages, only the latest 10 appear and `unread_before_window` reports the earlier unread count.
-- If fewer than 10 unread messages exist, the window may include read history and `reached_read_history="true"`.
+- Each `<MESSAGE>` carries `time="HH:MM:SS"` (send time) and `message_id`. The date is not repeated on every line; instead a `── YYYY-MM-DD ──` separator line marks each day change inside the window. Your own messages show `sender="我"`.
+- The conversation header is `<IM_INBOX_WINDOW mode="conversation" chat_type peer_id peer_name>`. `peer_name` is the group name / other person's nickname; `peer_id` stays the raw QQ id/group id you pass to `focus_/scroll_/put_*_away`. `more="older|newer|both"` appears when more history exists above/below the window to scroll to.
+- Read vs unread is a single boundary, like phone QQ — not a per-message flag. At most one appears:
+  - `———— 以下为未读（N）————` inside the flow: the read/unread boundary is on this screen; everything below the line is unread (N total from here down).
+  - `———— ↑ 上方还有 N 条未读 ————` at the top: the whole screen is already unread and N more unread continue above — `scroll_* older` to reach where they begin.
+  - `———— ↓ 下方还有 N 条未读 ————` at the bottom: N unread continue below the screen (you scrolled up) — `scroll_* newer` / `jump_*_to_latest` to reach them.
+  - No marker at all means everything on screen is already read.
 - New arrivals for an already viewed conversation are not shown automatically. Use `scroll_private user_id newer` / `scroll_group group_id newer` or the matching `jump_*_to_latest` command to reveal them.
 
 ## 表情（收到的 / 你自己发的）
@@ -96,7 +101,7 @@ Open your profile card first, then edit. These edits change **your own QQ profil
 
 - This works exactly like phone QQ. Opening a conversation (`focus_private` / `focus_group` / `jump_*_to_latest`) clears that conversation's unread badge — the whole conversation, not just the visible screen. Messages you did not scroll to are also marked read but stay in history; `scroll_*` to re-read them.
 - The badge clears when you OPEN a conversation, not when you leave it. Switching to another conversation, `put_private_away` / `put_group_away`, and `put_qq_away` do NOT clear unread. A conversation you never opened keeps its unread badge.
-- A freshly opened window still reports `unread_before_window` / `unread_after_window` from the moment you opened it, so you can see that older/newer unread existed (and scroll to them) even though the badge is now clear.
+- A freshly opened window still shows the `↑ 上方还有 N 条未读` / `↓ 下方还有 N 条未读` markers from the moment you opened it, so you can see that older/newer unread existed (and scroll to them) even though the badge is now clear.
 
 ## Failure
 
