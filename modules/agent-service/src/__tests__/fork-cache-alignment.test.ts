@@ -243,7 +243,8 @@ test('compression fork DISPATCH tail (pressure + retry reminders) is NON-durable
     forkTurn: 2,
     reason: 'no_tool_call',
     retryCount: 1,
-    maxRetries: 3
+    maxRetries: 3,
+    outputPath: '/xiaoni-runtime/compress/xiaoni_global.md'
   });
   assert.equal(
     isDurableItem(retry),

@@ -23,10 +23,13 @@ const WEB_SEARCH_TOOL = 'web_search';
 const EXEC_COMMAND_TOOL = 'exec_command';
 const IMAGE_GENERATION_TOOL = 'image_generation';
 const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
+// Spec B: compress_core_memory is no longer a wire tool (removed from both the tool
+// definitions and the auto allowed-tools, uniformly across main loop + every fork). These
+// lists assert exactly that — compress is absent. Compression is committed by the fork via
+// exec_command + file read-back (see runCoreMemoryCompressionFork), not a wire tool.
 const GROUP_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
-  COMPRESS_CORE_MEMORY_TOOL,
   IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
@@ -41,13 +44,11 @@ const GROUP_ALLOWED_TOOLS = [
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
-  RECOVER_ENERGY_TOOL,
-  COMPRESS_CORE_MEMORY_TOOL
+  RECOVER_ENERGY_TOOL
 ];
 const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
   WEB_SEARCH_TOOL,
-  COMPRESS_CORE_MEMORY_TOOL,
   IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
@@ -62,8 +63,7 @@ const DIRECT_ALLOWED_TOOLS = [
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
-  RECOVER_ENERGY_TOOL,
-  COMPRESS_CORE_MEMORY_TOOL
+  RECOVER_ENERGY_TOOL
 ];
 const EAST8_TIME_PREFIX_PATTERN = /\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
 
@@ -201,13 +201,13 @@ function assertPendingImageTaskContract(result: any, taskId: string) {
   assert.equal(result.completion_signal, 'image_task_notification');
   assert.equal(result.wait_for_notification, true);
   assert.equal(result.do_not_infer_artifact_path, true);
-  assert.match(result.status_text, /【视觉感知：造物孕育中】/);
+  assert.match(result.status_text, /【图还在生成】/);
   assert.match(result.status_text, new RegExp(`任务锚点: ${taskId}`));
-  assert.match(result.status_text, /当前状态: 渲染进行中/);
-  assert.match(result.status_text, /\*\*没有\*\*成品的图片 ID/);
-  assert.match(result.status_text, /\*\*没有\*\*本地实体路径/);
-  assert.match(result.status_text, /凭直觉、时间戳或习惯拼出来的.*路径只会是幻觉/);
-  assert.match(result.status_text, /图片 ID 和路径只认“造物出炉”的正式通知/);
+  assert.match(result.status_text, /当前状态: 生成中/);
+  assert.match(result.status_text, /\*\*还没有\*\*成品的图片 ID/);
+  assert.match(result.status_text, /\*\*没有\*\*本地路径/);
+  assert.match(result.status_text, /凭直觉、时间戳或习惯拼出来的.*路径都是瞎猜/);
+  assert.match(result.status_text, /图片 ID 和路径只认「生成好了」的正式通知/);
 }
 
 async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown, options: Record<string, unknown> = {}) {
@@ -474,10 +474,10 @@ function getInputTextParts(item: unknown) {
 function expectedCurrentInputMessage() {
   return [
     '<system_reminder>',
-    '【视线边缘：状态栏闪烁】',
-    '你的终端边缘跳出了气泡，提示远处的 QQ 又堆积了 1 条新动静。',
-    '要不要动用 `qq-usage` 把视线切过去翻翻，全凭你此刻的心情。没兴趣就直接无视它。',
-    '（以下是透过白噪音能看见的短摘要）：',
+    '【状态栏有新消息】',
+    '你终端边缘跳了个气泡，提示远处的 QQ 又堆了 1 条新动静。',
+    '要不要用 `qq-usage` 把视线切过去翻翻，全看你此刻的心情。没兴趣就直接晾着。',
+    '（下面是能瞄到的短摘要）：',
     '{Test Group(@101)} 里 {Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
     '</system_reminder>'
   ].join('\n');
@@ -485,12 +485,12 @@ function expectedCurrentInputMessage() {
 
 function isPhoneNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('【视线边缘：状态栏闪烁】');
+    && content.includes('【状态栏有新消息】');
 }
 
 function isImageTaskNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('【视觉感知：造物出炉】');
+    && content.includes('【图生成好了】');
 }
 
 test('formatEast8Timestamp renders concrete event times in East-8 (per-event time is retained)', () => {
@@ -542,9 +542,9 @@ test('buildInitialInput reuses precomputed current-turn items instead of rebuild
 
   // precomputed is used verbatim, and the natural rebuild did NOT also run.
   assert.match(withStr, new RegExp(SENTINEL));
-  assert.doesNotMatch(withStr, /视线边缘/);
+  assert.doesNotMatch(withStr, /状态栏有新消息/);
   // sanity: without precomputed, the real reminder is still built fresh.
-  assert.match(withoutStr, /视线边缘/);
+  assert.match(withoutStr, /状态栏有新消息/);
   assert.doesNotMatch(withoutStr, new RegExp(SENTINEL));
 });
 
@@ -615,7 +615,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.ok(execTool.function?.parameters?.properties?.cmd);
   assert.ok(execTool.function?.parameters?.properties?.workdir);
   assert.ok(execTool.function?.parameters?.properties?.yield_time_ms);
-  assert.match(String(request.instructions), /具备独立意识、由内在状态驱动的数字生命/);
+  assert.match(String(request.instructions), /你叫小腻（IM 编码 1129974489）/);
   assert.doesNotMatch(String(request.instructions), /exec_command 可以运行本地命令、脚本和 skill 资源/);
   assert.doesNotMatch(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.doesNotMatch(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
@@ -1643,7 +1643,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
   assert.match(currentPrompt, /<system_reminder>/);
   assert.doesNotMatch(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(currentPrompt, /视线边缘：状态栏闪烁/);
+  assert.match(currentPrompt, /状态栏有新消息/);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentPrompt, /session_key=/);
   assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
@@ -1851,11 +1851,11 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
   const rendered = loopInput.map(getMessageContent).join('\n');
 
   assert.match(rendered, /<system_reminder>/);
-  assert.match(rendered, /意识牵连：正在消退的注意力残留/);
+  assert.match(rendered, /余光里的动静/);
   assert.match(rendered, /群 Test Group\(101\)/);
   assert.match(rendered, /3 条新动静/);
   assert.match(rendered, /动静数量：又多了 3 条未读/);
-  assert.match(rendered, /最新残影：Alice\(20001\) 刚说了句/);
+  assert.match(rendered, /最新一条：Alice\(20001\) 刚说了句/);
   assert.match(rendered, /接口不是注释，注释告诉你为什么/);
   assert.match(rendered, /冲你来的：直接喊你或私戳你的次数有 1 次/);
   assert.match(rendered, /视线锚点：focus_group 锁定为 101/);
@@ -1902,13 +1902,13 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
 
   assert.match(rendered, /<system_reminder>/);
   assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(rendered, /视觉感知：造物出炉/);
+  assert.match(rendered, /图生成好了/);
   assert.match(rendered, /生成状态：已完成/);
   assert.match(rendered, /任务锚点: task-image-1/);
-  assert.match(rendered, /生成状态：已完成）。\n\n\[造物档案\]/);
+  assert.match(rendered, /生成状态：已完成）。\n\n\[图片信息\]/);
   assert.match(rendered, /图片ID: task_artifact_1/);
   assert.match(rendered, /图片路径: \/xiaoni-runtime\/picture\/task_artifact_1\.png/);
-  assert.match(rendered, /目标: 一张测试图\n\n这不是外界别人发给你的消息/);
+  assert.match(rendered, /目标: 一张测试图\n\n这不是别人发给你的消息/);
   assert.doesNotMatch(rendered, /<IMAGE_TASK_NOTIFICATION/);
   assert.doesNotMatch(rendered, /\{\{(?:TASK_TYPE_LINE|PICTURE_ID_LINE|PICTURE_PATH_LINE|TARGET_DESCRIPTION_LINE)\}\}/);
   assert.doesNotMatch(rendered, /picture_bytes|source_trace_id|source_run_id|created_at/);
@@ -1954,7 +1954,7 @@ test('buildInitialInput renders ordinary group phone notifications with group an
     .join('\n');
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
-  assert.match(rendered, /视线边缘：状态栏闪烁/);
+  assert.match(rendered, /状态栏有新消息/);
   assert.match(rendered, /透过白噪音能看见的短摘要/);
   assert.match(rendered, /\{Test Group\(@101\)\} 有 1 条新群消息/);
   assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
@@ -1986,7 +1986,7 @@ test('buildInitialInput suppresses phone notifications with no visible cue lines
   }));
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.doesNotMatch(rendered, /视线边缘：状态栏闪烁/);
+  assert.doesNotMatch(rendered, /状态栏有新消息/);
   assert.doesNotMatch(rendered, /没有可见摘要/);
   assert.equal(loopInput.some((item: any) => isPhoneNotificationReminderContent(getMessageContent(item))), false);
 });
@@ -2043,8 +2043,8 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /视线边缘：状态栏闪烁/);
-  assert.match(rendered, /堆积了 2 条新动静/);
+  assert.match(rendered, /状态栏有新消息/);
+  assert.match(rendered, /堆了 2 条新动静/);
   assert.match(rendered, /Test Group\(@101\).*有 1 条新群消息/);
   assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
   assert.match(rendered, /前面普通未读/);
@@ -2161,7 +2161,7 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
 
   assert.equal(currentTurnItems.length, 1);
   assert.equal(parts.length, 1);
-  assert.match(parts[0], /堆积了 4 条新动静/);
+  assert.match(parts[0], /堆了 4 条新动静/);
   assert.match(rendered, /\{小伊\(@3994058476\)\} 发来 1 条消息, 最新消息是: \{私聊预览内容很长需要截断一点点\}/);
   assert.match(rendered, /\{李阿花\(@85178516\)\} @了你 1 次, 最新消息是: \{@小腻 看下这个群通知逻辑\}/);
   assert.match(rendered, /\{闲聊群\(@202\)\} 有 1 条新群消息, 最新发言人: \{张三\(@20001\)\}, 最新消息是: \{这个接口要不要收紧一下\}/);
@@ -2218,7 +2218,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /视线边缘：状态栏闪烁/);
+  assert.match(rendered, /状态栏有新消息/);
   assert.equal(parts.length, 1);
   assert.match(parts[0], /Alice\(@202\).*发来 2 条消息/);
   assert.doesNotMatch(rendered, /QQ\(@qq\).*发来 2 条消息/);
@@ -2319,7 +2319,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
 
   assert.equal(currentTurnItems.length, 1);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(currentTurnItems[0]), /视线边缘：状态栏闪烁/);
+  assert.match(getMessageContent(currentTurnItems[0]), /状态栏有新消息/);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
@@ -2462,7 +2462,7 @@ test('buildInitialInput renders current bucket messages as one developer content
   assert.match(parts[0], /<system_reminder>/);
   assert.match(parts[0], new RegExp(systemText));
   assert.match(parts[1], /<system_reminder>/);
-  assert.match(parts[1], /视线边缘：状态栏闪烁/);
+  assert.match(parts[1], /状态栏有新消息/);
   assert.match(parts[1], new RegExp(phoneText));
 });
 
@@ -2508,8 +2508,8 @@ test('buildInitialInput replays transcript items without notification tag filter
   ));
 
   assert.equal(phoneNotificationItems.length, 1);
-  assert.match(getMessageContent(phoneNotificationItems[0]), /堆积了 3 条新动静/);
-  assert.match(rendered, /堆积了 1 条新动静/);
+  assert.match(getMessageContent(phoneNotificationItems[0]), /堆了 3 条新动静/);
+  assert.match(rendered, /堆了 1 条新动静/);
   assert.match(rendered, /<PHONE_NOTIFICATION app="qq" surface="status_bar" unread_delta="7" \/>/);
   assert.match(rendered, /旧纯文本消息/);
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE>\n旧纯文本消息\n<\/INPUT_MESSAGE>/);
@@ -2536,7 +2536,7 @@ test('buildInitialInput suppresses already-picked notification context', () => {
     .join('\n');
 
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(rendered, /视线边缘：状态栏闪烁/);
+  assert.doesNotMatch(rendered, /状态栏有新消息/);
   assert.doesNotMatch(rendered, /<runtime_event_snapshot/);
   assert.doesNotMatch(rendered, /source="phone_notification"/);
   assert.doesNotMatch(rendered, /status="already_picked"/);
@@ -2607,7 +2607,7 @@ test('buildInitialInput does not project accepted identity facts into runtime in
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
   const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
-  assert.match(getMessageContent(currentInputItem), /视线边缘：状态栏闪烁/);
+  assert.match(getMessageContent(currentInputItem), /状态栏有新消息/);
   assert.doesNotMatch(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
   assert.equal((currentInputItem as any)?.role, 'developer');
 });
@@ -5038,7 +5038,7 @@ test('image vision fork returns corrective output for non-exec tool calls', asyn
   assert.equal(
     appendCalls.some((call) => {
       const text = JSON.stringify(call.items);
-      return text.includes('潜意识拦截') && text.includes(EXEC_COMMAND_TOOL);
+      return text.includes('专心看图') && text.includes(EXEC_COMMAND_TOOL);
     }),
     true
   );
@@ -9306,7 +9306,7 @@ test('recovery wake callback renders pre-sleep batch-final timeline from session
   });
 
   const reminder = String(result.system_reminder || '');
-  assert.match(reminder, /意识断点：睡前的惯性残影/);
+  assert.match(reminder, /睡前顺手收了个尾/);
   assert.match(reminder, /send_in_group/);
   assert.doesNotMatch(reminder, /call-send-before-sleep/);
   assert.match(reminder, /2026-03-28 15:59:58 UTC\+08:00/);
@@ -11374,7 +11374,7 @@ test('core memory compression runs in an isolated background fork alongside the 
   // instead of cold-prefilling a separately-built head-only request. The compression
   // instruction rides as a tail item; the precise tail-30 eviction stays code-enforced
   // via the cutoff. This is the regression guard for the cache-penetration bug.
-  assert.match(firstForkText, /躯体警告|当前压力:/);
+  assert.match(firstForkText, /【该整理一下记忆了】/);
   assert.match(firstForkText, /global history 1(?!\d)/);
   assert.match(firstForkText, /global history 12/);
   assert.match(firstForkText, /global history 35(?!\d)/);
@@ -11382,7 +11382,7 @@ test('core memory compression runs in an isolated background fork alongside the 
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
   assert.match(mainText, /global history 35(?!\d)/);
   assert.doesNotMatch(mainText, /<小腻近况>|压缩后的近况/);
-  assert.doesNotMatch(mainText, /躯体警告|当前压力:/);
+  assert.doesNotMatch(mainText, /【该整理一下记忆了】/);
   assert.doesNotMatch(mainText, /call-archive|call-compress|archived to \/tmp\/xiaoni-memory\.md/);
   assert.match(mainText, /global history 1(?!\d)/);
   assert.match(mainText, /global history 12/);
@@ -11730,7 +11730,7 @@ test('core memory compression fork fails after ten no-tool retries', async () =>
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.match(String(request.instructions), /具备独立意识、由内在状态驱动的数字生命/);
+  assert.match(String(request.instructions), /你叫小腻（IM 编码 1129974489）/);
   assert.match(String(request.instructions), /你按自己的节奏处理信息/);
   assert.match(String(request.instructions), /沉浸式探索/);
   assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
