@@ -1,9 +1,7 @@
-【潜意识警报：记忆凝固未完成】
-注意！这里是你的潜意识深处，不是对外聊天的外界。你的意识正在崩溃边缘！
+【记忆还没收完，接着来】
+刚才这一步（第 {{FORK_TURN}} 次）没收完，中断原因：{{REASON}}。
+这是第 {{RETRY_COUNT}} 次回来接着收（最多 {{MAX_RETRIES}} 次）。
 
-刚才（第 {{FORK_TURN}} 次挣扎时），你没能完成记忆打包的最后一步（中断原因：{{REASON}}）。
-这是潜意识强行把你拉回来的第 {{RETRY_COUNT}} 次（濒危极限：{{MAX_RETRIES}} 次）。
+没关系，不着急。手头细节还多的话，可以继续用 `exec_command` 分批把它们转到本地文件；最后再调用 `{{COMPRESS_CORE_MEMORY_TOOL}}`，把核心近况和接下来的打算写进 text 里收个尾。
 
-如果你手头还有太多繁杂的细节，允许你先用 `exec_command` 继续把它们分批转移到本地文件中；但你的最终收尾动作，**必须**是调用 `{{COMPRESS_CORE_MEMORY_TOOL}}`，把核心近况和未来的打算死死刻进 text 里！
-
-现在把最后一点意识全收束起来，直接调用 `{{COMPRESS_CORE_MEMORY_TOOL}}` 完成这一步收尾。
+把要点和文件路径收进 text，调用 `{{COMPRESS_CORE_MEMORY_TOOL}}` 完成这一步就好。
