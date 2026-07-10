@@ -24,7 +24,12 @@ const CENTERED_FLOOR = envNum('XIAONI_RECALL_FLOOR', 0.15);
 const CENTERED_TASK_FLOOR = envNum('XIAONI_RECALL_TASK_FLOOR', 0.30);
 const CENTERED_CEILING = envNum('XIAONI_RECALL_CEILING', 0.60);
 // 自适应跳出门:top 需高出邻域基线 margin 才冒(治静默率)。env 可调,调大更静默。
-const CENTERED_STANDOUT_MARGIN = envNum('XIAONI_RECALL_STANDOUT_MARGIN', 0.08);
+// 0.25 = P2 真库 sweep 定档(200 条落地 replay:0.08→fire96%,0.25→fire~39%);再高会连真·连续性一起砍,
+// 「别吵」交给 v2 投递做轻,不靠把选择做到极稀。
+const CENTERED_STANDOUT_MARGIN = envNum('XIAONI_RECALL_STANDOUT_MARGIN', 0.25);
+// 近似重复在场抑制:候选 top centered-cos ≥ 此值 → 整条静默(她在重复已有记录的事,非遗忘)。
+// 阈值取高(0.95)只杀近乎同一,保留 0.90-0.94 的强相关真·连续性。
+const CENTERED_NEARDUP_SUPPRESS = envNum('XIAONI_RECALL_NEARDUP_SUPPRESS', 0.95);
 const MEAN_TTL_MS = 10 * 60 * 1000; // μ 变化慢,缓存 10min,别每次落地扫全库
 
 // 「不在上下文」= 不在她当前 replay 进 live 请求的 stack 尾(压缩 cutoff 之上)。这条边界的权威来源
@@ -180,7 +185,7 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const meanVector = model ? model.mean : null;
     const components = model ? model.components : [];
     const bandParams = meanVector
-      ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING, standoutMargin: CENTERED_STANDOUT_MARGIN }
+      ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING, standoutMargin: CENTERED_STANDOUT_MARGIN, nearDupSuppress: CENTERED_NEARDUP_SUPPRESS }
       : {};
     const result = bandpassRecall({
       query: { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },
