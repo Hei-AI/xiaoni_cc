@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { readdir as fsReaddir, rm as fsRm, stat as fsStat } from 'node:fs/promises';
+import { readdir as fsReaddir, readFile as fsReadFile, rm as fsRm, stat as fsStat } from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
@@ -1172,6 +1172,7 @@ const TOOL_NAMES = {
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
   execCommand: 'exec_command',
+  readFile: 'read_file',
   privateReply: 'send_in_private',
   groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
@@ -1189,6 +1190,7 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.inspectImage]: 0.040,
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.002,
+  [TOOL_NAMES.readFile]: 0.001,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020,
   [TOOL_NAMES.webSearch]: 0.030,
@@ -1286,6 +1288,7 @@ const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
   'Use /app as the filesystem root for repository paths.',
+  'To read a file, prefer the read_file tool over cat/head/tail/sed: it returns numbered lines, pages with offset/limit, and is how you read back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output.',
   'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
 ].join(' ');
 
@@ -1345,6 +1348,42 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
         }
       },
       required: ['cmd'],
+      additionalProperties: false
+    }
+  }
+};
+
+const READ_FILE_DESCRIPTION = [
+  'Read a file (or a line range) from the filesystem, returned with line numbers.',
+  'Use /app as the filesystem root for repository paths (same root as exec_command).',
+  'Prefer this over exec_command cat/sed/tail/head when you just need to read a file — including reading back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output. Pass offset/limit to page through a large file.'
+].join(' ');
+
+const READ_FILE_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  name: TOOL_NAMES.readFile,
+  description: READ_FILE_DESCRIPTION,
+  strict: false,
+  function: {
+    name: TOOL_NAMES.readFile,
+    description: READ_FILE_DESCRIPTION,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'File path to read. Use /app for repository paths; absolute runtime paths (e.g. /xiaoni-runtime/...) are read as-is.'
+        },
+        offset: {
+          type: 'number',
+          description: 'Line number to start reading from (1-based). Defaults to 1.'
+        },
+        limit: {
+          type: 'number',
+          description: 'Number of lines to read. Defaults to 2000.'
+        }
+      },
+      required: ['path'],
       additionalProperties: false
     }
   }
@@ -2237,7 +2276,9 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   // when on it is present identically in every main-loop AND fork request, keeping
   // the cached tools prefix byte-stable. Order (exec, web_search, ...) is asserted
   // by agent-loop-service.test.ts GROUP_LOOP_TOOLS — keep it.
-  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
+  // read_file is unconditional (like exec_command), so it is present identically in
+  // every main-loop AND fork request — the cached tools prefix stays byte-stable.
+  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL, READ_FILE_TOOL];
   if (agentConfig.webSearchEnabled) {
     tools.push(WEB_SEARCH_TOOL);
   }
@@ -2285,6 +2326,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   // └──────────────────────────────────────────────────────────────────────────┘
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'computer_use' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
+    { type: 'function', name: TOOL_NAMES.readFile },
     { type: 'function', name: TOOL_NAMES.privateReply },
     { type: 'function', name: TOOL_NAMES.groupReply },
     { type: 'function', name: TOOL_NAMES.inspectImage },
@@ -2981,8 +3023,8 @@ export class StreamCapture {
   }
 
   // Await the spill write-stream flushing to disk. Awaited before the fallback
-  // resolves so "完整输出已落盘" is true-by-construction (kept identical to the
-  // xiaoni-executor copy).
+  // resolves so the spill file named in the elision marker is fully written
+  // (kept identical to the xiaoni-executor copy).
   async settled(): Promise<void> {
     if (this.spillFinished) {
       await this.spillFinished;
@@ -3088,36 +3130,17 @@ export class StreamCapture {
       return this.full ?? this.head;
     }
     const elided = Math.max(0, this.totalChars - this.head.length - this.tail.length);
-    // Actionable path + read-back instructions live in the header (spillHeaderNote);
-    // this in-body marker only marks WHERE the cut is.
+    // Self-contained factual marker (mirror of the executor's StreamCapture.render):
+    // marks WHERE the cut is and names the spill file, no re-read coaching. One
+    // reference, at the cut; head+tail already keeps both ends inline.
+    const ceilTag = this.spillCeilingHit
+      ? `（文件在 ${Math.round(this.spillCeilingBytes / 1024 / 1024)}MB 处截断）`
+      : '';
     const note = (this.spillError || !this.spillPath)
-      ? `…[中间约 ${elided} 字符已省略；完整输出写盘失败，无法回看]…`
-      : `…[中间约 ${elided} 字符已省略，完整见上方落盘文件]…`;
+      ? `…[省略约 ${elided} 字符 · 写盘失败]…`
+      : `…[省略约 ${elided} 字符 · 完整 ${this.spillPath}${ceilTag}]…`;
     return `${this.head}\n${note}\n${this.tail}`;
   }
-}
-
-function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): string | undefined {
-  const parts: string[] = [];
-  const add = (name: string, cap: StreamCapture) => {
-    if (!cap.truncated) {
-      return;
-    }
-    if (cap.spillError || !cap.spillPath) {
-      parts.push(`完整 ${name} 写盘失败，中间内容无法回看`);
-    } else {
-      const ceilLabel = `${Math.round(SPILL_CEILING_BYTES / 1024 / 1024)}MB`;
-      parts.push(`完整 ${name}: ${cap.spillPath}${cap.spillCeilingHit ? `（文件也在 ${ceilLabel} 处截断）` : ''}`);
-    }
-  };
-  add('stdout', stdoutCap);
-  add('stderr', stderrCap);
-  if (parts.length === 0) {
-    return undefined;
-  }
-  // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
-  // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
-  return `完整输出已落盘（别 cat 大文件会再截断，按范围读；或调大 max_output_tokens 一次读完）：\n  ${parts.join('\n  ')}`;
 }
 
 export async function pruneExecOutput(root = EXEC_OUTPUT_ROOT, ttlDays = EXEC_OUTPUT_TTL_DAYS, now = Date.now()): Promise<number> {
@@ -3156,6 +3179,79 @@ function resolveExecShellArgs(shell: string, cmd: string, login: boolean) {
   return ['-c', cmd];
 }
 
+// Local-dev fallback for read_file — MUST stay behaviourally in sync with
+// readFileRange in modules/xiaoni-executor/src/index.ts. Only runs when the
+// executor URL is unset (dev/tests). Prod always routes to the executor, which
+// additionally does /app path translation; here we read the path as given.
+async function readFileRangeLocal(args: {
+  path?: unknown; offset?: unknown; limit?: unknown; max_output_tokens?: unknown;
+}): Promise<Record<string, unknown>> {
+  const rawPath = typeof args.path === 'string' ? args.path.trim() : '';
+  const offset = clampNumber(args.offset, 1, 1, Number.MAX_SAFE_INTEGER);
+  const limit = clampNumber(args.limit, 2000, 1, 100_000);
+  const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
+  const maxChars = Math.max(1, maxOutputTokens * 4);
+  const build = (target: string, extra: Record<string, unknown> & { codex_output: string }) => ({
+    path: target, offset, limit, total_lines: 0, returned_lines: 0, truncated: false, ...extra
+  });
+  if (!rawPath) {
+    return build('', { error_message: 'read_file requires path', codex_output: '[read_file 需要 path]' });
+  }
+  let content: string;
+  try {
+    const info = await fsStat(rawPath);
+    if (info.isDirectory()) {
+      return build(rawPath, { error_message: 'path is a directory', codex_output: `[不是文件,是目录: ${rawPath}]` });
+    }
+    content = await fsReadFile(rawPath, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    const msg = code === 'ENOENT' ? `文件不存在: ${rawPath}` : (error instanceof Error ? error.message : String(error));
+    return build(rawPath, { error_message: msg, codex_output: `[${msg}]` });
+  }
+  const lines = content.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  const totalLines = lines.length;
+  if (totalLines === 0) {
+    return build(rawPath, { total_lines: 0, codex_output: '(空文件)' });
+  }
+  const start = offset - 1;
+  if (start >= totalLines) {
+    return build(rawPath, { total_lines: totalLines, codex_output: `(offset ${offset} 超过文件末尾，共 ${totalLines} 行)` });
+  }
+  const slice = lines.slice(start, start + limit);
+  const width = String(start + slice.length).length;
+  const numbered: string[] = [];
+  let charCount = 0;
+  let truncated = false;
+  let stoppedLineNo = start + slice.length;
+  for (let i = 0; i < slice.length; i += 1) {
+    const lineNo = start + i + 1;
+    const rendered = `${String(lineNo).padStart(width)}\t${slice[i]}`;
+    if (numbered.length === 0 && rendered.length > maxChars) {
+      numbered.push(`${sliceHead(rendered, maxChars)} …[该行过长已截断]`);
+      truncated = true;
+      stoppedLineNo = lineNo;
+      break;
+    }
+    if (numbered.length > 0 && charCount + rendered.length + 1 > maxChars) {
+      truncated = true;
+      stoppedLineNo = lineNo - 1;
+      break;
+    }
+    numbered.push(rendered);
+    charCount += rendered.length + 1;
+  }
+  let body = numbered.join('\n');
+  if (truncated) {
+    const kb = Math.round(maxChars / 1024);
+    body += `\n…[超 ${kb}KB，读到第 ${stoppedLineNo} 行止；继续 read_file(offset=${stoppedLineNo + 1})]…`;
+  }
+  return build(rawPath, { total_lines: totalLines, returned_lines: numbered.length, truncated, codex_output: body });
+}
+
 function buildCodexExecOutput(input: {
   chunkId: string;
   durationMs: number;
@@ -3169,30 +3265,34 @@ function buildCodexExecOutput(input: {
   originalTokenCount?: number;
   spillNote?: string;
 }) {
-  const lines = [
-    `Chunk ID: ${input.chunkId}`,
-    `Wall time: ${(input.durationMs / 1000).toFixed(4)} seconds`
-  ];
+  // Minimal envelope — MUST stay byte-for-byte identical to the live path,
+  // formatCodexOutput in modules/xiaoni-executor/src/index.ts. On the plain happy
+  // path return the raw bytes with ZERO header; metadata is one compact status
+  // line only when actionable; chunkId / wall-time / token-count are debug fields
+  // that never enter her context. Truncation carries its spill path inline in the
+  // elision marker (see the StreamCapture.render mirror below); `spillNote` is only
+  // an out-of-band caveat appended as a single trailing line when present.
+  let status: string | null = null;
   if (input.blocked) {
-    lines.push('Process blocked by executor policy');
+    status = '[已被执行器策略拦截]';
   } else if (input.running) {
-    lines.push(`Process running with session ID ${input.sessionId || ''}`.trim());
+    // Factual only (mirror of the executor): the model does not poll via
+    // exec_command; agent-service drives /sessions/<id>/poll.
+    status = `[会话 ${input.sessionId || ''} 运行中]`;
   } else if (typeof input.exitCode === 'number') {
-    lines.push(`Process exited with code ${input.exitCode}`);
+    status = input.exitCode === 0 ? null : `[exit ${input.exitCode}]`;
   } else if (input.signal) {
-    lines.push(`Process exited with signal ${input.signal}`);
+    status = `[signal ${input.signal}]`;
   } else {
-    lines.push('Process exited without an exit code');
+    status = '[无退出码]';
   }
-  lines.push(`Original token count: ${input.originalTokenCount ?? Math.max(0, Math.ceil(input.output.length / 4))}`);
-  if (input.truncated) {
-    lines.push('Output was truncated to max_output_tokens（头尾保留，中间截断）.');
-    if (input.spillNote) {
-      lines.push(input.spillNote);
-    }
-  }
-  lines.push('Output:', input.output);
-  return lines.join('\n');
+  const body = input.output.length > 0
+    ? input.output
+    : (status ? '' : '(exec_command 无输出)');
+  const trailer = input.truncated && input.spillNote ? input.spillNote : null;
+  return [status, body, trailer]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join('\n');
 }
 
 function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
@@ -5469,7 +5569,7 @@ export function applyToolResultToLoopInput(
       ? (computerOutput as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
       : toolResult.tool_rejected === true && typeof toolResult.rejection_output === 'string'
         ? String(toolResult.rejection_output).trim()
-      : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
+      : (toolCall.name === TOOL_NAMES.execCommand || toolCall.name === TOOL_NAMES.readFile) && typeof toolResult.codex_output === 'string'
         ? toolResult.codex_output
         : toolCall.name === TOOL_NAMES.webSearch && typeof toolResult.output_text === 'string'
           ? String(toolResult.output_text).trim()
@@ -11163,6 +11263,9 @@ export class AgentLoopService {
       case TOOL_NAMES.execCommand: {
         return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
+      case TOOL_NAMES.readFile: {
+        return this.executeReadFile(toolCall.args);
+      }
       case TOOL_NAMES.webSearch: {
         return this.executeWebSearch(toolCall, queueMessage);
       }
@@ -11576,7 +11679,9 @@ export class AgentLoopService {
       ? args.workdir.trim()
       : process.cwd();
     const login = args.login !== false;
-    const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 1, 200_000);
+    // Floor at 2000 tokens (~8000 chars) — parity with the executor: a stray tiny
+    // max_output_tokens must not cap a short answer to nothing and detonate spill.
+    const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
     const maxOutputChars = Math.max(1, maxOutputTokens * 4);
     const timeoutMs = clampNumber(args.yield_time_ms, 10_000, 250, 30_000);
     const startedAt = Date.now();
@@ -11626,8 +11731,7 @@ export class AgentLoopService {
             signal: input.signal || null,
             output: stdout + stderr,
             truncated,
-            originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
-            spillNote: spillHeaderNote(stdoutCap, stderrCap)
+            originalTokenCount: Math.max(0, Math.ceil(originalChars / 4))
           }),
           ...(input.errorMessage ? { error_message: input.errorMessage } : {})
         };
@@ -11641,8 +11745,8 @@ export class AgentLoopService {
           clearTimeout(timeout);
         }
         // buildResult already end()ed the caps; await the spill flush before
-        // resolving so the "完整输出已落盘" path is fully written (parity with the
-        // xiaoni-executor live path). No-op when nothing spilled.
+        // resolving so the spill file named in the elision marker is fully written
+        // (parity with the xiaoni-executor live path). No-op when nothing spilled.
         void Promise.all([stdoutCap.settled(), stderrCap.settled()]).then(() => resolve(result));
       };
 
@@ -11700,6 +11804,52 @@ export class AgentLoopService {
         }));
       });
     });
+  }
+
+  private async executeReadFile(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const readArgs = {
+      path: args.path,
+      offset: args.offset,
+      limit: args.limit,
+      max_output_tokens: args.max_output_tokens
+    };
+    if (agentConfig.xiaoniExecutorUrl) {
+      try {
+        const response = await fetch(`${agentConfig.xiaoniExecutorUrl}/api/internal/read-file`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(readArgs)
+        });
+        const text = await response.text();
+        let payload: unknown = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = null;
+        }
+        if (!response.ok) {
+          throw new Error(`xiaoni-executor HTTP ${response.status}: ${text || response.statusText}`);
+        }
+        if (payload && typeof payload === 'object' && 'result' in payload) {
+          const result = (payload as { result?: unknown }).result;
+          if (result && typeof result === 'object' && !Array.isArray(result)) {
+            return result as Record<string, unknown>;
+          }
+        }
+        throw new Error(`xiaoni-executor returned invalid payload: ${text}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const target = typeof args.path === 'string' ? args.path : '';
+        return {
+          path: target,
+          executor: 'xiaoni-executor',
+          executor_unavailable: true,
+          error_message: message,
+          codex_output: `[read_file 失败: ${message}]`
+        };
+      }
+    }
+    return readFileRangeLocal(readArgs);
   }
 
   private async inspectImagePlaceholder(
