@@ -2402,6 +2402,7 @@ export type AgentRuntimeControlProjection = {
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
   compressionTriggerWireBytes: number;
+  stripXiaoniOsFromRequests: boolean;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };
