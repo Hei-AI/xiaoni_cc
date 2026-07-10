@@ -564,15 +564,14 @@ export class QqSendImageService {
         archivedPath = undefined;
       }
 
+      // 模型可见回执精简到「成功 + message_id」——小腻只需要知道发出去了没有。
+      // 删掉 target / image_path / mime_type / bytes / caption_sent：这些她发之前就知道，
+      // 回灌是噪音。status_key 仅在拿不到 message_id 时作为 check 的兜底句柄
+      // （check 优先用 message_id 定位记录，有 message_id 时 status_key 冗余）。
       const content = formatTaggedBlock('QQ_IMAGE_SEND_RESULT', {
         success: 'true',
-        [targetField]: target.value,
-        image_path: imagePath,
-        mime_type: image.mimeType,
-        bytes: image.size,
-        caption_sent: String(Boolean(caption)),
-        status_key: statusRecord.status_key,
-        message_id: messageId
+        message_id: messageId,
+        ...(messageId ? {} : { status_key: statusRecord.status_key })
       }, mode === 'private' ? '图片已发送到 QQ 私聊。' : '图片已发送到 QQ 群。');
       return {
         qq_send_image: true,
