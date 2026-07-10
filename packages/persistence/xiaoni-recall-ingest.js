@@ -27,6 +27,18 @@ const CENTERED_CEILING = envNum('XIAONI_RECALL_CEILING', 0.60);
 const CENTERED_STANDOUT_MARGIN = envNum('XIAONI_RECALL_STANDOUT_MARGIN', 0.08);
 const MEAN_TTL_MS = 10 * 60 * 1000; // μ 变化慢,缓存 10min,别每次落地扫全库
 
+// 「不在上下文」= 不在她当前 replay 进 live 请求的 stack 尾(压缩 cutoff 之上)。这条边界的权威来源
+// 是 agent_session_context_windows.read_cutoff_after_stack_index —— 同一个 session key 主 loop 在用。
+const CONTEXT_SESSION_KEY = (typeof process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY === 'string'
+  && process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY.trim())
+  ? process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY.trim()
+  : 'xiaoni:global';
+// SQL 候选池排除上限:结构式在场排除的完整性靠 band-pass 的 JS Set 兜(O(1)),SQL 只需把最可能撞进
+// top-K 最近邻的「最近若干条在场项」剔出池子(她此刻正做的事最像),避免超大 text[] 参数。
+const MAX_SQL_EXCLUDE_REFS = 2000;
+// ④ 语义式在场排除窗口:调用方没给近窗时,退回「保留尾最近 N 条」(她此刻正做的),抓「换了说法刚做过」。
+const SEMANTIC_CONTEXT_WINDOW = 20;
+
 function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
@@ -96,9 +108,34 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     return embedAndUpsert(cues);
   }
 
+  // 结构式在场排除的权威来源:她当前 replay 进 live 请求的 stack 尾(压缩 cutoff 之上)。
+  // 拿到全量 in-context sourceRef;cutoff 缺失/persistence 老版本 → 返回空,交回调用方近窗兜底。
+  // 铁律相关:纯读,fire-and-forget,不投递 → 零缓存影响。
+  async function resolveInContextRefs() {
+    if (typeof persistence.getSessionReadCutoffState !== 'function'
+      || typeof persistence.listInContextStackSourceRefs !== 'function') {
+      return [];
+    }
+    try {
+      const cutoffState = await persistence.getSessionReadCutoffState({ sessionKey: CONTEXT_SESSION_KEY });
+      const rawCutoff = cutoffState ? cutoffState.readCutoffAfterStackIndex : null;
+      if (rawCutoff === null || typeof rawCutoff === 'undefined') {
+        return []; // 全新/未压缩 session:没有「已挤出」边界,结构式排除无从谈起(注意 null≠0)。
+      }
+      const cutoff = Number(rawCutoff);
+      if (!Number.isFinite(cutoff)) {
+        return [];
+      }
+      const refs = await persistence.listInContextStackSourceRefs({ identityKey, afterStackIndex: cutoff });
+      return Array.isArray(refs) ? refs.filter(Boolean) : [];
+    } catch {
+      return []; // 读失败不阻断召回(退回调用方近窗)。
+    }
+  }
+
   // 触发2:落地内容当 query 跑召回,写 shadow_log(shadow-only,绝不投递)。
-  // contextRefs = 近窗已在场的 sourceRef(结构式在场排除);若 persistence 提供
-  // getRecallCueVectorsByRefs,则取近窗向量做 ④ 语义式在场排除。
+  // 「在场」的定义 = 她当前上下文 stack 尾(压缩 cutoff 之上,resolveInContextRefs 权威给出);
+  // 调用方 params.contextRefs 只作近窗补充(语义式在场排除窗口)。冒的必须是「不在这条尾里」的东西。
   async function runShadowRecall(params = {}) {
     // query 侧同样清洗(剥样板/脚手架);清洗后为空 = 纯样板落地,不召回。
     const text = normalizeRecallText(params.landedText || '');
@@ -110,21 +147,32 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       return null;
     }
     const landedRef = params.landedRef || null;
-    const contextRefs = Array.isArray(params.contextRefs) ? params.contextRefs.filter(Boolean) : [];
-    const exclude = [landedRef, ...contextRefs].filter(Boolean);
+    const callerContextRefs = Array.isArray(params.contextRefs) ? params.contextRefs.filter(Boolean) : [];
+    const inContextRefs = await resolveInContextRefs();
     const limit = Number(params.limit) || 300;
+
+    // 结构式在场排除的完整集合(她真实持有的 stack 尾 ∪ 调用方近窗 ∪ 落地项本身)。band-pass 的 JS Set
+    // 用它逐候选 O(1) 剔「已在场」—— 这是「不在上下文」的硬保证,量再大也只是 Set 查询。
+    const structuralRefs = Array.from(new Set([landedRef, ...inContextRefs, ...callerContextRefs].filter(Boolean)));
+    // SQL 候选池排除:上限保护(超大尾时只推最近的在场项进 SQL,其余靠上面的 JS Set 兜)。
+    const recentInContext = inContextRefs.slice(-MAX_SQL_EXCLUDE_REFS);
+    const sqlExclude = Array.from(new Set([landedRef, ...recentInContext, ...callerContextRefs].filter(Boolean)));
 
     const candidates = await persistence.listRecallCandidates({
       identityKey,
       queryVector,
-      excludeSourceRefs: exclude,
+      excludeSourceRefs: sqlExclude,
       limit
     });
 
-    // ④ 语义式在场排除:近窗条目的向量(可选,persistence 提供才做)。
+    // ④ 语义式在场排除:近窗条目的向量(可选,persistence 提供才做)。调用方给了近窗用其近窗;
+    // 没给(如入站钩子)退回保留尾最近 N 条,让入站召回也能抓「换说法的刚做过」。
+    const semanticRefs = callerContextRefs.length
+      ? callerContextRefs
+      : inContextRefs.slice(-SEMANTIC_CONTEXT_WINDOW);
     let contextVectors = [];
-    if (contextRefs.length && typeof persistence.getRecallCueVectorsByRefs === 'function') {
-      contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, contextRefs);
+    if (semanticRefs.length && typeof persistence.getRecallCueVectorsByRefs === 'function') {
+      contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, semanticRefs);
     }
 
     // 去 anisotropy(mean+主成分)+ BM25 双路:取模型传入,有模型时用去 anisotropy 空间阈值。
@@ -135,7 +183,7 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING, standoutMargin: CENTERED_STANDOUT_MARGIN }
       : {};
     const result = bandpassRecall({
-      query: { vector: queryVector, text, contextRefs: exclude, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },
+      query: { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },
       candidates: candidates.map((c) => ({
         sourceRef: c.sourceRef,
         embedding: c.embedding,

@@ -2359,6 +2359,29 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  // 被动召回「结构式在场排除」的权威来源:她当前上下文里真实持有的 stack 块。
+  // 压缩 cutoff(read_cutoff_after_stack_index)是逐字节 replay 进 live 请求的边界 ——
+  // stack_index > cutoff = 保留尾(此刻在她面前),stack_index <= cutoff = 已被压缩挤出的头
+  // (恰是被动召回该浮上来的「不在上下文」内容)。返回 `stack:<id>` 形逐条映射成 recall cue 的
+  // sourceRef(action-stream 主项 id 就是 `stack:<agent_stack_items.id>`,已真库核对)。
+  // 只 select id(轻,走 idx_agent_stack_items_identity_index);cutoff 缺失(全新/未压缩 session)
+  // 返回空 —— 没有「已挤出」边界,交回调用方近窗兜底。
+  async function listInContextStackSourceRefs(input = {}, config = {}) {
+    const afterStackIndex = Number(input.afterStackIndex);
+    if (!Number.isFinite(afterStackIndex)) {
+      return [];
+    }
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        'SELECT id FROM agent_stack_items WHERE identity_key = ? AND stack_index > ? ORDER BY stack_index ASC',
+        [firstString(input.identityKey, input.identity_key, 'xiaoni'), afterStackIndex]
+      );
+      return rows
+        .map((row) => (row && row.id !== null && typeof row.id !== 'undefined' ? `stack:${String(row.id)}` : null))
+        .filter(Boolean);
+    });
+  }
+
   async function appendAgentStackItems(input = {}, config = {}) {
     const rawItems = Array.isArray(input.items)
       ? input.items
@@ -4787,6 +4810,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
   return {
     ensureXiaoniAgentStackSchema,
     getAgentStackHead,
+    listInContextStackSourceRefs,
     appendAgentStackItem,
     appendAgentStackItems,
     recordLlmRequestSlice,
