@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BatteryFull, Bot, Gauge, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset, Zap } from 'lucide-react';
+import { BatteryFull, Bot, EyeOff, Gauge, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset, Zap } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -30,6 +30,7 @@ type RuntimeControl = {
   debugCacheHeartbeatIntervalMs: number;
   compressionTriggerInputTokens: number;
   compressionTriggerWireBytes: number;
+  stripXiaoniOsFromRequests: boolean;
   energyPolicy: Record<string, number> | null;
   energyPolicyDefaults?: Record<string, number>;
   updatedAt: string | null;
@@ -83,7 +84,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -387,6 +388,9 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const postCompressionPauseArmed = typeof pendingPatch?.postCompressionPauseArmed === 'boolean'
     ? pendingPatch.postCompressionPauseArmed
     : control?.postCompressionPauseArmed ?? false;
+  const stripXiaoniOsFromRequests = typeof pendingPatch?.stripXiaoniOsFromRequests === 'boolean'
+    ? pendingPatch.stripXiaoniOsFromRequests
+    : control?.stripXiaoniOsFromRequests ?? false;
   const currentYieldMs = typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
     ? pendingPatch.mainAgentPreModelYieldMs
     : control?.mainAgentPreModelYieldMs ?? 5000;
@@ -1062,6 +1066,35 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ cacheHeartbeatPaused: Boolean(checked) })}
               aria-label="暂停睡眠保温 heartbeat"
+            />
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="xiaoni_os 请求隔离"
+        description="打开后，回灌给模型的请求里会清空 xiaoni_os（工具调用参数、工具结果回显，以及睡醒提醒里的睡前备注）；小腻本人读不到自己写的 os 备注，但备注照常持久化（含 recovery session），管理端照常可见，只作运维观察。"
+        icon={<EyeOff className="h-4 w-4 text-primary" />}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">从模型请求中隔离 xiaoni_os</div>
+            <div className="text-sm text-muted-foreground">
+              {stripXiaoniOsFromRequests
+                ? '已隔离：新产生的工具 os 备注会被冻结标记，之后回放/请求里一律不回灌给模型。'
+                : '未隔离：和现在一样，os 备注会随工具调用回灌回她的上下文。'}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              历史按发出时的开关状态冻结，拨开关只影响之后新产生的内容，不改写历史、不击穿前缀缓存。
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            <Switch
+              checked={stripXiaoniOsFromRequests}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onCheckedChange={(checked) => mutation.mutate({ stripXiaoniOsFromRequests: Boolean(checked) })}
+              aria-label="从模型请求中隔离 xiaoni_os"
             />
           </div>
         </div>

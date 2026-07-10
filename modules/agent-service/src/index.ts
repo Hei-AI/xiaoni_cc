@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -337,6 +337,11 @@ async function isRuntimeEnabled() {
     // token trigger). Admin-configurable, one-poll latency, no restart. Timing-only; the estimate
     // never enters the cacheable request prefix.
     setCompressionTriggerWireBytes(control.compressionTriggerWireBytes);
+    // Dynamically apply the xiaoni_os isolation toggle each poll (one-iteration latency, no
+    // restart). Read as a per-run snapshot inside agent-loop-service so a mid-run flip can't make
+    // a live request inconsistent with its own replay; frozen per-item flags keep cross-run replay
+    // byte-identical. Flipping rewrites no history.
+    setStripXiaoniOsFromRequests(control.stripXiaoniOsFromRequests);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
