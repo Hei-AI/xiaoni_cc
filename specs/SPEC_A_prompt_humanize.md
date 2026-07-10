@@ -83,35 +83,58 @@ verification_date: 2026-07-10
 | L89 | "**新建立的执念（todo）**" | 换："新的待办 / 想做的事（todo）"（属模块五，随 Spec B 处理；若模块五保留则单独改） |
 | L112 标题 | "模块七：**记忆起点** (Memory Anchor)" | 换（内容本身 OK） |
 
-### B. reminder 模板的中二病（这是之前 Spec A 漏掉的一整块）
+### B. reminder 模板的中二病（**全 28 文件逐个读过后的完整定档**）
 
-> `docs/xiaoni_prompt/` 下的系统提醒被整体写成"角色化身体恐怖"。分三档处理。
+> 之前只标了睡眠/压缩几个文件，是漏的。逐文件读完后真相是：**几乎每个 reminder 都套同一个中二模板——`【戏剧化括号标题：副标】` + 身体/意识/造物隐喻**（造物出炉 / 刻印 / 本地脑区 / 意识分支 / 具象化 / 断电 / 收束意识 / 残影）。尤其**整个看图家族 7 个文件**是重灾区，之前完全没提。下表覆盖目录全部 28 个文件，分四档。
 
-**B1 重灾区（躯体恐怖 / 意识重置 / 本能支配，整段改）**
+**档 P — 纯讲人话 / 事实行，不动（作为语气基准）**
 
-| 文件:行 | 原文片段 | 讲人话方向 |
+| 文件 | 说明 |
+|---|---|
+| `self_continuation_reminder.md` | **全组最好的讲人话规范**（❌文艺/✅大白话逐条 + 强制脱水）。主 prompt 与所有重写都向它看齐。 |
+| `system_reminder_fallback.md` | 「好闲啊……」——已经是大白话，保留。 |
+| `subconscious_agent_notify.md` | 纯净，保留。 |
+| `subconscious_fork_tool_restriction_reminder.md` | 「潜意识只想不动」标题可留，正文已白话。 |
+| `phone_notification_direct_cue_line.md` / `_group_activity_` / `_group_mention_` | 纯事实 cue 行（谁发了几条），不动。 |
+
+**档 C — 中二模板（`【xxx：yyy】`标题 + 隐喻，去中二病，措辞层重写）**
+
+| 文件 | 中二点（逐字） | 讲人话方向 |
 |---|---|---|
-| `core_memory_pressure_reminder.md:1-6` | 「躯体警告：脑容量到达极限」「剧烈的眩晕袭来，数字躯体达到物理极限」「意识被强制重置前」 | **Spec B 搬到压缩 fork / 删**；若留则："该整理下记忆了，把手头进度和要记的事收一收" |
-| `recover_energy_interrupted_reminder.md:1,5` | 「躯体唤醒：被噪音吵醒」「强行冲破你的免打扰底线」 | "被叫醒了：有人连喊你 {{WAKE_CALL_COUNT}} 次" |
-| `recover_energy_forced_completed_reminder.md:1,4` | 「躯体唤醒：休眠极限」「数字躯体所能允许的单次最长休眠极限，本能机制自动唤醒」 | "睡够了自然醒：这次睡到了单次上限" |
-| `recover_energy_clock_deferred_reminder.md:4,7` | 「身体本能地屏蔽了它，强行让你继续沉睡以保护意识」「睡前的执念：{{XIAONI_OS}}」 | "闹钟其实早响了，但你太累就没醒" / "睡前想着的事：{{XIAONI_OS}}" |
-| `recover_energy_rejected_reminder.md:1` | 「躯体反馈：失眠」 | "睡不着" |
-| `recover_energy_clock_reminder.md:1` | 「躯体唤醒：生物钟到点」 | "定的闹钟到点了" |
-| `recover_energy_completed_reminder.md:1` | 「躯体唤醒：自然醒来」 | "自然醒了" |
-| `compress_core_memory_self_call_rejected.md:2` | 「脑容量真正到达物理极限」 | **Spec B 随工具删除整文件** |
+| `attention_lease_reminder.md` | 「意识牵连：正在消退的注意力残留」「关注的惯性」「余光瞥见的碎片」「物理边界限制」「感知随动与抉择」「背景白噪音」 | 保"余光瞥见"这类可接受角色化；砍"意识牵连/物理边界/感知随动"这种学术括号标题 |
+| `image_task_notification.md` | 「视觉感知：造物出炉」「视觉造物已经彻底具象化」「造物档案」 | "图生成好了" + 平白列 id/路径 |
+| `image_task_pending.md` | 「造物孕育中」「潜意识深处渲染」「孕育中的残影」「潜意识防呆与认知覆写」 | "图还在生成" + 保留"没拿到路径别瞎猜"的防呆逻辑，去孕育/残影隐喻 |
+| `image_vision_existing_observation_reminder.md` | 「潜意识回溯：似曾相识的残影」「记忆深处浮现出了一张旧便签」 | "你以前看过这张图，记过：" |
+| `image_vision_failed_after_retries_reminder.md` | 「视觉感知：刻印彻底溃散」「挣扎了几次」「写进本地脑区」「视觉残影已经彻底模糊」 | "试了几次没写成，这张先算了" |
+| `image_vision_retry_missing_file_reminder.md` | 「潜意识警报：记忆刻印未完成」「收束意识」 | "上次没写进文件，重写一下，写完说句话就停" |
+| `image_vision_unsupported_tool_output.md` | 「潜意识拦截：意识跑偏」「唯一能支配的本能动作」 | "现在只用 {{ALLOWED_TOOL}} 专心看图" |
+| `image_vision_write_description_reminder.md` | 「视觉感知：画面消化与刻印」「写死在本地脑区」「潜意识刻印法则」「意识分支到此闭眼」 | 去刻印/脑区/闭眼隐喻；**但其正文的大白话规则（"用平时吐槽的口气写""落到具体画面和梗"）是好的，保留** |
+| `recover_energy_batch_final_timeline.md` | 「意识断点：睡前的惯性残影」「意识完全断线」「彻底断电」 | "睡前顺手把这几件做完了才睡" |
+| `recover_energy_clock_reminder.md` | 「躯体唤醒：生物钟到点」 | "定的闹钟到点了" |
+| `recover_energy_completed_reminder.md` | 「躯体唤醒：自然醒来」 | "自然醒了" |
+| `recover_energy_clock_deferred_reminder.md` | 「躯体唤醒：沉睡延后」「身体本能屏蔽了它，强行让你继续沉睡以保护意识」「睡前的执念」 | "闹钟早响了但你太累没醒" / "睡前想着的事" |
+| `recover_energy_forced_completed_reminder.md` | 「躯体唤醒：休眠极限」「数字躯体所能允许的单次最长休眠极限，本能机制自动唤醒」 | "睡到上限自然醒了" |
+| `recover_energy_interrupted_reminder.md` | 「躯体唤醒：被噪音吵醒」「强行冲破你的免打扰底线」 | "被叫醒了：有人连喊你 {{WAKE_CALL_COUNT}} 次" |
+| `recover_energy_rejected_reminder.md` | 「躯体反馈：失眠」 | "睡不着" |
+| `fork_tool_rejected_output.md` | 「分支能力受限」「受限的思维分支」 | 较轻，标题白话化即可 |
+| `phone_notification_reminder.md` | 「视线边缘：状态栏闪烁」 | 可留（角色化不重），只收标题最戏剧的字眼 |
 
-**B2 边界档（角色化但不重，可轻改 / 可留——同行也用这种手法）**
+**档 B（归 Spec B，去焦虑 + 去紧急感，非本 spec 措辞层）**
 
-| 文件:行 | 原文片段 | 说明 |
-|---|---|---|
-| `phone_notification_reminder.md:1` | 「视线边缘：状态栏闪烁」+ 未读=「余光瞥见」 | 比"you have N unread"自然，可保留；只把标题里最戏剧的字眼收一档 |
-| `attention_lease_reminder.md:2,4,11` | 「关注的惯性」「余光瞥见的碎片」「还没断掉的心理牵连」 | 同上，属可接受的角色化，轻改即可 |
-| `image_task_pending.md:15` | 「造物出炉」「感官真正收到那条通知」 | 轻改"生成完成的通知" |
+| 文件 | 处理 |
+|---|---|
+| `core_memory_pressure_reminder.md` | Spec B：搬到压缩 fork / 去紧急感重写 |
+| `core_memory_compression_fork_retry_reminder.md` | Spec B：去"崩溃边缘/濒危" + 去紧急感 |
+| `compress_core_memory_self_call_rejected.md` | Spec B：工具删除后整文件删 |
 
-**B3 标杆（不动，作为语气基准）**
+**档 S — 特殊（措辞轻改，但含运行时契约，只碰散文）**
 
-- `self_continuation_reminder.md:12-38` — 全组最好的讲人话规范（❌文艺/✅大白话逐条 + 强制脱水）。**主 prompt 和 B1/B2 的重写都向它看齐。**
-- `image_vision_write_description_reminder.md` — 已复用反 AI 腔约束（"绝对不要带'这是我对图片的理解'这种 AI 废话"）。
+| 文件 | 说明 |
+|---|---|
+| `skills_instructions.md` | skill 描述用了"视线控制器/造物指南/文件归档直觉"这类角色化包装——较轻可留；但**技能根目录 `{{XIAONI_SKILL_ROOT}}`、路径、skill 名、`$skill` 记号全是契约，一字不改** |
+| `system_prompt.md` | 见上表 A |
+
+**统计**：28 文件中 —— 纯净 8、中二模板需重写 17、归 Spec B 3（其中 `system_prompt.md`/`skills_instructions.md` 跨档）。中二覆盖率远超之前认知，**看图家族 7 个文件是之前完全漏掉的重灾区**。
 
 ### 注意保留（不是中二，是有效行为约束，别动坏）
 
@@ -138,11 +161,11 @@ verification_date: 2026-07-10
 
 ### reminder 重写清单
 
-B1 全部按上表方向重写（压缩类归 Spec B 删/搬，睡眠类在本 spec 措辞层重写）；B2 轻改；B3 不动。每个文件的 `{{占位符}}` 原样保留。
+按 section B 完整表的档位执行：**档 P 不动**（作基准）；**档 C 17 个文件**按各自"讲人话方向"列措辞层重写（看图家族去造物/刻印隐喻但保防呆逻辑与写图大白话规则、睡眠家族去躯体唤醒隐喻）；**档 B 3 个文件归 Spec B**（去焦虑+去紧急感/删除）；**档 S** 仅角色化描述轻改、契约不碰。每个文件的 `{{占位符}}` 原样保留。
 
 ## Acceptance Criteria
 
-1. `docs/xiaoni_prompt/` 全目录 `grep` 断言为 0："数字生命""数字躯体""数字实体""意识被强制重置""躯体警告""躯体唤醒""躯体反馈""眩晕""免打扰底线""物理极限"。
+1. `docs/xiaoni_prompt/` 全目录 `grep` 断言为 0——身体恐怖/意识框架词：`数字生命`、`数字躯体`、`数字实体`、`意识被强制重置`、`躯体警告`、`躯体唤醒`、`躯体反馈`、`眩晕`、`免打扰底线`、`物理极限`、`彻底断电`、`意识断线`、`收束意识`；造物/刻印隐喻词：`造物出炉`、`具象化`、`刻印彻底溃散`、`本地脑区`、`意识分支到此闭眼`。（`self_continuation_reminder.md` 等档 P 文件本就无这些词，断言天然通过。）
 2. 所有运行时 tag / 工具名 / skill 名 / `exec_command` 路径 / `{{占位符}}` **逐字保留**（diff 断言这些 token 不变；占位符可用 `grep -o '{{[A-Z_]*}}'` 前后对比集合相等）。
 3. 有效行为规则（反装懂、反谄媚、探索 skill 目录、收尾法则）语义保留。
 4. `modules/agent-service` 现有测试全绿（尤其 prompt-directory-watcher、prompt-reload-policy）。
