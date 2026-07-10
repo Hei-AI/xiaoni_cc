@@ -5433,6 +5433,33 @@ function appendInspectImageLocalPath(outputXml: string, toolResult: Record<strin
   return outputXml;
 }
 
+// send_in_private / send_in_group 的模型可见回执：小腻只需要知道「发成功了没有」。
+// 成功 → {ok:true, message_ids:[...]}（她偶尔要引用/定位自己刚发的那条）；
+// 失败 → {ok:false, error, retryable?}。不再回灌整个 delivery / sent_messages /
+// xiaoni_os / pending_share / second_beat_suppressed —— 那些是内部记账，内部消费者
+// （extractDeliveredAssistantMessages、recordOutboundQqMessages、xiaoni_os strip、
+// pending_share）读的是 toolResult 对象本身，不读这里的 output 串，所以不受影响。
+// 输出对 toolResult 确定性（无时间戳/随机数）→ 写时冻结进 agent_stack_items.content、
+// replay 逐字节读回、fork 克隆一致 → 零缓存漂移（历史 output 各按各的字节 replay）。
+function buildSendToolOutput(toolResult: Record<string, unknown>): string {
+  const failed = toolResult.tool_error === true
+    || typeof toolResult.error_message === 'string'
+    || typeof toolResult.error === 'string';
+  if (failed) {
+    const error = typeof toolResult.error_message === 'string' && toolResult.error_message
+      ? toolResult.error_message
+      : typeof toolResult.error === 'string' && toolResult.error
+        ? toolResult.error
+        : '发送失败';
+    return JSON.stringify(toolResult.retryable === true
+      ? { ok: false, error, retryable: true }
+      : { ok: false, error });
+  }
+  const messageIds = extractDeliveryMessageIds(toolResult.delivery)
+    .filter((id): id is number => typeof id === 'number');
+  return JSON.stringify({ ok: true, message_ids: messageIds });
+}
+
 export function applyToolResultToLoopInput(
   toolCall: Pick<AgentToolCall, 'name' | 'callId' | 'rawArguments'>,
   toolResult: Record<string, unknown>,
@@ -5477,6 +5504,8 @@ export function applyToolResultToLoopInput(
           ? appendInspectImageLocalPath(String(toolResult.output_xml).trim(), toolResult)
           : toolCall.name === TOOL_NAMES.recoverEnergy && typeof toolResult.system_reminder === 'string'
             ? String(toolResult.system_reminder).trim()
+          : (toolCall.name === TOOL_NAMES.privateReply || toolCall.name === TOOL_NAMES.groupReply)
+            ? buildSendToolOutput(toolResult)
             : JSON.stringify(toolResult)
   }];
   const oneShotInputItems: OpenResponseInputItem[] = [];
