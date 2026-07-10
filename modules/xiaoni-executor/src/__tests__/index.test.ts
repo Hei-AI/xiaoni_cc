@@ -44,8 +44,6 @@ function makeSession(overrides: Record<string, unknown> = {}): Parameters<typeof
     signal: null,
     closed: false,
     closedAt: null,
-    gitArchiveDir: null,
-    gitArchiveError: null,
     persistWriting: false,
     persistDirty: false,
     ...overrides

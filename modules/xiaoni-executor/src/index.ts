@@ -56,8 +56,6 @@ type ExecCommandResult = {
   blocked_reason?: string;
   error_message?: string;
   translated_cmd?: string;
-  git_archive_dir?: string | null;
-  git_archive_error?: string | null;
   codex_output: string;
 };
 
@@ -86,8 +84,6 @@ type RuntimeSession = {
   // Wall-clock of the close/error transition. Freezes duration_ms (so a closed
   // session stops accruing wall time) and drives TTL eviction from the map.
   closedAt: number | null;
-  gitArchiveDir: string | null;
-  gitArchiveError: string | null;
   // Single-flight snapshot writer state (see persistSession). Kept on the
   // session object itself so it is reclaimed with the session on eviction —
   // no side Map that would need its own cleanup.
@@ -578,7 +574,6 @@ async function ensureRuntimeDirectories() {
     'services',
     'artifacts',
     'registry',
-    'git-archives',
     EXEC_OUTPUT_SUBDIR
   ].map((dir) => mkdir(path.join(runtimeRoot, dir), { recursive: true })));
 }
@@ -663,9 +658,7 @@ function sessionToSnapshot(session: RuntimeSession) {
     timed_out: session.timedOut,
     exit_code: session.exitCode,
     signal: session.signal,
-    running: !session.closed,
-    git_archive_dir: session.gitArchiveDir,
-    git_archive_error: session.gitArchiveError
+    running: !session.closed
   };
 }
 
@@ -692,8 +685,6 @@ function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
     session_id: session.id,
     chunk_id: session.chunkId,
     running: !session.closed,
-    git_archive_dir: session.gitArchiveDir,
-    git_archive_error: session.gitArchiveError,
     codex_output: formatCodexOutput({
       chunkId: session.chunkId,
       durationMs,
@@ -707,51 +698,6 @@ function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
       spillNote: spillHeaderNote(session.stdoutCap, session.stderrCap)
     })
   };
-}
-
-async function writeCommandOutput(filePath: string, command: string, args: string[]) {
-  const { stdout, stderr } = await execFileAsync(command, args, {
-    cwd: workspaceRoot,
-    maxBuffer: 50 * 1024 * 1024
-  });
-  await writeFile(filePath, `${stdout}${stderr}`);
-}
-
-function gitArgs(args: string[]): string[] {
-  return ['-c', `safe.directory=${workspaceRoot}`, '-C', workspaceRoot, ...args];
-}
-
-async function createWorkspaceGitArchive(sessionId: string): Promise<{ dir: string | null; error: string | null }> {
-  const archiveDir = path.join(runtimeRoot, 'git-archives', sessionId);
-  try {
-    await mkdir(archiveDir, { recursive: true });
-    await writeCommandOutput(path.join(archiveDir, 'HEAD'), 'git', gitArgs(['rev-parse', 'HEAD']));
-    await writeCommandOutput(path.join(archiveDir, 'branch'), 'git', gitArgs(['branch', '--show-current']));
-    await writeCommandOutput(path.join(archiveDir, 'status.txt'), 'git', gitArgs(['status', '--porcelain=v1', '-uall']));
-    await writeCommandOutput(path.join(archiveDir, 'diff.patch'), 'git', gitArgs(['diff', '--binary']));
-    await writeCommandOutput(path.join(archiveDir, 'staged.diff.patch'), 'git', gitArgs(['diff', '--cached', '--binary']));
-    const untrackedListPath = path.join(archiveDir, 'untracked-files.txt');
-    await writeCommandOutput(untrackedListPath, 'git', gitArgs(['ls-files', '--others', '--exclude-standard']));
-    const untrackedNullListPath = path.join(archiveDir, 'untracked-files.z');
-    const { stdout: untrackedNullList } = await execFileAsync('git', gitArgs(['ls-files', '--others', '--exclude-standard', '-z']), {
-      cwd: workspaceRoot,
-      encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024
-    });
-    const untrackedBuffer = Buffer.isBuffer(untrackedNullList) ? untrackedNullList : Buffer.from(String(untrackedNullList));
-    await writeFile(untrackedNullListPath, untrackedBuffer);
-    if (untrackedBuffer.length > 0) {
-      await execFileAsync('tar', ['--null', '-czf', path.join(archiveDir, 'untracked.tar.gz'), '-T', untrackedNullListPath], {
-        cwd: workspaceRoot,
-        maxBuffer: 50 * 1024 * 1024
-      });
-    }
-    return { dir: archiveDir, error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await writeFile(path.join(archiveDir, 'archive-error.txt'), message).catch(() => undefined);
-    return { dir: archiveDir, error: message };
-  }
 }
 
 function buildBlockedResult(cmd: string, workdir: string, shell: string, login: boolean, sandboxPermissions: string, reason: string): ExecCommandResult {
@@ -809,7 +755,6 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
 
   const sessionId = `exec_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const chunkId = randomUUID().slice(0, 8);
-  const gitArchive = await createWorkspaceGitArchive(sessionId);
   const session: RuntimeSession = {
     id: sessionId,
     chunkId,
@@ -840,14 +785,12 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     signal: null,
     closed: false,
     closedAt: null,
-    gitArchiveDir: gitArchive.dir,
-    gitArchiveError: gitArchive.error,
     persistWriting: false,
     persistDirty: false
   };
   sessions.set(session.id, session);
   await persistSession(session);
-  await appendAudit('exec_start', { session_id: session.id, cmd: originalCmd, translated_cmd: translatedCmd, workdir, shell, git_archive_dir: gitArchive.dir, git_archive_error: gitArchive.error });
+  await appendAudit('exec_start', { session_id: session.id, cmd: originalCmd, translated_cmd: translatedCmd, workdir, shell });
 
   const refreshRendered = () => {
     session.stdout = session.stdoutCap.render();
@@ -960,8 +903,6 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
       session_id: sessionId,
       chunk_id: chunkId,
       running: false,
-      git_archive_dir: typeof snapshot.git_archive_dir === 'string' ? snapshot.git_archive_dir : null,
-      git_archive_error: typeof snapshot.git_archive_error === 'string' ? snapshot.git_archive_error : null,
       codex_output: formatCodexOutput({
         chunkId,
         durationMs,

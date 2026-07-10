@@ -85,20 +85,6 @@ ${HOME}/.qqbot-local/xiaoni-runtime -> /xiaoni-runtime
 - `workdir=/app` 会替换成 `WORKSPACE_ROOT`。
 - `workdir=/app/foo` 会替换成 `WORKSPACE_ROOT/foo`。
 
-每次执行前，executor 会在 `XIAONI_RUNTIME_ROOT/git-archives/<session_id>/`
-保存当前仓库快照证据：
-
-```text
-HEAD
-branch
-status.txt
-diff.patch
-staged.diff.patch
-untracked-files.txt
-untracked-files.z
-untracked.tar.gz      # 仅当存在未跟踪文件
-```
-
 命令 session 快照写入：
 
 ```text
@@ -148,7 +134,6 @@ docker compose logs -f qqbot-agent-service
 | `exec_command` 返回 `executor_unavailable=true` | `docker compose ps`、`docker logs qqbot-xiaoni-executor`、`XIAONI_EXECUTOR_URL` |
 | `/app/...` 路径找不到 | 检查路径是否被映射到 `/workspace/qq_bot/...` |
 | 长命令只返回 session id | 用 `xiaoni-session poll <session_id>` 或 poll API 查后续输出 |
-| 命令执行后状态不可追溯 | 看 `/home/liahua/.qqbot-local/xiaoni-runtime/git-archives/<session_id>/` |
 | 输出被截断 | 提高 `max_output_tokens`，或改用更小范围的命令 |
 | Docker 操作失败 | 检查 `/var/run/docker.sock` 挂载和宿主机 Docker 权限 |
 
