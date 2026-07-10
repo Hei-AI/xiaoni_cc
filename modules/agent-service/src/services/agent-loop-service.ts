@@ -1175,6 +1175,10 @@ const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
+// Spec B: hard cap on total fork turns. The no-tool-retry counter only fires when the model
+// stops calling tools; a model that keeps calling exec_command without ever writing the 近况
+// file would loop forever without this bound.
+const CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS = 12;
 const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
 const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
@@ -1251,24 +1255,11 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
   }
 };
 
-const COMPRESS_CORE_MEMORY_TOOL = {
-  type: 'function',
-  function: {
-    name: TOOL_NAMES.compressCoreMemory,
-    description: '【紧急生存工具】仅当 system_reminder 提示脑容量达到极限或必须压缩时强制调用。用于打包并留下你认为值得带往未来的记忆，防止意识彻底重启。',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description: '小腻的私人记忆胶囊。存什么、存多少、以什么视角存，完全由小腻当下的主观意识和偏好决定。'
-        }
-      },
-      required: ['text'],
-      additionalProperties: false
-    }
-  }
-} as const;
+// Spec B: compress_core_memory is no longer a wire tool. Compression stays system-
+// triggered and fork-committed, but the fork commits by having the model write the new
+// 近况 to a file via exec_command (the xiaoni-memory-compress skill), then reading it back
+// — the same file-round-trip the image-vision fork uses. TOOL_NAMES.compressCoreMemory is
+// retained only as an internal identifier for the commit artifact + timeline labels.
 
 const HUMAN_REPLY_RULES = [
   '只发送群友能直接看到的话，不写工具名、阶段名或分析过程。',
@@ -2122,10 +2113,12 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   if (agentConfig.webSearchEnabled) {
     tools.push(WEB_SEARCH_TOOL);
   }
-  // 缓存对齐：compress_core_memory 必须始终在主 loop 工具定义里（连同
-  // resolveMainLoopToolChoice 的 auto allowed-tools），否则压缩 fork 的 tools 前缀
-  // 与主 agent 不一致 → 冷读。禁止随意移除。详见 resolveMainLoopToolChoice 的不变量。
-  tools.push(COMPRESS_CORE_MEMORY_TOOL);
+  // Spec B: compress_core_memory is NO LONGER pushed here. It is removed from the wire
+  // uniformly across the main loop AND every fork (forks clone this list), so the tools
+  // prefix stays byte-identical between main + forks — no per-compression cold read. The
+  // one-time prefix shift from dropping the tool costs a single cold read at deploy, then
+  // stabilizes. Compression is now committed by the fork via exec_command + file read-back
+  // (see runCoreMemoryCompressionFork), the same execution-layer pattern image-vision uses.
   // Computer use is gated by a static config flag (not per-request), so when on it
   // is present in every main-loop AND fork request identically — the cached tools
   // prefix stays byte-stable. See the cache-alignment invariant below.
@@ -2148,8 +2141,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   // ┌──────────────────────────────────────────────────────────────────────────┐
   // │ ⚠️ 缓存对齐不变量 — 禁止随意改动 (DO NOT casually change)                   │
   // ├──────────────────────────────────────────────────────────────────────────┤
-  // │ 本函数必须永远返回 tool_choice = AUTO，且 compress_core_memory 必须始终在    │
-  // │ allowed tools 里（每一轮都暴露，不分压缩/非压缩）。                          │
+  // │ 本函数必须永远返回 tool_choice = AUTO。                                      │
   // │                                                                            │
   // │ 为什么不能改成「压缩时强制 tool_choice」：                                   │
   // │   forced tool_choice (any/tool) → provider 关掉 extended thinking          │
@@ -2158,8 +2150,11 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   // │   前缀与主 loop 不一致 → 压缩 fork 每次 100% 冷读整窗 (~487K, "Cache 0")。   │
   // │                                                                            │
   // │ 正确做法：fork = 主 agent 的字节克隆 (同 tools + 同 auto + thinking 在)，    │
-  // │   「只准压缩」靠执行层 runCoreMemoryCompressionFork 的 allowedToolNames 拦，  │
-  // │   绝不靠改 request 形状。小腻不自己乱压由 system_prompt「模块五」约束。       │
+  // │   「fork 只该做某子集」靠执行层 runCoreMemoryCompressionFork 的              │
+  // │   allowedToolNames 拦 (现为 {exec_command})，绝不靠改 request 形状。          │
+  // │                                                                            │
+  // │ Spec B：compress_core_memory 已从 allowed tools 移除 (主 loop + fork 同步)， │
+  // │   压缩改由 fork 写文件 + 读回提交，主意识里不再有这个工具。                   │
   // │                                                                            │
   // │ 回归守卫：agent-loop-service.test.ts 断言 fork.tool_choice === 主.tool_choice。│
   // │ 详见 provider-service/.../anthropic-translate.ts:521-527。                  │
@@ -2177,7 +2172,6 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'function', name: TOOL_NAMES.webSearch });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
-  tools.push({ type: 'function', name: TOOL_NAMES.compressCoreMemory });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
   // allowed-tools prefix aligned with the tool definitions across loop + forks.
   if (agentConfig.computerUseEnabled) {
@@ -2279,7 +2273,7 @@ function cloneCanonicalAgentTurnRequest(request: CanonicalAgentTurnRequest): Can
 // │                                                                                                     │
 // │ 推论(都踩过坑,别再犯):                                                                            │
 // │  1. 「fork 只该看/做某子集」属于【行为范围】,用【执行层】约束(allowedToolNames 在执行时拒非法工具,│
-// │     见 runCoreMemoryCompressionFork ~9772 / think-only fork ~9203),【绝不】靠删 input / 删 tools。  │
+// │     见 runCoreMemoryCompressionFork allowedToolNames={exec_command} / think-only fork),【绝不】靠删 input / 删 tools。│
 // │  2. 「该压/读哪一段」由【代码】精确定死(cutoff / tail-30),不靠裁请求体、不靠模型猜边界。           │
 // │  3. tool_choice 永远 AUTO、tools 永远全量:forced tool_choice 会让 provider 关 extended thinking、丢 │
 // │     历史 thinking block → 前缀又分叉(见 buildXiaoniRuntimeTurnRequest 注释 ~1895 + anthropic-       │
@@ -2793,6 +2787,21 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 // avoid identifier collisions in this large file.
 const EXEC_OUTPUT_SUBDIR = 'exec-output';
 const EXEC_OUTPUT_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
+
+// Spec B: the compression fork writes the new 近况 here (model → exec_command → file), then
+// reads it back to commit — the same file round-trip the image-vision fork uses. Compression
+// is single-flight per session (coreMemoryCompressionForks keyed by session), so a per-session
+// path needs no forkRunId and is safe to overwrite each compression.
+const CORE_MEMORY_COMPRESSION_OUTPUT_DIR = `${EXEC_OUTPUT_ROOT}/compress`;
+// Absolute path resolved inside the executor (where exec_command runs): /app -> repo root
+// (executor Dockerfile `ln -sfn /workspace/qq_bot /app`). It is a SIBLING of the main skills
+// dir, so 小腻's main-loop `ls /app/modules/agent-service/skills` never lists it (DD3).
+const XIAONI_MEMORY_COMPRESS_SKILL_DIR = '/app/modules/agent-service/skills-internal/xiaoni-memory-compress';
+
+function buildCoreMemoryCompressionOutputPath(contextSessionKey: string) {
+  const safe = (contextSessionKey || 'session').replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${CORE_MEMORY_COMPRESSION_OUTPUT_DIR}/${safe}.md`;
+}
 const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
 const EXEC_OUTPUT_TTL_DAYS = 7;
 
@@ -4104,12 +4113,12 @@ export function buildCoreMemoryCompressionReminder(input: {
   readCutoffAfterStackIndex: number | null;
   pressureSummary: string;
 }) {
-  void input.contextSessionKey;
   void input.readCutoffAfterStackIndex;
   const item = buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
-      COMPRESS_CORE_MEMORY_TOOL: TOOL_NAMES.compressCoreMemory
+      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
+      COMPRESS_OUTPUT_PATH: buildCoreMemoryCompressionOutputPath(input.contextSessionKey)
     }))
   ]);
   Object.defineProperty(item, CORE_MEMORY_COMPRESSION_REMINDER_MARKER, {
@@ -4124,6 +4133,7 @@ export function buildCoreMemoryCompressionForkRetryReminder(input: {
   reason: string;
   retryCount: number;
   maxRetries: number;
+  outputPath: string;
 }): OpenResponseInputItem {
   return buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_compression_fork_retry_reminder.md', {
@@ -4131,7 +4141,8 @@ export function buildCoreMemoryCompressionForkRetryReminder(input: {
       REASON: input.reason,
       RETRY_COUNT: input.retryCount,
       MAX_RETRIES: input.maxRetries,
-      COMPRESS_CORE_MEMORY_TOOL: TOOL_NAMES.compressCoreMemory
+      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
+      COMPRESS_OUTPUT_PATH: input.outputPath
     }))
   ]);
 }
@@ -10346,10 +10357,11 @@ export class AgentLoopService {
     bypassRuntimeEnabledGate?: boolean;
   }): Promise<CoreMemoryCompressionCommit> {
     const forkRunId = `core-memory-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
-    const allowedToolNames = new Set<string>([
-      TOOL_NAMES.execCommand,
-      TOOL_NAMES.compressCoreMemory
-    ]);
+    // Spec B: the fork only permits exec_command. The model authors the new 近况 and writes it
+    // to compressionOutputPath (via the xiaoni-memory-compress skill); the fork reads it back to
+    // commit. compress_core_memory is no longer a tool anywhere.
+    const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
+    const compressionOutputPath = buildCoreMemoryCompressionOutputPath(params.compression.contextSessionKey);
     let forkInput = [
       ...cloneCanonicalAgentTurnRequest(params.baseRequest).input,
       ...(params.compressionReminderItems ?? [])
@@ -10499,131 +10511,65 @@ export class AgentLoopService {
         });
 
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
-        if (!actionPlan.hasToolCall) {
-          forkNoToolRetryCount += 1;
-          forkNoToolRetryTotal += 1;
-          if (forkNoToolRetryCount > CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES) {
-            throw new Error(`${TOOL_NAMES.compressCoreMemory} fork yielded without a tool call`);
-          }
+        if (actionPlan.hasToolCall) {
+          forkNoToolRetryCount = 0;
           for (const replayItem of actionPlan.replayableOutputs) {
             forkInput.push(replayItem.inputItem);
-          }
-          forkInput.push(buildCoreMemoryCompressionForkRetryReminder({
-            forkTurn,
-            retryCount: forkNoToolRetryCount,
-            maxRetries: CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES,
-            reason: actionPlan.hasFinalAnswer
-              ? `returned final_answer instead of ${TOOL_NAMES.compressCoreMemory}`
-              : `returned no callable tool; expected ${TOOL_NAMES.compressCoreMemory}`
-          }));
-          continue;
-        }
-        forkNoToolRetryCount = 0;
-        const forkToolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
-        if (
-          forkToolCalls.some((item) => item.toolCall.name === TOOL_NAMES.execCommand)
-          && forkToolCalls.some((item) => item.toolCall.name === TOOL_NAMES.compressCoreMemory)
-        ) {
-          await this.store.logTimelineEvent({
-            traceId: params.queueMessage.traceId,
-            eventType: 'memory',
-            eventName: 'core_memory_parallel_mixed_batch_observed',
-            eventPhase: null,
-            metadata: {
-              execution_mode: 'compression_fork',
-              fork_run_id: forkRunId,
-              fork_turn: forkTurn,
-              llm_request_slice_id: forkSliceId,
-              tool_call_order: forkToolCalls.map((item) => ({
-                call_id: item.toolCall.callId,
-                name: item.toolCall.name
-              }))
+            if (!isReplayableToolCall(replayItem)) {
+              continue;
             }
-          }).catch((error) => {
-            moduleLogger.warn('Failed to log mixed core memory fork parallel batch observation', {
+
+            const toolCall = replayItem.toolCall;
+            forkToolCallCount += 1;
+            const forkToolExecutionId = `core-memory-fork-tool:${forkRunId}:${toolCall.callId}`;
+            await this.recordCoreMemoryCompressionForkToolExecutionSafe({
+              forkRunId,
+              executionId: forkToolExecutionId,
+              llmRequestSliceId: forkSliceId,
+              llmCallId: modelResult.llm_call_id || null,
+              toolCallId: toolCall.callId,
+              toolName: toolCall.name,
+              arguments: toolCall.args,
+              rawArguments: toolCall.rawArguments,
+              status: 'running',
+              sideEffect: isToolCallSideEffecting(toolCall),
               traceId: params.queueMessage.traceId,
               runId: params.queueMessage.runId,
-              forkRunId,
-              error: error instanceof Error ? error.message : String(error)
+              agentTurn: forkTurn,
+              stackCallItemId: toolCallForkItemIdByCallId.get(toolCall.callId) || null,
+              metadata: {
+                ...baseForkMetadata,
+                fork_turn: forkTurn,
+                model_name: params.runtimePrompt.modelName,
+                session_key: params.queueMessage.sessionKey,
+                chat_type: params.queueMessage.chatType,
+                peer_name: params.queueMessage.peerName || null
+              }
             });
-          });
-        }
 
-        for (const replayItem of actionPlan.replayableOutputs) {
-          forkInput.push(replayItem.inputItem);
-          if (!isReplayableToolCall(replayItem)) {
-            continue;
-          }
+            try {
+              // Spec B: the compression fork only permits exec_command (the model writes the new
+              // 近况 to compressionOutputPath via the xiaoni-memory-compress skill, then final_answers).
+              // Any other tool is rejected here (controlled, not a throw) and the reason fed back, so
+              // the summarizer retries toward the file write instead of crashing the fork run.
+              const rawToolResult = allowedToolNames.has(toolCall.name)
+                ? await this.executeTool(toolCall, params.queueMessage, {
+                    currentCanonicalRequest: forkRequest
+                  })
+                : buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
+                    TOOL_NAME: toolCall.name,
+                    ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
+                  }));
 
-          const toolCall = replayItem.toolCall;
-          forkToolCallCount += 1;
-          const forkToolExecutionId = `core-memory-fork-tool:${forkRunId}:${toolCall.callId}`;
-          await this.recordCoreMemoryCompressionForkToolExecutionSafe({
-            forkRunId,
-            executionId: forkToolExecutionId,
-            llmRequestSliceId: forkSliceId,
-            llmCallId: modelResult.llm_call_id || null,
-            toolCallId: toolCall.callId,
-            toolName: toolCall.name,
-            arguments: toolCall.args,
-            rawArguments: toolCall.rawArguments,
-            status: 'running',
-            sideEffect: isToolCallSideEffecting(toolCall),
-            traceId: params.queueMessage.traceId,
-            runId: params.queueMessage.runId,
-            agentTurn: forkTurn,
-            stackCallItemId: toolCallForkItemIdByCallId.get(toolCall.callId) || null,
-            metadata: {
-              ...baseForkMetadata,
-              fork_turn: forkTurn,
-              model_name: params.runtimePrompt.modelName,
-              session_key: params.queueMessage.sessionKey,
-              chat_type: params.queueMessage.chatType,
-              peer_name: params.queueMessage.peerName || null
-            }
-          });
-
-          try {
-            // Disallowed tool → controlled rejection (not a throw that aborts the fork): the
-            // compression fork only permits compress_core_memory; anything else is rejected here
-            // and the reason fed back, so the summarizer retries toward compress instead of
-            // crashing the whole fork run.
-            const rawToolResult = allowedToolNames.has(toolCall.name)
-              ? await this.executeTool(toolCall, params.queueMessage, {
-                  currentCanonicalRequest: forkRequest
-                })
-              : buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
-                  TOOL_NAME: toolCall.name,
-                  ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
-                }));
-
-            if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
-              const commit = await this.commitCoreMemoryCompression({
-                rawToolResult,
-                toolCall,
-                compression: params.compression,
-                contextSessionKey: params.contextSessionKey,
-                sourceResponseId: modelResult.llm_call_id || null,
-                metadata: {
-                  trace_id: params.queueMessage.traceId,
-                  execution_mode: 'compression_fork',
-                  fork_run_id: forkRunId,
-                  fork_turn_count: forkTurn,
-                  fork_tool_call_count: forkToolCallCount,
-                  fork_no_tool_retry_count: forkNoToolRetryTotal,
-                  no_main_stack_persist: true,
-                  no_traffic_persist: true
-                }
-              });
               const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
-              const continuation = applyToolResultToLoopInput(toolCall, commit.toolResult, {
+              const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
                 loopInput: forkInput,
                 speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
                 hasVisibleReply: false,
                 runtimeEnergyState
               });
               if (continuation.forcedVisibleReply) {
-                throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
+                throw new Error('core memory compression fork must not force visible delivery');
               }
               const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
                 forkRunId,
@@ -10634,7 +10580,7 @@ export class AgentLoopService {
                 llmRequestSliceId: forkSliceId,
                 items: buildToolResultStackItems({
                   toolCall,
-                  toolResult: commit.toolResult,
+                  toolResult: rawToolResult,
                   continuationItems: continuation.inputItems,
                   llmRequestSliceId: forkSliceId
                 }) as Array<Record<string, unknown>>
@@ -10642,107 +10588,149 @@ export class AgentLoopService {
               await this.completeCoreMemoryCompressionForkToolExecutionSafe({
                 executionId: forkToolExecutionId,
                 status: 'completed',
-                result: commit.toolResult,
+                result: rawToolResult,
                 stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
               });
-              await this.completeCoreMemoryCompressionForkRunSafe({
+              forkInput.push(...continuation.inputItems);
+              pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
+            } catch (error) {
+              const toolResult = buildToolErrorResult(toolCall, error);
+              const message = String(toolResult.error_message || toolResult.error || 'Tool execution failed');
+              const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
+              const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
+                loopInput: forkInput,
+                speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
+                hasVisibleReply: false,
+                runtimeEnergyState
+              });
+              const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
                 forkRunId,
-                status: 'completed',
-                summaryText: commit.text,
-                artifact: commit.artifact,
-                metadata: {
-                  ...baseForkMetadata,
-                  fork_turn_count: forkTurn,
-                  fork_tool_call_count: forkToolCallCount,
-                  fork_no_tool_retry_count: forkNoToolRetryTotal
-                }
-              });
-              await this.store.logTimelineEvent({
                 traceId: params.queueMessage.traceId,
-                eventType: 'memory',
-                eventName: 'core_memory_compression_fork',
-                eventPhase: 'end',
-                metadata: {
-                  status: 'completed',
-                  fork_run_id: forkRunId,
-                  context_session_key: params.compression.contextSessionKey,
-                  read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
-                  fork_turn_count: forkTurn,
-                  fork_tool_call_count: forkToolCallCount,
-                  fork_no_tool_retry_count: forkNoToolRetryTotal
-                }
+                runId: params.queueMessage.runId,
+                sourceType: 'core_memory_compression_fork_tool_executions',
+                sourceId: forkToolExecutionId,
+                llmRequestSliceId: forkSliceId,
+                items: buildToolResultStackItems({
+                  toolCall,
+                  toolResult,
+                  continuationItems: continuation.inputItems,
+                  llmRequestSliceId: forkSliceId
+                }) as Array<Record<string, unknown>>
               });
-              return commit;
+              await this.completeCoreMemoryCompressionForkToolExecutionSafe({
+                executionId: forkToolExecutionId,
+                status: 'failed',
+                result: toolResult,
+                errorMessage: message,
+                stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
+              });
+              forkInput.push(...continuation.inputItems);
+              pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
+              continue;
             }
-
-            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
-            const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
-              loopInput: forkInput,
-              speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
-              hasVisibleReply: false,
-              runtimeEnergyState
-            });
-            if (continuation.forcedVisibleReply) {
-              throw new Error(`${TOOL_NAMES.compressCoreMemory} fork must not force visible delivery`);
-            }
-            const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
-              forkRunId,
-              traceId: params.queueMessage.traceId,
-              runId: params.queueMessage.runId,
-              sourceType: 'core_memory_compression_fork_tool_executions',
-              sourceId: forkToolExecutionId,
-              llmRequestSliceId: forkSliceId,
-              items: buildToolResultStackItems({
-                toolCall,
-                toolResult: rawToolResult,
-                continuationItems: continuation.inputItems,
-                llmRequestSliceId: forkSliceId
-              }) as Array<Record<string, unknown>>
-            });
-            await this.completeCoreMemoryCompressionForkToolExecutionSafe({
-              executionId: forkToolExecutionId,
-              status: 'completed',
-              result: rawToolResult,
-              stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
-            });
-            forkInput.push(...continuation.inputItems);
-            pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
-          } catch (error) {
-            const toolResult = buildToolErrorResult(toolCall, error);
-            const message = String(toolResult.error_message || toolResult.error || 'Tool execution failed');
-            const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
-            const continuation = applyToolResultToLoopInput(toolCall, toolResult, {
-              loopInput: forkInput,
-              speakingToolName: params.queueMessage.chatType === 'direct' ? TOOL_NAMES.privateReply : TOOL_NAMES.groupReply,
-              hasVisibleReply: false,
-              runtimeEnergyState
-            });
-            const toolOutputRows = await this.appendCoreMemoryCompressionForkItemsSafe({
-              forkRunId,
-              traceId: params.queueMessage.traceId,
-              runId: params.queueMessage.runId,
-              sourceType: 'core_memory_compression_fork_tool_executions',
-              sourceId: forkToolExecutionId,
-              llmRequestSliceId: forkSliceId,
-              items: buildToolResultStackItems({
-                toolCall,
-                toolResult,
-                continuationItems: continuation.inputItems,
-                llmRequestSliceId: forkSliceId
-              }) as Array<Record<string, unknown>>
-            });
-            await this.completeCoreMemoryCompressionForkToolExecutionSafe({
-              executionId: forkToolExecutionId,
-              status: 'failed',
-              result: toolResult,
-              errorMessage: message,
-              stackOutputItemId: (toolOutputRows[0] as { id?: string | number } | undefined)?.id || null
-            });
-            forkInput.push(...continuation.inputItems);
-            pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
-            continue;
+          }
+        } else {
+          // No tool call this turn (final_answer / plain text). Keep the fork history complete;
+          // the file check below decides whether the 近况 was actually written.
+          for (const replayItem of actionPlan.replayableOutputs) {
+            forkInput.push(replayItem.inputItem);
           }
         }
+
+        // ── Commit trigger (Spec B): did the model write the new 近况 to the output file yet? ──
+        // Same file round-trip the image-vision fork uses (readImageVisionObservationFile). When
+        // present, synthesize the commit payload and run the SAME commitCoreMemoryCompression path,
+        // so the "one cold prefill installs <小腻近况> exactly once" invariant is unchanged — only
+        // the trigger moved from a structured tool call to a file read-back.
+        const compressionFileCheck = await this.readCoreMemoryCompressionFile(
+          compressionOutputPath,
+          params.queueMessage
+        );
+        if (compressionFileCheck.text) {
+          const syntheticToolCall = {
+            name: TOOL_NAMES.compressCoreMemory,
+            callId: `core-memory-compress-file:${forkRunId}:${forkTurn}`,
+            args: { text: compressionFileCheck.text },
+            rawArguments: JSON.stringify({ text: compressionFileCheck.text })
+          } as unknown as AgentToolCall;
+          const commit = await this.commitCoreMemoryCompression({
+            rawToolResult: {
+              text: compressionFileCheck.text,
+              compressed: true,
+              outcome: 'core_memory_compressed',
+              source: 'xiaoni_memory_compress_skill',
+              output_path: compressionOutputPath
+            },
+            toolCall: syntheticToolCall,
+            compression: params.compression,
+            contextSessionKey: params.contextSessionKey,
+            sourceResponseId: modelResult.llm_call_id || null,
+            metadata: {
+              trace_id: params.queueMessage.traceId,
+              execution_mode: 'compression_fork',
+              fork_run_id: forkRunId,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal,
+              compression_output_path: compressionOutputPath,
+              no_main_stack_persist: true,
+              no_traffic_persist: true
+            }
+          });
+          await this.completeCoreMemoryCompressionForkRunSafe({
+            forkRunId,
+            status: 'completed',
+            summaryText: commit.text,
+            artifact: commit.artifact,
+            metadata: {
+              ...baseForkMetadata,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal
+            }
+          });
+          await this.store.logTimelineEvent({
+            traceId: params.queueMessage.traceId,
+            eventType: 'memory',
+            eventName: 'core_memory_compression_fork',
+            eventPhase: 'end',
+            metadata: {
+              status: 'completed',
+              fork_run_id: forkRunId,
+              context_session_key: params.compression.contextSessionKey,
+              read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal
+            }
+          });
+          return commit;
+        }
+
+        // Not written yet → nudge the model to author + write the 近况 file.
+        if (!actionPlan.hasToolCall) {
+          forkNoToolRetryCount += 1;
+          forkNoToolRetryTotal += 1;
+          if (forkNoToolRetryCount > CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES) {
+            throw new Error('core memory compression fork yielded without writing the 近况 file');
+          }
+        }
+        if (forkTurn >= CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS) {
+          throw new Error(
+            `core memory compression fork exhausted ${CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS} turns without writing the 近况 file (${compressionFileCheck.message})`
+          );
+        }
+        forkInput.push(buildCoreMemoryCompressionForkRetryReminder({
+          forkTurn,
+          retryCount: forkNoToolRetryCount,
+          maxRetries: CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES,
+          reason: actionPlan.hasFinalAnswer
+            ? `你已经 final_answer，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
+            : actionPlan.hasToolCall
+              ? `你跑了 exec_command，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
+              : `还没写近况文件（${compressionFileCheck.message}）`,
+          outputPath: compressionOutputPath
+        }));
       }
 
     } catch (error) {
@@ -12044,6 +12032,54 @@ export class AgentLoopService {
     return {
       text: null,
       message: `文件检查失败：${detail}`
+    };
+  }
+
+  // Spec B: read back the 近况 the compression fork asked the model to write. Same file
+  // round-trip as readImageVisionObservationFile — the read runs via exec_command inside the
+  // executor (the container that WROTE the file), so there is no cross-container permission
+  // issue with the skill's atomic 0600 write. The 近况 is compact by design (summary + overflow
+  // file paths; the bulk lives in externalized files), so the max_output_tokens margin is ample.
+  private async readCoreMemoryCompressionFile(
+    outputPath: string,
+    queueMessage: QueueMessageRecord['payload']
+  ): Promise<{ text: string | null; message: string }> {
+    const script = [
+      'python3 - <<\'PY\'',
+      'from pathlib import Path',
+      'p = Path(' + JSON.stringify(outputPath) + ')',
+      'if not p.exists():',
+      '    print("MISSING")',
+      'elif not p.is_file():',
+      '    print("NOT_FILE")',
+      'else:',
+      '    text = p.read_text(encoding="utf-8", errors="replace").strip()',
+      '    if not text:',
+      '        print("EMPTY")',
+      '    else:',
+      '        print("OK")',
+      '        print(text)',
+      'PY'
+    ].join('\n');
+    const result = await this.executeCommand({
+      cmd: script,
+      yield_time_ms: 10_000,
+      max_output_tokens: 40_000
+    }, undefined, queueMessage);
+    const stdout = typeof result.stdout === 'string' ? result.stdout : '';
+    const stderr = typeof result.stderr === 'string' ? result.stderr.trim() : '';
+    const [statusLine = '', ...rest] = stdout.split(/\r?\n/u);
+    const status = statusLine.trim();
+    if (status === 'OK') {
+      const text = rest.join('\n').trim();
+      return text
+        ? { text, message: '近况文件已写入且非空' }
+        : { text: null, message: '近况文件状态为 OK，但内容为空' };
+    }
+    const detail = stderr ? `${status || 'UNKNOWN'}: ${stderr}` : status || 'UNKNOWN';
+    return {
+      text: null,
+      message: `近况文件尚未就绪：${detail}`
     };
   }
 
