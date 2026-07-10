@@ -1478,6 +1478,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.postCompressionPauseArmed === 'boolean') {
         patch.postCompressionPauseArmed = body.postCompressionPauseArmed;
       }
+      if (typeof body.stripXiaoniOsFromRequests === 'boolean') {
+        patch.stripXiaoniOsFromRequests = body.stripXiaoniOsFromRequests;
+      }
       if (Object.prototype.hasOwnProperty.call(body, 'mainAgentPreModelYieldMs')) {
         const value = parseNonNegativeInteger(body.mainAgentPreModelYieldMs);
         if (value === null) {
