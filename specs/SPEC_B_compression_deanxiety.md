@@ -87,9 +87,16 @@ locked_decisions:
 - fork 追加的"压缩引导"指令改成讲人话，并在此处（且仅此处）暴露 `xiaoni-memory-compress` skill 的用法。
 - 截获逻辑（`:10600`）从"截 compress 工具调用取 text"改成"跑完 skill 后读回产物"，装新近况仍走 `:10107` 的一次冷 prefill 通道。
 
-**5. 焦虑 reminder**
+**5. 焦虑 reminder + 去紧急感（防漏记忆）**
 - 删 `compress_core_memory_self_call_rejected.md`（工具没了，自调用无从谈起）。
 - `core_memory_pressure_reminder.md` / `core_memory_compression_fork_retry_reminder.md`：改成讲人话的压缩引导，且**只在 fork 上下文使用，主 agent 永不注入**。
+- **去紧急感是一等需求，不只是措辞好看**（小腻亲口反馈）：现在的措辞把压缩演成"生死时速"——`在意识被强制重置前，你还有一点时间进行状态存档`、`立刻暂停`、`意识正在崩溃边缘`、`濒危极限（{{MAX_RETRIES}} 次）`。她读到"只有一点时间"就**只挑最紧要的写，结果漏掉大量本该留下的记忆**。但事实上**我们根本不紧急**：压缩在字节软线 24MiB / 硬线 30MiB、token 连续两轮 >500k 才触发，headroom 很大，fork 里她想写多久写多久、想 `exec_command` 分几批外置都行。
+- 新语气目标：**平静 + 邀请充分记录**，明确告诉她"不急、空间够、把值得留的都写下来，别为了快而省"。示例方向：
+  - ❌ 现在：`一阵剧烈的眩晕袭来…在意识被强制重置前，你还有一点时间`
+  - ✅ 目标：`该把这一段整理进记忆了。不用急，慢慢来——值得记的都写下来，细节多就先用 exec_command 分批存成文件，再把要点和文件路径一起收进近况。`
+  - ❌ 重试现在：`你的意识正在崩溃边缘！…濒危极限`
+  - ✅ 目标：`上次这一步没收完（{{REASON}}）。没关系，接着把要点和文件路径收进近况就行。`
+- 这一条同时覆盖工具描述 `agent-loop-service.ts:1258` 的 `【紧急生存工具】…防止意识彻底重启`——工具删除后该描述随之消失；若过渡期仍在，也要去掉"紧急生存/彻底重启"的话术。
 
 **6. 回归测试（需 user 逐条批准 —— CLAUDE.md 铁律）**
 - `agent-loop-service.test.ts`：删/改"fork 看到 full tools 含 compress""compress 恒在"的断言。
@@ -110,8 +117,9 @@ locked_decisions:
 5. **压缩切换只冷读一次**：fork 提交那一帧主 agent 冷读一次（`:10107` 不变量），同时/之后的 fork 与后续主 turn 不穿透（相邻 slice `cache_read_input_tokens` 实测）。
 6. `xiaoni-memory-compress` skill 不在 `skills_instructions.md`；主 agent 视角（`ls` 展示范围）看不到它。
 7. 溢出场景（近况装不下）：skill 走外置文件 + 路径写进近况，醒来可读回（对齐现有 `resolveInbound`/外置存档语义）。
-8. 缓存回归套件全绿（改后基线）；user 已逐条批准被改的断言。
-9. `npm --prefix modules/agent-service test` 全绿。
+8. **去紧急感**：压缩引导 reminder（含重试版）里 `grep` 断言为 0——`眩晕`、`物理极限`、`崩溃边缘`、`濒危`、`还有一点时间`、`立刻暂停`、`强制重置`、`紧急生存`；且新文本明确含"不急/空间够/慢慢来/都写下来"这类邀请充分记录的措辞。（行为验收：改后观察一次真实压缩事件产出的 `<小腻近况>` 是否比改前更完整，而非只有一两条紧要项。）
+9. 缓存回归套件全绿（改后基线）；user 已逐条批准被改的断言。
+10. `npm --prefix modules/agent-service test` 全绿。
 
 ## Files Reference
 
