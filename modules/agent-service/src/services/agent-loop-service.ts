@@ -668,6 +668,105 @@ export function setCompressionTriggerInputTokens(value: number): void {
     COMPRESSION_TRIGGER_INPUT_TOKENS = Math.floor(value);
   }
 }
+
+// ── xiaoni_os request isolation (admin runtime toggle) ─────────────────────────
+// 小腻 writes a private "OS" note (xiaoni_os) into her tool calls. Normally it round-trips
+// back into her own context via the replayed function_call arguments (A1), the tool-result
+// echo in function_call_output (A2), and — for recover_energy — the wake reminder that
+// re-presents her pre-sleep note (B). This toggle lets ops run her WITHOUT feeding those notes
+// back to the model, while the note stays fully persisted + admin-visible for operations.
+// A1/A2 use the stamp+flag+wire-strip mechanism below. B is handled separately at wake-render
+// time (renderRecoverEnergyCompletedReminder drops the note line), because the note there is
+// fused into rendered prose rather than a discrete JSON field; the note still lives in
+// agent_recovery_sessions + the recover_energy call args for ops.
+//
+// How it stays cache-safe (双缓存铁律):
+//  1) The toggle is snapshotted ONCE per run. When on, os-bearing tool items produced this run
+//     are STAMPED (in place) with `xiaoni_os_hidden: true`. Because the stamp lands on the shared
+//     array reference, it is written into BOTH the live requestInput copy AND the persisted stack
+//     content — the decision is frozen at production time and can never drift with later toggling.
+//  2) The actual strip is applied BY FLAG at ONE wire chokepoint (buildMainAgentCanonicalRequest).
+//     Every request — main loop and every fork clone — funnels through it, so all prefixes stay
+//     byte-identical and the flag itself never reaches the wire.
+//  3) History without the flag (produced before this feature, or while the toggle was off) keeps
+//     its os verbatim on replay → "历史开了就是开了、关了就是关了；拨开关只管往后". Flipping the
+//     toggle therefore rewrites NO history and costs no extra historical cold read.
+// modules/agent-service/src/index.ts pushes this each main-loop poll from
+// agent_runtime_control.strip_xiaoni_os_from_requests.
+let STRIP_XIAONI_OS_FROM_REQUESTS = false;
+export function setStripXiaoniOsFromRequests(value: unknown): void {
+  if (typeof value === 'boolean') {
+    STRIP_XIAONI_OS_FROM_REQUESTS = value;
+  }
+}
+
+function tryParseJsonObjectString(text: unknown): Record<string, unknown> | null {
+  if (typeof text !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// True only for a tool item that actually carries an xiaoni_os key: function_call whose
+// arguments JSON has it (A1), or function_call_output whose output is a JSON object with it (A2).
+// A non-JSON output (e.g. the recover_energy wake reminder text — Path B, out of scope) never
+// matches, so it is never stamped nor stripped.
+export function itemCarriesXiaoniOs(item: OpenResponseInputItem): boolean {
+  if (item.type === 'function_call') {
+    const args = tryParseJsonObjectString((item as { arguments?: unknown }).arguments);
+    return Boolean(args && Object.prototype.hasOwnProperty.call(args, 'xiaoni_os'));
+  }
+  if (item.type === 'function_call_output') {
+    const output = tryParseJsonObjectString((item as { output?: unknown }).output);
+    return Boolean(output && Object.prototype.hasOwnProperty.call(output, 'xiaoni_os'));
+  }
+  return false;
+}
+
+// Freeze the toggle decision into the items at production time. Mutates in place so the same
+// stamp lands on both the live requestInput copy and the persisted stack content (they share refs).
+export function stampXiaoniOsHiddenInPlace(items: OpenResponseInputItem[], hidden: boolean): void {
+  if (!hidden) {
+    return;
+  }
+  for (const item of items) {
+    if (itemCarriesXiaoniOs(item)) {
+      (item as Record<string, unknown>).xiaoni_os_hidden = true;
+    }
+  }
+}
+
+// Wire-side strip, applied by flag inside buildMainAgentCanonicalRequest. Pure + idempotent +
+// deterministic: a flagged item gets its xiaoni_os key deleted and the flag removed; an unflagged
+// item is returned by reference untouched (so toggle-OFF builds are byte-identical to before).
+export function stripXiaoniOsByFlag(item: OpenResponseInputItem): OpenResponseInputItem {
+  if (!item || (item as Record<string, unknown>).xiaoni_os_hidden !== true) {
+    return item;
+  }
+  const next: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  delete next.xiaoni_os_hidden;
+  if (item.type === 'function_call') {
+    const args = tryParseJsonObjectString((item as { arguments?: unknown }).arguments);
+    if (args && Object.prototype.hasOwnProperty.call(args, 'xiaoni_os')) {
+      delete args.xiaoni_os;
+      next.arguments = JSON.stringify(args);
+    }
+  } else if (item.type === 'function_call_output') {
+    const output = tryParseJsonObjectString((item as { output?: unknown }).output);
+    if (output && Object.prototype.hasOwnProperty.call(output, 'xiaoni_os')) {
+      delete output.xiaoni_os;
+      next.output = JSON.stringify(output);
+    }
+  }
+  return next as OpenResponseInputItem;
+}
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 // EMERGENCY HALT VALVE: when real input_tokens run this far PAST the compression trigger for
 // COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS consecutive turns, compression has demonstrably failed to
@@ -2067,7 +2166,14 @@ export function recoverRuntimeEnergy(input: {
   };
 }
 
-function renderRecoverEnergyCompletedReminder(input: {
+// The 5 wake-reminder templates each re-present the pre-sleep xiaoni_os note on its own line, but
+// with DIFFERENT prose prefixes (睡前的念头 / 睡前的心情 / 睡前给自己的备忘 / 睡前的执念 / 睡前的残影).
+// To drop that line robustly under the isolation toggle regardless of wording (and future template
+// edits), we render the {{XIAONI_OS}} slot as a unique sentinel and delete whichever line carries
+// it. The sentinel can never occur in template prose or in a real note.
+const XIAONI_OS_HIDDEN_LINE_SENTINEL = '⁣[[XIAONI_OS_HIDDEN_LINE]]⁣';
+
+export function renderRecoverEnergyCompletedReminder(input: {
   reason: string | null;
   xiaoniOs?: string | null;
   wakeCause?: string | null;
@@ -2078,6 +2184,12 @@ function renderRecoverEnergyCompletedReminder(input: {
   clockDeferredMinutes?: number | null;
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
   batchFinalRecoveryTimeline?: string | null;
+  // Path B of xiaoni_os isolation: when the toggle is on at WAKE time, omit the pre-sleep note
+  // from the wake reminder so the model never re-reads it. The decision is frozen into the
+  // persisted reminder content at render time (replay never re-renders → byte-identical, cache-
+  // safe, forward-only, history untouched). The note itself stays in agent_recovery_sessions and
+  // the recover_energy tool-call args, so ops/admin lose nothing.
+  hideXiaoniOs?: boolean;
 }) {
   const wakeCause = input.wakeCause || 'natural';
   const template = wakeCause === 'private_or_mention_threshold'
@@ -2089,7 +2201,7 @@ function renderRecoverEnergyCompletedReminder(input: {
         : wakeCause === 'hard_cap'
           ? 'recover_energy_forced_completed_reminder.md'
           : 'recover_energy_completed_reminder.md';
-  return formatSystemReminderBlock(renderPromptSnippet(template, {
+  const rendered = renderPromptSnippet(template, {
     CURRENT_TIME: formatEast8Timestamp(),
     SLEEP_MINUTES: Math.max(0, Math.round(input.sleepMinutes)),
     WAKE_CAUSE: wakeCause,
@@ -2098,9 +2210,16 @@ function renderRecoverEnergyCompletedReminder(input: {
     CLOCK_MINUTES: input.clockMinutes ?? '',
     CLOCK_DEFERRED_MINUTES: input.clockDeferredMinutes ?? 0,
     REASON: input.reason || '',
-    XIAONI_OS: input.xiaoniOs || '',
+    XIAONI_OS: input.hideXiaoniOs ? XIAONI_OS_HIDDEN_LINE_SENTINEL : (input.xiaoniOs || ''),
     BATCH_FINAL_RECOVERY_TIMELINE: input.batchFinalRecoveryTimeline || ''
-  }));
+  });
+  const body = input.hideXiaoniOs
+    ? rendered
+      .split('\n')
+      .filter((line) => !line.includes(XIAONI_OS_HIDDEN_LINE_SENTINEL))
+      .join('\n')
+    : rendered;
+  return formatSystemReminderBlock(body);
 }
 
 function renderRecoverEnergyRejectedReminder(input: {
@@ -2246,10 +2365,15 @@ function buildMainAgentCanonicalRequest(
   turnInput: OpenResponseInputItem[],
   queueMessage: QueueMessageRecord['payload']
 ): CanonicalAgentTurnRequest {
+  // Single wire chokepoint for xiaoni_os isolation: every request (main loop + every fork clone,
+  // which clone the output of this function) strips flagged items here, so all prefixes stay
+  // byte-identical and the xiaoni_os_hidden flag never reaches the wire. No-op passthrough (same
+  // refs) when nothing is flagged, so toggle-OFF builds are byte-identical to before.
+  const wireInput = turnInput.map(stripXiaoniOsByFlag);
   return {
     ...buildCanonicalAgentTurnRequest(
       runtimePrompt.modelName,
-      turnInput,
+      wireInput,
       queueMessage.chatType,
       runtimePrompt.parameters as Record<string, unknown> | undefined
     ),
@@ -6596,7 +6720,11 @@ export class AgentLoopService {
         clockMinutes: session.clockMinutes,
         clockDeferredMinutes,
         recoveredEnergy,
-        batchFinalRecoveryTimeline
+        batchFinalRecoveryTimeline,
+        // Path B: frozen at wake-render time. The reminder is rendered once and persisted verbatim
+        // (replay never re-renders), so reading the global toggle here bakes the decision into the
+        // stored content → cache-safe and forward-only. See renderRecoverEnergyCompletedReminder.
+        hideXiaoniOs: STRIP_XIAONI_OS_FROM_REQUESTS
       })
     };
   }
@@ -6943,6 +7071,11 @@ export class AgentLoopService {
         }
         pendingOneShotInputItems.push(...items);
       };
+      // Snapshot the xiaoni_os isolation toggle ONCE per run so a mid-run admin flip can't make
+      // this run's live requests inconsistent with its own replay. The frozen value stamps every
+      // os-bearing tool item this run produces (below); later runs read each item's own frozen
+      // flag from the stack, so cross-run replay matches this run's live request byte-for-byte.
+      const stripXiaoniOsHiddenSnapshot = STRIP_XIAONI_OS_FROM_REQUESTS;
       const appendAvailableQueueNotifyToLoop = async () => {
         if (!options.queueBacked) {
           return;
@@ -7169,6 +7302,10 @@ export class AgentLoopService {
         );
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        // A1: freeze the xiaoni_os hide-decision into this turn's model-output tool calls before
+        // they fan out to BOTH the stack ledger (buildModelOutputStackItems, content: item) and the
+        // live requestInput (appendLoopInputItems) — same refs, one stamp, both copies consistent.
+        stampXiaoniOsHiddenInPlace(outputItems as OpenResponseInputItem[], stripXiaoniOsHiddenSnapshot);
         const outputStackRows = await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -7443,6 +7580,9 @@ export class AgentLoopService {
               hasVisibleReply: deliveredMessages.length > 0,
               runtimeEnergyState
             });
+            // A2: freeze the hide-decision into the tool-result echo (function_call_output carrying
+            // xiaoni_os) before it fans out to the stack ledger + live requestInput (shared refs).
+            stampXiaoniOsHiddenInPlace(continuation.inputItems, stripXiaoniOsHiddenSnapshot);
             const toolOutputStackRows = await this.appendAgentStackItemsSafe({
               traceId: payload.traceId,
               runId: queueMessage.id,
@@ -7554,6 +7694,9 @@ export class AgentLoopService {
               hasVisibleReply: deliveredMessages.length > 0,
               runtimeEnergyState
             });
+            // A2: freeze the hide-decision into the tool-result echo (function_call_output carrying
+            // xiaoni_os) before it fans out to the stack ledger + live requestInput (shared refs).
+            stampXiaoniOsHiddenInPlace(continuation.inputItems, stripXiaoniOsHiddenSnapshot);
             const toolOutputStackRows = await this.appendAgentStackItemsSafe({
               traceId: payload.traceId,
               runId: queueMessage.id,
