@@ -66,11 +66,49 @@ function truncateText(value, maxLength = 480) {
   return compact.length <= maxLength ? compact : `${compact.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-// 召回文本清洗:剥掉脚手架/样板/注入模板,让 embedding 只反映"信号"而非"结构"。
+// 运营轨迹标题(LLM 请求切片 / provider trace,如 "anthropic/messages · claude-opus-4-6 ·
+// turn 8 · 147900->2 tokens")= 零记忆价值。真库实测:这类标题当 query 100% 触发召回、全是噪音;
+// 当 cue 会污染语料。既不当 query 也不当 cue。
+function isOperationalTraceText(t) {
+  if (typeof t !== 'string') {
+    return false;
+  }
+  if (/^anthropic\/messages\s*·/.test(t)) {
+    return true;
+  }
+  if (/·\s*turn\s*\d+\s*·[^\n]*\btokens\s*$/.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+// 从 shell 命令里抽她的「人类意图」——注释(# ...)是她思考的落点(真库里她大量写
+// `# 找"从一把葱到两把葱"` 这种)。纯机械命令(grep/curl/cat 只带路径/管道)无记忆价值,返回 ''。
+// 她 cat>file 的写入 provenance 另由 db_file_provenance 路径处理,不靠原始命令文本嵌入。
+function extractHumanFromShellCommand(cmd) {
+  if (typeof cmd !== 'string' || !cmd.trim()) {
+    return '';
+  }
+  const parts = [];
+  for (const line of cmd.split('\n')) {
+    // 行首或空白后的 # 注释(URL 里的 # 无前置空白,不误伤)。
+    const m = line.match(/(?:^|\s)#\s?(.+)$/);
+    if (m && m[1]) {
+      const c = m[1].trim();
+      // 排除纯机械/heredoc 标记注释(# PY / # EOF / # !/bin/bash 之类)。
+      if (c.length > 1 && !/^[A-Z_]{1,8}$/.test(c) && !/^!\//.test(c)) {
+        parts.push(c);
+      }
+    }
+  }
+  return parts.join(' ').trim();
+}
+
+// 召回文本清洗:剥掉脚手架/样板/注入模板/运营信封,让 embedding 只反映"信号"而非"结构"。
 // 只作用于召回派生文本(cue 的 embedding_text + query 的 landedText),不碰小腻 agent 本体/指针。
-// 真库诊断:上万条 cue 因共享样板(path-check 工具输出 / system_reminder 模板 / 当前输入包壳)
-// 嵌成近似同向量,扎成"跟谁都像"的枢纽簇。详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md。
-// 返回 '' 表示"整条无记忆价值"(调用方据此不入库/不当 query)。
+// 真库诊断:上万条 cue/query 因共享样板(LLM 切片标题 / 工具调用 JSON 信封 / path-check 工具输出 /
+// system_reminder 模板 / 当前输入包壳 / 请求工具·等待处理消息 通知壳)嵌成近似同向量、静默率仅 8%。
+// 详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md。返回 '' = "整条无记忆价值"(调用方据此不入库/不当 query)。
 function normalizeRecallText(value) {
   if (typeof value !== 'string') {
     return '';
@@ -79,16 +117,45 @@ function normalizeRecallText(value) {
   if (!t) {
     return '';
   }
-  // 1) 纯工具输出(check_markdown_local_paths.py 那几类)—— 零记忆价值,整条废。
+  // 0) 运营轨迹标题(LLM 切片 / provider trace)→ 整条废。
+  if (isOperationalTraceText(t)) {
+    return '';
+  }
+  // 1a) 文本包壳前缀先剥,露出里面可能的 JSON/正文:
+  //     "请求工具: exec_command {…}" → 留 {…} 再进 JSON 拆壳;"当前输入 …" → 留正文。
+  t = t.replace(/^请求工具[:：]\s*[^\s{[]+\s*/, '');
+  t = t.replace(/^当前输入\s*/, '');
+  // 1b) "等待处理消息 chat_label=…" 通知壳整条废(真正入站内容另有 inbound cue 路径,不双记)。
+  if (/^等待处理消息/.test(t)) {
+    return '';
+  }
+  // 2) JSON 信封拆壳:入站 {"user_id":..,"message":"X"} → 留 X;工具调用 {"cmd":"…"} → 抽注释意图。
+  if (/^[{[]/.test(t)) {
+    const parsed = parseJsonPreview(t);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      if (typeof parsed.message === 'string' && parsed.message.trim()) {
+        t = parsed.message.trim();
+      } else {
+        const cmd = firstString(parsed.cmd, parsed.command, parsed.shell_command, parsed.shellCommand);
+        if (cmd) {
+          t = extractHumanFromShellCommand(cmd); // 无注释意图 → '' → 下一步判空
+        }
+      }
+    }
+  }
+  if (!t.trim()) {
+    return '';
+  }
+  // 3) 纯工具输出(check_markdown_local_paths.py 那几类)—— 零记忆价值,整条废。
   if (/^(External URLs (ignored|not checked)|Markdown local path check|Latest phase pointers path check)\b/.test(t)) {
     return '';
   }
-  // 2) <system_reminder>…</system_reminder> = 注入模板(非她记忆)→ 整块移除(变量摘要另有 inbound cue)。
+  // 4) <system_reminder>…</system_reminder> = 注入模板(非她记忆)→ 整块移除(变量摘要另有 inbound cue)。
   t = t.replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, ' ');
-  // 3) <xiaoni_plan> 包壳 + 固定模板句 → 剥壳,留她真 plan。
+  // 5) <xiaoni_plan> 包壳 + 固定模板句 → 剥壳,留她真 plan。
   t = t.replace(/<\/?xiaoni_plan>/g, ' ');
   t = t.replace(/歇了一下，脑子里冒出来接下来想干嘛的念头（要不要照做随你）：/g, ' ');
-  // 4) "当前输入" 包壳前缀 + 残留标签壳。
+  // 6) 残留标签壳 + 二次 "当前输入" 包壳。
   t = t.replace(/^当前输入\s*/, '');
   t = t.replace(/<\/?(system_reminder|xiaoni_plan)>/g, ' ');
   return t.replace(/\s+/g, ' ').trim();
@@ -581,6 +648,8 @@ module.exports = {
   OPERATIONAL_SOURCES,
   classifyRuntimePath,
   contentHashOf,
+  isOperationalTraceText,
+  extractHumanFromShellCommand,
   extractPassiveRecallCueFromActionStreamItem,
   extractPassiveRecallCuesFromActionStream,
   extractRuntimePaths,
