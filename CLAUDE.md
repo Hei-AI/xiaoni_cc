@@ -176,6 +176,7 @@ messages: [
 - 本地联调前端：固定端口 `13003`（不是 `3003`），真实宿主机地址以 `/home/liahua/.qqbot-local/playwright/local-frontend-access.json` 中 `frontend_host_browser_url` 为准
 - 本地前端 `/api` 代理到容器内 admin-backend：`http://127.0.0.1:9080`
 - 敏感信息统一从 `/home/liahua/.qqbot-local/` 读取；`.env.docker.example` 只是模板
+- **sudo / 宿主机权限**：遇到 `sudo` 或 Docker socket 权限问题时，凭据从本机文件 `/home/liahua/token` 读取（格式 `账号:密码`，不在此处或任何版本库文件中写明文）。非交互 shell 用 `PW=$(cut -d: -f2 /home/liahua/token); echo "$PW" | sudo -S <命令>` 传入。
 
 ## Git
 
