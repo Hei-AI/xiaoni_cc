@@ -38,13 +38,13 @@ import {
   buildStackTraceSpanDetail,
   buildStackRawProviderTrace
 } from '../services/trace-span-builder';
-import { reindexXiaoniRecall, embedTexts } from '../services/xiaoni-recall-reindex-service';
+import { reindexXiaoniRecall, embedTexts, listPalaceFiles } from '../services/xiaoni-recall-reindex-service';
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || 'http://qqbot-agent-service:8092';
 const AGENT_REQUEST_TIMEOUT_MS = 5000;
 const XIAONI_RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/home/liahua/.qqbot-local/xiaoni-runtime';
 const XIAONI_RUNTIME_CANONICAL_ROOT = '/xiaoni-runtime';
-const XIAONI_PASSIVE_RECALL_FILE_DIRS = ['forever', 'notes', 'reading', 'toys'];
+// 预览候选文件走 §7.1 的 listPalaceFiles(单一真理源),不再另留一份 FILE_DIRS。
 const XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES = 3000;
 const ACTION_STREAM_RANGE_MS: Record<string, number> = {
   '1h': 60 * 60 * 1000,
@@ -412,62 +412,6 @@ async function collectRuntimeFileCandidates(options: {
     canonicalPath: string;
     stat: { size: number; mtime: Date };
   }> = [];
-  let visited = 0;
-
-  async function visit(dir: string, depth: number): Promise<void> {
-    if (visited >= XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES || depth > 8) {
-      return;
-    }
-    visited += 1;
-    let entries: Array<{
-      name: string;
-      isDirectory: () => boolean;
-      isFile: () => boolean;
-    }>;
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (visited >= XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES) {
-        return;
-      }
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
-        continue;
-      }
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await visit(absolutePath, depth + 1);
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      const canonicalPath = toCanonicalRuntimePath(runtimeRoot, absolutePath);
-      if (!canonicalPath) {
-        continue;
-      }
-      const classified = classifyRuntimePath(canonicalPath);
-      if (!classified?.indexable) {
-        continue;
-      }
-      try {
-        const stat = await fs.stat(absolutePath);
-        files.push({
-          absolutePath,
-          canonicalPath,
-          stat: {
-            size: stat.size,
-            mtime: stat.mtime
-          }
-        });
-      } catch {
-        continue;
-      }
-    }
-  }
 
   try {
     const rootStat = await fs.stat(runtimeRoot);
@@ -488,7 +432,22 @@ async function collectRuntimeFileCandidates(options: {
     };
   }
 
-  await Promise.all(XIAONI_PASSIVE_RECALL_FILE_DIRS.map((dir) => visit(path.join(runtimeRoot, dir), 1)));
+  // 预览候选 = 实际被索引的宫殿文件(§7.1 单一真理源 listPalaceFiles),不再另走一份
+  // ['forever','notes','reading','toys'] 的递归 —— 那样会把不再索引的原文/归档也列成「候选」,
+  // 误导运营以为它们还会进语料。这里显示的就是 reindex 实际会嵌的那批。
+  const palacePaths = (await listPalaceFiles(runtimeRoot)).slice(0, XIAONI_PASSIVE_RECALL_MAX_SCAN_ENTRIES);
+  for (const absolutePath of palacePaths) {
+    const canonicalPath = toCanonicalRuntimePath(runtimeRoot, absolutePath);
+    if (!canonicalPath) {
+      continue;
+    }
+    try {
+      const stat = await fs.stat(absolutePath);
+      files.push({ absolutePath, canonicalPath, stat: { size: stat.size, mtime: stat.mtime } });
+    } catch {
+      continue;
+    }
+  }
   files.sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
 
   const selected = files.slice(0, options.limit);
