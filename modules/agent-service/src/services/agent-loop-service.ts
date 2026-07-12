@@ -2066,7 +2066,6 @@ function renderRecoverEnergyCompletedReminder(input: {
   wakeCallCount?: number | null;
   wakeRequiredCount?: number | null;
   clockMinutes?: number | null;
-  clockDeferredMinutes?: number | null;
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
   batchFinalRecoveryTimeline?: string | null;
 }) {
@@ -2087,7 +2086,6 @@ function renderRecoverEnergyCompletedReminder(input: {
     WAKE_CALL_COUNT: input.wakeCallCount ?? 0,
     WAKE_REQUIRED_COUNT: typeof input.wakeRequiredCount === 'number' && Number.isFinite(input.wakeRequiredCount) ? input.wakeRequiredCount : '无穷',
     CLOCK_MINUTES: input.clockMinutes ?? '',
-    CLOCK_DEFERRED_MINUTES: input.clockDeferredMinutes ?? 0,
     REASON: input.reason || '',
     XIAONI_OS: input.xiaoniOs || '',
     BATCH_FINAL_RECOVERY_TIMELINE: input.batchFinalRecoveryTimeline || ''
@@ -6556,9 +6554,6 @@ export class AgentLoopService {
       pressure: projection.pressure,
       startPressure: projection.startPressure
     };
-    const clockDeferredMinutes = session.clockDueAt && session.clockDeferredAt
-      ? Math.max(0, Math.round((Date.now() - new Date(session.clockDueAt).getTime()) / 60000))
-      : 0;
     const batchFinalRecoveryTimeline = renderRecoverEnergyBatchFinalTimeline({
       metadata: session.metadata,
       recoveryStartedAt: startedAt
@@ -6595,7 +6590,6 @@ export class AgentLoopService {
         wakeCallCount: counts.wakeCallCount,
         wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
         clockMinutes: session.clockMinutes,
-        clockDeferredMinutes,
         recoveredEnergy,
         batchFinalRecoveryTimeline
       })
