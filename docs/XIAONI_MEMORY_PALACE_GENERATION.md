@@ -266,7 +266,7 @@
 
 **结论**:对「她此刻正处在和某条已写下、已遗忘的经历语义相近的情境」——**能浮**。对「需要想起、但当下无文本线索勾它」(尤其**开放承诺/未闭合的事**)——**关联召回结构上做不到**,得换机制(按时间/状态主动重提,而非语义相似),就是 §11 的第二条腿。
 
-**⚠️ 一个更宽的缺口(交叉 review 2026-07-12 指出)**:北极星「想起干过啥」本就包含**纯情节事件**(不是承诺,就是往事,如「上周修好了发图超时」)。这类事一旦当下语境无文本线索,**语义腿因 cos<floor 结构性捞不到,而 §11 第二条腿只扫 `open-loops.md` 的开放承诺(`- [ ]`),不扫纯事件**——它落在两条腿之间,当前**无任何机制覆盖**。要吃下它,得再加一条按时间/状态(而非语义)重提纯事件的腿,或降低静默率 / 引入 lead 富化。诚实记账:这套现在能可靠达成的是「**语义可勾**的情节召回」,不是「她需要想起的**所有**情节」。
+**⚠️ 一个更宽的缺口(交叉 review 2026-07-12 指出)→ 已补第三条腿**:北极星「想起干过啥」本就包含**纯情节事件**(不是承诺,就是往事,如「上周修好了发图超时」)。这类事一旦当下语境无文本线索,**语义腿因 cos<floor 结构性捞不到,而第二条腿只扫 `open-loops.md` 的开放承诺(`- [ ]`),不扫纯事件**——它落在两条腿之间。**§12 第三条腿(日记往事按时间重提)补这个洞**:直接从日记按事发日期挑「有点年头、最近没翻过」的往事翻出来(shadow-only)。三条腿合起来:语义可勾的靠第一腿、承诺靠第二腿、纯往事靠第三腿。诚实记账:三条腿都仍 shadow-only,**真正到她眼前还差投递(v2)**;在投递通之前,达成的仍只是「shadow 里挑对了」。
 
 ---
 
@@ -288,4 +288,18 @@
 - **oldest-first 饿死中龄承诺**:排序严格按最久优先 + limit=3 + 只有 `[ ]`/`[x]` 两态(无「放弃/归档」),一条百天老的死承诺长期霸榜前 3,搁 3–10 天、真正还救得回的新承诺挤不进。修向:加「放弃」态或对超龄项衰减降权。
 - **时区轻微失真**:`parseTagDate` 用 UTC 零点、`nowMs` 是真 UTC,而她的「今天」是北京 wall-clock(+8h),age 在阈值边界几小时会差一天。非功能 bug,但 lead 的「放了 N 天」会略失真。
 
-**待续(按重要性)**:①【决定性】投递 channel —— 且必须走一次性、非持久、可从 replay 剥除的 non-durable 通道(同 MEMORY `xiaoni_plan one-shot evict`/D-strip),否则 open-loop 提醒随时间/条目变化会击穿主/fork 缓存(双缓存铁律),不是翻开关。②【同等致命前提】她到底写不写带日期的 open-loops.md —— 空或无日期则扫出来是空。③自动触发节律(cron/heartbeat),现在连 shadow 观测都不连续。④admin 管理端展示 open_loop shadow。⑤修上面三个已知短板。
+**待续(按重要性)**:①【决定性 · 仍未做】投递 channel —— 且必须走一次性、非持久、可从 replay 剥除的 non-durable 通道(同 MEMORY `xiaoni_plan one-shot evict`/D-strip),否则 open-loop 提醒随时间/条目变化会击穿主/fork 缓存(双缓存铁律),不是翻开关。**用户明确:投递先不做,观察一段再说。**②【同等致命前提】她到底写不写带日期的 open-loops.md —— 空或无日期则扫出来是空(无日期短板已缓解:兜底浮一次)。③~~自动触发节律~~ **已做**(§12,scheduler 默认 30min 自动重扫)。④~~admin 展示~~ **已做**(§12,时间扫腿分腿渲染)。⑤~~修三个已知短板~~ **已做**(§12,commit 3f0186c7/ee6af732)。
+
+---
+
+## 12. 第三条腿 + 自动节律 + 管理端观察面 —— 落地 2026-07-12(用户:投递先不做,观察一段)
+
+用户拍板:**投递(到她眼前)先不做,保持 shadow-only 观察一段;但把管理端展示做出来好观察;剩下的都做。** 本轮四件事全落地(全 shadow-only,行为对小腻零改变):
+
+- **第三条腿 · 纯往事按时间重提**(§10 纯事件盲区根治):`packages/persistence/xiaoni-diary-events.js`(纯函数,7/7 绿)——`parseDiaryDateFromName`(文件名→北京零点)、`parseDiaryEvents`(每个 `## ` 一件事)、`selectResurfacedEvents`(挑搁≥7 天、最近没翻过、搁最久优先)。`reindex-service scanDiaryEventsToShadow` 遍历日记→挑→写 `xiaoni_recall_shadow_log`(`query_ref='diary_resurface'`)。三条腿分工:语义可勾→第一腿;承诺→第二腿;纯往事→第三腿。
+- **第二腿 3 短板已修**(commit 3f0186c7/ee6af732):①无日期项不再永久隐形(undated 填充档兜底浮一次)②加「放弃」态 `- [-]` + `maxActiveDays=30` 分档(active 主力/overdue 降权),防老死承诺霸榜③`parseTagDate` 北京时区(UTC−8h)修正 age。锚定 skill 写侧同步教她「日期一定要写、黄了改 `[-]`」。
+- **自动节律**(commit 152efeeb):`xiaoni-recall-scheduler.ts` 在 admin-backend 启动后跑,首扫延迟 60s、之后每 30min 一轮(`XIAONI_RECALL_REINDEX_INTERVAL_MS` 可配、`XIAONI_RECALL_AUTO_REINDEX=0` 可关),单飞 + try/catch 吞错。三条腿从此按节律持续产 shadow,观察不再断续。
+- **前瞻闸对账**(commit e90ce1e2):管理端候选预览从第二份 `['forever','notes','reading','toys']` 递归改走 §7.1 导出的 `listPalaceFiles`(单一真理源),预览显示的就是实际会嵌的宫殿文件。
+- **管理端观察面**(commit 355a00e8):`XiaoniPassiveRecallPage` 按 `queryRef` 分腿渲染,时间扫腿(承诺/旧事)加档位+年龄标、隐藏语义腿才有的 band/dropped;顶部仍 `shadow_only` badge。
+
+**验证**:persistence 12/12(open-loops)+7/7(diary);`docker build admin-backend` + `admin-frontend` 均过(tsc/vite clean)。**投递仍是唯一没做的决定性一步**(§11 待续①),等观察结论。
