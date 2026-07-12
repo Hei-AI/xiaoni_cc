@@ -16,6 +16,7 @@ import { createPlaygroundRoutes } from './routes/playground-routes';
 import { createTopicLabRoutes } from './routes/topic-lab-routes';
 import { createImageLabRoutes } from './routes/image-lab-routes';
 import { createAgentRuntimeRoutes } from './routes/agent-runtime-routes';
+import { startPassiveRecallScheduler } from './services/xiaoni-recall-scheduler';
 import { createCcUsageRoutes } from './routes/cc-usage-routes';
 import simpleQueueRoutes from './routes/simple-queue';
 import { TrafficLogWatcher, DEFAULT_WATCHER_CONFIG } from './services/traffic-log-watcher';
@@ -188,6 +189,8 @@ async function startServer() {
     logger.info(`🚀 Admin Panel Backend Server running on port ${PORT}`);
     logger.info(`🔗 Health check: http://localhost:${PORT}/api/health`);
     logger.info(`🎛️  Admin API: http://localhost:${PORT}/api/`);
+    // 被动召回自动重扫(shadow-only,默认开;XIAONI_RECALL_AUTO_REINDEX=0 关)。
+    startPassiveRecallScheduler();
   });
 }
 
