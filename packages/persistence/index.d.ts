@@ -2461,14 +2461,16 @@ export function pruneFileChunks(identityKey: string, path: string, keepSourceRef
 export function buildRecallCueFromInboundMessage(row: Record<string, unknown>): XiaoniRecallCueRecord | null;
 export function insertRecallShadowLog(record: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<{ id: string | null }>;
 export function listRecallShadowLog(params?: { identityKey?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
-export interface XiaoniOpenLoop { line: number; done: boolean; text: string; openedTag: string | null; }
+export const BEIJING_OFFSET_MS: number;
+export interface XiaoniOpenLoop { line: number; state: 'open' | 'done' | 'dropped'; done: boolean; text: string; openedTag: string | null; }
+export interface XiaoniOpenLoopPick { text: string; openedTag: string | null; ageDays: number | null; line: number; tier: 'active' | 'overdue' | 'undated'; undated: boolean; }
 export function parseOpenLoops(content: string): XiaoniOpenLoop[];
 export function parseTagDate(tag: string | null | undefined, nowMs: number): number | null;
 export function normalizeLoopText(text: unknown): string;
 export function selectStaleOpenLoops(
   loops: XiaoniOpenLoop[],
-  opts?: { nowMs: number; staleDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
-): Array<{ text: string; openedTag: string | null; ageDays: number; line: number }>;
+  opts?: { nowMs: number; staleDays?: number; maxActiveDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
+): XiaoniOpenLoopPick[];
 export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
