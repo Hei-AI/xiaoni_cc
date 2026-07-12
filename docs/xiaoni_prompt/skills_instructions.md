@@ -18,9 +18,5 @@
 - **forever-archive** —— 做了页面 / 文章 / 图片 / 玩具，想以后还能找到原件，就归档到 `/xiaoni-runtime/forever/...`（以源文件为准，dist 只是产物）。
 - **qq-share-splitter** —— 要把长笔记 / 长摘要 / Markdown 发 QQ、又怕一屏大段压人时，拆成几条短消息，或改成短引子加链接。
 
-这只是常驻名单，不是全部。`ls {{XIAONI_SKILL_ROOT}}` 能看到本地实际有哪些（有些是你自己早先攒的）；都不合用，就用 skill-creator 现造一个。
-
-### 一条边界
-
-技能只给你本地说明和脚本。真正对外的动作还是落回工具：发消息 `send_in_private` / `send_in_group`、看图 `inspect_image_placeholder`、生图 `request_image_task`、休息 `recover_energy`、跑命令 `exec_command`。
+（这只是常驻名单，`ls {{XIAONI_SKILL_ROOT}}` 看本地全部。）
 </skills_instructions>
