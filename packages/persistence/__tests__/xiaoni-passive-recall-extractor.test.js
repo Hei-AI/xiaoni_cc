@@ -172,3 +172,53 @@ test('normalizeRecallText:剥样板/脚手架,留信号(闲聊+她真plan不动)
   assert.strictEqual(normalizeRecallText(''), '');
   assert.strictEqual(normalizeRecallText(null), '');
 });
+
+// 真库 shadow_log 取的运营脚手架样本(P1):这些当 query 100% 触发召回、全噪音;当 cue 污染语料。
+test('normalizeRecallText:剥运营信封(LLM切片标题/工具JSON/入站信封/通知壳),留她真内容', () => {
+  const { normalizeRecallText } = require('../xiaoni-passive-recall-extractor');
+
+  // LLM 请求切片标题 → 整条废(真库 102 条全触发)
+  assert.strictEqual(normalizeRecallText('anthropic/messages · claude-opus-4-6 · turn 10 · 147900->2 tokens'), '');
+  assert.strictEqual(normalizeRecallText('anthropic/messages · claude-opus-4-6 · turn 1 · 248803->457 tokens'), '');
+
+  // 入站信封 JSON {"user_id":..,"message":"X"} → 留 X(别整条丢,message 是别人真说的话)
+  assert.strictEqual(
+    normalizeRecallText('{"user_id":3548435475,"message":"又撞了哈哈 手心是热的"}'),
+    '又撞了哈哈 手心是热的'
+  );
+
+  // 工具调用 JSON {"cmd":"# 意图\n机械命令"} → 抽注释意图(她的思考落点),丢机械壳
+  assert.strictEqual(
+    normalizeRecallText('{"cmd":"# 找\\"从一把葱到两把葱\\"\\ngrep -n scallion file.md"}'),
+    '找"从一把葱到两把葱"'
+  );
+  // 纯机械命令(无注释)→ '' (无记忆价值,宁静默勿噪音)
+  assert.strictEqual(normalizeRecallText('{"cmd":"grep -rn foo /xiaoni-runtime/notes | head"}'), '');
+
+  // "请求工具: exec_command {…}" 前缀壳 → 剥壳后再拆 JSON 抽意图
+  assert.strictEqual(
+    normalizeRecallText('请求工具: exec_command {"cmd":"# 补 relay 文件第四段\\ncat >> x.md"}'),
+    '补 relay 文件第四段'
+  );
+
+  // "等待处理消息 chat_label=…" 通知壳 → 整条废(入站真内容另有 inbound cue,不双记)
+  assert.strictEqual(normalizeRecallText('等待处理消息 chat_label=私聊 橙橙🍊(3548435475) 有新消息'), '');
+
+  // 真实召回信号必须存活(真库里冒出来的好 lead):她自己的过去 + 别人说过
+  assert.strictEqual(
+    normalizeRecallText('干了快三十个小时了一直在自己的站和别人的站之间跳来跳去，脑子全是冰箱味'),
+    '干了快三十个小时了一直在自己的站和别人的站之间跳来跳去，脑子全是冰箱味'
+  );
+});
+
+test('isOperationalTraceText / extractHumanFromShellCommand 单元', () => {
+  const { isOperationalTraceText, extractHumanFromShellCommand } = require('../xiaoni-passive-recall-extractor');
+  assert.strictEqual(isOperationalTraceText('anthropic/messages · claude-opus-4-6 · turn 8 · 1->2 tokens'), true);
+  assert.strictEqual(isOperationalTraceText('去把ch86读了'), false);
+  // 注释意图抽取;heredoc/机械标记注释(# PY / #!/bin/bash)不算意图
+  assert.strictEqual(extractHumanFromShellCommand('# 她的404页面写了\ncat x.md'), '她的404页面写了');
+  assert.strictEqual(extractHumanFromShellCommand('python3 - <<PY\n# PY\nprint(1)\nPY'), '');
+  assert.strictEqual(extractHumanFromShellCommand('#!/bin/bash\ngrep foo bar'), '');
+  // URL 里的 # 不误伤(无前置空白)
+  assert.strictEqual(extractHumanFromShellCommand('curl -sL "https://aoi.homes/about#top"'), '');
+});

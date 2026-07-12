@@ -153,3 +153,20 @@ test('自适应跳出门:平淡候选群静默,有明显跳出的才冒', () => 
   const peak = bandpassRecall({ query: { vector: [1, 0, 0], meanVector: [0, 0, 0] }, candidates: [mk('hit', 0.7), mk('b', 0.3), mk('c', 0.28), mk('d', 0.25), mk('e', 0.22)], floor: 0.15, ceiling: 0.9, standoutMargin: 0.08, limit: 1 });
   assert.strictEqual(peak.surfaced[0].candidate.sourceRef, 'hit', '明显跳出的应冒');
 });
+
+test('近似重复在场抑制:候选含近乎同一项(≥nearDupSuppress)→ 整条静默,连中带命中也不冒', () => {
+  // nearDup cos≈1.0 + mid cos≈0.7。给 nearDupSuppress=0.95 → 她在重复已有记录的事(在场),整条压制。
+  const suppressed = bandpassRecall({ query, candidates: [nearDup, mid], limit: 1, ceiling: 0.9, nearDupSuppress: 0.95 });
+  assert.strictEqual(suppressed.silent, true, '近似重复在场 → 静默');
+  assert.strictEqual(suppressed.surfaced.length, 0);
+  // dropped 仍保留近似重复项(cos 还在 → shadow_log 可事后区分「近似重复抑制的静默」)。
+  assert.ok(suppressed.dropped.some((d) => d.candidate.sourceRef === 'a'), '近似重复的 cos 保留在 dropped');
+  // 不给 nearDupSuppress → 旧行为不变:中带照常冒。
+  const normal = bandpassRecall({ query, candidates: [nearDup, mid], limit: 1, ceiling: 0.9 });
+  assert.strictEqual(normal.silent, false);
+  assert.strictEqual(normal.surfaced[0].candidate.sourceRef, 'b');
+  // 强相关但非近乎同一(cos≈0.7 < 0.95)不误伤:只有 mid+low,不触发抑制,mid 照常冒。
+  const keep = bandpassRecall({ query, candidates: [mid, low], limit: 1, floor: 0.15, ceiling: 0.9, nearDupSuppress: 0.95 });
+  assert.strictEqual(keep.silent, false, '0.7 不算近似重复,照常冒');
+  assert.strictEqual(keep.surfaced[0].candidate.sourceRef, 'b');
+});

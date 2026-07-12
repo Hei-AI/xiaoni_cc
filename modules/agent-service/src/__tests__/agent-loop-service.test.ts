@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
 import { agentConfig } from '../config';
 import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { getGlobalPromptContextSessionKey } from '../config';
@@ -21,6 +24,7 @@ const RECOVER_ENERGY_TOOL = 'recover_energy';
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
 const WEB_SEARCH_TOOL = 'web_search';
 const EXEC_COMMAND_TOOL = 'exec_command';
+const READ_FILE_TOOL = 'read_file';
 const IMAGE_GENERATION_TOOL = 'image_generation';
 const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
 // Spec B: compress_core_memory is no longer a wire tool (removed from both the tool
@@ -29,6 +33,7 @@ const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
 // exec_command + file read-back (see runCoreMemoryCompressionFork), not a wire tool.
 const GROUP_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
+  READ_FILE_TOOL,
   WEB_SEARCH_TOOL,
   IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
@@ -40,6 +45,7 @@ const GROUP_LOOP_TOOLS = [
 const GROUP_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
   EXEC_COMMAND_TOOL,
+  READ_FILE_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -48,6 +54,7 @@ const GROUP_ALLOWED_TOOLS = [
 ];
 const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
+  READ_FILE_TOOL,
   WEB_SEARCH_TOOL,
   IMAGE_GENERATION_TOOL,
   PRIVATE_REPLY_TOOL,
@@ -59,6 +66,7 @@ const DIRECT_LOOP_TOOLS = [
 const DIRECT_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
   EXEC_COMMAND_TOOL,
+  READ_FILE_TOOL,
   PRIVATE_REPLY_TOOL,
   GROUP_REPLY_TOOL,
   INSPECT_IMAGE_TOOL,
@@ -645,8 +653,66 @@ test('exec_command executes inside the agent runtime and returns structured outp
     assert.equal(result.stdout, 'trace-1|run-1|call-exec');
     assert.equal(result.stderr, '');
     assert.equal(result.timed_out, false);
-    assert.match(String(result.codex_output), /Process exited with code 0/);
+    // Clean exit + output present → bare bytes, no envelope header.
+    assert.equal(result.codex_output, 'trace-1|run-1|call-exec');
   });
+});
+
+test('read_file reads a line-numbered range via the local fallback', async () => {
+  await withExecutorUrl('', async () => {
+    const service = new AgentLoopService({} as any, {
+      resolveForQueueMessage: async () => createRuntimePrompt()
+    } as any);
+    const dir = await mkdtemp(nodePath.join(tmpdir(), 'read-file-'));
+    try {
+      const file = nodePath.join(dir, 'f.txt');
+      await writeFile(file, Array.from({ length: 10 }, (_, i) => `L${i + 1}`).join('\n'));
+      const result = await (service as any).executeTool({
+        callId: 'call-read',
+        name: READ_FILE_TOOL,
+        args: { path: file, offset: 2, limit: 3 },
+        rawArguments: '{}'
+      }, createQueuePayload());
+      assert.equal(result.codex_output, '2\tL2\n3\tL3\n4\tL4', 'line-numbered window, minimal envelope');
+      assert.equal(result.total_lines, 10);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test('read_file delegates to xiaoni-executor when configured', async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on('end', () => {
+      requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>);
+      const body = JSON.stringify({ success: true, result: { path: '/app/x', total_lines: 3, codex_output: '1\ta' } });
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
+      res.end(body);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    await withExecutorUrl(`http://127.0.0.1:${address.port}`, async () => {
+      const service = new AgentLoopService({} as any, {
+        resolveForQueueMessage: async () => createRuntimePrompt()
+      } as any);
+      const result = await (service as any).executeTool({
+        callId: 'call-read-bridge',
+        name: READ_FILE_TOOL,
+        args: { path: '/app/x', offset: 1, limit: 1 },
+        rawArguments: '{}'
+      }, createQueuePayload());
+      assert.equal((requests[0] as any)?.path, '/app/x', 'forwards the path to the executor read-file endpoint');
+      assert.equal(result.codex_output, '1\ta', 'passes the executor result through verbatim');
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test('exec_command delegates to xiaoni-executor when configured', async () => {
@@ -665,7 +731,7 @@ test('exec_command delegates to xiaoni-executor when configured', async () => {
           stdout: 'bridge-ok',
           stderr: '',
           timed_out: false,
-          codex_output: 'Chunk ID: bridge\nWall time: 0.0010 seconds\nProcess exited with code 0\nOriginal token count: 3\nOutput:\nbridge-ok'
+          codex_output: 'bridge-ok'
         }
       });
       res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) });
@@ -703,7 +769,8 @@ test('exec_command delegates to xiaoni-executor when configured', async () => {
       });
       assert.equal(result.executor, 'xiaoni-executor');
       assert.equal(result.stdout, 'bridge-ok');
-      assert.match(String(result.codex_output), /^Chunk ID: bridge/);
+      // agent-service passes the executor's codex_output through verbatim.
+      assert.equal(result.codex_output, 'bridge-ok');
     });
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
@@ -785,9 +852,8 @@ test('exec_command returns spawn errors as tool output instead of throwing', asy
     const output = typeof continuation.inputItems[0]?.output === 'string'
       ? continuation.inputItems[0].output
       : '';
-    assert.match(output, /^Chunk ID:/);
+    assert.match(output, /^\[无退出码\]/);
     assert.doesNotMatch(output, EAST8_TIME_PREFIX_PATTERN);
-    assert.match(output, /Process exited without an exit code/);
     assert.match(output, /ENOENT|not\/a\/real-shell/);
     assert.equal(continuation.inputItems.length, 1);
     // No energy STATE oneShot block is emitted anymore.

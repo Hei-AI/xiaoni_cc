@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { readdir as fsReaddir, rm as fsRm, stat as fsStat } from 'node:fs/promises';
+import { readdir as fsReaddir, readFile as fsReadFile, rm as fsRm, stat as fsStat } from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
@@ -668,6 +668,105 @@ export function setCompressionTriggerInputTokens(value: number): void {
     COMPRESSION_TRIGGER_INPUT_TOKENS = Math.floor(value);
   }
 }
+
+// ── xiaoni_os request isolation (admin runtime toggle) ─────────────────────────
+// 小腻 writes a private "OS" note (xiaoni_os) into her tool calls. Normally it round-trips
+// back into her own context via the replayed function_call arguments (A1), the tool-result
+// echo in function_call_output (A2), and — for recover_energy — the wake reminder that
+// re-presents her pre-sleep note (B). This toggle lets ops run her WITHOUT feeding those notes
+// back to the model, while the note stays fully persisted + admin-visible for operations.
+// A1/A2 use the stamp+flag+wire-strip mechanism below. B is handled separately at wake-render
+// time (renderRecoverEnergyCompletedReminder drops the note line), because the note there is
+// fused into rendered prose rather than a discrete JSON field; the note still lives in
+// agent_recovery_sessions + the recover_energy call args for ops.
+//
+// How it stays cache-safe (双缓存铁律):
+//  1) The toggle is snapshotted ONCE per run. When on, os-bearing tool items produced this run
+//     are STAMPED (in place) with `xiaoni_os_hidden: true`. Because the stamp lands on the shared
+//     array reference, it is written into BOTH the live requestInput copy AND the persisted stack
+//     content — the decision is frozen at production time and can never drift with later toggling.
+//  2) The actual strip is applied BY FLAG at ONE wire chokepoint (buildMainAgentCanonicalRequest).
+//     Every request — main loop and every fork clone — funnels through it, so all prefixes stay
+//     byte-identical and the flag itself never reaches the wire.
+//  3) History without the flag (produced before this feature, or while the toggle was off) keeps
+//     its os verbatim on replay → "历史开了就是开了、关了就是关了；拨开关只管往后". Flipping the
+//     toggle therefore rewrites NO history and costs no extra historical cold read.
+// modules/agent-service/src/index.ts pushes this each main-loop poll from
+// agent_runtime_control.strip_xiaoni_os_from_requests.
+let STRIP_XIAONI_OS_FROM_REQUESTS = false;
+export function setStripXiaoniOsFromRequests(value: unknown): void {
+  if (typeof value === 'boolean') {
+    STRIP_XIAONI_OS_FROM_REQUESTS = value;
+  }
+}
+
+function tryParseJsonObjectString(text: unknown): Record<string, unknown> | null {
+  if (typeof text !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// True only for a tool item that actually carries an xiaoni_os key: function_call whose
+// arguments JSON has it (A1), or function_call_output whose output is a JSON object with it (A2).
+// A non-JSON output (e.g. the recover_energy wake reminder text — Path B, out of scope) never
+// matches, so it is never stamped nor stripped.
+export function itemCarriesXiaoniOs(item: OpenResponseInputItem): boolean {
+  if (item.type === 'function_call') {
+    const args = tryParseJsonObjectString((item as { arguments?: unknown }).arguments);
+    return Boolean(args && Object.prototype.hasOwnProperty.call(args, 'xiaoni_os'));
+  }
+  if (item.type === 'function_call_output') {
+    const output = tryParseJsonObjectString((item as { output?: unknown }).output);
+    return Boolean(output && Object.prototype.hasOwnProperty.call(output, 'xiaoni_os'));
+  }
+  return false;
+}
+
+// Freeze the toggle decision into the items at production time. Mutates in place so the same
+// stamp lands on both the live requestInput copy and the persisted stack content (they share refs).
+export function stampXiaoniOsHiddenInPlace(items: OpenResponseInputItem[], hidden: boolean): void {
+  if (!hidden) {
+    return;
+  }
+  for (const item of items) {
+    if (itemCarriesXiaoniOs(item)) {
+      (item as Record<string, unknown>).xiaoni_os_hidden = true;
+    }
+  }
+}
+
+// Wire-side strip, applied by flag inside buildMainAgentCanonicalRequest. Pure + idempotent +
+// deterministic: a flagged item gets its xiaoni_os key deleted and the flag removed; an unflagged
+// item is returned by reference untouched (so toggle-OFF builds are byte-identical to before).
+export function stripXiaoniOsByFlag(item: OpenResponseInputItem): OpenResponseInputItem {
+  if (!item || (item as Record<string, unknown>).xiaoni_os_hidden !== true) {
+    return item;
+  }
+  const next: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  delete next.xiaoni_os_hidden;
+  if (item.type === 'function_call') {
+    const args = tryParseJsonObjectString((item as { arguments?: unknown }).arguments);
+    if (args && Object.prototype.hasOwnProperty.call(args, 'xiaoni_os')) {
+      delete args.xiaoni_os;
+      next.arguments = JSON.stringify(args);
+    }
+  } else if (item.type === 'function_call_output') {
+    const output = tryParseJsonObjectString((item as { output?: unknown }).output);
+    if (output && Object.prototype.hasOwnProperty.call(output, 'xiaoni_os')) {
+      delete output.xiaoni_os;
+      next.output = JSON.stringify(output);
+    }
+  }
+  return next as OpenResponseInputItem;
+}
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 // EMERGENCY HALT VALVE: when real input_tokens run this far PAST the compression trigger for
 // COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS consecutive turns, compression has demonstrably failed to
@@ -1073,6 +1172,7 @@ const TOOL_NAMES = {
   feedbackReflection: 'synthesize_feedback_reflection',
   feedbackLearningState: 'update_learning_state',
   execCommand: 'exec_command',
+  readFile: 'read_file',
   privateReply: 'send_in_private',
   groupReply: 'send_in_group',
   recoverEnergy: 'recover_energy',
@@ -1090,6 +1190,7 @@ const RUNTIME_TOOL_COSTS: Record<string, number> = {
   [TOOL_NAMES.inspectImage]: 0.040,
   [TOOL_NAMES.imageTask]: 0.030,
   [TOOL_NAMES.execCommand]: 0.002,
+  [TOOL_NAMES.readFile]: 0.001,
   [TOOL_NAMES.recoverEnergy]: 0.000,
   [TOOL_NAMES.compressCoreMemory]: 0.020,
   [TOOL_NAMES.webSearch]: 0.030,
@@ -1191,6 +1292,7 @@ const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
 const EXEC_COMMAND_DESCRIPTION = [
   'Runs a command in a PTY, returning output or a session ID for ongoing interaction.',
   'Use /app as the filesystem root for repository paths.',
+  'To read a file, prefer the read_file tool over cat/head/tail/sed: it returns numbered lines, pages with offset/limit, and is how you read back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output.',
   'qqbot-agent-service / compose service agent-service is you. Touching that container is suicide: you may inspect it, but you must not modify it.'
 ].join(' ');
 
@@ -1260,6 +1362,42 @@ const EXEC_COMMAND_TOOL: OpenResponseToolDefinition = {
 // 近况 to a file via exec_command (the xiaoni-memory-compress skill), then reading it back
 // — the same file-round-trip the image-vision fork uses. TOOL_NAMES.compressCoreMemory is
 // retained only as an internal identifier for the commit artifact + timeline labels.
+
+const READ_FILE_DESCRIPTION = [
+  'Read a file (or a line range) from the filesystem, returned with line numbers.',
+  'Use /app as the filesystem root for repository paths (same root as exec_command).',
+  'Prefer this over exec_command cat/sed/tail/head when you just need to read a file — including reading back a truncated exec_command output that was spilled to /xiaoni-runtime/exec-output. Pass offset/limit to page through a large file.'
+].join(' ');
+
+const READ_FILE_TOOL: OpenResponseToolDefinition = {
+  type: 'function',
+  name: TOOL_NAMES.readFile,
+  description: READ_FILE_DESCRIPTION,
+  strict: false,
+  function: {
+    name: TOOL_NAMES.readFile,
+    description: READ_FILE_DESCRIPTION,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'File path to read. Use /app for repository paths; absolute runtime paths (e.g. /xiaoni-runtime/...) are read as-is.'
+        },
+        offset: {
+          type: 'number',
+          description: 'Line number to start reading from (1-based). Defaults to 1.'
+        },
+        limit: {
+          type: 'number',
+          description: 'Number of lines to read. Defaults to 2000.'
+        }
+      },
+      required: ['path'],
+      additionalProperties: false
+    }
+  }
+};
 
 const HUMAN_REPLY_RULES = [
   '只发送群友能直接看到的话，不写工具名、阶段名或分析过程。',
@@ -2058,7 +2196,14 @@ export function recoverRuntimeEnergy(input: {
   };
 }
 
-function renderRecoverEnergyCompletedReminder(input: {
+// The 5 wake-reminder templates each re-present the pre-sleep xiaoni_os note on its own line, but
+// with DIFFERENT prose prefixes (睡前的念头 / 睡前的心情 / 睡前给自己的备忘 / 睡前的执念 / 睡前的残影).
+// To drop that line robustly under the isolation toggle regardless of wording (and future template
+// edits), we render the {{XIAONI_OS}} slot as a unique sentinel and delete whichever line carries
+// it. The sentinel can never occur in template prose or in a real note.
+const XIAONI_OS_HIDDEN_LINE_SENTINEL = '⁣[[XIAONI_OS_HIDDEN_LINE]]⁣';
+
+export function renderRecoverEnergyCompletedReminder(input: {
   reason: string | null;
   xiaoniOs?: string | null;
   wakeCause?: string | null;
@@ -2068,6 +2213,12 @@ function renderRecoverEnergyCompletedReminder(input: {
   clockMinutes?: number | null;
   recoveredEnergy: ReturnType<typeof recoverRuntimeEnergy>;
   batchFinalRecoveryTimeline?: string | null;
+  // Path B of xiaoni_os isolation: when the toggle is on at WAKE time, omit the pre-sleep note
+  // from the wake reminder so the model never re-reads it. The decision is frozen into the
+  // persisted reminder content at render time (replay never re-renders → byte-identical, cache-
+  // safe, forward-only, history untouched). The note itself stays in agent_recovery_sessions and
+  // the recover_energy tool-call args, so ops/admin lose nothing.
+  hideXiaoniOs?: boolean;
 }) {
   const wakeCause = input.wakeCause || 'natural';
   const template = wakeCause === 'private_or_mention_threshold'
@@ -2079,7 +2230,7 @@ function renderRecoverEnergyCompletedReminder(input: {
         : wakeCause === 'hard_cap'
           ? 'recover_energy_forced_completed_reminder.md'
           : 'recover_energy_completed_reminder.md';
-  return formatSystemReminderBlock(renderPromptSnippet(template, {
+  const rendered = renderPromptSnippet(template, {
     CURRENT_TIME: formatEast8Timestamp(),
     SLEEP_MINUTES: Math.max(0, Math.round(input.sleepMinutes)),
     WAKE_CAUSE: wakeCause,
@@ -2087,9 +2238,16 @@ function renderRecoverEnergyCompletedReminder(input: {
     WAKE_REQUIRED_COUNT: typeof input.wakeRequiredCount === 'number' && Number.isFinite(input.wakeRequiredCount) ? input.wakeRequiredCount : '无穷',
     CLOCK_MINUTES: input.clockMinutes ?? '',
     REASON: input.reason || '',
-    XIAONI_OS: input.xiaoniOs || '',
+    XIAONI_OS: input.hideXiaoniOs ? XIAONI_OS_HIDDEN_LINE_SENTINEL : (input.xiaoniOs || ''),
     BATCH_FINAL_RECOVERY_TIMELINE: input.batchFinalRecoveryTimeline || ''
-  }));
+  });
+  const body = input.hideXiaoniOs
+    ? rendered
+      .split('\n')
+      .filter((line) => !line.includes(XIAONI_OS_HIDDEN_LINE_SENTINEL))
+      .join('\n')
+    : rendered;
+  return formatSystemReminderBlock(body);
 }
 
 function renderRecoverEnergyRejectedReminder(input: {
@@ -2107,7 +2265,9 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
   // when on it is present identically in every main-loop AND fork request, keeping
   // the cached tools prefix byte-stable. Order (exec, web_search, ...) is asserted
   // by agent-loop-service.test.ts GROUP_LOOP_TOOLS — keep it.
-  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL];
+  // read_file is unconditional (like exec_command), so it is present identically in
+  // every main-loop AND fork request — the cached tools prefix stays byte-stable.
+  const tools: OpenResponseToolDefinition[] = [EXEC_COMMAND_TOOL, READ_FILE_TOOL];
   if (agentConfig.webSearchEnabled) {
     tools.push(WEB_SEARCH_TOOL);
   }
@@ -2159,6 +2319,7 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
   // └──────────────────────────────────────────────────────────────────────────┘
   const tools: Array<{ type: 'function'; name: string } | { type: 'web_search' } | { type: 'computer_use' }> = [
     { type: 'function', name: TOOL_NAMES.execCommand },
+    { type: 'function', name: TOOL_NAMES.readFile },
     { type: 'function', name: TOOL_NAMES.privateReply },
     { type: 'function', name: TOOL_NAMES.groupReply },
     { type: 'function', name: TOOL_NAMES.inspectImage },
@@ -2238,10 +2399,15 @@ function buildMainAgentCanonicalRequest(
   turnInput: OpenResponseInputItem[],
   queueMessage: QueueMessageRecord['payload']
 ): CanonicalAgentTurnRequest {
+  // Single wire chokepoint for xiaoni_os isolation: every request (main loop + every fork clone,
+  // which clone the output of this function) strips flagged items here, so all prefixes stay
+  // byte-identical and the xiaoni_os_hidden flag never reaches the wire. No-op passthrough (same
+  // refs) when nothing is flagged, so toggle-OFF builds are byte-identical to before.
+  const wireInput = turnInput.map(stripXiaoniOsByFlag);
   return {
     ...buildCanonicalAgentTurnRequest(
       runtimePrompt.modelName,
-      turnInput,
+      wireInput,
       queueMessage.chatType,
       runtimePrompt.parameters as Record<string, unknown> | undefined
     ),
@@ -2863,8 +3029,8 @@ export class StreamCapture {
   }
 
   // Await the spill write-stream flushing to disk. Awaited before the fallback
-  // resolves so "完整输出已落盘" is true-by-construction (kept identical to the
-  // xiaoni-executor copy).
+  // resolves so the spill file named in the elision marker is fully written
+  // (kept identical to the xiaoni-executor copy).
   async settled(): Promise<void> {
     if (this.spillFinished) {
       await this.spillFinished;
@@ -2970,36 +3136,17 @@ export class StreamCapture {
       return this.full ?? this.head;
     }
     const elided = Math.max(0, this.totalChars - this.head.length - this.tail.length);
-    // Actionable path + read-back instructions live in the header (spillHeaderNote);
-    // this in-body marker only marks WHERE the cut is.
+    // Self-contained factual marker (mirror of the executor's StreamCapture.render):
+    // marks WHERE the cut is and names the spill file, no re-read coaching. One
+    // reference, at the cut; head+tail already keeps both ends inline.
+    const ceilTag = this.spillCeilingHit
+      ? `（文件在 ${Math.round(this.spillCeilingBytes / 1024 / 1024)}MB 处截断）`
+      : '';
     const note = (this.spillError || !this.spillPath)
-      ? `…[中间约 ${elided} 字符已省略；完整输出写盘失败，无法回看]…`
-      : `…[中间约 ${elided} 字符已省略，完整见上方落盘文件]…`;
+      ? `…[省略约 ${elided} 字符 · 写盘失败]…`
+      : `…[省略约 ${elided} 字符 · 完整 ${this.spillPath}${ceilTag}]…`;
     return `${this.head}\n${note}\n${this.tail}`;
   }
-}
-
-function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): string | undefined {
-  const parts: string[] = [];
-  const add = (name: string, cap: StreamCapture) => {
-    if (!cap.truncated) {
-      return;
-    }
-    if (cap.spillError || !cap.spillPath) {
-      parts.push(`完整 ${name} 写盘失败，中间内容无法回看`);
-    } else {
-      const ceilLabel = `${Math.round(SPILL_CEILING_BYTES / 1024 / 1024)}MB`;
-      parts.push(`完整 ${name}: ${cap.spillPath}${cap.spillCeilingHit ? `（文件也在 ${ceilLabel} 处截断）` : ''}`);
-    }
-  };
-  add('stdout', stdoutCap);
-  add('stderr', stderrCap);
-  if (parts.length === 0) {
-    return undefined;
-  }
-  // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
-  // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
-  return `完整输出已落盘（别 cat 大文件会再截断，按范围读；或调大 max_output_tokens 一次读完）：\n  ${parts.join('\n  ')}`;
 }
 
 export async function pruneExecOutput(root = EXEC_OUTPUT_ROOT, ttlDays = EXEC_OUTPUT_TTL_DAYS, now = Date.now()): Promise<number> {
@@ -3038,6 +3185,79 @@ function resolveExecShellArgs(shell: string, cmd: string, login: boolean) {
   return ['-c', cmd];
 }
 
+// Local-dev fallback for read_file — MUST stay behaviourally in sync with
+// readFileRange in modules/xiaoni-executor/src/index.ts. Only runs when the
+// executor URL is unset (dev/tests). Prod always routes to the executor, which
+// additionally does /app path translation; here we read the path as given.
+async function readFileRangeLocal(args: {
+  path?: unknown; offset?: unknown; limit?: unknown; max_output_tokens?: unknown;
+}): Promise<Record<string, unknown>> {
+  const rawPath = typeof args.path === 'string' ? args.path.trim() : '';
+  const offset = clampNumber(args.offset, 1, 1, Number.MAX_SAFE_INTEGER);
+  const limit = clampNumber(args.limit, 2000, 1, 100_000);
+  const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
+  const maxChars = Math.max(1, maxOutputTokens * 4);
+  const build = (target: string, extra: Record<string, unknown> & { codex_output: string }) => ({
+    path: target, offset, limit, total_lines: 0, returned_lines: 0, truncated: false, ...extra
+  });
+  if (!rawPath) {
+    return build('', { error_message: 'read_file requires path', codex_output: '[read_file 需要 path]' });
+  }
+  let content: string;
+  try {
+    const info = await fsStat(rawPath);
+    if (info.isDirectory()) {
+      return build(rawPath, { error_message: 'path is a directory', codex_output: `[不是文件,是目录: ${rawPath}]` });
+    }
+    content = await fsReadFile(rawPath, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    const msg = code === 'ENOENT' ? `文件不存在: ${rawPath}` : (error instanceof Error ? error.message : String(error));
+    return build(rawPath, { error_message: msg, codex_output: `[${msg}]` });
+  }
+  const lines = content.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  const totalLines = lines.length;
+  if (totalLines === 0) {
+    return build(rawPath, { total_lines: 0, codex_output: '(空文件)' });
+  }
+  const start = offset - 1;
+  if (start >= totalLines) {
+    return build(rawPath, { total_lines: totalLines, codex_output: `(offset ${offset} 超过文件末尾，共 ${totalLines} 行)` });
+  }
+  const slice = lines.slice(start, start + limit);
+  const width = String(start + slice.length).length;
+  const numbered: string[] = [];
+  let charCount = 0;
+  let truncated = false;
+  let stoppedLineNo = start + slice.length;
+  for (let i = 0; i < slice.length; i += 1) {
+    const lineNo = start + i + 1;
+    const rendered = `${String(lineNo).padStart(width)}\t${slice[i]}`;
+    if (numbered.length === 0 && rendered.length > maxChars) {
+      numbered.push(`${sliceHead(rendered, maxChars)} …[该行过长已截断]`);
+      truncated = true;
+      stoppedLineNo = lineNo;
+      break;
+    }
+    if (numbered.length > 0 && charCount + rendered.length + 1 > maxChars) {
+      truncated = true;
+      stoppedLineNo = lineNo - 1;
+      break;
+    }
+    numbered.push(rendered);
+    charCount += rendered.length + 1;
+  }
+  let body = numbered.join('\n');
+  if (truncated) {
+    const kb = Math.round(maxChars / 1024);
+    body += `\n…[超 ${kb}KB，读到第 ${stoppedLineNo} 行止；继续 read_file(offset=${stoppedLineNo + 1})]…`;
+  }
+  return build(rawPath, { total_lines: totalLines, returned_lines: numbered.length, truncated, codex_output: body });
+}
+
 function buildCodexExecOutput(input: {
   chunkId: string;
   durationMs: number;
@@ -3051,30 +3271,34 @@ function buildCodexExecOutput(input: {
   originalTokenCount?: number;
   spillNote?: string;
 }) {
-  const lines = [
-    `Chunk ID: ${input.chunkId}`,
-    `Wall time: ${(input.durationMs / 1000).toFixed(4)} seconds`
-  ];
+  // Minimal envelope — MUST stay byte-for-byte identical to the live path,
+  // formatCodexOutput in modules/xiaoni-executor/src/index.ts. On the plain happy
+  // path return the raw bytes with ZERO header; metadata is one compact status
+  // line only when actionable; chunkId / wall-time / token-count are debug fields
+  // that never enter her context. Truncation carries its spill path inline in the
+  // elision marker (see the StreamCapture.render mirror below); `spillNote` is only
+  // an out-of-band caveat appended as a single trailing line when present.
+  let status: string | null = null;
   if (input.blocked) {
-    lines.push('Process blocked by executor policy');
+    status = '[已被执行器策略拦截]';
   } else if (input.running) {
-    lines.push(`Process running with session ID ${input.sessionId || ''}`.trim());
+    // Factual only (mirror of the executor): the model does not poll via
+    // exec_command; agent-service drives /sessions/<id>/poll.
+    status = `[会话 ${input.sessionId || ''} 运行中]`;
   } else if (typeof input.exitCode === 'number') {
-    lines.push(`Process exited with code ${input.exitCode}`);
+    status = input.exitCode === 0 ? null : `[exit ${input.exitCode}]`;
   } else if (input.signal) {
-    lines.push(`Process exited with signal ${input.signal}`);
+    status = `[signal ${input.signal}]`;
   } else {
-    lines.push('Process exited without an exit code');
+    status = '[无退出码]';
   }
-  lines.push(`Original token count: ${input.originalTokenCount ?? Math.max(0, Math.ceil(input.output.length / 4))}`);
-  if (input.truncated) {
-    lines.push('Output was truncated to max_output_tokens（头尾保留，中间截断）.');
-    if (input.spillNote) {
-      lines.push(input.spillNote);
-    }
-  }
-  lines.push('Output:', input.output);
-  return lines.join('\n');
+  const body = input.output.length > 0
+    ? input.output
+    : (status ? '' : '(exec_command 无输出)');
+  const trailer = input.truncated && input.spillNote ? input.spillNote : null;
+  return [status, body, trailer]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join('\n');
 }
 
 function buildMainAgentParameters(parameters: Record<string, unknown> | null | undefined) {
@@ -5344,7 +5568,7 @@ export function applyToolResultToLoopInput(
       ? (computerOutput as unknown as Extract<OpenResponseInputItem, { type: 'function_call_output' }>['output'])
       : toolResult.tool_rejected === true && typeof toolResult.rejection_output === 'string'
         ? String(toolResult.rejection_output).trim()
-      : toolCall.name === TOOL_NAMES.execCommand && typeof toolResult.codex_output === 'string'
+      : (toolCall.name === TOOL_NAMES.execCommand || toolCall.name === TOOL_NAMES.readFile) && typeof toolResult.codex_output === 'string'
         ? toolResult.codex_output
         : toolCall.name === TOOL_NAMES.webSearch && typeof toolResult.output_text === 'string'
           ? String(toolResult.output_text).trim()
@@ -6591,7 +6815,11 @@ export class AgentLoopService {
         wakeRequiredCount: Number.isFinite(projection.wakeRequiredCount) ? projection.wakeRequiredCount : null,
         clockMinutes: session.clockMinutes,
         recoveredEnergy,
-        batchFinalRecoveryTimeline
+        batchFinalRecoveryTimeline,
+        // Path B: frozen at wake-render time. The reminder is rendered once and persisted verbatim
+        // (replay never re-renders), so reading the global toggle here bakes the decision into the
+        // stored content → cache-safe and forward-only. See renderRecoverEnergyCompletedReminder.
+        hideXiaoniOs: STRIP_XIAONI_OS_FROM_REQUESTS
       })
     };
   }
@@ -6938,6 +7166,11 @@ export class AgentLoopService {
         }
         pendingOneShotInputItems.push(...items);
       };
+      // Snapshot the xiaoni_os isolation toggle ONCE per run so a mid-run admin flip can't make
+      // this run's live requests inconsistent with its own replay. The frozen value stamps every
+      // os-bearing tool item this run produces (below); later runs read each item's own frozen
+      // flag from the stack, so cross-run replay matches this run's live request byte-for-byte.
+      const stripXiaoniOsHiddenSnapshot = STRIP_XIAONI_OS_FROM_REQUESTS;
       const appendAvailableQueueNotifyToLoop = async () => {
         if (!options.queueBacked) {
           return;
@@ -7164,6 +7397,10 @@ export class AgentLoopService {
         );
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
+        // A1: freeze the xiaoni_os hide-decision into this turn's model-output tool calls before
+        // they fan out to BOTH the stack ledger (buildModelOutputStackItems, content: item) and the
+        // live requestInput (appendLoopInputItems) — same refs, one stamp, both copies consistent.
+        stampXiaoniOsHiddenInPlace(outputItems as OpenResponseInputItem[], stripXiaoniOsHiddenSnapshot);
         const outputStackRows = await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -7438,6 +7675,9 @@ export class AgentLoopService {
               hasVisibleReply: deliveredMessages.length > 0,
               runtimeEnergyState
             });
+            // A2: freeze the hide-decision into the tool-result echo (function_call_output carrying
+            // xiaoni_os) before it fans out to the stack ledger + live requestInput (shared refs).
+            stampXiaoniOsHiddenInPlace(continuation.inputItems, stripXiaoniOsHiddenSnapshot);
             const toolOutputStackRows = await this.appendAgentStackItemsSafe({
               traceId: payload.traceId,
               runId: queueMessage.id,
@@ -7549,6 +7789,9 @@ export class AgentLoopService {
               hasVisibleReply: deliveredMessages.length > 0,
               runtimeEnergyState
             });
+            // A2: freeze the hide-decision into the tool-result echo (function_call_output carrying
+            // xiaoni_os) before it fans out to the stack ledger + live requestInput (shared refs).
+            stampXiaoniOsHiddenInPlace(continuation.inputItems, stripXiaoniOsHiddenSnapshot);
             const toolOutputStackRows = await this.appendAgentStackItemsSafe({
               traceId: payload.traceId,
               runId: queueMessage.id,
@@ -10994,6 +11237,9 @@ export class AgentLoopService {
       case TOOL_NAMES.execCommand: {
         return this.executeCommand(toolCall.args, toolCall, queueMessage);
       }
+      case TOOL_NAMES.readFile: {
+        return this.executeReadFile(toolCall.args);
+      }
       case TOOL_NAMES.webSearch: {
         return this.executeWebSearch(toolCall, queueMessage);
       }
@@ -11407,7 +11653,9 @@ export class AgentLoopService {
       ? args.workdir.trim()
       : process.cwd();
     const login = args.login !== false;
-    const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 1, 200_000);
+    // Floor at 2000 tokens (~8000 chars) — parity with the executor: a stray tiny
+    // max_output_tokens must not cap a short answer to nothing and detonate spill.
+    const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
     const maxOutputChars = Math.max(1, maxOutputTokens * 4);
     const timeoutMs = clampNumber(args.yield_time_ms, 10_000, 250, 30_000);
     const startedAt = Date.now();
@@ -11457,8 +11705,7 @@ export class AgentLoopService {
             signal: input.signal || null,
             output: stdout + stderr,
             truncated,
-            originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
-            spillNote: spillHeaderNote(stdoutCap, stderrCap)
+            originalTokenCount: Math.max(0, Math.ceil(originalChars / 4))
           }),
           ...(input.errorMessage ? { error_message: input.errorMessage } : {})
         };
@@ -11472,8 +11719,8 @@ export class AgentLoopService {
           clearTimeout(timeout);
         }
         // buildResult already end()ed the caps; await the spill flush before
-        // resolving so the "完整输出已落盘" path is fully written (parity with the
-        // xiaoni-executor live path). No-op when nothing spilled.
+        // resolving so the spill file named in the elision marker is fully written
+        // (parity with the xiaoni-executor live path). No-op when nothing spilled.
         void Promise.all([stdoutCap.settled(), stderrCap.settled()]).then(() => resolve(result));
       };
 
@@ -11531,6 +11778,52 @@ export class AgentLoopService {
         }));
       });
     });
+  }
+
+  private async executeReadFile(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const readArgs = {
+      path: args.path,
+      offset: args.offset,
+      limit: args.limit,
+      max_output_tokens: args.max_output_tokens
+    };
+    if (agentConfig.xiaoniExecutorUrl) {
+      try {
+        const response = await fetch(`${agentConfig.xiaoniExecutorUrl}/api/internal/read-file`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(readArgs)
+        });
+        const text = await response.text();
+        let payload: unknown = null;
+        try {
+          payload = text ? JSON.parse(text) : null;
+        } catch {
+          payload = null;
+        }
+        if (!response.ok) {
+          throw new Error(`xiaoni-executor HTTP ${response.status}: ${text || response.statusText}`);
+        }
+        if (payload && typeof payload === 'object' && 'result' in payload) {
+          const result = (payload as { result?: unknown }).result;
+          if (result && typeof result === 'object' && !Array.isArray(result)) {
+            return result as Record<string, unknown>;
+          }
+        }
+        throw new Error(`xiaoni-executor returned invalid payload: ${text}`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const target = typeof args.path === 'string' ? args.path : '';
+        return {
+          path: target,
+          executor: 'xiaoni-executor',
+          executor_unavailable: true,
+          error_message: message,
+          codex_output: `[read_file 失败: ${message}]`
+        };
+      }
+    }
+    return readFileRangeLocal(readArgs);
   }
 
   private async inspectImagePlaceholder(

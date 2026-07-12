@@ -36,6 +36,11 @@ function normalizeRuntimeControl(row) {
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
     cacheHeartbeatPaused: row ? isTruthyDatabaseBoolean(row.cache_heartbeat_paused) : false,
     cacheHeartbeatPausedAt: serializeTimestampForApi(row?.cache_heartbeat_paused_at),
+    // Admin toggle: when true, agent-service scrubs the xiaoni_os note out of model-bound
+    // requests (tool-call args + tool-result echo) while keeping it fully persisted/visible.
+    // Dynamically applied (no restart). Default false = current behavior. See agent-loop-service
+    // setStripXiaoniOsFromRequests / buildMainAgentCanonicalRequest.
+    stripXiaoniOsFromRequests: row ? isTruthyDatabaseBoolean(row.strip_xiaoni_os_from_requests) : false,
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -108,6 +113,7 @@ function createAgentRuntimeControlPersistence(deps) {
         debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0,
         compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000,
         compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824,
+        strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -122,6 +128,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS debug_cache_heartbeat_interval_ms INTEGER NOT NULL DEFAULT 0');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_input_tokens INTEGER NOT NULL DEFAULT 80000');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -209,6 +216,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , debug_cache_heartbeat_interval_ms
             , compression_trigger_input_tokens
             , compression_trigger_wire_bytes
+            , strip_xiaoni_os_from_requests
             , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
@@ -272,6 +280,11 @@ function createAgentRuntimeControlPersistence(deps) {
       const compressionTriggerWireBytes = hasCompressionTriggerWireBytes
         ? parsedCompressionTriggerWireBytes
         : 25165824;
+      const hasStripXiaoniOsFromRequests = typeof input.stripXiaoniOsFromRequests === 'boolean'
+        || typeof input.strip_xiaoni_os_from_requests === 'boolean';
+      const stripXiaoniOsFromRequests = hasStripXiaoniOsFromRequests
+        ? (input.stripXiaoniOsFromRequests ?? input.strip_xiaoni_os_from_requests) === true
+        : false;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -288,6 +301,7 @@ function createAgentRuntimeControlPersistence(deps) {
             debug_cache_heartbeat_interval_ms,
             compression_trigger_input_tokens,
             compression_trigger_wire_bytes,
+            strip_xiaoni_os_from_requests,
             updated_at
           )
           VALUES (
@@ -299,6 +313,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             ?,
             ?,
@@ -353,6 +368,10 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.compression_trigger_wire_bytes
             END,
+            strip_xiaoni_os_from_requests = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.strip_xiaoni_os_from_requests
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -362,7 +381,8 @@ function createAgentRuntimeControlPersistence(deps) {
             main_agent_pre_model_yield_ms,
             debug_cache_heartbeat_interval_ms,
             compression_trigger_input_tokens,
-            compression_trigger_wire_bytes
+            compression_trigger_wire_bytes,
+            strip_xiaoni_os_from_requests
         `,
         [
           identityKey,
@@ -375,6 +395,7 @@ function createAgentRuntimeControlPersistence(deps) {
           debugCacheHeartbeatIntervalMs,
           compressionTriggerInputTokens,
           compressionTriggerWireBytes,
+          stripXiaoniOsFromRequests,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -396,7 +417,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasCompressionTriggerInputTokens,
           compressionTriggerInputTokens,
           hasCompressionTriggerWireBytes,
-          compressionTriggerWireBytes
+          compressionTriggerWireBytes,
+          hasStripXiaoniOsFromRequests,
+          stripXiaoniOsFromRequests
         ]
       );
       return normalizeRuntimeControl(rows[0]);
@@ -430,7 +453,8 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_armed, post_compression_pause_armed_at,
             post_compression_pause_triggered_at, post_compression_pause_reason,
             main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms,
-            compression_trigger_input_tokens, compression_trigger_wire_bytes, energy_policy_json
+            compression_trigger_input_tokens, compression_trigger_wire_bytes,
+            strip_xiaoni_os_from_requests, energy_policy_json
         `,
         [identityKey, jsonParam, jsonParam]
       );
@@ -499,6 +523,7 @@ function createAgentRuntimeControlPersistence(deps) {
             debug_cache_heartbeat_interval_ms,
             compression_trigger_input_tokens,
             compression_trigger_wire_bytes,
+            strip_xiaoni_os_from_requests,
             (SELECT was_armed FROM prev) AS pause_just_triggered
         `,
         [identityKey, identityKey, reason]
@@ -566,6 +591,7 @@ function createAgentRuntimeControlPersistence(deps) {
             post_compression_pause_triggered_at, post_compression_pause_reason,
             main_agent_pre_model_yield_ms, debug_cache_heartbeat_interval_ms, compression_trigger_input_tokens,
             compression_trigger_wire_bytes,
+            strip_xiaoni_os_from_requests,
             (SELECT was_enabled FROM prev) AS was_enabled
         `,
         [identityKey, identityKey, reason, heartbeatIntervalMs, reason, heartbeatIntervalMs]

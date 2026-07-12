@@ -167,6 +167,12 @@ function bandpassRecall(params) {
     const cv = deanis ? subtractDeanisotropy(candidate.embedding, deanis.mean, deanis.components) : candidate.embedding;
     return cosineSimilarity(centeredQuery, cv);
   });
+  // 「在场」强信号:候选池里存在与当前落地近乎同一的项(top centered-cos ≥ nearDupSuppress)= 她在
+  // 重复一件已有记录的事(刚做/记过),不是「想不起的往事」→ 整条静默。真库抽查证实:这类落地剩下的
+  // 中带命中多是短句表面撞词的虚假匹配(「我在钓鱼呢」→「我在睡觉」)。阈值远高于 ceiling,只杀近乎
+  // 同一,不误伤强相关(0.90-0.94 的真·连续性保留)。ceiling 只剔掉近似重复那一条,这里是整条落地压制。
+  const nearDupSuppress = typeof params.nearDupSuppress === 'number' ? params.nearDupSuppress : null;
+  const nearDupPresent = nearDupSuppress !== null && cosList.some((c) => Number.isFinite(c) && c >= nearDupSuppress);
   let effectiveFloor = floor;
   const standoutMargin = typeof params.standoutMargin === 'number' ? params.standoutMargin : null;
   if (standoutMargin !== null) {
@@ -200,7 +206,9 @@ function bandpassRecall(params) {
   } else {
     qualified = qualified.sort((left, right) => right.cos - left.cos);
   }
-  const surfaced = qualified.slice(0, Math.max(1, limit));
+  // 近似重复在场 → 整条静默(surfaced 清空);dropped 保留全量分类,shadow_log 里近似重复的 cos 仍在
+  // dropped_sample,可事后区分「近似重复抑制的静默」(silent 且 dropped 有 cos≥nearDupSuppress)。
+  const surfaced = nearDupPresent ? [] : qualified.slice(0, Math.max(1, limit));
   // dropped 只装「没过带」的;超出 limit 的合格项既不进 surfaced,也不误标成 dropped:'surfaced'。
   const dropped = scored.filter((entry) => entry.verdict !== 'surfaced');
 

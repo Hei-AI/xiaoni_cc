@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -35,21 +36,51 @@ except Exception:  # pragma: no cover
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9977
-NODE_EXE = "/mnt/c/Program Files/nodejs/node.exe"
-POWERSHELL_EXE = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
-CLI_SCRIPT_WIN = "C:\\temp\\xiaoni-playwright-cli\\node_modules\\@playwright\\cli\\playwright-cli.js"
-CLI_WRAPPER_WIN = "C:\\temp\\xiaoni-playwright-cli\\xiaoni-playwright-cli.ps1"
-CLI_SCRIPT_WSL = "/mnt/c/temp/xiaoni-playwright-cli/xiaoni-playwright-cli.ps1"
-INSTALL_DIR_WSL = "/mnt/c/temp/xiaoni-playwright-cli"
+# ── Linux host bridge (ported from the original WSL/Windows bridge) ──
+# The migrated playwright-cli lives under ~/.qqbot-local; it is driven with the
+# host `node` and a native `google-chrome` launched headed on the desktop
+# session. Legacy *_WIN / *_WSL names are kept as Linux-valued aliases so the
+# cross-platform helpers (extension patching, artifact resolution) work unchanged.
+NODE_EXE = os.environ.get("XIAONI_NODE_EXE") or shutil.which("node") or "/usr/bin/node"
+INSTALL_DIR = os.environ.get(
+    "XIAONI_PLAYWRIGHT_CLI_DIR",
+    os.path.expanduser("~/.qqbot-local/xiaoni-playwright-cli"),
+)
+CLI_SCRIPT = os.path.join(INSTALL_DIR, "node_modules", "@playwright", "cli", "playwright-cli.js")
+INSTALL_DIR_WSL = INSTALL_DIR  # legacy alias: subprocess cwd + artifact path resolution
 RUNTIME_HOST_ROOT = os.environ.get("XIAONI_RUNTIME_HOST_ROOT", "/home/liahua/.qqbot-local/xiaoni-runtime")
 RUNTIME_CONTAINER_ROOT = os.environ.get("XIAONI_RUNTIME_CONTAINER_ROOT", "/xiaoni-runtime")
 PROVIDER_SERVICE_URL = os.environ.get("PROVIDER_SERVICE_URL", "").rstrip("/")
 CDP_ENDPOINT = os.environ.get("XIAONI_BROWSER_CDP_ENDPOINT", "http://127.0.0.1:9222")
 CDP_PORT = os.environ.get("XIAONI_BROWSER_CDP_PORT", "9222")
-CHROME_EXE_WIN = os.environ.get("XIAONI_CHROME_EXE_WIN", "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
-CHROME_USER_DATA_DIR_WIN = os.environ.get("XIAONI_CHROME_USER_DATA_DIR_WIN", "C:\\Users\\a8517\\AppData\\Local\\Google\\Chrome\\User Data")
-CHROME_CDP_USER_DATA_DIR_WIN = os.environ.get("XIAONI_CHROME_CDP_USER_DATA_DIR_WIN", "C:\\Users\\a8517\\AppData\\Local\\Google\\Chrome\\Xiaoni CDP User Data")
-CHROME_PROFILE_DIRECTORY = os.environ.get("XIAONI_CHROME_PROFILE_DIRECTORY", "Profile 2")
+CHROME_EXE = os.environ.get("XIAONI_CHROME_EXE") or shutil.which("google-chrome") or "/usr/bin/google-chrome"
+CHROME_EXE_WIN = CHROME_EXE  # legacy alias (PLAYWRIGHT_MCP_EXECUTABLE_PATH)
+# The operator's REAL logged-in Chrome profile. Chrome 136+ ignores
+# --remote-debugging-port on the default user-data-dir, so we run CDP against a
+# separate "mirror" user-data-dir whose profile is a symlink to the real one —
+# same cookies/logins, but a non-default dir so CDP is allowed. Only one Chrome
+# uses the profile at a time (the bridge takes the browser over on launch).
+REAL_CHROME_USER_DATA_DIR = os.environ.get(
+    "XIAONI_REAL_CHROME_USER_DATA_DIR",
+    os.path.expanduser("~/.config/google-chrome"),
+)
+CHROME_USER_DATA_DIR = os.environ.get(
+    "XIAONI_CHROME_USER_DATA_DIR",
+    os.path.expanduser("~/.qqbot-local/xiaoni-cdp-userdata"),
+)
+CHROME_USER_DATA_DIR_WIN = CHROME_USER_DATA_DIR  # legacy alias
+CHROME_CDP_USER_DATA_DIR_WIN = CHROME_USER_DATA_DIR  # legacy alias
+CHROME_PROFILE_DIRECTORY = os.environ.get("XIAONI_CHROME_PROFILE_DIRECTORY", "Default")
+# Headed Chrome needs a display; default to the active desktop session.
+CHROME_DISPLAY = os.environ.get("XIAONI_CHROME_DISPLAY") or os.environ.get("DISPLAY") or ":0"
+# Under a systemd --user service there is no X access (no XAUTHORITY), so headed
+# Chrome must talk to the compositor directly. On a Wayland desktop, force the
+# wayland Ozone backend (uses WAYLAND_DISPLAY + XDG_RUNTIME_DIR, no X needed).
+CHROME_OZONE_PLATFORM = os.environ.get(
+    "XIAONI_CHROME_OZONE_PLATFORM",
+    "wayland" if (os.environ.get("WAYLAND_DISPLAY")
+                  or os.path.exists(f"/run/user/{os.getuid()}/wayland-0")) else "",
+)
 WEBSTORE_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 EXTENSION_KEY = os.environ.get(
     "XIAONI_PLAYWRIGHT_EXTENSION_KEY",
@@ -62,8 +93,12 @@ if not EXTENSION_ID:
     EXTENSION_ID = "".join(alphabet[byte >> 4] + alphabet[byte & 0x0F] for byte in digest[:16])
 EXTENSION_VERSION = "0.2.1"
 DEFAULT_EXTENSION_ATTACH_TIMEOUT_SECONDS = int(os.environ.get("XIAONI_PLAYWRIGHT_ATTACH_TIMEOUT_SECONDS", "15"))
-EXTENSION_DIR_WSL = os.environ.get("XIAONI_PLAYWRIGHT_EXTENSION_DIR_WSL", f"/mnt/c/temp/xiaoni-playwright-extension-{EXTENSION_ID}-{EXTENSION_VERSION}")
-EXTENSION_DIR_WIN = os.environ.get("XIAONI_PLAYWRIGHT_EXTENSION_DIR_WIN", f"C:\\temp\\xiaoni-playwright-extension-{EXTENSION_ID}-{EXTENSION_VERSION}")
+EXTENSION_DIR = os.environ.get(
+    "XIAONI_PLAYWRIGHT_EXTENSION_DIR",
+    os.path.expanduser(f"~/.qqbot-local/xiaoni-playwright-extension-{EXTENSION_ID}-{EXTENSION_VERSION}"),
+)
+EXTENSION_DIR_WSL = EXTENSION_DIR  # legacy alias
+EXTENSION_DIR_WIN = EXTENSION_DIR  # legacy alias
 EXTENSION_CRX_URL = os.environ.get(
     "XIAONI_PLAYWRIGHT_EXTENSION_CRX_URL",
     "https://clients2.google.com/service/update2/crx?"
@@ -71,8 +106,8 @@ EXTENSION_CRX_URL = os.environ.get(
     f"x=id%3D{WEBSTORE_EXTENSION_ID}%26installsource%3Dondemand%26uc",
 )
 CLI_EXTENSION_FILES = [
-    "/mnt/c/temp/xiaoni-playwright-cli/node_modules/playwright-core/lib/coreBundle.js",
-    "/mnt/c/temp/xiaoni-playwright-cli/node_modules/playwright-core/lib/tools/utils/extension.js",
+    os.path.join(INSTALL_DIR, "node_modules", "playwright-core", "lib", "coreBundle.js"),
+    os.path.join(INSTALL_DIR, "node_modules", "playwright-core", "lib", "tools", "utils", "extension.js"),
 ]
 ATTACH_PROCESSES = {}
 ATTACH_LOCK = threading.Lock()
@@ -119,19 +154,27 @@ def _playwright_key(combo):
 
 
 def _run_cli_capture(extra_args, timeout=60):
-    completed = subprocess.run(
-        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN,
-         _COMPUTER_SESSION, *extra_args],
-        cwd=INSTALL_DIR_WSL,
-        env=_windows_cli_env(),
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-    )
-    return completed.returncode, completed.stdout or "", completed.stderr or ""
+    def _run():
+        completed = subprocess.run(
+            [NODE_EXE, CLI_SCRIPT, _COMPUTER_SESSION, *extra_args],
+            cwd=INSTALL_DIR,
+            env=_windows_cli_env(),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+        )
+        return completed.returncode, completed.stdout or "", completed.stderr or ""
+
+    rc, out, err = _run()
+    # The computer-use path (/computer) has no bridge-level auto-attach like /run,
+    # so if the session isn't live (bridge/Chrome restarted), attach it over CDP
+    # and retry once — otherwise a stray restart makes every computer action fail.
+    if rc != 0 and _session_missing(out, err) and _auto_attach_session([_COMPUTER_SESSION], timeout):
+        rc, out, err = _run()
+    return rc, out, err
 
 
 def _extract_sentinel(stdout):
@@ -292,12 +335,15 @@ def _run_computer_action(action, dw, dh):
     if name == "zoom" and isinstance(region, list) and len(region) == 4:
         x1, y1, x2, y2 = computer_coords.map_region(region, vw, vh, dw, dh)
         w, h = max(1, x2 - x1), max(1, y2 - y1)
-        js = ("async (page) => { const b = await page.screenshot({type:'png', clip:{x:"
+        js = ("async (page) => { const b = await page.screenshot({type:'png', animations:'disabled', caret:'initial', timeout:15000, clip:{x:"
               f"{x1},y:{y1},width:{w},height:{h}}}); return '" + _COMPUTER_SENTINEL + "' + b.toString('base64'); }")
     else:
         statements = _build_action_statements(action, css, css_end)
+        # animations:'disabled' finishes+freezes CSS animations (incl. smooth
+        # scroll) before capture, so page.screenshot doesn't hang on the headed
+        # Wayland compositor after a mouse/scroll action; timeout bounds the wait.
         js = ("async (page) => { " + statements +
-              " const b = await page.screenshot({type:'png'}); return '" + _COMPUTER_SENTINEL +
+              " const b = await page.screenshot({type:'png', animations:'disabled', caret:'initial', timeout:15000}); return '" + _COMPUTER_SENTINEL +
               "' + b.toString('base64'); }")
 
     rc, out, err = _run_cli_capture(["run-code", js], timeout=90)
@@ -489,12 +535,7 @@ def _removed_fallback_error(args):
             "visible Chrome Profile 2. Run `ensure-extension` and "
             "`attach --extension=chrome`; if attach fails, fix attach instead of using `open`."
         )
-    if command == "ensure-cdp" or _is_cdp_attach(args):
-        return (
-            "Xiaoni browser CDP fallback removed: CDP uses a mirror/debug profile and "
-            "is not Xiaoni's real visible Chrome Profile 2. Run `ensure-extension` and "
-            "`attach --extension=chrome`; if attach fails, fix extension attach."
-        )
+    # (Linux) CDP is the native attach path now — do not block it.
     return ""
 
 
@@ -507,24 +548,10 @@ def _is_extension_attach(args):
 
 
 def _ensure_cli_wrapper_exit_code():
-    path = Path(CLI_SCRIPT_WSL)
-    if not path.exists():
-        return
-    text = path.read_text(encoding="utf-8-sig")
-    newline = "\r\n" if "\r\n" in text else "\n"
-    text = _ensure_powershell_env_line(text, "PLAYWRIGHT_MCP_HOST", "127.0.0.1", newline)
-    text = _ensure_powershell_env_line(text, "PLAYWRIGHT_EXTENSION_PROTOCOL", "1", newline)
-    if "exit $LASTEXITCODE" not in text:
-        text = text.rstrip() + newline + "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE }" + newline
-    path.write_text(text, encoding="utf-8")
-
-
-def _ensure_powershell_env_line(text, name, value, newline):
-    line = f'$env:{name} = "{value}"'
-    pattern = re.compile(rf'^\s*\$env:{re.escape(name)}\s*=\s*"[^"]*"\s*$', re.MULTILINE)
-    if pattern.search(text):
-        return pattern.sub(line, text)
-    return text.rstrip() + newline + line + newline
+    # No-op on Linux: the original patched a PowerShell .ps1 wrapper to force an
+    # exit code and inject env. Here the CLI is invoked directly via `node`, and
+    # the required env is set in _windows_cli_env().
+    return
 
 
 def _command_timeout_seconds(args, requested_timeout):
@@ -572,8 +599,8 @@ def _run_extension_attach(args, timeout_seconds):
             }
 
     process = subprocess.Popen(
-        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
-        cwd=INSTALL_DIR_WSL,
+        [NODE_EXE, CLI_SCRIPT, *args],
+        cwd=INSTALL_DIR,
         env=_windows_cli_env(),
         text=True,
         encoding="utf-8",
@@ -687,9 +714,12 @@ def _forget_attach_process(session_name):
 
 def _session_missing(stdout, stderr):
     # The official playwright-cli prints this when the named session has no live
-    # browser (never attached, or the attach daemon / Chrome target died).
+    # browser (never attached, or the attach daemon / Chrome target died). The
+    # message wording varies by CLI version — older: "... is not open, please run
+    # open first"; current: "Browser '<name>' is not open. Run ... open [params]".
+    # Match the stable "is not open" stem so auto-attach fires either way.
     text = f"{stdout}\n{stderr}"
-    return "is not open" in text and "open first" in text
+    return "is not open" in text
 
 
 _AUTO_ATTACH_CONTROL_COMMANDS = {
@@ -711,15 +741,26 @@ def _is_auto_attachable(args):
     return _primary_command(args) not in _AUTO_ATTACH_CONTROL_COMMANDS
 
 
+def _cdpify(args):
+    # On Linux we attach to the headed Chrome over CDP (--remote-debugging-port),
+    # which is the native, robust path. Translate any legacy `--extension` attach
+    # (what the skill/client still emits) into a `--cdp=<endpoint>` attach.
+    out = []
+    for a in args:
+        if a == "--extension" or a.startswith("--extension="):
+            out.append(f"--cdp={CDP_ENDPOINT}")
+        else:
+            out.append(a)
+    return out
+
+
 def _run_extension_attach_with_heal(args, timeout_seconds):
-    # An attach that fails with the extension-not-loaded signature means the
-    # running Chrome lost the patched extension (normal restart drops the
-    # ephemeral --load-extension flag). Relaunch Chrome WITH the extension once
-    # and retry, so callers never have to run `ensure-extension --restart` by hand.
+    # Attach to Chrome over CDP. If it fails (Chrome not up yet, or came up
+    # without the debug port), relaunch Chrome once — the launch adds the debug
+    # port — and retry, so callers never have to heal by hand.
+    args = _cdpify(args)
     completed = _run_extension_attach(args, timeout_seconds)
-    if completed["returncode"] != 0 and (
-        completed.get("timed_out") or _attach_failed(completed["stdout"], completed["stderr"])
-    ):
+    if completed["returncode"] != 0:
         _forget_attach_process(_session_name(args))
         _launch_chrome_with_extension(True)
         completed = _run_extension_attach(args, timeout_seconds)
@@ -729,7 +770,7 @@ def _run_extension_attach_with_heal(args, timeout_seconds):
 def _auto_attach_session(args, timeout_seconds):
     session = _session_name(args)
     _forget_attach_process(session)
-    attach_args = [f"-s={session}", "attach", "--extension=chrome"]
+    attach_args = [f"-s={session}", "attach", f"--cdp={CDP_ENDPOINT}"]
     completed = _run_extension_attach_with_heal(
         attach_args, _command_timeout_seconds(attach_args, timeout_seconds)
     )
@@ -799,8 +840,8 @@ def _looks_like_nav_timeout(result):
 def _run_passthrough(args, timeout_seconds):
     try:
         completed = subprocess.run(
-            [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", CLI_WRAPPER_WIN, *args],
-            cwd=INSTALL_DIR_WSL,
+            [NODE_EXE, CLI_SCRIPT, *args],
+            cwd=INSTALL_DIR,
             env=_windows_cli_env(),
             text=True,
             encoding="utf-8",
@@ -825,16 +866,15 @@ def _run_passthrough(args, timeout_seconds):
 
 
 def _windows_cli_env():
-    _ensure_cli_wrapper_exit_code()
+    # (Linux) Environment for the playwright-cli node process. Points the CLI at
+    # the native google-chrome, keeps the MCP relay on loopback, forces the
+    # extension protocol, and passes a display through for the headed browser.
     env = os.environ.copy()
-    if os.path.exists(CLI_SCRIPT_WSL):
-        with open(CLI_SCRIPT_WSL, "r", encoding="utf-8-sig") as handle:
-            for line in handle:
-                match = re.match(r'\s*\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"', line)
-                if match:
-                    env[match.group(1)] = match.group(2)
-    env.setdefault("PLAYWRIGHT_MCP_EXECUTABLE_PATH", CHROME_EXE_WIN)
+    env.setdefault("PLAYWRIGHT_MCP_EXECUTABLE_PATH", CHROME_EXE)
     env.setdefault("PLAYWRIGHT_MCP_HOST", "127.0.0.1")
+    env.setdefault("PLAYWRIGHT_EXTENSION_PROTOCOL", "1")
+    env.setdefault("DISPLAY", CHROME_DISPLAY)
+    env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     return env
 
 
@@ -1067,199 +1107,137 @@ def _patch_cli_extension_relay_loopback(text):
     )
 
 
-def _launch_chrome_with_extension(restart):
-    restart_literal = "$true" if restart else "$false"
-    script = f"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$chrome = '{CHROME_EXE_WIN}'
-$userDataDir = '{CHROME_USER_DATA_DIR_WIN}'
-$profile = '{CHROME_PROFILE_DIRECTORY}'
-$extensionDir = '{EXTENSION_DIR_WIN}'
-$restart = {restart_literal}
-function Root-ChromeProcesses {{
-  Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" |
-    Where-Object {{
-      $_.CommandLine -and
-      $_.CommandLine -notmatch '--type=' -and
-      (
-        $_.CommandLine -match [regex]::Escape($userDataDir) -or
-        $_.CommandLine -match [regex]::Escape('{CHROME_CDP_USER_DATA_DIR_WIN}') -or
-        $_.CommandLine -match 'chrome.exe"\\s*$'
-      )
-    }}
-}}
-if ($restart) {{
-  $processes = Root-ChromeProcesses
-  foreach ($process in $processes) {{
-    $p = Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
-    if ($p) {{
-      try {{ [void]$p.CloseMainWindow() }} catch {{ }}
-    }}
-  }}
-  Start-Sleep -Seconds 3
-  foreach ($process in $processes) {{
-    $p = Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
-    if ($p) {{
-      try {{ Stop-Process -Id $process.ProcessId -Force }} catch {{ }}
-    }}
-  }}
-  $serviceWorkerRoot = Join-Path $userDataDir (Join-Path $profile 'Service Worker')
-  foreach ($name in @('ScriptCache', 'Database')) {{
-    $serviceWorkerPath = Join-Path $serviceWorkerRoot $name
-    if (Test-Path $serviceWorkerPath) {{
-      try {{ Remove-Item -Recurse -Force $serviceWorkerPath }} catch {{ }}
-    }}
-  }}
-}}
-if (-not (Test-Path $extensionDir)) {{
-  [Console]::Out.Write((@{{ ok = $false; error = 'Extension directory does not exist'; extensionDir = $extensionDir }} | ConvertTo-Json -Compress))
-  exit 0
-}}
-$roots = Root-ChromeProcesses
-if (($roots | Measure-Object).Count -eq 0 -or $restart) {{
-  $escapedUserDataDir = $userDataDir.Replace('"', '\"')
-  $escapedProfile = $profile.Replace('"', '\"')
-  $escapedExtensionDir = $extensionDir.Replace('"', '\"')
-  $arguments = '--user-data-dir="' + $escapedUserDataDir + '" --profile-directory="' + $escapedProfile + '" --load-extension="' + $escapedExtensionDir + '" --restore-last-session --no-first-run'
-  Start-Process -FilePath $chrome -ArgumentList $arguments
-  Start-Sleep -Seconds 3
-}}
-[Console]::Out.Write((@{{ ok = $true; restarted = $restart; extensionDir = $extensionDir; profile = $profile; userDataDir = $userDataDir }} | ConvertTo-Json -Compress))
-exit 0
-"""
-    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-    completed = subprocess.run(
-        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=60,
-    )
-    stdout = _strip_clixml(completed.stdout).strip()
+def _cdp_alive():
     try:
-        result = json.loads(stdout) if stdout else {}
-    except json.JSONDecodeError:
-        result = {"ok": False, "stdout": stdout}
-    if completed.stderr.strip():
-        result["stderr"] = _strip_clixml(completed.stderr).strip()
-    result["returncode"] = completed.returncode
-    if completed.returncode != 0:
-        result["ok"] = False
-    return result
+        with urllib.request.urlopen(CDP_ENDPOINT.rstrip("/") + "/json/version", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _chrome_pids_for_userdata():
+    # Top-level Chrome browser processes only. Match by process NAME (comm ==
+    # "chrome") via `pgrep -x`, NOT by a cmdline substring — a substring match
+    # (e.g. "google/chrome/chrome") also hits unrelated processes that merely
+    # mention the path (a shell running a chrome-related command), which we would
+    # then wrongly kill. `-x chrome` excludes the crashpad handler (comm
+    # "chrome_crashpad"); we drop --type= children by reading each cmdline.
+    try:
+        out = subprocess.run(
+            ["pgrep", "-x", "chrome"],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        ).stdout
+    except Exception:
+        return []
+    pids = []
+    for tok in out.split():
+        if not tok.isdigit():
+            continue
+        try:
+            with open(f"/proc/{tok}/cmdline", "rb") as fh:
+                cmd = fh.read().replace(b"\x00", b" ").decode("utf-8", "replace")
+        except OSError:
+            continue
+        if "--type=" in cmd:
+            continue  # renderer / gpu / zygote child
+        pids.append(int(tok))
+    return pids
+
+
+def _terminate_pids(pids):
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        alive = []
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+                alive.append(pid)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                pass
+        if not alive:
+            break
+        time.sleep(2)
+
+
+def _setup_cdp_mirror():
+    # Point the mirror user-data-dir at the operator's real logged-in profile via
+    # a symlink, and copy Local State (profile list + cookie-encryption key) so
+    # cookies/logins decrypt. The mirror is a non-default dir, so Chrome 136+
+    # allows --remote-debugging-port on it. Only one Chrome uses the shared
+    # profile at a time (callers kill the others first), so there is no
+    # concurrent write to the profile files.
+    os.makedirs(CHROME_USER_DATA_DIR, exist_ok=True)
+    link = os.path.join(CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY)
+    target = os.path.join(REAL_CHROME_USER_DATA_DIR, CHROME_PROFILE_DIRECTORY)
+    try:
+        if os.path.islink(link):
+            if os.readlink(link) != target:
+                os.unlink(link)
+                os.symlink(target, link)
+        elif not os.path.exists(link):
+            os.symlink(target, link)
+    except OSError:
+        pass
+    try:
+        shutil.copy2(os.path.join(REAL_CHROME_USER_DATA_DIR, "Local State"),
+                     os.path.join(CHROME_USER_DATA_DIR, "Local State"))
+    except OSError:
+        pass
+    for lock in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+        try:
+            os.remove(os.path.join(CHROME_USER_DATA_DIR, lock))
+        except OSError:
+            pass
+
+
+def _launch_chrome_with_extension(restart):
+    running = _chrome_pids_for_userdata()
+    if running and not restart and _cdp_alive():
+        # Chrome is already up on the profile WITH the debug port — reuse it.
+        return {"ok": True, "restarted": False, "profile": CHROME_PROFILE_DIRECTORY,
+                "userDataDir": CHROME_USER_DATA_DIR, "returncode": 0}
+    # Take the browser over: kill any Chrome on the profile (the user's or an old
+    # CDP instance), then relaunch the CDP-enabled mirror on the same real profile.
+    _terminate_pids(running)
+    _setup_cdp_mirror()
+    env = _windows_cli_env()
+    args = [
+        CHROME_EXE,
+        f"--remote-debugging-port={CDP_PORT}",
+        "--remote-debugging-address=127.0.0.1",
+        f"--user-data-dir={CHROME_USER_DATA_DIR}",
+        f"--profile-directory={CHROME_PROFILE_DIRECTORY}",
+        "--restore-last-session",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-features=DialMediaRouteProvider",
+    ]
+    if CHROME_OZONE_PLATFORM:
+        args.insert(1, f"--ozone-platform={CHROME_OZONE_PLATFORM}")
+    try:
+        subprocess.Popen(
+            args, env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"failed to launch chrome: {exc}", "returncode": 1}
+    for _ in range(20):  # wait up to ~10s for the CDP endpoint
+        time.sleep(0.5)
+        if _cdp_alive():
+            break
+    return {"ok": True, "restarted": bool(restart), "profile": CHROME_PROFILE_DIRECTORY,
+            "userDataDir": CHROME_USER_DATA_DIR, "returncode": 0}
 
 
 def _ensure_cdp(restart):
-    restart_literal = "$true" if restart else "$false"
-    script = f"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$endpoint = '{CDP_ENDPOINT}'
-$port = '{CDP_PORT}'
-$chrome = '{CHROME_EXE_WIN}'
-$realUserDataDir = '{CHROME_USER_DATA_DIR_WIN}'
-$cdpUserDataDir = '{CHROME_CDP_USER_DATA_DIR_WIN}'
-$profile = '{CHROME_PROFILE_DIRECTORY}'
-function Read-CdpVersion {{
-  try {{
-    return Invoke-RestMethod -Uri ($endpoint.TrimEnd('/') + '/json/version') -TimeoutSec 2
-  }} catch {{
-    return $null
-  }}
-}}
-$version = Read-CdpVersion
-if ($version -and -not {restart_literal}) {{
-  [Console]::Out.Write((@{{ ok = $true; already_running = $true; endpoint = $endpoint; browser = $version.Browser }} | ConvertTo-Json -Compress))
-  exit 0
-}}
-if (-not {restart_literal}) {{
-  [Console]::Out.Write((@{{ ok = $false; needs_restart = $true; endpoint = $endpoint; error = 'Chrome is not listening on the CDP endpoint' }} | ConvertTo-Json -Compress))
-  exit 0
-}}
-$processes = Get-CimInstance Win32_Process -Filter "name = 'chrome.exe'" |
-  Where-Object {{
-    $_.CommandLine -and
-    $_.CommandLine -notmatch '--type=' -and
-    (
-      $_.CommandLine -match [regex]::Escape($realUserDataDir) -or
-      $_.CommandLine -match [regex]::Escape($cdpUserDataDir) -or
-      $_.CommandLine -match 'chrome.exe"\\s*$'
-    )
-  }}
-foreach ($process in $processes) {{
-  $p = Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
-  if ($p) {{
-    try {{ [void]$p.CloseMainWindow() }} catch {{ }}
-  }}
-}}
-Start-Sleep -Seconds 3
-foreach ($process in $processes) {{
-  $p = Get-Process -Id $process.ProcessId -ErrorAction SilentlyContinue
-  if ($p) {{
-    try {{ Stop-Process -Id $process.ProcessId -Force }} catch {{ }}
-  }}
-}}
-New-Item -ItemType Directory -Force -Path $cdpUserDataDir | Out-Null
-Set-Location $env:TEMP
-function Ensure-Junction($linkPath, $targetPath) {{
-  if (Test-Path $linkPath) {{
-    $item = Get-Item $linkPath -Force
-    if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {{
-      throw "Refusing to replace non-link path: $linkPath"
-    }}
-    return
-  }}
-  cmd /c mklink /J "$linkPath" "$targetPath" | Out-Null
-}}
-function Ensure-HardLink($linkPath, $targetPath) {{
-  if (Test-Path $linkPath) {{
-    return
-  }}
-  cmd /c mklink /H "$linkPath" "$targetPath" | Out-Null
-}}
-Ensure-Junction (Join-Path $cdpUserDataDir $profile) (Join-Path $realUserDataDir $profile)
-if (Test-Path (Join-Path $realUserDataDir 'Default')) {{
-  Ensure-Junction (Join-Path $cdpUserDataDir 'Default') (Join-Path $realUserDataDir 'Default')
-}}
-Ensure-HardLink (Join-Path $cdpUserDataDir 'Local State') (Join-Path $realUserDataDir 'Local State')
-$escapedUserDataDir = $cdpUserDataDir.Replace('"', '\"')
-$escapedProfile = $profile.Replace('"', '\"')
-$arguments = '--remote-debugging-port=' + $port + ' --remote-debugging-address=127.0.0.1 --remote-allow-origins=http://127.0.0.1:' + $port + ' --user-data-dir="' + $escapedUserDataDir + '" --profile-directory="' + $escapedProfile + '" --restore-last-session'
-Start-Process -FilePath $chrome -ArgumentList $arguments
-for ($i = 0; $i -lt 60; $i++) {{
-  Start-Sleep -Milliseconds 500
-  $version = Read-CdpVersion
-  if ($version) {{
-    [Console]::Out.Write((@{{ ok = $true; restarted = $true; endpoint = $endpoint; browser = $version.Browser; cdpUserDataDir = $cdpUserDataDir; profile = $profile }} | ConvertTo-Json -Compress))
-    exit 0
-  }}
-}}
-[Console]::Out.Write((@{{ ok = $false; restarted = $true; endpoint = $endpoint; error = 'Timed out waiting for Chrome CDP endpoint' }} | ConvertTo-Json -Compress))
-exit 0
-"""
-    encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-    completed = subprocess.run(
-        [POWERSHELL_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=80,
-    )
-    stdout = _strip_clixml(completed.stdout).strip()
-    try:
-        result = json.loads(stdout) if stdout else {}
-    except json.JSONDecodeError:
-        result = {"ok": False, "stdout": stdout}
-    if completed.stderr.strip():
-        result["stderr"] = _strip_clixml(completed.stderr).strip()
-    result["returncode"] = completed.returncode
-    return result
+    # CDP mode is disabled on Linux. The extension-attach path is primary and the
+    # CDP fallback was removed upstream (see _removed_fallback_error). Kept as a
+    # stub so the ensure-cdp route returns a clear message instead of erroring.
+    return {"ok": False, "returncode": 2,
+            "error": "CDP mode is disabled; use ensure-extension then "
+                     "attach --extension=chrome"}
 
 
 def _strip_clixml(value):

@@ -56,8 +56,25 @@ type ExecCommandResult = {
   blocked_reason?: string;
   error_message?: string;
   translated_cmd?: string;
-  git_archive_dir?: string | null;
-  git_archive_error?: string | null;
+  codex_output: string;
+};
+
+type ReadFileRequest = {
+  path?: unknown;
+  offset?: unknown;
+  limit?: unknown;
+  max_output_tokens?: unknown;
+};
+
+type ReadFileResult = {
+  path: string;
+  offset: number;
+  limit: number;
+  total_lines: number;
+  returned_lines: number;
+  truncated: boolean;
+  executor: 'xiaoni-executor';
+  error_message?: string;
   codex_output: string;
 };
 
@@ -86,8 +103,6 @@ type RuntimeSession = {
   // Wall-clock of the close/error transition. Freezes duration_ms (so a closed
   // session stops accruing wall time) and drives TTL eviction from the map.
   closedAt: number | null;
-  gitArchiveDir: string | null;
-  gitArchiveError: string | null;
   // Single-flight snapshot writer state (see persistSession). Kept on the
   // session object itself so it is reclaimed with the session on eviction —
   // no side Map that would need its own cleanup.
@@ -225,38 +240,36 @@ export function formatCodexOutput(input: {
   originalTokenCount?: number;
   spillNote?: string;
 }): string {
-  const lines = [
-    `Chunk ID: ${input.chunkId}`,
-    `Wall time: ${(input.durationMs / 1000).toFixed(4)} seconds`
-  ];
+  // Minimal envelope, modelled on Claude Code's Bash tool: on the plain happy
+  // path (clean exit, output present, nothing truncated/running/blocked) return
+  // the raw bytes with ZERO header. Metadata is a single compact status line and
+  // only when it's actionable. chunkId / wall-time / token-count are debug fields
+  // — they live in the structured ExecCommandResult + admin trace, never in her
+  // context. On truncation the spill path rides inline in the elision marker
+  // (see StreamCapture.render), so there is no separate header note; `spillNote`
+  // now carries ONLY an out-of-band caveat (e.g. executor restart) appended as a
+  // single trailing line when present.
+  let status: string | null = null;
   if (input.blocked) {
-    lines.push('Process blocked by executor policy');
+    status = '[已被执行器策略拦截]';
   } else if (input.running) {
-    lines.push(`Process running with session ID ${input.sessionId || ''}`.trim());
+    // Factual only, like the old "Process running with session ID X": the model
+    // does not poll via exec_command (agent-service drives /sessions/<id>/poll).
+    status = `[会话 ${input.sessionId || ''} 运行中]`;
   } else if (typeof input.exitCode === 'number') {
-    lines.push(`Process exited with code ${input.exitCode}`);
+    status = input.exitCode === 0 ? null : `[exit ${input.exitCode}]`;
   } else if (input.signal) {
-    lines.push(`Process exited with signal ${input.signal}`);
+    status = `[signal ${input.signal}]`;
   } else {
-    lines.push('Process exited without an exit code');
+    status = '[无退出码]';
   }
-  // Original token count reflects the TRUE pre-truncation size when the caller
-  // knows it (the capped `output` string undercounts once truncated).
-  lines.push(`Original token count: ${input.originalTokenCount ?? estimateTokenCount(input.output)}`);
-  if (input.truncated) {
-    lines.push('Output was truncated to max_output_tokens（头尾保留，中间截断）.');
-    // Surface where the full output lives right here in the header, so she sees
-    // it immediately instead of having to scroll to the mid-output elision marker.
-    if (input.spillNote) {
-      lines.push(input.spillNote);
-    }
-  }
-  lines.push('Output:', input.output);
-  return lines.join('\n');
-}
-
-function estimateTokenCount(text: string): number {
-  return Math.max(0, Math.ceil(text.length / 4));
+  const body = input.output.length > 0
+    ? input.output
+    : (status ? '' : '(exec_command 无输出)');
+  const trailer = input.truncated && input.spillNote ? input.spillNote : null;
+  return [status, body, trailer]
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join('\n');
 }
 
 function clampNumber(value: unknown, defaultValue: number, min: number, max: number): number {
@@ -269,6 +282,95 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
     return defaultValue;
   }
   return Math.max(min, Math.min(max, parsed));
+}
+
+// First-class file read, modelled on Claude Code's Read tool: line-based range,
+// cat -n numbering, minimal envelope. Same filesystem view + /app path translation
+// as exec_command, so read_file(path) reads exactly what `exec_command cat path`
+// would — including a truncated exec output spilled under /xiaoni-runtime/exec-output.
+// Its own output is capped and, when it overflows, points at the next offset rather
+// than spilling again (she's already reading a bounded range).
+export async function readFileRange(args: ReadFileRequest): Promise<ReadFileResult> {
+  const rawPath = typeof args.path === 'string' ? args.path.trim() : '';
+  const offset = clampNumber(args.offset, 1, 1, Number.MAX_SAFE_INTEGER);
+  const limit = clampNumber(args.limit, 2000, 1, 100_000);
+  const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
+  const maxChars = Math.max(1, maxOutputTokens * 4);
+  const build = (target: string, extra: Partial<ReadFileResult> & { codex_output: string }): ReadFileResult => ({
+    path: target,
+    offset,
+    limit,
+    total_lines: 0,
+    returned_lines: 0,
+    truncated: false,
+    executor: 'xiaoni-executor',
+    ...extra
+  });
+  if (!rawPath) {
+    return build('', { error_message: 'read_file requires path', codex_output: '[read_file 需要 path]' });
+  }
+  const target = translateWorkdir(rawPath);
+  let content: string;
+  try {
+    const info = await stat(target);
+    if (info.isDirectory()) {
+      return build(target, { error_message: 'path is a directory', codex_output: `[不是文件,是目录: ${target}]` });
+    }
+    content = await readFile(target, 'utf8');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    const msg = code === 'ENOENT' ? `文件不存在: ${target}` : (error instanceof Error ? error.message : String(error));
+    return build(target, { error_message: msg, codex_output: `[${msg}]` });
+  }
+  const lines = content.split('\n');
+  // A trailing newline yields a final '' element — drop it so line count is natural.
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
+  const totalLines = lines.length;
+  if (totalLines === 0) {
+    return build(target, { total_lines: 0, codex_output: '(空文件)' });
+  }
+  const start = offset - 1;
+  if (start >= totalLines) {
+    return build(target, { total_lines: totalLines, codex_output: `(offset ${offset} 超过文件末尾，共 ${totalLines} 行)` });
+  }
+  const slice = lines.slice(start, start + limit);
+  const width = String(start + slice.length).length;
+  const numbered: string[] = [];
+  let charCount = 0;
+  let truncated = false;
+  let stoppedLineNo = start + slice.length; // last fully-returned line
+  for (let i = 0; i < slice.length; i += 1) {
+    const lineNo = start + i + 1;
+    const rendered = `${String(lineNo).padStart(width)}\t${slice[i]}`;
+    if (numbered.length === 0 && rendered.length > maxChars) {
+      // Single line larger than the whole budget: hard-cut it (surrogate-safe) so
+      // read_file always makes progress instead of returning nothing.
+      numbered.push(`${sliceHead(rendered, maxChars)} …[该行过长已截断]`);
+      truncated = true;
+      stoppedLineNo = lineNo; // this line is partially returned; resume at it
+      break;
+    }
+    if (numbered.length > 0 && charCount + rendered.length + 1 > maxChars) {
+      truncated = true;
+      stoppedLineNo = lineNo - 1;
+      break;
+    }
+    numbered.push(rendered);
+    charCount += rendered.length + 1;
+  }
+  let body = numbered.join('\n');
+  if (truncated) {
+    const kb = Math.round(maxChars / 1024);
+    body += `\n…[超 ${kb}KB，读到第 ${stoppedLineNo} 行止；继续 read_file(offset=${stoppedLineNo + 1})]…`;
+  }
+  return build(target, {
+    total_lines: totalLines,
+    returned_lines: numbered.length,
+    truncated,
+    codex_output: body
+  });
 }
 
 function normalizeExecEnv(value: unknown): Record<string, string> {
@@ -479,39 +581,19 @@ export class StreamCapture {
       return this.full ?? this.head;
     }
     const elided = Math.max(0, this.totalChars - this.head.length - this.tail.length);
-    // The actionable path + read-back instructions live in the header (see
-    // spillHeaderNote); this in-body marker only marks WHERE the cut is.
+    // Self-contained elision marker, factual and minimal like Claude Code's spill
+    // notice ("Output too large. Full output saved to: <path>"): it marks WHERE the
+    // cut is and names the spill file, nothing more. No re-read coaching — she
+    // ignores it, and head+tail already keeps both ends inline (which serves her
+    // better than a re-read she never does). One reference, at the cut.
+    const ceilTag = this.spillCeilingHit
+      ? `（文件在 ${Math.round(this.spillCeilingBytes / 1024 / 1024)}MB 处截断）`
+      : '';
     const note = (this.spillError || !this.spillPath)
-      ? `…[中间约 ${elided} 字符已省略；完整输出写盘失败，无法回看]…`
-      : `…[中间约 ${elided} 字符已省略，完整见上方落盘文件]…`;
+      ? `…[省略约 ${elided} 字符 · 写盘失败]…`
+      : `…[省略约 ${elided} 字符 · 完整 ${this.spillPath}${ceilTag}]…`;
     return `${this.head}\n${note}\n${this.tail}`;
   }
-}
-
-// Header note pointing to the spilled full-output file(s). Empty when nothing
-// truncated. Placed right after "Output was truncated…" so it's the first thing
-// she sees, not buried mid-output.
-export function spillHeaderNote(stdoutCap: StreamCapture, stderrCap: StreamCapture): string | undefined {
-  const parts: string[] = [];
-  const add = (name: string, cap: StreamCapture) => {
-    if (!cap.truncated) {
-      return;
-    }
-    if (cap.spillError || !cap.spillPath) {
-      parts.push(`完整 ${name} 写盘失败，中间内容无法回看`);
-    } else {
-      const ceilLabel = `${Math.round(SPILL_CEILING_BYTES / 1024 / 1024)}MB`;
-      parts.push(`完整 ${name}: ${cap.spillPath}${cap.spillCeilingHit ? `（文件也在 ${ceilLabel} 处截断）` : ''}`);
-    }
-  };
-  add('stdout', stdoutCap);
-  add('stderr', stderrCap);
-  if (parts.length === 0) {
-    return undefined;
-  }
-  // Steer toward BOUNDED reads: a plain `cat` of a big spill file just re-truncates
-  // and spills a duplicate. Ranged reads fit under the cap; or raise max_output_tokens.
-  return `完整输出已落盘（别 cat 大文件会再截断，按范围读；或调大 max_output_tokens 一次读完）：\n  ${parts.join('\n  ')}`;
 }
 
 // Age-prune spilled exec-output files so /xiaoni-runtime/exec-output doesn't grow
@@ -578,7 +660,6 @@ async function ensureRuntimeDirectories() {
     'services',
     'artifacts',
     'registry',
-    'git-archives',
     EXEC_OUTPUT_SUBDIR
   ].map((dir) => mkdir(path.join(runtimeRoot, dir), { recursive: true })));
 }
@@ -659,13 +740,10 @@ function sessionToSnapshot(session: RuntimeSession) {
     stderr: session.stderr,
     truncated: session.truncated,
     original_chars: session.stdoutCap.totalChars + session.stderrCap.totalChars,
-    spill_note: spillHeaderNote(session.stdoutCap, session.stderrCap) ?? null,
     timed_out: session.timedOut,
     exit_code: session.exitCode,
     signal: session.signal,
-    running: !session.closed,
-    git_archive_dir: session.gitArchiveDir,
-    git_archive_error: session.gitArchiveError
+    running: !session.closed
   };
 }
 
@@ -692,8 +770,6 @@ function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
     session_id: session.id,
     chunk_id: session.chunkId,
     running: !session.closed,
-    git_archive_dir: session.gitArchiveDir,
-    git_archive_error: session.gitArchiveError,
     codex_output: formatCodexOutput({
       chunkId: session.chunkId,
       durationMs,
@@ -703,55 +779,9 @@ function buildResultFromSession(session: RuntimeSession): ExecCommandResult {
       sessionId: session.id,
       output,
       truncated: session.truncated,
-      originalTokenCount: Math.max(0, Math.ceil(originalChars / 4)),
-      spillNote: spillHeaderNote(session.stdoutCap, session.stderrCap)
+      originalTokenCount: Math.max(0, Math.ceil(originalChars / 4))
     })
   };
-}
-
-async function writeCommandOutput(filePath: string, command: string, args: string[]) {
-  const { stdout, stderr } = await execFileAsync(command, args, {
-    cwd: workspaceRoot,
-    maxBuffer: 50 * 1024 * 1024
-  });
-  await writeFile(filePath, `${stdout}${stderr}`);
-}
-
-function gitArgs(args: string[]): string[] {
-  return ['-c', `safe.directory=${workspaceRoot}`, '-C', workspaceRoot, ...args];
-}
-
-async function createWorkspaceGitArchive(sessionId: string): Promise<{ dir: string | null; error: string | null }> {
-  const archiveDir = path.join(runtimeRoot, 'git-archives', sessionId);
-  try {
-    await mkdir(archiveDir, { recursive: true });
-    await writeCommandOutput(path.join(archiveDir, 'HEAD'), 'git', gitArgs(['rev-parse', 'HEAD']));
-    await writeCommandOutput(path.join(archiveDir, 'branch'), 'git', gitArgs(['branch', '--show-current']));
-    await writeCommandOutput(path.join(archiveDir, 'status.txt'), 'git', gitArgs(['status', '--porcelain=v1', '-uall']));
-    await writeCommandOutput(path.join(archiveDir, 'diff.patch'), 'git', gitArgs(['diff', '--binary']));
-    await writeCommandOutput(path.join(archiveDir, 'staged.diff.patch'), 'git', gitArgs(['diff', '--cached', '--binary']));
-    const untrackedListPath = path.join(archiveDir, 'untracked-files.txt');
-    await writeCommandOutput(untrackedListPath, 'git', gitArgs(['ls-files', '--others', '--exclude-standard']));
-    const untrackedNullListPath = path.join(archiveDir, 'untracked-files.z');
-    const { stdout: untrackedNullList } = await execFileAsync('git', gitArgs(['ls-files', '--others', '--exclude-standard', '-z']), {
-      cwd: workspaceRoot,
-      encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024
-    });
-    const untrackedBuffer = Buffer.isBuffer(untrackedNullList) ? untrackedNullList : Buffer.from(String(untrackedNullList));
-    await writeFile(untrackedNullListPath, untrackedBuffer);
-    if (untrackedBuffer.length > 0) {
-      await execFileAsync('tar', ['--null', '-czf', path.join(archiveDir, 'untracked.tar.gz'), '-T', untrackedNullListPath], {
-        cwd: workspaceRoot,
-        maxBuffer: 50 * 1024 * 1024
-      });
-    }
-    return { dir: archiveDir, error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await writeFile(path.join(archiveDir, 'archive-error.txt'), message).catch(() => undefined);
-    return { dir: archiveDir, error: message };
-  }
 }
 
 function buildBlockedResult(cmd: string, workdir: string, shell: string, login: boolean, sandboxPermissions: string, reason: string): ExecCommandResult {
@@ -799,7 +829,10 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
   const login = args.login !== false;
   const tty = Boolean(args.tty);
   const sandboxPermissions = typeof args.sandbox_permissions === 'string' ? args.sandbox_permissions : 'use_default';
-  const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 1, 200_000);
+  // Floor at 2000 tokens (~8000 chars): a stray tiny value like max_output_tokens:5
+  // must not cap a 20-token answer down to nothing and detonate the spill machinery.
+  // Small caps are never useful — head+tail truncation already bounds huge output.
+  const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
   const maxOutputChars = Math.max(1, maxOutputTokens * 4);
   const yieldMs = clampNumber(args.yield_time_ms, 10_000, 250, 30_000);
   const policy = evaluateCommandPolicy(translatedCmd);
@@ -809,7 +842,6 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
 
   const sessionId = `exec_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const chunkId = randomUUID().slice(0, 8);
-  const gitArchive = await createWorkspaceGitArchive(sessionId);
   const session: RuntimeSession = {
     id: sessionId,
     chunkId,
@@ -840,14 +872,12 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
     signal: null,
     closed: false,
     closedAt: null,
-    gitArchiveDir: gitArchive.dir,
-    gitArchiveError: gitArchive.error,
     persistWriting: false,
     persistDirty: false
   };
   sessions.set(session.id, session);
   await persistSession(session);
-  await appendAudit('exec_start', { session_id: session.id, cmd: originalCmd, translated_cmd: translatedCmd, workdir, shell, git_archive_dir: gitArchive.dir, git_archive_error: gitArchive.error });
+  await appendAudit('exec_start', { session_id: session.id, cmd: originalCmd, translated_cmd: translatedCmd, workdir, shell });
 
   const refreshRendered = () => {
     session.stdout = session.stdoutCap.render();
@@ -893,8 +923,8 @@ async function executeCommand(args: ExecCommandRequest): Promise<ExecCommandResu
 
   return await new Promise<ExecCommandResult>((resolve) => {
     // When the process has CLOSED, wait for the spill streams to finish flushing
-    // before resolving — otherwise the header advertises "完整输出已落盘" while the
-    // file is still mid-flush (the read comes a round-trip later, but make it
+    // before resolving — otherwise the elision marker names a spill file that is
+    // still mid-flush (the read comes a round-trip later, but make it
     // true-by-construction). Not awaited on the yield path: a still-running command
     // keeps its stream open and is polled later.
     const resolveClosed = async () => {
@@ -934,13 +964,13 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
     // so reaching the snapshot branch means a DIFFERENT process wrote it — i.e. the
     // executor restarted. A snapshot still marked running:true is therefore an
     // orphaned dead process; its spill file only flushed up to the crash point.
-    // Report it as not-running (so the caller stops polling forever) and caveat the
-    // spill note so a partial file is never presented as "完整".
+    // Report it as not-running (so the caller stops polling forever). The inline
+    // elision marker in `output` already carries the spill path; here we only add
+    // a trailing caveat so a partial file is never presented as complete.
     const wasRunning = Boolean(snapshot.running);
-    const rawSpillNote = typeof snapshot.spill_note === 'string' ? snapshot.spill_note : undefined;
-    const spillNote = wasRunning && rawSpillNote
-      ? `${rawSpillNote}\n  ⚠ 执行器已重启，此命令进程已丢失，落盘文件可能不完整`
-      : rawSpillNote;
+    const spillNote = wasRunning && Boolean(snapshot.truncated)
+      ? '⚠ 执行器已重启，此命令进程已丢失，落盘文件可能不完整'
+      : undefined;
     return {
       cmd: typeof snapshot.cmd === 'string' ? snapshot.cmd : '',
       translated_cmd: typeof snapshot.translated_cmd === 'string' ? snapshot.translated_cmd : undefined,
@@ -960,8 +990,6 @@ async function pollSession(sessionId: string): Promise<ExecCommandResult | null>
       session_id: sessionId,
       chunk_id: chunkId,
       running: false,
-      git_archive_dir: typeof snapshot.git_archive_dir === 'string' ? snapshot.git_archive_dir : null,
-      git_archive_error: typeof snapshot.git_archive_error === 'string' ? snapshot.git_archive_error : null,
       codex_output: formatCodexOutput({
         chunkId,
         durationMs,
@@ -1035,6 +1063,12 @@ async function route(req: IncomingMessage, res: ServerResponse) {
   if (req.method === 'POST' && url.pathname === '/api/internal/exec-command') {
     const body = await readJson(req);
     const result = await executeCommand((body && typeof body === 'object') ? body as ExecCommandRequest : {});
+    sendJson(res, 200, { success: true, result });
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/internal/read-file') {
+    const body = await readJson(req);
+    const result = await readFileRange((body && typeof body === 'object') ? body as ReadFileRequest : {});
     sendJson(res, 200, { success: true, result });
     return;
   }

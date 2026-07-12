@@ -38,11 +38,14 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
         self.assertIn("fallback removed", error)
         self.assertIn("Profile 2", error)
 
-    def test_cdp_commands_are_rejected_as_removed_fallback(self):
-        self.assertIn("CDP fallback removed", bridge._removed_fallback_error(["ensure-cdp"]))
-        self.assertIn(
-            "CDP fallback removed",
+    def test_cdp_commands_are_allowed_on_linux(self):
+        # On Linux the native CDP path IS the attach mechanism (Chrome launched
+        # with --remote-debugging-port), so the old WSL "CDP fallback removed"
+        # block is gone — CDP commands must NOT be rejected.
+        self.assertEqual(bridge._removed_fallback_error(["ensure-cdp"]), "")
+        self.assertEqual(
             bridge._removed_fallback_error(["-s=xiaoni-host", "attach", "--cdp", "http://127.0.0.1:9222"]),
+            "",
         )
 
     def test_plain_extension_attach_is_not_rejected(self):
@@ -70,11 +73,6 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
         block = bridge._auto_connect_block("token === expectedToken")
         self.assertIn('chrome.tabs.create({ url: "about:blank", active: true })', block)
         self.assertIn("await handleConnectToTab(targetTab)", block)
-
-    def test_wrapper_env_line_is_replaced(self):
-        text = '$env:PLAYWRIGHT_EXTENSION_PROTOCOL = "2"\n'
-        patched = bridge._ensure_powershell_env_line(text, "PLAYWRIGHT_EXTENSION_PROTOCOL", "1", "\n")
-        self.assertEqual(patched.strip(), '$env:PLAYWRIGHT_EXTENSION_PROTOCOL = "1"')
 
     def test_session_missing_detects_not_open_message(self):
         self.assertTrue(

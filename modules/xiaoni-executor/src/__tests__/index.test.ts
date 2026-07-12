@@ -11,14 +11,14 @@ import {
   persistSession,
   pruneClosedSessions,
   pruneExecOutput,
-  spillHeaderNote,
+  readFileRange,
   storePicture,
   translateCommandPaths
 } from '../index';
 
 // Minimal RuntimeSession-shaped object for exercising persistSession /
 // pruneClosedSessions in isolation. Real StreamCaptures so sessionToSnapshot's
-// totalChars + spillHeaderNote reads behave like production.
+// totalChars reads behave like production.
 function makeSession(overrides: Record<string, unknown> = {}): Parameters<typeof persistSession>[0] {
   const spill = () => path.join(tmpdir(), 'xiaoni-exec-test-unused-spill');
   return {
@@ -44,8 +44,6 @@ function makeSession(overrides: Record<string, unknown> = {}): Parameters<typeof
     signal: null,
     closed: false,
     closedAt: null,
-    gitArchiveDir: null,
-    gitArchiveError: null,
     persistWriting: false,
     persistDirty: false,
     ...overrides
@@ -91,17 +89,39 @@ test('evaluateCommandPolicy trusts Xiaoni and only rejects empty commands', () =
   assert.equal(evaluateCommandPolicy('docker ps').allowed, true);
 });
 
-test('formatCodexOutput keeps the model-facing callback close to Codex exec output', () => {
+test('formatCodexOutput: happy path (clean exit, output present) returns the raw bytes with ZERO header', () => {
   const output = formatCodexOutput({
     chunkId: 'abc123',
     durationMs: 42,
     exitCode: 0,
     output: 'executor-ok'
   });
-  assert.match(output, /^Chunk ID: abc123/);
-  assert.match(output, /Wall time: 0\.0420 seconds/);
-  assert.match(output, /Process exited with code 0/);
-  assert.match(output, /Output:\nexecutor-ok$/);
+  // No Chunk ID / Wall time / token count / "Output:" — just the bytes, like
+  // Claude Code's Bash tool. Those debug fields live in the structured result.
+  assert.equal(output, 'executor-ok');
+});
+
+test('formatCodexOutput: status line only when actionable (nonzero exit, running, blocked, empty)', () => {
+  // Nonzero exit → compact prefix, then output.
+  assert.equal(
+    formatCodexOutput({ chunkId: 'x', durationMs: 1, exitCode: 1, output: 'boom' }),
+    '[exit 1]\nboom'
+  );
+  // Exit 0 with empty output → the no-output marker (never a bare empty string).
+  assert.equal(
+    formatCodexOutput({ chunkId: 'x', durationMs: 1, exitCode: 0, output: '' }),
+    '(exec_command 无输出)'
+  );
+  // Running session → factual status line naming the session, then partial output.
+  assert.equal(
+    formatCodexOutput({ chunkId: 'x', durationMs: 1, exitCode: null, running: true, sessionId: 'exec_42', output: 'partial' }),
+    '[会话 exec_42 运行中]\npartial'
+  );
+  // Blocked → policy line, reason as body.
+  assert.equal(
+    formatCodexOutput({ chunkId: 'x', durationMs: 1, exitCode: null, blocked: true, output: 'nope' }),
+    '[已被执行器策略拦截]\nnope'
+  );
 });
 
 test('storePicture writes a generated image into the runtime picture directory', async () => {
@@ -150,10 +170,10 @@ test('StreamCapture: over cap keeps head+tail inline, spills FULL bytes, marker 
     // Head is the oldest bytes, tail is the NEWEST — the qq-usage fix.
     assert.ok(rendered.startsWith(text.slice(0, 10)), 'head preview = start of output');
     assert.ok(rendered.endsWith(text.slice(-10)), 'tail preview = newest output');
-    assert.equal(cap.spillPath, spill, 'spill path is exposed (surfaced in the header, not the marker)');
-    assert.ok(rendered.includes('已省略'), 'in-body marker states the middle was elided');
-    // The actionable path lives in the HEADER note, not the in-body marker.
-    assert.ok(spillHeaderNote(cap, new StreamCapture(20, () => spill))!.includes(spill), 'header note carries the spill path');
+    assert.equal(cap.spillPath, spill, 'spill path is exposed');
+    assert.ok(rendered.includes('省略'), 'in-body marker states the middle was elided');
+    // The spill path lives INLINE in the marker now (self-contained, one reference).
+    assert.ok(rendered.includes(spill), 'in-body marker carries the spill path itself');
     // Spill file is the COMPLETE output, byte-for-byte (the tail head-keep used to drop).
     assert.equal((await readFile(spill)).toString('utf8'), text);
     assert.equal(cap.totalChars, text.length, 'totalChars is the TRUE pre-truncation size');
@@ -217,7 +237,8 @@ test('StreamCapture: cap boundary triple — ==cap no truncate/no file, cap+1 tr
     assert.equal(overCap.truncated, true, 'cap+1 truncates');
     assert.equal(existsSync(path.join(root, 'over.txt')), true);
     // head 5 + tail 5, exactly 1 char elided, no overlap/duplication at the seam.
-    assert.equal(overCap.render(), 'aaaaa\n…[中间约 1 字符已省略，完整见上方落盘文件]…\naaaaa');
+    const overSpill = path.join(root, 'over.txt');
+    assert.equal(overCap.render(), `aaaaa\n…[省略约 1 字符 · 完整 ${overSpill}]…\naaaaa`);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -231,7 +252,7 @@ test('StreamCapture: spill ceiling caps the file and flags it', async () => {
     assert.equal(cap.truncated, true);
     assert.equal(cap.spillCeilingHit, true, 'ceiling hit is flagged');
     assert.equal((await stat(spill)).size, 100, 'spill file capped at the ceiling');
-    assert.ok(spillHeaderNote(cap, new StreamCapture(20, () => spill))!.includes('50MB'), 'header note warns the file is also capped');
+    assert.ok(cap.render().includes('处截断'), 'marker warns the spill file is itself capped at the ceiling');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -269,63 +290,92 @@ test('StreamCapture: qq-usage symptom — newest-at-tail message stays visible a
   }
 });
 
-test('formatCodexOutput: Original token count uses the true pre-truncation total when provided', () => {
-  // The capped `output` is short, but the real output was 4000 chars → 1000 tokens.
+test('formatCodexOutput: truncated (clean exit) returns the head+marker+tail body with NO header', () => {
+  // The rendered body already carries the inline spill marker; a clean exit adds
+  // no status line, so the envelope is exactly the body — nothing above it.
+  const body = 'HEAD\n…[省略约 9 字符 · 完整 /xiaoni-runtime/exec-output/x.stdout.txt]…\nTAIL';
   const out = formatCodexOutput({
     chunkId: 'abc123',
     durationMs: 10,
     exitCode: 0,
-    output: 'HEAD…elided…TAIL',
+    output: body,
     truncated: true,
     originalTokenCount: 1000
   });
-  assert.match(out, /Original token count: 1000/);
-  assert.match(out, /Output was truncated to max_output_tokens（头尾保留，中间截断）\./);
+  assert.equal(out, body);
+  assert.ok(!out.includes('Original token count'), 'no debug token-count line');
+  assert.ok(!out.includes('Output was truncated'), 'no separate truncation header line');
 });
 
-test('formatCodexOutput: spill note is surfaced in the header, right after the truncation line', () => {
-  const note = '完整输出已落盘，可读回：\n  完整 stdout: /xiaoni-runtime/exec-output/x.stdout.txt';
+test('formatCodexOutput: spillNote (e.g. executor-restart caveat) appends as a single trailing line', () => {
+  const caveat = '⚠ 执行器已重启，此命令进程已丢失，落盘文件可能不完整';
   const out = formatCodexOutput({
     chunkId: 'abc123',
     durationMs: 10,
     exitCode: 0,
-    output: 'HEAD…\n…[中间约 9 字符已省略，完整见上方落盘文件]…\n…TAIL',
+    output: 'HEAD\n…[省略约 9 字符 · 完整 /x.txt]…\nTAIL',
     truncated: true,
-    originalTokenCount: 1000,
-    spillNote: note
+    spillNote: caveat
   });
-  const lines = out.split('\n');
-  const truncIdx = lines.findIndex((l) => l === 'Output was truncated to max_output_tokens（头尾保留，中间截断）.');
-  assert.ok(truncIdx >= 0, 'truncation line present');
-  assert.equal(lines[truncIdx + 1], '完整输出已落盘，可读回：', 'spill note immediately follows the truncation line');
-  assert.ok(out.indexOf('/xiaoni-runtime/exec-output/x.stdout.txt') < out.indexOf('Output:'), 'path appears in the header, above the body');
+  assert.ok(out.endsWith(`\n${caveat}`), 'caveat is the last line, below the body');
+  // Not truncated → caveat is NOT appended (guard: trailer only rides truncation).
+  const out2 = formatCodexOutput({ chunkId: 'x', durationMs: 1, exitCode: 0, output: 'ok', spillNote: caveat });
+  assert.equal(out2, 'ok', 'no trailer when nothing was truncated');
 });
 
-test('spillHeaderNote: lists spilled streams, flags IO failure and ceiling, empty when nothing truncated', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'exec-hdr-'));
+test('readFileRange: line-numbered range read (cat -n style), respects offset/limit', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-read-'));
   try {
-    const okCap = await feed('a'.repeat(50), 20, () => path.join(root, 'ok.txt'), 'whole');
-    const emptyCap = new StreamCapture(20, () => path.join(root, 'none.txt'));
-    const note = spillHeaderNote(okCap, emptyCap);
-    assert.ok(note && note.includes(path.join(root, 'ok.txt')), 'names the spilled stdout file');
-    assert.ok(note!.includes('stdout') && !note!.includes('stderr'), 'only lists the stream that actually truncated');
+    const file = path.join(root, 'f.txt');
+    await writeFile(file, Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join('\n'));
+    const res = await readFileRange({ path: file, offset: 3, limit: 2 });
+    assert.equal(res.total_lines, 20);
+    assert.equal(res.returned_lines, 2);
+    assert.equal(res.truncated, false);
+    assert.equal(res.codex_output, '3\tline3\n4\tline4', 'line numbers + tab + content, only the requested window');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
-    // Both streams truncated → both listed, stdout before stderr (order guard).
-    const bothOut = await feed('a'.repeat(50), 20, () => path.join(root, 'both-out.txt'), 'whole');
-    const bothErr = await feed('b'.repeat(50), 20, () => path.join(root, 'both-err.txt'), 'whole');
-    const bothNote = spillHeaderNote(bothOut, bothErr)!;
-    assert.ok(bothNote.indexOf('完整 stdout') < bothNote.indexOf('完整 stderr'), 'stdout listed before stderr');
+test('readFileRange: /app path translation matches exec_command', async () => {
+  const res = await readFileRange({ path: '/app/does-not-exist-xyz', offset: 1, limit: 1 });
+  // /app is translated to the workspace root before the (failed) read.
+  assert.match(res.codex_output, /文件不存在: .*\/does-not-exist-xyz/);
+  assert.ok(!res.codex_output.includes('/app/'), 'path was translated, not left as /app');
+});
 
-    // stderr-only → note names stderr, not stdout.
-    const errOut = new StreamCapture(20, () => path.join(root, 'eo-out.txt'));
-    const errErr = await feed('c'.repeat(50), 20, () => path.join(root, 'eo-err.txt'), 'whole');
-    const errNote = spillHeaderNote(errOut, errErr)!;
-    assert.ok(errNote.includes('完整 stderr') && !errNote.includes('完整 stdout'), 'stderr-only names stderr not stdout');
+test('readFileRange: empty file, offset past EOF, missing file, directory — all clean one-liners', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-read-edge-'));
+  try {
+    const empty = path.join(root, 'empty.txt');
+    await writeFile(empty, '');
+    assert.equal((await readFileRange({ path: empty })).codex_output, '(空文件)');
 
-    // Nothing truncated → no note at all (header stays clean).
-    const smallA = await feed('hi', 100, () => path.join(root, 'a.txt'), 'whole');
-    const smallB = new StreamCapture(100, () => path.join(root, 'b.txt'));
-    assert.equal(spillHeaderNote(smallA, smallB), undefined, 'no note when nothing truncated');
+    const three = path.join(root, 'three.txt');
+    await writeFile(three, 'a\nb\nc');
+    assert.match((await readFileRange({ path: three, offset: 99 })).codex_output, /offset 99 超过文件末尾，共 3 行/);
+
+    assert.match((await readFileRange({ path: path.join(root, 'nope.txt') })).codex_output, /文件不存在/);
+    assert.match((await readFileRange({ path: root })).codex_output, /不是文件,是目录/);
+    assert.equal((await readFileRange({})).codex_output, '[read_file 需要 path]');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('readFileRange: over-budget read truncates at a line boundary and points at the next offset', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'exec-read-trunc-'));
+  try {
+    const file = path.join(root, 'big.txt');
+    // 50 lines of ~40 chars each = ~2KB; cap it to ~2000 tokens? No — force a tiny
+    // budget via max_output_tokens floor (2000 tok = 8000 chars) won't trip on 2KB,
+    // so make the file bigger: 400 lines × ~40 chars ≈ 16KB > 8KB floor budget.
+    await writeFile(file, Array.from({ length: 400 }, (_, i) => `row-${i + 1}-${'x'.repeat(30)}`).join('\n'));
+    const res = await readFileRange({ path: file, offset: 1, limit: 400, max_output_tokens: 2000 });
+    assert.equal(res.truncated, true, 'exceeds the 8KB (2000-token floor) budget');
+    assert.match(res.codex_output, /继续 read_file\(offset=\d+\)/, 'points at the next offset to continue');
+    assert.ok(res.returned_lines < 400, 'did not return all lines');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
