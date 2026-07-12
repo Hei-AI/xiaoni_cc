@@ -8969,7 +8969,7 @@ test('subconscious fork waits for first final_answer before enqueueing notify st
   assert.equal(storeCalls.logTimelineEvent.at(-1)?.metadata?.status, 'completed');
 });
 
-test('subconscious fork can use exec_command across turns before enqueueing natural language notify', async () => {
+test('subconscious fork rejects tool calls (think-only) and still enqueues natural language notify', async () => {
   const previousWebSearchEnabled = agentConfig.webSearchEnabled;
   agentConfig.webSearchEnabled = false;
   const queuePayload = createRuntimeLoopPayload();
@@ -9113,13 +9113,15 @@ test('subconscious fork can use exec_command across turns before enqueueing natu
     assert.equal(forkRequests.length, 2);
     // cache-alignment (Layer 1): fork inherits the base/main auto tool_choice.
     assert.deepEqual(getAllowedToolNames(forkRequests[0]?.tool_choice), getAllowedToolNames(baseRequest.tool_choice));
-    assert.equal(executedTools.length, 1);
-    assert.equal(executedTools[0]?.name, EXEC_COMMAND_TOOL);
+    // Think-only fork: the emitted exec_command is REJECTED, never executed.
+    assert.equal(executedTools.length, 0);
     const secondTurnToolOutput = forkRequests[1]?.input.find((item: any) => (
       item?.type === 'function_call_output' && item.call_id === 'call-subconscious-seed'
     ));
     assert.ok(secondTurnToolOutput);
-    assert.match(String(secondTurnToolOutput.output), /image task pending status/);
+    // The fed-back output is the rejection notice, not any tool stdout.
+    assert.match(String(secondTurnToolOutput.output), /没执行/);
+    assert.doesNotMatch(String(secondTurnToolOutput.output), /image task pending status/);
     assert.equal(storeCalls.recordSubconsciousAgentForkSlice.length, 2);
     assert.equal(storeCalls.recordSubconsciousAgentForkToolExecution.length, 1);
     assert.equal(storeCalls.recordSubconsciousAgentForkToolExecution[0]?.toolName, EXEC_COMMAND_TOOL);
@@ -9137,7 +9139,7 @@ test('subconscious fork can use exec_command across turns before enqueueing natu
   }
 });
 
-test('subconscious fork stops after five exec_command calls', async () => {
+test('subconscious fork stops after five rejected tool calls', async () => {
   const previousWebSearchEnabled = agentConfig.webSearchEnabled;
   agentConfig.webSearchEnabled = false;
   const queuePayload = createRuntimeLoopPayload();
@@ -9242,7 +9244,9 @@ test('subconscious fork stops after five exec_command calls', async () => {
     });
 
     assert.equal(enqueued, false);
-    assert.equal(executedTools.length, 5);
+    // Think-only fork: tools are rejected (never executed), but each rejected call still
+    // counts toward the cap, so the fork still bails after exceeding 5 tool calls.
+    assert.equal(executedTools.length, 0);
     assert.equal(storeCalls.enqueueQueueMessage.length, 0);
     assert.equal(storeCalls.completeSubconsciousAgentForkRun[0]?.status, 'failed');
     assert.match(storeCalls.completeSubconsciousAgentForkRun[0]?.errorMessage, /exceeded 5 tool calls/);

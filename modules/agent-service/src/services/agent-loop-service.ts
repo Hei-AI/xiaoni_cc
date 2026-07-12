@@ -9704,7 +9704,11 @@ export class AgentLoopService {
     });
 
     try {
-      const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
+      // Think-only fork: NO tools at all. allowedToolNames is empty, so exec_command (and
+      // everything else) the model emits is rejected, never executed — the subconscious must
+      // not touch the world; its only output is a <xiaoni_plan>. self_continuation_reminder.md
+      // tells the model this ("只在脑子里想，不许调任何工具"), and this is what makes that true.
+      const allowedToolNames = new Set<string>();
       let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1, params.recentNarrationItems).input;
       let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
       let forkToolCallCount = 0;
@@ -9902,17 +9906,15 @@ export class AgentLoopService {
           let toolStatus: 'completed' | 'failed' = 'completed';
           let toolErrorMessage: string | null = null;
           try {
-            // Disallowed tool → controlled rejection (not a throw/error): the fork is a
-            // think-only branch (allowedToolNames = {execCommand}); any speaking/image/compress
-            // tool it emits is rejected here and the reason fed back so it self-corrects and
-            // hands back directions, instead of crashing into a generic tool error.
+            // Think-only branch: allowedToolNames is EMPTY, so EVERY tool the fork emits
+            // (incl. exec_command) is rejected here — never executed — and the reason fed back
+            // so it self-corrects and hands back a <xiaoni_plan> instead of touching the world.
             rawToolResult = allowedToolNames.has(toolCall.name)
               ? await this.executeTool(toolCall, params.queueMessage, {
                   currentCanonicalRequest: forkRequest
                 })
-              : buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
-                  TOOL_NAME: toolCall.name,
-                  ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
+              : buildToolRejectedResult(toolCall, renderPromptSnippet('subconscious_tool_rejected_output.md', {
+                  TOOL_NAME: toolCall.name
                 }));
           } catch (error) {
             rawToolResult = buildToolErrorResult(toolCall, error);
