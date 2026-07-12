@@ -24,6 +24,7 @@ const recallBandpass = require('./xiaoni-recall-bandpass');
 const recallIngest = require('./xiaoni-recall-ingest');
 const recallFileChunker = require('./xiaoni-recall-file-chunker');
 const openLoops = require('./xiaoni-open-loops');
+const diaryEvents = require('./xiaoni-diary-events');
 const { createXiaoniRecallStorePersistence } = require('./xiaoni-recall-store');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
@@ -613,6 +614,7 @@ module.exports = {
   ...recallIngest,
   ...recallFileChunker,
   ...openLoops,
+  ...diaryEvents,
   ...xiaoniRecallStorePersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,

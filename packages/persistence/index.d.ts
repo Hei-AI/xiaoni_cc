@@ -2471,6 +2471,15 @@ export function selectStaleOpenLoops(
   loops: XiaoniOpenLoop[],
   opts?: { nowMs: number; staleDays?: number; maxActiveDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
 ): XiaoniOpenLoopPick[];
+export interface XiaoniDiaryEvent { title: string; body: string; dateMs: number; index: number; ref?: string; }
+export interface XiaoniDiaryEventPick { title: string; body: string; dateMs: number; ageDays: number; ref: string; }
+export function parseDiaryDateFromName(filename: string | null | undefined): number | null;
+export function normalizeEventText(text: unknown): string;
+export function parseDiaryEvents(content: string, dateMs: number): XiaoniDiaryEvent[];
+export function selectResurfacedEvents(
+  events: XiaoniDiaryEvent[],
+  opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
+): XiaoniDiaryEventPick[];
 export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
