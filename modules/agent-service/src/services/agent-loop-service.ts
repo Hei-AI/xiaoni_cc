@@ -7006,6 +7006,21 @@ export class AgentLoopService {
     const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
+    // 甲 (one-shot subconscious plan): the self-driven <xiaoni_plan> notify is a
+    // turn-1-only nudge. Deliver it as a cache_volatile one-shot overlay (seeded
+    // pre-loop below) and keep it OUT of requestInput + OFF the durable stack, so
+    // it is consumed by exactly the first model call and never replays into any
+    // later run (previously it persisted as a user-role trigger and compounded —
+    // see project_self_driven_xiaoni_plan_oneshot_evict / the 7-stale-plan pileup
+    // in production wire). Her RESPONSE to it still persists normally (separate
+    // output stack items), so the durable history keeps what she DID, not the raw
+    // nudge. Cache: the plan rides only as the cache_volatile tail, never entering
+    // the cacheable prefix, so excluding it from replay leaves the prefix byte-
+    // identical across the live build, the persisted replay, and every fork.
+    const isSubconsciousOneShotWake = options.queueBacked && isSubconsciousAgentNotifyPayload(payload);
+    const effectiveTriggerInputMode: RuntimeTriggerInputMode = isSubconsciousOneShotWake
+      ? 'suppress_current_trigger'
+      : options.triggerInputMode;
     let jobId: string | null = null;
     const recoveryWakeCountStartQueueMessageId = typeof options.recoveryWakeCountStartQueueMessageId === 'number'
       && Number.isFinite(options.recoveryWakeCountStartQueueMessageId)
@@ -7136,7 +7151,7 @@ export class AgentLoopService {
         runtimeEnergyState: initialRuntimeEnergyState,
         contextSessionKey,
         cutoffState,
-        triggerInputMode: options.triggerInputMode,
+        triggerInputMode: effectiveTriggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer,
         loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
       });
@@ -7191,6 +7206,14 @@ export class AgentLoopService {
       // compression switch advances it (see applyPendingCompressionMidRunIfSilent).
       let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterStackIndex ?? null;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
+      if (isSubconsciousOneShotWake) {
+        // 甲: budgetPlan.currentTurnInputItems holds the rendered <xiaoni_plan>
+        // (cache_volatile, built unconditionally); suppress_current_trigger kept it
+        // OUT of requestInput, so this pre-loop seed is its SOLE delivery — consumed
+        // at the first turn's build (the one-shot overlay at the top of the turn loop)
+        // and cleared, so turn-2+ and every later run never see it.
+        pendingOneShotInputItems.push(...budgetPlan.currentTurnInputItems);
+      }
       if (coreMemoryCompressionCheckpoint) {
         // Fork = clone of the main agent (same iron law as subconscious / image-vision /
         // heartbeat forks): base off the FULL main request input (byte-identical warm
@@ -7259,28 +7282,38 @@ export class AgentLoopService {
         continuationQueueMessages.push(claimed);
         const claimedInputItems = buildCurrentTurnInputItems(claimed.payload, runtimePrompt)
           .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
+        // 甲: a subconscious <xiaoni_plan> folded mid-run is still one-shot — deliver it
+        // via the one-shot overlay (next model call only, never loopContinuation/requestInput)
+        // and skip its durable stack row, mirroring the initial-wake path so it never replays.
+        const claimedIsSubconsciousOneShot = isSubconsciousAgentNotifyPayload(claimed.payload);
         if (claimedInputItems.length > 0) {
-          appendLoopInputItems(claimedInputItems);
+          if (claimedIsSubconsciousOneShot) {
+            appendOneShotInputItems(claimedInputItems);
+          } else {
+            appendLoopInputItems(claimedInputItems);
+          }
         }
-        await this.appendAgentStackItemsSafe({
-          traceId: claimed.payload.traceId,
-          runId: claimed.id,
-          sourceType: 'agent_queue_messages',
-          sourceId: claimed.id,
-          items: [
-            buildRuntimeInputStackItem({
-              queueMessage: claimed.payload,
-              runId: claimed.id,
-              runtimePrompt,
-              precomputedInputItems: claimedInputItems,
-              // Key the dedupe event_id on the exact queue message(s) folded here, so two
-              // reminders of the SAME QQ event (shared evt_ trace_id) get distinct stack
-              // items instead of the second colliding away. Without this the next run's
-              // replay rebuilds a shorter body and busts the prompt cache at the run boundary.
-              queueMessageIds: claimed.queueMessageIds
-            }) as Record<string, unknown>
-          ]
-        });
+        if (!claimedIsSubconsciousOneShot) {
+          await this.appendAgentStackItemsSafe({
+            traceId: claimed.payload.traceId,
+            runId: claimed.id,
+            sourceType: 'agent_queue_messages',
+            sourceId: claimed.id,
+            items: [
+              buildRuntimeInputStackItem({
+                queueMessage: claimed.payload,
+                runId: claimed.id,
+                runtimePrompt,
+                precomputedInputItems: claimedInputItems,
+                // Key the dedupe event_id on the exact queue message(s) folded here, so two
+                // reminders of the SAME QQ event (shared evt_ trace_id) get distinct stack
+                // items instead of the second colliding away. Without this the next run's
+                // replay rebuilds a shorter body and busts the prompt cache at the run boundary.
+                queueMessageIds: claimed.queueMessageIds
+              }) as Record<string, unknown>
+            ]
+          });
+        }
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
           eventType: 'queue',
@@ -7304,7 +7337,11 @@ export class AgentLoopService {
       };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-      if (options.appendRuntimeInputStackItem) {
+      if (options.appendRuntimeInputStackItem && !isSubconsciousOneShotWake) {
+        // 甲: skip persisting the <xiaoni_plan> trigger for a subconscious wake — it
+        // was delivered as a one-shot overlay above and must NOT become a durable
+        // runtime_input row (that is exactly the replay accumulation being removed).
+        // Her response persists via the output stack items regardless.
         await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -7358,6 +7395,12 @@ export class AgentLoopService {
           developerContextBlock,
           runtimeEnergyState: initialRuntimeEnergyState,
           precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems,
+          // 甲: the STW rebuild must inherit THIS run's trigger mode. For a subconscious
+          // wake that is suppress_current_trigger, so the compressed requestInput does NOT
+          // re-inject the <xiaoni_plan> — otherwise it would re-enter requestInput, get
+          // buried behind later tool outputs (durable, mid-prefix) and 穿透 at the run
+          // boundary. The plan stays a pure one-shot; only the seed overlays turn-1.
+          triggerInputMode: effectiveTriggerInputMode,
           loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
         });
         if (midRunCompressionApply) {
@@ -10541,6 +10584,10 @@ export class AgentLoopService {
     // reconstructs) as [history, loopContinuation, trigger] → a run-boundary item-order
     // divergence = the exact §3 byte-replay break this branch exists to prevent.
     loopContinuationBeforeCurrentTrigger: boolean;
+    // 甲: the run's own trigger mode. suppress_current_trigger for a subconscious
+    // wake keeps the one-shot <xiaoni_plan> out of the rebuilt requestInput. Defaults
+    // to fresh_trigger (unchanged behavior) for every other run.
+    triggerInputMode?: RuntimeTriggerInputMode;
   }): Promise<{ requestInput: OpenResponseInputItem[]; appliedCutoff: number } | null> {
     const key = params.contextSessionKey;
     // Floor for "this run hasn't built/switched to any cutoff yet". stack_index is a
@@ -10582,7 +10629,7 @@ export class AgentLoopService {
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
       runtimeEnergyState: params.runtimeEnergyState,
-      triggerInputMode: 'fresh_trigger',
+      triggerInputMode: params.triggerInputMode ?? 'fresh_trigger',
       loopContinuationBeforeCurrentTrigger: params.loopContinuationBeforeCurrentTrigger,
       precomputedCurrentTurnInputItems: params.precomputedCurrentTurnInputItems
     });

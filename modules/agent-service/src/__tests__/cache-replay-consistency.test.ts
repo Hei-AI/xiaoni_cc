@@ -1777,3 +1777,141 @@ test('run boundary: stable cutoff → next run reads from the SAME floor (no sli
     'run boundary: run 2 durable prefix must be a byte-identical ordered prefix of run 1 (no sliding-floor 击穿)'
   );
 });
+
+// —— 甲: 自驱 <xiaoni_plan> 一次性投递 (project_self_driven_xiaoni_plan_oneshot_evict) ——
+// The subconscious plan must reach EXACTLY the first model call of the run it triggers,
+// then vanish: turn-2+ of the SAME run don't see it, and no durable stack row carries it,
+// so no later run's replay can accumulate it (the production 7-stale-plan pileup this
+// removes). Her RESPONSE still persists (pop the plan, push the response). Cache-safe
+// because the plan rides only as the cache_volatile one-shot tail, never the cacheable
+// prefix — the two ironclad prefix tests above stay green, verifying no 击穿.
+function subconsciousWakePayload(marker: string, overrides: Record<string, unknown> = {}) {
+  const reminder = `<xiaoni_plan>\n${marker}\n</xiaoni_plan>`;
+  return baseQueuePayload({
+    traceId: 'runtrace-sub',
+    runId: 'run-sub',
+    batchId: 'batch-sub',
+    source: 'system_reminder',
+    chatType: 'direct',
+    bodyForAgent: reminder,
+    rawBody: reminder,
+    commandBody: reminder,
+    wasMentioned: false,
+    phoneNotification: undefined,
+    rawPayload: { reason: 'subconscious_agent', notify_template: 'subconscious_agent_notify.md' },
+    inboundContext: { Surface: 'system_reminder' },
+    systemReminder: { reminder, reason: 'subconscious_agent' },
+    messages: [],
+    ...overrides
+  });
+}
+
+test('甲: subconscious <xiaoni_plan> reaches turn-1 only, is never persisted, and the response still lands', async () => {
+  const MARKER = 'ONESHOT_PLAN_MARKER_甲_XZ9';
+  const { store, stack } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sentInputs: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sentInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn <= 2) {
+      // Two tool-call turns: the run stays multi-turn, so turn-2 proves the plan is gone
+      // WITHIN the same run (not merely across runs).
+      return {
+        success: true,
+        llm_call_id: `llm-sub-${turn}`,
+        llm_request_slice_id: `slice-sub-${turn}`,
+        canonical_response: {
+          output: [{
+            type: 'function_call',
+            call_id: `call-sub-${turn}`,
+            name: EXEC_COMMAND_TOOL,
+            arguments: JSON.stringify({ cmd: `echo turn-${turn}` })
+          }]
+        }
+      };
+    }
+    return {
+      success: true,
+      llm_call_id: `llm-sub-${turn}`,
+      llm_request_slice_id: `slice-sub-${turn}`,
+      canonical_response: {
+        output: [{
+          type: 'message',
+          role: 'assistant',
+          phase: 'final_answer',
+          content: [{ type: 'output_text', text: '嗯，我去把那句删了。RESPONSE_MARKER_甲' }]
+        }]
+      }
+    };
+  };
+
+  const queueMessage = {
+    id: 'run-sub',
+    traceId: 'runtrace-sub',
+    batchId: 'batch-sub',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-06-29T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: subconsciousWakePayload(MARKER)
+  };
+
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  assert.ok(sentInputs.length >= 3, `expected a >=3-turn run, got ${sentInputs.length}`);
+  const turnHasMarker = (i: number) => JSON.stringify(sentInputs[i]).includes(MARKER);
+  // 1) delivered to the FIRST model call
+  assert.ok(turnHasMarker(0), 'turn-1 request MUST contain the <xiaoni_plan> (delivered once)');
+  // 2) evicted from every later turn of the SAME run (one-shot, never in requestInput)
+  for (let i = 1; i < sentInputs.length; i += 1) {
+    assert.ok(!turnHasMarker(i), `turn-${i + 1} request MUST NOT contain the plan (one-shot evicted)`);
+  }
+  // 3) never persisted → no later run's replay can accumulate it. The subconscious wake
+  //    writes ZERO runtime_input rows (the trigger is a one-shot, not durable).
+  const runtimeInputRows = stack.filter((r: any) => (r.item_kind || r.itemKind) === 'runtime_input');
+  assert.equal(runtimeInputRows.length, 0, 'the <xiaoni_plan> trigger MUST NOT be written as a runtime_input stack row');
+  assert.ok(!JSON.stringify(stack).includes(MARKER), 'the plan text MUST NOT appear anywhere in the durable stack');
+  // 4) her RESPONSE still persists (push the response)
+  assert.ok(JSON.stringify(stack).includes('RESPONSE_MARKER_甲'), 'her final_answer response MUST persist to the stack');
+});
+
+test('control: a non-subconscious (phone_notification) wake STILL persists its runtime_input trigger', async () => {
+  const { store, stack } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    void canonicalRequest;
+    return {
+      success: true,
+      llm_call_id: 'llm-ctrl-1',
+      llm_request_slice_id: 'slice-ctrl-1',
+      canonical_response: {
+        output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好的。' }] }]
+      }
+    };
+  };
+
+  const queueMessage = {
+    id: 'run-A',
+    traceId: 'runtrace-A',
+    batchId: 'batch-A',
+    status: 'processing',
+    attempts: 1,
+    createdAt: '2026-06-29T08:00:00.000Z',
+    queueMessageIds: [1],
+    payload: baseQueuePayload()
+  };
+
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  const runtimeInputRows = stack.filter((r: any) => (r.item_kind || r.itemKind) === 'runtime_input');
+  assert.ok(runtimeInputRows.length >= 1, 'a normal wake MUST still persist its trigger as a runtime_input row (unchanged)');
+});
