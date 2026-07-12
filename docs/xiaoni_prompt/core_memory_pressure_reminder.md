@@ -9,5 +9,3 @@
    `cat {{XIAONI_MEMORY_COMPRESS_SKILL}}/SKILL.md`
    照它说明把近况写到这个文件：`{{COMPRESS_OUTPUT_PATH}}`
 3. 写完文件后，给一句收尾的话就停。
-
-之后你就能凭这份近况，顺畅接上近期发生的一切和刚才的进度。
