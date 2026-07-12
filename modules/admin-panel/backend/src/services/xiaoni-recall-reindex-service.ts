@@ -8,7 +8,11 @@ import {
   getExistingContentHashes,
   upsertRecallCues,
   pruneFileChunks,
-  countRecallCues
+  countRecallCues,
+  parseOpenLoops,
+  selectStaleOpenLoops,
+  insertRecallShadowLog,
+  listRecallShadowLog
 } from '@qq-bot/persistence';
 
 // 小腻被动浮现召回语料 reindex/ingest。扫动作流 + 文件底,只对内容变了的重嵌,写向量。
@@ -20,6 +24,13 @@ const CANONICAL_ROOT = '/xiaoni-runtime';
 const FILE_DIRS = ['forever', 'notes', 'reading', 'toys'];
 const EMBED_BATCH = 64;
 const HASH_LOOKUP_BATCH = 1000;
+
+// 被动召回【第二条腿】:开放承诺按时间重提(非语义)。docs/XIAONI_MEMORY_PALACE_GENERATION.md §11。
+const OPEN_LOOPS_REL_PATH = 'notes/diary/open-loops.md';
+const OPEN_LOOP_SCAN_QUERY_REF = 'open_loop_scan';
+const OPEN_LOOP_STALE_DAYS = 2;      // 搁置≥2 天才算「该提」
+const OPEN_LOOP_SURFACE_LIMIT = 3;   // 一次最多浮 3 条,别倒一堆
+const OPEN_LOOP_DEDUP_LOOKBACK = 30; // 最近 30 条 open_loop 扫描里已浮过的,冷却跳过
 
 interface RecallRecord {
   sourceKind: string;
@@ -145,6 +156,82 @@ export interface ReindexResult {
   upserted: number;
   prunedPaths: number;
   counts: { total: number; byKind: Record<string, number> };
+  openLoopScan?: OpenLoopScanResult;
+}
+
+export interface OpenLoopScanResult {
+  totalOpen: number;
+  surfaced: Array<{ text: string; openedTag: string | null; ageDays: number }>;
+  shadowLogId: string | null;
+}
+
+// 第二条腿:读 open-loops.md → 挑搁置够久的开放承诺 → 只写 shadow_log(绝不投递)。
+// 语义 band-pass 捞不到「情境相关但文本不相干」的承诺(§10);这里按时间/状态补。
+// nowMs 由调用方传(避免时钟漂移进纯选择器)。文件不存在 = 还没有开放承诺,静默返回。
+export async function scanOpenLoopsToShadow(
+  opts: { identityKey?: string; nowMs?: number } = {}
+): Promise<OpenLoopScanResult> {
+  const identityKey = opts.identityKey || 'xiaoni';
+  const nowMs = Number.isFinite(opts.nowMs) ? Number(opts.nowMs) : Date.now();
+  const absPath = path.join(RUNTIME_ROOT, OPEN_LOOPS_REL_PATH);
+
+  let content = '';
+  try {
+    content = await fs.readFile(absPath, 'utf8');
+  } catch {
+    return { totalOpen: 0, surfaced: [], shadowLogId: null };
+  }
+
+  const loops = parseOpenLoops(content);
+  const totalOpen = loops.filter((loop) => !loop.done).length;
+
+  // 去重:最近若干条 open_loop 扫描里已浮过的,冷却期内别重复提。
+  const recentTexts: string[] = [];
+  const recent = await listRecallShadowLog({ identityKey, limit: OPEN_LOOP_DEDUP_LOOKBACK });
+  for (const row of recent) {
+    if ((row as { query_ref?: string; queryRef?: string }).query_ref !== OPEN_LOOP_SCAN_QUERY_REF
+      && (row as { queryRef?: string }).queryRef !== OPEN_LOOP_SCAN_QUERY_REF) continue;
+    const surfaced = (row as { surfaced?: unknown }).surfaced;
+    if (!Array.isArray(surfaced)) continue;
+    for (const item of surfaced) {
+      const text = item && typeof (item as { text?: unknown }).text === 'string'
+        ? (item as { text: string }).text
+        : null;
+      if (text) recentTexts.push(text);
+    }
+  }
+
+  const picked = selectStaleOpenLoops(loops, {
+    nowMs,
+    staleDays: OPEN_LOOP_STALE_DAYS,
+    limit: OPEN_LOOP_SURFACE_LIMIT,
+    recentlySurfaced: recentTexts
+  });
+
+  const surfaced = picked.map((p) => ({
+    kind: 'open_loop',
+    text: p.text,
+    openedTag: p.openedTag,
+    ageDays: Math.round(p.ageDays * 10) / 10,
+    lead: `你之前记过一件还没了的事：${p.text}（放了 ${Math.floor(p.ageDays)} 天了）`
+  }));
+
+  const { id } = await insertRecallShadowLog({
+    identityKey,
+    occurredAt: new Date(nowMs),
+    queryRef: OPEN_LOOP_SCAN_QUERY_REF,
+    queryText: null,
+    silent: surfaced.length === 0,
+    corpusCount: totalOpen,
+    topK: surfaced.length,
+    surfaced
+  });
+
+  return {
+    totalOpen,
+    surfaced: picked.map((p) => ({ text: p.text, openedTag: p.openedTag, ageDays: p.ageDays })),
+    shadowLogId: id
+  };
 }
 
 export async function reindexXiaoniRecall(opts: { identityKey?: string; actionStreamLimit?: number } = {}): Promise<ReindexResult> {
@@ -184,12 +271,23 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   }
 
   const counts = await countRecallCues(identityKey);
+
+  // 第二条腿:开放承诺按时间重提(shadow-only)。搭这个已有的周期性重扫顺带跑;
+  // 绝不能因它出错而拖垮语料 reindex → try/catch 吞掉。
+  let openLoopScan: OpenLoopScanResult | undefined;
+  try {
+    openLoopScan = await scanOpenLoopsToShadow({ identityKey });
+  } catch {
+    openLoopScan = undefined;
+  }
+
   return {
     scanned: all.length,
     changed: changed.length,
     embedded,
     upserted,
     prunedPaths,
-    counts
+    counts,
+    openLoopScan
   };
 }
