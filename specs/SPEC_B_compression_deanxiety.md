@@ -19,7 +19,7 @@ locked_decisions:
 
 现状真相（已核对代码）：压缩**已经是系统触发 + fork 提交**，不是小腻主动调的：
 - 触发：字节/token 阈值命中 → 系统调度一个压缩 fork（`agent-loop-service.ts:6920` / manual `:6030`）。
-- fork 克隆主请求、追加压缩指令、`allowedToolNames={compress_core_memory}`，模型调 `compress_core_memory({text})`，fork 截获这次调用（`:10600`），把 `text` 装成新的 `<小腻近况>`（`:13100`），**代价正好一次冷 prefill**（`:10107`）。
+- fork 克隆主请求、追加压缩指令、`allowedToolNames={compress_core_memory}`，模型调 `compress_core_memory({text})`，fork 截获这次调用（`:10600`），把 `text` 装成新的 `<xiaoni_status>`（`:13100`），**代价正好一次冷 prefill**（`:10107`）。
 - 主 loop 自调用 `compress_core_memory` 已经被硬拒（`compress_core_memory_self_call_rejected.md`）。
 
 所以小腻看到的"躯体警告 + 一个她其实不能主动调的工具"纯属焦虑源。这份 spec 把压缩**从主意识里彻底拿掉**：主 agent 不再有模块五、不再有 `compress_core_memory` 工具、不再看到任何压缩措辞；压缩仍由系统触发、仍在 fork 里提交，但改用一个**主 agent 看不到的 skill** 承接。
@@ -39,7 +39,7 @@ locked_decisions:
 | 工具定义（wire） | `agent-loop-service.ts:1257` 工具 schema；`:2180` `tools.push({name: compressCoreMemory})`；`TOOL_NAMES.compressCoreMemory=:1079` | **恒在**主 tools 数组 |
 | 恒在守卫 | `agent-loop-service.ts:2114-2287` 注释铁律 + `selectMainLoopToolDefinitions` | "tools 永远全量，compress 必须始终在，tool_choice 永远 AUTO" |
 | fork 克隆 | `buildCoreMemoryCompressionForkRequest:2295`，fork 复用主 tools 数组做缓存对齐 | fork = 主 agent 克隆（铁律，见 memory `compression-fork-clone-fix`「别再改回 head-only」） |
-| fork 提交 | `:10600`（截获 compress 调用）→ `:10107`（一次冷 prefill 装新近况）→ `:13100`（`<小腻近况>` 渲染） | 结构化 `text` 参数 == 新近况 |
+| fork 提交 | `:10600`（截获 compress 调用）→ `:10107`（一次冷 prefill 装新近况）→ `:13100`（`<xiaoni_status>` 渲染） | 结构化 `text` 参数 == 新近况 |
 | 回归测试 | `agent-loop-service.test.ts`（断言 fork 看到 full tools + fork.tool_choice===主）、`cache-replay-consistency.test.ts`、`fork-cache-alignment.test.ts` | **CLAUDE.md 列为不可弱化、失败禁部署的铁律用例** |
 
 ## Proposed Change（整改方案）
@@ -56,7 +56,7 @@ locked_decisions:
          ├─ allowedToolNames = { exec_command }        ← 从 {compress_core_memory} 改为 {exec_command}
          ├─ 模型 exec_command 跑 xiaoni-memory-compress skill 脚本
          │     └─ 脚本把新近况(+溢出文件路径)写到已知 runtime 位置
-         └─ fork 读回该产物 → 装成新 <小腻近况>（保留 :10107 的"正好一次冷 prefill"不变量）
+         └─ fork 读回该产物 → 装成新 <xiaoni_status>（保留 :10107 的"正好一次冷 prefill"不变量）
 ```
 
 为什么这样能同时满足三点：
@@ -79,7 +79,7 @@ locked_decisions:
 
 **3. 压缩 skill（新增，主 agent 不可见）**
 - 新增 `modules/agent-service/skills/xiaoni-memory-compress/SKILL.md` + 脚本。
-- 职责：接收待压缩上下文范围，产出新 `<小腻近况>` 文本（+ 需要外置的溢出文件），写到 fork 能读回的 runtime 位置。
+- 职责：接收待压缩上下文范围，产出新 `<xiaoni_status>` 文本（+ 需要外置的溢出文件），写到 fork 能读回的 runtime 位置。
 - **不写进 `skills_instructions.md`**（那是主 agent 的常驻 skills 清单）→ 主 agent 的 `ls skills` 也应排除或它不在常驻提示里（设计决定见下）。
 
 **4. 压缩 fork 提交路径**
@@ -113,11 +113,11 @@ locked_decisions:
 1. `grep -r compress_core_memory docs/xiaoni_prompt/system_prompt.md` = 0；模块五整段不存在。
 2. 主 agent 的 wire tools 数组不含 `compress_core_memory`（`selectMainLoopToolDefinitions` 返回值断言）。
 3. 主 agent 任一真实请求的 `wire_request` 里搜不到 compress 工具 / 压缩措辞（真库 slice 验证）。
-4. 系统阈值触发压缩后，fork 通过 `xiaoni-memory-compress` skill 跑出新 `<小腻近况>` 并成功提交（真库：一次压缩事件后 `<小腻近况>` 更新、cutoff 前移）。
+4. 系统阈值触发压缩后，fork 通过 `xiaoni-memory-compress` skill 跑出新 `<xiaoni_status>` 并成功提交（真库：一次压缩事件后 `<xiaoni_status>` 更新、cutoff 前移）。
 5. **压缩切换只冷读一次**：fork 提交那一帧主 agent 冷读一次（`:10107` 不变量），同时/之后的 fork 与后续主 turn 不穿透（相邻 slice `cache_read_input_tokens` 实测）。
 6. `xiaoni-memory-compress` skill 不在 `skills_instructions.md`；主 agent 视角（`ls` 展示范围）看不到它。
 7. 溢出场景（近况装不下）：skill 走外置文件 + 路径写进近况，醒来可读回（对齐现有 `resolveInbound`/外置存档语义）。
-8. **去紧急感**：压缩引导 reminder（含重试版）里 `grep` 断言为 0——`眩晕`、`物理极限`、`崩溃边缘`、`濒危`、`还有一点时间`、`立刻暂停`、`强制重置`、`紧急生存`；且新文本明确含"不急/空间够/慢慢来/都写下来"这类邀请充分记录的措辞。（行为验收：改后观察一次真实压缩事件产出的 `<小腻近况>` 是否比改前更完整，而非只有一两条紧要项。）
+8. **去紧急感**：压缩引导 reminder（含重试版）里 `grep` 断言为 0——`眩晕`、`物理极限`、`崩溃边缘`、`濒危`、`还有一点时间`、`立刻暂停`、`强制重置`、`紧急生存`；且新文本明确含"不急/空间够/慢慢来/都写下来"这类邀请充分记录的措辞。（行为验收：改后观察一次真实压缩事件产出的 `<xiaoni_status>` 是否比改前更完整，而非只有一两条紧要项。）
 9. 缓存回归套件全绿（改后基线）；user 已逐条批准被改的断言。
 10. `npm --prefix modules/agent-service test` 全绿。
 

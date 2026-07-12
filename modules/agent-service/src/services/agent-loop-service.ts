@@ -134,7 +134,7 @@ type OpenResponseInputContentPart =
 const CORE_MEMORY_COMPRESSION_REMINDER_MARKER = Symbol('coreMemoryCompressionReminder');
 
 // 固化 head avatar: a byte-STABLE image pinned at the head of every main-agent request
-// (below <小腻近况>), so小腻's context is ALWAYS image-bearing. Every build renders the
+// (below <xiaoni_status>), so小腻's context is ALWAYS image-bearing. Every build renders the
 // exact same bytes → it stays inside the cached prefix and never triggers a text↔image
 // messages-tier transition when a computer_use screenshot turn appends an image.
 // Sourced固化 from docs/xiaoni.jpg (see services/xiaoni-avatar.ts). Empty string = disabled.
@@ -7271,7 +7271,7 @@ export class AgentLoopService {
               // the fork (allowedToolNames = {compress}) is meant to commit it. The tool stays in
               // allowed_tools every turn for cache alignment (resolveMainLoopToolChoice invariant),
               // so the only thing stopping a self-call is this reject. We do NOT executeTool and do
-              // NOT commit: committing would rewrite the front-of-prompt <小腻近况> and穿透 the whole
+              // NOT commit: committing would rewrite the front-of-prompt <xiaoni_status> and穿透 the whole
               // ~180K-token warm prefix (the breakdown that motivated this guard). 模块五 states the
               // same rule in-prompt; this enforces it so a prompt slip can't cost a full re-prefill.
               rawToolResult = buildToolRejectedResult(
@@ -10101,7 +10101,7 @@ export class AgentLoopService {
   // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns
   // silent point, so a long-lived run (a busy group that keeps folding messages into
   // one run) actually shrinks instead of waiting for a settle that may never come.
-  // The switch costs EXACTLY ONE cold prefill — the new <小腻近况> changes the cached
+  // The switch costs EXACTLY ONE cold prefill — the new <xiaoni_status> changes the cached
   // prefix — and then everything rides the new warm cache: subsequent main turns
   // extend the rebuilt requestInput, and any fork scheduled afterwards clones it.
   //
@@ -10164,7 +10164,7 @@ export class AgentLoopService {
       return null; // commit not landed yet, or no real advance
     }
     // Atomic context reorganization: drop history <= the new cutoff, swap in the new
-    // <小腻近况>, KEEP this run's accumulated loopContinuation (its own turns are all
+    // <xiaoni_status>, KEEP this run's accumulated loopContinuation (its own turns are all
     // above the cutoff). Reuse the run's exact (cache_volatile) current-turn trigger so
     // the rebuilt prefix is byte-stable — only THIS turn cold-reads; every later main
     // turn and every fork cloned afterwards hits the new warm cache.
@@ -10626,7 +10626,7 @@ export class AgentLoopService {
         // ── Commit trigger (Spec B): did the model write the new 近况 to the output file yet? ──
         // Same file round-trip the image-vision fork uses (readImageVisionObservationFile). When
         // present, synthesize the commit payload and run the SAME commitCoreMemoryCompression path,
-        // so the "one cold prefill installs <小腻近况> exactly once" invariant is unchanged — only
+        // so the "one cold prefill installs <xiaoni_status> exactly once" invariant is unchanged — only
         // the trigger moved from a structured tool call to a file read-back.
         const compressionFileCheck = await this.readCoreMemoryCompressionFile(
           compressionOutputPath,
@@ -13119,11 +13119,11 @@ export function buildInitialInput(
   ].filter((part): part is string => Boolean(part))));
 
   if (contextSummary) {
-    items.push(buildDeveloperInputItem([`<小腻近况>\n${contextSummary}\n</小腻近况>`]));
+    items.push(buildDeveloperInputItem([`<xiaoni_status>\n${contextSummary}\n</xiaoni_status>`]));
   }
 
-  // 固化 head avatar, below <小腻近况>: keeps the head "user list" (skills + CAPABILITIES +
-  // <小腻近况> + avatar) image-bearing on EVERY build, so a later computer_use screenshot turn
+  // 固化 head avatar, below <xiaoni_status>: keeps the head "user list" (skills + CAPABILITIES +
+  // <xiaoni_status> + avatar) image-bearing on EVERY build, so a later computer_use screenshot turn
   // does not flip the request text→image. Byte-stable → sits in the cached prefix; no-op when
   // XIAONI_HEAD_AVATAR_DATA_URL is unset. Added on every buildInitialInput → main loop, forks
   // (they clone the built request), and the post-compression rebuild all carry the same avatar.

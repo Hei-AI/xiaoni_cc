@@ -17,13 +17,13 @@
 - 当前仓库优先使用 stateless manual replay：本地通过 `agent_stack_items` 保存并回传必要的 Responses output items，而不是默认依赖 `previous_response_id`。每次真实 LLM 请求及 provider wire payload 记录为 `llm_request_slices`；trace evidence 不参与主观历史重建。
 - 手动 replay 时必须保留 assistant item 的 `phase`。中间状态用 `commentary`，最终输出用 `final_answer`。
 - reasoning / compaction item 是 opaque continuation state，只能回传，不能把内部结构当业务数据解析。
-- app 级 `<小腻近况>` 是压缩后置顶的纯文本近况时报；它不等同于 OpenAI Responses compaction。当前主链由工程检测上下文压力后强制 `compress_core_memory(text)`，并把工具 `text` 写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。普通请求可以定义这个工具和成本，但 `allowed_tools` 不允许它；只有压力请求才允许调用。
+- app 级 `<xiaoni_status>` 是压缩后置顶的纯文本近况时报；它不等同于 OpenAI Responses compaction。当前主链由工程检测上下文压力后强制 `compress_core_memory(text)`，并把工具 `text` 写入 `agent_session_context_windows.context_summary`，不是 `agent_life_events` 的 identity-root projection。普通请求可以定义这个工具和成本，但 `allowed_tools` 不允许它；只有压力请求才允许调用。
 
 ## Compaction
 
 - 官方 compaction 有两种：`context_management: [{ type: "compaction", compact_threshold }]` 和 `/responses/compact`。
 - 如果启用官方 compaction，返回的 compacted output 是后续 canonical context 的一部分；不能只抽文本，也不要丢弃 encrypted compaction item。
-- 小腻现有 `<小腻近况>` 可以继续作为产品上下文，但必须和 official compaction 分层命名、分层测试。
+- 小腻现有 `<xiaoni_status>` 可以继续作为产品上下文，但必须和 official compaction 分层命名、分层测试。
 
 ## Tools And Prompts
 
@@ -88,7 +88,7 @@
 - `final_answer` 不是 loop break。模型返回 `phase=final_answer` 且没有工具调用时，不追加 final-answer 专用 prompt reminder，也不提前写 self continuation；完整 no-notify 伪代码只看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。
 - 小腻是群友，不是客服。runtime reminder 可以提醒她“不是为了证明在线、维护气氛或延续话题而开口”，但最终能否说话要由结构化工具输出和工程门禁共同决定。
 - 如果确实需要固定工具顺序，由 runtime 状态机和 `tool_choice.allowed_tools` 约束；prompt 只说明最终目标、边界和终态工具语义。
-- `compress_core_memory(text)` 是压力专用工具。普通主请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才为后台 `core_memory_compression_fork` 追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把 fork 请求的 `tool_choice.allowed_tools` 限制为 `exec_command` + `compress_core_memory`；主 loop 可以同步建立 compression checkpoint，但不等待 fork provider 请求完成，继续用当前安全 input 跑。主 loop 不感知 compression pending/running，不读取 persisted running claim；它只基于 durable read cutoff 读取 append-only history，不能让 `limit=201` 滑动窗口每轮重算新的 planned cutoff。成功后工程再把工具 `text` 写入未来 `<小腻近况>` 并推进 read cutoff。不要再把主链 `<小腻近况>` 交给后台 `context_summary_writer` 客观摘要。
+- `compress_core_memory(text)` 是压力专用工具。普通主请求可以带它的 tool definition 和 `<CAPABILITIES>` 成本，但 `tool_choice.allowed_tools` 不允许它。工程只有在 count-based 压缩阈值或 token hard budget 压力触发时，才为后台 `core_memory_compression_fork` 追加 body-only `core_memory_pressure` `<system_reminder>`，并通过代码侧 marker 把 fork 请求的 `tool_choice.allowed_tools` 限制为 `exec_command` + `compress_core_memory`；主 loop 可以同步建立 compression checkpoint，但不等待 fork provider 请求完成，继续用当前安全 input 跑。主 loop 不感知 compression pending/running，不读取 persisted running claim；它只基于 durable read cutoff 读取 append-only history，不能让 `limit=201` 滑动窗口每轮重算新的 planned cutoff。成功后工程再把工具 `text` 写入未来 `<xiaoni_status>` 并推进 read cutoff。不要再把主链 `<xiaoni_status>` 交给后台 `context_summary_writer` 客观摘要。
 - 主 loop 重建 prompt-visible 历史时，先读取 `xiaoni:global` 的 read cutoff，再用它作为 `listRecentTurns(afterConversationId)` 的 DB 边界；不能先无条件拉最近 201 条再把已压缩历史交给预算层过滤。超过 cutoff 后的新历史达到压缩阈值时才触发下一次 count-based compression。
 
 ## Memory And Search Routing

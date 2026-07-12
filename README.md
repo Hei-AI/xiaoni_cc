@@ -58,7 +58,7 @@ NapCat -> provider-service
 - 小腻主循环是同一个连续 LLM runtime stream：QQ 输入进入 queue 时只作为 `phone_notification` 感官事件；模型 response、tool result、状态、可见投递与必要记忆按顺序追加进 `agent_stack_items`。每次真实 LLM 调用由 `agent-service` 组装 canonical request，`provider-service` / Codex Provider 负责发出 provider 请求并把完整 canonical/wire request/response 记录为 `llm_request_slices`，`agent-service` 只回填 slice 对应的 stack index。当前 loop 伪代码、no-notify 语义、`final_answer` 连续推进、`recover_energy` callback、QQ inbox/Notify Bucket 边界和图片理解 fork 统一看 `docs/XIAONI_AGENT_STACK_LEDGER.md`。主 prompt 和 reminder 模板事实源是 `docs/xiaoni_prompt/`，模板索引看 `docs/remind.md`。
 - provider 侧 participation 保留为硬安全边界和观测事件；其中聊天对象 `is_enabled=0` 会硬拦截 `phone_notification` 入桶。主行为判断仍在 `agent-service` runtime。
 - 当前主发言判断在 `agent-service`；topic projection、transcript snapshot、三层长期记忆等后台能力可以用于观测、后续 typed recall projection、评测或异步产物，但不要把它们当成入口层“是否说话”的总决策器。
-- 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。当前对话历史里的旧 `<小腻的OS>` 按历史真相保留，不做 DB 迁移，并随已读历史一起参与上下文窗口管理。`<小腻近况>` 当前由 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
+- 新 prompt-facing 私密备注标签是 `<xiaoni_os>`。当前对话历史里的旧 `<小腻的OS>` 按历史真相保留，不做 DB 迁移，并随已读历史一起参与上下文窗口管理。`<xiaoni_status>` 当前由 `compress_core_memory(text)` 写入 `agent_session_context_windows.context_summary`；三层 compact memory 已生成但还没有作为 runtime typed recall projection 自动进入主 prompt。
 - HTTP 流量监控/回放属于管理端运维工具链。
 
 ## 快速开始

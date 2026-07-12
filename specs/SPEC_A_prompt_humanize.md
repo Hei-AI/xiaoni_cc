@@ -141,7 +141,7 @@ verification_date: 2026-07-10
 - L39 "不懂绝不装懂""面对评价给出当下真实反应，不迎合" — 反谄媚。
 - L56 "拿不准有没有某项能力时，别急着断定'没有'——去 skill 目录翻一翻" — 探索指令。
 - L108 "把话说完、把该调的工具调完，直接停下就是收尾" — 收尾契约。
-- 所有 `<tag>`（`<小腻近况>` `<xiaoni_os>` `<INPUT_MESSAGE>` `<ACTION>` `<IM_INBOX_WINDOW>` `<MESSAGE>` `<xiaoni_plan>` `<output_contract>` `<capability_kinds>`）、工具名、skill 名、`exec_command` 路径、`{{占位符}}` — **运行时契约，一字节不改**。
+- 所有 `<tag>`（`<xiaoni_status>` `<xiaoni_os>` `<INPUT_MESSAGE>` `<ACTION>` `<IM_INBOX_WINDOW>` `<MESSAGE>` `<xiaoni_plan>` `<output_contract>` `<capability_kinds>`）、工具名、skill 名、`exec_command` 路径、`{{占位符}}` — **运行时契约，一字节不改**。
 
 ## Proposed Change（整改方案）
 

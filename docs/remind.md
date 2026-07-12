@@ -61,7 +61,7 @@
   `sessionKey`、`threadKey`、`queueId`、`traceId` 或 `runId`。
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
 - `image_task_pending` 只允许说明任务仍在渲染中，且当前没有图片 id/path；如果此前盲猜路径导致发送失败，未来完成 notify 里的 id/path 会覆盖旧失败记忆。
-- `core_memory_compression_fork_retry` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<小腻近况>`。
+- `core_memory_compression_fork_retry` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<xiaoni_status>`。
 - image vision fork 的正文观察必须来自 `/xiaoni-runtime/image-vision/observations/<image_id>.md`；
   provider `final_answer` 只是检查时机，不是观察内容。fork 内只执行 `exec_command`，
   其它工具请求只能收到 corrective tool output。

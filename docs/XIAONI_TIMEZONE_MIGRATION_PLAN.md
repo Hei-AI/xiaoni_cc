@@ -19,7 +19,7 @@
 小腻继续运行，等待下一次 compress_core_memory 成功
         |
         v
-compression commit 写入 <小腻近况> 和 read cutoff
+compression commit 写入 <xiaoni_status> 和 read cutoff
         |
         v
 agent-service 自动设置 runtime enabled=false，并清掉设闸状态

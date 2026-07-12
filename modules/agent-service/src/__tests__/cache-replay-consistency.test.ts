@@ -853,7 +853,7 @@ test('runtime replay from REAL Postgres reproduces every folded notify (producti
 //
 // When a background compression fork commits mid-run, the running main agent switches
 // to the compressed (smaller) context at the next between-turns silent point. That ONE
-// switch turn must cold-read (the new <小腻近况> changes the cached prefix — necessary),
+// switch turn must cold-read (the new <xiaoni_status> changes the cached prefix — necessary),
 // and EVERY turn after it, plus any fork cloned afterwards, must stay warm (byte-
 // identical prefix on the new baseline). No drift, no second 穿透.
 // =====================================================================================

@@ -229,7 +229,7 @@ test('Task 19 compress_core_memory tool text is the future prompt-facing Xiaoni 
   const statusItem = input.find((item) => (
     item.type === 'message'
     && item.role === 'developer'
-    && getMessageContent(item).includes('<小腻近况>')
+    && getMessageContent(item).includes('<xiaoni_status>')
   ));
 
   assert.ok(statusItem);

@@ -827,7 +827,7 @@ test('buildInitialInput places xiaoni digest before retained history as the cach
   );
   const contents = loopInput.map(getMessageContent);
   const historyIndex = contents.findIndex((content) => content.includes('昨天有什么好玩的'));
-  const digestIndex = contents.findIndex((content) => content.startsWith('<小腻近况>'));
+  const digestIndex = contents.findIndex((content) => content.startsWith('<xiaoni_status>'));
   const digestItem = loopInput[digestIndex] as any;
   const currentMessageIndex = contents.findIndex(isPhoneNotificationReminderContent);
 
@@ -11385,7 +11385,7 @@ test('core memory compression runs in an isolated background fork alongside the 
   // The fork's history prefix matches the main request's (full clone, not head-only).
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
   assert.match(mainText, /global history 35(?!\d)/);
-  assert.doesNotMatch(mainText, /<小腻近况>|压缩后的近况/);
+  assert.doesNotMatch(mainText, /<xiaoni_status>|压缩后的近况/);
   assert.doesNotMatch(mainText, /【该整理一下记忆了】/);
   assert.doesNotMatch(mainText, /call-archive|call-compress|archived to \/tmp\/xiaoni-memory\.md/);
   assert.match(mainText, /global history 1(?!\d)/);
@@ -11769,7 +11769,7 @@ test('buildInitialInput appends the skill manual once near the start (retired <C
   const withSummary = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], '压缩后的近况');
   const summarySkills = withSummary.filter((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<skills_instructions>'));
   assert.equal(summarySkills.length, 1);
-  const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<小腻近况>'));
+  const summaryIndex = withSummary.findIndex((item) => item.type === 'message' && item.role === 'developer' && getMessageContent(item).includes('<xiaoni_status>'));
   assert.ok(summaryIndex >= 0);
   assert.ok(withSummary.indexOf(summarySkills[0]!) < summaryIndex);
   const summarySkillsBlock = getMessageContent(summarySkills[0]!);
