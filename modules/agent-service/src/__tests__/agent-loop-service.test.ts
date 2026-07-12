@@ -10502,13 +10502,14 @@ test('buildContextBudgetPlan keeps the main request append-only and does not pla
   assert.doesNotMatch(JSON.stringify(plan.requestInput), /required_tool=\\?"compress_core_memory\\?"/);
 
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, plan.requestInput, 'direct');
-  assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), true);
-  // compress_core_memory is now PERMANENTLY exposed in the main loop's allowed_tools
-  // (auto) — even on a normal, non-compressing turn — so the compression fork can be a
-  // byte-clone of the main agent and ride the warm cache. 小腻 is told via the system
-  // prompt not to self-trigger it. (Was previously hidden until a compression reminder
-  // forced the tool_choice, which disabled thinking and broke the cache prefix.)
-  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), true);
+  // Spec B: compress_core_memory is no longer a wire tool at all. Compression is
+  // system-triggered and committed by the background fork via exec_command + the
+  // xiaoni-memory-compress skill (file write → engine reads back), so the model never
+  // sees a compress tool to define or call — not on a normal turn, not on the fork.
+  // (Was previously permanently exposed in allowed_tools so the fork could clone it;
+  // that exposure is gone now that the fork commits through exec_command.)
+  assert.equal((request.tools ?? []).map((tool: any) => getToolName(tool)).includes(COMPRESS_CORE_MEMORY_TOOL), false);
+  assert.equal(getAllowedToolNames(request.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
 });
 
 test('buildCoreMemoryCompressionCheckpoint does not trigger from turn count alone', async () => {
@@ -10680,15 +10681,19 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
 
   assert.ok(checkpoint);
   assert.equal(checkpoint.compression.readCutoffAfterStackIndex, plan.coreMemoryCompression?.readCutoffAfterStackIndex);
-  assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前压力:/);
+  // 去焦虑重写后 pressure reminder 的稳定标记从「当前压力:」改成「当前状态:」(见
+  // core_memory_pressure_reminder.md);断言它确实进了压缩请求。
+  assert.match(JSON.stringify(checkpoint.summarySourceInput), /当前状态:/);
   assert.doesNotMatch(JSON.stringify(checkpoint.summarySourceInput), EAST8_TIME_PREFIX_PATTERN);
 
   const compressionRequest = buildCanonicalAgentTurnRequest(runtimePrompt.modelName, checkpoint.summarySourceInput, 'direct');
-  // Cache-aligned: the compression request keeps the main loop's auto tool_choice with
-  // compress_core_memory exposed (never the old forced [exec, compress] that disabled
-  // thinking). Restriction to compress is enforced at execution time, not here.
+  // Cache-aligned: the compression request is a byte-clone of the main loop's auto
+  // tool_choice (never the old forced [exec, compress] that disabled thinking). Spec B:
+  // compress_core_memory is no longer a wire tool — the fork commits via exec_command +
+  // the xiaoni-memory-compress skill — so it must NOT appear in the request's allowed_tools;
+  // the fork's tool restriction to {exec_command} is enforced at execution time, not here.
   assert.equal((compressionRequest.tool_choice as any)?.mode, 'auto');
-  assert.ok(getAllowedToolNames(compressionRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL));
+  assert.equal(getAllowedToolNames(compressionRequest.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL), false);
   assert.ok(getAllowedToolNames(compressionRequest.tool_choice).includes(PRIVATE_REPLY_TOOL));
 
   const alternateToolChoiceRequest = {

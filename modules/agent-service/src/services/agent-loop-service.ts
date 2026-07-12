@@ -7503,14 +7503,14 @@ export class AgentLoopService {
             let rawToolResult: Record<string, unknown>;
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               // Hard execution-layer guard: 小腻 must NEVER self-trigger compression from the main
-              // loop. Compression is a passive, system-driven capability — the "躯体警告" pressure
-              // reminder goes to the background compression fork, never to her main loop, and only
-              // the fork (allowedToolNames = {compress}) is meant to commit it. The tool stays in
-              // allowed_tools every turn for cache alignment (resolveMainLoopToolChoice invariant),
-              // so the only thing stopping a self-call is this reject. We do NOT executeTool and do
-              // NOT commit: committing would rewrite the front-of-prompt <xiaoni_status> and穿透 the whole
-              // ~180K-token warm prefix (the breakdown that motivated this guard). 模块五 states the
-              // same rule in-prompt; this enforces it so a prompt slip can't cost a full re-prefill.
+              // loop. Compression is a passive, system-driven capability committed by the background
+              // fork (Spec B: the fork's allowedToolNames = {exec_command}; it writes the new 近况 to
+              // a file via the xiaoni-memory-compress skill, then the engine reads it back). Since Spec B,
+              // compress_core_memory is no longer a wire tool at all — it is not in the main request's
+              // tools/allowed_tools — so the main model cannot normally emit it; this branch is a
+              // belt-and-suspenders reject for any stray call. We do NOT executeTool and do NOT commit:
+              // committing would rewrite the front-of-prompt <xiaoni_status> and穿透 the whole ~180K-token
+              // warm prefix (the breakdown that motivated this guard). 模块五 states the same rule in-prompt.
               rawToolResult = buildToolRejectedResult(
                 toolCall,
                 renderPromptSnippet('compress_core_memory_self_call_rejected.md')
