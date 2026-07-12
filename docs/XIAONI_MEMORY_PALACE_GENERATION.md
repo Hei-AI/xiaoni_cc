@@ -2,7 +2,7 @@
 
 > Status: **生成端 part1 · 写规范 + skill 一致性 + 压缩可靠性护栏 已落地并过缓存门禁**(2026-07-10 起草,2026-07-12 两轮定案)。
 > 已改并终检:压缩提醒(§5.1,主力=日记·一事一 `## 小标题`·实测切干净·含 review 修正 P2 非事件条目/禁顶层 `#`/同标题补写)+ 记忆锚定 skill(§5.2,主动召回读端,路径/格式逐字对齐+字典标为手动辅助)+ compress commit skill(近况指针指日记)+ **压缩 fork 兜底提交(§7.6,缓存门禁全绿)**。
-> 存量迁移**不做**(小腻自迁)。召回功效诚实边界见 §10。后续:前瞻性索引闸(§7.1,改 reindex-service 非 extractor)、被动召回投递端(现 shadow-only)。
+> 存量迁移**不做**(小腻自迁)。召回功效诚实边界见 §10。前瞻性索引闸(§7.1,改 reindex-service)**已落 `cdde9615`**;被动召回投递端仍 shadow-only(§11 待续)。**部署实况见 §9,顺序铁律见 §9 的 🔴。**
 > 起草原因:被动召回要从「她刻意维护的记忆」里召回,而不是从文件系统 / 她读过的原文里召回。
 > **本文档的第一用途是联动**:核心改动落在两处 prompt 面(压缩提醒 + 记忆宫殿 skill),
 > 而这两处目前也有别的同事在调。**动手改这两个文件前先对齐本文档,避免互相覆盖。**
@@ -243,14 +243,16 @@
 ## 9. 落地顺序 + 验收
 
 1. **先对齐 prompt 同事**:§5.1 提醒草稿 + §5.2 skill 改法定稿,确认字节稳定(§6)。
-2. **代码面(§7)**:extractor 白名单 + action_stream 收敛 + spoken 源 + normalizeRecallText;补/改测试全绿。
-3. **reconcile**:dry-run 核对 DELETE/UPDATE 样本 → APPLY 清存量。
-4. **prompt 上线**:reminder + skill 定稿落文件。
-5. **构建部署**:先跑 §6 三套缓存用例全绿,再 `docker compose build/up agent-service`;`docker compose ps` healthy。
+2. **代码面(§7)**:前瞻索引闸(§7.1,已落 `cdde9615`)+ action_stream 收敛 + spoken 源 + normalizeRecallText;补/改测试全绿。
+3. ~~**reconcile**:dry-run 核对 DELETE/UPDATE 样本 → APPLY 清存量。~~ **搁置**(存量由小腻自迁,§7.5)。见下方 🔴 顺序铁律。
+4. **prompt 上线**:reminder + skill 定稿落文件(已落 `1157c087`/`409778fd`)。
+5. **构建部署**:先跑 §6 三套缓存用例全绿,再 `docker compose build/up agent-service`;`docker compose ps` healthy。(已部署 2026-07-12,cache_read 暖 47096 无穿透。)
 6. **观测(shadow-only)**:
-   - 日记是否被压缩养起来(`notes/diary/` cue 数随压缩上升)。
+   - 日记是否被压缩养起来(`notes/diary/` cue 数随压缩上升)。**这是下方顺序铁律的解锁条件。**
    - 召回命中的是不是她真记忆(B 相关性)而不是原文。
    - 静默率保持(P2 已到 ~85%),A 不在场不回退。
+
+> **🔴 顺序铁律(交叉 review 挖出的最高业务风险,无代码护栏)**:**绝不能在 `notes/diary/` cue 数被压缩养上来之前跑存量 purge。** 前瞻闸(§7.1)本身安全——它只停止新增非宫殿文件语料,**存量 cue 不回溯删**,当前召回池不受损,文件腿不会立即饿死。但一旦有人先跑 reconcile purge 把那 67k 污染 + ~2000 条真实旧 `notes/<date>/` 记忆删掉,而此刻 diary 仍近空(§2 实测 ~17 条)、动作流腿又是「计划要砍的噪音腿」在临时兜底,**文件腿会瞬间归零**,再靠压缩一点点养要很久。安全默认 = purge 一直搁置,直到 §9.6 观测确认 diary cue 数随压缩稳定上升。**收窄 + purge 的先后顺序是这批唯一的业务地雷。**
 
 ---
 
@@ -264,6 +266,8 @@
 
 **结论**:对「她此刻正处在和某条已写下、已遗忘的经历语义相近的情境」——**能浮**。对「需要想起、但当下无文本线索勾它」(尤其**开放承诺/未闭合的事**)——**关联召回结构上做不到**,得换机制(按时间/状态主动重提,而非语义相似),就是 §11 的第二条腿。
 
+**⚠️ 一个更宽的缺口(交叉 review 2026-07-12 指出)**:北极星「想起干过啥」本就包含**纯情节事件**(不是承诺,就是往事,如「上周修好了发图超时」)。这类事一旦当下语境无文本线索,**语义腿因 cos<floor 结构性捞不到,而 §11 第二条腿只扫 `open-loops.md` 的开放承诺(`- [ ]`),不扫纯事件**——它落在两条腿之间,当前**无任何机制覆盖**。要吃下它,得再加一条按时间/状态(而非语义)重提纯事件的腿,或降低静默率 / 引入 lead 富化。诚实记账:这套现在能可靠达成的是「**语义可勾**的情节召回」,不是「她需要想起的**所有**情节」。
+
 ---
 
 ## 11. 第二条腿:开放承诺按时间/状态重提(§10 盲区的根治)—— 落地中 2026-07-12
@@ -273,9 +277,15 @@
 **架构(mirror 第一条腿:persistence + admin-backend,不碰 heartbeat/主 loop)**:
 - **状态源**:她维护 `notes/diary/open-loops.md`,`- [ ] 一句话 (M/D)` 开、`- [x]` 闭。压缩提醒 + 记忆锚定 skill 都已引导(承诺当场登记、做完划掉)。
 - **纯扫描器**(`packages/persistence/xiaoni-open-loops.js`,已落 + 8/8 测试绿):`parseOpenLoops`(解析开/闭+日期标注)、`parseTagDate`(M/D 按 nowMs 年推断、未来则回退去年)、`selectStaleOpenLoops`(挑开着·搁置≥staleDays·未近重复·按最久优先·limit 截断)。纯函数,nowMs 由调用方传,零时钟依赖。
-- **编排 + 触发**(`admin-panel/backend/.../xiaoni-recall-reindex-service.ts` 的 `scanOpenLoopsToShadow`,搭已有周期性 reindex 顺带跑,try/catch 吞错不拖垮语料):读文件→选搁置久的→查最近 30 条 open_loop shadow 去重→写 `xiaoni_recall_shadow_log`(`query_ref='open_loop_scan'`,surfaced 带 `kind:'open_loop'`+lead)。
-- **投递**:**shadow-only**,和第一条腿一致,只落库不投递,先观察抽取/时机准不准,再决定投递方式(内部 FYI / system_reminder)。
+- **编排 + 触发**(`admin-panel/backend/.../xiaoni-recall-reindex-service.ts` 的 `scanOpenLoopsToShadow`,搭 reindex 顺带跑,try/catch 吞错不拖垮语料):读文件→选搁置久的→查最近 30 条 open_loop shadow 去重→写 `xiaoni_recall_shadow_log`(`query_ref='open_loop_scan'`,surfaced 带 `kind:'open_loop'`+lead)。
+  - **触发实况(勘误)**:`reindexXiaoniRecall` **唯一入口是手动 POST** `/xiaoni/passive-recall/reindex`(admin 管理端「重建」按钮),**全仓无 cron/interval/timer**。所以第二条腿目前**只在有人手动点重扫那一刻跑一次**——「按时间盯着」这个卖点在有自动节律之前并不成立。之前写的「周期性 reindex」是措辞上的一厢情愿,已勘误。
+- **投递**:**shadow-only**,和第一条腿一致,只落库不投递。**诚实记账**:因此这条腿当前对「别让小腻忘了答应的事」这个业务目标的**实际达成度 = 0**(她永远看不到 shadow_log)。现在证明的是「这套挑法能挑对」,不是「她真的没忘事」;后者要等投递 + 自动触发 + 她真在写这三件都到位。
 
-**参数**:staleDays=2、limit=3、dedup lookback=30。**验证状态**:纯扫描器已实测绿;admin-backend 编排**本地无 node_modules(Docker-only)未类型检查**,需 `docker compose build admin-backend` 验证;新增 persistence 文件已补进 3 个 Dockerfile COPY 白名单(否则容器 require 崩)。
+**参数**:staleDays=2、limit=3、dedup lookback=30。**验证状态**:纯扫描器 8/8 绿;admin-backend 编排 `docker compose build admin-backend` **已过**(tsc clean,§7.1 前瞻闸同镜像一起编译过);新增 persistence 文件已补进 3 个 Dockerfile COPY 白名单。
 
-**待续**:①docker build admin-backend 验证编排②admin 管理端展示 open_loop shadow(复用召回 shadow 面)③观察后决定是否真投递 + 投递 channel④触发目前搭 reindex(手动/周期);要更勤可另配独立 cron。
+**交叉 review 挖出的已知短板(2026-07-12,shadow-only 无 live 影响,投递前一并修)**:
+- **无日期 = 永久隐形(反讽 bug)**:`parseTagDate` 返回 null 就不浮。这条腿本为「别让她忘事」,但她登记时忘了打日期(便签极可能),那条承诺对第二腿就永久隐形——最该兜的健忘恰在源头被静默丢。修向:无日期项按「已见但长期未动」的 seen-count 兜底浮一次,而非直接吞。
+- **oldest-first 饿死中龄承诺**:排序严格按最久优先 + limit=3 + 只有 `[ ]`/`[x]` 两态(无「放弃/归档」),一条百天老的死承诺长期霸榜前 3,搁 3–10 天、真正还救得回的新承诺挤不进。修向:加「放弃」态或对超龄项衰减降权。
+- **时区轻微失真**:`parseTagDate` 用 UTC 零点、`nowMs` 是真 UTC,而她的「今天」是北京 wall-clock(+8h),age 在阈值边界几小时会差一天。非功能 bug,但 lead 的「放了 N 天」会略失真。
+
+**待续(按重要性)**:①【决定性】投递 channel —— 且必须走一次性、非持久、可从 replay 剥除的 non-durable 通道(同 MEMORY `xiaoni_plan one-shot evict`/D-strip),否则 open-loop 提醒随时间/条目变化会击穿主/fork 缓存(双缓存铁律),不是翻开关。②【同等致命前提】她到底写不写带日期的 open-loops.md —— 空或无日期则扫出来是空。③自动触发节律(cron/heartbeat),现在连 shadow 观测都不连续。④admin 管理端展示 open_loop shadow。⑤修上面三个已知短板。
