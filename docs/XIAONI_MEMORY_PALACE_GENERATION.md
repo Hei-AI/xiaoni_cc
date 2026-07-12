@@ -262,4 +262,20 @@
 - **闸2 · band-pass 捞不捞得对(召回端,已部署 shadow)**:打分=关联度−在场度。**两个硬顶**:①**结构性盲区**——靠语义相似,捞不到「情境相关但文本不相干」的记忆(她答应楠楠盯考研,楠楠发「在吗」勾不出那条承诺);②刻意保守 ~85% 静默(方向 B 保真),本来就会漏。
 - **闸3 · 到不到得了她**:现 **shadow-only 不投递**,今天按设计到不了她眼前,只落评估日志;真投递是 v2 另一步。
 
-**结论**:对「她此刻正处在和某条已写下、已遗忘的经历语义相近的情境」——**能浮**。对「需要想起、但当下无文本线索勾它」(尤其**开放承诺/未闭合的事**)——**关联召回结构上做不到**,得换机制(按时间/状态主动重提,而非语义相似),是独立的第二条腿,可后置。日记里把「答应了还没做的事」也记成一条,是对这个盲区的**部分**缓解,不是根治。
+**结论**:对「她此刻正处在和某条已写下、已遗忘的经历语义相近的情境」——**能浮**。对「需要想起、但当下无文本线索勾它」(尤其**开放承诺/未闭合的事**)——**关联召回结构上做不到**,得换机制(按时间/状态主动重提,而非语义相似),就是 §11 的第二条腿。
+
+---
+
+## 11. 第二条腿:开放承诺按时间/状态重提(§10 盲区的根治)—— 落地中 2026-07-12
+
+补 §10 闸2 的结构性盲区:「答应了没做的事」当下无语义线索勾不出来,靠**时间/状态**主动重提。
+
+**架构(mirror 第一条腿:persistence + admin-backend,不碰 heartbeat/主 loop)**:
+- **状态源**:她维护 `notes/diary/open-loops.md`,`- [ ] 一句话 (M/D)` 开、`- [x]` 闭。压缩提醒 + 记忆锚定 skill 都已引导(承诺当场登记、做完划掉)。
+- **纯扫描器**(`packages/persistence/xiaoni-open-loops.js`,已落 + 8/8 测试绿):`parseOpenLoops`(解析开/闭+日期标注)、`parseTagDate`(M/D 按 nowMs 年推断、未来则回退去年)、`selectStaleOpenLoops`(挑开着·搁置≥staleDays·未近重复·按最久优先·limit 截断)。纯函数,nowMs 由调用方传,零时钟依赖。
+- **编排 + 触发**(`admin-panel/backend/.../xiaoni-recall-reindex-service.ts` 的 `scanOpenLoopsToShadow`,搭已有周期性 reindex 顺带跑,try/catch 吞错不拖垮语料):读文件→选搁置久的→查最近 30 条 open_loop shadow 去重→写 `xiaoni_recall_shadow_log`(`query_ref='open_loop_scan'`,surfaced 带 `kind:'open_loop'`+lead)。
+- **投递**:**shadow-only**,和第一条腿一致,只落库不投递,先观察抽取/时机准不准,再决定投递方式(内部 FYI / system_reminder)。
+
+**参数**:staleDays=2、limit=3、dedup lookback=30。**验证状态**:纯扫描器已实测绿;admin-backend 编排**本地无 node_modules(Docker-only)未类型检查**,需 `docker compose build admin-backend` 验证;新增 persistence 文件已补进 3 个 Dockerfile COPY 白名单(否则容器 require 崩)。
+
+**待续**:①docker build admin-backend 验证编排②admin 管理端展示 open_loop shadow(复用召回 shadow 面)③观察后决定是否真投递 + 投递 channel④触发目前搭 reindex(手动/周期);要更勤可另配独立 cron。
