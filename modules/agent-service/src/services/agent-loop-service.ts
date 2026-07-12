@@ -1279,7 +1279,7 @@ const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
 // Spec B: hard cap on total fork turns. The no-tool-retry counter only fires when the model
 // stops calling tools; a model that keeps calling exec_command without ever writing the 近况
 // file would loop forever without this bound.
-const CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS = 12;
+const CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS = 18;
 const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
 const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
@@ -4319,6 +4319,17 @@ function buildCurrentBucketMessageParts(queueMessage: QueueMessageRecord['payloa
 // is code-enforced and the reminder stays cache-stable.
 const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
   '把当前可压缩的稳定旧上下文整理成新的核心记忆近况，保留最近的衔接内容继续往下做。';
+
+// Turn-budget safety net (Spec B): distillation (writing today's diary) must NEVER be able
+// to block compression itself. If the fork exhausts its turn budget without ever writing the
+// 近况 file, we DO NOT throw (that would leave the read cutoff un-advanced → context keeps
+// growing → 413 / cache blowout). Instead we commit this deterministic minimal seam summary so
+// the cutoff always advances. The real memory is safe on disk in today's diary (the fork was
+// writing it turn by turn); <xiaoni_status> just needs to be non-empty and redirect her there.
+// MUST stay byte-stable (no dates/counts): it is stored and replayed verbatim into the next
+// main run, so any per-run drift would break run-boundary cache.
+const CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY =
+  '（这轮记忆整理没能在限定步数内写完近况。最近这段的经历，我一条条落在了今天的日记里（/xiaoni-runtime/notes/diary/ 下按日期的那份）。醒来先 cat 一下今天的日记就能接上。）';
 
 export function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
@@ -10615,10 +10626,13 @@ export class AgentLoopService {
     bypassRuntimeEnabledGate?: boolean;
   }): Promise<CoreMemoryCompressionCommit> {
     const forkRunId = `core-memory-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
-    // Spec B: the fork only permits exec_command. The model authors the new 近况 and writes it
-    // to compressionOutputPath (via the xiaoni-memory-compress skill); the fork reads it back to
-    // commit. compress_core_memory is no longer a tool anywhere.
-    const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand]);
+    // Spec B: the fork permits exec_command (to write the diary + run the 近况 commit skill) and
+    // read_file (to read today's diary back IN FULL before appending — exec_command `cat` truncates
+    // large output via the head+tail envelope, which would break dedup). The model authors the new
+    // 近况 and writes it to compressionOutputPath; the fork reads it back to commit. Widening this
+    // execution gate does NOT change the fork's tools/tool_choice (still a byte-clone of the main
+    // request), so it is cache-safe. compress_core_memory is no longer a tool anywhere.
+    const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand, TOOL_NAMES.readFile]);
     const compressionOutputPath = buildCoreMemoryCompressionOutputPath(params.compression.contextSessionKey);
     let forkInput = [
       ...cloneCanonicalAgentTurnRequest(params.baseRequest).input,
@@ -10974,19 +10988,86 @@ export class AgentLoopService {
           }
         }
         if (forkTurn >= CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS) {
-          throw new Error(
-            `core memory compression fork exhausted ${CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS} turns without writing the 近况 file (${compressionFileCheck.message})`
-          );
+          // Turn-budget safety net: DON'T throw (that leaves the cutoff un-advanced → context
+          // grows → 413). Commit a deterministic minimal seam summary through the SAME commit
+          // path so the cutoff always advances; the real memory is already on disk in today's
+          // diary. See CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY.
+          const fallbackToolCall = {
+            name: TOOL_NAMES.compressCoreMemory,
+            callId: `core-memory-compress-fallback:${forkRunId}:${forkTurn}`,
+            args: { text: CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY },
+            rawArguments: JSON.stringify({ text: CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY })
+          } as unknown as AgentToolCall;
+          const fallbackCommit = await this.commitCoreMemoryCompression({
+            rawToolResult: {
+              text: CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY,
+              compressed: true,
+              outcome: 'core_memory_compressed',
+              source: 'compression_fork_turn_budget_fallback',
+              output_path: compressionOutputPath
+            },
+            toolCall: fallbackToolCall,
+            compression: params.compression,
+            contextSessionKey: params.contextSessionKey,
+            sourceResponseId: modelResult.llm_call_id || null,
+            metadata: {
+              trace_id: params.queueMessage.traceId,
+              execution_mode: 'compression_fork',
+              fork_run_id: forkRunId,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal,
+              compression_output_path: compressionOutputPath,
+              compression_turn_budget_fallback: true,
+              no_main_stack_persist: true,
+              no_traffic_persist: true
+            }
+          });
+          await this.completeCoreMemoryCompressionForkRunSafe({
+            forkRunId,
+            status: 'completed',
+            summaryText: fallbackCommit.text,
+            artifact: fallbackCommit.artifact,
+            metadata: {
+              ...baseForkMetadata,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal,
+              compression_turn_budget_fallback: true
+            }
+          });
+          await this.store.logTimelineEvent({
+            traceId: params.queueMessage.traceId,
+            eventType: 'memory',
+            eventName: 'core_memory_compression_fork',
+            eventPhase: 'end',
+            metadata: {
+              status: 'completed_turn_budget_fallback',
+              fork_run_id: forkRunId,
+              context_session_key: params.compression.contextSessionKey,
+              read_cutoff_after_stack_index: params.compression.readCutoffAfterStackIndex,
+              fork_turn_count: forkTurn,
+              fork_tool_call_count: forkToolCallCount,
+              fork_no_tool_retry_count: forkNoToolRetryTotal
+            }
+          });
+          return fallbackCommit;
         }
+        // Reserve-a-turn nudge: when the turn budget is nearly spent, stop distilling and commit
+        // the 近况 now, so we land real content before the turn-budget fallback ever fires.
+        const forkTurnsLeft = CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS - forkTurn;
+        const forkTurnUrgency = forkTurnsLeft <= 2
+          ? `【只剩 ${forkTurnsLeft} 步，先别再写日记了，立刻用记忆整理脚本把近况写到 ${compressionOutputPath} 收尾】`
+          : '';
         forkInput.push(buildCoreMemoryCompressionForkRetryReminder({
           forkTurn,
           retryCount: forkNoToolRetryCount,
           maxRetries: CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES,
-          reason: actionPlan.hasFinalAnswer
+          reason: `${forkTurnUrgency}${actionPlan.hasFinalAnswer
             ? `你已经 final_answer，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
             : actionPlan.hasToolCall
               ? `你跑了 exec_command，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
-              : `还没写近况文件（${compressionFileCheck.message}）`,
+              : `还没写近况文件（${compressionFileCheck.message}）`}`,
           outputPath: compressionOutputPath
         }));
       }
