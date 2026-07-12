@@ -121,6 +121,44 @@ ChatGPT/Codex backend `backend-api/codex/responses` 直接返回
 **Priority:** P3
 **Depends on:** 再次出现可复现或高频样本
 
+### 重写压缩 frame 集成测试簇(对齐三层已迁移机制)
+
+**What:** `modules/agent-service/src/__tests__/agent-loop-service.test.ts` 里一簇 frame 级压缩
+集成测试当前 red,需重写对齐当前运行时。已知涉及(可能不止):
+- `core memory compression runs in an isolated background fork alongside the main agent request`
+- `runtime frame does not schedule compression from turn count alone`
+- `core memory compression fork retries final_answer without tool call and then commits`
+
+**Why:** 这些测试的 mock/断言停在三次迁移之前,不是运行时 bug(生产压缩确凿正常:真库
+cutoff 前移;缓存关键路径已由 ironclad `cache-replay-consistency.test.ts` 的「压缩 fork
+dispatch」+「REQ2 STW 一次冷读」覆盖且绿)。但 red 会污染 CI 信号、且遮住真回归。
+
+**Context / 三层根因(已诊断实证):**
+1. **stack-native 历史加载**:mock 的 store 走已删的 `listRecentTurns`,而 frame 现在走
+   `loadStackHistoryBlocks → store.listAgentStackItems`(`agent-loop-service.ts:6348`)。
+   不补 `listAgentStackItems`+`getAgentStackHead` → frame 加载 0 blocks →
+   `initialRetainedHistory.length===0` → 压缩不 plan(`:9125` 门)→ fork 不 schedule。
+   正确范式见同文件 `buildManualCompressionStore`(`:12008`,把 turns 转 stack blocks)。
+2. **去 conversation 概念**:测试断言 `conversations[0].rawRequest/rawResponse` 记录,但
+   `createConversation` 源码**零调用**(迁移已移除),`conversations` 恒空 →
+   `assert.equal(conversations.length, 1)` 必挂。这些断言要么删、要么改断当前真实持久化
+   (timeline event `core_memory_compression_applied_midrun` 的 metadata、stack items)。
+3. **Spec B fork-commit 机制**:测试模拟 fork 模型调 `compress_core_memory` 提交(turn-2
+   返回 compress function_call),但真实 fork `allowedToolNames = {exec_command}`
+   (`:10592`)——compress 已非 wire 工具,fork 走 exec_command 跑 `commit_memory.py` 写文件
+   → 引擎读回合成 commit。要按新 commit 路径重写 fork 模拟 + `forkTools`/`summaryText`/
+   `context_summary_written` 断言(参考已存在的新机制测试 `retries final_answer then commits`,
+   它同样 red,一并重写)。
+
+**已做的相邻工作(commit 5847acaa,别重复):** 两个**单元级**压缩预算测试
+(`buildContextBudgetPlan keeps append-only` / `plans a tail-30 compression cutoff`)已修绿——
+断言 compress 不在 tools/allowed_tools、pressure 标记 `当前压力:`→`当前状态:`。本条只剩 frame
+级集成测试。
+
+**Effort:** L（集成测试重写,要吃透 Spec B 文件往返 commit 路径 + 新持久化形状)
+**Priority:** P3（非运行时 bug;运行时正常 + ironclad 有覆盖。价值=恢复 CI 信号、防遮真回归)
+**Depends on:** 无(独立;建议顺带确认「去 conversation 概念」迁移 P1-P5 当前落点)
+
 ## Xiaoni browser
 
 ### Zero-restart-ever extension persistence (kill the one auto-relaunch)
