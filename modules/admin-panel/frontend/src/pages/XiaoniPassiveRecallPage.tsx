@@ -48,10 +48,33 @@ type ReindexData = {
 type CorpusStats = { total: number; byKind: Record<string, number> };
 
 interface ShadowLogLead {
-  lead?: { text?: string; kind?: string; pointer?: string | null };
+  // 语义召回腿:lead 是对象 {text,...} + cos + sourceRef + provenance
+  lead?: string | { text?: string; kind?: string; pointer?: string | null };
   cos?: number;
   sourceRef?: string;
   provenance?: { source?: string; cueClass?: string; leadTemplate?: string; peer?: string | null };
+  // 时间扫腿(open_loop / diary_event):lead 是整句字符串,附下列字段
+  kind?: string;
+  text?: string;
+  title?: string;
+  openedTag?: string | null;
+  ageDays?: number | null;
+  tier?: string;
+  ref?: string;
+}
+
+// entry.queryRef → 这条 shadow 是哪条腿。语义召回是「因落地而召回」,
+// open_loop / diary 是「按时间主动扫」,展示方式不同。
+type LegKind = 'open_loop' | 'diary' | 'recall';
+function legKindFromRef(queryRef?: string | null): LegKind {
+  if (queryRef === 'open_loop_scan') return 'open_loop';
+  if (queryRef === 'diary_resurface') return 'diary';
+  return 'recall';
+}
+
+function leadString(s: ShadowLogLead): string {
+  if (typeof s.lead === 'string') return s.lead;
+  return s.lead?.text || s.title || s.text || s.sourceRef || '';
 }
 
 interface ShadowLogEntry {
@@ -128,7 +151,7 @@ function SurfacedLead({ s }: { s: ShadowLogLead }) {
           </button>
         ) : null}
       </div>
-      <div className="mt-1 break-words text-sm text-foreground">{s.lead?.text || s.sourceRef}</div>
+      <div className="mt-1 break-words text-sm text-foreground">{leadString(s)}</div>
       {open && full !== null ? (
         <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-background p-2 text-xs leading-5 text-foreground">{full}</pre>
       ) : null}
@@ -137,8 +160,46 @@ function SurfacedLead({ s }: { s: ShadowLogLead }) {
   );
 }
 
+// 时间扫腿(open_loop 承诺 / diary 旧事)的一条:整句 lead + 档位/年龄标。
+function TimeScanLead({ s, leg }: { s: ShadowLogLead; leg: LegKind }) {
+  const badge = leg === 'open_loop'
+    ? (s.tier === 'overdue' ? '放很久' : s.tier === 'undated' ? '没写日期' : '开着')
+    : '旧事';
+  const tone: React.ComponentProps<typeof StatusPill>['tone'] = s.tier === 'undated'
+    ? 'warning'
+    : s.tier === 'overdue'
+      ? 'neutral'
+      : 'info';
+  const age = typeof s.ageDays === 'number'
+    ? `${Math.floor(s.ageDays)} 天`
+    : (s.ageDays === null && leg === 'open_loop' ? '不确定多久' : '');
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
+      <div className="flex items-center gap-2">
+        <StatusPill tone={tone}>{badge}</StatusPill>
+        {age ? <span className="text-xs text-muted-foreground">{age}</span> : null}
+        {s.openedTag ? <span className="text-xs text-muted-foreground">记于 {s.openedTag}</span> : null}
+      </div>
+      <div className="mt-1 break-words text-sm text-foreground">{leadString(s)}</div>
+    </div>
+  );
+}
+
+const LEG_HEADER: Record<LegKind, string> = {
+  recall: '当下落地（query）',
+  open_loop: '开放承诺 · 按时间扫（非语义召回）',
+  diary: '翻旧事 · 按时间扫（非语义召回）',
+};
+
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
   const dc = entry.droppedCounts || {};
+  const leg = legKindFromRef(entry.queryRef);
+  const isTimeScan = leg !== 'recall';
+  const scanDesc = leg === 'open_loop'
+    ? `扫了 ${entry.corpusCount ?? 0} 条开放承诺`
+    : leg === 'diary'
+      ? `扫了 ${entry.corpusCount ?? 0} 件日记往事`
+      : (entry.queryText || entry.queryRef || '—');
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -146,30 +207,37 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           {entry.silent
             ? <StatusPill tone="neutral">静默</StatusPill>
             : <StatusPill tone="success">浮现</StatusPill>}
+          {isTimeScan ? <StatusPill tone="info">{leg === 'open_loop' ? '待办承诺腿' : '旧事腿'}</StatusPill> : null}
           {entry.taskLocked ? <StatusPill tone="warning">task-locked</StatusPill> : null}
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">{formatTimestamp(entry.occurredAt, { fallback: '-' })}</span>
       </div>
-      {/* 当下落地内容 = 触发这次召回的 query（因） */}
+      {/* 触发这次扫描的因:语义腿是当下落地 query;时间腿是「扫了多少条」 */}
       <div className="mt-2 rounded-md bg-muted/40 px-2.5 py-1.5">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">当下落地（query）</div>
-        <div className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">{entry.queryText || entry.queryRef || '—'}</div>
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{LEG_HEADER[leg]}</div>
+        <div className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">{scanDesc}</div>
       </div>
       {entry.surfaced?.length ? (
         <div className="mt-2 space-y-1.5">
-          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">→ 勾起的记忆（果）</div>
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            {isTimeScan ? '→ 这次拎出来的（shadow，不投递）' : '→ 勾起的记忆（果）'}
+          </div>
           {entry.surfaced.map((s, index) => (
-            <SurfacedLead key={s.sourceRef || index} s={s} />
+            isTimeScan
+              ? <TimeScanLead key={s.ref || index} s={s} leg={leg} />
+              : <SurfacedLead key={s.sourceRef || index} s={s} />
           ))}
         </div>
       ) : null}
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-        <span>近邻 {entry.topK ?? 0}</span>
-        <span>带 [{typeof entry.bandFloor === 'number' ? entry.bandFloor.toFixed(2) : '-'}, {typeof entry.bandCeiling === 'number' ? entry.bandCeiling.toFixed(2) : '-'}]</span>
-        <span>太像 {dc.drop_too_similar ?? 0}</span>
-        <span>在场 {dc.drop_in_context ?? 0}</span>
-        <span>太远 {dc.drop_too_far ?? 0}</span>
-      </div>
+      {isTimeScan ? null : (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span>近邻 {entry.topK ?? 0}</span>
+          <span>带 [{typeof entry.bandFloor === 'number' ? entry.bandFloor.toFixed(2) : '-'}, {typeof entry.bandCeiling === 'number' ? entry.bandCeiling.toFixed(2) : '-'}]</span>
+          <span>太像 {dc.drop_too_similar ?? 0}</span>
+          <span>在场 {dc.drop_in_context ?? 0}</span>
+          <span>太远 {dc.drop_too_far ?? 0}</span>
+        </div>
+      )}
     </div>
   );
 }
