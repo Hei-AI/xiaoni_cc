@@ -485,7 +485,7 @@ function expectedCurrentInputMessage() {
 
 function isPhoneNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('【状态栏有新消息】');
+    && content.includes('条新消息】');
 }
 
 function isImageTaskNotificationReminderContent(content: string) {
