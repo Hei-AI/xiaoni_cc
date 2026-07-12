@@ -188,9 +188,10 @@ test('QqUsageService renders self-sent messages as direction=outgoing in the con
 
   const result = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
 
-  // 对方的话仍是 incoming，小腻自己回的那条是 outgoing —— 她翻开会话能看到自己说了啥
-  assert.match(result.content, /direction="incoming"[^>]*>\s*在吗/);
-  assert.match(result.content, /direction="outgoing"/);
+  // 对方的话是 sender="名字(id)"，小腻自己回的那条 sender="我" —— 她翻开会话能看到自己说了啥
+  assert.match(result.content, /sender="李阿花\(85178516\)"/);
+  assert.match(result.content, /在吗/);
+  assert.match(result.content, /sender="我"/);
   assert.match(result.content, /在的，刚在看书/);
 });
 
@@ -225,7 +226,7 @@ test('QqUsageService keeps a self-sent image placeholder id intact so she can in
   const result = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
 
   // 占位符 id 原样透出，和收到的图一样能喂给 inspect_image_placeholder
-  assert.match(result.content, /direction="outgoing"/);
+  assert.match(result.content, /sender="我"/);
   assert.match(result.content, /\[图片:media_1699_abcd\]/);
 });
 
@@ -279,8 +280,10 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   assert.match(win.content, /mode="conversation"/);
   assert.match(win.content, /chat_type="私聊"/);
   assert.match(win.content, /peer_id="85178516"/);
-  assert.match(win.content, /unread_before_window="2"/);
-  assert.match(win.content, /has_older_messages="true"/);
+  // 窗口外未读改成顶部/底部浮标（不再是裸 unread_before_window 字段）；此例 before=2 → 顶部浮标
+  assert.match(win.content, /↑ 上方还有 2 条未读/);
+  // 三个导航布尔合成单个 more 字段（此例 hasOlder=true / hasNewer=false → older）
+  assert.match(win.content, /more="older"/);
   // message_id 现在是 OneBot 消息 id(onebot_id)；reply_to 是被引用消息的 OneBot id
   // 句柄(reply_to_handle)——同命名空间，她能 focus_private 85178516 sid-100 定位原消息。
   // 短且完整的引用正文内联透出、无截断标记。
@@ -288,9 +291,8 @@ test('qq_usage window drops internal-bookkeeping noise and private-irrelevant fi
   assert.match(win.content, /message_id="sid-101"[^>]*reply_to="sid-100"/);
   assert.match(win.content, /「引用 李阿花: 读过的」/);
   assert.doesNotMatch(win.content, /截断|非文字消息|原消息已不在记录/);
-  // read_state 只在未读那条出现（读过的默认态不渲染）→ 恰好一次
-  assert.equal((win.content.match(/read_state=/g) || []).length, 1);
-  assert.match(win.content, /read_state="unread"/);
+  // 已读/未读不再逐条标 read_state —— 改由窗口级单条分界线 / 顶底浮标表达
+  assert.doesNotMatch(win.content, /read_state=/);
   // 两条都没 @ 小腻 → mentions_xiaoni 一次都不出现
   assert.doesNotMatch(win.content, /mentions_xiaoni=/);
 
@@ -595,8 +597,120 @@ test('reply preview is not rendered on outgoing messages (no false 原消息已�
     { id: 700, direction: 'outgoing', peer_id: '85178516', account_id: '1129974489', sender_id: '1129974489', sender_name: '小腻', raw_body: '我回你这句', received_at: '2026-07-02T03:00:00.000Z', is_read: 1, was_mentioned: 0, reply_to_id: 'sid-whatever' }
   ]));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
-  assert.match(win.content, /direction="outgoing"/);
+  assert.match(win.content, /sender="我"/);
   assert.doesNotMatch(win.content, /「引用/);
   assert.doesNotMatch(win.content, /原消息已不在记录/);
   assert.doesNotMatch(win.content, /reply_to=/);
+});
+
+// ---- 已读/未读单条分界 + 顶部浮标（转写手机 QQ 屏幕：A 流内分界线 / B 顶部 ↑；下方未读不出浮标） ----
+
+function windowStoreX(
+  messages: Record<string, unknown>[],
+  overrides: Record<string, unknown> = {},
+  threadKey = 'qq:direct:1129974489:85178516'
+) {
+  return {
+    listQqUsageThreadWindow: async () => ({
+      threadKey, mode: 'latest', windowSize: 10, cursorAnchor: null,
+      hasOlderMessages: false, hasNewerMessages: false, newerAvailable: 0,
+      unreadBeforeWindow: 0, unreadAfterWindow: 0, reachedReadHistory: true,
+      unreadCount: 0, directMentions: 0, latestMessageId: 999, earliestMessageId: 100,
+      windowUnreadCount: 0, peerName: null, messages, ...overrides
+    }),
+    recordQqUsageThreadSeen: async () => undefined,
+    setQqUsageActiveSurface: async () => undefined
+  } as any;
+}
+
+function msg(id: number, isRead: number, body: string, at: string, extra: Record<string, unknown> = {}) {
+  return {
+    id, onebot_id: `sid-${id}`, peer_id: '85178516', account_id: '1129974489',
+    sender_id: '85178516', sender_name: '李阿花', raw_body: body, received_at: at,
+    is_read: isRead, was_mentioned: 0, ...extra
+  };
+}
+
+test('Case A: 边界落在本屏 → 首条未读前单条分界线，count 含窗口外未读，无逐条 read_state', async () => {
+  const service = new QqUsageService(windowStoreX(
+    [
+      msg(100, 1, '读过1', '2026-07-02T01:00:00.000Z'),
+      msg(101, 1, '读过2', '2026-07-02T01:01:00.000Z'),
+      msg(102, 0, '没读1', '2026-07-02T01:02:00.000Z'),
+      msg(103, 0, '没读2', '2026-07-02T01:03:00.000Z')
+    ],
+    { unreadBeforeWindow: 0, unreadAfterWindow: 3 } // 本窗 2 条未读 + 窗外 3 = 5
+  ));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /———— 以下为未读（5）————/);
+  // 分界线在「读过2」之后、「没读1」之前
+  assert.match(win.content, /读过2[\s\S]*以下为未读（5）[\s\S]*没读1/);
+  assert.doesNotMatch(win.content, /read_state=/);
+  assert.doesNotMatch(win.content, /↑ 上方还有/); // before=0 → 无顶部浮标
+  assert.doesNotMatch(win.content, /↓ 下方还有/); // 下方未读只并进分界线计数，不单独出浮标
+});
+
+test('Case B: 全屏都是未读（边界在上方）→ 顶部浮标，流内不插分界线', async () => {
+  const service = new QqUsageService(windowStoreX(
+    [
+      msg(200, 0, '未读a', '2026-07-02T02:00:00.000Z'),
+      msg(201, 0, '未读b', '2026-07-02T02:01:00.000Z')
+    ],
+    { unreadBeforeWindow: 12, unreadAfterWindow: 0 }
+  ));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.match(win.content, /———— ↑ 上方还有 12 条未读 ————/);
+  assert.doesNotMatch(win.content, /以下为未读/); // before>0 → 无流内分界线
+  assert.doesNotMatch(win.content, /read_state=/);
+});
+
+test('定位到旧消息、本屏全已读、未读在下方 → 不出任何浮标，靠 more:newer 表达', async () => {
+  // focus around 一条旧消息：窗口内全 is_read=1（firstUnreadIdx=-1，before=0），未读全在窗口下方。
+  // 砍掉 ↓ 浮标后此态无任何 marker；「下方有更新的、去 scroll」由 more 字段承担，不与真·app「新消息」浮标混淆。
+  const service = new QqUsageService(windowStoreX(
+    [
+      msg(300, 1, '较早的读过', '2026-07-02T03:00:00.000Z'),
+      msg(301, 1, '也读过', '2026-07-02T03:01:00.000Z')
+    ],
+    { unreadBeforeWindow: 0, unreadAfterWindow: 8, hasNewerMessages: true }
+  ));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.doesNotMatch(win.content, /↓ 下方还有/); // 下方未读不再出浮标
+  assert.doesNotMatch(win.content, /以下为未读/); // 本屏无未读边界
+  assert.doesNotMatch(win.content, /↑ 上方还有/);
+  assert.match(win.content, /more="newer"/); // 下方有更新消息由 more 承担
+});
+
+test('全部已读 → 一个未读 marker 都没有', async () => {
+  const service = new QqUsageService(windowStoreX([
+    msg(400, 1, '都读过了', '2026-07-02T04:00:00.000Z')
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.doesNotMatch(win.content, /以下为未读|↑ 上方还有|↓ 下方还有|read_state=/);
+});
+
+test('日期头：跨天窗口按天插 ── YYYY-MM-DD ──，同一天不重复；每条只带 time', async () => {
+  const service = new QqUsageService(windowStoreX([
+    msg(500, 1, '周三的话', '2026-07-01T05:00:00.000Z'),
+    msg(501, 1, '周三又一句', '2026-07-01T06:00:00.000Z'),
+    msg(502, 1, '周四的话', '2026-07-02T05:00:00.000Z')
+  ]));
+  const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
+  assert.equal((win.content.match(/── 2026-07-01 ──/g) || []).length, 1);
+  assert.equal((win.content.match(/── 2026-07-02 ──/g) || []).length, 1);
+  assert.match(win.content, /time="13:00:00"/); // East8 = UTC+8：05:00Z → 13:00
+  assert.doesNotMatch(win.content, /timestamp=/); // 不再逐条带全量 timestamp
+});
+
+test('群窗口带 peer_name（群名），peer_id 仍是裸群号供命令用', async () => {
+  const service = new QqUsageService(windowStoreX(
+    [msg(600, 0, '群里有人说话', '2026-07-02T06:00:00.000Z', { sender_id: '1001', sender_name: '张三' })],
+    { unreadBeforeWindow: 0, unreadAfterWindow: 0, peerName: '摸鱼群' },
+    'qq:group:1129974489'
+  ));
+  const win = await service.focusThread('qq:group:1129974489', {}, 'qq_usage.focus_group');
+  assert.match(win.content, /chat_type="群聊"/);
+  assert.match(win.content, /peer_id="1129974489"/);
+  assert.match(win.content, /peer_name="摸鱼群"/);
+  assert.match(win.content, /sender="张三\(1001\)"/);
 });

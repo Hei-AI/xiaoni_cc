@@ -790,6 +790,13 @@ async function listQqUsageThreadWindow(input = {}, config = {}) {
     mode,
     windowSize: limit,
     cursorAnchor: first && last ? `${first.id}:${last.id}` : null,
+    // 会话对象的可读名字（群名 / 对方昵称）。渲染层的 <IM_INBOX_WINDOW peer_name>
+    // 用它，避免小腻只看到一个裸群号/QQ号。threadState 优先（持久化的最新名），
+    // 回落到窗口内某行的 peer_name。
+    peerName: (threadState && threadState.peer_name)
+      || (last && last.peer_name)
+      || (first && first.peer_name)
+      || null,
     hasOlderMessages: olderCount > 0,
     hasNewerMessages: newerCount > 0,
     newerAvailable: newerCount,

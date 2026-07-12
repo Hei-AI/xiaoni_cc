@@ -1362,6 +1362,7 @@ export type QqUsageThreadWindow = {
   mode: string;
   windowSize: number;
   cursorAnchor: string | null;
+  peerName: string | null;
   hasOlderMessages: boolean;
   hasNewerMessages: boolean;
   newerAvailable: number;

@@ -4262,12 +4262,55 @@ test('applyToolResultToLoopInput replays send tool payload as function_call_outp
   assert.equal(lastItem?.type, 'function_call_output');
   assert.equal(lastItem && lastItem.type === 'function_call_output' ? lastItem.call_id : null, 'call-1');
   const output = JSON.parse(String(lastItem && lastItem.type === 'function_call_output' ? lastItem.output : '{}'));
-  assert.deepEqual(output.sent_messages, ['我们出去玩吧']);
+  // 精简回执：成功只回 {ok, message_ids}；不再回灌 sent_messages / delivery / xiaoni_os /
+  // pending_share / second_beat_suppressed（内部消费者读 toolResult 对象本身，不读这里）。
+  assert.equal(output.ok, true);
+  assert.deepEqual(output.message_ids, []); // 本例 toolResult 无 delivery → 空数组
+  assert.equal('sent_messages' in output, false);
+  assert.equal('delivery' in output, false);
+  assert.equal('xiaoni_os' in output, false);
   assert.equal('energy_cost' in output, false);
   assert.equal('energy' in output, false);
   assert.equal('max_energy' in output, false);
   assert.equal(loopInput.some((item) => item.type === 'function_call'), false);
   assert.equal(loopInput.some((item) => item.type === 'function_call_output'), true);
+});
+
+test('send tool 回执成功：从 delivery 提取 message_ids（单条 / 多条）', () => {
+  const single = applyToolResultToLoopInput(
+    { callId: 'c1', name: PRIVATE_REPLY_TOOL, rawArguments: '{"message":"hi"}' },
+    { message_type: 'private', target_user_id: '85178516', sent_messages: ['hi'],
+      xiaoni_os: { anything: true }, pending_share: null, delivery: [{ message_id: 30612 }] }
+  );
+  const out1 = JSON.parse(String(single.inputItems[0]?.type === 'function_call_output' ? single.inputItems[0].output : '{}'));
+  assert.deepEqual(out1, { ok: true, message_ids: [30612] });
+
+  const multi = applyToolResultToLoopInput(
+    { callId: 'c2', name: GROUP_REPLY_TOOL, rawArguments: '{"group_id":"1129974489"}' },
+    { message_type: 'group', target_group_id: '1129974489', sent_messages: ['a', 'b'],
+      second_beat_suppressed: true, delivery: [{ message_id: 88104 }, { message_id: 88105 }] }
+  );
+  const out2 = JSON.parse(String(multi.inputItems[0]?.type === 'function_call_output' ? multi.inputItems[0].output : '{}'));
+  assert.deepEqual(out2, { ok: true, message_ids: [88104, 88105] });
+  assert.equal('second_beat_suppressed' in out2, false);
+});
+
+test('send tool 回执失败：校验失败与 provider 抛错都收敛成 {ok:false, error}', () => {
+  // 校验失败形态（buildRetryableSendToolError）：带 retryable
+  const validation = applyToolResultToLoopInput(
+    { callId: 'c3', name: PRIVATE_REPLY_TOOL, rawArguments: '{}' },
+    { tool_error: true, retryable: true, error_message: '缺少 user_id', sent_messages: [] }
+  );
+  const outV = JSON.parse(String(validation.inputItems[0]?.type === 'function_call_output' ? validation.inputItems[0].output : '{}'));
+  assert.deepEqual(outV, { ok: false, error: '缺少 user_id', retryable: true });
+
+  // provider 抛错形态（buildToolErrorResult）：tool_error + error_message + error，无 retryable
+  const thrown = applyToolResultToLoopInput(
+    { callId: 'c4', name: GROUP_REPLY_TOOL, rawArguments: '{"group_id":"1"}' },
+    { success: false, tool_error: true, tool_name: GROUP_REPLY_TOOL, error_message: 'provider 502', error: 'provider 502' }
+  );
+  const outT = JSON.parse(String(thrown.inputItems[0]?.type === 'function_call_output' ? thrown.inputItems[0].output : '{}'));
+  assert.deepEqual(outT, { ok: false, error: 'provider 502' });
 });
 
 test('applyToolResultToLoopInput surfaces a rejected tool result verbatim, not as a JSON blob', () => {
@@ -7402,10 +7445,13 @@ test('runtime frame forwards failed send tool output to the model and settles', 
 
   const toolOutputBatch = storeCalls.appendAgentStackItems.find((item) => item.sourceType === 'tool_executions');
   assert.equal(toolOutputBatch?.items?.[0]?.visibility, 'model_visible');
+  // 模型可见回执精简成 {ok:false, error}；内部记账（tool_name/tool_call_id/error_message）
+  // 仍完整落在 completeAgentStackToolExecution.result（上面已断言），只是不再灌进模型视野。
   const output = JSON.parse(String(toolOutputBatch?.items?.[0]?.content?.output || '{}'));
-  assert.equal(output.tool_error, true);
-  assert.equal(output.tool_name, GROUP_REPLY_TOOL);
-  assert.equal(output.error_message, 'EventChecker Failed: 发送失败，你已被移出该群，请重新加群。');
+  assert.equal(output.ok, false);
+  assert.equal(output.error, 'EventChecker Failed: 发送失败，你已被移出该群，请重新加群。');
+  assert.equal('tool_error' in output, false);
+  assert.equal('tool_name' in output, false);
 });
 
 test('runtime frame keeps delivered transcript when a later tool error is returned to the model', async () => {
