@@ -42,9 +42,10 @@ const PALACE_DIR_EXCLUDE = new Set(['dictionary.md', 'open-loops.md']);
 // 被动召回【第二条腿】:开放承诺按时间重提(非语义)。docs/XIAONI_MEMORY_PALACE_GENERATION.md §11。
 const OPEN_LOOPS_REL_PATH = 'notes/diary/open-loops.md';
 const OPEN_LOOP_SCAN_QUERY_REF = 'open_loop_scan';
-const OPEN_LOOP_STALE_DAYS = 2;      // 搁置≥2 天才算「该提」
-const OPEN_LOOP_SURFACE_LIMIT = 3;   // 一次最多浮 3 条,别倒一堆
-const OPEN_LOOP_DEDUP_LOOKBACK = 30; // 最近 30 条 open_loop 扫描里已浮过的,冷却跳过
+const OPEN_LOOP_STALE_DAYS = 2;       // 搁置≥2 天才算「该提」
+const OPEN_LOOP_MAX_ACTIVE_DAYS = 30; // 超过 30 天归 overdue 降权,防老死承诺霸榜饿死中龄的
+const OPEN_LOOP_SURFACE_LIMIT = 3;    // 一次最多浮 3 条,别倒一堆
+const OPEN_LOOP_DEDUP_LOOKBACK = 30;  // 最近 30 条 open_loop 扫描里已浮过的,冷却跳过
 
 interface RecallRecord {
   sourceKind: string;
@@ -192,7 +193,7 @@ export interface ReindexResult {
 
 export interface OpenLoopScanResult {
   totalOpen: number;
-  surfaced: Array<{ text: string; openedTag: string | null; ageDays: number }>;
+  surfaced: Array<{ text: string; openedTag: string | null; ageDays: number | null; tier: string }>;
   shadowLogId: string | null;
 }
 
@@ -235,16 +236,29 @@ export async function scanOpenLoopsToShadow(
   const picked = selectStaleOpenLoops(loops, {
     nowMs,
     staleDays: OPEN_LOOP_STALE_DAYS,
+    maxActiveDays: OPEN_LOOP_MAX_ACTIVE_DAYS,
     limit: OPEN_LOOP_SURFACE_LIMIT,
     recentlySurfaced: recentTexts
   });
 
+  // lead 按 tier 分档:无日期不谎报天数,overdue 点破「放了挺久」,active 给天数。
+  const leadFor = (p: { text: string; ageDays: number | null; tier: string }): string => {
+    if (p.ageDays == null) {
+      return `你之前记过一件还没了的事，但没写日期：${p.text}（不确定放多久了，还算数吗？）`;
+    }
+    const days = Math.floor(p.ageDays);
+    if (p.tier === 'overdue') {
+      return `你之前记过一件还没了的事，放了挺久了：${p.text}（${days} 天了，还做吗？做不了就划掉）`;
+    }
+    return `你之前记过一件还没了的事：${p.text}（放了 ${days} 天了）`;
+  };
   const surfaced = picked.map((p) => ({
     kind: 'open_loop',
     text: p.text,
     openedTag: p.openedTag,
-    ageDays: Math.round(p.ageDays * 10) / 10,
-    lead: `你之前记过一件还没了的事：${p.text}（放了 ${Math.floor(p.ageDays)} 天了）`
+    ageDays: p.ageDays == null ? null : Math.round(p.ageDays * 10) / 10,
+    tier: p.tier,
+    lead: leadFor(p)
   }));
 
   const { id } = await insertRecallShadowLog({
@@ -260,7 +274,7 @@ export async function scanOpenLoopsToShadow(
 
   return {
     totalOpen,
-    surfaced: picked.map((p) => ({ text: p.text, openedTag: p.openedTag, ageDays: p.ageDays })),
+    surfaced: picked.map((p) => ({ text: p.text, openedTag: p.openedTag, ageDays: p.ageDays, tier: p.tier })),
     shadowLogId: id
   };
 }
