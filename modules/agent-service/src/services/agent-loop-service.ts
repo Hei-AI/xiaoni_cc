@@ -2323,15 +2323,14 @@ export function buildSubconsciousAgentForkRequest(
       ...(item as Record<string, unknown>),
       cache_volatile: true
     }) as unknown as OpenResponseInputItem),
-    buildDeveloperInputItem([renderSelfContinuationReminder()]),
-    buildDeveloperInputItem([renderSubconsciousForkToolRestrictionReminder()])
+    buildDeveloperInputItem([renderSelfContinuationReminder()])
   ]);
   // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools and share
   // the same stripped prefix, so the fork's prefix is byte-identical and rides the warm
   // in-context cache the heartbeat keeps alive. Tool restriction is enforced at execution
   // time (Layer 2): allowedToolNames is {execCommand}, so any speaking/image tool the
-  // model emits is rejected, never executed. The appended restriction reminder steers it
-  // to just think and hand back directions (no exec_command needed).
+  // model emits is rejected, never executed. self_continuation_reminder already tells the
+  // fork it is the subconscious and must not touch any tool, so no extra restriction item.
   forkRequest.metadata = {
     ...(forkRequest.metadata || {}),
     subconscious_agent_fork: 'true',
@@ -3493,15 +3492,6 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
 
 function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
-}
-
-// Layer-2 soft-enforcement reminder for the self-driven (subconscious) fork. The fork inherits
-// the main loop's full auto tool_choice (for cache alignment), so this hard-steers
-// the model to exec_command and away from any outward-facing tool. Kept separate
-// from the shared self_continuation_reminder, which must stay permissive for the
-// main loop (where deciding to actually message a friend is allowed).
-function renderSubconsciousForkToolRestrictionReminder() {
-  return formatSystemReminderBlock(readPromptSnippet('subconscious_fork_tool_restriction_reminder.md'));
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {

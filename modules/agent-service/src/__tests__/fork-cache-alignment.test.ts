@@ -95,13 +95,13 @@ test('compression fork: cloned prefix byte-identical to the main request (NOT he
   assert.equal(JSON.stringify(base.input), baseSnapshot, 'compression fork must not mutate the base');
 });
 
-test('subconscious fork: cloned prefix byte-identical + appends self-continuation & restriction reminders', () => {
+test('subconscious fork: cloned prefix byte-identical + appends self-continuation reminder', () => {
   const base = buildBaseRequest();
   const recentNarration = [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '刚才我说要看看群里。' }] }] as any[];
   const fork: any = buildSubconsciousAgentForkRequest(base, 1, recentNarration);
   assertForkPrefixByteIdentical(fork, base, 'subconscious');
   assert.ok(fork.input.length > base.input.length, 'subconscious fork must append a steering tail');
-  // The tail re-injects the recent narration (cold) + two developer reminders.
+  // The tail re-injects the recent narration (cold) + the self-continuation reminder.
   const tail = JSON.stringify(fork.input.slice(base.input.length));
   assert.ok(tail.includes('刚才我说要看看群里'), 'subconscious fork must re-inject recent narration at the tail');
   assert.equal(fork.metadata?.subconscious_agent_fork, 'true');
