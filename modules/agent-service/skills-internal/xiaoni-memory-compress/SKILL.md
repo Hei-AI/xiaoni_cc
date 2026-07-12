@@ -11,7 +11,7 @@ python3 /app/modules/agent-service/skills-internal/xiaoni-memory-compress/commit
 （把你要留下的近况正文放这里：
  - 手头正在做什么、干到哪一步、接下来打算干什么
  - 这段时间里值得留下的经历、人际变化、心情
- - 之前用 exec_command 外置存档的文件路径 + 怎么读回）
+ - 今天日记的路径（/xiaoni-runtime/notes/diary/<日期>.md），方便醒来顺着翻回）
 MEMO
 ```
 
