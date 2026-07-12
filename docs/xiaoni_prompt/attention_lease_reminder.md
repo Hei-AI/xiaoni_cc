@@ -1,3 +1,3 @@
-【刚回过的 {{CHAT_LABEL}} 又冒出 {{UNREAD_DELTA}} 条新消息】
+【刚聊过的 {{CHAT_LABEL}} 又冒出 {{UNREAD_DELTA}} 条新消息】
 最新：{{LATEST_SENDER_LABEL}}「{{LATEST_MESSAGE_PREVIEW}}」；直接找你 {{DIRECT_MENTION_COUNT}} 次。
 想接着聊：`qq-usage` 带锚点 {{FOCUS_TARGET_ACTION}}={{FOCUS_TARGET_ID}} 切回去。
