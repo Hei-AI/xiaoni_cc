@@ -248,12 +248,12 @@ function threadIdentity(threadKey: string): { chatType: 'group' | 'direct'; peer
   return { chatType: 'direct', peerId: parts[parts.length - 1] || '' };
 }
 
-// 把手机 QQ 会话「屏幕」原样序列化。未读只有两个 UI 元素，对应 before/after 两个计数：
-// ① 消息流内单条分界线（边界正好落在本屏时）；② 顶/底的「N 条新消息」浮标（边界在本屏之外，
-// 上方/下方）。逐条已读/未读标记不存在。三态互斥/可组合：
+// 把手机 QQ 会话「屏幕」原样序列化。未读只用两个 UI 元素，对应两种边界位置：
 //   A 边界在本屏（unreadBefore==0 且窗口内有未读）→ 首条未读前插 `———— 以下为未读（N）————`
-//   B 全屏都在未读区（unreadBefore>0）→ 顶部 `———— ↑ 上方还有 N 条未读 ————`，流内不插线
-//   C 未读在下方（unreadAfter>0，她往上滚了）→ 底部 `———— ↓ 下方还有 N 条未读 ————`
+//   B 边界在本屏上方（unreadBefore>0）→ 顶部 `———— ↑ 上方还有 N 条未读 ————`，提示她 scroll older 补看
+// 「下方还有未读」不单独出浮标：qq_usage 打开即会话级标读、默认锚最新尾块，unreadAfter>0 只在
+// 定位旧消息（focus around）这一 niche 出现，且它与真·app 的「N 条新消息」到达浮标语义不同，
+// 留着只添乱——下方有更新消息由 more:newer/both 表达；未读总数仍算进 A 的分界线计数（含 after）不丢。
 // 未读是最新连续尾块（会话级标读 + watermark 保证），所以「首条未读」就是边界，无空洞。
 function renderConversationWindow(result: QqUsageThreadWindow) {
   // 精简：删掉纯内部记账字段——surface(恒定)、thread_key(内部id且SKILL叫她别用)、
@@ -291,10 +291,6 @@ function renderConversationWindow(result: QqUsageThreadWindow) {
     }
     lines.push(renderMessage(message));
   });
-  // Case C：未读还在本屏下方（她往上滚了）——底部浮标。
-  if (after > 0) {
-    lines.push(`———— ↓ 下方还有 ${after} 条未读 ————`);
-  }
 
   const more = result.hasOlderMessages && result.hasNewerMessages
     ? 'both'

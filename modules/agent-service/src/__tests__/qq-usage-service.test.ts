@@ -603,7 +603,7 @@ test('reply preview is not rendered on outgoing messages (no false 原消息已�
   assert.doesNotMatch(win.content, /reply_to=/);
 });
 
-// ---- 已读/未读单条分界 + 顶/底浮标（转写手机 QQ 屏幕的三态 A/B/C） ----
+// ---- 已读/未读单条分界 + 顶部浮标（转写手机 QQ 屏幕：A 流内分界线 / B 顶部 ↑；下方未读不出浮标） ----
 
 function windowStoreX(
   messages: Record<string, unknown>[],
@@ -647,6 +647,7 @@ test('Case A: 边界落在本屏 → 首条未读前单条分界线，count 含�
   assert.match(win.content, /读过2[\s\S]*以下为未读（5）[\s\S]*没读1/);
   assert.doesNotMatch(win.content, /read_state=/);
   assert.doesNotMatch(win.content, /↑ 上方还有/); // before=0 → 无顶部浮标
+  assert.doesNotMatch(win.content, /↓ 下方还有/); // 下方未读只并进分界线计数，不单独出浮标
 });
 
 test('Case B: 全屏都是未读（边界在上方）→ 顶部浮标，流内不插分界线', async () => {
@@ -663,18 +664,21 @@ test('Case B: 全屏都是未读（边界在上方）→ 顶部浮标，流内�
   assert.doesNotMatch(win.content, /read_state=/);
 });
 
-test('Case C: 未读在本屏下方（往上滚了）→ 底部浮标', async () => {
+test('定位到旧消息、本屏全已读、未读在下方 → 不出任何浮标，靠 more:newer 表达', async () => {
+  // focus around 一条旧消息：窗口内全 is_read=1（firstUnreadIdx=-1，before=0），未读全在窗口下方。
+  // 砍掉 ↓ 浮标后此态无任何 marker；「下方有更新的、去 scroll」由 more 字段承担，不与真·app「新消息」浮标混淆。
   const service = new QqUsageService(windowStoreX(
     [
       msg(300, 1, '较早的读过', '2026-07-02T03:00:00.000Z'),
       msg(301, 1, '也读过', '2026-07-02T03:01:00.000Z')
     ],
-    { unreadBeforeWindow: 0, unreadAfterWindow: 8 }
+    { unreadBeforeWindow: 0, unreadAfterWindow: 8, hasNewerMessages: true }
   ));
   const win = await service.focusThread('qq:direct:1129974489:85178516', {}, 'qq_usage.focus_private');
-  assert.match(win.content, /———— ↓ 下方还有 8 条未读 ————/);
-  assert.doesNotMatch(win.content, /以下为未读/);
+  assert.doesNotMatch(win.content, /↓ 下方还有/); // 下方未读不再出浮标
+  assert.doesNotMatch(win.content, /以下为未读/); // 本屏无未读边界
   assert.doesNotMatch(win.content, /↑ 上方还有/);
+  assert.match(win.content, /more="newer"/); // 下方有更新消息由 more 承担
 });
 
 test('全部已读 → 一个未读 marker 都没有', async () => {
