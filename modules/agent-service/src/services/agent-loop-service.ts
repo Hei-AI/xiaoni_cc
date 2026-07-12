@@ -4351,6 +4351,23 @@ export function buildCoreMemoryCompressionReminder(input: {
   return item;
 }
 
+// 压缩完成后向主 loop 显式 notify「刚整理过一次记忆」——补上小腻找回自己的最后一环:她已经有找回
+// 自己的方法(system_prompt 指向 xiaoni-memory-anchor skill)和触发压缩的信号(pressure reminder,
+// fork-only,压缩*前*),但压缩真正落地后没有任何东西告诉她「刚发生了一次压缩」。这条 notify 走
+// 框架既有的 Notify Bucket:压缩提交时 enqueue 一条 system_reminder 队列消息(见
+// enqueueCoreMemoryCompressionDoneNotify),之后由现有 notify 链路投递/落库/去重,和 subconscious
+// notify 同一条路,缓存安全性直接继承既有铁律用例。
+//
+// 东八区时间戳在 ENQUEUE 时冻结进 systemReminder.reminder 文本(不是被删掉的合成 [当前时间] 前缀
+// 戳:它只进这条尾部 notify、绝不进 cacheable system 前缀)。renderSystemReminder 消费时按 raw 文本
+// 包 <system_reminder>,落库进 runtime_input 的 content.input_items,下一 run 逐字节 replay。
+function renderCoreMemoryCompressionDoneReminderText(now: Date): string {
+  // Raw body only — renderSystemReminder wraps it in <system_reminder> at consume time.
+  return renderPromptSnippet('core_memory_compression_done_notify.md', {
+    NOW_EAST8: formatEast8Timestamp(now)
+  });
+}
+
 export function buildCoreMemoryCompressionForkRetryReminder(input: {
   forkTurn: number;
   reason: string;
@@ -9926,6 +9943,16 @@ export class AgentLoopService {
       eventPhase: null,
       metadata: artifact
     });
+    // Real compression committed (cutoff advanced → her live context just shrank). Push the
+    // compression-done notify into the Notify Bucket exactly once. Reached only on the success
+    // path (superseded/no-cutoff commits returned earlier or skip the gate), so no duplicate.
+    if (params.compression && committedReadCutoffAfterStackIndex !== null) {
+      await this.enqueueCoreMemoryCompressionDoneNotify({
+        contextSessionKey: compressionSessionKey,
+        committedReadCutoffAfterStackIndex,
+        sourceTraceId: String(params.metadata?.trace_id || '') || null
+      });
+    }
     const commit = {
       text,
       artifact,
@@ -10379,6 +10406,99 @@ export class AgentLoopService {
       payload,
       availableAt: now
     });
+  }
+
+  // Compression-done notify: after a real compression commits (cutoff advanced → her context
+  // just shrank), push ONE system_reminder into the Notify Bucket so the main loop sees「刚整理过
+  // 一次记忆」. Mirrors enqueueSubconsciousAgentNotify (same framework-native delivery path):
+  // renderSystemReminder wraps systemReminder.reminder in <system_reminder>, folds into the
+  // running run or claims a fresh one, persists as a runtime_input stack item, and replays it
+  // byte-for-byte — so cache safety is inherited, not re-derived. The East-8 stamp is frozen
+  // into the reminder text HERE (enqueue time), never re-rendered per build. dedupeKey keys the
+  // notify to the committed cutoff so a retry/re-commit can't enqueue a duplicate.
+  private async enqueueCoreMemoryCompressionDoneNotify(params: {
+    contextSessionKey: string;
+    committedReadCutoffAfterStackIndex: number;
+    sourceTraceId: string | null;
+  }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      return;
+    }
+    const now = new Date();
+    const messageSid = `core-memory-compression-done:${params.contextSessionKey}:${params.committedReadCutoffAfterStackIndex}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const reminderText = renderCoreMemoryCompressionDoneReminderText(now);
+    const rawPayload = {
+      reason: 'core_memory_compression_done',
+      context_session_key: params.contextSessionKey,
+      committed_read_cutoff_after_stack_index: params.committedReadCutoffAfterStackIndex,
+      source_trace_id: params.sourceTraceId
+    };
+    const inboundContext = {
+      Body: reminderText,
+      BodyForAgent: reminderText,
+      BodyForCommands: reminderText,
+      RawBody: reminderText,
+      CommandBody: reminderText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: reminderText,
+      commandBody: reminderText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: reminderText,
+        reason: 'core_memory_compression_done',
+        sourceTraceId: params.sourceTraceId,
+        createdAt: now.toISOString()
+      }
+    };
+    try {
+      await enqueuer.call(this.store, {
+        message: {
+          traceId: params.sourceTraceId || messageSid,
+          source: 'system_reminder',
+          messageSid,
+          dedupeKey: messageSid,
+          chatType: 'direct',
+          sessionKey,
+          peerId: XIAONI_IDENTITY_KEY,
+          peerName: XIAONI_IDENTITY_KEY,
+          senderId: botAccountId,
+          senderName: XIAONI_IDENTITY_KEY,
+          accountId: botAccountId,
+          bodyForAgent: reminderText,
+          rawPayload,
+          inboundContext
+        },
+        payload,
+        availableAt: now
+      });
+    } catch (error) {
+      moduleLogger.warn('Failed to enqueue core memory compression done notify', {
+        contextSessionKey: params.contextSessionKey,
+        committedReadCutoffAfterStackIndex: params.committedReadCutoffAfterStackIndex,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns

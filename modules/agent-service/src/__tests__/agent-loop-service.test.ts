@@ -3694,6 +3694,78 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
   assert.equal(timelineEvents[0]?.eventName, 'core_memory_compressed');
 });
 
+test('real core memory compression commit enqueues the compression-done notify once', async () => {
+  const enqueued: any[] = [];
+  const service = new AgentLoopService({
+    commitSessionContextSummaryAndReadCutoff: async (params: any) => ({
+      committed: true,
+      state: {
+        sessionKey: params.sessionKey,
+        readCutoffAfterStackIndex: params.readCutoffAfterStackIndex,
+        contextSummary: params.contextSummary,
+        pendingProactiveShare: null,
+        pendingProactiveShareAge: 0,
+        updatedAt: null
+      }
+    }),
+    logTimelineEvent: async () => undefined,
+    enqueueQueueMessage: async (params: any) => { enqueued.push(params); }
+  } as any);
+
+  await (service as any).commitCoreMemoryCompression({
+    rawToolResult: { compressed: true, text: '原子写入的近况。', outcome: 'core_memory_compressed' },
+    toolCall: { name: COMPRESS_CORE_MEMORY_TOOL, callId: 'call-notify' },
+    compression: {
+      required: true,
+      contextSessionKey: 'xiaoni:test-global',
+      readCutoffAfterStackIndex: 171,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 201,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    },
+    contextSessionKey: 'xiaoni:test-global',
+    sourceResponseId: 'llm-notify',
+    metadata: { trace_id: 'trace-notify', execution_mode: 'compression_fork_background' }
+  });
+
+  assert.equal(enqueued.length, 1, 'exactly one compression-done notify enqueued per real commit');
+  const call = enqueued[0];
+  assert.equal(call.message.source, 'system_reminder');
+  // dedupeKey keys the notify to the committed cutoff so a retry/re-commit can't duplicate it.
+  assert.equal(call.message.dedupeKey, 'core-memory-compression-done:xiaoni:test-global:171');
+  assert.equal(call.payload.systemReminder.reason, 'core_memory_compression_done');
+  // The reminder body carries the event line + a frozen East-8 stamp (raw, unwrapped — the
+  // consume-time renderSystemReminder wraps it in <system_reminder>).
+  assert.match(String(call.payload.systemReminder.reminder), /刚整理过一次记忆。/);
+  assert.match(String(call.payload.systemReminder.reminder), /东八区 \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+});
+
+test('summary-only / superseded core memory commit does not enqueue a compression-done notify', async () => {
+  const enqueued: any[] = [];
+  const service = new AgentLoopService({
+    upsertSessionContextSummary: async () => undefined,
+    logTimelineEvent: async () => undefined,
+    enqueueQueueMessage: async (params: any) => { enqueued.push(params); }
+  } as any);
+
+  // compression: null → summary-only commit, no cutoff advance → no notify.
+  await (service as any).commitCoreMemoryCompression({
+    rawToolResult: { compressed: true, text: '只写近况不推进 cutoff。', outcome: 'core_memory_compressed' },
+    toolCall: { name: COMPRESS_CORE_MEMORY_TOOL, callId: 'call-no-notify' },
+    compression: null,
+    contextSessionKey: 'xiaoni:test-global',
+    sourceResponseId: 'llm-no-notify',
+    metadata: { trace_id: 'trace-no-notify', execution_mode: 'main_loop' }
+  });
+
+  assert.equal(enqueued.length, 0, 'no cutoff advance → no compression-done notify');
+});
+
 test('context compression memory writer scheduling is disabled by default', async () => {
   const timelineEvents: any[] = [];
   const service = new AgentLoopService({
