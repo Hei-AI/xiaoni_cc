@@ -21,9 +21,23 @@ import {
 const PROVIDER_SERVICE_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
 const RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/home/liahua/.qqbot-local/xiaoni-runtime';
 const CANONICAL_ROOT = '/xiaoni-runtime';
-const FILE_DIRS = ['forever', 'notes', 'reading', 'toys'];
 const EMBED_BATCH = 64;
 const HASH_LOOKUP_BATCH = 1000;
+
+// 前瞻索引闸(§7.1):被动浮现语料的文件底只索引「记忆宫殿」—— 她刻意维护的那几份,
+// 不是整个文件系统。路径定义与 modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md
+// 逐字对齐(读端 cat 什么、写端嵌什么必须同一套)。旧的 ['forever','notes','reading','toys']
+// 把 reading(读过的原文)/toys/死归档整盘子都嵌了 —— 85% 语料污染的根就在这。
+// 这是「往后只加宫殿」的前瞻闸:存量污染 cue 不在这里回溯删(小腻按指定方式自迁清理)。
+// 注意:动作流那条腿(collectActionStreamRecords)是行为事实,不受此闸影响。
+// docs/XIAONI_MEMORY_PALACE_GENERATION.md §7.1
+const PALACE_FILES = ['notes/xiaoni-identity-anchor.md']; // 宫殿地图(身份索引)
+const PALACE_DIRS = ['notes/diary'];                      // 日记(情节记忆,被动浮现主力)
+// 日记目录里这两份【不进】被动嵌入:
+//  - dictionary.md 是关键词→哪天的查找索引,密集 bullet 整块糊成一个泛化向量,
+//    只供主动 cat 翻查,嵌进被动召回反而污染;
+//  - open-loops.md 由第二条腿(scanOpenLoopsToShadow)按时间/状态扫,嵌 checkbox 行是噪音。
+const PALACE_DIR_EXCLUDE = new Set(['dictionary.md', 'open-loops.md']);
 
 // 被动召回【第二条腿】:开放承诺按时间重提(非语义)。docs/XIAONI_MEMORY_PALACE_GENERATION.md §11。
 const OPEN_LOOPS_REL_PATH = 'notes/diary/open-loops.md';
@@ -84,31 +98,48 @@ function canonicalOf(absolutePath: string): string {
   return `${CANONICAL_ROOT}${absolutePath.slice(RUNTIME_ROOT.length)}`.replace(/\/+/g, '/');
 }
 
+// 前瞻闸:只收宫殿文件(单文件 allowlist + 日记目录扁平一层),不再递归整个文件系统。
+// 缺文件 = 还没建/还没迁,静默跳过(不报错、不阻断动作流那条腿)。
 async function walkIndexableFiles(): Promise<string[]> {
   const found: string[] = [];
-  async function visit(dir: string, depth: number): Promise<void> {
-    if (depth > 8 || found.length > 5000) {
-      return;
+
+  // 1) 宫殿显式单文件(identity-anchor 等)。
+  for (const rel of PALACE_FILES) {
+    const absolutePath = path.join(RUNTIME_ROOT, rel);
+    try {
+      const stat = await fs.stat(absolutePath);
+      if (stat.isFile()) {
+        found.push(absolutePath);
+      }
+    } catch {
+      // 还没建,跳过。
     }
-    let entries: Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>;
+  }
+
+  // 2) 宫殿目录(日记):扁平一层,只取 .md/.txt,排除字典/open-loops(见上注释)。
+  //    日记结构是 notes/diary/YYYY-MM-DD.md 一层平铺,不递归子目录避免误收归档。
+  for (const rel of PALACE_DIRS) {
+    const dir = path.join(RUNTIME_ROOT, rel);
+    let entries: Array<{ name: string; isFile: () => boolean }>;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
-      return;
+      continue;
     }
     for (const entry of entries) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) {
+      if (!entry.isFile()) {
         continue;
       }
-      const absolutePath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await visit(absolutePath, depth + 1);
-      } else if (entry.isFile() && /\.(md|txt)$/i.test(entry.name)) {
-        found.push(absolutePath);
+      if (entry.name.startsWith('.') || PALACE_DIR_EXCLUDE.has(entry.name)) {
+        continue;
       }
+      if (!/\.(md|txt)$/i.test(entry.name)) {
+        continue;
+      }
+      found.push(path.join(dir, entry.name));
     }
   }
-  await Promise.all(FILE_DIRS.map((dir) => visit(path.join(RUNTIME_ROOT, dir), 1)));
+
   return found;
 }
 

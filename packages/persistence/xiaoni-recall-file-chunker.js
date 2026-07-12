@@ -3,7 +3,8 @@
 const crypto = require('crypto');
 const { normalizeRecallText } = require('./xiaoni-passive-recall-extractor');
 
-// 小腻文件语料底(forever/notes/reading/toys)的分块 —— 纯函数,content 传入,不碰 fs。
+// 小腻文件语料底(记忆宫殿:identity-anchor + notes/diary 日记;范围由 reindex 的前瞻闸定)
+// 的分块 —— 纯函数,content 传入,不碰 fs。
 // 一个文件含多条不同记忆,整文件一个向量太粗;按标题/段落切块,lead 才能指到「某段」。
 // 每块 contentHash 变了才重嵌。详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md。
 
