@@ -293,7 +293,7 @@ function clampNumber(value: unknown, defaultValue: number, min: number, max: num
 export async function readFileRange(args: ReadFileRequest): Promise<ReadFileResult> {
   const rawPath = typeof args.path === 'string' ? args.path.trim() : '';
   const offset = clampNumber(args.offset, 1, 1, Number.MAX_SAFE_INTEGER);
-  const limit = clampNumber(args.limit, 2000, 1, 100_000);
+  const limit = clampNumber(args.limit, 200, 1, 100_000);
   const maxOutputTokens = clampNumber(args.max_output_tokens, 10_000, 2000, 200_000);
   const maxChars = Math.max(1, maxOutputTokens * 4);
   const build = (target: string, extra: Partial<ReadFileResult> & { codex_output: string }): ReadFileResult => ({
