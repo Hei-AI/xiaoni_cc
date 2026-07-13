@@ -430,6 +430,7 @@ function rawTraceSpanIdForSource(
     source !== 'llm_request'
     && source !== 'compression_fork_llm_request'
     && source !== 'subconscious_fork_llm_request'
+    && source !== 'psych_assessment_fork_llm_request'
     && source !== 'image_vision_fork_llm_request'
     && source !== 'cache_heartbeat'
     && source !== 'task'
@@ -579,6 +580,7 @@ function sourceLabel(source: string) {
     case 'queue_message':
       return 'queue';
     case 'compression_fork_llm_request':
+    case 'psych_assessment_fork_llm_request':
     case 'image_vision_fork_llm_request':
       return 'fork LLM';
     case 'compression_fork_item':
@@ -1887,6 +1889,7 @@ function streamTypeTag(item: XiaoniActivityFeedItem): { label: string; tone: Str
     item.source === 'llm_request'
     || item.source === 'compression_fork_llm_request'
     || item.source === 'subconscious_fork_llm_request'
+    || item.source === 'psych_assessment_fork_llm_request'
     || item.source === 'image_vision_fork_llm_request'
     || item.source === 'cache_heartbeat'
   ) {
