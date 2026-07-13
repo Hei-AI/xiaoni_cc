@@ -1441,6 +1441,9 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.stripXiaoniOsFromRequests === 'boolean') {
         patch.stripXiaoniOsFromRequests = body.stripXiaoniOsFromRequests;
       }
+      if (typeof body.psychAssessmentGateEnabled === 'boolean') {
+        patch.psychAssessmentGateEnabled = body.psychAssessmentGateEnabled;
+      }
       if (Object.prototype.hasOwnProperty.call(body, 'mainAgentPreModelYieldMs')) {
         const value = parseNonNegativeInteger(body.mainAgentPreModelYieldMs);
         if (value === null) {
