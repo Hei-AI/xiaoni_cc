@@ -5875,27 +5875,13 @@ export class AgentLoopService {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
     settledOnFinalAnswer: boolean;
-    // 甲 (productivity gate): did the settled run make ANY tool call? A run that carried the
-    // active <xiaoni_plan> and made zero tool calls (pure text) produced no product → pop +
-    // regenerate; a run with ≥1 tool call was productive → keep the same plan and re-deliver it.
-    // Judged over the WHOLE run (not just the settling turn) — see the real-wire divergence in
-    // project_self_driven_xiaoni_plan_oneshot_evict: every short burst BOTH settled on text AND
-    // used tools, so settledOnFinalAnswer can't tell "worked then settled" from "did nothing".
+    // 甲 (original trigger): did the settled run make ANY tool call? A zero-tool settle means she
+    // ended idle having done nothing (a QQ reply IS a send_* tool call, so chatting counts as
+    // tools) → the subconscious mints/rolls her plan; ≥1 tool call means she was living her life →
+    // don't push. Judged over the WHOLE run (not just the settling turn), so "worked then settled"
+    // (has tools) is not mistaken for "did nothing" (zero tools).
     runMadeAnyToolCall: boolean;
-    // Was the settled run a self-driven subconscious/reseed wake (carried the active plan)?
-    // Only such a run's zero-tool outcome may pop the plan; an unrelated (e.g. QQ) settle must
-    // not evict her pending self-driven plan.
-    wasSubconsciousWake: boolean;
   } | null = null;
-
-  // 甲 (persistent active plan slot): the current self-driven <xiaoni_plan>, held in memory
-  // (same lifecycle as lastMainAgentForkSeed — dropped on restart, re-minted next idle). At most
-  // ONE plan lives here, so it can never pile up (the 7-stale-plan near-dup loop that motivated
-  // the one-shot evict). It is re-delivered (reseed notify) across runs while she keeps acting on
-  // it, and popped + regenerated when a subconscious run consumes it but makes zero tool calls.
-  // Never persisted, never in wire → cache-invisible; the plan still rides the exact one-shot
-  // cache_volatile delivery path, so every double-cache argument from the one-shot evict holds.
-  private activeSubconsciousPlan: { text: string } | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -6162,35 +6148,16 @@ export class AgentLoopService {
       // to repopulate the seed rather than rebuilding context independently.
       return;
     }
-    // C2: fork only when she settled on a final_answer — a pure-text response with no
-    // action (judged on the settling response, not the whole run; a turn that makes a tool
-    // call never settles). So whenever she ends idle on a 小腻os, the self-driven fork gives her
-    // the next direction, no matter how many tools the run used before settling.
-    if (!seed.settledOnFinalAnswer) {
+    // C2 (original self-driven trigger, restored): only mint after a run that ended idle with
+    // ZERO tool calls — she settled on a final_answer and did NOTHING (no send/exec/image…). Any
+    // tool call means she was living her life and the subconscious must not push — and a QQ reply
+    // IS a send_* tool call, so chatting never triggers this. She keeps whatever plan she has.
+    if (!seed.settledOnFinalAnswer || seed.runMadeAnyToolCall) {
       return;
     }
 
     const queueMessage = buildRuntimeLoopFrameQueueMessage();
     const payload = queueMessage.payload;
-
-    // 甲 slot lifecycle: an active plan persists across runs while she keeps acting on it.
-    const activePlan = this.activeSubconsciousPlan;
-    if (activePlan) {
-      if (seed.wasSubconsciousWake && !seed.runMadeAnyToolCall) {
-        // She took THIS plan and made zero tool calls (pure text) → no product → pop it and
-        // fall through to mint a fresh plan (the existing fork). This is exactly「拿了计划却没
-        // 动手就换新的」— and it reuses the same idle→fork regeneration, no extra trigger.
-        this.activeSubconsciousPlan = null;
-      } else {
-        // Either she acted on the plan (≥1 tool call → productive), or this settle was a
-        // different (e.g. QQ) run that shouldn't evict her pending self-driven plan. In both
-        // cases KEEP the plan and re-deliver it verbatim so the next wake continues the same
-        // direction instead of being whipped onto a fresh one. Reseed rides the exact one-shot
-        // delivery path (cache-identical to a mint); no new fork, no context accumulation.
-        await this.enqueueSubconsciousAgentReseed(activePlan.text, payload);
-        return;
-      }
-    }
 
     const contextSessionKey = getGlobalPromptContextSessionKey();
     const runtimePrompt = await this.resolveStableRuntimePrompt(payload);
@@ -7168,34 +7135,14 @@ export class AgentLoopService {
     const payload = queueMessage.payload;
     const inboundContext = payload.inboundContext;
     const sessionIds = resolveSessionTargets(payload);
-    // 甲 (one-shot subconscious plan): the self-driven <xiaoni_plan> notify is a
-    // turn-1-only nudge. Deliver it as a cache_volatile one-shot overlay (seeded
-    // pre-loop below) and keep it OUT of requestInput + OFF the durable stack, so
-    // it is consumed by exactly the first model call and never replays into any
-    // later run (previously it persisted as a user-role trigger and compounded —
-    // see project_self_driven_xiaoni_plan_oneshot_evict / the 7-stale-plan pileup
-    // in production wire). Her RESPONSE to it still persists normally (separate
-    // output stack items), so the durable history keeps what she DID, not the raw
-    // nudge. Cache: the plan rides only as the cache_volatile tail, never entering
-    // the cacheable prefix, so excluding it from replay leaves the prefix byte-
-    // identical across the live build, the persisted replay, and every fork.
-    const isSubconsciousOneShotWake = options.queueBacked && isSubconsciousAgentNotifyPayload(payload);
-    const effectiveTriggerInputMode: RuntimeTriggerInputMode = isSubconsciousOneShotWake
-      ? 'suppress_current_trigger'
-      : options.triggerInputMode;
-    if (isSubconsciousOneShotWake) {
-      // 甲: record the plan this run carries in the active slot (uniform for both a freshly
-      // minted plan and a reseed of the same one). The slot is what lets maybeRunSubconsciousAgentFork
-      // decide, at the next settle, whether to re-deliver this plan (she acted) or pop + regenerate
-      // (she made zero tool calls). Raw text only — the delivery itself is unchanged (still the
-      // turn-1 cache_volatile one-shot below), so this touches no request bytes.
-      const planText = typeof payload.rawPayload?.final_answer_text === 'string'
-        ? payload.rawPayload.final_answer_text.trim()
-        : '';
-      if (planText) {
-        this.activeSubconsciousPlan = { text: planText };
-      }
-    }
+    // 甲 (self-driven <xiaoni_plan> durable consume): the plan notify is consumed through the
+    // NORMAL notify path — rendered into requestInput and appended to the durable stack exactly
+    // like a QQ notify, so it is frozen at the point of consumption and replayed byte-for-byte
+    // thereafter (she re-reads her own subconscious direction from history). No one-shot overlay,
+    // no reseed re-injection, no memory slot — this is the pre-one-shot model restored.
+    // Cache: this is the same run-boundary path every normal notify rides — the current-turn
+    // trigger is cache_volatile in the live tail and its frozen stack row reproduces the same
+    // bytes on the next run's replay, so the cacheable prefix stays byte-identical.
     let jobId: string | null = null;
     const recoveryWakeCountStartQueueMessageId = typeof options.recoveryWakeCountStartQueueMessageId === 'number'
       && Number.isFinite(options.recoveryWakeCountStartQueueMessageId)
@@ -7326,7 +7273,7 @@ export class AgentLoopService {
         runtimeEnergyState: initialRuntimeEnergyState,
         contextSessionKey,
         cutoffState,
-        triggerInputMode: effectiveTriggerInputMode,
+        triggerInputMode: options.triggerInputMode,
         appendSelfContinuationOnTerminalFinalAnswer,
         loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
       });
@@ -7381,14 +7328,6 @@ export class AgentLoopService {
       // compression switch advances it (see applyPendingCompressionMidRunIfSilent).
       let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterStackIndex ?? null;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
-      if (isSubconsciousOneShotWake) {
-        // 甲: budgetPlan.currentTurnInputItems holds the rendered <xiaoni_plan>
-        // (cache_volatile, built unconditionally); suppress_current_trigger kept it
-        // OUT of requestInput, so this pre-loop seed is its SOLE delivery — consumed
-        // at the first turn's build (the one-shot overlay at the top of the turn loop)
-        // and cleared, so turn-2+ and every later run never see it.
-        pendingOneShotInputItems.push(...budgetPlan.currentTurnInputItems);
-      }
       if (coreMemoryCompressionCheckpoint) {
         // Fork = clone of the main agent (same iron law as subconscious / image-vision /
         // heartbeat forks): base off the FULL main request input (byte-identical warm
@@ -7457,38 +7396,31 @@ export class AgentLoopService {
         continuationQueueMessages.push(claimed);
         const claimedInputItems = buildCurrentTurnInputItems(claimed.payload, runtimePrompt)
           .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
-        // 甲: a subconscious <xiaoni_plan> folded mid-run is still one-shot — deliver it
-        // via the one-shot overlay (next model call only, never loopContinuation/requestInput)
-        // and skip its durable stack row, mirroring the initial-wake path so it never replays.
-        const claimedIsSubconsciousOneShot = isSubconsciousAgentNotifyPayload(claimed.payload);
+        // A folded self-driven <xiaoni_plan> notify is consumed durably like any other folded
+        // notify: appended to the loop input AND written as a durable stack row, so the next
+        // run's replay reproduces it byte-for-byte (frozen at consumption, no re-injection).
         if (claimedInputItems.length > 0) {
-          if (claimedIsSubconsciousOneShot) {
-            appendOneShotInputItems(claimedInputItems);
-          } else {
-            appendLoopInputItems(claimedInputItems);
-          }
+          appendLoopInputItems(claimedInputItems);
         }
-        if (!claimedIsSubconsciousOneShot) {
-          await this.appendAgentStackItemsSafe({
-            traceId: claimed.payload.traceId,
-            runId: claimed.id,
-            sourceType: 'agent_queue_messages',
-            sourceId: claimed.id,
-            items: [
-              buildRuntimeInputStackItem({
-                queueMessage: claimed.payload,
-                runId: claimed.id,
-                runtimePrompt,
-                precomputedInputItems: claimedInputItems,
-                // Key the dedupe event_id on the exact queue message(s) folded here, so two
-                // reminders of the SAME QQ event (shared evt_ trace_id) get distinct stack
-                // items instead of the second colliding away. Without this the next run's
-                // replay rebuilds a shorter body and busts the prompt cache at the run boundary.
-                queueMessageIds: claimed.queueMessageIds
-              }) as Record<string, unknown>
-            ]
-          });
-        }
+        await this.appendAgentStackItemsSafe({
+          traceId: claimed.payload.traceId,
+          runId: claimed.id,
+          sourceType: 'agent_queue_messages',
+          sourceId: claimed.id,
+          items: [
+            buildRuntimeInputStackItem({
+              queueMessage: claimed.payload,
+              runId: claimed.id,
+              runtimePrompt,
+              precomputedInputItems: claimedInputItems,
+              // Key the dedupe event_id on the exact queue message(s) folded here, so two
+              // reminders of the SAME QQ event (shared evt_ trace_id) get distinct stack
+              // items instead of the second colliding away. Without this the next run's
+              // replay rebuilds a shorter body and busts the prompt cache at the run boundary.
+              queueMessageIds: claimed.queueMessageIds
+            }) as Record<string, unknown>
+          ]
+        });
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
           eventType: 'queue',
@@ -7512,11 +7444,10 @@ export class AgentLoopService {
       };
       let leaseRelease: LeaseReleaseRecord | null = null;
       let deliveryState = await this.store.getExecutionLeaseDeliveryState(queueMessage.id);
-      if (options.appendRuntimeInputStackItem && !isSubconsciousOneShotWake) {
-        // 甲: skip persisting the <xiaoni_plan> trigger for a subconscious wake — it
-        // was delivered as a one-shot overlay above and must NOT become a durable
-        // runtime_input row (that is exactly the replay accumulation being removed).
-        // Her response persists via the output stack items regardless.
+      if (options.appendRuntimeInputStackItem) {
+        // The current-turn trigger — including a self-driven <xiaoni_plan> — is persisted as a
+        // durable runtime_input row so the next run's replay reproduces it byte-for-byte (frozen
+        // at consumption). This is the normal notify path; the plan is no longer special-cased.
         await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -7573,12 +7504,10 @@ export class AgentLoopService {
           developerContextBlock,
           runtimeEnergyState: initialRuntimeEnergyState,
           precomputedCurrentTurnInputItems: budgetPlan.currentTurnInputItems,
-          // 甲: the STW rebuild must inherit THIS run's trigger mode. For a subconscious
-          // wake that is suppress_current_trigger, so the compressed requestInput does NOT
-          // re-inject the <xiaoni_plan> — otherwise it would re-enter requestInput, get
-          // buried behind later tool outputs (durable, mid-prefix) and 穿透 at the run
-          // boundary. The plan stays a pure one-shot; only the seed overlays turn-1.
-          triggerInputMode: effectiveTriggerInputMode,
+          // The STW rebuild inherits THIS run's trigger mode. A self-driven <xiaoni_plan> wake is
+          // now a normal durable notify (no special suppress mode), so the compressed requestInput
+          // carries the plan exactly like any other current-turn trigger.
+          triggerInputMode: options.triggerInputMode,
           loopContinuationBeforeCurrentTrigger: options.initialLoopContinuationBeforeCurrentTrigger
         });
         if (midRunCompressionApply) {
@@ -8206,8 +8135,7 @@ export class AgentLoopService {
           canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
           recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
           settledOnFinalAnswer: actionPlan.hasFinalAnswer,
-          runMadeAnyToolCall,
-          wasSubconsciousWake: isSubconsciousOneShotWake
+          runMadeAnyToolCall
         };
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
@@ -10581,21 +10509,6 @@ export class AgentLoopService {
       });
       return false;
     }
-  }
-
-  // 甲: re-deliver the active plan verbatim through the existing subconscious-notify path, so the
-  // main loop treats it identically to a freshly minted plan (turn-1 cache_volatile one-shot,
-  // never durable, never replayed). A unique forkRunId → unique messageSid/dedupeKey, so a reseed
-  // never collides with the mint notify or a prior reseed. This is the「有产物就留同一条计划」leg.
-  private async enqueueSubconsciousAgentReseed(text: string, payload: QueueMessageRecord['payload']) {
-    await this.enqueueSubconsciousAgentNotify({
-      forkRunId: `subconscious-reseed:${uuidv4().slice(0, 8)}`,
-      forkSliceId: `subconscious-reseed-slice:${uuidv4().slice(0, 8)}`,
-      llmCallId: null,
-      traceId: payload.traceId,
-      runId: payload.runId,
-      text
-    });
   }
 
   private async enqueueSubconsciousAgentNotify(params: {
