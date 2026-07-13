@@ -1932,6 +1932,57 @@ async function loadSubconsciousAgentForkTimeline(sql, {
   }
 }
 
+// Slice-only psych fork rows carry no occurred_seq of their own: there is no
+// *_fork_items ledger, and the slice's own stack-index columns are never written.
+// Without a global sequence the frontend (buildStreamEntries) drops the whole fork
+// into the un-stamped "historical" tier, so it sinks to the very bottom of the
+// action stream — invisible — even though it fired on time (same failure image-vision
+// and cache-heartbeat forks each had before their own seq wiring). Anchor each psych
+// slice to the assistant turn it assessed: its (run_id, agent_turn) → the main
+// llm_request_slice's output_start_index → that stack item's occurred_seq, the same
+// global sequence every other fork sorts by. Wrapped so a missing table / absent sql
+// accessor degrades to "no seq" (historical fallback), never throws.
+async function loadPsychAssessmentAnchorSeqMap(sql, rows) {
+  const map = new Map();
+  if (!sql || typeof sql.query !== 'function' || !Array.isArray(rows) || rows.length === 0) {
+    return map;
+  }
+  const runIds = new Set();
+  for (const row of rows) {
+    const runId = firstString(row.runId, row.run_id);
+    if (runId) runIds.add(runId);
+  }
+  if (runIds.size === 0) {
+    return map;
+  }
+  const placeholders = [...runIds].map(() => '?').join(', ');
+  try {
+    const anchorRows = await sql.query(
+      `SELECT m.run_id, m.agent_turn, s.occurred_seq
+         FROM llm_request_slices m
+         JOIN agent_stack_items s
+           ON s.run_id = m.run_id AND s.stack_index = m.output_start_index
+        WHERE m.run_id IN (${placeholders}) AND m.output_start_index IS NOT NULL`,
+      [...runIds]
+    );
+    for (const anchor of Array.isArray(anchorRows) ? anchorRows : []) {
+      const runId = firstString(anchor.runId, anchor.run_id);
+      const agentTurn = streamNumberOrNull(anchor.agentTurn ?? anchor.agent_turn);
+      const seq = streamNumberOrNull(anchor.occurredSeq ?? anchor.occurred_seq);
+      if (runId === null || agentTurn === null || seq === null) {
+        continue;
+      }
+      const key = `${runId}::${agentTurn}`;
+      if (!map.has(key)) {
+        map.set(key, seq);
+      }
+    }
+  } catch {
+    return new Map();
+  }
+  return map;
+}
+
 async function loadPsychAssessmentForkTimeline(sql, {
   identityKey,
   timeWindow,
@@ -1963,10 +2014,25 @@ async function loadPsychAssessmentForkTimeline(sql, {
       ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
       LIMIT ?
     `, [identityKey, ...params, forkLimit]);
-    // One dispatch = one slice row = one synthesized run.
+    // One dispatch = one slice row = one synthesized run. Stamp each slice event's
+    // global orderSeq from the assessed turn's assistant-output occurred_seq so the
+    // fork sorts inline with the turn it judged instead of sinking to the bottom.
+    const anchorSeqMap = await loadPsychAssessmentAnchorSeqMap(sql, sliceRows);
     return {
       runs: sliceRows.map((row) => {
         const sliceEvent = summarizePsychAssessmentForkSlice(row);
+        const runId = firstString(row.runId, row.run_id);
+        const agentTurn = streamNumberOrNull(row.agentTurn ?? row.agent_turn);
+        const anchorSeq = runId !== null && agentTurn !== null
+          ? anchorSeqMap.get(`${runId}::${agentTurn}`)
+          : undefined;
+        if (typeof anchorSeq === 'number') {
+          // Sit just before the assessed assistant output (occurred_seq − 0.5), the
+          // same convention the 模型请求 slice uses, so the psych fork clusters with the
+          // turn it judged. No anchor found → leave orderSeq null (historical fallback,
+          // unchanged from before — no regression for pre-anchor rows).
+          sliceEvent.metadata = { ...(sliceEvent.metadata || {}), orderSeq: anchorSeq - 0.5 };
+        }
         return summarizePsychAssessmentForkRun(row, [sliceEvent]);
       })
     };

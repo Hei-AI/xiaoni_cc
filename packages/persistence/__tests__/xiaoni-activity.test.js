@@ -56,6 +56,13 @@ function createPersistence(overrides = {}) {
         if (statement.includes('FROM cache_heartbeat_fork_items')) {
           return overrides.cacheHeartbeatForkItems || [];
         }
+        if (statement.includes('FROM psych_assessment_fork_slices')) {
+          return overrides.psychAssessmentForkSlices || [];
+        }
+        // Anchor lookup: (run_id, agent_turn) → main slice output_start_index → stack occurred_seq.
+        if (statement.includes('FROM llm_request_slices m') && statement.includes('JOIN agent_stack_items')) {
+          return overrides.psychAnchorSeqRows || [];
+        }
         if (statement.includes('FROM subconscious_agent_fork_runs')) {
           return overrides.subconsciousForkRuns || [];
         }
@@ -1120,6 +1127,60 @@ test('Xiaoni cache heartbeat without a ledger row keeps orderSeq null (historica
   const run = stream.cacheHeartbeatTimeline.runs[0];
   assert.ok(run);
   assert.equal(run.events[0].metadata.orderSeq, null);
+});
+
+function psychSliceRow(overrides = {}) {
+  return {
+    id: 'psych-slice-1',
+    sliceId: 'llm_psych_1',
+    slice_id: 'llm_psych_1',
+    forkRunId: 'psych-fork-1',
+    fork_run_id: 'psych-fork-1',
+    identityKey: 'xiaoni',
+    identity_key: 'xiaoni',
+    runId: 'run_psych_1',
+    run_id: 'run_psych_1',
+    agentTurn: 8,
+    agent_turn: 8,
+    traceId: 'trace_psych_1',
+    trace_id: 'trace_psych_1',
+    status: 'completed',
+    metadata: { verdict: 'keep' },
+    createdAt: '2026-06-05T10:05:00.000Z',
+    created_at: '2026-06-05T10:05:00.000Z',
+    completedAt: '2026-06-05T10:05:01.000Z',
+    completed_at: '2026-06-05T10:05:01.000Z',
+    ...overrides
+  };
+}
+
+test('Xiaoni psych-assessment fork gets orderSeq from the assessed turn (else it sinks to the bottom)', async () => {
+  const persistence = createPersistence({
+    psychAssessmentForkSlices: [psychSliceRow()],
+    // The slice-only psych fork has no occurred_seq of its own; the anchor comes from
+    // the assessed turn's assistant-output stack item, joined via the main llm_request_slice.
+    psychAnchorSeqRows: [{ run_id: 'run_psych_1', agent_turn: 8, occurred_seq: 44988 }]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const run = stream.psychAssessmentForkTimeline.runs[0];
+  assert.ok(run);
+  // orderSeq present ⇒ the frontend sorts it inline with the turn it judged instead of
+  // dropping the whole fork into the un-stamped historical tier at the very bottom.
+  // occurred_seq − 0.5 keeps it just before the assessed assistant output (模型请求 slice convention).
+  assert.equal(run.events[0].metadata.orderSeq, 44987.5);
+});
+
+test('Xiaoni psych-assessment fork without a resolvable anchor keeps orderSeq null (historical fallback)', async () => {
+  const persistence = createPersistence({
+    psychAssessmentForkSlices: [psychSliceRow()],
+    psychAnchorSeqRows: []
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 10 });
+  const run = stream.psychAssessmentForkTimeline.runs[0];
+  assert.ok(run);
+  assert.equal(Number.isFinite(run.events[0].metadata.orderSeq), false);
 });
 
 test('Xiaoni action stream lets the LLM source tag select provider-backed image tasks', async () => {
