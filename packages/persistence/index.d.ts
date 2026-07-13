@@ -2481,6 +2481,9 @@ export interface XiaoniDiaryEventPick { title: string; body: string; dateMs: num
 export function parseDiaryDateFromName(filename: string | null | undefined): number | null;
 export function normalizeEventText(text: unknown): string;
 export function parseDiaryEvents(content: string, dateMs: number): XiaoniDiaryEvent[];
+export function parseChapterDateFromTitle(title: string | null | undefined, nowMs: number): number | null;
+export function stripChapterDatePrefix(title: string | null | undefined): string;
+export function parseDiarySerialEvents(content: string, nowMs: number): XiaoniDiaryEvent[];
 export function selectResurfacedEvents(
   events: XiaoniDiaryEvent[],
   opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
