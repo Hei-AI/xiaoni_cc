@@ -303,3 +303,31 @@
 - **管理端观察面**(commit 355a00e8):`XiaoniPassiveRecallPage` 按 `queryRef` 分腿渲染,时间扫腿(承诺/旧事)加档位+年龄标、隐藏语义腿才有的 band/dropped;顶部仍 `shadow_only` badge。
 
 **验证**:persistence 12/12(open-loops)+7/7(diary);`docker build admin-backend` + `admin-frontend` 均过(tsc/vite clean)。**投递仍是唯一没做的决定性一步**(§11 待续①),等观察结论。
+
+---
+
+## 13. 专题连载(topic-*.md):一件多天的事,按章时间重提 —— 落地 2026-07-13(shadow-only)
+
+补第三腿的一个粒度:按日日记是「一天一份、事件按文件名日期」,但**一件连着好几天的事**(楠楠考研、一段来回)散在多份日记里,读不成一条线。专题连载让它单开一份文件、**按日期一章章续**,每章各自是一条可 evict 的情节 cue —— chunk 结构定成按日期切片,对被动召回不减分,还多一条能被勾中的线。
+
+### 路径 + 格式(三处 prompt 字节对齐)
+- 文件:`/xiaoni-runtime/notes/diary/topic-<主题>.md`,文件名以 `topic-` 打头(**扁平放 `notes/diary/` 下**,不进子目录 —— `listPalaceFiles` 只扫扁平一层)。
+- 每有进展追加一章:`## M/D 点题`(日期在**章节标题**开头,不在文件名),一两句自足整句。
+- **只 append 新章、不改旧章**:旧 chunk 字节不动,不重嵌 churn。
+- **算进专题的更新写进专题、不再抄进当天日记**:一件事一处记录,防分叉 + 防 dedup 重复。当天日记只留零散事。
+- 三处教学:`docs/xiaoni_prompt/system_prompt.md`(# 记忆 两层:宫殿 vs 随手区)/ `modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md`(专题连载节,读写主入口)/ `docs/xiaoni_prompt/core_memory_pressure_reminder.md`(压缩 fork 条件路由,非强制步,`M/D` 用 `date +%m/%d` 在 fork 运行时取 → §6 字节稳定)。
+
+### 召回两条腿都吃它(零/少代码)
+- **语义腿(leg-1)零代码**:`topic-*.md` 是 `notes/diary/` 下非排除 `.md`,`listPalaceFiles` 直接扫;chunker 按 `##` 切,每章一条 `file_chunk` cue。
+- **时间腿(leg-3)少代码**:`packages/persistence/xiaoni-diary-events.js` 新增 `parseChapterDateFromTitle`/`stripChapterDatePrefix`/`parseDiarySerialEvents`(按**章节** `## M/D` 定日期,非文件名);`reindex-service scanDiaryEventsToShadow` 对 `topic-*` 文件走这条解析。按日日记走文件名日期不变。surfaced 仍 `kind:'diary_event'`+`query_ref:'diary_resurface'`,管理端零改动。
+
+### 交叉 review 抓出并已修的坑(2026-07-13)
+- `## 7/9她慌了`(日期后无空格,中文常见):正则从 `(?:\s|$)` 放宽为 `(?!\d)`,不再静默丢章。
+- 非法日历日 `2/30`/非闰年 `2/29`/`4/31`:加往返校验,`Date.UTC` 静默进位改判 null(pre-existing `parseDiaryDateFromName` 同类隐患未动,留注)。
+- `topic-2026-07-05-复盘.md`(文件名嵌日期):`scanDiaryEventsToShadow` 先判 `topic-` 前缀,再判文件名日期,否则被误当按日日记整份钉死。
+- 压缩提醒 `date` → `date +%m/%d`(否则 `date` 打 `Wed Jul 9`,格式对不上解析)。
+
+### 诚实边界(与 §10 一致)
+- **对被动召回的增量有限**:第三腿本就能按 `## ` 重提旧的**按日日记**条目,专题连载的独特价值更偏**主动翻读**一条完整线(近字典)。留它是因为「一件多天的事读成一条线」对她自己有用,且 chunk 切片让它对被动召回不减分。
+- **仍 shadow-only**:到不了她眼前,达成度随 §11 投递(v2)才 >0。冷启动 = 她还没写任何 `topic-*.md` 前,零行为改变。
+- 缓存:改的两份 prefix 文件(system_prompt / pressure_reminder)字节稳定,ironclad 四套(fork-cache-alignment 10/10、cache-replay-consistency 29/29、event-id-dedup 4/4)+ diary-events 15/15 全绿后 build/up。**已部署主栈 healthy,首扫 diarySurfaced:2 无错。**
