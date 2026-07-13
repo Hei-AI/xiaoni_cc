@@ -63,6 +63,7 @@ test('getAgentRuntimeControl defaults Xiaoni to enabled when no row exists', asy
     compressionTriggerInputTokens: 80000,
     compressionTriggerWireBytes: 25165824,
     stripXiaoniOsFromRequests: false,
+    psychAssessmentGateEnabled: false,
     energyPolicy: null,
     updatedAt: null
   });
@@ -127,6 +128,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     80000,
     25165824,
     false,
+    false,
     true,
     false,
     false,
@@ -150,6 +152,8 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     false,
     25165824,
     false,
+    false,
+    false,
     false
   ]);
   assert.deepEqual(control, {
@@ -166,6 +170,7 @@ test('updateAgentRuntimeControl persists disabled state', async () => {
     compressionTriggerInputTokens: 80000,
     compressionTriggerWireBytes: 25165824,
     stripXiaoniOsFromRequests: false,
+    psychAssessmentGateEnabled: false,
     energyPolicy: null,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
@@ -209,6 +214,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     25165824,
     false,
     false,
+    false,
     true,
     true,
     true,
@@ -231,6 +237,8 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     false,
     25165824,
     false,
+    false,
+    false,
     false
   ]);
   assert.deepEqual(control, {
@@ -247,6 +255,7 @@ test('updateAgentRuntimeControl pauses cache heartbeat without changing runtime 
     compressionTriggerInputTokens: 80000,
     compressionTriggerWireBytes: 25165824,
     stripXiaoniOsFromRequests: false,
+    psychAssessmentGateEnabled: false,
     energyPolicy: null,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
@@ -290,6 +299,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     25165824,
     false,
     false,
+    false,
     true,
     false,
     false,
@@ -312,6 +322,8 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     false,
     25165824,
     false,
+    false,
+    false,
     false
   ]);
   assert.deepEqual(control, {
@@ -328,6 +340,7 @@ test('updateAgentRuntimeControl arms post-compression pause without changing ena
     compressionTriggerInputTokens: 80000,
     compressionTriggerWireBytes: 25165824,
     stripXiaoniOsFromRequests: false,
+    psychAssessmentGateEnabled: false,
     energyPolicy: null,
     updatedAt: '2026-06-06T20:00:00.000+08:00'
   });
@@ -360,16 +373,16 @@ test('updateAgentRuntimeControl persists main agent pre-model yield milliseconds
   // Trailing params are now [hasMainYield, mainYield, hasDebugInterval, debugInterval,
   // hasCompressionTrigger, compressionTrigger, hasCompressionWire, compressionWire,
   // hasStripXiaoniOs, stripXiaoniOs].
-  assert.equal(updateQuery.params.at(-10), true);
-  assert.equal(updateQuery.params.at(-9), 25);
+  assert.equal(updateQuery.params.at(-12), true);
+  assert.equal(updateQuery.params.at(-11), 25);
+  assert.equal(updateQuery.params.at(-10), false);
+  assert.equal(updateQuery.params.at(-9), 0);
   assert.equal(updateQuery.params.at(-8), false);
-  assert.equal(updateQuery.params.at(-7), 0);
+  assert.equal(updateQuery.params.at(-7), 80000);
   assert.equal(updateQuery.params.at(-6), false);
-  assert.equal(updateQuery.params.at(-5), 80000);
+  assert.equal(updateQuery.params.at(-5), 25165824);
   assert.equal(updateQuery.params.at(-4), false);
-  assert.equal(updateQuery.params.at(-3), 25165824);
-  assert.equal(updateQuery.params.at(-2), false);
-  assert.equal(updateQuery.params.at(-1), false);
+  assert.equal(updateQuery.params.at(-3), false);
   assert.equal(control.mainAgentPreModelYieldMs, 25);
 });
 
@@ -400,8 +413,8 @@ test('updateAgentRuntimeControl persists debug cache heartbeat interval millisec
   assert.match(updateQuery.statement, /debug_cache_heartbeat_interval_ms = CASE/);
   // The debug-interval upsert branch params are [hasDebugInterval, debugInterval] at
   // .at(-8)/.at(-7); the last six drive compression-trigger, wire-bytes and strip branches.
-  assert.equal(updateQuery.params.at(-8), true);
-  assert.equal(updateQuery.params.at(-7), 60000);
+  assert.equal(updateQuery.params.at(-10), true);
+  assert.equal(updateQuery.params.at(-9), 60000);
   assert.equal(control.debugCacheHeartbeatIntervalMs, 60000);
 });
 
@@ -433,12 +446,12 @@ test('updateAgentRuntimeControl persists compression trigger input tokens', asyn
   assert.match(updateQuery.statement, /compression_trigger_input_tokens = CASE/);
   // Compression-trigger branch params [hasCompressionTrigger, compressionTrigger] now sit at
   // .at(-6)/.at(-5); the last four drive the wire-bytes and strip branches.
-  assert.equal(updateQuery.params.at(-6), true);
-  assert.equal(updateQuery.params.at(-5), 120000);
+  assert.equal(updateQuery.params.at(-8), true);
+  assert.equal(updateQuery.params.at(-7), 120000);
+  assert.equal(updateQuery.params.at(-6), false);
+  assert.equal(updateQuery.params.at(-5), 25165824);
   assert.equal(updateQuery.params.at(-4), false);
-  assert.equal(updateQuery.params.at(-3), 25165824);
-  assert.equal(updateQuery.params.at(-2), false);
-  assert.equal(updateQuery.params.at(-1), false);
+  assert.equal(updateQuery.params.at(-3), false);
   assert.equal(control.compressionTriggerInputTokens, 120000);
 });
 
@@ -500,10 +513,10 @@ test('updateAgentRuntimeControl persists compression wire bytes', async () => {
   assert.match(updateQuery.statement, /compression_trigger_wire_bytes = CASE/);
   // Wire-bytes upsert branch params [hasCompressionWire, compressionWire] now sit at
   // .at(-4)/.at(-3); the last two drive the strip branch (false/false here).
-  assert.equal(updateQuery.params.at(-4), true);
-  assert.equal(updateQuery.params.at(-3), 20971520);
-  assert.equal(updateQuery.params.at(-2), false);
-  assert.equal(updateQuery.params.at(-1), false);
+  assert.equal(updateQuery.params.at(-6), true);
+  assert.equal(updateQuery.params.at(-5), 20971520);
+  assert.equal(updateQuery.params.at(-4), false);
+  assert.equal(updateQuery.params.at(-3), false);
   assert.equal(control.compressionTriggerWireBytes, 20971520);
 });
 
@@ -542,12 +555,56 @@ test('updateAgentRuntimeControl persists strip_xiaoni_os_from_requests without t
 
   const updateQuery = queries.at(-1);
   assert.match(updateQuery.statement, /strip_xiaoni_os_from_requests = CASE/);
-  // Strip branch params are the last two: [hasStripXiaoniOs, stripXiaoniOs].
-  assert.equal(updateQuery.params.at(-2), true);
-  assert.equal(updateQuery.params.at(-1), true);
-  // The VALUES-side strip param sits right after compressionTriggerWireBytes (index 10).
+  // Strip branch params are now the 3rd/4th-from-last: the psych gate branch
+  // ([hasPsych, psych]) was appended after strip, so strip is at(-4)/at(-3).
+  assert.equal(updateQuery.params.at(-4), true);
+  assert.equal(updateQuery.params.at(-3), true);
+  // The VALUES-side strip param still sits right after compressionTriggerWireBytes (index 10).
   assert.equal(updateQuery.params[10], true);
   assert.equal(control.stripXiaoniOsFromRequests, true);
+});
+
+test('getAgentRuntimeControl defaults psych_assessment_gate_enabled to false and round-trips true', async () => {
+  const defaultRun = createPersistence({ rows: [[]] });
+  const defaultControl = await defaultRun.persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+  assert.equal(defaultControl.psychAssessmentGateEnabled, false);
+
+  const storedRun = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      psych_assessment_gate_enabled: true,
+      updated_at: null
+    }]]
+  });
+  const storedControl = await storedRun.persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+  assert.equal(storedControl.psychAssessmentGateEnabled, true);
+});
+
+test('updateAgentRuntimeControl persists psych_assessment_gate_enabled without touching other knobs', async () => {
+  const updatedAt = new Date('2026-07-13T12:08:00.000Z');
+  const { queries, persistence } = createPersistence({
+    rows: [[{
+      identity_key: 'xiaoni',
+      enabled: true,
+      psych_assessment_gate_enabled: true,
+      updated_at: updatedAt
+    }]]
+  });
+
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    psychAssessmentGateEnabled: true
+  });
+
+  const updateQuery = queries.at(-1);
+  assert.match(updateQuery.statement, /psych_assessment_gate_enabled = CASE/);
+  // Psych gate branch params are the last two: [hasPsych, psych].
+  assert.equal(updateQuery.params.at(-2), true);
+  assert.equal(updateQuery.params.at(-1), true);
+  // The VALUES-side psych param sits right after the strip param (index 11).
+  assert.equal(updateQuery.params[11], true);
+  assert.equal(control.psychAssessmentGateEnabled, true);
 });
 
 test('triggerPostCompressionRuntimePause disables runtime only when armed', async () => {
@@ -591,6 +648,7 @@ test('triggerPostCompressionRuntimePause disables runtime only when armed', asyn
     compressionTriggerInputTokens: 80000,
     compressionTriggerWireBytes: 25165824,
     stripXiaoniOsFromRequests: false,
+    psychAssessmentGateEnabled: false,
     energyPolicy: null,
     updatedAt: '2026-06-06T20:02:00.000+08:00',
     // armed was already false (no pause_just_triggered in the returned row) =>
