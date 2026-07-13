@@ -13,6 +13,7 @@ import {
   selectStaleOpenLoops,
   parseDiaryDateFromName,
   parseDiaryEvents,
+  parseDiarySerialEvents,
   selectResurfacedEvents,
   insertRecallShadowLog,
   listRecallShadowLog
@@ -57,6 +58,9 @@ const DIARY_MIN_AGE_DAYS = 7;               // 搁≥7 天(她大概忘了)才�
 const DIARY_SURFACE_LIMIT = 2;              // 一次最多翻 2 件旧事
 const DIARY_DEDUP_LOOKBACK = 40;            // 最近 40 条 diary_resurface 里翻过的,冷却跳过
 const DIARY_NON_EVENT_FILES = new Set(['dictionary.md', 'open-loops.md']); // 不是往事日记,不扫
+// 专题连载(一件多天的事，一份文件一章章续):文件名不是日期，而是 topic-<主题>.md，
+// 事发日期在每个 `## M/D` 章节标题里。也走第三腿(diary_resurface)按时间重提旧章节。
+const SERIAL_FILE_PREFIX_RE = /^topic-/i;
 
 interface RecallRecord {
   sourceKind: string;
@@ -330,9 +334,12 @@ export async function scanDiaryEventsToShadow(
     if (!/\.(md|txt)$/i.test(entry.name)) {
       continue;
     }
-    const dateMs = parseDiaryDateFromName(entry.name);
-    if (dateMs == null) {
-      continue; // 文件名不含日期 → 不是按日往事日记,跳过
+    // 先判专题连载:topic-<主题>.md 的文件名里可能也嵌了日期(topic-2026-07-05-复盘.md),
+    // 必须优先按专题走每章 `## M/D`,否则会被 parseDiaryDateFromName 误当按日日记、整份钉死文件名日期。
+    const isSerial = SERIAL_FILE_PREFIX_RE.test(entry.name);
+    const dateMs = isSerial ? null : parseDiaryDateFromName(entry.name);
+    if (!isSerial && dateMs == null) {
+      continue; // 既不是按日日记(文件名日期)、也不是专题连载(topic-*) → 不进第三腿,仍由语义腿索引
     }
     const absolutePath = path.join(diaryDir, entry.name);
     let content = '';
@@ -342,7 +349,12 @@ export async function scanDiaryEventsToShadow(
       continue;
     }
     const canonicalPath = canonicalOf(absolutePath);
-    for (const ev of parseDiaryEvents(content, dateMs)) {
+    // 按日日记:整份共享文件名日期;专题连载:每章 `## M/D` 自带事发日期。
+    // 走到这里非专题分支即 dateMs 必非空(上面的 guard 已排除 dateMs==null && !isSerial)。
+    const parsed = isSerial
+      ? parseDiarySerialEvents(content, nowMs)
+      : parseDiaryEvents(content, dateMs as number);
+    for (const ev of parsed) {
       events.push({ ...ev, ref: `${canonicalPath}#${ev.index}` });
     }
   }
