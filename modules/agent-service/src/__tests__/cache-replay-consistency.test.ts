@@ -1881,6 +1881,101 @@ test('甲: subconscious <xiaoni_plan> reaches turn-1 only, is never persisted, a
   assert.ok(JSON.stringify(stack).includes('RESPONSE_MARKER_甲'), 'her final_answer response MUST persist to the stack');
 });
 
+// —— 甲 v2: 生产力门控的持久 slot (reseed / pop / QQ 护栏 / mint) ——
+// The one-shot delivery is unchanged (tests above stay green); these lock the NEW cross-run
+// lifecycle: an active <xiaoni_plan> persists in a memory slot and is re-delivered while she
+// keeps acting on it (run made ≥1 tool call), popped + regenerated when a subconscious run
+// consumes it but makes zero tool calls, and NOT evicted by an unrelated (e.g. QQ) settle.
+// The slot never touches request bytes / the durable stack, so the prefix tests above still pass.
+
+test('甲v2: consuming a subconscious wake stores the plan in the slot + seed carries run productivity', async () => {
+  const PLAN = 'SLOT_PLAN_MARKER_甲v2_A1';
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service = new AgentLoopService(store, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+  let turn = 0;
+  (service as any).executeAgentTurn = async () => {
+    turn += 1;
+    if (turn === 1) {
+      return {
+        success: true, llm_call_id: 'llm-1', llm_request_slice_id: 'slice-1',
+        canonical_response: { output: [{ type: 'function_call', call_id: 'c1', name: EXEC_COMMAND_TOOL, arguments: JSON.stringify({ cmd: 'echo hi' }) }] }
+      };
+    }
+    return {
+      success: true, llm_call_id: 'llm-2', llm_request_slice_id: 'slice-2',
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好' }] }] }
+    };
+  };
+
+  const queueMessage = {
+    id: 'run-slot', traceId: 'runtrace-slot', batchId: 'batch-slot', status: 'processing',
+    attempts: 1, createdAt: '2026-07-13T08:00:00.000Z', queueMessageIds: [1],
+    payload: subconsciousWakePayload('IGNORED', { rawPayload: { reason: 'subconscious_agent', notify_template: 'subconscious_agent_notify.md', final_answer_text: PLAN } })
+  };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  assert.equal((service as any).activeSubconsciousPlan?.text, PLAN, 'the consumed plan MUST be stored in the active slot');
+  const seed = (service as any).lastMainAgentForkSeed;
+  assert.equal(seed?.runMadeAnyToolCall, true, 'a run with a tool call MUST record runMadeAnyToolCall=true');
+  assert.equal(seed?.wasSubconsciousWake, true, 'a subconscious wake MUST record wasSubconsciousWake=true');
+});
+
+// Drive the idle self-driven trigger with a hand-built seed + slot state, spying on the two
+// terminal actions (reseed vs mint) so each branch is asserted in isolation.
+async function runIdleTrigger(opts: { slot: string | null; runMadeAnyToolCall: boolean; wasSubconsciousWake: boolean; }) {
+  const { store } = createFaithfulStore({ foldsToServe: [] });
+  const service: any = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  service.subconsciousAgentForkBackoffUntilMs = 0;
+  service.subconsciousAgentForkInFlight = null;
+  service.activeSubconsciousPlan = opts.slot === null ? null : { text: opts.slot };
+  service.lastMainAgentForkSeed = {
+    canonicalRequest: {} as any,
+    recentNarrationItems: [],
+    settledOnFinalAnswer: true,
+    runMadeAnyToolCall: opts.runMadeAnyToolCall,
+    wasSubconsciousWake: opts.wasSubconsciousWake
+  };
+  const reseedCalls: string[] = [];
+  let forkCalls = 0;
+  service.enqueueSubconsciousAgentReseed = async (text: string) => { reseedCalls.push(text); };
+  service.resolveStableRuntimePrompt = async () => createRuntimePrompt();
+  service.runSubconsciousAgentFork = () => { forkCalls += 1; return Promise.resolve(true); };
+
+  await service.maybeRunSubconsciousAgentFork({} as any, []);
+  await new Promise((r) => setImmediate(r)); // let the fork .finally() settle
+  return { service, reseedCalls, forkCalls };
+}
+
+test('甲v2: productive subconscious run (≥1 tool call) RESEEDS the same plan, no new fork, slot kept', async () => {
+  const { service, reseedCalls, forkCalls } = await runIdleTrigger({ slot: 'PLAN_P', runMadeAnyToolCall: true, wasSubconsciousWake: true });
+  assert.deepEqual(reseedCalls, ['PLAN_P'], 'a productive run MUST re-deliver the SAME plan verbatim');
+  assert.equal(forkCalls, 0, 'a productive run MUST NOT mint a fresh plan');
+  assert.equal(service.activeSubconsciousPlan?.text, 'PLAN_P', 'the slot MUST be kept');
+});
+
+test('甲v2: unproductive subconscious run (zero tool calls) POPS the slot + mints a fresh plan', async () => {
+  const { service, reseedCalls, forkCalls } = await runIdleTrigger({ slot: 'PLAN_U', runMadeAnyToolCall: false, wasSubconsciousWake: true });
+  assert.equal(reseedCalls.length, 0, 'a zero-tool subconscious run MUST NOT reseed the dead plan');
+  assert.equal(forkCalls, 1, 'a zero-tool subconscious run MUST mint a fresh plan');
+  assert.equal(service.activeSubconsciousPlan, null, 'the slot MUST be popped');
+});
+
+test('甲v2: QQ guard — a zero-tool NON-subconscious settle keeps the plan (reseed), never pops', async () => {
+  const { service, reseedCalls, forkCalls } = await runIdleTrigger({ slot: 'PLAN_Q', runMadeAnyToolCall: false, wasSubconsciousWake: false });
+  assert.deepEqual(reseedCalls, ['PLAN_Q'], 'an unrelated settle MUST re-deliver (resume) the pending plan, not evict it');
+  assert.equal(forkCalls, 0, 'an unrelated settle MUST NOT regenerate');
+  assert.equal(service.activeSubconsciousPlan?.text, 'PLAN_Q', 'the QQ guard MUST keep the slot');
+});
+
+test('甲v2: empty slot mints a fresh plan (cold start / after a pop)', async () => {
+  const { reseedCalls, forkCalls } = await runIdleTrigger({ slot: null, runMadeAnyToolCall: false, wasSubconsciousWake: true });
+  assert.equal(reseedCalls.length, 0, 'an empty slot has nothing to reseed');
+  assert.equal(forkCalls, 1, 'an empty slot MUST mint via the fork');
+});
+
 test('control: a non-subconscious (phone_notification) wake STILL persists its runtime_input trigger', async () => {
   const { store, stack } = createFaithfulStore({ foldsToServe: [] });
   const service = new AgentLoopService(store, {
