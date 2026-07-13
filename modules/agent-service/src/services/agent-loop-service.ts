@@ -7704,6 +7704,7 @@ export class AgentLoopService {
               assistantTextItems,
               traceId: payload.traceId,
               runId: String(queueMessage.id),
+              agentTurn: turn,
               runtimePrompt
             });
             stampTextAdmitInPlace(outputItems as OpenResponseInputItem[], admit);
@@ -10004,6 +10005,27 @@ export class AgentLoopService {
     }
   }
 
+  private async recordPsychAssessmentForkSliceSafe(params: Parameters<RuntimeStore['recordPsychAssessmentForkSlice']>[0]) {
+    const recorder = (this.store as RuntimeStore & {
+      recordPsychAssessmentForkSlice?: RuntimeStore['recordPsychAssessmentForkSlice'];
+    }).recordPsychAssessmentForkSlice;
+    if (typeof recorder !== 'function') {
+      return null;
+    }
+    try {
+      return await recorder.call(this.store, params);
+    } catch (error) {
+      moduleLogger.warn('Failed to record psych assessment fork slice', {
+        traceId: params.traceId,
+        runId: params.runId,
+        forkRunId: params.forkRunId,
+        sliceId: params.sliceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
   private async recordSubconsciousAgentForkToolExecutionSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkToolExecution']>[0]) {
     const recorder = (this.store as RuntimeStore & {
       recordSubconsciousAgentForkToolExecution?: RuntimeStore['recordSubconsciousAgentForkToolExecution'];
@@ -11717,6 +11739,40 @@ export class AgentLoopService {
         runId: params.runId,
         verdict: verdict === null ? 'unparsed_fail_closed' : (verdict ? 'keep' : 'evict'),
         tokenUsage: buildProviderTokenUsage(modelResult)
+      });
+      // 专用单表 slice 记录:单次分发的心理评估 fork 骑主热前缀,把这次评估的 canonical/wire
+      // 请求+响应、token usage(含 cache_read)、判定结果落到 psych_assessment_fork_slices,
+      // 供管理端像其他 fork 一样查看+对账。fork_run_id 由调用方合成(本 fork 无 run/item/tool 生命周期)。
+      const forkRunId = `psych-${params.traceId}-${params.runId}`;
+      const sliceId = modelResult.llm_request_slice_id
+        || modelResult.llm_call_id
+        || `psych-slice:${params.traceId}:${params.runId}`;
+      await this.recordPsychAssessmentForkSliceSafe({
+        forkRunId,
+        sliceId,
+        llmCallId: modelResult.llm_call_id || null,
+        canonicalRequest: (modelResult.canonical_request || forkRequest) as unknown as Record<string, unknown>,
+        wireRequest: modelResult.wire_request || null,
+        canonicalResponse: modelResult.canonical_response || null,
+        wireResponse: modelResult.wire_response || null,
+        rawResponse: modelResult.raw_response || null,
+        outputItems: outputItems as Array<Record<string, unknown>>,
+        status: modelResult.success ? 'completed' : 'failed',
+        tokenUsage: buildProviderTokenUsage(modelResult),
+        traceId: params.traceId,
+        runId: params.runId,
+        agentTurn: 0,
+        modelName: modelResult.model || params.runtimePrompt.modelName,
+        modelProvider: modelResult.provider || null,
+        requestFormatVersion: modelResult.request_format_version || null,
+        wireProviderFormat: modelResult.wire_provider_format || null,
+        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+        metadata: {
+          ...buildProviderWireMetadata(modelResult),
+          fork_run_id: forkRunId,
+          execution_mode: 'psych_assessment_fork',
+          verdict: verdict === null ? 'unparsed_fail_closed' : (verdict ? 'keep' : 'evict')
+        }
       });
       return verdict === true;
     } catch (error) {

@@ -32,6 +32,7 @@ import {
   completeSubconsciousAgentForkRun as completeSubconsciousAgentForkRunPersistence,
   appendSubconsciousAgentForkItems as appendSubconsciousAgentForkItemsPersistence,
   recordSubconsciousAgentForkSlice as recordSubconsciousAgentForkSlicePersistence,
+  recordPsychAssessmentForkSlice as recordPsychAssessmentForkSlicePersistence,
   recordSubconsciousAgentForkToolExecution as recordSubconsciousAgentForkToolExecutionPersistence,
   completeSubconsciousAgentForkToolExecution as completeSubconsciousAgentForkToolExecutionPersistence,
   recordImageVisionForkRun as recordImageVisionForkRunPersistence,
@@ -2399,6 +2400,35 @@ export class RuntimeStore {
     metadata?: Record<string, unknown>;
   }) {
     return recordSubconsciousAgentForkSlicePersistence({
+      identityKey: 'xiaoni',
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  async recordPsychAssessmentForkSlice(params: {
+    forkRunId: string;
+    sliceId: string;
+    llmCallId?: string | null;
+    canonicalRequest?: Record<string, unknown>;
+    wireRequest?: Record<string, unknown> | null;
+    canonicalResponse?: Record<string, unknown> | null;
+    wireResponse?: Record<string, unknown> | null;
+    rawResponse?: Record<string, unknown> | null;
+    outputItems?: Array<Record<string, unknown>>;
+    status?: string;
+    tokenUsage?: Record<string, unknown>;
+    traceId?: string | null;
+    runId?: string | null;
+    agentTurn?: number | null;
+    modelName?: string | null;
+    modelProvider?: string | null;
+    requestFormatVersion?: string | null;
+    wireProviderFormat?: string | null;
+    processingTimeMs?: number | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    return recordPsychAssessmentForkSlicePersistence({
       identityKey: 'xiaoni',
       ...params,
       sqlAdapter: this.sql
