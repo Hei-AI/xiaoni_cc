@@ -2146,6 +2146,9 @@ function resolveStackRawTraceLookup(target: StackTraceTarget, spanId: string): {
   if (spanId.startsWith('subconscious-fork-slice:')) {
     return { sliceId: spanId.slice('subconscious-fork-slice:'.length) };
   }
+  if (spanId.startsWith('psych-assessment-fork-slice:')) {
+    return { sliceId: spanId.slice('psych-assessment-fork-slice:'.length) };
+  }
   if (spanId.startsWith('image-vision-fork-slice:')) {
     return { sliceId: spanId.slice('image-vision-fork-slice:'.length) };
   }
@@ -2323,6 +2326,8 @@ export async function buildStackRawProviderTrace(
         ? 'core_memory_compression_fork_slices.provider_exchange'
         : sourceKind === 'subconscious_agent_fork'
           ? 'subconscious_agent_fork_slices.provider_exchange'
+        : sourceKind === 'psych_assessment_fork'
+          ? 'psych_assessment_fork_slices.provider_exchange'
         : sourceKind === 'image_vision_fork'
           ? 'image_vision_fork_slices.provider_exchange'
           : 'llm_request_slices.provider_exchange'
