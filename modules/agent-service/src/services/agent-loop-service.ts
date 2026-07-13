@@ -11720,6 +11720,7 @@ export class AgentLoopService {
     assistantTextItems: OpenResponseInputItem[];
     traceId: string;
     runId: string;
+    agentTurn: number;
     runtimePrompt: ResolvedAgentRuntimePrompt;
   }): Promise<boolean> {
     try {
@@ -11743,10 +11744,10 @@ export class AgentLoopService {
       // 专用单表 slice 记录:单次分发的心理评估 fork 骑主热前缀,把这次评估的 canonical/wire
       // 请求+响应、token usage(含 cache_read)、判定结果落到 psych_assessment_fork_slices,
       // 供管理端像其他 fork 一样查看+对账。fork_run_id 由调用方合成(本 fork 无 run/item/tool 生命周期)。
-      const forkRunId = `psych-${params.traceId}-${params.runId}`;
+      const forkRunId = `psych-${params.traceId}-${params.runId}-t${params.agentTurn}`;
       const sliceId = modelResult.llm_request_slice_id
         || modelResult.llm_call_id
-        || `psych-slice:${params.traceId}:${params.runId}`;
+        || `psych-slice:${params.traceId}:${params.runId}:t${params.agentTurn}`;
       await this.recordPsychAssessmentForkSliceSafe({
         forkRunId,
         sliceId,
@@ -11761,7 +11762,7 @@ export class AgentLoopService {
         tokenUsage: buildProviderTokenUsage(modelResult),
         traceId: params.traceId,
         runId: params.runId,
-        agentTurn: 0,
+        agentTurn: params.agentTurn,
         modelName: modelResult.model || params.runtimePrompt.modelName,
         modelProvider: modelResult.provider || null,
         requestFormatVersion: modelResult.request_format_version || null,
