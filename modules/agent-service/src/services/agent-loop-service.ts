@@ -767,6 +767,60 @@ export function stripXiaoniOsByFlag(item: OpenResponseInputItem): OpenResponseIn
   }
   return next as OpenResponseInputItem;
 }
+
+// ── text_admit gate (assistant type:text → 上下文准入，替代无条件全剥) ───────────────────────────
+// 背景：历史上 buildInitialInput 无条件把所有 assistant 文本(D，含 inline <xiaoni_os>)从每次 replay
+// 剥掉，防止「摸鱼/等待」叙述自我强化。现在 xiaoni_os 迁到 assistant type:text 通道，改为【按 stamp 选择
+// 性准入】：一条 assistant-role TEXT replay item 只有携带冻结的 `text_admit === true` 才留在 replay 里；
+// 无 stamp(历史 / 消极判定 / fork 失败) → 照旧剥掉。
+//
+// 缓存安全(双缓存铁律)——与 xiaoni_os_hidden 同款「生产期冻结 stamp + 出线口按 flag scrub」:
+//  1) 判定(LLM 非确定)只算一次，`stampTextAdmitInPlace` 就地写进共享 ref(live requestInput + 持久化
+//     stack content 同时拿到)，此后任何 build(主 loop / heartbeat / 每个 fork clone / 下一 run replay)
+//     都读同一冻结 stamp，绝不重算 → run 边界不穿透。
+//  2) `text_admit` 是内部 flag，出线口(buildMainAgentCanonicalRequest 的 wireInput.map)统一 scrub 掉，
+//     永不进 wire 字节；被准入的文本本体保留、flag 不进前缀。
+//  3) 无 stamp = 默认剥(fail-closed)。历史文本天然无 stamp → 保持被剥，翻新行为不回溯纳入旧文本 →
+//     run 边界不因回溯而冷读。Step 2 尚无任何 stamp 来源，故此门等价于「全剥」现状，零行为变化。
+//
+// polarity 说明：与 stampXiaoniOsHiddenInPlace 同构——都只给「非默认」决定打 stamp。那边默认=show、
+// stamp=hide；这边默认=strip、stamp=keep。
+
+// 只有携带冻结 text_admit 的 assistant-role 文本才算被准入进 replay。
+export function isAssistantTextAdmittedToReplay(item: OpenResponseInputItem | undefined): boolean {
+  return isAssistantTextOutputReplayItem(item)
+    && (item as Record<string, unknown>).text_admit === true;
+}
+
+// replay 过滤用的「该剥」判定：只剥【未被准入的 assistant-role 文本】，其它(工具调用/输出/非文本)一律保留。
+export function isReplayItemStrippedByTextGate(item: OpenResponseInputItem | undefined): boolean {
+  return isAssistantTextOutputReplayItem(item) && !isAssistantTextAdmittedToReplay(item);
+}
+
+// 生产期冻结准入决定：admit=true 时给该 turn 的 assistant-role 文本就地打 text_admit(落共享 ref)。
+// admit=false(消极/无判定)不打 stamp → 默认剥(fail-closed)。就地 mutate，保证 live 与持久化 stack 一致。
+export function stampTextAdmitInPlace(items: OpenResponseInputItem[], admit: boolean): void {
+  if (!admit) {
+    return;
+  }
+  for (const item of items) {
+    if (isAssistantTextOutputReplayItem(item)) {
+      (item as Record<string, unknown>).text_admit = true;
+    }
+  }
+}
+
+// 出线口 scrub：被准入的文本本体保留，但内部 flag text_admit 绝不进 wire。纯 + 幂等 + 确定：带 flag 的
+// item 返回删了 flag 的副本；不带 flag 的 item 原 ref 返回(无 stamp 的 build 与改动前逐字节一致)。
+export function stripTextAdmitFlagForWire(item: OpenResponseInputItem): OpenResponseInputItem {
+  if (!item || (item as Record<string, unknown>).text_admit !== true) {
+    return item;
+  }
+  const next: Record<string, unknown> = { ...(item as Record<string, unknown>) };
+  delete next.text_admit;
+  return next as OpenResponseInputItem;
+}
+
 const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 // EMERGENCY HALT VALVE: when real input_tokens run this far PAST the compression trigger for
 // COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS consecutive turns, compression has demonstrably failed to
@@ -2391,7 +2445,10 @@ function buildMainAgentCanonicalRequest(
   // which clone the output of this function) strips flagged items here, so all prefixes stay
   // byte-identical and the xiaoni_os_hidden flag never reaches the wire. No-op passthrough (same
   // refs) when nothing is flagged, so toggle-OFF builds are byte-identical to before.
-  const wireInput = turnInput.map(stripXiaoniOsByFlag);
+  // Single wire chokepoint: scrub BOTH internal replay flags here so neither reaches the wire and
+  // every request/fork prefix stays byte-identical. text_admit scrub is a no-op passthrough (same
+  // ref) when nothing is admitted, so pre-Step3 builds are byte-identical to before.
+  const wireInput = turnInput.map((item) => stripTextAdmitFlagForWire(stripXiaoniOsByFlag(item)));
   return {
     ...buildCanonicalAgentTurnRequest(
       runtimePrompt.modelName,
@@ -7484,7 +7541,7 @@ export class AgentLoopService {
         // forward, not across runs and not within one. function_call/output are kept (tool
         // continuity). Filtering here (not at the append) is idempotent on the already-stripped
         // cross-run prefix, so the warm cache prefix stays byte-identical.
-        const currentRequestInput = currentRequestInputRaw.filter((item) => !isAssistantTextOutputReplayItem(item));
+        const currentRequestInput = currentRequestInputRaw.filter((item) => !isReplayItemStrippedByTextGate(item));
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, currentRequestInput, payload);
         // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
         // (below, turn-AFTER real input_tokens) is blind to an image burst that crosses Anthropic's hard
@@ -13779,7 +13836,9 @@ export function buildInitialInput(
   // always retained.
   for (const [turnIndex, turn] of history.entries()) {
     const replayItemsRaw = buildTurnResponseReplayItems(turn);
-    const replayItems = replayItemsRaw.filter((item) => !isAssistantTextOutputReplayItem(item));
+    // text_admit gate: strip un-admitted assistant text (fail-closed default = all text, matching the
+    // historical unconditional strip until Step 3 stamps positive turns). Tool calls/outputs kept.
+    const replayItems = replayItemsRaw.filter((item) => !isReplayItemStrippedByTextGate(item));
     const appendKnownReplayItems = () => {
       items.push(...replayItems);
       if (
