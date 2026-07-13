@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -342,6 +342,9 @@ async function isRuntimeEnabled() {
     // a live request inconsistent with its own replay; frozen per-item flags keep cross-run replay
     // byte-identical. Flipping rewrites no history.
     setStripXiaoniOsFromRequests(control.stripXiaoniOsFromRequests);
+    // Step3 心理评估门控总开关(默认 OFF)。热下发同上；非 boolean(字段尚未加到 agent_runtime_control 时为
+    // undefined)被 setter 忽略 → 保持 OFF。live 栈验过 fork cache_read 后再由运营打开翻转行为。
+    setPsychAssessmentGateEnabled((control as Record<string, unknown>).psychAssessmentGateEnabled);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {

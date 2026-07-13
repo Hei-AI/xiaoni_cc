@@ -700,6 +700,17 @@ export function setStripXiaoniOsFromRequests(value: unknown): void {
   }
 }
 
+// 心理评估门控总开关(Step3 的行为翻转闸)。默认 OFF：不跑心理评估 fork、不打 text_admit → 等价于 Step2
+// 的 fail-closed 全剥现状(行为零变化)。live 栈实测心理评估 fork 的 cache_read 与主 turn 同量级(铁律
+// 相邻 slice 对账)后，再由运营从 agent_runtime_control 打开，让正向 assistant 文本开始进入下一次上下文。
+// 与 debug-heartbeat / strip_xiaoni_os_from_requests 同套热下发。默认 OFF 也让冻结缓存回归用例无需改动即绿。
+let PSYCH_ASSESSMENT_GATE_ENABLED = false;
+export function setPsychAssessmentGateEnabled(value: unknown): void {
+  if (typeof value === 'boolean') {
+    PSYCH_ASSESSMENT_GATE_ENABLED = value;
+  }
+}
+
 function tryParseJsonObjectString(text: unknown): Record<string, unknown> | null {
   if (typeof text !== 'string') {
     return null;
@@ -2547,6 +2558,83 @@ export function buildSubconsciousAgentForkRequest(
     no_persist: 'true'
   };
   return forkRequest;
+}
+
+// 心理评估 fork 的尾部指令(内联常量 → 逐字节确定，fork 尾巴稳定)。判定小腻【这一 turn 自己写下的
+// type:text / OS 备注】是正向还是消极，只输出一个判定 token。rubric 已经用户确认(含「做完就摆烂」)。
+const PSYCH_ASSESSMENT_VERDICT_KEEP = 'KEEP';
+const PSYCH_ASSESSMENT_VERDICT_EVICT = 'EVICT';
+function renderPsychAssessmentReminder(): string {
+  return [
+    '你现在是一个瞬时的「心理评估」分身，只做一件事：给上面【最近这一段小腻自己写下的心里话 / OS 备注】',
+    '做一次正负向判定，然后把判定结论作为唯一输出。这段心里话不发给任何人，只决定它要不要进入她下一次的上下文。',
+    '',
+    '判定标准——',
+    '消极（EVICT：不让它进入下一次上下文，防止怠工情绪自我强化）：单纯等待、没有任何行动；反复「我先等着 /',
+    '等等看」；对任务的回避、敷衍、糊弄；空转式的自我安慰、没有信息增量的情绪叙述；以及「我已经做了很多，',
+    '所以今天就不想做事了」这类做完就摆烂、自我犒赏式的松懈。',
+    '正向（KEEP：保留、进入下一次上下文）：包含事实观察、明确的信息缺口、清晰的下一步意图，或对聊天对象 /',
+    '任务的实质推进。',
+    '',
+    '只输出判定，不要调用任何工具，不要解释。你的最后一行必须是且只能是下面两者之一，逐字照抄：',
+    `PSYCH_VERDICT: ${PSYCH_ASSESSMENT_VERDICT_KEEP}`,
+    `PSYCH_VERDICT: ${PSYCH_ASSESSMENT_VERDICT_EVICT}`
+  ].join('\n');
+}
+
+// 心理评估 fork 请求：遵守 FORK 铁律——克隆主 agent 当轮请求(= 逐字节热前缀)，只在【尾部】追加
+// ①被判定的 assistant 文本(cache_volatile，同 subconscious fork 的 recentNarration 重注模式) + ②判定指令。
+// tool_choice/tools 一律不动(继承主 loop 的 auto + 全量)。fork 不执行任何工具，只读它的文本判定，所以
+// 无需 allowedToolNames 执行层拦截(即便模型误调工具也不会被执行，最多导致判不到 token → fail-closed EVICT)。
+export function buildPsychAssessmentForkRequest(
+  baseRequest: CanonicalAgentTurnRequest,
+  assistantTextItems: OpenResponseInputItem[]
+): CanonicalAgentTurnRequest {
+  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  forkRequest.parallel_tool_calls = false;
+  forkRequest.store = false;
+  forkRequest.input = normalizeResponseInputItems([
+    ...forkRequest.input,
+    // 被判定的这一 turn 的 assistant 文本：作为小段 cold tail 重注(它本就是本 turn 的输出，不在已发请求里)。
+    // cache_volatile：assistant 消息按 role 是 durable，不打这个标最后一条会变 lastDurable、把尾部 cache_control
+    // 断点拖离共享热前缀(image-vision fork 踩过的冷读形状，见 buildSubconsciousAgentForkRequest 注释)。
+    ...assistantTextItems.map((item) => ({
+      ...(item as Record<string, unknown>),
+      cache_volatile: true
+    }) as unknown as OpenResponseInputItem),
+    buildDeveloperInputItem([renderPsychAssessmentReminder()])
+  ]);
+  forkRequest.metadata = {
+    ...(forkRequest.metadata || {}),
+    psych_assessment_fork: 'true',
+    no_persist: 'true'
+  };
+  return forkRequest;
+}
+
+// 从心理评估 fork 的输出里解析判定。找最后一个 PSYCH_VERDICT: KEEP/EVICT；KEEP=准入(true)。
+// 找不到 / 不认识 → 返回 null，交给调用方走 fail-closed(EVICT，不准入)。
+export function parsePsychAssessmentVerdict(outputItems: Array<Record<string, unknown>>): boolean | null {
+  let text = '';
+  for (const item of outputItems) {
+    if (item.type !== 'message' || item.role !== 'assistant') {
+      continue;
+    }
+    const content = item.content;
+    text += typeof content === 'string'
+      ? `\n${content}`
+      : Array.isArray(content)
+        ? `\n${flattenMessageContent(content as OpenResponseInputContentPart[])}`
+        : typeof item.text === 'string'
+          ? `\n${item.text}`
+          : '';
+  }
+  const matches = [...text.matchAll(/PSYCH_VERDICT:\s*(KEEP|EVICT)/gi)];
+  if (matches.length === 0) {
+    return null;
+  }
+  const last = matches[matches.length - 1]![1]!.toUpperCase();
+  return last === PSYCH_ASSESSMENT_VERDICT_KEEP;
 }
 
 export function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {
@@ -6958,10 +7046,11 @@ export class AgentLoopService {
         clockMinutes: session.clockMinutes,
         recoveredEnergy,
         batchFinalRecoveryTimeline,
-        // Path B: frozen at wake-render time. The reminder is rendered once and persisted verbatim
-        // (replay never re-renders), so reading the global toggle here bakes the decision into the
-        // stored content → cache-safe and forward-only. See renderRecoverEnergyCompletedReminder.
-        hideXiaoniOs: STRIP_XIAONI_OS_FROM_REQUESTS
+        // Path B (D5): 唤醒返回文本【一律】不再携带睡前笔记。recover_energy 仍保留 xiaoni_os 参数
+        // (供 agent_recovery_sessions + tool args 的 ops 展示)，但不再回灌进醒来后的上下文——她的
+        // 睡前心里话若想续，走 assistant type:text 心理评估门那条通道，不靠这里重现。冻结于 render 期、
+        // 持久化 verbatim(replay 不重渲染)，故 forward-only、旧提醒不改、cache-safe。
+        hideXiaoniOs: true
       })
     };
   }
@@ -7602,6 +7691,24 @@ export class AgentLoopService {
         // they fan out to BOTH the stack ledger (buildModelOutputStackItems, content: item) and the
         // live requestInput (appendLoopInputItems) — same refs, one stamp, both copies consistent.
         stampXiaoniOsHiddenInPlace(outputItems as OpenResponseInputItem[], stripXiaoniOsHiddenSnapshot);
+        // text_admit 门控(Step3 · 同步阻塞):这一 turn 若产出了 assistant 文本(现在是她的 OS 通道)，同步跑
+        // 心理评估 fork 判其正负向，把准入决定就地冻结进 outputItems——与 xiaoni_os_hidden 同一 fan-out 路径
+        // (下面 buildModelOutputStackItems 落 stack ledger + appendLoopInputItems 落 live requestInput，同 refs)。
+        // 正向 → text_admit:true(下一 run 保留进上下文)；消极/无判定/fork 失败 → 不打 stamp = 默认剥(fail-closed)。
+        // currentCanonicalRequest 是本 turn 实际已发请求(逐字节热前缀)，作 fork 克隆基;被判文本尾部重注。
+        if (PSYCH_ASSESSMENT_GATE_ENABLED) {
+          const assistantTextItems = (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem);
+          if (assistantTextItems.length > 0) {
+            const admit = await this.runPsychAssessmentGate({
+              baseRequest: currentCanonicalRequest,
+              assistantTextItems,
+              traceId: payload.traceId,
+              runId: String(queueMessage.id),
+              runtimePrompt
+            });
+            stampTextAdmitInPlace(outputItems as OpenResponseInputItem[], admit);
+          }
+        }
         const outputStackRows = await this.appendAgentStackItemsSafe({
           traceId: payload.traceId,
           runId: queueMessage.id,
@@ -11532,6 +11639,94 @@ export class AgentLoopService {
     }
 
     return payload;
+  }
+
+  // 心理评估 fork 的单次分发(同步阻塞，带超时 → 超时即 fail-closed EVICT)。镜像 executeCacheHeartbeatTurn：
+  // 打 /api/internal/llm/debug + no-persist header + AbortController 超时。executionMode 独立标识。
+  private async executePsychAssessmentForkTurn(
+    canonicalRequest: CanonicalAgentTurnRequest,
+    traceId: string,
+    runId: string,
+    runtimePrompt: ResolvedAgentRuntimePrompt
+  ) {
+    const timeoutMs = 30_000;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+    let response: Response;
+    try {
+      response = await fetch(`${agentConfig.providerServiceUrl}/api/internal/llm/debug`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          [NO_TRAFFIC_PERSIST_HEADER]: '1'
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          trace_id: traceId,
+          run_id: runId,
+          agent_turn: 0,
+          agent_type: 'chat_bot',
+          prompt_name: runtimePrompt.promptName,
+          executionMode: 'psych_assessment_no_persist',
+          model: runtimePrompt.modelName,
+          parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
+          canonicalRequest
+        })
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Provider psych assessment timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const payload = await response.json() as ProviderAgentResponse;
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || `Provider psych assessment execute failed with ${response.status}`);
+    }
+
+    return payload;
+  }
+
+  // Step3 门控编排:构建心理评估 fork(主请求克隆 + 尾部追加被判文本 + 判定指令) → 同步分发 → 解析判定。
+  // 返回是否【准入】这一 turn 的 assistant 文本进入下一次上下文。任何失败/超时/无法解析 → false(fail-closed)。
+  private async runPsychAssessmentGate(params: {
+    baseRequest: CanonicalAgentTurnRequest;
+    assistantTextItems: OpenResponseInputItem[];
+    traceId: string;
+    runId: string;
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+  }): Promise<boolean> {
+    try {
+      const forkRequest = buildPsychAssessmentForkRequest(params.baseRequest, params.assistantTextItems);
+      const modelResult = await this.executePsychAssessmentForkTurn(
+        forkRequest,
+        params.traceId,
+        params.runId,
+        params.runtimePrompt
+      );
+      const outputItems = extractCanonicalResponseOutputItems(modelResult);
+      const verdict = parsePsychAssessmentVerdict(outputItems);
+      // 可观测/铁律验证:记录 fork 的 token usage(含 cache_read)，供相邻 slice 对账——心理评估 fork 骑主
+      // 热前缀，其 cache_read 应与本 turn 主请求同量级；若塌到裸 system+tools 即前缀分叉的信号。
+      moduleLogger.info('psych_assessment_gate', {
+        traceId: params.traceId,
+        runId: params.runId,
+        verdict: verdict === null ? 'unparsed_fail_closed' : (verdict ? 'keep' : 'evict'),
+        tokenUsage: buildProviderTokenUsage(modelResult)
+      });
+      return verdict === true;
+    } catch (error) {
+      moduleLogger.warn('psych_assessment_gate failed → fail-closed (evict)', {
+        traceId: params.traceId,
+        runId: params.runId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return false;
+    }
   }
 
   private async executeAgentTurn(

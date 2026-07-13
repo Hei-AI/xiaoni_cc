@@ -8,7 +8,8 @@ import {
   buildCoreMemoryCompressionForkRetryReminder,
   buildSubconsciousAgentForkRequest,
   buildCacheHeartbeatForkRequest,
-  buildImageVisionForkRequest
+  buildImageVisionForkRequest,
+  buildPsychAssessmentForkRequest
 } from '../services/agent-loop-service';
 
 // Fork cache-alignment: 0-tolerance prompt-cache 穿透 guard.
@@ -133,6 +134,40 @@ test('image-vision fork: cloned prefix byte-identical + appends inspect/observe 
   const tail = JSON.stringify(fork.input.slice(base.input.length));
   assert.ok(tail.includes('img-1'), 'image-vision fork tail must reference the image id');
   assert.equal(fork.metadata?.image_vision_fork, 'true');
+});
+
+test('psych-assessment fork: cloned prefix byte-identical + appends judged text (cache_volatile) + verdict reminder', () => {
+  const base = buildBaseRequest();
+  const baseSnapshot = JSON.stringify(base.input);
+  const judgedText = [
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '做了半天了，今天就不想再动了。' }] }
+  ] as any[];
+  const fork: any = buildPsychAssessmentForkRequest(base, judgedText);
+  assertForkPrefixByteIdentical(fork, base, 'psych-assessment');
+  assert.ok(fork.input.length > base.input.length, 'psych fork must append the judged text + verdict reminder tail');
+  const tailItems = fork.input.slice(base.input.length) as any[];
+  const tail = JSON.stringify(tailItems);
+  // the judged text is re-injected at the tail (it is THIS turn's output, not in the sent prefix)
+  assert.ok(tail.includes('今天就不想再动了'), 'psych fork must re-inject the judged assistant text at the tail');
+  // the judged text carries the binary verdict protocol tokens so the parser has a contract to read
+  assert.ok(tail.includes('PSYCH_VERDICT'), 'psych fork tail must carry the verdict instruction');
+  // EVERY appended tail item must be NON-durable, or the tail breakpoint drags off the warm prefix.
+  tailItems.forEach((item, i) => {
+    assert.equal(
+      isDurableItem(item),
+      false,
+      `psych-assessment: appended tail item #${i} (type=${item?.type} role=${item?.role}) must be NON-durable`
+    );
+  });
+  // the re-injected assistant text specifically must be cache_volatile (assistant messages are durable by role)
+  const injected = tailItems.find((item) => item?.role === 'assistant');
+  assert.ok(injected, 'psych fork must re-inject an assistant-role text item');
+  assert.equal(injected.cache_volatile, true, 're-injected judged text must be cache_volatile (else it becomes lastDurable)');
+  // tail must stay under the 20-block lookback
+  assert.ok(tailItems.length < 20, `psych fork tail must be < 20 blocks, got ${tailItems.length}`);
+  assert.equal(fork.metadata?.psych_assessment_fork, 'true');
+  // building the fork must not mutate the base request the main turn reuses
+  assert.equal(JSON.stringify(base.input), baseSnapshot, 'psych fork must not mutate the base');
 });
 
 test('all forks share the SAME cloned prefix as each other (one warm cache entry)', () => {
