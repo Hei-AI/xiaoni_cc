@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BatteryFull, Bot, EyeOff, Gauge, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset, Zap } from 'lucide-react';
+import { BatteryFull, Bot, Brain, EyeOff, Gauge, HeartPulse, Loader2, Power, RefreshCw, Shrink, TimerReset, Zap } from 'lucide-react';
 import { PageShell } from '@/components/console/PageShell';
 import { PageHeader } from '@/components/console/PageHeader';
 import { SectionPanel } from '@/components/console/SectionPanel';
@@ -31,6 +31,7 @@ type RuntimeControl = {
   compressionTriggerInputTokens: number;
   compressionTriggerWireBytes: number;
   stripXiaoniOsFromRequests: boolean;
+  psychAssessmentGateEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   energyPolicyDefaults?: Record<string, number>;
   updatedAt: string | null;
@@ -84,7 +85,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests' | 'psychAssessmentGateEnabled'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -391,6 +392,9 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const stripXiaoniOsFromRequests = typeof pendingPatch?.stripXiaoniOsFromRequests === 'boolean'
     ? pendingPatch.stripXiaoniOsFromRequests
     : control?.stripXiaoniOsFromRequests ?? false;
+  const psychAssessmentGateEnabled = typeof pendingPatch?.psychAssessmentGateEnabled === 'boolean'
+    ? pendingPatch.psychAssessmentGateEnabled
+    : control?.psychAssessmentGateEnabled ?? false;
   const currentYieldMs = typeof pendingPatch?.mainAgentPreModelYieldMs === 'number'
     ? pendingPatch.mainAgentPreModelYieldMs
     : control?.mainAgentPreModelYieldMs ?? 5000;
@@ -1095,6 +1099,35 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               disabled={controlQuery.isLoading || mutation.isPending}
               onCheckedChange={(checked) => mutation.mutate({ stripXiaoniOsFromRequests: Boolean(checked) })}
               aria-label="从模型请求中隔离 xiaoni_os"
+            />
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel
+        title="心理评估门控"
+        description="打开后，小腻每产出一段 assistant 文本（她的 xiaoni_os OS 通道），都会同步跑一个心理评估 fork 判 KEEP/EVICT；判为消极/怠工/摸鱼的那一 turn，其 xiaoni_os 不会进入下一次上下文（防污染，fail-closed）。fork 骑主热前缀，判定与请求全量落 psych_assessment_fork_slices，管理端可见。"
+        icon={<Brain className="h-4 w-4 text-primary" />}
+      >
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-foreground">对 assistant 文本跑心理评估门控</div>
+            <div className="text-sm text-muted-foreground">
+              {psychAssessmentGateEnabled
+                ? '已开启：每次文本产出跑心理评估 fork，消极的那一 turn 的 xiaoni_os 不进下一上下文。'
+                : '已关闭：不跑心理评估 fork，文本产出的 xiaoni_os 照常进入下一上下文（当前默认）。'}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              开启会给每个有文本产出的 turn 加一次同步 fork 请求（多一份 cache_read 计费）；翻 ON 前建议先在活动流确认 fork 的 cache_read 暖读正常。历史按发出时的开关状态冻结，不改写历史、不击穿前缀缓存。
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            <Switch
+              checked={psychAssessmentGateEnabled}
+              disabled={controlQuery.isLoading || mutation.isPending}
+              onCheckedChange={(checked) => mutation.mutate({ psychAssessmentGateEnabled: Boolean(checked) })}
+              aria-label="对 assistant 文本跑心理评估门控"
             />
           </div>
         </div>
