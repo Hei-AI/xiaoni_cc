@@ -342,9 +342,10 @@ async function isRuntimeEnabled() {
     // a live request inconsistent with its own replay; frozen per-item flags keep cross-run replay
     // byte-identical. Flipping rewrites no history.
     setStripXiaoniOsFromRequests(control.stripXiaoniOsFromRequests);
-    // Step3 心理评估门控总开关(默认 OFF)。热下发同上；非 boolean(字段尚未加到 agent_runtime_control 时为
-    // undefined)被 setter 忽略 → 保持 OFF。live 栈验过 fork cache_read 后再由运营打开翻转行为。
-    setPsychAssessmentGateEnabled((control as Record<string, unknown>).psychAssessmentGateEnabled);
+    // Step3 心理评估门控总开关(默认 OFF)。管理端「心理评估门控」开关写 agent_runtime_control
+    // .psych_assessment_gate_enabled,这里每 poll 热下发(一迭代延迟,无重启)。live 栈验过 fork
+    // cache_read 暖读后再由运营打开翻转行为。非 boolean 被 setter 忽略 → 保持 OFF。
+    setPsychAssessmentGateEnabled(control.psychAssessmentGateEnabled);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
