@@ -1049,7 +1049,14 @@ test('GROUP_MESSAGE_TOOL description does not contain old ceremonial framing', (
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /值得承担时/, 'old framing must be removed');
   assert.doesNotMatch(String((groupReplyTool as any).function?.description), /有真实反应才调用/, 'behavioral guidance should live in instructions');
   assert.match(String((groupReplyTool as any).function?.description), /向明确指定的 QQ 群发送/, 'description should describe the mechanical action');
-  assert.deepEqual((groupReplyTool as any).function?.parameters?.required, ['group_id', 'xiaoni_os']);
+  // xiaoni_os retired from send tools (Step 1: it moves to the assistant type:text channel);
+  // group_id stays required. recover_energy keeps its xiaoni_os param (exempt).
+  assert.deepEqual((groupReplyTool as any).function?.parameters?.required, ['group_id']);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call((groupReplyTool as any).function?.parameters?.properties ?? {}, 'xiaoni_os'),
+    false,
+    'xiaoni_os property must be gone from send_in_group'
+  );
   assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/, 'runtime contract should not live in instructions');
 });
 

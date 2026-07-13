@@ -1428,16 +1428,12 @@ const PRIVATE_MESSAGE_TOOL = {
           type: 'array',
           items: { type: 'string' }
         },
-        xiaoni_os: {
-          type: 'string',
-          description: '留给后续自己的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给对方。'
-        },
         pending_share: {
           type: 'string',
           description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
-      required: ['user_id', 'xiaoni_os'],
+      required: ['user_id'],
       additionalProperties: false
     }
   }
@@ -1464,16 +1460,12 @@ const GROUP_MESSAGE_TOOL = {
           type: 'array',
           items: { type: 'integer' }
         },
-        xiaoni_os: {
-          type: 'string',
-          description: '留给后续自己的备注：当前看见的事实、自己的反应、未解决的信息缺口。不发给任何人。'
-        },
         pending_share: {
           type: 'string',
           description: '如果你有个想法或发现想找机会主动说出来，写在这里带到之后的上下文里。可选，不用硬填。'
         }
       },
-      required: ['group_id', 'xiaoni_os'],
+      required: ['group_id'],
       additionalProperties: false
     }
   }
@@ -1522,13 +1514,9 @@ const IMAGE_TASK_TOOL = {
           type: 'array',
           items: { type: 'string' },
           description: '编辑原图时填写当前上下文里的图片真实 id；旧上下文没有 id 时可填 media tag。纯生成图片时留空。'
-        },
-        xiaoni_os: {
-          type: 'string',
-          description: '留给后续自己的备注：图片请求和相关信息缺口。不发给任何人。'
         }
       },
-      required: ['operation', 'prompt', 'target_description', 'xiaoni_os'],
+      required: ['operation', 'prompt', 'target_description'],
       additionalProperties: false
     }
   }
