@@ -747,6 +747,49 @@ model SubconsciousAgentForkSlice {
   @@map("subconscious_agent_fork_slices")
 }
 
+// Psych-assessment gate fork slice ledger. Single-dispatch fork (no run/item/tool
+// tables — proportionate to a lightweight one-shot gate); same column shape as the
+// other fork slice tables. The physical table is created by
+// ensureXiaoniAgentStackSchema (raw CREATE TABLE IF NOT EXISTS); this model tracks it
+// as schema source of truth. fork_run_id is caller-synthesized (`psych-<traceId>-<runId>`).
+model PsychAssessmentForkSlice {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  slice_id               String    @unique @db.VarChar(191)
+  fork_run_id            String    @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  input_start_index      BigInt?   @db.BigInt
+  input_end_index        BigInt?   @db.BigInt
+  input_stack_item_ids   Json      @default("[]")
+  output_start_index     BigInt?   @db.BigInt
+  output_end_index       BigInt?   @db.BigInt
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  agent_turn             Int?
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  request_format_version String?   @db.VarChar(64)
+  wire_provider_format   String?   @db.VarChar(128)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([fork_run_id, agent_turn, id], map: "idx_psych_assessment_fork_slices_run_turn")
+  @@index([trace_id, id], map: "idx_psych_assessment_fork_slices_trace")
+  @@index([identity_key, created_at(sort: Desc), id(sort: Desc)], map: "idx_psych_assessment_fork_slices_identity_time")
+  @@map("psych_assessment_fork_slices")
+}
+
 model SubconsciousAgentForkToolExecution {
   id                   BigInt    @id @default(autoincrement()) @db.BigInt
   execution_id         String    @unique @db.VarChar(191)

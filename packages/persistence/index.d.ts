@@ -933,6 +933,7 @@ export type XiaoniSubconsciousAgentForkRun = Omit<XiaoniCoreMemoryCompressionFor
 };
 export type XiaoniSubconsciousAgentForkItem = XiaoniCoreMemoryCompressionForkItem;
 export type XiaoniSubconsciousAgentForkSlice = XiaoniCoreMemoryCompressionForkSlice;
+export type XiaoniPsychAssessmentForkSlice = XiaoniCoreMemoryCompressionForkSlice;
 export type XiaoniSubconsciousAgentForkToolExecution = XiaoniCoreMemoryCompressionForkToolExecution;
 export type XiaoniImageVisionForkRun = {
   id: string | null;
@@ -1131,6 +1132,7 @@ export type XiaoniAgentStackPersistenceApi = {
   completeSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
   appendSubconsciousAgentForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkItem[]>;
   recordSubconsciousAgentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkSlice | null>;
+  recordPsychAssessmentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniPsychAssessmentForkSlice | null>;
   recordSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
   completeSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
   recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
@@ -1172,6 +1174,7 @@ export function recordSubconsciousAgentForkRun(input?: XiaoniAgentStackPersisten
 export function completeSubconsciousAgentForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkRun | null>;
 export function appendSubconsciousAgentForkItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkItem[]>;
 export function recordSubconsciousAgentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkSlice | null>;
+export function recordPsychAssessmentForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniPsychAssessmentForkSlice | null>;
 export function recordSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
 export function completeSubconsciousAgentForkToolExecution(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniSubconsciousAgentForkToolExecution | null>;
 export function recordImageVisionForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkRun | null>;
@@ -2183,6 +2186,7 @@ export type XiaoniActivityFeedResult = {
   };
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: XiaoniForkTimeline;
+  psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };
@@ -2229,6 +2233,7 @@ export type XiaoniActionStreamResult = {
   items: XiaoniActionStreamItem[];
   compressionForkTimeline?: XiaoniForkTimeline;
   subconsciousForkTimeline?: XiaoniForkTimeline;
+  psychAssessmentForkTimeline?: XiaoniForkTimeline;
   cacheHeartbeatTimeline?: XiaoniForkTimeline;
   imageVisionForkTimeline?: XiaoniForkTimeline;
 };

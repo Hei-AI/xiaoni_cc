@@ -23,6 +23,7 @@ const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
 const USAGE_SOURCE_SUBCONSCIOUS_FORK = 'subconscious_agent_fork';
+const USAGE_SOURCE_PSYCH_ASSESSMENT_FORK = 'psych_assessment_fork';
 const USAGE_SOURCE_CODEX_PROVIDER = 'codex_provider';
 const USAGE_SOURCE_IMAGE_VISION_FORK = 'image_vision_fork';
 const USAGE_SOURCE_IMAGE_GENERATION = 'image_generation';
@@ -465,6 +466,9 @@ function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchL
           FROM subconscious_agent_fork_slices WHERE identity_key = ? ${timeWhere.clause}
           UNION ALL
           SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM psych_assessment_fork_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
+          SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
           FROM image_vision_fork_slices WHERE identity_key = ? ${timeWhere.clause}
           UNION ALL
           SELECT event_id AS slice_id, source_kind, source_id AS fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
@@ -511,6 +515,9 @@ function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchL
         identityKey,
         ...timeWhere.params,
         USAGE_SOURCE_SUBCONSCIOUS_FORK,
+        identityKey,
+        ...timeWhere.params,
+        USAGE_SOURCE_PSYCH_ASSESSMENT_FORK,
         identityKey,
         ...timeWhere.params,
         USAGE_SOURCE_IMAGE_VISION_FORK,
@@ -598,6 +605,9 @@ function usageAnchorEventId(sliceId, sourceKind) {
   if (sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK) {
     return `subconscious-fork-slice:${sliceId}`;
   }
+  if (sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK) {
+    return `psych-assessment-fork-slice:${sliceId}`;
+  }
   if (sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) {
     return `image-vision-fork-slice:${sliceId}`;
   }
@@ -633,10 +643,12 @@ function usageRollupSourceFromSliceSelectSql(sourceKind = USAGE_SOURCE_MAIN) {
     ? 'core_memory_compression_fork_slices'
     : sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK
       ? 'subconscious_agent_fork_slices'
+    : sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK
+      ? 'psych_assessment_fork_slices'
     : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
       ? 'image_vision_fork_slices'
       : 'llm_request_slices';
-  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
     ? 'fork_run_id'
     : 'NULL::varchar AS fork_run_id';
   return `
@@ -695,6 +707,15 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       )
     )
     AND NOT (
+      source_kind = 'psych_assessment_fork'
+      AND llm_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM psych_assessment_fork_slices
+        WHERE psych_assessment_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+      )
+    )
+    AND NOT (
       source_kind = 'image_vision_fork'
       AND llm_call_id IS NOT NULL
       AND EXISTS (
@@ -717,6 +738,8 @@ function usageRollupSourceFromAllSlicesSelectSql() {
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_COMPRESSION_FORK)}
     UNION ALL
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_SUBCONSCIOUS_FORK)}
+    UNION ALL
+    ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_PSYCH_ASSESSMENT_FORK)}
     UNION ALL
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_IMAGE_VISION_FORK)}
     UNION ALL
@@ -1028,6 +1051,9 @@ function normalizeStackSourceKind(value) {
   if (sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK) {
     return USAGE_SOURCE_SUBCONSCIOUS_FORK;
   }
+  if (sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK) {
+    return USAGE_SOURCE_PSYCH_ASSESSMENT_FORK;
+  }
   if (sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) {
     return USAGE_SOURCE_IMAGE_VISION_FORK;
   }
@@ -1326,7 +1352,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             output_tokens = EXCLUDED.output_tokens,
             updated_at = CURRENT_TIMESTAMP
         `,
-        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK, USAGE_SOURCE_SUBCONSCIOUS_FORK, USAGE_SOURCE_IMAGE_VISION_FORK]
+        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK, USAGE_SOURCE_SUBCONSCIOUS_FORK, USAGE_SOURCE_PSYCH_ASSESSMENT_FORK, USAGE_SOURCE_IMAGE_VISION_FORK]
       );
       for (const bucket of USAGE_ROLLUP_BUCKETS) {
         await rebuildLlmUsageRollupBucket(executor, bucket);
@@ -1341,6 +1367,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               COALESCE((SELECT MAX(id) FROM llm_request_slices), 0),
               COALESCE((SELECT MAX(id) FROM core_memory_compression_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM subconscious_agent_fork_slices), 0),
+              COALESCE((SELECT MAX(id) FROM psych_assessment_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM image_vision_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM codex_provider_usage_events), 0)
             ),
@@ -2227,6 +2254,46 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
+        // Psych-assessment fork ledger. Single-dispatch gate fork: it clones the main
+        // request, appends the judged assistant text + an inline rubric, and asks the
+        // model KEEP/EVICT so a slacking-off <xiaoni_os> turn does not pollute the next
+        // context. One slice row per dispatch (no run/item/tool tables — proportionate
+        // to a lightweight one-shot fork); same column shape as the other fork slice
+        // tables so it reuses normalizeCompressionForkSliceRow and the usage rollup.
+        `
+          CREATE TABLE IF NOT EXISTS psych_assessment_fork_slices (
+            id BIGSERIAL PRIMARY KEY,
+            slice_id VARCHAR(191) NOT NULL UNIQUE,
+            fork_run_id VARCHAR(191) NOT NULL,
+            llm_call_id VARCHAR(128),
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            input_start_index BIGINT,
+            input_end_index BIGINT,
+            input_stack_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+            output_start_index BIGINT,
+            output_end_index BIGINT,
+            canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
+            wire_request JSONB,
+            canonical_response JSONB,
+            wire_response JSONB,
+            raw_response JSONB,
+            output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status VARCHAR(32) NOT NULL DEFAULT 'completed',
+            token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            agent_turn INTEGER,
+            model_name VARCHAR(191),
+            model_provider VARCHAR(64),
+            request_format_version VARCHAR(64),
+            wire_provider_format VARCHAR(128),
+            processing_time_ms INTEGER,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
         // Cache heartbeat fork ledger. The heartbeat is a fork agent that triggers a
         // model request (keeps the warm prompt cache alive) but runs store=false and
         // never appends to the main agent_stack_items, so historically it had no
@@ -2341,6 +2408,9 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_run_index ON image_vision_fork_items (fork_run_id, item_index)',
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_items_slice ON image_vision_fork_items (llm_request_slice_id)',
         'CREATE INDEX IF NOT EXISTS idx_image_vision_fork_slices_run_turn ON image_vision_fork_slices (fork_run_id, agent_turn, id)',
+        'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_run_turn ON psych_assessment_fork_slices (fork_run_id, agent_turn, id)',
+        'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_trace ON psych_assessment_fork_slices (trace_id, id)',
+        'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_identity_time ON psych_assessment_fork_slices (identity_key, created_at DESC, id DESC)',
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_llm_call ON cache_heartbeat_fork_items (llm_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_run ON cache_heartbeat_fork_items (run_id)',
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_identity_time ON cache_heartbeat_fork_items (identity_key, created_at DESC, id DESC)'
@@ -3525,6 +3595,121 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  // Single-dispatch psych-assessment gate fork. Mirrors recordSubconsciousAgentForkSlice
+  // exactly (same column shape) but writes psych_assessment_fork_slices and rolls up
+  // usage under USAGE_SOURCE_PSYCH_ASSESSMENT_FORK. forkRunId is caller-synthesized
+  // (e.g. `psych-<traceId>-<runId>`) since this fork has no run/item/tool lifecycle.
+  async function recordPsychAssessmentForkSlice(input = {}, config = {}) {
+    const forkRunId = firstString(input.forkRunId, input.fork_run_id);
+    if (!forkRunId) {
+      return null;
+    }
+    await ensureXiaoniAgentStackSchema(input, config);
+    const sliceId = buildSliceId(input);
+    const completedAt = input.completedAt || input.completed_at || (firstString(input.status, 'completed') === 'running' ? null : new Date());
+    return withSql(input, config, async (sql) => {
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO psych_assessment_fork_slices (
+              slice_id,
+              fork_run_id,
+              llm_call_id,
+              identity_key,
+              input_start_index,
+              input_end_index,
+              input_stack_item_ids,
+              output_start_index,
+              output_end_index,
+              canonical_request,
+              wire_request,
+              canonical_response,
+              wire_response,
+              raw_response,
+              output_items,
+              status,
+              token_usage,
+              trace_id,
+              run_id,
+              agent_turn,
+              model_name,
+              model_provider,
+              request_format_version,
+              wire_provider_format,
+              processing_time_ms,
+              metadata,
+              completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::timestamptz)
+            ON CONFLICT (slice_id) DO UPDATE SET
+              fork_run_id = EXCLUDED.fork_run_id,
+              llm_call_id = EXCLUDED.llm_call_id,
+              input_start_index = EXCLUDED.input_start_index,
+              input_end_index = EXCLUDED.input_end_index,
+              input_stack_item_ids = EXCLUDED.input_stack_item_ids,
+              output_start_index = EXCLUDED.output_start_index,
+              output_end_index = EXCLUDED.output_end_index,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              agent_turn = EXCLUDED.agent_turn,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              request_format_version = EXCLUDED.request_format_version,
+              wire_provider_format = EXCLUDED.wire_provider_format,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata,
+              completed_at = COALESCE(EXCLUDED.completed_at, psych_assessment_fork_slices.completed_at),
+              updated_at = CURRENT_TIMESTAMP
+            RETURNING *
+          `,
+          [
+            sliceId,
+            forkRunId,
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            normalizeInteger(input.inputStartIndex ?? input.input_start_index),
+            normalizeInteger(input.inputEndIndex ?? input.input_end_index),
+            JSON.stringify(normalizeJsonArray(input.inputStackItemIds ?? input.input_stack_item_ids, [])),
+            normalizeInteger(input.outputStartIndex ?? input.output_start_index),
+            normalizeInteger(input.outputEndIndex ?? input.output_end_index),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeInteger(input.agentTurn ?? input.agent_turn),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider),
+            firstString(input.requestFormatVersion, input.request_format_version),
+            firstString(input.wireProviderFormat, input.wire_provider_format),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {})),
+            normalizeDate(completedAt)
+          ]
+        );
+        await syncLlmUsageRollupForSlice(executor, sliceId, USAGE_SOURCE_PSYCH_ASSESSMENT_FORK);
+        return normalizeCompressionForkSliceRow(rows[0]);
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
+    });
+  }
+
   async function recordImageVisionForkRun(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const forkRunId = buildImageVisionForkRunId(input);
@@ -4077,6 +4262,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     const unbounded = input.unbounded === true || input.no_limit === true;
     const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 100), 10) || 100, 1000));
     const sourceKind = normalizeStackSourceKind(input.sourceKind ?? input.source_kind);
+    // 心理评估 fork 是 slice-only(无 *_fork_items 表)：不能落到默认 agent_stack_items,
+    // 否则会拿主栈数据/在无 fork_run_id 列的表上按 fork_run_id 过滤而报错。直接返回空。
+    if (sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK) {
+      return [];
+    }
     const tableName = forkStackItemsTableForSource(sourceKind);
     const forkRunId = firstString(input.forkRunId, input.fork_run_id);
     const traceId = firstString(input.traceId, input.trace_id);
@@ -4191,11 +4381,13 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       ? 'core_memory_compression_fork_slices'
       : sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK
         ? 'subconscious_agent_fork_slices'
+      : sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK
+        ? 'psych_assessment_fork_slices'
       : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
         ? 'image_vision_fork_slices'
         : 'llm_request_slices';
     const sourceKindSelect = `'${sourceKind}'::varchar AS source_kind`;
-    const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+    const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
       ? 'fork_run_id'
       : 'NULL::varchar AS fork_run_id';
     const selectColumns = rawTraceOnly
@@ -4267,7 +4459,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           completed_at,
           updated_at
         `
-      : sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+      : sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
         ? `*, ${sourceKindSelect}`
         : `*, ${sourceKindSelect}, ${forkRunIdSelect}`;
     const traceId = firstString(input.traceId, input.trace_id);
@@ -4291,7 +4483,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
       clauses.push('slice_id = ?');
       params.push(sliceId);
     }
-    if ((sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) && forkRunId) {
+    if ((sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) && forkRunId) {
       clauses.push('fork_run_id = ?');
       params.push(forkRunId);
     }
@@ -4830,6 +5022,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     completeSubconsciousAgentForkRun,
     appendSubconsciousAgentForkItems,
     recordSubconsciousAgentForkSlice,
+    recordPsychAssessmentForkSlice,
     recordSubconsciousAgentForkToolExecution,
     completeSubconsciousAgentForkToolExecution,
     recordImageVisionForkRun,

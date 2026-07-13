@@ -872,6 +872,24 @@ function buildSubconsciousForkTraceTarget(row, {
   });
 }
 
+function buildPsychAssessmentForkTraceTarget(row, {
+  forkRunId,
+  spanId,
+  llmRequestSliceId,
+  toolCallId
+} = {}) {
+  return normalizeTraceTarget({
+    sourceKind: 'psych_assessment_fork',
+    forkRunId: firstString(forkRunId, row?.forkRunId, row?.fork_run_id),
+    conversationId: row?.conversationId || row?.conversation_id || null,
+    traceId: row?.traceId || row?.trace_id || null,
+    runId: row?.runId || row?.run_id || null,
+    spanId,
+    llmRequestSliceId,
+    toolCallId
+  });
+}
+
 function buildImageVisionForkTraceTarget(row, {
   forkRunId,
   spanId,
@@ -1313,6 +1331,36 @@ function summarizeSubconsciousForkSlice(row) {
   };
 }
 
+function summarizePsychAssessmentForkSlice(row) {
+  const base = summarizeCompressionForkSlice(row);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const spanId = sliceId ? `psych-assessment-fork-slice:${sliceId}` : `psych-assessment-fork-slice-row:${row.id}`;
+  return {
+    ...base,
+    id: `psych-assessment-fork-slice:${sliceId || row.id}`,
+    source: 'psych_assessment_fork_llm_request',
+    kind: 'fork_llm_request_slice',
+    title: '心理评估 Fork LLM 请求',
+    actorName: '心理评估 Agent',
+    traceTarget: buildPsychAssessmentForkTraceTarget(row, {
+      forkRunId,
+      spanId,
+      llmRequestSliceId: sliceId
+    }),
+    metadata: {
+      ...base.metadata,
+      forkRunId,
+      spanId,
+      parentSpanId: forkRunId ? `psych-assessment-fork:${forkRunId}` : null,
+      sourceKind: 'psych_assessment_fork',
+      providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
+      wirePayloadSource: 'psych_assessment_fork_slices'
+    }
+  };
+}
+
 function summarizeSubconsciousForkItem(row) {
   const event = summarizeCompressionForkItem(row);
   const content = normalizeJsonObject(row.content, {});
@@ -1386,6 +1434,53 @@ function summarizeSubconsciousForkRun(row, events) {
       artifact,
       metadata,
       errorMessage: row.errorMessage || row.error_message || null,
+      createdAt: normalizeDate(row.createdAt || row.created_at),
+      updatedAt: normalizeDate(row.updatedAt || row.updated_at)
+    })
+  };
+}
+
+function summarizePsychAssessmentForkRun(row, events) {
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+  const metadata = normalizeJsonObject(row.metadata, {});
+  const verdict = firstString(metadata.verdict);
+  const verdictBody = verdict === 'keep'
+    ? '保留(keep)'
+    : verdict === 'evict'
+      ? '剔除(evict)'
+      : verdict === 'unparsed_fail_closed'
+        ? '未解析→fail-closed'
+        : verdict || null;
+  const startedAt = eventTimestamp(row.createdAt || row.created_at);
+  const completedAt = normalizeDate(row.completedAt || row.completed_at);
+  const startedMs = new Date(startedAt).getTime();
+  const completedMs = completedAt ? new Date(completedAt).getTime() : NaN;
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(completedMs)
+    ? Math.max(0, completedMs - startedMs)
+    : null;
+  const eventList = [...events].sort(compareTimelineEvents);
+  return {
+    id: `psych-assessment-fork:${forkRunId}`,
+    forkRunId,
+    source: 'psych_assessment_fork',
+    kind: 'psych_assessment_fork',
+    title: '心理评估 Agent',
+    body: truncateText(verdictBody, 520),
+    status: row.status || null,
+    startedAt,
+    completedAt,
+    durationMs,
+    traceId: row.traceId || row.trace_id || null,
+    runId: row.runId || row.run_id || null,
+    conversationId: row.conversationId || row.conversation_id || null,
+    readCutoffAfterStackIndex: null,
+    previousReadCutoffAfterStackIndex: null,
+    eventCount: eventList.length,
+    events: normalizeValue(eventList),
+    metadata: normalizeValue({
+      forkRunId,
+      forkKind: 'psych_assessment',
+      verdict,
       createdAt: normalizeDate(row.createdAt || row.created_at),
       updatedAt: normalizeDate(row.updatedAt || row.updated_at)
     })
@@ -1830,6 +1925,49 @@ async function loadSubconsciousAgentForkTimeline(sql, {
       runs: runRows.map((row) => {
         const forkRunId = firstString(row.forkRunId, row.fork_run_id);
         return summarizeSubconsciousForkRun(row, eventsByForkRunId.get(forkRunId) || []);
+      })
+    };
+  } catch {
+    return { runs: [] };
+  }
+}
+
+async function loadPsychAssessmentForkTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+}) {
+  const forkLimit = clampLimit(limit, 30, 120);
+  // Slice-only fork: there is no _fork_runs table, so we filter the slice rows
+  // directly on their own timestamps (created_at/completed_at) rather than the
+  // run overlap predicate (which targets started_at/completed_at).
+  const clauses = [];
+  const params = [];
+  if (hasTimeWindow(timeWindow)) {
+    if (timeWindow.startTime) {
+      clauses.push('COALESCE(completed_at, created_at) >= ?');
+      params.push(timeWindow.startTime);
+    }
+    if (timeWindow.endTime) {
+      clauses.push('created_at <= ?');
+      params.push(timeWindow.endTime);
+    }
+  }
+  const overlapClause = clauses.join(' AND ');
+  try {
+    const sliceRows = await sql.query(`
+      SELECT ${FORK_SLICE_ACTION_STREAM_SELECT}
+      FROM psych_assessment_fork_slices
+      WHERE identity_key = ?
+      ${overlapClause ? `AND ${overlapClause}` : ''}
+      ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
+      LIMIT ?
+    `, [identityKey, ...params, forkLimit]);
+    // One dispatch = one slice row = one synthesized run.
+    return {
+      runs: sliceRows.map((row) => {
+        const sliceEvent = summarizePsychAssessmentForkSlice(row);
+        return summarizePsychAssessmentForkRun(row, [sliceEvent]);
       })
     };
   } catch {
@@ -3670,6 +3808,42 @@ function createXiaoniActivityPersistence({
     }
   }
 
+  async function resolvePsychAssessmentForkSliceTraceTarget(key, config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      const rows = await sql.query(
+        `
+          SELECT *
+          FROM psych_assessment_fork_slices
+          WHERE identity_key = ?
+            AND (slice_id = ? OR llm_call_id = ? OR id::text = ?)
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        ['xiaoni', key, key, key]
+      );
+      const row = rows[0] || null;
+      if (!row) {
+        return null;
+      }
+      const sliceId = firstString(row.slice_id, row.llm_call_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
+      const llmCallId = firstString(row.llm_call_id);
+      return normalizeTraceTarget({
+        sourceKind: 'psych_assessment_fork',
+        forkRunId: row.fork_run_id,
+        conversationId: row.conversation_id,
+        traceId: row.trace_id,
+        runId: row.run_id,
+        spanId: providerRequestSpanIdForSlice(sliceId, llmCallId) || (sliceId ? `psych-assessment-fork-slice:${sliceId}` : null),
+        llmRequestSliceId: sliceId
+      });
+    } catch {
+      return null;
+    } finally {
+      await sql.close();
+    }
+  }
+
   async function resolveCodexProviderUsageTraceTarget(eventId, key, config = {}) {
     if (typeof listCodexProviderUsageEvents !== 'function') {
       return null;
@@ -4021,6 +4195,10 @@ function createXiaoniActivityPersistence({
       return enrichTraceTarget(await resolveSubconsciousForkSliceTraceTarget(parsed.key, config), config);
     }
 
+    if (parsed.prefix === 'psych-assessment-fork-slice') {
+      return enrichTraceTarget(await resolvePsychAssessmentForkSliceTraceTarget(parsed.key, config), config);
+    }
+
     if (parsed.prefix === 'image-vision-fork-slice') {
       return enrichTraceTarget(await resolveImageVisionForkSliceTraceTarget(parsed.key, config), config);
     }
@@ -4108,6 +4286,7 @@ function createXiaoniActivityPersistence({
         taskStats,
         compressionForkTimeline,
         subconsciousForkTimeline,
+        psychAssessmentForkTimeline,
         cacheHeartbeatTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
@@ -4238,6 +4417,11 @@ function createXiaoniActivityPersistence({
           limit: perSourceLimit
         }),
         loadSubconsciousAgentForkTimeline(sql, {
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        }),
+        loadPsychAssessmentForkTimeline(sql, {
           identityKey,
           timeWindow,
           limit: perSourceLimit
@@ -4392,6 +4576,7 @@ function createXiaoniActivityPersistence({
         items: normalizeValue(items),
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
         subconsciousForkTimeline: normalizeValue(subconsciousForkTimeline),
+        psychAssessmentForkTimeline: normalizeValue(psychAssessmentForkTimeline || { runs: [] }),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
@@ -4424,6 +4609,8 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const subconsciousForkRuns = (feed.subconsciousForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const psychAssessmentForkRuns = (feed.psychAssessmentForkTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
     const imageVisionForkRuns = (feed.imageVisionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
@@ -4431,6 +4618,7 @@ function createXiaoniActivityPersistence({
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
       ...subconsciousForkRuns,
+      ...psychAssessmentForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns
     ]);
@@ -4439,6 +4627,7 @@ function createXiaoniActivityPersistence({
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
     const filteredSubconsciousForkRuns = filterActionStreamForkRunsByTags(subconsciousForkRuns, selectedTags);
+    const filteredPsychAssessmentForkRuns = filterActionStreamForkRunsByTags(psychAssessmentForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     let focusedItem = null;
@@ -4479,6 +4668,11 @@ function createXiaoniActivityPersistence({
         id: `subconscious-fork:${run.id}`,
         run
       })),
+      ...filteredPsychAssessmentForkRuns.map((run) => ({
+        kind: 'fork',
+        id: `psych-assessment-fork:${run.id}`,
+        run
+      })),
       ...filteredImageVisionForkRuns.map((run) => ({
         kind: 'fork',
         id: `image-vision-fork:${run.id}`,
@@ -4501,6 +4695,7 @@ function createXiaoniActivityPersistence({
     );
     const visibleCompressionForkRuns = filteredCompressionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleSubconsciousForkRuns = filteredSubconsciousForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visiblePsychAssessmentForkRuns = filteredPsychAssessmentForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
@@ -4534,6 +4729,10 @@ function createXiaoniActivityPersistence({
       subconsciousForkTimeline: {
         ...(feed.subconsciousForkTimeline || {}),
         runs: visibleSubconsciousForkRuns
+      },
+      psychAssessmentForkTimeline: {
+        ...(feed.psychAssessmentForkTimeline || {}),
+        runs: visiblePsychAssessmentForkRuns
       },
       cacheHeartbeatTimeline: {
         ...(feed.cacheHeartbeatTimeline || {}),
