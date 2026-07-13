@@ -286,6 +286,7 @@ interface XiaoniActivityFeed {
   items: XiaoniActivityFeedItem[];
   compressionForkTimeline?: CompressionForkTimeline;
   subconsciousForkTimeline?: CompressionForkTimeline;
+  psychAssessmentForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
@@ -756,6 +757,9 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'subconscious_agent_fork') {
     return 'subconscious_agent';
   }
+  if (run.source === 'psych_assessment_fork') {
+    return 'psych_assessment';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -768,6 +772,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'subconscious_agent') {
     return '自驱动 Agent';
+  }
+  if (forkKind === 'psych_assessment') {
+    return '心理评估 Fork';
   }
   return 'Memory Compress Fork';
 }
@@ -782,6 +789,14 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
     };
   });
   const subconsciousRuns = (feed?.subconsciousForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
+  const psychRuns = (feed?.psychAssessmentForkTimeline?.runs || []).map((run) => {
     const forkKind = forkKindForRun(run);
     return {
       ...run,
@@ -805,7 +820,7 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -832,6 +847,8 @@ function forkChipClass(kind: string): string {
   switch (kind) {
     case 'subconscious_agent':
       return 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700';
+    case 'psych_assessment':
+      return 'border-indigo-200 bg-indigo-50 text-indigo-700';
     case 'image_vision':
       return 'border-sky-200 bg-sky-50 text-sky-700';
     case 'cache_heartbeat':
@@ -1000,6 +1017,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const itemsById = new Map<string, XiaoniActivityFeedItem>();
   const compressionRunsById = new Map<string, CompressionForkRun>();
   const subconsciousRunsById = new Map<string, CompressionForkRun>();
+  const psychAssessmentRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
 
@@ -1017,6 +1035,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     (page.subconsciousForkTimeline?.runs || []).forEach((run) => {
       if (!subconsciousRunsById.has(run.id)) {
         subconsciousRunsById.set(run.id, run);
+      }
+    });
+    (page.psychAssessmentForkTimeline?.runs || []).forEach((run) => {
+      if (!psychAssessmentRunsById.has(run.id)) {
+        psychAssessmentRunsById.set(run.id, run);
       }
     });
     (page.imageVisionForkTimeline?.runs || []).forEach((run) => {
@@ -1044,6 +1067,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     subconsciousForkTimeline: {
       ...(firstPage.subconsciousForkTimeline || {}),
       runs: Array.from(subconsciousRunsById.values()),
+    },
+    psychAssessmentForkTimeline: {
+      ...(firstPage.psychAssessmentForkTimeline || {}),
+      runs: Array.from(psychAssessmentRunsById.values()),
     },
     cacheHeartbeatTimeline: {
       ...(firstPage.cacheHeartbeatTimeline || {}),
@@ -2547,7 +2574,7 @@ export const XiaoniActivityPage: React.FC = () => {
       if (point.anchorEventId) {
         nextParams.set('focus_event', point.anchorEventId);
       }
-      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'subconscious_agent_fork' && point.sourceKind !== 'image_vision_fork' && point.sourceKind !== 'cache_heartbeat') {
+      if (point.llmRequestSliceId && point.sourceKind !== 'compression_fork' && point.sourceKind !== 'subconscious_agent_fork' && point.sourceKind !== 'psych_assessment_fork' && point.sourceKind !== 'image_vision_fork' && point.sourceKind !== 'cache_heartbeat') {
         nextParams.set('focus_slice', point.llmRequestSliceId);
       } else {
         nextParams.delete('focus_slice');
