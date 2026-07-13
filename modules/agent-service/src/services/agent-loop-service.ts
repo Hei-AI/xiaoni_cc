@@ -2560,26 +2560,14 @@ export function buildSubconsciousAgentForkRequest(
   return forkRequest;
 }
 
-// 心理评估 fork 的尾部指令(内联常量 → 逐字节确定，fork 尾巴稳定)。判定小腻【这一 turn 自己写下的
-// type:text / OS 备注】是正向还是消极，只输出一个判定 token。rubric 已经用户确认(含「做完就摆烂」)。
+// 心理评估 fork 的尾部指令。判定小腻【这一 turn 自己写下的 type:text / OS 备注】是正向还是消极,只输出一个
+// 判定 token(rubric 已用户确认,含「做完就摆烂」)。文案外置到 docs/xiaoni_prompt/psych_assessment_reminder.md
+// (与 self_continuation_reminder.md 等同一目录同一加载方式,便于运营直接改文案)。这段是追加在 fork 请求【尾部】
+// 的 cache_volatile 内容,在缓存断点之后 → 不进可缓存前缀、不写 stack、不进主 run replay,所以从文件读零缓存影响。
+// KEEP 常量仍保留:parsePsychAssessmentVerdict 用它做判定比较,文件末尾的 PSYCH_VERDICT token 必须与之逐字一致。
 const PSYCH_ASSESSMENT_VERDICT_KEEP = 'KEEP';
-const PSYCH_ASSESSMENT_VERDICT_EVICT = 'EVICT';
 function renderPsychAssessmentReminder(): string {
-  return [
-    '你现在是一个瞬时的「心理评估」分身，只做一件事：给上面【最近这一段小腻自己写下的心里话 / OS 备注】',
-    '做一次正负向判定，然后把判定结论作为唯一输出。这段心里话不发给任何人，只决定它要不要进入她下一次的上下文。',
-    '',
-    '判定标准——',
-    '消极（EVICT：不让它进入下一次上下文，防止怠工情绪自我强化）：单纯等待、没有任何行动；反复「我先等着 /',
-    '等等看」；对任务的回避、敷衍、糊弄；空转式的自我安慰、没有信息增量的情绪叙述；以及「我已经做了很多，',
-    '所以今天就不想做事了」这类做完就摆烂、自我犒赏式的松懈。',
-    '正向（KEEP：保留、进入下一次上下文）：包含事实观察、明确的信息缺口、清晰的下一步意图，或对聊天对象 /',
-    '任务的实质推进。',
-    '',
-    '只输出判定，不要调用任何工具，不要解释。你的最后一行必须是且只能是下面两者之一，逐字照抄：',
-    `PSYCH_VERDICT: ${PSYCH_ASSESSMENT_VERDICT_KEEP}`,
-    `PSYCH_VERDICT: ${PSYCH_ASSESSMENT_VERDICT_EVICT}`
-  ].join('\n');
+  return readPromptSnippet('psych_assessment_reminder.md');
 }
 
 // 心理评估 fork 请求：遵守 FORK 铁律——克隆主 agent 当轮请求(= 逐字节热前缀)，只在【尾部】追加
