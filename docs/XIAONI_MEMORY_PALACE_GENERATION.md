@@ -314,7 +314,7 @@
 - 文件:`/xiaoni-runtime/notes/diary/topic-<主题>.md`,文件名以 `topic-` 打头(**扁平放 `notes/diary/` 下**,不进子目录 —— `listPalaceFiles` 只扫扁平一层)。
 - 每有进展追加一章:`## M/D 点题`(日期在**章节标题**开头,不在文件名),一两句自足整句。
 - **只 append 新章、不改旧章**:旧 chunk 字节不动,不重嵌 churn。
-- **算进专题的更新写进专题、不再抄进当天日记**:一件事一处记录,防分叉 + 防 dedup 重复。当天日记只留零散事。
+- **日记与专题用链接互指,不设「只准一处」硬禁令**(2026-07-13 采纳 user,替代初版「别往日记抄」):日记照常写;一件多天的事可另在专题按 `## M/D` 续,两边一句真话链接互指;晚开专题不搬旧条目、用链接接上;**专题会分家**(考研→复试)——分出子线另开 `topic-<子主题>.md`、老线最新章留链接。唯一约束=同一段别原文两抄(防压缩滚肿);自足句落专题章(被索引的 cue),日记链接写成真话别光箭头(光箭头=不自足的坏 cue,§4.5)。真机模拟(真 chunker + leg-3)验:链接面包屑 / 晚开 / 无空格章 / 专题分裂全走通。
 - 三处教学:`docs/xiaoni_prompt/system_prompt.md`(# 记忆 两层:宫殿 vs 随手区)/ `modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md`(专题连载节,读写主入口)/ `docs/xiaoni_prompt/core_memory_pressure_reminder.md`(压缩 fork 条件路由,非强制步,`M/D` 用 `date +%m/%d` 在 fork 运行时取 → §6 字节稳定)。
 
 ### 召回两条腿都吃它(零/少代码)
