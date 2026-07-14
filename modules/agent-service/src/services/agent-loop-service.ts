@@ -12769,7 +12769,7 @@ export class AgentLoopService {
       lastCheckResult = wrongToolCalls.length > 0
         ? `模型调用了不允许的工具 ${wrongToolCalls.map((item) => item.toolCall.name).join(', ')}；已通过 function_call_output 提醒只能调用 ${TOOL_NAMES.execCommand}`
         : execCalls.length > 0
-        ? `模型调用了 ${execCalls.length} 个 ${TOOL_NAMES.execCommand}，但还没有 final_answer 表示写入完成`
+        ? `模型这一轮调用了 ${execCalls.length} 个 ${TOOL_NAMES.execCommand} 写文件，文件多半已经写好——只差回一句纯文本确认来收尾，不要再重写或调工具`
         : `模型没有调用 ${TOOL_NAMES.execCommand}，也没有 final_answer`;
       forkInput.push(buildImageVisionRetryReminder({
         outputPath: params.outputPath,
@@ -13662,14 +13662,19 @@ function extractCanonicalResponseOutputItems(modelResult: ProviderAgentResponse)
 // The self-driven fork is instructed (self_continuation_reminder) to emit its plan
 // wrapped in <xiaoni_plan>...</xiaoni_plan>. subconscious_agent_notify.md re-wraps the
 // extracted text in <xiaoni_plan>, so without this strip the main loop would receive
-// doubly-nested tags (and the model would learn to echo the double wrap). Unwrap the
-// single outer wrapper and drop any residual xiaoni_plan tags so the value spliced
-// into the notify template stays well-formed and can't inject structure.
-function stripSubconsciousPlanWrapper(text: string): string {
-  let result = text.trim();
-  const wrapped = result.match(/^<xiaoni_plan>\s*([\s\S]*?)\s*<\/xiaoni_plan>$/i);
-  if (wrapped) {
-    result = wrapped[1]!.trim();
+// doubly-nested tags (and the model would learn to echo the double wrap).
+//
+// Take the content INSIDE the model's own <xiaoni_plan> block, even if it is preceded
+// by a runtime time prefix or a line of prose ("先想一下…") — matching the block by
+// capture group instead of requiring the whole string to be exactly that block. A
+// full-string match dropped only the tags, so any leading preamble leaked straight
+// into the delivered plan. When the model emitted no block at all, fall back to the
+// whole text with stray tags dropped so a plain-text plan still passes through.
+export function stripSubconsciousPlanWrapper(text: string): string {
+  const result = text.trim();
+  const block = result.match(/<xiaoni_plan>\s*([\s\S]*?)\s*<\/xiaoni_plan>/i);
+  if (block) {
+    return block[1]!.replace(/<\/?xiaoni_plan>/gi, '').trim();
   }
   return result.replace(/<\/?xiaoni_plan>/gi, '').trim();
 }

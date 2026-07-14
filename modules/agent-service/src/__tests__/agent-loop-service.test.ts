@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, stripSubconsciousPlanWrapper, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
 import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
@@ -524,6 +524,22 @@ test('stripRuntimeTextEast8TimePrefix still normalizes legacy stamped history', 
   );
   // Unstamped text passes through untouched.
   assert.equal(stripRuntimeTextEast8TimePrefix('醒了。'), '醒了。');
+});
+
+test('stripSubconsciousPlanWrapper delivers only the block body, not leading preamble', () => {
+  // Tag is the whole payload — inner directions pass through, tags dropped.
+  assert.equal(
+    stripSubconsciousPlanWrapper('<xiaoni_plan>\n1. 方向甲\n2. 方向乙\n</xiaoni_plan>'),
+    '1. 方向甲\n2. 方向乙'
+  );
+  // Regression: prose BEFORE the block must NOT leak into the delivered plan.
+  // The old full-string match failed here and left "先想一下…" inside the notify.
+  assert.equal(
+    stripSubconsciousPlanWrapper('先想一下……\n<xiaoni_plan>\n1. 方向甲\n2. 方向乙\n</xiaoni_plan>'),
+    '1. 方向甲\n2. 方向乙'
+  );
+  // No block at all — plain-text plan still passes through, stray tags dropped.
+  assert.equal(stripSubconsciousPlanWrapper('1. 方向甲\n2. 方向乙'), '1. 方向甲\n2. 方向乙');
 });
 
 test('buildInitialInput reuses precomputed current-turn items instead of rebuilding (build-once: 存档 == sent request)', () => {
