@@ -1878,15 +1878,17 @@ test('甲: subconscious <xiaoni_plan> is consumed DURABLY (persisted as a replay
   assert.ok(JSON.stringify(stack).includes('RESPONSE_MARKER_甲'), 'her final_answer response MUST persist to the stack');
 });
 
-// —— 甲 v2: 自驱 mint 触发 (original zero-tool trigger, restored) ——
-// Original self-driven trigger: mint a plan only after a ZERO-tool idle settle. ANY tool call
-// (a QQ reply is a send_* tool call) means she was living her life → the subconscious must NOT
-// push. No memory slot, no reseed, no re-injection — she re-reads the durably-consumed plan from
-// replay. The prefix tests above stay green because none of this touches request bytes.
+// —— 甲 v2: 自驱 mint 触发 (settle-only trigger, restored to the 2026-07-07 design) ——
+// Self-driven trigger: mint a plan whenever she SETTLED on a final_answer, judged on the settling
+// response, NOT the whole run. A turn that makes a tool call never settles, so any settle on a
+// final_answer means she ended idle on a 小腻os — the fork gives her the next direction no matter
+// how many tools the run used before settling. The productivity gate (runMadeAnyToolCall) that
+// suppressed tool-using runs is removed. The prefix tests above stay green because none of this
+// touches request bytes.
 
 // Drive the idle self-driven trigger with a hand-built seed, spying on the sole terminal action
 // (mint) so each branch is asserted in isolation.
-async function runIdleTrigger(opts: { settledOnFinalAnswer: boolean; runMadeAnyToolCall: boolean; }) {
+async function runIdleTrigger(opts: { settledOnFinalAnswer: boolean; }) {
   const { store } = createFaithfulStore({ foldsToServe: [] });
   const service: any = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
   service.subconsciousAgentForkBackoffUntilMs = 0;
@@ -1894,8 +1896,7 @@ async function runIdleTrigger(opts: { settledOnFinalAnswer: boolean; runMadeAnyT
   service.lastMainAgentForkSeed = {
     canonicalRequest: {} as any,
     recentNarrationItems: [],
-    settledOnFinalAnswer: opts.settledOnFinalAnswer,
-    runMadeAnyToolCall: opts.runMadeAnyToolCall
+    settledOnFinalAnswer: opts.settledOnFinalAnswer
   };
   let forkCalls = 0;
   service.resolveStableRuntimePrompt = async () => createRuntimePrompt();
@@ -1906,18 +1907,13 @@ async function runIdleTrigger(opts: { settledOnFinalAnswer: boolean; runMadeAnyT
   return { forkCalls };
 }
 
-test('甲v2: a tool-using settle (≥1 tool call, e.g. a QQ reply) does NOT mint — she was living her life', async () => {
-  const { forkCalls } = await runIdleTrigger({ settledOnFinalAnswer: true, runMadeAnyToolCall: true });
-  assert.equal(forkCalls, 0, 'any tool call means don\'t push → the subconscious MUST NOT mint');
-});
-
-test('甲v2: a zero-tool idle settle mints a fresh plan', async () => {
-  const { forkCalls } = await runIdleTrigger({ settledOnFinalAnswer: true, runMadeAnyToolCall: false });
-  assert.equal(forkCalls, 1, 'a zero-tool idle settle MUST mint the next plan');
+test('甲v2: a settle on a final_answer mints a fresh plan even after a tool-heavy run', async () => {
+  const { forkCalls } = await runIdleTrigger({ settledOnFinalAnswer: true });
+  assert.equal(forkCalls, 1, 'any settle on a final_answer MUST mint the next direction, regardless of prior tool calls');
 });
 
 test('甲v2: a run that did not settle on a final_answer does NOT mint', async () => {
-  const { forkCalls } = await runIdleTrigger({ settledOnFinalAnswer: false, runMadeAnyToolCall: false });
+  const { forkCalls } = await runIdleTrigger({ settledOnFinalAnswer: false });
   assert.equal(forkCalls, 0, 'no final-answer settle → no self-driven mint');
 });
 

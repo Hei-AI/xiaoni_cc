@@ -5875,12 +5875,6 @@ export class AgentLoopService {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
     settledOnFinalAnswer: boolean;
-    // 甲 (original trigger): did the settled run make ANY tool call? A zero-tool settle means she
-    // ended idle having done nothing (a QQ reply IS a send_* tool call, so chatting counts as
-    // tools) → the subconscious mints/rolls her plan; ≥1 tool call means she was living her life →
-    // don't push. Judged over the WHOLE run (not just the settling turn), so "worked then settled"
-    // (has tools) is not mistaken for "did nothing" (zero tools).
-    runMadeAnyToolCall: boolean;
   } | null = null;
 
   constructor(
@@ -6148,11 +6142,13 @@ export class AgentLoopService {
       // to repopulate the seed rather than rebuilding context independently.
       return;
     }
-    // C2 (original self-driven trigger, restored): only mint after a run that ended idle with
-    // ZERO tool calls — she settled on a final_answer and did NOTHING (no send/exec/image…). Any
-    // tool call means she was living her life and the subconscious must not push — and a QQ reply
-    // IS a send_* tool call, so chatting never triggers this. She keeps whatever plan she has.
-    if (!seed.settledOnFinalAnswer || seed.runMadeAnyToolCall) {
+    // C2 (original self-driven trigger): fork whenever she settled on a final_answer — a pure-text
+    // response with no action — judged on THE SETTLING RESPONSE, not the whole run. A turn that
+    // makes a tool call never settles, so any settle on a final_answer means "she ended idle on a
+    // 小腻os": the fork gives her the next direction, no matter how many tools the run used before
+    // settling. (A QQ reply is a send_* tool call, so a run that ends with a reply-then-settle
+    // still triggers — she still gets a direction the moment she stops.)
+    if (!seed.settledOnFinalAnswer) {
       return;
     }
 
@@ -7481,9 +7477,6 @@ export class AgentLoopService {
         });
       }
 
-      // 甲: aggregate tool-call activity across the WHOLE run (not just the settling turn) so
-      // maybeRunSubconsciousAgentFork can keep the plan when she acted and pop it when she didn't.
-      let runMadeAnyToolCall = false;
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
@@ -7661,7 +7654,6 @@ export class AgentLoopService {
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         const replayableOutputs = actionPlan.replayableOutputs;
         const hasToolCall = actionPlan.hasToolCall;
-        runMadeAnyToolCall = runMadeAnyToolCall || hasToolCall;
         await this.executeResponsePostActions(actionPlan.postActions, {
           queueMessage: payload,
           runId: queueMessage.id,
@@ -8134,8 +8126,7 @@ export class AgentLoopService {
         this.lastMainAgentForkSeed = {
           canonicalRequest: cloneCanonicalAgentTurnRequest(currentCanonicalRequest),
           recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
-          settledOnFinalAnswer: actionPlan.hasFinalAnswer,
-          runMadeAnyToolCall
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
