@@ -915,6 +915,47 @@ function buildForkTriggerItem(run: ForkAgentRun): XiaoniActivityFeedItem | null 
   };
 }
 
+// 心理评估 fork 专用:把「模型返回的判定结论」合成为流里独立的一行,直显 keep/evict,不用点进 trace。
+// verdict 后端(summarizePsychAssessmentForkRun)已算好并落 run.metadata.verdict / run.body。只对
+// psych_assessment fork 生效——其它 fork(压缩/潜意识/图像/心跳)返回 null,不出结论行。
+function buildForkResultItem(run: ForkAgentRun): XiaoniActivityFeedItem | null {
+  if ((run.forkKind || forkKindForRun(run)) !== 'psych_assessment') {
+    return null;
+  }
+  const verdict = metadataText(run.metadata, 'verdict');
+  const body = verdict === 'keep'
+    ? '评估结论：保留(keep) → 进入下一次上下文'
+    : verdict === 'evict'
+      ? '评估结论：剔除(evict) → 不进入下一次上下文'
+      : verdict === 'unparsed_fail_closed'
+        ? '评估结论：未解析 → fail-closed 剔除'
+        : (run.body || '评估结论：—');
+  const ts = run.completedAt || run.startedAt;
+  return {
+    id: `forkresult:${run.id}`,
+    source: 'fork_result',
+    kind: 'fork_result',
+    title: '结论',
+    body,
+    status: run.status || null,
+    actor: 'system',
+    actorName: run.agentLabel || null,
+    timestamp: ts,
+    occurredAt: ts,
+    sessionKey: null,
+    peerName: null,
+    traceId: run.traceId,
+    traceTarget: null,
+    tone: verdict === 'keep' ? 'positive' : verdict === 'evict' ? 'warn' : 'info',
+    metadata: {
+      forkKind: 'psych_assessment',
+      forkRunId: run.forkRunId,
+      verdict,
+    },
+    tags: [],
+  };
+}
+
 // Flatten main items + every fork run's internal events into one time-sorted
 // stream. Fork events carry a StreamForkRef so the UI can prefix + filter them.
 function streamMetaNumber(value: unknown): number {
@@ -950,15 +991,15 @@ function buildStreamEntries(
   for (const run of forkRuns) {
     const forkKind = run.forkKind || forkKindForRun(run);
     const ref: StreamForkRef = { runId: run.forkRunId, kind: forkKind, label: forkLabelForRun(run) };
+    const eventSeqs = (run.events || [])
+      .map((event) => streamMetaNumber(event.metadata?.orderSeq))
+      .filter((seq) => Number.isFinite(seq));
     const trigger = buildForkTriggerItem(run);
     if (trigger) {
       // The trigger explains why 小腻 entered the fork, so it leads (sits just
       // below the fork's oldest event in newest-first order). Stamp it with the
       // fork's minimum event orderSeq − 0.5 so it sorts inline with the fork
       // instead of sinking to the un-stamped historical tier at the very bottom.
-      const eventSeqs = (run.events || [])
-        .map((event) => streamMetaNumber(event.metadata?.orderSeq))
-        .filter((seq) => Number.isFinite(seq));
       if (eventSeqs.length) {
         trigger.metadata = { ...trigger.metadata, orderSeq: Math.min(...eventSeqs) - 0.5 };
       }
@@ -970,6 +1011,21 @@ function buildStreamEntries(
         lane: 'fork',
         timestamp: event.occurredAt || event.timestamp,
         item: event,
+        fork: ref,
+      });
+    }
+    // 结论行(仅心理评估 fork):结论是这次 fork 最后发生的事,stamp 到最新事件 orderSeq + 0.5,
+    // 让它在 newest-first 顺序里排在该 fork 事件之上(读作 触发 → 模型请求 → 结论)。
+    const result = buildForkResultItem(run);
+    if (result) {
+      if (eventSeqs.length) {
+        result.metadata = { ...result.metadata, orderSeq: Math.max(...eventSeqs) + 0.5 };
+      }
+      entries.push({
+        id: result.id,
+        lane: 'fork',
+        timestamp: run.completedAt || run.startedAt,
+        item: result,
         fork: ref,
       });
     }
