@@ -170,6 +170,20 @@ test('psych-assessment fork: cloned prefix byte-identical + appends judged text 
   assert.equal(JSON.stringify(base.input), baseSnapshot, 'psych fork must not mutate the base');
 });
 
+// ADDITIVE (do not weaken the frozen psych test above): the psych fork's判定 is a single
+// char (1/0), so its output budget is hard-capped like the cache-heartbeat fork. This is a
+// top-level sampling param, NOT part of the message prefix — assertForkPrefixByteIdentical
+// above already proves the warm prefix is untouched, so capping output cannot break cache.
+test('psych-assessment fork: hard-caps max_output_tokens to a tiny budget (single-char verdict)', () => {
+  const base = buildBaseRequest();
+  const judgedText = [
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '等等看再说。' }] }
+  ] as any[];
+  const fork: any = buildPsychAssessmentForkRequest(base, judgedText);
+  assert.ok(typeof fork.max_output_tokens === 'number', 'psych fork must set an explicit output budget');
+  assert.ok(fork.max_output_tokens <= 16, `psych fork output budget must stay tiny, got ${fork.max_output_tokens}`);
+});
+
 test('all forks share the SAME cloned prefix as each other (one warm cache entry)', () => {
   const base = buildBaseRequest();
   const prefixLen = base.input.length;

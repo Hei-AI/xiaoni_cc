@@ -2581,6 +2581,10 @@ export function buildPsychAssessmentForkRequest(
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   forkRequest.parallel_tool_calls = false;
   forkRequest.store = false;
+  // 判定只需一个字符(1/0)，硬顶输出预算(照搬 cache-heartbeat fork 的 tiny budget 成熟做法)。max_output_tokens
+  // 是顶层采样参数、不在 message 前缀，fork 又 no_persist → 既不动共享热前缀、也不进下一次主 run replay，
+  // 只压这次 fork 自身的 output token。配合尾部 reminder「第一个字符就是判定」防截断→无判定→fail-closed EVICT。
+  forkRequest.max_output_tokens = 8;
   forkRequest.input = normalizeResponseInputItems([
     ...forkRequest.input,
     // 被判定的这一 turn 的 assistant 文本：作为小段 cold tail 重注(它本就是本 turn 的输出，不在已发请求里)。
@@ -2600,8 +2604,8 @@ export function buildPsychAssessmentForkRequest(
   return forkRequest;
 }
 
-// 从心理评估 fork 的输出里解析判定。找最后一个 PSYCH_VERDICT: KEEP/EVICT；KEEP=准入(true)。
-// 找不到 / 不认识 → 返回 null，交给调用方走 fail-closed(EVICT，不准入)。
+// 从心理评估 fork 的输出里解析判定。主契约=裸单字符 1(保留/准入)/0(剔除)；PSYCH_VERDICT: KEEP/EVICT 作
+// 后向兼容(部署夹缝里旧 prompt 仍能解析)。取最后一个判定；找不到 / 不认识 → null，交调用方 fail-closed(EVICT)。
 export function parsePsychAssessmentVerdict(outputItems: Array<Record<string, unknown>>): boolean | null {
   let text = '';
   for (const item of outputItems) {
@@ -2617,12 +2621,14 @@ export function parsePsychAssessmentVerdict(outputItems: Array<Record<string, un
           ? `\n${item.text}`
           : '';
   }
-  const matches = [...text.matchAll(/PSYCH_VERDICT:\s*(KEEP|EVICT)/gi)];
+  // 主：裸 1/0(前后不接其它数字，避免误吃 slice id 之类多位数)。兼容：PSYCH_VERDICT: KEEP/EVICT。
+  const matches = [...text.matchAll(/PSYCH_VERDICT:\s*(KEEP|EVICT)|(?:^|[^0-9])([01])(?![0-9])/gi)];
   if (matches.length === 0) {
     return null;
   }
-  const last = matches[matches.length - 1]![1]!.toUpperCase();
-  return last === PSYCH_ASSESSMENT_VERDICT_KEEP;
+  const lastMatch = matches[matches.length - 1]!;
+  const token = (lastMatch[1] ?? lastMatch[2] ?? '').toUpperCase();
+  return token === PSYCH_ASSESSMENT_VERDICT_KEEP || token === '1';
 }
 
 export function buildCacheHeartbeatForkRequest(baseRequest: CanonicalAgentTurnRequest): CanonicalAgentTurnRequest {

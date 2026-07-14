@@ -73,13 +73,26 @@ test('stripTextAdmitFlagForWire is a same-ref passthrough for un-flagged items (
 // ── verdict parser (psych fork output → keep/evict) ──────────────────────────────
 const forkOut = (text: string) => [{ type: 'message', role: 'assistant', content: text } as Record<string, unknown>];
 
-test('parsePsychAssessmentVerdict: KEEP → true, EVICT → false', () => {
+// 主契约:裸单字符 1(保留=true)/0(剔除=false)。
+test('parsePsychAssessmentVerdict: bare 1 → true, bare 0 → false', () => {
+  assert.equal(parsePsychAssessmentVerdict(forkOut('1')), true);
+  assert.equal(parsePsychAssessmentVerdict(forkOut('0')), false);
+});
+
+// 后向兼容:部署夹缝里旧 prompt 仍输出 PSYCH_VERDICT: KEEP/EVICT。
+test('parsePsychAssessmentVerdict: KEEP → true, EVICT → false (legacy compat)', () => {
   assert.equal(parsePsychAssessmentVerdict(forkOut('这段有信息增量。\nPSYCH_VERDICT: KEEP')), true);
   assert.equal(parsePsychAssessmentVerdict(forkOut('纯摸鱼。\nPSYCH_VERDICT: EVICT')), false);
 });
 
 test('parsePsychAssessmentVerdict: takes the LAST verdict, case-insensitive', () => {
   assert.equal(parsePsychAssessmentVerdict(forkOut('psych_verdict: evict\n改主意\nPSYCH_VERDICT: keep')), true);
+  assert.equal(parsePsychAssessmentVerdict(forkOut('0\n改主意\n1')), true);
+});
+
+// 多位数(如 slice id)里的 0/1 不能被误吃成判定。
+test('parsePsychAssessmentVerdict: ignores 0/1 embedded in multi-digit numbers', () => {
+  assert.equal(parsePsychAssessmentVerdict(forkOut('slice 10 / turn 21')), null);
 });
 
 test('parsePsychAssessmentVerdict: no recognizable verdict → null (caller fail-closes)', () => {
