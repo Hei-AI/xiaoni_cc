@@ -109,8 +109,29 @@
 - 生成缺失专项文档：
   - `$document-generate`
 
+## Specs And Investigations
+
+活跃 spec（`docs/specs/`）—— 已定稿、待实现或待裁决的方案：
+
+| Spec | 状态 |
+|---|---|
+| `specs/xiaoni-anti-idle-external-authority.md` — 治空转的合成外部权威提醒 | **阻塞待裁决（D1）**：注入点 `buildLoopSelfContinuationStackItem` 生产里已死 26 天（最后 fire = 2026-06-20），照原样实现会得到 ON/OFF 无差别的空开关 |
+| `specs/xiaoni-recall-quality-gate.md` — 被动召回质量闸 + 投递门槛 | 待实现，零缓存 |
+| `specs/xiaoni-queue-dead-letter.md` — transient 重试 / 死信可见 / 切断连坐 | 待实现，Q3 碰 event_id dedup 铁律 |
+| `specs/xiaoni-os-text-channel-psych-gate.md` — xiaoni_os 文本通道 + 心理评估门控 | 已部署，gate 默认 OFF |
+
+事故与调查笔记（`docs/investigations/`）—— **CLAUDE.md 的双缓存铁律明确指向这里**，
+改主 agent 前必读相关条目：
+
+- `compress-core-memory-three-contract-violations-2026-06-28.md`
+- `subconscious-fork-identical-output-2026-06-26.md`
+- `action-stream-redesign.md`（含 mockup）
+
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。
+- **写 spec 时先验注入点还活着**（查 `agent_stack_items` 里对应 `content->>'source'` 的最新时间戳）。
+  anti-idle spec 的教训：机制、文案、双缓存分析全写对了，但选的代码路径已死 26 天，
+  实现出来会是个测不出差别的空开关。
 - 新文档优先放在 `docs/`，不要把关键知识只留在聊天记录里。
 - 不要复制一份“差不多”的规则到多个地方；优先维护一个主文档，再由索引指向它。
 - skill 名统一写成 `$skill-name` 格式，不混用 `/skill-name`。
