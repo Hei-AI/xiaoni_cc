@@ -41,8 +41,9 @@
 - 小腻连续 loop 的当前事实源是 `docs/XIAONI_AGENT_STACK_LEDGER.md`：`agent_stack_items` 保存可回放 stack，`llm_request_slices` 保存每次真实 LLM 请求，`tool_executions` 保存工具调用和结果。当前可操作 surface 看 `docs/XIAONI_RUNTIME_SURFACES.md`。新增共享读写必须先落到 `packages/persistence`，再由服务层编排。
 - `<xiaoni_status>` 当前仍在 `agent_session_context_windows.context_summary`，由压力触发的 `compress_core_memory(text)` 写入；普通请求可定义该工具，但只有压力请求的 `allowed_tools` 允许调用。
 - `agent_session_context_windows` 同时保存 read cutoff 和 pending proactive share 兼容状态；小腻主 loop 统一只使用 `xiaoni:global` 作为 prompt-facing history / prompt cache / context summary / read-cutoff key。`qq:direct:*` / `qq:group:*` 只做真实会话 metadata、投递目标和未读游标，不形成任何 QQ 维度 prompt history/cache key。
-- `conversation_items` 当前只作为 transcript 兼容投影；request assembly 不再把它当成主事实源。queue、inbox、provider evidence、旧 LLM call audit 和旧 tool execution audit 都不是 prompt history 的读时恢复来源，必须先回到 stack ledger 语义。
-- 上下文压缩后按 `agent_session_context_windows.context_summary` 加 `conversation_items` tail 组装 prompt-visible context。`read_cutoff_after_conversation_id` 推进到倒数第 30 条之前，读路径自然保留最后 30 条和之后新增 items；不要把最后 30 条复制插入第二次。
+- `conversation_items` **已退休（P5，核实 2026-07-16）**：表在库里还存在（历史遗留），但运行时**从不创建、从不索引、从不读取**——见 `packages/persistence/agent-runtime.js:155` 的注释与 `packages/persistence/__tests__/agent-runtime.test.js:39` 的反向断言。**不要把它当成任何东西的投影或兼容层**；调试 prompt history 一律回 `agent_stack_items`。queue、inbox、provider evidence、旧 LLM call audit 和旧 tool execution audit 同样都不是 prompt history 的读时恢复来源，必须先回到 stack ledger 语义。
+- 上下文压缩后按 `agent_session_context_windows.context_summary` 加 **stack tail** 组装 prompt-visible context。读游标是 **`agent_session_context_windows.read_cutoff_after_stack_index`**（核实 2026-07-16：真库确认该列存在，代码 70 处引用）。
+  > ⚠️ 本行原写 `read_cutoff_after_conversation_id` + `conversation_items` tail，**两者皆为三层迁移前的旧世界**，`read_cutoff_after_conversation_id` 全代码库 0 命中。压缩读路径是双缓存铁律的核心，照旧文档调试必然走错层。cutoff 的规划逻辑见 `planStackReadCutoffByBlockBudget`。
 - `agent_life_events` 是 homeostasis / presence projection 的事件真相源；当前不要把它误读成 `<xiaoni_status>` 或三层长期记忆的唯一 runtime recall 源。
 - `listAgentLifeEventsForPrompt()` 已存在，但返回的是 life-event rows，不是 prompt-safe memory digest。把它接进主 prompt 前必须先明确 visibility / redaction / boundary policy。
 - 三层长期记忆表已经写入数据，但 typed recall projection 仍是后续工作；当前主 loop 不会自动按问题类型召回这些 rows。

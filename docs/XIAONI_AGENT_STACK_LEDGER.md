@@ -417,9 +417,9 @@ request =
   主 agent 下一轮按普通 notify 消费。只有上下文压缩这类 P0 窗口收缩可以重组 request window。
 - `current_input` / reminder 是当前感官输入，不是 QQ 正文，也不是 assistant 历史。
 - QQ 正文只在模型主动用 `$qq-usage` 后，作为工具结果或可见 transcript 进入 stack。
-- `conversation_items` 可以继续作为 transcript 兼容投影，但不再是主 loop
-  request assembly 的概念事实源。没有 `conversation_items` 时，不得从
-  `conversations.user_message` / `conversations.ai_response` 回退合成历史 input；
+- `conversation_items` **已退休（P5，核实 2026-07-16）**：运行时从不创建、从不索引、从不读取
+  （`packages/persistence/agent-runtime.js:155`）。它**不是**投影、**不是**兼容层、**不是**回退来源。
+  同理不得从 `conversations.user_message` / `conversations.ai_response` 回退合成历史 input；
   缺失结构化 transcript 就只保留明确可回放的 `responses_replay_items`、stack window
   和当前 runtime input。
 - `xiaoni:global` 仍是主 loop 的 identity / prompt cache / summary key；
@@ -481,7 +481,9 @@ visible delivery card
   和 fork facts 投影，不再以 provider replay 或 run 列表为主卡片。
 - 旧 runtime LLM/tool audit 表和 provider replay ledger 已移除，schema ensure 会 drop
   对应遗留表。不要新增读取或文档引用。
-- `conversation_items` 仍可作为 transcript 兼容投影，但不是主 request assembly 的事实源。
+- `conversation_items` **已退休（P5，核实 2026-07-16）**：表在库里还在（历史遗留），但运行时
+  从不创建/索引/读取（`packages/persistence/agent-runtime.js:155`）。既不是事实源，也不是投影——
+  不要为它写任何新的读路径或文档引用。
 
 ## Verification
 
