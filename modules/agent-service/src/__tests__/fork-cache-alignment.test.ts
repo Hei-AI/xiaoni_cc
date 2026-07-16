@@ -5,7 +5,8 @@ import {
   buildCanonicalAgentTurnRequest,
   buildCoreMemoryCompressionForkRequest,
   buildCoreMemoryCompressionReminder,
-  buildCoreMemoryCompressionForkRetryReminder,
+  buildCoreMemoryCompressionForkForcedReminder,
+  buildCoreMemoryCompressionForkGapCheckReminder,
   buildSubconsciousAgentForkRequest,
   buildCacheHeartbeatForkRequest,
   buildImageVisionForkRequest,
@@ -288,18 +289,19 @@ test('compression fork DISPATCH tail (pressure + retry reminders) is NON-durable
     'compression pressure reminder must be NON-durable (developer role): it is appended at ' +
     'dispatch as the fork tail; a durable one would move the breakpoint off the shared history'
   );
-  const retry = buildCoreMemoryCompressionForkRetryReminder({
-    forkTurn: 2,
-    reason: 'no_tool_call',
-    retryCount: 1,
-    maxRetries: 3,
-    outputPath: '/xiaoni-runtime/compress/xiaoni_global.md'
-  });
+  const forced = buildCoreMemoryCompressionForkForcedReminder({ forkTurn: 18 });
   assert.equal(
-    isDurableItem(retry),
+    isDurableItem(forced),
     false,
-    'compression fork retry reminder must be NON-durable (developer role): it too is appended ' +
-    'as a dispatch-time tail on retry turns'
+    'compression fork forced reminder must be NON-durable (developer role): it too is appended ' +
+    'as a dispatch-time tail on budget-exhausted turns'
+  );
+  const gapCheck = buildCoreMemoryCompressionForkGapCheckReminder();
+  assert.equal(
+    isDurableItem(gapCheck),
+    false,
+    'compression fork gap-check reminder must be NON-durable (developer role): appended as a ' +
+    'dispatch-time tail on text-only turns'
   );
 });
 

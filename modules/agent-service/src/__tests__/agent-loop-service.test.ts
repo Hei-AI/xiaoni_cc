@@ -11511,16 +11511,26 @@ test('core memory compression runs in an isolated background fork alongside the 
         output: [{
           type: 'function_call',
           call_id: 'call-compress',
-          name: COMPRESS_CORE_MEMORY_TOOL,
+          name: EXEC_COMMAND_TOOL,
           arguments: JSON.stringify({
-            text: '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。'
+            cmd: `python3 ${'${SKILL}'}/commit_memory.py <<'MEMO'\n压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。\nMEMO`
           })
         }]
       }
     };
   };
+  const BG_COMPRESS_WROTE_PATH = '/xiaoni-runtime/compress/xiaoni-status-bgfork.md';
+  const BG_COMPRESS_NEAR = '压缩后的近况：刚把旧窗口归档到 /tmp/xiaoni-memory.md，接下来继续处理当前 runtime loop。';
   (service as any).executeTool = async (toolCall: any) => {
     if (toolCall.name === EXEC_COMMAND_TOOL) {
+      // The commit skill run reports the fresh path it chose; other exec runs (the archive) don't.
+      if (String(toolCall.args.cmd || '').includes('commit_memory.py')) {
+        return {
+          cmd: toolCall.args.cmd,
+          stdout: `OK: wrote ${BG_COMPRESS_NEAR.length} chars to ${BG_COMPRESS_WROTE_PATH}\nXIAONI_COMPRESS_WROTE=${BG_COMPRESS_WROTE_PATH}\n`,
+          codex_output: `OK: wrote to ${BG_COMPRESS_WROTE_PATH}`
+        };
+      }
       return {
         cmd: toolCall.args.cmd,
         codex_output: 'archived to /tmp/xiaoni-memory.md'
@@ -11535,6 +11545,8 @@ test('core memory compression runs in an isolated background fork alongside the 
     }
     throw new Error(`Unexpected tool in compression fork test: ${toolCall.name}`);
   };
+  // readCoreMemoryCompressionFile → executeCommand: read back the file the skill reported.
+  (service as any).executeCommand = async () => ({ stdout: `OK\n${BG_COMPRESS_NEAR}\n`, stderr: '' });
   (service as any).executeAgentTurn = async (canonicalRequest: any) => {
     mainRequests.push(canonicalRequest);
     return {
@@ -11579,7 +11591,10 @@ test('core memory compression runs in an isolated background fork alongside the 
   // instead of cold-prefilling. compress is exposed (auto), and "only compress" is enforced
   // at execution time. This is the regression guard for the cache-penetration bug.
   assert.equal(forkRequests[0]?.tool_choice?.mode, 'auto');
-  assert.ok(getAllowedToolNames(forkRequests[0]?.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL));
+  // Spec B: compress_core_memory is no longer a wire tool anywhere; the fork stays a byte-clone of
+  // the main request (same tools + same auto tool_choice), and the "only write the 近况" restriction
+  // is enforced at execution time (allowedToolNames), not by changing the wire tool set.
+  assert.ok(!getAllowedToolNames(forkRequests[0]?.tool_choice).includes(COMPRESS_CORE_MEMORY_TOOL));
   assert.deepEqual(forkRequests[0]?.tool_choice, mainRequests[0]?.tool_choice);
   assert.deepEqual(forkRequests[0]?.tools, mainRequests[0]?.tools);
 
@@ -11663,10 +11678,12 @@ test('core memory compression runs in an isolated background fork alongside the 
     }
   });
   assert.equal(forkTools.length, 2);
-  assert.deepEqual(forkTools.map((entry) => entry.toolName), [EXEC_COMMAND_TOOL, COMPRESS_CORE_MEMORY_TOOL]);
+  // Both turns are exec_command now: turn 1 archives, turn 2 runs the commit skill (which reports
+  // the fresh path the engine reads back). compress_core_memory is never a wire tool.
+  assert.deepEqual(forkTools.map((entry) => entry.toolName), [EXEC_COMMAND_TOOL, EXEC_COMMAND_TOOL]);
   assert.equal(completedForkTools.length, 2);
   assert.equal(completedForkTools[0]?.result?.codex_output, 'archived to /tmp/xiaoni-memory.md');
-  assert.equal(completedForkTools[1]?.result?.context_summary_written, true);
+  assert.match(String(completedForkTools[1]?.result?.stdout || ''), /XIAONI_COMPRESS_WROTE=/);
   assert.match(JSON.stringify(forkItems), /call-archive/);
   assert.match(JSON.stringify(forkItems), /call-compress/);
   assert.match(JSON.stringify(forkItems), /archived to \/tmp\/xiaoni-memory\.md/);
@@ -11751,6 +11768,13 @@ test('core memory compression fork retries final_answer without tool call and th
     resolveForQueueMessage: async () => runtimePrompt
   } as any);
 
+  // Spec B fresh-file flow: the model authors the 近况 and runs the commit skill via exec_command
+  // (no --out); the skill mints a unique file and prints XIAONI_COMPRESS_WROTE=<path>. The engine
+  // captures that path from stdout, reads it back, and commits. Turn 1 yields no tool → no path
+  // captured → no readback → no commit (this is the guard that closes the stale-leftover bug).
+  const COMPRESS_WROTE_PATH = '/xiaoni-runtime/compress/xiaoni-status-20260716-abcd1234.md';
+  const COMPRESS_NEAR_TEXT = '压缩后的近况：纠偏后成功用记忆整理脚本存下。';
+  const readbackCalls: string[] = [];
   (service as any).executeCoreMemoryCompressionForkTurn = async (canonicalRequest: any, _payload: any, _runtimePrompt: any, forkTurn: number) => {
     forkRequests.push(canonicalRequest);
     if (forkTurn === 1) {
@@ -11778,21 +11802,28 @@ test('core memory compression fork retries final_answer without tool call and th
         output: [{
           type: 'function_call',
           call_id: 'call-compress-after-retry',
-          name: COMPRESS_CORE_MEMORY_TOOL,
+          name: EXEC_COMMAND_TOOL,
           arguments: JSON.stringify({
-            text: '压缩后的近况：纠偏后成功调用 compress_core_memory。'
+            cmd: `python3 ${'${SKILL}'}/commit_memory.py <<'MEMO'\n${COMPRESS_NEAR_TEXT}\nMEMO`
           })
         }]
       }
     };
   };
   (service as any).executeTool = async (toolCall: any) => {
-    assert.equal(toolCall.name, COMPRESS_CORE_MEMORY_TOOL);
+    assert.equal(toolCall.name, EXEC_COMMAND_TOOL);
+    // The commit skill reports the fresh path it chose on stdout — this is the handshake the
+    // engine keys off of. codex_output is the truncated model-facing envelope.
     return {
-      compressed: true,
-      text: String(toolCall.args.text || '').trim(),
-      outcome: 'core_memory_compressed'
+      cmd: toolCall.args.cmd,
+      stdout: `OK: wrote ${COMPRESS_NEAR_TEXT.length} chars to ${COMPRESS_WROTE_PATH}\nXIAONI_COMPRESS_WROTE=${COMPRESS_WROTE_PATH}\n`,
+      codex_output: `OK: wrote ${COMPRESS_NEAR_TEXT.length} chars to ${COMPRESS_WROTE_PATH}`
     };
+  };
+  // readCoreMemoryCompressionFile → executeCommand: read back the file the skill reported.
+  (service as any).executeCommand = async (params: any) => {
+    readbackCalls.push(String(params?.cmd || ''));
+    return { stdout: `OK\n${COMPRESS_NEAR_TEXT}\n`, stderr: '' };
   };
 
   const commit = await (service as any).runCoreMemoryCompressionFork({
@@ -11815,23 +11846,25 @@ test('core memory compression fork retries final_answer without tool call and th
     }
   });
 
-  assert.equal(commit.text, '压缩后的近况：纠偏后成功调用 compress_core_memory。');
+  assert.equal(commit.text, COMPRESS_NEAR_TEXT);
   assert.equal(forkRequests.length, 2);
-  assert.match(JSON.stringify(forkRequests[1]?.input || []), /returned final_answer instead of compress_core_memory/);
-  assert.match(JSON.stringify(forkRequests[1]?.input || []), /潜意识警报/);
-  assert.match(JSON.stringify(forkRequests[1]?.input || []), /第 1 次/);
-  assert.match(JSON.stringify(forkRequests[1]?.input || []), /濒危极限：10 次/);
-  assert.match(JSON.stringify(forkRequests[1]?.input || []), /必须.*compress_core_memory/);
+  // Turn 1 was text-only (no tool) with turns to spare → the SOFT self-check reminder fires
+  // (not the firm "use the skill" nag; that's reserved for the reserve window near the budget).
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /想想还有什么没记完/);
+  assert.match(JSON.stringify(forkRequests[1]?.input || []), /看看有没有遗漏/);
   assert.match(JSON.stringify(forkRequests[1]?.input || []), /我偏航成普通收尾了/);
+  // Guard: the readback only fired AFTER the skill reported a path (turn 2), never during the
+  // pathless turn 1 — so a stale leftover could never be committed.
+  assert.equal(readbackCalls.length, 1);
   assert.equal(forkSlices.length, 2);
   assert.equal(forkTools.length, 1);
-  assert.equal(forkTools[0]?.toolName, COMPRESS_CORE_MEMORY_TOOL);
+  assert.equal(forkTools[0]?.toolName, EXEC_COMMAND_TOOL);
   assert.equal(completedForkTools[0]?.status, 'completed');
   assert.equal(completedForkRuns[0]?.status, 'completed');
   assert.equal(completedForkRuns[0]?.metadata?.fork_no_tool_retry_count, 1);
   assert.deepEqual(summaryWrites, [{
     sessionKey: 'xiaoni:test-global',
-    contextSummary: '压缩后的近况：纠偏后成功调用 compress_core_memory。'
+    contextSummary: COMPRESS_NEAR_TEXT
   }]);
   assert.deepEqual(cutoffWrites, [{
     sessionKey: 'xiaoni:test-global',
@@ -11844,7 +11877,7 @@ test('core memory compression fork retries final_answer without tool call and th
   assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end' && event.metadata?.status === 'completed'), true);
 });
 
-test('core memory compression fork fails after ten no-tool retries', async () => {
+test('core memory compression fork forces the skill after the budget, then hard-cap fallback commits', async () => {
   const queueMessage = createRuntimeLoopPayload();
   const runtimePrompt = createRuntimePrompt();
   const baseRequest = buildTestMainCanonicalRequest(buildInitialInput([], queueMessage), queueMessage, runtimePrompt);
@@ -11882,7 +11915,8 @@ test('core memory compression fork fails after ten no-tool retries', async () =>
       assert.fail('no tool execution should complete when the model never calls a tool');
     },
     upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
-    upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); }
+    upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
+    getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => runtimePrompt
   } as any);
@@ -11907,39 +11941,43 @@ test('core memory compression fork fails after ten no-tool retries', async () =>
     };
   };
 
-  await assert.rejects(
-    () => (service as any).runCoreMemoryCompressionFork({
-      baseRequest,
-      queueMessage,
-      runtimePrompt,
+  const commit = await (service as any).runCoreMemoryCompressionFork({
+    baseRequest,
+    queueMessage,
+    runtimePrompt,
+    contextSessionKey: 'xiaoni:test-global',
+    compression: {
+      required: true,
       contextSessionKey: 'xiaoni:test-global',
-      compression: {
-        required: true,
-        contextSessionKey: 'xiaoni:test-global',
-        readCutoffAfterStackIndex: 171,
-        previousReadCutoffAfterStackIndex: null,
-        compressionCoveredEndStackIndex: 200,
-        historyUserId: 303,
-        historyGroupId: null,
-        historyScope: 'global',
-        lastContextWindowTokens: 400000,
-        lastTargetBudgetTokens: 280000,
-        lastHardBudgetTokens: 380000
-      }
-    }),
-    /compress_core_memory fork yielded without a tool call/
-  );
+      readCutoffAfterStackIndex: 171,
+      previousReadCutoffAfterStackIndex: null,
+      compressionCoveredEndStackIndex: 200,
+      historyUserId: 303,
+      historyGroupId: null,
+      historyScope: 'global',
+      lastContextWindowTokens: 400000,
+      lastTargetBudgetTokens: 280000,
+      lastHardBudgetTokens: 380000
+    }
+  });
 
-  assert.equal(forkRequests.length, 11);
-  assert.match(JSON.stringify(forkRequests[10]?.input || []), /第 10 次/);
-  assert.match(JSON.stringify(forkRequests[10]?.input || []), /濒危极限：10 次/);
+  // No throw anymore: a fork that never calls a tool rides the escalation ladder to the hard cap
+  // and commits the deterministic fallback so the cutoff always advances (never a failed fork).
+  assert.ok(commit && typeof commit.text === 'string' && commit.text.length > 0);
+  // 22 model turns: 1..17 soft self-check, 18..21 forced, 22 hits the hard cap → fallback commit.
+  assert.equal(forkRequests.length, 22);
+  // Early no-tool turn (turns to spare) → SOFT self-check, not a nag to use the skill.
+  assert.match(JSON.stringify(forkRequests[10]?.input || []), /想想还有什么没记完/);
+  // Once the organizing budget is spent (>= 18 turns) → FORCED "use the skill now" tone.
+  assert.match(JSON.stringify(forkRequests[18]?.input || []), /整理时间已经用满了/);
+  assert.match(JSON.stringify(forkRequests[18]?.input || []), /立刻用记忆整理脚本/);
   assert.equal(completedForkRuns.length, 1);
-  assert.equal(completedForkRuns[0]?.status, 'failed');
-  assert.equal(completedForkRuns[0]?.metadata?.fork_no_tool_retry_count, 11);
-  assert.equal(completedForkRuns[0]?.errorMessage, 'compress_core_memory fork yielded without a tool call');
-  assert.deepEqual(summaryWrites, []);
-  assert.deepEqual(cutoffWrites, []);
-  assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end' && event.metadata?.status === 'failed'), true);
+  assert.equal(completedForkRuns[0]?.status, 'completed');
+  assert.equal(completedForkRuns[0]?.metadata?.compression_turn_budget_fallback, true);
+  // The cutoff advanced (context can't grow → 413) even though she never wrote a real 近况.
+  assert.equal(summaryWrites.length, 1);
+  assert.equal(cutoffWrites.length, 1);
+  assert.equal(timelineEvents.some((event) => event.eventName === 'core_memory_compression_fork' && event.eventPhase === 'end' && event.metadata?.status === 'completed_turn_budget_fallback'), true);
 });
 
 // F: 社交认知帧 — social cognitive frame substrings appear in agent instructions

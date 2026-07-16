@@ -1340,11 +1340,17 @@ const IMAGE_GENERATION_TOOL: OpenResponseToolDefinition = {
 
 const MEDIA_ASSET_ID_PATTERN = /^media_[a-zA-Z0-9_-]+$/;
 const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
-const CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES = 10;
-// Spec B: hard cap on total fork turns. The no-tool-retry counter only fires when the model
-// stops calling tools; a model that keeps calling exec_command without ever writing the 近况
-// file would loop forever without this bound.
-const CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS = 18;
+// Spec B: hard cap on total fork turns. A model that keeps calling exec_command without ever
+// writing the 近况 file would loop forever without this bound.
+// Escalation thresholds for the compression fork's tone toward the model:
+//   < FORCE_TURNS         → let her work (silent on tool turns, soft self-check on text-only turns).
+//   >= FORCE_TURNS (18)   → she's used up her organizing budget: switch to a FORCED "stop everything
+//                            and use the skill NOW" instruction, every turn, until she complies.
+//   >= HARD_CAP_TURNS     → absolute last resort: only if she ignores the forced demand for the whole
+//                            grace window do we auto-commit the deterministic minimal seam summary,
+//                            purely so the cutoff always advances and context can't grow → 413.
+const CORE_MEMORY_COMPRESSION_FORK_FORCE_TURNS = 18;
+const CORE_MEMORY_COMPRESSION_FORK_HARD_CAP_TURNS = 22;
 const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
 const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
@@ -3078,19 +3084,41 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 const EXEC_OUTPUT_SUBDIR = 'exec-output';
 const EXEC_OUTPUT_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '');
 
-// Spec B: the compression fork writes the new 近况 here (model → exec_command → file), then
-// reads it back to commit — the same file round-trip the image-vision fork uses. Compression
-// is single-flight per session (coreMemoryCompressionForks keyed by session), so a per-session
-// path needs no forkRunId and is safe to overwrite each compression.
-const CORE_MEMORY_COMPRESSION_OUTPUT_DIR = `${EXEC_OUTPUT_ROOT}/compress`;
+// Spec B (fresh-file): the compression fork writes the new 近况 via the xiaoni-memory-compress
+// skill (model → exec_command → file), then reads it back to commit — the same file round-trip
+// the image-vision fork uses. The skill mints a UNIQUE filename per write and prints its path on
+// a `XIAONI_COMPRESS_WROTE=<path>` line; the engine captures that path from exec stdout instead of
+// hardcoding one. This closes the read-before-write staleness bug (a prep turn like `date` used to
+// let a prior round's leftover file be committed as this round's 近况).
 // Absolute path resolved inside the executor (where exec_command runs): /app -> repo root
 // (executor Dockerfile `ln -sfn /workspace/qq_bot /app`). It is a SIBLING of the main skills
 // dir, so 小腻's main-loop `ls /app/modules/agent-service/skills` never lists it (DD3).
 const XIAONI_MEMORY_COMPRESS_SKILL_DIR = '/app/modules/agent-service/skills-internal/xiaoni-memory-compress';
 
-function buildCoreMemoryCompressionOutputPath(contextSessionKey: string) {
-  const safe = (contextSessionKey || 'session').replace(/[^a-zA-Z0-9._-]/g, '_');
-  return `${CORE_MEMORY_COMPRESSION_OUTPUT_DIR}/${safe}.md`;
+// The commit skill prints this exact marker as its last stdout line. Match the LAST occurrence
+// (the model may run several exec commands; the skill is the one that reports a path).
+const COMPRESSION_WRITTEN_PATH_RE = /^XIAONI_COMPRESS_WROTE=(.+)$/gmu;
+
+function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
+  if (!rawToolResult || typeof rawToolResult !== 'object') {
+    return null;
+  }
+  const record = rawToolResult as Record<string, unknown>;
+  const streams = [record.stdout, record.codex_output].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0
+  );
+  for (const stream of streams) {
+    let match: RegExpExecArray | null;
+    let last: string | null = null;
+    COMPRESSION_WRITTEN_PATH_RE.lastIndex = 0;
+    while ((match = COMPRESSION_WRITTEN_PATH_RE.exec(stream)) !== null) {
+      last = match[1].trim();
+    }
+    if (last) {
+      return last;
+    }
+  }
+  return null;
 }
 const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
 const EXEC_OUTPUT_TTL_DAYS = 7;
@@ -4464,11 +4492,15 @@ export function buildCoreMemoryCompressionReminder(input: {
   pressureSummary: string;
 }) {
   void input.readCutoffAfterStackIndex;
+  void input.contextSessionKey;
+  // No path here: the model runs the skill without --out; the skill mints a fresh unique
+  // filename each round and prints XIAONI_COMPRESS_WROTE=<path>, which the fork loop reads back.
+  // (Cache-wise this item is a non-durable fork-tail either way — the point of dropping the path
+  // is to decouple the model from the filename, not a cache win.)
   const item = buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
-      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
-      COMPRESS_OUTPUT_PATH: buildCoreMemoryCompressionOutputPath(input.contextSessionKey)
+      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR
     }))
   ]);
   Object.defineProperty(item, CORE_MEMORY_COMPRESSION_REMINDER_MARKER, {
@@ -4476,6 +4508,17 @@ export function buildCoreMemoryCompressionReminder(input: {
     enumerable: false
   });
   return item;
+}
+
+// Soft self-check for a text-only fork turn (she ran no tool this turn — she's winding down).
+// Deliberately does NOT push the commit skill: it only prompts her to notice anything she meant
+// to record before stopping. The firm "use the skill via stdin now" instruction is reserved for
+// the forced zone at the turn budget (buildCoreMemoryCompressionForkForcedReminder). Non-durable
+// developer role (fork tail), same as the other compression reminders — cache-safe.
+export function buildCoreMemoryCompressionForkGapCheckReminder(): OpenResponseInputItem {
+  return buildDeveloperInputItem([
+    formatSystemReminderBlock('想想还有什么没记完？看看有没有遗漏。')
+  ]);
 }
 
 // 压缩完成后向主 loop 显式 notify「刚整理过一次记忆」——补上小腻找回自己的最后一环:她已经有找回
@@ -4495,21 +4538,16 @@ function renderCoreMemoryCompressionDoneReminderText(now: Date): string {
   });
 }
 
-export function buildCoreMemoryCompressionForkRetryReminder(input: {
+// Forced reminder: fired once the fork has used up its organizing budget (>= FORCE_TURNS). Hard
+// tone — stop everything and use the commit skill NOW. Non-durable developer role (fork tail),
+// same as the other compression reminders — cache-safe.
+export function buildCoreMemoryCompressionForkForcedReminder(input: {
   forkTurn: number;
-  reason: string;
-  retryCount: number;
-  maxRetries: number;
-  outputPath: string;
 }): OpenResponseInputItem {
   return buildDeveloperInputItem([
-    formatSystemReminderBlock(renderPromptSnippet('core_memory_compression_fork_retry_reminder.md', {
+    formatSystemReminderBlock(renderPromptSnippet('core_memory_compression_fork_forced_reminder.md', {
       FORK_TURN: input.forkTurn,
-      REASON: input.reason,
-      RETRY_COUNT: input.retryCount,
-      MAX_RETRIES: input.maxRetries,
-      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
-      COMPRESS_OUTPUT_PATH: input.outputPath
+      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR
     }))
   ]);
 }
@@ -10942,11 +10980,16 @@ export class AgentLoopService {
     // Spec B: the fork permits exec_command (to write the diary + run the 近况 commit skill) and
     // read_file (to read today's diary back IN FULL before appending — exec_command `cat` truncates
     // large output via the head+tail envelope, which would break dedup). The model authors the new
-    // 近况 and writes it to compressionOutputPath; the fork reads it back to commit. Widening this
+    // 近况 and runs the commit skill (no --out); the skill mints a fresh unique filename and prints
+    // XIAONI_COMPRESS_WROTE=<path>, which the fork reads back to commit. Widening this
     // execution gate does NOT change the fork's tools/tool_choice (still a byte-clone of the main
     // request), so it is cache-safe. compress_core_memory is no longer a tool anywhere.
     const allowedToolNames = new Set<string>([TOOL_NAMES.execCommand, TOOL_NAMES.readFile]);
-    const compressionOutputPath = buildCoreMemoryCompressionOutputPath(params.compression.contextSessionKey);
+    // Fresh-file design: the commit target is whatever unique path the skill reported THIS fork,
+    // captured from exec stdout below — never a fixed path. This closes the read-before-write
+    // staleness bug where a `date` prep turn let a prior round's leftover 近况 get committed as
+    // this round's. Null until the skill actually runs and reports a path.
+    let capturedCompressionOutputPath: string | null = null;
     let forkInput = [
       ...cloneCanonicalAgentTurnRequest(params.baseRequest).input,
       ...(params.compressionReminderItems ?? [])
@@ -11134,7 +11177,7 @@ export class AgentLoopService {
 
             try {
               // Spec B: the compression fork only permits exec_command (the model writes the new
-              // 近况 to compressionOutputPath via the xiaoni-memory-compress skill, then final_answers).
+              // 近况 via the xiaoni-memory-compress skill (skill mints the file), then final_answers).
               // Any other tool is rejected here (controlled, not a throw) and the reason fed back, so
               // the summarizer retries toward the file write instead of crashing the fork run.
               const rawToolResult = allowedToolNames.has(toolCall.name)
@@ -11145,6 +11188,15 @@ export class AgentLoopService {
                     TOOL_NAME: toolCall.name,
                     ALLOWED_TOOLS: Array.from(allowedToolNames).join('、')
                   }));
+
+              // Capture the path the commit skill reported this fork (XIAONI_COMPRESS_WROTE=<path>
+              // on stdout). This is the ONLY channel by which the engine learns which fresh file to
+              // read back — the model never carries the path. A prep turn like `date +%F` reports no
+              // path, so it can never trigger a premature commit against stale leftover content.
+              const reportedCompressionPath = extractCompressionWrittenPath(rawToolResult);
+              if (reportedCompressionPath) {
+                capturedCompressionOutputPath = reportedCompressionPath;
+              }
 
               const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
               const continuation = applyToolResultToLoopInput(toolCall, rawToolResult, {
@@ -11222,15 +11274,15 @@ export class AgentLoopService {
           }
         }
 
-        // ── Commit trigger (Spec B): did the model write the new 近况 to the output file yet? ──
-        // Same file round-trip the image-vision fork uses (readImageVisionObservationFile). When
-        // present, synthesize the commit payload and run the SAME commitCoreMemoryCompression path,
-        // so the "one cold prefill installs <xiaoni_status> exactly once" invariant is unchanged — only
-        // the trigger moved from a structured tool call to a file read-back.
-        const compressionFileCheck = await this.readCoreMemoryCompressionFile(
-          compressionOutputPath,
-          params.queueMessage
-        );
+        // ── Commit trigger (Spec B, fresh-file): did the skill write + report a path THIS fork? ──
+        // We read back ONLY the path the skill reported this fork (capturedCompressionOutputPath).
+        // Until the skill runs, the path is null → no read, no premature commit. This is what makes
+        // a leftover file from a prior round un-committable: the engine never reads a path it wasn't
+        // just handed. Same commitCoreMemoryCompression path as before, so the "one cold prefill
+        // installs <xiaoni_status> exactly once" invariant is unchanged.
+        const compressionFileCheck = capturedCompressionOutputPath
+          ? await this.readCoreMemoryCompressionFile(capturedCompressionOutputPath, params.queueMessage)
+          : { text: null, message: '还没运行记忆整理脚本（未捕获到写入路径）' };
         if (compressionFileCheck.text) {
           const syntheticToolCall = {
             name: TOOL_NAMES.compressCoreMemory,
@@ -11244,7 +11296,7 @@ export class AgentLoopService {
               compressed: true,
               outcome: 'core_memory_compressed',
               source: 'xiaoni_memory_compress_skill',
-              output_path: compressionOutputPath
+              output_path: capturedCompressionOutputPath
             },
             toolCall: syntheticToolCall,
             compression: params.compression,
@@ -11257,7 +11309,7 @@ export class AgentLoopService {
               fork_turn_count: forkTurn,
               fork_tool_call_count: forkToolCallCount,
               fork_no_tool_retry_count: forkNoToolRetryTotal,
-              compression_output_path: compressionOutputPath,
+              compression_output_path: capturedCompressionOutputPath,
               no_main_stack_persist: true,
               no_traffic_persist: true
             }
@@ -11292,19 +11344,30 @@ export class AgentLoopService {
           return commit;
         }
 
-        // Not written yet → nudge the model to author + write the 近况 file.
+        // Not committed yet. Advance the no-tool streak counter (metadata + tone only). There is NO
+        // early throw: the forced zone (>= FORCE_TURNS) and the hard-cap fallback are the only
+        // terminals, so a stuck fork always ends by advancing the cutoff, never by failing outright.
         if (!actionPlan.hasToolCall) {
           forkNoToolRetryCount += 1;
           forkNoToolRetryTotal += 1;
-          if (forkNoToolRetryCount > CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES) {
-            throw new Error('core memory compression fork yielded without writing the 近况 file');
-          }
         }
-        if (forkTurn >= CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS) {
-          // Turn-budget safety net: DON'T throw (that leaves the cutoff un-advanced → context
-          // grows → 413). Commit a deterministic minimal seam summary through the SAME commit
-          // path so the cutoff always advances; the real memory is already on disk in today's
-          // diary. See CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY.
+        if (forkTurn >= CORE_MEMORY_COMPRESSION_FORK_HARD_CAP_TURNS) {
+          // Absolute last resort: she ignored the forced "use the skill NOW" demand across the whole
+          // grace window (FORCE_TURNS..HARD_CAP). Commit a deterministic minimal seam summary through
+          // the SAME commit path so the cutoff always advances (context can't grow → 413). Anything
+          // real she wrote is on disk in today's diary. See CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY.
+          if (forkToolCallCount > 0 && !capturedCompressionOutputPath) {
+            // Drift signal: she ran exec_command(s) but never reported a path — likely wrote the 近况
+            // without the commit skill (raw redirect) or chained output that pushed the marker out of
+            // the stdout tail. Surface it so silent memory-quality loss doesn't go unnoticed.
+            moduleLogger.warn('core memory compression fork hit the hard-cap fallback without a skill-reported path', {
+              traceId: params.queueMessage.traceId,
+              forkRunId,
+              forkToolCallCount,
+              forkTurn,
+              contextSessionKey: params.compression.contextSessionKey
+            });
+          }
           const fallbackToolCall = {
             name: TOOL_NAMES.compressCoreMemory,
             callId: `core-memory-compress-fallback:${forkRunId}:${forkTurn}`,
@@ -11317,7 +11380,7 @@ export class AgentLoopService {
               compressed: true,
               outcome: 'core_memory_compressed',
               source: 'compression_fork_turn_budget_fallback',
-              output_path: compressionOutputPath
+              output_path: capturedCompressionOutputPath
             },
             toolCall: fallbackToolCall,
             compression: params.compression,
@@ -11330,7 +11393,7 @@ export class AgentLoopService {
               fork_turn_count: forkTurn,
               fork_tool_call_count: forkToolCallCount,
               fork_no_tool_retry_count: forkNoToolRetryTotal,
-              compression_output_path: compressionOutputPath,
+              compression_output_path: capturedCompressionOutputPath,
               compression_turn_budget_fallback: true,
               no_main_stack_persist: true,
               no_traffic_persist: true
@@ -11366,23 +11429,20 @@ export class AgentLoopService {
           });
           return fallbackCommit;
         }
-        // Reserve-a-turn nudge: when the turn budget is nearly spent, stop distilling and commit
-        // the 近况 now, so we land real content before the turn-budget fallback ever fires.
-        const forkTurnsLeft = CORE_MEMORY_COMPRESSION_FORK_MAX_TURNS - forkTurn;
-        const forkTurnUrgency = forkTurnsLeft <= 2
-          ? `【只剩 ${forkTurnsLeft} 步，先别再写日记了，立刻用记忆整理脚本把近况写到 ${compressionOutputPath} 收尾】`
-          : '';
-        forkInput.push(buildCoreMemoryCompressionForkRetryReminder({
-          forkTurn,
-          retryCount: forkNoToolRetryCount,
-          maxRetries: CORE_MEMORY_COMPRESSION_FORK_MAX_NO_TOOL_RETRIES,
-          reason: `${forkTurnUrgency}${actionPlan.hasFinalAnswer
-            ? `你已经 final_answer，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
-            : actionPlan.hasToolCall
-              ? `你跑了 exec_command，但 ${compressionOutputPath} 还没有可用的近况内容（${compressionFileCheck.message}）`
-              : `还没写近况文件（${compressionFileCheck.message}）`}`,
-          outputPath: compressionOutputPath
-        }));
+        // Escalating tone, so she's never nagged while she's working:
+        //   ① < FORCE_TURNS, productive tool turn (exec_command / read_file) → say NOTHING. Let the
+        //      tool result stand and let her keep going on her own flow (that IS the memory work:
+        //      reading + appending today's diary, topic files, etc.).
+        //   ② < FORCE_TURNS, text-only turn (no tool call → she's winding down) → a SOFT self-check
+        //      only, so she catches anything she meant to record; do NOT push the skill here.
+        //   ③ >= FORCE_TURNS → she's out of organizing budget: FORCE her to stop everything and use
+        //      the commit skill (stdin, no path) to write the xiaoni_status now — every turn, until
+        //      she does (or the hard-cap fallback above fires as an absolute last resort).
+        if (forkTurn >= CORE_MEMORY_COMPRESSION_FORK_FORCE_TURNS) {
+          forkInput.push(buildCoreMemoryCompressionForkForcedReminder({ forkTurn }));
+        } else if (!actionPlan.hasToolCall) {
+          forkInput.push(buildCoreMemoryCompressionForkGapCheckReminder());
+        }
       }
 
     } catch (error) {

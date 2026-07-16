@@ -14,7 +14,7 @@
 | `image_task_pending` | `docs/xiaoni_prompt/image_task_pending.md` | `request_image_task` 已排队但成品图片 id/path 尚不存在时，防止小腻盲猜路径或误判任务失败。 |
 | `image_task_notification` | `docs/xiaoni_prompt/image_task_notification.md` | 图片任务完成后由 task worker 写入 completion notify，再被主 loop pick。 |
 | `self_continuation` | `docs/xiaoni_prompt/self_continuation_reminder.md` | 没有 notify，且候选 requestInput 最后一个 input item 是 `assistant final_answer` 时。 |
-| `core_memory_compression_fork_retry` | `docs/xiaoni_prompt/core_memory_compression_fork_retry_reminder.md` | compression fork 返回 `final_answer` 或未调用 `compress_core_memory` 时，作为 fork 内 retry reminder。 |
+| `core_memory_compression_fork_forced` | `docs/xiaoni_prompt/core_memory_compression_fork_forced_reminder.md` | compression fork 用满整理轮次(>= FORCE_TURNS)仍未写 xiaoni_status 时的强制提醒。 |
 | `image_vision_write_description` | `docs/xiaoni_prompt/image_vision_write_description_reminder.md` | image vision fork 要求模型用 `exec_command` 写入指定观察文件时。 |
 | `image_vision_existing_observation` | `docs/xiaoni_prompt/image_vision_existing_observation_reminder.md` | 同一图片已有观察文件时，要求模型基于当前图片修正或补充。 |
 | `image_vision_retry_missing_file` | `docs/xiaoni_prompt/image_vision_retry_missing_file_reminder.md` | image vision fork 返回 `final_answer` 但观察文件缺失或为空时。 |
@@ -61,7 +61,7 @@
   `sessionKey`、`threadKey`、`queueId`、`traceId` 或 `runId`。
 - `image_task_notification` 只携带继续处理图片任务所需线索；图片 bytes、trace/run、原始 prompt 等排障细节留在 DB/trace。
 - `image_task_pending` 只允许说明任务仍在渲染中，且当前没有图片 id/path；如果此前盲猜路径导致发送失败，未来完成 notify 里的 id/path 会覆盖旧失败记忆。
-- `core_memory_compression_fork_retry` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<xiaoni_status>`。
+- `core_memory_compression_fork_forced` 只在 compression fork 内使用，不进入主 loop 普通行动流；fork 成功后的 `compress_core_memory(text)` 才会推进未来 `<xiaoni_status>`。
 - image vision fork 的正文观察必须来自 `/xiaoni-runtime/image-vision/observations/<image_id>.md`；
   provider `final_answer` 只是检查时机，不是观察内容。fork 内只执行 `exec_command`，
   其它工具请求只能收到 corrective tool output。

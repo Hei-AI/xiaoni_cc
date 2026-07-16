@@ -12,7 +12,7 @@ Edit the prompt files directly:
 - `docs/xiaoni_prompt/image_task_notification.md`: image task completion reminder template.
 - `docs/xiaoni_prompt/image_task_pending.md`: image task pending reminder template used before the artifact path/id exists.
 - `docs/xiaoni_prompt/attention_lease_reminder.md`: short-lived QQ attention reminder template.
-- `docs/xiaoni_prompt/core_memory_compression_fork_retry_reminder.md`: compression fork retry reminder when the fork returns without calling the compression tool.
+- `docs/xiaoni_prompt/core_memory_compression_fork_forced_reminder.md`: compression fork forced reminder once the fork exhausts its organizing turn budget without writing xiaoni_status.
 - `docs/xiaoni_prompt/runtime_state.md`: body template for prompt-facing energy state.
 - `docs/xiaoni_prompt/skills_instructions.md`: developer block that tells Xiaoni how to find local skills.
 - `docs/xiaoni_prompt/system_reminder_fallback.md`: fallback body for empty system reminders.
