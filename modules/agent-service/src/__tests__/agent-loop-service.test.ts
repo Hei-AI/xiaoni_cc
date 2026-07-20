@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { agentConfig } from '../config';
-import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, stripSubconsciousPlanWrapper, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY } from '../services/agent-loop-service';
+import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, stripSubconsciousPlanWrapper, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY, HISTORY_COMPACT_KEEP } from '../services/agent-loop-service';
 import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
@@ -10681,7 +10681,13 @@ test('buildCoreMemoryCompressionCheckpoint does not trigger from turn count alon
   assert.equal(checkpoint, null);
 });
 
-test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and uses local context estimate', async () => {
+test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and fires on the real-input counter', async () => {
+  // REQ1 retired the tiktoken/window ESTIMATE trigger entirely: a big history under a small window
+  // no longer schedules anything by itself. The two live claims, both asserted below:
+  //   1. a previous turn's recorded actual_input_tokens (however huge) does NOT arm compression —
+  //      it is stale bookkeeping from an already-answered request;
+  //   2. the real-input debounce counter DOES, once history exceeds the retained-tail floor.
+  // (This test used to assert the deleted estimate path and had been failing since REQ1 landed.)
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null
   } as any, {
@@ -10719,7 +10725,8 @@ test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and us
       }
     ]
   };
-  const largeHistory = Array.from({ length: 12 }, (_, index) => createConversationTurn({
+  // Above the retained-tail floor, so there IS an evictable head once the trigger arms.
+  const largeHistory = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
       id: index + 1,
       userId: 85178516,
       groupId: null,
@@ -10737,9 +10744,11 @@ test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and us
     developerContextBlock: null,
     contextSessionKey: 'xiaoni:test-global'
   });
-  assert.equal(actualOnly, null);
+  assert.equal(actualOnly, null, 'a previous turn\'s actual_input_tokens must not arm compression');
 
-  const localOverflow = await (service as any).buildCoreMemoryCompressionCheckpoint({
+  // Same large history, counter NOT armed → still nothing (the deleted estimate path would have
+  // fired here purely because the window is small relative to the history).
+  const unarmed = await (service as any).buildCoreMemoryCompressionCheckpoint({
     history: largeHistory,
     queueMessage: createRuntimeLoopPayload(),
     runtimePrompt: pressureRuntimePrompt,
@@ -10748,19 +10757,43 @@ test('buildCoreMemoryCompressionCheckpoint ignores previous actual tokens and us
     developerContextBlock: null,
     contextSessionKey: 'xiaoni:test-global'
   });
-  assert.ok(localOverflow);
+  assert.equal(unarmed, null, 'window pressure alone must not schedule compression after REQ1');
+
+  // Counter armed (2 consecutive over-line real-input requests) → compression is planned.
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    const armed = await (service as any).buildCoreMemoryCompressionCheckpoint({
+      history: largeHistory,
+      queueMessage: createRuntimeLoopPayload(),
+      runtimePrompt: pressureRuntimePrompt,
+      loopContinuation: [],
+      runtimeIdentityFacts: [],
+      developerContextBlock: null,
+      contextSessionKey: 'xiaoni:test-global'
+    });
+    assert.ok(armed, 'the real-input counter is what arms compression');
+    assert.equal(armed.compression.readCutoffAfterStackIndex, COMPACT_EVICTED_HEAD);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
 });
 
-test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered', async () => {
-  // REQ3: 新上下文 = 整段尾部 HISTORY_COMPACT_KEEP(30) 条 + 之后新增。触发用真实
-  // input_tokens 计数器(此处用 forceCompression 走同一条 tail-30 cutoff)。需 >30 条
+const COMPACT_EVICTED_HEAD = 5;
+// Fixture size for "compression has something to evict": the retained-tail floor plus a small head.
+// Derived from HISTORY_COMPACT_KEEP so raising the floor cannot silently turn these into
+// nothing-to-evict fixtures that still pass.
+const COMPACT_FIXTURE_TURNS = HISTORY_COMPACT_KEEP + COMPACT_EVICTED_HEAD;
+
+test('buildContextBudgetPlan plans a tail-KEEP compression cutoff when triggered', async () => {
+  // REQ3: 新上下文 = 整段尾部 HISTORY_COMPACT_KEEP 条 + 之后新增。触发用真实
+  // input_tokens 计数器(此处用 forceCompression 走同一条 tail-KEEP cutoff)。需 >KEEP 条
   // 才有可压缩的头部。见 docs/investigations/compress-core-memory-three-contract-violations-2026-06-28.md
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -10795,10 +10828,10 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
   assert.equal(plan.readCutoffAfterStackIndex, null);
   assert.equal(plan.previousReadCutoffAfterStackIndex, null);
   assert.equal(plan.retainedHistory.length, history.length);
-  // tail-30 head-only: keep last 30 (turns 6..35) verbatim; cutoff lands after turn 5
-  // and the summary covers exactly the evicted head (ends at turn 5 == the cutoff).
-  assert.equal(plan.coreMemoryCompression?.readCutoffAfterStackIndex, 5);
-  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndStackIndex, 5);
+  // tail-KEEP head-only: keep the last HISTORY_COMPACT_KEEP turns verbatim; the cutoff lands after
+  // the evicted head and the summary covers exactly that head (its end == the cutoff).
+  assert.equal(plan.coreMemoryCompression?.readCutoffAfterStackIndex, COMPACT_EVICTED_HEAD);
+  assert.equal(plan.coreMemoryCompression?.compressionCoveredEndStackIndex, COMPACT_EVICTED_HEAD);
   assert.ok(
     plan.coreMemoryCompression!.readCutoffAfterStackIndex <=
     plan.coreMemoryCompression!.compressionCoveredEndStackIndex!
@@ -10807,7 +10840,7 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
   assert.match(JSON.stringify(plan.summarySourceInput), /核心记忆近况/);
   assert.match(JSON.stringify(plan.summarySourceInput), /global history 1(?!\d)/);
   assert.match(JSON.stringify(plan.requestInput), /global history 1(?!\d)/);
-  assert.match(JSON.stringify(plan.requestInput), /global history 35/);
+  assert.match(JSON.stringify(plan.requestInput), new RegExp(`global history ${COMPACT_FIXTURE_TURNS}`));
 
   const checkpoint = await (service as any).buildCoreMemoryCompressionCheckpoint({
     history,
@@ -10860,14 +10893,15 @@ test('buildContextBudgetPlan plans a tail-30 compression cutoff when triggered',
 });
 
 test('buildContextBudgetPlan does not compress at or under the keep window', async () => {
-  // REQ3: 保留整段尾部 30 条。history <= HISTORY_COMPACT_KEEP(30) 时没有可逐出的头部,
-  // 即便强制触发也是 no-op(不再像旧的 token 二分那样把单个 block 当溢出去砍)。
+  // REQ3: 保留整段尾部 HISTORY_COMPACT_KEEP 条。history <= HISTORY_COMPACT_KEEP 时没有可逐出的
+  // 头部,即便强制触发也是 no-op(不再像旧的 token 二分那样把单个 block 当溢出去砍)。
+  // 用 length === HISTORY_COMPACT_KEEP 打的是边界本身。
   const service = new AgentLoopService({
     getSessionReadCutoffState: async () => null
   } as any, {
     resolveForQueueMessage: async () => createRuntimePrompt()
   } as any);
-  const history = Array.from({ length: 30 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: HISTORY_COMPACT_KEEP }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -10905,14 +10939,22 @@ test('buildContextBudgetPlan suppresses a 2nd compression until the prior one is
   // BUG (实测 12:53/15:18):第一个 fork 提交→主 loop 应用 之间的空窗里,计数器在旧大上下文上
   // 重攒会放出多余的第二次压缩。修法:压缩调度后记 pending 目标 cutoff,在主 loop 生效 cutoff
   // 追上它之前抑制新触发。下面无 fix 时第一段会规划出第二次压缩 → 测试失败。
-  const history = Array.from({ length: 40 }, (_, index) => createConversationTurn({
-    id: index + 1,
-    userId: 85178516,
-    groupId: null,
-    sessionKey: 'private:85178516',
-    userMessage: `h ${index + 1}`,
-    aiResponse: `o ${index + 1}`
-  }));
+  //
+  // 这里的 fixture 比 COMPACT_FIXTURE_TURNS 更长:最后一段要验「应用之后重新攒够还能再压」,
+  // 而应用把 cutoff 推到 5,所以留存 = total - 5 必须仍 > HISTORY_COMPACT_KEEP 才有可驱逐的头部。
+  // 取 KEEP + APPLIED_CUTOFF + COMPACT_EVICTED_HEAD,应用后仍高出下限 COMPACT_EVICTED_HEAD 条。
+  const APPLIED_CUTOFF = 5;
+  const history = Array.from(
+    { length: HISTORY_COMPACT_KEEP + APPLIED_CUTOFF + COMPACT_EVICTED_HEAD },
+    (_, index) => createConversationTurn({
+      id: index + 1,
+      userId: 85178516,
+      groupId: null,
+      sessionKey: 'private:85178516',
+      userMessage: `h ${index + 1}`,
+      aiResponse: `o ${index + 1}`
+    })
+  );
   const runtimePrompt = createRuntimePrompt({
     parameters: { model_config: { contextWindowTokens: 4000, maxOutputTokens: 1000 } }
   });
@@ -10974,7 +11016,7 @@ test('compression-trigger counter survives a restart via persisted re-hydration'
   // restart). buildContextBudgetPlan must seed the Map from the persisted value so the auto
   // trigger fires WITHOUT two fresh over-line turns. Counter is timing-only — it never
   // enters the cacheable prefix.
-  const history = Array.from({ length: 40 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -11118,11 +11160,10 @@ test('runtime frame does not schedule compression from turn count alone', async 
   const mainText = (mainRequests[0]?.input || []).map(getMessageContent).join('\n');
   assert.match(mainText, /global history 1(?!\d)/);
   assert.match(mainText, /global history 200/);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 200);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_stack_index, null);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 200);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
+  // Conversation records are retired (`createConversation` has zero runtime call sites), so the
+  // retained-count / budget assertions that used to hang off conversations[0] were vacuous. The
+  // load-bearing claim of this test is above: a large under-budget history schedules NO fork.
+  assert.equal(conversations.length, 0, 'conversation records are retired — nothing should write one');
 });
 
 test('core memory compression commit uses the planned source-overlap cutoff', async () => {
@@ -11331,10 +11372,10 @@ test('core memory compression runs in an isolated background fork alongside the 
       }
     }
   });
-  // REQ3: need >HISTORY_COMPACT_KEEP(30) turns so the tail-30 cutoff has an evicted
-  // head to summarize. REQ1: arm the auto trigger by seeding the real-input debounce
-  // counter (instead of the deleted estimate>window path).
-  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+  // REQ3: need >HISTORY_COMPACT_KEEP turns so the tail-KEEP cutoff has an evicted head to
+  // summarize (COMPACT_FIXTURE_TURNS derives from the constant). REQ1: arm the auto trigger by
+  // seeding the real-input debounce counter (instead of the deleted estimate>window path).
+  const history = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 85178516,
     groupId: null,
@@ -11361,12 +11402,10 @@ test('core memory compression runs in an isolated background fork alongside the 
   const store = {
     createLlmJob: async () => 'job-compression-fork',
     logTimelineEvent: async (event: any) => { timelineEvents.push(event); },
-    listRecentTurns: async (params: any = {}) => {
-      if (typeof params.limit === 'number') {
-        return history.slice(-params.limit);
-      }
-      return history;
-    },
+    // Stack-native history. `listRecentTurns` used to live here and is now dead in the runtime —
+    // with only that shape the frame reads zero blocks and this test's compression assertions
+    // vacuously "pass through" to a never-scheduled fork.
+    ...buildStackNativeHistoryMock(history),
     getSessionReadCutoffState: async () => null,
     upsertSessionContextSummary: async (params: any) => { summaryWrites.push(params); },
     upsertSessionReadCutoffState: async (params: any) => { cutoffWrites.push(params); },
@@ -11618,15 +11657,13 @@ test('core memory compression runs in an isolated background fork alongside the 
   assert.match(mainText, /global history 1(?!\d)/);
   assert.match(mainText, /global history 12/);
 
-  assert.equal(conversations.length, 1);
-  assert.equal(conversations[0]?.rawRequest?.retained_history_count, 35);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.read_cutoff_after_stack_index, null);
-  assert.equal(conversations[0]?.rawRequest?.context_budget?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_history_count, 35);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.read_cutoff_after_stack_index, null);
-  assert.equal(conversations[0]?.rawResponse?.context_budget_turns?.[0]?.cutoff_recomputed, false);
-  assert.equal(conversations[0]?.rawResponse?.loop_stage_artifacts?.core_memory_compression, null);
-  assert.doesNotMatch(JSON.stringify(conversations[0]?.rawResponse?.responses_replay_items || []), /call-archive|call-compress|archived/);
+  // The conversation record this block used to assert against is gone — `createConversation` has
+  // zero call sites in the runtime since the stack-native migration, so every assertion on
+  // conversations[0] was checking a row nothing writes. The budget/cutoff numbers it covered are
+  // asserted directly on the plan in the buildContextBudgetPlan tests above; what is NOT covered
+  // anywhere else, and stays here, is that the fork's tool traffic never leaks into the main
+  // agent's durable context.
+  assert.equal(conversations.length, 0, 'conversation records are retired — nothing should write one');
   assert.doesNotMatch(JSON.stringify(mainStackItems), /call-archive|call-compress|archived/);
   assert.equal(scheduledCompressionWriters.length, 0);
 
@@ -12189,22 +12226,35 @@ test('group loop no longer exposes recall_long_term_learning as a pre-reply tool
   assert.ok(!withoutQqUsageTools(getAllowedToolNames(request.tool_choice)).includes('recall_long_term_learning'));
 });
 
-function buildManualCompressionStore(history: ReturnType<typeof createConversationTurn>[]) {
-  // Stack-native: one BLOCK per history turn (stack_index = turn id), served as a flat
-  // range read. No tool pairs → the block-budget planner keeps an exact 30-block tail.
+/**
+ * Stack-native history mock: one BLOCK per history turn (stack_index = turn id), served as a flat
+ * range read. No tool pairs → the block-budget planner keeps an exact HISTORY_COMPACT_KEEP tail.
+ *
+ * This is the ONLY correct way to give a service under test some history. The old `listRecentTurns`
+ * shape is gone from the runtime — a store mock that provides it and not this one loads ZERO blocks,
+ * which silently turns any compression assertion into "nothing to compress" rather than a failure
+ * that names the cause.
+ */
+function buildStackNativeHistoryMock(history: ReturnType<typeof createConversationTurn>[]) {
   const blocks = history.map((turn) => ({
     stack_index: turn.id, stackIndex: turn.id, item_kind: 'runtime_input', itemKind: 'runtime_input',
     visibility: 'model_visible',
     content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: turn.userMessage }] }] }
   }));
   return {
-    getSessionReadCutoffState: async () => null,
     getAgentStackHead: async () => (blocks.length > 0 ? blocks[blocks.length - 1]!.stack_index : 0),
     listAgentStackItems: async (params: any) => {
       const after = params.afterStackIndex ?? null;
       const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
       return blocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
-    },
+    }
+  };
+}
+
+function buildManualCompressionStore(history: ReturnType<typeof createConversationTurn>[]) {
+  return {
+    getSessionReadCutoffState: async () => null,
+    ...buildStackNativeHistoryMock(history),
     getCurrentXiaoniEnergyState: async () => ({ energy: 0.5, maxEnergy: 1, lastWakeAt: null })
   } as any;
 }
@@ -12221,7 +12271,7 @@ function buildManualCompressionService(history: ReturnType<typeof createConversa
 }
 
 test('manual core memory compression forces a compaction past the keep window without token overflow', async () => {
-  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 1129974489,
     groupId: null,
@@ -12242,15 +12292,16 @@ test('manual core memory compression forces a compaction past the keep window wi
   assert.equal(startedFork, 1);
   assert.equal(result.status, 'scheduled');
   assert.equal(result.triggered, true);
-  assert.equal(result.retainedHistoryTurns, 35);
-  // head-only: keep last 30 BLOCKS verbatim (blocks 6..35); summarize only the evicted
-  // head (blocks 1..5). cutoff == covered == stack_index 5 (the last evicted block).
-  assert.equal(result.compressionCoveredEndStackIndex, 5);
-  assert.equal(result.readCutoffAfterStackIndex, 5);
+  assert.equal(result.retainedHistoryTurns, COMPACT_FIXTURE_TURNS);
+  // head-only: keep the last HISTORY_COMPACT_KEEP BLOCKS verbatim; summarize only the evicted
+  // head. cutoff == covered == the last evicted block's stack_index.
+  assert.equal(result.compressionCoveredEndStackIndex, COMPACT_EVICTED_HEAD);
+  assert.equal(result.readCutoffAfterStackIndex, COMPACT_EVICTED_HEAD);
 });
 
 test('manual core memory compression is a no-op when history is at or under the keep window', async () => {
-  const history = Array.from({ length: 30 }, (_, index) => createConversationTurn({
+  // Exactly AT the keep window — the boundary case: nothing above the floor, so nothing to evict.
+  const history = Array.from({ length: HISTORY_COMPACT_KEEP }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 1129974489,
     groupId: null,
@@ -12270,11 +12321,11 @@ test('manual core memory compression is a no-op when history is at or under the 
   assert.equal(startedFork, 0);
   assert.equal(result.status, 'nothing_to_compress');
   assert.equal(result.triggered, false);
-  assert.equal(result.retainedHistoryTurns, 30);
+  assert.equal(result.retainedHistoryTurns, HISTORY_COMPACT_KEEP);
 });
 
 test('manual core memory compression delegates to the single-flight fork scheduler', async () => {
-  const history = Array.from({ length: 35 }, (_, index) => createConversationTurn({
+  const history = Array.from({ length: COMPACT_FIXTURE_TURNS }, (_, index) => createConversationTurn({
     id: index + 1,
     userId: 1129974489,
     groupId: null,

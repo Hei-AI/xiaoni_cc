@@ -644,7 +644,10 @@ type RuntimeIdentityFactProjection = {
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
-const HISTORY_COMPACT_KEEP = 30;
+// Exported so tests size their fixtures against it (KEEP + n) instead of hardcoding the number —
+// hardcoded copies silently turn into "compression planned nothing" fixtures the next time this
+// floor moves, which reads as a passing suite that stopped exercising compression at all.
+export const HISTORY_COMPACT_KEEP = 30;
 // REQ1: 压缩触发只看模型返回的真实 input_tokens(不是 tiktoken 估算)。
 // 软线 500k(opus-4-6 真实窗口远在其上,留足余量);连续 N=2 轮真实 input
 // 都 > 软线才触发,滤掉单轮尖峰(一次性大 tool result / 图片 burst)。
