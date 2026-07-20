@@ -283,7 +283,7 @@ type StackBackedConversationTurn = ConversationTurn & {
 // Backstop cap (blocks): when the stack cutoff is null (fresh/stale session) or older than
 // this many blocks behind the head, the flat history read is floored to head - cap so a
 // missing/old cutoff can never load the whole stack into context. Comfortably above
-// HISTORY_COMPACT_KEEP (30) so it never clips the normally-retained tail.
+// HISTORY_COMPACT_KEEP (80) so it never clips the normally-retained tail.
 const STACK_HISTORY_READ_BACKSTOP_BLOCKS = 200;
 
 type PreSleepToolTimelineEntry = {
@@ -644,10 +644,25 @@ type RuntimeIdentityFactProjection = {
 const moduleLogger = logger.createModuleLogger('agent-loop-service');
 const READ_HISTORY_TARGET_RATIO = 0.7;
 const READ_HISTORY_HARD_RATIO = 0.95;
+// Retained-tail floor (blocks). Compression keeps the most recent HISTORY_COMPACT_KEEP blocks
+// verbatim and folds everything older into the 近况 capsule.
+//
+// Raised 30 -> 80 when compression became schedulable after ANY LLM request (previously it could
+// only fire at the head of an activation, i.e. right after a stretch of work had settled, so 30
+// blocks reliably covered "the thing she just finished"). Firing mid-stream means the cut can land
+// while she is partway through a long tool chain, and 30 blocks is only ~15 requests of context —
+// enough to fold the OPENING of the task she is still working on into the summary. 80 keeps ~40
+// requests, which covers the long chains observed in practice (750-request stretch -> 1501 stack
+// items ≈ 2 items/request).
+//
+// This is a floor, not a target: raising it does not change the cacheable prefix bytes, only how
+// much survives each compression (so slightly less reclaimed per fire, slightly more frequent
+// fires). Keep it comfortably below STACK_HISTORY_READ_BACKSTOP_BLOCKS so the backstop never
+// clips the normally-retained tail.
 // Exported so tests size their fixtures against it (KEEP + n) instead of hardcoding the number —
 // hardcoded copies silently turn into "compression planned nothing" fixtures the next time this
 // floor moves, which reads as a passing suite that stopped exercising compression at all.
-export const HISTORY_COMPACT_KEEP = 30;
+export const HISTORY_COMPACT_KEEP = 80;
 // REQ1: 压缩触发只看模型返回的真实 input_tokens(不是 tiktoken 估算)。
 // 软线 500k(opus-4-6 真实窗口远在其上,留足余量);连续 N=2 轮真实 input
 // 都 > 软线才触发,滤掉单轮尖峰(一次性大 tool result / 图片 burst)。
