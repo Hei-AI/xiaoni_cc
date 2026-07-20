@@ -11166,6 +11166,166 @@ test('runtime frame does not schedule compression from turn count alone', async 
   assert.equal(conversations.length, 0, 'conversation records are retired — nothing should write one');
 });
 
+// ---------------------------------------------------------------------------------------------
+// Per-LLM-request compression scheduling (maybeScheduleCompressionFromLiveStack).
+//
+// Compression used to be scheduled exactly once, before the first LLM request of an activation.
+// A long stretch of work therefore ran past the trigger line for its whole duration (observed:
+// armed 17:49, fork started 19:31, ~495 requests later). The check now runs after every request,
+// next to the counter that arms it.
+// ---------------------------------------------------------------------------------------------
+
+function buildPerRequestCompressionService(historyLength: number) {
+  const history = Array.from({ length: historyLength }, (_, index) => createConversationTurn({
+    id: index + 1,
+    userId: 85178516,
+    groupId: null,
+    sessionKey: 'private:85178516',
+    userMessage: `live stack ${index + 1}`,
+    aiResponse: `os ${index + 1}`
+  }));
+  const stackReads: any[] = [];
+  const stackMock = buildStackNativeHistoryMock(history);
+  const service = new AgentLoopService({
+    getSessionReadCutoffState: async () => null,
+    ...stackMock,
+    listAgentStackItems: async (params: any = {}) => {
+      stackReads.push(params);
+      return stackMock.listAgentStackItems(params);
+    }
+  } as any, {
+    resolveForQueueMessage: async () => createRuntimePrompt()
+  } as any);
+  const scheduled: any[] = [];
+  (service as any).scheduleCoreMemoryCompressionFork = async (params: any) => {
+    scheduled.push(params);
+    return { status: 'scheduled' };
+  };
+  return { service, scheduled, stackReads };
+}
+
+const PER_REQUEST_BASE_REQUEST = { model: 'test-model', input: [{ type: 'message', role: 'user', content: [] }] } as any;
+
+async function runPerRequestScheduleCheck(service: AgentLoopService, snapshotCeilingStackIndex: number | null = Number.MAX_SAFE_INTEGER) {
+  await (service as any).maybeScheduleCompressionFromLiveStack({
+    contextSessionKey: 'xiaoni:test-global',
+    baseRequest: PER_REQUEST_BASE_REQUEST,
+    queueMessage: createRuntimeLoopPayload(),
+    runtimePrompt: createRuntimePrompt(),
+    snapshotCeilingStackIndex
+  });
+}
+
+test('per-request compression schedules off the LIVE stack and clones the request being sent', async () => {
+  const { service, scheduled, stackReads } = buildPerRequestCompressionService(COMPACT_FIXTURE_TURNS);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    await runPerRequestScheduleCheck(service);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  assert.equal(scheduled.length, 1, 'an armed counter schedules a fork after this request');
+  assert.equal(stackReads.length >= 1, true, 'the cutoff is planned against a fresh stack read');
+  // FORK IRON LAW: the fork clones the request we are about to send, byte-for-byte. A separately
+  // built body would cold-prefill instead of riding the warm prefix.
+  assert.equal(scheduled[0]?.baseRequest, PER_REQUEST_BASE_REQUEST);
+  assert.equal(scheduled[0]?.compression?.readCutoffAfterStackIndex, COMPACT_EVICTED_HEAD);
+  assert.equal(scheduled[0]?.compression?.previousReadCutoffAfterStackIndex, null);
+  assert.match(JSON.stringify(scheduled[0]?.compressionReminderItems), /【该整理一下记忆了】/);
+});
+
+test('per-request compression does not touch the stack when the trigger is not armed', async () => {
+  const { service, scheduled, stackReads } = buildPerRequestCompressionService(COMPACT_FIXTURE_TURNS);
+  __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+
+  await runPerRequestScheduleCheck(service);
+
+  assert.equal(scheduled.length, 0);
+  // Hot-path guard: this check runs after EVERY LLM request, so the unarmed path must cost an
+  // in-memory counter read and nothing else. A stack read here would be a per-request DB hit.
+  assert.equal(stackReads.length, 0, 'unarmed check must not read the stack');
+});
+
+test('per-request compression is suppressed while a prior compression is pending-apply', async () => {
+  const { service, scheduled } = buildPerRequestCompressionService(COMPACT_FIXTURE_TURNS);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  (service as any).pendingCompressionAppliedCutoffBySession.set('xiaoni:test-global', 5);
+  try {
+    await runPerRequestScheduleCheck(service);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  assert.equal(scheduled.length, 0, 'a committed-but-unapplied compression blocks a second one');
+});
+
+test('per-request compression does not schedule when the live stack is at or under the keep floor', async () => {
+  const { service, scheduled } = buildPerRequestCompressionService(HISTORY_COMPACT_KEEP);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    await runPerRequestScheduleCheck(service);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  // Self-limiting: once the retained tail is down to the floor there is nothing to evict, so an
+  // armed counter cannot thrash the cache with repeated no-op compressions.
+  assert.equal(scheduled.length, 0);
+});
+
+test('per-request compression caps the planned cutoff at the running activation snapshot', async () => {
+  // The activation rebuilds from its start-of-run snapshot + accumulated items, and only the
+  // snapshot half is filtered by the cutoff. A cutoff planned ABOVE the snapshot would leave
+  // accumulated items in the sent body that the ledger treats as evicted → live/replay divergence.
+  // Here the live stack is far above the snapshot; the plan must respect the ceiling.
+  const SNAPSHOT_CEILING = HISTORY_COMPACT_KEEP + COMPACT_EVICTED_HEAD;
+  const { service, scheduled } = buildPerRequestCompressionService(SNAPSHOT_CEILING + 50);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    await runPerRequestScheduleCheck(service, SNAPSHOT_CEILING);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  assert.equal(scheduled.length, 1);
+  const planned = scheduled[0]?.compression?.readCutoffAfterStackIndex;
+  assert.ok(
+    planned <= SNAPSHOT_CEILING,
+    `planned cutoff ${planned} must not exceed the snapshot ceiling ${SNAPSHOT_CEILING}`
+  );
+  // Capped at the snapshot, the tail-KEEP plan over blocks 1..CEILING evicts exactly the head.
+  assert.equal(planned, COMPACT_EVICTED_HEAD);
+});
+
+test('per-request compression does not schedule when the snapshot itself is under the keep floor', async () => {
+  // A long stretch that has already compressed once: the snapshot is down to the floor and
+  // everything above it is this activation's own accumulated work, which it cannot evict while
+  // running. Must be a no-op, not a repeated cold-read.
+  const { service, scheduled } = buildPerRequestCompressionService(HISTORY_COMPACT_KEEP + 50);
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    await runPerRequestScheduleCheck(service, HISTORY_COMPACT_KEEP);
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  assert.equal(scheduled.length, 0);
+});
+
+test('per-request compression survives a stack read failure without breaking the request', async () => {
+  const { service, scheduled } = buildPerRequestCompressionService(COMPACT_FIXTURE_TURNS);
+  (service as any).store.listAgentStackItems = async () => { throw new Error('stack read blew up'); };
+  __setCompressionTriggerCounterForTest('xiaoni:test-global', 2);
+  try {
+    await runPerRequestScheduleCheck(service); // must not throw — compression is timing-only
+  } finally {
+    __clearCompressionTriggerCounterForTest('xiaoni:test-global');
+  }
+
+  assert.equal(scheduled.length, 0);
+});
+
 test('core memory compression commit uses the planned source-overlap cutoff', async () => {
   const service = new AgentLoopService({
     listRecentTurns: async () => {

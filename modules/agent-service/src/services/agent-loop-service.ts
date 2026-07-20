@@ -7346,12 +7346,6 @@ export class AgentLoopService {
           budgetPlan = await buildBudgetPlan(true);
         }
       }
-      const coreMemoryCompressionCheckpoint = budgetPlan.coreMemoryCompression && budgetPlan.summarySourceInput
-        ? {
-            compression: budgetPlan.coreMemoryCompression,
-            summarySourceInput: budgetPlan.summarySourceInput
-          }
-        : null;
       await this.ensureRuntimeIdentityRoot(payload, resolvedRuntimePrompt);
       if (!jobId) {
         jobId = await this.store.createLlmJob({
@@ -7386,25 +7380,14 @@ export class AgentLoopService {
       // compression switch advances it (see applyPendingCompressionMidRunIfSilent).
       let appliedRunCutoff: number | null = budgetPlan.readCutoffAfterStackIndex ?? null;
       let pendingOneShotInputItems: OpenResponseInputItem[] = [];
-      if (coreMemoryCompressionCheckpoint) {
-        // Fork = clone of the main agent (same iron law as subconscious / image-vision /
-        // heartbeat forks): base off the FULL main request input (byte-identical warm
-        // prefix), not a separately-built head-only request, and carry the compression
-        // instruction as a tail item. The precise tail-30 eviction stays code-enforced
-        // via the cutoff, so the summary scope being instruction-driven is safe.
-        await this.scheduleCoreMemoryCompressionFork({
-          baseRequest: buildMainAgentCanonicalRequest(runtimePrompt, requestInput, payload),
-          queueMessage: payload,
-          runtimePrompt,
-          compression: coreMemoryCompressionCheckpoint.compression,
-          contextSessionKey,
-          compressionReminderItems: [buildCoreMemoryCompressionReminder({
-            contextSessionKey,
-            readCutoffAfterStackIndex: coreMemoryCompressionCheckpoint.compression.readCutoffAfterStackIndex,
-            pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
-          })]
-        });
-      }
+      // NOTE: compression is NOT scheduled here any more. It used to fire once, right here, before
+      // the first LLM request of the activation — which meant a long stretch of work could sit far
+      // past the trigger line for its whole duration (observed: armed at 17:49, fork did not start
+      // until 19:31, ~495 requests later, because that stretch never ended). The trigger counter is
+      // updated after EVERY LLM request, so the check now lives next to that signal, inside the
+      // loop (see maybeScheduleCompressionFromLiveStack). The turn-1 case is covered there too: the
+      // first pass through the loop runs the same check before the first request, using the counter
+      // restored from the previous activation.
       const appendLoopInputItems = (items: OpenResponseInputItem[]) => {
         if (items.length === 0) {
           return;
@@ -7542,11 +7525,11 @@ export class AgentLoopService {
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
-        // REQ2 STW: between turns (current model slice done, before the next is built)
-        // is a silent point — if a background compression fork has committed a new
-        // context window and all forks have drained, atomically switch this running
-        // run to the compressed (smaller) context now. Costs one cold prefill; every
-        // later turn + cloned fork rides the new warm cache.
+        // REQ2 STW: between LLM requests (previous response fully landed on the stack, next
+        // request not built yet) is a silent point — if a background compression fork has
+        // committed a new context window and all forks have drained, atomically switch to the
+        // compressed (smaller) context now. Costs one cold prefill; every later request +
+        // cloned fork rides the new warm cache.
         const midRunCompressionApply = await this.applyPendingCompressionMidRunIfSilent({
           contextSessionKey,
           appliedRunCutoff,
@@ -7604,6 +7587,29 @@ export class AgentLoopService {
         // cross-run prefix, so the warm cache prefix stays byte-identical.
         const currentRequestInput = currentRequestInputRaw.filter((item) => !isReplayItemStrippedByTextGate(item));
         const currentCanonicalRequest = buildMainAgentCanonicalRequest(runtimePrompt, currentRequestInput, payload);
+        // Compression is schedulable after ANY LLM request, which is what this call site buys: the
+        // trigger counter is updated after every response (below), so the check belongs next to that
+        // signal rather than once per activation. Two properties make this position the right one:
+        //   - currentCanonicalRequest IS the hot prefix we are about to send, so the fork clones a
+        //     warm request (identical treatment to the psych-assessment fork, which clones the same
+        //     object a few lines down). No separately-built body, no prefix drift.
+        //   - by now the stack holds everything through the PREVIOUS response (model output and tool
+        //     results are appended before the loop comes back around), so the cutoff is computed
+        //     against a complete ledger.
+        // Safe to call unconditionally: scheduleCoreMemoryCompressionFork is idempotent — in-memory
+        // single-flight, durable cross-restart single-flight, and an already-covered cutoff check —
+        // so a no-op costs one in-memory counter read. The APPLY side still waits for the silent
+        // point at the top of the loop; only scheduling moved.
+        await this.maybeScheduleCompressionFromLiveStack({
+          contextSessionKey: getGlobalPromptContextSessionKey(),
+          baseRequest: currentCanonicalRequest,
+          queueMessage: payload,
+          runtimePrompt,
+          // The snapshot this activation rebuilds from on an STW switch. Caps the planned cutoff so
+          // the switch can never leave evicted-but-still-sent items behind (see the ceiling note in
+          // the callee and in applyPendingCompressionMidRunIfSilent).
+          snapshotCeilingStackIndex: history.length > 0 ? history[history.length - 1]!.id : null
+        });
         // BYTE-side guard (pre-send): images are token-cheap but byte-huge, so the token overrun valve
         // (below, turn-AFTER real input_tokens) is blind to an image burst that crosses Anthropic's hard
         // 32MB per-request cap. Estimate the assembled wire bytes NOW and, if past the hard line, HALT the
@@ -10778,13 +10784,14 @@ export class AgentLoopService {
     developerContextBlock: string | null;
     runtimeEnergyState: RuntimeEnergyState | null;
     precomputedCurrentTurnInputItems: OpenResponseInputItem[];
-    // The run's OWN loopContinuation/trigger ordering flag (= initial build's
-    // options.initialLoopContinuationBeforeCurrentTrigger). The STW rebuild MUST reuse it
-    // so the switched live body orders loopContinuation relative to the trigger identically
-    // to how the run was originally built. Defaulting it to false here would emit
-    // [history, trigger, loopContinuation] while a resumed run was built (and stack-replay
-    // reconstructs) as [history, loopContinuation, trigger] → a run-boundary item-order
-    // divergence = the exact §3 byte-replay break this branch exists to prevent.
+    // The activation's OWN item-ordering flag (= initial build's
+    // options.initialLoopContinuationBeforeCurrentTrigger). The STW rebuild MUST reuse it so the
+    // switched live body orders items relative to the trigger identically to how this activation
+    // was originally built, and to how stack-replay will reconstruct it. Defaulting it to false
+    // would emit [history, trigger, …] where replay reconstructs [history, …, trigger] → an
+    // item-order divergence = the exact §3 byte-replay break this branch exists to prevent.
+    // (Still load-bearing after the re-read switch: the flag positions the trigger, which is not
+    // a stack item and therefore cannot be recovered from the rows.)
     loopContinuationBeforeCurrentTrigger: boolean;
     // 甲: the run's own trigger mode. suppress_current_trigger for a subconscious
     // wake keeps the one-shot <xiaoni_plan> out of the rebuilt requestInput. Defaults
@@ -10816,10 +10823,23 @@ export class AgentLoopService {
       return null; // commit not landed yet, or no real advance
     }
     // Atomic context reorganization: drop history <= the new cutoff, swap in the new
-    // <xiaoni_status>, KEEP this run's accumulated loopContinuation (its own turns are all
-    // above the cutoff). Reuse the run's exact (cache_volatile) current-turn trigger so
-    // the rebuilt prefix is byte-stable — only THIS turn cold-reads; every later main
-    // turn and every fork cloned afterwards hits the new warm cache.
+    // <xiaoni_status>, KEEP this activation's accumulated loopContinuation. Reuse the exact
+    // (cache_volatile) current-turn trigger so the rebuilt prefix is byte-stable — only THIS
+    // request cold-reads; every later request and every fork cloned afterwards hits the new
+    // warm cache.
+    //
+    // The retained tail is filtered out of the activation-start snapshot rather than re-read from
+    // the stack, and that is deliberate: the stack also holds this activation's trigger and its
+    // accumulated items, so a plain re-read would (a) re-supply the trigger that
+    // precomputedCurrentTurnInputItems adds below (duplicate) and (b) place the accumulated items
+    // BEFORE the trigger, while a fresh activation's live body orders them AFTER it — an item-order
+    // divergence from what stack-replay reconstructs, i.e. exactly the §3 byte-replay break the
+    // ordering flag below exists to prevent.
+    //
+    // Correctness of the snapshot therefore depends on the cutoff never landing above it. That is
+    // enforced at planning time (see maybeScheduleCompressionFromLiveStack's snapshot ceiling):
+    // every item loopContinuation holds sits strictly above the planned cutoff, so keeping it whole
+    // cannot retain something the ledger considers evicted.
     const retainedHistory = params.fullHistory.filter((turn) => turn.id > liveCutoff);
     const requestInput = buildLoopRequestInput({
       history: retainedHistory,
@@ -10853,6 +10873,137 @@ export class AgentLoopService {
       }
     }).catch(() => {});
     return { requestInput, appliedCutoff: liveCutoff };
+  }
+
+  /**
+   * Decide, after a single LLM request, whether to start a background compression fork.
+   *
+   *   trigger armed?  ──no──> return (in-memory counter read, no I/O)
+   *         │ yes
+   *   already pending apply? ──yes──> return (a committed compression is waiting to be switched in)
+   *         │ no
+   *   read live stack from current cutoff ──> plan tail-KEEP cutoff ──> null? ──> return
+   *         │ plan
+   *   scheduleCoreMemoryCompressionFork(clone of the request we are about to send)
+   *
+   * The stack read is NOT on the hot path: it happens only once the counter is already armed
+   * (real input_tokens over the soft line for COMPRESSION_TRIGGER_CONSECUTIVE_TURNS consecutive
+   * requests), which is rare, and the same read is what every fresh activation does anyway.
+   *
+   * The cutoff is planned against the LIVE stack rather than a snapshot taken when the activation
+   * started. That is the whole point: a snapshot goes stale as soon as the first response lands, so
+   * planning against it would (a) miss everything appended since and (b) hand the apply path a
+   * cutoff pointing into rows it cannot see. Reading here means schedule, apply, and the next
+   * activation's replay all plan over the same rows.
+   */
+  private async maybeScheduleCompressionFromLiveStack(params: {
+    contextSessionKey: string;
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+    // Highest stack_index the running activation's history snapshot covers (its last block, or null
+    // for an empty snapshot). The planned cutoff is capped here — see the ceiling note below.
+    snapshotCeilingStackIndex: number | null;
+  }): Promise<void> {
+    const key = params.contextSessionKey;
+    if (!shouldTriggerCompressionFromRealInput(key) && !shouldTriggerCompressionFromWireBytes(key)) {
+      return;
+    }
+    // A compression already committed but not yet switched in by the main loop. Scheduling a second
+    // one here would plan against a cutoff the live request has not adopted yet — let the STW apply
+    // at the top of the loop land first; it resets the counter, so the next measurement re-arms from
+    // scratch against the (now smaller) context.
+    if (this.pendingCompressionAppliedCutoffBySession.has(key)) {
+      return;
+    }
+    let cutoffState: SessionReadCutoffState | null = null;
+    let liveHistory: StackBackedConversationTurn[] = [];
+    try {
+      cutoffState = await this.store.getSessionReadCutoffState(key);
+      liveHistory = await this.loadStackHistoryBlocks(cutoffState, params.queueMessage.traceId);
+    } catch (error) {
+      // Timing-only path: a failed read means we simply do not compress after THIS request. The
+      // counter stays armed, so the next request retries. Never let it break the turn.
+      moduleLogger.warn('Failed to read live stack while deciding compression', {
+        traceId: params.queueMessage.traceId,
+        contextSessionKey: key,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return;
+    }
+    if (liveHistory.length === 0) {
+      return;
+    }
+    // SNAPSHOT CEILING: the running activation rebuilds its body from the history snapshot it took
+    // at start, plus the items it has accumulated since (loopContinuation). Only the snapshot half
+    // is filtered by the cutoff, so a cutoff ABOVE the snapshot would leave accumulated items in the
+    // sent request that the ledger considers evicted — the live body and what the next activation
+    // replays from the stack would then disagree, which is a whole-prefix miss at the boundary.
+    // Planning against the live stack but capping at the snapshot keeps the two halves consistent
+    // without having to carry stack indexes on the in-memory copy.
+    //
+    // The cost is a real ceiling: items this activation produced itself cannot be evicted while it
+    // is still running, so a very long stretch still grows unbounded past this point and relies on
+    // maybeHaltForCompressionOverrun. Lifting it means teaching the rebuild to evict from the
+    // accumulated half too — deliberately out of scope here.
+    const plannable = params.snapshotCeilingStackIndex === null
+      ? liveHistory
+      : liveHistory.filter((turn) => turn.id <= params.snapshotCeilingStackIndex!);
+    if (plannable.length === 0) {
+      return;
+    }
+    const compressionPoint = planReadCutoffForForcedCompression(plannable);
+    if (!compressionPoint) {
+      return; // at/under the retained-tail floor, or no clean boundary that keeps it — nothing to evict
+    }
+    const previousReadCutoffAfterStackIndex = cutoffState?.readCutoffAfterStackIndex ?? null;
+    if (
+      previousReadCutoffAfterStackIndex !== null
+      && compressionPoint.readCutoffAfterStackIndex !== null
+      && compressionPoint.readCutoffAfterStackIndex <= previousReadCutoffAfterStackIndex
+    ) {
+      return; // would not advance the cutoff
+    }
+    // Same derivation as buildContextBudgetPlan — these three are carried on the plan for
+    // observability/fork metadata only; they do not affect the cutoff or the request bytes.
+    const policy = resolveModelContextPolicy(
+      params.runtimePrompt.modelName,
+      params.runtimePrompt.parameters as Record<string, unknown> | undefined
+    );
+    const contextWindowTokens = policy?.contextWindowTokens ?? 0;
+    const historyTargets = resolveSessionTargets(params.queueMessage);
+    await this.scheduleCoreMemoryCompressionFork({
+      // Fork = clone of the main agent (same iron law as subconscious / image-vision / heartbeat
+      // forks): the FULL request we are about to send (byte-identical warm prefix), never a
+      // separately-built head-only body. The compression instruction rides as a tail item, and the
+      // precise eviction stays code-enforced via the cutoff below.
+      baseRequest: params.baseRequest,
+      queueMessage: params.queueMessage,
+      runtimePrompt: params.runtimePrompt,
+      compression: {
+        required: true as const,
+        contextSessionKey: key,
+        readCutoffAfterStackIndex: compressionPoint.readCutoffAfterStackIndex,
+        previousReadCutoffAfterStackIndex,
+        compressionCoveredEndStackIndex: compressionPoint.compressionCoveredEndStackIndex,
+        historyUserId: historyTargets.userId,
+        historyGroupId: historyTargets.groupId,
+        historyScope: 'global' as const,
+        lastContextWindowTokens: contextWindowTokens,
+        lastTargetBudgetTokens: contextWindowTokens
+          ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_TARGET_RATIO))
+          : 0,
+        lastHardBudgetTokens: contextWindowTokens
+          ? Math.max(1, Math.floor(contextWindowTokens * READ_HISTORY_HARD_RATIO))
+          : 0
+      },
+      contextSessionKey: key,
+      compressionReminderItems: [buildCoreMemoryCompressionReminder({
+        contextSessionKey: key,
+        readCutoffAfterStackIndex: compressionPoint.readCutoffAfterStackIndex,
+        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
+      })]
+    });
   }
 
   private async scheduleCoreMemoryCompressionFork(params: {
