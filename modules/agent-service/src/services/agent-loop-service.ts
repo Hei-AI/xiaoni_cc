@@ -7786,7 +7786,6 @@ export class AgentLoopService {
           });
 
           try {
-            let compressedContextSummary: string | null = null;
             let rawToolResult: Record<string, unknown>;
             if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
               // Hard execution-layer guard: 小腻 must NEVER self-trigger compression from the main
@@ -8051,20 +8050,6 @@ export class AgentLoopService {
             }
             if (continuation.oneShotInputItems.length > 0) {
               appendOneShotInputItems(continuation.oneShotInputItems);
-            }
-            if (compressedContextSummary && budgetPlan.coreMemoryCompression) {
-              requestInput = buildLoopRequestInput({
-                history: budgetPlan.retainedHistory,
-                queueMessage: payload,
-                runtimePrompt,
-                loopContinuation,
-                runtimeIdentityFacts: budgetPlan.runtimeIdentityFacts,
-                contextSummary: compressedContextSummary,
-                pendingProactiveShare: budgetPlan.pendingProactiveShare,
-                developerContextBlock,
-                runtimeEnergyState,
-                triggerInputMode: 'suppress_current_trigger'
-              });
             }
           } catch (error) {
             const toolResult = buildToolErrorResult(toolCall, error);
