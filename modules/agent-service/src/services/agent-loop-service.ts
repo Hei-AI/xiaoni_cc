@@ -2932,9 +2932,13 @@ function renderTranscriptBatchMessage(
   void index;
   const lines: string[] = [];
 
-  if (message.inboundContext.ReplyToBody) {
+  // 对齐手机 QQ 通知栏设计:只标记「引用了谁的消息」,不内联被引用正文——
+  // 想看原文去 qq-usage(引用预览 + reply_to 跳转都在那边)。被引用人名字保留,
+  // 它是「这条在跟我说话」的注意力信号;解析不出人时退成裸「[引用消息]」。
+  if (message.inboundContext.ReplyToBody || message.inboundContext.ReplyToIsQuote) {
     const prefix = message.inboundContext.ReplyToIsQuote ? '引用' : '回复给';
-    lines.push(`[${prefix} ${formatReplyTarget(message.inboundContext)}：${message.inboundContext.ReplyToBody}]`);
+    const target = formatReplyTarget(message.inboundContext);
+    lines.push(target === '{unknown}' ? `[${prefix}消息]` : `[${prefix} ${target}的消息]`);
   }
 
   const text = normalizeTranscriptMessageText(message.bodyForAgent, message.inboundContext.MentionedUsers).trim();
