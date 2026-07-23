@@ -2,8 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildNapcatInboundContext,
-  RecentMessageCache,
-  rememberInboundContext,
 } from '../agent-im-input-adapter';
 
 const BOT_ID = '1129974489';
@@ -57,25 +55,10 @@ test('detects group mention and strips bot mention from command body', () => {
   assert.equal(inboundContext.CommandBody, '你好');
 });
 
-test('fills reply fields from recent message cache and treats replies to bot as mentions', () => {
-  const cache = new RecentMessageCache();
-  const original = buildNapcatInboundContext({
-    event: {
-      post_type: 'message',
-      message_type: 'group',
-      self_id: Number(BOT_ID),
-      user_id: Number(BOT_ID),
-      group_id: 1019235326,
-      message_id: 9001,
-      raw_message: '原消息内容',
-      message: [{ type: 'text', data: { text: '原消息内容' } }]
-    },
-    fallbackBotAccountId: BOT_ID
-  });
-
-  assert.ok(original);
-  rememberInboundContext(cache, original);
-
+// 引用正文不再来自内存缓存(30 分钟 TTL,引用旧消息必 miss → 事故行 37923):
+// builder 只捕获引用 id 并标记 quote,正文/发送者由入站链路查库补齐
+// (index.ts resolveQuotedMessageFromStore → persistence findQuotedMessage)。
+test('captures reply id and quote flag; body/sender resolution is deferred to the store lookup', () => {
   const inboundContext = buildNapcatInboundContext({
     event: {
       post_type: 'message',
@@ -90,18 +73,14 @@ test('fills reply fields from recent message cache and treats replies to bot as 
         { type: 'text', data: { text: '收到' } }
       ]
     },
-    fallbackBotAccountId: BOT_ID,
-    replyCache: cache
+    fallbackBotAccountId: BOT_ID
   });
 
   assert.ok(inboundContext);
-  assert.equal(inboundContext.WasMentioned, true);
   assert.equal(inboundContext.ReplyToId, '9001');
-  assert.equal(inboundContext.ReplyToBody, '原消息内容');
-  assert.equal(inboundContext.ReplyToSender, BOT_ID);
-  assert.equal(inboundContext.ReplyToSenderId, BOT_ID);
-  assert.equal(inboundContext.ReplyToSenderName, BOT_ID);
   assert.equal(inboundContext.ReplyToIsQuote, true);
+  assert.equal(inboundContext.ReplyToBody, undefined);
+  assert.equal(inboundContext.ReplyToSenderId, undefined);
 });
 
 test('resolves reply from raw.elements[].replyElement when OneBot message[] omits the reply segment (30611 shape)', () => {

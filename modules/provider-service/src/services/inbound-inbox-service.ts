@@ -162,6 +162,16 @@ export class InboundInboxService {
     });
   }
 
+  // 引用消息查库解析(单一真理源):被引用的消息在 agent_inbound_messages(别人发的)
+  // 或 agent_outbound_messages(小腻自己发的)。替代原先 30 分钟内存缓存的取法。
+  // sessionKey = 引用所在聊天,同聊天行优先命中(引用不可能跨聊天)。
+  async findQuotedMessage(input: { oneBotId?: string | null; nativeMsgId?: string | null; sessionKey?: string | null }) {
+    if (!input.oneBotId && !input.nativeMsgId) {
+      return null;
+    }
+    return this.getPersistence().findQuotedMessage(input);
+  }
+
   async getStats(): Promise<InboxStats> {
     const stats = await this.getPersistence().getInboundInboxStats();
     return {

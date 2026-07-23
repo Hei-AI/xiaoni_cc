@@ -22,8 +22,6 @@ import { ChatPolicyService } from './services/chat-policy-service';
 import {
   buildNapcatInboundContext,
   OneBotMessageEvent,
-  RecentMessageCache,
-  rememberInboundContext,
 } from './services/agent-im-input-adapter';
 import { InboundInboxService } from './services/inbound-inbox-service';
 import RelationshipLedgerService from './services/relationship-ledger-service';
@@ -89,7 +87,6 @@ const napcatClient = new NapcatClient();
 const napcatWebuiClient = new NapcatWebuiClient();
 const inboxService = new InboundInboxService();
 const chatPolicyService = new ChatPolicyService();
-const recentMessageCache = new RecentMessageCache();
 const groupParticipationService = new GroupParticipationService({ embeddingService });
 const GROUP_INFO_CACHE_TTL_MS = Number(process.env.NAPCAT_GROUP_INFO_CACHE_TTL_MS || 10 * 60 * 1000);
 const groupNameCache = new Map<number, { name: string; expiresAt: number }>();
@@ -1042,6 +1039,76 @@ async function expandForwardSegments(message: OneBotMessageEvent): Promise<OneBo
   return { ...message, message: expandedSegments };
 }
 
+// 引用正文入库上限:只存前 20 字当预览,再长就靠 reply 的消息 id 跳回原消息看全文。
+// notify 行(agent-loop)对 ReplyToBody 是无界拼接,不设上限会把超长历史消息
+// (如展开过的合并转发)全文灌进小腻上下文。落库即冻结,replay 安全。
+const REPLY_BODY_INGEST_MAX_CHARS = 20;
+
+function clampReplyBody(inboundContext: FinalizedInboundContext) {
+  if (typeof inboundContext.ReplyToBody !== 'string') {
+    return;
+  }
+  const chars = Array.from(inboundContext.ReplyToBody);
+  if (chars.length > REPLY_BODY_INGEST_MAX_CHARS) {
+    inboundContext.ReplyToBody = `${chars.slice(0, REPLY_BODY_INGEST_MAX_CHARS).join('')}…`;
+  }
+}
+
+// 引用消息查库解析:OneBot reply 段只带被引用消息的 id,不带正文;正文/发送者以库为
+// 单一真理源补齐(agent_inbound_messages=别人发的,agent_outbound_messages=小腻发的)。
+// 旧实现只查 30 分钟内存缓存,引用旧消息或重启后必 miss → reply_to_body 落库为空,
+// qq-usage 渲染成误导性的「(非文字消息)」(真实事故行 inbound id 37923)。
+// best-effort:查库失败只丢引用预览,不阻断入站。
+async function resolveQuotedMessageFromStore(
+  inboundContext: FinalizedInboundContext,
+  messageType: 'private' | 'group'
+) {
+  if (inboundContext.ReplyToIsQuote !== true) {
+    return;
+  }
+  // raw 元数据来源的正文同样收口到 20 字上限。
+  clampReplyBody(inboundContext);
+  const hasBody = typeof inboundContext.ReplyToBody === 'string' && inboundContext.ReplyToBody.trim() !== '';
+  const hasSenderId = typeof inboundContext.ReplyToSenderId === 'string' && inboundContext.ReplyToSenderId.trim() !== '';
+  if (hasBody && hasSenderId) {
+    return;
+  }
+  try {
+    const quoted = await inboxService.findQuotedMessage({
+      oneBotId: inboundContext.ReplyToId || null,
+      nativeMsgId: inboundContext.NativeReplyMsgId || null,
+      sessionKey: inboundContext.SessionKey || null,
+    });
+    if (!quoted) {
+      return;
+    }
+    if (!hasBody && quoted.body) {
+      inboundContext.ReplyToBody = quoted.body;
+      clampReplyBody(inboundContext);
+    }
+    if (!hasSenderId && quoted.senderId) {
+      inboundContext.ReplyToSenderId = quoted.senderId;
+    }
+    if (!inboundContext.ReplyToSenderName && quoted.senderName) {
+      inboundContext.ReplyToSenderName = quoted.senderName;
+    }
+    if (!inboundContext.ReplyToSender) {
+      inboundContext.ReplyToSender = quoted.senderName || quoted.senderId || undefined;
+    }
+    // 群里引用小腻的消息应唤醒她(reply-mention)。adapter 只能从事件自带的 raw
+    // 元数据判断;缓存年代靠 isBot 标志,现在由库内解析补齐同一语义。
+    if (messageType === 'group' && quoted.isBot) {
+      inboundContext.WasMentioned = true;
+    }
+  } catch (error) {
+    moduleLogger.warn('Failed to resolve quoted message from store', {
+      replyToId: inboundContext.ReplyToId ?? null,
+      nativeReplyMsgId: inboundContext.NativeReplyMsgId ?? null,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   const messageType = message.message_type === 'group' ? 'group' : 'private';
   const userId = Number(message.user_id);
@@ -1070,7 +1137,6 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
   const inboundContext = buildNapcatInboundContext({
     event: expandedMessage,
     fallbackBotAccountId: String(aiConfig.bot_qq_number),
-    replyCache: recentMessageCache,
   });
 
   if (!inboundContext) {
@@ -1099,6 +1165,7 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
       inboundContext.ReplyToId = resolvedReplyId;
     }
   }
+  await resolveQuotedMessageFromStore(inboundContext, messageType);
   const effectivePolicy = applyEffectiveInboundPolicy(policy, {
     messageType,
     userId,
@@ -1112,7 +1179,6 @@ async function handleOneBotMessageEvent(message: OneBotMessageEvent) {
     source: 'napcat'
   });
   await persistInboundMediaAssets(inboundContext, result.event.id, result.traceId);
-  rememberInboundContext(recentMessageCache, inboundContext);
 
   markIncomingActivityAsync({
     messageType,
@@ -2577,7 +2643,6 @@ app.post('/api/inbox/simulate', async (req, res) => {
       source: 'simulator'
     });
     await persistInboundMediaAssets(finalizedContext, result.event.id, result.traceId);
-    rememberInboundContext(recentMessageCache, finalizedContext);
 
     markIncomingActivityAsync({
       messageType: targets.messageType,

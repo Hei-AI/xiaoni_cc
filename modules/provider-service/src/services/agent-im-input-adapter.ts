@@ -37,7 +37,6 @@ export type OneBotMessageEvent = {
 type BuildNapcatInboundContextParams = {
   event: OneBotMessageEvent;
   fallbackBotAccountId: string;
-  replyCache?: RecentMessageCache;
 };
 
 type BuildSimulationInboundContextParams = {
@@ -61,15 +60,6 @@ type RenderedMedia = {
   fileSize?: string;
 };
 
-type RecentMessageRecord = {
-  messageId: string;
-  senderId?: string;
-  senderName?: string;
-  rawBody: string;
-  isBot: boolean;
-  timestamp?: number;
-};
-
 type RenderedMessage = {
   rawBody: string;
   commandBody: string;
@@ -79,8 +69,6 @@ type RenderedMessage = {
   replyMessageId?: string;
 };
 
-const DEFAULT_CACHE_TTL_MS = 30 * 60 * 1000;
-const DEFAULT_CACHE_MAX_ENTRIES = 2000;
 const RAW_MEDIA_TOKEN_REGEX = /\[(?:Image|Video|File:[^\]]+|Emoji)\]|<media:audio>/g;
 const CQ_BOT_AT_REGEX = /\[CQ:at,qq=(\d+)(?:,[^\]]*?name=([^,\]]+))?\]/g;
 
@@ -682,60 +670,6 @@ function finalizeInboundContext(context: InboundContext): FinalizedInboundContex
   };
 }
 
-export class RecentMessageCache {
-  private readonly entries = new Map<string, RecentMessageRecord>();
-
-  constructor(
-    private readonly maxEntries = DEFAULT_CACHE_MAX_ENTRIES,
-    private readonly ttlMs = DEFAULT_CACHE_TTL_MS,
-  ) {}
-
-  remember(entry: RecentMessageRecord) {
-    const now = Date.now();
-    this.prune(now);
-    this.entries.delete(entry.messageId);
-    this.entries.set(entry.messageId, entry);
-
-    while (this.entries.size > this.maxEntries) {
-      const oldestKey = this.entries.keys().next().value as string | undefined;
-      if (!oldestKey) {
-        break;
-      }
-      this.entries.delete(oldestKey);
-    }
-  }
-
-  get(messageId: string) {
-    const now = Date.now();
-    this.prune(now);
-    return this.entries.get(messageId);
-  }
-
-  private prune(now: number) {
-    for (const [messageId, entry] of this.entries) {
-      if (entry.timestamp && now - entry.timestamp > this.ttlMs) {
-        this.entries.delete(messageId);
-      }
-    }
-  }
-}
-
-export function rememberInboundContext(cache: RecentMessageCache, context: FinalizedInboundContext) {
-  const messageId = asNonEmptyString(context.MessageSid);
-  if (!messageId) {
-    return;
-  }
-
-  cache.remember({
-    messageId,
-    senderId: context.SenderId,
-    senderName: context.SenderName,
-    rawBody: context.RawBody || context.BodyForAgent || context.Body,
-    isBot: Boolean(context.SenderId && context.AccountId && context.SenderId === context.AccountId),
-    timestamp: context.Timestamp,
-  });
-}
-
 export function buildNapcatInboundContext(params: BuildNapcatInboundContextParams): FinalizedInboundContext | null {
   const { event } = params;
   if (event.post_type && event.post_type !== 'message') {
@@ -761,7 +695,6 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
   const rendered = buildRenderedMessage(event, botAccountId);
   const rawReplyMetadata = parseRawReplyMetadata(event);
   const replyMessageId = rendered.replyMessageId || asNonEmptyString((event as Record<string, unknown>).reply_to_message_id);
-  const cachedReply = replyMessageId ? params.replyCache?.get(replyMessageId) : undefined;
   const rawMentionNicknames = extractMentionNicknamesFromRawPayload(event);
   const mentionedUsers = buildMentionedUsers(rendered.mentionedUserIds, rendered.mentionLabels);
   const botLabels = [
@@ -772,9 +705,11 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
   // reply-mention：别人引用小腻的消息应唤醒她。旧写法用 `replyMessageId &&` 做闸，
   // 但 raw-only 引用（NapCat 没把 reply 段放进 message[]）时 replyMessageId 为空 →
   // 整个分支死掉，群里引用小腻不唤醒（真实事故行 id 29876）。改用「有任一引用信号」。
+  // 这里只看事件自带的 raw 元数据；被引用消息的库内解析（含「引用的是小腻自己」的
+  // 唤醒升级）在 index.ts 入站链路里 resolveQuotedMessageFromStore 补齐。
   const wasMentioned = messageType === 'group'
     ? rendered.mentionedUserIds.includes(botAccountId)
-      || Boolean((replyMessageId || rawReplyMetadata) && (cachedReply?.isBot || rawReplyMetadata?.senderId === botAccountId))
+      || Boolean((replyMessageId || rawReplyMetadata) && rawReplyMetadata?.senderId === botAccountId)
     : false;
 
   const commandBody = stripBotMentionsAndMedia(rendered.commandBody, botAccountId, botLabels);
@@ -821,10 +756,12 @@ export function buildNapcatInboundContext(params: BuildNapcatInboundContextParam
     // NativeReplyMsgSeq: NTQQ per-conversation seq of the quoted message. Bridged to
     // the OneBot message_id via history (real_seq) at ingest → sets ReplyToId.
     NativeReplyMsgSeq: rawReplyMetadata?.nativeMsgSeq,
-    ReplyToBody: cachedReply?.rawBody || rawReplyMetadata?.text,
-    ReplyToSender: cachedReply?.senderName || rawReplyMetadata?.senderName || rawReplyMetadata?.senderId,
-    ReplyToSenderId: cachedReply?.senderId || rawReplyMetadata?.senderId,
-    ReplyToSenderName: cachedReply?.senderName || rawReplyMetadata?.senderName,
+    // 正文/发送者这里只取事件自带的 raw 元数据；查库解析（单一真理源）在
+    // index.ts 的 resolveQuotedMessageFromStore 里补齐，不再依赖内存缓存。
+    ReplyToBody: rawReplyMetadata?.text,
+    ReplyToSender: rawReplyMetadata?.senderName || rawReplyMetadata?.senderId,
+    ReplyToSenderId: rawReplyMetadata?.senderId,
+    ReplyToSenderName: rawReplyMetadata?.senderName,
     ReplyToIsQuote: (replyMessageId || rawReplyMetadata) ? true : undefined,
     Timestamp: occurredAtMs,
     WasMentioned: messageType === 'group' ? wasMentioned : undefined,
