@@ -16,6 +16,14 @@ function effectiveUnreadPredicate(alias, lastReadExpression) {
           )`}, '-infinity'::timestamptz)`;
 }
 
+function normalizeId(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const text = String(value).trim();
+  return text === '' ? null : text;
+}
+
 function normalizeIso(value) {
   return serializeTimestampForApi(value);
 }
@@ -873,9 +881,109 @@ function createInboundInboxPersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
+  // 引用正文解析,单一真理源是库,不是内存缓存:被引用的消息要么是别人发的
+  // (agent_inbound_messages,按 message_sid / napcat_msg_id 找),要么是小腻自己
+  // 发的(agent_outbound_messages,按 delivery_message_id / napcat_msg_id 找)。
+  // 历史教训:正文曾只从 30 分钟内存缓存取,引用旧消息必 miss → reply_to_body
+  // 落库为空,渲染成误导性的「(非文字消息)」(真实事故行 inbound id 37923)。
+  async function findQuotedMessage(input = {}, config = {}) {
+    const oneBotId = normalizeId(input.oneBotId || input.one_bot_id);
+    const nativeMsgId = normalizeId(input.nativeMsgId || input.native_msg_id);
+    // sessionKey = 引用所在聊天。QQ 引用不可能跨聊天,同聊天的行优先命中,
+    // 防将来 OneBot int32 id 复用时从别的聊天错拿正文(当前真库 0 重复,纯预防)。
+    const sessionKey = normalizeId(input.sessionKey || input.session_key);
+    if (!oneBotId && !nativeMsgId) {
+      return null;
+    }
+    const buildOrderBy = (timeColumn, params) => {
+      if (sessionKey) {
+        params.push(sessionKey);
+        return `ORDER BY CASE WHEN session_key = ? THEN 0 ELSE 1 END, ${timeColumn} DESC, id DESC`;
+      }
+      return `ORDER BY ${timeColumn} DESC, id DESC`;
+    };
+    return withSql(input, config, async (sql) => {
+      const inboundClauses = [];
+      const inboundParams = [];
+      if (oneBotId) {
+        inboundClauses.push('message_sid = ?');
+        inboundParams.push(oneBotId);
+      }
+      if (nativeMsgId) {
+        inboundClauses.push('napcat_msg_id = ?');
+        inboundParams.push(nativeMsgId);
+      }
+      const inboundOrderBy = buildOrderBy('received_at', inboundParams);
+      const inboundRows = await sql.query(
+        `
+          SELECT message_sid, sender_id, sender_name, account_id, raw_body, body_for_agent
+          FROM ${TABLE_NAME}
+          WHERE ${inboundClauses.join(' OR ')}
+          ${inboundOrderBy}
+          LIMIT 1
+        `,
+        inboundParams
+      );
+      if (inboundRows[0]) {
+        const row = inboundRows[0];
+        return {
+          oneBotId: row.message_sid || null,
+          body: row.raw_body || row.body_for_agent || null,
+          senderId: row.sender_id || null,
+          senderName: row.sender_name || null,
+          isBot: Boolean(row.sender_id && row.account_id && String(row.sender_id) === String(row.account_id)),
+          direction: 'incoming'
+        };
+      }
+      // agent_outbound_messages 归 qq-usage 模块建表,可能尚未创建(全新环境),
+      // 用 to_regclass 探测,缺表时按查不到处理而不是抛错。
+      const outboundTable = await sql.query(
+        `SELECT to_regclass('agent_outbound_messages') AS table_name`,
+        []
+      );
+      if (!outboundTable[0] || !outboundTable[0].table_name) {
+        return null;
+      }
+      const outboundClauses = [];
+      const outboundParams = [];
+      if (oneBotId) {
+        outboundClauses.push('delivery_message_id = ?');
+        outboundParams.push(oneBotId);
+      }
+      if (nativeMsgId) {
+        outboundClauses.push('napcat_msg_id = ?');
+        outboundParams.push(nativeMsgId);
+      }
+      const outboundOrderBy = buildOrderBy('sent_at', outboundParams);
+      const outboundRows = await sql.query(
+        `
+          SELECT delivery_message_id, sender_id, sender_name, raw_body, body_for_agent
+          FROM agent_outbound_messages
+          WHERE ${outboundClauses.join(' OR ')}
+          ${outboundOrderBy}
+          LIMIT 1
+        `,
+        outboundParams
+      );
+      if (!outboundRows[0]) {
+        return null;
+      }
+      const row = outboundRows[0];
+      return {
+        oneBotId: row.delivery_message_id || null,
+        body: row.raw_body || row.body_for_agent || null,
+        senderId: row.sender_id || null,
+        senderName: row.sender_name || null,
+        isBot: true,
+        direction: 'outgoing'
+      };
+    });
+  }
+
   return {
     ensureInboundInboxSchema,
     persistInboundMessage,
+    findQuotedMessage,
     getInboundInboxStats,
     listInboundInboxConversations,
     listInboundConversationMessages,

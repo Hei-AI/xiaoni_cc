@@ -740,8 +740,21 @@ export type InboundInboxPersistenceCallInput = {
   sqlAdapter?: SqlAdapter;
   [key: string]: any;
 };
+export type QuotedMessageRecord = {
+  oneBotId: string | null;
+  body: string | null;
+  senderId: string | null;
+  senderName: string | null;
+  isBot: boolean;
+  direction: 'incoming' | 'outgoing';
+};
 export type InboundInboxPersistenceApi = {
   ensureInboundInboxSchema(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  findQuotedMessage(input?: InboundInboxPersistenceCallInput & {
+    oneBotId?: string | null;
+    nativeMsgId?: string | null;
+    sessionKey?: string | null;
+  }, config?: DatabaseUrlConfig): Promise<QuotedMessageRecord | null>;
   persistInboundMessage(input: InboundInboxPersistenceCallInput & {
     inboundContext: Record<string, unknown>;
     rawPayload?: Record<string, unknown>;
@@ -774,6 +787,11 @@ export function createInboundInboxPersistence(deps?: {
   createSqlAdapter?: (config?: DatabaseUrlConfig) => SqlAdapter;
   sqlAdapter?: SqlAdapter;
 }): InboundInboxPersistenceApi;
+export function findQuotedMessage(input?: InboundInboxPersistenceCallInput & {
+  oneBotId?: string | null;
+  nativeMsgId?: string | null;
+  sessionKey?: string | null;
+}, config?: DatabaseUrlConfig): Promise<QuotedMessageRecord | null>;
 export function ensureInboundInboxSchema(input?: InboundInboxPersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function persistInboundMessage(input: InboundInboxPersistenceCallInput & {
   inboundContext: Record<string, unknown>;

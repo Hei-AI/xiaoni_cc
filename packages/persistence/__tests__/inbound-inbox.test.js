@@ -249,3 +249,159 @@ test('listInboundInboxConversations preserves summary shape', async () => {
     latestSenderName: 'Alice'
   }]);
 });
+
+// findQuotedMessage:引用正文的单一真理源是库,不是 30 分钟内存缓存(事故行 37923:
+// 引用 15 小时前小腻的 outbound,缓存必 miss → reply_to_body 落空,渲染成「(非文字消息)」)。
+test('findQuotedMessage resolves quoted body from the inbound table by OneBot id', async () => {
+  const queries = [];
+  const sqlAdapter = {
+    query: async (sql, params = []) => {
+      queries.push({ sql, params });
+      if (/FROM agent_inbound_messages/.test(sql)) {
+        return [createInboxRow({
+          message_sid: '9001',
+          sender_id: '85178516',
+          sender_name: '李阿花',
+          raw_body: '原消息内容',
+          body_for_agent: '原消息内容'
+        })];
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+    execute: async () => { throw new Error('lookup should not execute writes'); },
+    withTransaction: async () => { throw new Error('lookup should not open a transaction'); },
+    close: async () => undefined
+  };
+  const persistence = createInboundInboxPersistence({ sqlAdapter });
+
+  const quoted = await persistence.findQuotedMessage({ oneBotId: '9001' });
+
+  assert.deepEqual(quoted, {
+    oneBotId: '9001',
+    body: '原消息内容',
+    senderId: '85178516',
+    senderName: '李阿花',
+    isBot: false,
+    direction: 'incoming'
+  });
+  assert.equal(queries.length, 1);
+  assert.deepEqual(queries[0].params, ['9001']);
+});
+
+test('findQuotedMessage falls back to the outbound table for 小腻 self-quotes (37923 shape)', async () => {
+  const sqlAdapter = {
+    query: async (sql, params = []) => {
+      if (/FROM agent_inbound_messages/.test(sql)) {
+        return [];
+      }
+      if (/to_regclass/.test(sql)) {
+        return [{ table_name: 'agent_outbound_messages' }];
+      }
+      if (/FROM agent_outbound_messages/.test(sql)) {
+        assert.deepEqual(params, ['1652226028']);
+        return [{
+          delivery_message_id: '1652226028',
+          sender_id: '1129974489',
+          sender_name: '小腻',
+          raw_body: null,
+          body_for_agent: '建议在压缩指令里加一条硬规则'
+        }];
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+    execute: async () => { throw new Error('lookup should not execute writes'); },
+    withTransaction: async () => { throw new Error('lookup should not open a transaction'); },
+    close: async () => undefined
+  };
+  const persistence = createInboundInboxPersistence({ sqlAdapter });
+
+  const quoted = await persistence.findQuotedMessage({ oneBotId: '1652226028' });
+
+  assert.deepEqual(quoted, {
+    oneBotId: '1652226028',
+    body: '建议在压缩指令里加一条硬规则',
+    senderId: '1129974489',
+    senderName: '小腻',
+    isBot: true,
+    direction: 'outgoing'
+  });
+});
+
+test('findQuotedMessage returns null when both ids are absent or nothing matches', async () => {
+  const sqlAdapter = {
+    query: async (sql) => {
+      if (/to_regclass/.test(sql)) {
+        return [{ table_name: 'agent_outbound_messages' }];
+      }
+      return [];
+    },
+    execute: async () => { throw new Error('lookup should not execute writes'); },
+    withTransaction: async () => { throw new Error('lookup should not open a transaction'); },
+    close: async () => undefined
+  };
+  const persistence = createInboundInboxPersistence({ sqlAdapter });
+
+  assert.equal(await persistence.findQuotedMessage({}), null);
+  assert.equal(await persistence.findQuotedMessage({ oneBotId: 'no-such-id' }), null);
+});
+
+test('findQuotedMessage resolves by NTQQ native id when the OneBot id is absent', async () => {
+  const sqlAdapter = {
+    query: async (sql, params = []) => {
+      if (/FROM agent_inbound_messages/.test(sql)) {
+        assert.match(sql, /napcat_msg_id = \?/);
+        assert.deepEqual(params, ['7659245918938143286']);
+        return [createInboxRow({
+          message_sid: '30611',
+          sender_id: '1129974489',
+          sender_name: '小腻',
+          account_id: '1129974489',
+          raw_body: '找到了',
+          body_for_agent: '找到了'
+        })];
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+    execute: async () => { throw new Error('lookup should not execute writes'); },
+    withTransaction: async () => { throw new Error('lookup should not open a transaction'); },
+    close: async () => undefined
+  };
+  const persistence = createInboundInboxPersistence({ sqlAdapter });
+
+  const quoted = await persistence.findQuotedMessage({ nativeMsgId: '7659245918938143286' });
+
+  assert.equal(quoted.oneBotId, '30611');
+  assert.equal(quoted.body, '找到了');
+  assert.equal(quoted.isBot, true);
+});
+
+test('findQuotedMessage prefers same-session rows when sessionKey is given (id-reuse guard)', async () => {
+  const sqlAdapter = {
+    query: async (sql, params = []) => {
+      if (/FROM agent_inbound_messages/.test(sql)) {
+        assert.match(sql, /ORDER BY CASE WHEN session_key = \? THEN 0 ELSE 1 END/);
+        assert.deepEqual(params, ['9001', 'qq:direct:1129974489:85178516']);
+        return [createInboxRow({
+          message_sid: '9001',
+          session_key: 'qq:direct:1129974489:85178516',
+          sender_id: '85178516',
+          sender_name: '李阿花',
+          raw_body: '同会话的那条',
+          body_for_agent: '同会话的那条'
+        })];
+      }
+      throw new Error(`unexpected query: ${sql}`);
+    },
+    execute: async () => { throw new Error('lookup should not execute writes'); },
+    withTransaction: async () => { throw new Error('lookup should not open a transaction'); },
+    close: async () => undefined
+  };
+  const persistence = createInboundInboxPersistence({ sqlAdapter });
+
+  const quoted = await persistence.findQuotedMessage({
+    oneBotId: '9001',
+    sessionKey: 'qq:direct:1129974489:85178516'
+  });
+
+  assert.equal(quoted.body, '同会话的那条');
+});

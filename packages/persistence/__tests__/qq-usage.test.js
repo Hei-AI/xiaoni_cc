@@ -531,3 +531,99 @@ test('mode=around resolves a scroll cursor by internal id when message_sid does 
   assert.equal(window.anchorMissing, undefined);
   assert.deepEqual(window.messages.map((m) => m.body_for_agent), ['older', 'anchor']);
 });
+
+// 读取侧引用正文回填:入站时 reply_to_body 可能没解析到(历史上只查 30 分钟内存
+// 缓存,引用旧消息必 miss)。attachReplyJumpHandles 既然为跳转句柄摸到了原消息行,
+// 就地回填正文/发送者。复刻真实事故:inbound 37923 引用小腻 outbound 3532,
+// reply_to_body=NULL → 曾渲染成「(非文字消息)」。
+test('listQqUsageThreadWindow backfills reply_to_body from the quoted outbound row (37923 shape)', async () => {
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const replyRow = {
+    id: 37923n, message_sid: '858375072', session_key: threadKey, chat_type: 'direct',
+    peer_id: '85178516', peer_name: '李阿花',
+    sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
+    received_at: new Date('2026-07-23T01:46:52.625Z'),
+    body_for_agent: '可是 这样的话 你不就变成了聊天bot了么',
+    raw_body: '可是 这样的话 你不就变成了聊天bot了么',
+    reply_to_id: '1652226028', reply_to_body: null, reply_to_sender: null,
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  };
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({
+        session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489',
+        unread_count: 0, direct_mentions: 0, last_read_received_at: null
+      })
+    },
+    agentInboundMessage: {
+      findMany: async () => [replyRow],
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async (sql) => {
+      if (/= ANY\(\$1::text\[\]\)/.test(sql)) {
+        // reply resolution query (both tables UNIONed): quoted row is 小腻's outbound
+        return [{
+          id: '1652226028', sender_id: '1129974489', sender_name: '小腻',
+          raw_body: null, body_for_agent: '建议在压缩指令里加一条硬规则'
+        }];
+      }
+      // outbound window merge: no self-sent messages in this window
+      return [];
+    }
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: 10 });
+
+  assert.equal(window.messages.length, 1);
+  const message = window.messages[0];
+  assert.equal(message.reply_to_handle, '1652226028');
+  assert.equal(message.reply_to_body, '建议在压缩指令里加一条硬规则');
+  assert.equal(message.reply_to_sender, '小腻');
+});
+
+test('listQqUsageThreadWindow keeps ingest-time reply_to_body over the read-time backfill', async () => {
+  const threadKey = 'qq:direct:1129974489:85178516';
+  const replyRow = {
+    id: 100n, message_sid: '700000100', session_key: threadKey, chat_type: 'direct',
+    peer_id: '85178516', peer_name: '李阿花',
+    sender_id: '85178516', sender_name: '李阿花', account_id: '1129974489', is_read: 1,
+    received_at: new Date('2026-07-23T02:00:00.000Z'),
+    body_for_agent: '收到', raw_body: '收到',
+    reply_to_id: '9001', reply_to_body: '入站时已解析的正文', reply_to_sender: '李阿花',
+    was_mentioned: 0, raw_payload: {}, inbound_context: {}
+  };
+  const prisma = {
+    agentInboundThreadState: {
+      findUnique: async () => ({
+        session_key: threadKey, chat_type: 'direct', peer_id: '85178516', account_id: '1129974489',
+        unread_count: 0, direct_mentions: 0, last_read_received_at: null
+      })
+    },
+    agentInboundMessage: {
+      findMany: async () => [replyRow],
+      count: async () => 0,
+      aggregate: async () => ({ _max: { received_at: null } })
+    },
+    $executeRawUnsafe: async () => {},
+    $queryRawUnsafe: async (sql) => {
+      if (/= ANY\(\$1::text\[\]\)/.test(sql)) {
+        return [{
+          id: '9001', sender_id: '85178516', sender_name: '别人',
+          raw_body: '库里的另一个正文', body_for_agent: '库里的另一个正文'
+        }];
+      }
+      return [];
+    }
+  };
+  const persistence = createQqUsagePersistence({ getPrismaClient: () => prisma });
+
+  const window = await persistence.listQqUsageThreadWindow({ threadKey, mode: 'latest', limit: 10 });
+
+  const message = window.messages[0];
+  assert.equal(message.reply_to_handle, '9001');
+  assert.equal(message.reply_to_body, '入站时已解析的正文');
+  assert.equal(message.reply_to_sender, '李阿花');
+});

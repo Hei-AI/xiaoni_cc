@@ -551,38 +551,65 @@ async function attachReplyJumpHandles(prisma, messages) {
     return;
   }
   await ensureQqUsageOutboundSchema(prisma);
-  const existingOneBot = new Set();
+  // 除句柄外顺带把被引用行的正文/发送者也 SELECT 出来:入站时 reply_to_body 可能
+  // 没解析到(历史上只查 30 分钟内存缓存,引用旧消息必 miss),这里既然已经为了
+  // 跳转句柄摸到了原消息行,就地回填,存量 NULL 行也能显示原文而不是「(非文字消息)」。
+  // src_priority:显式 inbound 优先。UNION ALL 各分支无 ORDER BY 时 Postgres 不保证
+  // 分支间行序(parallel append 可交错),first-wins 折叠必须按显式优先级排序后再进 Map。
+  const quotedByOneBot = new Map();
   if (directIds.size > 0) {
     const arr = [...directIds];
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT message_sid AS id FROM agent_inbound_messages WHERE message_sid = ANY($1::text[])
+      `SELECT message_sid AS id, sender_id, sender_name, raw_body, body_for_agent, 0 AS src_priority
+         FROM agent_inbound_messages WHERE message_sid = ANY($1::text[])
        UNION ALL
-       SELECT delivery_message_id AS id FROM agent_outbound_messages WHERE delivery_message_id = ANY($1::text[])`,
+       SELECT delivery_message_id AS id, sender_id, sender_name, raw_body, body_for_agent, 1 AS src_priority
+         FROM agent_outbound_messages WHERE delivery_message_id = ANY($1::text[])`,
       arr
     );
-    for (const r of rows || []) {
-      if (r && r.id != null) existingOneBot.add(String(r.id));
+    const sorted = (Array.isArray(rows) ? [...rows] : []).sort((a, b) => Number(a.src_priority) - Number(b.src_priority));
+    for (const r of sorted) {
+      if (r && r.id != null && !quotedByOneBot.has(String(r.id))) {
+        quotedByOneBot.set(String(r.id), {
+          body: normalizeOptionalString(r.raw_body) || normalizeOptionalString(r.body_for_agent),
+          sender: normalizeOptionalString(r.sender_name) || normalizeOptionalString(r.sender_id)
+        });
+      }
     }
   }
   const nativeToOneBot = new Map();
   if (nativeIds.size > 0) {
     const arr = [...nativeIds];
     const resolved = await prisma.$queryRawUnsafe(
-      `SELECT napcat_msg_id AS native, message_sid AS onebot
+      `SELECT napcat_msg_id AS native, message_sid AS onebot, sender_id, sender_name, raw_body, body_for_agent, 0 AS src_priority
          FROM agent_inbound_messages WHERE napcat_msg_id = ANY($1::text[])
        UNION ALL
-       SELECT napcat_msg_id AS native, delivery_message_id AS onebot
+       SELECT napcat_msg_id AS native, delivery_message_id AS onebot, sender_id, sender_name, raw_body, body_for_agent, 1 AS src_priority
          FROM agent_outbound_messages WHERE napcat_msg_id = ANY($1::text[])`,
       arr
     );
-    for (const r of resolved || []) {
+    const sortedNative = (Array.isArray(resolved) ? [...resolved] : []).sort((a, b) => Number(a.src_priority) - Number(b.src_priority));
+    for (const r of sortedNative) {
       const native = r && r.native != null ? String(r.native) : null;
       const onebot = r && r.onebot != null ? String(r.onebot) : null;
       if (native && onebot && !nativeToOneBot.has(native)) {
-        nativeToOneBot.set(native, onebot);
+        nativeToOneBot.set(native, {
+          onebot,
+          body: normalizeOptionalString(r.raw_body) || normalizeOptionalString(r.body_for_agent),
+          sender: normalizeOptionalString(r.sender_name) || normalizeOptionalString(r.sender_id)
+        });
       }
     }
   }
+  const backfillQuoted = (m, quoted) => {
+    if (!quoted) return;
+    if (!normalizeOptionalString(m.reply_to_body) && quoted.body) {
+      m.reply_to_body = quoted.body;
+    }
+    if (!normalizeOptionalString(m.reply_to_sender) && quoted.sender) {
+      m.reply_to_sender = quoted.sender;
+    }
+  };
   for (const m of messages) {
     if (m.direction === 'outgoing') {
       m.reply_to_handle = null;
@@ -592,11 +619,15 @@ async function attachReplyJumpHandles(prisma, messages) {
     if (direct) {
       // Only emit a handle she can actually jump to — a pruned quote yields null
       // (the render then shows the body inline without a phantom reply_to).
-      m.reply_to_handle = existingOneBot.has(direct) ? direct : null;
+      const quoted = quotedByOneBot.get(direct);
+      m.reply_to_handle = quoted ? direct : null;
+      backfillQuoted(m, quoted);
       continue;
     }
     const native = normalizeOptionalString(m.reply_to_native_id);
-    m.reply_to_handle = native ? (nativeToOneBot.get(String(native)) || null) : null;
+    const quoted = native ? nativeToOneBot.get(String(native)) : null;
+    m.reply_to_handle = quoted ? quoted.onebot : null;
+    backfillQuoted(m, quoted);
   }
 }
 
