@@ -4,6 +4,18 @@
 // 向量 v1 存 Json float[],相似度在 band-pass 侧 JS 算(延迟无所谓,pgvector 是 scale 后续)。
 // 详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md。
 
+// 召回桶(recall scope):陈旧语料「不删,只不进召回」。收窄前的宽索引存量(reading/ 读过的
+// 小说、旧 notes/、forever/writing、toys/ 等)仍留在 xiaoni_recall_cues 表里,但不参与召回——
+// 否则「你在 …/ch44.txt 里记过」这类把读物冒充成亲历的假记忆会浮上来。
+// 桶 = 实时对话(inbound/action_stream) ∪ 宫殿 allowlist 文件(diary 目录 + identity-anchor)。
+// 这份 allowlist 与 reindex 侧的 listPalaceFiles(PALACE_FILES/PALACE_DIRS)一致;两处都改才算改范围。
+// 纯静态字面量(无用户输入),直接拼进 raw SQL 注入安全。候选池、去 anisotropy 的 μ/主成分——
+// 每一处读语料底的路径都必须套同一 scope,否则 μ 仍被 47k 读物向量污染,fence 只做一半。
+const RECALL_SCOPE_SQL =
+  "(source_kind IN ('inbound','action_stream') " +
+  "OR (source_kind = 'file_chunk' AND " +
+  "(source_ref LIKE '%/notes/diary/%' OR source_ref LIKE '%xiaoni-identity-anchor%')))";
+
 function toDateOrNull(value) {
   if (!value) {
     return null;
@@ -89,7 +101,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     // 向量参数走文本 + ::vector 转型(数字数组,注入安全);排除表走 $n::text[] 参数化。
     const vecLiteral = `[${queryVector.map((x) => Number(x)).join(',')}]`;
     const sqlParams = [identityKey, vecLiteral, k];
-    let where = 'identity_key = $1 AND embedding_vec IS NOT NULL';
+    let where = `identity_key = $1 AND embedding_vec IS NOT NULL AND ${RECALL_SCOPE_SQL}`;
     if (excludeSourceRefs.length) {
       sqlParams.push(excludeSourceRefs);
       where += ' AND source_ref <> ALL($4::text[])';
@@ -115,7 +127,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     const prisma = getClient(config);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT avg(embedding_vec)::text AS mean FROM xiaoni_recall_cues
-       WHERE identity_key = $1 AND embedding_vec IS NOT NULL`,
+       WHERE identity_key = $1 AND embedding_vec IS NOT NULL AND ${RECALL_SCOPE_SQL}`,
       identityKey
     );
     const meanText = rows && rows[0] ? rows[0].mean : null;
@@ -169,7 +181,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     const sampleSize = Math.max(500, Math.min(Number(params.sampleSize) || 4000, 20000));
     const numComponents = Math.max(0, Math.min(Number.isFinite(Number(params.numComponents)) ? Number(params.numComponents) : 4, 16));
     const meanRows = await prisma.$queryRawUnsafe(
-      `SELECT avg(embedding_vec)::text AS mean FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL`,
+      `SELECT avg(embedding_vec)::text AS mean FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL AND ${RECALL_SCOPE_SQL}`,
       identityKey
     );
     let mean = null;
@@ -184,7 +196,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       return { mean, components: [] };
     }
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT embedding FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL ORDER BY id DESC LIMIT $2`,
+      `SELECT embedding FROM xiaoni_recall_cues WHERE identity_key = $1 AND embedding_vec IS NOT NULL AND ${RECALL_SCOPE_SQL} ORDER BY id DESC LIMIT $2`,
       identityKey,
       sampleSize
     );
