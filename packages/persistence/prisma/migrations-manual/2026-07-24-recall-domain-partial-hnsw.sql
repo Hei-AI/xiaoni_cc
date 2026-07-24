@@ -22,3 +22,15 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_xiaoni_recall_cue_hnsw_self
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_xiaoni_recall_cue_hnsw_peer
   ON xiaoni_recall_cues USING hnsw (embedding_vec vector_cosine_ops)
   WHERE provenance->>'cueClass' = 'db_life_cue' OR provenance->>'cueClass' IS NULL;
+
+-- 追补(同日): scope fence(RECALL_SCOPE_SQL,召回桶)合流后,self 索引把 fence 谓词一并烤进——
+-- 否则 fence 作为后置过滤要爬过 ~47k 读物向量(实测 178ms/借 iterative_scan 才凑满 k);
+-- 烤进后 6.5ms 返满 150。已在主栈 DB 用 DROP+CREATE CONCURRENTLY 重建为如下最终定义:
+DROP INDEX CONCURRENTLY IF EXISTS idx_xiaoni_recall_cue_hnsw_self;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_xiaoni_recall_cue_hnsw_self
+  ON xiaoni_recall_cues USING hnsw (embedding_vec vector_cosine_ops)
+  WHERE provenance->>'cueClass' IN ('db_file_provenance', 'db_spoken_fragment')
+    AND (source_kind IN ('inbound','action_stream')
+      OR (source_kind = 'file_chunk'
+        AND (source_ref LIKE '%/notes/diary/%' OR source_ref LIKE '%xiaoni-identity-anchor%')));
+-- 配套代码: listRecallCandidates cueClasses 分支 SET LOCAL force_custom_plan + hnsw.iterative_scan=relaxed_order。

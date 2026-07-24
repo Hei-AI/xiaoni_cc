@@ -132,6 +132,10 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       // partial 索引匹配要求 planner 在 plan 时证明谓词蕴含——generic plan 里 $n::text[] 是未知量,
       // 证明不了 → 退回 seq scan(实测 236ms 扫全表)。强制 custom plan 让 ANY 以字面量参与规划。
       setup.push(prisma.$executeRawUnsafe(`SET LOCAL plan_cache_mode = force_custom_plan`));
+      // RECALL_SCOPE_SQL 是索引谓词之外的后置过滤(self partial 索引含全部 file_provenance 行,
+      // scope 只留 diary/anchor)——普通 HNSW 扫描后置滤掉大半会返不满 k。iterative_scan
+      // (pgvector≥0.8)让索引继续迭代直到凑够 LIMIT,治后置过滤饥饿。
+      setup.push(prisma.$executeRawUnsafe(`SET LOCAL hnsw.iterative_scan = relaxed_order`));
     }
     const results = await prisma.$transaction([...setup, prisma.$queryRawUnsafe(sql, ...sqlParams)]);
     const rows = results[results.length - 1];
