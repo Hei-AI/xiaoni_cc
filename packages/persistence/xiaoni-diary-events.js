@@ -124,11 +124,47 @@ function parseDiarySerialEvents(content, nowMs) {
   return out;
 }
 
+// step-1 substance 过滤谓词(纯函数,供 selectResurfacedEvents 与单测用)。
+// 目标:把「根本不是一段记忆」的 drop 掉——空 body、清单 body(open-loops 的料)、结构性段落头
+// (醒来/今天总结/接下来…)。不判「够不够有意思」(那是 step-2 排序的活),也不设长度阈值
+// (护短而重的真事,如「周蕊写了一个字:雨」)。
+function isEmptyResurfaceBody(body) {
+  return !(typeof body === 'string' && body.replace(/\s+/g, '').length > 0);
+}
+
+const CHECKLIST_LINE_RE = /^-\s*\[[ xX-]\]/;
+const CHECKLIST_BODY_RATIO = 0.5;
+// 严格多数(> 0.5)才判清单:body 被清单行主导 = open-loops 的料。50/50 的正文+一两条 todo
+// 仍算真 episode,保留——过滤只删「明显不是记忆」的,不误杀带勾选的真事。
+function isChecklistBody(body) {
+  if (typeof body !== 'string') return false;
+  const lines = body.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  if (lines.length === 0) return false;
+  const checks = lines.filter((l) => CHECKLIST_LINE_RE.test(l)).length;
+  return checks / lines.length > CHECKLIST_BODY_RATIO;
+}
+
+// 新模板标题兜底(低数据期复发表还没攒够时)。复发识别(跨 ≥N 天出现的归一化标题=模板)在
+// 调用方(reindex)按全量 events 建表,结果作为 opts.structuralTitles 传入——那才是主力,
+// seed 只是保险丝,不承担全部识别。
+// seed 只对**短标题**生效(归一化后 ≤ SEED_MAX_CHARS):「醒来」「今天总结」这类框架头是短的;
+// 「总结了和楠楠聊的三个月」「醒来发现周蕊回了消息」是真事,前缀撞上也不许误杀——长的交给复发表。
+const STRUCTURAL_TITLE_SEED_RE = /^(醒来|今天总结|今天做了|接下来|待办|待做|总结)/;
+const STRUCTURAL_TITLE_SEED_MAX_CHARS = 6;
+
+function isSeedStructuralTitle(title) {
+  if (typeof title !== 'string' || !STRUCTURAL_TITLE_SEED_RE.test(title)) {
+    return false;
+  }
+  return normalizeEventText(title).length <= STRUCTURAL_TITLE_SEED_MAX_CHARS;
+}
+
 // 从(可能跨多天的)往事里挑「该重新翻出来」的几件。纯函数。
 //   opts.nowMs            必填,当前时刻(调用方传)
 //   opts.minAgeDays       至少搁多少天才提(默认 7;太近她还记得,不值得提)
 //   opts.limit            一次最多浮几件(默认 2)
 //   opts.recentlySurfaced 最近已浮过的 ref 或规范化标题集合 → 去重跳过
+//   opts.structuralTitles 复发判定为结构模板的归一化标题集合(Set/数组)→ 跳过(step-1 过滤)
 // 每个 event 需带稳定 ref(调用方按 canonical path 设 `${path}#${index}`;缺则用 dateMs#index)。
 // 返回 [{ title, body, dateMs, ageDays, ref }],搁得最久的优先(最可能忘、最该翻)。
 function selectResurfacedEvents(events, opts = {}) {
@@ -139,6 +175,9 @@ function selectResurfacedEvents(events, opts = {}) {
   const recent = opts.recentlySurfaced instanceof Set
     ? opts.recentlySurfaced
     : new Set(Array.isArray(opts.recentlySurfaced) ? opts.recentlySurfaced : []);
+  const structuralTitles = opts.structuralTitles instanceof Set
+    ? opts.structuralTitles
+    : new Set(Array.isArray(opts.structuralTitles) ? opts.structuralTitles : []);
 
   const scored = [];
   for (const e of Array.isArray(events) ? events : []) {
@@ -147,6 +186,10 @@ function selectResurfacedEvents(events, opts = {}) {
     if (ageDays < minAgeDays) continue; // 太近,她还记得
     const ref = typeof e.ref === 'string' && e.ref ? e.ref : `${e.dateMs}#${e.index}`;
     if (recent.has(ref) || recent.has(normalizeEventText(e.title))) continue;
+    // step-1 substance 过滤:剔非-episode。空/清单/结构标记不进候选;无长度阈值。
+    if (isEmptyResurfaceBody(e.body)) continue;
+    if (isChecklistBody(e.body)) continue;
+    if (structuralTitles.has(normalizeEventText(e.title)) || isSeedStructuralTitle(e.title)) continue;
     scored.push({ title: e.title, body: e.body || '', dateMs: e.dateMs, ageDays, ref });
   }
   scored.sort((x, y) => y.ageDays - x.ageDays); // 搁最久的先翻
@@ -162,5 +205,7 @@ module.exports = {
   parseChapterDateFromTitle,
   stripChapterDatePrefix,
   parseDiarySerialEvents,
+  isEmptyResurfaceBody,
+  isChecklistBody,
   selectResurfacedEvents
 };
