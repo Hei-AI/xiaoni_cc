@@ -138,8 +138,8 @@ test('selectResurfacedEvents: 只挑搁置≥minAgeDays,搁最久优先', () => 
 
 test('selectResurfacedEvents: recentlySurfaced 按 ref 或标题去重', () => {
   const events = [
-    { title: '事一', body: '', dateMs: Date.UTC(2026, 5, 1) - BEIJING_OFFSET_MS, index: 0, ref: 'a#0' },
-    { title: '事二', body: '', dateMs: Date.UTC(2026, 5, 2) - BEIJING_OFFSET_MS, index: 0, ref: 'a#1' }
+    { title: '事一', body: '正文', dateMs: Date.UTC(2026, 5, 1) - BEIJING_OFFSET_MS, index: 0, ref: 'a#0' },
+    { title: '事二', body: '正文', dateMs: Date.UTC(2026, 5, 2) - BEIJING_OFFSET_MS, index: 0, ref: 'a#1' }
   ];
   // 按 ref 去重
   assert.deepEqual(
@@ -155,9 +155,9 @@ test('selectResurfacedEvents: recentlySurfaced 按 ref 或标题去重', () => {
 
 test('selectResurfacedEvents: limit 截断;缺 nowMs → []', () => {
   const events = [
-    { title: 'a', body: '', dateMs: Date.UTC(2026, 5, 1) - BEIJING_OFFSET_MS, index: 0, ref: 'a' },
-    { title: 'b', body: '', dateMs: Date.UTC(2026, 5, 2) - BEIJING_OFFSET_MS, index: 0, ref: 'b' },
-    { title: 'c', body: '', dateMs: Date.UTC(2026, 5, 3) - BEIJING_OFFSET_MS, index: 0, ref: 'c' }
+    { title: 'a', body: '正文', dateMs: Date.UTC(2026, 5, 1) - BEIJING_OFFSET_MS, index: 0, ref: 'a' },
+    { title: 'b', body: '正文', dateMs: Date.UTC(2026, 5, 2) - BEIJING_OFFSET_MS, index: 0, ref: 'b' },
+    { title: 'c', body: '正文', dateMs: Date.UTC(2026, 5, 3) - BEIJING_OFFSET_MS, index: 0, ref: 'c' }
   ];
   assert.equal(selectResurfacedEvents(events, { nowMs: NOW, minAgeDays: 7, limit: 2 }).length, 2);
   assert.deepEqual(selectResurfacedEvents(events, {}), []);
@@ -165,7 +165,7 @@ test('selectResurfacedEvents: limit 截断;缺 nowMs → []', () => {
 
 test('selectResurfacedEvents: ref 缺省用 dateMs#index', () => {
   const dateMs = Date.UTC(2026, 5, 1) - BEIJING_OFFSET_MS;
-  const events = [{ title: 't', body: '', dateMs, index: 3 }];
+  const events = [{ title: 't', body: '正文', dateMs, index: 3 }];
   const [p] = selectResurfacedEvents(events, { nowMs: NOW, minAgeDays: 7 });
   assert.equal(p.ref, `${dateMs}#3`);
 });
