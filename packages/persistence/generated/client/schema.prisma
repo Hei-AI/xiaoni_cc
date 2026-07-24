@@ -747,6 +747,49 @@ model SubconsciousAgentForkSlice {
   @@map("subconscious_agent_fork_slices")
 }
 
+// Psych-assessment gate fork slice ledger. Single-dispatch fork (no run/item/tool
+// tables — proportionate to a lightweight one-shot gate); same column shape as the
+// other fork slice tables. The physical table is created by
+// ensureXiaoniAgentStackSchema (raw CREATE TABLE IF NOT EXISTS); this model tracks it
+// as schema source of truth. fork_run_id is caller-synthesized (`psych-<traceId>-<runId>`).
+model PsychAssessmentForkSlice {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  slice_id               String    @unique @db.VarChar(191)
+  fork_run_id            String    @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  input_start_index      BigInt?   @db.BigInt
+  input_end_index        BigInt?   @db.BigInt
+  input_stack_item_ids   Json      @default("[]")
+  output_start_index     BigInt?   @db.BigInt
+  output_end_index       BigInt?   @db.BigInt
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  agent_turn             Int?
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  request_format_version String?   @db.VarChar(64)
+  wire_provider_format   String?   @db.VarChar(128)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+  completed_at           DateTime? @db.Timestamptz(3)
+  updated_at             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([fork_run_id, agent_turn, id], map: "idx_psych_assessment_fork_slices_run_turn")
+  @@index([trace_id, id], map: "idx_psych_assessment_fork_slices_trace")
+  @@index([identity_key, created_at(sort: Desc), id(sort: Desc)], map: "idx_psych_assessment_fork_slices_identity_time")
+  @@map("psych_assessment_fork_slices")
+}
+
 model SubconsciousAgentForkToolExecution {
   id                   BigInt    @id @default(autoincrement()) @db.BigInt
   execution_id         String    @unique @db.VarChar(191)
@@ -1798,19 +1841,43 @@ model GoldenChatCase {
 // 只被 admin-backend(shadow)+ 未来 v2 live 读取,agent-service 不引用。
 // 详见 docs/XIAONI_PASSIVE_RECALL_SURFACING.md
 model XiaoniRecallCue {
-  id             BigInt    @id @default(autoincrement()) @db.BigInt
-  identity_key   String    @db.VarChar(64)
-  source_kind    String    @db.VarChar(32) // action_stream | file_chunk
-  source_ref     String    @db.VarChar(512) // stack_index/event_id  或  path#chunkIdx
-  provenance     Json      @default("{}") // {source,kind,toolName,peer,ts,path,privacyScope,cueClass,leadTemplate}
-  occurred_at    DateTime? @db.Timestamptz(3)
+  id             BigInt                      @id @default(autoincrement()) @db.BigInt
+  identity_key   String                      @db.VarChar(64)
+  source_kind    String                      @db.VarChar(32) // action_stream | file_chunk
+  source_ref     String                      @db.VarChar(512) // stack_index/event_id  或  path#chunkIdx
+  provenance     Json                        @default("{}") // {source,kind,toolName,peer,ts,path,privacyScope,cueClass,leadTemplate}
+  occurred_at    DateTime?                   @db.Timestamptz(3)
   embedding_text String
-  embedding      Json // float[]
-  content_hash   String    @db.VarChar(64) // 变更重嵌 + 去重
-  created_at     DateTime  @default(now()) @db.Timestamptz(3)
-  updated_at     DateTime  @updatedAt @db.Timestamptz(3)
+  embedding      Json // float[](保留:回填源 + JS band-pass 兜底)
+  embedding_vec  Unsupported("vector(768)")? // pgvector;由 DB 触发器从 embedding 派生(store 写路径不碰)
+  content_hash   String                      @db.VarChar(64) // 变更重嵌 + 去重
+  created_at     DateTime                    @default(now()) @db.Timestamptz(3)
+  updated_at     DateTime                    @updatedAt @db.Timestamptz(3)
 
   @@unique([identity_key, source_ref], map: "uniq_xiaoni_recall_cue_identity_source")
   @@index([identity_key, occurred_at], map: "idx_xiaoni_recall_cue_identity_occurred")
   @@map("xiaoni_recall_cues")
+}
+
+// 触发2(每次内容落地自动召回)的 shadow 留痕。只记录 + 管理端展示,绝不投递。
+// store 走 raw SQL(和向量查询一致);模型在此作 schema 事实源。
+// 详见 docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §4。
+model XiaoniRecallShadowLog {
+  id             BigInt   @id @default(autoincrement()) @db.BigInt
+  identity_key   String   @db.VarChar(64)
+  occurred_at    DateTime @default(now()) @db.Timestamptz(3)
+  query_ref      String?  @db.VarChar(512) // 触发这次召回的落地内容 sourceRef(有则)
+  query_text     String? // query 预览(截断)
+  task_locked    Boolean  @default(false)
+  band_floor     Float?
+  band_ceiling   Float?
+  silent         Boolean  @default(true) // 绝大多数落地应静默(什么都不冒)
+  corpus_count   Int      @default(0)
+  top_k          Int      @default(0)
+  surfaced       Json     @default("[]") // [{lead, cos, sourceRef, provenance}]
+  dropped_counts Json     @default("{}") // {drop_too_similar, drop_too_far, drop_in_context}
+  dropped_sample Json     @default("[]") // 近带边缘剔除样例(调参用)
+
+  @@index([identity_key, occurred_at], map: "idx_xiaoni_recall_shadow_log_identity_occurred")
+  @@map("xiaoni_recall_shadow_log")
 }

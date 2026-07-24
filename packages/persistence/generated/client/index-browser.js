@@ -730,6 +730,39 @@ exports.Prisma.SubconsciousAgentForkSliceScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.PsychAssessmentForkSliceScalarFieldEnum = {
+  id: 'id',
+  slice_id: 'slice_id',
+  fork_run_id: 'fork_run_id',
+  llm_call_id: 'llm_call_id',
+  identity_key: 'identity_key',
+  input_start_index: 'input_start_index',
+  input_end_index: 'input_end_index',
+  input_stack_item_ids: 'input_stack_item_ids',
+  output_start_index: 'output_start_index',
+  output_end_index: 'output_end_index',
+  canonical_request: 'canonical_request',
+  wire_request: 'wire_request',
+  canonical_response: 'canonical_response',
+  wire_response: 'wire_response',
+  raw_response: 'raw_response',
+  output_items: 'output_items',
+  status: 'status',
+  token_usage: 'token_usage',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  agent_turn: 'agent_turn',
+  model_name: 'model_name',
+  model_provider: 'model_provider',
+  request_format_version: 'request_format_version',
+  wire_provider_format: 'wire_provider_format',
+  processing_time_ms: 'processing_time_ms',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  completed_at: 'completed_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.SubconsciousAgentForkToolExecutionScalarFieldEnum = {
   id: 'id',
   execution_id: 'execution_id',
@@ -1589,6 +1622,23 @@ exports.Prisma.XiaoniRecallCueScalarFieldEnum = {
   updated_at: 'updated_at'
 };
 
+exports.Prisma.XiaoniRecallShadowLogScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  occurred_at: 'occurred_at',
+  query_ref: 'query_ref',
+  query_text: 'query_text',
+  task_locked: 'task_locked',
+  band_floor: 'band_floor',
+  band_ceiling: 'band_ceiling',
+  silent: 'silent',
+  corpus_count: 'corpus_count',
+  top_k: 'top_k',
+  surfaced: 'surfaced',
+  dropped_counts: 'dropped_counts',
+  dropped_sample: 'dropped_sample'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1648,6 +1698,7 @@ exports.Prisma.ModelName = {
   SubconsciousAgentForkItem: 'SubconsciousAgentForkItem',
   CacheHeartbeatForkItem: 'CacheHeartbeatForkItem',
   SubconsciousAgentForkSlice: 'SubconsciousAgentForkSlice',
+  PsychAssessmentForkSlice: 'PsychAssessmentForkSlice',
   SubconsciousAgentForkToolExecution: 'SubconsciousAgentForkToolExecution',
   StackCompaction: 'StackCompaction',
   GroupChatSetting: 'GroupChatSetting',
@@ -1691,7 +1742,8 @@ exports.Prisma.ModelName = {
   TopicVersionEvidence: 'TopicVersionEvidence',
   TopicReviewEvent: 'TopicReviewEvent',
   GoldenChatCase: 'GoldenChatCase',
-  XiaoniRecallCue: 'XiaoniRecallCue'
+  XiaoniRecallCue: 'XiaoniRecallCue',
+  XiaoniRecallShadowLog: 'XiaoniRecallShadowLog'
 };
 
 /**
