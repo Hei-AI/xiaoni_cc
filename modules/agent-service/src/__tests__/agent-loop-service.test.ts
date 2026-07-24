@@ -3706,6 +3706,8 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
   assert.deepEqual(atomicWrites[0], {
     sessionKey: 'xiaoni:test-global',
     contextSummary: '原子写入的近况。',
+    // 日记索引快照与近况同一原子提交;宿主机测试环境无 /xiaoni-runtime → 恒 null
+    diaryIndexSnapshot: null,
     readCutoffAfterStackIndex: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,

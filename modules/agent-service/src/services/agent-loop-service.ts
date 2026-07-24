@@ -9301,6 +9301,7 @@ export class AgentLoopService {
       ? params.cutoffState ?? null
       : await this.store.getSessionReadCutoffState(contextSessionKey);
     const contextSummary = cutoffState?.contextSummary ?? null;
+    const diaryIndexSnapshot = cutoffState?.diaryIndexSnapshot ?? null;
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
     // RESTART RE-HYDRATION: the compression-trigger debounce counter lives in an in-memory
@@ -9357,6 +9358,7 @@ export class AgentLoopService {
       loopContinuation: params.loopContinuation,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
+      diaryIndexSnapshot,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
@@ -9494,6 +9496,7 @@ export class AgentLoopService {
       ],
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
+      diaryIndexSnapshot,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
@@ -10103,6 +10106,9 @@ export class AgentLoopService {
     };
 
     if (params.compression && committedReadCutoffAfterStackIndex !== null) {
+      // 日记索引快照:就在这一帧读一次 INDEX.md(与近况同一原子提交,同帧换血)。
+      // 之后所有 build/replay 只从库里这份冻结串渲染,两次压缩之间字节不变。
+      const diaryIndexSnapshot = await readDiaryIndexSnapshot();
       const atomicCommitter = (this.store as RuntimeStore & {
         commitSessionContextSummaryAndReadCutoff?: RuntimeStore['commitSessionContextSummaryAndReadCutoff'];
       }).commitSessionContextSummaryAndReadCutoff;
@@ -10110,6 +10116,7 @@ export class AgentLoopService {
         const atomicCommit = await atomicCommitter.call(this.store, {
           sessionKey: params.compression.contextSessionKey,
           contextSummary: text,
+          diaryIndexSnapshot,
           readCutoffAfterStackIndex: committedReadCutoffAfterStackIndex,
           lastContextWindowTokens: params.compression.lastContextWindowTokens,
           lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
@@ -10837,6 +10844,7 @@ export class AgentLoopService {
       loopContinuation: params.loopContinuation,
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary: cutoffState?.contextSummary ?? null,
+      diaryIndexSnapshot: cutoffState?.diaryIndexSnapshot ?? null,
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
       runtimeEnergyState: params.runtimeEnergyState,
@@ -13747,6 +13755,43 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
     || isSystemReminderPayload(queueMessage);
 }
 
+// 日记索引快照:压缩 STW 提交那一帧读一次 INDEX.md,冻结进 agent_session_context_windows。
+// <xiaoni_diary_index> 只从冻结串渲染——绝不逐轮重读文件,否则两次压缩之间前缀漂移=缓存击穿。
+export const XIAONI_DIARY_INDEX_PATH = process.env.XIAONI_DIARY_INDEX_PATH || '/xiaoni-runtime/notes/diary/INDEX.md';
+export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 8192;
+
+// 超上限时从最老的行开始丢、保最新(索引按时间正序追加,尾部=最近)。行边界裁剪,确定性。
+export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_INDEX_SNAPSHOT_MAX_BYTES): string | null {
+  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  if (!trimmed) {
+    return null;
+  }
+  if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) {
+    return trimmed;
+  }
+  const lines = trimmed.split('\n');
+  const kept: string[] = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const lineBytes = Buffer.byteLength(lines[i], 'utf8') + (kept.length > 0 ? 1 : 0);
+    if (bytes + lineBytes > maxBytes) {
+      break;
+    }
+    kept.unshift(lines[i]);
+    bytes += lineBytes;
+  }
+  return kept.length > 0 ? kept.join('\n') : null;
+}
+
+export async function readDiaryIndexSnapshot(indexPath: string = XIAONI_DIARY_INDEX_PATH): Promise<string | null> {
+  try {
+    const raw = await fsReadFile(indexPath, 'utf8');
+    return clampDiaryIndexSnapshot(raw);
+  } catch {
+    return null; // 文件不存在/读失败 → null 快照,不阻塞压缩提交
+  }
+}
+
 function buildLoopRequestInput(params: {
   history: ConversationTurn[];
   queueMessage: QueueMessageRecord['payload'];
@@ -13754,6 +13799,7 @@ function buildLoopRequestInput(params: {
   loopContinuation: OpenResponseInputItem[];
   runtimeIdentityFacts?: RuntimeIdentityFactProjection[];
   contextSummary?: string | null;
+  diaryIndexSnapshot?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
   runtimeEnergyState?: RuntimeEnergyState | null;
@@ -13766,10 +13812,10 @@ function buildLoopRequestInput(params: {
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null),
     ...params.loopContinuation
   ];
 }
@@ -14156,7 +14202,8 @@ export function buildInitialInput(
   runtimeEnergyState: RuntimeEnergyState | null = null,
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
-  precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null
+  precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null,
+  diaryIndexSnapshot: string | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -14182,6 +14229,13 @@ export function buildInitialInput(
 
   if (contextSummary) {
     items.push(buildDeveloperInputItem([`<xiaoni_status>\n${contextSummary}\n</xiaoni_status>`]));
+  }
+
+  // 日记索引菜单, below <xiaoni_status>: 压缩 STW 提交帧冻结的 INDEX.md 快照。渲染源只有
+  // cutoffState.diaryIndexSnapshot(库里的冻结串),两次压缩之间字节不变 → 坐进 cached prefix;
+  // 换血与 <xiaoni_status> 同帧,蹭同一次冷读。null(部署后首压前/文件缺失)整块不渲染。
+  if (diaryIndexSnapshot) {
+    items.push(buildDeveloperInputItem([`<xiaoni_diary_index>\n${diaryIndexSnapshot}\n</xiaoni_diary_index>`]));
   }
 
   // 固化 head avatar, below <xiaoni_status>: keeps the head "user list" (skills + CAPABILITIES +
