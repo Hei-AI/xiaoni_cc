@@ -2452,6 +2452,27 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  // 某个 stack_index 那条栈项的落栈时刻(ISO 串;不存在 → null)。被动联想的在场硬检查用它当
+  // 「遗忘线时刻」:inbound 砖须在此之前已读,才算已被压缩走的记忆(见 xiaoni-recall-ingest)。
+  async function getAgentStackItemTimeByIndex(input = {}, config = {}) {
+    const stackIndex = Number(input.stackIndex);
+    if (!Number.isFinite(stackIndex)) {
+      return null;
+    }
+    return withSql(input, config, async (sql) => {
+      const rows = await sql.query(
+        'SELECT created_at FROM agent_stack_items WHERE identity_key = ? AND stack_index = ? LIMIT 1',
+        [firstString(input.identityKey, input.identity_key, 'xiaoni'), stackIndex]
+      );
+      const createdAt = rows && rows[0] ? rows[0].created_at : null;
+      if (!createdAt) {
+        return null;
+      }
+      const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+      return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+    });
+  }
+
   async function appendAgentStackItems(input = {}, config = {}) {
     const rawItems = Array.isArray(input.items)
       ? input.items
@@ -5003,6 +5024,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     ensureXiaoniAgentStackSchema,
     getAgentStackHead,
     listInContextStackSourceRefs,
+    getAgentStackItemTimeByIndex,
     appendAgentStackItem,
     appendAgentStackItems,
     recordLlmRequestSlice,

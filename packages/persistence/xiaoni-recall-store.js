@@ -98,13 +98,25 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     if (!queryVector || queryVector.length === 0) {
       return []; // 无 query 向量无法最近邻检索(旧全量扫描已废弃)。
     }
-    // 向量参数走文本 + ::vector 转型(数字数组,注入安全);排除表走 $n::text[] 参数化。
+    // 向量参数走文本 + ::vector 转型(数字数组,注入安全);排除表/域过滤走 $n::text[] 参数化。
     const vecLiteral = `[${queryVector.map((x) => Number(x)).join(',')}]`;
     const sqlParams = [identityKey, vecLiteral, k];
     let where = `identity_key = $1 AND embedding_vec IS NOT NULL AND ${RECALL_SCOPE_SQL}`;
     if (excludeSourceRefs.length) {
       sqlParams.push(excludeSourceRefs);
-      where += ' AND source_ref <> ALL($4::text[])';
+      where += ` AND source_ref <> ALL($${sqlParams.length}::text[])`;
+    }
+    // 分域检索(海马体分域):跨音域 cos 不可比,单池 top-K 会让日记在 SQL 层就输光。
+    // 调用方按 cueClass 域各查一次(each top-K),候选池天然两域各有代表。
+    // includeNullCueClass:与 recallDomainOf 的 JS 语义对齐(cueClass 缺失 → 他人域)——
+    // 他人域查询带上它,legacy/无类行不至于从两域间静默漏掉。
+    const cueClasses = Array.isArray(params.cueClasses) ? params.cueClasses.filter(Boolean) : [];
+    if (cueClasses.length) {
+      sqlParams.push(cueClasses);
+      const anyClause = `provenance->>'cueClass' = ANY($${sqlParams.length}::text[])`;
+      where += params.includeNullCueClass
+        ? ` AND (${anyClause} OR provenance->>'cueClass' IS NULL)`
+        : ` AND ${anyClause}`;
     }
     const sql =
       `SELECT id, identity_key, source_kind, source_ref, provenance, occurred_at, ` +
@@ -114,10 +126,15 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
     // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
     const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
-    const [, rows] = await prisma.$transaction([
-      prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`),
-      prisma.$queryRawUnsafe(sql, ...sqlParams)
-    ]);
+    const setup = [prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`)];
+    if (cueClasses.length) {
+      // 分域查询靠 partial HNSW 索引(migrations-manual/2026-07-24-recall-domain-partial-hnsw.sql)。
+      // partial 索引匹配要求 planner 在 plan 时证明谓词蕴含——generic plan 里 $n::text[] 是未知量,
+      // 证明不了 → 退回 seq scan(实测 236ms 扫全表)。强制 custom plan 让 ANY 以字面量参与规划。
+      setup.push(prisma.$executeRawUnsafe(`SET LOCAL plan_cache_mode = force_custom_plan`));
+    }
+    const results = await prisma.$transaction([...setup, prisma.$queryRawUnsafe(sql, ...sqlParams)]);
+    const rows = results[results.length - 1];
     return rows.map(parseRow);
   }
 
@@ -326,10 +343,33 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     }));
   }
 
+  // inbound 砖在场硬检查的数据面:批量读消息的已读态。返回 [{id, isRead, readAt}](readAt ISO|null)。
+  // 规则本身(已读且在遗忘线前读的才算记忆)是纯函数,在 xiaoni-recall-bandpass.js。
+  async function getInboundReadStates(ids, config = {}) {
+    const prisma = getClient(config);
+    const numericIds = (Array.isArray(ids) ? ids : [])
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (numericIds.length === 0) {
+      return [];
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT id, is_read, read_at FROM agent_inbound_messages WHERE id = ANY($1::bigint[])',
+      numericIds
+    );
+    return (Array.isArray(rows) ? rows : []).map((row) => ({
+      id: Number(row.id),
+      // is_read 是 Int 语义列:>0 即已读(别钉死 ===1,将来出现 2 之类的值不至于误判成未读丢砖)。
+      isRead: row.is_read === true || Number(row.is_read) > 0,
+      readAt: row.read_at ? new Date(row.read_at).toISOString() : null
+    }));
+  }
+
   return {
     getExistingContentHashes,
     upsertRecallCues,
     listRecallCandidates,
+    getInboundReadStates,
     getRecallCueByRef,
     getRecallCueVectorsByRefs,
     getRecallCorpusMeanVector,

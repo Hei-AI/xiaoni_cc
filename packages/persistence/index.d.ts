@@ -2475,7 +2475,15 @@ export function buildRecallCuesFromActionStream(items?: Array<Record<string, unk
 export function contentHashOf(text: string): string;
 export function getExistingContentHashes(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<Map<string, string>>;
 export function upsertRecallCues(identityKey: string, records?: XiaoniRecallCueRecord[], config?: DatabaseUrlConfig): Promise<{ upserted: number }>;
-export function listRecallCandidates(params?: { identityKey?: string; queryVector?: number[]; excludeSourceRefs?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
+export function listRecallCandidates(params?: { identityKey?: string; queryVector?: number[]; excludeSourceRefs?: string[]; limit?: number; cueClasses?: string[]; includeNullCueClass?: boolean }, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord[]>;
+export function getInboundReadStates(ids: Array<number | string>, config?: DatabaseUrlConfig): Promise<Array<{ id: number; isRead: boolean; readAt: string | null }>>;
+export function getAgentStackItemTimeByIndex(input: { identityKey?: string; stackIndex: number }, config?: DatabaseUrlConfig): Promise<string | null>;
+export const SELF_DOMAIN_CUE_CLASSES: string[];
+export const PEER_DOMAIN_CUE_CLASSES: string[];
+export function recallDomainOf(candidate: { provenance?: { cueClass?: string | null } | null } | null | undefined): 'self' | 'peer';
+export function isLowInfoRecallText(text: unknown): boolean;
+export function filterInboundBricksByPresence<T extends { sourceRef?: string }>(candidates: T[], readStates: Map<number, { isRead: boolean; readAt: string | null }>, cutoffTimeMs: number | null): T[];
+export function combineDomainResults(selfResult: unknown, peerResult: unknown, limit?: number): { surfaced: unknown[]; dropped: unknown[]; silent: boolean; nearDupPresent: boolean; floor: number | null; ceiling: number | null; chosenDomain: 'self' | 'peer' | null };
 export function getRecallCueByRef(identityKey: string, sourceRef: string, config?: DatabaseUrlConfig): Promise<XiaoniRecallCueRecord | null>;
 export function getRecallCueVectorsByRefs(identityKey: string, sourceRefs?: string[], config?: DatabaseUrlConfig): Promise<number[][]>;
 export function getRecallCorpusMeanVector(identityKey: string, config?: DatabaseUrlConfig): Promise<number[] | null>;
@@ -2503,9 +2511,12 @@ export function parseDiaryEvents(content: string, dateMs: number): XiaoniDiaryEv
 export function parseChapterDateFromTitle(title: string | null | undefined, nowMs: number): number | null;
 export function stripChapterDatePrefix(title: string | null | undefined): string;
 export function parseDiarySerialEvents(content: string, nowMs: number): XiaoniDiaryEvent[];
+export const DAY_MS: number;
+export function isEmptyResurfaceBody(body: unknown): boolean;
+export function isChecklistBody(body: unknown): boolean;
 export function selectResurfacedEvents(
   events: XiaoniDiaryEvent[],
-  opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[] }
+  opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[]; structuralTitles?: Set<string> | string[] }
 ): XiaoniDiaryEventPick[];
 export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;

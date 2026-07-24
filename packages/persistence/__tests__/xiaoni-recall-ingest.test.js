@@ -56,13 +56,13 @@ test('触发1 内容 hash 没变 → 跳过嵌入+upsert', async () => {
 
 test('触发2 runShadowRecall:band-pass 分类 + 写 shadow_log(不投递)', async () => {
   const candidates = [
-    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/a.md' }, embeddingText: '带内 A' },
-    { sourceRef: 'B', embedding: [1, 0, 0], provenance: {}, embeddingText: '太像 B' },
-    { sourceRef: 'C', embedding: [0, 0, 1], provenance: {}, embeddingText: '太远 C' }
+    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/a.md' }, embeddingText: '带内的一条往事记录' },
+    { sourceRef: 'B', embedding: [1, 0, 0], provenance: {}, embeddingText: '太像的一条重复记录' },
+    { sourceRef: 'C', embedding: [0, 0, 1], provenance: {}, embeddingText: '太远的一条噪声记录' }
   ];
   const persistence = fakePersistence({ candidates });
   const ingest = createRecallIngest({ embed: embedOnes, persistence });
-  const result = await ingest.runShadowRecall({ landedText: '葱油面', landedRef: 'q1', taskLocked: false });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q1', taskLocked: false });
 
   assert.strictEqual(result.silent, false);
   assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['A']);
@@ -85,7 +85,7 @@ test('④ 语义式在场排除:带内候选和近窗向量太像 → drop_in_co
     contextVectors: [[0.8, 0.6, 0]] // 近窗里有一条和 D 几乎同向
   });
   const ingest = createRecallIngest({ embed: embedOnes, persistence });
-  const result = await ingest.runShadowRecall({ landedText: '葱油面', landedRef: 'q2', contextRefs: ['ctx1'] });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q2', contextRefs: ['ctx1'] });
 
   assert.strictEqual(result.silent, true, 'D 被语义在场排除,什么都不冒');
   const log = persistence.calls.shadowLogs[0];
@@ -126,7 +126,7 @@ test('结构式在场排除对齐真实 cutoff:cutoff 之上的候选(她还持�
     }
   });
   const ingest = createRecallIngest({ embed: embedOnes, persistence });
-  const result = await ingest.runShadowRecall({ landedText: '葱油面', landedRef: 'stack:901', taskLocked: false });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'stack:901', taskLocked: false });
 
   // 最像的 stack:900 因「还在上下文」被结构式剔;冒出来的是被挤出的 stack:100。
   assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['stack:100']);
@@ -137,7 +137,7 @@ test('结构式在场排除对齐真实 cutoff:cutoff 之上的候选(她还持�
 });
 
 test('无 cutoff(全新 session)→ 结构式排除退回调用方近窗,不炸', async () => {
-  const candidates = [{ sourceRef: 'stack:100', embedding: [0.8, 0.6, 0], provenance: {}, embeddingText: '往事' }];
+  const candidates = [{ sourceRef: 'stack:100', embedding: [0.8, 0.6, 0], provenance: {}, embeddingText: '被挤出的一段往事' }];
   const persistence = fakePersistence({
     candidates,
     fns: {
@@ -146,7 +146,7 @@ test('无 cutoff(全新 session)→ 结构式排除退回调用方近窗,不炸'
     }
   });
   const ingest = createRecallIngest({ embed: embedOnes, persistence });
-  const result = await ingest.runShadowRecall({ landedText: '葱油面', landedRef: 'stack:901' });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'stack:901' });
   assert.strictEqual(result.silent, false);
   assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['stack:100']);
 });
