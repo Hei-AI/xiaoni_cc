@@ -1085,6 +1085,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       }
 
       // pgvector 最近邻 top-K(替代旧全量扫描 → 治 napi 击穿)。band-pass 仍在 JS 侧算。
+      // TODO(海马体分域,2026-07-24 交叉 review ASK-2):本 preview 仍是老单池管线,生产
+      // runShadowRecall 已改分域检索+闲聊门+inbound 在场硬检查——preview 可能显示生产实际
+      // 硬剔的砖。观察期真相以 xiaoni_recall_shadow_log(带 domain 字段)为准;要用 preview
+      // 调参时再让它走 createRecallIngest().runShadowRecall(dry-run)。
       const TOP_K = 300;
       const candidates = await listRecallCandidates({ identityKey, queryVector, excludeSourceRefs: excludeRefs, limit: TOP_K });
       const corpusStats = await countRecallCues(identityKey);

@@ -15,9 +15,15 @@ import {
   parseDiaryEvents,
   parseDiarySerialEvents,
   selectResurfacedEvents,
+  normalizeEventText,
+  DAY_MS,
+  BEIJING_OFFSET_MS,
   insertRecallShadowLog,
   listRecallShadowLog
 } from '@qq-bot/persistence';
+
+// 结构标记复发阈值:归一化标题跨 ≥N 个东八区日历日出现 = 模板(醒来/今天总结…)→ resurface 跳过。
+const STRUCTURAL_RECURRENCE_DAYS = 3;
 
 // 小腻被动浮现召回语料 reindex/ingest。扫动作流 + 文件底,只对内容变了的重嵌,写向量。
 // 只在 admin-backend 跑,不进 agent-service / 小腻 loop。docs/XIAONI_PASSIVE_RECALL_SURFACING.md
@@ -375,11 +381,32 @@ export async function scanDiaryEventsToShadow(
     }
   }
 
+  // step-1 结构标记复发识别:全量 events 已在手(上方 line 装满),按归一化标题聚跨天集合;
+  // 跨 ≥STRUCTURAL_RECURRENCE_DAYS 个东八区日历日出现的标题判为模板,交给 selectResurfacedEvents 跳过。
+  // 复用 normalizeEventText——与 selectResurfacedEvents 内去重/结构判定同一归一化(单一真理源)。
+  const titleDayBuckets = new Map<string, Set<number>>();
+  for (const ev of events) {
+    const nt = normalizeEventText(ev.title);
+    if (!nt) continue;
+    const dayKey = Math.floor((ev.dateMs + BEIJING_OFFSET_MS) / DAY_MS);
+    let days = titleDayBuckets.get(nt);
+    if (!days) {
+      days = new Set<number>();
+      titleDayBuckets.set(nt, days);
+    }
+    days.add(dayKey);
+  }
+  const structuralTitles = new Set<string>();
+  for (const [nt, days] of titleDayBuckets) {
+    if (days.size >= STRUCTURAL_RECURRENCE_DAYS) structuralTitles.add(nt);
+  }
+
   const picked = selectResurfacedEvents(events, {
     nowMs,
     minAgeDays: DIARY_MIN_AGE_DAYS,
     limit: DIARY_SURFACE_LIMIT,
-    recentlySurfaced: recentRefs
+    recentlySurfaced: recentRefs,
+    structuralTitles
   });
 
   const surfaced = picked.map((p) => {
