@@ -216,6 +216,9 @@ function bandpassRecall(params) {
     surfaced,
     dropped,
     silent: surfaced.length === 0,
+    // 近似重复在场信号透传:它是「这次落地是重复,不是遗忘」的**落地级**属性——
+    // 分域调用方(combineDomainResults)靠它把整条落地静默,不能只静默命中的那个域。
+    nearDupPresent,
     floor,
     ceiling
   };
@@ -273,11 +276,133 @@ function renderRecallLead(candidate) {
   };
 }
 
+// ── 海马体分域(设计:design-20260723 被动联想召回)────────────────────────────
+// 跨音域 cos 不可比(短聊天 vs 长散文),混池让闲聊音域内共振永远赢 → 分两域各自选拔。
+// 判别子就是现成的 cueClass 一列(真库验证:file_chunk 全 db_file_provenance,inbound 全
+// db_life_cue,action_stream 99.7% db_life_cue 即 qq_usage peer-seen):
+//   自我域 = 她自己的经历(日记/宫殿/自己的话/自己的文件动作)
+//   他人域 = 别人说过的话(inbound + qq_usage 看到的消息)
+const SELF_DOMAIN_CUE_CLASSES = ['db_file_provenance', 'db_spoken_fragment'];
+const PEER_DOMAIN_CUE_CLASSES = ['db_life_cue'];
+
+function recallDomainOf(candidate) {
+  const cueClass = candidate && candidate.provenance && typeof candidate.provenance === 'object'
+    ? candidate.provenance.cueClass
+    : null;
+  return SELF_DOMAIN_CUE_CLASSES.includes(cueClass) ? 'self' : 'peer';
+}
+
+// 闲聊门(cue 侧 + 砖侧共用):只挡「明显不是记忆/不配触发联想」的低信息文本——
+// 纯笑声/语气词、纯表情符号、纯数字标点、超短寒暄。有实质内容的一律放行
+// (「哈哈哈 他肯定不是这个意思但你说得对」有正文 → 放行,共振交给域内自适应基线治)。
+const LOW_INFO_STRIP_RE = /[\s\d\p{P}\p{S}哈嘿呵嗯哦噢喔呀啊哇嗷呜唉诶欸嘛吧呢啦咯喽咦嘻噗汗草笑hwxXyYeE]/gu;
+const LOW_INFO_MIN_CHARS = 6;
+
+function isLowInfoRecallText(text) {
+  if (typeof text !== 'string') {
+    return true;
+  }
+  const compact = text.replace(/\s+/g, '');
+  if (compact.length < LOW_INFO_MIN_CHARS) {
+    return true; // 超短:勾不起任何回忆的碎砖
+  }
+  const substantive = compact.replace(LOW_INFO_STRIP_RE, '');
+  return substantive.length === 0; // 剥掉笑声/表情/数字/标点后空了 = 纯寒暄
+}
+
+// 在场硬检查(inbound 砖,纯函数;数据由调用方注入):
+//   可入选 ⟺ 已读 且 read_at 早于遗忘线时刻(压缩 cutoff 栈项的落栈时间)。
+//   未读 = 从没进过她脑子,不是记忆(notify 的活);cutoff 后才读 = 还在活上下文尾里。
+//   遗忘线缺失(从未压缩)= 没有「已忘」可言 → inbound 砖全剔(fail-closed)。
+//   非 inbound ref(stack:/文件路径)不归本检查管,原样放行。
+const INBOUND_REF_PREFIX_RE = /^inbound:/;
+const INBOUND_REF_RE = /^inbound:(\d+)$/;
+
+function filterInboundBricksByPresence(candidates, readStates, cutoffTimeMs) {
+  const list = Array.isArray(candidates) ? candidates : [];
+  const states = readStates instanceof Map ? readStates : new Map();
+  return list.filter((candidate) => {
+    const ref = typeof candidate?.sourceRef === 'string' ? candidate.sourceRef : '';
+    if (!INBOUND_REF_PREFIX_RE.test(ref)) {
+      return true; // 非 inbound ref(stack:/文件路径)不归本检查管
+    }
+    const m = INBOUND_REF_RE.exec(ref);
+    if (!m) {
+      // inbound: 前缀但 id 非数字(如 message_sid 铸的 ref)→ 无法查已读态 → fail-closed。
+      // 这是 inbound 砖唯一的「不在上下文」硬保证,宁可错杀不可放行。
+      return false;
+    }
+    if (!Number.isFinite(cutoffTimeMs)) {
+      return false;
+    }
+    const state = states.get(Number(m[1]));
+    if (!state || !state.isRead || !state.readAt) {
+      return false;
+    }
+    const readAtMs = Date.parse(state.readAt);
+    return Number.isFinite(readAtMs) && readAtMs < cutoffTimeMs;
+  });
+}
+
+// 双域合成:两域各自 bandpassRecall 后,优先自我经历域的胜者;每次落地最多 1 块(守「别吵」)。
+// dropped/droppedCounts 合并两域,floor/ceiling 记「被采纳那个域」的(全静默记自我域的)。
+// 两条落地级语义(交叉 review 修):
+//   ① 近似重复压制是**落地级**的——任一域检出「她在重复刚做过的事」,整条落地静默
+//     (drop_landing_near_dup),不能只静默命中的域,否则另一域照冒 = 重开已调平的噪声通道。
+//   ② 落选域的带内胜者折进 dropped(drop_domain_priority)——不进 surfaced 也不消失,
+//     shadow 分布保持完整,阈值校准才看得见域间竞争。
+function combineDomainResults(selfResult, peerResult, limit = 1) {
+  const empty = { surfaced: [], dropped: [], silent: true, nearDupPresent: false, floor: null, ceiling: null };
+  const s = selfResult || empty;
+  const p = peerResult || empty;
+  const sSurfaced = Array.isArray(s.surfaced) ? s.surfaced : [];
+  const pSurfaced = Array.isArray(p.surfaced) ? p.surfaced : [];
+  const dropped = [...(Array.isArray(s.dropped) ? s.dropped : []), ...(Array.isArray(p.dropped) ? p.dropped : [])];
+
+  const landingNearDup = !!(s.nearDupPresent || p.nearDupPresent);
+  if (landingNearDup) {
+    for (const e of [...sSurfaced, ...pSurfaced]) {
+      dropped.push({ candidate: e.candidate, verdict: 'drop_landing_near_dup', cos: e.cos });
+    }
+    return {
+      surfaced: [],
+      dropped,
+      silent: true,
+      nearDupPresent: true,
+      floor: s.floor,
+      ceiling: s.ceiling,
+      chosenDomain: null
+    };
+  }
+
+  const chosen = sSurfaced.length ? s : (pSurfaced.length ? p : null);
+  const surfaced = chosen ? (chosen === s ? sSurfaced : pSurfaced).slice(0, Math.max(1, limit)) : [];
+  const loserSurfaced = chosen === s ? pSurfaced : (chosen === p ? sSurfaced : []);
+  for (const e of loserSurfaced) {
+    dropped.push({ candidate: e.candidate, verdict: 'drop_domain_priority', cos: e.cos });
+  }
+  return {
+    surfaced,
+    dropped,
+    silent: surfaced.length === 0,
+    nearDupPresent: false,
+    floor: chosen ? chosen.floor : s.floor,
+    ceiling: chosen ? chosen.ceiling : s.ceiling,
+    chosenDomain: chosen ? (chosen === s ? 'self' : 'peer') : null
+  };
+}
+
 module.exports = {
   DEFAULT_FLOOR,
   TASK_LOCK_FLOOR,
   DEFAULT_CEILING,
+  SELF_DOMAIN_CUE_CLASSES,
+  PEER_DOMAIN_CUE_CLASSES,
   cosineSimilarity,
   bandpassRecall,
+  recallDomainOf,
+  isLowInfoRecallText,
+  filterInboundBricksByPresence,
+  combineDomainResults,
   renderRecallLead
 };

@@ -15,8 +15,16 @@ const {
   buildRecallCueFromInboundMessage,
   normalizeRecallText
 } = require('./xiaoni-passive-recall-extractor');
-const { bandpassRecall } = require('./xiaoni-recall-bandpass');
-const { renderRecallLead } = require('./xiaoni-recall-bandpass');
+const {
+  bandpassRecall,
+  renderRecallLead,
+  recallDomainOf,
+  isLowInfoRecallText,
+  filterInboundBricksByPresence,
+  combineDomainResults,
+  SELF_DOMAIN_CUE_CLASSES,
+  PEER_DOMAIN_CUE_CLASSES
+} = require('./xiaoni-recall-bandpass');
 
 // 去均值(anisotropy 修复)后 cos 分布整体下移 —— 阈值另设一套(env 可调,先给起点值,按 shadow 真分布再校)。
 const envNum = (name, dflt) => (Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : dflt);
@@ -119,22 +127,45 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
   async function resolveInContextRefs() {
     if (typeof persistence.getSessionReadCutoffState !== 'function'
       || typeof persistence.listInContextStackSourceRefs !== 'function') {
-      return [];
+      return { refs: [], cutoffIndex: null };
     }
     try {
       const cutoffState = await persistence.getSessionReadCutoffState({ sessionKey: CONTEXT_SESSION_KEY });
       const rawCutoff = cutoffState ? cutoffState.readCutoffAfterStackIndex : null;
       if (rawCutoff === null || typeof rawCutoff === 'undefined') {
-        return []; // 全新/未压缩 session:没有「已挤出」边界,结构式排除无从谈起(注意 null≠0)。
+        return { refs: [], cutoffIndex: null }; // 全新/未压缩 session:没有「已挤出」边界(注意 null≠0)。
       }
       const cutoff = Number(rawCutoff);
       if (!Number.isFinite(cutoff)) {
-        return [];
+        return { refs: [], cutoffIndex: null };
       }
       const refs = await persistence.listInContextStackSourceRefs({ identityKey, afterStackIndex: cutoff });
-      return Array.isArray(refs) ? refs.filter(Boolean) : [];
+      return { refs: Array.isArray(refs) ? refs.filter(Boolean) : [], cutoffIndex: cutoff };
     } catch {
-      return []; // 读失败不阻断召回(退回调用方近窗)。
+      return { refs: [], cutoffIndex: null }; // 读失败不阻断召回(退回调用方近窗)。
+    }
+  }
+
+  // 遗忘线时刻 = 压缩 cutoff 栈项的落栈时间。inbound 砖在场硬检查用(read_at 须早于它)。
+  // 拿不到(未压缩/老 persistence)→ null,filterInboundBricksByPresence 对 inbound fail-closed。
+  // fail-closed 遇上**持续性**故障(列改名/权限)会把 inbound 腿永久无声杀死——所以 catch 里
+  // 一次性告警(每进程一次,不刷屏),shadow 里「peer 域怎么再也不冒了」有迹可循。
+  let warnedForgettingLine = false;
+  let warnedReadStates = false;
+  async function resolveForgettingLineMs(cutoffIndex) {
+    if (!Number.isFinite(cutoffIndex) || typeof persistence.getAgentStackItemTimeByIndex !== 'function') {
+      return null;
+    }
+    try {
+      const iso = await persistence.getAgentStackItemTimeByIndex({ identityKey, stackIndex: cutoffIndex });
+      const ms = iso ? Date.parse(iso) : NaN;
+      return Number.isFinite(ms) ? ms : null;
+    } catch (err) {
+      if (!warnedForgettingLine) {
+        warnedForgettingLine = true;
+        console.warn('[xiaoni-recall] resolveForgettingLineMs failed (inbound bricks will fail-closed):', err && err.message);
+      }
+      return null;
     }
   }
 
@@ -147,13 +178,18 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     if (!text) {
       return null;
     }
+    // 闲聊门(cue 侧):纯笑声/表情/裸数字/超短寒暄勾不起任何值得召回的记忆 → 本次不触发联想。
+    if (isLowInfoRecallText(text)) {
+      return null;
+    }
     const [queryVector] = await embed([text]);
     if (!Array.isArray(queryVector) || queryVector.length === 0) {
       return null;
     }
     const landedRef = params.landedRef || null;
     const callerContextRefs = Array.isArray(params.contextRefs) ? params.contextRefs.filter(Boolean) : [];
-    const inContextRefs = await resolveInContextRefs();
+    const inContextState = await resolveInContextRefs();
+    const inContextRefs = inContextState.refs;
     const limit = Number(params.limit) || 300;
 
     // 结构式在场排除的完整集合(她真实持有的 stack 尾 ∪ 调用方近窗 ∪ 落地项本身)。band-pass 的 JS Set
@@ -163,12 +199,64 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const recentInContext = inContextRefs.slice(-MAX_SQL_EXCLUDE_REFS);
     const sqlExclude = Array.from(new Set([landedRef, ...recentInContext, ...callerContextRefs].filter(Boolean)));
 
-    const candidates = await persistence.listRecallCandidates({
-      identityKey,
-      queryVector,
-      excludeSourceRefs: sqlExclude,
-      limit
-    });
+    // 分域检索(海马体):自我域(日记/宫殿/自己的话)与他人域(inbound + qq_usage peer-seen)
+    // 各自 top-K——跨音域 cos 不可比,单池会让日记在 SQL 层就输光。他人域带 includeNullCueClass
+    // (legacy 无类行按 recallDomainOf 语义归他人域,不从两域间静默漏掉)。老 persistence(不认
+    // cueClasses 参数)自动退化为两次同池查询,合并去重后≈半池(各 ceil(limit/2) 去重),不炸。
+    const perDomainLimit = Math.max(1, Math.ceil(limit / 2));
+    const [selfCandidatesRaw, peerCandidatesRaw] = await Promise.all([
+      persistence.listRecallCandidates({
+        identityKey, queryVector, excludeSourceRefs: sqlExclude, limit: perDomainLimit,
+        cueClasses: SELF_DOMAIN_CUE_CLASSES
+      }),
+      persistence.listRecallCandidates({
+        identityKey, queryVector, excludeSourceRefs: sqlExclude, limit: perDomainLimit,
+        cueClasses: PEER_DOMAIN_CUE_CLASSES, includeNullCueClass: true
+      })
+    ]);
+    // 域归属以 cueClass 判(recallDomainOf)——兼容退化路径(老 persistence 忽略 cueClasses 时
+    // 两次查询返回同池内容,按域重分 + 去重后仍各归各域)。
+    const seenRefs = new Set();
+    const selfCandidates = [];
+    let peerCandidates = [];
+    for (const c of [...(selfCandidatesRaw || []), ...(peerCandidatesRaw || [])]) {
+      if (!c || seenRefs.has(c.sourceRef)) {
+        continue;
+      }
+      seenRefs.add(c.sourceRef);
+      // 闲聊门(砖侧):低信息记忆不配当砖。
+      if (isLowInfoRecallText(c.embeddingText)) {
+        continue;
+      }
+      (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
+    }
+
+    // 在场硬检查(inbound 砖):已读 且 read_at 早于遗忘线(cutoff 栈项落栈时刻)才算记忆。
+    // 结构式排除吐的是 stack:* ref,对 inbound:* 永远不命中(2026-07-23 核查实锤)——这道检查是
+    // inbound 砖唯一的「不在上下文」硬保证。
+    const forgettingLineMs = await resolveForgettingLineMs(inContextState.cutoffIndex);
+    const inboundIds = peerCandidates
+      .map((c) => (typeof c.sourceRef === 'string' ? /^inbound:(\d+)$/.exec(c.sourceRef) : null))
+      .filter(Boolean)
+      .map((m) => Number(m[1]));
+    let readStates = new Map();
+    if (inboundIds.length && typeof persistence.getInboundReadStates === 'function') {
+      try {
+        const rows = await persistence.getInboundReadStates(inboundIds);
+        readStates = new Map((Array.isArray(rows) ? rows : []).map((r) => [Number(r.id), r]));
+      } catch (err) {
+        // 查失败 → 全部无状态 → filter fail-closed 剔掉 inbound 砖。持续性故障会永久杀死
+        // inbound 腿,所以一次性告警留迹(同 resolveForgettingLineMs)。
+        if (!warnedReadStates) {
+          warnedReadStates = true;
+          console.warn('[xiaoni-recall] getInboundReadStates failed (inbound bricks fail-closed):', err && err.message);
+        }
+        readStates = new Map();
+      }
+    }
+    peerCandidates = filterInboundBricksByPresence(peerCandidates, readStates, forgettingLineMs);
+
+    const candidates = [...selfCandidates, ...peerCandidates];
 
     // ④ 语义式在场排除:近窗条目的向量(可选,persistence 提供才做)。调用方给了近窗用其近窗;
     // 没给(如入站钩子)退回保留尾最近 N 条,让入站召回也能抓「换说法的刚做过」。
@@ -187,17 +275,29 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const bandParams = meanVector
       ? { floor: params.taskLocked ? CENTERED_TASK_FLOOR : CENTERED_FLOOR, ceiling: CENTERED_CEILING, standoutMargin: CENTERED_STANDOUT_MARGIN, nearDupSuppress: CENTERED_NEARDUP_SUPPRESS }
       : {};
-    const result = bandpassRecall({
-      query: { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked },
-      candidates: candidates.map((c) => ({
-        sourceRef: c.sourceRef,
-        embedding: c.embedding,
-        provenance: c.provenance,
-        embeddingText: c.embeddingText
-      })),
-      limit: Number(params.surfaceLimit) || 1,
+    // 双域各自选拔:每域独立跑 band-pass(邻域基线/跳出门在域内算,同域才可比),
+    // 再合成——优先自我经历域,每次落地最多 1 块(守「别吵」)。
+    const surfaceLimit = Number(params.surfaceLimit) || 1;
+    const toBandCandidate = (c) => ({
+      sourceRef: c.sourceRef,
+      embedding: c.embedding,
+      provenance: c.provenance,
+      embeddingText: c.embeddingText
+    });
+    const queryShape = { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked };
+    const selfResult = bandpassRecall({
+      query: queryShape,
+      candidates: selfCandidates.map(toBandCandidate),
+      limit: surfaceLimit,
       ...bandParams
     });
+    const peerResult = bandpassRecall({
+      query: queryShape,
+      candidates: peerCandidates.map(toBandCandidate),
+      limit: surfaceLimit,
+      ...bandParams
+    });
+    const result = combineDomainResults(selfResult, peerResult, surfaceLimit);
 
     const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0 };
     for (const d of result.dropped) {
@@ -218,6 +318,7 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       surfaced: result.surfaced.map((e) => ({
         lead: renderRecallLead(e.candidate),
         cos: e.cos,
+        domain: recallDomainOf(e.candidate),
         sourceRef: e.candidate.sourceRef,
         provenance: e.candidate.provenance
       })),
