@@ -207,7 +207,80 @@ test('commitSessionContextSummaryAndReadCutoff persists diaryIndexSnapshot atomi
   assert.ok(insert.sql.includes('diary_index_snapshot'));
   assert.equal(insert.params[2], INDEX_SNAPSHOT);
   assert.equal(result.state.diaryIndexSnapshot, INDEX_SNAPSHOT);
-  // getSessionReadCutoffState 的 SELECT 也必须带该列(live 与 replay 同源渲染)
+});
+
+test('getSessionReadCutoffState selects diary_index_snapshot and maps it (live 与 replay 同源渲染)', async () => {
+  const INDEX_SNAPSHOT = '- 2026-07-24 | 做了不响';
+  const queries = [];
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      query: async (sql, params = []) => {
+        queries.push({ sql, params });
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 171,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'summary',
+          diary_index_snapshot: INDEX_SNAPSHOT,
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          consecutive_over_compression_turns: 0,
+          updated_at: '2026-07-24T00:00:00.000Z'
+        }];
+      },
+      execute: async () => {},
+      close: async () => undefined
+    }
+  });
+  const state = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
+  // SELECT 不带该列的话,读回路径静默丢 <xiaoni_diary_index> —— 断言列在 SQL 里且映射通
+  assert.ok(queries[0].sql.includes('diary_index_snapshot'), 'SELECT must carry diary_index_snapshot');
+  assert.equal(state.diaryIndexSnapshot, INDEX_SNAPSHOT);
+});
+
+test('commit no-op (superseded cutoff) drops the incoming snapshot and keeps the stored one', async () => {
+  const tx = {
+    query: async (sql) => {
+      if (sql.includes('pg_advisory_xact_lock')) return [];
+      if (sql.includes('FOR UPDATE')) {
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 200,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'newer summary',
+          diary_index_snapshot: '库里已有的旧快照',
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          updated_at: '2026-07-24T00:00:00.000Z'
+        }];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      withTransaction: async (callback) => callback(tx),
+      query: async () => { throw new Error('should use transaction'); },
+      execute: async () => { throw new Error('should not use execute'); },
+      close: async () => undefined
+    }
+  });
+  const result = await persistence.commitSessionContextSummaryAndReadCutoff({
+    sessionKey: 'xiaoni:test-global',
+    contextSummary: 'late summary',
+    diaryIndexSnapshot: '迟到的新快照',
+    readCutoffAfterStackIndex: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+  // 被 supersede 的提交整体丢弃(含快照),库里旧快照原样保留 —— 钉死语义
+  assert.equal(result.committed, false);
+  assert.equal(result.state.diaryIndexSnapshot, '库里已有的旧快照');
 });
 
 test('commitSessionContextSummaryAndReadCutoff no-ops when current cutoff already covers target', async () => {

@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clampDiaryIndexSnapshot, DIARY_INDEX_SNAPSHOT_MAX_BYTES } from '../services/agent-loop-service';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { clampDiaryIndexSnapshot, readDiaryIndexSnapshot, DIARY_INDEX_SNAPSHOT_MAX_BYTES } from '../services/agent-loop-service';
 
 // 快照 cap 裁剪:超 8KB 从最老行丢、保最新;行边界;确定性。
 
@@ -31,4 +34,36 @@ test('clamp: over-limit drops OLDEST lines first, keeps newest tail within byte 
   assert.ok(!keptLines.includes(lines[0]), 'the oldest line must be dropped');
   // 确定性:同输入同输出
   assert.equal(clampDiaryIndexSnapshot(raw), clamped);
+});
+
+test('clamp: strips NUL bytes (PG text rejects \\u0000; poisoned INDEX.md must not stall the atomic commit)', () => {
+  assert.equal(clampDiaryIndexSnapshot('- 2026-07-24 |\u0000 做了不响\u0000'), '- 2026-07-24 | 做了不响');
+  assert.equal(clampDiaryIndexSnapshot('\u0000\u0000'), null);
+});
+
+test('clamp: content exactly at maxBytes passes through unchanged', () => {
+  const exact = 'a'.repeat(DIARY_INDEX_SNAPSHOT_MAX_BYTES);
+  assert.equal(clampDiaryIndexSnapshot(exact), exact);
+});
+
+test('clamp: single newest line over maxBytes is truncated at codepoint boundary, not dropped wholesale', () => {
+  const older = '- 2026-07-23 | 老的一行';
+  const huge = `- 2026-07-24 | ${'钩'.repeat(4000)}`; // 单行 >12KB
+  const clamped = clampDiaryIndexSnapshot(`${older}\n${huge}`);
+  assert.ok(clamped !== null, 'menu must not vanish because of one oversized line');
+  assert.ok(Buffer.byteLength(clamped as string, 'utf8') <= DIARY_INDEX_SNAPSHOT_MAX_BYTES);
+  assert.ok((clamped as string).startsWith('- 2026-07-24 | '), 'the newest line head must survive');
+  assert.ok(!(clamped as string).includes('�'), 'codepoint truncation must not split a character');
+});
+
+test('readDiaryIndexSnapshot: reads and clamps a real file; nonexistent path yields null', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'diary-index-'));
+  try {
+    const file = join(dir, 'INDEX.md');
+    writeFileSync(file, '\n- 2026-07-24 | 做了不响\u0000\n');
+    assert.equal(await readDiaryIndexSnapshot(file), '- 2026-07-24 | 做了不响');
+    assert.equal(await readDiaryIndexSnapshot(join(dir, 'missing.md')), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

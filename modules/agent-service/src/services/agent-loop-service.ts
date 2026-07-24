@@ -10106,13 +10106,14 @@ export class AgentLoopService {
     };
 
     if (params.compression && committedReadCutoffAfterStackIndex !== null) {
-      // 日记索引快照:就在这一帧读一次 INDEX.md(与近况同一原子提交,同帧换血)。
-      // 之后所有 build/replay 只从库里这份冻结串渲染,两次压缩之间字节不变。
-      const diaryIndexSnapshot = await readDiaryIndexSnapshot();
       const atomicCommitter = (this.store as RuntimeStore & {
         commitSessionContextSummaryAndReadCutoff?: RuntimeStore['commitSessionContextSummaryAndReadCutoff'];
       }).commitSessionContextSummaryAndReadCutoff;
       if (typeof atomicCommitter === 'function') {
+        // 日记索引快照:就在这一帧读一次 INDEX.md(与近况同一原子提交,同帧换血)。
+        // 之后所有 build/replay 只从库里这份冻结串渲染,两次压缩之间字节不变。
+        // 只有原子路径支持快照;下面的非原子 fallback(生产不可达)不写快照,保留旧值。
+        const diaryIndexSnapshot = await readDiaryIndexSnapshot();
         const atomicCommit = await atomicCommitter.call(this.store, {
           sessionKey: params.compression.contextSessionKey,
           contextSummary: text,
@@ -13757,12 +13758,15 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
 
 // 日记索引快照:压缩 STW 提交那一帧读一次 INDEX.md,冻结进 agent_session_context_windows。
 // <xiaoni_diary_index> 只从冻结串渲染——绝不逐轮重读文件,否则两次压缩之间前缀漂移=缓存击穿。
-export const XIAONI_DIARY_INDEX_PATH = process.env.XIAONI_DIARY_INDEX_PATH || '/xiaoni-runtime/notes/diary/INDEX.md';
+// 硬上限须始终 > reminder/anchor skill 教她的自维护软限(150 行或 6KB,见
+// core_memory_pressure_reminder.md + xiaoni-memory-anchor SKILL.md);两边一起调,别单改。
 export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 8192;
 
 // 超上限时从最老的行开始丢、保最新(索引按时间正序追加,尾部=最近)。行边界裁剪,确定性。
+// NUL(\u0000)必须剥掉:她用 shell 自己维护这个文件,一个混入的 NUL 会让 PG text 列拒写,
+// 而快照和近况在同一个原子提交里——不剥就是可自伤的压缩永久卡死(fork 失败→重试→再读同一文件)。
 export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_INDEX_SNAPSHOT_MAX_BYTES): string | null {
-  const trimmed = typeof raw === 'string' ? raw.trim() : '';
+  const trimmed = typeof raw === 'string' ? raw.replace(/\u0000/g, '').trim() : '';
   if (!trimmed) {
     return null;
   }
@@ -13780,15 +13784,36 @@ export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_IN
     kept.unshift(lines[i]);
     bytes += lineBytes;
   }
+  if (kept.length === 0 && lines.length > 0) {
+    // 最新一行单独超限:按码点截断保留行首,而不是让整个菜单消失一个压缩周期。
+    const newest = lines[lines.length - 1];
+    let cut = '';
+    let cutBytes = 0;
+    for (const ch of newest) {
+      const chBytes = Buffer.byteLength(ch, 'utf8');
+      if (cutBytes + chBytes > maxBytes) {
+        break;
+      }
+      cut += ch;
+      cutBytes += chBytes;
+    }
+    return cut.length > 0 ? cut : null;
+  }
   return kept.length > 0 ? kept.join('\n') : null;
 }
 
-export async function readDiaryIndexSnapshot(indexPath: string = XIAONI_DIARY_INDEX_PATH): Promise<string | null> {
+// 路径在调用时解析(而非模块加载时),测试可用 XIAONI_DIARY_INDEX_PATH 指向受控路径。
+export async function readDiaryIndexSnapshot(indexPath?: string): Promise<string | null> {
+  const resolvedPath = indexPath || process.env.XIAONI_DIARY_INDEX_PATH || '/xiaoni-runtime/notes/diary/INDEX.md';
   try {
-    const raw = await fsReadFile(indexPath, 'utf8');
+    const raw = await fsReadFile(resolvedPath, 'utf8');
     return clampDiaryIndexSnapshot(raw);
-  } catch {
-    return null; // 文件不存在/读失败 → null 快照,不阻塞压缩提交
+  } catch (error) {
+    // null 快照会覆盖库里上一份(菜单消失一个压缩周期),必须留下可归因的痕迹——
+    // 尤其挂载错位(sudo 无 HOME 挂空目录)这类瞬时故障。ENOENT 与其它错误分开看。
+    const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+    moduleLogger.warn('diary index snapshot read failed; committing null snapshot', { path: resolvedPath, code });
+    return null;
   }
 }
 
