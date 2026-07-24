@@ -144,7 +144,70 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
   assert.equal(queries[2].sql.includes('INSERT INTO agent_session_context_windows'), true);
   assert.equal(queries[2].params[0], 'xiaoni:test-global');
   assert.equal(queries[2].params[1], 'new summary');
-  assert.equal(queries[2].params[2], 171);
+  // params[2] = diary_index_snapshot(未传 → null),readCutoff 顺移到 params[3]
+  assert.equal(queries[2].params[2], null);
+  assert.equal(queries[2].params[3], 171);
+});
+
+test('commitSessionContextSummaryAndReadCutoff persists diaryIndexSnapshot atomically with summary+cutoff', async () => {
+  const queries = [];
+  const INDEX_SNAPSHOT = '- 2026-07-23 | 修好了发图\n- 2026-07-24 | 做了不响';
+  const tx = {
+    query: async (sql, params = []) => {
+      queries.push({ sql, params });
+      if (sql.includes('pg_advisory_xact_lock')) {
+        return [];
+      }
+      if (sql.includes('FOR UPDATE')) {
+        return [];
+      }
+      if (sql.includes('INSERT INTO agent_session_context_windows')) {
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 171,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'new summary',
+          diary_index_snapshot: INDEX_SNAPSHOT,
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          updated_at: '2026-06-14T00:01:00.000Z'
+        }];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      withTransaction: async (callback) => callback(tx),
+      query: async () => {
+        throw new Error('commitSessionContextSummaryAndReadCutoff should use transaction');
+      },
+      execute: async () => {
+        throw new Error('commitSessionContextSummaryAndReadCutoff should not use execute');
+      },
+      close: async () => undefined
+    }
+  });
+
+  const result = await persistence.commitSessionContextSummaryAndReadCutoff({
+    sessionKey: 'xiaoni:test-global',
+    contextSummary: 'new summary',
+    diaryIndexSnapshot: INDEX_SNAPSHOT,
+    readCutoffAfterStackIndex: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+
+  assert.equal(result.committed, true);
+  // 快照与 summary/cutoff 同一条 INSERT(同一事务帧),不允许分离提交
+  const insert = queries.find((entry) => entry.sql.includes('INSERT INTO agent_session_context_windows'));
+  assert.ok(insert.sql.includes('diary_index_snapshot'));
+  assert.equal(insert.params[2], INDEX_SNAPSHOT);
+  assert.equal(result.state.diaryIndexSnapshot, INDEX_SNAPSHOT);
+  // getSessionReadCutoffState 的 SELECT 也必须带该列(live 与 replay 同源渲染)
 });
 
 test('commitSessionContextSummaryAndReadCutoff no-ops when current cutoff already covers target', async () => {
