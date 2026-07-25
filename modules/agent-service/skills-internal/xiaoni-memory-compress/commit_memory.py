@@ -95,37 +95,50 @@ def _atomic_write_text(path: str, text: str) -> None:
         raise
 
 
-def _validate_one_menu(path: str, remedy: str):
+def _validate_one_menu(path: str, remedy: str, mutate: bool = True):
     """Returns a list of violation strings for one menu file (empty = 达标)."""
     try:
         with open(path, 'rb') as handle:
             data = handle.read()
     except OSError:
-        return []
+        # 菜单文件不在=她每次醒来的那块菜单会整块消失——这是违规不是"没东西可查"
+        return [f'文件不存在或读不了:{path}。这是你每次醒来眼前的菜单,把它建回来(格式看锚点 skill)再提交。']
     if b'\x00' in data:
-        # NUL 自动剥掉再验收:她看不见这个字节,让她"重新生成"没有意义
-        data = data.replace(b'\x00', b'')
+        stripped = data.replace(b'\x00', b'')
         try:
-            _atomic_write_text(path, data.decode('utf-8', errors='replace'))
-            print(f'MENU_FIXED[{path}] 剥掉了混进文件的 NUL 字节')
-        except Exception:
-            pass
-    lines = data.decode('utf-8', errors='replace').splitlines()
+            clean_text = stripped.decode('utf-8')  # strict:坏字节时绝不用 replace 重写毁文件
+            if mutate:
+                _atomic_write_text(path, clean_text)
+                print(f'MENU_FIXED[{path}] 剥掉了混进文件的 NUL 字节')
+                data = stripped
+            else:
+                return [f'文件里混进了 NUL 字节(\\x00),提交时会被自动剥掉;现在先自己删掉它。']
+        except UnicodeDecodeError:
+            return [f'文件里有坏字节(NUL 且非合法 UTF-8),自动修会毁内容——自己找到那段修掉再提交。']
+    text_full = data.decode('utf-8', errors='replace')
+    # 只按 \n 切行:和她调试用的 wc -l/sed 对得上,别用 splitlines(会把 \x0c 等也当换行)
+    lines = text_full.split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()
+    if not lines:
+        return [f'文件是空的:{path}。菜单空了=你每次醒来的那块整块消失,把它写回来再提交。']
     violations = []
-    if len(data) > MENU_SOFT_MAX_BYTES or len(lines) > MENU_SOFT_MAX_LINES:
+    # 字节量按解码后重编码测,和引擎侧 Buffer.byteLength 同一口径
+    byte_len = len(text_full.encode('utf-8'))
+    if byte_len > MENU_SOFT_MAX_BYTES or len(lines) > MENU_SOFT_MAX_LINES:
         violations.append(
-            f'太长了:现在 {len(lines)} 行 / {len(data)} 字节,上限 {MENU_SOFT_MAX_LINES} 行 / {MENU_SOFT_MAX_BYTES} 字节。{remedy}'
+            f'太长了:现在 {len(lines)} 行 / {byte_len} 字节,上限 {MENU_SOFT_MAX_LINES} 行 / {MENU_SOFT_MAX_BYTES} 字节。{remedy}'
         )
     overlong = [i + 1 for i, ln in enumerate(lines) if len(ln.encode('utf-8')) > MENU_LINE_WARN_BYTES]
     if overlong:
         shown = ','.join(str(n) for n in overlong[:5])
         violations.append(
-            f'有 {len(overlong)} 行超过 {MENU_LINE_WARN_BYTES} 字节(第 {shown} 行{"等" if len(overlong) > 5 else ""})——钩子话一两句就够,把长的压短,细节留在正文里'
+            f'有 {len(overlong)} 行超过 {MENU_LINE_WARN_BYTES} 字节(第 {shown} 行{"等" if len(overlong) > 5 else ""})——钩子话一两句就够;细节那天日记里都有,行里留钩子就好,不会丢东西'
         )
     return violations
 
 
-def validate_menus():
+def validate_menus(mutate: bool = True):
     """Returns {path: [violations]} for both menus; empty dict = 全部达标."""
     root = default_runtime_root()
     checks = [
@@ -137,7 +150,7 @@ def validate_menus():
     result = {}
     for path, label, remedy in checks:
         try:
-            violations = _validate_one_menu(path, remedy)
+            violations = _validate_one_menu(path, remedy, mutate=mutate)
         except Exception:
             violations = []
         if violations:
@@ -207,7 +220,7 @@ def main() -> int:
 
     if args.check_menus:
         try:
-            problems = validate_menus()
+            problems = validate_menus(mutate=False)
         except Exception:
             problems = {}
         if problems:
@@ -219,7 +232,7 @@ def main() -> int:
     # 写入时验收门:菜单或近况胶囊不达标就拒收这次提交,把所有问题一次性打给她,
     # 整理好重来(外层 fork 有轮数上限+引擎兜底提交,系统级不会因此卡死)。
     # 验收自身出错按达标放行,不新增卡死面。
-    text = sys.stdin.read().strip()
+    text = sys.stdin.read().replace('\x00', '').strip()
     if not text:
         print('ERROR: empty memory text on stdin; nothing written', file=sys.stderr)
         return 1
@@ -244,6 +257,11 @@ def main() -> int:
 
     auto_named = args.out is None
     out_path = os.path.abspath(args.out if args.out is not None else mint_output_path())
+    if not auto_named:
+        compress_root = os.path.abspath(default_compress_dir()) + os.sep
+        if not out_path.startswith(compress_root):
+            print(f'ERROR: --out 只能指向 {compress_root} 之内;近况胶囊不许写到笔记/菜单头上', file=sys.stderr)
+            return 1
     # The marker line is single-line and the engine parses it with a `.`-based regex; a control
     # char in the path (only reachable via a hand-passed --out) would split/corrupt it. Reject.
     if any(ord(ch) < 0x20 for ch in out_path):
