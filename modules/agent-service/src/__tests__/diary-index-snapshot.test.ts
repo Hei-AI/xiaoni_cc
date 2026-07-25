@@ -48,7 +48,8 @@ test('clamp: content exactly at maxBytes passes through unchanged', () => {
 
 test('clamp: single newest line over maxBytes is truncated at codepoint boundary, not dropped wholesale', () => {
   const older = '- 2026-07-23 | 老的一行';
-  const huge = `- 2026-07-24 | ${'钩'.repeat(4000)}`; // 单行 >12KB
+  // 随 cap 缩放:保证单行始终超 DIARY_INDEX_SNAPSHOT_MAX_BYTES,cap 调大不失效
+  const huge = `- 2026-07-24 | ${'钩'.repeat(Math.ceil(DIARY_INDEX_SNAPSHOT_MAX_BYTES / 3) + 1000)}`;
   const clamped = clampDiaryIndexSnapshot(`${older}\n${huge}`);
   assert.ok(clamped !== null, 'menu must not vanish because of one oversized line');
   assert.ok(Buffer.byteLength(clamped as string, 'utf8') <= DIARY_INDEX_SNAPSHOT_MAX_BYTES);

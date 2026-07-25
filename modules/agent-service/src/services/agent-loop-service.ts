@@ -13758,9 +13758,11 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
 
 // 日记索引快照:压缩 STW 提交那一帧读一次 INDEX.md,冻结进 agent_session_context_windows。
 // <xiaoni_diary_index> 只从冻结串渲染——绝不逐轮重读文件,否则两次压缩之间前缀漂移=缓存击穿。
-// 硬上限须始终 > reminder/anchor skill 教她的自维护软限(150 行或 6KB,见
+// 硬上限须始终 > reminder/anchor skill 教她的自维护软限(300 行或 20KB,见
 // core_memory_pressure_reminder.md + xiaoni-memory-anchor SKILL.md);两边一起调,别单改。
-export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 8192;
+// 长期容量靠层级而非 cap:顶层菜单只保近月的按天行,老月整月搬进 INDEX-<YYYY-MM>.md
+// 子索引、顶层留一行指路——所以顶层永远汇不满,25KB 是安全网不是设计容量。
+export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 25600;
 
 // 超上限时从最老的行开始丢、保最新(索引按时间正序追加,尾部=最近)。行边界裁剪,确定性。
 // NUL(\u0000)必须剥掉:她用 shell 自己维护这个文件,一个混入的 NUL 会让 PG text 列拒写,
