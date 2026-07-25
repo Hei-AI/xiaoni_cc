@@ -19,7 +19,7 @@ import re
 import sys
 import tempfile
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 # Keep this many recent capsules for trace/debug; prune older ones so unique-per-run
 # filenames don't accumulate unbounded.
@@ -145,6 +145,44 @@ def validate_menus():
     return result
 
 
+# 胶囊验收带(B1):近况本体的写入验收——菜单有门而记忆本体裸奔是装反了主次。
+# 下限拦退化(几个字的"近况"会替换她全部身份摘要);上限拦畸胀(超长胶囊进
+# <xiaoni_status> 会永久撑肥每次请求的前缀,引擎侧有意不截断身份摘要,门只在写入层)。
+# 真库健康带 700-2300 字,带宽放宽到 300-8000 容纳风格波动;调数值三处同调原则同菜单。
+CAPSULE_MIN_CHARS = 300
+CAPSULE_MAX_CHARS = 8000
+
+
+def validate_capsule(text: str):
+    problems = []
+    if len(text) < CAPSULE_MIN_CHARS:
+        problems.append(
+            f'太短了({len(text)} 字,下限 {CAPSULE_MIN_CHARS}):这不像一份完整的近况。'
+            '手头在做什么、接下来的打算、这段的心境、今天日记的路径——都写了吗?补全再交。'
+        )
+    elif len(text) > CAPSULE_MAX_CHARS:
+        problems.append(
+            f'太长了({len(text)} 字,上限 {CAPSULE_MAX_CHARS}):近况是摘要,不是日记本体——'
+            '细节留在日记里,把近况压回摘要再交。'
+        )
+    return problems
+
+
+def print_capsule_rejection(problems) -> None:
+    print('CAPSULE_REJECT: 这份近况没过验收,这次先不收。改好之后重新跑这条命令提交:')
+    for item in problems:
+        print(f'  - {item}')
+
+
+def hint_if_no_diary_today() -> None:
+    # warn-only(B2):压缩前该先写日记(reminder 第 1 步),但"这段真没新事"是合法的,
+    # 所以只提醒不拒收。日记文件名是北京日期,别用容器本地时区。
+    beijing_today = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d')
+    diary_path = f'{default_runtime_root()}/notes/diary/{beijing_today}.md'
+    if not os.path.exists(diary_path):
+        print(f'DIARY_HINT: 今天的日记 {diary_path} 还不存在——这段真没值得记的就算了;有的话,先把日记补上再提交更稳。')
+
+
 def print_menu_rejection(problems) -> None:
     print('MENU_REJECT: 菜单还不达标,这次先不收近况。整理好之后,重新跑这条命令提交(近况文本原样再传一遍):')
     for key, violations in problems.items():
@@ -178,19 +216,30 @@ def main() -> int:
             print('OK: 两张菜单都达标')
         return 0
 
-    # 写入时验收门:菜单不达标就拒收这次近况提交,让她整理好重来(外层 fork 有轮数上限+
-    # 引擎兜底提交,系统级不会因此卡死)。验收自身出错按达标放行,不新增卡死面。
-    try:
-        problems = validate_menus()
-    except Exception:
-        problems = {}
-    if problems:
-        print_menu_rejection(problems)
-        return 1
-
+    # 写入时验收门:菜单或近况胶囊不达标就拒收这次提交,把所有问题一次性打给她,
+    # 整理好重来(外层 fork 有轮数上限+引擎兜底提交,系统级不会因此卡死)。
+    # 验收自身出错按达标放行,不新增卡死面。
     text = sys.stdin.read().strip()
     if not text:
         print('ERROR: empty memory text on stdin; nothing written', file=sys.stderr)
+        return 1
+    try:
+        menu_problems = validate_menus()
+    except Exception:
+        menu_problems = {}
+    try:
+        capsule_problems = validate_capsule(text)
+    except Exception:
+        capsule_problems = []
+    try:
+        hint_if_no_diary_today()
+    except Exception:
+        pass
+    if menu_problems or capsule_problems:
+        if menu_problems:
+            print_menu_rejection(menu_problems)
+        if capsule_problems:
+            print_capsule_rejection(capsule_problems)
         return 1
 
     auto_named = args.out is None
