@@ -25,10 +25,53 @@ from datetime import datetime
 KEEP_RECENT = 12
 AUTO_PREFIX = 'xiaoni-status-'
 
+# 菜单健康自检(写入时闭环,CC「超限报错逼当场重写」的落点):她理完两张菜单紧接着跑本
+# 脚本,超限/超长行/NUL 当场喊出来,她还在这个 loop 里就能整理。fail-open 铁律:检查本身
+# 抛任何异常都不许影响提交——她自写文件的任何状态都不许把压缩卡死(红队 P1 教训)。
+# 数值与 reminder/anchor skill 的软限、引擎硬 cap(25600)保持:软限 < 硬 cap。
+MENU_SOFT_MAX_BYTES = 20 * 1024
+MENU_SOFT_MAX_LINES = 300
+MENU_LINE_WARN_BYTES = 300
+
+
+def default_runtime_root() -> str:
+    return os.environ.get('XIAONI_RUNTIME_ROOT', '/xiaoni-runtime').rstrip('/')
+
 
 def default_compress_dir() -> str:
-    root = os.environ.get('XIAONI_RUNTIME_ROOT', '/xiaoni-runtime').rstrip('/')
-    return f'{root}/compress'
+    return f'{default_runtime_root()}/compress'
+
+
+def check_menu_health() -> None:
+    root = default_runtime_root()
+    menus = [
+        (f'{root}/notes/diary/INDEX.md', '日记目录',
+         '把最老的整月那些行搬进 INDEX-<YYYY-MM>.md(不是删),顶层留一行指路'),
+        (f'{root}/notes/people/INDEX.md', '人物菜单',
+         '把久不联系的人的行搬进 INDEX-past.md(不是删),顶层留一行指路'),
+    ]
+    for path, label, remedy in menus:
+        try:
+            with open(path, 'rb') as handle:
+                data = handle.read()
+        except OSError:
+            continue
+        problems = []
+        if b'\x00' in data:
+            problems.append('文件里混进了 NUL 字节(\\x00),系统会剥掉它——找到那处并删掉')
+        lines = data.decode('utf-8', errors='replace').splitlines()
+        if len(data) > MENU_SOFT_MAX_BYTES or len(lines) > MENU_SOFT_MAX_LINES:
+            problems.append(
+                f'现在 {len(lines)} 行 / {len(data)} 字节,超过软限({MENU_SOFT_MAX_LINES} 行 / {MENU_SOFT_MAX_BYTES} 字节):{remedy}'
+            )
+        overlong = sum(1 for ln in lines if len(ln.encode('utf-8')) > MENU_LINE_WARN_BYTES)
+        if overlong:
+            problems.append(f'有 {overlong} 行超过 {MENU_LINE_WARN_BYTES} 字节——钩子话一两句就够,细节留在正文里')
+        if problems:
+            print(f'MENU_WARN[{label}] {path}')
+            for item in problems:
+                print(f'  - {item}')
+            print('  趁现在还在整理记忆,先把它理好再继续。')
 
 
 def mint_output_path() -> str:
@@ -72,7 +115,26 @@ def main() -> int:
         default=None,
         help='destination path for the 近况 file (optional; a fresh unique name is minted when omitted)'
     )
+    parser.add_argument(
+        '--check-menus',
+        action='store_true',
+        help='only run the diary/people menu health check (no stdin, no commit); always exits 0'
+    )
     args = parser.parse_args()
+
+    if args.check_menus:
+        try:
+            check_menu_health()
+        except Exception:
+            pass
+        print('OK: menu check done')
+        return 0
+
+    # 写入时自检:提交近况的同一刻检查两张菜单,问题当场喊出来。fail-open——检查绝不影响提交。
+    try:
+        check_menu_health()
+    except Exception:
+        pass
 
     text = sys.stdin.read().strip()
     if not text:

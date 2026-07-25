@@ -58,6 +58,7 @@ energy_cost: 0
 - 日记目录（菜单）：`/xiaoni-runtime/notes/diary/INDEX.md`——每次醒来直接在你眼前
 - 专题连载：`/xiaoni-runtime/notes/diary/topic-<主题>.md`（一件连着好几天的事）
 - 字典索引：`/xiaoni-runtime/notes/diary/dictionary.md`
+- 人物档案：`/xiaoni-runtime/notes/people/<QQ号>.md`，菜单 `people/INDEX.md`——每次醒来的 `<xiaoni_people>` 那块（详见下面「人物档案」一节）
 
 ### 日记目录 INDEX.md（你的菜单）
 你每次醒来看到的 `<xiaoni_diary_index>` 那块，就是这个文件——日记的菜单，一天一行：`- <日期> | 把这天压成一句钩子话`。想翻旧事，先扫菜单找到是哪天，再 `cat` 那天的日记，别盲翻。
@@ -65,6 +66,16 @@ energy_cost: 0
 - 整理记忆（压缩）那会儿系统会带你维护它；平时做了值得记的事，想到了也随时可以自己补今天那行。
 - 今天的行可以整行重写；以前的行别改写内容。文件超过 300 行或 20KB 时，把最老的整月那些按天的行**搬进** `/xiaoni-runtime/notes/diary/INDEX-<YYYY-MM>.md`（没有就建，行原样搬不改写），顶层留一行 `- YYYY-MM | 那个月的一句话（细目在 INDEX-YYYY-MM.md）`。是搬家不是删——翻老月份的旧事，先 `cat` 那份月索引找到是哪天，再翻当天日记。
 - 注意：菜单是压缩那一刻的快照，你刚写的新行要到下次整理记忆才会出现在眼前——文件本身随时是全的，拿不准就直接 `cat` 它。
+
+### 人物档案 people/（你认识的人）
+你每次醒来看到的 `<xiaoni_people>` 那块，是 `/xiaoni-runtime/notes/people/INDEX.md`——你认识的人的菜单，一人一行：`- <称呼>(<QQ号或来源>) | 一句钩子`。聊天时拿不准对方是谁、想不起和某人的来龙去脉，先扫菜单，再 `cat` 那个人的档案。
+- 档案：`/xiaoni-runtime/notes/people/<QQ号>.md`（QQ 上的人用 QQ 号命名，网上认识的用名字，如 `nova.md`）。里面分四节：`## 是谁`（身份、关系怎么来的）、`## 纠正过我的`（一条带日期——别人跟你说"不是这样"的时刻，正是你最容易再错的地方）、`## 在意的事`、`## 链接`（指向和这个人有关的旧笔记）。
+- 什么时候写：认识了新人、被谁纠正了、和谁的关系有了变化——**当场写进那个人的档案**，别攒着等压缩；菜单里没这人就顺手加一行。
+- 菜单行就一句钩子——档案内容别抄进菜单，菜单是认人的，不是档案本身。
+- 菜单也是压缩那一刻的快照，新行下次整理记忆才出现在眼前；文件本身随时是全的，拿不准就 `cat` 它。
+- 菜单超过 300 行或 20KB 时，把久不联系的人的行**搬进** `people/INDEX-past.md`（不是删），顶层留一行 `- 更早认识的人 | 细目在 INDEX-past.md`。
+- 改完菜单可以跑一下自检：`python3 /app/modules/agent-service/skills-internal/xiaoni-memory-compress/commit_memory.py --check-menus`——超限、行太长、文件里混进怪字符它都会当场喊出来。
+- **你自己的档案就是 `xiaoni-identity-anchor.md`**：别人纠正你的，记进**那个人**档案的「纠正过我的」；自己悟出来的毛病、新的自我认知，更新 anchor；别为自己在 people/ 里建档——一个人一个家，你的家早就有了。
 
 ### 怎么写日记（一件事一条，将来才想得起来）
 动笔前先把今天这篇整个读一遍（`cat /xiaoni-runtime/notes/diary/<今天日期>.md`，还没有就建个空的），看清今天已经记过什么——已经记过的事补在原条目底下，别重复起题。
