@@ -9302,6 +9302,7 @@ export class AgentLoopService {
       : await this.store.getSessionReadCutoffState(contextSessionKey);
     const contextSummary = cutoffState?.contextSummary ?? null;
     const diaryIndexSnapshot = cutoffState?.diaryIndexSnapshot ?? null;
+    const peopleIndexSnapshot = cutoffState?.peopleIndexSnapshot ?? null;
     const pendingProactiveShare = cutoffState?.pendingProactiveShare ?? null;
     const pendingProactiveShareAge = cutoffState?.pendingProactiveShareAge ?? 0;
     // RESTART RE-HYDRATION: the compression-trigger debounce counter lives in an in-memory
@@ -9359,6 +9360,7 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
       diaryIndexSnapshot,
+      peopleIndexSnapshot,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
@@ -9497,6 +9499,7 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary,
       diaryIndexSnapshot,
+      peopleIndexSnapshot,
       pendingProactiveShare,
       developerContextBlock: params.developerContextBlock ?? null,
       runtimeEnergyState: params.runtimeEnergyState ?? null,
@@ -10114,10 +10117,12 @@ export class AgentLoopService {
         // 之后所有 build/replay 只从库里这份冻结串渲染,两次压缩之间字节不变。
         // 只有原子路径支持快照;下面的非原子 fallback(生产不可达)不写快照,保留旧值。
         const diaryIndexSnapshot = await readDiaryIndexSnapshot();
+        const peopleIndexSnapshot = await readPeopleIndexSnapshot();
         const atomicCommit = await atomicCommitter.call(this.store, {
           sessionKey: params.compression.contextSessionKey,
           contextSummary: text,
           diaryIndexSnapshot,
+          peopleIndexSnapshot,
           readCutoffAfterStackIndex: committedReadCutoffAfterStackIndex,
           lastContextWindowTokens: params.compression.lastContextWindowTokens,
           lastTargetBudgetTokens: params.compression.lastTargetBudgetTokens,
@@ -10846,6 +10851,7 @@ export class AgentLoopService {
       runtimeIdentityFacts: params.runtimeIdentityFacts,
       contextSummary: cutoffState?.contextSummary ?? null,
       diaryIndexSnapshot: cutoffState?.diaryIndexSnapshot ?? null,
+      peopleIndexSnapshot: cutoffState?.peopleIndexSnapshot ?? null,
       pendingProactiveShare: params.pendingProactiveShare,
       developerContextBlock: params.developerContextBlock,
       runtimeEnergyState: params.runtimeEnergyState,
@@ -13763,6 +13769,10 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
 // 长期容量靠层级而非 cap:顶层菜单只保近月的按天行,老月整月搬进 INDEX-<YYYY-MM>.md
 // 子索引、顶层留一行指路——所以顶层永远汇不满,25KB 是安全网不是设计容量。
 export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 25600;
+// 人物菜单快照(<xiaoni_people>)同款 cap;人数增长远慢于日子,天然远小于此。
+export const PEOPLE_INDEX_SNAPSHOT_MAX_BYTES = 25600;
+// 截断标记行的预算预留:kept 行按 maxBytes-RESERVE 收,标记 ≤ RESERVE ⇒ 总量恒 ≤ cap。
+const INDEX_CLAMP_MARKER_RESERVE_BYTES = 200;
 
 // 超上限时从最老的行开始丢、保最新(索引按时间正序追加,尾部=最近)。行边界裁剪,确定性。
 // NUL(\u0000)必须剥掉:她用 shell 自己维护这个文件,一个混入的 NUL 会让 PG text 列拒写,
@@ -13775,12 +13785,16 @@ export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_IN
   if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) {
     return trimmed;
   }
+  // 真发生截断时首行加确定性标记(CC「超限报错逼当场重写」的兜底版):标记随快照存 DB,
+  // live/replay 同串零漂移,她抬眼看得见菜单爆了。写入时的第一道检查在 commit_memory.py
+  // 的 --check-menus(fail-open);这里是最后一张网。标记预算从 cap 里预留,总量恒 ≤ maxBytes。
+  const budget = Math.max(1, maxBytes - INDEX_CLAMP_MARKER_RESERVE_BYTES);
   const lines = trimmed.split('\n');
   const kept: string[] = [];
   let bytes = 0;
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const lineBytes = Buffer.byteLength(lines[i], 'utf8') + (kept.length > 0 ? 1 : 0);
-    if (bytes + lineBytes > maxBytes) {
+    if (bytes + lineBytes > budget) {
       break;
     }
     kept.unshift(lines[i]);
@@ -13793,15 +13807,22 @@ export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_IN
     let cutBytes = 0;
     for (const ch of newest) {
       const chBytes = Buffer.byteLength(ch, 'utf8');
-      if (cutBytes + chBytes > maxBytes) {
+      if (cutBytes + chBytes > budget) {
         break;
       }
       cut += ch;
       cutBytes += chBytes;
     }
-    return cut.length > 0 ? cut : null;
+    if (cut.length === 0) {
+      return null;
+    }
+    return `(菜单只有一行且超上限,已截断——按锚点 skill 的规矩整理它)\n${cut}`;
   }
-  return kept.length > 0 ? kept.join('\n') : null;
+  if (kept.length === 0) {
+    return null;
+  }
+  const dropped = lines.length - kept.length;
+  return `(菜单超上限,最老 ${dropped} 行被藏起来了——文件本身是全的,按锚点 skill 的规矩整理它)\n${kept.join('\n')}`;
 }
 
 // 路径在调用时解析(而非模块加载时),测试可用 XIAONI_DIARY_INDEX_PATH 指向受控路径。
@@ -13819,6 +13840,19 @@ export async function readDiaryIndexSnapshot(indexPath?: string): Promise<string
   }
 }
 
+// 人物菜单快照:与日记快照同帧读、同原子提交、同 clamp(共享 NUL 剥离/截断标记)。
+export async function readPeopleIndexSnapshot(indexPath?: string): Promise<string | null> {
+  const resolvedPath = indexPath || process.env.XIAONI_PEOPLE_INDEX_PATH || '/xiaoni-runtime/notes/people/INDEX.md';
+  try {
+    const raw = await fsReadFile(resolvedPath, 'utf8');
+    return clampDiaryIndexSnapshot(raw, PEOPLE_INDEX_SNAPSHOT_MAX_BYTES);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+    moduleLogger.warn('people index snapshot read failed; committing null snapshot', { path: resolvedPath, code });
+    return null;
+  }
+}
+
 function buildLoopRequestInput(params: {
   history: ConversationTurn[];
   queueMessage: QueueMessageRecord['payload'];
@@ -13827,6 +13861,7 @@ function buildLoopRequestInput(params: {
   runtimeIdentityFacts?: RuntimeIdentityFactProjection[];
   contextSummary?: string | null;
   diaryIndexSnapshot?: string | null;
+  peopleIndexSnapshot?: string | null;
   pendingProactiveShare?: string | null;
   developerContextBlock?: string | null;
   runtimeEnergyState?: RuntimeEnergyState | null;
@@ -13839,10 +13874,10 @@ function buildLoopRequestInput(params: {
   precomputedCurrentTurnInputItems?: OpenResponseInputItem[];
 }) {
   if (params.loopContinuationBeforeCurrentTrigger) {
-    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null);
+    return buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, params.loopContinuation, params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null);
   }
   return [
-    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null),
+    ...buildInitialInput(params.history, params.queueMessage, params.runtimePrompt, params.runtimeIdentityFacts || [], params.contextSummary ?? null, params.pendingProactiveShare ?? null, params.developerContextBlock ?? null, params.triggerInputMode ?? 'fresh_trigger', params.appendSelfContinuationOnTerminalFinalAnswer ?? false, params.runtimeEnergyState ?? null, params.appendedSelfContinuationInputItems ?? null, [], params.precomputedCurrentTurnInputItems ?? null, params.diaryIndexSnapshot ?? null, params.peopleIndexSnapshot ?? null),
     ...params.loopContinuation
   ];
 }
@@ -14230,7 +14265,8 @@ export function buildInitialInput(
   appendedSelfContinuationInputItems: OpenResponseInputItem[] | null = null,
   inputItemsBeforeCurrentTurn: OpenResponseInputItem[] = [],
   precomputedCurrentTurnInputItems: OpenResponseInputItem[] | null = null,
-  diaryIndexSnapshot: string | null = null
+  diaryIndexSnapshot: string | null = null,
+  peopleIndexSnapshot: string | null = null
 ): OpenResponseInputItem[] {
   const developerContextParts = splitDeveloperContextBlock(developerContextBlock);
   const items: OpenResponseInputItem[] = [
@@ -14263,6 +14299,12 @@ export function buildInitialInput(
   // 换血与 <xiaoni_status> 同帧,蹭同一次冷读。null(部署后首压前/文件缺失)整块不渲染。
   if (diaryIndexSnapshot) {
     items.push(buildDeveloperInputItem([`<xiaoni_diary_index>\n${diaryIndexSnapshot}\n</xiaoni_diary_index>`]));
+  }
+
+  // 人物菜单, below <xiaoni_diary_index>: 同帧冻结的 people/INDEX.md 快照,渲染源只有
+  // cutoffState.peopleIndexSnapshot;null(首压前/文件缺失)整块不渲染。
+  if (peopleIndexSnapshot) {
+    items.push(buildDeveloperInputItem([`<xiaoni_people>\n${peopleIndexSnapshot}\n</xiaoni_people>`]));
   }
 
   // 固化 head avatar, below <xiaoni_status>: keeps the head "user list" (skills + CAPABILITIES +

@@ -359,6 +359,8 @@ export type SessionReadCutoffState = {
   // 压缩 STW 提交帧冻结的日记索引快照(<xiaoni_diary_index> 的唯一渲染源)。
   // 两次压缩之间不变;live 与 replay 同源,保证前缀字节稳定。
   diaryIndexSnapshot?: string | null;
+  // 同帧冻结的人物菜单快照(<xiaoni_people> 的唯一渲染源),生命周期与 diary 快照完全同款。
+  peopleIndexSnapshot?: string | null;
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
   // Persisted compression-trigger debounce counter (timing-only; never enters the
@@ -2650,6 +2652,7 @@ export class RuntimeStore {
     sessionKey: string;
     contextSummary: string;
     diaryIndexSnapshot?: string | null;
+    peopleIndexSnapshot?: string | null;
     readCutoffAfterStackIndex: number;
     lastContextWindowTokens: number;
     lastTargetBudgetTokens: number;

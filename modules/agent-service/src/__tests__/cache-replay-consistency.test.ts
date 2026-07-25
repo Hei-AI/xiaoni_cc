@@ -2067,3 +2067,117 @@ test('diary index: STW switch swaps the snapshot in the SAME frame as <xiaoni_st
     assertOrderedPrefix(stripVolatile(sentInputs[i]), stripVolatile(sentInputs[i + 1]), `post-switch turn ${i}->${i + 1} with diary index (must stay warm)`);
   }
 });
+
+// =====================================================================================
+// 人物菜单快照 (<xiaoni_people>) — 缓存契约(只增,不动上面任何断言):
+//   ① 渲染确定性 + 位置:紧跟 <xiaoni_diary_index> 之下(status+2);null 快照零渲染,纯增量。
+//   ② STW 同帧换血:人物菜单换血必须与 <xiaoni_status>/<xiaoni_diary_index> 同一切换帧,
+//      蹭同一次冷读;切换前后各自冻结。
+// =====================================================================================
+
+test('people index: deterministic render right below <xiaoni_diary_index>; null snapshot renders nothing', () => {
+  const prompt = createRuntimePrompt();
+  const payload: any = baseQueuePayload();
+  const DIARY = '- 2026-07-24 | 做了不响';
+  const PEOPLE = '- 阿花(85178516) | owner,agent方向\n- 楠楠 | 在考研';
+  const buildOnce = () => buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, DIARY, PEOPLE);
+  const a = buildOnce();
+  const b = buildOnce();
+  assert.equal(JSON.stringify(a), JSON.stringify(b), 'same inputs must render byte-identically (deterministic people block)');
+  const texts = a.map((it: any) => JSON.stringify(it));
+  const statusIdx = texts.findIndex((t) => t.includes('<xiaoni_status>'));
+  const diaryIdx = texts.findIndex((t) => t.includes('<xiaoni_diary_index>'));
+  const peopleIdx = texts.findIndex((t) => t.includes('<xiaoni_people>'));
+  assert.ok(peopleIdx >= 0, 'must render <xiaoni_people>');
+  assert.equal(diaryIdx, statusIdx + 1, 'diary block keeps its frozen position');
+  assert.equal(peopleIdx, diaryIdx + 1, '<xiaoni_people> must sit immediately below <xiaoni_diary_index> (frozen head position)');
+  assert.ok(texts[peopleIdx].includes('85178516'), 'people block must carry the snapshot content');
+
+  const withoutPeople = buildInitialInput([], payload, prompt, [], '近况文本', null, null, 'fresh_trigger', false, null, null, [], null, DIARY, null);
+  assert.ok(!JSON.stringify(withoutPeople).includes('xiaoni_people'), 'null people snapshot must render NO block');
+  const aWithoutPeopleItems = a.filter((_: any, i: number) => i !== peopleIdx);
+  assert.equal(JSON.stringify(aWithoutPeopleItems), JSON.stringify(withoutPeople), 'people block must be purely additive — all other items byte-identical');
+});
+
+test('people index: STW switch swaps the snapshot in the SAME frame as <xiaoni_status>; frozen on both sides', async () => {
+  const KEY = 'xiaoni:test-global';
+  const OLD_SUMMARY = '旧近况：很久以前的一大堆上下文';
+  const NEW_SUMMARY = '压缩后近况：只保留最近的事';
+  const OLD_PEOPLE = '- 阿花(85178516) | 人物菜单旧行';
+  const NEW_PEOPLE = '- 阿花(85178516) | 人物菜单旧行\n- 楠楠 | 压缩时补的人物新行';
+  const NEW_CUTOFF = 300;
+
+  const historyBlocks = [100, 200, 300, 400, 500].map((stackIndex) => ({
+    stack_index: stackIndex, stackIndex, item_kind: 'runtime_input', itemKind: 'runtime_input',
+    visibility: 'model_visible',
+    content: { input_items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `历史消息-${stackIndex}` }] }] }
+  }));
+  let cutoffFlipped = false;
+
+  const store: any = {
+    createLlmJob: async () => 'job-peopleindex-stw',
+    logTimelineEvent: async () => {},
+    listAgentStackItems: async (params: any) => {
+      const after = params.afterStackIndex ?? null;
+      const floor = after === null || typeof after === 'undefined' ? -Infinity : Number(after);
+      return historyBlocks.filter((b) => b.stack_index > floor).map((b) => ({ ...b }));
+    },
+    getSessionReadCutoffState: async () => cutoffFlipped
+      ? { readCutoffAfterStackIndex: NEW_CUTOFF, contextSummary: NEW_SUMMARY, peopleIndexSnapshot: NEW_PEOPLE, pendingProactiveShare: null, pendingProactiveShareAge: 0 }
+      : { readCutoffAfterStackIndex: null, contextSummary: OLD_SUMMARY, peopleIndexSnapshot: OLD_PEOPLE, pendingProactiveShare: null, pendingProactiveShareAge: 0 },
+    upsertSessionReadCutoffState: async () => {},
+    upsertProactiveShareState: async () => {},
+    recordRuntimeIdentityActivation: async () => {},
+    getExecutionLeaseDeliveryState: async () => ({ deliveryPhase: 'idle', deliveryCommitCount: 0, blockedDeliveryAttemptCount: 0, lastBlockedDeliveryReason: null }),
+    markLeaseVisibleDeliveryCommitted: async () => {},
+    markLeaseDeliveryBlocked: async () => {},
+    completeAgentStackToolExecution: async () => {},
+    recordAgentStackToolExecution: async () => {},
+    getAgentStackHead: async () => 0,
+    appendAgentStackItems: async () => [],
+    updateLlmRequestSliceStackLinks: async () => null,
+    foldPendingNotifyIntoRun: async () => null,
+    createConversation: async () => 9999,
+    attachConversationIdToTrace: async () => {},
+    settleQueueMessages: async () => {},
+    failQueueMessage: async () => {},
+    releaseExecutionLease: async () => {},
+    updateLlmJob: async () => {}
+  };
+
+  const service = new AgentLoopService(store, { resolveForQueueMessage: async () => createRuntimePrompt() } as any);
+  (service as any).executeTool = async () => ({ success: true, output: 'ok', message_type: 'tool_result' });
+
+  const sentInputs: any[][] = [];
+  let turn = 0;
+  (service as any).executeAgentTurn = async (canonicalRequest: any) => {
+    sentInputs.push(canonicalRequest.input || []);
+    turn += 1;
+    if (turn === 2) {
+      cutoffFlipped = true;
+      (service as any).pendingCompressionAppliedCutoffBySession.set(KEY, NEW_CUTOFF);
+    }
+    if (turn <= 5) {
+      return { success: true, llm_call_id: `llm-pis-${turn}`, llm_request_slice_id: `slice-pis-${turn}`,
+        canonical_response: { output: [{ type: 'function_call', call_id: `call-pis-${turn}`, name: EXEC_COMMAND_TOOL, arguments: `{"cmd":"echo ${turn}"}` }] } };
+    }
+    return { success: true, llm_call_id: `llm-pis-${turn}`, llm_request_slice_id: `slice-pis-${turn}`,
+      canonical_response: { output: [{ type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text: '好。' }] }] } };
+  };
+
+  const queueMessage = { id: 'run-PIS', traceId: 'runtrace-PIS', batchId: 'batch-PIS', status: 'processing',
+    attempts: 1, maxAttempts: 3, queueMessageIds: [1], createdAt: '2026-06-29T08:00:00.000Z', payload: baseQueuePayload({ traceId: 'runtrace-PIS', runId: 'run-PIS' }) };
+  await (service as any).processRuntimeFrame(queueMessage, { queueBacked: true });
+
+  const has = (input: any[], needle: string) => JSON.stringify(input).includes(needle);
+  const summaryEpochs = sentInputs.map((inp) => has(inp, NEW_SUMMARY) ? 'new' : (has(inp, OLD_SUMMARY) ? 'old' : '?'));
+  const peopleEpochs = sentInputs.map((inp) => has(inp, '压缩时补的人物新行') ? 'new' : (has(inp, '人物菜单旧行') ? 'old' : '?'));
+  assert.deepEqual(peopleEpochs, summaryEpochs, `people swap frame must coincide with <xiaoni_status> swap frame exactly (people=${peopleEpochs.join(',')} vs summary=${summaryEpochs.join(',')})`);
+  const firstNew = peopleEpochs.indexOf('new');
+  assert.ok(firstNew >= 1, 'the switch must actually happen');
+  assert.ok(peopleEpochs.slice(0, firstNew).every((e) => e === 'old'), 'pre-switch turns must all carry the OLD people menu (frozen)');
+  assert.ok(peopleEpochs.slice(firstNew).every((e) => e === 'new'), 'post-switch turns must all carry the NEW people menu (frozen, no flip back)');
+  for (let i = firstNew; i + 1 < sentInputs.length; i += 1) {
+    assertOrderedPrefix(stripVolatile(sentInputs[i]), stripVolatile(sentInputs[i + 1]), `post-switch turn ${i}->${i + 1} with people index (must stay warm)`);
+  }
+});

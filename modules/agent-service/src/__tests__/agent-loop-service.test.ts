@@ -3632,6 +3632,7 @@ test('core memory compression commit no-ops when durable cutoff already covers t
 test('core memory compression commit uses atomic summary and cutoff persistence when available', async () => {
   // 钉死快照来源:指向必然不存在的路径 → 恒 null,不再依赖宿主机没有 /xiaoni-runtime
   process.env.XIAONI_DIARY_INDEX_PATH = '/nonexistent-diary-index-scratch/INDEX.md';
+  process.env.XIAONI_PEOPLE_INDEX_PATH = '/nonexistent-people-index-scratch/INDEX.md';
   const atomicWrites: any[] = [];
   const timelineEvents: any[] = [];
   const recentTail = Array.from({ length: 31 }, (_, index) => createConversationTurn({
@@ -3708,8 +3709,9 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
   assert.deepEqual(atomicWrites[0], {
     sessionKey: 'xiaoni:test-global',
     contextSummary: '原子写入的近况。',
-    // 日记索引快照与近况同一原子提交;测试开头把 XIAONI_DIARY_INDEX_PATH 钉到不存在路径 → 恒 null
+    // 两份菜单快照与近况同一原子提交;测试开头把两个 PATH 都钉到不存在路径 → 恒 null
     diaryIndexSnapshot: null,
+    peopleIndexSnapshot: null,
     readCutoffAfterStackIndex: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,
