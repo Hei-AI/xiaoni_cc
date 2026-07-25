@@ -195,6 +195,9 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   // 与 context_summary 同一原子提交、同帧换血。live 与 stack replay 都从这一列渲染
   // <xiaoni_diary_index>,绝不逐轮重读文件——否则两次压缩之间前缀字节漂移=缓存击穿。
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS diary_index_snapshot TEXT`,
+  // 人物菜单快照:同帧从 /xiaoni-runtime/notes/people/INDEX.md 读到的冻结串,与
+  // diary_index_snapshot 完全同款生命周期,渲染 <xiaoni_people>。
+  `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS people_index_snapshot TEXT`,
   'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)'
 ];
 
@@ -287,6 +290,7 @@ function mapSessionReadCutoffState(row) {
     lastHardBudgetTokens: row.last_hard_budget_tokens === null ? null : Number(row.last_hard_budget_tokens),
     contextSummary: row.context_summary ?? null,
     diaryIndexSnapshot: row.diary_index_snapshot ?? null,
+    peopleIndexSnapshot: row.people_index_snapshot ?? null,
     pendingProactiveShare: row.pending_proactive_share ?? null,
     pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
     consecutiveOverCompressionTurns: row.consecutive_over_compression_turns == null ? 0 : Number(row.consecutive_over_compression_turns),
@@ -746,6 +750,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             last_hard_budget_tokens,
             context_summary,
             diary_index_snapshot,
+            people_index_snapshot,
             pending_proactive_share,
             pending_proactive_share_age,
             consecutive_over_compression_turns,
@@ -819,6 +824,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             last_hard_budget_tokens,
             context_summary,
             diary_index_snapshot,
+            people_index_snapshot,
             pending_proactive_share,
             pending_proactive_share_age,
             updated_at
@@ -845,17 +851,19 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             session_key,
             context_summary,
             diary_index_snapshot,
+            people_index_snapshot,
             read_cutoff_after_stack_index,
             last_context_window_tokens,
             last_target_budget_tokens,
             last_hard_budget_tokens,
             updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT (session_key)
           DO UPDATE SET
             context_summary = EXCLUDED.context_summary,
             diary_index_snapshot = EXCLUDED.diary_index_snapshot,
+            people_index_snapshot = EXCLUDED.people_index_snapshot,
             read_cutoff_after_stack_index = EXCLUDED.read_cutoff_after_stack_index,
             last_context_window_tokens = EXCLUDED.last_context_window_tokens,
             last_target_budget_tokens = EXCLUDED.last_target_budget_tokens,
@@ -869,6 +877,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             last_hard_budget_tokens,
             context_summary,
             diary_index_snapshot,
+            people_index_snapshot,
             pending_proactive_share,
             pending_proactive_share_age,
             updated_at
@@ -877,6 +886,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           sessionKey,
           input.contextSummary,
           typeof input.diaryIndexSnapshot === 'string' && input.diaryIndexSnapshot.length > 0 ? input.diaryIndexSnapshot : null,
+          typeof input.peopleIndexSnapshot === 'string' && input.peopleIndexSnapshot.length > 0 ? input.peopleIndexSnapshot : null,
           readCutoffAfterStackIndex,
           input.lastContextWindowTokens,
           input.lastTargetBudgetTokens,

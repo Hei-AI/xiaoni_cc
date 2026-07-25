@@ -144,9 +144,11 @@ test('commitSessionContextSummaryAndReadCutoff writes summary and cutoff in one 
   assert.equal(queries[2].sql.includes('INSERT INTO agent_session_context_windows'), true);
   assert.equal(queries[2].params[0], 'xiaoni:test-global');
   assert.equal(queries[2].params[1], 'new summary');
-  // params[2] = diary_index_snapshot(未传 → null),readCutoff 顺移到 params[3]
+  // params[2] = diary_index_snapshot、params[3] = people_index_snapshot(均未传 → null),
+  // readCutoff 顺移到 params[4]
   assert.equal(queries[2].params[2], null);
-  assert.equal(queries[2].params[3], 171);
+  assert.equal(queries[2].params[3], null);
+  assert.equal(queries[2].params[4], 171);
 });
 
 test('commitSessionContextSummaryAndReadCutoff persists diaryIndexSnapshot atomically with summary+cutoff', async () => {
@@ -207,6 +209,91 @@ test('commitSessionContextSummaryAndReadCutoff persists diaryIndexSnapshot atomi
   assert.ok(insert.sql.includes('diary_index_snapshot'));
   assert.equal(insert.params[2], INDEX_SNAPSHOT);
   assert.equal(result.state.diaryIndexSnapshot, INDEX_SNAPSHOT);
+});
+
+test('commitSessionContextSummaryAndReadCutoff persists peopleIndexSnapshot atomically alongside diary snapshot', async () => {
+  const queries = [];
+  const DIARY_SNAPSHOT = '- 2026-07-24 | 做了不响';
+  const PEOPLE_SNAPSHOT = '- 阿花(85178516) | owner,agent方向,拿我当作品集';
+  const tx = {
+    query: async (sql, params = []) => {
+      queries.push({ sql, params });
+      if (sql.includes('pg_advisory_xact_lock')) return [];
+      if (sql.includes('FOR UPDATE')) return [];
+      if (sql.includes('INSERT INTO agent_session_context_windows')) {
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 171,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'new summary',
+          diary_index_snapshot: DIARY_SNAPSHOT,
+          people_index_snapshot: PEOPLE_SNAPSHOT,
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          updated_at: '2026-07-25T00:01:00.000Z'
+        }];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      withTransaction: async (callback) => callback(tx),
+      query: async () => { throw new Error('should use transaction'); },
+      execute: async () => { throw new Error('should not use execute'); },
+      close: async () => undefined
+    }
+  });
+  const result = await persistence.commitSessionContextSummaryAndReadCutoff({
+    sessionKey: 'xiaoni:test-global',
+    contextSummary: 'new summary',
+    diaryIndexSnapshot: DIARY_SNAPSHOT,
+    peopleIndexSnapshot: PEOPLE_SNAPSHOT,
+    readCutoffAfterStackIndex: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+  assert.equal(result.committed, true);
+  // 两份快照与 summary/cutoff 同一条 INSERT(同一事务帧)
+  const insert = queries.find((entry) => entry.sql.includes('INSERT INTO agent_session_context_windows'));
+  assert.ok(insert.sql.includes('people_index_snapshot'));
+  assert.equal(insert.params[2], DIARY_SNAPSHOT);
+  assert.equal(insert.params[3], PEOPLE_SNAPSHOT);
+  assert.equal(result.state.peopleIndexSnapshot, PEOPLE_SNAPSHOT);
+});
+
+test('getSessionReadCutoffState selects people_index_snapshot and maps it', async () => {
+  const PEOPLE_SNAPSHOT = '- 楠楠 | 在考研,答应盯她进度';
+  const queries = [];
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      query: async (sql, params = []) => {
+        queries.push({ sql, params });
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 171,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'summary',
+          diary_index_snapshot: null,
+          people_index_snapshot: PEOPLE_SNAPSHOT,
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          consecutive_over_compression_turns: 0,
+          updated_at: '2026-07-25T00:00:00.000Z'
+        }];
+      },
+      execute: async () => {},
+      close: async () => undefined
+    }
+  });
+  const state = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
+  assert.ok(queries[0].sql.includes('people_index_snapshot'), 'SELECT must carry people_index_snapshot');
+  assert.equal(state.peopleIndexSnapshot, PEOPLE_SNAPSHOT);
 });
 
 test('getSessionReadCutoffState selects diary_index_snapshot and maps it (live 与 replay 同源渲染)', async () => {
