@@ -729,6 +729,22 @@ export function setPsychAssessmentGateEnabled(value: unknown): void {
   }
 }
 
+// 自驱动 fork 的空转升级总开关。默认 OFF：不计数、不渲染升级段 → fork 与主 agent 的请求体与改动前
+// 逐字节一致(行为零变化，冻结缓存回归用例无需改断言即绿)。ON 之后，连续空转达阈值时，**只在 fork 的
+// 尾部追加段**告诉潜意识「上一份 plan 已经连着 N 轮没被执行」并回贴那份 plan 的原文，由它自己决定
+// 语气多硬。
+//
+// 边界(本特性的核心约束)：升级信号是 fork 的【私有输入】，**绝不进主 agent 上下文、绝不写 stack**。
+// 往主上下文注入「你已经失败 N 次」本身就是负面状态注入，正是 text gate(:816)要挡的那一类；而且
+// fork 请求带 no_persist，本就不参与主 run replay → 不存在「live 请求与 stack replay 不一致」这个
+// 风险类别。与 debug-heartbeat / strip_xiaoni_os_from_requests / psych gate 同套热下发。
+let FORK_IDLE_ESCALATION_ENABLED = false;
+export function setForkIdleEscalationEnabled(value: unknown): void {
+  if (typeof value === 'boolean') {
+    FORK_IDLE_ESCALATION_ENABLED = value;
+  }
+}
+
 function tryParseJsonObjectString(text: unknown): Record<string, unknown> | null {
   if (typeof text !== 'string') {
     return null;
@@ -863,6 +879,75 @@ const COMPRESSION_OVERRUN_MARGIN_TOKENS = 100_000;
 const COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
 const consecutiveOverOverrunThresholdBySession = new Map<string, number>();
+
+// ── 连续空转计数：主 agent 连着多少轮没执行 xiaoni_plan ────────────────────────────────────────
+// 度量的是「上一份 plan 失效了几轮」，只喂给自驱动 fork(见 FORK_IDLE_ESCALATION_ENABLED)。
+// 第 1 轮空转仍走原文，给她自主机会；连续 >= 阈值才升级。
+const IDLE_ESCALATION_AFTER_ROUNDS = 2;
+const consecutiveIdlePlanFailuresBySession = new Map<string, number>();
+// 上一份真正发出去的 plan 原文(已剥 <xiaoni_plan> 包装)，升级时原样回贴给 fork 看。
+const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
+
+export function getConsecutiveIdlePlanFailures(sessionKey: string): number {
+  return consecutiveIdlePlanFailuresBySession.get(sessionKey) ?? 0;
+}
+
+export function resetConsecutiveIdlePlanFailures(sessionKey: string): void {
+  if (!sessionKey) {
+    return;
+  }
+  consecutiveIdlePlanFailuresBySession.set(sessionKey, 0);
+}
+
+// 一次 settle 的记账。didRealWork = 该 run 碰了世界(任一非 recover_energy 的工具调用) 或 消费了真外部
+// 入向(QQ 来消息) —— 两者都说明「她在响应真实输入 / 真干了活」，归零。
+//
+// recover_energy 【不】算真活：睡觉不是干活。若让它归零，她可以靠「睡一下」把计数清掉、永远躲开升级。
+export function recordIdlePlanSettle(
+  sessionKey: string,
+  params: { settledOnFinalAnswer: boolean; didRealWork: boolean }
+): void {
+  if (!sessionKey) {
+    return;
+  }
+  if (params.didRealWork) {
+    consecutiveIdlePlanFailuresBySession.set(sessionKey, 0);
+    return;
+  }
+  if (!params.settledOnFinalAnswer) {
+    return;
+  }
+  consecutiveIdlePlanFailuresBySession.set(
+    sessionKey,
+    (consecutiveIdlePlanFailuresBySession.get(sessionKey) ?? 0) + 1
+  );
+}
+
+export function setLastEmittedSubconsciousPlan(sessionKey: string, text: unknown): void {
+  if (!sessionKey || typeof text !== 'string') {
+    return;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return;
+  }
+  lastEmittedSubconsciousPlanBySession.set(sessionKey, trimmed);
+}
+
+export function getLastEmittedSubconsciousPlan(sessionKey: string): string | null {
+  return lastEmittedSubconsciousPlanBySession.get(sessionKey) ?? null;
+}
+
+// 升级只在【开关 ON】+【连续空转达阈值】+【手上有上一份 plan 原文】三者同时成立时发生。
+// 缺任何一个(含重启后 lastPlan 为空)都退回普通分支，不渲染半截升级段。
+export function shouldEscalateSubconsciousFork(params: {
+  idleRounds: number;
+  lastPlanText: string | null;
+}): boolean {
+  return FORK_IDLE_ESCALATION_ENABLED
+    && params.idleRounds >= IDLE_ESCALATION_AFTER_ROUNDS
+    && Boolean(params.lastPlanText);
+}
 function recordMainTurnInputTokensForCompression(sessionKey: string, actualInputTokens: number | null): void {
   if (!sessionKey) {
     return;
@@ -2546,10 +2631,14 @@ export function buildCoreMemoryCompressionForkRequest(
   return forkRequest;
 }
 
+// `reminderText` 默认就是主 agent 那份续航提醒 —— 不传时与改动前逐字节一致。空转升级时由调用方
+// (runSubconsciousAgentFork)【算好一次】再传进来：同一次 fork 的所有 turn 必须共用同一份字节，
+// 否则 fork 自己的多 turn 前缀会分叉、turn-2 起冷读。
 export function buildSubconsciousAgentForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   forkTurn: number,
-  recentNarrationItems: OpenResponseInputItem[] = []
+  recentNarrationItems: OpenResponseInputItem[] = [],
+  reminderText: string = renderSelfContinuationReminder()
 ): CanonicalAgentTurnRequest {
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   forkRequest.parallel_tool_calls = false;
@@ -2567,7 +2656,7 @@ export function buildSubconsciousAgentForkRequest(
       ...(item as Record<string, unknown>),
       cache_volatile: true
     }) as unknown as OpenResponseInputItem),
-    buildDeveloperInputItem([renderSelfContinuationReminder()])
+    buildDeveloperInputItem([reminderText])
   ]);
   // Cache-alignment (Layer 1): inherit the main loop's auto tool_choice/tools and share
   // the same stripped prefix, so the fork's prefix is byte-identical and rides the warm
@@ -3907,8 +3996,43 @@ function renderTranscriptItemForRuntimeContext(item: ConversationTranscriptItem)
   ]);
 }
 
+// 主 agent 的续航提醒。**这条路径不许动** —— 它的产物经 buildSelfContinuationInputItem 冻结进
+// stack(content.system_reminder)，是主 run replay 要逐字节重建的东西。空转计数/升级段绝不能从这里进去。
 function renderSelfContinuationReminder() {
   return formatSystemReminderBlock(readPromptSnippet('self_continuation_reminder.md'));
+}
+
+// 自驱动 fork 的引导 prompt。与主 agent 的续航提醒【同源不同路】：
+//  - 不升级时：直接返回 renderSelfContinuationReminder() 本身 → 与主 agent 结构性逐字节一致，
+//    不是靠复制一份文案再比对(那样迟早漂)。
+//  - 升级时：在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里，
+//    fork 请求带 no_persist、不写 stack、不进主 run replay → 主 agent 永远看不到计数这回事。
+function renderSubconsciousForkReminder(params: {
+  idleRounds: number;
+  lastPlanText: string | null;
+}) {
+  if (!shouldEscalateSubconsciousFork(params)) {
+    return renderSelfContinuationReminder();
+  }
+  const escalation = renderPromptSnippet('subconscious_fork_idle_escalation.md', {
+    IDLE_ROUNDS: String(params.idleRounds),
+    LAST_XIAONI_PLAN: String(params.lastPlanText)
+  });
+  return formatSystemReminderBlock(
+    `${readPromptSnippet('self_continuation_reminder.md')}\n\n${escalation}`
+  );
+}
+
+// 测试出线口：两条路径都要能被直接对拍，隔离专项断言(主 agent 那份不许因 fork 升级而变)靠它。
+export function renderSubconsciousForkReminderForTest(params: {
+  idleRounds: number;
+  lastPlanText: string | null;
+}) {
+  return renderSubconsciousForkReminder(params);
+}
+
+export function renderSelfContinuationReminderForTest() {
+  return renderSelfContinuationReminder();
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
@@ -6246,12 +6370,17 @@ export class AgentLoopService {
     // SENT request (assistant-text-stripped → byte-identical to the warm cache); the settling
     // narration (D) rides in as `recentNarrationItems`, re-injected at the fork's TAIL by
     // buildSubconsciousAgentForkRequest. No fork-side rebuild or stripping; prefix stays warm.
+    // 空转升级：把「上一份 plan 连着几轮没被执行」和那份 plan 的原文交给潜意识，让它自己决定语气多硬。
+    // 这两样【只】进 fork 的尾部 reminder，永不进主 agent 上下文、永不写 stack(fork 请求 no_persist)。
+    // 开关 OFF / 未达阈值 / 手上没有上一份 plan 时 renderSubconsciousForkReminder 退回原文，逐字节零变化。
     const fork = this.runSubconsciousAgentFork({
       baseRequest: seed.canonicalRequest,
       recentNarrationItems: seed.recentNarrationItems,
       queueMessage: payload,
       runtimePrompt,
-      contextSessionKey
+      contextSessionKey,
+      idleRounds: getConsecutiveIdlePlanFailures(contextSessionKey),
+      lastPlanText: getLastEmittedSubconsciousPlan(contextSessionKey)
     });
     this.subconsciousAgentForkInFlight = fork;
     void fork.then((enqueued) => {
@@ -7544,6 +7673,10 @@ export class AgentLoopService {
         });
       }
 
+      // 空转记账用的 run 级累加器：这一整个 run 有没有真的碰过世界。
+      // recover_energy 不算 —— 睡觉不是干活，否则「睡一下」就能把连续空转计数清零、永远躲开升级。
+      let runTouchedWorld = false;
+
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
         await this.yieldBeforeMainAgentModelSlice();
@@ -7755,6 +7888,11 @@ export class AgentLoopService {
         const toolReplayItems = replayableOutputs.filter(isReplayableToolCall);
         const orderedToolReplayItems = orderRuntimeToolCalls(toolReplayItems);
         const hasRecoverEnergyInBatch = toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.recoverEnergy);
+        // 只要这一 turn 调了任何非 recover_energy 的工具，就算这个 run 碰过世界 → 连续空转计数归零。
+        // 判在【模型发出工具调用】这一刻，而不是执行成功之后：工具报错也是她真动手了，不该算空转。
+        if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy)) {
+          runTouchedWorld = true;
+        }
         const preSleepToolTimeline: PreSleepToolTimelineEntry[] = [];
         if (
           toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.execCommand)
@@ -8203,6 +8341,15 @@ export class AgentLoopService {
           recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
           settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
+        // 连续空转记账。归零条件二选一：
+        //  (a) runTouchedWorld —— 这个 run 调过任何非 recover_energy 的工具(真动手了)；
+        //  (b) 这个 run 是被【真外部入向】唤醒的(QQ 来消息) —— 她在响应真实输入，不是自己跟自己空转。
+        // 都不满足且这一 settle 落在 final_answer 上(纯文本零动作收工) → +1。
+        // 计数只喂 fork,不进主 agent 上下文、不写 stack。
+        recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer,
+          didRealWork: runTouchedWorld || !isSystemReminderPayload(payload)
+        });
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
           eventType: 'decision',
@@ -10250,6 +10397,9 @@ export class AgentLoopService {
     // stripped from baseRequest (the warm sent prefix), so this is how the fork still sees
     // "what she just said" without diverging the cache lineage.
     recentNarrationItems?: OpenResponseInputItem[];
+    // 空转升级的两个入参：连续失效轮数 + 上一份 plan 原文。只影响 fork 尾部那条 reminder item。
+    idleRounds?: number;
+    lastPlanText?: string | null;
 	  }): Promise<boolean> {
     const forkRunId = `subconscious-fork:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const baseForkMetadata = {
@@ -10284,14 +10434,30 @@ export class AgentLoopService {
       // not touch the world; its only output is a <xiaoni_plan>. self_continuation_reminder.md
       // tells the model this ("只在脑子里想，不许调任何工具"), and this is what makes that true.
       const allowedToolNames = new Set<string>();
-      let forkInput = buildSubconsciousAgentForkRequest(params.baseRequest, 1, params.recentNarrationItems).input;
+      // 算【一次】，此后 turn-1 的 input 种子和每个 forkTurn 的 request 共用同一份字节。若每 turn 重算，
+      // 升级段一旦随时间/状态漂移就会让 fork 自己的多 turn 前缀分叉 → turn-2 起冷读整窗。
+      const forkReminderText = renderSubconsciousForkReminder({
+        idleRounds: params.idleRounds ?? 0,
+        lastPlanText: params.lastPlanText ?? null
+      });
+      let forkInput = buildSubconsciousAgentForkRequest(
+        params.baseRequest,
+        1,
+        params.recentNarrationItems,
+        forkReminderText
+      ).input;
       let pendingForkOneShotInputItems: OpenResponseInputItem[] = [];
       let forkToolCallCount = 0;
       let lastForkSliceId: string | null = null;
       let lastLlmCallId: string | null = null;
 
       for (let forkTurn = 1; forkTurn <= SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES; forkTurn += 1) {
-        const forkRequest = buildSubconsciousAgentForkRequest(params.baseRequest, forkTurn, params.recentNarrationItems);
+        const forkRequest = buildSubconsciousAgentForkRequest(
+          params.baseRequest,
+          forkTurn,
+          params.recentNarrationItems,
+          forkReminderText
+        );
         const forkRequestInput = pendingForkOneShotInputItems.length > 0
           ? [...forkInput, ...pendingForkOneShotInputItems]
           : forkInput;
@@ -10608,6 +10774,9 @@ export class AgentLoopService {
     const messageSid = `subconscious-agent:${params.forkRunId}`;
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
+    // 记下这份真正发出去的 plan 原文。下一次空转升级时原样回贴给潜意识看 —— 它得知道「失败的是哪一份」，
+    // 否则只会把同一批方向换个说法再写一遍(实测 95 条 plan 只有 22 种开头)。纯进程内存，不进任何请求前缀。
+    setLastEmittedSubconsciousPlan(sessionKey, params.text);
     const promptFacingText = renderSubconsciousAgentNotify(params.text);
     const rawPayload = {
       reason: 'subconscious_agent',
