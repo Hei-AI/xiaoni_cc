@@ -388,6 +388,12 @@ PostgreSQL 结构化时间字段使用 `TIMESTAMPTZ(3)` 存 Instant。共享序�
 Asia/Shanghai / UTC+08。涉及 action stream、life projection、recover energy 和 usage
 timeline 的新时间字段必须复用该层，避免把存储 Instant 误展示成其他时区。
 
+## 压缩存活面（一句话心智模型）
+
+**冻结态必活，栈上会话态看 cutoff。** 压缩(STW 切换)之后：凡进了 `agent_session_context_windows` 冻结列的（`context_summary` 近况、`diary_index_snapshot` 日记菜单、`people_index_snapshot` 人物菜单）和磁盘上她自写的文件（日记正文、people 档案、identity-anchor），必然回来；只活在上下文里、落在 `read_cutoff` 之下的会话细节，必然从在场消失，只能靠她主动翻文件或被动召回浮回。（对照 Claude Code 官方对 compact 的表述「磁盘态必活/会话态必死」，同一条公理。）
+
+**门只护正常路径，兜底护活性。** 菜单验收（300 行/20KB/单行 300B）与近况胶囊验收（300–8000 字）都在 `commit_memory.py` 的正常提交路径上——不达标拒收、退回重写。压缩 fork 轮数耗尽走引擎硬兜底提交时，这些门全部被绕过：那一刻用验收换「压缩必然完成」。超限菜单最终由引擎展示端兜底（快照超 25KB 整块换成指引，绝不渲染部分菜单）；近况引擎侧有意不设截断——身份摘要只能在写入层把关，不能被机械剪。
+
 ## Request Assembly
 
 每轮请求由固定前缀和 stack 窗口组成：
