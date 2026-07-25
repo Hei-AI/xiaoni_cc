@@ -18,32 +18,25 @@ test('clamp: empty/whitespace/non-string yields null (no empty block downstream)
   assert.equal(clampDiaryIndexSnapshot(undefined as unknown as string), null);
 });
 
-test('clamp: over-limit drops OLDEST lines first, keeps newest tail within byte cap', () => {
+test('clamp: over-limit renders the overflow notice — never a partial menu', () => {
   const lines: string[] = [];
   for (let i = 0; i < 1000; i += 1) {
-    lines.push(`- 2026-01-${String((i % 28) + 1).padStart(2, '0')} | 第${i}天的一句话钩子内容占位符`);
+    lines.push(`- 2026-01-${String((i % 28) + 1).padStart(2, '0')} | \u7b2c${i}\u5929\u7684\u4e00\u53e5\u8bdd\u94a9\u5b50\u5185\u5bb9\u5360\u4f4d\u7b26`);
   }
   const raw = lines.join('\n');
   const clamped = clampDiaryIndexSnapshot(raw);
   assert.ok(clamped !== null);
-  assert.ok(Buffer.byteLength(clamped as string, 'utf8') <= DIARY_INDEX_SNAPSHOT_MAX_BYTES, 'clamped snapshot must fit the byte cap');
-  const outLines = (clamped as string).split('\n');
-  // 截断必须留下可见标记(超限反馈闭环兜底),标记里带被藏行数
-  assert.ok(outLines[0].includes('菜单超上限'), 'truncation must surface a visible marker line');
-  const keptLines = outLines.slice(1);
-  // 保最新 = 标记之后必须是原文的严格尾段
-  assert.deepEqual(keptLines, lines.slice(lines.length - keptLines.length), 'kept lines must be the exact newest tail of the original');
-  assert.equal(keptLines[keptLines.length - 1], lines[lines.length - 1], 'the newest line must survive');
-  assert.ok(!keptLines.includes(lines[0]), 'the oldest line must be dropped');
-  assert.ok(outLines[0].includes(String(lines.length - keptLines.length)), 'marker must state how many lines were hidden');
-  // 确定性:同输入同输出
+  assert.ok(Buffer.byteLength(clamped as string, 'utf8') <= DIARY_INDEX_SNAPSHOT_MAX_BYTES);
+  // \u5168\u6709\u6216\u5168\u65e0:\u8d85\u9650\u65f6\u4e0d\u8bb8\u663e\u793a\u4efb\u4f55\u83dc\u5355\u5185\u5bb9(\u90e8\u5206\u83dc\u5355=\u5fd8\u4eba\u4e8b\u6545\u590d\u523b),\u53ea\u7ed9\u6307\u5f15
+  assert.ok((clamped as string).includes('\u663e\u793a\u4e0d\u4e0b'), 'overflow must render the notice');
+  assert.ok(!(clamped as string).includes('\u94a9\u5b50\u5185\u5bb9\u5360\u4f4d\u7b26'), 'overflow must NOT leak any menu lines');
+  // \u786e\u5b9a\u6027:\u540c\u8f93\u5165\u540c\u8f93\u51fa
   assert.equal(clampDiaryIndexSnapshot(raw), clamped);
 });
 
-test('clamp: no marker when content fits (标记只在真截断时出现)', () => {
-  const raw = '- 2026-07-24 | 做了不响';
+test('clamp: no notice when content fits', () => {
+  const raw = '- 2026-07-24 | \u505a\u4e86\u4e0d\u54cd';
   assert.equal(clampDiaryIndexSnapshot(raw), raw);
-  assert.ok(!(clampDiaryIndexSnapshot(raw) as string).includes('菜单超上限'));
 });
 
 test('clamp: strips NUL bytes (PG text rejects \\u0000; poisoned INDEX.md must not stall the atomic commit)', () => {
@@ -56,17 +49,13 @@ test('clamp: content exactly at maxBytes passes through unchanged', () => {
   assert.equal(clampDiaryIndexSnapshot(exact), exact);
 });
 
-test('clamp: single newest line over maxBytes is truncated at codepoint boundary, not dropped wholesale', () => {
-  const older = '- 2026-07-23 | 老的一行';
-  // 随 cap 缩放:保证单行始终超 DIARY_INDEX_SNAPSHOT_MAX_BYTES,cap 调大不失效
-  const huge = `- 2026-07-24 | ${'钩'.repeat(Math.ceil(DIARY_INDEX_SNAPSHOT_MAX_BYTES / 3) + 1000)}`;
-  const clamped = clampDiaryIndexSnapshot(`${older}\n${huge}`);
-  assert.ok(clamped !== null, 'menu must not vanish because of one oversized line');
+test('clamp: single oversized line also renders the notice (same all-or-nothing rule)', () => {
+  const huge = `- 2026-07-24 | ${'\u94a9'.repeat(Math.ceil(DIARY_INDEX_SNAPSHOT_MAX_BYTES / 3) + 1000)}`;
+  const clamped = clampDiaryIndexSnapshot(huge);
+  assert.ok(clamped !== null);
   assert.ok(Buffer.byteLength(clamped as string, 'utf8') <= DIARY_INDEX_SNAPSHOT_MAX_BYTES);
-  const outLines = (clamped as string).split('\n');
-  assert.ok(outLines[0].includes('已截断'), 'single-line truncation must surface a marker line');
-  assert.ok(outLines[1].startsWith('- 2026-07-24 | '), 'the newest line head must survive after the marker');
-  assert.ok(!(clamped as string).includes('�'), 'codepoint truncation must not split a character');
+  assert.ok((clamped as string).includes('\u663e\u793a\u4e0d\u4e0b'));
+  assert.ok(!(clamped as string).includes('\u94a9\u94a9'), 'no menu content may leak');
 });
 
 test('readDiaryIndexSnapshot: reads and clamps a real file; nonexistent path yields null', async () => {

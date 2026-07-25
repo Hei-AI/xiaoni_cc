@@ -13771,13 +13771,20 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
 export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 25600;
 // 人物菜单快照(<xiaoni_people>)同款 cap;人数增长远慢于日子,天然远小于此。
 export const PEOPLE_INDEX_SNAPSHOT_MAX_BYTES = 25600;
-// 截断标记行的预算预留:kept 行按 maxBytes-RESERVE 收,标记 ≤ RESERVE ⇒ 总量恒 ≤ cap。
-const INDEX_CLAMP_MARKER_RESERVE_BYTES = 200;
 
-// 超上限时从最老的行开始丢、保最新(索引按时间正序追加,尾部=最近)。行边界裁剪,确定性。
+// 展示端全有或全无:放得下就原样,放不下整块换成一句指引——永不显示"部分菜单"。
+// 为什么不裁行:人物菜单按重要性排(裁哪头都错),且部分菜单会被她读成"没在菜单上的
+// 人=不认识/不重要",恰好复刻忘 CC 的事故。不变式「文件 ≤ 软限」由 commit_memory.py
+// 在写入时机械保证(超限自动搬进子索引);这里只是搬家失败后的最后兜底。
 // NUL(\u0000)必须剥掉:她用 shell 自己维护这个文件,一个混入的 NUL 会让 PG text 列拒写,
 // 而快照和近况在同一个原子提交里——不剥就是可自伤的压缩永久卡死(fork 失败→重试→再读同一文件)。
-export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_INDEX_SNAPSHOT_MAX_BYTES): string | null {
+const INDEX_OVERFLOW_NOTICE_FALLBACK = '(这份菜单超过了上限,这里显示不下——先用 exec 看菜单文件全文,按锚点 skill 的规矩整理;整理完,下次整理记忆后这里就恢复)';
+
+function buildIndexOverflowNotice(sourcePath: string): string {
+  return `(这份菜单超过了上限,这里显示不下——先用 exec 看 ${sourcePath} 全文,按锚点 skill 的规矩整理;整理完,下次整理记忆后这里就恢复)`;
+}
+
+export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_INDEX_SNAPSHOT_MAX_BYTES, overflowNotice: string = INDEX_OVERFLOW_NOTICE_FALLBACK): string | null {
   const trimmed = typeof raw === 'string' ? raw.replace(/\u0000/g, '').trim() : '';
   if (!trimmed) {
     return null;
@@ -13785,44 +13792,7 @@ export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_IN
   if (Buffer.byteLength(trimmed, 'utf8') <= maxBytes) {
     return trimmed;
   }
-  // 真发生截断时首行加确定性标记(CC「超限报错逼当场重写」的兜底版):标记随快照存 DB,
-  // live/replay 同串零漂移,她抬眼看得见菜单爆了。写入时的第一道检查在 commit_memory.py
-  // 的 --check-menus(fail-open);这里是最后一张网。标记预算从 cap 里预留,总量恒 ≤ maxBytes。
-  const budget = Math.max(1, maxBytes - INDEX_CLAMP_MARKER_RESERVE_BYTES);
-  const lines = trimmed.split('\n');
-  const kept: string[] = [];
-  let bytes = 0;
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const lineBytes = Buffer.byteLength(lines[i], 'utf8') + (kept.length > 0 ? 1 : 0);
-    if (bytes + lineBytes > budget) {
-      break;
-    }
-    kept.unshift(lines[i]);
-    bytes += lineBytes;
-  }
-  if (kept.length === 0 && lines.length > 0) {
-    // 最新一行单独超限:按码点截断保留行首,而不是让整个菜单消失一个压缩周期。
-    const newest = lines[lines.length - 1];
-    let cut = '';
-    let cutBytes = 0;
-    for (const ch of newest) {
-      const chBytes = Buffer.byteLength(ch, 'utf8');
-      if (cutBytes + chBytes > budget) {
-        break;
-      }
-      cut += ch;
-      cutBytes += chBytes;
-    }
-    if (cut.length === 0) {
-      return null;
-    }
-    return `(菜单只有一行且超上限,已截断——按锚点 skill 的规矩整理它)\n${cut}`;
-  }
-  if (kept.length === 0) {
-    return null;
-  }
-  const dropped = lines.length - kept.length;
-  return `(菜单超上限,最老 ${dropped} 行被藏起来了——文件本身是全的,按锚点 skill 的规矩整理它)\n${kept.join('\n')}`;
+  return overflowNotice;
 }
 
 // 路径在调用时解析(而非模块加载时),测试可用 XIAONI_DIARY_INDEX_PATH 指向受控路径。
@@ -13830,7 +13800,7 @@ export async function readDiaryIndexSnapshot(indexPath?: string): Promise<string
   const resolvedPath = indexPath || process.env.XIAONI_DIARY_INDEX_PATH || '/xiaoni-runtime/notes/diary/INDEX.md';
   try {
     const raw = await fsReadFile(resolvedPath, 'utf8');
-    return clampDiaryIndexSnapshot(raw);
+    return clampDiaryIndexSnapshot(raw, DIARY_INDEX_SNAPSHOT_MAX_BYTES, buildIndexOverflowNotice(resolvedPath));
   } catch (error) {
     // null 快照会覆盖库里上一份(菜单消失一个压缩周期),必须留下可归因的痕迹——
     // 尤其挂载错位(sudo 无 HOME 挂空目录)这类瞬时故障。ENOENT 与其它错误分开看。
@@ -13845,7 +13815,7 @@ export async function readPeopleIndexSnapshot(indexPath?: string): Promise<strin
   const resolvedPath = indexPath || process.env.XIAONI_PEOPLE_INDEX_PATH || '/xiaoni-runtime/notes/people/INDEX.md';
   try {
     const raw = await fsReadFile(resolvedPath, 'utf8');
-    return clampDiaryIndexSnapshot(raw, PEOPLE_INDEX_SNAPSHOT_MAX_BYTES);
+    return clampDiaryIndexSnapshot(raw, PEOPLE_INDEX_SNAPSHOT_MAX_BYTES, buildIndexOverflowNotice(resolvedPath));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
     moduleLogger.warn('people index snapshot read failed; committing null snapshot', { path: resolvedPath, code });
