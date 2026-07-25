@@ -15,6 +15,7 @@ supported for back-compat / explicit callers.
 """
 import argparse
 import os
+import re
 import sys
 import tempfile
 import uuid
@@ -25,10 +26,13 @@ from datetime import datetime
 KEEP_RECENT = 12
 AUTO_PREFIX = 'xiaoni-status-'
 
-# 菜单健康自检(写入时闭环,CC「超限报错逼当场重写」的落点):她理完两张菜单紧接着跑本
-# 脚本,超限/超长行/NUL 当场喊出来,她还在这个 loop 里就能整理。fail-open 铁律:检查本身
-# 抛任何异常都不许影响提交——她自写文件的任何状态都不许把压缩卡死(红队 P1 教训)。
-# 数值与 reminder/anchor skill 的软限、引擎硬 cap(25600)保持:软限 < 硬 cap。
+# 菜单验收门(写入时强制,CC「超限报错逼当场重写」的落点):她理完两张菜单跑本脚本提交
+# 近况时,先验收菜单——不达标就拒收(不写文件、不打 XIAONI_COMPRESS_WROTE),把差在哪、
+# 怎么改打进 stdout,让她自己整理好再重新提交,直到满足要求。
+# 为什么敢硬拒:压缩 fork 有 MAX_TURNS 上限 + 引擎兜底提交,她一直不达标压缩也会走兜底
+# 完成——系统级 fail-open 由外层保证(红队 P1 铁律不破),所以这里可以硬。
+# 唯一自动修的是 NUL 字节(她看不见、没法"重新生成"它;引擎 clamp 也会剥,双保险)。
+# 数值与 reminder/anchor skill 的软限、引擎硬 cap(25600)对齐,三处同调。
 MENU_SOFT_MAX_BYTES = 20 * 1024
 MENU_SOFT_MAX_LINES = 300
 MENU_LINE_WARN_BYTES = 300
@@ -40,38 +44,6 @@ def default_runtime_root() -> str:
 
 def default_compress_dir() -> str:
     return f'{default_runtime_root()}/compress'
-
-
-def check_menu_health() -> None:
-    root = default_runtime_root()
-    menus = [
-        (f'{root}/notes/diary/INDEX.md', '日记目录',
-         '把最老的整月那些行搬进 INDEX-<YYYY-MM>.md(不是删),顶层留一行指路'),
-        (f'{root}/notes/people/INDEX.md', '人物菜单',
-         '把久不联系的人的行搬进 INDEX-past.md(不是删),顶层留一行指路'),
-    ]
-    for path, label, remedy in menus:
-        try:
-            with open(path, 'rb') as handle:
-                data = handle.read()
-        except OSError:
-            continue
-        problems = []
-        if b'\x00' in data:
-            problems.append('文件里混进了 NUL 字节(\\x00),系统会剥掉它——找到那处并删掉')
-        lines = data.decode('utf-8', errors='replace').splitlines()
-        if len(data) > MENU_SOFT_MAX_BYTES or len(lines) > MENU_SOFT_MAX_LINES:
-            problems.append(
-                f'现在 {len(lines)} 行 / {len(data)} 字节,超过软限({MENU_SOFT_MAX_LINES} 行 / {MENU_SOFT_MAX_BYTES} 字节):{remedy}'
-            )
-        overlong = sum(1 for ln in lines if len(ln.encode('utf-8')) > MENU_LINE_WARN_BYTES)
-        if overlong:
-            problems.append(f'有 {overlong} 行超过 {MENU_LINE_WARN_BYTES} 字节——钩子话一两句就够,细节留在正文里')
-        if problems:
-            print(f'MENU_WARN[{label}] {path}')
-            for item in problems:
-                print(f'  - {item}')
-            print('  趁现在还在整理记忆,先把它理好再继续。')
 
 
 def mint_output_path() -> str:
@@ -108,6 +80,79 @@ def prune_old_capsules(out_dir: str, keep_path: str) -> None:
             pass
 
 
+def _atomic_write_text(path: str, text: str) -> None:
+    out_dir = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=out_dir, prefix='.menu-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _validate_one_menu(path: str, remedy: str):
+    """Returns a list of violation strings for one menu file (empty = 达标)."""
+    try:
+        with open(path, 'rb') as handle:
+            data = handle.read()
+    except OSError:
+        return []
+    if b'\x00' in data:
+        # NUL 自动剥掉再验收:她看不见这个字节,让她"重新生成"没有意义
+        data = data.replace(b'\x00', b'')
+        try:
+            _atomic_write_text(path, data.decode('utf-8', errors='replace'))
+            print(f'MENU_FIXED[{path}] 剥掉了混进文件的 NUL 字节')
+        except Exception:
+            pass
+    lines = data.decode('utf-8', errors='replace').splitlines()
+    violations = []
+    if len(data) > MENU_SOFT_MAX_BYTES or len(lines) > MENU_SOFT_MAX_LINES:
+        violations.append(
+            f'太长了:现在 {len(lines)} 行 / {len(data)} 字节,上限 {MENU_SOFT_MAX_LINES} 行 / {MENU_SOFT_MAX_BYTES} 字节。{remedy}'
+        )
+    overlong = [i + 1 for i, ln in enumerate(lines) if len(ln.encode('utf-8')) > MENU_LINE_WARN_BYTES]
+    if overlong:
+        shown = ','.join(str(n) for n in overlong[:5])
+        violations.append(
+            f'有 {len(overlong)} 行超过 {MENU_LINE_WARN_BYTES} 字节(第 {shown} 行{"等" if len(overlong) > 5 else ""})——钩子话一两句就够,把长的压短,细节留在正文里'
+        )
+    return violations
+
+
+def validate_menus():
+    """Returns {path: [violations]} for both menus; empty dict = 全部达标."""
+    root = default_runtime_root()
+    checks = [
+        (f'{root}/notes/diary/INDEX.md', '日记目录',
+         '把最老的整月那些按天的行搬进同目录 INDEX-<YYYY-MM>.md(原样搬不改写),顶层留一行「- YYYY-MM | 那个月的一句话(细目在 INDEX-YYYY-MM.md)」'),
+        (f'{root}/notes/people/INDEX.md', '人物菜单',
+         '把不常联系的人的行搬进同目录 INDEX-past.md(原样搬不删),顶层留一行「- 更早认识的人 | 细目在 INDEX-past.md」;要紧的人放上面'),
+    ]
+    result = {}
+    for path, label, remedy in checks:
+        try:
+            violations = _validate_one_menu(path, remedy)
+        except Exception:
+            violations = []
+        if violations:
+            result[f'{label} {path}'] = violations
+    return result
+
+
+def print_menu_rejection(problems) -> None:
+    print('MENU_REJECT: 菜单还不达标,这次先不收近况。整理好之后,重新跑这条命令提交(近况文本原样再传一遍):')
+    for key, violations in problems.items():
+        print(f'  [{key}]')
+        for item in violations:
+            print(f'    - {item}')
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Stash 小腻's compressed 近况 to a file.")
     parser.add_argument(
@@ -118,23 +163,30 @@ def main() -> int:
     parser.add_argument(
         '--check-menus',
         action='store_true',
-        help='only run the diary/people menu health check (no stdin, no commit); always exits 0'
+        help='only validate the diary/people menus and report (no stdin, no commit); always exits 0'
     )
     args = parser.parse_args()
 
     if args.check_menus:
         try:
-            check_menu_health()
+            problems = validate_menus()
         except Exception:
-            pass
-        print('OK: menu check done')
+            problems = {}
+        if problems:
+            print_menu_rejection(problems)
+        else:
+            print('OK: 两张菜单都达标')
         return 0
 
-    # 写入时自检:提交近况的同一刻检查两张菜单,问题当场喊出来。fail-open——检查绝不影响提交。
+    # 写入时验收门:菜单不达标就拒收这次近况提交,让她整理好重来(外层 fork 有轮数上限+
+    # 引擎兜底提交,系统级不会因此卡死)。验收自身出错按达标放行,不新增卡死面。
     try:
-        check_menu_health()
+        problems = validate_menus()
     except Exception:
-        pass
+        problems = {}
+    if problems:
+        print_menu_rejection(problems)
+        return 1
 
     text = sys.stdin.read().strip()
     if not text:
