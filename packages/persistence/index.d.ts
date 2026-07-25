@@ -2428,6 +2428,7 @@ export type AgentRuntimeControlProjection = {
   compressionTriggerWireBytes: number;
   stripXiaoniOsFromRequests: boolean;
   psychAssessmentGateEnabled: boolean;
+  forkIdleEscalationEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };

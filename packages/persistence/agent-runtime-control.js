@@ -46,6 +46,11 @@ function normalizeRuntimeControl(row) {
     // 默认 false=OFF。翻 ON 前应先活体验 fork cache_read 暖读。见 agent-loop-service
     // setPsychAssessmentGateEnabled / runPsychAssessmentGate。
     psychAssessmentGateEnabled: row ? isTruthyDatabaseBoolean(row.psych_assessment_gate_enabled) : false,
+    // Admin toggle: 自驱动 fork 的空转升级。true 时,连续空转达阈值会在【fork 的尾部追加段】告诉潜意识
+    // 「上一份 plan 已连着 N 轮没被执行」并回贴那份 plan 原文,让它自己把语气写狠。动态热下发(无重启)。
+    // 默认 false=OFF(行为逐字节零变化)。升级信号只进 fork 私有输入,绝不进主 agent 上下文、不写 stack。
+    // 见 agent-loop-service setForkIdleEscalationEnabled / renderSubconsciousForkReminder。
+    forkIdleEscalationEnabled: row ? isTruthyDatabaseBoolean(row.fork_idle_escalation_enabled) : false,
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -120,6 +125,7 @@ function createAgentRuntimeControlPersistence(deps) {
         compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824,
         strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE,
         psych_assessment_gate_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -136,6 +142,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS compression_trigger_wire_bytes BIGINT NOT NULL DEFAULT 25165824');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS psych_assessment_gate_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -225,6 +232,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , compression_trigger_wire_bytes
             , strip_xiaoni_os_from_requests
             , psych_assessment_gate_enabled
+            , fork_idle_escalation_enabled
             , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
@@ -298,6 +306,11 @@ function createAgentRuntimeControlPersistence(deps) {
       const psychAssessmentGateEnabled = hasPsychAssessmentGateEnabled
         ? (input.psychAssessmentGateEnabled ?? input.psych_assessment_gate_enabled) === true
         : false;
+      const hasForkIdleEscalationEnabled = typeof input.forkIdleEscalationEnabled === 'boolean'
+        || typeof input.fork_idle_escalation_enabled === 'boolean';
+      const forkIdleEscalationEnabled = hasForkIdleEscalationEnabled
+        ? (input.forkIdleEscalationEnabled ?? input.fork_idle_escalation_enabled) === true
+        : false;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -316,6 +329,7 @@ function createAgentRuntimeControlPersistence(deps) {
             compression_trigger_wire_bytes,
             strip_xiaoni_os_from_requests,
             psych_assessment_gate_enabled,
+            fork_idle_escalation_enabled,
             updated_at
           )
           VALUES (
@@ -327,6 +341,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             ?,
             ?,
@@ -391,6 +406,10 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.psych_assessment_gate_enabled
             END,
+            fork_idle_escalation_enabled = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.fork_idle_escalation_enabled
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -402,7 +421,8 @@ function createAgentRuntimeControlPersistence(deps) {
             compression_trigger_input_tokens,
             compression_trigger_wire_bytes,
             strip_xiaoni_os_from_requests,
-            psych_assessment_gate_enabled
+            psych_assessment_gate_enabled,
+            fork_idle_escalation_enabled
         `,
         [
           identityKey,
@@ -417,6 +437,7 @@ function createAgentRuntimeControlPersistence(deps) {
           compressionTriggerWireBytes,
           stripXiaoniOsFromRequests,
           psychAssessmentGateEnabled,
+          forkIdleEscalationEnabled,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -442,7 +463,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasStripXiaoniOsFromRequests,
           stripXiaoniOsFromRequests,
           hasPsychAssessmentGateEnabled,
-          psychAssessmentGateEnabled
+          psychAssessmentGateEnabled,
+          hasForkIdleEscalationEnabled,
+          forkIdleEscalationEnabled
         ]
       );
       return normalizeRuntimeControl(rows[0]);
