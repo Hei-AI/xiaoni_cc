@@ -3121,6 +3121,24 @@ const XIAONI_MEMORY_COMPRESS_SKILL_DIR = '/app/modules/agent-service/skills-inte
 // (the model may run several exec commands; the skill is the one that reports a path).
 const COMPRESSION_WRITTEN_PATH_RE = /^XIAONI_COMPRESS_WROTE=(.+)$/gmu;
 
+// 胶囊路径白名单:只认脚本自铸的 fresh-file 命名(compress 目录 + AUTO 前缀 + 时间戳 + hex)。
+// 没有它,任何 exec stdout 里行首撞出一条 XIAONI_COMPRESS_WROTE=<路径>(echo、cat 到含
+// 该行的笔记/日志)都会让任意文件被读回当近况——她的 self-code-notes 里已写着这个机制,
+// 只差一个行首。路径规则与 commit_memory.py 的 mint_output_path 严格对应,两边同调。
+const COMPRESSION_CAPSULE_PATH_RE = /^\/xiaoni-runtime\/compress\/xiaoni-status-\d{8}-\d{6}-[0-9a-f]{8}\.md$/;
+
+export function isTrustedCompressionCapsulePath(reportedPath: string): boolean {
+  return COMPRESSION_CAPSULE_PATH_RE.test(reportedPath);
+}
+
+// 记忆文本清洗(存入层单点):剥 NUL(PG text 拒写=压缩自伤面)+ 剥 <xiaoni_*> 标签
+// (三块记忆前缀是裸模板拼接,菜单钩子行/胶囊常引同伴原话,一句含 </xiaoni_people> 的
+// 引语会提前闭合记忆块、把后文注入成伪系统内容并冻结整个压缩周期)。确定性替换,
+// live/replay 渲染同一存好的串,零漂移。
+export function sanitizeMemoryText(raw: string): string {
+  return raw.replace(/\u0000/g, '').replace(/<\/?xiaoni_[a-z0-9_]*\s*>/gi, '').trim();
+}
+
 function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
   if (!rawToolResult || typeof rawToolResult !== 'object') {
     return null;
@@ -10057,8 +10075,8 @@ export class AgentLoopService {
     sourceResponseId: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<CoreMemoryCompressionCommit> {
-    const text = typeof params.rawToolResult.text === 'string' && params.rawToolResult.text.trim()
-      ? params.rawToolResult.text.trim()
+    const text = typeof params.rawToolResult.text === 'string' && sanitizeMemoryText(params.rawToolResult.text)
+      ? sanitizeMemoryText(params.rawToolResult.text)
       : null;
     if (!text) {
       throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
@@ -11163,6 +11181,9 @@ export class AgentLoopService {
     // staleness bug where a `date` prep turn let a prior round's leftover 近况 get committed as
     // this round's. Null until the skill actually runs and reports a path.
     let capturedCompressionOutputPath: string | null = null;
+    // mtime 时间窗基准:胶囊文件必须晚于本轮 fork 启动(减 60s 时钟宽容)——旧胶囊/
+    // 旧文件即使路径合法也冒充不了本轮提交。纯引擎侧运行时校验,不进任何请求字节。
+    const forkStartedAtMs = Date.now();
     let forkInput = [
       ...cloneCanonicalAgentTurnRequest(params.baseRequest).input,
       ...(params.compressionReminderItems ?? [])
@@ -11368,7 +11389,14 @@ export class AgentLoopService {
               // path, so it can never trigger a premature commit against stale leftover content.
               const reportedCompressionPath = extractCompressionWrittenPath(rawToolResult);
               if (reportedCompressionPath) {
-                capturedCompressionOutputPath = reportedCompressionPath;
+                if (isTrustedCompressionCapsulePath(reportedCompressionPath)) {
+                  capturedCompressionOutputPath = reportedCompressionPath;
+                } else {
+                  // 行首撞出的暗号但路径不在白名单(echo/cat 到含该行的文件):拒认,留痕。
+                  moduleLogger.warn('compression marker path rejected (outside capsule allowlist)', {
+                    reportedPath: reportedCompressionPath
+                  });
+                }
               }
 
               const runtimeEnergyState = await this.getCurrentRuntimeEnergyState(params.queueMessage);
@@ -11454,7 +11482,7 @@ export class AgentLoopService {
         // just handed. Same commitCoreMemoryCompression path as before, so the "one cold prefill
         // installs <xiaoni_status> exactly once" invariant is unchanged.
         const compressionFileCheck = capturedCompressionOutputPath
-          ? await this.readCoreMemoryCompressionFile(capturedCompressionOutputPath, params.queueMessage)
+          ? await this.readCoreMemoryCompressionFile(capturedCompressionOutputPath, params.queueMessage, forkStartedAtMs)
           : { text: null, message: '还没运行记忆整理脚本（未捕获到写入路径）' };
         if (compressionFileCheck.text) {
           const syntheticToolCall = {
@@ -13100,8 +13128,11 @@ export class AgentLoopService {
   // file paths; the bulk lives in externalized files), so the max_output_tokens margin is ample.
   private async readCoreMemoryCompressionFile(
     outputPath: string,
-    queueMessage: QueueMessageRecord['payload']
+    queueMessage: QueueMessageRecord['payload'],
+    notBeforeMs?: number
   ): Promise<{ text: string | null; message: string }> {
+    // 60s 时钟宽容:executor 与引擎容器时钟可能有微小偏差;窗口只用来挡「旧文件冒充本轮」。
+    const mtimeFloorEpoch = typeof notBeforeMs === 'number' ? Math.floor(notBeforeMs / 1000) - 60 : 0;
     const script = [
       'python3 - <<\'PY\'',
       'from pathlib import Path',
@@ -13110,6 +13141,8 @@ export class AgentLoopService {
       '    print("MISSING")',
       'elif not p.is_file():',
       '    print("NOT_FILE")',
+      'elif p.stat().st_mtime < ' + String(mtimeFloorEpoch) + ':',
+      '    print("STALE")',
       'else:',
       '    text = p.read_text(encoding="utf-8", errors="replace").strip()',
       '    if not text:',
@@ -13129,10 +13162,16 @@ export class AgentLoopService {
     const [statusLine = '', ...rest] = stdout.split(/\r?\n/u);
     const status = statusLine.trim();
     if (status === 'OK') {
-      const text = rest.join('\n').trim();
-      return text
-        ? { text, message: '近况文件已写入且非空' }
-        : { text: null, message: '近况文件状态为 OK，但内容为空' };
+      // 引擎侧复检(marker 可被伪造/绕过脚本,这里是最后一道):清洗后再验长度带。
+      // 数值与 commit_memory.py 的 CAPSULE_MIN/MAX_CHARS 同调。
+      const text = sanitizeMemoryText(rest.join('\n'));
+      if (!text) {
+        return { text: null, message: '近况文件状态为 OK，但内容为空' };
+      }
+      if (text.length < 300 || text.length > 8000) {
+        return { text: null, message: `近况未过引擎侧验收(${text.length} 字,要求 300-8000)：请按整理脚本的规矩重新提交` };
+      }
+      return { text, message: '近况文件已写入且非空' };
     }
     const detail = stderr ? `${status || 'UNKNOWN'}: ${stderr}` : status || 'UNKNOWN';
     return {
@@ -13785,7 +13824,7 @@ function buildIndexOverflowNotice(sourcePath: string): string {
 }
 
 export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_INDEX_SNAPSHOT_MAX_BYTES, overflowNotice: string = INDEX_OVERFLOW_NOTICE_FALLBACK): string | null {
-  const trimmed = typeof raw === 'string' ? raw.replace(/\u0000/g, '').trim() : '';
+  const trimmed = typeof raw === 'string' ? sanitizeMemoryText(raw) : '';
   if (!trimmed) {
     return null;
   }
@@ -13796,30 +13835,30 @@ export function clampDiaryIndexSnapshot(raw: string, maxBytes: number = DIARY_IN
 }
 
 // 路径在调用时解析(而非模块加载时),测试可用 XIAONI_DIARY_INDEX_PATH 指向受控路径。
-export async function readDiaryIndexSnapshot(indexPath?: string): Promise<string | null> {
+export async function readDiaryIndexSnapshot(indexPath?: string): Promise<string | null | undefined> {
   const resolvedPath = indexPath || process.env.XIAONI_DIARY_INDEX_PATH || '/xiaoni-runtime/notes/diary/INDEX.md';
   try {
     const raw = await fsReadFile(resolvedPath, 'utf8');
     return clampDiaryIndexSnapshot(raw, DIARY_INDEX_SNAPSHOT_MAX_BYTES, buildIndexOverflowNotice(resolvedPath));
   } catch (error) {
-    // null 快照会覆盖库里上一份(菜单消失一个压缩周期),必须留下可归因的痕迹——
-    // 尤其挂载错位(sudo 无 HOME 挂空目录)这类瞬时故障。ENOENT 与其它错误分开看。
+    // 读失败 ≠ 她清空了菜单:返回 undefined(「不知道」),提交层保留库里上一份好快照——
+    // 挂载错位(sudo 无 HOME 挂空目录)这类瞬时故障绝不许把好快照覆盖成 null。
     const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
-    moduleLogger.warn('diary index snapshot read failed; committing null snapshot', { path: resolvedPath, code });
-    return null;
+    moduleLogger.warn('diary index snapshot read failed; keeping previous snapshot', { path: resolvedPath, code });
+    return undefined;
   }
 }
 
 // 人物菜单快照:与日记快照同帧读、同原子提交、同 clamp(共享 NUL 剥离/截断标记)。
-export async function readPeopleIndexSnapshot(indexPath?: string): Promise<string | null> {
+export async function readPeopleIndexSnapshot(indexPath?: string): Promise<string | null | undefined> {
   const resolvedPath = indexPath || process.env.XIAONI_PEOPLE_INDEX_PATH || '/xiaoni-runtime/notes/people/INDEX.md';
   try {
     const raw = await fsReadFile(resolvedPath, 'utf8');
     return clampDiaryIndexSnapshot(raw, PEOPLE_INDEX_SNAPSHOT_MAX_BYTES, buildIndexOverflowNotice(resolvedPath));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
-    moduleLogger.warn('people index snapshot read failed; committing null snapshot', { path: resolvedPath, code });
-    return null;
+    moduleLogger.warn('people index snapshot read failed; keeping previous snapshot', { path: resolvedPath, code });
+    return undefined;
   }
 }
 

@@ -885,8 +885,14 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         [
           sessionKey,
           input.contextSummary,
-          typeof input.diaryIndexSnapshot === 'string' && input.diaryIndexSnapshot.length > 0 ? input.diaryIndexSnapshot : null,
-          typeof input.peopleIndexSnapshot === 'string' && input.peopleIndexSnapshot.length > 0 ? input.peopleIndexSnapshot : null,
+          // undefined = 读取失败「不知道」→ 保留库里上一份;null/空串 = 明确清空;字符串 = 替换。
+          // 挂载错位等瞬时故障绝不许把好快照覆盖成 null。
+          input.diaryIndexSnapshot === undefined
+            ? (existing?.diaryIndexSnapshot ?? null)
+            : (typeof input.diaryIndexSnapshot === 'string' && input.diaryIndexSnapshot.length > 0 ? input.diaryIndexSnapshot : null),
+          input.peopleIndexSnapshot === undefined
+            ? (existing?.peopleIndexSnapshot ?? null)
+            : (typeof input.peopleIndexSnapshot === 'string' && input.peopleIndexSnapshot.length > 0 ? input.peopleIndexSnapshot : null),
           readCutoffAfterStackIndex,
           input.lastContextWindowTokens,
           input.lastTargetBudgetTokens,

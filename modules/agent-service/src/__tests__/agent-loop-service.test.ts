@@ -3709,9 +3709,10 @@ test('core memory compression commit uses atomic summary and cutoff persistence 
   assert.deepEqual(atomicWrites[0], {
     sessionKey: 'xiaoni:test-global',
     contextSummary: '原子写入的近况。',
-    // 两份菜单快照与近况同一原子提交;测试开头把两个 PATH 都钉到不存在路径 → 恒 null
-    diaryIndexSnapshot: null,
-    peopleIndexSnapshot: null,
+    // 两份菜单快照与近况同一原子提交;测试开头把两个 PATH 钉到不存在路径 → 读失败 →
+    // undefined(「不知道」,提交层保留库里旧值),不再是 null(那会清空好快照)
+    diaryIndexSnapshot: undefined,
+    peopleIndexSnapshot: undefined,
     readCutoffAfterStackIndex: 171,
     lastContextWindowTokens: 400000,
     lastTargetBudgetTokens: 280000,

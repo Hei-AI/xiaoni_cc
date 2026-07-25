@@ -520,3 +520,66 @@ test('getSessionReadCutoffState maps a missing/null compression counter to 0', a
   const state = await persistence.getSessionReadCutoffState({ sessionKey: 'xiaoni:test-global' });
   assert.equal(state.consecutiveOverCompressionTurns, 0);
 });
+
+test('commit with undefined snapshots (read failure) KEEPS stored snapshots instead of clearing', async () => {
+  const queries = [];
+  const tx = {
+    query: async (sql, params = []) => {
+      queries.push({ sql, params });
+      if (sql.includes('pg_advisory_xact_lock')) return [];
+      if (sql.includes('FOR UPDATE')) {
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 100,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'old summary',
+          diary_index_snapshot: '\u5e93\u91cc\u7684\u597d\u65e5\u8bb0\u5feb\u7167',
+          people_index_snapshot: '\u5e93\u91cc\u7684\u597d\u4eba\u7269\u5feb\u7167',
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          updated_at: '2026-07-25T00:00:00.000Z'
+        }];
+      }
+      if (sql.includes('INSERT INTO agent_session_context_windows')) {
+        return [{
+          session_key: 'xiaoni:test-global',
+          read_cutoff_after_stack_index: 171,
+          last_context_window_tokens: 400000,
+          last_target_budget_tokens: 280000,
+          last_hard_budget_tokens: 380000,
+          context_summary: 'new summary',
+          diary_index_snapshot: '\u5e93\u91cc\u7684\u597d\u65e5\u8bb0\u5feb\u7167',
+          people_index_snapshot: '\u5e93\u91cc\u7684\u597d\u4eba\u7269\u5feb\u7167',
+          pending_proactive_share: null,
+          pending_proactive_share_age: 0,
+          updated_at: '2026-07-25T00:01:00.000Z'
+        }];
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+  const persistence = createAgentRuntimePersistence({
+    sqlAdapter: {
+      withTransaction: async (callback) => callback(tx),
+      query: async () => { throw new Error('should use transaction'); },
+      execute: async () => { throw new Error('should not use execute'); },
+      close: async () => undefined
+    }
+  });
+  const result = await persistence.commitSessionContextSummaryAndReadCutoff({
+    sessionKey: 'xiaoni:test-global',
+    contextSummary: 'new summary',
+    diaryIndexSnapshot: undefined,
+    peopleIndexSnapshot: undefined,
+    readCutoffAfterStackIndex: 171,
+    lastContextWindowTokens: 400000,
+    lastTargetBudgetTokens: 280000,
+    lastHardBudgetTokens: 380000
+  });
+  assert.equal(result.committed, true);
+  const insert = queries.find((entry) => entry.sql.includes('INSERT INTO agent_session_context_windows'));
+  assert.equal(insert.params[2], '\u5e93\u91cc\u7684\u597d\u65e5\u8bb0\u5feb\u7167');
+  assert.equal(insert.params[3], '\u5e93\u91cc\u7684\u597d\u4eba\u7269\u5feb\u7167');
+});
