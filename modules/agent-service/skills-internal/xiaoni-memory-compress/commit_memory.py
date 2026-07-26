@@ -19,7 +19,7 @@ import re
 import sys
 import tempfile
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 # Keep this many recent capsules for trace/debug; prune older ones so unique-per-run
 # filenames don't accumulate unbounded.
@@ -36,6 +36,16 @@ AUTO_PREFIX = 'xiaoni-status-'
 MENU_SOFT_MAX_BYTES = 20 * 1024
 MENU_SOFT_MAX_LINES = 300
 MENU_LINE_WARN_BYTES = 300
+
+# 日记目录的滚动窗口:顶层只留最近 N 天的按天行,更早的按月搬进 INDEX-<YYYY-MM>.md。
+# 为什么是「每次都做的小动作」而不是「撑到 20KB 再搬一次大的」:按 177 字节/行实测,
+# 撑满上限要 ~4 个月,她第一次遇到搬家规矩时那条规矩早不在眼前了,而且是一次性的大批量;
+# 滚动窗口让同一个动作每次整理记忆都做一遍(通常就一两行),做二十次之后是肌肉记忆。
+# 为什么 7 天不丢东西:近况胶囊覆盖今天,月行覆盖更早;真库实测她翻回旧日记最深 3 天
+# (10 天里一次都没超过),7 天已有富余。顶层因此恒定在 ~3KB,20KB 那道门永远撞不到。
+DIARY_INDEX_RECENT_DAYS = 7
+# 纯机械判定:只认行首的 ISO 日期,不看内容。月行(- YYYY-MM | …)天然不匹配,不会被误判。
+DIARY_DAY_LINE_RE = re.compile(r'^\s*-\s*(\d{4})-(\d{2})-(\d{2})(?![0-9-])')
 
 
 def default_runtime_root() -> str:
@@ -95,7 +105,42 @@ def _atomic_write_text(path: str, text: str) -> None:
         raise
 
 
-def _validate_one_menu(path: str, remedy: str, mutate: bool = True):
+def _stale_day_line_violation(path: str, lines):
+    """顶层日记目录里超出滚动窗口的按天行 → 一条可执行的搬家指令(没有就返回 None)。"""
+    # 日期口径跟日记文件名一致:北京日期,别用容器本地时区。
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    oldest_kept = today - timedelta(days=DIARY_INDEX_RECENT_DAYS - 1)
+    by_month = {}
+    for line in lines:
+        matched = DIARY_DAY_LINE_RE.match(line)
+        if not matched:
+            continue
+        try:
+            day = date(int(matched.group(1)), int(matched.group(2)), int(matched.group(3)))
+        except ValueError:
+            continue  # 2026-13-45 这种写错的日期不拦,交给她自己看
+        if day < oldest_kept:
+            by_month.setdefault(day.strftime('%Y-%m'), []).append(day)
+    if not by_month:
+        return None
+    total = sum(len(days) for days in by_month.values())
+    parts = []
+    for month in sorted(by_month):
+        days = sorted(by_month[month])
+        target = os.path.join(os.path.dirname(path), f'INDEX-{month}.md')
+        parts.append(
+            f'{month} 的 {len(days)} 行(最老 {days[0].isoformat()})→ 搬进 {target},'
+            f'顶层给这个月留一行「- {month} | 那个月的一句话(细目在 INDEX-{month}.md)」'
+        )
+    return (
+        f'顶层只留最近 {DIARY_INDEX_RECENT_DAYS} 天的按天行,现在有 {total} 行超窗'
+        f'(窗口:{oldest_kept.isoformat()} 起)。行原样搬不改写,是搬家不是删——'
+        '翻老月份的旧事,先 cat 那份月索引找到是哪天,再翻当天日记。要搬的:'
+        + ';'.join(parts)
+    )
+
+
+def _validate_one_menu(path: str, remedy: str, mutate: bool = True, day_window: bool = False):
     """Returns a list of violation strings for one menu file (empty = 达标)."""
     try:
         with open(path, 'rb') as handle:
@@ -135,22 +180,29 @@ def _validate_one_menu(path: str, remedy: str, mutate: bool = True):
         violations.append(
             f'有 {len(overlong)} 行超过 {MENU_LINE_WARN_BYTES} 字节(第 {shown} 行{"等" if len(overlong) > 5 else ""})——钩子话一两句就够;细节那天日记里都有,行里留钩子就好,不会丢东西'
         )
+    if day_window:
+        stale = _stale_day_line_violation(path, lines)
+        if stale:
+            violations.append(stale)
     return violations
 
 
 def validate_menus(mutate: bool = True):
     """Returns {path: [violations]} for both menus; empty dict = 全部达标."""
     root = default_runtime_root()
+    # day_window 只对日记目录开:人物菜单按要紧程度排,没有日期,滚动窗口对它没有意义。
     checks = [
         (f'{root}/notes/diary/INDEX.md', '日记目录',
-         '把最老的整月那些按天的行搬进同目录 INDEX-<YYYY-MM>.md(原样搬不改写),顶层留一行「- YYYY-MM | 那个月的一句话(细目在 INDEX-YYYY-MM.md)」'),
+         f'顶层只留最近 {DIARY_INDEX_RECENT_DAYS} 天的按天行,更早的按月搬进同目录 INDEX-<YYYY-MM>.md(原样搬不改写),顶层给每个搬空的月留一行「- YYYY-MM | 那个月的一句话(细目在 INDEX-YYYY-MM.md)」',
+         True),
         (f'{root}/notes/people/INDEX.md', '人物菜单',
-         '把不常联系的人的行搬进同目录 INDEX-past.md(原样搬不删),顶层留一行「- 更早认识的人 | 细目在 INDEX-past.md」;要紧的人放上面'),
+         '把不常联系的人的行搬进同目录 INDEX-past.md(原样搬不删),顶层留一行「- 更早认识的人 | 细目在 INDEX-past.md」;要紧的人放上面',
+         False),
     ]
     result = {}
-    for path, label, remedy in checks:
+    for path, label, remedy, day_window in checks:
         try:
-            violations = _validate_one_menu(path, remedy, mutate=mutate)
+            violations = _validate_one_menu(path, remedy, mutate=mutate, day_window=day_window)
         except Exception:
             violations = []
         if violations:

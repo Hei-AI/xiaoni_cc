@@ -13805,16 +13805,21 @@ function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['
 // <xiaoni_diary_index> 只从冻结串渲染——绝不逐轮重读文件,否则两次压缩之间前缀漂移=缓存击穿。
 // 硬上限须始终 > reminder/anchor skill 教她的自维护软限(300 行或 20KB,见
 // core_memory_pressure_reminder.md + xiaoni-memory-anchor SKILL.md);两边一起调,别单改。
-// 长期容量靠层级而非 cap:顶层菜单只保近月的按天行,老月整月搬进 INDEX-<YYYY-MM>.md
-// 子索引、顶层留一行指路——所以顶层永远汇不满,25KB 是安全网不是设计容量。
+// 长期容量靠层级而非 cap:顶层日记目录只保**最近 7 天**的按天行(滚动窗口,
+// commit_memory.py 的 DIARY_INDEX_RECENT_DAYS 机械验收),更早的按月搬进
+// INDEX-<YYYY-MM>.md 子索引、顶层留一行指路——顶层因此恒定在 ~3KB,永远汇不满,
+// 25KB 是安全网不是设计容量。为什么是滚动窗口而不是"撑满再搬":撑满要 ~4 个月,
+// 她第一次面对搬家规矩时那条规矩早不在眼前;每次搬一两行才留得住。
 export const DIARY_INDEX_SNAPSHOT_MAX_BYTES = 25600;
 // 人物菜单快照(<xiaoni_people>)同款 cap;人数增长远慢于日子,天然远小于此。
 export const PEOPLE_INDEX_SNAPSHOT_MAX_BYTES = 25600;
 
 // 展示端全有或全无:放得下就原样,放不下整块换成一句指引——永不显示"部分菜单"。
 // 为什么不裁行:人物菜单按重要性排(裁哪头都错),且部分菜单会被她读成"没在菜单上的
-// 人=不认识/不重要",恰好复刻忘 CC 的事故。不变式「文件 ≤ 软限」由 commit_memory.py
-// 在写入时机械保证(超限自动搬进子索引);这里只是搬家失败后的最后兜底。
+// 人=不认识/不重要",恰好复刻忘 CC 的事故。注意:commit_memory.py 只**验收并拒收**
+// (超限/超窗时把该搬哪些行、搬去哪个文件打给她),它不会替她搬——脚本自动搬家当初被
+// 否掉了(搬家是她自己的活)。所以没有机械保证的不变式,只有"她按退回提示理好"+这里
+// 这道显示兜底;真到了显示不下,整块换指引比显示半张菜单安全。
 // NUL(\u0000)必须剥掉:她用 shell 自己维护这个文件,一个混入的 NUL 会让 PG text 列拒写,
 // 而快照和近况在同一个原子提交里——不剥就是可自伤的压缩永久卡死(fork 失败→重试→再读同一文件)。
 const INDEX_OVERFLOW_NOTICE_FALLBACK = '(这份菜单超过了上限,这里显示不下——先用 exec 看菜单文件全文,按锚点 skill 的规矩整理;整理完,下次整理记忆后这里就恢复)';
