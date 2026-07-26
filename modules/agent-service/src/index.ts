@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -346,6 +346,10 @@ async function isRuntimeEnabled() {
     // .psych_assessment_gate_enabled,这里每 poll 热下发(一迭代延迟,无重启)。live 栈验过 fork
     // cache_read 暖读后再由运营打开翻转行为。非 boolean 被 setter 忽略 → 保持 OFF。
     setPsychAssessmentGateEnabled(control.psychAssessmentGateEnabled);
+    // 自驱动 fork 空转升级(默认 OFF)。ON 时连续空转达阈值,在【fork 尾部追加段】告知潜意识
+    // 「上一份 plan 连着 N 轮没被执行」并回贴原文。升级信号只进 fork 私有输入,不进主 agent
+    // 上下文、不写 stack → 主 run replay 与缓存前缀零影响。非 boolean 被 setter 忽略 → 保持 OFF。
+    setForkIdleEscalationEnabled(control.forkIdleEscalationEnabled);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
