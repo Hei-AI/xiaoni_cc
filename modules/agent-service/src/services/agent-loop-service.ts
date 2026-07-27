@@ -745,6 +745,43 @@ export function setForkIdleEscalationEnabled(value: unknown): void {
   }
 }
 
+// plan 空转 run 作废总开关(docs/specs/xiaoni-plan-run-void-on-idle.md)。默认 OFF:行为与今天
+// 逐字节一致。ON 之后,subconscious plan 触发且**零产出**(纯文本收工、零工具、没折叠过真实外部
+// notify、无压缩提交)的 run,settle 时整个 run 的栈行被删除——当这次请求没发生过。上下文因此
+// 永远堆不出连续的失败 plan;失效轮数由升级腿(FORK_IDLE_ESCALATION_ENABLED)透传给 fork。
+// 这是「消费后冻结」铁律经 user 拍板开出的唯一例外;判定任一不满足即照旧冻结(fail-open)。
+let PLAN_VOID_ON_IDLE_ENABLED = false;
+export function setPlanVoidOnIdleEnabled(value: unknown): void {
+  if (typeof value === 'boolean') {
+    PLAN_VOID_ON_IDLE_ENABLED = value;
+  }
+}
+export function isPlanVoidOnIdleEnabledForTest(): boolean {
+  return PLAN_VOID_ON_IDLE_ENABLED;
+}
+
+// 作废判定(纯函数,loop 的 settle 分支调用)。全部满足才作废;任一不满足 = 照旧冻结(fail-open)。
+export function shouldVoidIdlePlanRun(params: {
+  queueBacked: boolean;
+  settledOnFinalAnswer: boolean;
+  runCalledAnyTool: boolean;
+  deliveredCount: number;
+  compressionCommitted: boolean;
+  evictedTurnCount: number;
+  triggerIsSubconsciousPlan: boolean;
+  foldedAllSubconsciousPlans: boolean;
+}): boolean {
+  return PLAN_VOID_ON_IDLE_ENABLED
+    && params.queueBacked
+    && params.settledOnFinalAnswer
+    && !params.runCalledAnyTool
+    && params.deliveredCount === 0
+    && !params.compressionCommitted
+    && params.evictedTurnCount === 0
+    && params.triggerIsSubconsciousPlan
+    && params.foldedAllSubconsciousPlans;
+}
+
 function tryParseJsonObjectString(text: unknown): Record<string, unknown> | null {
   if (typeof text !== 'string') {
     return null;
@@ -7676,6 +7713,10 @@ export class AgentLoopService {
       // 空转记账用的 run 级累加器：这一整个 run 有没有真的碰过世界。
       // recover_energy 不算 —— 睡觉不是干活，否则「睡一下」就能把连续空转计数清零、永远躲开升级。
       let runTouchedWorld = false;
+      // 作废判定用的更严累加器：这一整个 run 有没有调过【任何】工具——含 recover_energy。
+      // 与 runTouchedWorld 分开:睡一觉不算「干活」(计数不归零),但睡过的 run 不许作废
+      // (把 recover_energy 调用/结果从栈上蒸发会让她时间错乱)。
+      let runCalledAnyTool = false;
 
       for (let turn = 1; ; turn += 1) {
         await this.waitForRuntimeEnabledBeforeModelSlice(payload, queueMessage.id);
@@ -7892,6 +7933,9 @@ export class AgentLoopService {
         // 判在【模型发出工具调用】这一刻，而不是执行成功之后：工具报错也是她真动手了，不该算空转。
         if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy)) {
           runTouchedWorld = true;
+        }
+        if (toolReplayItems.length > 0) {
+          runCalledAnyTool = true;
         }
         const preSleepToolTimeline: PreSleepToolTimelineEntry[] = [];
         if (
@@ -8350,6 +8394,54 @@ export class AgentLoopService {
           settledOnFinalAnswer: actionPlan.hasFinalAnswer,
           didRealWork: runTouchedWorld || !isSystemReminderPayload(payload)
         });
+        // plan 空转 run 作废(docs/specs/xiaoni-plan-run-void-on-idle.md):零产出的 plan run 当没发生过。
+        // 判定全部满足才删,任一不满足照旧冻结(fail-open 到今天的行为):
+        //  - 触发 payload 是 subconscious plan notify(QQ 消息/其它 reminder 触发的 run 一律冻结);
+        //  - settle 落在 final_answer(纯文本收工)且整个 run 零工具调用——含 recover_energy(睡过必须留痕,
+        //    否则醒来记忆里没有这一觉,时间错乱);
+        //  - run 内折叠消费的 notify 全部也是 subconscious plan(折叠过真实外部信息 → 冻结,否则信息丢失);
+        //  - 零可见投递、无压缩提交、无 evictedTurns(不与压缩/淘汰机制交叉)。
+        // 删除只作用于本 run(含被折叠 plan 各自的 run_id)的栈行;队列行保持 completed,绝不 reseed
+        // (one-shot 时代 reseed 永动的案底);slices/tool_executions/life events 全保留(观测层,不进 replay)。
+        // 缓存:作废行从未进过任何 replay,下一 run 的前缀退回作废前栈顶(上一 run true-end 的既有断点),
+        // 失效轮数照旧由升级腿透传给 fork——作废和升级互补,不互相抵消。
+        if (shouldVoidIdlePlanRun({
+          queueBacked: options.queueBacked === true,
+          settledOnFinalAnswer: actionPlan.hasFinalAnswer,
+          runCalledAnyTool,
+          deliveredCount: deliveredMessages.length,
+          compressionCommitted: coreMemoryCompressionArtifact !== null,
+          evictedTurnCount: evictedTurns.length,
+          triggerIsSubconsciousPlan: isSubconsciousAgentNotifyPayload(payload),
+          foldedAllSubconsciousPlans: continuationQueueMessages.every((claimed) => isSubconsciousAgentNotifyPayload(claimed.payload))
+        })) {
+          const voidRunIds = [queueMessage.id, ...continuationQueueMessages.map((claimed) => claimed.id)];
+          try {
+            const voidResult = await this.store.voidAgentStackRunSegment({
+              traceId: payload.traceId,
+              runIds: voidRunIds
+            });
+            await this.store.logTimelineEvent({
+              traceId: payload.traceId,
+              eventType: 'decision',
+              eventName: voidResult.voided ? 'plan_idle_run_voided' : 'plan_idle_run_void_skipped',
+              eventPhase: null,
+              metadata: {
+                run_ids: voidRunIds,
+                deleted_count: voidResult.deletedCount,
+                skip_reason: voidResult.voided ? null : (voidResult.reason || 'unknown'),
+                min_stack_index: voidResult.minStackIndex ?? null,
+                idle_rounds: getConsecutiveIdlePlanFailures(getGlobalPromptContextSessionKey())
+              }
+            });
+          } catch (error) {
+            moduleLogger.warn('plan idle run void failed; leaving run frozen', {
+              traceId: payload.traceId,
+              runId: queueMessage.id,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
         await this.store.logTimelineEvent({
           traceId: payload.traceId,
           eventType: 'decision',
