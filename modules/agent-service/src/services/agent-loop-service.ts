@@ -936,11 +936,10 @@ export function resetConsecutiveIdlePlanFailures(sessionKey: string): void {
   consecutiveIdlePlanFailuresBySession.set(sessionKey, 0);
 }
 
-// 一次 settle 的记账。didRealWork = 该 run 存在有效产出——任一非 recover_energy 的工具调用。
-// 归零【只有这一种场景】(user 拍板 2026-07-27):被外部消息唤醒本身不算,她真要响应必然调工具
-// 走同一条路归零;被叫醒却啥也没干,账不能被一条外来 ping 洗掉。
-//
-// recover_energy 【不】算真活：睡觉不是干活。若让它归零，她可以靠「睡一下」把计数清掉、永远躲开升级。
+// 一次 settle 的记账。didRealWork = 该 run 存在有效产出:任一非 recover_energy 的工具调用,
+// 或 recover_energy 被身体【接受】(真睡着了/立即恢复)。归零只有「有效产出」这一种场景
+// (user 拍板 2026-07-27):被外部消息唤醒本身不算——她真要响应必然调工具走同一条路;
+// recover_energy 被身体【拒绝】(rest_rejected,睡不着)也不算——发起了但没睡成,等于没动。
 export function recordIdlePlanSettle(
   sessionKey: string,
   params: { settledOnFinalAnswer: boolean; didRealWork: boolean }
@@ -7711,8 +7710,8 @@ export class AgentLoopService {
         });
       }
 
-      // 空转记账用的 run 级累加器：这一整个 run 有没有真的碰过世界。
-      // recover_energy 不算 —— 睡觉不是干活，否则「睡一下」就能把连续空转计数清零、永远躲开升级。
+      // 空转记账用的 run 级累加器：这一整个 run 有没有有效产出。
+      // 普通工具判在发出那一刻;recover_energy 按【结果】判——身体接受(真睡着)算,被拒(睡不着)不算。
       let runTouchedWorld = false;
       // 作废判定用的更严累加器：这一整个 run 有没有调过【任何】工具——含 recover_energy。
       // 与 runTouchedWorld 分开:睡一觉不算「干活」(计数不归零),但睡过的 run 不许作废
@@ -7930,8 +7929,9 @@ export class AgentLoopService {
         const toolReplayItems = replayableOutputs.filter(isReplayableToolCall);
         const orderedToolReplayItems = orderRuntimeToolCalls(toolReplayItems);
         const hasRecoverEnergyInBatch = toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.recoverEnergy);
-        // 只要这一 turn 调了任何非 recover_energy 的工具，就算这个 run 碰过世界 → 连续空转计数归零。
+        // 只要这一 turn 调了任何非 recover_energy 的工具，就算这个 run 有有效产出 → 连续空转计数归零。
         // 判在【模型发出工具调用】这一刻，而不是执行成功之后：工具报错也是她真动手了，不该算空转。
+        // recover_energy 例外:不在发出时判,按执行【结果】判(见 toolResult 处)——接受才算,被拒不算。
         if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy)) {
           runTouchedWorld = true;
         }
@@ -8012,6 +8012,15 @@ export class AgentLoopService {
               });
             }
             const toolResult = rawToolResult;
+            // recover_energy 按【结果】记账(user 拍板 2026-07-27):身体接受休息(入睡或立即恢复)
+            // =有效产出,空转计数归零——都睡着了不算空转;被身体拒绝(rest_rejected,睡不着)不算,
+            // 发起了但没睡成等于没动。其它工具在发出那一刻已记,这里只补 recover_energy 的结果位。
+            if (
+              toolCall.name === TOOL_NAMES.recoverEnergy
+              && (toolResult.recovery_session_requested === true || toolResult.recovered === true)
+            ) {
+              runTouchedWorld = true;
+            }
             if (toolCall.name === TOOL_NAMES.recoverEnergy && toolResult.recovery_session_requested === true) {
               const creator = (this.store as RuntimeStore & {
                 createAgentRecoverySession?: RuntimeStore['createAgentRecoverySession'];
