@@ -245,6 +245,22 @@ Notify Bucket claim 到这条 row 后才会继续，并把它作为 user-facing 
 处理。fork 无输出、失败、达到轮数上限或选择休息时，只记录 `subconscious_agent_fork_*`
 ledger，不投递 notify，也不调用主 agent。
 
+**空转治理闭环（2026-07-27 上线，两开关热下发）**——治「同一份 plan 被换着说法重写 95 遍、
+76% 零工具 run」的自我空转：
+
+- **失效计数**：引擎按 session 记「连续多少轮无有效产出」。归零只有一种场景=该 run 存在
+  有效产出：任一非 `recover_energy` 的工具调用（判在发出那一刻，报错也算动手），或
+  `recover_energy` 被身体**接受**（真睡着/立即恢复；`rest_rejected` 睡不着不算）。
+  被外部消息唤醒本身**不**归零——她真要响应必然调工具走同一条路。计数在进程内存，重启归零。
+- **升级腿**（`fork_idle_escalation_enabled`）：连续 ≥2 轮失效时，fork 的尾部 reminder 换用
+  `renderSubconsciousForkReminder`——正文不变，追加 `subconscious_fork_idle_escalation.md`
+  升级段：告知已失效 N 轮 + 回贴上一份 plan 原文，语气由 fork 自己加重。升级信号是 fork
+  私有输入，绝不进主 agent 上下文、不写 stack；不升级时结构性返回原 reminder（逐字节一致）。
+- **作废腿**（`plan_void_on_idle_enabled`）：零产出的 plan run 整体从栈上删除（见上文
+  `agent_stack_items` 的唯一删除例外），上下文不再堆连续失败 plan。绝不 reseed；
+  timeline 记 `plan_idle_run_voided` / `plan_idle_run_void_skipped`。
+- specs：`docs/specs/xiaoni-fork-idle-escalation.md`、`docs/specs/xiaoni-plan-run-void-on-idle.md`。
+
 ### Image Tasks
 
 `request_image_task` 是异步任务。主 loop 收到排队结果时只知道 task id 和 pending 状态；
@@ -275,6 +291,14 @@ Prisma Client 表达。业务模块只调用 persistence helper，不直接拼 S
 
 追加式事实源。每个模型可回放 item、工具输出、当前输入提醒、可见出站和必要状态
 事件都在这里拥有稳定顺序。
+
+**唯一的删除例外（user 拍板 2026-07-27）：plan 空转 run 作废。** 自驱动 fork 的
+`<xiaoni_plan>` 唤醒的 run 若零有效产出（纯文本收工、零工具、没折叠真实外部 notify），
+settle 时整个 run 的栈行被 `voidAgentStackRunSegment` 删除——当这次请求没发生过。
+删除与写入共用同一把 advisory lock，且只删「纯尾段」（作废段之上出现任何其它 run 的行
+即整体拒删、照旧冻结）。被删行从未进过任何 replay，下一 run 前缀落回作废前栈顶的既有
+断点，缓存无击穿。除此之外栈仍是 append-only：已进上下文的内容消费后冻结。
+详见 `docs/specs/xiaoni-plan-run-void-on-idle.md`；开关 `plan_void_on_idle_enabled`。
 
 | Field | Meaning |
 | --- | --- |
