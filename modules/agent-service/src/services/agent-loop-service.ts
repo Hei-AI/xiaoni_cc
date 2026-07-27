@@ -936,8 +936,9 @@ export function resetConsecutiveIdlePlanFailures(sessionKey: string): void {
   consecutiveIdlePlanFailuresBySession.set(sessionKey, 0);
 }
 
-// 一次 settle 的记账。didRealWork = 该 run 碰了世界(任一非 recover_energy 的工具调用) 或 消费了真外部
-// 入向(QQ 来消息) —— 两者都说明「她在响应真实输入 / 真干了活」，归零。
+// 一次 settle 的记账。didRealWork = 该 run 存在有效产出——任一非 recover_energy 的工具调用。
+// 归零【只有这一种场景】(user 拍板 2026-07-27):被外部消息唤醒本身不算,她真要响应必然调工具
+// 走同一条路归零;被叫醒却啥也没干,账不能被一条外来 ping 洗掉。
 //
 // recover_energy 【不】算真活：睡觉不是干活。若让它归零，她可以靠「睡一下」把计数清掉、永远躲开升级。
 export function recordIdlePlanSettle(
@@ -8385,14 +8386,15 @@ export class AgentLoopService {
           recentNarrationItems: (outputItems as OpenResponseInputItem[]).filter(isAssistantTextOutputReplayItem),
           settledOnFinalAnswer: actionPlan.hasFinalAnswer
         };
-        // 连续空转记账。归零条件二选一：
-        //  (a) runTouchedWorld —— 这个 run 调过任何非 recover_energy 的工具(真动手了)；
-        //  (b) 这个 run 是被【真外部入向】唤醒的(QQ 来消息) —— 她在响应真实输入，不是自己跟自己空转。
-        // 都不满足且这一 settle 落在 final_answer 上(纯文本零动作收工) → +1。
+        // 连续空转记账。归零【只有一种场景】(user 拍板 2026-07-27):这个 run 存在有效产出——
+        // 调过任何非 recover_energy 的工具(真动手了)。
+        // 被外部消息唤醒【不】归零:她真要响应消息必然调工具(回消息/开屏读)本来就归零;
+        // 被叫醒却啥也没干,plan 照样没被执行,账不能被一条外来 ping 洗掉。
+        // 不满足且这一 settle 落在 final_answer 上(纯文本零动作收工) → +1。
         // 计数只喂 fork,不进主 agent 上下文、不写 stack。
         recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
           settledOnFinalAnswer: actionPlan.hasFinalAnswer,
-          didRealWork: runTouchedWorld || !isSystemReminderPayload(payload)
+          didRealWork: runTouchedWorld
         });
         // plan 空转 run 作废(docs/specs/xiaoni-plan-run-void-on-idle.md):零产出的 plan run 当没发生过。
         // 判定全部满足才删,任一不满足照旧冻结(fail-open 到今天的行为):
