@@ -1133,6 +1133,7 @@ export type XiaoniAgentStackPersistenceApi = {
   getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
   appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
   appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+  voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
   recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
   recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
   updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
@@ -1175,6 +1176,14 @@ export function ensureXiaoniAgentStackSchema(input?: XiaoniAgentStackPersistence
 export function getAgentStackHead(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export function appendAgentStackItem(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
 export function appendAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
+export type XiaoniAgentStackVoidResult = {
+  voided: boolean;
+  deletedCount: number;
+  reason?: string;
+  foreignCount?: number;
+  minStackIndex?: number;
+};
+export function voidAgentStackRunSegment(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackVoidResult>;
 export function recordLlmRequestSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
 export function recordCodexProviderUsageEvent(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent | null>;
 export function updateLlmRequestSliceStackLinks(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice | null>;
@@ -2429,6 +2438,7 @@ export type AgentRuntimeControlProjection = {
   stripXiaoniOsFromRequests: boolean;
   psychAssessmentGateEnabled: boolean;
   forkIdleEscalationEnabled: boolean;
+  planVoidOnIdleEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };

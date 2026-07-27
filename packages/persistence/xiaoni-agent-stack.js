@@ -2564,6 +2564,59 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     return rows[0] || null;
   }
 
+  // 栈上唯一的删除操作——「plan 空转 run 作废」专用(docs/specs/xiaoni-plan-run-void-on-idle.md),
+  // 不许复用到任何其它场景。语义:subconscious plan 触发的 run 零产出时,整个 run 的栈行当没发生过;
+  // 这是「消费后冻结」铁律经 user 拍板开出的唯一例外。
+  // 防护:
+  //  - 与写入方(appendAgentStackItems)共用同一把 advisory xact lock,删除与追加互斥,无 check-then-delete 窗口。
+  //  - 作废段必须是纯尾段:这些 run 的最小 stack_index 之上不许存在任何其它 run 的行(含 run_id 为 NULL 的行),
+  //    有夹层 → 一行不删返回 aborted,调用方照旧冻结(fail-open 到今天的行为)。
+  //  - 只删 run_id 精确匹配的行;llm_request_slices / tool_executions / 队列行 / life events 全保留(观测层,不进 replay)。
+  async function voidAgentStackRunSegment(input = {}, config = {}) {
+    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
+    const runIds = (Array.isArray(input.runIds) ? input.runIds : [input.runId ?? input.run_id])
+      .map((value) => firstString(value))
+      .filter(Boolean);
+    if (runIds.length === 0) {
+      return { voided: false, reason: 'no_run_ids', deletedCount: 0 };
+    }
+    await ensureXiaoniAgentStackSchema(input, config);
+    const runIdPlaceholders = runIds.map(() => '?').join(', ');
+    return withSql(input, config, async (sql) => {
+      const voidWithExecutor = async (executor) => {
+        if (typeof executor.query === 'function') {
+          await executor.query('SELECT pg_advisory_xact_lock(hashtext(?))', [`agent_stack_items:${identityKey}`]).catch(() => []);
+        }
+        const segmentRows = await executor.query(
+          `SELECT MIN(stack_index) AS min_index, COUNT(*) AS row_count FROM agent_stack_items WHERE identity_key = ? AND run_id IN (${runIdPlaceholders})`,
+          [identityKey, ...runIds]
+        );
+        const minIndex = segmentRows[0]?.min_index == null ? null : Number(segmentRows[0].min_index);
+        const rowCount = Number(segmentRows[0]?.row_count || 0);
+        if (minIndex == null || rowCount === 0) {
+          return { voided: false, reason: 'no_rows', deletedCount: 0 };
+        }
+        const foreignRows = await executor.query(
+          `SELECT COUNT(*) AS foreign_count FROM agent_stack_items WHERE identity_key = ? AND stack_index >= ? AND (run_id IS NULL OR run_id NOT IN (${runIdPlaceholders}))`,
+          [identityKey, minIndex, ...runIds]
+        );
+        const foreignCount = Number(foreignRows[0]?.foreign_count || 0);
+        if (foreignCount > 0) {
+          return { voided: false, reason: 'interleaved', deletedCount: 0, foreignCount, minStackIndex: minIndex };
+        }
+        const deleted = await executor.query(
+          `DELETE FROM agent_stack_items WHERE identity_key = ? AND run_id IN (${runIdPlaceholders}) RETURNING id`,
+          [identityKey, ...runIds]
+        );
+        return { voided: true, deletedCount: deleted.length, minStackIndex: minIndex };
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(voidWithExecutor);
+      }
+      return voidWithExecutor(sql);
+    });
+  }
+
   async function recordLlmRequestSlice(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
     const sliceId = buildSliceId(input);
@@ -5027,6 +5080,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     getAgentStackItemTimeByIndex,
     appendAgentStackItem,
     appendAgentStackItems,
+    voidAgentStackRunSegment,
     recordLlmRequestSlice,
     recordCodexProviderUsageEvent,
     updateLlmRequestSliceStackLinks,
