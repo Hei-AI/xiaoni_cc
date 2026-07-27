@@ -1,6 +1,7 @@
 # Spec: 自驱动 fork 的空转升级 —— 失效计数 + 上一份 plan 回贴
 
-状态: 待实现 · 默认 OFF 上线 · 作者对话确认 2026-07-25
+状态: **已上线并翻 ON**（2026-07-27，与作废腿 `xiaoni-plan-run-void-on-idle.md` 同时点火）· 作者对话确认 2026-07-25
+实现: worktree feat/fork-idle-escalation（bc3772bd 等 3 commit）已合入 main；归零语义经 2026-07-27 两次拍板修订（见「连续空转计数器」节）
 
 **取代** `docs/specs/xiaoni-anti-idle-external-authority.md` §2（"主 loop 里用固定模板替换 fork 的声音"）。
 该 spec 的 §1 计数器设计仍然复用，§3 文案文件 `idle_escalation_reminder.md` 改为 fork 侧使用。
@@ -189,7 +190,7 @@ fork 请求体 `no_persist: 'true'`，本就不参与主 run replay。→ run �
 
 | 层 | 测什么 | 数 |
 |---|---|---|
-| Unit | 计数器 incr/reset（碰世界工具归零 / 外部入向归零 / `recover_energy` 不归零 / 纯空转累加） | +4 |
+| Unit | 计数器 incr/reset（有效产出归零 / 纯空转累加；~~外部入向归零 / recover_energy 不归零~~ 已被 07-27 修订取代） | +4 |
 | Unit | `renderSubconsciousForkReminder` 确定性（同入参 → 同字节）；`idleRounds<2` 分支与 `self_continuation_reminder.md` 逐字节相等 | +3 |
 | Unit | 升级分支渲染：`{{IDLE_ROUNDS}}` 注入正确、`{{LAST_XIAONI_PLAN}}` 原文完整、null 时降级 | +3 |
 | **隔离专项** | 开关 ON + 升级触发后，主 loop 的 `buildSelfContinuationInputItem` 输出与开关 OFF 时**逐字节相同** | +1 |
@@ -238,9 +239,12 @@ fork 请求体 `no_persist: 'true'`，本就不参与主 run replay。→ run �
 
 ---
 
-## 开放项（实现期核实，不阻塞）
+## 开放项（实现期已全部裁决 2026-07-27）
 
-1. `lastEmittedPlanText` 是否改为从 `agent_stack_items` 读，以扛住重启。
-2. 是否引入稳/硬两档（复用 `idle_escalation_reminder.md`），还是单档靠数字承载。
-3. 「碰世界的工具调用」的确切白/黑名单 —— `recover_energy` 已确定不归零，其余按"是否改变外部状态"逐个过。
-4. `IDLE_ESCALATION_AFTER_ROUNDS` 的值（默认 2）。
+1. `lastEmittedPlanText` 是否改为从 `agent_stack_items` 读，以扛住重启。→ **不改**：纯进程内存，
+   重启后为 null 走普通分支安全降级；且作废腿上线后失败 plan 根本不在栈里，无从读。
+2. 是否引入稳/硬两档（复用 `idle_escalation_reminder.md`）。→ **单档**，严厉程度由
+   `{{IDLE_ROUNDS}}` 数字承载，文案落 `subconscious_fork_idle_escalation.md`（新文件，
+   未复用 `idle_escalation_reminder.md`——那份是主 loop 注入时代的遗产，已废弃不接线）。
+3. 「碰世界的工具调用」的确切白/黑名单 —— ~~`recover_energy` 已确定不归零~~ 07-27 改判：按**结果**——身体接受（真睡着/立即恢复）归零、`rest_rejected` 不归零；其余工具发出即算。
+4. `IDLE_ESCALATION_AFTER_ROUNDS` 的值。→ **=2** 上线。

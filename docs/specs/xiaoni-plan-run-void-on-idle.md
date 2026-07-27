@@ -1,8 +1,9 @@
 # Spec: plan 空转 run 作废 —— 无有效产出的 plan run 当没发生过
 
-状态: 实施中 · 作者对话拍板 2026-07-27
+状态: **已上线并翻 ON**（2026-07-27，worktree feat/plan-void-on-idle 三 commit 合入 main）· 作者对话拍板 2026-07-27
+活体验证: 点火后 4 分钟首次 `plan_idle_run_voided`（删 2 行、栈 0 残留、零误跳），作废后 cache heartbeat 暖读 400528——前缀落回作废前既有断点，与「双缓存影响分析」预测一致。
 
-与 `xiaoni-fork-idle-escalation.md`（已上线, 默认 OFF）互补成完整闭环:
+与 `xiaoni-fork-idle-escalation.md`（已上线并同时翻 ON）互补成完整闭环:
 - 升级腿(已有): fork 知道「上一份 plan 连续 N 轮失效」→ 加重语气。
 - 本 spec(作废腿): 失效的那次 run **整体从栈上消失**——上下文里永远不会堆出连续的失败 plan。
 
