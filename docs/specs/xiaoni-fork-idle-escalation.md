@@ -104,8 +104,9 @@ plan 到达 → 她读自己的行为记录（function_call/output 全在,显示
   即做过任何**碰世界的工具调用**（`send_*` / `exec_command` / `read_file` / 写文件…）。
   ~~或消费了一条真外部入向~~：已废除。被外部消息唤醒不归零——她真要响应必然调工具走同一条路归零；
   被叫醒却啥也没干，plan 照样没被执行，账不能被一条外来 ping 洗掉。
-- **不归零**：`recover_energy`。
-  **理由**：睡觉不是干活。若 `recover_energy` 归零，她可以靠"睡一下"把计数清掉、永远躲开升级 —— 这是个真洞。
+- **`recover_energy` 按结果**（user 2026-07-27 再修订，取代原「一律不归零」）：被身体**接受**
+  （真睡着了/立即恢复）= 有效产出，**归零**——都睡着了不算空转；被身体**拒绝**（`rest_rejected`，
+  睡不着）**不归零**——发起了但没睡成，等于没动。
 - 计数只活在进程内存（对齐 `lastMainAgentForkSeed` 的现有做法）。重启后从 0 起，可接受。
 
 ### 3. 上一份 plan 的来源
@@ -177,7 +178,7 @@ fork 请求体 `no_persist: 'true'`，本就不参与主 run replay。→ run �
    （a）正确的 `{{IDLE_ROUNDS}}` 数字，（b）上一份 plan 的**完整原文**。
 4. **主 agent 上下文中不含任何升级痕迹**：该 run 之后 `agent_stack_items` 里新写的 `runtime_input`
    与 `content.system_reminder` 不出现 `连续`/`{{IDLE_ROUNDS}}`/升级段任何字样。（专项断言，本 spec 的核心约束。）
-5. 计数器只在「任一碰世界工具调用」后归零（2026-07-27 收窄：外部入向唤醒不再归零）；`recover_energy` **不**归零。
+5. 计数器只在「有效产出」后归零（2026-07-27 两次修订：外部入向唤醒不归零；`recover_energy` 按结果——身体接受归零、被拒不归零）。
 6. `lastEmittedPlanText == null`（重启后）时走普通分支，不崩、不渲染半截升级段。
 7. 实测相邻 slice `cache_read_input_tokens`：主 turn 不受影响，fork 不穿透。
 8. 心理评估 fork 仍 OFF、未被触碰。
