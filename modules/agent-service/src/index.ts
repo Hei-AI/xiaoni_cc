@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -350,6 +350,9 @@ async function isRuntimeEnabled() {
     // 「上一份 plan 连着 N 轮没被执行」并回贴原文。升级信号只进 fork 私有输入,不进主 agent
     // 上下文、不写 stack → 主 run replay 与缓存前缀零影响。非 boolean 被 setter 忽略 → 保持 OFF。
     setForkIdleEscalationEnabled(control.forkIdleEscalationEnabled);
+    // plan 空转 run 作废(默认 OFF)。ON 时 subconscious plan 触发且零产出的 run 整体从栈上删除
+    // (当没发生过),上下文不再堆连续失败 plan。非 boolean 被 setter 忽略 → 保持 OFF。
+    setPlanVoidOnIdleEnabled(control.planVoidOnIdleEnabled);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {

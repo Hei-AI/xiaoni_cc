@@ -51,6 +51,10 @@ function normalizeRuntimeControl(row) {
     // 默认 false=OFF(行为逐字节零变化)。升级信号只进 fork 私有输入,绝不进主 agent 上下文、不写 stack。
     // 见 agent-loop-service setForkIdleEscalationEnabled / renderSubconsciousForkReminder。
     forkIdleEscalationEnabled: row ? isTruthyDatabaseBoolean(row.fork_idle_escalation_enabled) : false,
+    // Admin toggle: plan 空转 run 作废。true 时,subconscious plan 触发且零产出的 run 整体从栈上删除
+    // (当没发生过),上下文不再堆连续失败 plan。动态热下发(无重启)。默认 false=OFF(行为零变化)。
+    // 见 docs/specs/xiaoni-plan-run-void-on-idle.md 与 agent-loop-service setPlanVoidOnIdleEnabled。
+    planVoidOnIdleEnabled: row ? isTruthyDatabaseBoolean(row.plan_void_on_idle_enabled) : false,
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -126,6 +130,7 @@ function createAgentRuntimeControlPersistence(deps) {
         strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE,
         psych_assessment_gate_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -143,6 +148,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS strip_xiaoni_os_from_requests BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS psych_assessment_gate_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -233,6 +239,7 @@ function createAgentRuntimeControlPersistence(deps) {
             , strip_xiaoni_os_from_requests
             , psych_assessment_gate_enabled
             , fork_idle_escalation_enabled
+            , plan_void_on_idle_enabled
             , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
@@ -311,6 +318,11 @@ function createAgentRuntimeControlPersistence(deps) {
       const forkIdleEscalationEnabled = hasForkIdleEscalationEnabled
         ? (input.forkIdleEscalationEnabled ?? input.fork_idle_escalation_enabled) === true
         : false;
+      const hasPlanVoidOnIdleEnabled = typeof input.planVoidOnIdleEnabled === 'boolean'
+        || typeof input.plan_void_on_idle_enabled === 'boolean';
+      const planVoidOnIdleEnabled = hasPlanVoidOnIdleEnabled
+        ? (input.planVoidOnIdleEnabled ?? input.plan_void_on_idle_enabled) === true
+        : false;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -330,6 +342,7 @@ function createAgentRuntimeControlPersistence(deps) {
             strip_xiaoni_os_from_requests,
             psych_assessment_gate_enabled,
             fork_idle_escalation_enabled,
+            plan_void_on_idle_enabled,
             updated_at
           )
           VALUES (
@@ -341,6 +354,7 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
             ?,
             ?,
             ?,
@@ -410,6 +424,10 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.fork_idle_escalation_enabled
             END,
+            plan_void_on_idle_enabled = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.plan_void_on_idle_enabled
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -422,7 +440,8 @@ function createAgentRuntimeControlPersistence(deps) {
             compression_trigger_wire_bytes,
             strip_xiaoni_os_from_requests,
             psych_assessment_gate_enabled,
-            fork_idle_escalation_enabled
+            fork_idle_escalation_enabled,
+            plan_void_on_idle_enabled
         `,
         [
           identityKey,
@@ -438,6 +457,7 @@ function createAgentRuntimeControlPersistence(deps) {
           stripXiaoniOsFromRequests,
           psychAssessmentGateEnabled,
           forkIdleEscalationEnabled,
+          planVoidOnIdleEnabled,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -465,7 +485,9 @@ function createAgentRuntimeControlPersistence(deps) {
           hasPsychAssessmentGateEnabled,
           psychAssessmentGateEnabled,
           hasForkIdleEscalationEnabled,
-          forkIdleEscalationEnabled
+          forkIdleEscalationEnabled,
+          hasPlanVoidOnIdleEnabled,
+          planVoidOnIdleEnabled
         ]
       );
       return normalizeRuntimeControl(rows[0]);

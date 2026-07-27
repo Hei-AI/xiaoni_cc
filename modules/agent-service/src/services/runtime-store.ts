@@ -15,6 +15,7 @@ import {
   ensureXiaoniAgentStackSchema,
   getAgentStackHead as getAgentStackHeadPersistence,
   appendAgentStackItems as appendAgentStackItemsPersistence,
+  voidAgentStackRunSegment as voidAgentStackRunSegmentPersistence,
   listAgentStackItems as listAgentStackItemsPersistence,
   listAgentStackItemsForConversations as listAgentStackItemsForConversationsPersistence,
   updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
@@ -2105,6 +2106,21 @@ export class RuntimeStore {
       sourceId: params.sourceId || null,
       llmRequestSliceId: params.llmRequestSliceId || null,
       items: params.items,
+      sqlAdapter: this.sql
+    }, databaseConfig);
+  }
+
+  // plan 空转 run 作废专用(docs/specs/xiaoni-plan-run-void-on-idle.md)。栈上唯一的删除出口,
+  // 防护(纯尾段校验 + 与写入方同一把 advisory lock)全部收在 persistence 层。
+  async voidAgentStackRunSegment(params: {
+    identityKey?: string;
+    traceId?: string | null;
+    runIds: string[];
+  }) {
+    return voidAgentStackRunSegmentPersistence({
+      identityKey: params.identityKey || 'xiaoni',
+      traceId: params.traceId || null,
+      runIds: params.runIds,
       sqlAdapter: this.sql
     }, databaseConfig);
   }
