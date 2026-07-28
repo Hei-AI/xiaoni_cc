@@ -314,20 +314,41 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return { id: typeof id === 'bigint' ? id.toString() : id };
   }
 
+  // queryRef 可选:按「腿」过滤(第二腿 open_loop_scan / 第三腿 diary_resurface / 语义腿的落地 ref)。
+  //
+  // 必须下推到 SQL,不能在 JS 里过滤取回的窗口。这张表 ~97% 的行是语义腿每次落地写的
+  // stack:*/inbound:* 留痕,所以「最近 N 条本腿扫描」如果先取全表最近 N 行再筛,窗口里平均
+  // 只剩 2.5 条本腿行、43% 的扫描一条都没有 → 时间腿的重复冷却形同失效
+  // (真库实测:最近 40 行里 diary_resurface = 0 条,冷却完全没生效)。
+  // 配套索引 (identity_key, query_ref, occurred_at DESC):
+  //   prisma/migrations-manual/2026-07-28-recall-shadow-log-query-ref-index.sql
+  // 不传 = 老行为(全腿混排最近 N 条),管理端流水面就靠这个。
   async function listRecallShadowLog(params = {}, config = {}) {
     const prisma = getClient(config);
     const identityKey = params.identityKey || 'xiaoni';
     const limit = Math.max(1, Math.min(Number(params.limit) || 50, 500));
     const onlySurfaced = params.onlySurfaced === true; // 只看冒了东西的(过滤掉海量静默)
+    const queryRef = typeof params.queryRef === 'string' && params.queryRef.trim()
+      ? params.queryRef.trim()
+      : null;
+    const sqlParams = [identityKey];
+    let where = 'identity_key = $1';
+    if (queryRef) {
+      sqlParams.push(queryRef);
+      where += ` AND query_ref = $${sqlParams.length}`;
+    }
+    if (onlySurfaced) {
+      where += ' AND silent = false';
+    }
+    sqlParams.push(limit);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
               silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample
        FROM xiaoni_recall_shadow_log
-       WHERE identity_key = $1${onlySurfaced ? ' AND silent = false' : ''}
+       WHERE ${where}
        ORDER BY occurred_at DESC, id DESC
-       LIMIT $2`,
-      identityKey,
-      limit
+       LIMIT $${sqlParams.length}`,
+      ...sqlParams
     );
     return rows.map((row) => ({
       id: typeof row.id === 'bigint' ? row.id.toString() : row.id,
