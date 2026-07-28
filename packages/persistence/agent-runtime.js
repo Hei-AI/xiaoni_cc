@@ -198,6 +198,17 @@ const AGENT_RUNTIME_EXTRA_DDLS = [
   // 人物菜单快照:同帧从 /xiaoni-runtime/notes/people/INDEX.md 读到的冻结串,与
   // diary_index_snapshot 完全同款生命周期,渲染 <xiaoni_people>。
   `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS people_index_snapshot TEXT`,
+  // 专题物化(L1→L3)的水位 + 计数状态。**和上面两个快照列生命周期完全不同**:
+  //   · diary/people 快照跟着原子提交一起写(它们进请求前缀,必须和 read_cutoff 同帧冻结);
+  //   · 这一列**不在原子提交里写**——物化落盘在提交之后(见 agent-loop-service 的
+  //     「算在事务内、写在事务后」),水位只有在文件真写成功之后才推进。写失败就一个字都
+  //     不动,下一轮拿同一个水位重做同一批(幂等靠 cutoff 集合 + 文件里已有章去重)。
+  // 形状(全部可缺省,读端 normalize 兜底):
+  //   { v, watermarks: { "<日记文件名>": <已扫字节数> },
+  //     candidates: { "<标签>": { cutoffs:[], pending:[{d,t,l}], emitted:[], days:[], folded } },
+  //     materialized: ["<标签>"] }
+  // 不进任何 LLM 请求字节 → 零缓存面。用 JSONB 而不是 TEXT:形状会演进,查得动比省几字节重要。
+  `ALTER TABLE agent_session_context_windows ADD COLUMN IF NOT EXISTS topic_materialization_state JSONB`,
   'CREATE INDEX IF NOT EXISTS idx_agent_session_context_windows_updated ON agent_session_context_windows (updated_at DESC)'
 ];
 
@@ -291,6 +302,8 @@ function mapSessionReadCutoffState(row) {
     contextSummary: row.context_summary ?? null,
     diaryIndexSnapshot: row.diary_index_snapshot ?? null,
     peopleIndexSnapshot: row.people_index_snapshot ?? null,
+    // 专题物化水位。列不存在(老库还没跑 DDL)或值坏 → null,调用方按「从零开始」处理。
+    topicMaterializationState: parseJson(row.topic_materialization_state, null),
     pendingProactiveShare: row.pending_proactive_share ?? null,
     pendingProactiveShareAge: row.pending_proactive_share_age === null ? 0 : Number(row.pending_proactive_share_age),
     consecutiveOverCompressionTurns: row.consecutive_over_compression_turns == null ? 0 : Number(row.consecutive_over_compression_turns),
@@ -751,6 +764,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             context_summary,
             diary_index_snapshot,
             people_index_snapshot,
+            topic_materialization_state,
             pending_proactive_share,
             pending_proactive_share_age,
             consecutive_over_compression_turns,
@@ -825,6 +839,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             context_summary,
             diary_index_snapshot,
             people_index_snapshot,
+            topic_materialization_state,
             pending_proactive_share,
             pending_proactive_share_age,
             updated_at
@@ -845,6 +860,10 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
           state: existing
         };
       }
+      // 注意:专题物化水位列只出现在下面的 RETURNING 里,**故意不进 INSERT 列表也不进
+      // DO UPDATE SET** —— 物化落盘在这个事务之后,水位由
+      // upsertSessionTopicMaterializationState 单独推进。放进来就等于「提交时就宣布写过了」,
+      // 落盘失败时水位却已前移 = 那一批进展永久丢掉。
       const rows = await executor.query(
         `
           INSERT INTO agent_session_context_windows (
@@ -878,6 +897,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             context_summary,
             diary_index_snapshot,
             people_index_snapshot,
+            topic_materialization_state,
             pending_proactive_share,
             pending_proactive_share_age,
             updated_at
@@ -964,6 +984,29 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
             updated_at = CURRENT_TIMESTAMP
         `,
         [input.sessionKey, count]
+      );
+    });
+  }
+
+  async function upsertSessionTopicMaterializationState(input = {}, config = {}) {
+    // 专题物化水位的**唯一**写入口。只碰 topic_materialization_state 一列:压缩提交那一帧
+    // 写的是 read_cutoff / summary / 两份快照,这一列在提交之后、文件真落盘成功之后才推进,
+    // 两边必须互不覆盖(所以这里不是 commitSessionContextSummaryAndReadCutoff 的一部分)。
+    // 传 null 表示清空(回到从零开始);非对象一律当 null,绝不写进半个形状。
+    const state = input.state && typeof input.state === 'object' && !Array.isArray(input.state)
+      ? JSON.stringify(input.state)
+      : null;
+    await withSql(input, config, async (sql) => {
+      await sql.execute(
+        `
+          INSERT INTO agent_session_context_windows (session_key, topic_materialization_state, updated_at)
+          VALUES (?, CAST(? AS JSONB), CURRENT_TIMESTAMP)
+          ON CONFLICT (session_key)
+          DO UPDATE SET
+            topic_materialization_state = EXCLUDED.topic_materialization_state,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        [input.sessionKey, state]
       );
     });
   }
@@ -1077,6 +1120,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     upsertProactiveShareState,
     upsertSessionContextSummary,
     setSessionCompressionTriggerCounter,
+    upsertSessionTopicMaterializationState,
     loadSessionReplayState,
     getTranscriptSnapshotBySessionId,
     upsertTranscriptSnapshot
