@@ -581,11 +581,56 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
+  // 报时(clock_ping)只应该存在「现在」这一条。停机调试期间 supervisor 照常按格入队,一夜就
+  // 攒六条;她一恢复会连着读到六个不同的时刻和六个不同的「你醒了多久」——正好制造出这套
+  // 机制要消灭的那种时间错乱。所以入队新一格之前,把更早的 pending 报时直接判为过期。
+  //
+  // 只碰 pending 且 reason=clock_ping 的行:已被 claim 的(consumed/settled)绝不回改——那些
+  // 已经进过她的上下文,而上下文一旦消费就冻结不可变。keepMessageSid 是本次要留的那一条。
+  async function supersedePendingClockPings(input = {}, config = {}) {
+    const sessionKey = normalizeOptionalString(input.sessionKey || input.session_key);
+    if (!sessionKey) {
+      throw new Error('supersedePendingClockPings requires sessionKey');
+    }
+    const keepMessageSid = normalizeOptionalString(input.keepMessageSid || input.keep_message_sid);
+    const { sql, shouldClose } = createSql(input, config);
+    try {
+      // execute() 返回 rowCount(见 createSqlExecutor),不返回行——所以不要 RETURNING。
+      const supersededCount = await sql.execute(
+        `
+          UPDATE agent_queue_messages
+          SET status = 'settled',
+              completed_at = NOW(),
+              updated_at = NOW(),
+              result = ?::jsonb
+          WHERE status = 'pending'
+            AND session_key = ?
+            AND raw_payload->>'reason' = 'clock_ping'
+            -- 显式 ::text:裸参数的 IS NULL 在 PG 上推不出类型,会直接报
+            -- "could not determine data type of parameter"。真库用例钉住这一点。
+            AND (?::text IS NULL OR message_sid <> ?::text)
+        `,
+        [
+          JSON.stringify({ superseded_by_newer_clock_ping: true, kept_message_sid: keepMessageSid }),
+          sessionKey,
+          keepMessageSid,
+          keepMessageSid
+        ]
+      );
+      return { supersededCount: Number(supersededCount) || 0 };
+    } finally {
+      if (shouldClose) {
+        await sql.close();
+      }
+    }
+  }
+
   return {
     enqueueAgentQueueMessage,
     claimNextAgentQueueMessage,
     foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,
+    supersedePendingClockPings,
     failAgentQueueMessage,
     retryAgentQueueMessage
   };

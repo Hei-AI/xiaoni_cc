@@ -1997,6 +1997,13 @@ export function settleAgentQueueMessages(input: {
   result?: Record<string, unknown>;
   sqlAdapter?: SqlAdapter;
 }, config?: DatabaseUrlConfig): Promise<void>;
+export function supersedePendingClockPings(input: {
+  sessionKey?: string;
+  session_key?: string;
+  keepMessageSid?: string | null;
+  keep_message_sid?: string | null;
+  sqlAdapter?: SqlAdapter;
+}, config?: DatabaseUrlConfig): Promise<{ supersededCount: number }>;
 export function failAgentQueueMessage(input: {
   runId?: string;
   run_id?: string;

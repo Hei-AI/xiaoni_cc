@@ -102,6 +102,7 @@ import {
   claimNextAgentQueueMessage,
   foldPendingNotifyMessagesIntoRun,
   settleAgentQueueMessages,
+  supersedePendingClockPings,
   failAgentQueueMessage,
   retryAgentQueueMessage,
   ensureAgentRuntimeSchema,
@@ -1955,6 +1956,15 @@ export class RuntimeStore {
     availableAt?: string | Date;
   }) {
     return enqueueAgentQueueMessage(input, databaseConfig);
+  }
+
+  // 报时只留最新一格:把更早的 pending clock_ping 判为过期。已被 claim 的行绝不回改。
+  async supersedePendingClockPings(params: { sessionKey: string; keepMessageSid: string | null }) {
+    return supersedePendingClockPings({
+      sessionKey: params.sessionKey,
+      keepMessageSid: params.keepMessageSid,
+      sqlAdapter: this.sql
+    }, databaseConfig);
   }
 
   async settleQueueMessages(runId: string, params: { conversationId?: number | null; result?: Record<string, unknown> }) {

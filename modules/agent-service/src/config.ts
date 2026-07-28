@@ -105,6 +105,14 @@ export const agentConfig = {
   queueTransientRetryMaxDelayMs,
   compactMemoryTimeoutMs: Math.max(1000, Number.parseInt(process.env.AGENT_COMPACT_MEMORY_TIMEOUT_MS || '300000', 10)),
   promptCacheRetention: process.env.AGENT_PROMPT_CACHE_RETENTION || '',
+  // Clock ping: hands her the current time + the gap since her last real wake on a fixed
+  // interval, so an elapsed-time belief can never drift longer than one interval. Floor at 30min
+  // — anything tighter turns a grounding signal into loop noise.
+  clockPingEnabled: readBooleanEnv('AGENT_CLOCK_PING_ENABLED', true),
+  clockPingIntervalMs: Math.max(
+    30 * 60 * 1000,
+    readIntegerEnv('AGENT_CLOCK_PING_INTERVAL_MS', 2 * 60 * 60 * 1000)
+  ),
   cacheHeartbeatEnabled: readBooleanEnv('AGENT_CACHE_HEARTBEAT_ENABLED', true),
   cacheHeartbeatIntervalMs: Math.max(
     60 * 1000,
