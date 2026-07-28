@@ -1309,6 +1309,9 @@ export type AgentRuntimePersistenceApi = {
   upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
   setSessionCompressionTriggerCounter(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+  upsertSessionTopicMaterializationState(input?: AgentRuntimePersistenceCallInput & {
+    state?: Record<string, unknown> | null;
+  }, config?: DatabaseUrlConfig): Promise<void>;
   loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
     summaryText: string | null;
     summarizedThroughConversationId: number | null;
@@ -1352,6 +1355,13 @@ export function commitSessionContextSummaryAndReadCutoff(input?: AgentRuntimePer
 export function upsertProactiveShareState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function upsertSessionContextSummary(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
 export function setSessionCompressionTriggerCounter(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<void>;
+/**
+ * 专题物化水位的唯一写入口(只碰 `topic_materialization_state` 一列)。
+ * 语义:落盘成功后才调用 —— 水位不是「算过了」的标记,是「写成功了」的标记。
+ */
+export function upsertSessionTopicMaterializationState(input?: AgentRuntimePersistenceCallInput & {
+  state?: Record<string, unknown> | null;
+}, config?: DatabaseUrlConfig): Promise<void>;
 export function loadSessionReplayState(input?: AgentRuntimePersistenceCallInput, config?: DatabaseUrlConfig): Promise<{
   summaryText: string | null;
   summarizedThroughConversationId: number | null;
@@ -2503,11 +2513,21 @@ export function countRecallCues(identityKey: string, config?: DatabaseUrlConfig)
 export function pruneFileChunks(identityKey: string, path: string, keepSourceRefs?: string[], config?: DatabaseUrlConfig): Promise<{ deleted: number }>;
 export function buildRecallCueFromInboundMessage(row: Record<string, unknown>): XiaoniRecallCueRecord | null;
 export function insertRecallShadowLog(record: Record<string, unknown>, config?: DatabaseUrlConfig): Promise<{ id: string | null }>;
-export function listRecallShadowLog(params?: { identityKey?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
+// queryRef 是必需参数而非可选优化:不传时窗口取的是全表最近 N 行,而该表 97.5% 是语义腿
+// 每次落地写的 stack:*/inbound:* 留痕 → 实测冷却窗里 diary 行为 0、open_loop 行为 0,两条腿的
+// 冷却全废。调用方(xiaoni-recall-reindex-service.ts 的第二/三腿)必须传;管理端只读路由不传。
+export function listRecallShadowLog(params?: { identityKey?: string; queryRef?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
 export const BEIJING_OFFSET_MS: number;
-export interface XiaoniOpenLoop { line: number; state: 'open' | 'done' | 'dropped'; done: boolean; text: string; openedTag: string | null; }
-export interface XiaoniOpenLoopPick { text: string; openedTag: string | null; ageDays: number | null; line: number; tier: 'active' | 'overdue' | 'undated'; undated: boolean; }
+// parseTagDate 认日期的年龄上限。护的是 `(1/3进度)`、`(2/5看完)` 这类「括号里像日期其实是
+// 分数」的写法:被当成日期就会顶着一个假的 ageDays 霸榜,把真该浮的老条目挤掉。超过就返回
+// null 落 undated —— 不知道多老就别编一个。180 也远大于 maxActiveDays(默认 30),不动分档语义。
+export const MAX_TAG_AGE_DAYS: number;
+// tags 从行末 #标签 抽出并从 text 剥离。剥离是必需的:normalizeLoopText 用 text 算这一行的身份,
+// 标签留在 text 里的话给老行补标签会改变身份 → 第二腿冷却失效 → 同一句被重浮一次。
+export interface XiaoniOpenLoop { line: number; state: 'open' | 'done' | 'dropped'; done: boolean; text: string; openedTag: string | null; tags: string[]; }
+export interface XiaoniOpenLoopPick { text: string; openedTag: string | null; ageDays: number | null; line: number; tags: string[]; tier: 'active' | 'overdue' | 'undated'; undated: boolean; }
 export function parseOpenLoops(content: string): XiaoniOpenLoop[];
+export function stripTrailingHashTags(input: unknown): { text: string; tags: string[] };
 export function parseTagDate(tag: string | null | undefined, nowMs: number): number | null;
 export function normalizeLoopText(text: unknown): string;
 export function selectStaleOpenLoops(
@@ -2525,10 +2545,90 @@ export function parseDiarySerialEvents(content: string, nowMs: number): XiaoniDi
 export const DAY_MS: number;
 export function isEmptyResurfaceBody(body: unknown): boolean;
 export function isChecklistBody(body: unknown): boolean;
+export function isSeedStructuralTitle(title: unknown): boolean;
+export const DIARY_INDEX_FILE_RE: RegExp;
+export const DIARY_NON_EPISODE_FILES: Set<string>;
+// notes/diary/ 下「不是一段经历」的文件(dictionary / open-loops / INDEX*)。语料底与往事腿
+// 共用这一份排除判定,别在调用方各写一份 Set —— INDEX-<YYYY-MM>.md 按前缀认,不能硬编月份。
+export function isDiaryNonEpisodeFile(filename: unknown): boolean;
 export function selectResurfacedEvents(
   events: XiaoniDiaryEvent[],
   opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[]; structuralTitles?: Set<string> | string[] }
 ): XiaoniDiaryEventPick[];
+// ── 被动召回【第四条腿】联想(shadow-only,纯函数)────────────────────────────
+// 六因子等权 + 四个年龄桶独立配额 + identity 级冷却。产物只进 shadow log,不进任何 LLM 请求。
+export function bigramTokens(text: unknown): string[];
+export function bm25Scores(queryText: unknown, candidates: Array<{ embeddingText?: string }>): number[];
+export type XiaoniAssociationBucket = 'near' | 'mid' | 'far' | 'line';
+export type XiaoniAssociationFactorName = 'relevance' | 'introspection' | 'effort' | 'prose' | 'peer' | 'titleSpecificity';
+export interface XiaoniAssociationCandidate {
+  ref?: string;
+  index?: number;
+  kind?: 'event' | 'promise';
+  title: string;
+  body?: string;
+  dateMs?: number | null;
+  lineKey?: string | null;
+  tier?: string | null;
+}
+export interface XiaoniAssociationPick {
+  ref: string;
+  kind: 'event' | 'promise';
+  bucket: XiaoniAssociationBucket;
+  identity: string;
+  title: string;
+  body: string;
+  dateMs: number | null;
+  ageDays: number | null;
+  lineKey: string | null;
+  tier: string | null;
+  score: number;
+  factors: Record<XiaoniAssociationFactorName, number>;
+}
+export interface XiaoniAssociationStats {
+  candidates: number;
+  filtered: number;
+  byBucket: Record<XiaoniAssociationBucket, number>;
+  quotas: Record<XiaoniAssociationBucket, number>;
+  dropped: Record<string, number>;
+}
+export const NEAR_MAX_DAYS: number;
+export const MID_MAX_DAYS: number;
+export const EFFORT_MIN_CHARS: number;
+export const EFFORT_FULL_CHARS: number;
+export const TITLE_FULL_CHARS: number;
+export const MIN_PEER_NAME_CHARS: number;
+export const ASSOCIATION_BUCKET_ORDER: XiaoniAssociationBucket[];
+// near 恒 0 不是调参项:那一段还在她上下文里,浮它等于把砖头当引子。
+export const ASSOCIATION_BUCKET_QUOTAS: Record<XiaoniAssociationBucket, number>;
+export const ASSOCIATION_FACTOR_NAMES: XiaoniAssociationFactorName[];
+// identity = stripChapterDatePrefix → stripTrailingHashTags → normalizeEventText 三者组合。
+// 复用现成的三个归一化函数,不写第四份;三者必须组合才认得出 L3 章节与日记条目是同一件事。
+export function normalizeMemoryIdentity(title: unknown): string;
+export function isBareTimestampTitle(title: unknown): boolean;
+export function bulletLineRatio(text: unknown): number;
+export function bucketOfCandidate(
+  item: XiaoniAssociationCandidate | null | undefined,
+  opts?: { nowMs: number; nearMaxDays?: number; midMaxDays?: number }
+): XiaoniAssociationBucket | null;
+export function scoreAssociationFactors(
+  item: XiaoniAssociationCandidate,
+  ctx?: { relevance?: number; peerNames?: string[] }
+): { score: number; factors: Record<XiaoniAssociationFactorName, number> };
+export function selectAssociativeMemories(
+  candidates: XiaoniAssociationCandidate[],
+  opts?: {
+    nowMs: number;
+    landedText?: string;
+    peerNames?: string[];
+    recentlySurfacedIdentities?: Set<string> | string[];
+    structuralTitles?: Set<string> | string[];
+    quotas?: Partial<Record<XiaoniAssociationBucket, number>>;
+    nearMaxDays?: number;
+    midMaxDays?: number;
+  }
+): { picked: XiaoniAssociationPick[]; stats: XiaoniAssociationStats };
+
 export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
