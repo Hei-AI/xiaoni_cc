@@ -159,6 +159,26 @@ function isSeedStructuralTitle(title) {
   return normalizeEventText(title).length <= STRUCTURAL_TITLE_SEED_MAX_CHARS;
 }
 
+// notes/diary/ 下**不是一段经历**的那几份文件 —— 语料底(语义腿)和往事腿都不该收。
+// 单一真理源:调用方(reindex service)两处排除集合以前各写一份 `Set(['dictionary.md','open-loops.md'])`,
+// 现在都走这里。
+//   dictionary.md   关键词→哪天 的查找索引,密集 bullet 糊成一个泛化向量,只供主动 cat 翻查
+//   open-loops.md   第二腿按时间/状态扫的清单,嵌 checkbox 行是噪音
+//   INDEX*.md       日记目录(顶层 7 天窗 `INDEX.md`、月索引 `INDEX-<YYYY-MM>.md`、
+//                   `INDEX-past.md`)—— 整份都是索引行 `- 2026-07-15 | 一句话`,没有一句是经历
+//                   本身,却因为「就是 notes/diary 下的 .md」被整份嵌进了语义腿语料
+//                   (真库实测 2026-07-28:INDEX.md#0 与 INDEX-2026-07.md#0 两个 cue 在库里,
+//                   语义腿 shadow 里浮出过 20 次)。**按前缀匹配**,不能硬编带月份的文件名,
+//                   否则下个月新建 INDEX-2026-08.md 又漏。
+const DIARY_INDEX_FILE_RE = /^index([-.]|$)/i;
+const DIARY_NON_EPISODE_FILES = new Set(['dictionary.md', 'open-loops.md']);
+
+function isDiaryNonEpisodeFile(filename) {
+  if (typeof filename !== 'string' || !filename) return false;
+  const name = filename.trim();
+  return DIARY_NON_EPISODE_FILES.has(name.toLowerCase()) || DIARY_INDEX_FILE_RE.test(name);
+}
+
 // 从(可能跨多天的)往事里挑「该重新翻出来」的几件。纯函数。
 //   opts.nowMs            必填,当前时刻(调用方传)
 //   opts.minAgeDays       至少搁多少天才提(默认 7;太近她还记得,不值得提)
@@ -207,5 +227,9 @@ module.exports = {
   parseDiarySerialEvents,
   isEmptyResurfaceBody,
   isChecklistBody,
+  isSeedStructuralTitle,
+  DIARY_INDEX_FILE_RE,
+  DIARY_NON_EPISODE_FILES,
+  isDiaryNonEpisodeFile,
   selectResurfacedEvents
 };

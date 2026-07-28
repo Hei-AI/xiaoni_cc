@@ -9,6 +9,7 @@ const {
   stripChapterDatePrefix,
   parseDiarySerialEvents,
   selectResurfacedEvents,
+  isDiaryNonEpisodeFile,
   BEIJING_OFFSET_MS
 } = require('../xiaoni-diary-events');
 
@@ -168,4 +169,26 @@ test('selectResurfacedEvents: ref 缺省用 dateMs#index', () => {
   const events = [{ title: 't', body: '正文', dateMs, index: 3 }];
   const [p] = selectResurfacedEvents(events, { nowMs: NOW, minAgeDays: 7 });
   assert.equal(p.ref, `${dateMs}#3`);
+});
+
+test('isDiaryNonEpisodeFile: 日记目录/字典/欠账不进语料,按日日记进', () => {
+  // 索引类脚手架:整份都是 `- 2026-07-15 | 一句话`,没有一句是经历本身。
+  // 按【前缀】认,不能硬编带月份的名字 —— 否则下个月新建 INDEX-2026-08.md 又漏。
+  assert.equal(isDiaryNonEpisodeFile('INDEX.md'), true);
+  assert.equal(isDiaryNonEpisodeFile('INDEX-2026-07.md'), true);
+  assert.equal(isDiaryNonEpisodeFile('INDEX-2026-08.md'), true);
+  assert.equal(isDiaryNonEpisodeFile('INDEX-past.md'), true);
+  assert.equal(isDiaryNonEpisodeFile('index.md'), true); // 大小写都认
+  // 另外两份既有排除项(以前在调用方各写一份 Set,现在收口到这里)
+  assert.equal(isDiaryNonEpisodeFile('dictionary.md'), true);
+  assert.equal(isDiaryNonEpisodeFile('open-loops.md'), true);
+  // 真日记 / 真专题 / 真随笔照进
+  assert.equal(isDiaryNonEpisodeFile('2026-07-15.md'), false);
+  assert.equal(isDiaryNonEpisodeFile('2026-07-07-summary.md'), false);
+  assert.equal(isDiaryNonEpisodeFile('topic-周蕊.md'), false);
+  assert.equal(isDiaryNonEpisodeFile('me-and-zhourui.md'), false);
+  // 名字里带 index 但不是索引文件的,不许误杀
+  assert.equal(isDiaryNonEpisodeFile('indexing-notes.md'), false);
+  assert.equal(isDiaryNonEpisodeFile(''), false);
+  assert.equal(isDiaryNonEpisodeFile(null), false);
 });

@@ -399,6 +399,10 @@ module.exports = {
   SELF_DOMAIN_CUE_CLASSES,
   PEER_DOMAIN_CUE_CLASSES,
   cosineSimilarity,
+  // 第四腿(联想)的 relevance 因子直接复用这两个:字符 bigram + 池内局部 BM25。
+  // 导出而不是另写一份词面打分器 —— 分词/IDF/长度归一只能有一套。
+  bigramTokens,
+  bm25Scores,
   bandpassRecall,
   recallDomainOf,
   isLowInfoRecallText,
