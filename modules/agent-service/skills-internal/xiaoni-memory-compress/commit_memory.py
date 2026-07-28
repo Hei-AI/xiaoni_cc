@@ -14,6 +14,7 @@ round's 近况 (that read-before-write staleness was the whole bug this design c
 supported for back-compat / explicit callers.
 """
 import argparse
+import difflib
 import os
 import re
 import sys
@@ -46,6 +47,163 @@ MENU_LINE_WARN_BYTES = 300
 DIARY_INDEX_RECENT_DAYS = 7
 # 纯机械判定:只认行首的 ISO 日期,不看内容。月行(- YYYY-MM | …)天然不匹配,不会被误判。
 DIARY_DAY_LINE_RE = re.compile(r'^\s*-\s*(\d{4})-(\d{2})-(\d{2})(?![0-9-])')
+
+# ── 欠账账本两道门(open-loops.md)────────────────────────────────────────────
+# 为什么要门:设计上 open-loops.md 是账本(一行一条,做完划掉 `- [x]` 不删行),实测
+# 它是每轮重写的草稿——真库那个文件的 7 次写入全部是 `cat > … << 'EOF'` 全量覆盖,
+# 零 `>>` 零 `sed -i`;相邻两轮之间未划掉行的存活率 62%/92%/78%/100%/100%/78%。有一轮
+# 抓得最清楚:同一分钟内先完整读到 13 行(未截断)、写回时静默少了 3 条仍然 open 的行——
+# 不是截断 bug,是重写时漏了。而整个「线」的机制要求标签在这个文件里活过 3 轮压缩。
+# 三处同调(改口径要一起改):
+#   写端 prompt:docs/xiaoni_prompt/core_memory_pressure_write_formats.md「欠账」节,
+#                docs/xiaoni_prompt/core_memory_pressure_reminder_v2.md 第 2 步 + <rejected_if>
+#   读端锚点 skill:modules/agent-service/skills/xiaoni-memory-anchor/SKILL.md「待办与承诺」节
+#   本文件:下面这几个常量
+OPEN_LOOPS_REL_PATH = 'notes/diary/open-loops.md'
+
+# 门 1 的比对基线:每次提交成功后把当时的 open-loops.md 原样存一份在 compress 目录下
+# (跟近况胶囊同一个目录,`prune_old_capsules` 只动 `xiaoni-status-` 前缀,碰不到它)。
+# 点号开头是为了不出现在她 `ls notes/` 的视野里——这是引擎的账,不是她要维护的文件。
+OPEN_LOOPS_SNAPSHOT_NAME = '.open-loops-prev.md'
+
+# 门 1 的行匹配容错:她会顺手改行文(真机上有一条线的行文每轮都在变:站的动线→约九十个
+# 房间→其他房间死链接→其他页面→首页做成入口),所以不能要求逐字相同。
+# 为什么是 0.72:实测这个值落在噪音地板之上——两条真的不同、但共享前缀的行
+# (「Bartosz的邮件等回应」vs「Bartosz的Sound还没读」)是 0.698,不会被误当成同一条;
+# 而真的只是改了个说法的同一条(补词、改日期、加标签)在 0.84~1.0,稳稳过线。
+# 诚实记账:0.72 只认「原地改说法」;上面那条整句重写的线两两之间只有 0.21~0.38,
+# 靠比例永远认不出来——那种情况靠标签同一性兜(见 _open_line_survives),而标签正是
+# 门 2 强制她打上去的东西。两道门是一套:门 2 给行一个稳定身份,门 1 才拦得住整句重写。
+OPEN_LOOPS_LINE_MATCH_RATIO = 0.72
+
+# `- [ ]` 开、`- [x]` 做完、`- [-]` 放弃(放弃写法见锚点 skill「待办与承诺」节)。
+# 只认一个字符的标记,别的写法(`- [?]`)保守地当成"还开着",宁可多要一个标签也不放跑一条。
+OPEN_LOOPS_ITEM_RE = re.compile(r'^\s*[-*]\s*\[(.)\]\s*(.*)$')
+OPEN_LOOPS_CLOSED_MARKS = frozenset('xX-')
+# 标签必须整词出现(行首或空格后),排掉全角/半角括号免得把 `(#1)` 之类吃进来。
+OPEN_LOOPS_TAG_RE = re.compile(r'(?:^|\s)#([^\s#()（）]+)')
+
+
+def _open_loops_path() -> str:
+    return f'{default_runtime_root()}/{OPEN_LOOPS_REL_PATH}'
+
+
+def open_loops_snapshot_path() -> str:
+    return os.path.join(default_compress_dir(), OPEN_LOOPS_SNAPSHOT_NAME)
+
+
+def _read_text_or_none(path: str, strict: bool = False):
+    """读不到 / 解不开 → None(交给调用方按"没有这份东西"处理,绝不抛)。"""
+    try:
+        with open(path, 'rb') as handle:
+            data = handle.read()
+    except (OSError, ValueError):
+        return None
+    try:
+        return data.decode('utf-8', errors='strict' if strict else 'replace')
+    except UnicodeDecodeError:
+        return None
+
+
+def _extract_tags(body: str):
+    """行里的 `#标签`。纯数字的不算(`Issue #39` 不是标签,是引用编号)。"""
+    return [tag for tag in OPEN_LOOPS_TAG_RE.findall(body) if not tag.isdigit()]
+
+
+def _normalize_body(body: str) -> str:
+    """比对用的行文:剥掉标签再压空白——加不加标签不该影响"是不是同一条"。"""
+    return ' '.join(OPEN_LOOPS_TAG_RE.sub(' ', body).split())
+
+
+def parse_open_loops(text: str):
+    """→ [{'open':bool,'body':原文,'norm':比对文,'tags':[…],'line':整行}](非条目行忽略)。"""
+    items = []
+    for line in (text or '').split('\n'):
+        matched = OPEN_LOOPS_ITEM_RE.match(line)
+        if not matched:
+            continue
+        mark, body = matched.group(1), matched.group(2)
+        items.append({
+            'open': mark not in OPEN_LOOPS_CLOSED_MARKS,
+            'body': body.strip(),
+            'norm': _normalize_body(body),
+            'tags': _extract_tags(body),
+            'line': line.rstrip(),
+        })
+    return items
+
+
+def _open_line_survives(previous, current_items) -> bool:
+    """快照里的一条开放行,在当前文件里还找得到吗?
+
+    算存活的三种情况:① 同一个 `#标签` 还在(整句重写也认得出,这是标签的主要用处);
+    ② 行文相同或近似(≥ OPEN_LOOPS_LINE_MATCH_RATIO);③ 命中的那条已经划掉/放弃
+    —— 划掉和放弃都是正当结局,门 1 拦的只有"既没做完也没划掉却不见了"。
+    匹配不消耗当前行:两条旧行都指向同一条新行时按存活算,宁可漏拦也不误拦。
+    """
+    prev_tags = set(previous['tags'])
+    prev_norm = previous['norm']
+    for item in current_items:
+        if prev_tags and prev_tags & set(item['tags']):
+            return True
+        if not prev_norm:
+            continue  # 空行文没法比,只能靠标签;没标签就当它没了(会被门 1 点出来)
+        if item['norm'] == prev_norm:
+            return True
+        if difflib.SequenceMatcher(None, prev_norm, item['norm']).ratio() >= OPEN_LOOPS_LINE_MATCH_RATIO:
+            return True
+    return False
+
+
+def _lost_open_lines(snapshot_text: str, current_items):
+    """上次提交时开着、这次既找不到原样也找不到划掉版的行。"""
+    lost = []
+    for previous in parse_open_loops(snapshot_text):
+        if not previous['open']:
+            continue
+        if not _open_line_survives(previous, current_items):
+            lost.append(previous['line'].strip())
+    return lost
+
+
+def validate_open_loops():
+    """欠账账本两道门 → 违规说明列表(空 = 达标)。
+
+    门 1(开放行单调性):上次提交时还开着的行,这次不许消失——除非划成了 `- [x]`(做完)
+    或 `- [-]`(放弃)。首次运行(没有快照)放行。
+    门 2(标签):未划掉的行行末要有 `#标签`,标签名用这件事的名字,同一件事一直用同一个。
+    """
+    violations = []
+    # 当前文件用宽松解码:一个坏字节不该让整份账本"看起来全没了"而触发门 1 误拦。
+    current_text = _read_text_or_none(_open_loops_path())
+    current_items = parse_open_loops(current_text or '')
+
+    # 快照用严格解码:坏了就当没有快照(fail-open),绝不拿半份基线去拦她。
+    snapshot_text = _read_text_or_none(open_loops_snapshot_path(), strict=True)
+    if snapshot_text is not None:
+        lost = _lost_open_lines(snapshot_text, current_items)
+        if lost:
+            shown = '\n'.join(f'        {line}' for line in lost[:12])
+            more = f'\n        …还有 {len(lost) - 12} 条' if len(lost) > 12 else ''
+            violations.append(
+                f'上次整理时还开着的 {len(lost)} 条不见了,而且既没划成 `- [x]` 也没划成 `- [-]`。'
+                '这本是账本不是草稿:一行一条,做完划掉不删行——别整份重写(`cat > … << EOF` 会把'
+                '你没抄到的行冲掉),用 append 或改那一行。下面这几条原样补回去(做完了就补成 '
+                '`- [x]`,不做了就补成 `- [-]`):\n' + shown + more
+            )
+
+    untagged = [item for item in current_items if item['open'] and not item['tags']]
+    if untagged:
+        shown = '\n'.join(f'        {item["line"].strip()}' for item in untagged[:12])
+        more = f'\n        …还有 {len(untagged) - 12} 条' if len(untagged) > 12 else ''
+        violations.append(
+            f'有 {len(untagged)} 条还开着的行没打标签。每条未划掉的行,行末打一个 `#标签`,'
+            '标签名用这件事的名字,同一件事一直用同一个(例:'
+            '`- [ ] 周蕊Day 55到152读完 #周蕊 (7/27起)`)。标签是这条线的身份:'
+            '系统靠它把散在各天的进展连成 `/xiaoni-runtime/notes/topics/<标签>.md`,'
+            '你下次换个说法重写这行,也是靠它认出还是同一条。要打的:\n' + shown + more
+        )
+    return violations
 
 
 def default_runtime_root() -> str:
@@ -187,14 +345,23 @@ def _validate_one_menu(path: str, remedy: str, mutate: bool = True, day_window: 
     return violations
 
 
-def validate_menus(mutate: bool = True):
-    """Returns {path: [violations]} for both menus; empty dict = 全部达标."""
+def validate_menus(mutate: bool = True, stale_day_window: bool = False):
+    """Returns {path: [violations]} for both menus; empty dict = 全部达标.
+
+    stale_day_window 控制「顶层还留着超过窗口的按天行」这一条是否参与。**提交路径必须传
+    False。** 引擎侧 maintainDiaryIndexHierarchy() 现在负责搬行,但它跑在这道门之后:
+    这个脚本 validate_menus() -> 打 XIAONI_COMPRESS_WROTE -> 引擎读回 ->
+    commitCoreMemoryCompression() -> maintainDiaryIndexHierarchy()。
+    门在前、搬在后,所以两次压缩之间任何一行跨过 7 天线都会在这里拒收一次,而写端 prompt
+    已经不教怎么搬了(那一步删了,因为引擎接管)——她会拿到一条无法执行的拒收。
+    只读诊断路径(--check-menus,永远 exit 0)传 True:那里只是告诉她现状,不拦任何东西。
+    """
     root = default_runtime_root()
     # day_window 只对日记目录开:人物菜单按要紧程度排,没有日期,滚动窗口对它没有意义。
     checks = [
         (f'{root}/notes/diary/INDEX.md', '日记目录',
-         f'顶层只留最近 {DIARY_INDEX_RECENT_DAYS} 天的按天行,更早的按月搬进同目录 INDEX-<YYYY-MM>.md(原样搬不改写),顶层给每个搬空的月留一行「- YYYY-MM | 那个月的一句话(细目在 INDEX-YYYY-MM.md)」',
-         True),
+         f'顶层只留最近 {DIARY_INDEX_RECENT_DAYS} 天的按天行,更早的按月搬进同目录 INDEX-<YYYY-MM>.md(原样搬不改写),顶层给每个搬空的月留一行「- YYYY-MM | 那个月的一句话(细目在 INDEX-YYYY-MM.md)」。平时引擎替你搬,不用管;真看到这条说明引擎没搬上,按上面这样手搬一次',
+         stale_day_window),
         (f'{root}/notes/people/INDEX.md', '人物菜单',
          '把不常联系的人的行搬进同目录 INDEX-past.md(原样搬不删),顶层留一行「- 更早认识的人 | 细目在 INDEX-past.md」;要紧的人放上面',
          False),
@@ -272,7 +439,8 @@ def main() -> int:
 
     if args.check_menus:
         try:
-            problems = validate_menus(mutate=False)
+            # 只读诊断:超窗口的按天行在这里如实报出来(不拦任何东西,永远 exit 0)
+            problems = validate_menus(mutate=False, stale_day_window=True)
         except Exception:
             problems = {}
         if problems:
@@ -289,7 +457,8 @@ def main() -> int:
         print('ERROR: empty memory text on stdin; nothing written', file=sys.stderr)
         return 1
     try:
-        menu_problems = validate_menus()
+        # stale_day_window=False:搬行归引擎,而引擎跑在这道门之后(见 validate_menus docstring)
+        menu_problems = validate_menus(stale_day_window=False)
     except Exception:
         menu_problems = {}
     try:
