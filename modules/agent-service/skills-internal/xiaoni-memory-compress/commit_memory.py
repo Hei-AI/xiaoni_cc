@@ -385,6 +385,52 @@ CAPSULE_MIN_CHARS = 300
 CAPSULE_MAX_CHARS = 8000
 
 
+# 醒来锚点(B3):2026-07-28「连续干活一天半」事故。她那段实际睡了 4 觉共 486 分钟,但压缩
+# fork 只看得到一段连续的上下文,就把窗口跨度当成了「连续清醒约十五小时」写进近况;下一轮
+# 压缩把这个锚点原样抄下去,漂移单调累积。根因是引擎对「醒了多久」根本不算,她面前是个空洞。
+#
+# 修法是把空洞填上,不是拦她:引擎在压缩 fork 派发时把真实醒来时刻写进 .wake-anchor,本脚本
+# 在写文件前把它拼到近况最前面。她照常写正文,一个字都不用管时间。
+#
+# 为什么拼在脚本里而不是引擎提交处:兜底摘要(fork 跑超轮次时引擎直接提交的那句固定占位话)
+# 走的是常量直传、不经过本脚本,所以它结构性地拿不到这行——那句话被要求逐字节不变,任何
+# 每次不同的戳都会打穿跨 run 边界的 prompt cache。放在这里,免疫是结构性的,不靠条件判断。
+#
+# 为什么不再校验她有没有乱写时间跨度:禁令写在压缩引导 prompt 里(那是 fork 请求的尾部追加项,
+# 紧挨着她动手),不用正则去改她自己写的字——尤其近况里的心境段。
+WAKE_ANCHOR_PREFIX = '上次睡醒：'
+
+
+def wake_anchor_path() -> str:
+    # 跟 default_compress_dir 一样按调用时的 XIAONI_RUNTIME_ROOT 解析,别在 import 期钉死。
+    return os.path.join(default_compress_dir(), '.wake-anchor')
+
+
+def read_wake_anchor():
+    """引擎在压缩 fork 派发时写的权威锚点行。读不到就返回 None(fail-open)。"""
+    try:
+        with open(wake_anchor_path(), 'r', encoding='utf-8') as handle:
+            line = handle.read().strip()
+    except OSError:
+        return None
+    return line if line.startswith(WAKE_ANCHOR_PREFIX) else None
+
+
+def prepend_wake_anchor(text: str) -> str:
+    """把引擎写的真实醒来时刻拼到近况最前面。
+
+    锚点缺失(首次部署/引擎那条腿没写成)就原样返回——压缩在关键路径上,这里绝不能拦。
+    已经带了同一行的(重试提交)不重复拼。
+    """
+    anchor = read_wake_anchor()
+    if not anchor:
+        return text
+    body = text.lstrip('\n')
+    if body.startswith(anchor):
+        return text
+    return f'{anchor}\n\n{body}'
+
+
 def validate_capsule(text: str):
     problems = []
     if len(text) < CAPSULE_MIN_CHARS:
@@ -475,6 +521,10 @@ def main() -> int:
         if capsule_problems:
             print_capsule_rejection(capsule_problems)
         return 1
+
+    # 验收看的是她写的正文(长度带宽是对「这份近况完不完整」的判断,不该被引擎加的一行影响),
+    # 拼接在验收之后、落盘之前:写进文件的就是将来 replay 成 <xiaoni_status> 的那份。
+    text = prepend_wake_anchor(text)
 
     auto_named = args.out is None
     out_path = os.path.abspath(args.out if args.out is not None else mint_output_path())
