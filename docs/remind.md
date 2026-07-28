@@ -36,6 +36,7 @@
 | `phone_notification_direct_cue_line` | `docs/xiaoni_prompt/phone_notification_direct_cue_line.md` | `phone_notification` 的私聊短摘要行。 |
 | `phone_notification_group_mention_cue_line` | `docs/xiaoni_prompt/phone_notification_group_mention_cue_line.md` | `phone_notification` 的群 @ 短摘要行。 |
 | `phone_notification_group_activity_cue_line` | `docs/xiaoni_prompt/phone_notification_group_activity_cue_line.md` | `phone_notification` 的普通群动静短摘要行。 |
+| `core_memory_pressure_write_formats` | `docs/xiaoni_prompt/core_memory_pressure_write_formats.md` | `core_memory_pressure` 的写端命令清单与内容口径（日记条目、日记目录行、人物档案与菜单行、欠账开与结），经 `{{WRITE_FORMATS}}` 嵌入。正文里只有「用哪条命令 + 写什么内容」；行格式、日期、阈值等格式常量的唯一真理源是 `skills-internal/xiaoni-memory-write/memory_write.py` 顶部，不达标由该脚本在 `exec_command` 返回内容里告知，prompt 侧不再复述。fragment 内不放 `{{…}}` 占位符（嵌入是单趟替换，不会二次解析）：脚本路径由宿主 `core_memory_pressure_reminder.md` 用 `{{XIAONI_MEMORY_WRITE_SKILL}}` 定义成 `$M`，fragment 只引用 `$M`。`xiaoni-memory-anchor/SKILL.md`（读端）与 `skills-internal/xiaoni-memory-compress/SKILL.md`（近况指针）必须与它对齐，不得各写一份。 |
 
 ## Assembly Rules
 
