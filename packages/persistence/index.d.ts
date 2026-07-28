@@ -2446,6 +2446,7 @@ export type AgentRuntimeControlProjection = {
   psychAssessmentGateEnabled: boolean;
   forkIdleEscalationEnabled: boolean;
   planVoidOnIdleEnabled: boolean;
+  idlePlanSkillSubmissionEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };
