@@ -19,6 +19,7 @@ import {
   getXiaoniLlmUsageTimeline,
   listAgentLifeEvents,
   listAgentRecoverySessions,
+  listRecallShadowLog,
   listToolExecutions,
   updateAgentRuntimeControl
 } from '@qq-bot/persistence';
@@ -38,6 +39,7 @@ jest.mock('@qq-bot/persistence', () => ({
   listAgentLifeEvents: jest.fn(),
   listAgentMediaAssets: jest.fn(),
   listAgentRecoverySessions: jest.fn(),
+  listRecallShadowLog: jest.fn(),
   listToolExecutions: jest.fn(),
   listAgentTasks: jest.fn(),
   updateAgentRuntimeControl: jest.fn()
@@ -1478,5 +1480,51 @@ describe('agent runtime action event trace routes', () => {
       'tool-call:call_global'
     );
     expect(response.body.data.input.arguments.cmd).toBe('date');
+  });
+});
+
+// 浮现流水面(管理端只读展示)。listRecallShadowLog 加了 queryRef 参数(时间腿冷却窗口按腿过滤)
+// 之后,这个调用点必须保持不传 —— 流水面要的就是全腿混排的最近 N 条,一旦被顺手带上 queryRef,
+// 页面会只剩某一条腿的留痕。
+describe('xiaoni passive recall shadow log route', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('reads the shadow log without a queryRef filter (all legs interleaved)', async () => {
+    const database = createDatabaseMock();
+    (listRecallShadowLog as jest.Mock).mockResolvedValueOnce([
+      { id: '3', queryRef: 'stack:90001', silent: true, surfaced: [] },
+      { id: '2', queryRef: 'diary_resurface', silent: false, surfaced: [{ ref: '/x#1' }] }
+    ]);
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/passive-recall/shadow-log');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.deliveryMode).toBe('shadow_only');
+    expect(response.body.data.entries).toHaveLength(2);
+    expect(listRecallShadowLog).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      limit: 50,
+      onlySurfaced: false
+    });
+    const args = (listRecallShadowLog as jest.Mock).mock.calls[0][0];
+    expect(Object.keys(args)).not.toContain('queryRef');
+  });
+
+  it('still honours limit / only_surfaced and adds no queryRef', async () => {
+    const database = createDatabaseMock();
+    (listRecallShadowLog as jest.Mock).mockResolvedValueOnce([]);
+
+    const response = await request(createApp(database))
+      .get('/api/xiaoni/passive-recall/shadow-log?limit=120&only_surfaced=true&identity_key=xiaoni');
+
+    expect(response.status).toBe(200);
+    expect(listRecallShadowLog).toHaveBeenCalledWith({
+      identityKey: 'xiaoni',
+      limit: 120,
+      onlySurfaced: true
+    });
   });
 });

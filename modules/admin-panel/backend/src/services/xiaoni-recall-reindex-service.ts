@@ -10,17 +10,21 @@ import {
   pruneFileChunks,
   countRecallCues,
   parseOpenLoops,
+  parseTagDate,
   selectStaleOpenLoops,
   parseDiaryDateFromName,
   parseDiaryEvents,
   parseDiarySerialEvents,
   selectResurfacedEvents,
+  isDiaryNonEpisodeFile,
   normalizeEventText,
+  selectAssociativeMemories,
   DAY_MS,
   BEIJING_OFFSET_MS,
   insertRecallShadowLog,
   listRecallShadowLog
 } from '@qq-bot/persistence';
+import type { XiaoniAssociationStats } from '@qq-bot/persistence';
 
 // 结构标记复发阈值:归一化标题跨 ≥N 个东八区日历日出现 = 模板(醒来/今天总结…)→ resurface 跳过。
 const STRUCTURAL_RECURRENCE_DAYS = 3;
@@ -43,11 +47,10 @@ const HASH_LOOKUP_BATCH = 1000;
 // docs/XIAONI_MEMORY_PALACE_GENERATION.md §7.1
 const PALACE_FILES = ['notes/xiaoni-identity-anchor.md']; // 宫殿地图(身份索引)
 const PALACE_DIRS = ['notes/diary'];                      // 日记(情节记忆,被动浮现主力)
-// 日记目录里这两份【不进】被动嵌入:
-//  - dictionary.md 是关键词→哪天的查找索引,密集 bullet 整块糊成一个泛化向量,
-//    只供主动 cat 翻查,嵌进被动召回反而污染;
-//  - open-loops.md 由第二条腿(scanOpenLoopsToShadow)按时间/状态扫,嵌 checkbox 行是噪音。
-const PALACE_DIR_EXCLUDE = new Set(['dictionary.md', 'open-loops.md']);
+// 日记目录里「不是一段经历」的那几份不进被动嵌入 —— 判定收口到 persistence 的
+// isDiaryNonEpisodeFile(dictionary / open-loops / INDEX*),语料底和往事腿共用同一份,
+// 别在这里再留一份 Set。INDEX*.md 必须按前缀认:整份都是索引行、没有一句是经历本身,
+// 而硬编 `INDEX-2026-07.md` 下个月就漏。
 
 // 被动召回【第二条腿】:开放承诺按时间重提(非语义)。docs/XIAONI_MEMORY_PALACE_GENERATION.md §11。
 const OPEN_LOOPS_REL_PATH = 'notes/diary/open-loops.md';
@@ -63,10 +66,27 @@ const DIARY_RESURFACE_QUERY_REF = 'diary_resurface';
 const DIARY_MIN_AGE_DAYS = 7;               // 搁≥7 天(她大概忘了)才值得翻出来
 const DIARY_SURFACE_LIMIT = 2;              // 一次最多翻 2 件旧事
 const DIARY_DEDUP_LOOKBACK = 40;            // 最近 40 条 diary_resurface 里翻过的,冷却跳过
-const DIARY_NON_EVENT_FILES = new Set(['dictionary.md', 'open-loops.md']); // 不是往事日记,不扫
 // 专题连载(一件多天的事，一份文件一章章续):文件名不是日期，而是 topic-<主题>.md，
 // 事发日期在每个 `## M/D` 章节标题里。也走第三腿(diary_resurface)按时间重提旧章节。
 const SERIAL_FILE_PREFIX_RE = /^topic-/i;
+
+// 被动召回【第四条腿】:联想。六因子等权 + 四个年龄桶独立配额 + identity 级冷却。
+// 纯选取器在 packages/persistence/xiaoni-recall-association.js;这里只做 fs 扫描 + shadow 落库。
+// 和第二/三腿同一处、同一套 shadow 路径、同一个 reindex 节律 —— 不新建第二条通路。
+// **shadow-only:绝不投递**,产物不进任何 LLM 请求字节 → 双缓存零影响。
+const ASSOCIATION_SCAN_QUERY_REF = 'association_scan';
+// identity 级冷却窗。默认 30 分钟一轮重扫 → 336 行 ≈ 7 天。挑这个数是为了让「同一 identity
+// 一周内不重复浮」成为结构性事实,而不是靠运气(spec §5.6 过线标准第三条)。
+// listRecallShadowLog 的 limit 上限是 500,336 在内。
+const ASSOCIATION_DEDUP_LOOKBACK = 336;
+// L3 线(专题物化产物)的目录。**隔离目录**是有意的:落在 notes/diary/ 里时,同一件事的
+// 「日记条目 + 线章节」两份拷贝会各占一个 slot(实测 155/155 = 100%,见 spec §8.1)。
+// 目录不存在(P1 还没落地/还没跑过)→ 线场桶为空 → 按「空桶就少浮」少浮一条,不报错。
+const TOPICS_DIR_REL_PATH = 'notes/topics';
+// 真人名表来源:她自己维护的人物档案菜单。硬编人名会漂,读她的菜单才是单一真理源。
+const PEOPLE_INDEX_REL_PATH = 'notes/people/INDEX.md';
+const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
+const PEOPLE_NAME_ALIAS_SEP = /[/、,，\s]+/;
 
 interface RecallRecord {
   sourceKind: string;
@@ -154,7 +174,7 @@ export async function listPalaceFiles(runtimeRoot: string): Promise<string[]> {
       if (!entry.isFile()) {
         continue;
       }
-      if (entry.name.startsWith('.') || PALACE_DIR_EXCLUDE.has(entry.name)) {
+      if (entry.name.startsWith('.') || isDiaryNonEpisodeFile(entry.name)) {
         continue;
       }
       if (!/\.(md|txt)$/i.test(entry.name)) {
@@ -217,6 +237,7 @@ export interface ReindexResult {
   counts: { total: number; byKind: Record<string, number> };
   openLoopScan?: OpenLoopScanResult;
   diaryResurfaceScan?: DiaryResurfaceScanResult;
+  associationScan?: AssociationScanResult;
 }
 
 export interface OpenLoopScanResult {
@@ -229,6 +250,14 @@ export interface DiaryResurfaceScanResult {
   totalEvents: number;
   surfaced: Array<{ title: string; ageDays: number; ref: string }>;
   shadowLogId: string | null;
+}
+
+export interface AssociationScanResult {
+  candidates: number;
+  surfaced: Array<{ ref: string; bucket: string; identity: string; score: number }>;
+  stats: XiaoniAssociationStats | null;
+  shadowLogId: string | null;
+  landedRef?: string | null;
 }
 
 // 第二条腿:读 open-loops.md → 挑搁置够久的开放承诺 → 只写 shadow_log(绝不投递)。
@@ -252,11 +281,15 @@ export async function scanOpenLoopsToShadow(
   const totalOpen = loops.filter((loop) => !loop.done).length;
 
   // 去重:最近若干条 open_loop 扫描里已浮过的,冷却期内别重复提。
+  // queryRef 必须下推到 SQL(listRecallShadowLog 参数),不能取全表最近 N 行再在这里筛:
+  // 这张表 ~97% 是语义腿的落地留痕,不带 queryRef 时窗口里几乎一条本腿行都没有 → 冷却失效。
   const recentTexts: string[] = [];
-  const recent = await listRecallShadowLog({ identityKey, limit: OPEN_LOOP_DEDUP_LOOKBACK });
+  const recent = await listRecallShadowLog({
+    identityKey,
+    queryRef: OPEN_LOOP_SCAN_QUERY_REF,
+    limit: OPEN_LOOP_DEDUP_LOOKBACK
+  });
   for (const row of recent) {
-    if ((row as { query_ref?: string; queryRef?: string }).query_ref !== OPEN_LOOP_SCAN_QUERY_REF
-      && (row as { queryRef?: string }).queryRef !== OPEN_LOOP_SCAN_QUERY_REF) continue;
     const surfaced = (row as { surfaced?: unknown }).surfaced;
     if (!Array.isArray(surfaced)) continue;
     for (const item of surfaced) {
@@ -313,28 +346,32 @@ export async function scanOpenLoopsToShadow(
   };
 }
 
-// 第三条腿:遍历日记文件 → 每个 `## 小标题` 是一件往事(日期=文件名)→ 挑搁得够久、
-// 最近没翻过的几件 → 只写 shadow_log(绝不投递)。补 §10 的「纯情节事件」盲区:语义腿
-// (cos<floor)与第二腿(只扫承诺)之间漏掉的普通往事,这里按时间翻出来。
-// nowMs 由调用方传。目录不存在/日记还没写 = 静默返回空。
-export async function scanDiaryEventsToShadow(
-  opts: { identityKey?: string; nowMs?: number } = {}
-): Promise<DiaryResurfaceScanResult> {
-  const identityKey = opts.identityKey || 'xiaoni';
-  const nowMs = Number.isFinite(opts.nowMs) ? Number(opts.nowMs) : Date.now();
-  const diaryDir = path.join(RUNTIME_ROOT, DIARY_DIR_REL_PATH);
+interface DiaryEventCandidate {
+  title: string;
+  body: string;
+  dateMs: number;
+  index: number;
+  ref: string;
+  lineKey: string | null;
+}
 
+// 扫 notes/diary/ → 每个 `## 小标题` 一件往事。第三腿(按时间重提)和第四腿(联想)共用这一份,
+// 别各扫一遍:同一份文件解析两次不但浪费,还会在两条腿之间产生「同一个 ref 两种 index 口径」。
+// readable=false 表示目录读不了(还没建/权限),调用方据此静默返回。
+// lineKey:只有专题连载(topic-<主题>.md)才有 —— 它就是「这条线的名字」。按日日记恒 null。
+async function collectDiaryEventCandidates(nowMs: number): Promise<{ readable: boolean; events: DiaryEventCandidate[] }> {
+  const diaryDir = path.join(RUNTIME_ROOT, DIARY_DIR_REL_PATH);
   let entries: Array<{ name: string; isFile: () => boolean }>;
   try {
     entries = await fs.readdir(diaryDir, { withFileTypes: true });
   } catch {
-    return { totalEvents: 0, surfaced: [], shadowLogId: null };
+    return { readable: false, events: [] };
   }
 
-  // 收集所有往事,ref = canonical path#index(稳定,供去重)。
-  const events: Array<{ title: string; body: string; dateMs: number; index: number; ref: string }> = [];
+  // ref = canonical path#index(稳定,供去重)。
+  const events: DiaryEventCandidate[] = [];
   for (const entry of entries) {
-    if (!entry.isFile() || entry.name.startsWith('.') || DIARY_NON_EVENT_FILES.has(entry.name)) {
+    if (!entry.isFile() || entry.name.startsWith('.') || isDiaryNonEpisodeFile(entry.name)) {
       continue;
     }
     if (!/\.(md|txt)$/i.test(entry.name)) {
@@ -345,7 +382,7 @@ export async function scanDiaryEventsToShadow(
     const isSerial = SERIAL_FILE_PREFIX_RE.test(entry.name);
     const dateMs = isSerial ? null : parseDiaryDateFromName(entry.name);
     if (!isSerial && dateMs == null) {
-      continue; // 既不是按日日记(文件名日期)、也不是专题连载(topic-*) → 不进第三腿,仍由语义腿索引
+      continue; // 既不是按日日记(文件名日期)、也不是专题连载(topic-*) → 不进这两条腿,仍由语义腿索引
     }
     const absolutePath = path.join(diaryDir, entry.name);
     let content = '';
@@ -360,30 +397,20 @@ export async function scanDiaryEventsToShadow(
     const parsed = isSerial
       ? parseDiarySerialEvents(content, nowMs)
       : parseDiaryEvents(content, dateMs as number);
+    const lineKey = isSerial
+      ? entry.name.replace(SERIAL_FILE_PREFIX_RE, '').replace(/\.(md|txt)$/i, '') || null
+      : null;
     for (const ev of parsed) {
-      events.push({ ...ev, ref: `${canonicalPath}#${ev.index}` });
+      events.push({ ...ev, ref: `${canonicalPath}#${ev.index}`, lineKey });
     }
   }
+  return { readable: true, events };
+}
 
-  // 去重:最近若干条 diary_resurface 扫描里翻过的 ref,冷却期内别重复翻。
-  const recentRefs: string[] = [];
-  const recent = await listRecallShadowLog({ identityKey, limit: DIARY_DEDUP_LOOKBACK });
-  for (const row of recent) {
-    if ((row as { query_ref?: string; queryRef?: string }).query_ref !== DIARY_RESURFACE_QUERY_REF
-      && (row as { queryRef?: string }).queryRef !== DIARY_RESURFACE_QUERY_REF) continue;
-    const surfaced = (row as { surfaced?: unknown }).surfaced;
-    if (!Array.isArray(surfaced)) continue;
-    for (const item of surfaced) {
-      const ref = item && typeof (item as { ref?: unknown }).ref === 'string'
-        ? (item as { ref: string }).ref
-        : null;
-      if (ref) recentRefs.push(ref);
-    }
-  }
-
-  // step-1 结构标记复发识别:全量 events 已在手(上方 line 装满),按归一化标题聚跨天集合;
-  // 跨 ≥STRUCTURAL_RECURRENCE_DAYS 个东八区日历日出现的标题判为模板,交给 selectResurfacedEvents 跳过。
-  // 复用 normalizeEventText——与 selectResurfacedEvents 内去重/结构判定同一归一化(单一真理源)。
+// step-1 结构标记复发识别:按归一化标题聚跨天集合;跨 ≥STRUCTURAL_RECURRENCE_DAYS 个东八区
+// 日历日出现的标题判为模板(醒来/今天总结…),交给选取器跳过。
+// 复用 normalizeEventText——与选取器内去重/结构判定同一归一化(单一真理源)。第三、四腿共用。
+function computeStructuralTitles(events: Array<{ title: string; dateMs: number }>): Set<string> {
   const titleDayBuckets = new Map<string, Set<number>>();
   for (const ev of events) {
     const nt = normalizeEventText(ev.title);
@@ -400,6 +427,46 @@ export async function scanDiaryEventsToShadow(
   for (const [nt, days] of titleDayBuckets) {
     if (days.size >= STRUCTURAL_RECURRENCE_DAYS) structuralTitles.add(nt);
   }
+  return structuralTitles;
+}
+
+// 第三条腿:遍历日记文件 → 每个 `## 小标题` 是一件往事(日期=文件名)→ 挑搁得够久、
+// 最近没翻过的几件 → 只写 shadow_log(绝不投递)。补 §10 的「纯情节事件」盲区:语义腿
+// (cos<floor)与第二腿(只扫承诺)之间漏掉的普通往事,这里按时间翻出来。
+// nowMs 由调用方传。目录不存在/日记还没写 = 静默返回空。
+export async function scanDiaryEventsToShadow(
+  opts: { identityKey?: string; nowMs?: number } = {}
+): Promise<DiaryResurfaceScanResult> {
+  const identityKey = opts.identityKey || 'xiaoni';
+  const nowMs = Number.isFinite(opts.nowMs) ? Number(opts.nowMs) : Date.now();
+
+  const scan = await collectDiaryEventCandidates(nowMs);
+  if (!scan.readable) {
+    return { totalEvents: 0, surfaced: [], shadowLogId: null };
+  }
+  const events = scan.events;
+
+  // 去重:最近若干条 diary_resurface 扫描里翻过的 ref,冷却期内别重复翻。
+  // queryRef 下推到 SQL(见第二腿同样注释):不下推时 40 条窗口里 diary 行真库实测 = 0,
+  // 冷却整个失效 —— 609 次扫描只浮出过 33 个 distinct ref、07-08 之后约 1200 条事件从没浮过。
+  const recentRefs: string[] = [];
+  const recent = await listRecallShadowLog({
+    identityKey,
+    queryRef: DIARY_RESURFACE_QUERY_REF,
+    limit: DIARY_DEDUP_LOOKBACK
+  });
+  for (const row of recent) {
+    const surfaced = (row as { surfaced?: unknown }).surfaced;
+    if (!Array.isArray(surfaced)) continue;
+    for (const item of surfaced) {
+      const ref = item && typeof (item as { ref?: unknown }).ref === 'string'
+        ? (item as { ref: string }).ref
+        : null;
+      if (ref) recentRefs.push(ref);
+    }
+  }
+
+  const structuralTitles = computeStructuralTitles(events);
 
   const picked = selectResurfacedEvents(events, {
     nowMs,
@@ -439,6 +506,226 @@ export async function scanDiaryEventsToShadow(
     totalEvents: events.length,
     surfaced: picked.map((p) => ({ title: p.title, ageDays: p.ageDays, ref: p.ref })),
     shadowLogId: id
+  };
+}
+
+// 她自己维护的人物档案菜单 → 真人名表(第四腿 f5 因子用)。读不到 = 空表 → f5 恒 0,不报错。
+async function readPeerNames(): Promise<string[]> {
+  let content = '';
+  try {
+    content = await fs.readFile(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL_PATH), 'utf8');
+  } catch {
+    return [];
+  }
+  const names = new Set<string>();
+  for (const match of content.matchAll(PEOPLE_INDEX_LINE_RE)) {
+    const name = (match[1] || '').trim();
+    // 太长的不是称呼(是被误配的正文);单字名由选取器按 MIN_PEER_NAME_CHARS 自己剔。
+    if (!name || name.length > 24) continue;
+    if (name.length <= 12) names.add(name);
+    // 别名切分:菜单里真实写成 `CC/骑猪去看月`、`Bartosz Ciechanowski`,而她在日记里只写
+    // 「CC」「Bartosz」。不切的话这两个人在 f5 上永远命中不到。
+    for (const alias of name.split(PEOPLE_NAME_ALIAS_SEP)) {
+      const trimmed = alias.trim();
+      if (trimmed.length >= 2 && trimmed.length <= 12) names.add(trimmed);
+    }
+  }
+  return [...names];
+}
+
+// L3 线目录 notes/topics/<标签>.md → 章节候选(每章 `## M/D 点题`)。
+// 目录不存在(P1 物化还没落地)→ 返回空 → 线场桶为空 → 少浮一条。这是「空桶就少浮」的正常路径。
+async function collectTopicLineCandidates(nowMs: number): Promise<DiaryEventCandidate[]> {
+  const topicsDir = path.join(RUNTIME_ROOT, TOPICS_DIR_REL_PATH);
+  let entries: Array<{ name: string; isFile: () => boolean }>;
+  try {
+    entries = await fs.readdir(topicsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: DiaryEventCandidate[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith('.') || isDiaryNonEpisodeFile(entry.name)) continue;
+    if (!/\.(md|txt)$/i.test(entry.name)) continue;
+    const absolutePath = path.join(topicsDir, entry.name);
+    let content = '';
+    try {
+      content = await fs.readFile(absolutePath, 'utf8');
+    } catch {
+      continue;
+    }
+    const canonicalPath = canonicalOf(absolutePath);
+    const lineKey = entry.name.replace(/\.(md|txt)$/i, '');
+    for (const ev of parseDiarySerialEvents(content, nowMs)) {
+      out.push({ ...ev, ref: `${canonicalPath}#${ev.index}`, lineKey });
+    }
+  }
+  return out;
+}
+
+// 第四条腿:联想。候选 = 日记往事 ∪ L3 线章节 ∪ 开放承诺;排序 = 六因子等权;
+// 名额 = 四个年龄桶各自的配额(近场恒 0);冷却 = identity 级。只写 shadow_log(**绝不投递**)。
+//
+// landedText(本次落地的那段文本)取动作流最新一条的 body/title —— 和 agent-service 侧那个
+// 召回钩子(modules/agent-service/src/services/xiaoni-recall-hook.ts:62-64)同一口径、同一来源,
+// 不新起第二种「什么算落地」的定义。取不到 → f1 全 0,其余五因子照排(不瘫)。
+export async function scanAssociativeRecallToShadow(
+  opts: { identityKey?: string; nowMs?: number } = {}
+): Promise<AssociationScanResult> {
+  const identityKey = opts.identityKey || 'xiaoni';
+  const nowMs = Number.isFinite(opts.nowMs) ? Number(opts.nowMs) : Date.now();
+
+  const diaryScan = await collectDiaryEventCandidates(nowMs);
+  if (!diaryScan.readable) {
+    return { candidates: 0, surfaced: [], stats: null, shadowLogId: null };
+  }
+  const [lineCandidates, peerNames] = await Promise.all([
+    collectTopicLineCandidates(nowMs),
+    readPeerNames()
+  ]);
+
+  // 开放承诺(第二腿的解析产物)也进候选:kind='promise',行末 `#标签` 就是它的线。
+  // 它的正文就是那一行本身 → 不走 substance 过滤(选取器按 kind 分流)。
+  const promiseCandidates: Array<{
+    ref: string; kind: 'promise'; title: string; body: string; dateMs: number | null; lineKey: string | null; tier: string;
+  }> = [];
+  try {
+    const loopsContent = await fs.readFile(path.join(RUNTIME_ROOT, OPEN_LOOPS_REL_PATH), 'utf8');
+    const canonicalLoops = canonicalOf(path.join(RUNTIME_ROOT, OPEN_LOOPS_REL_PATH));
+    for (const loop of parseOpenLoops(loopsContent)) {
+      if (loop.done || !loop.text) continue;
+      const openedMs = parseTagDate(loop.openedTag, nowMs);
+      promiseCandidates.push({
+        ref: `${canonicalLoops}#${loop.line}`,
+        kind: 'promise',
+        title: loop.text,
+        body: '',
+        dateMs: openedMs, // 没写日期 → null → 选取器判无桶,不进本腿(第二腿的 undated 档已兜过)
+        lineKey: Array.isArray(loop.tags) && loop.tags.length ? loop.tags[0] : null,
+        tier: 'open'
+      });
+    }
+  } catch {
+    // 还没有欠账文件,跳过这一类候选。
+  }
+
+  const candidates = [
+    ...diaryScan.events.map((ev) => ({ ...ev, kind: 'event' as const })),
+    ...lineCandidates.map((ev) => ({ ...ev, kind: 'event' as const })),
+    ...promiseCandidates
+  ];
+
+  // 落地文本:动作流最新一条(和 agent-service 召回钩子同口径)。取不到不阻断。
+  let landedText = '';
+  let landedRef: string | null = null;
+  try {
+    const feed = await getXiaoniActionStream({ identityKey, limit: 1 });
+    const items = Array.isArray(feed?.items) ? feed.items : [];
+    const newest = items[0];
+    if (newest) {
+      landedText = (typeof newest.body === 'string' && newest.body)
+        || (typeof newest.title === 'string' && newest.title) || '';
+      landedRef = (typeof newest.id === 'string' && newest.id)
+        || (typeof newest.eventId === 'string' && newest.eventId) || null;
+    }
+  } catch {
+    landedText = '';
+  }
+
+  // identity 级冷却:窗口必须带 queryRef 下推到 SQL —— 这张表 ~97% 是语义腿每次落地写的留痕,
+  // 不下推时窗口里本腿的行实测是 0 条,冷却完全失效(第二/三腿踩过的同一个坑,P0 刚修)。
+  const recentIdentities: string[] = [];
+  const recent = await listRecallShadowLog({
+    identityKey,
+    queryRef: ASSOCIATION_SCAN_QUERY_REF,
+    limit: ASSOCIATION_DEDUP_LOOKBACK
+  });
+  for (const row of recent) {
+    const surfaced = (row as { surfaced?: unknown }).surfaced;
+    if (!Array.isArray(surfaced)) continue;
+    for (const item of surfaced) {
+      const identity = item && typeof (item as { identity?: unknown }).identity === 'string'
+        ? (item as { identity: string }).identity
+        : null;
+      if (identity) recentIdentities.push(identity);
+      // ref 也收:同一条留痕里 identity 缺失(老行)时按 ref 兜一层。
+      const ref = item && typeof (item as { ref?: unknown }).ref === 'string'
+        ? (item as { ref: string }).ref
+        : null;
+      if (ref) recentIdentities.push(ref);
+    }
+  }
+
+  // 结构模板识别只看有事发日期的那两类(日记条目 + 线章节)。承诺行不是模板,不参与。
+  const structuralTitles = computeStructuralTitles([...diaryScan.events, ...lineCandidates]);
+
+  const { picked, stats } = selectAssociativeMemories(candidates, {
+    nowMs,
+    landedText,
+    peerNames,
+    recentlySurfacedIdentities: recentIdentities,
+    structuralTitles
+  });
+
+  // lead 按桶分档:中场给天数,远场点破「挺久了」,线场带上这条线的名字。
+  const surfaced = picked.map((p) => {
+    const days = p.ageDays == null ? null : Math.floor(p.ageDays);
+    const firstLine = (p.body || '').split(/\n/).map((s) => s.trim()).find(Boolean) || '';
+    const teaser = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+    const tail = teaser ? `${p.title}——${teaser}` : p.title;
+    let lead: string;
+    if (p.bucket === 'line') {
+      lead = `你在追的这条线（${p.lineKey}）里有一段：${tail}`;
+    } else if (p.kind === 'promise') {
+      lead = `你之前记过一件还没了的事：${p.title}${days == null ? '' : `（放了 ${days} 天了）`}`;
+    } else if (p.bucket === 'far') {
+      lead = `${days} 天前（挺久了）你记过一件事：${tail}`;
+    } else {
+      lead = `${days} 天前你记过一件事：${tail}`;
+    }
+    return {
+      kind: 'association',
+      memoryKind: p.kind,
+      bucket: p.bucket,
+      identity: p.identity,
+      title: p.title,
+      ref: p.ref,
+      lineKey: p.lineKey,
+      tier: p.tier,
+      ageDays: p.ageDays == null ? null : Math.round(p.ageDays * 10) / 10,
+      score: Math.round(p.score * 1000) / 1000,
+      factors: p.factors,
+      lead
+    };
+  });
+
+  const { id } = await insertRecallShadowLog({
+    identityKey,
+    occurredAt: new Date(nowMs),
+    queryRef: ASSOCIATION_SCAN_QUERY_REF,
+    // 落地文本进 queryText:观察期要能回答「这一浮是被什么勾起来的」。
+    queryText: landedText ? landedText.slice(0, 2000) : null,
+    silent: surfaced.length === 0,
+    corpusCount: stats.filtered,
+    topK: surfaced.length,
+    surfaced,
+    // 分桶/剔除计数塞 droppedCounts(既有列,管理端已在读),不新开列。
+    droppedCounts: {
+      bucket_near: stats.byBucket.near,
+      bucket_mid: stats.byBucket.mid,
+      bucket_far: stats.byBucket.far,
+      bucket_line: stats.byBucket.line,
+      ...stats.dropped
+    },
+    droppedSample: []
+  });
+
+  return {
+    candidates: candidates.length,
+    surfaced: surfaced.map((s) => ({ ref: s.ref, bucket: s.bucket, identity: s.identity, score: s.score })),
+    stats,
+    shadowLogId: id,
+    landedRef
   };
 }
 
@@ -494,6 +781,13 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   } catch {
     diaryResurfaceScan = undefined;
   }
+  // 第四条腿(联想)同样搭这次重扫顺带跑,出错吞掉不拖垮语料 reindex。shadow-only。
+  let associationScan: AssociationScanResult | undefined;
+  try {
+    associationScan = await scanAssociativeRecallToShadow({ identityKey });
+  } catch {
+    associationScan = undefined;
+  }
 
   return {
     scanned: all.length,
@@ -503,6 +797,7 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
     prunedPaths,
     counts,
     openLoopScan,
-    diaryResurfaceScan
+    diaryResurfaceScan,
+    associationScan
   };
 }

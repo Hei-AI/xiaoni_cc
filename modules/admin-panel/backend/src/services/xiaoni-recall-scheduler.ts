@@ -37,6 +37,7 @@ async function runOnce(reason: string): Promise<void> {
     const result = await reindexXiaoniRecall({});
     const openLoop = result.openLoopScan;
     const diary = result.diaryResurfaceScan;
+    const association = result.associationScan;
     logger.info('[recall-scheduler] 重扫完成', {
       reason,
       durationMs: Date.now() - startedAt,
@@ -46,7 +47,11 @@ async function runOnce(reason: string): Promise<void> {
       openLoopSurfaced: openLoop ? openLoop.surfaced.length : null,
       openLoopTotalOpen: openLoop ? openLoop.totalOpen : null,
       diarySurfaced: diary ? diary.surfaced.length : null,
-      diaryTotalEvents: diary ? diary.totalEvents : null
+      diaryTotalEvents: diary ? diary.totalEvents : null,
+      // 第四腿(联想):浮了几条 + 四个桶各有多少候选(空桶就少浮,靠这个读出来)
+      associationSurfaced: association ? association.surfaced.length : null,
+      associationCandidates: association ? association.candidates : null,
+      associationBuckets: association?.stats ? association.stats.byBucket : null
     });
   } catch (error) {
     // 绝不让重扫失败拖垮 admin-backend 进程。

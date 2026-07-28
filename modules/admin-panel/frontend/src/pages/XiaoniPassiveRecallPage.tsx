@@ -61,16 +61,33 @@ interface ShadowLogLead {
   ageDays?: number | null;
   tier?: string;
   ref?: string;
+  // 联想腿(第四腿)另附:落在哪个年龄桶、身份键、六因子等权总分与分项
+  bucket?: string;
+  identity?: string;
+  lineKey?: string | null;
+  memoryKind?: string;
+  score?: number;
+  factors?: Record<string, number>;
 }
 
 // entry.queryRef → 这条 shadow 是哪条腿。语义召回是「因落地而召回」,
-// open_loop / diary 是「按时间主动扫」,展示方式不同。
-type LegKind = 'open_loop' | 'diary' | 'recall';
+// open_loop / diary / association 是「按时间/结构主动扫」,展示方式不同。
+type LegKind = 'open_loop' | 'diary' | 'association' | 'recall';
 function legKindFromRef(queryRef?: string | null): LegKind {
   if (queryRef === 'open_loop_scan') return 'open_loop';
   if (queryRef === 'diary_resurface') return 'diary';
+  if (queryRef === 'association_scan') return 'association';
   return 'recall';
 }
+
+// 第四腿的四个年龄桶。近场那一格配额恒 0(她还记得,浮它等于把砖头当引子),
+// 所以正常情况下这里永远看不到「近场」标 —— 看到了就是配额被人改了。
+const ASSOCIATION_BUCKET_LABEL: Record<string, string> = {
+  near: '近场 0-7 天（配额 0）',
+  mid: '中场 8-30 天',
+  far: '远场 30 天+',
+  line: '线场（专题）',
+};
 
 function leadString(s: ShadowLogLead): string {
   if (typeof s.lead === 'string') return s.lead;
@@ -160,6 +177,33 @@ function SurfacedLead({ s }: { s: ShadowLogLead }) {
   );
 }
 
+// 联想腿(第四腿)的一条:整句 lead + 桶标 + 六因子等权分项(观察期靠这个判因子有没有用)。
+function AssociationLead({ s }: { s: ShadowLogLead }) {
+  const factors = s.factors || {};
+  return (
+    <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <StatusPill tone={s.bucket === 'line' ? 'success' : s.bucket === 'far' ? 'neutral' : 'info'}>
+          {ASSOCIATION_BUCKET_LABEL[s.bucket || ''] || s.bucket || '?'}
+        </StatusPill>
+        {typeof s.ageDays === 'number' ? <span className="text-xs text-muted-foreground">{Math.floor(s.ageDays)} 天</span> : null}
+        {s.memoryKind ? <span className="text-xs text-muted-foreground">{s.memoryKind === 'promise' ? '承诺' : '往事'}</span> : null}
+        {s.lineKey ? <span className="text-xs text-muted-foreground">线 {s.lineKey}</span> : null}
+        {typeof s.score === 'number' ? <span className="ml-auto text-xs text-muted-foreground">分 {s.score.toFixed(2)}/6</span> : null}
+      </div>
+      <div className="mt-1 break-words text-sm text-foreground">{leadString(s)}</div>
+      {Object.keys(factors).length ? (
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+          {Object.entries(factors).map(([name, value]) => (
+            <span key={name}>{name} {typeof value === 'number' ? value.toFixed(2) : '-'}</span>
+          ))}
+        </div>
+      ) : null}
+      {s.ref ? <div className="mt-1 break-all text-[11px] text-muted-foreground">{s.ref}</div> : null}
+    </div>
+  );
+}
+
 // 时间扫腿(open_loop 承诺 / diary 旧事)的一条:整句 lead + 档位/年龄标。
 function TimeScanLead({ s, leg }: { s: ShadowLogLead; leg: LegKind }) {
   const badge = leg === 'open_loop'
@@ -189,6 +233,7 @@ const LEG_HEADER: Record<LegKind, string> = {
   recall: '当下落地（query）',
   open_loop: '开放承诺 · 按时间扫（非语义召回）',
   diary: '翻旧事 · 按时间扫（非语义召回）',
+  association: '联想 · 六因子等权 + 四桶配额（当下落地当引子）',
 };
 
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
@@ -199,7 +244,10 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
     ? `扫了 ${entry.corpusCount ?? 0} 条开放承诺`
     : leg === 'diary'
       ? `扫了 ${entry.corpusCount ?? 0} 件日记往事`
-      : (entry.queryText || entry.queryRef || '—');
+      // 联想腿的「因」是当下落地那段文本(queryText),顺带报一下过完滤后的候选池大小
+      : leg === 'association'
+        ? `${entry.queryText || '（这一轮取不到落地文本）'}\n过滤后候选 ${entry.corpusCount ?? 0} 条`
+        : (entry.queryText || entry.queryRef || '—');
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -207,7 +255,11 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           {entry.silent
             ? <StatusPill tone="neutral">静默</StatusPill>
             : <StatusPill tone="success">浮现</StatusPill>}
-          {isTimeScan ? <StatusPill tone="info">{leg === 'open_loop' ? '待办承诺腿' : '旧事腿'}</StatusPill> : null}
+          {isTimeScan ? (
+            <StatusPill tone="info">
+              {leg === 'open_loop' ? '待办承诺腿' : leg === 'association' ? '联想腿' : '旧事腿'}
+            </StatusPill>
+          ) : null}
           {entry.taskLocked ? <StatusPill tone="warning">task-locked</StatusPill> : null}
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">{formatTimestamp(entry.occurredAt, { fallback: '-' })}</span>
@@ -223,10 +275,25 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
             {isTimeScan ? '→ 这次拎出来的（shadow，不投递）' : '→ 勾起的记忆（果）'}
           </div>
           {entry.surfaced.map((s, index) => (
-            isTimeScan
-              ? <TimeScanLead key={s.ref || index} s={s} leg={leg} />
-              : <SurfacedLead key={s.sourceRef || index} s={s} />
+            leg === 'association'
+              ? <AssociationLead key={s.ref || index} s={s} />
+              : isTimeScan
+                ? <TimeScanLead key={s.ref || index} s={s} leg={leg} />
+                : <SurfacedLead key={s.sourceRef || index} s={s} />
           ))}
+        </div>
+      ) : null}
+      {/* 联想腿:四个桶各有多少候选(空桶就少浮,不跨桶借 —— 少浮几条从这里读) */}
+      {leg === 'association' ? (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <span>近场 {dc.bucket_near ?? 0}（配额 0）</span>
+          <span>中场 {dc.bucket_mid ?? 0}</span>
+          <span>远场 {dc.bucket_far ?? 0}</span>
+          <span>线场 {dc.bucket_line ?? 0}</span>
+          <span>冷却剔 {dc.cooled_down ?? 0}</span>
+          <span>结构头剔 {dc.structural_title ?? 0}</span>
+          <span>裸时刻标题剔 {dc.bare_timestamp_title ?? 0}</span>
+          <span>无桶剔 {dc.no_bucket ?? 0}</span>
         </div>
       ) : null}
       {isTimeScan ? null : (
