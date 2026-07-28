@@ -2,7 +2,14 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { readdir as fsReaddir, readFile as fsReadFile, rm as fsRm, stat as fsStat } from 'node:fs/promises';
+import {
+  readdir as fsReaddir,
+  readFile as fsReadFile,
+  rename as fsRename,
+  rm as fsRm,
+  stat as fsStat,
+  writeFile as fsWriteFile
+} from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
@@ -47,7 +54,7 @@ import {
   sanitizeRef,
   checkDailyUsage
 } from './web-search-archive';
-import { formatEast8Timestamp } from './east8-time';
+import { formatEast8Timestamp, renderWakeAnchorSentence } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import { defaultCwebpEncoder } from './qq-send-image-service';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
@@ -2449,12 +2456,29 @@ export function renderRecoverEnergyCompletedReminder(input: {
   return formatSystemReminderBlock(body);
 }
 
-function renderRecoverEnergyRejectedReminder(input: {
+// The reject reminder is where she is most wrong about time: a stretch with 4 real sleeps can
+// carry ~40 of these, so reading her own stream the dominant texture is "身体不让我睡" and the
+// sleeps vanish. Anchoring every rejection to the last real wake is the cheapest place to put
+// ground truth — it lands exactly at the moment the wrong belief is being formed.
+//
+// Rendered ONCE here at tool-execution time and frozen into the persisted function_call_output
+// (replay never re-renders → byte-identical, cache-safe), same contract as the wake reminders
+// above. Never move these stamps into the cached prefix.
+export function renderRecoverEnergyRejectedReminder(input: {
   reason: string;
+  lastWakeAt: string | null;
+  now: Date;
 }) {
-  return formatSystemReminderBlock(renderPromptSnippet('recover_energy_rejected_reminder.md', {
-    REJECT_REASON: input.reason
-  }));
+  const rendered = renderPromptSnippet('recover_energy_rejected_reminder.md', {
+    REJECT_REASON: input.reason,
+    CURRENT_TIME: formatEast8Timestamp(input.now),
+    AWAKE_ANCHOR: renderWakeAnchorSentence(input.lastWakeAt, input.now)
+  });
+  // Anchor-less fallback (no recorded wake yet) leaves a trailing space on that line; trim it so
+  // the two variants stay clean and diffable.
+  return formatSystemReminderBlock(
+    rendered.split('\n').map((line) => line.trimEnd()).join('\n')
+  );
 }
 
 function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefinition[] {
@@ -4684,8 +4708,50 @@ const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
 // writing it turn by turn); <xiaoni_status> just needs to be non-empty and redirect her there.
 // MUST stay byte-stable (no dates/counts): it is stored and replayed verbatim into the next
 // main run, so any per-run drift would break run-boundary cache.
-const CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY =
+export const CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY =
   '（这轮记忆整理没能在限定步数内写完近况。最近这段的经历，我一条条落在了今天的日记里（/xiaoni-runtime/notes/diary/ 下按日期的那份）。醒来先 cat 一下今天的日记就能接上。）';
+
+// Authoritative wake anchor handed to the compression fork, written to the shared
+// /xiaoni-runtime mount (agent-service and xiaoni-executor mount the same host dir) so the commit
+// skill can VALIDATE the 近况 against it instead of trusting whatever span the model invented.
+//
+// Why a file and not a template slot: keeping it out of core_memory_pressure_reminder.md leaves
+// that reminder byte-stable across compressions (no per-round stamp in the fork tail). The fork
+// cats this path; the commit script reads the same path. One value, one source.
+const COMPRESSION_WAKE_ANCHOR_PATH = '/xiaoni-runtime/compress/.wake-anchor';
+const COMPRESSION_WAKE_ANCHOR_PREFIX = '上次睡醒：';
+
+export function formatCompressionWakeAnchorLine(lastWakeAt: string | null): string | null {
+  if (!lastWakeAt) {
+    return null;
+  }
+  const wakeMs = new Date(lastWakeAt).getTime();
+  if (!Number.isFinite(wakeMs)) {
+    return null;
+  }
+  return `${COMPRESSION_WAKE_ANCHOR_PREFIX}${formatEast8Timestamp(new Date(wakeMs))}`;
+}
+
+// Best-effort by design: compression is on the critical path (a failure here would stall the read
+// cutoff → unbounded context → 413). A missing/stale anchor makes the commit skill fall back to
+// shape-only validation; it must never block the fork.
+async function writeCompressionWakeAnchor(lastWakeAt: string | null): Promise<void> {
+  const line = formatCompressionWakeAnchorLine(lastWakeAt);
+  if (!line) {
+    return;
+  }
+  try {
+    mkdirSync(nodePath.dirname(COMPRESSION_WAKE_ANCHOR_PATH), { recursive: true });
+    const tempPath = `${COMPRESSION_WAKE_ANCHOR_PATH}.${process.pid}.tmp`;
+    await fsWriteFile(tempPath, `${line}\n`, 'utf8');
+    await fsRename(tempPath, COMPRESSION_WAKE_ANCHOR_PATH);
+  } catch (error) {
+    moduleLogger.warn('Failed to write compression wake anchor', {
+      path: COMPRESSION_WAKE_ANCHOR_PATH,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
 
 export function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
@@ -4732,6 +4798,34 @@ export function buildCoreMemoryCompressionForkGapCheckReminder(): OpenResponseIn
 // 东八区时间戳在 ENQUEUE 时冻结进 systemReminder.reminder 文本(不是被删掉的合成 [当前时间] 前缀
 // 戳:它只进这条尾部 notify、绝不进 cacheable system 前缀)。renderSystemReminder 消费时按 raw 文本
 // 包 <system_reminder>,落库进 runtime_input 的 content.input_items,下一 run 逐字节 replay。
+// Clock ping: the LIVE half of time grounding. <xiaoni_status> is frozen between compressions, so
+// its wake anchor goes stale the moment she sleeps again; the reject reminder only fires when she
+// tries to sleep. This is the unconditional one — every 2h she is handed the current time and the
+// distance from her last real wake, so an elapsed-time belief can never drift for more than one
+// interval before ground truth lands in the tail.
+//
+// Raw body only — renderSystemReminder wraps it in <system_reminder> at consume time. Both stamps
+// are frozen HERE (enqueue time) into the persisted reminder text and never re-rendered per build,
+// exactly like the compression-done notify above.
+export function renderClockPingReminderText(now: Date, lastWakeAt: string | null): string {
+  return renderPromptSnippet('clock_ping_notify.md', {
+    NOW_EAST8: formatEast8Timestamp(now),
+    AWAKE_ANCHOR: renderWakeAnchorSentence(lastWakeAt, now)
+  })
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n');
+}
+
+// 2h wall-clock slot in East-8. Keying the dedupeKey to the SLOT (not to "now") makes the whole
+// leg idempotent and self-healing: the supervisor can tick as often as it likes, a missed tick
+// just skips that slot, and a duplicate tick is swallowed by the unique index. No timer chain to
+// break, no drift to accumulate.
+export function clockPingSlotId(now: Date, intervalMs: number): string {
+  const slot = Math.floor((now.getTime() + 8 * 60 * 60 * 1000) / Math.max(1, intervalMs));
+  return String(slot);
+}
+
 function renderCoreMemoryCompressionDoneReminderText(now: Date): string {
   // Raw body only — renderSystemReminder wraps it in <system_reminder> at consume time.
   return renderPromptSnippet('core_memory_compression_done_notify.md', {
@@ -6121,6 +6215,10 @@ export class AgentLoopService {
     recentNarrationItems: OpenResponseInputItem[];
     settledOnFinalAnswer: boolean;
   } | null = null;
+
+  // 上一次真正入队的报时格。纯优化:让 60s 的 supervisor tick 在没到点时零 IO 返回。
+  // 丢了(重启)最多多敲一次库,正确性由 dedupe_key 唯一索引保证,不靠这个字段。
+  private lastEnqueuedClockPingSlot: string | null = null;
 
   constructor(
     private readonly store: RuntimeStore,
@@ -8401,10 +8499,18 @@ export class AgentLoopService {
         // 被叫醒却啥也没干,plan 照样没被执行,账不能被一条外来 ping 洗掉。
         // 不满足且这一 settle 落在 final_answer 上(纯文本零动作收工) → +1。
         // 计数只喂 fork,不进主 agent 上下文、不写 stack。
-        recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
-          settledOnFinalAnswer: actionPlan.hasFinalAnswer,
-          didRealWork: runTouchedWorld
-        });
+        //
+        // 报时(clock_ping)完全隐形:它是引擎自发的、只为告诉她几点的回合,不是一次执行 plan 的
+        // 机会,既不该洗账也不该记账。整个 run 都由报时驱动时才隐形——夹带了真实外部消息的
+        // 折叠 run 照常记账,否则一条报时就能把真空转洗白。
+        const runDrivenOnlyByClockPing = isClockPingPayload(payload)
+          && continuationQueueMessages.every((claimed) => isClockPingPayload(claimed.payload));
+        if (!runDrivenOnlyByClockPing) {
+          recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
+            settledOnFinalAnswer: actionPlan.hasFinalAnswer,
+            didRealWork: runTouchedWorld
+          });
+        }
         // plan 空转 run 作废(docs/specs/xiaoni-plan-run-void-on-idle.md):零产出的 plan run 当没发生过。
         // 判定全部满足才删,任一不满足照旧冻结(fail-open 到今天的行为):
         //  - 触发 payload 是 subconscious plan notify(QQ 消息/其它 reminder 触发的 run 一律冻结);
@@ -11044,6 +11150,142 @@ export class AgentLoopService {
     }
   }
 
+  // Clock ping supervisor tick. Idempotent by construction (dedupeKey = the 2h slot), so callers
+  // may invoke it on any cadence; only the first call in a slot actually enqueues.
+  //
+  // Deliberately NOT source 'phone_notification': only that source counts toward the 3-call
+  // force-wake during a recovery session (packages/persistence/agent-recovery-sessions.js), so a
+  // clock ping can never pull her out of a real sleep. On top of that we skip enqueueing entirely
+  // while a recovery session is active — otherwise she would wake to a stack of stale pings.
+  async ensureClockPingNotify(now: Date = new Date()): Promise<'enqueued' | 'skipped_sleeping' | 'skipped_duplicate' | 'unavailable'> {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function' || !agentConfig.clockPingEnabled) {
+      return 'unavailable';
+    }
+
+    // 格子判断必须排在所有 IO 之前。supervisor 每 60s 敲一次而报时每 2h 才发生一次,所以
+    // 99% 的 tick 应该在这里就返回。往下走的读取都不便宜:getCurrentRuntimeEnergyState 走
+    // refreshXiaoniLifeProjection——读 agent_life_state + 分批拉 life events + reduce + 回写,
+    // 是一次事件溯源重放,不是缓存字段。前置之后每天 ~36 次而不是 ~4320 次。
+    //
+    // lastEnqueuedClockPingSlot 只是优化不是正确性依赖:进程重启丢了它顶多多敲一次库,
+    // dedupe_key 唯一索引依旧兜底。
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const slot = clockPingSlotId(now, agentConfig.clockPingIntervalMs);
+    if (this.lastEnqueuedClockPingSlot === slot) {
+      return 'skipped_duplicate';
+    }
+
+    // 走到这里说明真到点了。睡眠判断放在这之后——它不是为了省开销(那份 projection 本来就要读),
+    // 也不是为了防积压(supersede 已经保证只留最新一格),而是因为 ping 的戳在入队时就冻死:
+    // 睡觉期间入队的那条带的是睡前的锚点,她醒来会先看到唤醒提醒说「睡了 276 分钟」,紧接着
+    // 读到这条说「上次睡醒是四个半小时前」,两句直接打架。而且醒来那条提醒本来就写了现在几点
+    // 和睡了多久,睡觉期间的报时纯属多余。
+    const activeSessionReader = (this.store as RuntimeStore & {
+      getActiveAgentRecoverySession?: RuntimeStore['getActiveAgentRecoverySession'];
+    }).getActiveAgentRecoverySession;
+    if (typeof activeSessionReader === 'function') {
+      const sleeping = await activeSessionReader.call(this.store).catch(() => null);
+      if (sleeping) {
+        return 'skipped_sleeping';
+      }
+    }
+
+    const messageSid = `clock-ping:${sessionKey}:${slot}`;
+    const botAccountId = agentConfig.botAccountId;
+    const lastWakeAt = (await this.getCurrentRuntimeEnergyState(
+      buildRuntimeLoopFrameQueueMessage().payload
+    ).catch(() => null))?.lastWakeAt ?? null;
+    const reminderText = renderClockPingReminderText(now, lastWakeAt);
+    const rawPayload = {
+      reason: 'clock_ping',
+      clock_ping_slot: slot,
+      last_wake_at: lastWakeAt
+    };
+    const inboundContext = {
+      Body: reminderText,
+      BodyForAgent: reminderText,
+      BodyForCommands: reminderText,
+      RawBody: reminderText,
+      CommandBody: reminderText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: reminderText,
+      commandBody: reminderText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: reminderText,
+        reason: 'clock_ping',
+        createdAt: now.toISOString()
+      }
+    };
+    try {
+      await enqueuer.call(this.store, {
+        message: {
+          traceId: messageSid,
+          source: 'system_reminder',
+          messageSid,
+          dedupeKey: messageSid,
+          chatType: 'direct',
+          sessionKey,
+          peerId: XIAONI_IDENTITY_KEY,
+          peerName: XIAONI_IDENTITY_KEY,
+          senderId: botAccountId,
+          senderName: XIAONI_IDENTITY_KEY,
+          accountId: botAccountId,
+          bodyForAgent: reminderText,
+          rawPayload,
+          inboundContext
+        },
+        payload,
+        availableAt: now
+      });
+      this.lastEnqueuedClockPingSlot = slot;
+      // 只留最新一格。停机期间 supervisor 照常按格入队,不做这一步她恢复时会连着读到一串
+      // 互相打架的时刻。放在入队【之后】:先保证新的那条落库,再判旧的过期,中途崩溃最坏
+      // 结果是多留一条旧的,而不是一条都不剩。
+      const superseder = (this.store as RuntimeStore & {
+        supersedePendingClockPings?: RuntimeStore['supersedePendingClockPings'];
+      }).supersedePendingClockPings;
+      if (typeof superseder === 'function') {
+        await superseder.call(this.store, { sessionKey, keepMessageSid: messageSid })
+          .catch((error: unknown) => {
+            moduleLogger.warn('Failed to supersede older pending clock pings', {
+              slot,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          });
+      }
+      return 'enqueued';
+    } catch (error) {
+      // The unique dedupe_key index makes a same-slot retry a no-op — normal after a restart
+      // that lost the in-process memo. Record the slot either way so we stop retrying it.
+      this.lastEnqueuedClockPingSlot = slot;
+      moduleLogger.debug('Clock ping notify not enqueued', {
+        slot,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return 'skipped_duplicate';
+    }
+  }
+
   // REQ2 STW: adopt a committed core-memory compression MID-RUN, at a between-turns
   // silent point, so a long-lived run (a busy group that keeps folding messages into
   // one run) actually shrinks instead of waiting for a settle that may never come.
@@ -11334,6 +11576,13 @@ export class AgentLoopService {
     if (existing) {
       return artifact;
     }
+
+    // Refresh the wake anchor for THIS compression round before the fork reads it. She cannot
+    // sleep inside the fork (its allowed_tools are exec_command + the commit skill), so the value
+    // stays valid for the fork's lifetime. Best-effort — never gates the fork.
+    await writeCompressionWakeAnchor(
+      (await this.getCurrentRuntimeEnergyState(params.queueMessage).catch(() => null))?.lastWakeAt ?? null
+    );
 
     const plannedCommitCutoff = await this.resolveCoreMemoryCompressionCommitCutoff(params.compression);
     const cutoffReader = (this.store as RuntimeStore & {
@@ -12358,7 +12607,9 @@ export class AgentLoopService {
             required_pressure: gate.requiredPressure,
             energy_cost: RUNTIME_TOOL_COSTS[TOOL_NAMES.recoverEnergy],
             system_reminder: renderRecoverEnergyRejectedReminder({
-              reason
+              reason,
+              lastWakeAt: energyState.lastWakeAt ?? null,
+              now
             }),
             xiaoni_os: typeof toolCall.args.xiaoni_os === 'string' && toolCall.args.xiaoni_os.trim()
               ? toolCall.args.xiaoni_os.trim()
@@ -14055,6 +14306,17 @@ function isDeletedFinalAnswerReminderPayload(queueMessage: QueueMessageRecord['p
   }
   const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
   return reason === 'final_answer_idle' || reason === 'final_answer_turn_control';
+}
+
+// 时钟推送(clock_ping)。它是引擎自发的报时,不是一次「执行 plan 的机会」——所以空转记账
+// 必须对它完全隐形:既不 +1 也不归零。以前只有真有事发生才会拉起一个 run,报时把这个前提
+// 改了(每 2h 一个),不设门的话 IDLE_ESCALATION_AFTER_ROUNDS=2 会被引擎自己制造的回合顶穿。
+// 注意作废腿不受影响:它已经按 triggerIsSubconsciousPlan 把非 plan notify 的 run 全部冻结。
+export function isClockPingPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'clock_ping';
 }
 
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {

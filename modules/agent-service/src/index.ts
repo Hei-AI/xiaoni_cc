@@ -500,6 +500,32 @@ async function runDebugCacheHeartbeatLoop() {
   }
 }
 
+// Clock ping supervisor. ensureClockPingNotify is idempotent per 2h slot (dedupeKey = the slot),
+// so this tick carries no state and no timer chain: a missed tick just skips a slot, a duplicate
+// tick is swallowed by the unique index, and a restart resumes cleanly mid-slot. Ticking well
+// under the interval is what makes a slot boundary land promptly.
+const CLOCK_PING_SUPERVISOR_TICK_MS = 60_000;
+
+async function runClockPingLoop() {
+  while (!stopping) {
+    try {
+      const result = await loopService.ensureClockPingNotify();
+      if (result === 'enqueued') {
+        moduleLogger.info('Enqueued clock ping notify', {
+          intervalMs: agentConfig.clockPingIntervalMs
+        });
+      }
+    } catch (error) {
+      moduleLogger.warn('Clock ping supervisor tick failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(CLOCK_PING_SUPERVISOR_TICK_MS);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -580,6 +606,9 @@ async function start() {
   }));
   void wait(500).then(() => runTaskWorkerLoop());
   void wait(800).then(() => runDebugCacheHeartbeatLoop());
+  if (agentConfig.clockPingEnabled) {
+    void wait(1100).then(() => runClockPingLoop());
+  }
 }
 
 process.on('SIGINT', () => {
