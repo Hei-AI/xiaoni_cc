@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""把潜意识想好的方向交出去。
+
+只有自驱动 fork 会跑这个（它是唯一拿得到票据的角色）。用法：
+
+    xiaoni-plan post <<'PLAN'
+    1. ...
+    2. ...
+    PLAN
+
+成功时最后一行打 `XIAONI_PLAN_QUEUED=<队列号>`，失败打 `XIAONI_PLAN_FAILED=<原因>`。
+引擎只认这两行——它们是 fork 循环判断「交没交出去」的唯一依据（见
+docs/specs/xiaoni-plan-skill-submission.md）。
+
+为什么失败也要打一行而不是静默非零退出：引擎要能区分「她根本没调 skill」和
+「她调了但我们这边没接住」。前者该提醒她，后者提醒她是冤枉她——真正该做的是
+中止这一轮、保住 seed、过 60 秒重试。
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+
+TICKET_DIR = os.environ.get("XIAONI_PLAN_TICKET_DIR", "/xiaoni-runtime/plan/inbox")
+AGENT_URL = os.environ.get("XIAONI_AGENT_SERVICE_URL", "http://qqbot-agent-service:8092")
+SUBMIT_PATH = "/api/internal/runtime/subconscious-plan/submit"
+ATTEMPTS = 3
+BACKOFF_SECONDS = (1, 3)  # 第 1、2 次失败后各等这么久；第 3 次失败就报败
+
+
+def fail(reason: str) -> "int":
+    # 单行、无换行：引擎按行首正则捞，多行会捞不到。
+    print("XIAONI_PLAN_FAILED=%s" % reason.replace("\n", " ").strip())
+    return 1
+
+
+def newest_ticket():
+    """挑最新一张没过期的票。同一时刻至多一个 fork 在飞，所以正常只会有一张。"""
+    now_ms = time.time() * 1000
+    best = None
+    try:
+        entries = os.listdir(TICKET_DIR)
+    except OSError:
+        return None
+    for entry in entries:
+        if not entry.endswith(".json"):
+            continue
+        path = os.path.join(TICKET_DIR, entry)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        token = data.get("token")
+        expires_at = data.get("expires_at_ms") or 0
+        if not token or expires_at <= now_ms:
+            continue
+        issued_at = data.get("issued_at_ms") or 0
+        if best is None or issued_at > best[0]:
+            best = (issued_at, token)
+    return best[1] if best else None
+
+
+def submit(token: str, text: str):
+    """POST 一次。返回 (queue_id, None) 或 (None, 错误原因, 是否值得重试)。"""
+    payload = json.dumps({"token": token, "text": text}).encode("utf-8")
+    request = urllib.request.Request(
+        AGENT_URL.rstrip("/") + SUBMIT_PATH,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8") or "{}")
+            return body.get("queue_id"), None, False
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read().decode("utf-8") or "{}").get("error", "")
+        except ValueError:
+            detail = ""
+        # 4xx 是判定结果（票据无效/正文为空/fork 已不在飞），重试不会变；5xx 才值得重试。
+        retryable = error.code >= 500
+        return None, "http_%s%s" % (error.code, (":" + detail) if detail else ""), retryable
+    except Exception as error:  # 连不上、超时、DNS —— 全是瞬时故障，值得重试
+        return None, "transport:%s" % type(error).__name__, True
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="xiaoni-plan", add_help=True)
+    sub = parser.add_subparsers(dest="command", required=True)
+    post = sub.add_parser("post", help="提交一份 plan（正文默认从标准输入读）")
+    post.add_argument("--file", dest="file", default=None, help="从文件读正文，替代标准输入")
+    args = parser.parse_args()
+
+    if args.file:
+        try:
+            with open(args.file, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError as error:
+            return fail("read_file:%s" % error.__class__.__name__)
+    else:
+        text = sys.stdin.read()
+
+    text = text.strip()
+    if not text:
+        return fail("empty_text")
+
+    token = newest_ticket()
+    if not token:
+        return fail("no_ticket")
+
+    last_reason = "unknown"
+    for attempt in range(ATTEMPTS):
+        queue_id, reason, retryable = submit(token, text)
+        if reason is None:
+            print("XIAONI_PLAN_QUEUED=%s" % (queue_id if queue_id is not None else 0))
+            return 0
+        last_reason = reason
+        if not retryable:
+            break
+        if attempt < len(BACKOFF_SECONDS):
+            time.sleep(BACKOFF_SECONDS[attempt])
+
+    return fail(last_reason)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

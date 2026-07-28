@@ -3,7 +3,7 @@ import { getAgentRuntimeControl, triggerPostCompressionRuntimePause } from '@qq-
 import { agentConfig, databaseConfig, serverConfig } from './config';
 import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
-import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled } from './services/agent-loop-service';
+import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
@@ -73,6 +73,28 @@ app.post('/api/internal/runtime/cache-heartbeat', async (_req, res) => {
       success: false,
       error: message
     });
+  }
+});
+
+// 自驱动 plan 提交入口。只有 `xiaoni-plan post` skill 会打这里，且必须带一张【当前在飞的】
+// fork 签发的一次性票据(1A)——校验全在 redeemSubconsciousPlanTicket 里，路由只做转译。
+// 只挂在容器网内(127.0.0.1:8092，不经 admin 暴露层)，与其它 /api/internal/* 同待遇。
+app.post('/api/internal/runtime/subconscious-plan/submit', async (req, res) => {
+  try {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const result = await loopService.redeemSubconsciousPlanTicket({
+      token: body.token,
+      text: body.text
+    });
+    if (result.ok) {
+      res.json({ success: true, queue_id: result.queueId });
+      return;
+    }
+    res.status(result.status).json({ success: false, error: result.reason });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('Subconscious plan submission route failed', { error: message });
+    res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -353,6 +375,10 @@ async function isRuntimeEnabled() {
     // plan 空转 run 作废(默认 OFF)。ON 时 subconscious plan 触发且零产出的 run 整体从栈上删除
     // (当没发生过),上下文不再堆连续失败 plan。非 boolean 被 setter 忽略 → 保持 OFF。
     setPlanVoidOnIdleEnabled(control.planVoidOnIdleEnabled);
+    // 自驱动 plan 改由 skill 提交(默认 OFF)。ON 时 fork 放行 exec_command(命令层白名单到
+    // xiaoni-plan 一条)+ 尾部追加工具契约 + 纠正提示改口径。三件事同一个开关,因为它们说的是
+    // 同一个事实。全部只作用于 fork 私有输入/执行层,主 agent 上下文与缓存前缀零影响。
+    setIdlePlanSkillSubmissionEnabled(control.idlePlanSkillSubmissionEnabled);
     return control.enabled !== false;
   } catch (error) {
     moduleLogger.warn('Failed to load Xiaoni runtime control; defaulting enabled', {
