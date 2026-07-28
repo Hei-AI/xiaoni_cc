@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { createWriteStream, mkdirSync } from 'node:fs';
-import { readdir as fsReaddir, readFile as fsReadFile, rm as fsRm, stat as fsStat } from 'node:fs/promises';
+import { lstat as fsLstat, mkdir as fsMkdir, readdir as fsReaddir, readFile as fsReadFile, rename as fsRename, rm as fsRm, stat as fsStat, writeFile as fsWriteFile } from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import { v4 as uuidv4 } from 'uuid';
 import { agentConfig, getGlobalPromptContextSessionKey } from '../config';
@@ -60,6 +60,16 @@ import {
   isReplayableToolCall
 } from './response-action-router';
 import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
+// 专题物化的三个归一化函数**只从这里拿**,不在本文件另写第四个:
+//   stripTrailingHashTags   行末 `#标签` 剥离(open-loops 的行身份口径)
+//   stripChapterDatePrefix  L3 章节标题的 `M/D ` 前缀剥离
+//   normalizeEventText      折空白 + 小写(日记条目标题的去重口径)
+// 单用任何一个都认不出同一件事:章节标题带 M/D 前缀,而 normalizeEventText 不碰前缀。
+import {
+  normalizeEventText,
+  stripChapterDatePrefix,
+  stripTrailingHashTags
+} from '@qq-bot/persistence';
 import {
   DEFAULT_RECOVER_ENERGY_POLICY,
   DEFAULT_ACTION_COST_SCALE,
@@ -3242,6 +3252,9 @@ const EXEC_OUTPUT_ROOT = (process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').
 // (executor Dockerfile `ln -sfn /workspace/qq_bot /app`). It is a SIBLING of the main skills
 // dir, so 小腻's main-loop `ls /app/modules/agent-service/skills` never lists it (DD3).
 const XIAONI_MEMORY_COMPRESS_SKILL_DIR = '/app/modules/agent-service/skills-internal/xiaoni-memory-compress';
+// 写端(日记/目录/人物/欠账)的四类原子操作。格式常量(行长、菜单上限、查重阈值)只存在于
+// 这个脚本头部一处;prompt 只说「用哪条命令」,不复述任何数值。
+const XIAONI_MEMORY_WRITE_SKILL_DIR = '/app/modules/agent-service/skills-internal/xiaoni-memory-write';
 
 // The commit skill prints this exact marker as its last stdout line. Match the LAST occurrence
 // (the model may run several exec commands; the skill is the one that reports a path).
@@ -4698,10 +4711,20 @@ export function buildCoreMemoryCompressionReminder(input: {
   // filename each round and prints XIAONI_COMPRESS_WROTE=<path>, which the fork loop reads back.
   // (Cache-wise this item is a non-durable fork-tail either way — the point of dropping the path
   // is to decouple the model from the filename, not a cache win.)
+  // 格式规矩单一真理源:fragment core_memory_pressure_write_formats.md 渲染时嵌进
+  // {{WRITE_FORMATS}}(与 phone_notification_*_cue_line 同一 fragment 装配模式,见
+  // docs/remind.md「Template Fragments」)。提醒本体只留「这一轮做什么」,她不用为了
+  // 查格式再 cat 一次锚点 skill。fragment 正文同样必须字节稳定(无日期/数字/时间戳)。
   const item = buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
-      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR
+      XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
+      // 只有 core_memory_pressure_reminder.md 用得到它(fork forced 那份只讲提交,不讲写入)。
+      // 注意 renderPromptTemplateText 是单次 String.replace:{{WRITE_FORMATS}} 注入的 fragment
+      // 正文里**不能**再出现 {{...}},替换文本不会被二次扫描。fragment 因此用 $M,由本文件
+      // 渲染的 reminder 正文定义 M=<这个路径>。
+      XIAONI_MEMORY_WRITE_SKILL: XIAONI_MEMORY_WRITE_SKILL_DIR,
+      WRITE_FORMATS: renderPromptSnippet('core_memory_pressure_write_formats.md')
     }))
   ]);
   Object.defineProperty(item, CORE_MEMORY_COMPRESSION_REMINDER_MARKER, {
@@ -10317,6 +10340,85 @@ export class AgentLoopService {
     return Math.min(plannedCutoffId, coveredEndId);
   }
 
+  /**
+   * 专题物化【算】的安全外壳:读上一轮水位 + 扫这一帧的日记新增部分,产出 plan。
+   * **只读不写、绝不抛** —— 任何失败都返回 null,压缩提交照做。
+   */
+  private async planTopicMaterializationSafe(params: {
+    sessionKey: string;
+    cutoff: number;
+  }): Promise<TopicMaterializationPlan | null> {
+    try {
+      let priorState: unknown = null;
+      const reader = (this.store as RuntimeStore & {
+        getSessionReadCutoffState?: RuntimeStore['getSessionReadCutoffState'];
+      }).getSessionReadCutoffState;
+      if (typeof reader === 'function') {
+        const state = await reader.call(this.store, params.sessionKey);
+        priorState = (state as SessionReadCutoffState | null)?.topicMaterializationState ?? null;
+      }
+      const plan = await planTopicMaterialization({
+        sessionKey: params.sessionKey,
+        cutoff: params.cutoff,
+        priorState
+      });
+      return plan.ok ? plan : null;
+    } catch (error) {
+      moduleLogger.warn('topic materialization planning skipped (fail-open, commit proceeds)', {
+        sessionKey: params.sessionKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    }
+  }
+
+  /**
+   * 专题物化【写】的安全外壳。挂在压缩提交**之后**。
+   * 水位闸门:`writeTopicMaterialization` 返回 nextState=null(有标签写失败)就一个字都不落库。
+   * **绝不抛** —— 压缩提交已经完成,这里失败只是"这轮没物化"。
+   */
+  private async runTopicMaterializationWrite(plan: TopicMaterializationPlan | null): Promise<void> {
+    if (!plan || !plan.ok) {
+      return;
+    }
+    try {
+      const result = await writeTopicMaterialization(plan);
+      if (!result.ok || !result.nextState) {
+        moduleLogger.warn('topic materialization: watermark held for retry next round', {
+          sessionKey: plan.sessionKey,
+          topicsDir: plan.topicsDir,
+          failedTags: result.failedTags,
+          skippedReason: result.skippedReason
+        });
+        return;
+      }
+      const nextJson = stableTopicStateJson(result.nextState);
+      if (nextJson === plan.priorStateJson) {
+        return; // 状态跟上一轮逐字节相同 → 不写库(幂等第二轮走这条)
+      }
+      const writer = (this.store as RuntimeStore & {
+        upsertSessionTopicMaterializationState?: RuntimeStore['upsertSessionTopicMaterializationState'];
+      }).upsertSessionTopicMaterializationState;
+      if (typeof writer !== 'function') {
+        // 老 store / 测试替身没有这个写入口:文件已经写了,水位推不动 → 下一轮靠文件里
+        // 已有的章去重,不会补出第二份。留痕即可,绝不抛。
+        moduleLogger.warn('topic materialization: store cannot persist watermark (writer missing)', {
+          sessionKey: plan.sessionKey
+        });
+        return;
+      }
+      await writer.call(this.store, {
+        sessionKey: plan.sessionKey,
+        state: result.nextState as unknown as Record<string, unknown>
+      });
+    } catch (error) {
+      moduleLogger.warn('topic materialization failed (fail-open, compression commit already durable)', {
+        sessionKey: plan.sessionKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private async commitCoreMemoryCompression(params: {
     rawToolResult: Record<string, unknown>;
     toolCall: AgentToolCall;
@@ -10336,6 +10438,9 @@ export class AgentLoopService {
     const committedReadCutoffAfterStackIndex = params.compression
       ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
       : null;
+    // 专题物化的【算】段产物,在原子提交帧内算出来、在提交之后才落盘(见下面 ③/④)。
+    // 只有走原子提交路径才会被填上;superseded / 非原子 fallback 一律保持 null → 不落盘。
+    let topicPlan: TopicMaterializationPlan | null = null;
     const buildSupersededCommit = async (currentReadCutoffAfterStackIndex: number | null) => {
       const artifact = {
         tool_name: params.toolCall.name,
@@ -10381,6 +10486,31 @@ export class AgentLoopService {
         commitSessionContextSummaryAndReadCutoff?: RuntimeStore['commitSessionContextSummaryAndReadCutoff'];
       }).commitSessionContextSummaryAndReadCutoff;
       if (typeof atomicCommitter === 'function') {
+        // ── 记忆层机械维护挂点(顺序有意义,别调换)──────────────────────────────
+        // 这里是压缩提交那一帧:整理记忆是唯一"记忆层换血"的时刻,所有对 notes/ 的
+        // 机械维护都挂在这一帧,和快照冻结同步发生。
+        //
+        //   ① maintainDiaryIndexHierarchy —— 必须在 readDiaryIndexSnapshot **之前**:
+        //      它会改 INDEX.md,而 <xiaoni_diary_index> 冻结的就是这个文件。同一帧换血 →
+        //      冻结进库的是搬完之后那份,两次压缩之间照旧字节不变(不击穿缓存)。
+        //   ② writeDiaryHeadingManifests —— 产物在 notes/diary-manifest/,谁都不读进请求,
+        //      顺序无关;排在 ① 后面是因为 ① 可能刚补出新的可寻址日期。
+        //   ③ 专题物化【算】—— **只读不写**,拿的是这一帧冻结的日记事实(和 ①② 同一帧)。
+        //      排在 ② 之后:② 可能刚补出新的可寻址日期。落盘在提交之后(见 ④),因为
+        //      产物在 notes/topics/,readDiaryIndexSnapshot / readPeopleIndexSnapshot 都不
+        //      读它 —— 提交后写不会让任何进请求前缀的字节漂移。
+        //
+        // 三者都是 fail-open 的:整体包 try/catch,失败只 warn 返回 ok:false,**绝不上抛**。
+        // 一旦有异常逃出去,会同时废掉正常提交和 22 轮 hard-cap 兜底提交(它们走同一个
+        // commitCoreMemoryCompression)→ read_cutoff 永不前移 → 上下文只涨不降 → 撞
+        // 30MiB 硬线 → 压缩永久卡死。所以这里**故意不做**任何错误传播。
+        await maintainDiaryIndexHierarchy();
+        await writeDiaryHeadingManifests();
+        topicPlan = await this.planTopicMaterializationSafe({
+          sessionKey: params.compression.contextSessionKey,
+          cutoff: committedReadCutoffAfterStackIndex
+        });
+
         // 日记索引快照:就在这一帧读一次 INDEX.md(与近况同一原子提交,同帧换血)。
         // 之后所有 build/replay 只从库里这份冻结串渲染,两次压缩之间字节不变。
         // 只有原子路径支持快照;下面的非原子 fallback(生产不可达)不写快照,保留旧值。
@@ -10474,6 +10604,10 @@ export class AgentLoopService {
         sourceTraceId: String(params.metadata?.trace_id || '') || null
       });
     }
+    // ④ 专题物化【写】—— 提交**之后**。走到这里 read_cutoff / 近况 / 两份快照都已经落库,
+    //    所以这一步无论怎么失败都不会把本轮最贵的东西(压缩提交)拖掉。水位只在文件真写成功
+    //    之后推进:失败就一个字都不动,下一轮拿同一个水位重做同一批(重做不会补出第二份)。
+    await this.runTopicMaterializationWrite(topicPlan);
     const commit = {
       text,
       artifact,
@@ -14136,6 +14270,1820 @@ export async function readPeopleIndexSnapshot(indexPath?: string): Promise<strin
     const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
     moduleLogger.warn('people index snapshot read failed; keeping previous snapshot', { path: resolvedPath, code });
     return undefined;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 日记可导航性:引擎接管的两件纯机械活(T3 月索引降级 + T4 日内小节目录)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 为什么引擎做而不是继续教她做:实测(2026-07-27,notes/diary/ 24 个日期文件)——
+//   · **补行**是她做得最好的:顶层最近几天全在、写得很满。
+//   · **搬行**是她唯一做不到的:INDEX-2026-07.md 整月只有 2 行 395 字节,
+//     24 天里 19 天(07-04..07-22)在任何索引里都不存在 —— 那些日子等于不可寻址。
+//   · 日文件 40–93KB、每天 58–116 条 `## 条目`、**零内部目录**:找旧事只能整份 cat,
+//     一天就吃掉几万 token,所以"哪天"知道了也navigate不进去。
+// 两件都是零判断、零行为依赖、覆盖 100% 的日记,所以从 prompt 搬进引擎。
+// 教她搬家的那套话(commit_memory.py `_stale_day_line_violation` 的退回提示)保持原样:
+// 它现在是**验收**,引擎先搬完,她那边自然就没有超窗行可退回。
+//
+// ── fail-open(最重要)────────────────────────────────────────────────────────
+// 这两个函数挂在 commitCoreMemoryCompression 的原子提交帧上,和
+// readDiaryIndexSnapshot 一模一样的形状:整体包 try/catch,异常只 warn,**绝不上抛**。
+// 原因:22 轮 hard-cap 兜底提交走的是同一个 commitCoreMemoryCompression。异常逃出去
+// 会同时废掉正常提交和兜底提交 → read_cutoff 永不前移 → 上下文只涨不降 → 撞 30MiB
+// 硬线 → 压缩永久卡死。文件整理失败的代价只是"这轮没整理",绝不许升级成压缩死锁。
+//
+// ── 缓存面 ────────────────────────────────────────────────────────────────
+// 两件都不产出任何进 LLM 请求的字节。唯一的间接影响是 T3 会改 INDEX.md,而
+// <xiaoni_diary_index> 读的就是它 —— 所以 T3 必须排在同一帧的 readDiaryIndexSnapshot
+// **之前**:同一帧换血,冻结进库的是搬完之后那份,两次压缩之间照旧字节不变。
+// T4 的产物谁也不读进请求,顺序无关。
+
+// 顶层日记目录的滚动窗口天数,与 commit_memory.py 的 DIARY_INDEX_RECENT_DAYS 同调。
+export const DIARY_INDEX_RECENT_DAYS = 7;
+// 纯机械判定:只认行首的 ISO 日期,不看内容。月行(- YYYY-MM | …)天然不匹配。
+const DIARY_INDEX_DAY_LINE_RE = /^\s*-\s*(\d{4})-(\d{2})-(\d{2})(?![0-9-])/;
+// 月行:`- YYYY-MM` 后面**不是**再一个 `-`,所以按天行不会被当成月行。
+const DIARY_INDEX_MONTH_ROW_RE = /^\s*-\s*(\d{4})-(\d{2})(?![0-9-])/;
+// 只认严格的 YYYY-MM-DD.md;2026-07-07-summary.md / 2026-07-09-short.md 这类她自己
+// 的旁支文件不参与"这天有没有行"的判定,也不生成小节目录。
+const DIARY_DAY_FILE_RE = /^(\d{4})-(\d{2})-(\d{2})\.md$/;
+// 回填行的出处标记。为什么每行都要标:①诚实——这句不是她写的,是引擎从她当天日记里
+// 取的第一句原话;②可替换——等她自己那行(顶层写的)滚出 7 天窗口搬下来时,引擎认得出
+// "这个日期现在占位的是回填行"从而让位给她的原话,而不是当成重复行丢掉。
+const DIARY_ENGINE_BACKFILL_MARK = '（引擎回填）';
+const DIARY_BACKFILL_NOTICE = '> 标了（引擎回填）的行,是引擎从那天日记里取的第一句原话补上的——在此之前这些日子在任何索引里都不存在。想换成自己的话直接改,把（引擎回填）去掉就行,引擎不会再动它。';
+// 顶层索引超过 1MB = 已经不是索引了(她可能误把日记 cat 进去)。跳过留痕,不猜。
+const DIARY_INDEX_MAX_BYTES = 1024 * 1024;
+// 单份日记的解析上限。93KB 是实测最大值,8MB 留了两个数量级余量;超了跳过那一份。
+const DIARY_DAY_FILE_MAX_BYTES = 8 * 1024 * 1024;
+// 回填的"一句话"截断长度。截断是机械的,不是改写:超长只在尾部加省略号。
+const DIARY_ONE_LINE_MAX_CHARS = 120;
+const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export interface DiaryIndexMaintenanceResult {
+  ok: boolean;
+  skippedReason?: string;
+  indexPath: string;
+  /** 从顶层搬进月索引的按天行数(原样搬,一个字都不改写)。 */
+  movedDayLines: number;
+  /** 顶层新加的月指路行(`- YYYY-MM | …（细目在 INDEX-YYYY-MM.md）`)。 */
+  monthRowsAdded: string[];
+  /** 引擎回填的日期(两边都没有行、从当天日记取到了第一句原话)。 */
+  backfilledDates: string[];
+  /** 有日记文件但取不到任何可用原话 → 不编内容,跳过并留痕。 */
+  backfillSkippedDates: string[];
+  monthFilesWritten: string[];
+  monthFilesFailed: string[];
+  topLevelRewritten: boolean;
+}
+
+export interface DiaryHeadingManifestResult {
+  ok: boolean;
+  skippedReason?: string;
+  manifestDir: string;
+  scannedDates: number;
+  writtenDates: string[];
+  /** 内容没变 → 不重生成(增量)。 */
+  unchangedDates: string[];
+  /** 解析/读取失败的那一份 → 跳过并留痕,不影响别的日期。 */
+  skippedDates: string[];
+}
+
+// 日期口径跟日记文件名一致:**北京日期**,别用容器本地时区(容器是 UTC,凌晨会差一天)。
+// 做法照 commit_memory.py 的 timezone(timedelta(hours=8)):先平移 8 小时,再读 UTC 字段。
+function east8DayNumber(now: Date): number {
+  const shifted = new Date(now.getTime() + EAST8_OFFSET_MS);
+  return Math.floor(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()) / 86400000);
+}
+
+// 严格校验:2026-13-45 这种写错的日期返回 null(Date.UTC 会静默归一化成别的日子)。
+function toDayNumber(year: number, month: number, day: number): number | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  if (month < 1 || month > 12 || day < 1 || day > 31) {
+    return null;
+  }
+  const ms = Date.UTC(year, month - 1, day);
+  const back = new Date(ms);
+  if (back.getUTCFullYear() !== year || back.getUTCMonth() + 1 !== month || back.getUTCDate() !== day) {
+    return null;
+  }
+  return Math.floor(ms / 86400000);
+}
+
+function dayNumberToIso(dayNumber: number): string {
+  const date = new Date(dayNumber * 86400000);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function resolveDiaryDir(explicit?: string): string {
+  if (explicit) {
+    return explicit;
+  }
+  // 复用 XIAONI_DIARY_INDEX_PATH 的目录:现有用例把它钉到不存在的路径时,这两件活
+  // 自动跟着指向不存在的目录 → 走 fail-open 静默跳过,不会去碰宿主机真目录。
+  const indexPath = process.env.XIAONI_DIARY_INDEX_PATH;
+  if (indexPath) {
+    return nodePath.dirname(indexPath);
+  }
+  return `${(process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime').replace(/\/+$/, '')}/notes/diary`;
+}
+
+function resolveDiaryManifestDir(explicit?: string): string {
+  if (explicit) {
+    return explicit;
+  }
+  if (process.env.XIAONI_DIARY_MANIFEST_DIR) {
+    return process.env.XIAONI_DIARY_MANIFEST_DIR;
+  }
+  // 产物**不放进 notes/diary/**:那个目录是被动召回腿的语料源
+  // (xiaoni-recall-reindex-service 的 PALACE_DIRS = ['notes/diary'],扁平一层扫所有
+  // .md)。目录清单放进去会被切块嵌入,污染召回语料——目录行是脚手架不是经历。
+  // 放同级兄弟目录:reindex 不递归、也不认这个名字,结构上不可能被扫到。
+  return `${nodePath.dirname(resolveDiaryDir())}/diary-manifest`;
+}
+
+// mkdir -p + tmp + rename。内容没变就不写:避免无意义的 mtime churn(T4 的增量判定
+// 依赖源文件 mtime,顶层/月索引的 mtime 也是她排查时的线索)。返回是否真的写了。
+async function writeFileAtomicIfChanged(filePath: string, content: string): Promise<boolean> {
+  let existing: string | null = null;
+  try {
+    existing = await fsReadFile(filePath, 'utf8');
+  } catch {
+    existing = null;
+  }
+  if (existing === content) {
+    return false;
+  }
+  await fsMkdir(nodePath.dirname(filePath), { recursive: true });
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  await fsWriteFile(tmpPath, content, 'utf8');
+  try {
+    await fsRename(tmpPath, filePath);
+  } catch (error) {
+    try {
+      await fsRm(tmpPath, { force: true });
+    } catch {
+      // 清不掉临时文件不算失败。
+    }
+    throw error;
+  }
+  return true;
+}
+
+function normalizeDiaryOneLine(raw: string): string {
+  // sanitizeMemoryText 顺手剥 NUL 和 <xiaoni_*> 标签:回填行进的是月索引(不进请求前缀),
+  // 但同目录的文件都可能被她 cat 进别处,标签注入面统一按同一套剥。
+  const cleaned = sanitizeMemoryText(String(raw ?? ''))
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/#+\s*$/, '')
+    .trim();
+  if (cleaned.length <= DIARY_ONE_LINE_MAX_CHARS) {
+    return cleaned;
+  }
+  return `${cleaned.slice(0, DIARY_ONE_LINE_MAX_CHARS - 1)}…`;
+}
+
+// 只有日期、没有信息量的标题(`# 2026-07-10`、`# 7月4号`)当没取到,继续往下找。
+// 这不是"判断内容好坏",是机械去重:回填行的行首已经是那个日期了。
+const DIARY_BARE_DATE_LINE_RE = /^(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}\s*月\s*\d{1,2}\s*[号日]?|\d{1,2}\s*\/\s*\d{1,2})$/;
+
+/**
+ * 从一份日记里取"那天的一句话"——**全部是她自己的原话**,引擎不编。
+ * 优先级:第一个 `## 标题` → 第一个 `# 标题` → 第一句正文。都没有 → null(跳过,不回填)。
+ * 真实存在的空标题文件:2026-07-04.md / 2026-07-10.md(伞状老格式,零 `##`)。
+ */
+function extractDiaryOneLine(fileText: string): string | null {
+  const lines = fileText.split('\n');
+  const candidates: string[] = [];
+  let firstH2: string | null = null;
+  let firstH1: string | null = null;
+  let firstBody: string | null = null;
+  for (const line of lines) {
+    const h2 = /^##\s+(.*)$/.exec(line);
+    if (h2 && firstH2 === null) {
+      firstH2 = h2[1];
+      continue;
+    }
+    const h1 = /^#\s+(.*)$/.exec(line);
+    if (h1 && firstH1 === null) {
+      firstH1 = h1[1];
+      continue;
+    }
+    if (firstBody === null && line.trim() && !line.trimStart().startsWith('#')) {
+      firstBody = line;
+    }
+  }
+  if (firstH2 !== null) {
+    candidates.push(firstH2);
+  }
+  if (firstH1 !== null) {
+    candidates.push(firstH1);
+  }
+  if (firstBody !== null) {
+    candidates.push(firstBody);
+  }
+  for (const candidate of candidates) {
+    const normalized = normalizeDiaryOneLine(candidate);
+    if (!normalized || DIARY_BARE_DATE_LINE_RE.test(normalized)) {
+      continue;
+    }
+    return normalized;
+  }
+  return null;
+}
+
+type MonthIndexEntry = { iso: string; raw: string; engineBackfilled: boolean };
+
+function isEngineBackfilledLine(raw: string): boolean {
+  return raw.trimEnd().endsWith(DIARY_ENGINE_BACKFILL_MARK);
+}
+
+function insertBackfillNotice(lines: string[]): string[] {
+  if (lines.some((line) => line.trim() === DIARY_BACKFILL_NOTICE)) {
+    return lines;
+  }
+  const next = [...lines];
+  const headingAt = next.findIndex((line) => line.trimStart().startsWith('#'));
+  if (headingAt >= 0) {
+    next.splice(headingAt + 1, 0, '', DIARY_BACKFILL_NOTICE);
+  } else {
+    next.splice(0, 0, DIARY_BACKFILL_NOTICE, '');
+  }
+  return next;
+}
+
+/**
+ * 把搬来的行 + 回填的行并进 `INDEX-<YYYY-MM>.md`。
+ * · 搬来的行**原样**(她写的字节),只在这一份里按日期升序排。
+ * · 同一天已经有她自己的行 → 跳过(她的赢,先写先占);已经有的是引擎回填行 → 让位替换。
+ * · 按天行之间夹了别的内容(她自己加了小标题/注释) → 不重排,纯追加,绝不动她的结构。
+ * · 幂等:第二遍所有日期都已存在 → 生成的内容与磁盘逐字节相同 → 不写。
+ */
+function mergeMonthIndexContent(params: {
+  month: string;
+  existing: string | null;
+  movedLines: Array<{ iso: string; raw: string }>;
+  backfillLines: Array<{ iso: string; raw: string }>;
+}): string {
+  const existingLines = params.existing === null
+    ? [`# ${params.month} 日记月索引`, '']
+    : params.existing.replace(/\n+$/, '').split('\n');
+
+  const dayLineIndexes: number[] = [];
+  existingLines.forEach((line, index) => {
+    if (DIARY_INDEX_DAY_LINE_RE.test(line)) {
+      dayLineIndexes.push(index);
+    }
+  });
+
+  const parseIso = (raw: string): string | null => {
+    const matched = DIARY_INDEX_DAY_LINE_RE.exec(raw);
+    if (!matched) {
+      return null;
+    }
+    return toDayNumber(Number(matched[1]), Number(matched[2]), Number(matched[3])) === null
+      ? null
+      : `${matched[1]}-${matched[2]}-${matched[3]}`;
+  };
+
+  const firstDay = dayLineIndexes.length > 0 ? dayLineIndexes[0] : -1;
+  const lastDay = dayLineIndexes.length > 0 ? dayLineIndexes[dayLineIndexes.length - 1] : -1;
+  const interleaved = firstDay >= 0 && (lastDay - firstDay + 1) !== dayLineIndexes.length;
+
+  let addedBackfill = false;
+
+  if (interleaved) {
+    // 保守路径:她在按天行之间插了东西,重排会打乱她的结构 → 只在末尾追加缺的行。
+    const present = new Set<string>();
+    for (const index of dayLineIndexes) {
+      const iso = parseIso(existingLines[index]);
+      if (iso) {
+        present.add(iso);
+      }
+    }
+    const appended: string[] = [];
+    for (const entry of [...params.movedLines].sort((a, b) => a.iso.localeCompare(b.iso))) {
+      if (present.has(entry.iso)) {
+        continue;
+      }
+      present.add(entry.iso);
+      appended.push(entry.raw);
+    }
+    for (const entry of [...params.backfillLines].sort((a, b) => a.iso.localeCompare(b.iso))) {
+      if (present.has(entry.iso)) {
+        continue;
+      }
+      present.add(entry.iso);
+      appended.push(entry.raw);
+      addedBackfill = true;
+    }
+    let out = [...existingLines, ...appended];
+    if (addedBackfill || out.some((line) => isEngineBackfilledLine(line) && DIARY_INDEX_DAY_LINE_RE.test(line))) {
+      out = insertBackfillNotice(out);
+    }
+    return `${out.join('\n').replace(/\n+$/, '')}\n`;
+  }
+
+  const preamble = firstDay >= 0 ? existingLines.slice(0, firstDay) : existingLines;
+  const epilogue = firstDay >= 0 ? existingLines.slice(lastDay + 1) : [];
+  const entries = new Map<string, MonthIndexEntry>();
+  const unparsedDayLines: string[] = [];
+  for (const index of dayLineIndexes) {
+    const raw = existingLines[index];
+    const iso = parseIso(raw);
+    if (!iso) {
+      unparsedDayLines.push(raw); // 日期写错的行:原样留着,交给她自己看,引擎不动
+      continue;
+    }
+    if (!entries.has(iso)) {
+      entries.set(iso, { iso, raw, engineBackfilled: isEngineBackfilledLine(raw) });
+    }
+  }
+
+  for (const entry of params.movedLines) {
+    const existingEntry = entries.get(entry.iso);
+    if (existingEntry && !existingEntry.engineBackfilled) {
+      continue; // 她自己写过这天 → 她的赢
+    }
+    // 没有,或者占位的是引擎回填行 → 用她原样搬下来的这行(替换回填占位)
+    entries.set(entry.iso, { iso: entry.iso, raw: entry.raw, engineBackfilled: false });
+  }
+  for (const entry of params.backfillLines) {
+    if (entries.has(entry.iso)) {
+      continue;
+    }
+    entries.set(entry.iso, { iso: entry.iso, raw: entry.raw, engineBackfilled: true });
+    addedBackfill = true;
+  }
+
+  const sorted = [...entries.values()].sort((a, b) => a.iso.localeCompare(b.iso));
+  let out = [
+    ...preamble,
+    ...unparsedDayLines,
+    ...sorted.map((entry) => entry.raw),
+    ...epilogue
+  ];
+  if (addedBackfill || sorted.some((entry) => entry.engineBackfilled)) {
+    out = insertBackfillNotice(out);
+  }
+  return `${out.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+/**
+ * **T3** — 引擎接管日记索引的月降级 + 一次性回填存量。
+ *
+ * 规则(原来写在 prompt 里教她做):`notes/diary/INDEX.md` 顶层只留最近
+ * DIARY_INDEX_RECENT_DAYS 天的按天行;掉出窗口的行**原样搬进**
+ * `notes/diary/INDEX-<YYYY-MM>.md`(按行自己的月份,文件不存在就建),顶层给每个搬空的
+ * 月留一行 `- YYYY-MM | …（细目在 INDEX-YYYY-MM.md）`。
+ *
+ * 另外补存量:磁盘上有 `YYYY-MM-DD.md` 但**两边都没有行**的日子,从当天日记里取第一句
+ * 原话补一行进月索引(标 `（引擎回填）`),引擎不编内容;取不到就跳过。
+ *
+ * **绝不抛异常**(挂在压缩提交帧上,见文件顶部 fail-open 注释)。
+ */
+export async function maintainDiaryIndexHierarchy(options?: {
+  diaryDir?: string;
+  now?: Date;
+  recentDays?: number;
+}): Promise<DiaryIndexMaintenanceResult> {
+  const diaryDir = resolveDiaryDir(options?.diaryDir);
+  const indexPath = nodePath.join(diaryDir, 'INDEX.md');
+  const result: DiaryIndexMaintenanceResult = {
+    ok: false,
+    indexPath,
+    movedDayLines: 0,
+    monthRowsAdded: [],
+    backfilledDates: [],
+    backfillSkippedDates: [],
+    monthFilesWritten: [],
+    monthFilesFailed: [],
+    topLevelRewritten: false
+  };
+  try {
+    const recentDays = Math.max(1, options?.recentDays ?? DIARY_INDEX_RECENT_DAYS);
+    const todayDayNumber = east8DayNumber(options?.now ?? new Date());
+    const oldestKeptDayNumber = todayDayNumber - (recentDays - 1);
+
+    let rawIndex: string;
+    try {
+      rawIndex = await fsReadFile(indexPath, 'utf8');
+    } catch (error) {
+      // 读不到 ≠ 出错:目录还没建、挂载错位都走这里。跳过留痕,提交照做。
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+      moduleLogger.warn('diary index hierarchy skipped: top index unreadable', { path: indexPath, code });
+      result.skippedReason = 'top_index_unreadable';
+      return result;
+    }
+    if (Buffer.byteLength(rawIndex, 'utf8') > DIARY_INDEX_MAX_BYTES) {
+      moduleLogger.warn('diary index hierarchy skipped: top index too large to be an index', {
+        path: indexPath,
+        bytes: Buffer.byteLength(rawIndex, 'utf8'),
+        maxBytes: DIARY_INDEX_MAX_BYTES
+      });
+      result.skippedReason = 'top_index_too_large';
+      return result;
+    }
+
+    const trimmedIndex = rawIndex.replace(/\n+$/, '');
+    // 空文件 → 零行(而不是一行 ''),否则后面 join 会在开头留一个空行。
+    const topLines = trimmedIndex === '' ? [] : trimmedIndex.split('\n');
+    type TopEntry = { raw: string; iso: string | null; dayNumber: number | null };
+    const topEntries: TopEntry[] = [];
+    const topDates = new Set<string>();
+    const topMonthRows = new Set<string>();
+    for (const raw of topLines) {
+      const dayMatch = DIARY_INDEX_DAY_LINE_RE.exec(raw);
+      if (dayMatch) {
+        const dayNumber = toDayNumber(Number(dayMatch[1]), Number(dayMatch[2]), Number(dayMatch[3]));
+        if (dayNumber === null) {
+          // critical gap #1:她手改成了非法格式(2026-13-45 这类)。整体**跳过并留痕**,
+          // 不抛,也不在一份读不懂的文件上搬家 —— 搬错比不搬贵得多。
+          moduleLogger.warn('diary index hierarchy skipped: malformed day line in top index', {
+            path: indexPath,
+            line: raw.slice(0, 120)
+          });
+          result.skippedReason = 'top_index_malformed_day_line';
+          return result;
+        }
+        const iso = `${dayMatch[1]}-${dayMatch[2]}-${dayMatch[3]}`;
+        topDates.add(iso);
+        topEntries.push({ raw, iso, dayNumber });
+        continue;
+      }
+      const monthMatch = DIARY_INDEX_MONTH_ROW_RE.exec(raw);
+      if (monthMatch) {
+        topMonthRows.add(`${monthMatch[1]}-${monthMatch[2]}`);
+      }
+      topEntries.push({ raw, iso: null, dayNumber: null });
+    }
+
+    // ── 1) 该搬的行:掉出滚动窗口的按天行,按行自己的月份分组 ──
+    const movesByMonth = new Map<string, Array<{ iso: string; raw: string }>>();
+    const demotedRawLines = new Set<string>();
+    for (const entry of topEntries) {
+      if (entry.dayNumber === null || entry.iso === null || entry.dayNumber >= oldestKeptDayNumber) {
+        continue;
+      }
+      const month = entry.iso.slice(0, 7);
+      const bucket = movesByMonth.get(month) ?? [];
+      bucket.push({ iso: entry.iso, raw: entry.raw });
+      movesByMonth.set(month, bucket);
+      demotedRawLines.add(entry.raw);
+    }
+
+    // ── 2) 该回填的日子:磁盘上有 YYYY-MM-DD.md,但顶层没有它的行 ──
+    let dayFileNames: string[] = [];
+    try {
+      dayFileNames = await fsReaddir(diaryDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+      moduleLogger.warn('diary index hierarchy: diary dir unreadable, backfill skipped', { path: diaryDir, code });
+      dayFileNames = [];
+    }
+    const backfillCandidatesByMonth = new Map<string, string[]>();
+    for (const name of dayFileNames.sort()) {
+      const matched = DIARY_DAY_FILE_RE.exec(name);
+      if (!matched) {
+        continue;
+      }
+      if (toDayNumber(Number(matched[1]), Number(matched[2]), Number(matched[3])) === null) {
+        continue;
+      }
+      const iso = `${matched[1]}-${matched[2]}-${matched[3]}`;
+      if (topDates.has(iso)) {
+        continue; // 顶层有她自己的行了,不插手
+      }
+      const month = iso.slice(0, 7);
+      const bucket = backfillCandidatesByMonth.get(month) ?? [];
+      bucket.push(iso);
+      backfillCandidatesByMonth.set(month, bucket);
+    }
+
+    // ── 3) 先写月索引,再改顶层:只有月索引写成功的月份才允许从顶层摘行 ──
+    // 顺序反了就会丢行(顶层删了、月索引没写进去)。
+    const months = [...new Set([...movesByMonth.keys(), ...backfillCandidatesByMonth.keys()])].sort();
+    const committedMonths = new Set<string>();
+    // 月索引里确实有按天细目的月份 → 顶层该有一行指路。用"有内容"而不是"这轮写过",
+    // 否则"往一个已经完整的月索引里搬行"会摘掉顶层却不留指路行(那些日子就无从下手了)。
+    const monthsWithDetail = new Set<string>();
+    for (const month of months) {
+      const monthPath = nodePath.join(diaryDir, `INDEX-${month}.md`);
+      let existing: string | null = null;
+      try {
+        existing = await fsReadFile(monthPath, 'utf8');
+      } catch {
+        existing = null; // 不存在就建
+      }
+
+      const existingDates = new Set<string>();
+      if (existing !== null) {
+        for (const line of existing.split('\n')) {
+          const matched = DIARY_INDEX_DAY_LINE_RE.exec(line);
+          if (matched && toDayNumber(Number(matched[1]), Number(matched[2]), Number(matched[3])) !== null) {
+            existingDates.add(`${matched[1]}-${matched[2]}-${matched[3]}`);
+          }
+        }
+      }
+
+      const backfillLines: Array<{ iso: string; raw: string }> = [];
+      const pendingBackfilled: string[] = [];
+      const pendingBackfillSkipped: string[] = [];
+      for (const iso of backfillCandidatesByMonth.get(month) ?? []) {
+        if (existingDates.has(iso)) {
+          continue; // 幂等:月索引里已经有这天了(她写的或上一轮回填的)
+        }
+        const dayPath = nodePath.join(diaryDir, `${iso}.md`);
+        let oneLine: string | null = null;
+        try {
+          const stat = await fsStat(dayPath);
+          if (stat.size > DIARY_DAY_FILE_MAX_BYTES) {
+            // critical gap #2:超大日文件 → 跳过那一份并留痕,不抛。
+            moduleLogger.warn('diary index backfill skipped one day: file too large', {
+              path: dayPath,
+              bytes: stat.size,
+              maxBytes: DIARY_DAY_FILE_MAX_BYTES
+            });
+            pendingBackfillSkipped.push(iso);
+            continue;
+          }
+          oneLine = extractDiaryOneLine(await fsReadFile(dayPath, 'utf8'));
+        } catch (error) {
+          // critical gap #2:编码/权限/瞬时读失败 → 跳过那一份并留痕,不抛。
+          const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+          moduleLogger.warn('diary index backfill skipped one day: unreadable', { path: dayPath, code });
+          pendingBackfillSkipped.push(iso);
+          continue;
+        }
+        if (!oneLine) {
+          // 取不到任何原话(真实存在:2026-07-04.md / 2026-07-10.md 零 `##`)→ 不编内容。
+          moduleLogger.warn('diary index backfill skipped one day: no usable first line', { path: dayPath });
+          pendingBackfillSkipped.push(iso);
+          continue;
+        }
+        backfillLines.push({ iso, raw: `- ${iso} | ${oneLine}${DIARY_ENGINE_BACKFILL_MARK}` });
+        pendingBackfilled.push(iso);
+      }
+
+      const movedLines = movesByMonth.get(month) ?? [];
+      if (existingDates.size > 0 || movedLines.length > 0 || backfillLines.length > 0) {
+        monthsWithDetail.add(month);
+      }
+      if (movedLines.length === 0 && backfillLines.length === 0) {
+        committedMonths.add(month); // 没活可干也算"这个月已就绪"
+        result.backfillSkippedDates.push(...pendingBackfillSkipped);
+        continue;
+      }
+
+      const merged = mergeMonthIndexContent({ month, existing, movedLines, backfillLines });
+      try {
+        const wrote = await writeFileAtomicIfChanged(monthPath, merged);
+        if (wrote) {
+          result.monthFilesWritten.push(monthPath);
+        }
+        committedMonths.add(month);
+        result.backfilledDates.push(...pendingBackfilled);
+        result.backfillSkippedDates.push(...pendingBackfillSkipped);
+      } catch (error) {
+        // 这个月写失败 → 不从顶层摘它的行(宁可下次再搬,绝不丢行)。
+        moduleLogger.warn('diary index hierarchy: month index write failed, keeping top-level rows', {
+          path: monthPath,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        result.monthFilesFailed.push(monthPath);
+      }
+    }
+
+    // ── 4) 顶层:摘掉已落月索引的超窗行 + 给搬空的月补一行指路 ──
+    const keptTopLines: string[] = [];
+    let lastAnchorIndex = -1;
+    for (const entry of topEntries) {
+      const month = entry.iso ? entry.iso.slice(0, 7) : null;
+      const demote = entry.dayNumber !== null
+        && entry.dayNumber < oldestKeptDayNumber
+        && month !== null
+        && committedMonths.has(month);
+      if (demote) {
+        result.movedDayLines += 1;
+        continue;
+      }
+      keptTopLines.push(entry.raw);
+      if (entry.dayNumber !== null || DIARY_INDEX_MONTH_ROW_RE.test(entry.raw)) {
+        lastAnchorIndex = keptTopLines.length - 1;
+      }
+    }
+    const newMonthRows: string[] = [];
+    for (const month of months) {
+      if (!committedMonths.has(month) || topMonthRows.has(month) || !monthsWithDetail.has(month)) {
+        continue;
+      }
+      // "那个月的一句话"是她的活,引擎不编:留一个明摆着的空位,她一眼看得见。
+      newMonthRows.push(`- ${month} | （这个月的一句话还没写）（细目在 INDEX-${month}.md）`);
+    }
+    if (newMonthRows.length > 0) {
+      const insertAt = lastAnchorIndex >= 0 ? lastAnchorIndex + 1 : keptTopLines.length;
+      keptTopLines.splice(insertAt, 0, ...newMonthRows);
+      result.monthRowsAdded.push(...newMonthRows);
+    }
+
+    if (result.movedDayLines > 0 || newMonthRows.length > 0) {
+      const nextTop = `${keptTopLines.join('\n').replace(/\n+$/, '')}\n`;
+      try {
+        result.topLevelRewritten = await writeFileAtomicIfChanged(indexPath, nextTop);
+      } catch (error) {
+        // 顶层写失败:月索引已经有那些行了(搬家不是删),下一轮再摘。不抛。
+        moduleLogger.warn('diary index hierarchy: top index write failed', {
+          path: indexPath,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        result.skippedReason = 'top_index_write_failed';
+        result.movedDayLines = 0;
+        result.monthRowsAdded = [];
+      }
+    }
+
+    result.ok = true;
+    if (
+      result.movedDayLines > 0
+      || result.backfilledDates.length > 0
+      || result.monthRowsAdded.length > 0
+      || result.backfillSkippedDates.length > 0
+    ) {
+      moduleLogger.info('diary index hierarchy maintained', {
+        indexPath,
+        movedDayLines: result.movedDayLines,
+        monthRowsAdded: result.monthRowsAdded.length,
+        backfilledDates: result.backfilledDates,
+        backfillSkippedDates: result.backfillSkippedDates,
+        monthFilesWritten: result.monthFilesWritten,
+        monthFilesFailed: result.monthFilesFailed
+      });
+    }
+    return result;
+  } catch (error) {
+    // 兜底:任何漏网异常都在这里停住。压缩提交绝不因为整理文件失败而失败。
+    moduleLogger.warn('diary index hierarchy maintenance failed (fail-open, commit proceeds)', {
+      indexPath,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    result.ok = false;
+    result.skippedReason = result.skippedReason ?? 'unexpected_error';
+    return result;
+  }
+}
+
+function buildDiaryHeadingManifest(params: {
+  iso: string;
+  diaryPath: string;
+  fileText: string;
+  sourceBytes: number;
+  sourceMtimeMs: number;
+}): string {
+  const lines = params.fileText.split('\n');
+  const totalLines = params.fileText.endsWith('\n') ? lines.length - 1 : lines.length;
+  const headings: Array<{ line: number; text: string }> = [];
+  lines.forEach((line, index) => {
+    const matched = /^##\s+(.*)$/.exec(line);
+    if (!matched) {
+      return;
+    }
+    const text = normalizeDiaryOneLine(matched[1]);
+    headings.push({ line: index + 1, text: text || '(空标题)' });
+  });
+
+  const out: string[] = [];
+  out.push(`# ${params.iso} 日记小节目录（引擎生成，别手改：每次整理记忆会按日记重生成）`);
+  // 增量判定的机器可读锚:源文件字节数 + mtime 一致就整份跳过,不重读不重算。
+  out.push(`<!-- source bytes=${params.sourceBytes} mtime=${Math.floor(params.sourceMtimeMs)} -->`);
+  out.push('');
+  out.push(`源文件 ${params.diaryPath}：${totalLines} 行，${headings.length} 个小节。`);
+  if (headings.length === 0) {
+    // 真实存在:2026-07-04.md / 2026-07-10.md 只有顶层 `#`,零 `##`(伞状老格式)。
+    out.push('');
+    out.push(`这一天没有 ## 小节，整份直接读：cat ${params.diaryPath}`);
+    return `${out.join('\n')}\n`;
+  }
+  out.push(`取某一段：sed -n '起,止p' ${params.diaryPath}`);
+  out.push('');
+  for (let index = 0; index < headings.length; index += 1) {
+    const start = headings[index].line;
+    const end = index + 1 < headings.length ? headings[index + 1].line - 1 : Math.max(totalLines, start);
+    out.push(`- ${start}-${end} | ${headings[index].text}`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+/**
+ * **T4** — 为每份日记生成一份日内小节目录(heading manifest)。
+ *
+ * 为什么:日文件 40–93KB / 58–116 条 `## 条目` / 零内部目录 —— 知道"是哪天"也 navigate
+ * 不进去,只能整份 cat。目录让她先看一屏标题,再 `sed -n '起,止p'` 取那一段。
+ *
+ * 产物在 `notes/diary-manifest/<YYYY-MM-DD>.md`(**不在** notes/diary/ 里:那是被动召回
+ * 腿的语料源,目录行是脚手架,进去会污染召回)。
+ *
+ * 增量:源文件 bytes+mtime 与目录里记的锚一致 → 整份跳过;内容重算后与磁盘相同也不写。
+ * **绝不抛异常**(挂在压缩提交帧上,见文件顶部 fail-open 注释)。
+ */
+export async function writeDiaryHeadingManifests(options?: {
+  diaryDir?: string;
+  manifestDir?: string;
+}): Promise<DiaryHeadingManifestResult> {
+  const diaryDir = resolveDiaryDir(options?.diaryDir);
+  const manifestDir = resolveDiaryManifestDir(options?.manifestDir);
+  const result: DiaryHeadingManifestResult = {
+    ok: false,
+    manifestDir,
+    scannedDates: 0,
+    writtenDates: [],
+    unchangedDates: [],
+    skippedDates: []
+  };
+  try {
+    let names: string[];
+    try {
+      names = await fsReaddir(diaryDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+      moduleLogger.warn('diary heading manifests skipped: diary dir unreadable', { path: diaryDir, code });
+      result.skippedReason = 'diary_dir_unreadable';
+      return result;
+    }
+
+    for (const name of names.sort()) {
+      const matched = DIARY_DAY_FILE_RE.exec(name);
+      if (!matched) {
+        continue;
+      }
+      if (toDayNumber(Number(matched[1]), Number(matched[2]), Number(matched[3])) === null) {
+        continue;
+      }
+      const iso = `${matched[1]}-${matched[2]}-${matched[3]}`;
+      const diaryPath = nodePath.join(diaryDir, name);
+      const manifestPath = nodePath.join(manifestDir, `${iso}.md`);
+      result.scannedDates += 1;
+      try {
+        const stat = await fsStat(diaryPath);
+        if (!stat.isFile()) {
+          continue;
+        }
+        if (stat.size > DIARY_DAY_FILE_MAX_BYTES) {
+          moduleLogger.warn('diary heading manifest skipped one day: file too large', {
+            path: diaryPath,
+            bytes: stat.size,
+            maxBytes: DIARY_DAY_FILE_MAX_BYTES
+          });
+          result.skippedDates.push(iso);
+          continue;
+        }
+        // 增量第一道:锚一致 → 连源文件都不读。
+        const anchor = `<!-- source bytes=${stat.size} mtime=${Math.floor(stat.mtimeMs)} -->`;
+        let existingManifest: string | null = null;
+        try {
+          existingManifest = await fsReadFile(manifestPath, 'utf8');
+        } catch {
+          existingManifest = null;
+        }
+        if (existingManifest !== null && existingManifest.includes(anchor)) {
+          result.unchangedDates.push(iso);
+          continue;
+        }
+        const fileText = await fsReadFile(diaryPath, 'utf8');
+        const manifest = buildDiaryHeadingManifest({
+          iso,
+          diaryPath,
+          fileText,
+          sourceBytes: stat.size,
+          sourceMtimeMs: stat.mtimeMs
+        });
+        // 增量第二道:重算后与磁盘逐字节相同 → 不写(不制造 mtime churn)。
+        const wrote = await writeFileAtomicIfChanged(manifestPath, manifest);
+        if (wrote) {
+          result.writtenDates.push(iso);
+        } else {
+          result.unchangedDates.push(iso);
+        }
+      } catch (error) {
+        // 单份失败只跳过这一份,别的日期照做,整体不抛。
+        moduleLogger.warn('diary heading manifest skipped one day', {
+          path: diaryPath,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        result.skippedDates.push(iso);
+      }
+    }
+
+    result.ok = true;
+    if (result.writtenDates.length > 0 || result.skippedDates.length > 0) {
+      moduleLogger.info('diary heading manifests refreshed', {
+        manifestDir,
+        scannedDates: result.scannedDates,
+        writtenDates: result.writtenDates,
+        skippedDates: result.skippedDates,
+        unchangedCount: result.unchangedDates.length
+      });
+    }
+    return result;
+  } catch (error) {
+    moduleLogger.warn('diary heading manifests failed (fail-open, commit proceeds)', {
+      manifestDir,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    result.ok = false;
+    result.skippedReason = result.skippedReason ?? 'unexpected_error';
+    return result;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 专题物化(L1 日记 → L3 线):两段式 —— 算在事务内,写在事务后
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 为什么引擎做:教她自己开 `topic-<主题>.md` 并按章续写,实测 14 天零文件。压缩帧里她只
+// 看得见今天,"这是不是连着好几天的事"需要已经被压掉的记忆;而且她被 18 轮预算追着。所以
+// 专题从「她的写作产物」改成「引擎从日记物化出来的聚合视图」——她的动作只剩一件:在
+// `open-loops.md` 行末打一个 `#标签`。
+//
+// ── 为什么落 notes/topics/ 而不是 notes/diary/ ──────────────────────────────
+// 实测(同一件事的两份拷贝占满浮现槽位的比例):
+//   notes/diary/ + 现行冷却  155/155 = 100%
+//   notes/diary/ + P0 修好后 5.2%
+//   notes/topics/            0
+// 原因:`notes/diary/` 是被动召回腿的语料源,而第三腿把 `/^topic-/i` 认成连载 → 同一件事
+// 在日记和专题各一份,ref 不同,冷却集(只装 ref)结构上抓不到。隔离目录是唯一的 0。
+//
+// ── 为什么信号是「标签」而不是「同名标题复发」────────────────────────────────
+// 实测 1347 条日记条目里 1276 个标题**从不重复**(94.5%);跨天命中最多的全是模板词
+// (醒来/凌晨/今日总结)。线的身份只能来自她自己给的名字 → open-loops 行末的 `#标签`。
+// 标签口径**和写端 memory_write.py 逐条对齐**(charset / 拒纯数字 / 拒 INDEX),口径不
+// 一致会让「她打了标签但系统不算」。
+//
+// ── 两段式:为什么算和写要分开 ────────────────────────────────────────────────
+//   【算】在 commitCoreMemoryCompression 的原子提交帧内(紧跟 writeDiaryHeadingManifests、
+//         在 readDiaryIndexSnapshot 之前):拿到的是**这一帧冻结的**日记事实。只读不写。
+//   【写】在提交之后(onCoreMemoryCompressionCommitted 那一段):落盘失败绝不回滚压缩提交
+//         —— 压缩提交是本轮最贵的东西,不能被一次文件写失败拖掉。
+//   产物落 notes/topics/,`readDiaryIndexSnapshot` / `readPeopleIndexSnapshot` 都不读它,
+//   所以【写】排在提交之后不会让任何进请求前缀的字节漂移。
+//
+// ── 幂等 + 可中断 ─────────────────────────────────────────────────────────────
+// 水位(`agent_session_context_windows.topic_materialization_state`)**只在文件真写成功之
+// 后推进**。任何一个标签写失败 → 整批一个字都不落库 → 下一轮拿同一个水位重做同一批;
+// 重做不会重复补章,因为落盘前会先把文件里已有的章解析成归一化 key 去重。
+// 轮次计数用「该标签命中过的 read_cutoff 值集合的大小」而不是计数器:cutoff 单调递增且
+// 每轮唯一,水位没前移、下轮重扫同一段内容时同一个 cutoff 不会被重复计。
+//
+// ── fail-open ────────────────────────────────────────────────────────────────
+// 和 T3/T4 一样:整体 try/catch,失败只 warn + 返回 ok:false,**绝不上抛**。22 轮 hard-cap
+// 兜底提交走同一个 commitCoreMemoryCompression,异常逃出去会同时废掉正常提交和兜底提交。
+
+/** 一条线要成形,需要该标签在这么多个**不同的 read_cutoff**(= 不同压缩轮)里命中过。 */
+export const TOPIC_MATERIALIZE_MIN_CUTOFFS = 3;
+/** 每份专题最多留这么多章;超了从最老的开始折叠(正文原本就在日记里,不丢)。 */
+export const TOPIC_MAX_CHAPTERS_PER_FILE = 30;
+/** 状态里最多跟踪多少个标签(防她把标签打成开放集合把 jsonb 撑爆)。 */
+const TOPIC_MAX_TRACKED_TAGS = 128;
+/** 每个标签保留最近多少个 cutoff 值(判定只要 >= 3,留 8 个够诊断)。 */
+const TOPIC_CUTOFF_KEEP = 8;
+/** 整份状态的 JSON 上限;超了从「未物化 + 最不活跃」开始丢候选。 */
+const TOPIC_STATE_MAX_BYTES = 128 * 1024;
+/** open-loops.md 的解析上限:超了不是欠账清单(她可能误把日记 cat 进去),跳过留痕。 */
+const TOPIC_OPEN_LOOPS_MAX_BYTES = 1024 * 1024;
+/** 单份日记的解析上限,与 T4 同口径。 */
+const TOPIC_DIARY_FILE_MAX_BYTES = DIARY_DAY_FILE_MAX_BYTES;
+/** 标签长度上限(码位),与 memory_write.py 的 TAG_MAX_CODEPOINTS 同值。 */
+const TOPIC_TAG_MAX_CODEPOINTS = 40;
+// 合法标签字符集 —— memory_write.py 的 `^[\w-]+$`(Python 3 的 `\w` 默认吃 unicode)在 JS
+// 里的等价写法。JS 的 `\w` 只有 ASCII,所以必须显式写 \p{L}\p{N}\p{M},否则中文标签全被拒。
+const TOPIC_TAG_CHARSET_RE = /^[\p{L}\p{N}\p{M}_-]+$/u;
+// 行里的 `#标签`,与 memory_write.py 的 TAG_IN_LINE_RE 逐字符同口径(整词出现、排掉括号)。
+const TOPIC_TAG_IN_LINE_RE = /(?:^|\s)#([^\s#()（）]+)/gu;
+// 纯数字标签(`Issue #39`)不算标签 —— 与写端 `tag.isdigit()` 同口径(unicode 十进制数字)。
+const TOPIC_TAG_ALL_DIGITS_RE = /^\p{Nd}+$/u;
+// 专题里的一章:`## M/D 点题`。和 parseChapterDateFromTitle 认的形状一致(日期后不强求空格)。
+const TOPIC_CHAPTER_HEADING_RE = /^##\s+(\d{1,2})\/(\d{1,2})(?!\d)/;
+// 任意 markdown 标题(用来切「章之前的头部」和「章」)。
+const TOPIC_ANY_HEADING_RE = /^#{1,6}\s+/;
+// 折叠通知行的稳定前缀:每次折叠**替换**这一行而不是再追加一行。
+const TOPIC_FOLD_NOTICE_PREFIX = '> 更早的';
+const TOPIC_STATE_VERSION = 1;
+
+/** 专题目录自己占着这个名字,不能当标签(会把目录覆盖掉)。 */
+const TOPIC_INDEX_BASENAME = 'INDEX.md';
+
+/** 一章的最小事实:d = 事发日期(YYYY-MM-DD)、t = 条目标题、l = 标题下第一句原话。 */
+export interface TopicChapterFact {
+  d: string;
+  t: string;
+  l: string;
+}
+
+export interface TopicCandidateState {
+  /** 命中过这个标签的 read_cutoff 值(唯一、升序)。size >= TOPIC_MATERIALIZE_MIN_CUTOFFS 才成线。 */
+  cutoffs: number[];
+  /** 已算出但还没落盘的章。落盘成功后搬进 emitted/days。 */
+  pending: TopicChapterFact[];
+  /** 已落盘过的章的归一化 key。**只进不出** —— 她手删掉的章靠这个不被重建。 */
+  emitted: string[];
+  /** 已落盘过的章的日期(升序唯一),只用来算「N 段进展、最近 M/D」。 */
+  days: string[];
+  /** 折叠掉的章数(从文件里摘掉的 + pending 溢出丢掉的)。 */
+  folded: number;
+}
+
+export interface TopicMaterializationState {
+  v: number;
+  /** 每份日记已扫到的字节数。下一轮只看这之后的新增部分。 */
+  watermarks: Record<string, number>;
+  candidates: Record<string, TopicCandidateState>;
+  /** 已经成形的线。**白名单包含它** —— 她把 open-loops 那行划掉/删掉之后,线继续更新。 */
+  materialized: string[];
+}
+
+export interface TopicWritePlanEntry {
+  tag: string;
+  chapters: TopicChapterFact[];
+}
+
+export interface TopicMaterializationPlan {
+  ok: boolean;
+  skippedReason?: string;
+  sessionKey: string;
+  diaryDir: string;
+  topicsDir: string;
+  /** 本轮的 read_cutoff —— 轮次身份,进 cutoffs 集合。 */
+  cutoff: number;
+  /** 上一轮落库的状态的稳定序列化,用来判「状态没变就别写库」。 */
+  priorStateJson: string;
+  nextState: TopicMaterializationState;
+  writes: TopicWritePlanEntry[];
+  whitelistTags: string[];
+  scannedFiles: number;
+  /** 本轮真读了内容的日记文件数(水位没动的文件连读都不读)。 */
+  readFiles: number;
+}
+
+export interface TopicMaterializationWriteResult {
+  ok: boolean;
+  skippedReason?: string;
+  topicsDir: string;
+  wroteTags: string[];
+  /** 该补的章文件里已经有了(她自己写过/上一轮写过) → 零字节改动,但算成功。 */
+  unchangedTags: string[];
+  failedTags: string[];
+  indexWritten: boolean;
+  indexSkippedReason?: string;
+  /** 只有 failedTags 为空时才非 null;为 null 表示**水位一个字都不许动**。 */
+  nextState: TopicMaterializationState | null;
+}
+
+function resolveTopicsDir(explicit?: string): string {
+  if (explicit) {
+    return explicit;
+  }
+  if (process.env.XIAONI_TOPICS_DIR) {
+    return process.env.XIAONI_TOPICS_DIR;
+  }
+  // 和 resolveDiaryManifestDir 同款:挂在 notes/ 下面、和 diary/ 平级。
+  // **绝不能**放进 notes/diary/ —— 那是被动召回腿的语料源(见本节顶部的实测表)。
+  return `${nodePath.dirname(resolveDiaryDir())}/topics`;
+}
+
+/**
+ * 标签是否成线。口径**逐条对齐** memory_write.py 的 `validate_tag`:
+ * 非空 / ≤40 码位 / `^[\w-]+$` / 拒纯数字 / 拒 INDEX。口径不一致 = 她打了标签但系统不算。
+ */
+export function isValidTopicTag(raw: unknown): boolean {
+  if (typeof raw !== 'string') {
+    return false;
+  }
+  const tag = raw.trim();
+  if (!tag) {
+    return false;
+  }
+  if ([...tag].length > TOPIC_TAG_MAX_CODEPOINTS) {
+    return false;
+  }
+  if (!TOPIC_TAG_CHARSET_RE.test(tag)) {
+    // 顺手排掉空白 / `/` / `.` / 括号 / `#` —— 标签要当文件名用。
+    return false;
+  }
+  if (TOPIC_TAG_ALL_DIGITS_RE.test(tag)) {
+    // `Issue #39` 是引用编号,不是标签。写端也拒,这条线永远连不起来。
+    return false;
+  }
+  if (tag.toLowerCase() === 'index') {
+    // topics/INDEX.md 自己占着。
+    return false;
+  }
+  return true;
+}
+
+/** 从 open-loops.md 全文抽白名单标签(保留她写的大小写,按行内顺序、去重)。 */
+export function extractTopicTagsFromOpenLoops(content: unknown): string[] {
+  if (typeof content !== 'string' || !content) {
+    return [];
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of content.split(/\r?\n/)) {
+    TOPIC_TAG_IN_LINE_RE.lastIndex = 0;
+    let matched: RegExpExecArray | null = TOPIC_TAG_IN_LINE_RE.exec(line);
+    while (matched !== null) {
+      const tag = matched[1];
+      if (isValidTopicTag(tag)) {
+        const key = tag.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push(tag);
+        }
+      }
+      matched = TOPIC_TAG_IN_LINE_RE.exec(line);
+    }
+  }
+  return out;
+}
+
+/**
+ * 一章 / 一条日记条目的**身份**。三个归一化函数按这个顺序串起来,少一个就认不出同一件事:
+ *   1. stripTrailingHashTags —— 她给同一条补了个标签不该换身份
+ *   2. stripChapterDatePrefix —— L3 章节标题带 `M/D ` 前缀,日记标题没有
+ *   3. normalizeEventText —— 折空白 + 小写
+ * 之前有一版设计漏了第 2 步就声称能去重,实测 100% 重复。
+ */
+export function topicChapterKey(rawTitle: unknown): string {
+  const stripped = stripTrailingHashTags(typeof rawTitle === 'string' ? rawTitle : '').text;
+  return normalizeEventText(stripChapterDatePrefix(stripped));
+}
+
+function uniqueSortedNumbers(values: unknown): number[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const set = new Set<number>();
+  for (const value of values) {
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+      set.add(Math.trunc(num));
+    }
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+function uniqueStrings(values: unknown, max: number): string[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string' || !value) {
+      continue;
+    }
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    out.push(value);
+  }
+  // 超上限保留**最新的**(数组尾部),老的 key 掉了最坏后果是那一章可能被重建一次。
+  return out.length > max ? out.slice(out.length - max) : out;
+}
+
+function normalizeTopicChapterFact(raw: unknown): TopicChapterFact | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const record = raw as Record<string, unknown>;
+  const d = typeof record.d === 'string' ? record.d : '';
+  const t = typeof record.t === 'string' ? record.t : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !t) {
+    return null;
+  }
+  return { d, t, l: typeof record.l === 'string' ? record.l : '' };
+}
+
+/** 库里读回来的状态一律过这一道:形状坏了当「从零开始」,绝不让半个形状往下走。 */
+export function normalizeTopicMaterializationState(raw: unknown): TopicMaterializationState {
+  const empty: TopicMaterializationState = {
+    v: TOPIC_STATE_VERSION,
+    watermarks: {},
+    candidates: {},
+    materialized: []
+  };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return empty;
+  }
+  const record = raw as Record<string, unknown>;
+  const watermarks: Record<string, number> = {};
+  if (record.watermarks && typeof record.watermarks === 'object' && !Array.isArray(record.watermarks)) {
+    for (const [name, value] of Object.entries(record.watermarks as Record<string, unknown>)) {
+      const num = Number(value);
+      if (typeof name === 'string' && name && Number.isFinite(num) && num >= 0) {
+        watermarks[name] = Math.trunc(num);
+      }
+    }
+  }
+  const candidates: Record<string, TopicCandidateState> = {};
+  if (record.candidates && typeof record.candidates === 'object' && !Array.isArray(record.candidates)) {
+    for (const [tag, value] of Object.entries(record.candidates as Record<string, unknown>)) {
+      if (!isValidTopicTag(tag) || !value || typeof value !== 'object') {
+        continue;
+      }
+      const cand = value as Record<string, unknown>;
+      const pending: TopicChapterFact[] = [];
+      if (Array.isArray(cand.pending)) {
+        for (const entry of cand.pending) {
+          const fact = normalizeTopicChapterFact(entry);
+          if (fact) {
+            pending.push(fact);
+          }
+        }
+      }
+      const folded = Number(cand.folded);
+      candidates[tag] = {
+        cutoffs: uniqueSortedNumbers(cand.cutoffs).slice(-TOPIC_CUTOFF_KEEP),
+        pending: pending.slice(-TOPIC_MAX_CHAPTERS_PER_FILE),
+        emitted: uniqueStrings(cand.emitted, TOPIC_MAX_CHAPTERS_PER_FILE * 4),
+        days: uniqueStrings(cand.days, TOPIC_MAX_CHAPTERS_PER_FILE * 4).sort(),
+        folded: Number.isFinite(folded) && folded > 0 ? Math.trunc(folded) : 0
+      };
+    }
+  }
+  const materialized: string[] = [];
+  if (Array.isArray(record.materialized)) {
+    for (const tag of record.materialized) {
+      if (isValidTopicTag(tag) && !materialized.includes(tag as string)) {
+        materialized.push(tag as string);
+      }
+    }
+  }
+  return { v: TOPIC_STATE_VERSION, watermarks, candidates, materialized };
+}
+
+/** 稳定序列化(键排序):唯一用途是判「状态跟上一轮逐字节相同 → 别写库」。 */
+export function stableTopicStateJson(state: TopicMaterializationState | null): string {
+  if (!state) {
+    return 'null';
+  }
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(stable);
+    }
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+        out[key] = stable((value as Record<string, unknown>)[key]);
+      }
+      return out;
+    }
+    return value;
+  };
+  return JSON.stringify(stable(state));
+}
+
+interface DiaryEntrySlice {
+  title: string;
+  /** 标题下第一句原话(引擎不编,只机械抄 + 截断)。 */
+  lead: string;
+  /** 条目正文(含标题)的字节结束位置,用来和水位比。 */
+  endByte: number;
+  /** 匹配用的小写全文(标题 + 正文)。 */
+  haystack: string;
+}
+
+/**
+ * 把一份日记切成条目,并记下每条**结束时的字节位置**。
+ * 字节而不是行:水位存的是文件字节数(`stat.size`),两边必须同一把尺。
+ */
+export function sliceDiaryEntries(fileText: string): DiaryEntrySlice[] {
+  const out: DiaryEntrySlice[] = [];
+  if (typeof fileText !== 'string' || !fileText) {
+    return out;
+  }
+  const lines = fileText.split('\n');
+  let cursor = 0;
+  let current: { title: string; bodyLines: string[] } | null = null;
+  const flush = (endByte: number) => {
+    if (!current) {
+      return;
+    }
+    let lead = '';
+    for (const line of current.bodyLines) {
+      if (line.trim()) {
+        lead = normalizeDiaryOneLine(line);
+        if (lead) {
+          break;
+        }
+      }
+    }
+    out.push({
+      title: current.title,
+      lead,
+      endByte,
+      haystack: `${current.title}\n${current.bodyLines.join('\n')}`.toLowerCase()
+    });
+    current = null;
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    // +1 是换行符,最后一段之后没有换行 —— 这样累加出来的总字节数和 `stat.size` **完全相等**,
+    // 水位比较才不会在边界上差一个字节(差 1 会让最后一条每轮都被当成"新的"重扫一遍)。
+    const lineBytes = Buffer.byteLength(line, 'utf8') + (index < lines.length - 1 ? 1 : 0);
+    const heading = /^#{2,6}\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      flush(cursor);
+      current = { title: heading[1].trim(), bodyLines: [] };
+    } else if (current) {
+      current.bodyLines.push(line);
+    }
+    cursor += lineBytes;
+  }
+  flush(cursor);
+  return out;
+}
+
+function ensureTopicCandidate(state: TopicMaterializationState, tag: string): TopicCandidateState {
+  const existing = state.candidates[tag];
+  if (existing) {
+    return existing;
+  }
+  const fresh: TopicCandidateState = { cutoffs: [], pending: [], emitted: [], days: [], folded: 0 };
+  state.candidates[tag] = fresh;
+  return fresh;
+}
+
+function trimTopicState(state: TopicMaterializationState): void {
+  const materialized = new Set(state.materialized);
+  const tags = Object.keys(state.candidates);
+  if (tags.length > TOPIC_MAX_TRACKED_TAGS) {
+    // 先丢**未物化**的、最不活跃的(最大 cutoff 最小的)。已成形的线不丢。
+    const droppable = tags
+      .filter((tag) => !materialized.has(tag))
+      .sort((a, b) => {
+        const lastA = state.candidates[a].cutoffs[state.candidates[a].cutoffs.length - 1] ?? -1;
+        const lastB = state.candidates[b].cutoffs[state.candidates[b].cutoffs.length - 1] ?? -1;
+        return lastA - lastB;
+      });
+    let over = tags.length - TOPIC_MAX_TRACKED_TAGS;
+    for (const tag of droppable) {
+      if (over <= 0) {
+        break;
+      }
+      delete state.candidates[tag];
+      over -= 1;
+    }
+  }
+  // 整份 jsonb 兜底:还超,继续从未物化的候选里丢(丢的只是"还没成形的计数",不丢记忆)。
+  while (Buffer.byteLength(stableTopicStateJson(state), 'utf8') > TOPIC_STATE_MAX_BYTES) {
+    const droppable = Object.keys(state.candidates).filter((tag) => !materialized.has(tag));
+    if (droppable.length === 0) {
+      break;
+    }
+    delete state.candidates[droppable[0]];
+  }
+}
+
+/**
+ * **【算】** —— 挂在压缩原子提交帧内(writeDiaryHeadingManifests 之后、
+ * readDiaryIndexSnapshot 之前)。**只读不写**,一个文件都不碰。
+ * 返回的 plan 里 `nextState` 是"如果落盘全成功才该落库"的状态。
+ * **绝不抛异常**。
+ */
+export async function planTopicMaterialization(options: {
+  sessionKey: string;
+  cutoff: number;
+  priorState?: unknown;
+  diaryDir?: string;
+  topicsDir?: string;
+}): Promise<TopicMaterializationPlan> {
+  const diaryDir = resolveDiaryDir(options.diaryDir);
+  const topicsDir = resolveTopicsDir(options.topicsDir);
+  const priorState = normalizeTopicMaterializationState(options.priorState);
+  const plan: TopicMaterializationPlan = {
+    ok: false,
+    sessionKey: options.sessionKey,
+    diaryDir,
+    topicsDir,
+    cutoff: Number(options.cutoff),
+    priorStateJson: stableTopicStateJson(priorState),
+    nextState: priorState,
+    writes: [],
+    whitelistTags: [],
+    scannedFiles: 0,
+    readFiles: 0
+  };
+  try {
+    if (!Number.isFinite(plan.cutoff)) {
+      plan.skippedReason = 'cutoff_not_finite';
+      return plan;
+    }
+    const state = normalizeTopicMaterializationState(options.priorState);
+    plan.nextState = state;
+
+    // ── 先确认日记目录在 ──
+    // 排在白名单之前:目录没了(挂载错位/路径打错)是**结构性**跳过,理由必须诚实说清是
+    // 目录读不到,而不是含糊地报"没有标签"。readdir 很便宜,值得先做。
+    let names: string[];
+    try {
+      names = await fsReaddir(diaryDir);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+      moduleLogger.warn('topic materialization skipped: diary dir unreadable', { path: diaryDir, code });
+      plan.skippedReason = 'diary_dir_unreadable';
+      return plan;
+    }
+
+    // ── 白名单 = open-loops.md 的 `#标签` ∪ 已物化的线 ──
+    // open-loops 读不出来不是致命的:已物化的线照旧继续更新(H3「划掉不停更」的同一条腿)。
+    const openLoopsPath = nodePath.join(diaryDir, 'open-loops.md');
+    let openLoopTags: string[] = [];
+    try {
+      const stat = await fsStat(openLoopsPath);
+      if (stat.isFile() && stat.size <= TOPIC_OPEN_LOOPS_MAX_BYTES) {
+        openLoopTags = extractTopicTagsFromOpenLoops(await fsReadFile(openLoopsPath, 'utf8'));
+      } else if (stat.size > TOPIC_OPEN_LOOPS_MAX_BYTES) {
+        moduleLogger.warn('topic materialization: open-loops too large to be a loop list', {
+          path: openLoopsPath,
+          bytes: stat.size
+        });
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+      moduleLogger.warn('topic materialization: open-loops unreadable; whitelist falls back to materialized lines', {
+        path: openLoopsPath,
+        code
+      });
+    }
+    const whitelist = new Map<string, string>(); // lowercase → 她写的原样
+    for (const tag of openLoopTags) {
+      whitelist.set(tag.toLowerCase(), tag);
+    }
+    for (const tag of state.materialized) {
+      if (!whitelist.has(tag.toLowerCase())) {
+        whitelist.set(tag.toLowerCase(), tag);
+      }
+    }
+    plan.whitelistTags = [...whitelist.values()];
+    if (plan.whitelistTags.length === 0) {
+      // 一个标签都没有 → 结构上没有任何线可物化。**不建目录、不写任何文件。**
+      plan.ok = true;
+      plan.skippedReason = 'no_whitelisted_tags';
+      return plan;
+    }
+
+    // ── 扫日记的新增部分 ──
+    const hitsByTag = new Map<string, TopicChapterFact[]>();
+    const seenDayFiles = new Set<string>();
+    for (const name of names.sort()) {
+      const matched = DIARY_DAY_FILE_RE.exec(name);
+      if (!matched) {
+        continue;
+      }
+      if (toDayNumber(Number(matched[1]), Number(matched[2]), Number(matched[3])) === null) {
+        continue;
+      }
+      seenDayFiles.add(name);
+      const iso = `${matched[1]}-${matched[2]}-${matched[3]}`;
+      const diaryPath = nodePath.join(diaryDir, name);
+      plan.scannedFiles += 1;
+      try {
+        const stat = await fsStat(diaryPath);
+        if (!stat.isFile() || stat.size > TOPIC_DIARY_FILE_MAX_BYTES) {
+          continue;
+        }
+        const watermark = state.watermarks[name] ?? 0;
+        if (stat.size === watermark) {
+          continue; // 这一天一个字节都没长 → 连读都不读
+        }
+        // 文件缩了(她重写/裁剪过) → 水位失效,整份重扫。重复的章靠归一化 key 拦住。
+        const effectiveWatermark = stat.size < watermark ? 0 : watermark;
+        const fileText = await fsReadFile(diaryPath, 'utf8');
+        plan.readFiles += 1;
+        for (const entry of sliceDiaryEntries(fileText)) {
+          if (entry.endByte <= effectiveWatermark) {
+            continue; // 这一条整个在水位以下 → 上一轮已经看过
+          }
+          for (const tag of plan.whitelistTags) {
+            if (!entry.haystack.includes(tag.toLowerCase())) {
+              continue;
+            }
+            const list = hitsByTag.get(tag) ?? [];
+            list.push({ d: iso, t: normalizeDiaryOneLine(entry.title), l: entry.lead });
+            hitsByTag.set(tag, list);
+          }
+        }
+        state.watermarks[name] = stat.size;
+      } catch (error) {
+        // 单份读失败只跳过这一天:水位不动 → 下一轮重试同一份。
+        moduleLogger.warn('topic materialization skipped one diary file', {
+          path: diaryPath,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    // 清掉已经不存在的日记文件的水位(否则这个 map 只涨不降)。**只在真看到过日记文件时才清** ——
+    // 挂载错位(sudo 丢 HOME 挂到空目录)时 readdir 会成功返回空目录,那种情况下清空水位
+    // 等于把整套记账烧掉,下一轮从头重扫。宁可留几条陈旧的水位,也不在那一帧动手。
+    if (seenDayFiles.size > 0) {
+      for (const name of Object.keys(state.watermarks)) {
+        if (!seenDayFiles.has(name)) {
+          delete state.watermarks[name];
+        }
+      }
+    }
+
+    // ── 记账:cutoff 集合 + 待落盘的章 ──
+    for (const [tag, hits] of hitsByTag) {
+      const candidate = ensureTopicCandidate(state, tag);
+      if (!candidate.cutoffs.includes(plan.cutoff)) {
+        candidate.cutoffs = uniqueSortedNumbers([...candidate.cutoffs, plan.cutoff]).slice(-TOPIC_CUTOFF_KEEP);
+      }
+      const known = new Set<string>(candidate.emitted);
+      for (const fact of candidate.pending) {
+        known.add(topicChapterKey(fact.t));
+      }
+      for (const hit of [...hits].sort((a, b) => a.d.localeCompare(b.d))) {
+        const key = topicChapterKey(hit.t);
+        if (!key || known.has(key)) {
+          continue;
+        }
+        known.add(key);
+        candidate.pending.push(hit);
+      }
+      if (candidate.pending.length > TOPIC_MAX_CHAPTERS_PER_FILE) {
+        // 只留最近 30 章。丢掉的算 folded(正文在日记里,不丢东西)。
+        const dropped = candidate.pending.length - TOPIC_MAX_CHAPTERS_PER_FILE;
+        candidate.pending = candidate.pending.slice(dropped);
+        candidate.folded += dropped;
+      }
+    }
+
+    // ── 决定这一轮写谁 ──
+    const materializedSet = new Set(state.materialized);
+    for (const tag of Object.keys(state.candidates)) {
+      const candidate = state.candidates[tag];
+      if (candidate.pending.length === 0) {
+        continue;
+      }
+      if (!whitelist.has(tag.toLowerCase())) {
+        continue; // 标签删了、线又还没成形 → 只留计数,不建文件
+      }
+      if (!materializedSet.has(tag) && candidate.cutoffs.length < TOPIC_MATERIALIZE_MIN_CUTOFFS) {
+        continue; // 还没够轮数 → 继续攒
+      }
+      plan.writes.push({
+        tag,
+        chapters: [...candidate.pending].sort((a, b) => a.d.localeCompare(b.d))
+      });
+    }
+    plan.writes.sort((a, b) => a.tag.localeCompare(b.tag));
+    trimTopicState(state);
+    plan.ok = true;
+    return plan;
+  } catch (error) {
+    moduleLogger.warn('topic materialization planning failed (fail-open, commit proceeds)', {
+      diaryDir,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    plan.ok = false;
+    plan.skippedReason = plan.skippedReason ?? 'unexpected_error';
+    return plan;
+  }
+}
+
+interface ParsedTopicFile {
+  /** 第一章之前的一切,**原样保留**(她可能在头部写过话)。 */
+  header: string[];
+  chapters: Array<{ key: string; date: string | null; raw: string[] }>;
+}
+
+/** 把一份 topics/<标签>.md 切成头部 + 章。章的原文一个字不改(她手改过的章要留住)。 */
+export function parseTopicFileChapters(content: string | null): ParsedTopicFile {
+  const out: ParsedTopicFile = { header: [], chapters: [] };
+  if (typeof content !== 'string' || !content) {
+    return out;
+  }
+  const lines = content.replace(/\n+$/, '').split('\n');
+  let current: { key: string; date: string | null; raw: string[] } | null = null;
+  for (const line of lines) {
+    const heading = TOPIC_CHAPTER_HEADING_RE.exec(line);
+    if (heading) {
+      if (current) {
+        out.chapters.push(current);
+      }
+      const rawTitle = line.replace(/^##\s+/, '');
+      const month = Number(heading[1]);
+      const day = Number(heading[2]);
+      current = {
+        key: topicChapterKey(rawTitle),
+        // 只有月/日,没有年 —— 排序/折叠只在同一份文件内比,用 MM-DD 足够稳定。
+        date: month >= 1 && month <= 12 && day >= 1 && day <= 31
+          ? `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+          : null,
+        raw: [line]
+      };
+      continue;
+    }
+    if (current) {
+      current.raw.push(line);
+    } else {
+      out.header.push(line);
+    }
+  }
+  if (current) {
+    out.chapters.push(current);
+  }
+  return out;
+}
+
+function buildTopicFileHeader(tag: string): string[] {
+  return [
+    `# ${tag}`,
+    '',
+    `> 这份文件是引擎从你各天日记里连起来的**索引**,不是正文 —— 触发它的是 open-loops.md 里的 \`#${tag}\`。`,
+    '> 每章一句话 + 指回当天日记;正文永远在那天的日记里(那边才有菜单)。',
+    '> 不想要哪一章就直接删,引擎不会重建它。',
+    ''
+  ];
+}
+
+function buildTopicChapterLines(fact: TopicChapterFact): string[] {
+  const month = Number(fact.d.slice(5, 7));
+  const day = Number(fact.d.slice(8, 10));
+  const title = fact.t || '(空标题)';
+  const lines = [`## ${month}/${day} ${title}`];
+  if (fact.l) {
+    lines.push(fact.l);
+  }
+  lines.push(`→ ${fact.d}.md`);
+  lines.push('');
+  return lines;
+}
+
+/** 折叠通知行:每次**替换**(而不是追加),所以 N 永远是当前真实值。 */
+function applyTopicFoldNotice(header: string[], foldedCount: number): string[] {
+  const withoutNotice = header.filter((line) => !line.startsWith(TOPIC_FOLD_NOTICE_PREFIX));
+  if (foldedCount <= 0) {
+    return withoutNotice;
+  }
+  const notice = `${TOPIC_FOLD_NOTICE_PREFIX} ${foldedCount} 段进展在当天日记里(引擎折叠了这里的章,正文没丢)。`;
+  const out = [...withoutNotice];
+  const headingAt = out.findIndex((line) => TOPIC_ANY_HEADING_RE.test(line));
+  if (headingAt >= 0) {
+    out.splice(headingAt + 1, 0, '', notice);
+  } else {
+    out.unshift(notice, '');
+  }
+  return out;
+}
+
+/** 线目录:她**主动查**的入口(一条命令看手上有哪些线、各自追到哪天)。不进任何请求字节。 */
+export function buildTopicsIndexContent(state: TopicMaterializationState): string | null {
+  const rows: Array<{ tag: string; count: number; last: string }> = [];
+  for (const tag of state.materialized) {
+    const candidate = state.candidates[tag];
+    if (!candidate) {
+      continue;
+    }
+    const count = candidate.days.length + candidate.folded;
+    const last = candidate.days.length > 0 ? candidate.days[candidate.days.length - 1] : '';
+    if (count <= 0) {
+      continue;
+    }
+    rows.push({ tag, count, last });
+  }
+  if (rows.length === 0) {
+    return null;
+  }
+  // 最近有进展的排前面;同一天的按标签名稳定排序(避免无意义的字节漂移)。
+  rows.sort((a, b) => (a.last === b.last ? a.tag.localeCompare(b.tag) : b.last.localeCompare(a.last)));
+  const out = [
+    '# 线',
+    '',
+    '> 引擎维护(每次整理记忆后重写)。这些线是按 open-loops.md 里的 `#标签` 从各天日记里连起来的索引,',
+    '> 正文永远在当天日记里。想看某条线:读同目录下的 `<标签>.md`。',
+    ''
+  ];
+  for (const row of rows) {
+    const last = row.last ? `${Number(row.last.slice(5, 7))}/${Number(row.last.slice(8, 10))}` : '未知';
+    // 行格式和 spec §4 逐字一致(她会 cat 这一份,别自己改口径)。
+    out.push(`- ${row.tag} | ${row.count} 段进展，最近 ${last}（细目在 ${row.tag}.md）`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+/**
+ * 读回目标文件。**「存在但读不出来」一律拒写** —— 这是从写端 skill 照抄的一条刻意偏离:
+ * 此处放行 = 拿新内容 `rename` 掉一份读不出来的旧文件 = 静默丢记忆。
+ * 用 lstat 判"存在"而不是 stat:悬空 symlink / 目录占了文件名,stat 会说不存在,
+ * 但 rename 上去照样把那个路径实体替换掉。
+ */
+async function readTopicFileForMerge(filePath: string): Promise<{ ok: true; content: string | null } | { ok: false; code: string }> {
+  let exists = false;
+  try {
+    await fsLstat(filePath);
+    exists = true;
+  } catch {
+    exists = false;
+  }
+  try {
+    return { ok: true, content: await fsReadFile(filePath, 'utf8') };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code ?? 'unknown';
+    if (!exists && code === 'ENOENT') {
+      return { ok: true, content: null }; // 真的不存在 → 新建
+    }
+    return { ok: false, code };
+  }
+}
+
+/**
+ * **【写】** —— 挂在压缩提交**之后**(post-commit fail-open 段)。
+ * 落盘失败绝不影响已经完成的压缩提交;任何一个标签写失败 → 返回 nextState=null,
+ * 调用方就一个字都不落库 → 水位不动 → 下一轮重做同一批。
+ * **绝不抛异常**。
+ */
+export async function writeTopicMaterialization(plan: TopicMaterializationPlan | null): Promise<TopicMaterializationWriteResult> {
+  const result: TopicMaterializationWriteResult = {
+    ok: false,
+    topicsDir: plan?.topicsDir ?? '',
+    wroteTags: [],
+    unchangedTags: [],
+    failedTags: [],
+    indexWritten: false,
+    nextState: null
+  };
+  if (!plan || !plan.ok) {
+    result.skippedReason = plan?.skippedReason ?? 'no_plan';
+    return result;
+  }
+  try {
+    const state = plan.nextState;
+    const materialized = new Set(state.materialized);
+    for (const entry of plan.writes) {
+      const tag = entry.tag;
+      // 再验一遍:标签要当文件名用,绝不让一个没过白名单的字符串走到 path.join。
+      if (!isValidTopicTag(tag)) {
+        result.failedTags.push(tag);
+        continue;
+      }
+      const filePath = nodePath.join(plan.topicsDir, `${tag}.md`);
+      if (nodePath.basename(filePath) === TOPIC_INDEX_BASENAME) {
+        result.failedTags.push(tag);
+        continue;
+      }
+      const read = await readTopicFileForMerge(filePath);
+      if (!read.ok) {
+        // 存在但读不出来 → **拒写**(照抄写端 load_for_edit 的偏离)。
+        moduleLogger.warn('topic materialization refused: target exists but is unreadable', {
+          path: filePath,
+          code: read.code
+        });
+        result.failedTags.push(tag);
+        continue;
+      }
+      const parsed = parseTopicFileChapters(read.content);
+      const presentKeys = new Set(parsed.chapters.map((chapter) => chapter.key));
+      const candidate = state.candidates[tag];
+      if (!candidate) {
+        continue;
+      }
+      // 文件是这一层的真理源:文件里已经有的章(她自己写的、上一轮写的)记进 emitted,
+      // 这样"重做同一批"不会补出第二份,她手删过的章也不会被重建。
+      const appended: string[] = [];
+      const emittedNow: TopicChapterFact[] = [];
+      for (const fact of entry.chapters) {
+        const key = topicChapterKey(fact.t);
+        if (!key) {
+          continue;
+        }
+        if (presentKeys.has(key) || candidate.emitted.includes(key)) {
+          emittedNow.push(fact); // 已经在了 → 只搬账,不写字节
+          continue;
+        }
+        presentKeys.add(key);
+        appended.push(...buildTopicChapterLines(fact));
+        emittedNow.push(fact);
+      }
+
+      // 每一章一个 block,block 内原文一字不改(她手改过的章要留住),block 之间统一空一行。
+      // 这个规范化是**幂等的关键**:重新读回来再拼一次必须逐字节相同,否则每轮都在改 mtime。
+      const chapterBlocks = parsed.chapters.map((chapter) => chapter.raw.join('\n').replace(/\n+$/, ''));
+      const appendedBlock = appended.length > 0 ? appended.join('\n').replace(/\n+$/, '') : '';
+      // H6 章数治理:超过上限从最老的开始摘(正文原本就在日记里,不丢)。
+      let foldedDelta = 0;
+      const newChapterCount = appended.filter((line) => line.startsWith('## ')).length;
+      let keptChapterBlocks = chapterBlocks;
+      if (parsed.chapters.length + newChapterCount > TOPIC_MAX_CHAPTERS_PER_FILE) {
+        const overflow = parsed.chapters.length + newChapterCount - TOPIC_MAX_CHAPTERS_PER_FILE;
+        foldedDelta = Math.min(overflow, chapterBlocks.length);
+        keptChapterBlocks = chapterBlocks.slice(foldedDelta);
+      }
+      const header = applyTopicFoldNotice(
+        read.content === null ? buildTopicFileHeader(tag) : parsed.header,
+        candidate.folded + foldedDelta
+      );
+      const sections = [
+        header.join('\n').replace(/\n+$/, ''),
+        ...keptChapterBlocks,
+        ...(appendedBlock ? [appendedBlock] : [])
+      ].filter((section) => section.length > 0);
+      const content = `${sections.join('\n\n')}\n`;
+
+      let wrote = false;
+      try {
+        wrote = await writeFileAtomicIfChanged(filePath, content);
+      } catch (error) {
+        moduleLogger.warn('topic materialization write failed for one line', {
+          path: filePath,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        result.failedTags.push(tag);
+        continue;
+      }
+      // 写成功(或本来就一致)→ 搬账:pending 出账,emitted/days 入账,标签成线。
+      candidate.folded += foldedDelta;
+      for (const fact of emittedNow) {
+        const key = topicChapterKey(fact.t);
+        if (key && !candidate.emitted.includes(key)) {
+          candidate.emitted.push(key);
+        }
+        if (!candidate.days.includes(fact.d)) {
+          candidate.days.push(fact.d);
+        }
+      }
+      candidate.days.sort();
+      const emittedKeys = new Set(emittedNow.map((fact) => topicChapterKey(fact.t)));
+      candidate.pending = candidate.pending.filter((fact) => !emittedKeys.has(topicChapterKey(fact.t)));
+      candidate.emitted = uniqueStrings(candidate.emitted, TOPIC_MAX_CHAPTERS_PER_FILE * 4);
+      candidate.days = uniqueStrings(candidate.days, TOPIC_MAX_CHAPTERS_PER_FILE * 4).sort();
+      if (!materialized.has(tag)) {
+        materialized.add(tag);
+        state.materialized.push(tag);
+      }
+      if (wrote) {
+        result.wroteTags.push(tag);
+      } else {
+        result.unchangedTags.push(tag);
+      }
+    }
+
+    // 线目录:只在真有线时写(避免建一份空文件)。它是从状态整份重算的,所以不 merge。
+    const indexContent = buildTopicsIndexContent(state);
+    if (indexContent) {
+      const indexPath = nodePath.join(plan.topicsDir, TOPIC_INDEX_BASENAME);
+      const read = await readTopicFileForMerge(indexPath);
+      if (!read.ok) {
+        moduleLogger.warn('topic index refused: exists but unreadable', { path: indexPath, code: read.code });
+        result.indexSkippedReason = `unreadable:${read.code}`;
+      } else {
+        try {
+          result.indexWritten = await writeFileAtomicIfChanged(indexPath, indexContent);
+        } catch (error) {
+          // 线目录写失败**不**拖住水位:它是纯派生产物,下一轮从状态原样重算即可。
+          moduleLogger.warn('topic index write failed (derived artifact, watermark still advances)', {
+            path: indexPath,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          result.indexSkippedReason = 'write_failed';
+        }
+      }
+    }
+
+    result.ok = true;
+    trimTopicState(state); // 搬账之后再收一次口(已成形的线永远不会被丢)
+    // **水位闸门**:只要有任何一个标签写失败,整批不落库 → 下一轮拿同一个水位重做同一批。
+    result.nextState = result.failedTags.length === 0 ? state : null;
+    if (result.wroteTags.length > 0 || result.failedTags.length > 0) {
+      moduleLogger.info('topic materialization written', {
+        topicsDir: plan.topicsDir,
+        cutoff: plan.cutoff,
+        wroteTags: result.wroteTags,
+        unchangedTags: result.unchangedTags,
+        failedTags: result.failedTags,
+        indexWritten: result.indexWritten
+      });
+    }
+    return result;
+  } catch (error) {
+    moduleLogger.warn('topic materialization write failed (fail-open, commit already done)', {
+      topicsDir: plan.topicsDir,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    result.ok = false;
+    result.skippedReason = result.skippedReason ?? 'unexpected_error';
+    result.nextState = null;
+    return result;
   }
 }
 

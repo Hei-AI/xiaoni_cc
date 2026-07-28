@@ -119,6 +119,7 @@ import {
   upsertProactiveShareState as upsertProactiveShareStatePersistence,
   upsertSessionContextSummary as upsertSessionContextSummaryPersistence,
   setSessionCompressionTriggerCounter as setSessionCompressionTriggerCounterPersistence,
+  upsertSessionTopicMaterializationState as upsertSessionTopicMaterializationStatePersistence,
   haltRuntimeForCompressionOverrun as haltRuntimeForCompressionOverrunPersistence,
   loadSessionReplayState as loadSessionReplayStatePersistence,
   serializeTimestampForApi,
@@ -362,6 +363,9 @@ export type SessionReadCutoffState = {
   diaryIndexSnapshot?: string | null;
   // 同帧冻结的人物菜单快照(<xiaoni_people> 的唯一渲染源),生命周期与 diary 快照完全同款。
   peopleIndexSnapshot?: string | null;
+  // 专题物化(L1→L3)的水位 + 计数状态。**不是**快照:它在压缩提交之后、文件真落盘成功之后
+  // 才推进(见 upsertSessionTopicMaterializationState),且不进任何 LLM 请求字节。
+  topicMaterializationState?: Record<string, unknown> | null;
   pendingProactiveShare: string | null;
   pendingProactiveShareAge: number;
   // Persisted compression-trigger debounce counter (timing-only; never enters the
@@ -2678,6 +2682,18 @@ export class RuntimeStore {
       ...params,
       sqlAdapter: this.sql
     }, databaseConfig) as Promise<{ committed: boolean; state: SessionReadCutoffState | null }>;
+  }
+
+  // 专题物化水位:落盘成功后才调用。只碰 topic_materialization_state 一列,绝不与
+  // commitSessionContextSummaryAndReadCutoff 争同一批列(那一批是进请求前缀的快照)。
+  async upsertSessionTopicMaterializationState(params: {
+    sessionKey: string;
+    state: Record<string, unknown> | null;
+  }) {
+    await upsertSessionTopicMaterializationStatePersistence({
+      ...params,
+      sqlAdapter: this.sql
+    }, databaseConfig);
   }
 
   async upsertProactiveShareState(sessionKey: string, share: string | null, age: number) {
