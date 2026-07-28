@@ -80,6 +80,11 @@ import {
   stripTrailingHashTags
 } from '@qq-bot/persistence';
 import {
+  issueSubconsciousPlanTicket,
+  findSubconsciousPlanTicket,
+  consumeSubconsciousPlanTicket
+} from './subconscious-plan-ticket';
+import {
   DEFAULT_RECOVER_ENERGY_POLICY,
   DEFAULT_ACTION_COST_SCALE,
   LEGACY_RECOVER_ENERGY_POLICY,
@@ -173,6 +178,9 @@ function buildXiaoniHeadAvatarInputItem(): OpenResponseInputItem | null {
 const IMAGE_VISION_FORK_MAX_FILE_WRITE_ATTEMPTS = 10;
 const IMAGE_VISION_OBSERVATION_DIR = '/xiaoni-runtime/image-vision/observations';
 const SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS = 60_000;
+// 同一份 seed 最多重试这么多次。到顶就丢弃,退回「等下一个主 run 或 clock_ping(≤2h)」。
+// 5 次 × 60s ≈ 5 分钟的自愈窗口,再往后大概率不是瞬时故障,不值得每分钟烧一个 ~490K 的 fork 请求。
+const SUBCONSCIOUS_AGENT_FORK_MAX_CONSECUTIVE_FAILURES = 5;
 
 type OpenResponseToolDefinition = {
   type: 'function';
@@ -777,6 +785,23 @@ export function setPlanVoidOnIdleEnabled(value: unknown): void {
 }
 export function isPlanVoidOnIdleEnabledForTest(): boolean {
   return PLAN_VOID_ON_IDLE_ENABLED;
+}
+
+// 自驱动 fork 的 plan 改由 `xiaoni-plan post` skill 提交(docs/specs/xiaoni-plan-skill-submission.md)。
+// 默认 OFF:行为与今天逐字节一致(从 final_answer 文本抠 <xiaoni_plan>)。ON 之后三件事一起生效,
+// 因为它们描述的是【同一个事实】——「这一步只放行 xiaoni-plan」:
+//   ① fork 的 allowedToolNames 放行 exec_command,命令层再白名单到 xiaoni-plan 一条;
+//   ② fork 尾部 reminder 追加工具契约(fork-only,主 agent 永远看不到);
+//   ③ 没交出去时的纠正提示改成「必须用 skill 交」而不是「写进 <xiaoni_plan>」。
+// 分开挂开关会让 prompt 说的和执行层做的不一致 —— 那正是 fork 11905 烧掉两个 turn 撞墙的原因。
+let IDLE_PLAN_SKILL_SUBMISSION_ENABLED = false;
+export function setIdlePlanSkillSubmissionEnabled(value: unknown): void {
+  if (typeof value === 'boolean') {
+    IDLE_PLAN_SKILL_SUBMISSION_ENABLED = value;
+  }
+}
+export function isIdlePlanSkillSubmissionEnabledForTest(): boolean {
+  return IDLE_PLAN_SKILL_SUBMISSION_ENABLED;
 }
 
 // 作废判定(纯函数,loop 的 settle 分支调用)。全部满足才作废;任一不满足 = 照旧冻结(fail-open)。
@@ -3296,6 +3321,61 @@ export function isTrustedCompressionCapsulePath(reportedPath: string): boolean {
   return COMPRESSION_CAPSULE_PATH_RE.test(reportedPath);
 }
 
+// ── 自驱动 plan 提交(docs/specs/xiaoni-plan-skill-submission.md)────────────────────────────
+// skill 目录与压缩那把同级同待遇:放在 skills-internal/ 下,她主 loop 的 `ls skills` 列不到。
+const XIAONI_PLAN_SKILL_DIR = '/app/modules/agent-service/skills-internal/xiaoni-plan';
+export const XIAONI_PLAN_SKILL_BIN = `${XIAONI_PLAN_SKILL_DIR}/xiaoni-plan`;
+// skill 成功入队后打的最后一行;失败时打 FAILED 并带原因。两条都由 extractExecStdoutMarker 捞。
+const XIAONI_PLAN_QUEUED_RE = /^XIAONI_PLAN_QUEUED=(\d+)$/gmu;
+const XIAONI_PLAN_FAILED_RE = /^XIAONI_PLAN_FAILED=(.+)$/gmu;
+
+export function extractPlanQueuedId(rawToolResult: unknown): string | null {
+  return extractExecStdoutMarker(rawToolResult, XIAONI_PLAN_QUEUED_RE);
+}
+
+export function extractPlanFailedReason(rawToolResult: unknown): string | null {
+  return extractExecStdoutMarker(rawToolResult, XIAONI_PLAN_FAILED_RE);
+}
+
+// 命令层白名单(执行层第二道闸,在 allowedToolNames 放行 exec_command 之后)。
+//
+// 唯一放行的形状是「skill + 引号 heredoc」:
+//   /app/.../xiaoni-plan post <<'PLAN'
+//   ...正文...
+//   PLAN
+// 为什么必须是【带引号的】heredoc:`<<'X'` 里的内容 shell 不做任何展开,正文里出现 `;`、
+// `$(...)`、反引号都只是普通字符。换成不带引号的 `<<X` 就会展开,正文本身立刻变成注入面 ——
+// 而正文恰恰是模型自由书写的部分。所以引号不是风格,是这道闸能成立的前提。
+//
+// 校验方式:先把 heredoc 正文整段抠掉,只对【剩下的骨架】做全等匹配。这样正文里写什么都不影响
+// 判定,而骨架里多一个 `;`、`&&`、`|`、`$(`、多一条命令,全等就不成立 → 拒。
+export function isAllowedSubconsciousCommand(rawCmd: unknown): boolean {
+  if (typeof rawCmd !== 'string') {
+    return false;
+  }
+  const cmd = rawCmd.replace(/\r\n/g, '\n').trim();
+  // 骨架:命令行 + 引号 heredoc 开始标记
+  const opener = new RegExp(
+    `^(?:${escapeRegExpLiteral(XIAONI_PLAN_SKILL_BIN)})[ \\t]+post[ \\t]*<<'([A-Za-z_][A-Za-z0-9_]*)'[ \\t]*\\n`
+  );
+  const openMatch = opener.exec(cmd);
+  if (!openMatch) {
+    return false;
+  }
+  const delimiter = openMatch[1]!;
+  const rest = cmd.slice(openMatch[0].length);
+  // 终止行必须是整条命令的最后一行:heredoc 之后再挂任何东西(`\nrm -rf /`)一律不认。
+  const terminator = `\n${delimiter}`;
+  if (rest === delimiter) {
+    return true; // 空正文;交给上层判空,这里只管形状
+  }
+  return rest.endsWith(terminator) && !rest.slice(0, -terminator.length).includes(`\n${delimiter}\n`);
+}
+
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // 记忆文本清洗(存入层单点):剥 NUL(PG text 拒写=压缩自伤面)+ 剥 <xiaoni_*> 标签
 // (三块记忆前缀是裸模板拼接,菜单钩子行/胶囊常引同伴原话,一句含 </xiaoni_people> 的
 // 引语会提前闭合记忆块、把后文注入成伪系统内容并冻结整个压缩周期)。确定性替换,
@@ -3304,7 +3384,16 @@ export function sanitizeMemoryText(raw: string): string {
   return raw.replace(/\u0000/g, '').replace(/<\/?xiaoni_[a-z0-9_]*\s*>/gi, '').trim();
 }
 
-function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
+// 从 exec 结果的 stdout 里捞一条「skill 自报」的 marker。压缩 fork(XIAONI_COMPRESS_WROTE)和自驱动
+// fork(XIAONI_PLAN_QUEUED / XIAONI_PLAN_FAILED)共用这一份实现 —— 复制第二份的话，那个
+// `lastIndex = 0` 的全局正则状态陷阱就会存在两处，漏抄一次就是隐性 bug。
+//
+// 语义(与改动前逐字节等价，压缩侧行为不许变)：
+//   - 只看 stdout / codex_output 两条流，按此顺序；
+//   - 单条流内取【最后一次】匹配(模型可能连跑几条 exec，报告的是最后那条 skill)；
+//   - 先命中的流直接返回，不跨流合并。
+// 传入的正则必须带 g 标志(否则 exec 循环不推进) —— 全局正则是有状态的，进来先清 lastIndex。
+export function extractExecStdoutMarker(rawToolResult: unknown, markerRe: RegExp): string | null {
   if (!rawToolResult || typeof rawToolResult !== 'object') {
     return null;
   }
@@ -3315,8 +3404,8 @@ function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
   for (const stream of streams) {
     let match: RegExpExecArray | null;
     let last: string | null = null;
-    COMPRESSION_WRITTEN_PATH_RE.lastIndex = 0;
-    while ((match = COMPRESSION_WRITTEN_PATH_RE.exec(stream)) !== null) {
+    markerRe.lastIndex = 0;
+    while ((match = markerRe.exec(stream)) !== null) {
       last = match[1].trim();
     }
     if (last) {
@@ -3324,6 +3413,10 @@ function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
     }
   }
   return null;
+}
+
+function extractCompressionWrittenPath(rawToolResult: unknown): string | null {
+  return extractExecStdoutMarker(rawToolResult, COMPRESSION_WRITTEN_PATH_RE);
 }
 const SPILL_CEILING_BYTES = 50 * 1024 * 1024;
 const EXEC_OUTPUT_TTL_DAYS = 7;
@@ -4083,20 +4176,40 @@ function renderSelfContinuationReminder() {
 //    不是靠复制一份文案再比对(那样迟早漂)。
 //  - 升级时：在同一个 system_reminder 块里追加升级段。这段【只】出现在 fork 的尾部追加 item 里，
 //    fork 请求带 no_persist、不写 stack、不进主 run replay → 主 agent 永远看不到计数这回事。
+//  - 工具契约段(IDLE_PLAN_SKILL_SUBMISSION_ENABLED)：同样只进 fork 尾部。开关 ON 时才渲染，因为
+//    「只放行 xiaoni-plan」这句话只有在执行层真的放行之后才是真的；两者共用一个开关就是为了让
+//    prompt 说的和执行层做的永远一致(fork 11905 烧两个 turn 撞墙，就是因为正文里根本没写规则)。
 function renderSubconsciousForkReminder(params: {
   idleRounds: number;
   lastPlanText: string | null;
 }) {
-  if (!shouldEscalateSubconsciousFork(params)) {
+  const escalating = shouldEscalateSubconsciousFork(params);
+  if (!escalating && !IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
+    // 两段都不追加时，走与主 agent 结构性同源的那一份，逐字节零变化。
     return renderSelfContinuationReminder();
   }
-  const escalation = renderPromptSnippet('subconscious_fork_idle_escalation.md', {
-    IDLE_ROUNDS: String(params.idleRounds),
-    LAST_XIAONI_PLAN: String(params.lastPlanText)
-  });
-  return formatSystemReminderBlock(
-    `${readPromptSnippet('self_continuation_reminder.md')}\n\n${escalation}`
-  );
+  const sections = [readPromptSnippet('self_continuation_reminder.md')];
+  if (IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
+    sections.push(readPromptSnippet('subconscious_fork_tool_contract.md'));
+  }
+  if (escalating) {
+    sections.push(renderPromptSnippet('subconscious_fork_idle_escalation.md', {
+      IDLE_ROUNDS: String(params.idleRounds),
+      LAST_XIAONI_PLAN: String(params.lastPlanText)
+    }));
+  }
+  return formatSystemReminderBlock(sections.join('\n\n'));
+}
+
+// 没交出 plan 那一轮追加的纠正提示。它是 developer item —— 在 wire 上映射成 user turn，所以
+// 下一轮请求的尾巴永远是 user turn，`assistant message prefill` 400 从结构上不可能再发生。
+// 提交口径随开关走：OFF 时仍是「写进 <xiaoni_plan> 收工」，ON 时是「必须用 skill 交」。
+function renderSubconsciousPlanCorrection() {
+  return formatSystemReminderBlock(renderPromptSnippet('subconscious_plan_correction.md', {
+    SUBMIT_INSTRUCTION: IDLE_PLAN_SKILL_SUBMISSION_ENABLED
+      ? '想清楚了就跑 `xiaoni-plan post` 把方向交出去（正文走标准输入）。只写在话里不算数，提交成功才算。'
+      : '把这一轮想好的方向直接写成 <xiaoni_plan>…</xiaoni_plan> 收工，别只在话里说。'
+  }));
 }
 
 // 测试出线口：两条路径都要能被直接对拍，隔离专项断言(主 agent 那份不许因 fork 升级而变)靠它。
@@ -4105,6 +4218,10 @@ export function renderSubconsciousForkReminderForTest(params: {
   lastPlanText: string | null;
 }) {
   return renderSubconsciousForkReminder(params);
+}
+
+export function renderSubconsciousPlanCorrectionForTest() {
+  return renderSubconsciousPlanCorrection();
 }
 
 export function renderSelfContinuationReminderForTest() {
@@ -6233,13 +6350,25 @@ export class AgentLoopService {
   // without diverging the cache lineage. Seeding from the UNstripped requestInput instead would
   // drag every mid-run D back into the prefix and穿透 the whole body (see fork cache 击穿 fix).
   // `settledOnFinalAnswer` gates C2 — fork when she settled on a final_answer (a pure-text,
-  // no-action response). Consumed (set null) on each fork evaluation, so each main settle yields
-  // at most one fork; null after a restart (no fresh main run yet) ⇒ no fork until the next run.
+  // no-action response).
+  //
+  // 消费时机(2026-07-28 修):seed 只在 fork 【真的入队成功】后才清。改前是取出即无条件清空,
+  // 于是 fork 一失败 seed 就没了,`:6407` 主 loop 空闲 tick 的轮询之后每次都在 `if (!seed) return`
+  // 早退 —— 60s backoff 挡的是一个永远不会到来的第二次尝试,自驱动就此永久停摆,只能等
+  // clock_ping(2h)或外部消息把她拉回来。60 天 44 次 fork 失败里有 27 次是这个形状。
+  // 保留 seed 后:失败 → backoff 到期 → 下一个空闲 tick 用同一份 seed 重试。
+  // null after a restart (no fresh main run yet) ⇒ no fork until the next run(重启桶由 clock_ping 兜底)。
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
     settledOnFinalAnswer: boolean;
   } | null = null;
+  // 同一份 seed 连续失败次数。到上限就丢弃这份 seed,退回改前的行为(等下一个主 run 或 clock_ping)。
+  // 没有这个上限,一份「注定失败」的 seed 会每 60s 重试一次、每次烧一个 ~490K 的 fork 请求,无界。
+  private subconsciousAgentForkConsecutiveFailures = 0;
+  // 当前在飞的自驱动 fork 的 runId(1A)。plan 提交端点靠它判断票据是不是还有人负责。
+  // 同一时刻至多一个 fork(subconsciousAgentForkInFlight 保证),所以单值够用。
+  private activeSubconsciousForkRunId: string | null = null;
 
   // 上一次真正入队的报时格。纯优化:让 60s 的 supervisor tick 在没到点时零 IO 返回。
   // 丢了(重启)最多多敲一次库,正确性由 dedupe_key 唯一索引保证,不靠这个字段。
@@ -6502,9 +6631,10 @@ export class AgentLoopService {
       return;
     }
 
-    // Consume the seed from the last settled main run (at most one fork per main settle).
+    // Take (do NOT yet consume) the seed from the last settled main run. It is cleared only after
+    // the fork actually enqueues a plan — see `lastMainAgentForkSeed`. A failed fork keeps it so
+    // the next idle tick (`:6407`) retries once the backoff expires.
     const seed = this.lastMainAgentForkSeed;
-    this.lastMainAgentForkSeed = null;
     if (!seed) {
       // No fresh main run to clone (e.g. just after a restart). Wait for the next main run
       // to repopulate the seed rather than rebuilding context independently.
@@ -6517,6 +6647,8 @@ export class AgentLoopService {
     // settling. (A QQ reply is a send_* tool call, so a run that ends with a reply-then-settle
     // still triggers — she still gets a direction the moment she stops.)
     if (!seed.settledOnFinalAnswer) {
+      // 不合格的 seed 重试多少次都不会变合格 —— 直接丢弃,等下一次主 settle 覆盖它。
+      this.dropSubconsciousAgentForkSeed(seed);
       return;
     }
 
@@ -6544,9 +6676,13 @@ export class AgentLoopService {
     });
     this.subconsciousAgentForkInFlight = fork;
     void fork.then((enqueued) => {
-      if (!enqueued) {
-        this.subconsciousAgentForkBackoffUntilMs = Date.now() + SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS;
+      if (enqueued) {
+        // 交付成功才消费 seed —— 这是「每次主 settle 至多一个 fork」的实际执行点。
+        this.consumeSubconsciousAgentForkSeed(seed);
+        return;
       }
+      this.subconsciousAgentForkBackoffUntilMs = Date.now() + SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS;
+      this.recordSubconsciousAgentForkFailure(seed, 'not_enqueued', payload);
     }).catch((error) => {
       this.subconsciousAgentForkBackoffUntilMs = Date.now() + SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS;
       moduleLogger.warn('Background subconscious agent fork failed', {
@@ -6554,10 +6690,115 @@ export class AgentLoopService {
         runId: payload.runId,
         error: error instanceof Error ? error.message : String(error)
       });
+      this.recordSubconsciousAgentForkFailure(seed, 'threw', payload);
     }).finally(() => {
       if (this.subconsciousAgentForkInFlight === fork) {
         this.subconsciousAgentForkInFlight = null;
       }
+      // 1A：fork 一结束票据立刻失效，不管它是成功、失败还是抛异常。遗留票据只能兑到 401。
+      this.activeSubconsciousForkRunId = null;
+    });
+  }
+
+  /**
+   * 兑现一张自驱动 plan 提交票据 —— `xiaoni-plan post` skill 打到这里。
+   *
+   * 三道闸，缺一不可：
+   *   ① 票据存在、未过期、token 常数时间相等；
+   *   ② 1A：票上的 forkRunId 必须等于【当前在飞】的那个 fork。fork 崩了之后遗留票据一律 401，
+   *      不会兑出一条没人负责的 plan notify；
+   *   ③ 正文非空。
+   * 全过才调既有的 enqueueSubconsciousAgentNotify —— 去重键、溯源字段、notify 模板一行不改，
+   * 主 loop 那侧完全不知道 plan 是抠出来的还是交上来的。
+   */
+  async redeemSubconsciousPlanTicket(params: { token: unknown; text: unknown }): Promise<
+    | { ok: true; queueId: number | null }
+    | { ok: false; status: 400 | 401 | 500; reason: string }
+  > {
+    const token = typeof params.token === 'string' ? params.token.trim() : '';
+    const text = typeof params.text === 'string' ? params.text.trim() : '';
+    if (!token) {
+      return { ok: false, status: 401, reason: 'missing_token' };
+    }
+    if (!text) {
+      return { ok: false, status: 400, reason: 'empty_text' };
+    }
+    const found = findSubconsciousPlanTicket({ token, nowMs: Date.now() });
+    if (!found) {
+      return { ok: false, status: 401, reason: 'unknown_or_expired_token' };
+    }
+    if (!this.activeSubconsciousForkRunId || this.activeSubconsciousForkRunId !== found.ticket.forkRunId) {
+      // 1A。票是真的，但签它的那个 fork 已经不在了 —— 不给兑。
+      return { ok: false, status: 401, reason: 'fork_not_in_flight' };
+    }
+    try {
+      const notify = await this.enqueueSubconsciousAgentNotify({
+        forkRunId: found.ticket.forkRunId,
+        forkSliceId: `${found.ticket.forkRunId}:skill-submit`,
+        llmCallId: null,
+        traceId: found.ticket.traceId,
+        runId: found.ticket.runId,
+        text
+      });
+      consumeSubconsciousPlanTicket(found.filePath);
+      return { ok: true, queueId: Number(notify?.queueId || 0) || null };
+    } catch (error) {
+      // 入队失败不消费票据：skill 侧还会重试,让它能用同一张票再试一次。
+      moduleLogger.warn('Failed to enqueue subconscious plan from skill submission', {
+        forkRunId: found.ticket.forkRunId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { ok: false, status: 500, reason: 'enqueue_failed' };
+    }
+  }
+
+  // ── seed 生命周期(2026-07-28)────────────────────────────────────────────────────────────
+  // 三个动作都用【引用相等】判定,绝不无条件写 null:fork 在飞期间主 loop 可能又 settle 了一次并把
+  // `lastMainAgentForkSeed` 换成更新的一份(`:8491`),那份不该被这次 fork 的结局连累。
+  private consumeSubconsciousAgentForkSeed(seed: NonNullable<AgentLoopService['lastMainAgentForkSeed']>) {
+    this.subconsciousAgentForkConsecutiveFailures = 0;
+    if (this.lastMainAgentForkSeed === seed) {
+      this.lastMainAgentForkSeed = null;
+    }
+  }
+
+  private dropSubconsciousAgentForkSeed(seed: NonNullable<AgentLoopService['lastMainAgentForkSeed']>) {
+    this.subconsciousAgentForkConsecutiveFailures = 0;
+    if (this.lastMainAgentForkSeed === seed) {
+      this.lastMainAgentForkSeed = null;
+    }
+  }
+
+  private recordSubconsciousAgentForkFailure(
+    seed: NonNullable<AgentLoopService['lastMainAgentForkSeed']>,
+    reason: 'not_enqueued' | 'threw',
+    payload: QueueMessageRecord['payload']
+  ) {
+    if (this.lastMainAgentForkSeed !== seed) {
+      // 已经有更新的 seed 了,这次失败不该影响它,也不计数。
+      return;
+    }
+    this.subconsciousAgentForkConsecutiveFailures += 1;
+    const attempts = this.subconsciousAgentForkConsecutiveFailures;
+    if (attempts >= SUBCONSCIOUS_AGENT_FORK_MAX_CONSECUTIVE_FAILURES) {
+      // 这份 seed 大概率是「注定失败」的(例如请求本身有毒)。丢掉它退回改前行为:
+      // 等下一个主 run 或 clock_ping(≤2h)把她拉回来,而不是每 60s 无界地烧一个 ~490K 请求。
+      moduleLogger.warn('Subconscious agent fork seed dropped after repeated failures', {
+        traceId: payload.traceId,
+        runId: payload.runId,
+        reason,
+        attempts
+      });
+      this.lastMainAgentForkSeed = null;
+      this.subconsciousAgentForkConsecutiveFailures = 0;
+      return;
+    }
+    moduleLogger.info('Subconscious agent fork seed retained for retry', {
+      traceId: payload.traceId,
+      runId: payload.runId,
+      reason,
+      attempts,
+      retryAfterMs: SUBCONSCIOUS_AGENT_FORK_IDLE_BACKOFF_MS
     });
   }
 
@@ -10754,6 +10995,29 @@ export class AgentLoopService {
       no_traffic_persist: true
     };
 
+    // 1A 的内存侧凭据：端点兑现票据时要确认「这个 fork 当前确实在飞」。开关 OFF 时也维护它，
+    // 成本为零，且让「有没有 fork 在跑」这个事实只有一个来源。
+    this.activeSubconsciousForkRunId = forkRunId;
+    if (IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
+      try {
+        issueSubconsciousPlanTicket({
+          forkRunId,
+          traceId: params.queueMessage.traceId,
+          runId: params.queueMessage.runId,
+          nowMs: Date.now()
+        });
+      } catch (error) {
+        // 签不出票 = 这一轮她没法交货。不如当场失败让 seed 保留、下个 tick 重试，
+        // 也不要跑完一整个 fork 再发现交不出去。
+        this.activeSubconsciousForkRunId = null;
+        moduleLogger.warn('Failed to issue subconscious plan ticket', {
+          forkRunId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        return false;
+      }
+    }
+
     await this.recordSubconsciousAgentForkRunSafe({
       forkRunId,
       contextSessionKey: params.contextSessionKey,
@@ -10774,11 +11038,19 @@ export class AgentLoopService {
     });
 
     try {
-      // Think-only fork: NO tools at all. allowedToolNames is empty, so exec_command (and
-      // everything else) the model emits is rejected, never executed — the subconscious must
+      // OFF(默认)：Think-only fork — NO tools at all. allowedToolNames is empty, so exec_command
+      // (and everything else) the model emits is rejected, never executed — the subconscious must
       // not touch the world; its only output is a <xiaoni_plan>. self_continuation_reminder.md
       // tells the model this ("只在脑子里想，不许调任何工具"), and this is what makes that true.
-      const allowedToolNames = new Set<string>();
+      //
+      // ON：放行 exec_command，但只是【第一道闸】。第二道闸在下面执行前的 isAllowedSubconsciousCommand
+      // ——命令必须是 `xiaoni-plan post <<'X' … X` 这一个形状，别的命令照旧拒。潜意识依然碰不到世界，
+      // 它多出来的唯一能力是「把想好的方向交出去」。
+      // 放宽执行层【不改 tools / tool_choice】，请求仍是主 agent 的逐字节克隆 → cache-safe，
+      // 与压缩 fork 放宽时同理(见 runCoreMemoryCompressionFork 的同类注释)。
+      const allowedToolNames = IDLE_PLAN_SKILL_SUBMISSION_ENABLED
+        ? new Set<string>([TOOL_NAMES.execCommand])
+        : new Set<string>();
       // 算【一次】，此后 turn-1 的 input 种子和每个 forkTurn 的 request 共用同一份字节。若每 turn 重算，
       // 升级段一旦随时间/状态漂移就会让 fork 自己的多 turn 前缀分叉 → turn-2 起冷读整窗。
       const forkReminderText = renderSubconsciousForkReminder({
@@ -10947,9 +11219,22 @@ export class AgentLoopService {
 
         const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
         if (!actionPlan.hasToolCall) {
+          // 这一轮既没交出 plan(上面的 extract 已经先跑过)、也没有可执行的工具调用。
+          //
+          // 改前这里是【裸 continue】：只把 assistant 文本 push 进 forkInput 就进下一轮，于是
+          // 下一轮请求的最后一条是 assistant message → Anthropic 直接 400
+          // 「This model does not support assistant message prefill. The conversation must end
+          // with a user message.」。60 天里这个 400 出现 5 次，每次都当场打断自驱动链。
+          // (2026-07-28 14:51 那次她其实把整份 plan 都写出来了，只是 stop_reason=tool_use 把它
+          //  标成了 commentary，抠不出来 → 落到这条分支 → turn 4 请求尾巴是 assistant → 400。)
+          //
+          // 现在补一条 developer 纠正 item。它在 wire 上映射成 user turn，所以下一轮请求的尾巴
+          // 永远是 user turn —— 这个 400 从【结构上】不可能再发生，不是靠 catch 兜。顺带她也拿到
+          // 了「你还没交出去」的明确反馈，而不是被静默地再问一遍。
           for (const replayItem of actionPlan.replayableOutputs) {
             forkInput.push(replayItem.inputItem as OpenResponseInputItem);
           }
+          forkInput.push(buildDeveloperInputItem([renderSubconsciousPlanCorrection()]));
           continue;
         }
 
@@ -10992,16 +11277,28 @@ export class AgentLoopService {
           let toolStatus: 'completed' | 'failed' = 'completed';
           let toolErrorMessage: string | null = null;
           try {
-            // Think-only branch: allowedToolNames is EMPTY, so EVERY tool the fork emits
-            // (incl. exec_command) is rejected here — never executed — and the reason fed back
-            // so it self-corrects and hands back a <xiaoni_plan> instead of touching the world.
-            rawToolResult = allowedToolNames.has(toolCall.name)
+            // 两道闸：
+            //  ① allowedToolNames —— OFF 时是空集(think-only，任何工具都拒)；ON 时只有 exec_command。
+            //  ② isAllowedSubconsciousCommand —— ON 时命令还必须是 `xiaoni-plan post <<'X' … X`
+            //     这一个形状。两道都过才真执行；任一不过都走 rejected 反馈，命令绝不落到 executor。
+            // 拒绝文案：OFF 用「你现在只想、不做」那份；ON 时改用压缩 fork 那份带 {{ALLOWED_TOOLS}} 的
+            // 通用文案 —— 复用现成的，不再多养一份只差一句话的副本。
+            const toolAllowed = allowedToolNames.has(toolCall.name);
+            const commandAllowed = !IDLE_PLAN_SKILL_SUBMISSION_ENABLED
+              || toolCall.name !== TOOL_NAMES.execCommand
+              || isAllowedSubconsciousCommand((toolCall.args as Record<string, unknown> | undefined)?.cmd);
+            rawToolResult = toolAllowed && commandAllowed
               ? await this.executeTool(toolCall, params.queueMessage, {
                   currentCanonicalRequest: forkRequest
                 })
-              : buildToolRejectedResult(toolCall, renderPromptSnippet('subconscious_tool_rejected_output.md', {
-                  TOOL_NAME: toolCall.name
-                }));
+              : IDLE_PLAN_SKILL_SUBMISSION_ENABLED
+                ? buildToolRejectedResult(toolCall, renderPromptSnippet('fork_tool_rejected_output.md', {
+                    TOOL_NAME: toolCall.name,
+                    ALLOWED_TOOLS: `${XIAONI_PLAN_SKILL_BIN} post（只这一条）`
+                  }))
+                : buildToolRejectedResult(toolCall, renderPromptSnippet('subconscious_tool_rejected_output.md', {
+                    TOOL_NAME: toolCall.name
+                  }));
           } catch (error) {
             rawToolResult = buildToolErrorResult(toolCall, error);
             toolStatus = 'failed';
@@ -11047,6 +11344,68 @@ export class AgentLoopService {
           });
           forkInput.push(...continuation.inputItems);
           pendingForkOneShotInputItems.push(...continuation.oneShotInputItems);
+
+          // skill 自报的两条 marker。放在本次工具调用的记账【全部落完】之后再判，
+          // 避免早退留下一行永远 running 的 tool_execution。
+          if (IDLE_PLAN_SKILL_SUBMISSION_ENABLED) {
+            const planQueuedId = extractPlanQueuedId(rawToolResult);
+            if (planQueuedId) {
+              // 交付完成。注意：入队【已经在端点侧发生】了 —— 这就是「入队即提交点」的意思，
+              // 从这一刻起 fork 循环怎么死都不影响这份 plan。
+              await this.completeSubconsciousAgentForkRunSafe({
+                forkRunId,
+                status: 'completed',
+                notifyQueueMessageId: Number(planQueuedId) || null,
+                summaryText: null,
+                artifact: {
+                  submitted_via_skill: true,
+                  notify_queue_message_id: Number(planQueuedId) || null,
+                  llm_request_slice_id: forkSliceId,
+                  fork_turn_count: forkTurn,
+                  fork_tool_call_count: forkToolCallCount
+                },
+                metadata: baseForkMetadata
+              });
+              await this.store.logTimelineEvent({
+                traceId: params.queueMessage.traceId,
+                eventType: 'decision',
+                eventName: 'subconscious_agent_fork',
+                eventPhase: 'end',
+                metadata: {
+                  status: 'completed',
+                  submitted_via_skill: true,
+                  fork_run_id: forkRunId,
+                  notify_queue_message_id: Number(planQueuedId) || null,
+                  fork_turn_count: forkTurn
+                }
+              });
+              return true;
+            }
+            const planFailedReason = extractPlanFailedReason(rawToolResult);
+            if (planFailedReason) {
+              // 她交了，是我们这边没接住(端点 500 / 不可达 / 票据失效)。这时【不能】发纠正提示 ——
+              // 那等于告诉她一件不实的事，还会把整个 fork 的 turn 预算烧在一个她修不好的条件上。
+              // 直接中止；seed 保留(见 recordSubconsciousAgentForkFailure)，60s 后自然重试。
+              moduleLogger.warn('Subconscious plan submission failed at skill side', {
+                forkRunId,
+                reason: planFailedReason
+              });
+              await this.completeSubconsciousAgentForkRunSafe({
+                forkRunId,
+                status: 'failed',
+                summaryText: null,
+                errorMessage: `plan_submission_failed: ${planFailedReason}`,
+                artifact: {
+                  submitted_via_skill: true,
+                  submission_failed_reason: planFailedReason,
+                  llm_request_slice_id: forkSliceId,
+                  fork_turn_count: forkTurn
+                },
+                metadata: baseForkMetadata
+              });
+              return false;
+            }
+          }
         }
       }
 
