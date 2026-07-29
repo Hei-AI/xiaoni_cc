@@ -3362,33 +3362,23 @@ test('normal feedback memory subagent does not write hidden episode evidence', a
   assert.equal(reflectionWrites, 0);
 });
 
-test('compress_core_memory preserves caller text and lets the loop continue', async () => {
+// Spec B: compress_core_memory 不是 wire 工具，压缩由后台 fork 写文件 + 引擎读回 commit。
+// executeTool 里不再有它的分支：模型幻觉出这个名字时必须落到 `Unsupported tool` 抛错，
+// 由外层 catch 变成普通工具报错。绝不能重新加回一个返回 { compressed: true } 的分支——
+// 那会一路走到 commitCoreMemoryCompression 重写 <xiaoni_status>，打穿整段暖前缀。
+test('compress_core_memory is not an executable tool: executeTool refuses it outright', async () => {
   const service = new AgentLoopService({} as any);
-  const result = await (service as any).executeTool({
-    name: COMPRESS_CORE_MEMORY_TOOL,
-    callId: 'compress-1',
-    rawArguments: '{"text":"  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  "}',
-    args: {
-      text: '  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  '
-    }
-  }, createQueuePayload());
-
-  assert.deepEqual(result, {
-    compressed: true,
-    text: '记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。',
-    outcome: 'core_memory_compressed'
-  });
-
-  const continuation = applyToolResultToLoopInput({
-    name: COMPRESS_CORE_MEMORY_TOOL,
-    callId: 'compress-1',
-    rawArguments: '{"text":"记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。"}'
-  }, result);
-
-  assert.equal(continuation.forcedVisibleReply, null);
-  assert.equal(continuation.inputItems.length, 1);
-  assert.equal(continuation.inputItems[0]?.type, 'function_call_output');
-  assert.match(String((continuation.inputItems[0] as any).output), /core_memory_compressed/);
+  await assert.rejects(
+    () => (service as any).executeTool({
+      name: COMPRESS_CORE_MEMORY_TOOL,
+      callId: 'compress-1',
+      rawArguments: '{"text":"  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  "}',
+      args: {
+        text: '  记住阿花要的是能跨群发弱智吧链接，不要再说当前会话不行。  '
+      }
+    }, createQueuePayload()),
+    /Unsupported tool: compress_core_memory/
+  );
 });
 
 // Regression: a bare computer-use `screenshot` now persists the PNG into the

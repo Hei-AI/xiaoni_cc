@@ -8306,31 +8306,6 @@ export class AgentLoopService {
           runCalledAnyTool = true;
         }
         const preSleepToolTimeline: PreSleepToolTimelineEntry[] = [];
-        if (
-          toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.execCommand)
-          && toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.compressCoreMemory)
-        ) {
-          await this.store.logTimelineEvent({
-            traceId: payload.traceId,
-            eventType: 'memory',
-            eventName: 'core_memory_parallel_mixed_batch_observed',
-            eventPhase: null,
-            metadata: {
-              execution_mode: 'main_loop',
-              llm_request_slice_id: sliceId,
-              tool_call_order: toolReplayItems.map((item) => ({
-                call_id: item.toolCall.callId,
-                name: item.toolCall.name
-              }))
-            }
-          }).catch((error) => {
-            moduleLogger.warn('Failed to log mixed core memory parallel batch observation', {
-              traceId: payload.traceId,
-              runId: queueMessage.id,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          });
-        }
 
         for (const replayItem of orderedToolReplayItems) {
           const toolCall = replayItem.toolCall;
@@ -8358,27 +8333,15 @@ export class AgentLoopService {
           });
 
           try {
-            let rawToolResult: Record<string, unknown>;
-            if (toolCall.name === TOOL_NAMES.compressCoreMemory) {
-              // Hard execution-layer guard: 小腻 must NEVER self-trigger compression from the main
-              // loop. Compression is a passive, system-driven capability committed by the background
-              // fork (Spec B: the fork's allowedToolNames = {exec_command}; it writes the new 近况 to
-              // a file via the xiaoni-memory-compress skill, then the engine reads it back). Since Spec B,
-              // compress_core_memory is no longer a wire tool at all — it is not in the main request's
-              // tools/allowed_tools — so the main model cannot normally emit it; this branch is a
-              // belt-and-suspenders reject for any stray call. We do NOT executeTool and do NOT commit:
-              // committing would rewrite the front-of-prompt <xiaoni_status> and穿透 the whole ~180K-token
-              // warm prefix (the breakdown that motivated this guard). 模块五 states the same rule in-prompt.
-              rawToolResult = buildToolRejectedResult(
-                toolCall,
-                renderPromptSnippet('compress_core_memory_self_call_rejected.md')
-              );
-            } else {
-              rawToolResult = await this.executeTool(toolCall, payload, {
-                currentCanonicalRequest
-              });
-            }
-            const toolResult = rawToolResult;
+            // Spec B 之后 compress_core_memory 不再是 wire 工具(既不在主请求 tools 里,也不在
+            // allowed_tools 里),压缩全程由后台 fork「写文件 → 引擎读回 commit」完成,主 loop 永远
+            // 不该自己调。原来这里挂着一个软拒分支,活体实测(最后一次真实调用停在 2026-07-10 删 wire
+            // 工具当天,此后 46K+ stack item 零触发)后连同 executeTool 里的 case 一并删除:模型即便
+            // 幻觉出这个名字,也只会在 executeTool 落到 `Unsupported tool` 抛错 → 普通工具报错,既不
+            // 提交也不会重写 front-of-prompt 的 <xiaoni_status> 打穿 ~180K 暖前缀。
+            const toolResult = await this.executeTool(toolCall, payload, {
+              currentCanonicalRequest
+            });
             // recover_energy 按【结果】记账(user 拍板 2026-07-27):身体接受休息(入睡或立即恢复)
             // =有效产出,空转计数归零——都睡着了不算空转;被身体拒绝(rest_rejected,睡不着)不算,
             // 发起了但没睡成等于没动。其它工具在发出那一刻已记,这里只补 recover_energy 的结果位。
@@ -13154,19 +13117,9 @@ export class AgentLoopService {
             : null
         };
       }
-      case TOOL_NAMES.compressCoreMemory: {
-        const text = typeof toolCall.args.text === 'string' && toolCall.args.text.trim()
-          ? toolCall.args.text.trim()
-          : '';
-        if (!text) {
-          throw new Error(`${TOOL_NAMES.compressCoreMemory} requires text`);
-        }
-        return {
-          compressed: true,
-          text,
-          outcome: 'core_memory_compressed'
-        };
-      }
+      // Spec B: compress_core_memory 没有 executeTool 分支。压缩由后台 fork 写文件、引擎读回后直接
+      // 调 commitCoreMemoryCompression 提交(合成 toolCall,不走这里)。模型幻觉出这个名字时,故意
+      // 落到下面的 default 抛错,避免任何路径把它当成可执行工具而重写 <xiaoni_status>。
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }

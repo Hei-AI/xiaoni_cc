@@ -209,22 +209,11 @@ test('Task 19 defines compress_core_memory but keeps it unavailable until engine
   assert.equal(compressTool?.function?.parameters?.additionalProperties, false);
 });
 
+// Spec B 之后压缩文本不再经由 executeTool 产生(compress_core_memory 不是可执行工具,
+// 见 agent-loop-service.test.ts 的 `executeTool refuses it outright`)。fork 写文件、引擎读回后
+// 直接 commit,这里只钉「拿到的压缩文本会渲染进 <xiaoni_status>」这一段仍然活着的契约。
 test('Task 19 compress_core_memory tool text is the future prompt-facing Xiaoni status capsule', async () => {
-  const service = new AgentLoopService({} as any);
   const text = '阿花要的是明确跨群能力和目标群，不要再用“当前会话”糊弄过去。';
-  const result = await (service as any).executeTool({
-    name: COMPRESS_CORE_MEMORY_TOOL,
-    callId: 'compress-task-19',
-    rawArguments: JSON.stringify({ text }),
-    args: { text }
-  }, createQueuePayload());
-
-  assert.deepEqual(result, {
-    compressed: true,
-    text,
-    outcome: 'core_memory_compressed'
-  });
-
   const input = buildInitialInput([], createQueuePayload(), createRuntimePrompt(), [], text);
   const statusItem = input.find((item) => (
     item.type === 'message'
