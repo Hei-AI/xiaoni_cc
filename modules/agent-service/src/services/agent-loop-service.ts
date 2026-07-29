@@ -4204,11 +4204,14 @@ function renderSubconsciousForkReminder(params: {
 // 没交出 plan 那一轮追加的纠正提示。它是 developer item —— 在 wire 上映射成 user turn，所以
 // 下一轮请求的尾巴永远是 user turn，`assistant message prefill` 400 从结构上不可能再发生。
 // 提交口径随开关走：OFF 时仍是「写进 <xiaoni_plan> 收工」，ON 时是「必须用 skill 交」。
+// 两种口径的文案都落在 docs/xiaoni_prompt/ 下(她看得见的字一律不硬编码在 TS 里)，这里只选文件。
 function renderSubconsciousPlanCorrection() {
   return formatSystemReminderBlock(renderPromptSnippet('subconscious_plan_correction.md', {
-    SUBMIT_INSTRUCTION: IDLE_PLAN_SKILL_SUBMISSION_ENABLED
-      ? '想清楚了就跑 `xiaoni-plan post` 把方向交出去（正文走标准输入）。只写在话里不算数，提交成功才算。'
-      : '把这一轮想好的方向直接写成 <xiaoni_plan>…</xiaoni_plan> 收工，别只在话里说。'
+    SUBMIT_INSTRUCTION: readPromptSnippet(
+      IDLE_PLAN_SKILL_SUBMISSION_ENABLED
+        ? 'subconscious_plan_submit_skill.md'
+        : 'subconscious_plan_submit_inline.md'
+    )
   }));
 }
 
