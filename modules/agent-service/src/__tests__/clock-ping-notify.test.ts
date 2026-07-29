@@ -48,8 +48,17 @@ test('reminder carries both the current time and the gap since the last real wak
 
   assert.match(text, /现在是 2026-07-28 10:03:11（东八区）。/);
   assert.match(text, /你上一次睡醒是 2026-07-28 09:00:39，到现在过去了 1 小时 3 分钟。/);
-  // It must read as ambient, not as a task — she already over-accounts without prompting.
-  assert.match(text, /不用为此做什么/);
+  // It reads as a system readout, not as a task — she already over-accounts without prompting.
+  assert.match(text, /^系统报时: /);
+});
+
+test('reminder is raw body — the <system_reminder> wrapper is added at consume time', () => {
+  // renderSystemReminder → formatSystemReminderBlock wraps this text and HTML-escapes its body.
+  // A tag written into the template therefore reaches her as literal &lt;system_reminder&gt;
+  // nested inside the real one. The template must stay tag-free.
+  const text = renderClockPingReminderText(new Date('2026-07-28T02:03:11.000Z'), null);
+  assert.ok(!text.includes('<'), '模板正文不能自带标签——包裹由消费端做');
+  assert.ok(!text.includes('>'), '模板正文不能自带标签——包裹由消费端做');
 });
 
 test('reminder degrades cleanly with no recorded wake', () => {
