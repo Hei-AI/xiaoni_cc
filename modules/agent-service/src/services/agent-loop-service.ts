@@ -56,7 +56,12 @@ import {
   sanitizeRef,
   checkDailyUsage
 } from './web-search-archive';
-import { formatEast8Timestamp, renderWakeAnchorSentence } from './east8-time';
+import {
+  formatEast8Timestamp,
+  renderWakeAnchorSentence,
+  renderSleepTimelineBlock,
+  type SleepSegment
+} from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import { defaultCwebpEncoder } from './qq-send-image-service';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
@@ -4846,52 +4851,16 @@ const CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY =
 export const CORE_MEMORY_COMPRESSION_FALLBACK_SUMMARY =
   '（这轮记忆整理没能在限定步数内写完近况。最近这段的经历，我一条条落在了今天的日记里（/xiaoni-runtime/notes/diary/ 下按日期的那份）。醒来先 cat 一下今天的日记就能接上。）';
 
-// Authoritative wake anchor handed to the compression fork, written to the shared
-// /xiaoni-runtime mount (agent-service and xiaoni-executor mount the same host dir) so the commit
-// skill can VALIDATE the 近况 against it instead of trusting whatever span the model invented.
-//
-// Why a file and not a template slot: keeping it out of core_memory_pressure_reminder.md leaves
-// that reminder byte-stable across compressions (no per-round stamp in the fork tail). The fork
-// cats this path; the commit script reads the same path. One value, one source.
-const COMPRESSION_WAKE_ANCHOR_PATH = '/xiaoni-runtime/compress/.wake-anchor';
-const COMPRESSION_WAKE_ANCHOR_PREFIX = '上次睡醒：';
-
-export function formatCompressionWakeAnchorLine(lastWakeAt: string | null): string | null {
-  if (!lastWakeAt) {
-    return null;
-  }
-  const wakeMs = new Date(lastWakeAt).getTime();
-  if (!Number.isFinite(wakeMs)) {
-    return null;
-  }
-  return `${COMPRESSION_WAKE_ANCHOR_PREFIX}${formatEast8Timestamp(new Date(wakeMs))}`;
-}
-
-// Best-effort by design: compression is on the critical path (a failure here would stall the read
-// cutoff → unbounded context → 413). A missing/stale anchor makes the commit skill fall back to
-// shape-only validation; it must never block the fork.
-async function writeCompressionWakeAnchor(lastWakeAt: string | null): Promise<void> {
-  const line = formatCompressionWakeAnchorLine(lastWakeAt);
-  if (!line) {
-    return;
-  }
-  try {
-    mkdirSync(nodePath.dirname(COMPRESSION_WAKE_ANCHOR_PATH), { recursive: true });
-    const tempPath = `${COMPRESSION_WAKE_ANCHOR_PATH}.${process.pid}.tmp`;
-    await fsWriteFile(tempPath, `${line}\n`, 'utf8');
-    await fsRename(tempPath, COMPRESSION_WAKE_ANCHOR_PATH);
-  } catch (error) {
-    moduleLogger.warn('Failed to write compression wake anchor', {
-      path: COMPRESSION_WAKE_ANCHOR_PATH,
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
-}
-
 export function buildCoreMemoryCompressionReminder(input: {
   contextSessionKey: string;
   readCutoffAfterStackIndex: number | null;
   pressureSummary: string;
+  // 时间线(B3):她写近况时手边的时间真值。渲染一次、随 fork 尾部下发。
+  // windowStartedAt 取不到时退回单句醒来锚点(见 renderSleepTimelineBlock)。
+  lastWakeAt?: string | null;
+  windowStartedAt?: string | null;
+  sleeps?: SleepSegment[];
+  now?: Date;
 }) {
   void input.readCutoffAfterStackIndex;
   void input.contextSessionKey;
@@ -4903,9 +4872,25 @@ export function buildCoreMemoryCompressionReminder(input: {
   // {{WRITE_FORMATS}}(与 phone_notification_*_cue_line 同一 fragment 装配模式,见
   // docs/remind.md「Template Fragments」)。提醒本体只留「这一轮做什么」,她不用为了
   // 查格式再 cat 一次锚点 skill。fragment 正文同样必须字节稳定(无日期/数字/时间戳)。
+  //
+  // {{TIME_GROUNDING}} 是这条提醒里【唯一】允许带戳的槽,渲染一次、随 fork 尾部下发:
+  // runCoreMemoryCompressionFork 的 forkInput = [...clone(主请求).input, ...本项],所以本项
+  // 整个落在共享暖前缀【之后】;fork 请求又是 store:false + no_persist,既不入栈也不 replay。
+  // 跨压缩的字节稳定在这里买不到任何东西——它前面的主前缀每轮都已经变了,上一轮那条包含
+  // 本项的缓存条目本来就死了。
+  //
+  // 给的是这段上下文覆盖范围内的真实睡眠时间线,不是一句禁令:原来那句「别自己推算,中间
+  // 睡过几觉这段里看不出来」的前提是引擎不给,而 agent_recovery_sessions 里睡着/醒来两个
+  // 时刻都记着。摆出来她就不用推,也不用被禁止推。
   const item = buildDeveloperInputItem([
     formatSystemReminderBlock(renderPromptSnippet('core_memory_pressure_reminder.md', {
       PRESSURE_SUMMARY: input.pressureSummary,
+      TIME_GROUNDING: renderSleepTimelineBlock({
+        windowStartedAt: input.windowStartedAt ?? null,
+        sleeps: input.sleeps ?? [],
+        lastWakeAt: input.lastWakeAt ?? null,
+        now: input.now ?? new Date()
+      }),
       XIAONI_MEMORY_COMPRESS_SKILL: XIAONI_MEMORY_COMPRESS_SKILL_DIR,
       // 只有 core_memory_pressure_reminder.md 用得到它(fork forced 那份只讲提交,不讲写入)。
       // 注意 renderPromptTemplateText 是单次 String.replace:{{WRITE_FORMATS}} 注入的 fragment
@@ -7048,6 +7033,12 @@ export class AgentLoopService {
       };
     }
 
+    const timeGrounding = await this.resolveCompressionTimeGrounding({
+      queueMessage: payload,
+      previousReadCutoffAfterStackIndex:
+        budgetPlan.coreMemoryCompression.previousReadCutoffAfterStackIndex,
+      now: new Date()
+    });
     const artifact = await this.scheduleCoreMemoryCompressionFork({
       // Fork = clone of the main agent: base off the FULL main request input
       // (byte-identical warm prefix), with the compression instruction as a tail item.
@@ -7059,7 +7050,8 @@ export class AgentLoopService {
       compressionReminderItems: [buildCoreMemoryCompressionReminder({
         contextSessionKey,
         readCutoffAfterStackIndex: budgetPlan.coreMemoryCompression.readCutoffAfterStackIndex,
-        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
+        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY,
+        ...timeGrounding
       })],
       // Manual trigger: run even while the loop is stopped (see fork gate).
       bypassRuntimeEnabledGate: true
@@ -11969,6 +11961,13 @@ export class AgentLoopService {
     );
     const contextWindowTokens = policy?.contextWindowTokens ?? 0;
     const historyTargets = resolveSessionTargets(params.queueMessage);
+    // 时间线取在【派发这一刻】:她在 fork 里睡不着(allowed_tools 只有 exec_command + 提交
+    // skill),所以这份快照在整个 fork 生命周期内有效。
+    const timeGrounding = await this.resolveCompressionTimeGrounding({
+      queueMessage: params.queueMessage,
+      previousReadCutoffAfterStackIndex,
+      now: new Date()
+    });
     await this.scheduleCoreMemoryCompressionFork({
       // Fork = clone of the main agent (same iron law as subconscious / image-vision / heartbeat
       // forks): the FULL request we are about to send (byte-identical warm prefix), never a
@@ -11998,7 +11997,8 @@ export class AgentLoopService {
       compressionReminderItems: [buildCoreMemoryCompressionReminder({
         contextSessionKey: key,
         readCutoffAfterStackIndex: compressionPoint.readCutoffAfterStackIndex,
-        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY
+        pressureSummary: CORE_MEMORY_COMPRESSION_PRESSURE_SUMMARY,
+        ...timeGrounding
       })]
     });
   }
@@ -12037,13 +12037,6 @@ export class AgentLoopService {
     if (existing) {
       return artifact;
     }
-
-    // Refresh the wake anchor for THIS compression round before the fork reads it. She cannot
-    // sleep inside the fork (its allowed_tools are exec_command + the commit skill), so the value
-    // stays valid for the fork's lifetime. Best-effort — never gates the fork.
-    await writeCompressionWakeAnchor(
-      (await this.getCurrentRuntimeEnergyState(params.queueMessage).catch(() => null))?.lastWakeAt ?? null
-    );
 
     const plannedCommitCutoff = await this.resolveCoreMemoryCompressionCommitCutoff(params.compression);
     const cutoffReader = (this.store as RuntimeStore & {
@@ -13123,6 +13116,35 @@ export class AgentLoopService {
       default:
         throw new Error(`Unsupported tool: ${toolCall.name}`);
     }
+  }
+
+  // 压缩引导 prompt 的时间线三件套:窗口起点(上一次 read cutoff 那条 stack item 的落库时刻)、
+  // 窗口内的真实睡眠段、上次醒来时刻。
+  //
+  // 全程 best-effort:压缩在关键路径上(拦一次 = cutoff 不前进 → 上下文无界 → 413),任何一项
+  // 读失败都只让 renderSleepTimelineBlock 退回更弱的表述(有 lastWakeAt 就还是单句锚点),
+  // 绝不抛、绝不挡 fork。
+  private async resolveCompressionTimeGrounding(input: {
+    queueMessage: QueueMessageRecord['payload'];
+    previousReadCutoffAfterStackIndex: number | null;
+    now: Date;
+  }): Promise<{ lastWakeAt: string | null; windowStartedAt: string | null; sleeps: SleepSegment[] }> {
+    const lastWakeAt = (await this.getCurrentRuntimeEnergyState(input.queueMessage).catch(() => null))
+      ?.lastWakeAt ?? null;
+    const stackTimeReader = (this.store as RuntimeStore & {
+      getAgentStackItemTimeByIndex?: RuntimeStore['getAgentStackItemTimeByIndex'];
+    }).getAgentStackItemTimeByIndex;
+    const windowStartedAt = input.previousReadCutoffAfterStackIndex !== null
+      && typeof stackTimeReader === 'function'
+      ? await stackTimeReader.call(this.store, input.previousReadCutoffAfterStackIndex).catch(() => null)
+      : null;
+    const sleepReader = (this.store as RuntimeStore & {
+      listXiaoniSleepSegmentsSince?: RuntimeStore['listXiaoniSleepSegmentsSince'];
+    }).listXiaoniSleepSegmentsSince;
+    const sleeps = windowStartedAt && typeof sleepReader === 'function'
+      ? await sleepReader.call(this.store, new Date(windowStartedAt), input.now).catch(() => [])
+      : [];
+    return { lastWakeAt, windowStartedAt, sleeps };
   }
 
   private async getCurrentRuntimeEnergyState(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeEnergyState | null> {

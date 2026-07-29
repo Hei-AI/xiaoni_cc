@@ -85,6 +85,8 @@ import {
   listAgentLifeEvents,
   recordAgentLifeEvent,
   createAgentRecoverySession as createAgentRecoverySessionPersistence,
+  listAgentRecoverySessions,
+  getAgentStackItemTimeByIndex as getAgentStackItemTimeByIndexPersistence,
   getAgentRecoveryQueueHighWatermark as getAgentRecoveryQueueHighWatermarkPersistence,
   getActiveAgentRecoverySession as getActiveAgentRecoverySessionPersistence,
   listAgentRecoveryWakeNotifications as listAgentRecoveryWakeNotificationsPersistence,
@@ -143,6 +145,7 @@ import {
   type PresenceAnchors,
   type PresenceSharePoolItem
 } from './presence-context';
+import type { SleepSegment } from './east8-time';
 import {
   reduceXiaoniLifeState,
   XIAONI_LIFE_PROJECTION_VERSION,
@@ -1298,6 +1301,58 @@ export class RuntimeStore {
       maxEnergy: 1,
       lastWakeAt: projection.anchors.lastRestAt || null
     };
+  }
+
+  // 压缩窗口里的真实睡眠段,给压缩引导 prompt 拼时间线用(见 renderSleepTimelineBlock)。
+  //
+  // 数据源用 agent_recovery_sessions —— 管理端 /agent-runtime/recovery-sessions 就是读它,
+  // 复用同一条路,不另起第二真理源。它比 sleep_period 生命事件更直接:started_at / ended_at
+  // 就是睡着和醒来两个时刻,不用拿 sleep_minutes 反推起点。
+  //
+  // listAgentRecoverySessions 没有时间过滤(硬上限 100 条),所以取最近一批再按窗口在内存里
+  // 裁。真机一天 6-10 觉,60 条覆盖约一周,远超任何压缩窗口;真撞到上限由渲染端明说截断。
+  async listXiaoniSleepSegmentsSince(since: Date, now = new Date()): Promise<SleepSegment[]> {
+    const sessions = await listAgentRecoverySessions({
+      identityKey: 'xiaoni',
+      status: 'completed',
+      limit: 60
+    }, databaseConfig) as Array<{ startedAt?: unknown; endedAt?: unknown; wakeCause?: unknown }>;
+    const sinceMs = since.getTime();
+    const nowMs = now.getTime();
+    const segments: Array<SleepSegment & { wokeMs: number }> = [];
+    for (const session of sessions) {
+      const sleptMs = new Date(String(session.startedAt ?? '')).getTime();
+      const wokeMs = new Date(String(session.endedAt ?? '')).getTime();
+      if (!Number.isFinite(sleptMs) || !Number.isFinite(wokeMs) || wokeMs < sleptMs) {
+        continue;
+      }
+      // 窗口按【醒来】时刻收:跨窗口边界那一觉(睡在窗口前、醒在窗口内)她在上下文里能看到
+      // 醒来那一段,该算进来。
+      if (wokeMs <= sinceMs || wokeMs > nowMs) {
+        continue;
+      }
+      segments.push({
+        sleptAt: new Date(sleptMs).toISOString(),
+        wokeAt: new Date(wokeMs).toISOString(),
+        wakeCause: typeof session.wakeCause === 'string' ? session.wakeCause : null,
+        wokeMs
+      });
+    }
+    return segments
+      .sort((left, right) => left.wokeMs - right.wokeMs)
+      .map(({ wokeMs: _wokeMs, ...segment }) => segment);
+  }
+
+  // 压缩窗口的起点:上一次 read cutoff 那条 stack item 的落库时刻。取不到(首次压缩/
+  // cutoff 为空)返回 null,渲染端退回单句锚点。
+  async getAgentStackItemTimeByIndex(stackIndex: number): Promise<string | null> {
+    if (!Number.isFinite(stackIndex)) {
+      return null;
+    }
+    return getAgentStackItemTimeByIndexPersistence({
+      identityKey: 'xiaoni',
+      stackIndex
+    }, databaseConfig);
   }
 
   async createAgentRecoverySession(params: Record<string, unknown>): Promise<AgentRecoverySessionProjection> {
