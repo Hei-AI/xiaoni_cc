@@ -60,6 +60,7 @@ import {
   formatEast8Timestamp,
   renderWakeAnchorSentence,
   renderSleepTimelineBlock,
+  renderCompressionSpanAnchor,
   type SleepSegment
 } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
@@ -10752,10 +10753,10 @@ export class AgentLoopService {
     sourceResponseId: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<CoreMemoryCompressionCommit> {
-    const text = typeof params.rawToolResult.text === 'string' && sanitizeMemoryText(params.rawToolResult.text)
+    const writtenText = typeof params.rawToolResult.text === 'string' && sanitizeMemoryText(params.rawToolResult.text)
       ? sanitizeMemoryText(params.rawToolResult.text)
       : null;
-    if (!text) {
+    if (!writtenText) {
       throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
     }
 
@@ -10763,6 +10764,20 @@ export class AgentLoopService {
     const committedReadCutoffAfterStackIndex = params.compression
       ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
       : null;
+    // 段边界锚(见 renderCompressionSpanAnchor)。在这里拼 —— 这是三条写入路径(原子提交 /
+    // 非原子 fallback / 无 compression 的直写)唯一共同的上游,拼一次三条都带上。
+    //
+    // 双缓存:两个时刻取自 agent_stack_items 的落库时刻(append-only,写完不再变),在这一帧
+    // 算一次、随 context_summary 一起冻结进库;之后 build 和 replay 都只是把那一列原样渲染,
+    // 两次压缩之间逐字节不变 → 新增冷读 0。**绝不可挪到 buildInitialInput 里每次重算。**
+    //
+    // 全程 fail-open:锚点是叠加信息,拿不到就原样提交她写的近况。压缩在关键路径上,
+    // 任何在这里抛出的异常都会同时废掉正常提交和兜底提交 → cutoff 永不前移。
+    const spanAnchor = await this.resolveCompressionSpanAnchorSafe({
+      previousReadCutoffAfterStackIndex: params.compression?.previousReadCutoffAfterStackIndex ?? null,
+      committedReadCutoffAfterStackIndex
+    });
+    const text = spanAnchor ? `${spanAnchor}\n\n${writtenText}` : writtenText;
     // 专题物化的【算】段产物,在原子提交帧内算出来、在提交之后才落盘(见下面 ③/④)。
     // 只有走原子提交路径才会被填上;superseded / 非原子 fallback 一律保持 null → 不落盘。
     let topicPlan: TopicMaterializationPlan | null = null;
@@ -13163,6 +13178,43 @@ export class AgentLoopService {
       ? await sleepReader.call(this.store, new Date(windowStartedAt), input.now).catch(() => [])
       : [];
     return { lastWakeAt, windowStartedAt, sleeps };
+  }
+
+  // 段边界锚的两个时刻:段起点 = 上一次 read cutoff 那条 stack item 的落库时刻(也就是上一段的
+  // 终点),段终点 = 这次要提交的 cutoff 那条的落库时刻。两个都走 resolveCompressionTimeGrounding
+  // 用的同一个 reader,口径一致。
+  //
+  // 用 stack item 时刻而不是「提交时刻」是刻意的:stack 是 append-only,这两个时刻写完就永不
+  // 改变,所以锚点在任何时候重算都得到同一串字节 —— 这正是它可以安全进 cacheable 前缀的原因。
+  //
+  // best-effort 同 resolveCompressionTimeGrounding:任何一头读失败就返回 '',调用方原样提交。
+  private async resolveCompressionSpanAnchorSafe(input: {
+    previousReadCutoffAfterStackIndex: number | null;
+    committedReadCutoffAfterStackIndex: number | null;
+  }): Promise<string> {
+    try {
+      if (input.previousReadCutoffAfterStackIndex === null || input.committedReadCutoffAfterStackIndex === null) {
+        return '';
+      }
+      const stackTimeReader = (this.store as RuntimeStore & {
+        getAgentStackItemTimeByIndex?: RuntimeStore['getAgentStackItemTimeByIndex'];
+      }).getAgentStackItemTimeByIndex;
+      if (typeof stackTimeReader !== 'function') {
+        return '';
+      }
+      const [windowStartedAt, windowEndedAt] = await Promise.all([
+        stackTimeReader.call(this.store, input.previousReadCutoffAfterStackIndex).catch(() => null),
+        stackTimeReader.call(this.store, input.committedReadCutoffAfterStackIndex).catch(() => null)
+      ]);
+      return renderCompressionSpanAnchor({ windowStartedAt, windowEndedAt });
+    } catch (error) {
+      moduleLogger.warn('compression span anchor failed (fail-open, capsule committed unanchored)', {
+        previousReadCutoffAfterStackIndex: input.previousReadCutoffAfterStackIndex,
+        committedReadCutoffAfterStackIndex: input.committedReadCutoffAfterStackIndex,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return '';
+    }
   }
 
   private async getCurrentRuntimeEnergyState(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeEnergyState | null> {
