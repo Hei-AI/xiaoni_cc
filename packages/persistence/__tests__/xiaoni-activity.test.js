@@ -1860,3 +1860,54 @@ test('Xiaoni activity feed exposes safe action trace previews on digital actions
   assert.match(digital.metadata.interestCandidatesPreview, /诗和轻讽刺/);
   assert.match(digital.metadata.budgetSnapshotPreview, /web_daily_count/);
 });
+
+test('Xiaoni action stream keeps a voided run\'s model request out of the next run\'s slot', async () => {
+  // plan 空转 run 被作废腿整条从 agent_stack_items 上删除后，stack_index 会被后来的 run 重用。
+  // 那条 run 的 llm_request_slices 观测记录还在，它的 output_start_index 于是指向【别人家】的行。
+  // 旧行为：拿这个错锚点算 orderSeq，三条被作废 run 的模型请求全被盖成后一条 run 的位置戳，
+  // 页面上表现为「几个自驱动 fork 连着出现、中间主 agent 什么都没干」。
+  // 现行为：只认同一条 run 的锚点；认不到就按墙钟插回它真正发生的位置。
+  const persistence = createPersistence({
+    llmRequestSliceRows: [
+      {
+        id: '81', sliceId: 'slice_voided', llmCallId: 'llm_voided', identityKey: 'xiaoni',
+        traceId: 'trace_voided', runId: 'run_voided', agentTurn: 1, modelName: 'claude-opus-4-6',
+        status: 'completed', createdAt: '2026-07-31T07:33:58.942Z', completedAt: '2026-07-31T07:33:58.942Z',
+        inputStartIndex: 40, inputEndIndex: 40, outputStartIndex: 41, outputEndIndex: 41,
+        tokenUsage: { input_tokens: 427490, output_tokens: 311 }, wireResponse: { id: 'resp_voided' }
+      },
+      {
+        id: '82', sliceId: 'slice_live', llmCallId: 'llm_live', identityKey: 'xiaoni',
+        traceId: 'trace_live', runId: 'run_live', agentTurn: 1, modelName: 'claude-opus-4-6',
+        status: 'completed', createdAt: '2026-07-31T07:36:21.000Z', completedAt: '2026-07-31T07:36:21.000Z',
+        inputStartIndex: 40, inputEndIndex: 40, outputStartIndex: 41, outputEndIndex: 41,
+        tokenUsage: { input_tokens: 428000, output_tokens: 120 }, wireResponse: { id: 'resp_live' }
+      }
+    ],
+    // run_voided 的栈行已被作废腿删光；run_live 从同一批 stack_index 接着写。
+    agentStackRows: [
+      { id: '640', eventId: 'stack:live:input', identityKey: 'xiaoni', stackIndex: 40, occurredSeq: 1000,
+        itemKind: 'runtime_input',
+        content: { source: 'system_reminder', input_items: [{ role: 'user', type: 'message', content: [{ type: 'output_text', text: 'plan' }] }] },
+        traceId: 'trace_live', runId: 'run_live', createdAt: '2026-07-31T07:36:09.000Z' },
+      { id: '641', eventId: 'stack:live:fc', identityKey: 'xiaoni', stackIndex: 41, occurredSeq: 1001,
+        itemKind: 'function_call', toolCallId: 'call_live', llmRequestSliceId: 'slice_live',
+        content: { type: 'function_call', call_id: 'call_live', name: 'exec_command', arguments: '{"cmd":"date"}' },
+        traceId: 'trace_live', runId: 'run_live', createdAt: '2026-07-31T07:36:22.000Z' }
+    ]
+  });
+
+  const stream = await persistence.getXiaoniActionStream({ limit: 20 });
+  const byId = new Map(stream.items.map((item) => [item.id, item]));
+  const live = byId.get('llm-slice:slice_live');
+  const voided = byId.get('llm-slice:slice_voided');
+  assert.ok(live, 'live run 的模型请求应在流里');
+  assert.ok(voided, '被作废 run 的模型请求也必须在流里 —— 管理端是唯一能看到它的地方');
+  // 自己的 run 有锚点：照旧落在第一个输出之前
+  assert.equal(live.metadata.orderSeq, 1000.5);
+  // 被作废的那条：绝不能盖上 run_live 的位置戳
+  assert.notEqual(voided.metadata.orderSeq, 1000.5);
+  assert.equal(typeof voided.metadata.orderSeq, 'number');
+  // 它发生得更早，位置必须排在 run_live 之前（否则页面上仍然读不出先后）
+  assert.ok(voided.metadata.orderSeq < 1000, `voided orderSeq ${voided.metadata.orderSeq} 应排在 run_live 之前`);
+});

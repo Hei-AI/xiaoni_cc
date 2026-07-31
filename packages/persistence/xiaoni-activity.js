@@ -3351,6 +3351,7 @@ function streamNumberOrNull(value) {
 // single-lane — main stack_index and fork item_index never collide here.
 function attachStreamOrderMetadata(items, sliceRows) {
   const seqByIndex = new Map();
+  const seqByRunIndex = new Map();
   const seqByCallbackToolCallId = new Map();
   for (const item of items || []) {
     if (!item || typeof item !== 'object') {
@@ -3364,6 +3365,10 @@ function attachStreamOrderMetadata(items, sliceRows) {
     const index = streamNumberOrNull(metadata.stackIndex ?? metadata.itemIndex);
     if (index !== null) {
       seqByIndex.set(index, seq);
+      const runKey = firstString(item.runId, metadata.runId);
+      if (runKey) {
+        seqByRunIndex.set(`${runKey}\u0000${index}`, seq);
+      }
     }
     const kind = firstString(metadata.itemKind) || item.kind || '';
     const toolCallId = firstString(metadata.toolCallId);
@@ -3372,11 +3377,14 @@ function attachStreamOrderMetadata(items, sliceRows) {
     }
   }
 
-  const outputStartBySlice = new Map();
+  const sliceAnchorById = new Map();
   for (const row of sliceRows || []) {
     const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id);
     if (sliceId) {
-      outputStartBySlice.set(sliceId, streamNumberOrNull(row.outputStartIndex ?? row.output_start_index));
+      sliceAnchorById.set(sliceId, {
+        outputStart: streamNumberOrNull(row.outputStartIndex ?? row.output_start_index),
+        runId: firstString(row.runId, row.run_id)
+      });
     }
   }
 
@@ -3394,8 +3402,21 @@ function attachStreamOrderMetadata(items, sliceRows) {
         || source === 'image_vision_fork_llm_request';
       if (isSlice) {
         const sliceId = firstString(metadata.llmRequestSliceId);
-        const outputStart = sliceId ? outputStartBySlice.get(sliceId) : null;
-        const outputSeq = outputStart !== null && outputStart !== undefined ? seqByIndex.get(outputStart) : undefined;
+        const anchor = sliceId ? sliceAnchorById.get(sliceId) : null;
+        const outputStart = anchor ? anchor.outputStart : null;
+        let outputSeq;
+        if (outputStart !== null && outputStart !== undefined) {
+          const runKey = firstString(anchor && anchor.runId, item.runId, metadata.runId);
+          // stack_index 会被重用：plan 空转 run 被作废(整条从栈上删除)后，后来的 run 从同一个
+          // index 接着写。此时这条 slice 的 output_start_index 指向的是【别人家】的行，拿它当锚点
+          // 会把这条模型请求盖上后一条 run 的位置戳(实测三条 15:33/15:34/15:35 的请求全被盖成
+          // 同一个 109865.5，页面上四个 fork 之间就此变空)。所以只认同一条 run 的锚点；
+          // 认不到就留空，交给 repairAnchorlessStreamOrderSeq 按时间插回原位。
+          // 主栈行带 runId，fork 上下文的行不带 —— 后者走原来的按 index 查，行为逐字节不变。
+          outputSeq = runKey && seqByRunIndex.size > 0
+            ? seqByRunIndex.get(`${runKey}\u0000${outputStart}`)
+            : seqByIndex.get(outputStart);
+        }
         if (outputSeq !== undefined) {
           seq = outputSeq - 0.5;
         }
@@ -3408,6 +3429,69 @@ function attachStreamOrderMetadata(items, sliceRows) {
       }
     }
     metadata.orderSeq = seq;
+  }
+  return items;
+}
+
+// 没有栈锚点的行(典型来源：plan 空转 run 被作废腿整条从栈上删掉，只剩 llm_request_slices 这份
+// 观测记录)会 orderSeq 为空，而前端把未标戳的行整体沉到已标戳行【之下】的历史层 —— 于是页面上
+// 「四个自驱动 fork 连着出现、中间主 agent 什么都没干」，实际上中间跑了三次 42 万 token 的唤醒。
+// 这里按墙钟把它们插回真正的位置：取时间上紧挨着它之前那条已标戳行的 seq，加一个小增量(同一个
+// 空档里的多行按时间依次递增，且增量恒 < 1，不会越过下一条真行)。
+// 纯观测投影：不写库、不碰 agent_stack_items、不进 replay，因此对她的上下文与缓存零影响。
+function repairAnchorlessStreamOrderSeq(items, forkRuns) {
+  const anchorless = (items || []).filter((item) => item
+    && item.metadata
+    && typeof item.metadata === 'object'
+    && streamNumberOrNull(item.metadata.orderSeq) === null
+    && Number.isFinite(Date.parse(item.occurredAt || item.timestamp || '')));
+  if (!anchorless.length) {
+    return items;
+  }
+  const refs = [];
+  const pushRef = (seqValue, timestamp) => {
+    const seq = streamNumberOrNull(seqValue);
+    const ms = Date.parse(timestamp || '');
+    if (seq !== null && Number.isFinite(ms)) {
+      refs.push({ seq, ms });
+    }
+  };
+  for (const item of items || []) {
+    if (item && item.metadata && typeof item.metadata === 'object') {
+      pushRef(item.metadata.orderSeq, item.occurredAt || item.timestamp);
+    }
+  }
+  for (const run of forkRuns || []) {
+    for (const event of (run && run.events) || []) {
+      if (event && event.metadata && typeof event.metadata === 'object') {
+        pushRef(event.metadata.orderSeq, event.occurredAt || event.timestamp);
+      }
+    }
+  }
+  if (!refs.length) {
+    return items;
+  }
+  refs.sort((left, right) => left.ms - right.ms || left.seq - right.seq);
+  const ordered = anchorless.slice().sort((left, right) => (
+    Date.parse(left.occurredAt || left.timestamp) - Date.parse(right.occurredAt || right.timestamp)
+  ));
+  const bumpByBase = new Map();
+  for (const item of ordered) {
+    const ms = Date.parse(item.occurredAt || item.timestamp);
+    let base = null;
+    for (const ref of refs) {
+      if (ref.ms <= ms) {
+        base = ref.seq;
+      } else {
+        break;
+      }
+    }
+    if (base === null) {
+      base = refs[0].seq - 1;
+    }
+    const nth = (bumpByBase.get(base) || 0) + 1;
+    bumpByBase.set(base, nth);
+    item.metadata.orderSeq = base + Math.min(0.4, nth * 0.01);
   }
   return items;
 }
@@ -4681,6 +4765,16 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    // 失去栈锚点的行(作废 run 只剩 slice 观测记录)按时间插回原位，否则它们会沉到历史层底部，
+    // 页面上表现为「fork 连着出现、中间主 agent 空白」。fork 事件也参与定位，这样插回来的行
+    // 能落在两个 fork 之间它真正发生的那个位置。
+    repairAnchorlessStreamOrderSeq(decoratedItems, [
+      ...compressionForkRuns,
+      ...subconsciousForkRuns,
+      ...psychAssessmentForkRuns,
+      ...imageVisionForkRuns,
+      ...cacheHeartbeatRuns
+    ]);
     const availableTags = actionStreamAvailableTags(decoratedItems, [
       ...compressionForkRuns,
       ...subconsciousForkRuns,
