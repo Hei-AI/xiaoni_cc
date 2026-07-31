@@ -92,6 +92,9 @@ services:
       - BOT_QQ_NUMBER=1129974489
       - NAPCAT_HTTP_BASE_URL=http://napcat:3000
       - NAPCAT_HTTP_ACCESS_TOKEN=w@123456
+      # WebUI token 独立于上面的 OneBot HTTP token，取自 resource/napcat_config/webui.json
+      - NAPCAT_WEBUI_BASE_URL=http://napcat:6099
+      - NAPCAT_WEBUI_TOKEN=${NAPCAT_WEBUI_TOKEN:-04e9562f9a58}
       - NODE_TLS_REJECT_UNAUTHORIZED=0
       - AI_MODEL_NAME=gpt-5-mini
       - MEDIA_INSPECTOR_MODEL_NAME=${MEDIA_INSPECTOR_MODEL_NAME:-gpt-5-mini}
