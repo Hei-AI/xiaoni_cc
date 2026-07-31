@@ -76,6 +76,36 @@ function east8DayKey(ms: number) {
   return formatEast8Timestamp(new Date(ms)).slice(0, 10);
 }
 
+// 段边界锚:告诉她手里这份 <xiaoni_status> 到底覆盖哪一段时间。
+//
+// 她压缩完 89 秒说过「记忆整理之后我已经分不清哪些是这一轮的哪些是上一轮的了」
+// (2026-07-28 10:10:36 exec 注释)。那是**段边界**不清,不是够不到更早的段:请求头里
+// <xiaoni_diary_index> 已经按天往回铺 4-7 天,但压缩每天跑 2-3 次,同一天内的段边界
+// 在头里没有任何标记。这一行就是那个标记。
+//
+// 和本文件其它函数不同,这一条**允许进 cacheable 前缀**,因为它不含 now:两个时刻都是
+// agent_stack_items 的落库时刻(append-only,写完就不再变),在压缩提交那一帧算一次、
+// 冻结进 context_summary,之后每次 build 只是把那一列原样渲染。绝不可改成每次 build
+// 重算 —— 那就变回 runtime reminder 的双戳漂移事故形态了。
+//
+// 两头读不到就返回 '',调用方原样提交她写的近况(压缩在关键路径上,绝不因为一行锚点失败)。
+export function renderCompressionSpanAnchor(input: {
+  windowStartedAt: string | null;
+  windowEndedAt: string | null;
+}): string {
+  const startMs = input.windowStartedAt ? new Date(input.windowStartedAt).getTime() : Number.NaN;
+  const endMs = input.windowEndedAt ? new Date(input.windowEndedAt).getTime() : Number.NaN;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return '';
+  }
+  // 同一天只写一次日期,跨天两头都带日期 —— 否则「01:12 → 10:09」会被读成同一天。
+  const end = east8DayKey(endMs) === east8DayKey(startMs)
+    ? formatEast8Clock(endMs).slice(0, 5)
+    : formatEast8Timestamp(new Date(endMs)).slice(0, 16);
+  return `（这一份近况覆盖 ${formatEast8Timestamp(new Date(startMs)).slice(0, 16)} 到 ${end}，`
+    + `${formatEast8Duration(startMs, endMs)}。再往前的事在下面的日记目录里。）`;
+}
+
 // 她写近况时手边的完整时间线,取代原来那句「别自己推算,这段里看不出来」的禁令。
 //
 // 禁令的前提是「中间睡过几觉,上下文里看不出来」——那是引擎不给,不是事实上取不到:

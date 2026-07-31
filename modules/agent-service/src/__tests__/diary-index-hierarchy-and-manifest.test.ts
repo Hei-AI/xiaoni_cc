@@ -15,7 +15,7 @@ import {
 //
 // 两件都挂在 commitCoreMemoryCompression 的原子提交帧上,所以**最硬的一条断言在文件
 // 末尾**:注入异常后 commitCoreMemoryCompression 仍然照常提交。异常逃出去会同时废掉
-// 正常提交和 22 轮 hard-cap 兜底提交 → read_cutoff 永不前移 → 撞 30MiB → 压缩永久卡死。
+// 正常提交和 hard-cap 轮次上限 兜底提交 → read_cutoff 永不前移 → 撞 30MiB → 压缩永久卡死。
 // ════════════════════════════════════════════════════════════════════════════
 
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
@@ -590,7 +590,7 @@ test('T4 keeps its output OUT of notes/diary/ (that dir is the passive-recall co
 // ── 两者共同:注入异常,commitCoreMemoryCompression 仍然照常提交 ────────────
 //
 // 这是整份用例里最硬的一条。两个函数挂在 commitCoreMemoryCompression 的原子提交帧上;
-// 一旦异常逃出去,正常提交和 22 轮 hard-cap 兜底提交(走同一个函数)会一起废掉 →
+// 一旦异常逃出去,正常提交和 hard-cap 轮次上限 兜底提交(走同一个函数)会一起废掉 →
 // read_cutoff 永不前移 → 上下文只涨不降 → 撞 30MiB 硬线 → 压缩永久卡死。
 
 function buildAtomicCommitHarness() {
@@ -670,7 +670,7 @@ test('commitCoreMemoryCompression still commits when the diary maintenance frame
     assert.equal(normal.toolResult.read_cutoff_written, true);
     assert.equal(normal.artifact.read_cutoff_after_stack_index, 171, 'read_cutoff 必须照常前移');
 
-    // ② 22 轮 hard-cap 兜底提交路径(同一个 commitCoreMemoryCompression)
+    // ② hard-cap 轮次上限 兜底提交路径(同一个 commitCoreMemoryCompression)
     const fallback = await commit(FALLBACK_SUMMARY, 'diary-frame-fallback');
     assert.equal(fallback.toolResult.read_cutoff_written, true, '兜底提交也必须照常前移 cutoff');
 

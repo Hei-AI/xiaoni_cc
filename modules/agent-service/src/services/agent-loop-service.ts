@@ -60,6 +60,7 @@ import {
   formatEast8Timestamp,
   renderWakeAnchorSentence,
   renderSleepTimelineBlock,
+  renderCompressionSpanAnchor,
   type SleepSegment
 } from './east8-time';
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
@@ -958,10 +959,19 @@ const COMPRESSION_TRIGGER_CONSECUTIVE_TURNS = 2;
 // bring the epoch back down (it already fired at the trigger). That is a genuinely stalled/failed
 // compression — independent of the removed read-window LIMIT — so instead of climbing toward the model's
 // hard context ceiling we halt the run switch and keep the cache heartbeat warm for a clean manual
-// resume (see haltRuntimeForCompressionOverrun). The 100k margin sits above compression's async commit
+// resume (see haltRuntimeForCompressionOverrun). The margin sits above compression's async commit
 // latency so a legitimately-mid-compression turn can't trip it. This is timing/ops logic only; it never
 // enters the cacheable request prefix.
-const COMPRESSION_OVERRUN_MARGIN_TOKENS = 100_000;
+//
+// SIZED AGAINST FORK DURATION — must move whenever the fork turn budget moves. Measured 2026-07-30:
+//   main-loop accumulation during a compression window: 6,559 tok/min
+//     (llm_request_slices, 2026-07-28 09:00-10:09, 196 turns, ctx 52,961 -> 504,725)
+//   fork wall time: mean 17.7 s/turn (core_memory_compression_fork_slices, 12 forks / 138 turns)
+// At the old 22-turn cap the fork ran ~6.5 min and burned ~43k of the old 100k margin — comfortable.
+// At the 50-turn cap it runs up to ~14.8 min and would burn ~97k, i.e. sit exactly on the old halt
+// line: a busy epoch would halt the runtime mid-compression. 250k keeps the same ~2.3x headroom
+// ratio the 22/100k pair had (≈38 min at the measured rate).
+const COMPRESSION_OVERRUN_MARGIN_TOKENS = 250_000;
 const COMPRESSION_OVERRUN_HALT_CONSECUTIVE_TURNS = 2;
 const consecutiveOverCompressionThresholdBySession = new Map<string, number>();
 const consecutiveOverOverrunThresholdBySession = new Map<string, number>();
@@ -1533,13 +1543,22 @@ const NO_TRAFFIC_PERSIST_HEADER = 'x-qqbot-no-traffic-persist';
 // writing the 近况 file would loop forever without this bound.
 // Escalation thresholds for the compression fork's tone toward the model:
 //   < FORCE_TURNS         → let her work (silent on tool turns, soft self-check on text-only turns).
-//   >= FORCE_TURNS (18)   → she's used up her organizing budget: switch to a FORCED "stop everything
+//   >= FORCE_TURNS        → she's used up her organizing budget: switch to a FORCED "stop everything
 //                            and use the skill NOW" instruction, every turn, until she complies.
 //   >= HARD_CAP_TURNS     → absolute last resort: only if she ignores the forced demand for the whole
 //                            grace window do we auto-commit the deterministic minimal seam summary,
 //                            purely so the cutoff always advances and context can't grow → 413.
-const CORE_MEMORY_COMPRESSION_FORK_FORCE_TURNS = 18;
-const CORE_MEMORY_COMPRESSION_FORK_HARD_CAP_TURNS = 22;
+//
+// Raised 18/22 -> 45/50 on 2026-07-30. The atomic write skill (memory_write.py, 9ebe7701) turns one
+// batched shell write into N single-purpose calls, and she has never emitted more than one tool call
+// per turn (fork_turn_count == fork_tool_call_count on 297/297 recorded forks), so turn count tracks
+// write-operation count 1:1. Replaying the last 12 real compressions with their shell writes decomposed
+// into atomic calls projects 16-47 turns (median amplification 3.4x); 5 of 12 already breach the old
+// 22 cap. 50 clears the whole measured set; 45 keeps the forced zone a real last-ditch push rather than
+// a 32-turn nag. NOTE: COMPRESSION_OVERRUN_MARGIN_TOKENS is sized against fork wall time and was moved
+// in the same commit — these two must always move together.
+const CORE_MEMORY_COMPRESSION_FORK_FORCE_TURNS = 45;
+const CORE_MEMORY_COMPRESSION_FORK_HARD_CAP_TURNS = 50;
 const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
 const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
@@ -10734,10 +10753,10 @@ export class AgentLoopService {
     sourceResponseId: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<CoreMemoryCompressionCommit> {
-    const text = typeof params.rawToolResult.text === 'string' && sanitizeMemoryText(params.rawToolResult.text)
+    const writtenText = typeof params.rawToolResult.text === 'string' && sanitizeMemoryText(params.rawToolResult.text)
       ? sanitizeMemoryText(params.rawToolResult.text)
       : null;
-    if (!text) {
+    if (!writtenText) {
       throw new Error(`${TOOL_NAMES.compressCoreMemory} requires non-empty text`);
     }
 
@@ -10745,6 +10764,20 @@ export class AgentLoopService {
     const committedReadCutoffAfterStackIndex = params.compression
       ? await this.resolveCoreMemoryCompressionCommitCutoff(params.compression)
       : null;
+    // 段边界锚(见 renderCompressionSpanAnchor)。在这里拼 —— 这是三条写入路径(原子提交 /
+    // 非原子 fallback / 无 compression 的直写)唯一共同的上游,拼一次三条都带上。
+    //
+    // 双缓存:两个时刻取自 agent_stack_items 的落库时刻(append-only,写完不再变),在这一帧
+    // 算一次、随 context_summary 一起冻结进库;之后 build 和 replay 都只是把那一列原样渲染,
+    // 两次压缩之间逐字节不变 → 新增冷读 0。**绝不可挪到 buildInitialInput 里每次重算。**
+    //
+    // 全程 fail-open:锚点是叠加信息,拿不到就原样提交她写的近况。压缩在关键路径上,
+    // 任何在这里抛出的异常都会同时废掉正常提交和兜底提交 → cutoff 永不前移。
+    const spanAnchor = await this.resolveCompressionSpanAnchorSafe({
+      previousReadCutoffAfterStackIndex: params.compression?.previousReadCutoffAfterStackIndex ?? null,
+      committedReadCutoffAfterStackIndex
+    });
+    const text = spanAnchor ? `${spanAnchor}\n\n${writtenText}` : writtenText;
     // 专题物化的【算】段产物,在原子提交帧内算出来、在提交之后才落盘(见下面 ③/④)。
     // 只有走原子提交路径才会被填上;superseded / 非原子 fallback 一律保持 null → 不落盘。
     let topicPlan: TopicMaterializationPlan | null = null;
@@ -10808,7 +10841,7 @@ export class AgentLoopService {
         //      读它 —— 提交后写不会让任何进请求前缀的字节漂移。
         //
         // 三者都是 fail-open 的:整体包 try/catch,失败只 warn 返回 ok:false,**绝不上抛**。
-        // 一旦有异常逃出去,会同时废掉正常提交和 22 轮 hard-cap 兜底提交(它们走同一个
+        // 一旦有异常逃出去,会同时废掉正常提交和 hard-cap 轮次上限 兜底提交(它们走同一个
         // commitCoreMemoryCompression)→ read_cutoff 永不前移 → 上下文只涨不降 → 撞
         // 30MiB 硬线 → 压缩永久卡死。所以这里**故意不做**任何错误传播。
         await maintainDiaryIndexHierarchy();
@@ -13147,6 +13180,43 @@ export class AgentLoopService {
     return { lastWakeAt, windowStartedAt, sleeps };
   }
 
+  // 段边界锚的两个时刻:段起点 = 上一次 read cutoff 那条 stack item 的落库时刻(也就是上一段的
+  // 终点),段终点 = 这次要提交的 cutoff 那条的落库时刻。两个都走 resolveCompressionTimeGrounding
+  // 用的同一个 reader,口径一致。
+  //
+  // 用 stack item 时刻而不是「提交时刻」是刻意的:stack 是 append-only,这两个时刻写完就永不
+  // 改变,所以锚点在任何时候重算都得到同一串字节 —— 这正是它可以安全进 cacheable 前缀的原因。
+  //
+  // best-effort 同 resolveCompressionTimeGrounding:任何一头读失败就返回 '',调用方原样提交。
+  private async resolveCompressionSpanAnchorSafe(input: {
+    previousReadCutoffAfterStackIndex: number | null;
+    committedReadCutoffAfterStackIndex: number | null;
+  }): Promise<string> {
+    try {
+      if (input.previousReadCutoffAfterStackIndex === null || input.committedReadCutoffAfterStackIndex === null) {
+        return '';
+      }
+      const stackTimeReader = (this.store as RuntimeStore & {
+        getAgentStackItemTimeByIndex?: RuntimeStore['getAgentStackItemTimeByIndex'];
+      }).getAgentStackItemTimeByIndex;
+      if (typeof stackTimeReader !== 'function') {
+        return '';
+      }
+      const [windowStartedAt, windowEndedAt] = await Promise.all([
+        stackTimeReader.call(this.store, input.previousReadCutoffAfterStackIndex).catch(() => null),
+        stackTimeReader.call(this.store, input.committedReadCutoffAfterStackIndex).catch(() => null)
+      ]);
+      return renderCompressionSpanAnchor({ windowStartedAt, windowEndedAt });
+    } catch (error) {
+      moduleLogger.warn('compression span anchor failed (fail-open, capsule committed unanchored)', {
+        previousReadCutoffAfterStackIndex: input.previousReadCutoffAfterStackIndex,
+        committedReadCutoffAfterStackIndex: input.committedReadCutoffAfterStackIndex,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return '';
+    }
+  }
+
   private async getCurrentRuntimeEnergyState(queueMessage: QueueMessageRecord['payload']): Promise<RuntimeEnergyState | null> {
     const reader = (this.store as RuntimeStore & {
       getCurrentXiaoniEnergyState?: RuntimeStore['getCurrentXiaoniEnergyState'];
@@ -14891,7 +14961,7 @@ export async function readPeopleIndexSnapshot(indexPath?: string): Promise<strin
 // ── fail-open(最重要)────────────────────────────────────────────────────────
 // 这两个函数挂在 commitCoreMemoryCompression 的原子提交帧上,和
 // readDiaryIndexSnapshot 一模一样的形状:整体包 try/catch,异常只 warn,**绝不上抛**。
-// 原因:22 轮 hard-cap 兜底提交走的是同一个 commitCoreMemoryCompression。异常逃出去
+// 原因:hard-cap 轮次上限 兜底提交走的是同一个 commitCoreMemoryCompression。异常逃出去
 // 会同时废掉正常提交和兜底提交 → read_cutoff 永不前移 → 上下文只涨不降 → 撞 30MiB
 // 硬线 → 压缩永久卡死。文件整理失败的代价只是"这轮没整理",绝不许升级成压缩死锁。
 //
@@ -15709,7 +15779,7 @@ export async function writeDiaryHeadingManifests(options?: {
 // ════════════════════════════════════════════════════════════════════════════
 //
 // 为什么引擎做:教她自己开 `topic-<主题>.md` 并按章续写,实测 14 天零文件。压缩帧里她只
-// 看得见今天,"这是不是连着好几天的事"需要已经被压掉的记忆;而且她被 18 轮预算追着。所以
+// 看得见今天,"这是不是连着好几天的事"需要已经被压掉的记忆;而且她被 fork 轮次预算追着。所以
 // 专题从「她的写作产物」改成「引擎从日记物化出来的聚合视图」——她的动作只剩一件:在
 // `open-loops.md` 行末打一个 `#标签`。
 //
@@ -15743,7 +15813,7 @@ export async function writeDiaryHeadingManifests(options?: {
 // 每轮唯一,水位没前移、下轮重扫同一段内容时同一个 cutoff 不会被重复计。
 //
 // ── fail-open ────────────────────────────────────────────────────────────────
-// 和 T3/T4 一样:整体 try/catch,失败只 warn + 返回 ok:false,**绝不上抛**。22 轮 hard-cap
+// 和 T3/T4 一样:整体 try/catch,失败只 warn + 返回 ok:false,**绝不上抛**。hard-cap 轮次上限
 // 兜底提交走同一个 commitCoreMemoryCompression,异常逃出去会同时废掉正常提交和兜底提交。
 
 /** 一条线要成形,需要该标签在这么多个**不同的 read_cutoff**(= 不同压缩轮)里命中过。 */

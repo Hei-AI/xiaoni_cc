@@ -28,12 +28,12 @@ import {
 //   ① 水位闸门 —— 落盘失败时**一个字都不许落库**,下一轮拿同一个水位重做同一批,
 //      且重做不许补出第二份(文件是这一层的真理源)。
 //   ② 压缩提交不被拖累 —— 物化整条路径全炸时,commitCoreMemoryCompression 仍然写出
-//      context_summary_written / read_cutoff_written(正常路径 **和** 22 轮兜底路径)。
+//      context_summary_written / read_cutoff_written(正常路径 **和** hard-cap 兜底路径)。
 //      异常逃出去会同时废掉两条提交路径 → read_cutoff 永不前移 → 撞 30MiB → 压缩永久卡死。
 // ════════════════════════════════════════════════════════════════════════════
 
 const COMPRESS_CORE_MEMORY_TOOL = 'compress_core_memory';
-// 22 轮 hard-cap 兜底提交那条文案的形状(走的是同一个 commitCoreMemoryCompression)。
+// hard-cap 轮次上限 兜底提交那条文案的形状(走的是同一个 commitCoreMemoryCompression)。
 const FALLBACK_SUMMARY = '（这轮记忆整理没能在限定步数内写完近况。）';
 
 interface Dirs {
@@ -622,7 +622,7 @@ async function withTopicEnv<T>(dirs: Dirs | null, topicsDirOverride: string | nu
 
 test('commitCoreMemoryCompression still commits when the whole materialization path is hostile', async () => {
   // 每一条路径都炸:日记目录不存在(/dev/null/...)、专题目录也不存在、水位写入口直接抛。
-  // 正常提交路径 **和** 22 轮 hard-cap 兜底提交路径(同一个函数)都必须照常写出。
+  // 正常提交路径 **和** hard-cap 轮次上限 兜底提交路径(同一个函数)都必须照常写出。
   await withTopicEnv(null, '/dev/null/no-such-topics', async () => {
     const { commit, atomicWrites, watermarkWrites } = buildCommitHarness({ failWatermarkWrite: true });
 
@@ -633,7 +633,7 @@ test('commitCoreMemoryCompression still commits when the whole materialization p
 
     const fallback = await commit(FALLBACK_SUMMARY, 'topic-frame-fallback', 205);
     assert.equal(fallback.toolResult.context_summary_written, true);
-    assert.equal(fallback.toolResult.read_cutoff_written, true, '22 轮兜底提交也必须照常前移 cutoff');
+    assert.equal(fallback.toolResult.read_cutoff_written, true, 'hard-cap 兜底提交也必须照常前移 cutoff');
     assert.equal(fallback.artifact.read_cutoff_after_stack_index, 205);
 
     assert.equal(atomicWrites.length, 2);
