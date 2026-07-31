@@ -52,7 +52,10 @@ export const napcatConfig = {
   accessToken: process.env.NAPCAT_HTTP_ACCESS_TOKEN || process.env.WEBSOCKET_ACCESS_TOKEN || '',
   timeoutMs: Number.parseInt(process.env.NAPCAT_HTTP_TIMEOUT_MS || '10000', 10),
   webUiBaseUrl: (process.env.NAPCAT_WEBUI_BASE_URL || 'http://napcat:6099').replace(/\/$/, ''),
-  webUiToken: process.env.NAPCAT_WEBUI_TOKEN || process.env.NAPCAT_HTTP_ACCESS_TOKEN || process.env.WEBSOCKET_ACCESS_TOKEN || '',
+  // WebUI token 和 OneBot HTTP token 是 NapCat 里两套独立凭据（webui.json vs onebot11 配置）。
+  // 回退到 HTTP token 只会让 isConfigured() 假阳性，然后每次认证都撞 "token is invalid"；
+  // 宁可留空，让面板直接报「未配置」。
+  webUiToken: process.env.NAPCAT_WEBUI_TOKEN || '',
   webUiTimeoutMs: Number.parseInt(process.env.NAPCAT_WEBUI_TIMEOUT_MS || '10000', 10)
 };
 
