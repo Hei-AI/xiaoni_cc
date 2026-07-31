@@ -801,6 +801,10 @@ function normalizeLlmSliceRow(row) {
       ? null
       : row.provider_raw_trace_available === true || row.provider_raw_trace_available === 'true',
     outputItems: normalizeJsonArray(row.output_items, []),
+    // summaryOnly 投影下 outputItems 恒为空，这一小段截断文本是行上唯一能显示的模型输出。
+    assistantTextPreview: typeof row.assistant_text_preview === 'string' && row.assistant_text_preview.trim()
+      ? row.assistant_text_preview
+      : null,
     status: row.status || null,
     tokenUsage: normalizeJsonObject(row.token_usage, {}),
     traceId: row.trace_id || null,
@@ -4518,6 +4522,19 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
           NULL::jsonb AS wire_response,
           NULL::jsonb AS raw_response,
           '[]'::jsonb AS output_items,
+          -- output_items 整份不带出来(同上，wire 级体积会撑爆堆)，但这一行在页面上必须能说清
+          -- 「这次模型调用她到底说了什么」——尤其是 plan 空转 run 被作废后，栈里那份已经没了，
+          -- 这条观测记录是唯一的痕迹。所以在库里就截断成一小段纯文本再带出来。
+          left(coalesce((
+            SELECT string_agg(c.value->>'text', ' ' ORDER BY o.ordinality, c.ordinality)
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(output_items) = 'array' THEN output_items ELSE '[]'::jsonb END
+            ) WITH ORDINALITY AS o(value, ordinality)
+            CROSS JOIN LATERAL jsonb_array_elements(
+              CASE WHEN jsonb_typeof(o.value->'content') = 'array' THEN o.value->'content' ELSE '[]'::jsonb END
+            ) WITH ORDINALITY AS c(value, ordinality)
+            WHERE c.value->>'text' IS NOT NULL
+          ), ''), 600) AS assistant_text_preview,
           status,
           token_usage,
           trace_id,

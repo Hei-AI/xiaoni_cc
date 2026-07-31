@@ -960,13 +960,26 @@ function summarizeLlmRequestSlice(row) {
   ].filter(Boolean).join(' · ');
   const requestPayload = wireRequest || canonicalRequest;
   const responsePayload = wireResponse || canonicalResponse || row.rawResponse || row.raw_response;
+  // 模型这次说了什么，直接写在行上。作废腿删掉的是 agent_stack_items 里那份(她的上下文)，
+  // 观测这份留在 llm_request_slices，两者互不相干 —— 显示它不会把任何东西送回她的上下文。
+  const assistantTextPreview = firstString(row.assistantTextPreview, row.assistant_text_preview)
+    || outputItems
+      .flatMap((outputItem) => (Array.isArray(outputItem?.content) ? outputItem.content : []))
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+    || null;
+  const bodyWithOutput = assistantTextPreview
+    ? `${body}\n${assistantTextPreview}`
+    : body;
 
   return {
     id: `llm-slice:${sliceId || row.id}`,
     source: 'llm_request',
     kind: 'llm_request_slice',
     title: 'LLM 请求',
-    body: truncateText(row.errorMessage || row.error_message || body, 420),
+    body: truncateText(row.errorMessage || row.error_message || bodyWithOutput, 720),
     status: row.status || null,
     actor: 'xiaoni',
     actorName: '小腻',
