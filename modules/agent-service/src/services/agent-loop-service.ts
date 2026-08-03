@@ -66,7 +66,7 @@ import {
 import { planStackReadCutoffByBlockBudget, type StackBlockRef } from './stack-context-budget';
 import { defaultCwebpEncoder } from './qq-send-image-service';
 import { XIAONI_HEAD_AVATAR_DATA_URL } from './xiaoni-avatar';
-import { fireActionStreamRecall } from './xiaoni-recall-hook';
+import { fireActionStreamRecall, fireConsumedNotifyRecall } from './xiaoni-recall-hook';
 import {
   ResponseActionRouter,
   type ResponsePostAction,
@@ -6574,6 +6574,8 @@ export class AgentLoopService {
       ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
       0
     );
+    // 被动召回 query:认领即消费,此刻这条内容才是她正在做的事。fire-and-forget,零缓存影响。
+    fireConsumedNotifyRecall(queueMessage.payload as unknown as Record<string, unknown>);
     await this.processRuntimeFrame(queueMessage, {
       initialLoopContinuation,
       initialLoopContinuationBeforeCurrentTrigger: initialLoopContinuation.length > 0,
@@ -8001,6 +8003,8 @@ export class AgentLoopService {
           return;
         }
         continuationQueueMessages.push(claimed);
+        // 折叠进正在跑的 run 也是消费。同上,fire-and-forget,零缓存影响。
+        fireConsumedNotifyRecall(claimed.payload as unknown as Record<string, unknown>);
         const claimedInputItems = buildCurrentTurnInputItems(claimed.payload, runtimePrompt)
           .filter((item) => !isOpenResponseMessageInputItem(item) || flattenMessageContent(item.content).trim().length > 0);
         // A folded self-driven <xiaoni_plan> notify is consumed durably like any other folded

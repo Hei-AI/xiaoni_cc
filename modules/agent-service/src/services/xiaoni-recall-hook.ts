@@ -80,6 +80,44 @@ async function projectAndIngest(): Promise<void> {
   });
 }
 
+// 消费侧 query 点火。被动召回是对小腻**正在消费的内容**的进一步联想,所以点火时刻只有一个:
+// 她真的把这条 notify 消费掉的那一刻。还躺在 Notify Bucket 里没被消费的,不构成她的「当下」
+//   —— 她睡着时进桶的消息不点火,等她醒来消费才点。
+//
+// 为什么不复用 fireActionStreamRecall:消费 notify 会写 runtime_input 栈行,那条腿确实会触发,
+// 但它的 query 文本是整个 runtime_input 的渲染,实测被 <xiaoni_plan> 盖过(全库 8431 条
+// action_stream cue 只有 62 条含对方名字)。「别人刚说的话勾起她一段回忆」需要消息原文当 query。
+//
+// landedRef 沿用 `inbound:<id>` 形状,shadow_log.query_ref 语义与挪之前完全一致。
+// 铁律:fire-and-forget,不进 request、不写 agent_stack_items,对双缓存零影响。
+export function fireConsumedNotifyRecall(payload: Record<string, unknown> | null | undefined): void {
+  if (!ENABLED || !payload) {
+    return;
+  }
+  // 只对 QQ 消息类 notify 点火;xiaoni_plan / clock_ping / 压缩完成等自驱动 notify 仍由
+  // fireActionStreamRecall 覆盖(它们本来就是她自己的动作)。
+  if (!payload.phoneNotification) {
+    return;
+  }
+  const landedText = typeof payload.bodyForAgent === 'string' ? payload.bodyForAgent : '';
+  if (!landedText) {
+    return;
+  }
+  const messageId = (payload as Record<string, any>).messageId;
+  const landedRef = messageId ? `inbound:${messageId}` : null;
+  const occurredAt = (typeof payload.messageTimestamp === 'string' && payload.messageTimestamp)
+    || (typeof payload.receivedAt === 'string' && payload.receivedAt) || undefined;
+  Promise.resolve()
+    .then(() => getIngest().runShadowRecall({
+      landedText,
+      landedRef,
+      contextRefs: [],
+      taskLocked: false,
+      occurredAt
+    }))
+    .catch(() => {});
+}
+
 // stack append 事件后调用。同步返回,内部完全 fire-and-forget + 防抖 + 单飞。
 export function fireActionStreamRecall(): void {
   if (!ENABLED || inFlight) {
