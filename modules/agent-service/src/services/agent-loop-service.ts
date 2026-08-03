@@ -1805,7 +1805,7 @@ const RECOVER_ENERGY_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.recoverEnergy,
-    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 时，身体本能和昼夜节律会决定你是短暂打盹还是睡到自然醒。clock 仅仅代表你心里定下的短闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；它不是完整睡眠时长，也不是夜间 8 小时睡眠的闹铃。如果你透支得太狠，身体出于自我保护会屏蔽闹钟，直到恢复到及格线以上才会让你醒来。注意：身体有自己的节律，如果你当前精力充沛却频繁试图强行闭眼休息，你根本睡不着，潜意识会直接拒绝这次休眠（导致失眠）。',
+    description: '闭目养神，休息恢复精力。你不需要去预测自己会睡多久：不设 clock 就一直睡到自然醒。clock 仅仅代表你心里定下的短闹钟，想在几分钟或几十分钟后叫醒自己起来继续干活；它不是完整睡眠时长，也不是夜间 8 小时睡眠的闹铃。',
     parameters: {
       type: 'object',
       properties: {
@@ -1821,7 +1821,7 @@ const RECOVER_ENERGY_TOOL = {
           type: 'integer',
           minimum: 5,
           maximum: RECOVER_ENERGY_CLOCK_MAX_MINUTES,
-          description: '可选。给自己定的短闹钟（可以是几分钟，也可以是几十分钟后，最长 120 分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，顺其自然睡到身体和昼夜节律允许醒来。'
+          description: '可选。给自己定的短闹钟（可以是几分钟，也可以是几十分钟后，最长 120 分钟）。它代表“几分钟后闹钟响”，用于中途起来继续干活，绝对不是你想睡的总时长。不填则表示彻底放空，睡到自然醒。'
         }
       },
       required: ['reason', 'xiaoni_os'],
@@ -13083,7 +13083,7 @@ export class AgentLoopService {
             })
           : null;
         if (energyState && gate && !gate.accepted) {
-          const reason = '现在还没到可以休息的线：刚醒不久、身体还撑得住的时候，很难再次入睡。';
+          const reason = '一点困意都没有。';
           return {
             recovered: false,
             rest_rejected: true,
