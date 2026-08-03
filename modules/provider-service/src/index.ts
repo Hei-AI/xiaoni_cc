@@ -50,8 +50,10 @@ import {
 import {
   applyForcedInboundAgentQueuePolicy,
   decideInboundAgentQueueTrigger,
+  isReachableByXiaoni,
   processInboundAgentQueueTrigger
 } from './services/inbound-agent-trigger-service';
+import { fireInboundRecall } from './services/xiaoni-recall-hook';
 import {
   resolveInternalGroupSendRequest,
   resolveInternalPrivateSendRequest
@@ -1255,7 +1257,12 @@ async function processAutoReply(params: {
   const triggerDecision = decideInboundAgentQueueTrigger(params.inboxEvent, {
     notificationMode: policy.notificationMode
   });
-  const notificationAllowed = policy.autoReplyEnabled && triggerDecision.shouldEnqueue;
+  const notificationAllowed = isReachableByXiaoni(policy, triggerDecision);
+  // 被动召回语料:只收真的递到她面前的消息(与上面的投递判据共用同一个布尔值,不会漂)。
+  // fire-and-forget,不 await,失败不影响入站主链。
+  if (notificationAllowed) {
+    fireInboundRecall(params.inboxEvent);
+  }
   const participationDecision = {
     decision: notificationAllowed ? 'notify' as const : 'skip' as const,
     reason: !policy.autoReplyEnabled

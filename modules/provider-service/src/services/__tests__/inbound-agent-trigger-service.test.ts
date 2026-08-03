@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyForcedInboundAgentQueuePolicy,
+  decideInboundAgentQueueTrigger,
+  isReachableByXiaoni,
   processInboundAgentQueueTrigger,
   shouldForceInboundAgentQueueTrigger,
   type InboundAgentQueueRuntimeStore
@@ -557,4 +559,69 @@ test('does not force ordinary group messages through disabled policy', () => {
 
   assert.equal(shouldForceInboundAgentQueueTrigger(message), false);
   assert.equal(applyForcedInboundAgentQueuePolicy(disabledPolicy, message), disabledPolicy);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isReachableByXiaoni:被动召回语料写入门。判据是「这条消息真的递到她面前了吗」,
+// 不是 is_enabled —— 两者在关闭群@她 / mentions_only 群非@ 两个口上分岔。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const disabledPolicyState = {
+  exists: true,
+  isEnabled: false,
+  continuousLearningEnabled: false,
+  autoReplyEnabled: false,
+  notificationMode: 'all' as const,
+  notificationAggregationSeconds: 0
+};
+const enabledPolicyState = {
+  exists: true,
+  isEnabled: true,
+  continuousLearningEnabled: false,
+  autoReplyEnabled: true,
+  notificationMode: 'all' as const,
+  notificationAggregationSeconds: 0
+};
+
+test('isReachableByXiaoni: 关闭群的普通消息不可达(不进召回语料)', () => {
+  const message = { chatType: 'group' as const, wasMentioned: false, senderId: '20001' };
+  const effective = applyForcedInboundAgentQueuePolicy(disabledPolicyState, message);
+  const decision = decideInboundAgentQueueTrigger(message, { notificationMode: 'all' });
+
+  assert.equal(isReachableByXiaoni(effective, decision), false);
+});
+
+test('isReachableByXiaoni: 关闭群里 @她 可达(她真会醒,该进语料)', () => {
+  const message = { chatType: 'group' as const, wasMentioned: true, senderId: '20001' };
+  const effective = applyForcedInboundAgentQueuePolicy(disabledPolicyState, message);
+  const decision = decideInboundAgentQueueTrigger(message, { notificationMode: 'all' });
+
+  assert.equal(effective.autoReplyEnabled, true, '强制放行应把 autoReplyEnabled 抬成 true');
+  assert.equal(isReachableByXiaoni(effective, decision), true);
+});
+
+test('isReachableByXiaoni: 开启群的普通消息可达', () => {
+  const message = { chatType: 'group' as const, wasMentioned: false, senderId: '20001' };
+  const decision = decideInboundAgentQueueTrigger(message, { notificationMode: 'all' });
+
+  assert.equal(isReachableByXiaoni(enabledPolicyState, decision), true);
+});
+
+test('isReachableByXiaoni: mentions_only 群的非@消息不可达(群开着但递不到)', () => {
+  const message = { chatType: 'group' as const, wasMentioned: false, senderId: '20001' };
+  const decision = decideInboundAgentQueueTrigger(message, { notificationMode: 'mentions_only' });
+
+  const mentionsOnlyPolicy = { ...enabledPolicyState, notificationMode: 'mentions_only' as const };
+  assert.equal(decision.shouldEnqueue, false);
+  assert.equal(isReachableByXiaoni(mentionsOnlyPolicy, decision), false);
+});
+
+test('isReachableByXiaoni: 授权用户私聊即使 is_enabled=0 也可达(强制放行)', () => {
+  const message = { chatType: 'direct' as const, wasMentioned: false, senderId: '20001' };
+  const effective = applyForcedInboundAgentQueuePolicy(disabledPolicyState, message, {
+    directTriggerUserIds: new Set(['20001'])
+  });
+  const decision = decideInboundAgentQueueTrigger(message);
+
+  assert.equal(isReachableByXiaoni(effective, decision), true);
 });

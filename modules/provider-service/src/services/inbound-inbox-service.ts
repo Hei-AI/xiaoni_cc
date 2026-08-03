@@ -6,7 +6,6 @@ import {
 } from '@qq-bot/persistence';
 import { v4 as uuidv4 } from 'uuid';
 import { databaseConfig } from '../config';
-import { fireInboundRecall } from './xiaoni-recall-hook';
 import {
   FinalizedInboundContext,
   InboxConversationSummary,
@@ -139,8 +138,8 @@ export class InboundInboxService {
 
     this.addToUnreadBuffer(message);
 
-    // 被动浮现:入站落地 → fire-and-forget ingest + shadow 召回(不投递,零缓存,失败不影响主链)。
-    fireInboundRecall(message);
+    // 落库是纯落库:被动召回的语料写入挪到 index.ts 的可达性门之后(见 isReachableByXiaoni),
+    // query 点火挪到 agent-service 消费 notify 的那一刻。这里不再触发任何召回。
 
     return {
       traceId: message.traceId,

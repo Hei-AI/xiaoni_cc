@@ -84,6 +84,17 @@ export function shouldForceInboundAgentQueueTrigger(
     && options.directTriggerUserIds?.has(senderId) === true;
 }
 
+// 「小腻是否够得着这条消息」的运行时唯一真理源。is_enabled 只是它的近似,在两个口上分岔:
+// 关闭群里 @她 会被 applyForcedInboundAgentQueuePolicy 强制放行(她真会醒 → 可达);
+// mentions_only 群的普通消息 shouldEnqueue=false(群是开的但递不到 → 不可达)。
+// 被动召回的语料写入门与 notificationAllowed 共用这一个函数,防止两处判据漂移。
+export function isReachableByXiaoni(
+  policy: Pick<InboundAgentQueuePolicyState, 'autoReplyEnabled'>,
+  decision: Pick<InboundAgentQueueTriggerDecision, 'shouldEnqueue'>
+): boolean {
+  return policy.autoReplyEnabled === true && decision.shouldEnqueue === true;
+}
+
 export function applyForcedInboundAgentQueuePolicy(
   policy: InboundAgentQueuePolicyState,
   message: Pick<InboxMessageRecord, 'chatType' | 'wasMentioned' | 'senderId'>,
