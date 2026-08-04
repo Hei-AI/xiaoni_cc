@@ -98,6 +98,34 @@ app.post('/api/internal/runtime/subconscious-plan/submit', async (req, res) => {
   }
 });
 
+// 通用 notify 投递口。小腻自己写的 skill(check-email 这类后台观察脚本)用它把「发生了什么」
+// 送进 Notify Bucket —— 在此之前那些脚本只能往日志里 print,没人读。
+//
+// 【无鉴权】。这成立的唯一前提是它只在容器网内可达:只挂 127.0.0.1:8092 + qq_bot_network,
+// 与其它 /api/internal/* 同待遇,不经 admin 暴露层。谁要把这条路由挂到 admin-backend 或改
+// docker-compose.yml 的 ports 绑定,必须【同时】补上鉴权 —— 否则等于开了一个匿名的、能直接往
+// 她上下文里塞话的公网口。
+//
+// 校验全在 ingestExternalNotify 里,路由只做转译。
+app.post('/api/internal/runtime/notify', async (req, res) => {
+  try {
+    const body = (req.body || {}) as Record<string, unknown>;
+    const result = await loopService.ingestExternalNotify({
+      text: body.text,
+      sourceSystem: body.source_system ?? body.sourceSystem
+    });
+    if (result.ok) {
+      res.json({ success: true, queue_id: result.queueId });
+      return;
+    }
+    res.status(result.status).json({ success: false, error: result.reason });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    moduleLogger.warn('External notify route failed', { error: message });
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
 app.post('/api/internal/runtime/core-memory-compression/trigger', async (_req, res) => {
   try {
     const result = await loopService.triggerManualCoreMemoryCompression();

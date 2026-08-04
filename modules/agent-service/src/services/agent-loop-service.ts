@@ -4261,6 +4261,21 @@ function renderSubconsciousAgentNotify(finalAnswerText: string) {
   }).trim();
 }
 
+// 外部投递口的入参约束。source_system 会逐字进她的上下文，所以必须收窄字符集;text 上限防止
+// 一次投递把整条 message tier 撑爆(超限直接 400，不截断——截断会让投递方以为送到了)。
+const EXTERNAL_NOTIFY_MAX_TEXT_LENGTH = 4000;
+const EXTERNAL_NOTIFY_SOURCE_SYSTEM_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+
+// 外部投递 notify 的正文。来源标记机械拼在最前面 —— 正文本身完全由投递方(小腻自己写的 skill)
+// 组织，运行时不做任何加工。模板里绝不放时间戳:报时是 clock_ping 的职责，这里塞戳会让下一 run
+// 的 replay 对不上冻结字节。
+export function renderExternalNotify(sourceSystem: string, text: string) {
+  return renderPromptSnippet('external_notify.md', {
+    SOURCE_SYSTEM: sourceSystem,
+    TEXT: text
+  }).trim();
+}
+
 function buildSelfContinuationInputItem(): OpenResponseInputItem {
   return buildUserSceneInputItem([renderSelfContinuationReminder()]);
 }
@@ -11547,6 +11562,123 @@ export class AgentLoopService {
     });
   }
 
+  /**
+   * 外部投递入口。小腻自己写的 skill(check-email 这类后台观察脚本)发现了事情，打这里把它送到
+   * 她面前 —— 在此之前那些脚本只能往日志里 print，没有任何通道能叫醒她。
+   *
+   * 路由只做转译，校验全在这里(同 redeemSubconsciousPlanTicket 的分工)。
+   */
+  async ingestExternalNotify(params: { text: unknown; sourceSystem: unknown }): Promise<
+    | { ok: true; queueId: number | null }
+    | { ok: false; status: 400 | 500; reason: string }
+  > {
+    const text = typeof params.text === 'string' ? params.text.trim() : '';
+    const sourceSystem = typeof params.sourceSystem === 'string' ? params.sourceSystem.trim() : '';
+    if (!text) {
+      return { ok: false, status: 400, reason: 'empty_text' };
+    }
+    if (text.length > EXTERNAL_NOTIFY_MAX_TEXT_LENGTH) {
+      return { ok: false, status: 400, reason: 'text_too_long' };
+    }
+    if (!EXTERNAL_NOTIFY_SOURCE_SYSTEM_PATTERN.test(sourceSystem)) {
+      return { ok: false, status: 400, reason: 'invalid_source_system' };
+    }
+    try {
+      const notify = await this.enqueueExternalNotify({ sourceSystem, text });
+      return { ok: true, queueId: Number(notify?.queueId || 0) || null };
+    } catch (error) {
+      moduleLogger.warn('Failed to enqueue external notify', {
+        sourceSystem,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return { ok: false, status: 500, reason: 'enqueue_failed' };
+    }
+  }
+
+  // 逐字段克隆 enqueueSubconsciousAgentNotify 的形状 —— 那条路径已经在线验过缓存安全:正文在
+  // enqueue 时刻冻结进 payload.systemReminder.reminder，下一 run 的 stack replay 从同一字段读回
+  // 同样的字节，逐字节可重建。这里唯一的区别是 reason / 模板 / dedupe key 前缀。
+  //
+  // dedupeKey 每次调用随机(用户拍板:服务端生成)。后果是【没有幂等】—— 同一件事投两次就是两条
+  // notify。投递方(skill)必须自己保证只在状态真变化时投,别指望这一层去重。
+  private async enqueueExternalNotify(params: { sourceSystem: string; text: string }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      throw new Error('external notify requires queue enqueue persistence');
+    }
+    const now = new Date();
+    const messageSid = `external-notify:${params.sourceSystem}:${uuidv4()}`;
+    // trace_id 显式给足,不走 enqueueAgentQueueMessage 的兜底。空 trace_id 会让 stack 的
+    // runtime-input event_id 塌到 runId 兜底,同一 run 两条撞 ON CONFLICT 被吞 → 下个 run replay
+    // 变短 → run 边界缓存击穿(docs/CACHE_CONTRACT.md §3)。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = renderExternalNotify(params.sourceSystem, params.text);
+    const rawPayload = {
+      reason: 'external_notify',
+      source_system: params.sourceSystem,
+      notify_template: 'external_notify.md'
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'external_notify',
+        sourceSystem: params.sourceSystem,
+        createdAt: now.toISOString()
+      },
+      externalNotify: rawPayload
+    };
+
+    return enqueuer.call(this.store, {
+      message: {
+        traceId,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+  }
+
   // Compression-done notify: after a real compression commits (cutoff advanced → her context
   // just shrank), push ONE system_reminder into the Notify Bucket so the main loop sees「刚整理过
   // 一次记忆」. Mirrors enqueueSubconsciousAgentNotify (same framework-native delivery path):
@@ -14874,6 +15006,20 @@ function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payl
   const notifyTemplate = queueMessage.rawPayload?.notify_template;
   return reason === 'subconscious_agent'
     && notifyTemplate === 'subconscious_agent_notify.md';
+}
+
+// 外部投递进来的 notify(skill 打 /api/internal/runtime/notify)。当前只用于观测和日后加行为门:
+// 它【不】接进 classifyCurrentBucketMessageTemplate —— 渲染照走 renderSystemReminder 那条既有路径。
+// 也【不】进 :8753 的空转记账排除门:clock_ping 隐形是因为它是引擎每 2h 自发的节拍器，而外部投递
+// 是真事件。她收到通知去处理就必然调工具(didRealWork 归零)，收到了却纯文本收工那本来就是空转。
+export function isExternalNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  const notifyTemplate = queueMessage.rawPayload?.notify_template;
+  return reason === 'external_notify'
+    && notifyTemplate === 'external_notify.md';
 }
 
 function isPromptFacingRuntimeReminderPayload(queueMessage: QueueMessageRecord['payload']) {
