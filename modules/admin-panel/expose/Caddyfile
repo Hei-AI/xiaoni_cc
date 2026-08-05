@@ -8,6 +8,6 @@
             import /etc/caddy/local/*.caddy
         }
 
-        reverse_proxy 172.18.0.1:3904
+        reverse_proxy qqbot-admin-frontend:80
     }
 }
