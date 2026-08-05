@@ -169,6 +169,7 @@ messages: [
 
 **Done Means**：改了 `docker-compose.yml` 托管的服务，完成判定必须包括：对应模块构建或测试 → `docker compose build <service>` → `docker compose up -d <service>` → `docker compose ps` → 日志/健康检查确认正常。
 **NEVER** 对主栈执行 `docker compose up -d --remove-orphans`，会误停不该动的容器。
+**用 `sudo` 起/重建 compose 服务时必须显式带 `HOME=/home/liahua`**，即 `echo "$PW" | sudo -S env HOME=/home/liahua docker compose up -d <service>`。`docker-compose.yml` 里的卷是 `${HOME}/.qqbot-local/...`；直接 `sudo docker compose` 会把 `${HOME}` 解析成 `/root`，导致容器挂到全新的空目录 `/root/.qqbot-local/xiaoni-runtime`（表现为小腻突然「看不到」forever/sessions 等数据，实际数据仍在 `/home/liahua/.qqbot-local/xiaoni-runtime`，只是挂错了目录）。主栈其它容器都挂 `/home/liahua`，重启单个服务务必对齐。
 
 ## Local Access
 
