@@ -14,6 +14,10 @@ import {
 } from '@qq-bot/persistence';
 import { aiConfig, inboundLivenessConfig, serverConfig } from './config';
 import { evaluateInboundLiveness } from './services/inbound-liveness';
+import {
+  buildInboundMediaAssetId,
+  buildInboundMediaAssetScopeKey
+} from './services/inbound-media-asset-id';
 import EmbeddingService from './services/embedding-service';
 import { executeAgentRequest, executeDebugRequest } from './services/provider-debug-service';
 import { NapcatClient } from './services/napcat-client';
@@ -664,7 +668,7 @@ async function resolveInboundMediaBytes(asset: InboundMediaAsset) {
   throw new Error('Inbound media asset has no readable locator');
 }
 
-async function materializeInboundMediaAsset(asset: InboundMediaAsset) {
+async function materializeInboundMediaAsset(asset: InboundMediaAsset, scopeKey = '') {
   const resolved = await resolveInboundMediaBytes(asset);
   const detectedImageMimeType = sniffImageMimeType(resolved.buffer, resolved.mimeType || asset.mimeType);
   const mimeType = detectedImageMimeType || normalizeMimeType(resolved.mimeType) || normalizeMimeType(asset.mimeType) || 'application/octet-stream';
@@ -681,7 +685,7 @@ async function materializeInboundMediaAsset(asset: InboundMediaAsset) {
     }
   }
   return {
-    id: `media_${contentHash.slice(0, 48)}`,
+    id: buildInboundMediaAssetId(contentHash, scopeKey),
     storageUri: `${INBOUND_MEDIA_ASSET_BASE_URL}/api/internal/media-assets/${encodeURIComponent(filename)}`,
     storagePath,
     executorPath: storagePath,
@@ -699,7 +703,11 @@ async function prepareInboundMediaAssets(inboundContext: FinalizedInboundContext
       continue;
     }
     try {
-      const materialized = await materializeInboundMediaAsset(asset);
+      const scopeKey = buildInboundMediaAssetScopeKey(
+        asset.messageSid || inboundContext.MessageSid,
+        asset.mediaTag
+      );
+      const materialized = await materializeInboundMediaAsset(asset, scopeKey);
       asset.id = materialized.id;
       asset.storageUri = materialized.storageUri;
       asset.storagePath = materialized.storagePath;
