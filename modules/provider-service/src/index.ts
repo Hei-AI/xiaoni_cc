@@ -741,6 +741,33 @@ async function persistInboundMediaAssets(inboundContext: FinalizedInboundContext
     return [];
   }
 
+  // Media persistence is best-effort and MUST NOT be able to abort ingest. It runs after
+  // the inbound row is already written but before the policy gate and processAutoReply,
+  // so anything thrown here used to escape to the webhook's catch as a 500 — leaving the
+  // message sitting in the inbox with no phone_notification ever enqueued, i.e. 小腻
+  // silently never wakes for it. A missing attachment is recoverable; a missing notify
+  // is a lost message.
+  try {
+    return await upsertInboundMediaAssets(mediaAssets, inboundContext, sourceMessageId, traceId);
+  } catch (error) {
+    moduleLogger.error('Failed to persist inbound media assets (ingest continues)', {
+      sessionKey: inboundContext.SessionKey,
+      messageSid: inboundContext.MessageSid,
+      sourceMessageId: sourceMessageId || null,
+      traceId: traceId || null,
+      mediaCount: mediaAssets.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return [];
+  }
+}
+
+async function upsertInboundMediaAssets(
+  mediaAssets: NonNullable<FinalizedInboundContext['MediaAssets']>,
+  inboundContext: FinalizedInboundContext,
+  sourceMessageId?: number | null,
+  traceId?: string
+) {
   return upsertAgentMediaAssets(mediaAssets.map((asset) => ({
     id: asset.id,
     source: inboundContext.Surface || inboundContext.Provider || 'napcat',
