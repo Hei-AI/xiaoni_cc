@@ -239,18 +239,25 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
-  // 按 dedupe_key 前缀数最近的入队条数。给「一天最多投几条」这类闸用:入队记录本身就是
-  // 投递账本(行自 2026-03 起从不清理),不必再建一张投递计数表。
-  async function countAgentQueueMessagesByDedupePrefix(params = {}, config = {}) {
+  // 按 dedupe_key 前缀列最近的入队键(新→旧)。入队记录本身就是投递账本(行自 2026-03 起
+  // 从不清理),不必再建投递计数表。返回键而不是条数,是因为调用方要从**同一次读**里同时得到
+  // 「投了几条」和「上一条是哪一类」—— dedupe_key 的前缀段就编着类别,两件事一个查询解决,
+  // 不为轮转另开第二个真理源。
+  async function listRecentAgentQueueDedupeKeys(params = {}, config = {}) {
     const prisma = getClient(config);
     const prefix = typeof params.prefix === 'string' ? params.prefix : '';
     if (!prefix) {
-      return 0;
+      return [];
     }
     const since = params.since instanceof Date ? params.since : new Date(Number(params.since) || 0);
-    return prisma.agentQueueMessage.count({
-      where: { dedupe_key: { startsWith: prefix }, created_at: { gte: since } }
+    const take = Math.max(1, Math.min(Number(params.limit) || 500, 2000));
+    const rows = await prisma.agentQueueMessage.findMany({
+      where: { dedupe_key: { startsWith: prefix }, created_at: { gte: since } },
+      select: { dedupe_key: true },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take
     });
+    return rows.map((row) => row.dedupe_key).filter(Boolean);
   }
 
   async function claimNextAgentQueueMessage(input = {}, config = {}) {
@@ -645,7 +652,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 
   return {
     enqueueAgentQueueMessage,
-    countAgentQueueMessagesByDedupePrefix,
+    listRecentAgentQueueDedupeKeys,
     claimNextAgentQueueMessage,
     foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,

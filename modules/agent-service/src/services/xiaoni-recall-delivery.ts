@@ -39,11 +39,34 @@ const moduleLogger = logger.createModuleLogger('xiaoni-recall-delivery');
 const IDENTITY_KEY = 'xiaoni';
 const DEDUPE_PREFIX = 'recall-surface:';
 
-// 只投这两条腿(理由见文件头)。顺序即优先级:承诺(还没了的事)比联想(旧事重提)更该说。
+// 只投这两条腿(理由见文件头)。**腿间轮转**,不是固定优先级:
+// 2026-08-07 首日活体观察 —— 固定优先级(open_loop 在前)下,6 条日额**全被 open_loop 吃光**,
+// association 一条没轮到。因为她常年有 20 条开放承诺,那条腿永远有货,排在前面就永远不让位。
+// 首发放两条腿、实际只跑一条,等于把当初「association 唯一率 100%,质量最高」的理由作废了。
 const DELIVERABLE_LEGS: Array<{ leg: string; queryRef: string }> = [
   { leg: 'open_loop', queryRef: 'open_loop_scan' },
   { leg: 'association', queryRef: 'association_scan' }
 ];
+
+// dedupe_key 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在键里,不必另存游标。
+function legFromDedupeKey(key: string | undefined): string | null {
+  if (typeof key !== 'string' || !key.startsWith(DEDUPE_PREFIX)) {
+    return null;
+  }
+  const rest = key.slice(DEDUPE_PREFIX.length);
+  const idx = rest.indexOf(':');
+  return idx > 0 ? rest.slice(0, idx) : null;
+}
+
+// 上一条投的是哪条腿,这一拍就把另一条排前面。某条没货 → 自然落回另一条(不是死等),
+// 下一拍再换回来。状态从队列现读,supervisor 保持无状态、重启即续。
+function rotateLegs(lastLeg: string | null): Array<{ leg: string; queryRef: string }> {
+  const idx = lastLeg ? DELIVERABLE_LEGS.findIndex((entry) => entry.leg === lastLeg) : -1;
+  if (idx < 0) {
+    return DELIVERABLE_LEGS;
+  }
+  return [...DELIVERABLE_LEGS.slice(idx + 1), ...DELIVERABLE_LEGS.slice(0, idx + 1)];
+}
 
 // 开关与日额的**唯一真理源是 agent_runtime_control**(管理端可改、每拍热读、无重启)。
 // 不留 env 兜底:两个真理源会让「页面上关了但它还在投」变成可能,而这是一个会主动
@@ -63,7 +86,7 @@ type Lead = { leg: string; identity: string; text: string; occurredAt: string | 
 // 依赖注入(同 createRecallIngest 的形状):真跑时是 @qq-bot/persistence,测试时是假件。
 export interface RecallDeliveryDeps {
   listRecallShadowLog(params: Record<string, unknown>, config?: unknown): Promise<unknown>;
-  countAgentQueueMessagesByDedupePrefix(params: { prefix: string; since: Date }, config?: unknown): Promise<number>;
+  listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date; limit?: number }, config?: unknown): Promise<string[]>;
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ queueId?: number; status?: string; created?: boolean } | null>;
 }
 
@@ -235,17 +258,21 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'disabled';
     }
     const now = clock();
-    const deliveredToday = await deps.countAgentQueueMessagesByDedupePrefix({
+    // 一次读同时给出「今天投了几条」和「上一条是哪条腿」—— 日额与轮转共用同一份事实。
+    const todaysKeys = await deps.listRecentAgentQueueDedupeKeys({
       prefix: DEDUPE_PREFIX,
-      since: startOfEast8Day(now)
+      since: startOfEast8Day(now),
+      limit: 500
     }, databaseConfig);
+    const deliveredToday = Array.isArray(todaysKeys) ? todaysKeys.length : 0;
     if (deliveredToday >= dailyCap) {
       return 'capped';
     }
+    const legOrder = rotateLegs(legFromDedupeKey(todaysKeys?.[0]));
 
     // 新的先投:两条腿都是「时间到了该提」的性质,旧 lead 早就被更旧的 tick 消化过。
     const candidates: Lead[] = [];
-    for (const { leg, queryRef } of DELIVERABLE_LEGS) {
+    for (const { leg, queryRef } of legOrder) {
       // eslint-disable-next-line no-await-in-loop
       const rows = await deps.listRecallShadowLog({
         identityKey: IDENTITY_KEY,

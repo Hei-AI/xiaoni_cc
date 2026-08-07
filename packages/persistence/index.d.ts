@@ -1928,7 +1928,7 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   /** true 仅当真的新插了一行;撞 dedupe_key 返回既有行时为 false(status 区分不了)。 */
   created: boolean;
 }>;
-export function countAgentQueueMessagesByDedupePrefix(params: { prefix: string; since: Date | number }, config?: DatabaseUrlConfig): Promise<number>;
+export function listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date | number; limit?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 export type AgentQueueClaimInput = {
   workerId?: string;
   worker_id?: string;

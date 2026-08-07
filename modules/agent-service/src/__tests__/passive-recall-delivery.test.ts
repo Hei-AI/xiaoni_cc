@@ -17,6 +17,8 @@ function fakeDeps(overrides: {
   rowsByQueryRef?: Record<string, unknown[]>;
   deliveredToday?: number;
   alreadyDelivered?: Set<string>;
+  // 今天已投的 dedupe_key(新→旧)。日额计数与腿间轮转都从这一份读。
+  todaysKeys?: string[];
 } = {}) {
   const calls: EnqueueCall[] = [];
   const already = overrides.alreadyDelivered || new Set<string>();
@@ -25,8 +27,11 @@ function fakeDeps(overrides: {
       const queryRef = String((params as { queryRef?: unknown }).queryRef || '');
       return (overrides.rowsByQueryRef || {})[queryRef] || [];
     },
-    async countAgentQueueMessagesByDedupePrefix() {
-      return overrides.deliveredToday ?? 0;
+    async listRecentAgentQueueDedupeKeys() {
+      if (Array.isArray(overrides.todaysKeys)) {
+        return overrides.todaysKeys;
+      }
+      return Array.from({ length: overrides.deliveredToday ?? 0 }, (_, i) => `recall-surface:open_loop:pad${i}`);
     },
     async enqueueAgentQueueMessage(input) {
       const call = input as unknown as EnqueueCall;
@@ -119,7 +124,7 @@ test('只投 open_loop / association 两条腿 —— 其余腿的 queryRef 根�
       queried.push(String((params as { queryRef?: unknown }).queryRef || ''));
       return [];
     },
-    async countAgentQueueMessagesByDedupePrefix() { return 0; },
+    async listRecentAgentQueueDedupeKeys() { return []; },
     async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
   };
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
@@ -224,4 +229,69 @@ test('open_loop 身份取 text 不取 lead —— 天数变了也认得出是同
     alreadyDelivered: shared
   });
   assert.equal(await createPassiveRecallDelivery(day2.deps, gate(true, 6)).deliverOnce(), 'none', '天数变了不算新记忆');
+});
+
+// ── 腿间轮转(2026-08-07 首日活体观察发现)──────────────────────────────────
+// 固定优先级下 6 条日额全被 open_loop 吃光,association 一条没轮到 —— 她常年有 20 条开放
+// 承诺,那条腿永远有货,排在前面就永远不让位。首发放两条腿、实际只跑一条。
+test('轮转:上一条是 open_loop → 这一拍先给 association', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: ['recall-surface:open_loop:aaa'],
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
+});
+
+test('轮转:上一条是 association → 这一拍换回 open_loop', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: ['recall-surface:association:bbb'],
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+});
+
+test('轮转不是死等:该轮到的那条腿没货 → 落回另一条,不空投', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: ['recall-surface:open_loop:aaa'],
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      association_scan: [] // association 这轮没扫出东西
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+});
+
+test('今天还没投过 → 用默认顺序(open_loop 先)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  await delivery.deliverOnce();
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+});
+
+test('日额仍按今天已投的键数刹车', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: Array.from({ length: 6 }, (_, i) => `recall-surface:open_loop:k${i}`),
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'capped');
+  assert.equal(calls.length, 0);
 });
