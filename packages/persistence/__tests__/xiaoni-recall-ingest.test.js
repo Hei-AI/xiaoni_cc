@@ -150,3 +150,48 @@ test('无 cutoff(全新 session)→ 结构式排除退回调用方近窗,不炸'
   assert.strictEqual(result.silent, false);
   assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['stack:100']);
 });
+
+// ── per-cue 冷却(2026-08-07 真库诊断)─────────────────────────────────────────
+// 第二/三/四腿各自都有冷却,唯独向量腿没有 → 同一块砖无限重浮:近 7 天 shadow 里
+// db_file_provenance 浮 648 次只有 10 个不同 ref(1.5%),单个文件 446 次。
+// 投递开之前必须结构性堵死,否则投给她的就是复读机。
+test('per-cue 冷却:窗口内浮过的砖这次不再冒(计入 cooled_down)', async () => {
+  const candidates = [
+    { sourceRef: 'HOT', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/hot.md' }, embeddingText: '刚刚才浮过的那一条' },
+    { sourceRef: 'FRESH', embedding: [0.78, 0.62, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/fresh.md' }, embeddingText: '还没浮过的另一条往事' }
+  ];
+  const persistence = fakePersistence({
+    candidates,
+    fns: { async listRecentlySurfacedRecallRefs() { return ['HOT']; } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q3' });
+
+  assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['FRESH'], '冷却中的 HOT 不该冒');
+  const log = persistence.calls.shadowLogs[0];
+  assert.strictEqual(log.droppedCounts.cooled_down, 1);
+});
+
+test('per-cue 冷却:老 persistence 无此函数 → 退化成无冷却,行为不变', async () => {
+  const candidates = [
+    { sourceRef: 'HOT', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/hot.md' }, embeddingText: '刚刚才浮过的那一条' }
+  ];
+  const persistence = fakePersistence({ candidates });
+  assert.strictEqual(typeof persistence.listRecentlySurfacedRecallRefs, 'undefined');
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q4' });
+  assert.deepStrictEqual(result.surfaced.map((e) => e.candidate.sourceRef), ['HOT']);
+});
+
+test('per-cue 冷却:读冷却集抛错不阻断召回(宁可多浮一次,不可整条腿哑掉)', async () => {
+  const candidates = [
+    { sourceRef: 'X', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'db_file_provenance', path: '/x/x.md' }, embeddingText: '一条正常的往事记录' }
+  ];
+  const persistence = fakePersistence({
+    candidates,
+    fns: { async listRecentlySurfacedRecallRefs() { throw new Error('db down'); } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q5' });
+  assert.strictEqual(result.silent, false);
+});

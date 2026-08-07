@@ -31,6 +31,7 @@ function normalizeRuntimeControl(row) {
   const rawDebugCacheHeartbeatIntervalMs = Number.parseInt(String(row?.debug_cache_heartbeat_interval_ms ?? ''), 10);
   const rawCompressionTriggerInputTokens = Number.parseInt(String(row?.compression_trigger_input_tokens ?? ''), 10);
   const rawCompressionTriggerWireBytes = Number.parseInt(String(row?.compression_trigger_wire_bytes ?? ''), 10);
+  const rawPassiveRecallDeliveryDailyCap = Number.parseInt(String(row?.passive_recall_delivery_daily_cap ?? ''), 10);
   return {
     identityKey: row?.identity_key || 'xiaoni',
     enabled: row ? ![false, 'f', 'false', 0].includes(row.enabled) : true,
@@ -60,6 +61,17 @@ function normalizeRuntimeControl(row) {
     // 追加工具契约、纠正提示改成「必须用 skill 交」。OFF=今天的文本抽取路径,行为逐字节零变化。
     // 动态热下发(无重启)。见 docs/specs/xiaoni-plan-skill-submission.md。
     idlePlanSkillSubmissionEnabled: row ? isTruthyDatabaseBoolean(row.idle_plan_skill_submission_enabled) : false,
+    // Admin toggle: 被动浮现投递闸。true 时 agent-service 把 open_loop / association 两条腿的
+    // 召回 lead 经既有 Notify Bucket 投给她(在此之前整条召回链 shadow-only)。动态热下发(无重启)
+    // —— 这是一个会**主动发东西给她**的通道,出问题必须能在管理端一键关掉,不能靠改 compose 重启。
+    // 默认 false=OFF。见 modules/agent-service/src/services/xiaoni-recall-delivery.ts。
+    passiveRecallDeliveryEnabled: row ? isTruthyDatabaseBoolean(row.passive_recall_delivery_enabled) : false,
+    // 同一闸的日额(东八区自然日,0 = 等同关闭)。默认 6。真库基线:她每天已有 170-716 条
+    // system_reminder(其中自驱动 fork ~400),所以这个数是「先小步观察」而不是防打扰的主力
+    // —— 防重复的主力是 dedupeKey 的「同一段记忆永不重投」。
+    passiveRecallDeliveryDailyCap: Number.isFinite(rawPassiveRecallDeliveryDailyCap) && rawPassiveRecallDeliveryDailyCap >= 0
+      ? rawPassiveRecallDeliveryDailyCap
+      : 6,
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -137,6 +149,8 @@ function createAgentRuntimeControlPersistence(deps) {
         fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         idle_plan_skill_submission_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 6,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -156,6 +170,8 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS fork_idle_escalation_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS idle_plan_skill_submission_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 6');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -248,6 +264,8 @@ function createAgentRuntimeControlPersistence(deps) {
             , fork_idle_escalation_enabled
             , plan_void_on_idle_enabled
             , idle_plan_skill_submission_enabled
+            , passive_recall_delivery_enabled
+            , passive_recall_delivery_daily_cap
             , energy_policy_json
           FROM agent_runtime_control
           WHERE identity_key = ?
@@ -336,6 +354,20 @@ function createAgentRuntimeControlPersistence(deps) {
       const idlePlanSkillSubmissionEnabled = hasIdlePlanSkillSubmissionEnabled
         ? (input.idlePlanSkillSubmissionEnabled ?? input.idle_plan_skill_submission_enabled) === true
         : false;
+      const hasPassiveRecallDeliveryEnabled = typeof input.passiveRecallDeliveryEnabled === 'boolean'
+        || typeof input.passive_recall_delivery_enabled === 'boolean';
+      const passiveRecallDeliveryEnabled = hasPassiveRecallDeliveryEnabled
+        ? (input.passiveRecallDeliveryEnabled ?? input.passive_recall_delivery_enabled) === true
+        : false;
+      const rawPassiveRecallDeliveryDailyCap = input.passiveRecallDeliveryDailyCap ?? input.passive_recall_delivery_daily_cap;
+      const parsedPassiveRecallDeliveryDailyCap = Number.parseInt(String(rawPassiveRecallDeliveryDailyCap ?? ''), 10);
+      // 0 是合法值(等同关闭),所以下限是 >= 0 而不是 > 0。
+      const hasPassiveRecallDeliveryDailyCap = rawPassiveRecallDeliveryDailyCap !== undefined
+        && Number.isFinite(parsedPassiveRecallDeliveryDailyCap)
+        && parsedPassiveRecallDeliveryDailyCap >= 0;
+      const passiveRecallDeliveryDailyCap = hasPassiveRecallDeliveryDailyCap
+        ? parsedPassiveRecallDeliveryDailyCap
+        : 6;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
@@ -357,6 +389,8 @@ function createAgentRuntimeControlPersistence(deps) {
             fork_idle_escalation_enabled,
             plan_void_on_idle_enabled,
             idle_plan_skill_submission_enabled,
+            passive_recall_delivery_enabled,
+            passive_recall_delivery_daily_cap,
             updated_at
           )
           VALUES (
@@ -368,6 +402,8 @@ function createAgentRuntimeControlPersistence(deps) {
             CASE WHEN ? THEN NOW() ELSE NULL END,
             NULL,
             NULL,
+            ?,
+            ?,
             ?,
             ?,
             ?,
@@ -447,6 +483,14 @@ function createAgentRuntimeControlPersistence(deps) {
               WHEN ? THEN ?
               ELSE agent_runtime_control.idle_plan_skill_submission_enabled
             END,
+            passive_recall_delivery_enabled = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.passive_recall_delivery_enabled
+            END,
+            passive_recall_delivery_daily_cap = CASE
+              WHEN ? THEN ?
+              ELSE agent_runtime_control.passive_recall_delivery_daily_cap
+            END,
             updated_at = NOW()
           RETURNING identity_key, enabled, cache_heartbeat_paused, cache_heartbeat_paused_at, updated_at,
             post_compression_pause_armed,
@@ -461,7 +505,9 @@ function createAgentRuntimeControlPersistence(deps) {
             psych_assessment_gate_enabled,
             fork_idle_escalation_enabled,
             plan_void_on_idle_enabled,
-            idle_plan_skill_submission_enabled
+            idle_plan_skill_submission_enabled,
+            passive_recall_delivery_enabled,
+            passive_recall_delivery_daily_cap
         `,
         [
           identityKey,
@@ -479,6 +525,8 @@ function createAgentRuntimeControlPersistence(deps) {
           forkIdleEscalationEnabled,
           planVoidOnIdleEnabled,
           idlePlanSkillSubmissionEnabled,
+          passiveRecallDeliveryEnabled,
+          passiveRecallDeliveryDailyCap,
           hasEnabled,
           enabled,
           hasCacheHeartbeatPaused,
@@ -510,7 +558,11 @@ function createAgentRuntimeControlPersistence(deps) {
           hasPlanVoidOnIdleEnabled,
           planVoidOnIdleEnabled,
           hasIdlePlanSkillSubmissionEnabled,
-          idlePlanSkillSubmissionEnabled
+          idlePlanSkillSubmissionEnabled,
+          hasPassiveRecallDeliveryEnabled,
+          passiveRecallDeliveryEnabled,
+          hasPassiveRecallDeliveryDailyCap,
+          passiveRecallDeliveryDailyCap
         ]
       );
       return normalizeRuntimeControl(rows[0]);

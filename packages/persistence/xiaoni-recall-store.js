@@ -11,10 +11,31 @@
 // 这份 allowlist 与 reindex 侧的 listPalaceFiles(PALACE_FILES/PALACE_DIRS)一致;两处都改才算改范围。
 // 纯静态字面量(无用户输入),直接拼进 raw SQL 注入安全。候选池、去 anisotropy 的 μ/主成分——
 // 每一处读语料底的路径都必须套同一 scope,否则 μ 仍被 47k 读物向量污染,fence 只做一半。
+// 动作流侧再加一道「她自己不是别人」的闸(2026-08-07 真库诊断):
+// 动作流投影的 peerName 会回退到 session_key='xiaoni',于是她自己的 plan post / 工具调用
+// 全带 peer='xiaoni' 且 cueClass='db_life_cue' → 落进**他人域**。真库计数:他人域池子里
+// 自噪音 9826 条 vs 真人 347 条,近 7 天 shadow 的 peer_message 有 80% 是「xiaoni 提过：
+// ``` /app/modules/…/xiaoni-plan post <<'PLAN'…」——她被告知自己说过自己的 plan,
+// 同时真正的 Nova/阿花/帕秋莉被挤出 top-K。
+// 她自己的经历有更好的载体(日记 file_chunk + 她自己说过的话 db_spoken_fragment),
+// 原始动作流是**转瞬的行为轨迹**,不是记忆 → 只有带**真** peer 的动作流条目才进召回。
+// 存量行(peer='xiaoni')和新行(extractor 已把 self peer 写成 null)两种形状都被这条挡住。
+// db_spoken_fragment 例外放行:那一类的语义就是「她自己说的」,peer 是不是她无关紧要。
+const SELF_PEER_NAMES_SQL = "('xiaoni','小腻')";
+const ACTION_STREAM_SCOPE_SQL =
+  "(source_kind = 'action_stream' AND (" +
+  "provenance->>'cueClass' = 'db_spoken_fragment' " +
+  `OR (provenance->>'peer' IS NOT NULL AND lower(provenance->>'peer') NOT IN ${SELF_PEER_NAMES_SQL})))`;
+// 文件底 allowlist 与 reindex 侧 listPalaceFiles(PALACE_FILES/PALACE_DIRS)逐条对应。
 const RECALL_SCOPE_SQL =
-  "(source_kind IN ('inbound','action_stream') " +
-  "OR (source_kind = 'file_chunk' AND " +
-  "(source_ref LIKE '%/notes/diary/%' OR source_ref LIKE '%xiaoni-identity-anchor%')))";
+  "(source_kind = 'inbound' " +
+  `OR ${ACTION_STREAM_SCOPE_SQL} ` +
+  "OR (source_kind = 'file_chunk' AND (" +
+  "source_ref LIKE '%/notes/diary/%' " +
+  "OR source_ref LIKE '%/notes/people/%' " +
+  "OR source_ref LIKE '%/notes/topics/%' " +
+  "OR source_ref LIKE '%/notes/long-term.md%' " +
+  "OR source_ref LIKE '%xiaoni-identity-anchor%')))";
 
 function toDateOrNull(value) {
   if (!value) {
@@ -368,6 +389,32 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     }));
   }
 
+  // 向量腿的 per-cue 冷却面:窗口内已经浮过的 sourceRef 集合。
+  //
+  // 第二/三/四腿(open_loop / diary_resurface / association)各自带冷却,唯独向量腿没有,
+  // 于是同一块砖被无限重浮。2026-08-07 真库(近 7 天 surfaced):
+  //   db_file_provenance 648 次只有 10 个不同 ref(1.5%),单个 relay-0708-busstop.md 就 446 次;
+  //   file_chunk 4226 次 949 个 chunk(22.5%)。
+  // 那几条腿的冷却是「读最近 N 条自己 queryRef 的 shadow 行」;向量腿的 queryRef 是每次落地
+  // 变化的 stack:<id>,推不下去,所以按时间窗聚合。EXPLAIN ANALYZE 实测 3 天窗 ≈ 11ms,
+  // 且调用方带 TTL 缓存 —— 不给 fire-and-forget 路径添负担。
+  async function listRecentlySurfacedRecallRefs(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const windowHours = Math.max(1, Math.min(Number(params.windowHours) || 72, 24 * 30));
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT DISTINCT s->>'sourceRef' AS ref
+       FROM xiaoni_recall_shadow_log l, jsonb_array_elements(l.surfaced) s
+       WHERE l.identity_key = $1
+         AND l.silent = false
+         AND l.occurred_at > now() - ($2 || ' hours')::interval
+         AND s->>'sourceRef' IS NOT NULL`,
+      identityKey,
+      String(windowHours)
+    );
+    return rows.map((row) => row.ref).filter(Boolean);
+  }
+
   // inbound 砖在场硬检查的数据面:批量读消息的已读态。返回 [{id, isRead, readAt}](readAt ISO|null)。
   // 规则本身(已读且在遗忘线前读的才算记忆)是纯函数,在 xiaoni-recall-bandpass.js。
   async function getInboundReadStates(ids, config = {}) {
@@ -402,7 +449,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     countRecallCues,
     pruneFileChunks,
     insertRecallShadowLog,
-    listRecallShadowLog
+    listRecallShadowLog,
+    listRecentlySurfacedRecallRefs
   };
 }
 

@@ -45,8 +45,20 @@ const HASH_LOOKUP_BATCH = 1000;
 // 这是「往后只加宫殿」的前瞻闸:存量污染 cue 不在这里回溯删(小腻按指定方式自迁清理)。
 // 注意:动作流那条腿(collectActionStreamRecords)是行为事实,不受此闸影响。
 // docs/XIAONI_MEMORY_PALACE_GENERATION.md §7.1
-const PALACE_FILES = ['notes/xiaoni-identity-anchor.md']; // 宫殿地图(身份索引)
-const PALACE_DIRS = ['notes/diary'];                      // 日记(情节记忆,被动浮现主力)
+const PALACE_FILES = [
+  'notes/xiaoni-identity-anchor.md', // 宫殿地图(身份索引)
+  'notes/long-term.md'               // 长期在意的事(她自己维护的一份,不随日子翻篇)
+];
+const PALACE_DIRS = [
+  'notes/diary',   // 日记(情节记忆,被动浮现主力)
+  // 同伴档案:一人一文件。2026-08-07 真库核查——13+ 份档案在写,语料底 0 条,即
+  // 「别人说过」最该配的那一层从来没进过召回。人物是她记忆的主索引,补进宫殿。
+  // (INDEX.md 由 isDiaryNonEpisodeFile 按前缀排除,菜单不是经历。)
+  'notes/people',
+  // 专题连载(一件事跨多天,一份文件一章章续)。与第四腿(联想)读同一目录但互不干扰:
+  // 那腿按 `## M/D` 章节做年龄桶配额,这里按语义 chunk 进向量池,两套 dedup 各管各的。
+  'notes/topics'
+];
 // 日记目录里「不是一段经历」的那几份不进被动嵌入 —— 判定收口到 persistence 的
 // isDiaryNonEpisodeFile(dictionary / open-loops / INDEX*),语料底和往事腿共用同一份,
 // 别在这里再留一份 Set。INDEX*.md 必须按前缀认:整份都是索引行、没有一句是经历本身,
