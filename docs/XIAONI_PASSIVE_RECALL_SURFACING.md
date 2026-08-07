@@ -102,6 +102,36 @@
 
 拿真数据验：band-pass 选得准不准、剃已在场干净没、lead 措辞像不像该冒的、静默率够不够高。稳了才进 v2 翻投递开关。（符合 extractor doc「daemon 即使接入也必须先 shadow」的纪律。）
 
+## v2 = 投递闸（2026-08-07 落地，默认 OFF）
+
+出口只有一个：`modules/agent-service/src/services/xiaoni-recall-delivery.ts`。
+开关 `XIAONI_PASSIVE_RECALL_DELIVERY_ENABLED`（默认 `false`）。
+
+**首发只放两条腿。** 按真库「浮现次数 / 不同 ref 数」定的，唯一率低 = 复读机：
+
+| 腿 | 近 7 天浮现 | 不同 ref | 唯一率 | 首发 |
+|---|---|---|---|---|
+| `association` | 666 | 666 | 100% | ✅ |
+| `open_loop` | 82 | 63 | 77% | ✅ |
+| `peer_message` | 2369 | 862 | 36% | ⏸ |
+| `file_chunk` | 4226 | 949 | 22.5% | ⏸ |
+| `diary_event` | 646 | 83 | 12.8% | ⏸ |
+| `db_file_provenance` | 648 | 10 | 1.5% | ⏸ |
+
+向量腿的 per-cue 冷却是同批装的（`xiaoni-recall-ingest.js`，默认 72h 窗），
+**还没有活体分布** —— 等 shadow 里跑出稳定唯一率再逐条加腿。
+
+**不走 turn 尾注入，改走 Notify Bucket**（本节推翻下面 §Deferred 的原方案）。
+理由是缓存：Notify Bucket 那条路径的安全性已经在线验过——正文在 enqueue 时刻冻结进
+`payload.systemReminder.reminder`，下一 run 的 stack replay 从同一字段逐字节读回。
+逐字段克隆 `enqueueCoreMemoryCompressionDoneNotify` / `enqueueExternalNotify`，
+缓存安全是**继承**来的，不是重新推导的。代价：notify 会唤醒主 loop。
+
+**别吵的三道闸**：硬日额（默认 6 条 / 东八区日）、每拍最多 1 条、
+同一段记忆永远只投一次（`dedupeKey = recall-surface:<leg>:<ref>`，
+靠 `enqueueAgentQueueMessage` 的 `created` 标志判，不能用 `status` 判——
+既有行没被消费时同样是 `pending`）。
+
 ## 三档复用（grounded）
 
 - **✅ 现成直接用**：`provider-service /v1/embeddings` + `embedding-server`；`xiaoni-activity.js` 语料源；`/xiaoni-passive-recall` shadow 页；extractor 的 `OPERATIONAL_SOURCES` / `privacyScope` / `classifyRuntimePath`。
@@ -121,6 +151,7 @@
 
 ## Deferred（v2+）
 
-- 活体注入 seam（turn-input 尾注入，`cache_volatile` 纪律，同 `buildSubconsciousAgentForkRequest` 的尾注入模式）。
+- ~~活体注入 seam（turn-input 尾注入，`cache_volatile` 纪律，同 `buildSubconsciousAgentForkRequest` 的尾注入模式）。~~
+  **2026-08-07 改道**：投递走 Notify Bucket，不做尾注入（理由见上面 §v2）。
 - 语义式在场排除。
 - energy 解平后叠进旋钮。
