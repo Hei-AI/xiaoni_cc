@@ -154,8 +154,11 @@ export const agentConfig = {
   // the cached tools prefix stays byte-stable across the main loop and its forks.
   computerUseEnabled: readBooleanEnv('AGENT_COMPUTER_USE_ENABLED', false),
   // Host Playwright bridge for executing computer-use actions (same bridge the
-  // xiaoni-browser skill drives). From containers the host is 172.18.0.1.
-  computerUseBridgeUrl: process.env.XIAONI_BROWSER_BRIDGE_URL || 'http://172.18.0.1:9977',
+  // xiaoni-browser skill drives). Reach it via host.docker.internal (compose maps it
+  // to host-gateway), never a hardcoded gateway IP: docker renumbers its bridge
+  // subnets across reboots and the old 172.18.0.1 default silently stopped resolving
+  // to any host interface, failing every computer_use call for three weeks.
+  computerUseBridgeUrl: process.env.XIAONI_BROWSER_BRIDGE_URL || 'http://host.docker.internal:9977',
   maxTurns: Math.max(1, Number.parseInt(process.env.AGENT_MAX_TURNS || '8', 10)),
   idleIntervalMs: queueIdleIntervalMs,
   processingRecoveryStaleMs: Math.max(

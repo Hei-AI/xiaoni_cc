@@ -212,11 +212,18 @@ services:
       - AGENT_WEB_SEARCH_SEARXNG_URL=http://qqbot-searxng:8080/search
       # Computer use (client-executed via the host Playwright bridge) IS honored on the cloak.
       - AGENT_COMPUTER_USE_ENABLED=${AGENT_COMPUTER_USE_ENABLED:-true}
+      # Same host bridge xiaoni-executor drives. Must go through host.docker.internal:
+      # docker renumbers its bridge subnets across reboots, so any hardcoded gateway IP
+      # silently rots (172.18.0.1 stopped existing at the 2026-07-19 reboot and killed
+      # every computer_use call until 2026-08-07).
+      - XIAONI_BROWSER_BRIDGE_URL=http://host.docker.internal:9977
       - MODEL_PROVIDER_OVERRIDES_JSON=${MODEL_PROVIDER_OVERRIDES_JSON:-}
       - BOT_QQ_NUMBER=1129974489
       - NODE_TLS_REJECT_UNAUTHORIZED=0
     env_file:
       - /home/liahua/.qqbot-local/agent-service.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - provider-service
