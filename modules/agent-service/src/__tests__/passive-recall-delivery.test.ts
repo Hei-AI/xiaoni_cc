@@ -3,6 +3,9 @@ import test from 'node:test';
 
 import { createPassiveRecallDelivery, type RecallDeliveryDeps } from '../services/xiaoni-recall-delivery';
 
+// 开关/日额的唯一真理源是 agent_runtime_control(管理端可改、每拍热读)。测试直接注入闸门值。
+const gate = (enabled: boolean, dailyCap: number) => ({ readGate: async () => ({ enabled, dailyCap }) });
+
 // 被动浮现投递闸。在此之前整条召回链是 shadow-only,这是唯一的出口 —— 所以三件事必须成立:
 //   ① 默认 OFF(不给一个「忘了关」的世界线);
 //   ② 同一段记忆永远只投一次(dedupeKey = 记忆的 ref,靠 created 标志判,不是靠 status);
@@ -41,11 +44,13 @@ const rowWith = (items: unknown[]) => ({ occurredAt: '2026-08-07T03:00:00Z', sur
 const openLoopItem = (ref: string, lead: string) => ({ kind: 'open_loop', ref, lead });
 const associationItem = (ref: string, lead: string) => ({ kind: 'association', ref, lead });
 
-test('默认 OFF:不显式打开就什么都不投', async () => {
+test('闸门读不到 → fail-closed,一条都不投', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] }
   });
-  const delivery = createPassiveRecallDelivery(deps); // 不传 enabled → 走 env,默认 false
+  // 不注入 readGate → 走生产路径(现读 agent_runtime_control),库里没开就是 disabled。
+  // 这里用一个「读不出来」的闸门模拟最坏情况:必须 fail-closed。
+  const delivery = createPassiveRecallDelivery(deps, { readGate: async () => { throw new Error('db down'); } });
   assert.equal(await delivery.deliverOnce(), 'disabled');
   assert.equal(calls.length, 0, '关着的时候一条都不能入队');
 });
@@ -55,7 +60,7 @@ test('打开后投一条:正文 = lead 原句,dedupeKey 锚在记忆的 ref 上'
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:not-knowing', lead)])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
 
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
@@ -76,7 +81,7 @@ test('每拍最多 1 条 —— 候选再多也只投一条', async () => {
       association_scan: [rowWith([associationItem('as:1', 'C')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
 });
@@ -87,12 +92,12 @@ test('同一段记忆永远只投一次:第二拍撞 dedupeKey → created=false
   };
   const shared = new Set<string>();
   const first = fakeDeps({ rowsByQueryRef: rows, alreadyDelivered: shared });
-  const d1 = createPassiveRecallDelivery(first.deps, { enabled: true, dailyCap: 6 });
+  const d1 = createPassiveRecallDelivery(first.deps, gate(true, 6));
   assert.equal(await d1.deliverOnce(), 'delivered');
 
   // 同一份 shadow 行再来一拍(supervisor 每 10min 一跳,shadow 行还在窗口里)。
   const second = fakeDeps({ rowsByQueryRef: rows, alreadyDelivered: shared });
-  const d2 = createPassiveRecallDelivery(second.deps, { enabled: true, dailyCap: 6 });
+  const d2 = createPassiveRecallDelivery(second.deps, gate(true, 6));
   assert.equal(await d2.deliverOnce(), 'none', '已投过的记忆不该再投一次');
 });
 
@@ -101,7 +106,7 @@ test('日额是硬闸:今天投满了就停', async () => {
     rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] },
     deliveredToday: 6
   });
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'capped');
   assert.equal(calls.length, 0);
 });
@@ -116,7 +121,7 @@ test('只投 open_loop / association 两条腿 —— 其余腿的 queryRef 根�
     async countAgentQueueMessagesByDedupePrefix() { return 0; },
     async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
   };
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   await delivery.deliverOnce();
   assert.deepEqual(queried.sort(), ['association_scan', 'open_loop_scan']);
   assert.ok(!queried.includes('diary_resurface'), 'diary_event 唯一率 12.8%,不在首发名单');
@@ -133,7 +138,7 @@ test('缺 ref 或缺 lead 的 surfaced 项直接跳过(没有稳定 ref 就没�
       ])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].message.dedupeKey, 'recall-surface:open_loop:ol:good');
@@ -146,7 +151,35 @@ test('承诺腿优先于联想腿(还没了的事比旧事重提更该说)', asy
       association_scan: [rowWith([associationItem('as:1', '旧事重提')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, { enabled: true, dailyCap: 6 });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   await delivery.deliverOnce();
   assert.equal(calls[0].message.dedupeKey, 'recall-surface:open_loop:ol:1');
+});
+
+test('闸门关着 → disabled;日额 0 也等同关闭', async () => {
+  for (const g of [{ enabled: false, dailyCap: 6 }, { enabled: true, dailyCap: 0 }]) {
+    const { deps, calls } = fakeDeps({
+      rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] }
+    });
+    const delivery = createPassiveRecallDelivery(deps, { readGate: async () => g });
+    assert.equal(await delivery.deliverOnce(), 'disabled');
+    assert.equal(calls.length, 0);
+  }
+});
+
+test('闸门每拍现读 —— 管理端中途关掉,下一拍就停(不用重启)', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:1', 'A'), openLoopItem('ol:2', 'B')])]
+    }
+  });
+  let enabled = true;
+  const delivery = createPassiveRecallDelivery(deps, { readGate: async () => ({ enabled, dailyCap: 6 }) });
+
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+
+  enabled = false; // 运营在管理端翻了开关
+  assert.equal(await delivery.deliverOnce(), 'disabled');
+  assert.equal(calls.length, 1, '关掉之后不能再多投一条');
 });

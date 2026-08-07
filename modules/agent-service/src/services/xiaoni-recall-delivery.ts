@@ -43,20 +43,13 @@ const DELIVERABLE_LEGS: Array<{ leg: string; queryRef: string }> = [
   { leg: 'association', queryRef: 'association_scan' }
 ];
 
-const envNum = (name: string, dflt: number): number => {
-  const raw = Number(process.env[name]);
-  return Number.isFinite(raw) ? raw : dflt;
-};
-
-// 默认 OFF。打开前请先确认 shadow 里这两条腿的唯一率仍然是 100% / 77%。
-const ENABLED = process.env.XIAONI_PASSIVE_RECALL_DELIVERY_ENABLED === 'true';
-// 一天最多几条。notify 会唤醒主 loop —— 这是「别吵」的硬闸,不是软建议。
-// 6 条 ≈ 每 4 小时一条;association 腿一天产 ~95 条候选,即约 16 选 1。
-const DAILY_CAP = Math.max(0, envNum('XIAONI_PASSIVE_RECALL_DELIVERY_DAILY_CAP', 6));
+// 开关与日额的**唯一真理源是 agent_runtime_control**(管理端可改、每拍热读、无重启)。
+// 不留 env 兜底:两个真理源会让「页面上关了但它还在投」变成可能,而这是一个会主动
+// 打扰她的通道 —— 关得掉必须是结构性事实。默认 OFF / 6,库里没行也一样。
 // 每次 tick 最多投 1 条(设计里的「每次落地最多 1 块」在投递侧的对应物)。
 const PER_TICK_LIMIT = 1;
 // 往回看几条 shadow 扫描行找没投过的 lead。两条腿都是 30min 一轮,20 行 ≈ 10 小时。
-const SHADOW_LOOKBACK = Math.max(1, envNum('XIAONI_PASSIVE_RECALL_DELIVERY_LOOKBACK', 20));
+const SHADOW_LOOKBACK = 20;
 
 type ShadowRow = {
   occurredAt?: string | null;
@@ -72,9 +65,15 @@ export interface RecallDeliveryDeps {
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ queueId?: number; status?: string; created?: boolean } | null>;
 }
 
+// 每拍现读的运行时闸门(来自 agent_runtime_control)。测试直接注入,免得跑 DB。
+export interface RecallDeliveryGate {
+  enabled: boolean;
+  dailyCap: number;
+}
+
 export interface RecallDeliveryOptions {
-  enabled?: boolean;
-  dailyCap?: number;
+  // 不传 = 每拍从 agent_runtime_control 现读(生产路径)。
+  readGate?: () => Promise<RecallDeliveryGate>;
   lookback?: number;
   now?: () => Date;
 }
@@ -211,12 +210,16 @@ export type RecallDeliveryOutcome = 'disabled' | 'capped' | 'none' | 'delivered'
 
 // supervisor tick。无状态、幂等:漏一拍只是晚一点投,重复一拍被唯一索引吞掉,重启即续。
 export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: RecallDeliveryOptions = {}) {
-  const enabled = options.enabled ?? ENABLED;
-  const dailyCap = Math.max(0, options.dailyCap ?? DAILY_CAP);
   const lookback = Math.max(1, options.lookback ?? SHADOW_LOOKBACK);
   const clock = options.now ?? (() => new Date());
+  const readGate = options.readGate ?? defaultReadGate;
 
   async function deliverOnce(): Promise<RecallDeliveryOutcome> {
+    // 每拍现读:管理端关掉后最多一拍(10min)就停,不用重启。读失败 → fail-closed 当关着,
+    // 「读不到就别投」对一个能主动打扰她的通道是唯一安全的默认。
+    const gate = await readGate().catch(() => ({ enabled: false, dailyCap: 0 }));
+    const enabled = gate.enabled === true;
+    const dailyCap = Math.max(0, Number.isFinite(gate.dailyCap) ? gate.dailyCap : 0);
     if (!enabled || dailyCap === 0) {
       return 'disabled';
     }
@@ -271,14 +274,18 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   return { deliverOnce };
 }
 
+async function defaultReadGate(): Promise<RecallDeliveryGate> {
+  const control = await persistence.getAgentRuntimeControl({ identityKey: IDENTITY_KEY }, databaseConfig);
+  return {
+    enabled: control.passiveRecallDeliveryEnabled === true,
+    dailyCap: Number(control.passiveRecallDeliveryDailyCap)
+  };
+}
+
 const defaultDelivery = createPassiveRecallDelivery(persistence as unknown as RecallDeliveryDeps);
 
 export function deliverPassiveRecallSurfaceOnce(): Promise<RecallDeliveryOutcome> {
   return defaultDelivery.deliverOnce();
 }
 
-export const passiveRecallDeliveryConfig = {
-  enabled: ENABLED,
-  dailyCap: DAILY_CAP,
-  legs: DELIVERABLE_LEGS.map((entry) => entry.leg)
-};
+export const passiveRecallDeliveryLegs = DELIVERABLE_LEGS.map((entry) => entry.leg);

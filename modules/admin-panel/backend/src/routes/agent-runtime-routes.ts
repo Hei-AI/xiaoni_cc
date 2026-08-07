@@ -1448,6 +1448,24 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.psychAssessmentGateEnabled === 'boolean') {
         patch.psychAssessmentGateEnabled = body.psychAssessmentGateEnabled;
       }
+      // 被动浮现投递闸:第一个会主动发东西给小腻的召回通道,所以开关必须在页面上,
+      // 出问题一键关掉(agent-service 每拍现读,最多一拍 10min 生效)。
+      if (typeof body.passiveRecallDeliveryEnabled === 'boolean') {
+        patch.passiveRecallDeliveryEnabled = body.passiveRecallDeliveryEnabled;
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'passiveRecallDeliveryDailyCap')) {
+        // 0 是合法值(等同关闭),所以用 non-negative 而不是 positive。
+        const value = parseNonNegativeInteger(body.passiveRecallDeliveryDailyCap);
+        if (value === null) {
+          res.status(400).json({
+            success: false,
+            error: 'passiveRecallDeliveryDailyCap must be a non-negative integer (0 disables delivery)',
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+        patch.passiveRecallDeliveryDailyCap = value;
+      }
       if (Object.prototype.hasOwnProperty.call(body, 'mainAgentPreModelYieldMs')) {
         const value = parseNonNegativeInteger(body.mainAgentPreModelYieldMs);
         if (value === null) {
