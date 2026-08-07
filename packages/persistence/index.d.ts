@@ -2460,6 +2460,8 @@ export type AgentRuntimeControlProjection = {
   forkIdleEscalationEnabled: boolean;
   planVoidOnIdleEnabled: boolean;
   idlePlanSkillSubmissionEnabled: boolean;
+  passiveRecallDeliveryEnabled: boolean;
+  passiveRecallDeliveryDailyCap: number;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };

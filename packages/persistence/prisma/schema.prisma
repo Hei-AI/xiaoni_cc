@@ -112,6 +112,9 @@ model AgentRuntimeControl {
   post_compression_pause_triggered_at DateTime? @db.Timestamptz(3)
   post_compression_pause_reason       String?
   main_agent_pre_model_yield_ms       Int       @default(5000)
+  // 被动浮现投递闸(会主动发东西给她的通道 → 必须能在管理端一键关掉,不靠改 compose 重启)。
+  passive_recall_delivery_enabled     Boolean   @default(false)
+  passive_recall_delivery_daily_cap   Int       @default(6)
   updated_at                          DateTime  @default(now()) @db.Timestamptz(3)
 
   @@map("agent_runtime_control")
