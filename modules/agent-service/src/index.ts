@@ -5,6 +5,7 @@ import { logger } from './utils/logger';
 import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
+import { deliverPassiveRecallSurfaceOnce, passiveRecallDeliveryConfig } from './services/xiaoni-recall-delivery';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
@@ -580,6 +581,32 @@ async function runClockPingLoop() {
   }
 }
 
+// 被动浮现投递 supervisor。deliverPassiveRecallSurfaceOnce 靠 dedupeKey(= 记忆的 ref)幂等,
+// 所以这一拍同样无状态:漏一拍只是晚一点投,重复一拍被唯一索引吞,重启即续。
+// 默认 OFF —— 开关在 XIAONI_PASSIVE_RECALL_DELIVERY_ENABLED,关着时这一拍是纯空转的读。
+const RECALL_DELIVERY_SUPERVISOR_TICK_MS = 10 * 60_000;
+
+async function runPassiveRecallDeliveryLoop() {
+  while (!stopping) {
+    try {
+      const result = await deliverPassiveRecallSurfaceOnce();
+      if (result === 'delivered') {
+        moduleLogger.info('Passive recall surface delivered', {
+          dailyCap: passiveRecallDeliveryConfig.dailyCap,
+          legs: passiveRecallDeliveryConfig.legs
+        });
+      }
+    } catch (error) {
+      moduleLogger.warn('Passive recall delivery supervisor tick failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(RECALL_DELIVERY_SUPERVISOR_TICK_MS);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -662,6 +689,9 @@ async function start() {
   void wait(800).then(() => runDebugCacheHeartbeatLoop());
   if (agentConfig.clockPingEnabled) {
     void wait(1100).then(() => runClockPingLoop());
+  }
+  if (passiveRecallDeliveryConfig.enabled) {
+    void wait(1400).then(() => runPassiveRecallDeliveryLoop());
   }
 }
 
