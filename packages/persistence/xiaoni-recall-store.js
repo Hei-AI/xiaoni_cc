@@ -32,6 +32,9 @@ const RECALL_SCOPE_SQL =
   `OR ${ACTION_STREAM_SCOPE_SQL} ` +
   "OR (source_kind = 'file_chunk' AND (" +
   "source_ref LIKE '%/notes/diary/%' " +
+  "OR source_ref LIKE '%/notes/people/%' " +
+  "OR source_ref LIKE '%/notes/topics/%' " +
+  "OR source_ref LIKE '%/notes/long-term.md%' " +
   "OR source_ref LIKE '%xiaoni-identity-anchor%')))";
 
 function toDateOrNull(value) {
