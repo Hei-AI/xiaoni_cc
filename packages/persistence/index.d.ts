@@ -2525,6 +2525,7 @@ export function insertRecallShadowLog(record: Record<string, unknown>, config?: 
 // 每次落地写的 stack:*/inbound:* 留痕 → 实测冷却窗里 diary 行为 0、open_loop 行为 0,两条腿的
 // 冷却全废。调用方(xiaoni-recall-reindex-service.ts 的第二/三腿)必须传;管理端只读路由不传。
 export function listRecallShadowLog(params?: { identityKey?: string; queryRef?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
+export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; windowHours?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 export const BEIJING_OFFSET_MS: number;
 // parseTagDate 认日期的年龄上限。护的是 `(1/3进度)`、`(2/5看完)` 这类「括号里像日期其实是
 // 分数」的写法:被当成日期就会顶着一个假的 ageDays 霸榜,把真该浮的老条目挤掉。超过就返回

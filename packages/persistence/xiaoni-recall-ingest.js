@@ -39,6 +39,11 @@ const CENTERED_STANDOUT_MARGIN = envNum('XIAONI_RECALL_STANDOUT_MARGIN', 0.25);
 // 阈值取高(0.95)只杀近乎同一,保留 0.90-0.94 的强相关真·连续性。
 const CENTERED_NEARDUP_SUPPRESS = envNum('XIAONI_RECALL_NEARDUP_SUPPRESS', 0.95);
 const MEAN_TTL_MS = 10 * 60 * 1000; // μ 变化慢,缓存 10min,别每次落地扫全库
+// per-cue 冷却窗:窗口内浮过的砖不再浮。第二/三/四腿各自都有冷却,唯独向量腿没有 ——
+// 真库(2026-08-07 近 7 天):db_file_provenance 648 次只有 10 个不同 ref,单个文件 446 次;
+// file_chunk 4226 次 949 个 chunk。同一块砖反复砸等于没有召回,只有复读。
+const SURFACED_COOLDOWN_HOURS = envNum('XIAONI_RECALL_COOLDOWN_HOURS', 72);
+const COOLDOWN_TTL_MS = 60 * 1000; // 冷却集只随「又浮了一块」变化,缓存 1min 足够
 
 // 「不在上下文」= 不在她当前 replay 进 live 请求的 stack 尾(压缩 cutoff 之上)。这条边界的权威来源
 // 是 agent_session_context_windows.read_cutoff_after_stack_index —— 同一个 session key 主 loop 在用。
@@ -86,6 +91,30 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       // 保留旧缓存(若有),不阻断召回
     }
     return cachedModel;
+  }
+
+  // 冷却集缓存(读失败 → 空集,不阻断召回:宁可多浮一次,不可整条腿哑掉)。
+  let cachedCooldown = null;
+  let cachedCooldownAt = 0;
+  async function getCooldownRefs() {
+    const now = Date.now();
+    if (cachedCooldown && (now - cachedCooldownAt) < COOLDOWN_TTL_MS) {
+      return cachedCooldown;
+    }
+    if (typeof persistence.listRecentlySurfacedRecallRefs !== 'function') {
+      return new Set(); // 老 persistence:退化成「无冷却」,行为与改动前一致。
+    }
+    try {
+      const refs = await persistence.listRecentlySurfacedRecallRefs({
+        identityKey,
+        windowHours: SURFACED_COOLDOWN_HOURS
+      });
+      cachedCooldown = new Set(Array.isArray(refs) ? refs : []);
+      cachedCooldownAt = now;
+    } catch {
+      return cachedCooldown || new Set();
+    }
+    return cachedCooldown;
   }
 
   // 建好的 cue → 嵌入(内容 hash 没变的跳过,省嵌入)→ upsert。
@@ -216,9 +245,11 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     ]);
     // 域归属以 cueClass 判(recallDomainOf)——兼容退化路径(老 persistence 忽略 cueClasses 时
     // 两次查询返回同池内容,按域重分 + 去重后仍各归各域)。
+    const cooldownRefs = await getCooldownRefs();
     const seenRefs = new Set();
     const selfCandidates = [];
     let peerCandidates = [];
+    const cooledDown = [];
     for (const c of [...(selfCandidatesRaw || []), ...(peerCandidatesRaw || [])]) {
       if (!c || seenRefs.has(c.sourceRef)) {
         continue;
@@ -226,6 +257,11 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       seenRefs.add(c.sourceRef);
       // 闲聊门(砖侧):低信息记忆不配当砖。
       if (isLowInfoRecallText(c.embeddingText)) {
+        continue;
+      }
+      // per-cue 冷却:窗口内刚浮过的这块砖,这次别再砸(与第二/三/四腿同名 verdict)。
+      if (cooldownRefs.has(c.sourceRef)) {
+        cooledDown.push({ candidate: c, verdict: 'cooled_down', cos: null });
         continue;
       }
       (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
@@ -299,8 +335,8 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     });
     const result = combineDomainResults(selfResult, peerResult, surfaceLimit);
 
-    const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0 };
-    for (const d of result.dropped) {
+    const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0, cooled_down: 0 };
+    for (const d of [...result.dropped, ...cooledDown]) {
       droppedCounts[d.verdict] = (droppedCounts[d.verdict] || 0) + 1;
     }
 
