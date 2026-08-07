@@ -43,6 +43,30 @@ const SPOKEN_KINDS = new Set([
   'send_in_private'
 ]);
 
+// 她自己不是「别人」。动作流投影里 peerName 会**回退到 session_key**
+// (xiaoni-activity.js:501 `firstString(payload.peer_name, row.session_key)`),她主 loop 的
+// session_key 就是 'xiaoni' —— 于是她自己的 runtime_input / 工具调用全带上 peer='xiaoni',
+// 被渲染成「xiaoni 提过：…」(她被告知自己说过自己的 plan),并且因 cueClass=db_life_cue 落进
+// **他人域**,把真正的 Nova/阿花/帕秋莉挤出 top-K。
+// 真库实测(2026-08-07,近 7 天 shadow):peer_message 共 2369 条,其中 1899 条 peer='xiaoni'
+// (runtime_input 1100 + tool_execution 799)= 80%,真人只剩 ~350 条。
+// 判据用名字而不是 actor 字段:动作流各投影分支的 actor 取值不统一('xiaoni'/'system'/'human'),
+// peer 名字才是渲染进 lead 的那一个,治它才治到位。
+const SELF_IDENTITY_NAMES = new Set(['xiaoni', '小腻']);
+
+function isSelfPeerName(value) {
+  return typeof value === 'string' && SELF_IDENTITY_NAMES.has(value.trim().toLowerCase());
+}
+
+// 动作流条目的**真** peer:她自己 → null。null 同时喂两处:
+//   ① leadTemplateForItem 不再吐 peer_message(不会说「xiaoni 提过」)
+//   ② recallDomainOf 据 provenance.peer 判他人域(没有 peer 的 db_life_cue 归自我域)
+function resolvePeerNameForItem(item) {
+  const metadata = item && typeof item.metadata === 'object' && item.metadata ? item.metadata : {};
+  const peer = firstString(item?.senderName, item?.peerName, metadata.senderName, metadata.peerName);
+  return isSelfPeerName(peer) ? null : peer;
+}
+
 function firstString(...values) {
   for (const value of values) {
     if (typeof value === 'string' && value.trim()) {
@@ -104,6 +128,30 @@ function extractHumanFromShellCommand(cmd) {
   return parts.join(' ').trim();
 }
 
+// 围栏 + heredoc 命令外壳剥离。她提交 plan / skill 的动作在动作流里渲染成
+//   ``` /app/modules/agent-service/skills-internal/xiaoni-plan/xiaoni-plan post <<'PLAN'
+//   <她真写的正文>
+//   PLAN ```
+// 正文要留(那是她的念头),外面那层命令是**逐字不变的样板**——2026-08-07 真库核查:
+// 每个自驱动 run 一条,上千条 plan cue 因为共享这段前缀互相成为最近邻,既当噪音 query
+// 也当噪音砖。只剥壳不改正文。开标记必须在首行,避免误伤正文里出现的 << 。
+function stripHeredocScaffold(value) {
+  let t = typeof value === 'string' ? value.trim() : '';
+  if (!t) {
+    return '';
+  }
+  t = t.replace(/^```[a-z0-9_-]*[ \t]*\r?\n?/i, '').replace(/\r?\n?[ \t]*```$/, '');
+  // 首行形如 `<命令…> <<'TAG'` / `<<-TAG`(TAG = 全大写标识符,heredoc 惯例)。
+  const opener = t.match(/^[^\n]*?<<-?[ \t]*(['"]?)([A-Z][A-Z0-9_]*)\1[ \t]*(?:\r?\n|[ \t])/);
+  if (!opener) {
+    return t.trim();
+  }
+  t = t.slice(opener[0].length);
+  // 收尾的结束标记(可能已被上面的围栏剥离带走一部分)。
+  t = t.replace(new RegExp(`(?:\\r?\\n|[ \\t])${opener[2]}[ \\t]*$`), '');
+  return t.trim();
+}
+
 // 召回文本清洗:剥掉脚手架/样板/注入模板/运营信封,让 embedding 只反映"信号"而非"结构"。
 // 只作用于召回派生文本(cue 的 embedding_text + query 的 landedText),不碰小腻 agent 本体/指针。
 // 真库诊断:上万条 cue/query 因共享样板(LLM 切片标题 / 工具调用 JSON 信封 / path-check 工具输出 /
@@ -129,16 +177,28 @@ function normalizeRecallText(value) {
   if (/^等待处理消息/.test(t)) {
     return '';
   }
+  // 1c) 围栏 + heredoc 命令外壳(plan/skill 提交)→ 只留正文。
+  t = stripHeredocScaffold(t);
+  if (!t) {
+    return '';
+  }
   // 2) JSON 信封拆壳:入站 {"user_id":..,"message":"X"} → 留 X;工具调用 {"cmd":"…"} → 抽注释意图。
   if (/^[{[]/.test(t)) {
     const parsed = parseJsonPreview(t);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       if (typeof parsed.message === 'string' && parsed.message.trim()) {
         t = parsed.message.trim();
+      } else if (firstString(parsed.xiaoni_os, parsed.reason)) {
+        // xiaoni_plan / clock 这类自驱动工具的参数信封:{"clock":120,"reason":"…","xiaoni_os":"…"}。
+        // 数字参数是机械的,reason/xiaoni_os 才是她当时写的话 —— 留话,丢壳。
+        t = [firstString(parsed.xiaoni_os), firstString(parsed.reason)].filter(Boolean).join(' ');
       } else {
         const cmd = firstString(parsed.cmd, parsed.command, parsed.shell_command, parsed.shellCommand);
         if (cmd) {
-          t = extractHumanFromShellCommand(cmd); // 无注释意图 → '' → 下一步判空
+          // 命令里可能还套着 plan 的 heredoc(exec_command 路径),先剥壳:剥出正文就用正文,
+          // 剥不出(纯机械命令)再退回抽 # 注释意图。
+          const inner = stripHeredocScaffold(cmd);
+          t = inner && inner !== cmd.trim() ? inner : extractHumanFromShellCommand(cmd);
         }
       }
     }
@@ -530,12 +590,12 @@ function leadTemplateForItem(item, { runtimePaths }) {
   if (runtimePaths.some((entry) => entry.indexable)) {
     return 'db_file_provenance';
   }
-  // 入站/别人说过:有 sender/peer 且不是她自己发的可见话语。
-  const peer = firstString(item.senderName, item.peerName, item?.metadata?.senderName, item?.metadata?.peerName);
+  // 入站/别人说过:有**真** sender/peer(她自己不算,见 resolvePeerNameForItem)。
+  const peer = resolvePeerNameForItem(item);
   if (peer) {
     return 'peer_message';
   }
-  return null; // → 通用兜底
+  return null; // → 通用兜底(她自己的动作流落这里:「你之前碰过和这个像的事 → …」)
 }
 
 // 把任意动作流条目(非 operator 噪音)转成统一的可召回记忆记录,或 null。
@@ -574,7 +634,7 @@ function buildRecallCueFromActionStreamItem(item) {
     source: source || null,
     kind: kind || null,
     toolName: toolName || null,
-    peer: firstString(item.senderName, item.peerName, metadata.senderName, metadata.peerName),
+    peer: resolvePeerNameForItem(item), // 她自己 → null(域判定与 lead 措辞都据此)
     ts: firstString(item.timestamp),
     path: primaryPath ? primaryPath.path : null,
     privacyScope: privacyScopeForItem(item, cueClass),
@@ -649,6 +709,9 @@ module.exports = {
   classifyRuntimePath,
   contentHashOf,
   isOperationalTraceText,
+  isSelfPeerName,
+  resolvePeerNameForItem,
+  stripHeredocScaffold,
   extractHumanFromShellCommand,
   extractPassiveRecallCueFromActionStreamItem,
   extractPassiveRecallCuesFromActionStream,
