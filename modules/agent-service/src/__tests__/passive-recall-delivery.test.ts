@@ -64,7 +64,8 @@ test('打开后投一条:正文 = lead 原句,dedupeKey 锚在记忆的 ref 上'
 
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].message.dedupeKey, 'recall-surface:open_loop:ol:not-knowing');
+  assert.match(String(calls[0].message.dedupeKey), /^recall-surface:open_loop:[0-9a-f]{32}$/);
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:not-knowing');
   assert.equal(calls[0].message.source, 'system_reminder');
   assert.equal(calls[0].message.bodyForAgent, lead, '正文就是 lead 本句,不加系统框');
   // 缓存契约:正文必须在 enqueue 时刻冻结进 payload.systemReminder.reminder,
@@ -131,7 +132,7 @@ test('缺 ref 或缺 lead 的 surfaced 项直接跳过(没有稳定 ref 就没�
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: {
       open_loop_scan: [rowWith([
-        { kind: 'open_loop', lead: '有正文但没 ref' },
+        { kind: 'open_loop', lead: '', text: '' },
         { kind: 'open_loop', ref: 'ol:x' },
         null,
         openLoopItem('ol:good', '两样都全的这条')
@@ -141,7 +142,7 @@ test('缺 ref 或缺 lead 的 surfaced 项直接跳过(没有稳定 ref 就没�
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].message.dedupeKey, 'recall-surface:open_loop:ol:good');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:good');
 });
 
 test('承诺腿优先于联想腿(还没了的事比旧事重提更该说)', async () => {
@@ -153,7 +154,7 @@ test('承诺腿优先于联想腿(还没了的事比旧事重提更该说)', asy
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   await delivery.deliverOnce();
-  assert.equal(calls[0].message.dedupeKey, 'recall-surface:open_loop:ol:1');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:1');
 });
 
 test('闸门关着 → disabled;日额 0 也等同关闭', async () => {
@@ -182,4 +183,45 @@ test('闸门每拍现读 —— 管理端中途关掉,下一拍就停(不用重�
   enabled = false; // 运营在管理端翻了开关
   assert.equal(await delivery.deliverOnce(), 'disabled');
   assert.equal(calls.length, 1, '关掉之后不能再多投一条');
+});
+
+// open_loop 的 surfaced 项**没有 ref 字段**(真库核查:只有 kind/text/openedTag/ageDays/tier/lead)。
+// 要求 ref 会让这条腿一条都投不出去 —— 而且是静默的,看日志只会以为「今天没东西可投」。
+// 它自己的冷却就是按承诺正文(recentTexts)去重的,投递侧沿用同一个身份概念。
+test('open_loop 没有 ref:按承诺正文当身份,照样投得出去', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([{
+        kind: 'open_loop',
+        text: 'not-knowing发了reddit等三天后看结果 between也在等',
+        openedTag: '8/3',
+        ageDays: 4.3,
+        tier: 'active',
+        lead: '你之前记过一件还没了的事：not-knowing发了reddit等三天后看结果 between也在等（放了 4 天了）'
+      }])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered', '没有 ref 不该让这条腿哑掉');
+  assert.equal(
+    (calls[0].message.rawPayload as Record<string, unknown>).recall_ref,
+    'not-knowing发了reddit等三天后看结果 between也在等'
+  );
+});
+
+// lead 里带「放了 N 天了」,天数每天变。身份若取 lead,同一件事会被天天重投一次。
+test('open_loop 身份取 text 不取 lead —— 天数变了也认得出是同一件事', async () => {
+  const loop = { kind: 'open_loop', text: '给陈显写信', openedTag: '8/3', tier: 'active' };
+  const shared = new Set<string>();
+  const day1 = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([{ ...loop, ageDays: 4.3, lead: '你之前记过一件还没了的事：给陈显写信（放了 4 天了）' }])] },
+    alreadyDelivered: shared
+  });
+  assert.equal(await createPassiveRecallDelivery(day1.deps, gate(true, 6)).deliverOnce(), 'delivered');
+
+  const day2 = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([{ ...loop, ageDays: 5.3, lead: '你之前记过一件还没了的事：给陈显写信（放了 5 天了）' }])] },
+    alreadyDelivered: shared
+  });
+  assert.equal(await createPassiveRecallDelivery(day2.deps, gate(true, 6)).deliverOnce(), 'none', '天数变了不算新记忆');
 });

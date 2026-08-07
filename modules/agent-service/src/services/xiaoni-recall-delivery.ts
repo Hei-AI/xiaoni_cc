@@ -28,6 +28,8 @@
 // agent_queue_messages.dedupe_key 有唯一索引,enqueueAgentQueueMessage 撞了就返回既有行
 // (不重复入队)。队列行自 2026-03 起从不清理,所以这条幂等是长期成立的,不需要另建投递账本。
 
+import { createHash } from 'node:crypto';
+
 import * as persistence from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
@@ -56,7 +58,7 @@ type ShadowRow = {
   surfaced?: unknown;
 };
 
-type Lead = { leg: string; ref: string; text: string; occurredAt: string | null };
+type Lead = { leg: string; identity: string; text: string; occurredAt: string | null };
 
 // 依赖注入(同 createRecallIngest 的形状):真跑时是 @qq-bot/persistence,测试时是假件。
 export interface RecallDeliveryDeps {
@@ -78,9 +80,23 @@ export interface RecallDeliveryOptions {
   now?: () => Date;
 }
 
-// shadow 行里的 surfaced 项 → 可投递的 lead。第二/三/四腿的形状是
-// { kind, ref, lead, ... }(lead 是渲染好的整句);拿不到 ref 或 lead 的一律跳过 ——
-// 没有稳定 ref 就没有幂等,宁可不投。
+// 一条 surfaced 项的**身份**——幂等全靠它,所以必须是「同一段记忆跨扫描不变」的东西。
+// 各腿的身份概念不同,这里沿用每条腿**自己冷却时用的那一个**,不另造:
+//   association / diary_event → `ref`(日记文件 + 段号,scanDiaryEventsToShadow 按它冷却)
+//   open_loop                 → `text`(承诺正文;它压根没有 ref 字段,
+//                                scanOpenLoopsToShadow 的冷却就是按 recentTexts 去重的)
+// 绝不能用 `lead`:open_loop 的 lead 里带「放了 N 天了」,天数每天变 → 同一件事会被反复投。
+function leadIdentityOf(item: Record<string, unknown>): string | null {
+  const ref = typeof item.ref === 'string' && item.ref.trim() ? item.ref.trim() : null;
+  if (ref) {
+    return ref;
+  }
+  const text = typeof item.text === 'string' && item.text.trim() ? item.text.trim() : null;
+  return text;
+}
+
+// shadow 行里的 surfaced 项 → 可投递的 lead。形状是 { kind, lead, ref?, text?, ... }
+// (lead 是渲染好的整句)。拿不到身份或 lead 的一律跳过 —— 没有稳定身份就没有幂等,宁可不投。
 function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
   const surfaced = Array.isArray(row?.surfaced) ? row.surfaced : [];
   const out: Lead[] = [];
@@ -89,14 +105,14 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
       continue;
     }
     const item = raw as Record<string, unknown>;
-    const ref = typeof item.ref === 'string' && item.ref.trim() ? item.ref.trim() : null;
+    const identity = leadIdentityOf(item);
     const text = typeof item.lead === 'string' && item.lead.trim() ? item.lead.trim() : null;
-    if (!ref || !text) {
+    if (!identity || !text) {
       continue;
     }
     out.push({
       leg,
-      ref,
+      identity,
       text,
       occurredAt: typeof row.occurredAt === 'string' ? row.occurredAt : null
     });
@@ -104,8 +120,11 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
   return out;
 }
 
+// dedupe_key 是 VARCHAR(255),而身份可能是一整句承诺正文 → 统一哈希,长度有界且形状一致。
+// 可读性不丢:原始身份原样存进 rawPayload.recall_ref。
 function dedupeKeyFor(lead: Lead): string {
-  return `${DEDUPE_PREFIX}${lead.leg}:${lead.ref}`;
+  const digest = createHash('sha256').update(`${lead.leg}\u0000${lead.identity}`).digest('hex').slice(0, 32);
+  return `${DEDUPE_PREFIX}${lead.leg}:${digest}`;
 }
 
 function startOfEast8Day(now: Date): Date {
@@ -131,11 +150,11 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
   // trace_id 显式给足,不走 enqueueAgentQueueMessage 的兜底。空 trace_id 会让 stack 的
   // runtime-input event_id 塌到 runId 兜底,同一 run 两条撞 ON CONFLICT 被吞 → 下个 run
   // replay 变短 → run 边界缓存击穿(docs/CACHE_CONTRACT.md §3)。
-  const traceId = `runtrace_${now.getTime()}_${Math.abs(hashString(dedupeKey)).toString(36)}`;
+  const traceId = `runtrace_${now.getTime()}_${dedupeKey.slice(-8)}`;
   const rawPayload = {
     reason: 'passive_recall_surface',
     recall_leg: lead.leg,
-    recall_ref: lead.ref,
+    recall_ref: lead.identity,
     notify_template: 'passive_recall_surface_notify.md'
   };
   const inboundContext = {
@@ -169,7 +188,7 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
       reminder: reminderText,
       reason: 'passive_recall_surface',
       recallLeg: lead.leg,
-      recallRef: lead.ref,
+      recallRef: lead.identity,
       createdAt: now.toISOString()
     }
   };
@@ -196,14 +215,6 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
   // created=false ⇔ 撞了 dedupe_key ⇔ 这段记忆早就投过 → 当作没投,继续看下一条。
   // 不能用 status 判:既有行没被消费时同样是 'pending'。
   return result?.created === true;
-}
-
-function hashString(value: string): number {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    h = ((h << 5) - h + value.charCodeAt(i)) | 0;
-  }
-  return h;
 }
 
 export type RecallDeliveryOutcome = 'disabled' | 'capped' | 'none' | 'delivered';
@@ -262,7 +273,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         delivered += 1;
         moduleLogger.info('Delivered passive recall surface notify', {
           leg: lead.leg,
-          ref: lead.ref,
+          identity: lead.identity,
           deliveredToday: deliveredToday + delivered,
           dailyCap
         });
