@@ -215,7 +215,10 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
           available_at: availableAt
         }
       });
-      return normalizeQueueRow(created, payload);
+      // created:true 只在真的新插了一行时为真。撞唯一索引返回既有行时是 false ——
+      // 调用方(如被动浮现投递闸)靠它区分「这次投出去了」和「早就投过了」,
+      // 光看 status 区分不了(既有行没被消费时同样是 pending)。
+      return { ...normalizeQueueRow(created, payload), created: true };
     } catch (error) {
       if (error?.code !== 'P2002') {
         throw error;
@@ -223,7 +226,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
       const existing = await prisma.agentQueueMessage.findUnique({
         where: { dedupe_key: dedupeKey }
       });
-      return normalizeQueueRow(existing, payload) || {
+      const normalized = normalizeQueueRow(existing, payload) || {
         queueId: 0,
         traceId: resolvedTraceId,
         dedupeKey,
@@ -232,7 +235,22 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
         availableAt: normalizeDate(availableAt),
         payload
       };
+      return { ...normalized, created: false };
     }
+  }
+
+  // 按 dedupe_key 前缀数最近的入队条数。给「一天最多投几条」这类闸用:入队记录本身就是
+  // 投递账本(行自 2026-03 起从不清理),不必再建一张投递计数表。
+  async function countAgentQueueMessagesByDedupePrefix(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const prefix = typeof params.prefix === 'string' ? params.prefix : '';
+    if (!prefix) {
+      return 0;
+    }
+    const since = params.since instanceof Date ? params.since : new Date(Number(params.since) || 0);
+    return prisma.agentQueueMessage.count({
+      where: { dedupe_key: { startsWith: prefix }, created_at: { gte: since } }
+    });
   }
 
   async function claimNextAgentQueueMessage(input = {}, config = {}) {
@@ -627,6 +645,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
 
   return {
     enqueueAgentQueueMessage,
+    countAgentQueueMessagesByDedupePrefix,
     claimNextAgentQueueMessage,
     foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,
