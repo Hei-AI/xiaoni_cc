@@ -2,6 +2,8 @@ import type { XiaoniPromptDirectoryChange } from './xiaoni-prompt-directory-watc
 
 export const PREFIX_SENSITIVE_PROMPT_FILES = new Set([
   'system_prompt.md',
+  // 注入进 system_prompt.md 顶层的 {{OS_WORLD_SYSTEM}},改它等于改 cacheable 前缀。
+  'os_world_system.md',
   'skills_instructions.md'
 ]);
 
