@@ -57,6 +57,34 @@ python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwrig
 
 When `screenshot` succeeds, the official CLI path is a host-side `.playwright-cli\...png` path. The bridge also copies the image into Xiaoni's shared runtime and prints a `### Xiaoni runtime artifacts` section. Use the `/xiaoni-runtime/picture/xiaoni-browser-...png` path from that section when you need Xiaoni to read, inspect, or send the image.
 
+## Uploading Files (attachments)
+
+`upload <file>` runs on the **host**, not inside your executor container. Your
+`/xiaoni-runtime/...` paths are translated to the host mount for you, so pass the
+path you actually have:
+
+```bash
+python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host upload /xiaoni-runtime/tmp/submission.zip
+```
+
+Anything under `/xiaoni-runtime/` works. Files elsewhere in the container
+(`/tmp`, `/root/Downloads`, `/workspace`) are **not** visible to the host browser
+— copy them into `/xiaoni-runtime/tmp/` first.
+
+The real trap is timing, not the path. `upload` only works while the page's file
+chooser is open, and a failed attempt closes it. So the second try reports
+`can only be used when there is related modal state present` no matter how right
+your path is — that error means "the chooser closed", never "wrong file". Reopen
+the chooser and upload in **one** command:
+
+```bash
+python3 .../xiaoni_playwright_cli.py -- -s=xiaoni-host click e166   # the attach button
+sleep 1
+python3 .../xiaoni_playwright_cli.py -- -s=xiaoni-host upload /xiaoni-runtime/tmp/submission.zip
+```
+
+Success looks like `### Ran Playwright code` with `fileChooser.setFiles([...])`.
+
 ## Workflow
 
 1. Run the command you want (`goto`, `snapshot`, `click`, ...) with `-s=xiaoni-host`. Sessions are managed for you; just navigate and act.
