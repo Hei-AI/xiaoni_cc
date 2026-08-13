@@ -124,7 +124,7 @@ fork 11905 实证：turn 1、2 都是 `exec_command` 被拒，turn 3 开头「�
 
 | 状态 | 判据 | 动作 |
 |---|---|---|
-| 已提交 | stdout 有 `XIAONI_PLAN_QUEUED=<id>` | `return true` 收工 |
+| 已提交 | stdout 有 `XIAONI_PLAN_QUEUED=<id>` | `return true` 收工 |（**2026-08-13 改**：判据换成进程内 `subconsciousPlanSubmission`，见「观察期结论」）
 | 提交失败（基础设施） | stdout 有 `XIAONI_PLAN_FAILED=<reason>` | **不发纠正**，中止 fork，保 seed（走阶段一的自然重试） |
 | 没提交（她没调） | 两个 marker 都没有 | push assistant 输出 + push **developer 纠正 reminder** → 下一轮 |
 
@@ -210,8 +210,39 @@ xiaoni-plan post --file <p>
 | 执行层放行 | `:10645` | `allowedToolNames = {exec_command}`（今天是空集） |
 | 命令层白名单 | `:10861` 附近 | exec **执行前**校验 `cmd` 必须是 `xiaoni-plan` 调用；否则照旧走 `subconscious_tool_rejected_output.md`。抽成具名纯函数 `isAllowedSubconsciousCommand(cmd)` 便于单测绕过面 |
 | **3A 通用 marker 提取器** | `:3292` | `extractCompressionWrittenPath` 重构为 `extractExecStdoutMarker(rawToolResult, re)`；压缩与 plan 各自一行调用。`lastIndex = 0` 那个全局正则状态陷阱只存一份 |
-| 抓提交 | `:10861` 之后 | 抓 `XIAONI_PLAN_QUEUED` → `return true` |
-| 删文本抽取 | `:14562` + 调用点 | **延后一个独立 commit**，等开关 ON 观察一周后再删 |
+| 抓提交 | `:10861` 之后 | ~~抓 `XIAONI_PLAN_QUEUED` → `return true`~~ **2026-08-13 改**：端点与 fork 循环同进程，入队完成即落 `subconsciousPlanSubmission`，不再经 stdout |
+| 删文本抽取 | `:14562` + 调用点 | **延后一个独立 commit**，等开关 ON 观察一周后再删 —— **2026-08-13 已补**，见下方「观察期结论」 |
+
+#### 观察期结论（2026-08-13 补记）
+
+延后的那一步不能只是「删」，因为它同时是**开关 ON 之后 skill 口从没真正生效过**的原因：文本抽取跑在 tool-call 分支【之前】且不看开关，只要模型吐了任何 `final_answer` 文本就短路收工，E5 的纠正分支从上线起就是死代码。
+
+08-03 起她开始把契约里那段命令**原样写进回答**（`subconscious_fork_tool_contract.md` 那句「原样照这个形状写」+ 一个 markdown 围栏的字面执行），文本口照单全收当 plan 发出去；升级腿(`LAST_XIAONI_PLAN`)再把这份带 shell 外壳的「plan」原样回贴给下一个 fork 看 —— 每轮都在给她做一次错误形状的 few-shot，同时这些块也进了主 agent 上下文，而 fork 是主请求的克隆。三条放大路径叠起来，两天内塌到 90%+。
+
+实测（`subconscious_agent_fork_runs` × `subconscious_agent_fork_tool_executions`）：
+
+| day | forks | 命令文本泄漏 | fork 真调 exec_command |
+|---|---|---|---|
+| 08-01 | 497 | 0 | 496 |
+| 08-02 | 656 | 0 | 657 |
+| 08-03 | 416 | 80 | 332 |
+| 08-04 | 554 | 518 | 34 |
+| 08-08 | 711 | 691 | 21 |
+| 08-12 | 519 | 481 | 47 |
+
+所以补的这一刀是三件事一起（和当初「分开挂开关会让 prompt 说的和执行层做的不一致」同理，它们描述的是同一个事实，必须同一个 commit 走）：
+
+① `selectSubconsciousPlanFromText(outputItems, IDLE_PLAN_SKILL_SUBMISSION_ENABLED)` —— ON 时文本口让位，plan 只能从端点出来。
+
+② 用法改走 **fork 尾部的 `<internal_skills_instructions>` 块**，跟主 agent 学 skill 是同一个机制（主 agent 尾部有 `<skills_instructions>`，`:2281`）。契约本身缩到两句：「用上面那个 `xiaoni-plan` 投递，写在回答里的不算数」。**诱饵是 markdown 围栏那一个形状**，不是命令形状本身 —— 她照抄出去的正文第一行就是围栏。命令形状必须给（白名单只认那一个 heredoc 形状，不给她写不对），但放在缩进块里，不套围栏。
+
+③ fork 出口改成 `post` 到达即 end：端点（`redeemSubconsciousPlanTicket`）和 fork 循环是同一个 `AgentLoopService` 实例，入队完成那一刻 `queueId` 已在手，落 `subconsciousPlanSubmission` 即可，不再让 marker 走「skill stdout → executor → HTTP → executeTool 返回值」那条往返。差别在异常路径：`executeTool` 抛异常（exec 超时 / executor 断连）时 stdout 里什么都没有，而入队已经发生 —— 旧路径会判成「没交」、发纠正、她再交一次，新 fork 换了 `forkRunId` 就绕开 `messageSid` 去重，同一份 plan 进两次队。
+
+**走过的弯路（别再走）**：中间试过「用法写进 `skills-internal/xiaoni-plan/SKILL.md`，契约让她先 `cat` 手册」。三个问题：多一次工具调用（实测基线 `avg_turns=1.00`，等于 +100% fork 成本）；要多开一条命令白名单；而且 executor 的 `/app` 是 symlink 到主工作区，worktree 里的手册它根本看不到，契约一上线就 404。尾部 skills 块把这三样成本全省掉 —— 现成机制就在那儿，不该另造运行时读取。
+
+另：曾以为「她给 `exec_command` 设小 `max_output_tokens` 会截断 marker」是改出口的理由，**不成立**。`modules/xiaoni-executor/src/index.ts:832` 把它地板到 2000 token（~8000 字符）且保 head+tail 预览，agent 侧 `:13703` 同一个 clamp。别再拿这条当论据。
+
+断链风险：她不交 → 纠正提示重试（每个 fork 有 6 个 slice 的预算）→ turn 用尽 `return false` → seed 保留（E6）→ 60s 后空闲 tick 自然重试；最坏还有 `clock_ping` 每 2h 兜底。
 
 ---
 

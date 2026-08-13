@@ -1,1 +1,1 @@
-想清楚了就跑 `xiaoni-plan post` 把方向交出去（正文走标准输入）。只写在话里不算数，提交成功才算。
+你还没投递。用上面 internal_skills_instructions 里的 `xiaoni-plan` 交出去，写在回答里的不算数。

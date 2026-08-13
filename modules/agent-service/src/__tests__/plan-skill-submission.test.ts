@@ -12,15 +12,14 @@ import path from 'path';
 import {
   AgentLoopService,
   extractExecStdoutMarker,
-  extractPlanQueuedId,
-  extractPlanFailedReason,
   isAllowedSubconsciousCommand,
   XIAONI_PLAN_SKILL_BIN,
   setIdlePlanSkillSubmissionEnabled,
   isIdlePlanSkillSubmissionEnabledForTest,
   renderSubconsciousForkReminderForTest,
   renderSubconsciousPlanCorrectionForTest,
-  renderSelfContinuationReminderForTest
+  renderSelfContinuationReminderForTest,
+  selectSubconsciousPlanFromText
 } from '../services/agent-loop-service';
 import {
   issueSubconsciousPlanTicket,
@@ -51,6 +50,16 @@ test('白名单放行：标准 heredoc 形状', () => {
 
 test('白名单放行：正文里的 shell 元字符不影响判定（引号 heredoc 不展开）', () => {
   assert.equal(isAllowedSubconsciousCommand(HEREDOC('正文;里有 $(whoami) 和 `id`', 'EOF')), true);
+});
+
+// 用法【不】走运行时读取。放开一条 `cat <手册>` 看着只多一次只读,但它要多一次工具调用
+// (实测基线 avg_turns=1.00,加一步就是 +100% fork 成本)、多一条命令白名单,还要求手册文件在
+// executor 那侧真的存在 —— 而 executor 的 /app 是 symlink 到主工作区,worktree 里的文件它看不到,
+// 契约一上线就 404。用主 agent 学 skill 的同一个机制(尾部 skills 块)三样成本全省掉。
+test('★REGRESSION★ 命令白名单只放行投递那一条,不放行任何读取', () => {
+  assert.equal(isAllowedSubconsciousCommand(`cat ${XIAONI_PLAN_SKILL_BIN}/../SKILL.md`), false);
+  assert.equal(isAllowedSubconsciousCommand('cat /app/modules/agent-service/skills-internal/xiaoni-plan/SKILL.md'), false);
+  assert.equal(isAllowedSubconsciousCommand('cat /etc/passwd'), false);
 });
 
 test('白名单拒绝：heredoc 之后再挂命令', () => {
@@ -120,11 +129,25 @@ test('★REGRESSION★ 全局正则可重入（lastIndex 每次进来必须清�
   assert.equal(extractExecStdoutMarker(payload, re), '/same');
 });
 
-test('plan marker：QUEUED 只认纯数字，FAILED 带原因', () => {
-  assert.equal(extractPlanQueuedId({ stdout: 'XIAONI_PLAN_QUEUED=33858\n' }), '33858');
-  assert.equal(extractPlanQueuedId({ stdout: 'XIAONI_PLAN_QUEUED=abc\n' }), null);
-  assert.equal(extractPlanFailedReason({ stdout: 'XIAONI_PLAN_FAILED=http_500:enqueue_failed\n' }), 'http_500:enqueue_failed');
-  assert.equal(extractPlanFailedReason({ stdout: 'XIAONI_PLAN_QUEUED=1\n' }), null);
+// ── 出口:post 到达即 end,引擎不从 stdout 捞 marker ────────────────────────────────
+// 端点(redeemSubconsciousPlanTicket)和 fork 循环是同一个 AgentLoopService 实例:入队完成
+// 那一刻 queueId 已经在手,再让 skill 打到 stdout、引擎用正则捞回来是一次纯往返,而且每一环
+// 都能断 —— 最脆的是她自己会给 exec_command 设 max_output_tokens(实测样本 `"max_output_tokens":3`),
+// marker 被截断就判成「没交」→ 发纠正 → 她再交一次 → 同一份 plan 重复入队。
+test('★REGRESSION★ 引擎不得再从 stdout 捞 plan marker（出口只能是进程内状态）', async () => {
+  const loopModule = await import('../services/agent-loop-service') as Record<string, unknown>;
+  for (const gone of ['extractPlanQueuedId', 'extractPlanFailedReason']) {
+    assert.equal(loopModule[gone], undefined,
+      `${gone} 已随出口改造删除;把它加回来等于把那条会断的往返再接上`);
+  }
+  // 压缩侧那把通用提取器必须【留着】—— 它是 XIAONI_COMPRESS_WROTE 的现役实现。
+  assert.equal(typeof loopModule.extractExecStdoutMarker, 'function', '压缩 fork 仍依赖这把提取器');
+  // 源码层再钉一道:正则本体也不许留着(留着就是随时能接回去的半条路)。
+  const src = await fs.promises.readFile(
+    path.join(__dirname, '..', '..', 'src', 'services', 'agent-loop-service.ts'), 'utf-8'
+  );
+  assert.ok(!src.includes('XIAONI_PLAN_QUEUED_RE'), 'stdout marker 正则本体也该随出口一起删');
+  assert.ok(src.includes('takeSubconsciousPlanSubmission'), '出口必须是进程内状态那条路');
 });
 
 // ── 票据 ────────────────────────────────────────────────────────────────────────
@@ -258,6 +281,74 @@ test('fork 在飞期间主 loop 又 settle 了 → 更新的 seed 不受这次�
   assert.equal(service.lastMainAgentForkSeed, fresher, '消费旧 seed 也不许误清新 seed');
 });
 
+// ── 交付口互斥：ON 时文本口必须让位给 skill 口 ────────────────────────────────────
+// 2026-08-13 事故本体。文本抽取跑在 tool-call 分支【之前】且不看开关，于是只要模型吐了任何
+// final_answer 文本就短路收工 —— skill 口从没被强制过，纠正分支是死代码。她把 prompt 里
+// 「原样照这个形状写」当字面执行、把整条命令写进回答之后，文本口照单全收发出去，升级腿再把
+// 这份带 shell 外壳的「plan」回贴给下一个 fork 看，形成正反馈(08-08 起 711 个 fork 里 691 次泄漏)。
+const LEAKED_COMMAND_FINAL_ANSWER = [
+  '```',
+  `${XIAONI_PLAN_SKILL_BIN} post <<'PLAN'`,
+  '1. 把 alive 追到最新',
+  '2. cofactor 第六版递给陈显',
+  'PLAN',
+  '```'
+].join('\n');
+
+const finalAnswerItems = (text: string) => ([
+  { type: 'message', role: 'assistant', phase: 'final_answer', content: [{ type: 'output_text', text }] }
+] as Array<Record<string, unknown>>);
+
+test('★REGRESSION★ ON：final_answer 文本一律不算交付（含把命令抄进回答那种）', () => {
+  assert.equal(
+    selectSubconsciousPlanFromText(finalAnswerItems(LEAKED_COMMAND_FINAL_ANSWER), true),
+    null,
+    'ON 时文本口必须让位 —— 否则 skill 口永远走不到，纠正分支是死代码'
+  );
+  assert.equal(
+    selectSubconsciousPlanFromText(finalAnswerItems('<xiaoni_plan>\n1. 方向甲\n</xiaoni_plan>'), true),
+    null,
+    '规规矩矩包了 <xiaoni_plan> 的文本，ON 时同样不算交付'
+  );
+});
+
+test('★REGRESSION★ OFF：文本口逐字节维持老行为', () => {
+  assert.equal(
+    selectSubconsciousPlanFromText(finalAnswerItems('<xiaoni_plan>\n1. 方向甲\n2. 方向乙\n</xiaoni_plan>'), false),
+    '1. 方向甲\n2. 方向乙'
+  );
+  assert.equal(
+    selectSubconsciousPlanFromText(finalAnswerItems(LEAKED_COMMAND_FINAL_ANSWER), false),
+    LEAKED_COMMAND_FINAL_ANSWER
+  );
+  assert.equal(selectSubconsciousPlanFromText([], false), null);
+});
+
+// ── 提示词：口径必须是「调工具」，不是「写这个形状」 ─────────────────────────────────
+test('★REGRESSION★ ON 的 fork 契约指向 skill + 手册，且不留可照抄的命令模板', () => {
+  setIdlePlanSkillSubmissionEnabled(true);
+  const forkReminder = renderSubconsciousForkReminderForTest({ idleRounds: 0, lastPlanText: null });
+  assert.ok(forkReminder.includes('internal_skills_instructions'),
+    '用法走和主 agent 学 skill 同一个机制:fork 尾部的 internal skills 块');
+  // 渲染层对整块做 HTML 转义(`<<'PLAN'` → `&lt;&lt;'PLAN'`),是既有行为,主 agent 的
+  // <xiaoni_plan> 同样如此 —— 08-01/08-02 她 656/656 都读对了。断言按未转义的部分判。
+  assert.ok(forkReminder.includes(`${XIAONI_PLAN_SKILL_BIN} post`),
+    '块里要有可直接照着调的命令形状(缩进块,不是围栏)');
+  // 【核心】契约里不许出现可照抄的命令模板。08-03 起 90% 的 fork 把命令原样写进回答，抄的就是
+  // 诱饵是【markdown 围栏】那一个形状,不是命令形状本身。08-03 起她照抄出去的正文第一行就是
+  // ```,因为围栏 + 占位符正文读起来就是「一段填空后要输出的答案」。命令形状必须给(白名单只认
+  // 那一个 heredoc 形状,不给她写不对),但它放在缩进块里,不套围栏。
+  assert.ok(!forkReminder.includes('```'),
+    'fork 尾部任何地方都不许出现 markdown 围栏 —— 那是她照抄过的那个形状');
+  // 纠正提示只指回上面的块,不重复搬用法(重复一份就是第二个会漂的真理源)。
+  const correction = renderSubconsciousPlanCorrectionForTest();
+  assert.ok(correction.includes('internal_skills_instructions'), '纠正提示指回那个块');
+  for (const bait of ["<<'", '```']) {
+    assert.ok(!correction.includes(bait), `纠正提示里不许再抄一份用法(命中「${bait}」)`);
+  }
+  setIdlePlanSkillSubmissionEnabled(false);
+});
+
 // ── 提示词：fork-only 与主 agent 的隔离 ──────────────────────────────────────────
 test('★REGRESSION★ 主 agent 的续航提醒不因 fork 侧开关而改变一个字节', () => {
   const baseline = renderSelfContinuationReminderForTest();
@@ -284,13 +375,38 @@ test('ON：fork 提醒追加工具契约，且只出现在 fork 那份里', () =
   setIdlePlanSkillSubmissionEnabled(false);
 });
 
+// ── 隔离：这个 skill 的存在本身，主 agent 一个字都不该知道 ─────────────────────────
+// 它故意放在 skills-internal/ 下(`:3349`)，主 loop `ls skills` 列不到；票据只发给在飞的
+// fork，端点还有 1A 校验。这道隔离防的是主 agent 自己往 Notify Bucket 塞 plan —— 07-31
+// 她真跑过 2 次那条命令，学会的途径正是泄漏出去的 plan 把全路径喂到了主 agent 眼前。
+// 所以契约里【不许】出现任何把它挂到主 agent 概念体系上的话(技能库、默认名单、ls skills)：
+// 那等于给她一条「去别处找找」的线索，把隔离面从尾部捅到主 loop 里。
+test('★REGRESSION★ 主 agent 侧不得出现这个 skill 的任何痕迹', () => {
+  setIdlePlanSkillSubmissionEnabled(true);
+  const mainReminder = renderSelfContinuationReminderForTest();
+  for (const trace of ['xiaoni-plan', 'skills-internal', XIAONI_PLAN_SKILL_BIN]) {
+    assert.ok(!mainReminder.includes(trace), `主 agent 那份不许出现「${trace}」`);
+  }
+  setIdlePlanSkillSubmissionEnabled(false);
+});
+
+test('★REGRESSION★ fork 契约不得把这个 skill 挂到主 agent 的技能库概念上', () => {
+  setIdlePlanSkillSubmissionEnabled(true);
+  const forkReminder = renderSubconsciousForkReminderForTest({ idleRounds: 0, lastPlanText: null });
+  for (const leak of ['默认名单', '技能库', 'ls skills', '<skills_instructions>']) {
+    assert.ok(!forkReminder.includes(leak),
+      `「${leak}」会把它挂到主 loop 也知道的概念上，等于给她一条去别处找的线索`);
+  }
+  setIdlePlanSkillSubmissionEnabled(false);
+});
+
 test('纠正提示随开关换口径，两种口径都非空', () => {
   setIdlePlanSkillSubmissionEnabled(false);
   const offText = renderSubconsciousPlanCorrectionForTest();
   assert.ok(offText.includes('xiaoni_plan'), 'OFF 时应还是「写进 <xiaoni_plan>」的口径');
   setIdlePlanSkillSubmissionEnabled(true);
   const onText = renderSubconsciousPlanCorrectionForTest();
-  assert.ok(onText.includes('xiaoni-plan post'), 'ON 时应是「用 skill 交」的口径');
+  assert.ok(onText.includes('xiaoni-plan'), 'ON 时应是「用 skill 交」的口径');
   assert.notEqual(offText, onText);
   setIdlePlanSkillSubmissionEnabled(false);
 });
