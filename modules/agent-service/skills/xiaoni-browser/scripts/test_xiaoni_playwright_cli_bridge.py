@@ -7,6 +7,37 @@ import xiaoni_playwright_cli_bridge as bridge
 
 
 class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
+    def test_upload_container_path_is_mapped_to_host_root(self):
+        # The bug: playwright-cli runs on the host, Xiaoni's shell runs in the
+        # executor container. Her real path /xiaoni-runtime/... does not exist
+        # here, so upload died with ENOENT and she guessed host paths blind.
+        self.assertEqual(
+            bridge._map_container_paths(
+                ["-s=xiaoni-host", "upload", "/xiaoni-runtime/tmp/taper17/sieve-submission.zip"],
+            ),
+            [
+                "-s=xiaoni-host",
+                "upload",
+                f"{bridge.RUNTIME_HOST_ROOT}/tmp/taper17/sieve-submission.zip",
+            ],
+        )
+
+    def test_non_path_args_mentioning_runtime_root_are_untouched(self):
+        # Only a LEADING match is a filesystem path. URLs and run-code snippets
+        # that merely contain the string must survive byte-for-byte.
+        args = [
+            "-s=xiaoni-host",
+            "goto",
+            "https://example.com/xiaoni-runtime/tmp/a.zip",
+            "run-code",
+            "async (page) => await page.evaluate('/xiaoni-runtime/tmp/a.zip')",
+        ]
+        self.assertEqual(bridge._map_container_paths(args), args)
+
+    def test_host_paths_pass_through_unchanged(self):
+        args = ["-s=xiaoni-host", "upload", f"{bridge.RUNTIME_HOST_ROOT}/tmp/a.zip"]
+        self.assertEqual(bridge._map_container_paths(args), args)
+
     def test_extension_attach_uses_short_timeout(self):
         self.assertEqual(
             bridge._command_timeout_seconds(
