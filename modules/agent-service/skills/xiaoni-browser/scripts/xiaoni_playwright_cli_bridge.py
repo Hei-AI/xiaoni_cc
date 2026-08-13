@@ -388,6 +388,7 @@ class Handler(BaseHTTPRequestHandler):
             args = payload.get("args")
             if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
                 raise ValueError("args must be a string array")
+            args = _map_container_paths(args)
             fallback_error = _removed_fallback_error(args)
             if fallback_error:
                 self._json(200, {
@@ -524,6 +525,26 @@ def _primary_command(args):
             continue
         return arg
     return ""
+
+
+def _map_container_paths(args):
+    # Xiaoni's exec_command runs inside qqbot-xiaoni-executor, where the shared
+    # runtime is mounted at /xiaoni-runtime. playwright-cli runs HERE, on the
+    # host, where the same directory is RUNTIME_HOST_ROOT. So every file path she
+    # can actually see (`upload`, `state-load`, ...) was dead on arrival:
+    # `ENOENT: no such file or directory, stat '/xiaoni-runtime/tmp/x.zip'`.
+    # She then guessed host paths blind (/root/..., /home/hua/...) and burned ~20
+    # minutes per attempt -- observed 08-05, 08-06, 08-07 and 08-11.
+    # Translate the container root to the host root so the path she has works.
+    # Only a leading exact match is rewritten: an arg that STARTS with
+    # `/xiaoni-runtime/` is a filesystem path and nothing else, while URLs and
+    # run-code snippets that merely mention the string are left untouched.
+    prefix = RUNTIME_CONTAINER_ROOT.rstrip("/") + "/"
+    host_prefix = RUNTIME_HOST_ROOT.rstrip("/") + "/"
+    return [
+        host_prefix + arg[len(prefix):] if arg.startswith(prefix) else arg
+        for arg in args
+    ]
 
 
 def _removed_fallback_error(args):
