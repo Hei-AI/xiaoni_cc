@@ -13,9 +13,20 @@
 //   1. the UNIQUE(event_id) constraint exists and ON CONFLICT(event_id) DO UPDATE
 //      drops the second item's content (the breakdown mechanism),
 //   2. distinct event_ids persist every runtime_input (the fix),
-//   3. attachConversationIdToAgentStackByTrace is COALESCE first-write-wins,
-//   4. listAgentStackItemsForConversations (the replay read path) reproduces every
-//      backfilled fold.
+//   3. the stack-native replay read reproduces every backfilled fold.
+//
+// Case 3 used to be two cases keyed on agent_stack_items.conversation_id. That column
+// was dropped project-wide when the conversation concept was removed, so both cases had
+// been failing on real PG with `column "conversation_id" does not exist` — which quietly
+// disarmed this whole frozen suite (every run needed a human to re-decide "is this the
+// known-stale one, or did we actually break it?").
+//   - The COALESCE-first-write-wins case tested attachConversationIdToAgentStackByTrace,
+//     a function with ZERO callers guarding a concept that no longer exists → removed.
+//     (The dead function itself still ships; removing it is a separate cleanup.)
+//   - The replay case guards a LIVE, load-bearing invariant (a fold that fails to replay
+//     is exactly the run-boundary cache breakdown), so it is kept with its assertions
+//     verbatim and only re-pointed at the stack-native read the replay actually uses
+//     today: listAgentStackItems + afterStackIndex (see loadStackHistoryBlocks).
 //
 // If the test DB is unreachable (CI without Postgres), every case skips cleanly.
 
@@ -147,25 +158,7 @@ dbTest('distinct event_ids persist every runtime_input on real PG (the fix)', as
   assert.equal(await countRuntimeInputs(), 3, 'every distinct-keyed runtime_input must persist on real PG');
 });
 
-dbTest('attachConversationIdToAgentStackByTrace is COALESCE first-write-wins on real PG', async () => {
-  await persistence.appendAgentStackItems({
-    identityKey: 'xiaoni', traceId: 'rt-fold-A', runId: 'run-1',
-    sourceType: 'agent_queue_messages', sourceId: 'run-1',
-    items: [runtimeInputItem('stack:rt-fold-A:runtime-input', 'rt-fold-A', '视线边缘：1 条')]
-  });
-  // First backfill sets it.
-  await persistence.attachConversationIdToAgentStackByTrace({ traceId: 'rt-fold-A', conversationId: 60894 });
-  let row = await persistence.findAgentStackItemByEventId('stack:rt-fold-A:runtime-input');
-  assert.equal(String(row.conversationId ?? row.conversation_id), '60894');
-  // Second backfill with a DIFFERENT id must NOT overwrite (COALESCE) — this is why
-  // the failed-path backfill must be guarded to terminal-only: a retry's
-  // success-settle could never re-pin a fold already attached to the failed conv.
-  await persistence.attachConversationIdToAgentStackByTrace({ traceId: 'rt-fold-A', conversationId: 70000 });
-  row = await persistence.findAgentStackItemByEventId('stack:rt-fold-A:runtime-input');
-  assert.equal(String(row.conversationId ?? row.conversation_id), '60894', 'COALESCE must keep the first conversation id');
-});
-
-dbTest('replay read path reproduces every backfilled fold on real PG', async () => {
+dbTest('stack-native replay read reproduces every backfilled fold on real PG', async () => {
   // Initial trigger + two folds, distinct event_ids and distinct traces.
   await persistence.appendAgentStackItems({
     identityKey: 'xiaoni', traceId: 'rt-parent', runId: 'run-1',
@@ -182,14 +175,11 @@ dbTest('replay read path reproduces every backfilled fold on real PG', async () 
     sourceType: 'agent_queue_messages', sourceId: 'run-1',
     items: [runtimeInputItem('stack:rt-fold-B:runtime-input', 'rt-fold-B', '视线边缘：群里 @了你')]
   });
-  // Settle: each trace's rows get the run's conversation id (the settled path).
-  for (const traceId of ['rt-parent', 'rt-fold-A', 'rt-fold-B']) {
-    await persistence.attachConversationIdToAgentStackByTrace({ traceId, conversationId: 60894 });
-  }
-
-  // The replay read the next run uses to rebuild this conversation's history.
-  const rows = await persistence.listAgentStackItemsForConversations({
-    identityKey: 'xiaoni', conversationIds: [60894], limit: 1000
+  // The replay read the next run actually uses to rebuild history: everything after the
+  // compression floor, read stack-native by stack_index (loadStackHistoryBlocks' shape).
+  // No settle step any more — folds are addressed by stack position, not by conversation.
+  const rows = await persistence.listAgentStackItems({
+    identityKey: 'xiaoni', runId: 'run-1', limit: 1000, chronological: true
   });
   const text = JSON.stringify(rows);
   assert.ok(text.includes('阿花修好了做图'), 'replay must reproduce folded reminder A');
