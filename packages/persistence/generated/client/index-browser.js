@@ -209,6 +209,8 @@ exports.Prisma.AgentRuntimeControlScalarFieldEnum = {
   post_compression_pause_triggered_at: 'post_compression_pause_triggered_at',
   post_compression_pause_reason: 'post_compression_pause_reason',
   main_agent_pre_model_yield_ms: 'main_agent_pre_model_yield_ms',
+  passive_recall_delivery_enabled: 'passive_recall_delivery_enabled',
+  passive_recall_delivery_daily_cap: 'passive_recall_delivery_daily_cap',
   updated_at: 'updated_at'
 };
 
