@@ -22,7 +22,9 @@ import {
   DAY_MS,
   BEIJING_OFFSET_MS,
   insertRecallShadowLog,
-  listRecallShadowLog
+  listRecallShadowLog,
+  listAgentStackItems,
+  getSessionReadCutoffState
 } from '@qq-bot/persistence';
 import type { XiaoniAssociationStats } from '@qq-bot/persistence';
 
@@ -91,6 +93,62 @@ const ASSOCIATION_SCAN_QUERY_REF = 'association_scan';
 // 一周内不重复浮」成为结构性事实,而不是靠运气(spec §5.6 过线标准第三条)。
 // listRecallShadowLog 的 limit 上限是 500,336 在内。
 const ASSOCIATION_DEDUP_LOOKBACK = 336;
+// ── 锚点(f1 的 query)与在场直查的取数 ────────────────────────────────────
+// 都从 agent_stack_items 取 —— 那是项目文档里写明的规范可回放事实源,而且**一行工程遥测都没有**。
+//
+// 为什么不再用 getXiaoniActionStream:实测 2026-08-13,那个视图 200 条里 42–49% 是
+// `llm_request_slice`(正文形如 `anthropic/messages · claude-opus-4-6 · turn 15 · 48218->178 tokens`),
+// 同时把 `function_call_output` 几乎全吞掉(200 条里只吐 0–1 条,而栈里 24 小时是 1934 条)。
+// 旧代码取 `limit: 1`,于是有近一半的拍抓到的是 token 计数 —— 落到 BM25 上全池零命中,
+// relevance 整池归零。实测 7 天 323 次扫描里 205 次(63.5%)query_text 为空/无语义,
+// 那 205 次的 relevance 是 100% 的 0;有真 query 的 118 次 relevance 均值 0.331。
+//
+// 白名单按「她感知到的 + 她做的」定:
+//   function_call        她干的事 + cmd 里的 `#` 想法
+//   function_call_output 她读到的(文件、邮件、网页正文)
+//   assistant_output     她说的话
+// 排除 runtime_input:那里面是 `<xiaoni_plan>`(她自己的声音回灌)、引擎 `<system_reminder>`,
+// 以及【QQ 有 N 条新消息】的**通知横幅** —— 横幅不是内容,等于手机锁屏弹窗,她不跑 `$qq-usage`
+// 就没真读到;她真读的时候那一步本身就是 function_call + function_call_output,已经在白名单里。
+const ANCHOR_ITEM_KINDS = new Set(['function_call', 'function_call_output', 'assistant_output']);
+// 锚点取最近 N 条**有效**白名单条目拼接(不是最近 N 条原始行) —— 8 条足够给 BM25 喂出词面,
+// 又不至于把半小时前的活也算成"当下"。
+const ANCHOR_ITEM_TARGET = 8;
+const ANCHOR_TEXT_MAX_CHARS = 2000;
+// 在场直查的取数上限。live 上下文实测 377 条 / 0.8h,压缩每 6–12h 触发一次,1000 是
+// listAgentStackItems 的硬上限,正常绝不会撞到;真撞到也只是少查一截,不会误剔。
+const CONTEXT_SCAN_MAX_ITEMS = 1000;
+// 和 agent-service 的 getGlobalPromptContextSessionKey() 同名环境变量、同默认值
+// (出处:modules/agent-service/src/config.ts)。两个容器读同一份 compose env,不会漂。
+const GLOBAL_PROMPT_CONTEXT_SESSION_KEY = (process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SESSION_KEY || '').trim()
+  || 'xiaoni:global';
+
+// 从一条栈行里抽出「有语义的那段字」。抽不出返回 ''(调用方跳过)。
+function stackItemText(row: Record<string, unknown>): string {
+  const content = (row as { content?: unknown }).content;
+  const raw = typeof content === 'string'
+    ? content
+    : content && typeof content === 'object'
+      ? JSON.stringify(content)
+      : '';
+  if (!raw) return '';
+  // exec_command 的参数是 `{"cmd":"# 想法…\n实际命令","max_output_tokens":3}` —— 她的心里话
+  // 全在 cmd 里,外层 JSON 的键名是噪音。能解出 cmd 就只要 cmd。
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const cmd = parsed && typeof parsed.cmd === 'string' ? parsed.cmd : '';
+    if (cmd) return cmd;
+  } catch {
+    // 不是 JSON,按原文用。
+  }
+  return raw;
+}
+
+// `<br>`、空白、纯符号这类正文没有词面可供 BM25 使用,进来只会稀释 query。
+function isLowSignalAnchorText(text: string): boolean {
+  const stripped = text.replace(/<[^>]{1,12}>/g, '').replace(/\s+/g, '');
+  return stripped.length < 4;
+}
 // L3 线(专题物化产物)的目录。**隔离目录**是有意的:落在 notes/diary/ 里时,同一件事的
 // 「日记条目 + 线章节」两份拷贝会各占一个 slot(实测 155/155 = 100%,见 spec §8.1)。
 // 目录不存在(P1 还没落地/还没跑过)→ 线场桶为空 → 按「空桶就少浮」少浮一条,不报错。
@@ -627,21 +685,53 @@ export async function scanAssociativeRecallToShadow(
     ...promiseCandidates
   ];
 
-  // 落地文本:动作流最新一条(和 agent-service 召回钩子同口径)。取不到不阻断。
+  // 锚点(f1 的 query)+ 在场直查的语料,一次栈读取两用。取不到不阻断(landedText 空 → f1 全 0;
+  // contextText 空 → 不做在场过滤),和原来"拿不到就少一层信号"的口径一致。
   let landedText = '';
   let landedRef: string | null = null;
+  let contextText = '';
   try {
-    const feed = await getXiaoniActionStream({ identityKey, limit: 1 });
-    const items = Array.isArray(feed?.items) ? feed.items : [];
-    const newest = items[0];
-    if (newest) {
-      landedText = (typeof newest.body === 'string' && newest.body)
-        || (typeof newest.title === 'string' && newest.title) || '';
-      landedRef = (typeof newest.id === 'string' && newest.id)
-        || (typeof newest.eventId === 'string' && newest.eventId) || null;
+    // 不传第二个 config 参数 —— 这个文件里所有 persistence 调用都走默认解析(见同文件的
+    // listRecallShadowLog / insertRecallShadowLog),别在这儿另开一套。
+    const cutoffState = await getSessionReadCutoffState(
+      { sessionKey: GLOBAL_PROMPT_CONTEXT_SESSION_KEY }
+    ) as { readCutoffAfterStackIndex?: number | null } | null;
+    const cutoff = cutoffState && Number.isFinite(Number(cutoffState.readCutoffAfterStackIndex))
+      ? Number(cutoffState.readCutoffAfterStackIndex)
+      : null;
+    // 一次读 live 上下文那一段(stack_index > cutoff)。没有 cutoff(还没压缩过)时退回
+    // 读最近 CONTEXT_SCAN_MAX_ITEMS 条 —— 没压缩就意味着这些全在上下文里,口径仍然对。
+    const rows = await listAgentStackItems({
+      identityKey,
+      limit: CONTEXT_SCAN_MAX_ITEMS,
+      ...(cutoff === null ? {} : { afterStackIndex: cutoff })
+    }) as Array<Record<string, unknown>>;
+    const items = Array.isArray(rows) ? rows : [];
+
+    // 在场直查语料 = 整段 live 上下文的正文(所有 kind,包括 runtime_input —— 判"在不在场"
+    // 要的是这段字**在不在上下文里**,跟它是不是她自己说的没关系)。
+    contextText = items.map((row) => stackItemText(row)).filter(Boolean).join('\n');
+
+    // 锚点 = 最近 ANCHOR_ITEM_TARGET 条白名单条目(listAgentStackItems 默认 stack_index DESC,
+    // 所以从头往下扫就是从新往旧)。
+    const picked: string[] = [];
+    for (const row of items) {
+      const kind = String((row as { itemKind?: unknown; item_kind?: unknown }).itemKind
+        ?? (row as { item_kind?: unknown }).item_kind ?? '');
+      if (!ANCHOR_ITEM_KINDS.has(kind)) continue;
+      const text = stackItemText(row).trim();
+      if (!text || isLowSignalAnchorText(text)) continue;
+      picked.push(text);
+      if (!landedRef) {
+        landedRef = String((row as { eventId?: unknown; event_id?: unknown }).eventId
+          ?? (row as { event_id?: unknown }).event_id ?? '') || null;
+      }
+      if (picked.length >= ANCHOR_ITEM_TARGET) break;
     }
+    landedText = picked.join('\n').slice(0, ANCHOR_TEXT_MAX_CHARS);
   } catch {
     landedText = '';
+    contextText = '';
   }
 
   // identity 级冷却:窗口必须带 queryRef 下推到 SQL —— 这张表 ~97% 是语义腿每次落地写的留痕,
@@ -674,6 +764,7 @@ export async function scanAssociativeRecallToShadow(
   const { picked, stats } = selectAssociativeMemories(candidates, {
     nowMs,
     landedText,
+    contextText,
     peerNames,
     recentlySurfacedIdentities: recentIdentities,
     structuralTitles

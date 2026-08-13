@@ -1,14 +1,16 @@
 import fs from 'fs/promises';
 import {
   insertRecallShadowLog,
+  listAgentStackItems,
   listRecallShadowLog,
+  selectAssociativeMemories,
   parseDiaryDateFromName,
   parseDiaryEvents,
   parseOpenLoops,
   selectResurfacedEvents,
   selectStaleOpenLoops
 } from '@qq-bot/persistence';
-import { scanDiaryEventsToShadow, scanOpenLoopsToShadow } from '../services/xiaoni-recall-reindex-service';
+import { scanAssociativeRecallToShadow, scanDiaryEventsToShadow, scanOpenLoopsToShadow } from '../services/xiaoni-recall-reindex-service';
 
 // 时间腿(第二腿 open_loop_scan / 第三腿 diary_resurface)的重复冷却窗口必须按 query_ref 取。
 //
@@ -58,7 +60,20 @@ jest.mock('@qq-bot/persistence', () => ({
   getExistingContentHashes: jest.fn(),
   getXiaoniActionStream: jest.fn(),
   pruneFileChunks: jest.fn(),
-  upsertRecallCues: jest.fn()
+  upsertRecallCues: jest.fn(),
+  // 联想腿的锚点/在场语料来源。**不能留成裸 jest.fn()** —— 返回 undefined 会被
+  // reindex 里的 try/catch 吞掉,landedText/contextText 静默变空,用例照样绿但新路径零覆盖。
+  // 默认给一段真实形状的栈:function_call(她干的事,cmd 里带 # 想法)与 llm_request_slice
+  // (工程遥测,必须被白名单挡掉)交替,外加一条 runtime_input(plan 回灌 + QQ 通知横幅)。
+  getSessionReadCutoffState: jest.fn(async () => ({ readCutoffAfterStackIndex: 1000 })),
+  listAgentStackItems: jest.fn(async () => ([
+    { itemKind: 'function_call', eventId: 'ev-1', content: JSON.stringify({ cmd: '# cofactor第六版写了。发给陈显。\npython3 send.py', max_output_tokens: 3 }) },
+    { itemKind: 'llm_request_slice', eventId: 'ev-2', content: 'anthropic/messages · claude-opus-4-6 · turn 15 · 48218->178 tokens' },
+    { itemKind: 'function_call_output', eventId: 'ev-3', content: 'Dear Professor Chen, thank you for your time.' },
+    { itemKind: 'runtime_input', eventId: 'ev-4', content: '<system_reminder>【QQ 有 1 条新消息】{Nova} 发来 1 条消息</system_reminder>' },
+    { itemKind: 'assistant_output', eventId: 'ev-5', content: '<br>' },
+    { itemKind: 'assistant_output', eventId: 'ev-6', content: '我不跟plan跳了。直接做。' }
+  ]))
 }));
 
 interface ShadowRow {
@@ -171,5 +186,70 @@ describe('时间腿冷却窗口按 query_ref 取(第二腿 open_loop_scan)', () 
     const opts = (selectStaleOpenLoops as jest.Mock).mock.calls[0][1] as { recentlySurfaced: string[] };
     expect(opts.recentlySurfaced).toHaveLength(30);
     expect(opts.recentlySurfaced.every((text) => text.startsWith('承诺'))).toBe(true);
+  });
+});
+
+
+// ── 联想腿的锚点(f1 的 query)与在场语料 ──────────────────────────────────
+// 旧实现取 getXiaoniActionStream({limit:1}),而那个视图 42–49% 的行是 `llm_request_slice`
+// 工程遥测(正文是 token 计数),同时把 function_call_output 几乎全吞掉 —— 实测 7 天 323 次
+// 扫描里 205 次(63.5%)拿到的 query 为空/无语义,relevance 整池归零。
+// 这组用例钉死换源后的白名单口径,防止再退回去。
+describe('联想腿锚点:只认「她感知到的 + 她做的」,工程遥测一律不进', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    stubShadowLogAsSql([]);
+    (insertRecallShadowLog as jest.Mock).mockResolvedValue({ id: '1' });
+    (fs.readdir as unknown as jest.Mock).mockResolvedValue([]);
+    (fs.readFile as unknown as jest.Mock).mockResolvedValue('');
+    (parseDiaryDateFromName as jest.Mock).mockReturnValue(Date.UTC(2026, 6, 5, 0, 0, 0));
+    (parseDiaryEvents as jest.Mock).mockReturnValue([]);
+    (parseOpenLoops as jest.Mock).mockReturnValue([]);
+  });
+
+  async function anchorOpts(): Promise<{ landedText: string; contextText: string }> {
+    await scanAssociativeRecallToShadow({ identityKey: 'xiaoni', nowMs: Date.UTC(2026, 7, 13, 2, 0, 0) });
+    return (selectAssociativeMemories as jest.Mock).mock.calls[0][1] as { landedText: string; contextText: string };
+  }
+
+  it('llm_request_slice(token 计数)绝不进锚点 —— 这是 63.5% 盲跑的根因', async () => {
+    const { landedText } = await anchorOpts();
+    expect(landedText).not.toContain('anthropic/messages');
+    expect(landedText).not.toContain('48218->178');
+  });
+
+  it('她干的事(function_call 的 cmd 注释)、她读到的(function_call_output)、她说的话都进锚点', async () => {
+    const { landedText } = await anchorOpts();
+    expect(landedText).toContain('cofactor第六版写了');          // 她干的事 + # 想法
+    expect(landedText).toContain('Dear Professor Chen');          // 她读到的
+    expect(landedText).toContain('我不跟plan跳了');                // 她说的话
+  });
+
+  it('exec_command 只取 cmd,外层 JSON 键名不进锚点(否则纯噪音稀释 BM25)', async () => {
+    const { landedText } = await anchorOpts();
+    expect(landedText).not.toContain('max_output_tokens');
+  });
+
+  it('QQ 通知横幅不进锚点 —— 那是门铃不是内容,她不跑 $qq-usage 就没真读到', async () => {
+    const { landedText } = await anchorOpts();
+    expect(landedText).not.toContain('QQ 有 1 条新消息');
+  });
+
+  it('<br> 这类无词面正文被跳过,不占锚点名额', async () => {
+    const { landedText } = await anchorOpts();
+    expect(landedText).not.toContain('<br>');
+  });
+
+  it('在场语料收全部 kind(含 runtime_input)—— 判「在不在上下文里」跟是谁说的无关', async () => {
+    const { contextText } = await anchorOpts();
+    expect(contextText).toContain('QQ 有 1 条新消息');
+    expect(contextText).toContain('cofactor第六版写了');
+  });
+
+  it('在场语料按真实上下文游标取(stack_index > read_cutoff),不是按时间或固定条数', async () => {
+    await scanAssociativeRecallToShadow({ identityKey: 'xiaoni', nowMs: Date.UTC(2026, 7, 13, 2, 0, 0) });
+    expect(listAgentStackItems).toHaveBeenCalledWith(
+      expect.objectContaining({ identityKey: 'xiaoni', afterStackIndex: 1000 })
+    );
   });
 });
