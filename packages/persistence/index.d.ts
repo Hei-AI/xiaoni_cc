@@ -1160,13 +1160,11 @@ export type XiaoniAgentStackPersistenceApi = {
   recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
   recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
   listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
-  listAgentStackItemsForConversations(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
   listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
   listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
   getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
   listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
   findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
-  attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 };
 export function createXiaoniAgentStackPersistence(deps?: {
   createSqlAdapter?: (config?: DatabaseUrlConfig) => SqlAdapter;
@@ -1210,13 +1208,11 @@ export function appendImageVisionForkItems(input?: XiaoniAgentStackPersistenceCa
 export function recordImageVisionForkSlice(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniImageVisionForkSlice | null>;
 export function recordCacheHeartbeatForkRun(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<Record<string, unknown> | null>;
 export function listAgentStackItems(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
-export function listAgentStackItemsForConversations(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem[]>;
 export function listLlmRequestSlices(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmRequestSlice[]>;
 export function listCodexProviderUsageEvents(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniCodexProviderUsageEvent[]>;
 export function getXiaoniLlmUsageTimeline(input?: XiaoniLlmUsageTimelineInput, config?: DatabaseUrlConfig): Promise<XiaoniLlmUsageTimelineResult>;
 export function listToolExecutions(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<XiaoniToolExecution[]>;
 export function findAgentStackItemByEventId(eventId: string, config?: DatabaseUrlConfig): Promise<XiaoniAgentStackItem | null>;
-export function attachConversationIdToAgentStackByTrace(input?: XiaoniAgentStackPersistenceCallInput, config?: DatabaseUrlConfig): Promise<number>;
 export interface CcSubscriptionQuotaWindow {
   utilization: number | null;
   remaining: number | null;
