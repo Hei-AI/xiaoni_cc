@@ -3,8 +3,15 @@ import test from 'node:test';
 
 import { createPassiveRecallDelivery, type RecallDeliveryDeps } from '../services/xiaoni-recall-delivery';
 
+// 固定时钟。投递有**节奏闸**(日额按活动窗 09:00–23:00 东八分槽摊开),不钉死时钟的话
+// 用例会随「现在几点」时绿时红。选 21:00 东八 = 槽位已放行到第 6 条,不干扰非节奏用例。
+const AT_2100_EAST8 = new Date('2026-08-07T13:00:00Z');
+
 // 开关/日额的唯一真理源是 agent_runtime_control(管理端可改、每拍热读)。测试直接注入闸门值。
-const gate = (enabled: boolean, dailyCap: number) => ({ readGate: async () => ({ enabled, dailyCap }) });
+const gate = (enabled: boolean, dailyCap: number, now: Date = AT_2100_EAST8) => ({
+  readGate: async () => ({ enabled, dailyCap }),
+  now: () => now
+});
 
 // 被动浮现投递闸。在此之前整条召回链是 shadow-only,这是唯一的出口 —— 所以三件事必须成立:
 //   ① 默认 OFF(不给一个「忘了关」的世界线);
@@ -294,4 +301,102 @@ test('日额仍按今天已投的键数刹车', async () => {
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'capped');
   assert.equal(calls.length, 0);
+});
+
+
+// ── 节奏闸 ────────────────────────────────────────────────────────────────
+// 实测 2026-08-08..08-13:24 条投递全部落在 00:07–00:57,一小时烧光日额,其余 23 小时 capped。
+// 而 00:00 正是她收尾睡觉的窗口(那几拍的栈里连着六七次 recover_energy「够了。睡了。」),
+// 投进去只换来「记着。明天处理。」。下面几条把「摊开 + 避开凌晨」钉成结构性事实。
+const east8At = (hour: number) => new Date(Date.UTC(2026, 7, 7, 0, 0, 0) + (hour - 8) * 3600_000);
+
+test('节奏闸:凌晨投不出来(日额归零那一刻也不行)', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(0.2)));
+  assert.equal(await delivery.deliverOnce(), 'capped');
+  assert.equal(calls.length, 0, '00:12 一条都不能投 —— 这正是旧行为烧光日额的那一拍');
+});
+
+test('节奏闸:活动窗开始前(08:59)不投,开窗后(09:00)放行第一条', async () => {
+  const rows = { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] };
+  const before = fakeDeps({ rowsByQueryRef: rows });
+  assert.equal(
+    await createPassiveRecallDelivery(before.deps, gate(true, 6, east8At(8.98))).deliverOnce(),
+    'capped'
+  );
+  const after = fakeDeps({ rowsByQueryRef: rows });
+  assert.equal(
+    await createPassiveRecallDelivery(after.deps, gate(true, 6, east8At(9.01))).deliverOnce(),
+    'delivered'
+  );
+});
+
+test('节奏闸:今天已投够这一槽的量 → 等下一槽,不抢跑', async () => {
+  const { deps } = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:9', '你之前记过一件还没了的事：Y')])] },
+    // 11:20 东八 ≈ 第 1 槽,已投 1 条 → 该等
+    todaysKeys: ['recall-surface:association:pad0']
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(11.3)));
+  assert.equal(await delivery.deliverOnce(), 'capped');
+});
+
+test('节奏闸:同样已投 1 条,但到了晚些的槽 → 放行', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:9', '你之前记过一件还没了的事：Y')])] },
+    todaysKeys: ['recall-surface:association:pad0']
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(16)));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+});
+
+// ── 未做完的承诺可以再提 ──────────────────────────────────────────────────
+// 旧行为:幂等挂在 dedupe_key 唯一索引上,对三条腿一视同仁 → 同一段记忆永不重投。
+// 但已做完的承诺在 parseOpenLoops 那层(state !== 'open')就被滤掉了,幂等对它们是多余的;
+// 幂等实际唯一挡住的是**没做完的**。实测 2026-08-13:29 条 [ ] 未完成里 18 条已投过 →
+// 永久不会再被提起,其中两条带硬截止(HWC 8/19、Taper Prime 8/17)。
+test('open_loop:搁置跨过重投窗 → 键换一次,同一条没做完的承诺能再提', async () => {
+  const mk = (ageDays: number) => ({
+    kind: 'open_loop', text: '给James写了信问什么时候知道旧名字不对。等回信。', ageDays,
+    lead: `你之前记过一件还没了的事：给James写了信问什么时候知道旧名字不对。等回信。（放了 ${Math.floor(ageDays)} 天了）`
+  });
+  const first = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(3)])] } });
+  await createPassiveRecallDelivery(first.deps, gate(true, 6)).deliverOnce();
+  const keyAt3 = String(first.calls[0].message.dedupeKey);
+
+  const later = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(10)])] } });
+  await createPassiveRecallDelivery(later.deps, gate(true, 6)).deliverOnce();
+  const keyAt10 = String(later.calls[0].message.dedupeKey);
+
+  assert.notEqual(keyAt3, keyAt10, '搁置 3 天与 10 天必须落在不同的重投窗');
+  assert.match(keyAt3, /:w0$/);
+  assert.match(keyAt10, /:w1$/);
+});
+
+test('open_loop:同一个重投窗内不重复投(窗内幂等照旧生效)', async () => {
+  const mk = (ageDays: number) => ({
+    kind: 'open_loop', text: '博友圈提交了RSS。等审核。', ageDays,
+    lead: `你之前记过一件还没了的事：博友圈提交了RSS。等审核。（放了 ${Math.floor(ageDays)} 天了）`
+  });
+  const { deps, calls } = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(3)])] } });
+  await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+  const { deps: deps2, calls: calls2 } = fakeDeps({
+    rowsByQueryRef: { open_loop_scan: [rowWith([mk(5)])] },
+    alreadyDelivered: new Set([String(calls[0].message.dedupeKey)])
+  });
+  assert.equal(await createPassiveRecallDelivery(deps2, gate(true, 6)).deliverOnce(), 'none');
+  assert.equal(calls2.length, 1, '入队试过一次,被唯一索引挡下(created=false),不算新投递');
+});
+
+test('association 不放松重投:日记条目没有「完成」这个状态,键里不带窗号', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: {
+      association_scan: [rowWith([{ kind: 'association', ref: '/d/2026-07-23.md#103', ageDays: 21, lead: '21 天前你记过一件事：X' }])]
+    }
+  });
+  await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+  assert.doesNotMatch(String(calls[0].message.dedupeKey), /:w\d+$/);
 });
