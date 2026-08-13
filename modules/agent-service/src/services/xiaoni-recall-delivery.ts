@@ -29,6 +29,7 @@
 // (不重复入队)。队列行自 2026-03 起从不清理,所以这条幂等是长期成立的,不需要另建投递账本。
 
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
 
 import * as persistence from '@qq-bot/persistence';
 import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
@@ -76,12 +77,37 @@ const PER_TICK_LIMIT = 1;
 // 往回看几条 shadow 扫描行找没投过的 lead。两条腿都是 30min 一轮,20 行 ≈ 10 小时。
 const SHADOW_LOOKBACK = 20;
 
+// ── 投递节奏:把日额摊到白天,别在她收尾睡觉的那一小时里烧光 ──────────────
+// 实测 2026-08-08..08-13 六天:24 条投递**全部**落在 00:07–00:57。成因是
+// 「计数按东八零点归零 + 10 分钟一拍 + 每拍 1 条 + 无最小间隔」= 六拍烧光,其余 23 小时全 capped。
+// 而 00:00 正好是她收尾睡觉的窗口:那几拍的栈里是连着六七次 recover_energy(「够了。睡了。」),
+// 投进去的结果是「记着。明天处理。」然后再也不提(旧幂等下「明天」在机制上不存在)。
+// 唯一一次投在她清醒干活时(08-07 16:05)她 12 秒后就动手了。
+//
+// 摊开用**槽位**而不是「距上次多久」:后者要存/查上次投递时刻,这个 supervisor 是无状态的。
+// 槽位只用已有的 deliveredToday 计数 + 当前时刻就能算,重启即续,漏拍自愈。
+const EAST8_OFFSET_MS = 8 * 60 * 60 * 1000;
+// 活动窗(东八区小时)。窗外一律不投 —— 这就是「避开凌晨」,不需要另设开关。
+const ACTIVE_WINDOW_START_HOUR = 9;
+const ACTIVE_WINDOW_END_HOUR = 23;
+// 承诺账本。投递前现读它做「还没做完吗」的复核 —— 权威在这个文件的勾选状态,
+// 不在投递账本里。容器挂载见 docker-compose.yml(agent-service 也挂 /xiaoni-runtime)。
+const OPEN_LOOPS_PATH = `${process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime'}/notes/diary/open-loops.md`;
+// 仍未做完的承诺,隔多少天可以再提一次。
+// 旧行为是「同一段记忆永不重投」,幂等挂在 dedupe_key 唯一索引上,对**三条腿**一视同仁。
+// 但 open_loop 腿的「该不该再提」权威是 open-loops.md 的勾选状态:已 [x]/[-] 的在
+// parseOpenLoops 那一层就被 state !== 'open' 滤掉了,压根进不了候选池 —— 幂等对它们是多余的。
+// 幂等实际唯一挡住的,是**没做完的那些**。实测 2026-08-13:当前 29 条 [ ] 未完成的承诺里
+// 18 条已投过 → 永久不会再被提起,其中两条带硬截止(HWC 8/19、Taper Prime 8/17)。
+// association / diary_event 不放松:它们的候选是日记条目,没有「完成」这个状态,幂等在那里是对的。
+const OPEN_LOOP_REDELIVER_DAYS = 7;
+
 type ShadowRow = {
   occurredAt?: string | null;
   surfaced?: unknown;
 };
 
-type Lead = { leg: string; identity: string; text: string; occurredAt: string | null };
+type Lead = { leg: string; identity: string; text: string; occurredAt: string | null; ageDays: number | null };
 
 // 依赖注入(同 createRecallIngest 的形状):真跑时是 @qq-bot/persistence,测试时是假件。
 export interface RecallDeliveryDeps {
@@ -137,7 +163,9 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
       leg,
       identity,
       text,
-      occurredAt: typeof row.occurredAt === 'string' ? row.occurredAt : null
+      occurredAt: typeof row.occurredAt === 'string' ? row.occurredAt : null,
+      // 承诺搁置了多久 —— 重投窗按它算(见 dedupeKeyFor),不按墙钟,所以无状态。
+      ageDays: Number.isFinite(Number(item.ageDays)) ? Number(item.ageDays) : null
     });
   }
   return out;
@@ -147,6 +175,14 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
 // 可读性不丢:原始身份原样存进 rawPayload.recall_ref。
 function dedupeKeyFor(lead: Lead): string {
   const digest = createHash('sha256').update(`${lead.leg}\u0000${lead.identity}`).digest('hex').slice(0, 32);
+  // open_loop:键上带一个由**承诺自身搁置天数**算出的窗号 → 每搁置满 7 天,键换一次,
+  // 于是同一条没做完的承诺可以再被提一次。用 ageDays 而不是墙钟周期,是为了让「隔 7 天」
+  // 量在真正该量的东西上(它搁了多久),而且不需要存任何游标。
+  // 复核「是否仍未做完」不在这里 —— 在投递前现读 open-loops.md(见 isStillOpenLoop)。
+  if (lead.leg === 'open_loop' && Number.isFinite(lead.ageDays)) {
+    const window = Math.floor((lead.ageDays as number) / OPEN_LOOP_REDELIVER_DAYS);
+    return `${DEDUPE_PREFIX}${lead.leg}:${digest}:w${window}`;
+  }
   return `${DEDUPE_PREFIX}${lead.leg}:${digest}`;
 }
 
@@ -240,6 +276,52 @@ async function enqueueSurfaceNotify(deps: RecallDeliveryDeps, lead: Lead, now: D
   return result?.created === true;
 }
 
+// 东八区当前小时(含小数)。startOfEast8Day 已经在用同一个偏移量,这里沿用同一套算术。
+function east8HourOf(now: Date): number {
+  const shifted = now.getTime() + EAST8_OFFSET_MS;
+  return (shifted % 86_400_000) / 3_600_000;
+}
+
+// 到此刻为止,今天「应该」已经投到第几条。
+// 活动窗按 dailyCap 等分成若干槽,每过一个槽放行一条 → 日额自然摊到全天,
+// 而且完全由「当前时刻 + 已投条数」决定,不存任何游标。
+// 窗外返回 0 = 一条都不该投(凌晨那一小时因此结构性地投不出来)。
+function deliverableByNow(now: Date, dailyCap: number): number {
+  const hour = east8HourOf(now);
+  if (hour < ACTIVE_WINDOW_START_HOUR || hour >= ACTIVE_WINDOW_END_HOUR) {
+    return 0;
+  }
+  const windowHours = ACTIVE_WINDOW_END_HOUR - ACTIVE_WINDOW_START_HOUR;
+  const elapsed = hour - ACTIVE_WINDOW_START_HOUR;
+  return Math.min(dailyCap, Math.floor((elapsed / windowHours) * dailyCap) + 1);
+}
+
+// 投递前现读承诺账本做复核。
+// 为什么必须现读:候选是从最近 SHADOW_LOOKBACK=20 行扫描里捞的 ≈ 10 小时的陈旧快照,
+// 期间她完全可能已经把这件事做完并打上勾。实测 2026-08-08..08-13 的 24 条投递里有 3 条
+// (12.5%)投的是**已经关掉**的事 —— `who-am-i` 那条在投递前 41 分钟才被打勾。
+// 权威是文件里的勾选状态(state === 'open'),不是投递账本。
+// 读失败 / 解析不出 → 返回 null 表示「判不了」,调用方按放行处理:
+// 复核是用来挡陈旧的,不该因为读不到文件就把整条腿停掉。
+async function loadOpenLoopTexts(): Promise<Set<string> | null> {
+  try {
+    const content = await fs.readFile(OPEN_LOOPS_PATH, 'utf-8');
+    const loops = persistence.parseOpenLoops(content) as Array<{ state?: string; text?: string }>;
+    if (!Array.isArray(loops) || loops.length === 0) {
+      return null;
+    }
+    const open = new Set<string>();
+    for (const loop of loops) {
+      if (loop && loop.state === 'open' && typeof loop.text === 'string' && loop.text.trim()) {
+        open.add(loop.text.trim());
+      }
+    }
+    return open;
+  } catch {
+    return null;
+  }
+}
+
 export type RecallDeliveryOutcome = 'disabled' | 'capped' | 'none' | 'delivered';
 
 // supervisor tick。无状态、幂等:漏一拍只是晚一点投,重复一拍被唯一索引吞掉,重启即续。
@@ -268,6 +350,11 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     if (deliveredToday >= dailyCap) {
       return 'capped';
     }
+    // 节奏闸:今天到此刻为止「该」投到第几条。窗外 → 0 → 直接 capped(凌晨那一小时投不出来)。
+    // 这一步只用已有的计数和当前时刻,不引入任何新状态。
+    if (deliveredToday >= deliverableByNow(now, dailyCap)) {
+      return 'capped';
+    }
     const legOrder = rotateLegs(legFromDedupeKey(todaysKeys?.[0]));
 
     // 新的先投:两条腿都是「时间到了该提」的性质,旧 lead 早就被更旧的 tick 消化过。
@@ -288,8 +375,20 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'none';
     }
 
+    // 现读承诺账本复核 open_loop 候选:候选来自 ≈10 小时的陈旧快照,期间她可能已经做完打勾。
+    // null = 判不了(读不到/解析空) → 放行,复核是用来挡陈旧的,不该反过来把腿停掉。
+    const openLoopTexts = candidates.some((lead) => lead.leg === 'open_loop')
+      ? await loadOpenLoopTexts()
+      : null;
+    const fresh = openLoopTexts === null
+      ? candidates
+      : candidates.filter((lead) => lead.leg !== 'open_loop' || openLoopTexts.has(lead.identity));
+    if (fresh.length === 0) {
+      return 'none';
+    }
+
     let delivered = 0;
-    for (const lead of candidates) {
+    for (const lead of fresh) {
       if (delivered >= PER_TICK_LIMIT) {
         break;
       }

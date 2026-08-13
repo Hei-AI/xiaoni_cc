@@ -8,6 +8,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   ASSOCIATION_BUCKET_QUOTAS,
+  ASSOCIATION_RANK_WEIGHTS,
   ASSOCIATION_FACTOR_NAMES,
   normalizeMemoryIdentity,
   isBareTimestampTitle,
@@ -49,11 +50,13 @@ test('bucketOfCandidate: 四个桶的边界(近/中/远),线场优先于年龄',
   assert.equal(bucketOfCandidate({ title: 'a', dateMs: null }, { nowMs: NOW }), null);
 });
 
-test('配额就是 0/1/1/1,近场那一格是 0', () => {
-  assert.deepEqual(ASSOCIATION_BUCKET_QUOTAS, { near: 0, mid: 1, far: 1, line: 1 });
+test('配额是 1/1/1/1 —— 近场不再被整格封死', () => {
+  // 旧版 near:0 是拿年龄当「在场」代理,实测挡掉 2244 条日记条目里的 560 条(24%)。
+  // 在场改成直查上下文正文后,这一格不需要再牺牲。
+  assert.deepEqual(ASSOCIATION_BUCKET_QUOTAS, { near: 1, mid: 1, far: 1, line: 1 });
 });
 
-test('四个桶各取自己的配额:满员时恰好 mid+far+line 三条,一条近场都不浮', () => {
+test('四个桶各取自己的配额:满员时恰好 near+mid+far+line 四条', () => {
   const candidates = [
     ev({ ref: 'n1', index: 1, dateMs: daysAgo(1), title: '今天算了变形比' }),
     ev({ ref: 'n2', index: 2, dateMs: daysAgo(3), title: '今天读了论文' }),
@@ -64,23 +67,42 @@ test('四个桶各取自己的配额:满员时恰好 mid+far+line 三条,一条�
     ev({ ref: 'l1', index: 7, dateMs: daysAgo(2), title: '线上的一章', lineKey: '周蕊' })
   ];
   const { picked, stats } = selectAssociativeMemories(candidates, { nowMs: NOW });
-  assert.equal(picked.length, 3);
-  assert.deepEqual(picked.map((p) => p.bucket), ['mid', 'far', 'line']);
-  // 近场桶里有两条候选,但配额 0 → 一条都不出
+  assert.equal(picked.length, 4);
+  assert.deepEqual(picked.map((p) => p.bucket), ['near', 'mid', 'far', 'line']);
+  // 近场桶里有两条候选,配额 1 → 出且只出一条(不跨桶借,也不整格封死)
   assert.equal(stats.byBucket.near, 2);
-  assert.equal(picked.filter((p) => p.bucket === 'near').length, 0);
+  assert.equal(picked.filter((p) => p.bucket === 'near').length, 1);
 });
 
-test('近场恒 0:即使只有近场有候选,也返回空(把砖头当引子的历史事故不许复现)', () => {
+// 「把砖头当引子」这条历史事故的防线换了机制:不再靠把近场配额压成 0(那是拿年龄当代理,
+// 实测判不准 —— 当天 12 条日记标题里 9 条根本不在 live 上下文里),改成直查上下文正文。
+test('在场直查:候选就是她此刻手上的活 → 剔掉(把砖头当引子的历史事故不许复现)', () => {
   const candidates = [
-    ev({ ref: 'n1', index: 1, dateMs: daysAgo(0) }),
-    ev({ ref: 'n2', index: 2, dateMs: daysAgo(6) }),
-    ev({ ref: 'n3', index: 3, dateMs: daysAgo(7) })
+    ev({ ref: 'n1', index: 1, dateMs: daysAgo(0), title: 'cofactor第六版写了' }),
+    ev({ ref: 'n2', index: 2, dateMs: daysAgo(6), title: 'alive一万七千行读完了' })
   ];
+  const contextText = '现在在做 cofactor第六版写了 附了链接发给陈显';
+  const { picked, stats } = selectAssociativeMemories(candidates, { nowMs: NOW, contextText });
+  assert.equal(stats.dropped.in_context, 1);
+  assert.deepEqual(picked.map((p) => p.title), ['alive一万七千行读完了']);
+});
+
+test('在场直查与年龄无关:同一天的两条,在场的剔、不在场的照浮', () => {
+  const candidates = [
+    ev({ ref: 'a', index: 1, dateMs: daysAgo(0), title: 'cofactor第六版写了' }),
+    ev({ ref: 'b', index: 2, dateMs: daysAgo(0), title: '声音做了第一个正弦波' })
+  ];
+  const { picked } = selectAssociativeMemories(candidates, {
+    nowMs: NOW, contextText: '现在在做 cofactor第六版写了'
+  });
+  assert.deepEqual(picked.map((p) => p.title), ['声音做了第一个正弦波']);
+});
+
+test('缺 contextText → 在场直查整体让路,不阻断扫描', () => {
+  const candidates = [ev({ ref: 'a', index: 1, dateMs: daysAgo(10), title: '中场那件真事' })];
   const { picked, stats } = selectAssociativeMemories(candidates, { nowMs: NOW });
-  assert.deepEqual(picked, []);
-  assert.equal(stats.byBucket.near, 3);
-  assert.equal(stats.filtered, 3); // 不是被过滤掉的,是配额为 0
+  assert.equal(stats.dropped.in_context, 0);
+  assert.equal(picked.length, 1);
 });
 
 test('空桶就少浮,不跨桶借配额:只有中场有候选 → 只出 1 条(不是 3 条)', () => {
@@ -168,7 +190,7 @@ test('identity 级冷却:按归一化身份命中就跳过(不是按 ref)', () =
 });
 
 // ── 六因子等权 ──────────────────────────────────────────────────────────────
-test('六个因子名固定,等权相加 → score ∈ [0,6]', () => {
+test('六个因子照算落日志,但排序分只用四个(加权) → score ∈ [0,6]', () => {
   assert.deepEqual(ASSOCIATION_FACTOR_NAMES, ['relevance', 'introspection', 'effort', 'prose', 'peer', 'titleSpecificity']);
   const { score, factors } = scoreAssociationFactors(ev(), { relevance: 1, peerNames: ['楠楠'] });
   assert.equal(Object.keys(factors).length, 6);
@@ -176,8 +198,15 @@ test('六个因子名固定,等权相加 → score ∈ [0,6]', () => {
     assert.ok(factors[name] >= 0 && factors[name] <= 1, `${name} 必须归一化到 [0,1],实得 ${factors[name]}`);
   }
   assert.ok(score >= 0 && score <= 6);
-  // 等权:六项之和就是 score(没有隐藏权重)
-  assert.equal(score, ASSOCIATION_FACTOR_NAMES.reduce((s, n) => s + factors[n], 0));
+  // prose / titleSpecificity 已降为准入门槛,不进排序分;排序分 = relevance*3 + intro + effort + peer。
+  assert.equal(score, Object.keys(ASSOCIATION_RANK_WEIGHTS)
+    .reduce((s, n) => s + ASSOCIATION_RANK_WEIGHTS[n] * factors[n], 0));
+  assert.deepEqual(Object.keys(ASSOCIATION_RANK_WEIGHTS).sort(),
+    ['effort', 'introspection', 'peer', 'relevance']);
+  // relevance 必须真能翻盘:只差 relevance 的两条,分差 = 3 * Δrelevance。
+  const hi = scoreAssociationFactors(ev(), { relevance: 1, peerNames: ['楠楠'] }).score;
+  const lo = scoreAssociationFactors(ev(), { relevance: 0, peerNames: ['楠楠'] }).score;
+  assert.equal(Number((hi - lo).toFixed(6)), 3);
 });
 
 test('f2 introspection:只差「当时」那一层 → 有的排前面', () => {
@@ -324,8 +353,8 @@ test('空输入 / 非数组 / 缺 nowMs:返回空,不抛', () => {
 
 test('全部被冷却过滤 → 返回空,不抛', () => {
   const candidates = [
-    ev({ ref: 'a', index: 1, dateMs: daysAgo(10), title: '一件事' }),
-    ev({ ref: 'b', index: 2, dateMs: daysAgo(50), title: '另一件事' })
+    ev({ ref: 'a', index: 1, dateMs: daysAgo(10), title: '中场发生的一件事' }),
+    ev({ ref: 'b', index: 2, dateMs: daysAgo(50), title: '远场发生的另一件事' })
   ];
   const { picked, stats } = selectAssociativeMemories(candidates, {
     nowMs: NOW,
@@ -356,6 +385,6 @@ test('stats 把一次扫描的分桶/配额/剔除原因都记下来(管理端�
   assert.equal(stats.candidates, 5);
   assert.equal(stats.filtered, 4);
   assert.deepEqual(stats.byBucket, { near: 1, mid: 1, far: 1, line: 1 });
-  assert.deepEqual(stats.quotas, { near: 0, mid: 1, far: 1, line: 1 });
+  assert.deepEqual(stats.quotas, { near: 1, mid: 1, far: 1, line: 1 });
   assert.equal(stats.dropped.no_bucket, 1);
 });
