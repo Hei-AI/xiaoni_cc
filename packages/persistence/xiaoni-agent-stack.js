@@ -4409,43 +4409,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
-  async function listAgentStackItemsForConversations(input = {}, config = {}) {
-    await ensureXiaoniAgentStackSchema(input, config);
-    const identityKey = firstString(input.identityKey, input.identity_key, 'xiaoni');
-    const rawConversationIds = Array.isArray(input.conversationIds)
-      ? input.conversationIds
-      : Array.isArray(input.conversation_ids)
-        ? input.conversation_ids
-        : [];
-    const conversationIds = Array.from(new Set(rawConversationIds
-      .map((value) => normalizeBigIntId(value))
-      .filter((value) => value !== null)));
-    if (conversationIds.length === 0) {
-      return [];
-    }
-    const limit = Math.max(1, Math.min(Number.parseInt(String(input.limit || 5000), 10) || 5000, 10000));
-    const placeholders = conversationIds.map(() => '?').join(', ');
-    const params = [
-      identityKey,
-      ...conversationIds,
-      limit
-    ];
-
-    return withSql(input, config, async (sql) => {
-      const rows = await sql.query(
-        `
-          SELECT *
-          FROM agent_stack_items
-          WHERE identity_key = ?
-            AND conversation_id IN (${placeholders})
-          ORDER BY conversation_id ASC, stack_index ASC, id ASC
-          LIMIT ?
-        `,
-        params
-      );
-      return rows.map(normalizeStackRow).filter(Boolean);
-    });
-  }
 
   async function listLlmRequestSlices(input = {}, config = {}) {
     await ensureXiaoniAgentStackSchema(input, config);
@@ -5004,91 +4967,6 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     return rows[0] || null;
   }
 
-  async function attachConversationIdToAgentStackByTrace(input = {}, config = {}) {
-    const traceId = firstString(input.traceId, input.trace_id);
-    const conversationId = normalizeBigIntId(input.conversationId ?? input.conversation_id);
-    if (!traceId || conversationId === null) {
-      return 0;
-    }
-    await ensureXiaoniAgentStackSchema(input, config);
-    return withSql(input, config, async (sql) => {
-      const updatedStack = await sql.execute(
-        'UPDATE agent_stack_items SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedSlices = await sql.execute(
-        'UPDATE llm_request_slices SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedTools = await sql.execute(
-        'UPDATE tool_executions SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedCompressionForkRuns = await sql.execute(
-        'UPDATE core_memory_compression_fork_runs SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedCompressionForkItems = await sql.execute(
-        'UPDATE core_memory_compression_fork_items SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedCompressionForkSlices = await sql.execute(
-        'UPDATE core_memory_compression_fork_slices SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedCompressionForkTools = await sql.execute(
-        'UPDATE core_memory_compression_fork_tool_executions SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedSubconsciousForkRuns = await sql.execute(
-        'UPDATE subconscious_agent_fork_runs SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedSubconsciousForkItems = await sql.execute(
-        'UPDATE subconscious_agent_fork_items SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedSubconsciousForkSlices = await sql.execute(
-        'UPDATE subconscious_agent_fork_slices SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedSubconsciousForkTools = await sql.execute(
-        'UPDATE subconscious_agent_fork_tool_executions SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedImageForkRuns = await sql.execute(
-        'UPDATE image_vision_fork_runs SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedImageForkItems = await sql.execute(
-        'UPDATE image_vision_fork_items SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedImageForkSlices = await sql.execute(
-        'UPDATE image_vision_fork_slices SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      const updatedProviderEvents = await sql.execute(
-        'UPDATE codex_provider_usage_events SET conversation_id = COALESCE(conversation_id, ?), updated_at = CURRENT_TIMESTAMP WHERE trace_id = ?',
-        [conversationId, traceId]
-      );
-      return updatedStack
-        + updatedSlices
-        + updatedTools
-        + updatedCompressionForkRuns
-        + updatedCompressionForkItems
-        + updatedCompressionForkSlices
-        + updatedCompressionForkTools
-        + updatedSubconsciousForkRuns
-        + updatedSubconsciousForkItems
-        + updatedSubconsciousForkSlices
-        + updatedSubconsciousForkTools
-        + updatedImageForkRuns
-        + updatedImageForkItems
-        + updatedImageForkSlices
-        + updatedProviderEvents;
-    });
-  }
 
   return {
     ensureXiaoniAgentStackSchema,
@@ -5124,13 +5002,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     recordImageVisionForkSlice,
     recordCacheHeartbeatForkRun,
     listAgentStackItems,
-    listAgentStackItemsForConversations,
     listLlmRequestSlices,
     listCodexProviderUsageEvents,
     getXiaoniLlmUsageTimeline,
     listToolExecutions,
-    findAgentStackItemByEventId,
-    attachConversationIdToAgentStackByTrace
+    findAgentStackItemByEventId
   };
 }
 

@@ -714,10 +714,16 @@ test('compression fork dispatch: real runCoreMemoryCompressionFork sends a byte-
 //
 // In production the main agent rebuilds history by reading agent_stack_items FROM the
 // database. So the truest test of the cache-prefix invariant drives processRuntimeFrame
-// against a REAL Postgres: the fold path appends rows to the DB, settle backfills their
-// conversation id by trace, and the replay read (listAgentStackItemsForConversations)
+// against a REAL Postgres: the fold path appends rows to the DB and the replay read
+// (listAgentStackItems + afterStackIndex — what loadStackHistoryBlocks actually calls)
 // reconstructs history from the DB — exactly the production path. This also exercises
 // the real UNIQUE(event_id) + ON CONFLICT, so it validates the event_id fix end to end.
+//
+// The fake store used to also wire listAgentStackItemsForConversations and
+// attachConversationIdToTrace. Both were INERT: loadStackHistoryBlocks only ever calls
+// listAgentStackItems, and nothing in agent-service calls attachConversationIdToTrace —
+// leftovers from before the conversation concept was removed project-wide. Removing them
+// changes nothing this test observes (verified: 30 pass before and after).
 //
 // Isolated throwaway DB (qqbot_cache_test); never touches qqbot_db. Skips if no DB.
 // =====================================================================================
@@ -793,9 +799,6 @@ function createDbBackedStore() {
     appendAgentStackItems: async (params: any) => realPersistence.appendAgentStackItems({ identityKey: 'xiaoni', ...params }),
     // Stack-native flat range read against real PG — the production replay path.
     listAgentStackItems: async (params: any) => realPersistence.listAgentStackItems({ identityKey: 'xiaoni', ...params }),
-    listAgentStackItemsForConversations: async (params: any) => realPersistence.listAgentStackItemsForConversations({ identityKey: 'xiaoni', ...params }),
-    attachConversationIdToTrace: async (traceId: string, conversationId: number) =>
-      realPersistence.attachConversationIdToAgentStackByTrace({ traceId, conversationId }),
     getAgentStackHead: async () => realPersistence.getAgentStackHead({ identityKey: 'xiaoni' }),
     createConversation: async (params: any) => { conversationSeq += 1; conversations.push({ id: conversationSeq, traceId: params.traceId }); return conversationSeq; },
     settleQueueMessages: async () => {},

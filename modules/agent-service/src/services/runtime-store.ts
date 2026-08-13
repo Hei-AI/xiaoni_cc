@@ -17,7 +17,6 @@ import {
   appendAgentStackItems as appendAgentStackItemsPersistence,
   voidAgentStackRunSegment as voidAgentStackRunSegmentPersistence,
   listAgentStackItems as listAgentStackItemsPersistence,
-  listAgentStackItemsForConversations as listAgentStackItemsForConversationsPersistence,
   updateLlmRequestSliceStackLinks as updateLlmRequestSliceStackLinksPersistence,
   recordToolExecution as recordToolExecutionPersistence,
   completeToolExecution as completeAgentStackToolExecutionPersistence,
@@ -2228,19 +2227,6 @@ export class RuntimeStore {
       identityKey: params.identityKey || 'xiaoni',
       reason: params.reason || 'compression_overrun',
       heartbeatIntervalMs: params.heartbeatIntervalMs
-    }, databaseConfig);
-  }
-
-  async listAgentStackItemsForConversations(params: {
-    identityKey?: string;
-    conversationIds: Array<number | string>;
-    limit?: number;
-  }) {
-    return listAgentStackItemsForConversationsPersistence({
-      identityKey: params.identityKey || 'xiaoni',
-      conversationIds: params.conversationIds,
-      limit: params.limit,
-      sqlAdapter: this.sql
     }, databaseConfig);
   }
 

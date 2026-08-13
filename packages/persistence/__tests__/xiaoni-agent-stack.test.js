@@ -1505,35 +1505,6 @@ test('findActiveCoreMemoryCompressionForkRun finds a running fork by durable cov
   assert.deepEqual(query.params, ['xiaoni:test-global', '201', '30']);
 });
 
-test('attachConversationIdToAgentStackByTrace updates main stack, tools, and fork rows', async () => {
-  const sql = createMockSql();
-  const persistence = createXiaoniAgentStackPersistence({ sqlAdapter: sql });
-
-  const count = await persistence.attachConversationIdToAgentStackByTrace({
-    traceId: 'trace-1',
-    conversationId: '42'
-  });
-
-  assert.equal(count, 15);
-  const updates = sql.calls.filter((call) => call.kind === 'execute' && call.sql.includes('UPDATE '));
-  assert.equal(updates.length, 15);
-  assert.ok(updates.some((call) => call.sql.includes('agent_stack_items')));
-  assert.ok(updates.some((call) => call.sql.includes('llm_request_slices')));
-  assert.ok(updates.some((call) => call.sql.includes('tool_executions')));
-  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_runs')));
-  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_items')));
-  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_slices')));
-  assert.ok(updates.some((call) => call.sql.includes('core_memory_compression_fork_tool_executions')));
-  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_runs')));
-  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_items')));
-  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_slices')));
-  assert.ok(updates.some((call) => call.sql.includes('subconscious_agent_fork_tool_executions')));
-  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_runs')));
-  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_items')));
-  assert.ok(updates.some((call) => call.sql.includes('image_vision_fork_slices')));
-  assert.ok(updates.some((call) => call.sql.includes('codex_provider_usage_events')));
-});
-
 function createUsageTimelineSqlMock({ totalCount = 2, pointRows = [], searchRows = [] } = {}) {
   const calls = [];
   return {
