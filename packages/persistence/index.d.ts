@@ -2634,6 +2634,8 @@ export function selectAssociativeMemories(
   opts?: {
     nowMs: number;
     landedText?: string;
+    /** live 上下文正文(在场直查用);缺省 → 不做在场过滤 */
+    contextText?: string;
     peerNames?: string[];
     recentlySurfacedIdentities?: Set<string> | string[];
     structuralTitles?: Set<string> | string[];
