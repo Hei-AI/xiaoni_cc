@@ -22,6 +22,21 @@ class XiaoniPlaywrightCliBridgeTest(unittest.TestCase):
             ],
         )
 
+    def test_repo_container_path_is_mapped_to_host_root(self):
+        self.assertEqual(
+            bridge._map_container_paths(
+                ["-s=xiaoni-host", "upload", "/workspace/qq_bot/docs/INDEX.md"],
+            ),
+            ["-s=xiaoni-host", "upload", f"{bridge.REPO_HOST_ROOT}/docs/INDEX.md"],
+        )
+
+    def test_container_only_paths_are_left_alone(self):
+        # /tmp and /root live in the container's own writable layer -- there is no
+        # host path to rewrite them to, so they must pass through untouched and
+        # fail loudly rather than be silently pointed at an unrelated host file.
+        args = ["-s=xiaoni-host", "upload", "/tmp/x.zip", "upload", "/root/Downloads/x.zip"]
+        self.assertEqual(bridge._map_container_paths(args), args)
+
     def test_non_path_args_mentioning_runtime_root_are_untouched(self):
         # Only a LEADING match is a filesystem path. URLs and run-code snippets
         # that merely contain the string must survive byte-for-byte.
