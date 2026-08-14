@@ -67,9 +67,17 @@ path you actually have:
 python3 /app/modules/agent-service/skills/xiaoni-browser/scripts/xiaoni_playwright_cli.py -- -s=xiaoni-host upload /xiaoni-runtime/tmp/submission.zip
 ```
 
-Anything under `/xiaoni-runtime/` works. Files elsewhere in the container
-(`/tmp`, `/root/Downloads`, `/workspace`) are **not** visible to the host browser
-— copy them into `/xiaoni-runtime/tmp/` first.
+The browser resolves paths against the **host** filesystem, so a file is only
+uploadable if it sits in a directory your container shares with the host. Two do:
+
+| Your path | Uploadable |
+|---|---|
+| `/xiaoni-runtime/...` | yes — translated for you |
+| `/workspace/qq_bot/...` | yes — translated for you |
+| everything else (`/tmp`, `/root/Downloads`, `/app`, ...) | **no** — the host has no such file |
+
+Those last ones live only in the container's own writable layer; the host browser
+cannot see them at any path. Copy the file into `/xiaoni-runtime/tmp/` first.
 
 The real trap is timing, not the path. `upload` only works while the page's file
 chooser is open, and a failed attempt closes it. So the second try reports
