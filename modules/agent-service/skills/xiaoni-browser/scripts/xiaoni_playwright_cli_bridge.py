@@ -50,6 +50,17 @@ CLI_SCRIPT = os.path.join(INSTALL_DIR, "node_modules", "@playwright", "cli", "pl
 INSTALL_DIR_WSL = INSTALL_DIR  # legacy alias: subprocess cwd + artifact path resolution
 RUNTIME_HOST_ROOT = os.environ.get("XIAONI_RUNTIME_HOST_ROOT", "/home/liahua/.qqbot-local/xiaoni-runtime")
 RUNTIME_CONTAINER_ROOT = os.environ.get("XIAONI_RUNTIME_CONTAINER_ROOT", "/xiaoni-runtime")
+REPO_HOST_ROOT = os.environ.get("XIAONI_REPO_HOST_ROOT", "/home/liahua/IdeaProject/qq_bot")
+REPO_CONTAINER_ROOT = os.environ.get("XIAONI_REPO_CONTAINER_ROOT", "/workspace/qq_bot")
+# Every bind mount qqbot-xiaoni-executor shares with this host, container root
+# first. These are the ONLY paths a file can live at and still be reachable by
+# the browser: anything else Xiaoni sees (/tmp, /root, /app, the container's
+# own writable layer) simply does not exist on the host filesystem the file
+# chooser resolves against, so it has to be copied under one of these first.
+CONTAINER_TO_HOST_ROOTS = (
+    (RUNTIME_CONTAINER_ROOT, RUNTIME_HOST_ROOT),
+    (REPO_CONTAINER_ROOT, REPO_HOST_ROOT),
+)
 PROVIDER_SERVICE_URL = os.environ.get("PROVIDER_SERVICE_URL", "").rstrip("/")
 CDP_ENDPOINT = os.environ.get("XIAONI_BROWSER_CDP_ENDPOINT", "http://127.0.0.1:9222")
 CDP_PORT = os.environ.get("XIAONI_BROWSER_CDP_PORT", "9222")
@@ -527,24 +538,27 @@ def _primary_command(args):
     return ""
 
 
+def _map_container_path(arg):
+    for container_root, host_root in CONTAINER_TO_HOST_ROOTS:
+        prefix = container_root.rstrip("/") + "/"
+        if arg.startswith(prefix):
+            return host_root.rstrip("/") + "/" + arg[len(prefix):]
+    return arg
+
+
 def _map_container_paths(args):
-    # Xiaoni's exec_command runs inside qqbot-xiaoni-executor, where the shared
-    # runtime is mounted at /xiaoni-runtime. playwright-cli runs HERE, on the
-    # host, where the same directory is RUNTIME_HOST_ROOT. So every file path she
-    # can actually see (`upload`, `state-load`, ...) was dead on arrival:
+    # Xiaoni's exec_command runs inside qqbot-xiaoni-executor; playwright-cli
+    # runs HERE, on the host. The bind-mounted directories they share hold the
+    # same bytes under two different names, so every file path she can actually
+    # see was dead on arrival:
     # `ENOENT: no such file or directory, stat '/xiaoni-runtime/tmp/x.zip'`.
     # She then guessed host paths blind (/root/..., /home/hua/...) and burned ~20
     # minutes per attempt -- observed 08-05, 08-06, 08-07 and 08-11.
-    # Translate the container root to the host root so the path she has works.
-    # Only a leading exact match is rewritten: an arg that STARTS with
-    # `/xiaoni-runtime/` is a filesystem path and nothing else, while URLs and
-    # run-code snippets that merely mention the string are left untouched.
-    prefix = RUNTIME_CONTAINER_ROOT.rstrip("/") + "/"
-    host_prefix = RUNTIME_HOST_ROOT.rstrip("/") + "/"
-    return [
-        host_prefix + arg[len(prefix):] if arg.startswith(prefix) else arg
-        for arg in args
-    ]
+    # Translate each container root to its host root so the path she has works.
+    # Only a leading exact match is rewritten: an arg that STARTS with a mount
+    # root is a filesystem path and nothing else, while URLs and run-code
+    # snippets that merely mention the string are left untouched.
+    return [_map_container_path(arg) for arg in args]
 
 
 def _removed_fallback_error(args):
