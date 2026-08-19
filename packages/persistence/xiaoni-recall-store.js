@@ -415,6 +415,32 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return rows.map((row) => row.ref).filter(Boolean);
   }
 
+  // 某条腿的「每个 ref 到今天为止浮过几次」。覆盖优先排序的数据面。
+  //
+  // 为什么要全历史而不是最近 N 行:第三腿(diary_resurface)的冷却是「最近 40 行里翻过的跳过」,
+  // 40 行 ≈ 20 小时,而候选有 1899 条 —— 冷却一过它又挑回最老的那一撮。真库实测(2026-08-19)
+  // 全历史 3350 次浮现只覆盖 90 个不同条目(4.7%),每条平均重复 37 次。要治这个,排序必须看
+  // 「这条被翻过几次」,而那是个跨全历史的量,短窗口看不见。
+  //
+  // 一次 GROUP BY,按 (identity_key, query_ref) 走既有索引;调用方每 30 分钟一轮,不在热路径。
+  async function countRecallSurfacedRefs(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const queryRef = typeof params.queryRef === 'string' ? params.queryRef : null;
+    if (!queryRef) {
+      return new Map();
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT s->>'ref' AS ref, count(*)::int AS n
+       FROM xiaoni_recall_shadow_log l, jsonb_array_elements(l.surfaced) s
+       WHERE l.identity_key = $1 AND l.query_ref = $2 AND s->>'ref' IS NOT NULL
+       GROUP BY 1`,
+      identityKey,
+      queryRef
+    );
+    return new Map(rows.map((row) => [row.ref, Number(row.n) || 0]));
+  }
+
   // inbound 砖在场硬检查的数据面:批量读消息的已读态。返回 [{id, isRead, readAt}](readAt ISO|null)。
   // 规则本身(已读且在遗忘线前读的才算记忆)是纯函数,在 xiaoni-recall-bandpass.js。
   async function getInboundReadStates(ids, config = {}) {
@@ -450,7 +476,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     pruneFileChunks,
     insertRecallShadowLog,
     listRecallShadowLog,
-    listRecentlySurfacedRecallRefs
+    listRecentlySurfacedRecallRefs,
+    countRecallSurfacedRefs
   };
 }
 

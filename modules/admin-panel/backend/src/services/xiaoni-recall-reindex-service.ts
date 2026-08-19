@@ -23,6 +23,7 @@ import {
   BEIJING_OFFSET_MS,
   insertRecallShadowLog,
   listRecallShadowLog,
+  countRecallSurfacedRefs,
   listAgentStackItems,
   getSessionReadCutoffState
 } from '@qq-bot/persistence';
@@ -538,11 +539,20 @@ export async function scanDiaryEventsToShadow(
 
   const structuralTitles = computeStructuralTitles(events);
 
+  // 覆盖优先的数据面:每个 ref 到今天为止浮过几次(全历史 GROUP BY)。
+  // 上面那份 recentRefs 是**短窗冷却**(40 行 ≈ 20 小时),它挡不住「冷却一过又挑回最老那一撮」;
+  // 治覆盖率要的是跨全历史的次数。读失败 → 空 Map → 选取器退化成原来的纯 ageDays 降序,不阻断。
+  const surfaceCounts = await countRecallSurfacedRefs({
+    identityKey,
+    queryRef: DIARY_RESURFACE_QUERY_REF
+  }).catch(() => new Map<string, number>());
+
   const picked = selectResurfacedEvents(events, {
     nowMs,
     minAgeDays: DIARY_MIN_AGE_DAYS,
     limit: DIARY_SURFACE_LIMIT,
     recentlySurfaced: recentRefs,
+    surfaceCounts,
     structuralTitles
   });
 
