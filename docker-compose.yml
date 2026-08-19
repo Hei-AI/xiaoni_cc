@@ -79,6 +79,7 @@ services:
     env_file:
       - /home/liahua/.qqbot-local/qqbot-compose.env
     environment:
+      - IMAGE_LAB_JSON_LIMIT=480mb
       - HTTP_PORT=8090
       - LOG_LEVEL=info
       - TZ=Asia/Shanghai
