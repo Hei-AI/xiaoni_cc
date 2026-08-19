@@ -27,6 +27,39 @@ skill 套件。仓库此前长期挂在 gstack（Garry Tan 的 Claude Code skill
 **不要做的事**：不要在仓库里 vendoring 任何 skill 套件源码，不要新增重复的 skill alias，不要把
 skill 套件的安装细节写进 `AGENTS.md`。安装是工作站的事，不是仓库的事。
 
+### 1.1 当前接任者：`mattpocock-skills`（2026-08-19 起）
+
+装法是 **Claude Code plugin，project scope**，不是把源码抄进仓库：
+
+```bash
+claude plugin install mattpocock-skills@claude-plugins-official --scope project
+```
+
+源码在 `~/.claude/plugins/`，仓库里只落 `.claude/settings.json` 一行开关。
+注意 `.gitignore:5` 忽略了 `.claude/`，所以这行开关**不随仓库分发**，每台机器要各自装一次。
+
+能力口对应关系（左列是第 1 节的口，右列是实际覆盖它的东西）：
+
+| 能力口 | matt 套件里对应 | 说明 |
+|---|---|---|
+| headless 浏览器 | **无** | matt 不提供浏览器能力；仍用当前会话自带的 headless 浏览器,禁令不变 |
+| 根因调查 | `/diagnosing-bugs` | |
+| 架构 / 计划评审 | `/grill-with-docs`、`/codebase-design`、`/improve-codebase-architecture` | 改主 agent 仍必须叠加第 3 节双缓存分析,matt 不知道这条 |
+| diff / PR 评审 | `/code-review` | **与 Claude Code 内置 `/code-review` 重名**,调用时说清要哪个 |
+| 发布流程 | **无** | matt 不覆盖 compose 部署;仍走 `AGENTS.md` 的 Done Means |
+| 文档同步 | `/writing-for-agents`、`/domain-modeling` | 前者用于改 `AGENTS.md` / `CLAUDE.md` / skill,后者维护 `CONTEXT.md` 与 ADR |
+
+**与本仓库既有约定的两处张力,先按仓库规矩来：**
+
+1. `/to-spec`、`/to-tickets`、`/wayfinder` 会把计划写成 issue tracker 上的 ticket;如果
+   `/setup-matt-pocock-skills` 时选了 "local files",这些 ticket 会**落进仓库**,直接撞第 2 节
+   最后一行「不要把 execution plan 写成仓库内文件当进度跟踪」。选 tracker 时避开 local files,
+   或把输出目录指到仓库外。
+2. matt 的 `/implement`、`/tdd` 默认按「补全测试、把事做完整」推进,在 `modules/agent-service`
+   主 agent 上要让位给第 3.1 节的修正:最小必要改动 + 逐字节可 replay。
+
+首次使用前需在本仓库跑一次 `/setup-matt-pocock-skills`（问 issue tracker、triage 标签、文档落点）。
+
 ---
 
 ## 2. 任务类型 → 该做什么
