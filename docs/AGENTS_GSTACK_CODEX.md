@@ -1,6 +1,11 @@
-# Codex And GStack Local Setup
+# Codex And GStack Local Setup（历史存档，2026-08-18 起失效）
 
-本页是 Codex + gstack 本机安装的仓库级指引。它只记录当前工作站和本仓库协作需要的约束；gstack 本体版本、技能内容和生成逻辑以 `/home/liahua/gstack` 为准。
+> **状态：历史存档，不要照做。** 2026-08-18 已把 gstack 从本仓库路由中摘除，本机
+> `~/.claude/skills/` 下的 56 个 gstack 技能目录也已删除。本页所述路径 `/home/liahua/gstack`
+> 与 `~/.codex/skills/` 当前都不存在。保留本页只为回溯当时的安装与去重约定。
+> 现行工作流判断看 `docs/AGENTS_WORKFLOW_BRAIN.md`。
+
+本页是 Codex + gstack 本机安装的仓库级指引。它只记录当时工作站和本仓库协作需要的约束；gstack 本体版本、技能内容和生成逻辑以 `/home/liahua/gstack` 为准。
 
 ## Current Truth
 - gstack 源码单一来源：`/home/liahua/gstack`

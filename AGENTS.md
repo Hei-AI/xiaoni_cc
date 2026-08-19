@@ -1,8 +1,8 @@
 # Repository Guidelines
 
 本文件是仓库入口，不是百科全书。
-参考 OpenAI Codex best practices 与当前 gstack 文档协作约定：`AGENTS.md` 保持短、准、可执行，只保留高信号地图和仓库级约束；细节沉到 `docs/` 中的专项文档，仓库内文档是 system of record。
-- Codex skill 名统一写成 `$skill-name` 格式；不要在仓库文档里混用 `/skill-name` 或其他写法。
+`AGENTS.md` 保持短、准、可执行，只保留高信号地图和仓库级约束；细节沉到 `docs/` 中的专项文档，仓库内文档是 system of record。
+- 仓库自有 skill（如 `$qq-usage`）名统一写成 `$skill-name` 格式；不要在仓库文档里混用 `/skill-name` 或其他写法。
 
 ## Start Here
 - 第一次接触仓库，先读：`docs/START_HERE.md` -> `README.md` -> `docs/INDEX.md`
@@ -61,15 +61,13 @@
 - 整个项目文档默认遵循渐进式披露：入口文档只放判断、边界和下一跳；细节放到被链接的专项文档，不在多个入口重复展开
 - 真实密钥、token、调试认证信息统一从 `/home/liahua/.qqbot-local/` 读取；`.env.docker.example` 只是模板，不能回填真实 secret
 - `database/` 只保留 compose `init-db` 用的 PostgreSQL 初始化脚本；不要恢复历史 MySQL schema、migration、直连检查脚本或根目录一次性探针
-- 复杂任务不要只靠聊天上下文推进；优先使用 gstack 工作流，不要再把仓库内 execution plan 当成默认进度跟踪机制
-- 浏览网页、站点 QA、截图、交互验证时，默认优先使用 gstack 的 `$browse`
-- 涉及 OpenAI 产品、API、模型选择或官方文档查询时，默认优先使用 `$openai-docs`
+- 复杂任务不要只靠聊天上下文推进；不要把仓库内 execution plan 当成默认进度跟踪机制，仓库文档只放稳定契约
+- 浏览网页、站点 QA、截图、交互验证时，使用当前会话可用的 headless 浏览器能力；禁止使用 `mcp__claude-in-chrome__*`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考统一看 `docs/AGENTS_OPENAI_REQUESTS.md`
-- Codex + gstack 本机安装、升级、去重统一看 `docs/AGENTS_GSTACK_CODEX.md`；不要在本仓库 vendoring gstack 或新增重复 skill alias
-- 当前工作站默认 Playwright MCP 直连不稳定；出现 host Chrome 连接失败、超时、附着到 `connect.html`、token 变化或路径漂移时，直接使用 `$playwright-host-chrome-bridge` 修复并校准到 `http://localhost:9978/mcp`
-- 团队协作默认共享这套 gstack 约定；新接手仓库的同学先完成 gstack 接入，再按本文件和 `docs/` 入口继续工作
-- 常用工作流只记这几个：`$autoplan`、`$plan-eng-review`、`$browse`、`$investigate`、`$review`、`$qa`、`$ship`、`$document-release`
-- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、文档去重/裁剪、system-of-record、渐进披露或长任务协作规则时，优先使用 gstack 的 `$document-release`
+- 不要在本仓库 vendoring 任何外部 skill 套件源码，也不要新增重复 skill alias；套件安装是工作站的事，不写进仓库文档
+- 当前工作站默认 Playwright MCP 直连不稳定（host Chrome 连接失败、超时、附着到 `connect.html`、token 变化或路径漂移）；小腻侧浏览器桥的现役事实源看 `docs/XIAONI_OPERATOR_HOWTO.md`
+- 新接手仓库的同学按本文件和 `docs/` 入口继续工作；工作流判断沉淀看 `docs/AGENTS_WORKFLOW_BRAIN.md`
+- 当任务涉及 `AGENTS.md`、`docs/` 知识库结构、文档去重/裁剪、system-of-record、渐进披露或长任务协作规则时，落地后必须把事实合回对应专项文档，不新增重复页
 
 ## Default Commands
 - 安装：`npm run install:all`
@@ -88,5 +86,4 @@
 - 先看 `docs/INDEX.md`，再按任务进入最少的相关文档
 - 常用下一跳：`docs/AGENTS_FRONTEND.md`、`docs/AGENTS_BACKEND_DATA.md`、`docs/AGENTS_SECRETS_LOCAL_STATE.md`、`docs/AGENTS_XIAONI_EXECUTOR.md`、`docs/AGENTS_EMBEDDINGS.md`、`docs/AGENTS_GIT_PR.md`
 - 运行时认知补充统一回 `docs/START_HERE.md` 和 `README.md`
-- 做跨模块、多阶段或需要交接的任务时，优先直接进入对应 gstack 工作流，而不是新增仓库内 plan 文件
-- 做仓库协作规范、文档治理或 gstack 使用约定调整时，额外使用 gstack 的 `$document-release`
+- 做跨模块、多阶段或需要交接的任务时，按 `docs/AGENTS_WORKFLOW_BRAIN.md` 的任务类型映射执行，而不是新增仓库内 plan 文件

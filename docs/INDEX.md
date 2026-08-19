@@ -31,8 +31,8 @@
   - `docs/AGENTS_EMBEDDINGS.md`
 - OpenAI / LLM 请求、提示词、agent 设计官方参考：
   - `docs/AGENTS_OPENAI_REQUESTS.md`
-- Codex + gstack 本机安装、升级、去重：
-  - `docs/AGENTS_GSTACK_CODEX.md`
+- 工作流判断、任务类型到动作映射、skill 接管契约：
+  - `docs/AGENTS_WORKFLOW_BRAIN.md`
 - 小腻主 prompt 正文与 prompt-facing 模板：
   - `docs/XIAONI_MAIN_PROMPT_NEXT.md`
   - `docs/xiaoni_prompt/`
@@ -40,9 +40,8 @@
   - `docs/XIAONI_RECOVER_ENERGY_DESIGN.md`
 - Git 提交、推送、PR：
   - `docs/AGENTS_GIT_PR.md`
-- `AGENTS.md`、`docs/` 结构、gstack 使用约定、文档治理：
-  - 使用 gstack 的 `$document-release`
-  - 再看 `AGENTS.md`
+- `AGENTS.md`、`docs/` 结构、文档治理：
+  - 看 `AGENTS.md`
 
 ## Runtime And Operations
 - Xiaoni agent stack ledger、LLM request slices、tool executions 和行动流投影：
@@ -91,27 +90,9 @@
 - 已落地的临时工程计划、事故笔记和重复 fix notes 不再作为阅读路径；落地后的事实必须
   合并进 ledger、surface、how-to 或对应专项文档。
 
-## GStack Workflows
-- 长任务自动评审：
-  - `$autoplan`
-- 架构与执行评审：
-  - `$plan-eng-review`
-- Bug / 异常根因调查：
-  - `$investigate`
-- OpenAI 产品/API 官方文档查询：
-  - `$openai-docs`
-- 站点或功能 QA：
-  - `$qa`
-- 提交、PR、发版：
-  - `$ship`
-- 发版后文档同步：
-  - `$document-release`
-- 生成缺失专项文档：
-  - `$document-generate`
-
 ## Maintenance Rules
 - 修改代码时，如果对应文档已不再真实，顺手修正文档。
 - 新文档优先放在 `docs/`，不要把关键知识只留在聊天记录里。
 - 不要复制一份“差不多”的规则到多个地方；优先维护一个主文档，再由索引指向它。
-- skill 名统一写成 `$skill-name` 格式，不混用 `/skill-name`。
+- 仓库自有 skill（如 `$qq-usage`）名统一写成 `$skill-name` 格式，不混用 `/skill-name`。
 - 仓库级交付规则统一看 `AGENTS.md`；这里不重复写一份。

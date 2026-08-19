@@ -193,49 +193,14 @@ Examples of good bisection:
 - Docker / config changes separate from feature code
 - Mechanical refactors separate from behavior changes
 
-## gstack
+## Tooling
 
-For all web browsing, use the `$browse` skill from gstack. **NEVER use `mcp__claude-in-chrome__*` tools.**
+浏览网页、站点 QA、截图、交互验证：用当前会话可用的 headless 浏览器能力。
+**NEVER use `mcp__claude-in-chrome__*` tools.**（本机该 MCP 路径不稳定，历史上反复出现
+attach 到 `connect.html`、token 漂移、daemon 崩溃。）
 
-Available skills:
-
-| Skill | Purpose |
-|---|---|
-| `$office-hours` | Product ideas / startup diagnostic |
-| `$plan-ceo-review` | Strategy and scope review |
-| `$plan-eng-review` | Architecture review |
-| `$plan-design-review` | Design audit (report only) |
-| `$design-consultation` | Design system from scratch |
-| `$design-shotgun` | Visual design exploration |
-| `$design-html` | Design to HTML |
-| `$review` | PR / code review |
-| `$ship` | Ship workflow |
-| `$land-and-deploy` | Merge -> deploy -> canary verify |
-| `$canary` | Post-deploy monitoring loop |
-| `$benchmark` | Performance regression detection |
-| `$browse` | Headless browser (use for ALL web tasks) |
-| `$connect-chrome` | Connect to local Chrome |
-| `$qa` | QA with fixes |
-| `$qa-only` | QA report only, no fixes |
-| `$design-review` | Design audit + fix loop |
-| `$setup-browser-cookies` | Cookie setup for browser skills |
-| `$setup-deploy` | One-time deploy config |
-| `$setup-gbrain` | Persistent knowledge base setup |
-| `$retro` | Retrospective |
-| `$investigate` | Systematic root-cause debugging |
-| `$document-release` | Post-ship doc updates |
-| `$document-generate` | Generate missing feature/module docs |
-| `$codex` | Multi-AI second opinion via OpenAI Codex |
-| `$cso` | OWASP Top 10 + STRIDE security audit |
-| `$autoplan` | Auto-review pipeline (CEO -> design -> eng) |
-| `$plan-devex-review` | Dev experience review |
-| `$devex-review` | Dev experience audit + fix loop |
-| `$careful` | Extra-careful mode for risky changes |
-| `$freeze` | Freeze files from edits |
-| `$guard` | Guard against accidental changes |
-| `$unfreeze` | Unfreeze files |
-| `$gstack-upgrade` | Upgrade gstack |
-| `$learn` | Learn a topic |
+本仓库不再挂任何外部 skill 套件。工作流判断、任务类型到动作的映射、以及接任 skill 套件
+需要覆盖的能力口，统一看 `docs/AGENTS_WORKFLOW_BRAIN.md`。
 
 ## Docs Map
 
@@ -255,21 +220,5 @@ Available skills:
 | embeddings | `docs/AGENTS_EMBEDDINGS.md` |
 | git / PR | `docs/AGENTS_GIT_PR.md` |
 | 路线图 | `docs/ROADMAP.md` |
+| 工作流判断 / 任务类型到动作映射 / skill 接管契约 | `docs/AGENTS_WORKFLOW_BRAIN.md` |
 
-## Skill routing
-
-When the user's request matches an available skill, invoke it via the Skill tool. When in doubt, invoke the skill.
-
-Key routing rules:
-- Product ideas/brainstorming -> invoke `$office-hours`
-- Strategy/scope -> invoke `$plan-ceo-review`
-- Architecture -> invoke `$plan-eng-review`
-- Design system/plan review -> invoke `$design-consultation` or `$plan-design-review`
-- Full review pipeline -> invoke `$autoplan`
-- Bugs/errors -> invoke `$investigate`
-- QA/testing site behavior -> invoke `$qa` or `$qa-only`
-- Code review/diff check -> invoke `$review`
-- Visual polish -> invoke `$design-review`
-- Ship/deploy/PR -> invoke `$ship` or `$land-and-deploy`
-- Save progress -> invoke `$context-save`
-- Resume context -> invoke `$context-restore`

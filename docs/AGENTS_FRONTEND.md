@@ -5,7 +5,7 @@
 ## First Split
 - 先判断你是在查生产页还是本地联调；这是前端排障的第一分叉。
 - 生产问题优先在真实入口排查：`https://qqbot-admin.liahuas.top/`
-- 浏览器排查默认优先用 `$browse`；如果宿主机 Chrome 连接异常，再用 `$playwright-host-chrome-bridge` 修复桥接。
+- 浏览器排查用当前会话可用的 headless 浏览器能力；禁止使用 `mcp__claude-in-chrome__*`。宿主机 Chrome 桥接异常时看 `docs/XIAONI_OPERATOR_HOWTO.md`。
 
 ## Local Frontend Rules
 - 本地联调可用 `npm run deploy:local` 或 `python3 scripts/start_modules.py start`；默认只启动本地 Vite 前端。
