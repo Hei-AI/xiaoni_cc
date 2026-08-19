@@ -1561,6 +1561,10 @@ const CORE_MEMORY_COMPRESSION_FORK_FORCE_TURNS = 45;
 const CORE_MEMORY_COMPRESSION_FORK_HARD_CAP_TURNS = 50;
 const SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS = 5;
 const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOOL_CALLS + 1;
+// 自驱动 fork 的输出保险丝。实测基线:平均 1297、p50 1223、p90 1636 output token/次(7 天 2788 次),
+// 其中 97.3% 超过 800 —— 所以这个值【只有】在 self_continuation_reminder.md 的字数规矩先生效之后
+// 才不熔断。部署顺序:prompt 走目录 watcher 热加载先上、观察分布落到 p99 < 800,再上这一条。
+const SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS = 800;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
 const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
   'Heartbeat.',
@@ -2765,6 +2769,14 @@ export function buildSubconsciousAgentForkRequest(
   const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
   forkRequest.parallel_tool_calls = false;
   forkRequest.store = false;
+  // 输出保险丝，不是主约束。主约束在 self_continuation_reminder.md 的字数规矩里；这里只兜失控长尾。
+  // 值取目标的 2 倍(目标 ~400: 5-6 行 x 50 字 + heredoc 壳)——【不能】贴着目标设:plan 正文在
+  // tool call 参数的【末尾】,截断必落在 heredoc 中间 → 命令被拒 → subconscious_plan_correction
+  // 再补一轮,那一轮的 output 照样计费,是净亏。心理评估 fork 敢设 8(:2822) 是因为它的判定字符在
+  // 输出【最前面】,截断伤不到,这里用不了那招。
+  // 双缓存:max_output_tokens 是顶层采样参数、不在 message 前缀,fork 又 no_persist → 既不动共享
+  // 热前缀、也不进下一次主 run replay(与 :2819 同理)。
+  forkRequest.max_output_tokens = SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS;
   forkRequest.input = normalizeResponseInputItems([
     ...forkRequest.input,
     // Re-inject the most recent assistant narration (D) at the TAIL. D is stripped from
