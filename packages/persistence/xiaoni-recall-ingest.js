@@ -15,6 +15,7 @@ const {
   buildRecallCueFromInboundMessage,
   normalizeRecallText
 } = require('./xiaoni-passive-recall-extractor');
+const { scoreCandidateImportance } = require('./xiaoni-recall-importance');
 const {
   isWeakResult,
   buildExpansionPrompt,
@@ -86,7 +87,8 @@ function createRecallIngest({
   identityKey = 'xiaoni',
   readContextMenus = null,
   expandQueries = null,
-  readTags = null
+  readTags = null,
+  readPeerNames = null
 } = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
@@ -436,14 +438,29 @@ function createRecallIngest({
     const surfaceLimit = Number(params.surfaceLimit) || 1;
     const toBandCandidate = (c) => ({
       sourceRef: c.sourceRef,
+      sourceKind: c.sourceKind, // classifyCandidate 要靠它区分 inbound / file_chunk
       embedding: c.embedding,
       provenance: c.provenance,
       embeddingText: c.embeddingText
     });
     const queryShape = { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked };
+    // importance(「她的投入痕迹」)当第三路 RRF。名字表来自她自己的人物菜单;
+    // 读不到 → 空表 → peer / profiledPeer 因子恒 0,其余因子照算(不阻断)。
+    const peerNames = typeof readPeerNames === 'function'
+      ? await readPeerNames().catch(() => [])
+      : [];
+    const importanceCache = new Map();
+    const importanceOf = (candidate) => {
+      const ref = candidate && candidate.sourceRef;
+      if (!importanceCache.has(ref)) {
+        importanceCache.set(ref, scoreCandidateImportance(candidate, { peerNames }).importance);
+      }
+      return importanceCache.get(ref);
+    };
+
     const runBandpass = () => combineDomainResults(
-      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, ...bandParams }),
-      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf, ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf, ...bandParams }),
       surfaceLimit
     );
     let result = runBandpass();

@@ -124,6 +124,23 @@ async function expandQueries(prompt: { system: string; user: string }): Promise<
 // 模型的活因此是**组合**而不是生成 —— 便宜、可控、结果可解释。
 const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
 
+// 她的人物菜单名字表。喂 importance 的 peer / profiledPeer 两个因子。
+// 与 readTags 分开:那个混着专题标签,当人名用会误命中。
+async function readPeerNames(): Promise<string[]> {
+  const peopleIndex = await readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL));
+  if (!peopleIndex) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const m of peopleIndex.matchAll(PEOPLE_INDEX_LINE_RE)) {
+    const name = (m[1] || '').trim();
+    if (name.length >= 2) {
+      names.push(name);
+    }
+  }
+  return Array.from(new Set(names));
+}
+
 async function readTags(): Promise<string[]> {
   const tags: string[] = [];
   try {
@@ -151,7 +168,7 @@ async function readTags(): Promise<string[]> {
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;
 function getIngest() {
   if (!ingestSingleton) {
-    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus, expandQueries, readTags });
+    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus, expandQueries, readTags, readPeerNames });
   }
   return ingestSingleton;
 }

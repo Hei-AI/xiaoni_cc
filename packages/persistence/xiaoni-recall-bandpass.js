@@ -198,9 +198,31 @@ function bandpassRecall(params) {
     const bmRank = new Map(
       qualified.map((e, i) => ({ e, s: bm[i] })).sort((a, b) => b.s - a.s).map((x, i) => [x.e, i])
     );
+    // 第三路:importance(「她的投入痕迹」)。给了 importanceOf 才加。
+    //
+    // 为什么在这里加是安全的:bandpassRecall 是**按域分别跑**的(自我域 = 她写的东西,
+    // 他人域 = 别人说的话),而 importance 的作者分类正好和域一一对应
+    // (file_chunk→db_file_provenance→self→authored_by_her;inbound→db_life_cue→peer→
+    // authored_by_peer)。所以「importance 只在同类之间排序、绝不跨类比大小」这条纪律
+    // 在这里是**结构性成立**的,不靠额外守卫。见 xiaoni-recall-importance.js 顶注。
+    //
+    // 用名次而不是分值参与融合:她写的那类是 79 级连续谱、别人写的只有 3 级,分值不可比;
+    // 名次可比,而且 RRF 本来就是名次融合。
+    const importanceRank = typeof params.importanceOf === 'function'
+      ? new Map(
+        [...qualified]
+          .sort((a, b) => (Number(params.importanceOf(b.candidate)) || 0) - (Number(params.importanceOf(a.candidate)) || 0))
+          .map((e, i) => [e, i])
+      )
+      : null;
     const RRF_K = 60;
     qualified = qualified
-      .map((e) => ({ e, fused: 1 / (RRF_K + denseRank.get(e)) + 1 / (RRF_K + bmRank.get(e)) }))
+      .map((e) => ({
+        e,
+        fused: 1 / (RRF_K + denseRank.get(e))
+          + 1 / (RRF_K + bmRank.get(e))
+          + (importanceRank ? 1 / (RRF_K + importanceRank.get(e)) : 0)
+      }))
       .sort((a, b) => b.fused - a.fused)
       .map((x) => x.e);
   } else {

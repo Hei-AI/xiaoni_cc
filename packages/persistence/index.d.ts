@@ -2687,6 +2687,8 @@ export function createRecallIngest(deps: {
   expandQueries?: (prompt: { system: string; user: string }) => Promise<string>;
   /** 可选。她自己的标签命名空间(topics 文件名 + 人物菜单名字),给展开当词表。 */
   readTags?: () => Promise<string[]>;
+  /** 可选。她的人物菜单名字表,喂 importance 的 peer / profiledPeer 因子。读不到 → 那两个因子恒 0。 */
+  readPeerNames?: () => Promise<string[]>;
 }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;

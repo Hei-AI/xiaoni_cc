@@ -122,3 +122,35 @@ test('标题优先读 provenance.heading;存量行(没这个字段)退回文本�
   assert.equal(legacy.factors.titleMissing, false);
   assert.equal(withProv.importance, legacy.importance, '两条路径给同一个分');
 });
+
+// importance 必须**真的参与排序**,否则它只是一个漂亮的死模块 —— code review 抓到过一次
+// (167 行 + 导出,零生产调用方)。这条钉住它接在 band-pass 的 RRF 第三路上。
+test('importance 参与 band-pass 排序:同样带内、词面相当时,投入痕迹重的排前面', () => {
+  const { bandpassRecall } = require('../xiaoni-recall-bandpass');
+  const mk = (ref, text) => ({
+    sourceRef: ref, sourceKind: 'file_chunk',
+    embedding: [0.8, 0.6, 0],
+    provenance: { path: '/xiaoni-runtime/notes/diary/x.md' },
+    embeddingText: text
+  });
+  const thin = mk('/xiaoni-runtime/notes/diary/x.md#1', '## 最后\n短');
+  const rich = mk('/xiaoni-runtime/notes/diary/x.md#2',
+    '## 给陈显写信这件事卡住了\n' + '当时我犹豫了很久,怕的是没有回声。'.repeat(12));
+
+  const rank = (importanceOf) => bandpassRecall({
+    query: { vector: [1, 0, 0], text: '写信 紧张 回声' },
+    candidates: [thin, rich],
+    limit: 2,
+    importanceOf
+  }).surfaced.map((e) => e.candidate.sourceRef);
+
+  const withImp = rank((c) => scoreCandidateImportance(c, {}).importance);
+  assert.equal(withImp[0], rich.sourceRef, `投入重的该排前面,实得 ${JSON.stringify(withImp)}`);
+});
+
+test('不传 importanceOf → band-pass 行为不变(向后兼容)', () => {
+  const { bandpassRecall } = require('../xiaoni-recall-bandpass');
+  const c = (ref) => ({ sourceRef: ref, embedding: [0.8, 0.6, 0], provenance: {}, embeddingText: `候选 ${ref} 的一段正文` });
+  const base = bandpassRecall({ query: { vector: [1, 0, 0], text: 'x' }, candidates: [c('a'), c('b')], limit: 2 });
+  assert.equal(base.surfaced.length, 2);
+});

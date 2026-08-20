@@ -159,7 +159,10 @@ test('召回回归集:50 个历史落地时刻的 top-N 与基线一致', async 
       }
       return out;
     },
-    expandQueries: async () => { expansionAttempts += 1; return '{"tags":[],"queries":[]}'; }
+    expandQueries: async () => { expansionAttempts += 1; return '{"tags":[],"queries":[]}'; },
+    // importance 也要被覆盖到 —— 它是 band-pass 的第三路 RRF。名字表用固定的几个,
+    // 不读真实菜单:菜单会随她建档而变,读了 replay 就不确定。
+    readPeerNames: async () => ['Nova', '楠楠', '李阿花', '帕秋莉', '橙橙', '小伊', '小镜', 'Exception']
   });
   const drift = [];
   for (const c of fixture.cases) {
