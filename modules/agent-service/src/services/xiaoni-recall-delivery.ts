@@ -44,9 +44,21 @@ const DEDUPE_PREFIX = 'recall-surface:';
 // 2026-08-07 首日活体观察 —— 固定优先级(open_loop 在前)下,6 条日额**全被 open_loop 吃光**,
 // association 一条没轮到。因为她常年有 20 条开放承诺,那条腿永远有货,排在前面就永远不让位。
 // 首发放两条腿、实际只跑一条,等于把当初「association 唯一率 100%,质量最高」的理由作废了。
-const DELIVERABLE_LEGS: Array<{ leg: string; queryRef: string }> = [
-  { leg: 'open_loop', queryRef: 'open_loop_scan' },
-  { leg: 'association', queryRef: 'association_scan' }
+// 一个目的一个池子:不在她当前请求字节里的都是候选(见 CONTEXT.md「召回」)。
+//
+// **欠账(open_loop)撤出召回** —— 它有完成态、有标签、她自己有一份清单,让她去看清单比把
+// 条目挑出来推给她更直接(CONTEXT.md:「欠账**不走召回**」)。改由定时指针通知承担,
+// 见 xiaoni-open-loops-notify.ts。
+//
+// landing 腿 = 落地驱动的那两条(file_chunk / peer_message)。它们服务的是同一个目的:
+// 「材料不在上下文」就是「她不知道自己做过」,不是另一件事。合成一条而不是两条,是因为
+// 它们共用同一批 shadow 行(每次落地一条),分成两个轮转槽没有意义。
+//   它的 shadow 行 queryRef 是每次落地变的 `stack:<id>` —— 推不下去,所以按前缀在读回来的
+//   行里筛(这张表 ~97% 是这条腿写的,lookback 很快就能拿满)。
+const LANDING_REF_PREFIX = 'stack:';
+const DELIVERABLE_LEGS: Array<{ leg: string; queryRef?: string; refPrefix?: string }> = [
+  { leg: 'association', queryRef: 'association_scan' },
+  { leg: 'landing', refPrefix: LANDING_REF_PREFIX }
 ];
 
 // dedupe_key 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在键里,不必另存游标。
@@ -61,7 +73,7 @@ function legFromDedupeKey(key: string | undefined): string | null {
 
 // 上一条投的是哪条腿,这一拍就把另一条排前面。某条没货 → 自然落回另一条(不是死等),
 // 下一拍再换回来。状态从队列现读,supervisor 保持无状态、重启即续。
-function rotateLegs(lastLeg: string | null): Array<{ leg: string; queryRef: string }> {
+function rotateLegs(lastLeg: string | null): typeof DELIVERABLE_LEGS {
   const idx = lastLeg ? DELIVERABLE_LEGS.findIndex((entry) => entry.leg === lastLeg) : -1;
   if (idx < 0) {
     return DELIVERABLE_LEGS;
@@ -100,7 +112,6 @@ const OPEN_LOOPS_PATH = `${process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime'}
 // 幂等实际唯一挡住的,是**没做完的那些**。实测 2026-08-13:当前 29 条 [ ] 未完成的承诺里
 // 18 条已投过 → 永久不会再被提起,其中两条带硬截止(HWC 8/19、Taper Prime 8/17)。
 // association / diary_event 不放松:它们的候选是日记条目,没有「完成」这个状态,幂等在那里是对的。
-const OPEN_LOOP_REDELIVER_DAYS = 7;
 
 type ShadowRow = {
   occurredAt?: string | null;
@@ -160,8 +171,17 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
       continue;
     }
     const item = raw as Record<string, unknown>;
-    const identity = leadIdentityOf(item);
-    const text = typeof item.lead === 'string' && item.lead.trim() ? item.lead.trim() : null;
+    // 两种 surfaced 形状:
+    //   扫描腿  { kind, ref?/text?, lead: '<整句>' , ageDays? }
+    //   落地腿  { cos, domain, sourceRef, provenance, lead: { kind, text, pointer, ... } }
+    // 后者的 lead 是对象、身份是 sourceRef。两种都收,不为形状差异另开一条腿。
+    const leadObj = item.lead && typeof item.lead === 'object' ? item.lead as Record<string, unknown> : null;
+    const identity = leadObj
+      ? (typeof item.sourceRef === 'string' && item.sourceRef.trim() ? item.sourceRef.trim() : null)
+      : leadIdentityOf(item);
+    const text = leadObj
+      ? (typeof leadObj.text === 'string' && leadObj.text.trim() ? leadObj.text.trim() : null)
+      : (typeof item.lead === 'string' && item.lead.trim() ? item.lead.trim() : null);
     if (!identity || !text) {
       continue;
     }
@@ -181,14 +201,6 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
 // 可读性不丢:原始身份原样存进 rawPayload.recall_ref。
 function dedupeKeyFor(lead: Lead): string {
   const digest = createHash('sha256').update(`${lead.leg}\u0000${lead.identity}`).digest('hex').slice(0, 32);
-  // open_loop:键上带一个由**承诺自身搁置天数**算出的窗号 → 每搁置满 7 天,键换一次,
-  // 于是同一条没做完的承诺可以再被提一次。用 ageDays 而不是墙钟周期,是为了让「隔 7 天」
-  // 量在真正该量的东西上(它搁了多久),而且不需要存任何游标。
-  // 复核「是否仍未做完」不在这里 —— 在投递前现读 open-loops.md(见 isStillOpenLoop)。
-  if (lead.leg === 'open_loop' && Number.isFinite(lead.ageDays)) {
-    const window = Math.floor((lead.ageDays as number) / OPEN_LOOP_REDELIVER_DAYS);
-    return `${DEDUPE_PREFIX}${lead.leg}:${digest}:w${window}`;
-  }
   return `${DEDUPE_PREFIX}${lead.leg}:${digest}`;
 }
 
@@ -309,24 +321,6 @@ function deliverableByNow(now: Date, dailyCap: number): number {
 // 权威是文件里的勾选状态(state === 'open'),不是投递账本。
 // 读失败 / 解析不出 → 返回 null 表示「判不了」,调用方按放行处理:
 // 复核是用来挡陈旧的,不该因为读不到文件就把整条腿停掉。
-async function loadOpenLoopTexts(): Promise<Set<string> | null> {
-  try {
-    const content = await fs.readFile(OPEN_LOOPS_PATH, 'utf-8');
-    const loops = persistence.parseOpenLoops(content) as Array<{ state?: string; text?: string }>;
-    if (!Array.isArray(loops) || loops.length === 0) {
-      return null;
-    }
-    const open = new Set<string>();
-    for (const loop of loops) {
-      if (loop && loop.state === 'open' && typeof loop.text === 'string' && loop.text.trim()) {
-        open.add(loop.text.trim());
-      }
-    }
-    return open;
-  } catch {
-    return null;
-  }
-}
 
 export type RecallDeliveryOutcome = 'disabled' | 'capped' | 'none' | 'delivered';
 
@@ -407,15 +401,24 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
 
     // 新的先投:两条腿都是「时间到了该提」的性质,旧 lead 早就被更旧的 tick 消化过。
     const candidates: Lead[] = [];
-    for (const { leg, queryRef } of legOrder) {
+    for (const { leg, queryRef, refPrefix } of legOrder) {
       // eslint-disable-next-line no-await-in-loop
       const rows = await deps.listRecallShadowLog({
         identityKey: IDENTITY_KEY,
-        queryRef,
+        ...(queryRef ? { queryRef } : {}),
         limit: lookback,
         onlySurfaced: true
       }, databaseConfig) as ShadowRow[];
       for (const row of Array.isArray(rows) ? rows : []) {
+        // 落地腿没法把 queryRef 推下去(每次落地都变),按前缀在读回来的行里筛。
+        if (refPrefix) {
+          const ref = typeof (row as { queryRef?: unknown }).queryRef === 'string'
+            ? (row as { queryRef: string }).queryRef
+            : '';
+          if (!ref.startsWith(refPrefix)) {
+            continue;
+          }
+        }
         candidates.push(...leadsFromRow(leg, row));
       }
     }
@@ -423,30 +426,17 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'none';
     }
 
-    // 现读承诺账本复核 open_loop 候选:候选来自 ≈10 小时的陈旧快照,期间她可能已经做完打勾。
-    // null = 判不了(读不到/解析空) → 放行,复核是用来挡陈旧的,不该反过来把腿停掉。
-    const openLoopTexts = candidates.some((lead) => lead.leg === 'open_loop')
-      ? await loadOpenLoopTexts()
-      : null;
-    const fresh = openLoopTexts === null
-      ? candidates
-      : candidates.filter((lead) => lead.leg !== 'open_loop' || openLoopTexts.has(lead.identity));
-    if (fresh.length === 0) {
-      return 'none';
-    }
-
     // 判官。允许它说「一条都不值得」—— 那是正常结果,直接静默。
-    // 挂了 / 读不出 → fail-closed 退回模板钩子按原顺序投(不打扰她优先于强行判断)。
-    let ordered = fresh;
+    // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」,
+    // 否则判官一挂整条投递腿会静默死掉且无迹可循。
+    let ordered = candidates;
     if (judge) {
-      const verdict = await runJudge(fresh).catch(() => null);
-      // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」——
-      // 否则判官一挂,整条投递腿会静默死掉且没有任何迹象。
+      const verdict = await runJudge(candidates).catch(() => null);
       if (verdict && verdict.parsed) {
         if (verdict.picks.length === 0) {
-          return 'none'; // 判官答了:这次一条都不值得
+          return 'none';
         }
-        const byKey = new Map(fresh.map((lead) => [dedupeKeyFor(lead), lead]));
+        const byKey = new Map(candidates.map((lead) => [dedupeKeyFor(lead), lead]));
         const picked: Lead[] = [];
         for (const pick of verdict.picks) {
           const lead = byKey.get(pick.id);
