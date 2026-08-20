@@ -132,7 +132,10 @@ test('升级段: 轮数与上一份 plan 原文都要真的进去,且原文完�
   assert.ok(rendered.includes(lastPlan), '上一份 plan 必须原样完整回贴,不许截断');
   assert.doesNotMatch(rendered, /\{\{[A-Z0-9_]+\}\}/, '不许留未替换的占位符');
   // 原文正文仍在:升级是【追加】,不是把她自己的引导 prompt 换掉。
-  assert.ok(rendered.includes('你的长期目标'), '原引导正文必须保留,升级段是追加不是替换');
+  // 哨兵取基础正文里的一句。原来取的是「你的长期目标」,该句已删 —— 它和 system prompt 的
+  // 「你的长期目标是：学会像个真实的人类一样生活。」是同一句,而 fork 克隆主请求必然带着
+  // system prompt,等于同一件事说两遍。断言意图(追加 != 替换)不变,只换哨兵。
+  assert.ok(rendered.includes('方向不是步骤'), '原引导正文必须保留,升级段是追加不是替换');
   setForkIdleEscalationEnabled(false);
 });
 
