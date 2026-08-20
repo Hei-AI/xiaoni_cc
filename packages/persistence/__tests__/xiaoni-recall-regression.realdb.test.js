@@ -140,7 +140,27 @@ test('召回回归集:50 个历史落地时刻的 top-N 与基线一致', async 
     }
   });
 
-  const ingest = createRecallIngest({ embed, persistence: facade, identityKey: 'xiaoni' });
+  // **必须带上生产会注入的那几个口**,否则保护的是一个生产从不执行的配置 ——
+  // 这正是本文件第一版犯过的错(见顶注)。
+  //   readContextMenus:菜单在场排除,读真实菜单文件(它们变得慢,对 replay 是稳定输入)
+  //   expandQueries:  展开的**触发闸**要被覆盖到;但小模型的输出不确定,所以这里给一个
+  //                   固定桩(永远返回空 queries)—— 于是「判弱 → 尝试展开 → 没拿到新候选」
+  //                   这条路径被走到,而结果仍然确定。
+  let expansionAttempts = 0;
+  const RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/home/liahua/.qqbot-local/xiaoni-runtime';
+  const ingest = createRecallIngest({
+    embed,
+    persistence: facade,
+    identityKey: 'xiaoni',
+    readContextMenus: async () => {
+      const out = [];
+      for (const rel of ['notes/diary/INDEX.md', 'notes/people/INDEX.md']) {
+        try { out.push(fs.readFileSync(path.join(RUNTIME_ROOT, rel), 'utf8')); } catch { /* 没有就算 */ }
+      }
+      return out;
+    },
+    expandQueries: async () => { expansionAttempts += 1; return '{"tags":[],"queries":[]}'; }
+  });
   const drift = [];
   for (const c of fixture.cases) {
     captured.length = 0;
@@ -167,7 +187,7 @@ test('召回回归集:50 个历史落地时刻的 top-N 与基线一致', async 
   if (UPDATE) {
     fs.writeFileSync(FIXTURE, `${JSON.stringify(fixture, null, 2)}\n`, 'utf8');
     const nonEmpty = fixture.cases.filter((x) => (x.currentTopN || []).length).length;
-    t.diagnostic(`已重录基线:${fixture.cases.length} 例,其中 ${nonEmpty} 例非空`);
+    t.diagnostic(`已重录基线:${fixture.cases.length} 例,其中 ${nonEmpty} 例非空;展开触发 ${expansionAttempts} 次`);
     // 基线几乎全空 = 回归集没有保护力,当场喊出来,别留个绿灯骗人。
     assert.ok(nonEmpty >= fixture.cases.length * 0.3,
       `只有 ${nonEmpty}/${fixture.cases.length} 例浮出了东西,回归集失去意义 —— 先查为什么大面积静默`);
