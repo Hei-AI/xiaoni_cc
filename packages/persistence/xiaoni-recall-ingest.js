@@ -80,21 +80,6 @@ const CONTEXT_MENU_MIN_CHARS = 8;
 // 只在算术结果「弱」时才被调用(见 xiaoni-recall-query-expansion.js 的触发闸)。
 // readTags:可选。返回她自己的标签命名空间(loops --tag / topics 文件名 / 人物菜单名字)。
 // 两个都不注入 → 完全不展开,行为与改动前一致。
-function cosineOrZero(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) {
-    return 0;
-  }
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
-}
-
 function createRecallIngest({
   embed,
   persistence,
@@ -425,31 +410,7 @@ function createRecallIngest({
     }
     peerCandidates = filterInboundBricksByPresence(peerCandidates, readStates, forgettingLineMs);
 
-    let candidates = [...selfCandidates, ...peerCandidates];
-
-    // ── 自适应 query 展开 ────────────────────────────────────────────────
-    // 召回只有 dense 这一路(BM25 只在已取回的池内重排,补不了漏召),所以 dense 没捞进来的
-    // 东西后面谁也救不回。算术结果弱的时候换几种问法重取一遍,把池子放宽。
-    // 强命中时不跑 —— 那时展开没有价值,还白烧一次调用。
-    const topRawCos = candidates.length
-      ? Math.max(...candidates.map((c) => cosineOrZero(c.embedding, queryVector)))
-      : 0;
-    let expansion = null;
-    if (typeof expandQueries === 'function'
-      && isWeakResult({ topCos: topRawCos, qualifiedCount: candidates.length })) {
-      expansion = await runQueryExpansion({
-        anchorText: text,
-        sqlExclude,
-        perDomainLimit,
-        seenRefs
-      }).catch(() => null);
-      if (expansion && expansion.added.length) {
-        candidates = [...candidates, ...expansion.added];
-        for (const c of expansion.added) {
-          (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
-        }
-      }
-    }
+    const candidates = [...selfCandidates, ...peerCandidates];
 
     // ④ 语义式在场排除:近窗条目的向量(可选,persistence 提供才做)。调用方给了近窗用其近窗;
     // 没给(如入站钩子)退回保留尾最近 N 条,让入站召回也能抓「换说法的刚做过」。
@@ -480,19 +441,43 @@ function createRecallIngest({
       embeddingText: c.embeddingText
     });
     const queryShape = { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked };
-    const selfResult = bandpassRecall({
-      query: queryShape,
-      candidates: selfCandidates.map(toBandCandidate),
-      limit: surfaceLimit,
-      ...bandParams
-    });
-    const peerResult = bandpassRecall({
-      query: queryShape,
-      candidates: peerCandidates.map(toBandCandidate),
-      limit: surfaceLimit,
-      ...bandParams
-    });
-    const result = combineDomainResults(selfResult, peerResult, surfaceLimit);
+    const runBandpass = () => combineDomainResults(
+      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, ...bandParams }),
+      surfaceLimit
+    );
+    let result = runBandpass();
+
+    // ── 自适应 query 展开 ────────────────────────────────────────────────
+    // 召回只有 dense 这一路(BM25 只在已取回的池内重排,补不了漏召),所以 dense 没捞进来的
+    // 东西后面谁也救不回。算术**跑完之后**判弱,弱才换几种问法重取一遍,再跑一遍 band-pass。
+    //
+    // 顺序很重要:第一版把这段放在 band-pass **之前**,拿 raw cos 和「取回的池子大小」当判据 ——
+    // 两个都是错的量。raw cos 全语料挤在 0.83-0.92(见本文件 K 那一段的实测),永远 ≥ 阈值;
+    // 池子大小是 K(最大 2000),永远 ≥ 3。于是展开**永不触发**,而且不报错、无迹象。
+    // 判弱必须用 band-pass 之后的量:带内还剩几条、最高的那条离基线多远。
+    // 近似重复导致的整条静默不展开:那是她在重复刚做过的事(drop_landing_near_dup),
+    // 把池子放宽救不了,只会白烧一次调用。
+    let expansion = null;
+    if (typeof expandQueries === 'function' && !result.nearDupPresent) {
+      // 带内 = 过了三道硬闸(太远 / 太像 / 已在场)的候选数。
+      // drop_domain_priority 和 drop_landing_near_dup 是**带内之后**才发生的取舍,算带内。
+      const OUT_OF_BAND = new Set(['drop_too_far', 'drop_too_similar', 'drop_in_context']);
+      const outOfBand = result.dropped.filter((d) => OUT_OF_BAND.has(d.verdict)).length;
+      const inBand = Math.max(0, candidates.length - outOfBand);
+      const topCos = result.surfaced.length ? Number(result.surfaced[0].cos) : null;
+      if (isWeakResult({ topCos, qualifiedCount: inBand })) {
+        expansion = await runQueryExpansion({ anchorText: text, sqlExclude, perDomainLimit, seenRefs })
+          .catch(() => null);
+        if (expansion && expansion.added.length) {
+          for (const c of expansion.added) {
+            (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
+            candidates.push(c);
+          }
+          result = runBandpass(); // 池子放宽了,重新选拔
+        }
+      }
+    }
 
     const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0, cooled_down: 0 };
     for (const d of [...result.dropped, ...cooledDown]) {

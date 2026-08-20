@@ -290,8 +290,13 @@ test('调用方仍可显式覆盖 limit', async () => {
 });
 
 // ── 自适应 query 展开 ──────────────────────────────────────────────────────
+// 强命中的池子:候选落在带内(和 query 相关但不是近似重复),不是和 query 同向 ——
+// 同向会被 drop_too_similar 全剔掉,带内变 0,那是「弱」不是「强」。
 const strongPool = () => Array.from({ length: 12 }, (_, i) => ({
-  sourceRef: `S${i}`, embedding: [1, 0, 0], provenance: {}, embeddingText: `一条足够长的候选记录编号${i}`
+  sourceRef: `S${i}`,
+  embedding: [0.8 - i * 0.01, 0.6 + i * 0.01, 0],
+  provenance: { leadTemplate: 'file_chunk', path: `/x/${i}.md` },
+  embeddingText: `一条足够长的候选记录编号${i}`
 }));
 
 test('展开:算术结果强 → 不调用小模型', async () => {
@@ -374,4 +379,41 @@ test('展开:重取到的重复 ref 不会被算两遍', async () => {
   });
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-dup' });
   assert.equal(persistence.calls.shadowLogs[0].queryExpansion.addedCount, 1, '同一 ref 只算一次');
+});
+
+// 展开触发闸必须用 **band-pass 之后**的量。第一版拿 raw cos 和「取回的池子大小」当判据:
+// raw cos 全语料挤在 0.83-0.92 永远 ≥ 阈值,池子大小是 K 永远 ≥ 3 → 展开**永不触发**,
+// 而且不报错、无迹象。code review 才发现。
+test('触发闸看的是带内候选数,不是取回的池子大小', async () => {
+  // 池子很大(20 条)但全部太远 → 带内 0 → 该判弱触发展开。
+  const farPool = Array.from({ length: 20 }, (_, i) => ({
+    sourceRef: `F${i}`, embedding: [0, 1, 0], provenance: {}, embeddingText: `完全无关的噪音记录${i}`
+  }));
+  let called = 0;
+  const persistence = fakePersistence({ candidates: farPool });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-farpool' });
+  assert.equal(called, 1, '池子有 20 条但一条都不带内 → 必须判弱');
+});
+
+test('近似重复导致的整条静默不展开(放宽池子救不了「她在重复刚做过的事」)', async () => {
+  const nearDup = [{
+    sourceRef: 'DUP', embedding: [1, 0, 0], provenance: {}, embeddingText: '几乎就是她刚做过的那件事'
+  }];
+  let called = 0;
+  const persistence = fakePersistence({ candidates: nearDup });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-neardup' });
+  const log = persistence.calls.shadowLogs[0];
+  if (log && log.droppedCounts && log.droppedCounts.drop_landing_near_dup) {
+    assert.equal(called, 0, '近似重复静默时不该展开');
+  }
 });
