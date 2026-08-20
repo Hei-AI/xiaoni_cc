@@ -30,6 +30,7 @@ jest.mock('@qq-bot/persistence', () => ({
   // 时间腿真正用到的
   insertRecallShadowLog: jest.fn(),
   listRecallShadowLog: jest.fn(),
+  countRecallSurfacedRefs: jest.fn(async () => new Map<string, number>()),
   parseDiaryDateFromName: jest.fn(),
   parseDiaryEvents: jest.fn(),
   parseDiarySerialEvents: jest.fn(),

@@ -819,9 +819,16 @@ export async function scanAssociativeRecallToShadow(
 
   // 覆盖优先的数据面(并进来的第三腿的本职)。两条腿的 shadow 留痕分别在两个 queryRef 下,
   // 所以两个都要数 —— 否则合并之前翻烂了的那 90 条会被当成「没翻过」重新霸榜。
+  // 函数缺失(老 persistence)也要能跑 —— 覆盖优先是加分项,不该反过来把腿停掉。
+  const countSurfaced = async (queryRef: string): Promise<Map<string, number>> => {
+    if (typeof countRecallSurfacedRefs !== 'function') {
+      return new Map<string, number>();
+    }
+    return countRecallSurfacedRefs({ identityKey, queryRef }).catch(() => new Map<string, number>());
+  };
   const [assocCounts, diaryCounts] = await Promise.all([
-    countRecallSurfacedRefs({ identityKey, queryRef: ASSOCIATION_SCAN_QUERY_REF }).catch(() => new Map<string, number>()),
-    countRecallSurfacedRefs({ identityKey, queryRef: DIARY_RESURFACE_QUERY_REF }).catch(() => new Map<string, number>())
+    countSurfaced(ASSOCIATION_SCAN_QUERY_REF),
+    countSurfaced(DIARY_RESURFACE_QUERY_REF)
   ]);
   const surfaceCounts = new Map<string, number>(assocCounts);
   for (const [ref, n] of diaryCounts) {
