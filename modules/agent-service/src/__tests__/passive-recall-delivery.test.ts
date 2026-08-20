@@ -473,3 +473,56 @@ test('不注入 judge → 行为与改动前一致', async () => {
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls[0].message.bodyForAgent, '模板钩子');
 });
+
+// 锚点只能取**向量腿**的 query_text。扫描腿(association_scan / diary_resurface /
+// open_loop_scan)写的是 queryText: null —— 不带 queryRef 取最新一条会把锚点喂成空,
+// 判官只能瞎判。code review 抓出来的。
+test('判官锚点跳过扫描腿的空 queryText,取最近的向量腿落地文本', async () => {
+  const shadowRows = [
+    { queryRef: 'association_scan', queryText: null, surfaced: [] },
+    { queryRef: 'diary_resurface', queryText: null, surfaced: [] },
+    { queryRef: 'stack:99', queryText: '她此刻正在做的那件事', surfaced: [] }
+  ];
+  const deps: RecallDeliveryDeps = {
+    async listRecallShadowLog(params) {
+      const ref = (params as { queryRef?: unknown }).queryRef;
+      if (ref === 'open_loop_scan') {
+        return [rowWith([openLoopItem('ol:1', '模板钩子')])];
+      }
+      if (ref === undefined) return shadowRows; // 锚点查询:不带 queryRef
+      return [];
+    },
+    async listRecentAgentQueueDedupeKeys() { return []; },
+    async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
+  };
+  let seenAnchor = '';
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => { seenAnchor = prompt.user; return '{"picks":[]}'; }
+  });
+  await delivery.deliverOnce();
+  assert.ok(seenAnchor.includes('她此刻正在做的那件事'), `锚点没取到向量腿的文本:${seenAnchor.slice(0, 120)}`);
+  assert.ok(!seenAnchor.includes('(拿不到)'), '不该退化成空锚点');
+});
+
+test('判官拿得到 ageDays —— 否则它不知道这件事搁了多久', async () => {
+  const deps: RecallDeliveryDeps = {
+    async listRecallShadowLog(params) {
+      const ref = (params as { queryRef?: unknown }).queryRef;
+      if (ref === 'open_loop_scan') {
+        return [rowWith([{ kind: 'open_loop', text: '给陈显写信', openedTag: '8/3', ageDays: 12.4, tier: 'active', lead: '模板钩子' }])];
+      }
+      if (ref === undefined) return [{ queryRef: 'stack:1', queryText: '当下', surfaced: [] }];
+      return [];
+    },
+    async listRecentAgentQueueDedupeKeys() { return []; },
+    async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
+  };
+  let seen = '';
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => { seen = prompt.user; return '{"picks":[]}'; }
+  });
+  await delivery.deliverOnce();
+  assert.match(seen, /12 天前/, `prompt 里该带年龄:${seen.slice(0, 160)}`);
+});

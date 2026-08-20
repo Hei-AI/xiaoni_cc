@@ -347,16 +347,35 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     const items = leads.slice(0, persistence.MAX_CANDIDATES_IN_PROMPT).map((lead) => ({
       id: dedupeKeyFor(lead),
       text: lead.text,
-      leg: lead.leg
+      leg: lead.leg,
+      // 不传 ageDays,buildJudgePrompt 里「N 天前」那一支永远不渲染,判官就不知道
+      // 这件事搁了多久 —— 而那正是「她还记不记得」的主要线索。
+      ageDays: lead.ageDays
     }));
     const raw = await judge(persistence.buildJudgePrompt(items, anchor));
     return persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
   }
 
+  // 「她此刻在做的事」只能取**向量腿**的 query_text —— 那条腿每次落地都写。
+  // 不能不带 queryRef 取最新一条:扫描腿(association_scan / diary_resurface / open_loop_scan)
+  // 写的是 queryText: null,取到就等于把锚点喂成空,判官只能瞎判。
+  // 向量腿的 queryRef 是每次落地变的 `stack:<id>`,推不下去,所以取最近若干条里第一条带
+  // queryText 的。
+  const ANCHOR_LOOKBACK = 20;
+
   async function readLatestAnchorText(): Promise<string> {
-    const rows = await deps.listRecallShadowLog({ identityKey: IDENTITY_KEY, limit: 1 }, databaseConfig) as Array<{ queryText?: unknown }>;
-    const row = Array.isArray(rows) ? rows[0] : null;
-    return row && typeof row.queryText === 'string' ? row.queryText : '';
+    const rows = await deps.listRecallShadowLog({
+      identityKey: IDENTITY_KEY,
+      limit: ANCHOR_LOOKBACK
+    }, databaseConfig) as Array<{ queryText?: unknown; queryRef?: unknown }>;
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const ref = typeof row?.queryRef === 'string' ? row.queryRef : '';
+      const txt = typeof row?.queryText === 'string' ? row.queryText.trim() : '';
+      if (ref.startsWith('stack:') && txt) {
+        return txt;
+      }
+    }
+    return '';
   }
 
   async function deliverOnce(): Promise<RecallDeliveryOutcome> {
