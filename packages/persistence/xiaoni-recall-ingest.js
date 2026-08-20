@@ -345,10 +345,14 @@ function createRecallIngest({
     //   掉出 K=3000 0%   最深的一条原始名次 6225
     // raw cos 从名次 1 到名次 8000 只掉 0.166(1.000→0.834),整个语料挤在一条窄带里 ——
     // 这就是为什么原始名次几乎不携带信息、K 必须给足。
-    // 代价实测:K=3000(每域 1500)延迟 105ms、载荷 26MB(远低于 napi 512MB 崩点)。
+    // 但 K 有个硬天花板:pgvector 的 hnsw.ef_search 上限是 1000,再大 HNSW 也只返约 1000 条,
+    // 而且把 ef_search 设过 1000 会直接报 22023 让整条查询失败(fire-and-forget 会吞掉,
+    // 线上表现为召回静默死掉且无迹象 —— 2026-08-20 亲手踩过,回归集 replay 全静默才发现)。
+    // 所以取每域 1000(= ef_search 上限),总 K=2000,对应约 3% 的漏召。
+    // 代价实测:延迟约 105ms、载荷远低于 napi 512MB 崩点。
     // 备选方案(未采用):把去 anisotropy 搬进 SQL 直接在正确空间里排序,K=300 就够,
     // 但用不上 HNSW → seq scan 449ms,且随语料线性变慢。要它就得建 centered 列 + 索引。
-    const limit = Number(params.limit) || 3000;
+    const limit = Number(params.limit) || 2000;
 
     // 结构式在场排除的完整集合(她真实持有的 stack 尾 ∪ 调用方近窗 ∪ 落地项本身)。band-pass 的 JS Set
     // 用它逐候选 O(1) 剔「已在场」—— 这是「不在上下文」的硬保证,量再大也只是 Set 查询。
