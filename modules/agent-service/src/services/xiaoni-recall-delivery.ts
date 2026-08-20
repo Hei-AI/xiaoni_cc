@@ -56,10 +56,20 @@ const DEDUPE_PREFIX = 'recall-surface:';
 // 它们共用同一批 shadow 行(每次落地一条),分成两个轮转槽没有意义。
 //   它的 shadow 行 queryRef 是每次落地变的 `stack:<id>` —— 推不下去,所以按前缀在读回来的
 //   行里筛(这张表 ~97% 是这条腿写的,lookback 很快就能拿满)。
-const LANDING_REF_PREFIX = 'stack:';
-const DELIVERABLE_LEGS: Array<{ leg: string; queryRef?: string; refPrefix?: string }> = [
+// 落地腿的判据是「**不是**扫描腿写的」,不是「queryRef 以 stack: 开头」。
+// 白名单版本实测漏掉近 7 天 766 条落地留痕(其中 140 条有浮现):入站消息触发的召回写的是
+// `inbound:<id>` / `queue:<id>`,landedRef 拿不到时还会写 NULL —— 全被 `stack:` 挡在外面。
+// 而「别人刚说的话勾起她一段回忆」恰恰是这条腿最该服务的场景。
+// 反过来排除扫描腿,以后新增落地触发类型才不会再被静默丢掉。
+const SCAN_QUERY_REFS = new Set(['association_scan', 'diary_resurface', 'open_loop_scan']);
+
+function isLandingRow(queryRef: unknown): boolean {
+  return typeof queryRef !== 'string' || !SCAN_QUERY_REFS.has(queryRef);
+}
+
+const DELIVERABLE_LEGS: Array<{ leg: string; queryRef?: string; landingRows?: boolean }> = [
   { leg: 'association', queryRef: 'association_scan' },
-  { leg: 'landing', refPrefix: LANDING_REF_PREFIX }
+  { leg: 'landing', landingRows: true }
 ];
 
 // dedupe_key 形如 `recall-surface:<leg>:<hash>` —— 腿名就编在键里,不必另存游标。
@@ -350,11 +360,10 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     return persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
   }
 
-  // 「她此刻在做的事」只能取**向量腿**的 query_text —— 那条腿每次落地都写。
-  // 不能不带 queryRef 取最新一条:扫描腿(association_scan / diary_resurface / open_loop_scan)
-  // 写的是 queryText: null,取到就等于把锚点喂成空,判官只能瞎判。
-  // 向量腿的 queryRef 是每次落地变的 `stack:<id>`,推不下去,所以取最近若干条里第一条带
-  // queryText 的。
+  // 「她此刻在做的事」只能取**落地腿**的 query_text —— 那条腿每次落地都写当时的锚点文本。
+  // 不能不带 queryRef 直接取最新一条:扫描腿是定时跑的,它的 queryText 要么为空
+  // (diary_resurface / open_loop_scan),要么是**上一次落地**的锚点(association_scan 会带),
+  // 两种都不是「此刻」。所以用同一个 isLandingRow 判据筛。
   const ANCHOR_LOOKBACK = 20;
 
   async function readLatestAnchorText(): Promise<string> {
@@ -363,9 +372,8 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       limit: ANCHOR_LOOKBACK
     }, databaseConfig) as Array<{ queryText?: unknown; queryRef?: unknown }>;
     for (const row of Array.isArray(rows) ? rows : []) {
-      const ref = typeof row?.queryRef === 'string' ? row.queryRef : '';
       const txt = typeof row?.queryText === 'string' ? row.queryText.trim() : '';
-      if (ref.startsWith('stack:') && txt) {
+      if (isLandingRow(row?.queryRef) && txt) {
         return txt;
       }
     }
@@ -401,7 +409,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
 
     // 新的先投:两条腿都是「时间到了该提」的性质,旧 lead 早就被更旧的 tick 消化过。
     const candidates: Lead[] = [];
-    for (const { leg, queryRef, refPrefix } of legOrder) {
+    for (const { leg, queryRef, landingRows } of legOrder) {
       // eslint-disable-next-line no-await-in-loop
       const rows = await deps.listRecallShadowLog({
         identityKey: IDENTITY_KEY,
@@ -410,14 +418,9 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         onlySurfaced: true
       }, databaseConfig) as ShadowRow[];
       for (const row of Array.isArray(rows) ? rows : []) {
-        // 落地腿没法把 queryRef 推下去(每次落地都变),按前缀在读回来的行里筛。
-        if (refPrefix) {
-          const ref = typeof (row as { queryRef?: unknown }).queryRef === 'string'
-            ? (row as { queryRef: string }).queryRef
-            : '';
-          if (!ref.startsWith(refPrefix)) {
-            continue;
-          }
+        // 落地腿没法把 queryRef 推下去(每次落地都变),在读回来的行里排除扫描腿。
+        if (landingRows && !isLandingRow((row as { queryRef?: unknown }).queryRef)) {
+          continue;
         }
         candidates.push(...leadsFromRow(leg, row));
       }
@@ -426,17 +429,27 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'none';
     }
 
+    // 先剔掉今天已经投过的,再交给判官。
+    // 判官只看得到前 N 条(MAX_CANDIDATES_IN_PROMPT);如果它挑中的恰好是早投过的那条,
+    // ordered 会被替换成只剩它一个 → enqueue 返回 created=false → 整拍空转,而判官之前的
+    // 行为是继续往下走候选。幂等仍由 dedupe_key 唯一索引兜底,这一步只是别让判官白挑。
+    const deliveredKeys = new Set(Array.isArray(todaysKeys) ? todaysKeys : []);
+    const unseen = candidates.filter((lead) => !deliveredKeys.has(dedupeKeyFor(lead)));
+    if (unseen.length === 0) {
+      return 'none';
+    }
+
     // 判官。允许它说「一条都不值得」—— 那是正常结果,直接静默。
     // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」,
     // 否则判官一挂整条投递腿会静默死掉且无迹可循。
-    let ordered = candidates;
+    let ordered = unseen;
     if (judge) {
-      const verdict = await runJudge(candidates).catch(() => null);
+      const verdict = await runJudge(unseen).catch(() => null);
       if (verdict && verdict.parsed) {
         if (verdict.picks.length === 0) {
           return 'none';
         }
-        const byKey = new Map(candidates.map((lead) => [dedupeKeyFor(lead), lead]));
+        const byKey = new Map(unseen.map((lead) => [dedupeKeyFor(lead), lead]));
         const picked: Lead[] = [];
         for (const pick of verdict.picks) {
           const lead = byKey.get(pick.id);

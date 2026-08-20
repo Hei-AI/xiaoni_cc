@@ -417,3 +417,22 @@ test('近似重复导致的整条静默不展开(放宽池子救不了「她在�
     assert.equal(called, 0, '近似重复静默时不该展开');
   }
 });
+
+test('展开有小时级配额 —— 弱结果常态化时不会天天打满', async () => {
+  const farPool = Array.from({ length: 20 }, (_, i) => ({
+    sourceRef: `F${i}`, embedding: [0, 1, 0], provenance: {}, embeddingText: `完全无关的噪音记录${i}`
+  }));
+  let called = 0;
+  const persistence = fakePersistence({ candidates: farPool });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  // 默认上限 6/小时:连打 10 次落地,只应触发 6 次。
+  for (let i = 0; i < 10; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await ingest.runShadowRecall({ landedText: `晚上想吃一碗葱油面了 ${i}`, landedRef: `q-budget-${i}` });
+  }
+  assert.equal(called, 6, `该被配额挡住,实得 ${called}`);
+});

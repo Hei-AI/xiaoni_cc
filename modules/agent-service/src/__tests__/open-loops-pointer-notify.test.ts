@@ -108,3 +108,22 @@ test('频率可调:槽长变了,槽号跟着变', () => {
   // 同一槽长内,相邻时刻同槽
   assert.equal(slotIdOf(new Date('2026-08-20T02:00:00Z'), 24), slotIdOf(new Date('2026-08-20T05:00:00Z'), 24));
 });
+
+// 活动窗:notify 会唤醒主 loop,而槽位按东八零点滚 —— 不加这道闸,跨日后第一拍(15 分钟内)
+// 就会在半夜把她叫醒。2026-08-13 实测过那个时段投出去的只换来「记着。明天处理。」。
+test('活动窗外不投(半夜跨日那一拍)', async () => {
+  const { deps, calls } = fakeDeps();
+  const midnight = new Date('2026-08-19T16:10:00Z'); // 东八 00:10
+  const n = createOpenLoopsNotify(deps, { ...opts(), now: () => midnight });
+  assert.equal(await n.notifyOnce(), 'outside_window');
+  assert.equal(calls.length, 0);
+});
+
+test('活动窗边界:09:00 放行,23:00 不放行', async () => {
+  for (const [utc, expect] of [['2026-08-20T01:00:00Z', 'sent'], ['2026-08-20T15:00:00Z', 'outside_window']] as const) {
+    const { deps } = fakeDeps();
+    const n = createOpenLoopsNotify(deps, { ...opts(), now: () => new Date(utc) });
+    // eslint-disable-next-line no-await-in-loop
+    assert.equal(await n.notifyOnce(), expect, utc);
+  }
+});

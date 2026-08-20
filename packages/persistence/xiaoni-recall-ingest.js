@@ -66,6 +66,10 @@ const SEMANTIC_CONTEXT_WINDOW = 20;
 // 常驻菜单的向量缓存 TTL。菜单变得慢(日记目录一天一行、人物菜单更慢、近况一轮一次),
 // 而每次落地都要用 —— 缓存 10 分钟足够,过期重读重嵌(本地 embedding server,不花钱)。
 const CONTEXT_MENU_TTL_MS = 10 * 60 * 1000;
+// 展开的小时级上限。触发闸是「算术拿不出像样候选」,而真库里那种情况并不罕见 ——
+// 若不设顶,展开会在大多数落地上开火(~985 次/天),和 ADR-0006「量也顺带降一个数量级」
+// 相反。上限按小时算而不是按天:按天容易在前半天打光,按小时天然摊开。
+const EXPANSION_MAX_PER_HOUR = envNum('XIAONI_RECALL_EXPANSION_MAX_PER_HOUR', 6);
 // 太短的行(分隔线、单个词)嵌出来是噪音向量,反而会误杀候选。
 const CONTEXT_MENU_MIN_CHARS = 8;
 
@@ -126,6 +130,23 @@ function createRecallIngest({
   }
 
   // 冷却集缓存(读失败 → 空集,不阻断召回:宁可多浮一次,不可整条腿哑掉)。
+  // 展开的小时级配额(见 EXPANSION_MAX_PER_HOUR)。进程内计数即可:
+  // 它防的是「弱结果常态化 → 天天打满」,不是要跨实例精确配额。
+  let expansionHourKey = '';
+  let expansionUsedThisHour = 0;
+  function takeExpansionBudget(now) {
+    const key = String(Math.floor(now / 3600000));
+    if (key !== expansionHourKey) {
+      expansionHourKey = key;
+      expansionUsedThisHour = 0;
+    }
+    if (expansionUsedThisHour >= EXPANSION_MAX_PER_HOUR) {
+      return false;
+    }
+    expansionUsedThisHour += 1;
+    return true;
+  }
+
   let cachedCooldown = null;
   let cachedCooldownAt = 0;
   async function getCooldownRefs() {
@@ -449,18 +470,27 @@ function createRecallIngest({
     const peerNames = typeof readPeerNames === 'function'
       ? await readPeerNames().catch(() => [])
       : [];
-    const importanceCache = new Map();
-    const importanceOf = (candidate) => {
-      const ref = candidate && candidate.sourceRef;
-      if (!importanceCache.has(ref)) {
-        importanceCache.set(ref, scoreCandidateImportance(candidate, { peerNames }).importance);
+    // 守卫:importance **只能类内比**,而 band-pass 是按域跑的 —— 两者对齐靠的是
+    // RECALL_SCOPE_SQL 那道闸(它把没有真 peer 的动作流挡在池外),**不是**域/类的定义本身。
+    // 闸一旦放松(比如以后允许 peer:null 的动作流进池),同一个域里就会混进两类作者,
+    // importance 名次会跨类比,而且**静默**。所以在这里显式核对:一个域里出现两种 klass →
+    // 这一域退回不带 importance 的排序(少一路 RRF,不出错)。
+    const makeImportanceOf = (domainCandidates) => {
+      const scored = domainCandidates.map((c) => ({ ref: c.sourceRef, ...scoreCandidateImportance(c, { peerNames }) }));
+      const classes = new Set(scored.map((x) => x.klass));
+      if (classes.size > 1) {
+        // 真发生了要看得见:这是范围闸被放松的信号,不是可以吞掉的小事。
+        console.warn('[xiaoni-recall] 同一域里混进多个作者类,本次退回不带 importance 的排序:',
+          [...classes].join(','));
+        return undefined;
       }
-      return importanceCache.get(ref);
+      const byRef = new Map(scored.map((x) => [x.ref, x.importance]));
+      return (candidate) => byRef.get(candidate && candidate.sourceRef) || 0;
     };
 
     const runBandpass = () => combineDomainResults(
-      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf, ...bandParams }),
-      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf, ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf: makeImportanceOf(selfCandidates), ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf: makeImportanceOf(peerCandidates), ...bandParams }),
       surfaceLimit
     );
     let result = runBandpass();
@@ -483,7 +513,7 @@ function createRecallIngest({
       const outOfBand = result.dropped.filter((d) => OUT_OF_BAND.has(d.verdict)).length;
       const inBand = Math.max(0, candidates.length - outOfBand);
       const topCos = result.surfaced.length ? Number(result.surfaced[0].cos) : null;
-      if (isWeakResult({ topCos, qualifiedCount: inBand })) {
+      if (isWeakResult({ topCos, qualifiedCount: inBand }) && takeExpansionBudget(Date.now())) {
         expansion = await runQueryExpansion({ anchorText: text, sqlExclude, perDomainLimit, seenRefs })
           .catch(() => null);
         if (expansion && expansion.added.length) {

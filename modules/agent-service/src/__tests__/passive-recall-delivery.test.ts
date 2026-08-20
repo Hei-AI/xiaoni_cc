@@ -448,3 +448,66 @@ test('判官拿得到 ageDays —— 否则它不知道这件事搁了多久', a
   await delivery.deliverOnce();
   assert.match(seen, /12 天前/, `prompt 里该带年龄:${seen.slice(0, 180)}`);
 });
+
+// 落地腿的判据是「**不是**扫描腿写的」,不是「以 stack: 开头」。白名单版本实测漏掉近 7 天
+// 766 条落地留痕(140 条有浮现):入站消息触发的召回写 `inbound:<id>` / `queue:<id>`,
+// landedRef 拿不到时还会写 NULL —— 而「别人刚说的话勾起她一段回忆」正是这条腿最该服务的。
+test('落地腿收下 inbound: / queue: / NULL 这些非扫描腿的留痕', async () => {
+  for (const ref of ['inbound:34359', 'queue:42944', null]) {
+    const { deps, calls } = fakeDeps({
+      todaysKeys: [],
+      rowsByQueryRef: {
+        '': [{ queryRef: ref, occurredAt: null, surfaced: [landingItem('/x/a.md#1', '该被投的那条')] }]
+      }
+    });
+    // eslint-disable-next-line no-await-in-loop
+    const out = await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+    assert.equal(out, 'delivered', `queryRef=${String(ref)} 该被收下`);
+    assert.equal(calls.length, 1);
+  }
+});
+
+test('落地腿仍然排除扫描腿的留痕', async () => {
+  for (const ref of ['association_scan', 'diary_resurface', 'open_loop_scan']) {
+    const { deps, calls } = fakeDeps({
+      todaysKeys: [],
+      rowsByQueryRef: {
+        '': [{ queryRef: ref, occurredAt: null, surfaced: [landingItem('/x/b.md#1', '不该走落地腿的')] }]
+      }
+    });
+    // eslint-disable-next-line no-await-in-loop
+    assert.equal(await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce(), 'none', ref);
+    assert.equal(calls.length, 0);
+  }
+});
+
+// 判官只看得到前 N 条。若候选里混着今天已投过的,它可能挑中那条 → ordered 只剩它 →
+// enqueue created=false → 整拍空转,而判官之前的行为是继续往下走候选。
+test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂已投的', async () => {
+  const already = landingItem('/x/old.md#1', '今天已经投过的');
+  const fresh = landingItem('/x/new.md#1', '还没投过的');
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { '': [landingRow([already, fresh])] }
+  });
+  // 先算出 already 的 dedupeKey,塞进「今天已投」
+  const probe = fakeDeps({ todaysKeys: [], rowsByQueryRef: { '': [landingRow([already])] } });
+  await createPassiveRecallDelivery(probe.deps, gate(true, 6)).deliverOnce();
+  const alreadyKey = String(probe.calls[0].message.dedupeKey);
+
+  const { deps: d2, calls: c2 } = fakeDeps({
+    todaysKeys: [alreadyKey],
+    rowsByQueryRef: { '': [landingRow([already, fresh])] }
+  });
+  let seenIds: string[] = [];
+  const delivery = createPassiveRecallDelivery(d2, {
+    ...gate(true, 6),
+    judge: async (prompt) => {
+      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
+      return JSON.stringify({ picks: [{ id: seenIds[0], hook: '判官挑的' }] });
+    }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.ok(!seenIds.includes(alreadyKey), '已投过的不该进判官的候选');
+  assert.equal(c2.length, 1);
+  void calls;
+});

@@ -48,6 +48,17 @@ export interface OpenLoopsNotifyOptions {
   readOpenLoops?: () => Promise<string | null>;
 }
 
+// 活动窗(东八区)。与投递闸同一个理由:notify 会唤醒主 loop,而 00:00 前后正是她收尾
+// 睡觉的窗口 —— 2026-08-13 实测过,那个时段投出去的 24 条只换来「记着。明天处理。」。
+// 槽位按东八零点滚动,所以不加这道闸的话,跨日后第一拍(15 分钟内)就会在半夜把她叫醒。
+const ACTIVE_WINDOW_START_HOUR = 9;
+const ACTIVE_WINDOW_END_HOUR = 23;
+
+export function isWithinActiveWindow(now: Date): boolean {
+  const east8Hour = new Date(now.getTime() + 8 * 60 * 60 * 1000).getUTCHours();
+  return east8Hour >= ACTIVE_WINDOW_START_HOUR && east8Hour < ACTIVE_WINDOW_END_HOUR;
+}
+
 // 槽位 = 从东八区纪元起的第 N 个 interval。键在槽上 → 整条腿幂等且无状态:
 // 漏一拍只是跳过一个槽,重复一拍被 dedupe_key 唯一索引吞,重启即续。
 export function slotIdOf(now: Date, intervalHours: number): string {
@@ -79,7 +90,7 @@ export function createOpenLoopsNotify(deps: OpenLoopsNotifyDeps, options: OpenLo
   const clock = options.now ?? (() => new Date());
   const readOpenLoops = options.readOpenLoops ?? defaultReadOpenLoops;
 
-  async function notifyOnce(): Promise<'disabled' | 'too_few' | 'already_sent' | 'sent' | 'unreadable'> {
+  async function notifyOnce(): Promise<'disabled' | 'outside_window' | 'too_few' | 'already_sent' | 'sent' | 'unreadable'> {
     if (!enabled) {
       return 'disabled';
     }
@@ -92,6 +103,9 @@ export function createOpenLoopsNotify(deps: OpenLoopsNotifyDeps, options: OpenLo
       return 'too_few';
     }
     const now = clock();
+    if (!isWithinActiveWindow(now)) {
+      return 'outside_window';
+    }
     const slot = slotIdOf(now, intervalHours);
     const dedupeKey = `${DEDUPE_PREFIX}${slot}`;
 
