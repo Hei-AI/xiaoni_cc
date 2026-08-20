@@ -61,15 +61,10 @@ function classifyCandidate(candidate) {
   return provenance.cueClass === 'db_life_cue' && provenance.peer ? AUTHORED_BY_PEER : AUTHORED_BY_HER;
 }
 
-// 切块之后只有小节的**第一块**带得上 `## 标题`(splitByHeadings 保留标题行,splitParagraphs
-// 再切一层就丢了)。真库实测带标题比例:topics 99% / anchor 77% / diary 59% / people 36%。
-// 拿不到标题的块不该被判成「标题很泛」而吃惩罚 —— 那是切块的产物,不是她写得含糊。
-// 约定:无标题 → 记**中性值 0.5** 并置 titleMissing,不记 0(那是惩罚)也不剔出平均
-// (剔出会让它向其余因子的均值回归,实测同样被压低:0.568 vs 0.676)。
-//
-// 已知缺口,这是止血不是治本:续段本来属于一个**有标题**的小节,标题是被 splitParagraphs
-// 切掉的,不是她没写。真修法在 chunker 侧 —— 把所属小节的标题带进每一块的 metadata。
-// 那要重切重嵌全部文件语料(约 6800 块,contentHash 会变),所以单独一步做。
+// 标题优先从 provenance.heading 读 —— chunker 现在给每块都补上了所属小节的标题
+// (见 xiaoni-recall-file-chunker.js:chunkRuntimeFile),文本里也有一份。
+// 存量行(补标题之前入的库)没有这个字段,退回从文本首行解析;两处都拿不到 → 记中性值,
+// 既不奖励也不惩罚(缺标题是切块的产物,不是她写得含糊)。存量随 reindex 重切后自然消失。
 const HEADING_RE = /^\s*#{1,6}\s+(.+?)\s*$/;
 const NEUTRAL_TITLE_SPECIFICITY = 0.5;
 
@@ -79,15 +74,27 @@ function headingOf(text) {
   return m ? m[1] : null;
 }
 
+// 候选的标题:provenance.heading 优先,退回文本首行。
+function candidateHeadingOf(candidate, text) {
+  const provenance = candidate && typeof candidate.provenance === 'object' && candidate.provenance
+    ? candidate.provenance
+    : {};
+  if (typeof provenance.heading === 'string' && provenance.heading.trim()) {
+    const m = HEADING_RE.exec(provenance.heading.trim());
+    return m ? m[1] : provenance.heading.trim();
+  }
+  return headingOf(text);
+}
+
 function mean(values) {
   const nums = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
 }
 
 // 她写的东西:力气 / 有没有写「当时」那一层 / 标题指不指得出是哪件事 / 有没有真人在里面。
-function importanceOfHers(text, ctx) {
-  const heading = headingOf(text);
-  const body = heading ? text.slice(text.indexOf('\n') + 1) : text;
+function importanceOfHers(candidate, text, ctx) {
+  const heading = candidateHeadingOf(candidate, text);
+  const body = headingOf(text) ? text.slice(text.indexOf('\n') + 1) : text;
   const peerNames = Array.isArray(ctx.peerNames) ? ctx.peerNames : [];
   const factors = {
     effort: effortScoreOf(body),
@@ -133,7 +140,7 @@ function scoreCandidateImportance(candidate, ctx = {}) {
   const text = typeof c.embeddingText === 'string' ? c.embeddingText : '';
   const scored = klass === AUTHORED_BY_PEER
     ? importanceOfPeers(c, ctx)
-    : importanceOfHers(text, ctx);
+    : importanceOfHers(c, text, ctx);
   return { klass, importance: scored.importance, factors: scored.factors };
 }
 

@@ -108,3 +108,17 @@ test('空输入 / 垃圾输入不炸,且 importance 始终是 [0,1] 内的有限
   assert.equal(scoreCandidateImportance(null).klass, AUTHORED_BY_HER);
   assert.equal(groupCandidatesByAuthor(undefined).get(AUTHORED_BY_HER).length, 0);
 });
+
+test('标题优先读 provenance.heading;存量行(没这个字段)退回文本首行', () => {
+  const body = '当时我犹豫了很久,怕的是没有回声。'.repeat(12);
+  const withProv = scoreCandidateImportance({
+    sourceKind: 'file_chunk',
+    sourceRef: '/xiaoni-runtime/notes/diary/x.md#1',
+    embeddingText: `## 一个很具体的标题在这里\n${body}`,
+    provenance: { heading: '## 一个很具体的标题在这里' }
+  }, {});
+  const legacy = scoreCandidateImportance(herChunk(`## 一个很具体的标题在这里\n${body}`), {});
+  assert.equal(withProv.factors.titleMissing, false);
+  assert.equal(legacy.factors.titleMissing, false);
+  assert.equal(withProv.importance, legacy.importance, '两条路径给同一个分');
+});
