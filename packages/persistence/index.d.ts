@@ -2676,6 +2676,11 @@ export function selectAssociativeMemories(
     peerNames?: string[];
     recentlySurfacedIdentities?: Set<string> | string[];
     structuralTitles?: Set<string> | string[];
+    /**
+     * ref → 至今浮过几次。**排序主键**(在分数之前),少的先翻 ——
+     * 这是并进来的第三腿(diary_resurface)的本职:走一遍她的记忆空间。
+     */
+    surfaceCounts?: Map<string, number> | Record<string, number>;
     quotas?: Partial<Record<XiaoniAssociationBucket, number>>;
     nearMaxDays?: number;
     midMaxDays?: number;

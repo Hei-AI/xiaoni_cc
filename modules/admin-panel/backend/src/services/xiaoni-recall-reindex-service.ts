@@ -817,8 +817,20 @@ export async function scanAssociativeRecallToShadow(
   // 结构模板识别只看有事发日期的那两类(日记条目 + 线章节)。承诺行不是模板,不参与。
   const structuralTitles = computeStructuralTitles([...diaryScan.events, ...lineCandidates]);
 
+  // 覆盖优先的数据面(并进来的第三腿的本职)。两条腿的 shadow 留痕分别在两个 queryRef 下,
+  // 所以两个都要数 —— 否则合并之前翻烂了的那 90 条会被当成「没翻过」重新霸榜。
+  const [assocCounts, diaryCounts] = await Promise.all([
+    countRecallSurfacedRefs({ identityKey, queryRef: ASSOCIATION_SCAN_QUERY_REF }).catch(() => new Map<string, number>()),
+    countRecallSurfacedRefs({ identityKey, queryRef: DIARY_RESURFACE_QUERY_REF }).catch(() => new Map<string, number>())
+  ]);
+  const surfaceCounts = new Map<string, number>(assocCounts);
+  for (const [ref, n] of diaryCounts) {
+    surfaceCounts.set(ref, (surfaceCounts.get(ref) || 0) + n);
+  }
+
   const { picked, stats } = selectAssociativeMemories(candidates, {
     nowMs,
+    surfaceCounts,
     landedText,
     contextText,
     peerNames,
@@ -934,12 +946,11 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   } catch {
     openLoopScan = undefined;
   }
-  let diaryResurfaceScan: DiaryResurfaceScanResult | undefined;
-  try {
-    diaryResurfaceScan = await scanDiaryEventsToShadow({ identityKey });
-  } catch {
-    diaryResurfaceScan = undefined;
-  }
+  // 第三腿(diary_resurface)已并入第四腿:两条的原料同是 `diary add` 出来的 `## 条目`,
+  // 写端从没区分过它们 —— 是读端凭空分的两条腿,还互相抢名额。第三腿唯一的独有价值是
+  // **覆盖**(走一遍她的记忆空间),那一条已经折进 selectAssociativeMemories 的排序主键。
+  // 函数保留(还有单元测试钉着它的过滤规则),但不再单独扫、不再单独占投递名额。
+  const diaryResurfaceScan: DiaryResurfaceScanResult | undefined = undefined;
   // 第四条腿(联想)同样搭这次重扫顺带跑,出错吞掉不拖垮语料 reindex。shadow-only。
   let associationScan: AssociationScanResult | undefined;
   try {

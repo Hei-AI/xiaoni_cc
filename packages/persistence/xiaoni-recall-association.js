@@ -367,9 +367,21 @@ function selectAssociativeMemories(candidates, opts = {}) {
   // ③ 分桶 + 每桶独立取头名。**空桶就少浮,不跨桶借配额**(宁少不吵)。
   const byBucket = { near: [], mid: [], far: [], line: [] };
   for (const item of scored) byBucket[item.bucket].push(item);
+  // 覆盖优先:翻过次数少的先翻。这是**并进来的第三腿(diary_resurface)的本职** ——
+  // 那条腿存在的意义就是走一遍她的记忆空间,而它的实测覆盖率是 90/1899 = 4.7%
+  // (全历史 3350 次浮现,每条平均重复 37 次)。两条腿的原料同是 `diary add` 出来的
+  // `## 条目`,写端从没区分过它们,所以合并;合并后覆盖不能丢,它是第三腿唯一的独有价值。
+  //
+  // 放在分数**之前**而不是当 tie-break:分数是「这条写得多用心 + 跟当下多相关」,
+  // 没翻过的和翻过 37 次的分数可能一样,那时候该先翻没翻过的。同覆盖档内再按分数排。
+  const surfaceCounts = opts.surfaceCounts instanceof Map
+    ? opts.surfaceCounts
+    : new Map(Object.entries(opts.surfaceCounts && typeof opts.surfaceCounts === 'object' ? opts.surfaceCounts : {}));
+  const timesOf = (item) => Number(surfaceCounts.get(item.ref)) || 0;
   for (const list of Object.values(byBucket)) {
-    // 分数降序;同分按搁得久的优先(第三腿的直觉保留成 tie-break);再同则 ref 升序保稳定。
-    list.sort((a, b) => (b.score - a.score)
+    // 翻过次数升序 → 分数降序 → 搁得久的优先 → ref 升序保稳定。
+    list.sort((a, b) => (timesOf(a) - timesOf(b))
+      || (b.score - a.score)
       || ((b.ageDays == null ? -1 : b.ageDays) - (a.ageDays == null ? -1 : a.ageDays))
       || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
   }
