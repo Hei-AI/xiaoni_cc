@@ -14,6 +14,8 @@
 // 铁律:**必须允许输出 0 条**。没有这一条,判官就退化成「每次必冒」,
 // 而「绝大多数时候什么都不冒」是这套东西的设计前提。
 
+const { extractFirstJsonObject } = require('./xiaoni-recall-llm-io');
+
 const MAX_CANDIDATES_IN_PROMPT = 10;
 const MAX_CANDIDATE_CHARS = 300;
 const MAX_ANCHOR_CHARS = 800;
@@ -63,19 +65,8 @@ function buildJudgePrompt(candidates, anchorText) {
 //                            整条投递腿静默死掉,而且没有任何迹象。
 // 模型编的 id / 空钩子照样逐条丢掉(不猜),但那不影响 parsed —— 它确实答了。
 function parseJudgeVerdict(raw, validIds) {
-  const text = typeof raw === 'string' ? raw : '';
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) {
-    return { parsed: false, picks: [] };
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    return { parsed: false, picks: [] };
-  }
-  if (!Array.isArray(parsed.picks)) {
+  const parsed = extractFirstJsonObject(raw);
+  if (!parsed || !Array.isArray(parsed.picks)) {
     return { parsed: false, picks: [] };
   }
   const allowed = validIds instanceof Set ? validIds : new Set(Array.isArray(validIds) ? validIds : []);

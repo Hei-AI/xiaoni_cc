@@ -649,7 +649,11 @@ async function collectTopicLineCandidates(nowMs: number): Promise<DiaryEventCand
 // landedText(本次落地的那段文本)取动作流最新一条的 body/title —— 和 agent-service 侧那个
 // 召回钩子(modules/agent-service/src/services/xiaoni-recall-hook.ts:62-64)同一口径、同一来源,
 // 不新起第二种「什么算落地」的定义。取不到 → f1 全 0,其余五因子照排(不瘫)。
-// 她常驻上下文里的三张菜单的来源文件。比较是文本包含,不需要和渲染后的块逐字一致。
+// 三张菜单的读取逻辑与 agent-service 侧同源:两边料相同、用法不同(向量腿逐行嵌向量走
+// 语义式在场排除,扫描腿把正文接进 contextText 走文本包含)。
+// 这里不能直接 import agent-service 的模块(跨服务),所以只保留一份**极薄**的读取,
+// 规则(哪三张、INDEX* 前缀、compress 取最新)以 modules/agent-service/src/services/
+// xiaoni-context-menus.ts 为准 —— 那边改了这边要跟。
 async function readContextMenuTexts(): Promise<string[]> {
   const out: string[] = [];
   const push = async (absolutePath: string) => {
@@ -659,7 +663,6 @@ async function readContextMenuTexts(): Promise<string[]> {
       // 还没建 / 读不到 → 少一层过滤,不阻断
     }
   };
-  // 日记目录是分层的(顶层 INDEX.md + 月度 INDEX-<YYYY-MM>.md),按前缀全收。
   try {
     const dir = path.join(RUNTIME_ROOT, DIARY_DIR_REL_PATH);
     for (const name of await fs.readdir(dir)) {
@@ -667,21 +670,16 @@ async function readContextMenuTexts(): Promise<string[]> {
         await push(path.join(dir, name));
       }
     }
-  } catch {
-    // 目录读不到
-  }
+  } catch { /* 目录读不到 */ }
   await push(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL_PATH));
-  // 近况:compress 目录下最新的一份(脚本每轮起一个全新文件名)。
   try {
     const dir = path.join(RUNTIME_ROOT, 'compress');
     const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md')).sort();
     if (names.length) {
       await push(path.join(dir, names[names.length - 1]));
     }
-  } catch {
-    // 还没压缩过
-  }
-  return out;
+  } catch { /* 还没压缩过 */ }
+  return out.filter((d) => d.trim().length > 0);
 }
 
 export async function scanAssociativeRecallToShadow(

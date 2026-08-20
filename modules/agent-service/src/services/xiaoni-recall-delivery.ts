@@ -29,9 +29,10 @@
 // (不重复入队)。队列行自 2026-03 起从不清理,所以这条幂等是长期成立的,不需要另建投递账本。
 
 import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
 
 import * as persistence from '@qq-bot/persistence';
+
+import { callRecallLlm, type RecallPrompt } from './xiaoni-recall-llm-client';
 import { agentConfig, databaseConfig, getGlobalPromptContextSessionKey } from '../config';
 import { logger } from '../utils/logger';
 import { renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
@@ -104,7 +105,6 @@ const ACTIVE_WINDOW_START_HOUR = 9;
 const ACTIVE_WINDOW_END_HOUR = 23;
 // 承诺账本。投递前现读它做「还没做完吗」的复核 —— 权威在这个文件的勾选状态,
 // 不在投递账本里。容器挂载见 docker-compose.yml(agent-service 也挂 /xiaoni-runtime)。
-const OPEN_LOOPS_PATH = `${process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime'}/notes/diary/open-loops.md`;
 // 仍未做完的承诺,隔多少天可以再提一次。
 // 旧行为是「同一段记忆永不重投」,幂等挂在 dedupe_key 唯一索引上,对**三条腿**一视同仁。
 // 但 open_loop 腿的「该不该再提」权威是 open-loops.md 的勾选状态:已 [x]/[-] 的在
@@ -136,7 +136,7 @@ export interface RecallDeliveryGate {
 // 判官:从算术选出的候选里挑该冒的 + 把钩子写成人话。不注入 → 沿用模板钩子、按原顺序投
 // 第一条没投过的(改动前的行为)。它坐在**投递闸**上,一天十几次 —— 检索侧每次落地那
 // ~985 次仍是纯算术,回归集才成立(docs/adr/0006)。
-export type RecallDeliveryJudge = (prompt: { system: string; user: string }) => Promise<string>;
+export type RecallDeliveryJudge = (prompt: RecallPrompt) => Promise<string>;
 
 export interface RecallDeliveryOptions {
   judge?: RecallDeliveryJudge;
@@ -342,8 +342,8 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       id: dedupeKeyFor(lead),
       text: lead.text,
       leg: lead.leg,
-      // 不传 ageDays,buildJudgePrompt 里「N 天前」那一支永远不渲染,判官就不知道
-      // 这件事搁了多久 —— 而那正是「她还记不记得」的主要线索。
+      // ageDays 必须传:buildJudgePrompt 里「N 天前」那一支靠它渲染,而「搁了多久」
+      // 正是「她还记不记得」的主要线索。漏传过一次,code review 抓出来的。
       ageDays: lead.ageDays
     }));
     const raw = await judge(persistence.buildJudgePrompt(items, anchor));
@@ -482,32 +482,16 @@ async function defaultReadGate(): Promise<RecallDeliveryGate> {
   };
 }
 
-// 判官的模型调用。和 query 展开走同一条路:provider-service 的 /api/internal/llm/debug
-// (支持 model 覆盖、不落 agent slice)。**独立请求,绝不克隆主请求** —— 这个栈的 fork 惯例
-// 是克隆主请求骑热前缀,但那意味着每次判断都要过一遍她那几十万 token 的上下文;
-// 一个几千 token 的独立请求便宜一个数量级。见 docs/adr/0006。
-const JUDGE_MODEL = process.env.XIAONI_RECALL_JUDGE_MODEL || 'claude-haiku-4-5';
+// 判官的模型调用收口在共用的 recall LLM client(见该文件头:独立请求,绝不克隆主请求)。
+const JUDGE_MODEL = process.env.XIAONI_RECALL_JUDGE_MODEL || undefined;
 const JUDGE_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_JUDGE_TIMEOUT_MS || '30000', 10);
-const PROVIDER_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
 
-async function defaultJudge(prompt: { system: string; user: string }): Promise<string> {
-  const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: JUDGE_MODEL,
-      systemPrompt: prompt.system,
-      userInput: prompt.user,
-      parameters: { max_tokens: 1024 }
-    }),
-    signal: AbortSignal.timeout(JUDGE_TIMEOUT_MS)
-  });
-  if (!resp.ok) {
-    throw new Error(`judge http ${resp.status}`);
-  }
-  const json = (await resp.json()) as { response?: unknown };
-  return typeof json?.response === 'string' ? json.response : '';
-}
+const defaultJudge = (prompt: RecallPrompt) => callRecallLlm(prompt, {
+  model: JUDGE_MODEL,
+  maxTokens: 1024,
+  timeoutMs: JUDGE_TIMEOUT_MS,
+  label: 'recall-judge'
+});
 
 const defaultDelivery = createPassiveRecallDelivery(
   persistence as unknown as RecallDeliveryDeps,

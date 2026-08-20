@@ -11,6 +11,9 @@ import path from 'node:path';
 
 import * as persistence from '@qq-bot/persistence';
 
+import { callRecallLlm, type RecallPrompt } from './xiaoni-recall-llm-client';
+import { readContextMenuTexts } from './xiaoni-context-menus';
+
 const IDENTITY_KEY = 'xiaoni';
 const HEAD_LIMIT = 50;                 // 每次事件投影的头部条数(覆盖一个 turn 的落地)
 const DEBOUNCE_MS = 3000;              // 突发 append 合并窗口
@@ -40,14 +43,11 @@ async function embed(texts: string[]): Promise<number[][]> {
   return data.map((e) => (Array.isArray(e?.embedding) ? e.embedding : []));
 }
 
-// 她常驻上下文里的三张菜单。真库实测(2026-08-19,近 3 天 5631/5631 次请求)
-// `<xiaoni_status>` / `<xiaoni_diary_index>` / `<xiaoni_people>` 100% 出现在她的请求里。
-// 菜单已经点到的事,她看一眼就想得起来,不该再被召回一遍 —— 所以喂给语义式在场排除。
-// 这里读的是**菜单的来源文件**而不是渲染后的块:比较是语义的,不需要逐字一致。
+// 菜单读取与小模型调用都收口在共用模块(见各自文件头)。
 const RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime';
-const DIARY_INDEX_DIR = 'notes/diary';
 const PEOPLE_INDEX_REL = 'notes/people/INDEX.md';
-const COMPRESS_DIR = 'compress';
+const EXPANSION_MODEL = process.env.XIAONI_RECALL_EXPANSION_MODEL || undefined;
+const EXPANSION_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_EXPANSION_TIMEOUT_MS || '25000', 10);
 
 async function readIfExists(absolutePath: string): Promise<string | null> {
   try {
@@ -57,75 +57,19 @@ async function readIfExists(absolutePath: string): Promise<string | null> {
   }
 }
 
-// 日记目录是分层的(顶层 INDEX.md + 月度 INDEX-<YYYY-MM>.md),按前缀全收。
-async function readDiaryIndexes(): Promise<string[]> {
-  const dir = path.join(RUNTIME_ROOT, DIARY_INDEX_DIR);
-  let names: string[];
-  try {
-    names = await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-  const picked = names.filter((n) => /^INDEX([-.]|$)/i.test(n) && /\.(md|txt)$/i.test(n));
-  const docs = await Promise.all(picked.map((n) => readIfExists(path.join(dir, n))));
-  return docs.filter((d): d is string => typeof d === 'string');
-}
+const readContextMenus = () => readContextMenuTexts(RUNTIME_ROOT);
 
-// 近况:compress 目录下最新的一份(脚本每轮起一个全新文件名)。
-async function readLatestStatus(): Promise<string | null> {
-  const dir = path.join(RUNTIME_ROOT, COMPRESS_DIR);
-  try {
-    const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md')).sort();
-    const latest = names[names.length - 1];
-    return latest ? readIfExists(path.join(dir, latest)) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function readContextMenus(): Promise<string[]> {
-  const [indexes, people, status] = await Promise.all([
-    readDiaryIndexes(),
-    readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL)),
-    readLatestStatus()
-  ]);
-  return [...indexes, people, status].filter((d): d is string => typeof d === 'string' && d.trim().length > 0);
-}
-
-// ── 自适应 query 展开的两条供给 ────────────────────────────────────────────
-// 模型:走 provider-service 的 /api/internal/llm/debug(支持 model 覆盖、不落 agent slice)。
-// 用 Haiku 而不是主 agent 的 opus-4-6:同一份 OAuth 凭据、同一条已在维护的认证路径,
-// 2026-08-20 实测经 provider-service 可达(33 in / 4 out)。见 docs/adr/0006。
-const EXPANSION_MODEL = process.env.XIAONI_RECALL_EXPANSION_MODEL || 'claude-haiku-4-5';
-const EXPANSION_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_EXPANSION_TIMEOUT_MS || '25000', 10);
-
-async function expandQueries(prompt: { system: string; user: string }): Promise<string> {
-  const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: EXPANSION_MODEL,
-      systemPrompt: prompt.system,
-      userInput: prompt.user,
-      parameters: { max_tokens: 512 }
-    }),
-    signal: AbortSignal.timeout(EXPANSION_TIMEOUT_MS)
-  });
-  if (!resp.ok) {
-    throw new Error(`expansion http ${resp.status}`);
-  }
-  const json = (await resp.json()) as { response?: unknown };
-  return typeof json?.response === 'string' ? json.response : '';
-}
-
-// 标签命名空间取自她自己写的东西,不另造词表:
-//   notes/topics/<标签>.md 的文件名(loops --tag 生成的专题线)
-//   人物菜单里的名字
-// 模型的活因此是**组合**而不是生成 —— 便宜、可控、结果可解释。
-const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
+const expandQueries = (prompt: RecallPrompt) => callRecallLlm(prompt, {
+  model: EXPANSION_MODEL,
+  maxTokens: 512,
+  timeoutMs: EXPANSION_TIMEOUT_MS,
+  label: 'recall-expansion'
+});
 
 // 她的人物菜单名字表。喂 importance 的 peer / profiledPeer 两个因子。
 // 与 readTags 分开:那个混着专题标签,当人名用会误命中。
+const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
+
 async function readPeerNames(): Promise<string[]> {
   const peopleIndex = await readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL));
   if (!peopleIndex) {
@@ -141,6 +85,8 @@ async function readPeerNames(): Promise<string[]> {
   return Array.from(new Set(names));
 }
 
+// 标签命名空间取自她自己写的东西(topics 文件名 + 人物菜单名字),不另造词表 ——
+// 模型的活因此是**组合**而不是生成:便宜、可控、结果可解释。
 async function readTags(): Promise<string[]> {
   const tags: string[] = [];
   try {
@@ -153,16 +99,7 @@ async function readTags(): Promise<string[]> {
   } catch {
     // 目录还没建 → 只用人名
   }
-  const peopleIndex = await readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL));
-  if (peopleIndex) {
-    for (const m of peopleIndex.matchAll(PEOPLE_INDEX_LINE_RE)) {
-      const name = (m[1] || '').trim();
-      if (name.length >= 2) {
-        tags.push(name);
-      }
-    }
-  }
-  return Array.from(new Set(tags));
+  return Array.from(new Set([...tags, ...(await readPeerNames())]));
 }
 
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;

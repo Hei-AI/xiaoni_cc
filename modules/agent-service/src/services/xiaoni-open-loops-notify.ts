@@ -36,7 +36,6 @@ const INTERVAL_HOURS = envNum('XIAONI_OPEN_LOOPS_NOTIFY_INTERVAL_HOURS', 24);
 const MIN_OPEN_TO_NOTIFY = envNum('XIAONI_OPEN_LOOPS_NOTIFY_MIN_OPEN', 5);
 
 export interface OpenLoopsNotifyDeps {
-  countAgentQueueMessagesSince?: unknown;
   listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date; limit?: number }, config?: unknown): Promise<string[]>;
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ created?: boolean } | null>;
 }

@@ -15,6 +15,8 @@
 // 标签来自她自己写的东西(loops --tag / notes/topics/<标签>.md / 人物菜单名字),
 // 不另造词表 —— 模型的活变成组合而不是生成,便宜、可控、结果可解释。
 
+const { extractFirstJsonObject, cleanStringList } = require('./xiaoni-recall-llm-io');
+
 // 触发闸:算术结果「弱」的判据。两条都满足才算强,不用展开。
 const DEFAULT_WEAK_TOP_COS = 0.45;   // 最高一条的 centered cos 低于此 → 弱
 const DEFAULT_MIN_QUALIFIED = 3;      // 过完硬事实后带内候选少于此 → 弱
@@ -64,26 +66,14 @@ function buildExpansionPrompt(anchorText, tags, queryCount = DEFAULT_QUERY_COUNT
   return { system, user };
 }
 
-// 解析模型输出。模型不听话是常态,所以:抠出第一个 JSON 对象;拿不到 → 返回空,
-// 调用方退回单 query(fail-open,展开只做放宽,失败的后果是回到现状)。
+// 解析模型输出。抠 JSON 的活收口在 xiaoni-recall-llm-io.js(判官侧共用同一份)。
+// 拿不到 → 返回空,调用方退回单 query(fail-open:展开只做放宽,失败的后果是回到现状)。
 function parseExpansion(raw) {
-  const text = typeof raw === 'string' ? raw : '';
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) {
+  const parsed = extractFirstJsonObject(raw);
+  if (!parsed) {
     return { tags: [], queries: [] };
   }
-  let parsed;
-  try {
-    parsed = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    return { tags: [], queries: [] };
-  }
-  const clean = (arr) => (Array.isArray(arr) ? arr : [])
-    .filter((x) => typeof x === 'string' && x.trim())
-    .map((x) => x.trim())
-    .slice(0, 8);
-  return { tags: clean(parsed.tags), queries: clean(parsed.queries) };
+  return { tags: cleanStringList(parsed.tags, 8), queries: cleanStringList(parsed.queries, 8) };
 }
 
 module.exports = {
