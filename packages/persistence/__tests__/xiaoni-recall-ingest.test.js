@@ -285,3 +285,90 @@ test('调用方仍可显式覆盖 limit', async () => {
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-k2', limit: 400 });
   assert.deepEqual(limits, [200, 200]);
 });
+
+// ── 自适应 query 展开 ──────────────────────────────────────────────────────
+const strongPool = () => Array.from({ length: 12 }, (_, i) => ({
+  sourceRef: `S${i}`, embedding: [1, 0, 0], provenance: {}, embeddingText: `一条足够长的候选记录编号${i}`
+}));
+
+test('展开:算术结果强 → 不调用小模型', async () => {
+  let called = 0;
+  const persistence = fakePersistence({ candidates: strongPool() });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":["x"]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-strong' });
+  assert.equal(called, 0, '强命中不该展开');
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:候选太少 → 触发,把新捞到的并进池子并留痕', async () => {
+  let call = 0;
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: {
+      async listRecallCandidates() {
+        call += 1;
+        // 前两次是两域主查询(空);之后是展开重取
+        return call <= 2 ? [] : [{
+          sourceRef: `EXP${call}`, embedding: [0.8, 0.6, 0],
+          provenance: { leadTemplate: 'file_chunk', path: '/x/e.md' },
+          embeddingText: '展开之后才捞到的那一条往事记录'
+        }];
+      }
+    }
+  });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    readTags: async () => ['#hwc', '#word'],
+    expandQueries: async () => '{"tags":["#hwc"],"queries":["第一次开口前的紧张","以前在人前说话"]}'
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-weak' });
+  const log = persistence.calls.shadowLogs[0];
+  assert.ok(log.queryExpansion, '应留下展开痕迹');
+  assert.deepEqual(log.queryExpansion.tags, ['#hwc']);
+  assert.equal(log.queryExpansion.queries.length, 2);
+  assert.ok(log.queryExpansion.addedCount >= 1, '展开该捞到新候选');
+});
+
+test('展开:小模型挂了 → 退回单 query,不阻断召回', async () => {
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { throw new Error('haiku down'); }
+  });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-expfail' });
+  assert.ok(result, '不该抛');
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:不注入 expandQueries → 完全不展开(行为同改动前)', async () => {
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-noexp' });
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:重取到的重复 ref 不会被算两遍', async () => {
+  let call = 0;
+  const dup = {
+    sourceRef: 'SAME', embedding: [0.8, 0.6, 0],
+    provenance: { leadTemplate: 'file_chunk', path: '/x/s.md' },
+    embeddingText: '两次都会被捞到的同一条记录'
+  };
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates() { call += 1; return call <= 2 ? [] : [dup]; } }
+  });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => '{"queries":["a","b","c"]}'
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-dup' });
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion.addedCount, 1, '同一 ref 只算一次');
+});

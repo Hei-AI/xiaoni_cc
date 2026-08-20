@@ -2676,6 +2676,10 @@ export function createRecallIngest(deps: {
    * —— 逐行嵌成向量喂进语义式在场排除。不注入 → 行为与改动前一致。
    */
   readContextMenus?: () => Promise<string[]>;
+  /** 可选。算术结果弱时发一发小模型做 query 展开,返回原文。不注入 → 不展开。 */
+  expandQueries?: (prompt: { system: string; user: string }) => Promise<string>;
+  /** 可选。她自己的标签命名空间(topics 文件名 + 人物菜单名字),给展开当词表。 */
+  readTags?: () => Promise<string[]>;
 }): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;

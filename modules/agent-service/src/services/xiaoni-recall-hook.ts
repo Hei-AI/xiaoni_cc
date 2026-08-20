@@ -92,10 +92,66 @@ async function readContextMenus(): Promise<string[]> {
   return [...indexes, people, status].filter((d): d is string => typeof d === 'string' && d.trim().length > 0);
 }
 
+// ── 自适应 query 展开的两条供给 ────────────────────────────────────────────
+// 模型:走 provider-service 的 /api/internal/llm/debug(支持 model 覆盖、不落 agent slice)。
+// 用 Haiku 而不是主 agent 的 opus-4-6:同一份 OAuth 凭据、同一条已在维护的认证路径,
+// 2026-08-20 实测经 provider-service 可达(33 in / 4 out)。见 docs/adr/0006。
+const EXPANSION_MODEL = process.env.XIAONI_RECALL_EXPANSION_MODEL || 'claude-haiku-4-5';
+const EXPANSION_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_EXPANSION_TIMEOUT_MS || '25000', 10);
+
+async function expandQueries(prompt: { system: string; user: string }): Promise<string> {
+  const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: EXPANSION_MODEL,
+      systemPrompt: prompt.system,
+      userInput: prompt.user,
+      parameters: { max_tokens: 512 }
+    }),
+    signal: AbortSignal.timeout(EXPANSION_TIMEOUT_MS)
+  });
+  if (!resp.ok) {
+    throw new Error(`expansion http ${resp.status}`);
+  }
+  const json = (await resp.json()) as { response?: unknown };
+  return typeof json?.response === 'string' ? json.response : '';
+}
+
+// 标签命名空间取自她自己写的东西,不另造词表:
+//   notes/topics/<标签>.md 的文件名(loops --tag 生成的专题线)
+//   人物菜单里的名字
+// 模型的活因此是**组合**而不是生成 —— 便宜、可控、结果可解释。
+const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
+
+async function readTags(): Promise<string[]> {
+  const tags: string[] = [];
+  try {
+    const names = await fs.readdir(path.join(RUNTIME_ROOT, 'notes/topics'));
+    for (const n of names) {
+      if (/\.(md|txt)$/i.test(n) && !/^INDEX([-.]|$)/i.test(n)) {
+        tags.push(n.replace(/\.(md|txt)$/i, ''));
+      }
+    }
+  } catch {
+    // 目录还没建 → 只用人名
+  }
+  const peopleIndex = await readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL));
+  if (peopleIndex) {
+    for (const m of peopleIndex.matchAll(PEOPLE_INDEX_LINE_RE)) {
+      const name = (m[1] || '').trim();
+      if (name.length >= 2) {
+        tags.push(name);
+      }
+    }
+  }
+  return Array.from(new Set(tags));
+}
+
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;
 function getIngest() {
   if (!ingestSingleton) {
-    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus });
+    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus, expandQueries, readTags });
   }
   return ingestSingleton;
 }

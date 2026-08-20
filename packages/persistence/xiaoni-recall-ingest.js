@@ -16,6 +16,12 @@ const {
   normalizeRecallText
 } = require('./xiaoni-passive-recall-extractor');
 const {
+  isWeakResult,
+  buildExpansionPrompt,
+  parseExpansion,
+  DEFAULT_QUERY_COUNT
+} = require('./xiaoni-recall-query-expansion');
+const {
   bandpassRecall,
   renderRecallLead,
   recallDomainOf,
@@ -70,7 +76,33 @@ const CONTEXT_MENU_MIN_CHARS = 8;
 // 把菜单**逐行**嵌成向量喂进 contextVectors,和候选太像的自动 drop_in_context。
 // 逐行而不是整块:整块嵌出来是一个糊掉的泛化向量,谁都像。
 // 不注入 → 行为与改动前完全一致。
-function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readContextMenus = null } = {}) {
+// expandQueries:可选。`({ system, user }) => Promise<string>` —— 发一发小模型,返回原文。
+// 只在算术结果「弱」时才被调用(见 xiaoni-recall-query-expansion.js 的触发闸)。
+// readTags:可选。返回她自己的标签命名空间(loops --tag / topics 文件名 / 人物菜单名字)。
+// 两个都不注入 → 完全不展开,行为与改动前一致。
+function cosineOrZero(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length || !a.length) {
+    return 0;
+  }
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+function createRecallIngest({
+  embed,
+  persistence,
+  identityKey = 'xiaoni',
+  readContextMenus = null,
+  expandQueries = null,
+  readTags = null
+} = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
   }
@@ -251,6 +283,39 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readCo
     }
   }
 
+  // 展开:标签化 → 组装多 query → 各取一次 top-K → 并集(去掉已在池里的)。
+  // 全程 fail-open:任一步失败/拿不到就返回空,调用方退回单 query —— 展开只做放宽,
+  // 失败的后果是回到现状,不是出错。
+  async function runQueryExpansion({ anchorText, sqlExclude, perDomainLimit, seenRefs }) {
+    const tags = typeof readTags === 'function' ? await readTags().catch(() => []) : [];
+    const prompt = buildExpansionPrompt(anchorText, tags, DEFAULT_QUERY_COUNT);
+    const raw = await expandQueries(prompt);
+    const { tags: pickedTags, queries } = parseExpansion(raw);
+    if (!queries.length) {
+      return null;
+    }
+    const vectors = await embed(queries);
+    const added = [];
+    for (let i = 0; i < queries.length; i += 1) {
+      const vec = vectors[i];
+      if (!Array.isArray(vec) || !vec.length) {
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await persistence.listRecallCandidates({
+        identityKey, queryVector: vec, excludeSourceRefs: sqlExclude, limit: perDomainLimit
+      }).catch(() => []);
+      for (const c of Array.isArray(rows) ? rows : []) {
+        if (!c || seenRefs.has(c.sourceRef) || isLowInfoRecallText(c.embeddingText)) {
+          continue;
+        }
+        seenRefs.add(c.sourceRef);
+        added.push(c);
+      }
+    }
+    return { tags: pickedTags, queries, added };
+  }
+
   // 触发2:落地内容当 query 跑召回,写 shadow_log(shadow-only,绝不投递)。
   // 「在场」的定义 = 她当前上下文 stack 尾(压缩 cutoff 之上,resolveInContextRefs 权威给出);
   // 调用方 params.contextRefs 只作近窗补充(语义式在场排除窗口)。冒的必须是「不在这条尾里」的东西。
@@ -356,7 +421,31 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readCo
     }
     peerCandidates = filterInboundBricksByPresence(peerCandidates, readStates, forgettingLineMs);
 
-    const candidates = [...selfCandidates, ...peerCandidates];
+    let candidates = [...selfCandidates, ...peerCandidates];
+
+    // ── 自适应 query 展开 ────────────────────────────────────────────────
+    // 召回只有 dense 这一路(BM25 只在已取回的池内重排,补不了漏召),所以 dense 没捞进来的
+    // 东西后面谁也救不回。算术结果弱的时候换几种问法重取一遍,把池子放宽。
+    // 强命中时不跑 —— 那时展开没有价值,还白烧一次调用。
+    const topRawCos = candidates.length
+      ? Math.max(...candidates.map((c) => cosineOrZero(c.embedding, queryVector)))
+      : 0;
+    let expansion = null;
+    if (typeof expandQueries === 'function'
+      && isWeakResult({ topCos: topRawCos, qualifiedCount: candidates.length })) {
+      expansion = await runQueryExpansion({
+        anchorText: text,
+        sqlExclude,
+        perDomainLimit,
+        seenRefs
+      }).catch(() => null);
+      if (expansion && expansion.added.length) {
+        candidates = [...candidates, ...expansion.added];
+        for (const c of expansion.added) {
+          (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
+        }
+      }
+    }
 
     // ④ 语义式在场排除:近窗条目的向量(可选,persistence 提供才做)。调用方给了近窗用其近窗;
     // 没给(如入站钩子)退回保留尾最近 N 条,让入站召回也能抓「换说法的刚做过」。
@@ -416,6 +505,10 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readCo
       bandCeiling: result.ceiling,
       silent: result.silent,
       corpusCount: candidates.length, // 近邻邻域大小(非全库;全库计数按需另查,避免每落地一次 count)
+      // 展开留痕:没触发 → null。观察期要能分清「本来就捞到了」和「展开才捞到的」。
+      queryExpansion: expansion
+        ? { tags: expansion.tags, queries: expansion.queries, addedCount: expansion.added.length }
+        : null,
       topK: candidates.length,
       surfaced: result.surfaced.map((e) => ({
         lead: renderRecallLead(e.candidate),
