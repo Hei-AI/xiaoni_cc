@@ -148,6 +148,15 @@ function isPresentInContext(title, normalizedContextText) {
 
 // prose / titleSpecificity 的取值同时被「准入门槛」和「打分」用到 —— 只写一份实现,
 // 两边都调它,避免门槛和分数用两套算法算出互相矛盾的结果。
+// f3 effort 的归一,抽成具名函数:importance 模块要用同一份(见该文件顶注)。
+function effortScoreOf(body) {
+  const bodyChars = (typeof body === 'string' ? body : '').replace(/\s+/g, '').length;
+  return clamp01(
+    (Math.log(1 + bodyChars) - Math.log(1 + EFFORT_MIN_CHARS))
+    / (Math.log(1 + EFFORT_FULL_CHARS) - Math.log(1 + EFFORT_MIN_CHARS))
+  );
+}
+
 function proseScoreOf(body) {
   return clamp01(1 - bulletLineRatio(typeof body === 'string' ? body : ''));
 }
@@ -232,10 +241,7 @@ function scoreAssociationFactors(item, ctx = {}) {
     // p90≈0.45–0.50、max=1.00 —— 全程铺开,不是二值。
     relevance: clamp01(ctx.relevance),
     introspection: INTROSPECTION_RE.test(body) ? 1 : 0,
-    effort: clamp01(
-      (Math.log(1 + bodyChars) - Math.log(1 + EFFORT_MIN_CHARS))
-      / (Math.log(1 + EFFORT_FULL_CHARS) - Math.log(1 + EFFORT_MIN_CHARS))
-    ),
+    effort: effortScoreOf(body),
     prose: proseScoreOf(body),
     peer: peerNames.some((name) => typeof name === 'string'
       && name.length >= MIN_PEER_NAME_CHARS
@@ -420,5 +426,10 @@ module.exports = {
   bulletLineRatio,
   bucketOfCandidate,
   scoreAssociationFactors,
-  selectAssociativeMemories
+  selectAssociativeMemories,
+  // 导出给 xiaoni-recall-importance.js 复用 —— 判据只能有一份。
+  // 复制一遍正则/归一段就是造第二个真理源,阈值以后必然漂。
+  INTROSPECTION_RE,
+  effortScoreOf,
+  titleSpecificityOf
 };

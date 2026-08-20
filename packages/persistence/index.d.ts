@@ -2527,6 +2527,31 @@ export function insertRecallShadowLog(record: Record<string, unknown>, config?: 
 // 冷却全废。调用方(xiaoni-recall-reindex-service.ts 的第二/三腿)必须传;管理端只读路由不传。
 export function listRecallShadowLog(params?: { identityKey?: string; queryRef?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
 export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; windowHours?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
+
+// ── 召回 importance(「她的投入痕迹」)──────────────────────────────────────
+// 铁律:不同 klass 的 importance **不可比**,只能类内排序;跨类交给 relevance / recency。
+// 见 packages/persistence/xiaoni-recall-importance.js 顶注与 docs/adr/0006。
+export const AUTHORED_BY_HER: 'authored_by_her';
+export const AUTHORED_BY_PEER: 'authored_by_peer';
+export type RecallAuthorClass = 'authored_by_her' | 'authored_by_peer';
+export interface RecallImportanceContext {
+  /** 她的人物菜单名字表(notes/people/INDEX.md)。同时喂 peer 与 profiledPeer 两个因子。 */
+  peerNames?: string[];
+}
+export function classifyCandidate(candidate: unknown): RecallAuthorClass;
+export function headingOf(text: unknown): string | null;
+export function scoreCandidateImportance(candidate: unknown, ctx?: RecallImportanceContext): {
+  klass: RecallAuthorClass;
+  importance: number;
+  factors: Record<string, number | boolean | null>;
+};
+export function groupCandidatesByAuthor(candidates: unknown[], ctx?: RecallImportanceContext): Map<RecallAuthorClass, Array<{
+  candidate: unknown;
+  klass: RecallAuthorClass;
+  importance: number;
+  factors: Record<string, number | boolean | null>;
+}>>;
+
 export function countRecallSurfacedRefs(params?: { identityKey?: string; queryRef?: string }, config?: DatabaseUrlConfig): Promise<Map<string, number>>;
 export const BEIJING_OFFSET_MS: number;
 // parseTagDate 认日期的年龄上限。护的是 `(1/3进度)`、`(2/5看完)` 这类「括号里像日期其实是
