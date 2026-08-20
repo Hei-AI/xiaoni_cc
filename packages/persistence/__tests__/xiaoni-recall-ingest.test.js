@@ -195,3 +195,71 @@ test('per-cue 冷却:读冷却集抛错不阻断召回(宁可多浮一次,不可
   const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q5' });
   assert.strictEqual(result.silent, false);
 });
+
+// ── 常驻菜单进语义在场排除 ────────────────────────────────────────────────
+// 真库实测(2026-08-19,近 3 天 5631/5631 次请求):<xiaoni_status> / <xiaoni_diary_index> /
+// <xiaoni_people> 100% 常驻在她的请求里。菜单已经点到的事,她看一眼就想得起来 ——
+// 那不是「她不知道自己做过」。结构式在场排除按 sourceRef 比,对菜单无效(菜单不是栈项),
+// 所以必须走语义式这条。
+test('菜单里已经点到的事被压掉(drop_in_context),没点到的照常冒', async () => {
+  // 三维手造向量,阈值见 bandpass 默认:floor=0.35 / ceiling=0.92。
+  //   query      [1, 0, 0]
+  //   MENTIONED  [0.6, 0.8, 0]   与 query cos=0.60(带内,不会先被 drop_too_similar 拦掉)
+  //                              与菜单行向量同向 cos=1.00 → 该判 drop_in_context
+  //   FRESH      [0.9, 0.436, 0] 与 query cos=0.90(带内);与菜单行 cos=0.89 < ceiling → 照常冒
+  const candidates = [
+    { sourceRef: 'MENTIONED', embedding: [0.6, 0.8, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/m.md' }, embeddingText: '目录里已经写到的那件事' },
+    { sourceRef: 'FRESH', embedding: [0.9, 0.436, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/f.md' }, embeddingText: '目录那一行没提到的另一件事' }
+  ];
+  const MENU_LINE = '2026-08-18 | 目录里已经写到的那件事,写得够长够具体';
+  const embedByText = async (texts) => texts.map((t) => (String(t) === MENU_LINE ? [0.6, 0.8, 0] : [1, 0, 0]));
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({
+    embed: embedByText,
+    persistence,
+    readContextMenus: async () => [`- ${MENU_LINE}`]
+  });
+
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-menu' });
+  const log = persistence.calls.shadowLogs[0];
+  assert.equal(log.droppedCounts.drop_in_context, 1, '菜单点到的那条应被判 drop_in_context');
+  assert.ok(!log.surfaced.some((e) => e.sourceRef === 'MENTIONED'), 'MENTIONED 不该冒出来');
+});
+
+test('不注入 readContextMenus → 行为与改动前完全一致', async () => {
+  const candidates = [
+    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/a.md' }, embeddingText: '一条正常的往事记录' }
+  ];
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-nomenu' });
+  assert.equal(result.silent, false);
+});
+
+test('菜单读失败 / 嵌入失败不阻断召回(少一道在场排除只是多冒一条,不是错)', async () => {
+  const candidates = [
+    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/a.md' }, embeddingText: '一条正常的往事记录' }
+  ];
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    readContextMenus: async () => { throw new Error('fs down'); }
+  });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-fail' });
+  assert.equal(result.silent, false);
+});
+
+test('太短的菜单行(分隔线/单词)不进在场向量 —— 噪音向量会误杀候选', async () => {
+  const seen = [];
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({
+    embed: async (texts) => { seen.push(...texts); return texts.map(() => [1, 0, 0]); },
+    persistence,
+    readContextMenus: async () => ['# 日记目录\n---\n- ok\n- 2026-08-18 | 这一行够长应该被收进去']
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-short' });
+  assert.ok(seen.some((t) => t.includes('这一行够长')), '够长的行要进');
+  assert.ok(!seen.includes('ok'), '「ok」这种短行不该进');
+  assert.ok(!seen.includes('---'), '分隔线不该进');
+});

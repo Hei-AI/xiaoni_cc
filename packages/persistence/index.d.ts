@@ -2667,7 +2667,16 @@ export function selectAssociativeMemories(
   }
 ): { picked: XiaoniAssociationPick[]; stats: XiaoniAssociationStats };
 
-export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
+export function createRecallIngest(deps: {
+  embed: (texts: string[]) => Promise<number[][]>;
+  persistence: any;
+  identityKey?: string;
+  /**
+   * 可选。返回她**常驻上下文里那三张菜单**的正文(一份一条)。菜单已经点到的事不该再被召回
+   * —— 逐行嵌成向量喂进语义式在场排除。不注入 → 行为与改动前一致。
+   */
+  readContextMenus?: () => Promise<string[]>;
+}): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   runShadowRecall(params: Record<string, unknown>): Promise<XiaoniRecallBandpassResult | null>;

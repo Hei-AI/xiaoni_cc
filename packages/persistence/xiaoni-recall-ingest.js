@@ -56,8 +56,21 @@ const CONTEXT_SESSION_KEY = (typeof process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SES
 const MAX_SQL_EXCLUDE_REFS = 2000;
 // ④ 语义式在场排除窗口:调用方没给近窗时,退回「保留尾最近 N 条」(她此刻正做的),抓「换了说法刚做过」。
 const SEMANTIC_CONTEXT_WINDOW = 20;
+// 常驻菜单的向量缓存 TTL。菜单变得慢(日记目录一天一行、人物菜单更慢、近况一轮一次),
+// 而每次落地都要用 —— 缓存 10 分钟足够,过期重读重嵌(本地 embedding server,不花钱)。
+const CONTEXT_MENU_TTL_MS = 10 * 60 * 1000;
+// 太短的行(分隔线、单个词)嵌出来是噪音向量,反而会误杀候选。
+const CONTEXT_MENU_MIN_CHARS = 8;
 
-function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {}) {
+// readContextMenus:可选。返回她**常驻上下文里那三张菜单**的正文(字符串数组,一份一条)。
+// 为什么要它:真库实测(2026-08-19,近 3 天 5631/5631 次请求)`<xiaoni_status>`、
+// `<xiaoni_diary_index>`、`<xiaoni_people>` 100% 常驻在她的请求里。菜单已经点到的事,
+// 她看一眼就想得起来 —— 那不是「她不知道自己做过」,不该再召回一遍。
+// 结构式在场排除按 sourceRef 比,对菜单无效(菜单不是栈项);所以走语义式那条:
+// 把菜单**逐行**嵌成向量喂进 contextVectors,和候选太像的自动 drop_in_context。
+// 逐行而不是整块:整块嵌出来是一个糊掉的泛化向量,谁都像。
+// 不注入 → 行为与改动前完全一致。
+function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readContextMenus = null } = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
   }
@@ -115,6 +128,46 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       return cachedCooldown || new Set();
     }
     return cachedCooldown;
+  }
+
+  // 常驻菜单的逐行向量(带 TTL 缓存)。读/嵌失败 → 空数组,不阻断召回
+  // (少一道在场排除只是多冒一条,不是错)。
+  let cachedMenuVectors = null;
+  let cachedMenuVectorsAt = 0;
+  async function getContextMenuVectors() {
+    if (typeof readContextMenus !== 'function') {
+      return [];
+    }
+    const now = Date.now();
+    if (cachedMenuVectors && (now - cachedMenuVectorsAt) < CONTEXT_MENU_TTL_MS) {
+      return cachedMenuVectors;
+    }
+    try {
+      const docs = await readContextMenus();
+      const lines = [];
+      for (const doc of Array.isArray(docs) ? docs : []) {
+        if (typeof doc !== 'string') {
+          continue;
+        }
+        for (const raw of doc.split(/\r?\n/)) {
+          const line = raw.replace(/^\s*[-*]\s*/, '').trim();
+          if (line.replace(/\s+/g, '').length >= CONTEXT_MENU_MIN_CHARS) {
+            lines.push(line);
+          }
+        }
+      }
+      if (lines.length === 0) {
+        cachedMenuVectors = [];
+        cachedMenuVectorsAt = now;
+        return cachedMenuVectors;
+      }
+      const vectors = await embed(lines);
+      cachedMenuVectors = (Array.isArray(vectors) ? vectors : []).filter((v) => Array.isArray(v) && v.length);
+      cachedMenuVectorsAt = now;
+    } catch {
+      return cachedMenuVectors || [];
+    }
+    return cachedMenuVectors;
   }
 
   // 建好的 cue → 嵌入(内容 hash 没变的跳过,省嵌入)→ upsert。
@@ -303,6 +356,8 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     if (semanticRefs.length && typeof persistence.getRecallCueVectorsByRefs === 'function') {
       contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, semanticRefs);
     }
+    // 常驻菜单也是「在场」的一部分 —— 它们逐字在她每一次请求里。
+    contextVectors = [...(Array.isArray(contextVectors) ? contextVectors : []), ...(await getContextMenuVectors())];
 
     // 去 anisotropy(mean+主成分)+ BM25 双路:取模型传入,有模型时用去 anisotropy 空间阈值。
     const model = await getDeanisModel();

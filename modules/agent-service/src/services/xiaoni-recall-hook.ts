@@ -6,6 +6,9 @@
 // 轻量防抖:突发 append 合并,避免每次 append 都投影一遍头部。
 // docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import * as persistence from '@qq-bot/persistence';
 
 const IDENTITY_KEY = 'xiaoni';
@@ -37,10 +40,62 @@ async function embed(texts: string[]): Promise<number[][]> {
   return data.map((e) => (Array.isArray(e?.embedding) ? e.embedding : []));
 }
 
+// 她常驻上下文里的三张菜单。真库实测(2026-08-19,近 3 天 5631/5631 次请求)
+// `<xiaoni_status>` / `<xiaoni_diary_index>` / `<xiaoni_people>` 100% 出现在她的请求里。
+// 菜单已经点到的事,她看一眼就想得起来,不该再被召回一遍 —— 所以喂给语义式在场排除。
+// 这里读的是**菜单的来源文件**而不是渲染后的块:比较是语义的,不需要逐字一致。
+const RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime';
+const DIARY_INDEX_DIR = 'notes/diary';
+const PEOPLE_INDEX_REL = 'notes/people/INDEX.md';
+const COMPRESS_DIR = 'compress';
+
+async function readIfExists(absolutePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(absolutePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// 日记目录是分层的(顶层 INDEX.md + 月度 INDEX-<YYYY-MM>.md),按前缀全收。
+async function readDiaryIndexes(): Promise<string[]> {
+  const dir = path.join(RUNTIME_ROOT, DIARY_INDEX_DIR);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const picked = names.filter((n) => /^INDEX([-.]|$)/i.test(n) && /\.(md|txt)$/i.test(n));
+  const docs = await Promise.all(picked.map((n) => readIfExists(path.join(dir, n))));
+  return docs.filter((d): d is string => typeof d === 'string');
+}
+
+// 近况:compress 目录下最新的一份(脚本每轮起一个全新文件名)。
+async function readLatestStatus(): Promise<string | null> {
+  const dir = path.join(RUNTIME_ROOT, COMPRESS_DIR);
+  try {
+    const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md')).sort();
+    const latest = names[names.length - 1];
+    return latest ? readIfExists(path.join(dir, latest)) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readContextMenus(): Promise<string[]> {
+  const [indexes, people, status] = await Promise.all([
+    readDiaryIndexes(),
+    readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL)),
+    readLatestStatus()
+  ]);
+  return [...indexes, people, status].filter((d): d is string => typeof d === 'string' && d.trim().length > 0);
+}
+
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;
 function getIngest() {
   if (!ingestSingleton) {
-    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY });
+    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus });
   }
   return ingestSingleton;
 }
