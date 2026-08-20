@@ -2531,6 +2531,13 @@ export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; 
 // ── 召回 importance(「她的投入痕迹」)──────────────────────────────────────
 // 铁律:不同 klass 的 importance **不可比**,只能类内排序;跨类交给 relevance / recency。
 // 见 packages/persistence/xiaoni-recall-importance.js 顶注与 docs/adr/0006。
+export const MAX_CANDIDATES_IN_PROMPT: number;
+export const MAX_PICKS: number;
+export function buildJudgePrompt(candidates: Array<{ id?: unknown; text?: unknown; ageDays?: unknown; leg?: unknown }>, anchorText?: string): { system: string; user: string };
+export function parseJudgeVerdict(raw: unknown, validIds?: string[] | Set<string>): { parsed: boolean; picks: Array<{ id: string; hook: string }> };
+export function isWeakResult(stats?: { topCos?: number; qualifiedCount?: number }, opts?: { weakTopCos?: number; minQualified?: number }): boolean;
+export function buildExpansionPrompt(anchorText: string, tags: string[], queryCount?: number): { system: string; user: string };
+export function parseExpansion(raw: unknown): { tags: string[]; queries: string[] };
 export const AUTHORED_BY_HER: 'authored_by_her';
 export const AUTHORED_BY_PEER: 'authored_by_peer';
 export type RecallAuthorClass = 'authored_by_her' | 'authored_by_peer';

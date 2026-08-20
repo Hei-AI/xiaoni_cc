@@ -122,7 +122,13 @@ export interface RecallDeliveryGate {
   dailyCap: number;
 }
 
+// 判官:从算术选出的候选里挑该冒的 + 把钩子写成人话。不注入 → 沿用模板钩子、按原顺序投
+// 第一条没投过的(改动前的行为)。它坐在**投递闸**上,一天十几次 —— 检索侧每次落地那
+// ~985 次仍是纯算术,回归集才成立(docs/adr/0006)。
+export type RecallDeliveryJudge = (prompt: { system: string; user: string }) => Promise<string>;
+
 export interface RecallDeliveryOptions {
+  judge?: RecallDeliveryJudge;
   // 不传 = 每拍从 agent_runtime_control 现读(生产路径)。
   readGate?: () => Promise<RecallDeliveryGate>;
   lookback?: number;
@@ -329,6 +335,29 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   const lookback = Math.max(1, options.lookback ?? SHADOW_LOOKBACK);
   const clock = options.now ?? (() => new Date());
   const readGate = options.readGate ?? defaultReadGate;
+  const judge = options.judge ?? null;
+
+  // 候选交给判官。id 用 dedupeKey —— 它已经是这段记忆的稳定身份,不另铸一套编号。
+  // 锚点(她此刻在做的事)取最近一条向量腿 shadow 的 query_text:那条腿每次落地都写。
+  async function runJudge(leads: Lead[]): Promise<{ parsed: boolean; picks: Array<{ id: string; hook: string }> } | null> {
+    if (!judge || leads.length === 0) {
+      return null;
+    }
+    const anchor = await readLatestAnchorText().catch(() => '');
+    const items = leads.slice(0, persistence.MAX_CANDIDATES_IN_PROMPT).map((lead) => ({
+      id: dedupeKeyFor(lead),
+      text: lead.text,
+      leg: lead.leg
+    }));
+    const raw = await judge(persistence.buildJudgePrompt(items, anchor));
+    return persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
+  }
+
+  async function readLatestAnchorText(): Promise<string> {
+    const rows = await deps.listRecallShadowLog({ identityKey: IDENTITY_KEY, limit: 1 }, databaseConfig) as Array<{ queryText?: unknown }>;
+    const row = Array.isArray(rows) ? rows[0] : null;
+    return row && typeof row.queryText === 'string' ? row.queryText : '';
+  }
 
   async function deliverOnce(): Promise<RecallDeliveryOutcome> {
     // 每拍现读:管理端关掉后最多一拍(10min)就停,不用重启。读失败 → fail-closed 当关着,
@@ -387,8 +416,33 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'none';
     }
 
+    // 判官。允许它说「一条都不值得」—— 那是正常结果,直接静默。
+    // 挂了 / 读不出 → fail-closed 退回模板钩子按原顺序投(不打扰她优先于强行判断)。
+    let ordered = fresh;
+    if (judge) {
+      const verdict = await runJudge(fresh).catch(() => null);
+      // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」——
+      // 否则判官一挂,整条投递腿会静默死掉且没有任何迹象。
+      if (verdict && verdict.parsed) {
+        if (verdict.picks.length === 0) {
+          return 'none'; // 判官答了:这次一条都不值得
+        }
+        const byKey = new Map(fresh.map((lead) => [dedupeKeyFor(lead), lead]));
+        const picked: Lead[] = [];
+        for (const pick of verdict.picks) {
+          const lead = byKey.get(pick.id);
+          if (lead) {
+            picked.push({ ...lead, text: pick.hook });
+          }
+        }
+        if (picked.length) {
+          ordered = picked;
+        }
+      }
+    }
+
     let delivered = 0;
-    for (const lead of fresh) {
+    for (const lead of ordered) {
       if (delivered >= PER_TICK_LIMIT) {
         break;
       }
@@ -419,7 +473,37 @@ async function defaultReadGate(): Promise<RecallDeliveryGate> {
   };
 }
 
-const defaultDelivery = createPassiveRecallDelivery(persistence as unknown as RecallDeliveryDeps);
+// 判官的模型调用。和 query 展开走同一条路:provider-service 的 /api/internal/llm/debug
+// (支持 model 覆盖、不落 agent slice)。**独立请求,绝不克隆主请求** —— 这个栈的 fork 惯例
+// 是克隆主请求骑热前缀,但那意味着每次判断都要过一遍她那几十万 token 的上下文;
+// 一个几千 token 的独立请求便宜一个数量级。见 docs/adr/0006。
+const JUDGE_MODEL = process.env.XIAONI_RECALL_JUDGE_MODEL || 'claude-haiku-4-5';
+const JUDGE_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_JUDGE_TIMEOUT_MS || '30000', 10);
+const PROVIDER_URL = process.env.PROVIDER_SERVICE_URL || 'http://qqbot-provider-service:8090';
+
+async function defaultJudge(prompt: { system: string; user: string }): Promise<string> {
+  const resp = await fetch(`${PROVIDER_URL}/api/internal/llm/debug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: JUDGE_MODEL,
+      systemPrompt: prompt.system,
+      userInput: prompt.user,
+      parameters: { max_tokens: 1024 }
+    }),
+    signal: AbortSignal.timeout(JUDGE_TIMEOUT_MS)
+  });
+  if (!resp.ok) {
+    throw new Error(`judge http ${resp.status}`);
+  }
+  const json = (await resp.json()) as { response?: unknown };
+  return typeof json?.response === 'string' ? json.response : '';
+}
+
+const defaultDelivery = createPassiveRecallDelivery(
+  persistence as unknown as RecallDeliveryDeps,
+  { judge: defaultJudge }
+);
 
 export function deliverPassiveRecallSurfaceOnce(): Promise<RecallDeliveryOutcome> {
   return defaultDelivery.deliverOnce();

@@ -400,3 +400,76 @@ test('association 不放松重投:日记条目没有「完成」这个状态,键
   await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
   assert.doesNotMatch(String(calls[0].message.dedupeKey), /:w\d+$/);
 });
+
+// ── 投递闸判官 ────────────────────────────────────────────────────────────
+// 它坐在投递闸上(一天十几次),不是每次落地 —— 检索侧那 ~985 次/天仍是纯算术。
+// 铁律:必须允许它说「一条都不值得」,否则退化成每次必冒。
+const judgeOf = (raw: string) => async () => raw;
+
+test('判官挑中的那条被投,而且用的是它写的钩子(不是模板)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      open_loop_scan: [rowWith([openLoopItem('ol:1', '模板钩子 A'), openLoopItem('ol:2', '模板钩子 B')])]
+    }
+  });
+  let seenIds: string[] = [];
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => {
+      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
+      return JSON.stringify({ picks: [{ id: seenIds[1], hook: '判官写的一句人话' }] });
+    }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].message.bodyForAgent, '判官写的一句人话');
+  assert.equal(calls[0].message.dedupeKey, seenIds[1], '投的是判官挑的那条');
+});
+
+test('判官说「一条都不值得」→ 静默,不投', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: judgeOf('{"picks":[]}') });
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0);
+});
+
+test('判官挂了 → 退回模板钩子按原顺序投(不打扰她优先于强行判断)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async () => { throw new Error('haiku down'); }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls[0].message.bodyForAgent, '模板钩子');
+});
+
+test('判官编了不存在的 id → 那条丢掉;但它确实答了,所以按「无可投」静默', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: judgeOf('{"picks":[{"id":"我编的","hook":"x"}]}')
+  });
+  // parsed=true 且过滤后为空 → 视同「这次不值得」,静默;不是退回模板。
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0);
+});
+
+test('不注入 judge → 行为与改动前一致', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls[0].message.bodyForAgent, '模板钩子');
+});
