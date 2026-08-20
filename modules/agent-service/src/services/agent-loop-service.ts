@@ -984,6 +984,35 @@ const consecutiveIdlePlanFailuresBySession = new Map<string, number>();
 // 上一份真正发出去的 plan 原文(已剥 <xiaoni_plan> 包装)，升级时原样回贴给 fork 看。
 const lastEmittedSubconsciousPlanBySession = new Map<string, string>();
 
+// exec_command 空操作判定。只跑注释 / echo / true / : / sleep 的命令,不算「有效产出」。
+//
+// 为什么必须判:runTouchedWorld 原来的口径是「任一非 recover_energy 的工具调用」,而 `echo ""`
+// 满足它 —— 实测 7 天自驱动 run 的 5796 次 exec_command 里有 2991 次(51.6%)是 echo/true/sleep。
+// 每跑一次空操作,连续空转计数就归零,于是真实空转率 72.7% 的情况下升级腿只在 20.9% 的轮次触发。
+// 整条问责链(计数 → 升级 → 作废)在第一层就被一行 shell 破解了。
+//
+// 口径比测量时更严一点:测量用的是「非注释行 <= 2 且全是空操作」,这里去掉了行数上限,只要求
+// 【所有非注释行都是空操作】—— 留着行数上限等于留个「写三行 echo 就能洗账」的口子。
+//
+// 只影响 runTouchedWorld(计数归零),【不】影响 runCalledAnyTool(作废腿的更严累加器)。作废
+// 判定照旧要求零工具调用,空操作仍然算「调过工具」→ 仍然不作废,栈上仍然留痕。这是有意的:
+// 那些留痕正是 fork 指认时要指着说的证据。
+export function isNoOpExecCommand(rawCmd: unknown): boolean {
+  if (typeof rawCmd !== 'string') {
+    return false;
+  }
+  const realLines = rawCmd
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+  if (realLines.length === 0) {
+    return true;
+  }
+  // 重定向/管道/命令替换/串联一律不算空操作:`echo "x" > f` 是在真写文件,`echo x | tee` 同理。
+  // 只认「打一行字就完事」的裸形式。
+  return realLines.every((line) => /^(echo|true|:|sleep)(\s|$)/.test(line) && !/[>|`;&]|\$\(/.test(line));
+}
+
 export function getConsecutiveIdlePlanFailures(sessionKey: string): number {
   return consecutiveIdlePlanFailuresBySession.get(sessionKey) ?? 0;
 }
@@ -8378,10 +8407,14 @@ export class AgentLoopService {
         const toolReplayItems = replayableOutputs.filter(isReplayableToolCall);
         const orderedToolReplayItems = orderRuntimeToolCalls(toolReplayItems);
         const hasRecoverEnergyInBatch = toolReplayItems.some((item) => item.toolCall.name === TOOL_NAMES.recoverEnergy);
-        // 只要这一 turn 调了任何非 recover_energy 的工具，就算这个 run 有有效产出 → 连续空转计数归零。
+        // 只要这一 turn 调了任何非 recover_energy、且不是空操作的工具，就算这个 run 有有效产出
+        // → 连续空转计数归零。
         // 判在【模型发出工具调用】这一刻，而不是执行成功之后：工具报错也是她真动手了，不该算空转。
         // recover_energy 例外:不在发出时判,按执行【结果】判(见 toolResult 处)——接受才算,被拒不算。
-        if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy)) {
+        // exec_command 例外:只跑注释/echo/true/sleep 的不算(见 isNoOpExecCommand)——那是空转的
+        // 伪装,不是产出。
+        if (toolReplayItems.some((item) => item.toolCall.name !== TOOL_NAMES.recoverEnergy
+          && !(item.toolCall.name === TOOL_NAMES.execCommand && isNoOpExecCommand(item.toolCall.args?.cmd)))) {
           runTouchedWorld = true;
         }
         if (toolReplayItems.length > 0) {
