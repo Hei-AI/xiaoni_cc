@@ -263,3 +263,25 @@ test('太短的菜单行(分隔线/单词)不进在场向量 —— 噪音向量
   assert.ok(!seen.includes('ok'), '「ok」这种短行不该进');
   assert.ok(!seen.includes('---'), '分隔线不该进');
 });
+
+test('取候选 K 默认给足(3000),分两域各 1500 —— 排序空间与判断空间不一致,K 小会静默丢真 top-10', async () => {
+  const limits = [];
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates(params) { limits.push(params.limit); return []; } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-k' });
+  assert.deepEqual(limits, [1500, 1500], `两域各 1500,实得 ${JSON.stringify(limits)}`);
+});
+
+test('调用方仍可显式覆盖 limit', async () => {
+  const limits = [];
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates(params) { limits.push(params.limit); return []; } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-k2', limit: 400 });
+  assert.deepEqual(limits, [200, 200]);
+});

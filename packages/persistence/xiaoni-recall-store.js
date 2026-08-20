@@ -146,7 +146,9 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
     // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
     // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
-    const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
+    // 上限必须 >= k,否则 HNSW 返不满(封顶 1000 时 k=1500 只会拿回约 1000 条,
+    // 静默少召回)。4000 是当前 k 上限 2000 的两倍余量。
+    const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 4000));
     const setup = [prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`)];
     if (cueClasses.length) {
       // 分域查询靠 partial HNSW 索引(migrations-manual/2026-07-24-recall-domain-partial-hnsw.sql)。

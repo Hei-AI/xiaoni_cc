@@ -272,7 +272,18 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni', readCo
     const callerContextRefs = Array.isArray(params.contextRefs) ? params.contextRefs.filter(Boolean) : [];
     const inContextState = await resolveInContextRefs();
     const inContextRefs = inContextState.refs;
-    const limit = Number(params.limit) || 300;
+    // 取候选的 K。pgvector 的 ORDER BY <=> 排在**没去 anisotropy 的空间**里,而 band-pass
+    // 判断用的是去 anisotropy 之后的空间 —— 两个序不一样,所以这一刀切在错的序上。
+    // 真库实测 2026-08-20(25 个 query × 各自的 centered-top-10,共 250 条):
+    //   掉出 K=300  6%   ← 真 top-10 里每次丢掉 6%,band-pass 再准也看不见
+    //   掉出 K=1000 3%
+    //   掉出 K=3000 0%   最深的一条原始名次 6225
+    // raw cos 从名次 1 到名次 8000 只掉 0.166(1.000→0.834),整个语料挤在一条窄带里 ——
+    // 这就是为什么原始名次几乎不携带信息、K 必须给足。
+    // 代价实测:K=3000(每域 1500)延迟 105ms、载荷 26MB(远低于 napi 512MB 崩点)。
+    // 备选方案(未采用):把去 anisotropy 搬进 SQL 直接在正确空间里排序,K=300 就够,
+    // 但用不上 HNSW → seq scan 449ms,且随语料线性变慢。要它就得建 centered 列 + 索引。
+    const limit = Number(params.limit) || 3000;
 
     // 结构式在场排除的完整集合(她真实持有的 stack 尾 ∪ 调用方近窗 ∪ 落地项本身)。band-pass 的 JS Set
     // 用它逐候选 O(1) 剔「已在场」—— 这是「不在上下文」的硬保证,量再大也只是 Set 查询。
