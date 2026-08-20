@@ -2596,7 +2596,15 @@ export const DIARY_NON_EPISODE_FILES: Set<string>;
 export function isDiaryNonEpisodeFile(filename: unknown): boolean;
 export function selectResurfacedEvents(
   events: XiaoniDiaryEvent[],
-  opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[]; structuralTitles?: Set<string> | string[] }
+  opts?: {
+    nowMs: number;
+    minAgeDays?: number;
+    limit?: number;
+    recentlySurfaced?: Set<string> | string[];
+    structuralTitles?: Set<string> | string[];
+    /** ref → 至今浮过几次(全历史)。**排序主键**,少的先翻;缺则退回纯年龄降序。 */
+    surfaceCounts?: Map<string, number> | Record<string, number>;
+  }
 ): XiaoniDiaryEventPick[];
 // ── 被动召回【第四条腿】联想(shadow-only,纯函数)────────────────────────────
 // 六因子等权 + 四个年龄桶独立配额 + identity 级冷却。产物只进 shadow log,不进任何 LLM 请求。
