@@ -30,12 +30,12 @@ function createPersistence(rows = []) {
   };
 }
 
-test('schema 自愈:两列带默认值(FALSE / 6),老库靠 ADD COLUMN IF NOT EXISTS 补上', async () => {
+test('schema 自愈:两列带默认值(FALSE / 25 兜底),老库靠 ADD COLUMN IF NOT EXISTS 补上', async () => {
   const { statements, persistence } = createPersistence();
   await persistence.ensureAgentRuntimeControlSchema();
   const ddl = statements.join('\n');
   assert.match(ddl, /passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE/);
-  assert.match(ddl, /passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 6/);
+  assert.match(ddl, /passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 25/);
   assert.match(ddl, /ADD COLUMN IF NOT EXISTS passive_recall_delivery_enabled/);
   assert.match(ddl, /ADD COLUMN IF NOT EXISTS passive_recall_delivery_daily_cap/);
 });
@@ -44,7 +44,7 @@ test('没有行 → 投递默认关着(不给一个「忘了关」的世界线)'
   const { persistence } = createPersistence([[]]);
   const control = await persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
   assert.equal(control.passiveRecallDeliveryEnabled, false);
-  assert.equal(control.passiveRecallDeliveryDailyCap, 6);
+  assert.equal(control.passiveRecallDeliveryDailyCap, 25);
 });
 
 test('读库:两列被投影出来', async () => {
@@ -76,7 +76,7 @@ test('写库:开关与日额都进 SQL,且日额 0 是合法值(等同关闭)', 
   assert.match(statement, /passive_recall_delivery_daily_cap = CASE/);
   // 「这次有没有给这个字段」的 has 位必须是 true,否则 CASE 会走 ELSE 保持原值。
   assert.ok(params.includes(true), 'hasPassiveRecallDeliveryEnabled 应为 true');
-  assert.equal(control.passiveRecallDeliveryDailyCap, 0, '0 不能被当成「没给」而退回默认 6');
+  assert.equal(control.passiveRecallDeliveryDailyCap, 0, '0 不能被当成「没给」而退回默认值');
 });
 
 test('没提到这两个字段的 patch 不会把它们冲掉(CASE 走 ELSE 保持原值)', async () => {

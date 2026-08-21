@@ -67,11 +67,12 @@ function normalizeRuntimeControl(row) {
     // 默认 false=OFF。见 modules/agent-service/src/services/xiaoni-recall-delivery.ts。
     passiveRecallDeliveryEnabled: row ? isTruthyDatabaseBoolean(row.passive_recall_delivery_enabled) : false,
     // 同一闸的日额(东八区自然日,0 = 等同关闭)。默认 6。真库基线:她每天已有 170-716 条
-    // system_reminder(其中自驱动 fork ~400),所以这个数是「先小步观察」而不是防打扰的主力
-    // —— 防重复的主力是 dedupeKey 的「同一段记忆永不重投」。
+    // system_reminder(其中自驱动 fork ~400)。**这个数是兜底,不是节奏旋钮**:决定投不投的
+    // 是判官(它可以说「一条都不值得」);日额只在判官失灵、把量放飞时拦一下,拦到了会留 warn。
+    // 防重复的主力仍是 dedupeKey 的「同一段记忆永不重投」。
     passiveRecallDeliveryDailyCap: Number.isFinite(rawPassiveRecallDeliveryDailyCap) && rawPassiveRecallDeliveryDailyCap >= 0
       ? rawPassiveRecallDeliveryDailyCap
-      : 6,
+      : 25,
     postCompressionPauseArmed: row ? isTruthyDatabaseBoolean(row.post_compression_pause_armed) : false,
     postCompressionPauseArmedAt: serializeTimestampForApi(row?.post_compression_pause_armed_at),
     postCompressionPauseTriggeredAt: serializeTimestampForApi(row?.post_compression_pause_triggered_at),
@@ -150,7 +151,7 @@ function createAgentRuntimeControlPersistence(deps) {
         plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         idle_plan_skill_submission_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 6,
+        passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 25,
         energy_policy_json JSONB,
         updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -171,7 +172,7 @@ function createAgentRuntimeControlPersistence(deps) {
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS plan_void_on_idle_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS idle_plan_skill_submission_enabled BOOLEAN NOT NULL DEFAULT FALSE');
     await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS passive_recall_delivery_enabled BOOLEAN NOT NULL DEFAULT FALSE');
-    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 6');
+    await sql.execute('ALTER TABLE agent_runtime_control ADD COLUMN IF NOT EXISTS passive_recall_delivery_daily_cap INTEGER NOT NULL DEFAULT 25');
     // Admin-configurable energy policy overrides (partial RecoverEnergyPolicy + actionCostScale).
     // NULL = use agent-service code defaults. Dynamically applied (no restart); read by the
     // agent-service life-projection/recovery paths. Energy is runtime-internal — it NEVER enters
@@ -367,7 +368,7 @@ function createAgentRuntimeControlPersistence(deps) {
         && parsedPassiveRecallDeliveryDailyCap >= 0;
       const passiveRecallDeliveryDailyCap = hasPassiveRecallDeliveryDailyCap
         ? parsedPassiveRecallDeliveryDailyCap
-        : 6;
+        : 25;
       const enabled = hasEnabled ? input.enabled !== false : true;
       const rows = await sql.query(
         `
