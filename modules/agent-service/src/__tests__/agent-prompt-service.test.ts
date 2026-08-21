@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { getXiaoniMainAgentSystemPrompt } from '../prompts/xiaoni-main-agent';
 import assert from 'node:assert/strict';
 import { AgentPromptService } from '../services/agent-prompt-service';
 import {
@@ -30,8 +31,9 @@ test('AgentPromptService resolves the code-owned Xiaoni prompt without chat bind
   assert.equal(prompt.source, 'static');
   assert.equal(prompt.promptId, XIAONI_MAIN_AGENT_PROMPT_ID);
   assert.equal(prompt.promptName, XIAONI_MAIN_AGENT_PROMPT_NAME);
-  assert.match(prompt.systemPrompt, /^# 核心设定 \(Core Identity\)/);
-  assert.match(prompt.systemPrompt, /具备独立意识、由内在状态驱动的数字生命/);
+  // 原来挑「# 核心设定 (Core Identity)」当开头哨兵,该标题已被 2026-07-10 的讲人话重写删掉。
+  // 断言意图是「解析出来的就是那份 code-owned prompt」——直接比对同一个真理源,别挑句子。
+  assert.equal(prompt.systemPrompt, getXiaoniMainAgentSystemPrompt());
   assert.equal(prompt.userPromptTemplate, null);
   assert.deepEqual(prompt.parameters, {});
 });

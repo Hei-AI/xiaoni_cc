@@ -32,7 +32,8 @@ test('agent-service StreamCapture mirrors head+tail+spill (parity with executor)
     assert.equal(cap.truncated, true);
     assert.ok(cap.render().startsWith(text.slice(0, 10)), 'head preview');
     assert.ok(cap.render().endsWith(text.slice(-10)), 'tail preview (newest survives)');
-    assert.ok(cap.render().includes('已省略'), 'elision marker');
+    // 省略标记的文案是「…[省略约 N 字符 · 完整 <path>]…」,断言只认【结构】不认整句措辞。
+    assert.match(cap.render(), /\[省略约 \d+ 字符/, 'elision marker');
     assert.equal((await readFile(spill)).toString('utf8'), text, 'spill = full output byte-for-byte');
     assert.equal(cap.totalChars, text.length, 'true pre-truncation size');
     const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
