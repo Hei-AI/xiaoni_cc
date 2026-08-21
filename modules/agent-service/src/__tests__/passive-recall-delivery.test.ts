@@ -3,8 +3,8 @@ import test from 'node:test';
 
 import { createPassiveRecallDelivery, type RecallDeliveryDeps } from '../services/xiaoni-recall-delivery';
 
-// 固定时钟。投递有**节奏闸**(日额按活动窗 09:00–23:00 东八分槽摊开),不钉死时钟的话
-// 用例会随「现在几点」时绿时红。选 21:00 东八 = 槽位已放行到第 6 条,不干扰非节奏用例。
+// 固定时钟。投递有**时机闸**(活动窗 09:00–23:00 东八),不钉死时钟的话用例会随
+// 「现在几点」时绿时红。选 21:00 东八 = 窗内,不干扰非时机用例。
 const AT_2100_EAST8 = new Date('2026-08-07T13:00:00Z');
 
 // 开关/日额的唯一真理源是 agent_runtime_control(管理端可改、每拍热读)。测试直接注入闸门值。
@@ -16,7 +16,8 @@ const gate = (enabled: boolean, dailyCap: number, now: Date = AT_2100_EAST8) => 
 // 被动浮现投递闸。在此之前整条召回链是 shadow-only,这是唯一的出口 —— 所以三件事必须成立:
 //   ① 默认 OFF(不给一个「忘了关」的世界线);
 //   ② 同一段记忆永远只投一次(dedupeKey = 记忆的 ref,靠 created 标志判,不是靠 status);
-//   ③ 日额是硬闸(notify 会唤醒主 loop,量失控 = 她被记忆刷屏)。
+//   ③ 判断力缺席时不放量 —— 判官是主闸(它可以说「一条都不值得」),日额只是兜底;
+//      判官不在场时退回最小间隔节流,而不是每拍都投(每 10 分钟一拍 = 84 条/天)。
 
 type EnqueueCall = { message: Record<string, unknown>; payload: Record<string, unknown> };
 
@@ -28,6 +29,8 @@ function fakeDeps(overrides: {
   alreadyDelivered?: Set<string>;
   // 今天已投的 dedupe_key(新→旧)。日额计数与腿间轮转都从这一份读。
   todaysKeys?: string[];
+  // 上一条召回投出去的时刻(毫秒)。只有判官缺席时才被读到。
+  lastDeliveredAt?: number;
 } = {}) {
   const calls: EnqueueCall[] = [];
   const already = overrides.alreadyDelivered || new Set<string>();
@@ -42,6 +45,9 @@ function fakeDeps(overrides: {
         return overrides.todaysKeys;
       }
       return Array.from({ length: overrides.deliveredToday ?? 0 }, (_, i) => `recall-surface:open_loop:pad${i}`);
+    },
+    async listRecentAgentQueueDeliveredAt() {
+      return overrides.lastDeliveredAt ?? null;
     },
     async insertRecallShadowLog(record) {
       shadowWrites.push(record as Record<string, unknown>);
@@ -256,7 +262,7 @@ test('今天还没投过 → 用默认顺序(association 先)', async () => {
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
 });
 
-test('日额仍按今天已投的键数刹车', async () => {
+test('日额兜底:判官把量放飞时才拦(不是日常节奏手段)', async () => {
   const { deps, calls } = fakeDeps({
     todaysKeys: Array.from({ length: 6 }, (_, i) => `recall-surface:landing:k${i}`),
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] }
@@ -267,13 +273,13 @@ test('日额仍按今天已投的键数刹车', async () => {
 });
 
 
-// ── 节奏闸 ────────────────────────────────────────────────────────────────
-// 实测 2026-08-08..08-13:24 条投递全部落在 00:07–00:57,一小时烧光日额,其余 23 小时 capped。
-// 而 00:00 正是她收尾睡觉的窗口(那几拍的栈里连着六七次 recover_energy「够了。睡了。」),
-// 投进去只换来「记着。明天处理。」。下面几条把「摊开 + 避开凌晨」钉成结构性事实。
+// ── 时机闸 ────────────────────────────────────────────────────────────────
+// 实测 2026-08-08..08-13:24 条投递全部落在 00:07–00:57,而 00:00 正是她收尾睡觉的窗口
+// (那几拍的栈里连着六七次 recover_energy「够了。睡了。」),投进去只换来「记着。明天处理。」。
+// 这一闸挡的是**时机**,不是数量 —— 数量由判官决定。
 const east8At = (hour: number) => new Date(Date.UTC(2026, 7, 7, 0, 0, 0) + (hour - 8) * 3600_000);
 
-test('节奏闸:凌晨投不出来(日额归零那一刻也不行)', async () => {
+test('时机闸:凌晨一条都不投(她在收尾睡觉)', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] }
   });
@@ -282,7 +288,7 @@ test('节奏闸:凌晨投不出来(日额归零那一刻也不行)', async () =>
   assert.equal(calls.length, 0, '00:12 一条都不能投 —— 这正是旧行为烧光日额的那一拍');
 });
 
-test('节奏闸:活动窗开始前(08:59)不投,开窗后(09:00)放行第一条', async () => {
+test('时机闸:活动窗开始前(08:59)不投,开窗后(09:00)放行', async () => {
   const rows = { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] };
   const before = fakeDeps({ rowsByQueryRef: rows });
   assert.equal(
@@ -296,22 +302,51 @@ test('节奏闸:活动窗开始前(08:59)不投,开窗后(09:00)放行第一条'
   );
 });
 
-test('节奏闸:今天已投够这一槽的量 → 等下一槽,不抢跑', async () => {
-  const { deps } = fakeDeps({
-    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
-    // 11:20 东八 ≈ 第 1 槽,已投 1 条 → 该等
-    todaysKeys: ['recall-surface:association:pad0']
-  });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(11.3)));
-  assert.equal(await delivery.deliverOnce(), 'capped');
-});
-
-test('节奏闸:同样已投 1 条,但到了晚些的槽 → 放行', async () => {
+test('窗内已投过几条也照投 —— 量归判官管,不按槽位摊开', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     todaysKeys: ['recall-surface:association:pad0']
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(16)));
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(11.3)));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+});
+
+// ── 判断力缺席时的兜底节流 ────────────────────────────────────────────────
+// 判官是主闸。它不在场(没注入)或没答上来时,不能退化成「每拍都投」——
+// supervisor 每 10 分钟一拍,活动窗 14 小时 = 84 拍。
+test('判官不在场 + 上一条刚投出去不久 → 不投', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
+    lastDeliveredAt: east8At(16).getTime() - 20 * 60_000
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(16)));
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0);
+});
+
+test('判官不在场 + 上一条已经隔了足够久 → 放行', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
+    lastDeliveredAt: east8At(16).getTime() - 3 * 3600_000
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(16)));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+});
+
+test('判官答上来了就不受兜底间隔约束 —— 该说不值得的是它,不是间隔', async () => {
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
+    lastDeliveredAt: east8At(16).getTime() - 60_000
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 25, east8At(16)),
+    judge: async (prompt) => {
+      const id = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1])[0];
+      return JSON.stringify({ picks: [{ id, hook: '判官挑的那条' }] });
+    }
+  });
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
 });

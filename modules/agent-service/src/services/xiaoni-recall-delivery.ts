@@ -97,6 +97,9 @@ function rotateLegs(lastLeg: string | null): typeof DELIVERABLE_LEGS {
 // 打扰她的通道 —— 关得掉必须是结构性事实。默认 OFF / 6,库里没行也一样。
 // 每次 tick 最多投 1 条(设计里的「每次落地最多 1 块」在投递侧的对应物)。
 const PER_TICK_LIMIT = 1;
+// 判官缺席/失灵时的最小投递间隔。14 小时活动窗 ÷ 2h ≈ 7 条/天,和判官在场时的量级相当,
+// 但完全不依赖判断力 —— 这是「判断力缺席就保守」,不是日常节奏控制。
+const FALLBACK_MIN_GAP_MS = Number.parseInt(process.env.XIAONI_RECALL_FALLBACK_GAP_MS || '', 10) || 2 * 60 * 60 * 1000;
 // 往回看几条 shadow 扫描行找没投过的 lead。两条腿都是 30min 一轮,20 行 ≈ 10 小时。
 const SHADOW_LOOKBACK = 20;
 
@@ -135,6 +138,8 @@ export interface RecallDeliveryDeps {
   listRecallShadowLog(params: Record<string, unknown>, config?: unknown): Promise<unknown>;
   /** 判官的工作内容留痕。走召回自己的观察面,不新建通路。 */
   insertRecallShadowLog?(record: Record<string, unknown>, config?: unknown): Promise<unknown>;
+  /** 最近一次召回投递的时刻(毫秒)。判断力缺席时的节流用;拿不到 → 不节流。 */
+  listRecentAgentQueueDeliveredAt?(params: { prefix: string }, config?: unknown): Promise<number | null>;
   listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date; limit?: number }, config?: unknown): Promise<string[]>;
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ queueId?: number; status?: string; created?: boolean } | null>;
 }
@@ -312,18 +317,11 @@ function east8HourOf(now: Date): number {
   return (shifted % 86_400_000) / 3_600_000;
 }
 
-// 到此刻为止,今天「应该」已经投到第几条。
-// 活动窗按 dailyCap 等分成若干槽,每过一个槽放行一条 → 日额自然摊到全天,
-// 而且完全由「当前时刻 + 已投条数」决定,不存任何游标。
-// 窗外返回 0 = 一条都不该投(凌晨那一小时因此结构性地投不出来)。
-function deliverableByNow(now: Date, dailyCap: number): number {
+// 在不在活动窗内。窗外一条都不投 —— 2026-08-13 实测过:她收尾睡觉那个时段投出去的
+// 24 条只换来「记着。明天处理。」。这条留着,它挡的是**时机**不是数量。
+function isWithinActiveWindow(now: Date): boolean {
   const hour = east8HourOf(now);
-  if (hour < ACTIVE_WINDOW_START_HOUR || hour >= ACTIVE_WINDOW_END_HOUR) {
-    return 0;
-  }
-  const windowHours = ACTIVE_WINDOW_END_HOUR - ACTIVE_WINDOW_START_HOUR;
-  const elapsed = hour - ACTIVE_WINDOW_START_HOUR;
-  return Math.min(dailyCap, Math.floor((elapsed / windowHours) * dailyCap) + 1);
+  return hour >= ACTIVE_WINDOW_START_HOUR && hour < ACTIVE_WINDOW_END_HOUR;
 }
 
 // 投递前现读承诺账本做复核。
@@ -399,6 +397,15 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   // 两种都不是「此刻」。所以用同一个 isLandingRow 判据筛。
   const ANCHOR_LOOKBACK = 20;
 
+  // 最近一次召回投递的时刻(判断力缺席时的节流用)。从队列现读,不存游标。
+  async function readLastDeliveryAt(): Promise<number | null> {
+    if (typeof deps.listRecentAgentQueueDeliveredAt !== 'function') {
+      return null;
+    }
+    const at = await deps.listRecentAgentQueueDeliveredAt({ prefix: DEDUPE_PREFIX }, databaseConfig);
+    return typeof at === 'number' && Number.isFinite(at) ? at : null;
+  }
+
   async function readLatestAnchorText(): Promise<string> {
     const rows = await deps.listRecallShadowLog({
       identityKey: IDENTITY_KEY,
@@ -430,12 +437,20 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       limit: 500
     }, databaseConfig);
     const deliveredToday = Array.isArray(todaysKeys) ? todaysKeys.length : 0;
+    // **日额是兜底,不是主闸。**
+    // 决定投不投的是判官(它可以说「一条都不值得」,而且多数时候就该这么说);
+    // 日额只在判官失灵、把量放飞时才拦一下,而且拦到了要留痕 —— 那是异常信号,
+    // 不是日常调节手段。这个顺序曾经反过来:日额在前、判官在配额内挑,
+    // 于是「允许说一条都不值得」在 6 条/天的硬额面前基本没意义。
     if (deliveredToday >= dailyCap) {
+      moduleLogger.warn('Passive recall daily backstop hit — 判官把量放飞了,该查而不是调这个数', {
+        deliveredToday,
+        dailyCap
+      });
       return 'capped';
     }
-    // 节奏闸:今天到此刻为止「该」投到第几条。窗外 → 0 → 直接 capped(凌晨那一小时投不出来)。
-    // 这一步只用已有的计数和当前时刻,不引入任何新状态。
-    if (deliveredToday >= deliverableByNow(now, dailyCap)) {
+    // 时机闸:窗外一条都不投。挡的是**时机**不是数量。
+    if (!isWithinActiveWindow(now)) {
       return 'capped';
     }
     const legOrder = rotateLegs(legFromDedupeKey(todaysKeys?.[0]));
@@ -472,13 +487,20 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       return 'none';
     }
 
-    // 判官。允许它说「一条都不值得」—— 那是正常结果,直接静默。
+    // 判官是**主闸**。允许它说「一条都不值得」—— 那是正常结果,而且多数时候就该这么说。
+    //
+    // 但**没有判官时不能裸奔**:supervisor 每 10 分钟一拍,活动窗 14 小时 = 84 拍,
+    // 不节流就是 84 条/天。所以判官缺席(没注入)或没答上来(parsed=false)时,退回
+    // 一个保守的最小间隔 —— 宁可少投,不可在判断力缺席时放量。
+    let judgeAnswered = false;
+
     // parsed=false(挂了/输出读不出)→ 退回判官之前的行为,别当成「它说不值得」,
     // 否则判官一挂整条投递腿会静默死掉且无迹可循。
     let ordered = unseen;
     if (judge) {
       const verdict = await runJudge(unseen).catch(() => null);
       if (verdict && verdict.parsed) {
+        judgeAnswered = true;
         if (verdict.picks.length === 0) {
           return 'none';
         }
@@ -493,6 +515,15 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         if (picked.length) {
           ordered = picked;
         }
+      }
+    }
+
+    // 判断力缺席时的节流:上一条投出去还不到 FALLBACK_MIN_GAP_MS 就不投。
+    // 判官在场时不设这道闸 —— 它自己会说不值得,那才是我们要的控制方式。
+    if (!judgeAnswered) {
+      const lastAt = await readLastDeliveryAt().catch(() => null);
+      if (lastAt && now.getTime() - lastAt < FALLBACK_MIN_GAP_MS) {
+        return 'none';
       }
     }
 
