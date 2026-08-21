@@ -196,6 +196,10 @@ services:
       - XIAONI_RUNTIME_ROOT=/xiaoni-runtime
       # 画图已迁到 Claude flow:image_task 走 openai-image-provider → cliproxyapi gpt-image-2(忽略 codex_base_request)
       - XIAONI_IMAGE_TASK_ENABLED=true
+      # 欠账指针通知:定时投一条「open-loops.md 里还有 N 条没划掉」,只给指针+计数不列条目。
+      # 它替代了被撤出召回的那条腿(CONTEXT.md:欠账不走召回)。默认 OFF,这里显式打开。
+      # 注:这个开关目前只能改 compose + 重启;投递闸那个已经在管理端(agent_runtime_control)。
+      - XIAONI_OPEN_LOOPS_NOTIFY_ENABLED=true
       - AI_MODEL_NAME=gpt-5-mini
       - XIAONI_MAIN_AGENT_MODEL=${XIAONI_MAIN_AGENT_MODEL:-claude-opus-4-6}
       # api.anthropic.com from this host is ~50% reliable + ~5s/attempt; allow the
