@@ -180,6 +180,14 @@ function leadIdentityOf(item: Record<string, unknown>): string | null {
 
 // shadow 行里的 surfaced 项 → 可投递的 lead。形状是 { kind, lead, ref?, text?, ... }
 // (lead 是渲染好的整句)。拿不到身份或 lead 的一律跳过 —— 没有稳定身份就没有幂等,宁可不投。
+// 欠账有自己的通道(定时指针通知:只给指针 + 计数),**不走召回投递**。
+// 这是投递侧的不变量,不是某条腿的实现细节:无论哪条腿把 open-loops.md 的行捞进了
+// shadow,它都不该从这个口出去。2026-08-21 实测过反例 —— 联想腿把欠账当往事收进候选,
+// 于是「你在追的这条线里有一段:Wigleaf 8/25开」被当成联想投了出去。
+// 源头已修(联想候选池不再收欠账),这条守住口子:老的 shadow 行还在 lookback 窗口里,
+// 而且以后谁再往这儿接一条腿,也不用重新想一遍这件事。
+const OPEN_LOOPS_FILE = 'open-loops.md';
+
 function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
   const surfaced = Array.isArray(row?.surfaced) ? row.surfaced : [];
   const out: Lead[] = [];
@@ -201,6 +209,9 @@ function leadsFromRow(leg: string, row: ShadowRow): Lead[] {
       : (typeof item.lead === 'string' && item.lead.trim() ? item.lead.trim() : null);
     if (!identity || !text) {
       continue;
+    }
+    if (identity.includes(OPEN_LOOPS_FILE)) {
+      continue; // 欠账走指针通知,不从召回口出去
     }
     out.push({
       leg,

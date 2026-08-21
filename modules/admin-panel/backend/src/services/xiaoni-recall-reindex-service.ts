@@ -697,35 +697,19 @@ export async function scanAssociativeRecallToShadow(
     readPeerNames()
   ]);
 
-  // 开放承诺(第二腿的解析产物)也进候选:kind='promise',行末 `#标签` 就是它的线。
-  // 它的正文就是那一行本身 → 不走 substance 过滤(选取器按 kind 分流)。
-  const promiseCandidates: Array<{
-    ref: string; kind: 'promise'; title: string; body: string; dateMs: number | null; lineKey: string | null; tier: string;
-  }> = [];
-  try {
-    const loopsContent = await fs.readFile(path.join(RUNTIME_ROOT, OPEN_LOOPS_REL_PATH), 'utf8');
-    const canonicalLoops = canonicalOf(path.join(RUNTIME_ROOT, OPEN_LOOPS_REL_PATH));
-    for (const loop of parseOpenLoops(loopsContent)) {
-      if (loop.done || !loop.text) continue;
-      const openedMs = parseTagDate(loop.openedTag, nowMs);
-      promiseCandidates.push({
-        ref: `${canonicalLoops}#${loop.line}`,
-        kind: 'promise',
-        title: loop.text,
-        body: '',
-        dateMs: openedMs, // 没写日期 → null → 选取器判无桶,不进本腿(第二腿的 undated 档已兜过)
-        lineKey: Array.isArray(loop.tags) && loop.tags.length ? loop.tags[0] : null,
-        tier: 'open'
-      });
-    }
-  } catch {
-    // 还没有欠账文件,跳过这一类候选。
-  }
-
+  // **欠账不进联想候选池。**(这里以前收 kind='promise',见下)
+  //
+  // 欠账是四类记忆里唯一有「做完」这个生命周期的:它要的是「还欠着几条」这个当前事实,
+  // 不是「想起来曾经答应过」。所以它已从召回整体撤出,改走定时指针通知
+  // (`xiaoni-open-loops-notify`:只给指针 + 计数,不列条目)。见 CONTEXT.md。
+  //
+  // 撤的时候只摘掉了第二腿的投递资格,漏了这里 —— 联想腿把 open-loops.md 的行也
+  // 当往事收进候选,而联想腿**是投递腿**。结果:2026-08-21 实测仍有欠账被当成
+  // 「你在追的这条线里有一段…」投给她,127 条 association shadow 行里带着 open-loops 的 ref。
+  // 语料侧(向量池)本来就按 isDiaryNonEpisodeFile 排除了 open-loops.md,只有这一处漏网。
   const candidates = [
     ...diaryScan.events.map((ev) => ({ ...ev, kind: 'event' as const })),
-    ...lineCandidates.map((ev) => ({ ...ev, kind: 'event' as const })),
-    ...promiseCandidates
+    ...lineCandidates.map((ev) => ({ ...ev, kind: 'event' as const }))
   ];
 
   // 锚点(f1 的 query)+ 在场直查的语料,一次栈读取两用。取不到不阻断(landedText 空 → f1 全 0;

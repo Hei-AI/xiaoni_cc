@@ -651,3 +651,22 @@ test('判官挂了也要留痕:shadow 行带 error,parsed=false', async () => {
   assert.equal(work.raw, null);
   assert.equal((row!.droppedCounts as Record<string, number>).unparsed, 1);
 });
+
+// 欠账有自己的通道(定时指针通知)。它被撤出召回的时候只摘了第二腿的投递资格,漏了联想腿
+// —— 而联想腿是投递腿。2026-08-21 实测:「你在追的这条线里有一段:Wigleaf 8/25开」
+// 就是这么投出去的。源头已修,这条守住投递口子。
+test('欠账永远不从召回口投出去(它走指针通知)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      association_scan: [rowWith([
+        { kind: 'association', ref: '/xiaoni-runtime/notes/diary/open-loops.md#152', lead: '你在追的这条线里有一段：Wigleaf 8/25开。', memoryKind: 'promise' },
+        associationItem('/xiaoni-runtime/notes/diary/2026-08-13.md#61', '这条是真往事')
+      ])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].message.bodyForAgent, '这条是真往事', '投的该是往事那条,不是欠账');
+});

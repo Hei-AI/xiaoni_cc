@@ -256,9 +256,10 @@ function scoreAssociationFactors(item, ctx = {}) {
 }
 
 // 候选形状:
-//   { ref, kind:'event'|'promise', title, body, dateMs|null, lineKey|null, tier|null }
+//   { ref, kind:'event', title, body, dateMs|null, lineKey|null, tier|null }
 //   ref     稳定引用(调用方按 canonical path 设 `${path}#${index}`,与第三腿同口径)
-//   kind    'event' 走 substance 过滤(空/清单/结构头);'promise' 的正文就是它本身,不过滤
+//   kind    只有 'event'。欠账(promise)**不进这条腿** —— 它已整体撤出召回,改走定时指针通知
+//           (CONTEXT.md:欠账是四类里唯一有「做完」生命周期的,要的是当前事实不是想起来)。
 //   lineKey 属于哪条 L3 线(topic 文件的主题 / open-loop 行末 `#标签`);无 → null
 //
 // opts:
@@ -308,25 +309,19 @@ function selectAssociativeMemories(candidates, opts = {}) {
   const kept = [];
   for (const raw of Array.isArray(candidates) ? candidates : []) {
     if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) { dropped.shape += 1; continue; }
-    const kind = raw.kind === 'promise' ? 'promise' : 'event';
     const body = typeof raw.body === 'string' ? raw.body : '';
-    if (kind === 'event') {
-      // 复用第三腿的 step-1 substance 谓词(单一真理源,别在这儿重写一份)。
-      if (isEmptyResurfaceBody(body)) { dropped.empty_body += 1; continue; }
-      if (isChecklistBody(body)) { dropped.checklist_body += 1; continue; }
-    }
+    // 复用第三腿的 step-1 substance 谓词(单一真理源,别在这儿重写一份)。
+    if (isEmptyResurfaceBody(body)) { dropped.empty_body += 1; continue; }
+    if (isChecklistBody(body)) { dropped.checklist_body += 1; continue; }
     if (structuralTitles.has(normalizeEventText(raw.title)) || isSeedStructuralTitle(raw.title)) {
       dropped.structural_title += 1;
       continue;
     }
     if (isBareTimestampTitle(raw.title)) { dropped.bare_timestamp_title += 1; continue; }
-    // 准入门槛(只对 event —— promise 的「正文」就是承诺本身,不按记忆的形状要求它)。
-    // 过不了的不是「分低」,是「压根不是一条能当引子的记忆」,所以在进池之前就剔掉,
+    // 准入门槛。过不了的不是「分低」,是「压根不是一条能当引子的记忆」,所以在进池之前就剔掉,
     // 而不是让它带着 0.2 的 prose 分继续跟真记忆抢配额。
-    if (kind === 'event') {
-      if (proseScoreOf(body) < PROSE_GATE) { dropped.prose_gate += 1; continue; }
-      if (titleSpecificityOf(raw.title) < TITLE_SPECIFICITY_GATE) { dropped.title_gate += 1; continue; }
-    }
+    if (proseScoreOf(body) < PROSE_GATE) { dropped.prose_gate += 1; continue; }
+    if (titleSpecificityOf(raw.title) < TITLE_SPECIFICITY_GATE) { dropped.title_gate += 1; continue; }
     // 在场直查放在年龄分桶**之前**:在不在场跟它多老没关系,实测当天条目 12 条里 9 条不在场。
     if (isPresentInContext(raw.title, normalizedContextText)) { dropped.in_context += 1; continue; }
     const bucket = bucketOfCandidate({ ...raw, dateMs: raw.dateMs }, { nowMs, nearMaxDays: opts.nearMaxDays, midMaxDays: opts.midMaxDays });
@@ -337,7 +332,7 @@ function selectAssociativeMemories(candidates, opts = {}) {
     if (recent.has(identity) || recent.has(ref)) { dropped.cooled_down += 1; continue; }
     kept.push({
       ref,
-      kind,
+      kind: 'event',
       bucket,
       identity,
       title: raw.title,

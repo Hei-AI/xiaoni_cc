@@ -322,23 +322,25 @@ test('裸时刻标题(日内时间轴框架头)不进候选', () => {
   assert.equal(stats.dropped.bare_timestamp_title, 1);
 });
 
-test('promise(欠账行)不走 substance 过滤:没有正文也算候选', () => {
+// 欠账已整体撤出召回(CONTEXT.md),改走定时指针通知。撤的时候只摘了第二腿的投递资格,
+// 漏了联想腿 —— 而联想腿是投递腿,于是欠账仍被当成「你在追的这条线里有一段…」投给她。
+// 这条钉住:没有正文的欠账行进不了这条腿。
+test('欠账行不再进联想腿:没有正文 → 过不了准入门槛', () => {
   const promise = {
-    ref: '/xiaoni-runtime/notes/diary/open-loops.md#12',
+    ref: '/x/open-loops.md#12',
     kind: 'promise',
-    title: '频道猎人第三部卷六卷七还没追',
+    title: 'Wigleaf 8/25开。Full Stop也投。',
     body: '',
-    dateMs: daysAgo(12),
-    tier: 'active'
+    dateMs: NOW - 6 * 86400000,
+    lineKey: 'wigleaf',
+    tier: 'open'
   };
-  const { picked } = selectAssociativeMemories([promise], { nowMs: NOW });
-  assert.equal(picked.length, 1);
-  assert.equal(picked[0].kind, 'promise');
-  assert.equal(picked[0].tier, 'active');
-  assert.equal(picked[0].factors.effort, 0); // 没正文 → 力气因子 0(第二腿才是承诺的主场)
+  const { picked, stats } = selectAssociativeMemories([promise], { nowMs: NOW });
+  assert.equal(picked.length, 0, '欠账不该出现在联想候选里');
+  // 欠账行的「正文」是空的(它整句就是标题),所以撞的是 substance 谓词那道门。
+  assert.equal(stats.dropped.empty_body, 1, `实得 ${JSON.stringify(stats.dropped)}`);
 });
 
-// ── 边界:空输入 / 全被冷却 / 少于配额 —— 都不抛 ──────────────────────────────
 test('空输入 / 非数组 / 缺 nowMs:返回空,不抛', () => {
   assert.deepEqual(selectAssociativeMemories([], { nowMs: NOW }).picked, []);
   assert.deepEqual(selectAssociativeMemories(null, { nowMs: NOW }).picked, []);
