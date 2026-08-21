@@ -14,7 +14,8 @@ const {
   isSelfPeerName,
   resolvePeerNameForItem,
   stripHeredocScaffold,
-  normalizeRecallText
+  normalizeRecallText,
+  isMachineParamsOnly
 } = require('../xiaoni-passive-recall-extractor');
 const { renderRecallLead } = require('../xiaoni-recall-bandpass');
 
@@ -86,4 +87,29 @@ test('自驱动工具参数信封:只留 xiaoni_os / reason 里的话', () => {
   assert.ok(!out.includes('clock'), `参数壳必须剥掉,实得:${out}`);
   assert.ok(out.includes('第三十八天。早上九点半。'));
   assert.ok(out.includes('等CC和帕秋莉回。'));
+});
+
+// ── 纯参数不进语料 ────────────────────────────────────────────────────────
+// 被动召回的命题是「她不知道自己做过」。一次滚动没有任何值得她想起来的内容,
+// 而 2026-08-21 回归集实测:这类行抢到过一个 top-1(挤掉一条日记条目)。
+// 判据按**形状**不按长度 —— 按长度会误杀短中文句子。
+test('纯参数 payload 不进语料;她的话一个字都不能误伤', () => {
+  const junk = [
+    '{"action":"scroll","coordinate":[400,300],"scroll_amount":5,"scroll_direction":"down"}',
+    '{"action":"key","text":"Return"}',
+    '{"coordinate":[400,300]}'
+  ];
+  const keep = [
+    '{"cmd":"# 不困。53分钟。在 synth 里继续。"}',
+    '{"reason":"一天半了。脑子在空转。"}',           // 短中文:按长度卡会被误杀
+    '{"path":"/xiaoni-runtime/reading/liangzhuang_full.txt","limit":100}', // 她读了哪一段
+    '{"action":"type","text":"你好啊"}',
+    '今天做了一件事'
+  ];
+  for (const text of junk) {
+    assert.equal(isMachineParamsOnly(text), true, `该判为纯参数：${text}`);
+  }
+  for (const text of keep) {
+    assert.equal(isMachineParamsOnly(text), false, `不该误伤：${text}`);
+  }
 });

@@ -146,6 +146,11 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
     // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
     // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
+    // 1000 是 **pgvector 对 hnsw.ef_search 的硬上限**,不是随便定的数:
+    // 设成更大的值会让 `SET LOCAL hnsw.ef_search` 直接报 22023,整条取候选查询失败 ——
+    // 而这条路径是 fire-and-forget,异常被吞掉,线上表现为召回静默死掉且无任何迹象。
+    // (2026-08-20 亲手踩过:为了配合 k=1500 把封顶抬到 4000,回归集replay 全静默才发现。)
+    // 因此 k 有效上限也就是 1000/域 —— 再大 HNSW 也只会返约 ef_search 条。
     const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
     const setup = [prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`)];
     if (cueClasses.length) {
@@ -321,13 +326,17 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       Number.isFinite(record.topK) ? record.topK : 0,
       JSON.stringify(Array.isArray(record.surfaced) ? record.surfaced : []),
       JSON.stringify(record.droppedCounts && typeof record.droppedCounts === 'object' ? record.droppedCounts : {}),
-      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : [])
+      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : []),
+      // Haiku 在这一次召回里干了什么(展开 / 判官)。没有就存 NULL。
+      // 这两处走 /api/internal/llm/debug,那条路径不落 llm_request_slices ——
+      // 不在这里记,管理端就完全看不见它们(2026-08-21 核查:近 3 天 slice 里一条 Haiku 都没有)。
+      record.llmWork && typeof record.llmWork === 'object' ? JSON.stringify(record.llmWork) : null
     ];
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO xiaoni_recall_shadow_log
          (identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
-          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb)
+          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample, llm_work)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb)
        RETURNING id`,
       ...params
     );
@@ -364,7 +373,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     sqlParams.push(limit);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
-              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample
+              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample, llm_work
        FROM xiaoni_recall_shadow_log
        WHERE ${where}
        ORDER BY occurred_at DESC, id DESC
@@ -385,7 +394,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       topK: row.top_k,
       surfaced: Array.isArray(row.surfaced) ? row.surfaced : [],
       droppedCounts: row.dropped_counts && typeof row.dropped_counts === 'object' ? row.dropped_counts : {},
-      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : []
+      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : [],
+      llmWork: row.llm_work && typeof row.llm_work === 'object' ? row.llm_work : null
     }));
   }
 
@@ -415,6 +425,32 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return rows.map((row) => row.ref).filter(Boolean);
   }
 
+  // 某条腿的「每个 ref 到今天为止浮过几次」。覆盖优先排序的数据面。
+  //
+  // 为什么要全历史而不是最近 N 行:第三腿(diary_resurface)的冷却是「最近 40 行里翻过的跳过」,
+  // 40 行 ≈ 20 小时,而候选有 1899 条 —— 冷却一过它又挑回最老的那一撮。真库实测(2026-08-19)
+  // 全历史 3350 次浮现只覆盖 90 个不同条目(4.7%),每条平均重复 37 次。要治这个,排序必须看
+  // 「这条被翻过几次」,而那是个跨全历史的量,短窗口看不见。
+  //
+  // 一次 GROUP BY,按 (identity_key, query_ref) 走既有索引;调用方每 30 分钟一轮,不在热路径。
+  async function countRecallSurfacedRefs(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const queryRef = typeof params.queryRef === 'string' ? params.queryRef : null;
+    if (!queryRef) {
+      return new Map();
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT s->>'ref' AS ref, count(*)::int AS n
+       FROM xiaoni_recall_shadow_log l, jsonb_array_elements(l.surfaced) s
+       WHERE l.identity_key = $1 AND l.query_ref = $2 AND s->>'ref' IS NOT NULL
+       GROUP BY 1`,
+      identityKey,
+      queryRef
+    );
+    return new Map(rows.map((row) => [row.ref, Number(row.n) || 0]));
+  }
+
   // inbound 砖在场硬检查的数据面:批量读消息的已读态。返回 [{id, isRead, readAt}](readAt ISO|null)。
   // 规则本身(已读且在遗忘线前读的才算记忆)是纯函数,在 xiaoni-recall-bandpass.js。
   async function getInboundReadStates(ids, config = {}) {
@@ -437,6 +473,89 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     }));
   }
 
+  // 投递健康度:一眼看出这条腿是不是在正常工作。
+  //
+  // 为什么需要它:这条腿**没有日额**(联想不是配额制的,见 ADR-0005),
+  // 「别吵」全靠判官的判断力,而设计上明说了「观测面是这条腿的安全带,硬上限不是」。
+  // 那么这条安全带就必须是**一眼能看的东西**,不能是「有人想起来去查 SQL」——
+  // 2026-08-21 那个判官留痕自反馈(同一段记忆隔 16 分钟投两次)就是靠手查发现的,
+  // 换个人换个时间就漏了。
+  //
+  // 四个数各对着一种已经真实发生过的故障:
+  //   silentRate  判官还是不是一道闸(掉到 0 = 它不再说「不值得」了)
+  //   perDay      放量(没有硬闸兜着,只能看)
+  //   judgeErrors 判官挂了(它走 /api/internal/llm/debug,不落 llm_request_slices)
+  //   nearDupes   同一件事换个说法又投一次(自反馈那类 bug 的指纹)
+  async function getRecallDeliveryHealth(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const days = Math.max(1, Math.min(Number(params.days) || 7, 30));
+
+    const judgeRows = await prisma.$queryRawUnsafe(
+      `SELECT silent, (llm_work->>'error') AS err
+       FROM xiaoni_recall_shadow_log
+       WHERE identity_key = $1 AND query_ref = 'delivery_judge'
+         AND occurred_at >= NOW() - ($2 || ' days')::interval`,
+      identityKey, String(days)
+    );
+    const judgeTicks = judgeRows.length;
+    const silentTicks = judgeRows.filter((r) => r.silent === true || r.silent === 't').length;
+    const judgeErrors = judgeRows.filter((r) => r.err).length;
+
+    const perDay = await prisma.$queryRawUnsafe(
+      `SELECT (date_trunc('day', created_at AT TIME ZONE 'Asia/Shanghai'))::date::text AS day, COUNT(*)::int AS count
+       FROM agent_queue_messages
+       WHERE dedupe_key LIKE 'recall-surface:%'
+         AND created_at >= NOW() - ($1 || ' days')::interval
+       GROUP BY 1 ORDER BY 1`,
+      String(days)
+    );
+
+    // 近似重复:今天投出去的正文两两比 trigram 重合度。条数是十位数级别,O(n²) 无所谓。
+    const todayBodies = await prisma.$queryRawUnsafe(
+      `SELECT created_at, COALESCE(payload->'systemReminder'->>'reminder', '') AS body
+       FROM agent_queue_messages
+       WHERE dedupe_key LIKE 'recall-surface:%'
+         AND (created_at AT TIME ZONE 'Asia/Shanghai')::date = (NOW() AT TIME ZONE 'Asia/Shanghai')::date
+       ORDER BY created_at`
+    );
+    const trigrams = (text) => {
+      const t = String(text).replace(/\s+/g, '');
+      const out = new Set();
+      for (let i = 0; i + 3 <= t.length; i += 1) out.add(t.slice(i, i + 3));
+      return out;
+    };
+    const grams = todayBodies.map((r) => trigrams(r.body));
+    const nearDupes = [];
+    for (let i = 0; i < grams.length; i += 1) {
+      for (let j = i + 1; j < grams.length; j += 1) {
+        const a = grams[i]; const b = grams[j];
+        if (a.size === 0 || b.size === 0) continue;
+        let shared = 0;
+        for (const g of a) if (b.has(g)) shared += 1;
+        const jaccard = shared / (a.size + b.size - shared);
+        if (jaccard >= 0.5) {
+          nearDupes.push({
+            similarity: Number(jaccard.toFixed(2)),
+            first: String(todayBodies[i].body).slice(0, 120),
+            second: String(todayBodies[j].body).slice(0, 120)
+          });
+        }
+      }
+    }
+
+    return {
+      windowDays: days,
+      judgeTicks,
+      silentTicks,
+      silentRate: judgeTicks ? Number((silentTicks / judgeTicks).toFixed(2)) : null,
+      judgeErrors,
+      deliveredToday: todayBodies.length,
+      perDay: perDay.map((r) => ({ day: r.day, count: Number(r.count) })),
+      nearDupes: nearDupes.slice(0, 10)
+    };
+  }
+
   return {
     getExistingContentHashes,
     upsertRecallCues,
@@ -450,7 +569,9 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     pruneFileChunks,
     insertRecallShadowLog,
     listRecallShadowLog,
-    listRecentlySurfacedRecallRefs
+    listRecentlySurfacedRecallRefs,
+    countRecallSurfacedRefs,
+    getRecallDeliveryHealth
   };
 }
 

@@ -183,10 +183,17 @@ function isDiaryNonEpisodeFile(filename) {
 //   opts.nowMs            必填,当前时刻(调用方传)
 //   opts.minAgeDays       至少搁多少天才提(默认 7;太近她还记得,不值得提)
 //   opts.limit            一次最多浮几件(默认 2)
-//   opts.recentlySurfaced 最近已浮过的 ref 或规范化标题集合 → 去重跳过
+//   opts.recentlySurfaced 最近已浮过的 ref 或规范化标题集合 → 去重跳过(短窗冷却)
+//   opts.surfaceCounts    ref → 至今浮过几次(全历史)。**排序主键**,少的先翻。
 //   opts.structuralTitles 复发判定为结构模板的归一化标题集合(Set/数组)→ 跳过(step-1 过滤)
 // 每个 event 需带稳定 ref(调用方按 canonical path 设 `${path}#${index}`;缺则用 dateMs#index)。
-// 返回 [{ title, body, dateMs, ageDays, ref }],搁得最久的优先(最可能忘、最该翻)。
+// 返回 [{ title, body, dateMs, ageDays, ref, surfacedTimes }]。
+//
+// 排序:**覆盖优先** ——「翻过的次数」升序,同次数内才「搁得最久的先翻」。
+// 原来只按 ageDays 降序(「搁最久的先翻」),配上 40 行 ≈ 20 小时的短冷却,结果是永远在最老的
+// 那一撮里打转:真库实测(2026-08-19)全历史 3350 次浮现只覆盖 90 / 1899 个条目(4.7%),
+// 每条平均重复 37 次。这条腿存在的意义是走一遍她的记忆空间,所以排序必须服务覆盖率,
+// 而不是年龄 —— 年龄降级成同覆盖次数内的次序。
 function selectResurfacedEvents(events, opts = {}) {
   const nowMs = Number(opts.nowMs);
   if (!Number.isFinite(nowMs)) return [];
@@ -198,6 +205,10 @@ function selectResurfacedEvents(events, opts = {}) {
   const structuralTitles = opts.structuralTitles instanceof Set
     ? opts.structuralTitles
     : new Set(Array.isArray(opts.structuralTitles) ? opts.structuralTitles : []);
+  // 缺 surfaceCounts(老调用方/读失败)→ 全部按 0 次算 → 退化成纯 ageDays 降序,即改动前的行为。
+  const surfaceCounts = opts.surfaceCounts instanceof Map
+    ? opts.surfaceCounts
+    : new Map(Object.entries(opts.surfaceCounts && typeof opts.surfaceCounts === 'object' ? opts.surfaceCounts : {}));
 
   const scored = [];
   for (const e of Array.isArray(events) ? events : []) {
@@ -210,9 +221,11 @@ function selectResurfacedEvents(events, opts = {}) {
     if (isEmptyResurfaceBody(e.body)) continue;
     if (isChecklistBody(e.body)) continue;
     if (structuralTitles.has(normalizeEventText(e.title)) || isSeedStructuralTitle(e.title)) continue;
-    scored.push({ title: e.title, body: e.body || '', dateMs: e.dateMs, ageDays, ref });
+    const surfacedTimes = Number(surfaceCounts.get(ref)) || 0;
+    scored.push({ title: e.title, body: e.body || '', dateMs: e.dateMs, ageDays, ref, surfacedTimes });
   }
-  scored.sort((x, y) => y.ageDays - x.ageDays); // 搁最久的先翻
+  // 覆盖优先:翻过次数少的先翻;同次数内搁得最久的先翻。
+  scored.sort((x, y) => (x.surfacedTimes - y.surfacedTimes) || (y.ageDays - x.ageDays));
   return scored.slice(0, limit);
 }
 

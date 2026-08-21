@@ -6,6 +6,7 @@ import { RuntimeStore } from './services/runtime-store';
 import { AgentLoopService, pruneExecOutput, setCompressionTriggerInputTokens, setCompressionTriggerWireBytes, setStripXiaoniOsFromRequests, setPsychAssessmentGateEnabled, setForkIdleEscalationEnabled, setPlanVoidOnIdleEnabled, setIdlePlanSkillSubmissionEnabled } from './services/agent-loop-service';
 import { pruneOldResultFiles } from './services/web-search-archive';
 import { deliverPassiveRecallSurfaceOnce, passiveRecallDeliveryLegs } from './services/xiaoni-recall-delivery';
+import { sendOpenLoopsPointerNotifyOnce, openLoopsNotifyConfig } from './services/xiaoni-open-loops-notify';
 import { AgentTaskWorkerService } from './services/agent-task-worker-service';
 import { QqUsageService, QqUsageSkillRuntime } from './services/qq-usage-service';
 import { QqSendImageService, QqSendImageSkillRuntime } from './services/qq-send-image-service';
@@ -606,6 +607,29 @@ async function runPassiveRecallDeliveryLoop() {
   }
 }
 
+// 欠账指针通知 supervisor。整条腿靠「槽位当 dedupeKey」幂等,所以这一拍无状态:
+// 漏一拍跳过一个槽,重复一拍被唯一索引吞,重启即续。默认 OFF。
+// tick 比 interval 密得多,才能让槽边界及时落。
+const OPEN_LOOPS_NOTIFY_TICK_MS = 15 * 60_000;
+
+async function runOpenLoopsNotifyLoop() {
+  while (!stopping) {
+    try {
+      const result = await sendOpenLoopsPointerNotifyOnce();
+      if (result === 'sent') {
+        moduleLogger.info('Open-loops pointer notify sent', { intervalHours: openLoopsNotifyConfig.intervalHours });
+      }
+    } catch (error) {
+      moduleLogger.warn('Open-loops notify supervisor tick failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    if (!stopping) {
+      await wait(OPEN_LOOPS_NOTIFY_TICK_MS);
+    }
+  }
+}
+
 async function shutdown(signal: string) {
   if (stopping) {
     return;
@@ -690,6 +714,7 @@ async function start() {
     void wait(1100).then(() => runClockPingLoop());
   }
   void wait(1400).then(() => runPassiveRecallDeliveryLoop());
+  void wait(1700).then(() => runOpenLoopsNotifyLoop());
 }
 
 process.on('SIGINT', () => {

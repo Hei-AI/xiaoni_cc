@@ -148,6 +148,15 @@ function isPresentInContext(title, normalizedContextText) {
 
 // prose / titleSpecificity 的取值同时被「准入门槛」和「打分」用到 —— 只写一份实现,
 // 两边都调它,避免门槛和分数用两套算法算出互相矛盾的结果。
+// f3 effort 的归一,抽成具名函数:importance 模块要用同一份(见该文件顶注)。
+function effortScoreOf(body) {
+  const bodyChars = (typeof body === 'string' ? body : '').replace(/\s+/g, '').length;
+  return clamp01(
+    (Math.log(1 + bodyChars) - Math.log(1 + EFFORT_MIN_CHARS))
+    / (Math.log(1 + EFFORT_FULL_CHARS) - Math.log(1 + EFFORT_MIN_CHARS))
+  );
+}
+
 function proseScoreOf(body) {
   return clamp01(1 - bulletLineRatio(typeof body === 'string' ? body : ''));
 }
@@ -232,10 +241,7 @@ function scoreAssociationFactors(item, ctx = {}) {
     // p90≈0.45–0.50、max=1.00 —— 全程铺开,不是二值。
     relevance: clamp01(ctx.relevance),
     introspection: INTROSPECTION_RE.test(body) ? 1 : 0,
-    effort: clamp01(
-      (Math.log(1 + bodyChars) - Math.log(1 + EFFORT_MIN_CHARS))
-      / (Math.log(1 + EFFORT_FULL_CHARS) - Math.log(1 + EFFORT_MIN_CHARS))
-    ),
+    effort: effortScoreOf(body),
     prose: proseScoreOf(body),
     peer: peerNames.some((name) => typeof name === 'string'
       && name.length >= MIN_PEER_NAME_CHARS
@@ -250,9 +256,10 @@ function scoreAssociationFactors(item, ctx = {}) {
 }
 
 // 候选形状:
-//   { ref, kind:'event'|'promise', title, body, dateMs|null, lineKey|null, tier|null }
+//   { ref, kind:'event', title, body, dateMs|null, lineKey|null, tier|null }
 //   ref     稳定引用(调用方按 canonical path 设 `${path}#${index}`,与第三腿同口径)
-//   kind    'event' 走 substance 过滤(空/清单/结构头);'promise' 的正文就是它本身,不过滤
+//   kind    只有 'event'。欠账(promise)**不进这条腿** —— 它已整体撤出召回,改走定时指针通知
+//           (CONTEXT.md:欠账是四类里唯一有「做完」生命周期的,要的是当前事实不是想起来)。
 //   lineKey 属于哪条 L3 线(topic 文件的主题 / open-loop 行末 `#标签`);无 → null
 //
 // opts:
@@ -302,25 +309,19 @@ function selectAssociativeMemories(candidates, opts = {}) {
   const kept = [];
   for (const raw of Array.isArray(candidates) ? candidates : []) {
     if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) { dropped.shape += 1; continue; }
-    const kind = raw.kind === 'promise' ? 'promise' : 'event';
     const body = typeof raw.body === 'string' ? raw.body : '';
-    if (kind === 'event') {
-      // 复用第三腿的 step-1 substance 谓词(单一真理源,别在这儿重写一份)。
-      if (isEmptyResurfaceBody(body)) { dropped.empty_body += 1; continue; }
-      if (isChecklistBody(body)) { dropped.checklist_body += 1; continue; }
-    }
+    // 复用第三腿的 step-1 substance 谓词(单一真理源,别在这儿重写一份)。
+    if (isEmptyResurfaceBody(body)) { dropped.empty_body += 1; continue; }
+    if (isChecklistBody(body)) { dropped.checklist_body += 1; continue; }
     if (structuralTitles.has(normalizeEventText(raw.title)) || isSeedStructuralTitle(raw.title)) {
       dropped.structural_title += 1;
       continue;
     }
     if (isBareTimestampTitle(raw.title)) { dropped.bare_timestamp_title += 1; continue; }
-    // 准入门槛(只对 event —— promise 的「正文」就是承诺本身,不按记忆的形状要求它)。
-    // 过不了的不是「分低」,是「压根不是一条能当引子的记忆」,所以在进池之前就剔掉,
+    // 准入门槛。过不了的不是「分低」,是「压根不是一条能当引子的记忆」,所以在进池之前就剔掉,
     // 而不是让它带着 0.2 的 prose 分继续跟真记忆抢配额。
-    if (kind === 'event') {
-      if (proseScoreOf(body) < PROSE_GATE) { dropped.prose_gate += 1; continue; }
-      if (titleSpecificityOf(raw.title) < TITLE_SPECIFICITY_GATE) { dropped.title_gate += 1; continue; }
-    }
+    if (proseScoreOf(body) < PROSE_GATE) { dropped.prose_gate += 1; continue; }
+    if (titleSpecificityOf(raw.title) < TITLE_SPECIFICITY_GATE) { dropped.title_gate += 1; continue; }
     // 在场直查放在年龄分桶**之前**:在不在场跟它多老没关系,实测当天条目 12 条里 9 条不在场。
     if (isPresentInContext(raw.title, normalizedContextText)) { dropped.in_context += 1; continue; }
     const bucket = bucketOfCandidate({ ...raw, dateMs: raw.dateMs }, { nowMs, nearMaxDays: opts.nearMaxDays, midMaxDays: opts.midMaxDays });
@@ -331,7 +332,7 @@ function selectAssociativeMemories(candidates, opts = {}) {
     if (recent.has(identity) || recent.has(ref)) { dropped.cooled_down += 1; continue; }
     kept.push({
       ref,
-      kind,
+      kind: 'event',
       bucket,
       identity,
       title: raw.title,
@@ -361,9 +362,21 @@ function selectAssociativeMemories(candidates, opts = {}) {
   // ③ 分桶 + 每桶独立取头名。**空桶就少浮,不跨桶借配额**(宁少不吵)。
   const byBucket = { near: [], mid: [], far: [], line: [] };
   for (const item of scored) byBucket[item.bucket].push(item);
+  // 覆盖优先:翻过次数少的先翻。这是**并进来的第三腿(diary_resurface)的本职** ——
+  // 那条腿存在的意义就是走一遍她的记忆空间,而它的实测覆盖率是 90/1899 = 4.7%
+  // (全历史 3350 次浮现,每条平均重复 37 次)。两条腿的原料同是 `diary add` 出来的
+  // `## 条目`,写端从没区分过它们,所以合并;合并后覆盖不能丢,它是第三腿唯一的独有价值。
+  //
+  // 放在分数**之前**而不是当 tie-break:分数是「这条写得多用心 + 跟当下多相关」,
+  // 没翻过的和翻过 37 次的分数可能一样,那时候该先翻没翻过的。同覆盖档内再按分数排。
+  const surfaceCounts = opts.surfaceCounts instanceof Map
+    ? opts.surfaceCounts
+    : new Map(Object.entries(opts.surfaceCounts && typeof opts.surfaceCounts === 'object' ? opts.surfaceCounts : {}));
+  const timesOf = (item) => Number(surfaceCounts.get(item.ref)) || 0;
   for (const list of Object.values(byBucket)) {
-    // 分数降序;同分按搁得久的优先(第三腿的直觉保留成 tie-break);再同则 ref 升序保稳定。
-    list.sort((a, b) => (b.score - a.score)
+    // 翻过次数升序 → 分数降序 → 搁得久的优先 → ref 升序保稳定。
+    list.sort((a, b) => (timesOf(a) - timesOf(b))
+      || (b.score - a.score)
       || ((b.ageDays == null ? -1 : b.ageDays) - (a.ageDays == null ? -1 : a.ageDays))
       || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
   }
@@ -420,5 +433,10 @@ module.exports = {
   bulletLineRatio,
   bucketOfCandidate,
   scoreAssociationFactors,
-  selectAssociativeMemories
+  selectAssociativeMemories,
+  // 导出给 xiaoni-recall-importance.js 复用 —— 判据只能有一份。
+  // 复制一遍正则/归一段就是造第二个真理源,阈值以后必然漂。
+  INTROSPECTION_RE,
+  effortScoreOf,
+  titleSpecificityOf
 };

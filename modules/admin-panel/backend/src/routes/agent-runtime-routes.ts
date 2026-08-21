@@ -11,6 +11,7 @@ import {
   listRecallCandidates,
   countRecallCues,
   listRecallShadowLog,
+  getRecallDeliveryHealth,
   getRecallDeanisotropyModel,
   getRecallCueByRef,
   getXiaoniActionStream,
@@ -1216,6 +1217,28 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
     }
   });
 
+  // 投递健康度。这条腿**没有日额**(联想不是配额制的,见 ADR-0005),「别吵」全靠判官,
+  // 而 ADR 里明说了「观测面是这条腿的安全带,硬上限不是」—— 那这条安全带就必须一眼能看,
+  // 不能是「有人想起来去查 SQL」。2026-08-21 两个真事故都是靠手查发现的:
+  // 判官 32 拍里 21 拍 http 500(在给崩溃加留痕之前完全不可见),
+  // 以及判官留痕自反馈导致同一段记忆隔 16 分钟投两次。
+  router.get('/xiaoni/passive-recall/delivery-health', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const days = parsePositiveInteger(req.query.days, 7, 30);
+      const data = await getRecallDeliveryHealth({ identityKey, days });
+      res.json({ success: true, data, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load recall delivery health',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   // 触发2 浮现流水 feed(每次落地自动召回的 shadow 留痕;只读展示,绝不投递)。
   router.get('/xiaoni/passive-recall/shadow-log', async (req, res) => {
     try {
@@ -1224,7 +1247,16 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         : 'xiaoni';
       const limit = parsePositiveInteger(req.query.limit, 50, 500);
       const onlySurfaced = parseQueryBoolean(req.query.only_surfaced ?? req.query.onlySurfaced, false);
-      const entries = await listRecallShadowLog({ identityKey, limit, onlySurfaced });
+      // 按腿过滤:`?query_ref=delivery_judge` 只看判官,`association_scan` 只看联想腿,等等。
+      // 判官和 query 展开的工作内容在每行的 llmWork 字段里 —— 它们走 /api/internal/llm/debug,
+      // 那条路径不落 llm_request_slices,shadow log 是唯一能看到它们的地方。
+      const queryRefFilter = firstQueryString(req.query.query_ref ?? req.query.queryRef);
+      const entries = await listRecallShadowLog({
+        identityKey,
+        limit,
+        onlySurfaced,
+        ...(queryRefFilter ? { queryRef: queryRefFilter } : {})
+      });
       res.json({
         success: true,
         data: { streamKind: 'xiaoni_passive_recall_shadow_log', deliveryMode: 'shadow_only', entries },
@@ -1453,18 +1485,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.passiveRecallDeliveryEnabled === 'boolean') {
         patch.passiveRecallDeliveryEnabled = body.passiveRecallDeliveryEnabled;
       }
-      if (Object.prototype.hasOwnProperty.call(body, 'passiveRecallDeliveryDailyCap')) {
-        // 0 是合法值(等同关闭),所以用 non-negative 而不是 positive。
-        const value = parseNonNegativeInteger(body.passiveRecallDeliveryDailyCap);
-        if (value === null) {
-          res.status(400).json({
-            success: false,
-            error: 'passiveRecallDeliveryDailyCap must be a non-negative integer (0 disables delivery)',
-            timestamp: new Date().toISOString()
-          });
-          return;
-        }
-        patch.passiveRecallDeliveryDailyCap = value;
+      // 欠账指针通知:同样会主动唤醒主 loop,同样必须能在页面上一键关掉。
+      // 之前它只有 compose 里的 env,关一次要改文件 + 重启整个 agent-service。
+      if (typeof body.openLoopsNotifyEnabled === 'boolean') {
+        patch.openLoopsNotifyEnabled = body.openLoopsNotifyEnabled;
       }
       if (Object.prototype.hasOwnProperty.call(body, 'mainAgentPreModelYieldMs')) {
         const value = parseNonNegativeInteger(body.mainAgentPreModelYieldMs);

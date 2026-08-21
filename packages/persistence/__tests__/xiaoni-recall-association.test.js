@@ -322,23 +322,25 @@ test('裸时刻标题(日内时间轴框架头)不进候选', () => {
   assert.equal(stats.dropped.bare_timestamp_title, 1);
 });
 
-test('promise(欠账行)不走 substance 过滤:没有正文也算候选', () => {
+// 欠账已整体撤出召回(CONTEXT.md),改走定时指针通知。撤的时候只摘了第二腿的投递资格,
+// 漏了联想腿 —— 而联想腿是投递腿,于是欠账仍被当成「你在追的这条线里有一段…」投给她。
+// 这条钉住:没有正文的欠账行进不了这条腿。
+test('欠账行不再进联想腿:没有正文 → 过不了准入门槛', () => {
   const promise = {
-    ref: '/xiaoni-runtime/notes/diary/open-loops.md#12',
+    ref: '/x/open-loops.md#12',
     kind: 'promise',
-    title: '频道猎人第三部卷六卷七还没追',
+    title: 'Wigleaf 8/25开。Full Stop也投。',
     body: '',
-    dateMs: daysAgo(12),
-    tier: 'active'
+    dateMs: NOW - 6 * 86400000,
+    lineKey: 'wigleaf',
+    tier: 'open'
   };
-  const { picked } = selectAssociativeMemories([promise], { nowMs: NOW });
-  assert.equal(picked.length, 1);
-  assert.equal(picked[0].kind, 'promise');
-  assert.equal(picked[0].tier, 'active');
-  assert.equal(picked[0].factors.effort, 0); // 没正文 → 力气因子 0(第二腿才是承诺的主场)
+  const { picked, stats } = selectAssociativeMemories([promise], { nowMs: NOW });
+  assert.equal(picked.length, 0, '欠账不该出现在联想候选里');
+  // 欠账行的「正文」是空的(它整句就是标题),所以撞的是 substance 谓词那道门。
+  assert.equal(stats.dropped.empty_body, 1, `实得 ${JSON.stringify(stats.dropped)}`);
 });
 
-// ── 边界:空输入 / 全被冷却 / 少于配额 —— 都不抛 ──────────────────────────────
 test('空输入 / 非数组 / 缺 nowMs:返回空,不抛', () => {
   assert.deepEqual(selectAssociativeMemories([], { nowMs: NOW }).picked, []);
   assert.deepEqual(selectAssociativeMemories(null, { nowMs: NOW }).picked, []);
@@ -387,4 +389,40 @@ test('stats 把一次扫描的分桶/配额/剔除原因都记下来(管理端�
   assert.deepEqual(stats.byBucket, { near: 1, mid: 1, far: 1, line: 1 });
   assert.deepEqual(stats.quotas, { near: 1, mid: 1, far: 1, line: 1 });
   assert.equal(stats.dropped.no_bucket, 1);
+});
+
+// ── 并进来的第三腿:覆盖优先 ────────────────────────────────────────────────
+// diary_resurface 已并入本腿(两条的原料同是 `diary add` 的 `## 条目`,写端从没区分过)。
+// 它唯一的独有价值是**覆盖** —— 实测它自己那条腿的覆盖率只有 90/1899 = 4.7%,
+// 全历史 3350 次浮现每条平均重复 37 次。合并后覆盖不能丢。
+test('覆盖优先在分数之前:没翻过的赢过翻烂了的高分条目', () => {
+  const now = Date.UTC(2026, 7, 20);
+  const day = 24 * 60 * 60 * 1000;
+  const mk = (ref, title, body, ageDays) => ({
+    ref, title, body, dateMs: now - ageDays * day, index: 1, kind: 'event'
+  });
+  const rich = '当时我犹豫了很久,怕的是没有回声,后来才意识到。'.repeat(6);
+  const hot = mk('/d.md#1', '翻烂了的那件很具体的事', rich, 30);
+  const fresh = mk('/d.md#2', '没翻过的那件很具体的事', rich, 30);
+
+  const pickRefs = (surfaceCounts) => selectAssociativeMemories([hot, fresh], {
+    nowMs: now, surfaceCounts, quotas: { near: 0, mid: 1, far: 0, line: 0 }
+  }).picked.map((p) => p.ref);
+
+  assert.deepEqual(pickRefs(new Map([[hot.ref, 37]])), [fresh.ref], '翻过 37 次的该让位');
+  // 覆盖持平时,回到分数/年龄那套 —— 排序是稳定的,不是随机
+  const tie = pickRefs(new Map());
+  assert.equal(tie.length, 1);
+  assert.deepEqual(tie, pickRefs(new Map()), '同覆盖档内顺序稳定');
+});
+
+test('不传 surfaceCounts → 全部按 0 次算,退回合并前的分数优先(向后兼容)', () => {
+  const now = Date.UTC(2026, 7, 20);
+  const day = 24 * 60 * 60 * 1000;
+  const rich = '当时我犹豫了很久,怕的是没有回声。'.repeat(8);
+  const thin = '短。';
+  const a = { ref: '/d.md#1', title: '写得很用心的一件具体事', body: rich, dateMs: now - 30 * day, index: 1, kind: 'event' };
+  const b = { ref: '/d.md#2', title: '写得潦草的一件具体事', body: thin, dateMs: now - 30 * day, index: 2, kind: 'event' };
+  const picked = selectAssociativeMemories([b, a], { nowMs: now, quotas: { near: 0, mid: 1, far: 0, line: 0 } }).picked;
+  assert.equal(picked[0].ref, a.ref, '同覆盖时仍是分数说了算');
 });
