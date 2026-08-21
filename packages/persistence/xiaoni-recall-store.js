@@ -473,6 +473,89 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     }));
   }
 
+  // 投递健康度:一眼看出这条腿是不是在正常工作。
+  //
+  // 为什么需要它:这条腿**没有日额**(联想不是配额制的,见 ADR-0005),
+  // 「别吵」全靠判官的判断力,而设计上明说了「观测面是这条腿的安全带,硬上限不是」。
+  // 那么这条安全带就必须是**一眼能看的东西**,不能是「有人想起来去查 SQL」——
+  // 2026-08-21 那个判官留痕自反馈(同一段记忆隔 16 分钟投两次)就是靠手查发现的,
+  // 换个人换个时间就漏了。
+  //
+  // 四个数各对着一种已经真实发生过的故障:
+  //   silentRate  判官还是不是一道闸(掉到 0 = 它不再说「不值得」了)
+  //   perDay      放量(没有硬闸兜着,只能看)
+  //   judgeErrors 判官挂了(它走 /api/internal/llm/debug,不落 llm_request_slices)
+  //   nearDupes   同一件事换个说法又投一次(自反馈那类 bug 的指纹)
+  async function getRecallDeliveryHealth(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const days = Math.max(1, Math.min(Number(params.days) || 7, 30));
+
+    const judgeRows = await prisma.$queryRawUnsafe(
+      `SELECT silent, (llm_work->>'error') AS err
+       FROM xiaoni_recall_shadow_log
+       WHERE identity_key = $1 AND query_ref = 'delivery_judge'
+         AND occurred_at >= NOW() - ($2 || ' days')::interval`,
+      identityKey, String(days)
+    );
+    const judgeTicks = judgeRows.length;
+    const silentTicks = judgeRows.filter((r) => r.silent === true || r.silent === 't').length;
+    const judgeErrors = judgeRows.filter((r) => r.err).length;
+
+    const perDay = await prisma.$queryRawUnsafe(
+      `SELECT (date_trunc('day', created_at AT TIME ZONE 'Asia/Shanghai'))::date::text AS day, COUNT(*)::int AS count
+       FROM agent_queue_messages
+       WHERE dedupe_key LIKE 'recall-surface:%'
+         AND created_at >= NOW() - ($1 || ' days')::interval
+       GROUP BY 1 ORDER BY 1`,
+      String(days)
+    );
+
+    // 近似重复:今天投出去的正文两两比 trigram 重合度。条数是十位数级别,O(n²) 无所谓。
+    const todayBodies = await prisma.$queryRawUnsafe(
+      `SELECT created_at, COALESCE(payload->'systemReminder'->>'reminder', '') AS body
+       FROM agent_queue_messages
+       WHERE dedupe_key LIKE 'recall-surface:%'
+         AND (created_at AT TIME ZONE 'Asia/Shanghai')::date = (NOW() AT TIME ZONE 'Asia/Shanghai')::date
+       ORDER BY created_at`
+    );
+    const trigrams = (text) => {
+      const t = String(text).replace(/\s+/g, '');
+      const out = new Set();
+      for (let i = 0; i + 3 <= t.length; i += 1) out.add(t.slice(i, i + 3));
+      return out;
+    };
+    const grams = todayBodies.map((r) => trigrams(r.body));
+    const nearDupes = [];
+    for (let i = 0; i < grams.length; i += 1) {
+      for (let j = i + 1; j < grams.length; j += 1) {
+        const a = grams[i]; const b = grams[j];
+        if (a.size === 0 || b.size === 0) continue;
+        let shared = 0;
+        for (const g of a) if (b.has(g)) shared += 1;
+        const jaccard = shared / (a.size + b.size - shared);
+        if (jaccard >= 0.5) {
+          nearDupes.push({
+            similarity: Number(jaccard.toFixed(2)),
+            first: String(todayBodies[i].body).slice(0, 120),
+            second: String(todayBodies[j].body).slice(0, 120)
+          });
+        }
+      }
+    }
+
+    return {
+      windowDays: days,
+      judgeTicks,
+      silentTicks,
+      silentRate: judgeTicks ? Number((silentTicks / judgeTicks).toFixed(2)) : null,
+      judgeErrors,
+      deliveredToday: todayBodies.length,
+      perDay: perDay.map((r) => ({ day: r.day, count: Number(r.count) })),
+      nearDupes: nearDupes.slice(0, 10)
+    };
+  }
+
   return {
     getExistingContentHashes,
     upsertRecallCues,
@@ -487,7 +570,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     insertRecallShadowLog,
     listRecallShadowLog,
     listRecentlySurfacedRecallRefs,
-    countRecallSurfacedRefs
+    countRecallSurfacedRefs,
+    getRecallDeliveryHealth
   };
 }
 

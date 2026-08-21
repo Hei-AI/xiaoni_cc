@@ -11,6 +11,7 @@ import {
   listRecallCandidates,
   countRecallCues,
   listRecallShadowLog,
+  getRecallDeliveryHealth,
   getRecallDeanisotropyModel,
   getRecallCueByRef,
   getXiaoniActionStream,
@@ -1211,6 +1212,28 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Failed to load Xiaoni recall corpus stats',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // 投递健康度。这条腿**没有日额**(联想不是配额制的,见 ADR-0005),「别吵」全靠判官,
+  // 而 ADR 里明说了「观测面是这条腿的安全带,硬上限不是」—— 那这条安全带就必须一眼能看,
+  // 不能是「有人想起来去查 SQL」。2026-08-21 两个真事故都是靠手查发现的:
+  // 判官 32 拍里 21 拍 http 500(在给崩溃加留痕之前完全不可见),
+  // 以及判官留痕自反馈导致同一段记忆隔 16 分钟投两次。
+  router.get('/xiaoni/passive-recall/delivery-health', async (req, res) => {
+    try {
+      const identityKey = typeof req.query.identity_key === 'string' && req.query.identity_key.trim()
+        ? req.query.identity_key.trim()
+        : 'xiaoni';
+      const days = parsePositiveInteger(req.query.days, 7, 30);
+      const data = await getRecallDeliveryHealth({ identityKey, days });
+      res.json({ success: true, data, timestamp: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load recall delivery health',
         timestamp: new Date().toISOString()
       });
     }

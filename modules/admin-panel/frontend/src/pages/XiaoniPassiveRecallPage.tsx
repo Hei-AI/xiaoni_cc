@@ -47,6 +47,91 @@ type ReindexData = {
 
 type CorpusStats = { total: number; byKind: Record<string, number> };
 
+// 投递健康度。这条腿没有日额,「别吵」全靠判官 —— 观测面就是它的安全带(ADR-0005)。
+type DeliveryHealth = {
+  windowDays: number;
+  judgeTicks: number;
+  silentTicks: number;
+  silentRate: number | null;
+  judgeErrors: number;
+  deliveredToday: number;
+  perDay: Array<{ day: string; count: number }>;
+  nearDupes: Array<{ similarity: number; first: string; second: string }>;
+};
+
+// 每个数各对着一种**已经真实发生过**的故障,所以每个都带自己的判读线。
+function DeliveryHealthPanel({ health }: { health: DeliveryHealth }) {
+  const silentPct = health.silentRate === null ? null : Math.round(health.silentRate * 100);
+  const errorRate = health.judgeTicks ? health.judgeErrors / health.judgeTicks : 0;
+  const stat = (label: string, value: string, hint: string, tone: 'ok' | 'warn' | 'bad') => (
+    <div className="rounded-lg border border-border bg-background p-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{label}</div>
+      <div className={
+        tone === 'bad' ? 'mt-1 text-2xl font-semibold text-destructive'
+          : tone === 'warn' ? 'mt-1 text-2xl font-semibold text-amber-600 dark:text-amber-500'
+            : 'mt-1 text-2xl font-semibold text-foreground'
+      }>{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
+    </div>
+  );
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stat(
+          '判官静默率',
+          silentPct === null ? '—' : `${silentPct}%`,
+          '它还是不是一道闸。掉向 0 = 它不再说「一条都不值得」了',
+          silentPct !== null && silentPct < 20 ? 'warn' : 'ok'
+        )}
+        {stat(
+          '判官失败率',
+          health.judgeTicks ? `${Math.round(errorRate * 100)}%` : '—',
+          `${health.judgeErrors}/${health.judgeTicks} 拍拿不到答案 → 退回模板钩子 + 最小间隔`,
+          errorRate >= 0.3 ? 'bad' : errorRate > 0 ? 'warn' : 'ok'
+        )}
+        {stat(
+          '今天投了',
+          String(health.deliveredToday),
+          '没有日额兜着——这个数只有人能判读',
+          'ok'
+        )}
+        {stat(
+          '今天的近似重复',
+          String(health.nearDupes.length),
+          '同一件事换个说法又投一次(自反馈那类 bug 的指纹)',
+          health.nearDupes.length > 0 ? 'bad' : 'ok'
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-background p-3">
+        <div className="w-full text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          近 {health.windowDays} 天每天投几条
+        </div>
+        {health.perDay.map((d) => (
+          <div key={d.day} className="flex flex-col items-center gap-1">
+            <div className="text-sm font-medium text-foreground">{d.count}</div>
+            <div className="text-[10px] text-muted-foreground">{d.day.slice(5)}</div>
+          </div>
+        ))}
+        {health.perDay.length === 0 ? <div className="text-sm text-muted-foreground">还没有投递记录</div> : null}
+      </div>
+      {health.nearDupes.length ? (
+        <div className="space-y-1.5 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-destructive">
+            今天投出去的近似重复
+          </div>
+          {health.nearDupes.map((d, i) => (
+            <div key={i} className="space-y-0.5 text-xs">
+              <div className="text-muted-foreground">相似度 {d.similarity}</div>
+              <div className="break-words text-foreground">· {d.first}</div>
+              <div className="break-words text-foreground">· {d.second}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 interface ShadowLogLead {
   // 语义召回腿:lead 是对象 {text,...} + cos + sourceRef + provenance
   lead?: string | { text?: string; kind?: string; pointer?: string | null };
@@ -380,6 +465,15 @@ async function fetchShadowLog(onlySurfaced: boolean): Promise<ShadowLogEntry[]> 
   return json.data.entries || [];
 }
 
+async function fetchDeliveryHealth(): Promise<DeliveryHealth> {
+  const response = await fetch('/api/xiaoni/passive-recall/delivery-health?days=7');
+  const json = (await response.json()) as ApiResponse<DeliveryHealth>;
+  if (!json.success) {
+    throw new Error(json.error || '加载投递健康度失败');
+  }
+  return json.data;
+}
+
 async function fetchCorpusStats(): Promise<CorpusStats> {
   const response = await fetch('/api/xiaoni/passive-recall/corpus-stats');
   const json = (await response.json()) as ApiResponse<CorpusStats>;
@@ -451,6 +545,12 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
   });
   const shadowLogEntries = shadowLogQuery.data || [];
 
+  const healthQuery = useQuery({
+    queryKey: ['xiaoni-passive-recall-delivery-health'],
+    queryFn: fetchDeliveryHealth,
+    refetchInterval: 30000,
+  });
+
   const corpusQuery = useQuery({
     queryKey: ['xiaoni-passive-recall-corpus-stats'],
     queryFn: fetchCorpusStats,
@@ -464,15 +564,15 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
       <PageHeader
         eyebrow="Passive Recall"
         title="小腻被动浮现 Shadow"
-        description="每次内容落地自动跑召回，结果只记录、绝不投递给小腻。"
+        description="每次内容落地自动跑召回。联想腿与落地腿会经判官筛选后投给小腻；其余腿只记录。"
         icon={<BrainCircuit className="h-5 w-5" />}
-        badge={<StatusPill tone="info">shadow_only</StatusPill>}
+        badge={<StatusPill tone="info">判官决定量 · 无日额</StatusPill>}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void shadowLogQuery.refetch(); void corpusQuery.refetch(); }}
+              onClick={() => { void shadowLogQuery.refetch(); void corpusQuery.refetch(); void healthQuery.refetch(); }}
               disabled={shadowLogQuery.isFetching}
             >
               {shadowLogQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
@@ -481,6 +581,17 @@ export const XiaoniPassiveRecallPage: React.FC = () => {
           </div>
         }
       />
+
+      <SectionPanel
+        title="投递健康度"
+        description="这条腿没有日额——「别吵」全靠判官，所以这几个数就是它的安全带（ADR-0005）。"
+      >
+        {healthQuery.data
+          ? <DeliveryHealthPanel health={healthQuery.data} />
+          : <div className="text-sm text-muted-foreground">
+              {healthQuery.isError ? (healthQuery.error as Error).message : '读取中…'}
+            </div>}
+      </SectionPanel>
 
       <SectionPanel
         title="浮现流水（触发2 shadow）"

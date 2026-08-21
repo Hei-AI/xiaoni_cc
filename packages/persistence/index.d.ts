@@ -2569,6 +2569,21 @@ export function groupCandidatesByAuthor(candidates: unknown[], ctx?: RecallImpor
 }>>;
 
 export function countRecallSurfacedRefs(params?: { identityKey?: string; queryRef?: string }, config?: DatabaseUrlConfig): Promise<Map<string, number>>;
+
+/**
+ * 被动召回投递的健康度。这条腿没有日额,「别吵」全靠判官 —— 观测面就是它的安全带。
+ * silentRate 掉到 0 = 判官不再是一道闸;nearDupes 非空 = 同一件事换个说法又投了一次。
+ */
+export function getRecallDeliveryHealth(params?: { identityKey?: string; days?: number }, config?: DatabaseUrlConfig): Promise<{
+  windowDays: number;
+  judgeTicks: number;
+  silentTicks: number;
+  silentRate: number | null;
+  judgeErrors: number;
+  deliveredToday: number;
+  perDay: Array<{ day: string; count: number }>;
+  nearDupes: Array<{ similarity: number; first: string; second: string }>;
+}>;
 export const BEIJING_OFFSET_MS: number;
 // parseTagDate 认日期的年龄上限。护的是 `(1/3进度)`、`(2/5看完)` 这类「括号里像日期其实是
 // 分数」的写法:被当成日期就会顶着一个假的 ageDays 霸榜,把真该浮的老条目挤掉。超过就返回
