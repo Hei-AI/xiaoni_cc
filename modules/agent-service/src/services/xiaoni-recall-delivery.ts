@@ -61,10 +61,23 @@ const DEDUPE_PREFIX = 'recall-surface:';
 // `inbound:<id>` / `queue:<id>`,landedRef 拿不到时还会写 NULL —— 全被 `stack:` 挡在外面。
 // 而「别人刚说的话勾起她一段回忆」恰恰是这条腿最该服务的场景。
 // 反过来排除扫描腿,以后新增落地触发类型才不会再被静默丢掉。
-const SCAN_QUERY_REFS = new Set(['association_scan', 'diary_resurface', 'open_loop_scan']);
+// 落地腿的判据是「**不是**别的腿写的」——白名单版本漏掉过 inbound:/queue:/NULL 三种落地留痕。
+// 但这个反向判据有个陷阱:凡是往 shadow log 里写行的东西,只要 queryRef 不在这张表里,
+// 就会被当成落地腿的候选**喂回给自己**。
+//
+// `delivery_judge` 正是这样:它是判官的**观察面**,不是检索腿。它的 surfaced 项形如
+// `{ kind:'judge_pick', ref:<上一条的 dedupeKey>, lead:<判官写的钩子> }` ——
+// 被当候选捞回来后,identity 变成上一条的 dedupeKey,于是又哈希出一个**新的** dedupeKey,
+// 幂等索引拦不住,同一段记忆被判官重写一遍钩子再投一次,循环不止。
+// 2026-08-21 19:11 与 19:27 实测到:同两条记忆隔 16 分钟各投了一次,措辞略有不同。
+// 这条自反馈是自我放大的,而且删掉日额之后没有任何东西兜着它。
+const NON_LANDING_QUERY_REFS = new Set([
+  'association_scan', 'diary_resurface', 'open_loop_scan',
+  'delivery_judge'
+]);
 
 function isLandingRow(queryRef: unknown): boolean {
-  return typeof queryRef !== 'string' || !SCAN_QUERY_REFS.has(queryRef);
+  return typeof queryRef !== 'string' || !NON_LANDING_QUERY_REFS.has(queryRef);
 }
 
 const DELIVERABLE_LEGS: Array<{ leg: string; queryRef?: string; landingRows?: boolean }> = [

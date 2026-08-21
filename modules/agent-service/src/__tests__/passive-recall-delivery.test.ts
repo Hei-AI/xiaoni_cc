@@ -670,3 +670,29 @@ test('欠账永远不从召回口投出去(它走指针通知)', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].message.bodyForAgent, '这条是真往事', '投的该是往事那条,不是欠账');
 });
+
+// 判官的留痕行(queryRef='delivery_judge')是**观察面**,不是检索腿。
+// 落地腿的判据是「不是别的腿写的」,所以判官自己写的行会被当成落地候选捞回来 ——
+// 它的 surfaced 项是 { kind:'judge_pick', ref:<上一条的 dedupeKey>, lead:<判官写的钩子> },
+// identity 变成上一条的 dedupeKey → 又哈希出一个新的 dedupeKey → 幂等索引拦不住 →
+// 同一段记忆被判官重写一遍钩子再投一次,循环不止。
+// 2026-08-21 19:11 与 19:27 实测到同两条记忆隔 16 分钟各投一次。删掉日额之后没有东西兜着它。
+test('判官自己的留痕行不能被当成候选喂回来(自反馈会自我放大)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      '': [{
+        queryRef: 'delivery_judge',
+        occurredAt: '2026-08-21T11:19:30Z',
+        surfaced: [{
+          kind: 'judge_pick',
+          ref: 'recall-surface:landing:4d1e0069fd6a5c8b8546a08790e00e0b',
+          lead: '判官上一拍写的钩子'
+        }]
+      }]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0, '判官的留痕不是记忆,一条都不该从它那儿投出去');
+});
