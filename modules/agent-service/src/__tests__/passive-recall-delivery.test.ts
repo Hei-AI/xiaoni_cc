@@ -576,6 +576,11 @@ test('判官的工作内容写进 shadow log(含它看过但没挑的)', async (
 
   const row = shadowWrites.find((r) => r.queryRef === 'delivery_judge');
   assert.ok(row, '应写一条 delivery_judge 的 shadow 行');
+  assert.equal(
+    new Date(row!.occurredAt as string | number | Date).getTime(),
+    AT_2100_EAST8.getTime(),
+    '判官这一行必须带真实时刻 —— 不给的话 store 落纪元占位,管理端全堆在 1970'
+  );
   const work = row!.llmWork as Record<string, unknown>;
   assert.equal(work.kind, 'judge');
   assert.equal((work.picks as unknown[]).length, 1);

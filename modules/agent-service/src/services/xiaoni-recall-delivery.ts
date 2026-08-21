@@ -368,6 +368,10 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     await (deps.insertRecallShadowLog ? deps.insertRecallShadowLog({
       identityKey: IDENTITY_KEY,
       queryRef: 'delivery_judge',
+      // 缺 occurredAt 时 store 会落纪元占位(它的默认是给「落地时刻由调用方给」那条路留的)。
+      // 判官这一行是**观察面**,不进任何 cacheable 前缀,用真时钟才对 —— 不给的话
+      // 管理端浮现流水里它全部堆在 1970-01-01,既排不了序也读不出「什么时候判的」。
+      occurredAt: clock(),
       queryText: anchor.slice(0, 2000),
       silent: verdict.picks.length === 0,
       corpusCount: leads.length,
