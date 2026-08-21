@@ -70,10 +70,13 @@ interface ShadowLogLead {
   factors?: Record<string, number>;
 }
 
-// entry.queryRef → 这条 shadow 是哪条腿。语义召回是「因落地而召回」,
+// entry.queryRef → 这一行是谁写的。语义召回是「因落地而召回」,
 // open_loop / diary / association 是「按时间/结构主动扫」,展示方式不同。
-type LegKind = 'open_loop' | 'diary' | 'association' | 'recall' | 'judge';
-function legKindFromRef(queryRef?: string | null): LegKind {
+//
+// 注意 'judge' **不是一条腿**:CONTEXT.md 里腿指的是「候选从哪儿来」,而判官坐在
+// 投递闸上、不产生候选。它跟腿共用同一张 shadow 表,所以在这里共用同一个行类型。
+type ShadowRowKind = 'open_loop' | 'diary' | 'association' | 'recall' | 'judge';
+function rowKindFromRef(queryRef?: string | null): ShadowRowKind {
   if (queryRef === 'open_loop_scan') return 'open_loop';
   if (queryRef === 'diary_resurface') return 'diary';
   if (queryRef === 'association_scan') return 'association';
@@ -257,7 +260,7 @@ function AssociationLead({ s }: { s: ShadowLogLead }) {
 }
 
 // 时间扫腿(open_loop 承诺 / diary 旧事)的一条:整句 lead + 档位/年龄标。
-function TimeScanLead({ s, leg }: { s: ShadowLogLead; leg: LegKind }) {
+function TimeScanLead({ s, leg }: { s: ShadowLogLead; leg: ShadowRowKind }) {
   const badge = leg === 'open_loop'
     ? (s.tier === 'overdue' ? '放很久' : s.tier === 'undated' ? '没写日期' : '开着')
     : '旧事';
@@ -281,7 +284,7 @@ function TimeScanLead({ s, leg }: { s: ShadowLogLead; leg: LegKind }) {
   );
 }
 
-const LEG_HEADER: Record<LegKind, string> = {
+const ROW_HEADER: Record<ShadowRowKind, string> = {
   recall: '当下落地（query）',
   open_loop: '开放承诺 · 按时间扫（非语义召回）',
   diary: '翻旧事 · 按时间扫（非语义召回）',
@@ -291,17 +294,17 @@ const LEG_HEADER: Record<LegKind, string> = {
 
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
   const dc = entry.droppedCounts || {};
-  const leg = legKindFromRef(entry.queryRef);
-  const isJudge = leg === 'judge';
-  const isTimeScan = leg !== 'recall' && !isJudge;
-  const scanDesc = leg === 'open_loop'
+  const rowKind = rowKindFromRef(entry.queryRef);
+  const isJudge = rowKind === 'judge';
+  const isTimeScan = rowKind !== 'recall' && !isJudge;
+  const scanDesc = rowKind === 'open_loop'
     ? `扫了 ${entry.corpusCount ?? 0} 条开放承诺`
-    : leg === 'diary'
+    : rowKind === 'diary'
       ? `扫了 ${entry.corpusCount ?? 0} 件日记往事`
       // 联想腿的「因」是当下落地那段文本(queryText),顺带报一下过完滤后的候选池大小
-      : leg === 'association'
+      : rowKind === 'association'
         ? `${entry.queryText || '（这一轮取不到落地文本）'}\n过滤后候选 ${entry.corpusCount ?? 0} 条`
-        : leg === 'judge'
+        : rowKind === 'judge'
           ? `${entry.queryText || '（取不到锚点）'}\n候选池 ${entry.corpusCount ?? 0} 条`
           : (entry.queryText || entry.queryRef || '—');
   return (
@@ -314,7 +317,7 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           {isJudge ? <StatusPill tone="info">判官</StatusPill> : null}
           {isTimeScan ? (
             <StatusPill tone="info">
-              {leg === 'open_loop' ? '待办承诺腿' : leg === 'association' ? '联想腿' : '旧事腿'}
+              {rowKind === 'open_loop' ? '待办承诺腿' : rowKind === 'association' ? '联想腿' : '旧事腿'}
             </StatusPill>
           ) : null}
           {entry.taskLocked ? <StatusPill tone="warning">task-locked</StatusPill> : null}
@@ -323,7 +326,7 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
       </div>
       {/* 触发这次扫描的因:语义腿是当下落地 query;时间腿是「扫了多少条」 */}
       <div className="mt-2 rounded-md bg-muted/40 px-2.5 py-1.5">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{LEG_HEADER[leg]}</div>
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{ROW_HEADER[rowKind]}</div>
         <div className="mt-0.5 line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">{scanDesc}</div>
       </div>
       {entry.surfaced?.length ? (
@@ -332,16 +335,16 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
             {isTimeScan ? '→ 这次拎出来的（shadow，不投递）' : '→ 勾起的记忆（果）'}
           </div>
           {entry.surfaced.map((s, index) => (
-            leg === 'association'
+            rowKind === 'association'
               ? <AssociationLead key={s.ref || index} s={s} />
               : isTimeScan
-                ? <TimeScanLead key={s.ref || index} s={s} leg={leg} />
+                ? <TimeScanLead key={s.ref || index} s={s} leg={rowKind} />
                 : <SurfacedLead key={s.sourceRef || index} s={s} />
           ))}
         </div>
       ) : null}
       {/* 联想腿:四个桶各有多少候选(空桶就少浮,不跨桶借 —— 少浮几条从这里读) */}
-      {leg === 'association' ? (
+      {rowKind === 'association' ? (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span>近场 {dc.bucket_near ?? 0}（配额 0）</span>
           <span>中场 {dc.bucket_mid ?? 0}</span>

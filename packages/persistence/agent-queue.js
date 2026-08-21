@@ -261,7 +261,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   }
 
   // 某个 dedupe_key 前缀下最近一次入队的时刻(毫秒)。给「判断力缺席时按最小间隔节流」用。
-  async function listRecentAgentQueueDeliveredAt(params = {}, config = {}) {
+  async function getLastAgentQueueEnqueuedAt(params = {}, config = {}) {
     const prisma = getClient(config);
     const prefix = typeof params.prefix === 'string' ? params.prefix : '';
     if (!prefix) {
@@ -668,7 +668,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     enqueueAgentQueueMessage,
     listRecentAgentQueueDedupeKeys,
-    listRecentAgentQueueDeliveredAt,
+    getLastAgentQueueEnqueuedAt,
     claimNextAgentQueueMessage,
     foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,

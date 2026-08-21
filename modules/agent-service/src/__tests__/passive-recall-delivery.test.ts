@@ -46,7 +46,7 @@ function fakeDeps(overrides: {
       }
       return Array.from({ length: overrides.deliveredToday ?? 0 }, (_, i) => `recall-surface:open_loop:pad${i}`);
     },
-    async listRecentAgentQueueDeliveredAt() {
+    async getLastAgentQueueEnqueuedAt() {
       return overrides.lastDeliveredAt ?? null;
     },
     async insertRecallShadowLog(record) {
@@ -522,6 +522,7 @@ test('落地腿仍然排除扫描腿的留痕', async () => {
 // 判官只看得到前 N 条。若候选里混着今天已投过的,它可能挑中那条 → ordered 只剩它 →
 // enqueue created=false → 整拍空转,而判官之前的行为是继续往下走候选。
 test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂已投的', async () => {
+  shadowWrites.length = 0;
   const already = landingItem('/x/old.md#1', '今天已经投过的');
   const fresh = landingItem('/x/new.md#1', '还没投过的');
   const { deps, calls } = fakeDeps({
@@ -565,7 +566,7 @@ test('判官的工作内容写进 shadow log(含它看过但没挑的)', async (
   });
   await delivery.deliverOnce();
 
-  const row = shadowWrites.find((r) => r.queryRef === 'delivery_judge');
+  const row = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
   assert.ok(row, '应写一条 delivery_judge 的 shadow 行');
   assert.equal(
     new Date(row!.occurredAt as string | number | Date).getTime(),
@@ -590,8 +591,67 @@ test('判官说「一条都不值得」也留痕 —— 静默不能是隐形的
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '候选')])] }
   });
   await createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: async () => '{"picks":[]}' }).deliverOnce();
-  const row = shadowWrites.find((r) => r.queryRef === 'delivery_judge');
+  const row = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
   assert.ok(row, '判了没投也要有行');
   assert.equal(row!.silent, true);
   assert.equal((row!.droppedCounts as Record<string, number>).picked, 0);
+});
+
+// ── 判官的量 / 判官的崩溃 ─────────────────────────────────────────────────
+// ADR-0006:「投递闸的选取与钩子措辞、以及**投多少条**」归 LLM。
+// 每拍上限只该压住「判官没答上来」那条模板退路 —— 它答了还砍一刀,就又是配额决定量了。
+test('判官挑了两条 → 两条都投(每拍上限不该盖过它的判断)', async () => {
+  shadowWrites.length = 0;
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      '': [landingRow([landingItem('/x/a.md#1', '模板甲'), landingItem('/x/b.md#2', '模板乙')])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 25),
+    judge: async () => JSON.stringify({
+      picks: [{ id: 1, hook: '判官挑的第一条' }, { id: 2, hook: '判官挑的第二条' }]
+    })
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 2, '它说这两条都值得,就都投');
+  assert.deepEqual(calls.map((c) => c.message.bodyForAgent), ['判官挑的第一条', '判官挑的第二条']);
+});
+
+test('判官没答上来 → 模板退路仍然一拍只投一条', async () => {
+  shadowWrites.length = 0;
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      '': [landingRow([landingItem('/x/a.md#1', '模板甲'), landingItem('/x/b.md#2', '模板乙')])]
+    }
+  });
+  const delivery = createPassiveRecallDelivery(deps, { ...gate(true, 25), judge: judgeOf('读不出来') });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].message.bodyForAgent, '模板甲');
+});
+
+// 判官挂了以前是完全静默的:catch 吞掉 → 不写 shadow 行 → 管理端什么都看不到,
+// 表现出来只是「今天怎么不冒了」。它走 /api/internal/llm/debug,不落 llm_request_slices,
+// 这条留痕是唯一能查到「它挂过」的地方。
+test('判官挂了也要留痕:shadow 行带 error,parsed=false', async () => {
+  shadowWrites.length = 0;
+  const { deps } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 25),
+    judge: async () => { throw new Error('haiku timeout'); }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered', '挂了仍退回模板钩子,不阻断投递');
+  const row = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
+  assert.ok(row, '判官挂了也必须写一条 delivery_judge 行');
+  const work = row!.llmWork as Record<string, unknown>;
+  assert.equal(work.parsed, false);
+  assert.equal(work.error, 'haiku timeout');
+  assert.equal(work.raw, null);
+  assert.equal((row!.droppedCounts as Record<string, number>).unparsed, 1);
 });

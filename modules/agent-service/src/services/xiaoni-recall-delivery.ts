@@ -99,7 +99,7 @@ function rotateLegs(lastLeg: string | null): typeof DELIVERABLE_LEGS {
 const PER_TICK_LIMIT = 1;
 // 判官缺席/失灵时的最小投递间隔。14 小时活动窗 ÷ 2h ≈ 7 条/天,和判官在场时的量级相当,
 // 但完全不依赖判断力 —— 这是「判断力缺席就保守」,不是日常节奏控制。
-const FALLBACK_MIN_GAP_MS = Number.parseInt(process.env.XIAONI_RECALL_FALLBACK_GAP_MS || '', 10) || 2 * 60 * 60 * 1000;
+const FALLBACK_MIN_GAP_MS = 2 * 60 * 60 * 1000;
 // 往回看几条 shadow 扫描行找没投过的 lead。两条腿都是 30min 一轮,20 行 ≈ 10 小时。
 const SHADOW_LOOKBACK = 20;
 
@@ -139,7 +139,7 @@ export interface RecallDeliveryDeps {
   /** 判官的工作内容留痕。走召回自己的观察面,不新建通路。 */
   insertRecallShadowLog?(record: Record<string, unknown>, config?: unknown): Promise<unknown>;
   /** 最近一次召回投递的时刻(毫秒)。判断力缺席时的节流用;拿不到 → 不节流。 */
-  listRecentAgentQueueDeliveredAt?(params: { prefix: string }, config?: unknown): Promise<number | null>;
+  getLastAgentQueueEnqueuedAt?(params: { prefix: string }, config?: unknown): Promise<number | null>;
   listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date; limit?: number }, config?: unknown): Promise<string[]>;
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ queueId?: number; status?: string; created?: boolean } | null>;
 }
@@ -341,6 +341,52 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   const readGate = options.readGate ?? defaultReadGate;
   const judge = options.judge ?? null;
 
+  // 判官的工作内容留痕。它走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
+  // (2026-08-21 核查:近 3 天 5264 条 slice 全是 opus-4-6,一条 Haiku 都没有)——
+  // 不在这里记,管理端就完全看不见它判了什么、为什么没投、有没有挂。
+  // 写进召回自己的观察面(shadow log,queryRef 固定成 delivery_judge,与扫描腿同一套路),
+  // 不新建通路。失败吞掉:留痕不该拖垮投递。
+  async function writeJudgeShadow(input: {
+    anchor: string;
+    items: Array<{ id: string; text: string; leg: string }>;
+    verdict: { parsed: boolean; picks: Array<{ id: string; hook: string }> };
+    raw: string | null;
+    error: string | null;
+  }): Promise<void> {
+    if (!deps.insertRecallShadowLog) {
+      return;
+    }
+    const { anchor, items, verdict, raw, error } = input;
+    const picked = new Set(verdict.picks.map((p) => p.id));
+    await deps.insertRecallShadowLog({
+      identityKey: IDENTITY_KEY,
+      queryRef: 'delivery_judge',
+      // 缺 occurredAt 时 store 会落纪元占位(它的默认是给「落地时刻由调用方给」那条路留的)。
+      // 判官这一行是**观察面**,不进任何 cacheable 前缀,用真时钟才对 —— 不给的话
+      // 管理端浮现流水里它全部堆在 1970-01-01,既排不了序也读不出「什么时候判的」。
+      occurredAt: clock(),
+      queryText: anchor.slice(0, 2000),
+      silent: verdict.picks.length === 0,
+      corpusCount: items.length,
+      topK: items.length,
+      surfaced: verdict.picks.map((p) => ({ kind: 'judge_pick', ref: p.id, lead: p.hook })),
+      droppedCounts: { judged: items.length, picked: verdict.picks.length, unparsed: verdict.parsed ? 0 : 1 },
+      // 它看过但没挑的 —— 「为什么没投这条」要靠这个才看得见。
+      droppedSample: items.filter((i) => !picked.has(i.id))
+        .slice(0, 10)
+        .map((i) => ({ verdict: 'judge_skipped', sourceRef: i.id, text: String(i.text).slice(0, 200) })),
+      llmWork: {
+        kind: 'judge',
+        anchor: anchor.slice(0, 1000),
+        candidates: items.map((i) => ({ id: i.id, leg: i.leg, text: String(i.text).slice(0, 200) })),
+        picks: verdict.picks,
+        parsed: verdict.parsed,
+        error,
+        raw
+      }
+    }, databaseConfig).catch(() => undefined);
+  }
+
   // 候选交给判官。id 用 dedupeKey —— 它已经是这段记忆的稳定身份,不另铸一套编号。
   // 锚点(她此刻在做的事)取最近一条向量腿 shadow 的 query_text:那条腿每次落地都写。
   async function runJudge(leads: Lead[]): Promise<{ parsed: boolean; picks: Array<{ id: string; hook: string }> } | null> {
@@ -356,7 +402,17 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       // 正是「她还记不记得」的主要线索。漏传过一次,code review 抓出来的。
       ageDays: lead.ageDays
     }));
-    const raw = await judge(persistence.buildJudgePrompt(items, anchor));
+    let raw: unknown;
+    try {
+      raw = await judge(persistence.buildJudgePrompt(items, anchor));
+    } catch (error) {
+      // 判官挂了(超时 / 5xx)。**这必须看得见**:它走 /api/internal/llm/debug,
+      // 不落 llm_request_slices,不在这里留痕就查无此事 —— 表现出来只是「今天怎么不冒了」。
+      const message = error instanceof Error ? error.message : String(error);
+      moduleLogger.warn('Passive recall judge call failed — 退回模板钩子', { error: message });
+      await writeJudgeShadow({ anchor, items, verdict: { parsed: false, picks: [] }, raw: null, error: message });
+      throw error;
+    }
     const verdict = persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
 
     // 判官的工作内容留痕。它走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
@@ -364,33 +420,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     // 不在这里记,管理端就完全看不见它判了什么、为什么没投。
     // 写进召回自己的观察面(shadow log,queryRef 固定成 delivery_judge,与扫描腿同一套路),
     // 不新建通路。失败吞掉:留痕不该拖垮投递。
-    const picked = new Set(verdict.picks.map((p) => p.id));
-    await (deps.insertRecallShadowLog ? deps.insertRecallShadowLog({
-      identityKey: IDENTITY_KEY,
-      queryRef: 'delivery_judge',
-      // 缺 occurredAt 时 store 会落纪元占位(它的默认是给「落地时刻由调用方给」那条路留的)。
-      // 判官这一行是**观察面**,不进任何 cacheable 前缀,用真时钟才对 —— 不给的话
-      // 管理端浮现流水里它全部堆在 1970-01-01,既排不了序也读不出「什么时候判的」。
-      occurredAt: clock(),
-      queryText: anchor.slice(0, 2000),
-      silent: verdict.picks.length === 0,
-      corpusCount: leads.length,
-      topK: items.length,
-      surfaced: verdict.picks.map((p) => ({ kind: 'judge_pick', ref: p.id, lead: p.hook })),
-      droppedCounts: { judged: items.length, picked: verdict.picks.length, unparsed: verdict.parsed ? 0 : 1 },
-      // 它看过但没挑的 —— 「为什么没投这条」要靠这个才看得见。
-      droppedSample: items.filter((i) => !picked.has(i.id))
-        .slice(0, 10)
-        .map((i) => ({ verdict: 'judge_skipped', sourceRef: i.id, text: String(i.text).slice(0, 200) })),
-      llmWork: {
-        kind: 'judge',
-        anchor: anchor.slice(0, 1000),
-        candidates: items.map((i) => ({ id: i.id, leg: i.leg, text: String(i.text).slice(0, 200) })),
-        picks: verdict.picks,
-        parsed: verdict.parsed,
-        raw: typeof raw === 'string' ? raw.slice(0, 4000) : null
-      }
-    }, databaseConfig) : Promise.resolve()).catch(() => undefined);
+    await writeJudgeShadow({ anchor, items, verdict, raw: typeof raw === 'string' ? raw : null, error: null });
 
     return verdict;
   }
@@ -403,10 +433,10 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
 
   // 最近一次召回投递的时刻(判断力缺席时的节流用)。从队列现读,不存游标。
   async function readLastDeliveryAt(): Promise<number | null> {
-    if (typeof deps.listRecentAgentQueueDeliveredAt !== 'function') {
+    if (typeof deps.getLastAgentQueueEnqueuedAt !== 'function') {
       return null;
     }
-    const at = await deps.listRecentAgentQueueDeliveredAt({ prefix: DEDUPE_PREFIX }, databaseConfig);
+    const at = await deps.getLastAgentQueueEnqueuedAt({ prefix: DEDUPE_PREFIX }, databaseConfig);
     return typeof at === 'number' && Number.isFinite(at) ? at : null;
   }
 
@@ -527,13 +557,19 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
     if (!judgeAnswered) {
       const lastAt = await readLastDeliveryAt().catch(() => null);
       if (lastAt && now.getTime() - lastAt < FALLBACK_MIN_GAP_MS) {
+        moduleLogger.warn('Passive recall fell back to interval throttle — 判官没答上来', {
+          minutesSinceLast: Math.round((now.getTime() - lastAt) / 60_000)
+        });
         return 'none';
       }
     }
 
+    // 判官答了 → 投它挑的那几条(它自己封顶 MAX_PICKS);它已经在说「这几条都值得」,
+    // 再砍一刀就又变成配额决定量了。没答上来时才用每拍上限压住模板钩子那条退路。
+    const perTickLimit = judgeAnswered ? ordered.length : PER_TICK_LIMIT;
     let delivered = 0;
     for (const lead of ordered) {
-      if (delivered >= PER_TICK_LIMIT) {
+      if (delivered >= perTickLimit) {
         break;
       }
       // 幂等靠 dedupe_key 唯一索引兜底:早投过的 created=false → 不算新投递,继续看下一条。

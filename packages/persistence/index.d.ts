@@ -1925,7 +1925,7 @@ export function enqueueAgentQueueMessage(input: AgentQueueEnqueueInput, config?:
   created: boolean;
 }>;
 export function listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date | number; limit?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
-export function listRecentAgentQueueDeliveredAt(params: { prefix: string }, config?: DatabaseUrlConfig): Promise<number | null>;
+export function getLastAgentQueueEnqueuedAt(params: { prefix: string }, config?: DatabaseUrlConfig): Promise<number | null>;
 export type AgentQueueClaimInput = {
   workerId?: string;
   worker_id?: string;

@@ -42,7 +42,7 @@ test('prompt:带上年龄,让判官知道有多久没想起', () => {
 });
 
 test('解析:正常输出', () => {
-  const out = parseJudgeVerdict('{"picks":[{"id":"a","hook":"四十天前你也在门口站了很久"}]}', ['a', 'b']);
+  const out = parseJudgeVerdict('{"picks":[{"id":1,"hook":"四十天前你也在门口站了很久"}]}', ['a', 'b']);
   assert.equal(out.picks.length, 1);
   assert.equal(out.picks[0].id, 'a');
 });
@@ -51,19 +51,19 @@ test('解析:空 picks 是合法结果(判官说这次不值得)', () => {
   assert.deepEqual(parseJudgeVerdict('{"picks":[]}', ['a']).picks, []);
 });
 
-test('解析:模型编的 id 直接丢掉,不猜', () => {
-  const out = parseJudgeVerdict('{"picks":[{"id":"编的","hook":"一句话"},{"id":"a","hook":"真的"}]}', ['a']);
+test('解析:不是序号的 id 直接丢掉,不猜', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":"编的","hook":"一句话"},{"id":1,"hook":"真的"}]}', ['a']);
   assert.deepEqual(out.picks.map((p) => p.id), ['a']);
 });
 
 test('解析:钩子写空的丢掉', () => {
-  const out = parseJudgeVerdict('{"picks":[{"id":"a","hook":"  "},{"id":"b","hook":"有内容"}]}', ['a', 'b']);
+  const out = parseJudgeVerdict('{"picks":[{"id":1,"hook":"  "},{"id":2,"hook":"有内容"}]}', ['a', 'b']);
   assert.deepEqual(out.picks.map((p) => p.id), ['b']);
 });
 
 test('解析:封顶 MAX_PICKS', () => {
-  const picks = Array.from({ length: 9 }, (_, i) => ({ id: `c${i}`, hook: `钩子${i}` }));
-  const ids = picks.map((p) => p.id);
+  const ids = Array.from({ length: 9 }, (_, i) => `c${i}`);
+  const picks = ids.map((_, i) => ({ id: i + 1, hook: `钩子${i}` }));
   assert.equal(parseJudgeVerdict(JSON.stringify({ picks }), ids).picks.length, MAX_PICKS);
 });
 
@@ -99,26 +99,35 @@ test('解析:序号翻回真 id(这是现在的正路)', () => {
   assert.equal(out.picks[0].id, FULL);
 });
 
-test('解析:模型省了前缀回裸哈希 —— 唯一命中就认', () => {
+test('解析:编了一个越界序号 → 丢掉,但 parsed 仍为 true', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":"99","hook":"h"}]}', ['a', 'b']);
+  assert.equal(out.picks.length, 0);
+  assert.equal(out.parsed, true);
+});
+
+test('解析:回真 id 而不是序号 → 丢掉(prompt 里根本没给过真 id)', () => {
   const out = parseJudgeVerdict(
     '{"picks":[{"id":"5b5e3a2bdea1d1f94569388aff783ae9","hook":"源头在这"}]}',
     ['a', FULL, 'c']
-  );
-  assert.equal(out.picks.length, 1, '这一条曾经被静默丢掉');
-  assert.equal(out.picks[0].id, FULL);
-});
-
-test('解析:后缀撞到多条 → 丢掉,不猜', () => {
-  const out = parseJudgeVerdict(
-    '{"picks":[{"id":"xyz","hook":"h"}]}',
-    ['recall-surface:a:xyz', 'recall-surface:b:xyz']
   );
   assert.equal(out.picks.length, 0);
   assert.equal(out.parsed, true, '它确实答了 —— 这不是「没答上来」');
 });
 
-test('解析:编了一个越界序号 → 丢掉,但 parsed 仍为 true', () => {
-  const out = parseJudgeVerdict('{"picks":[{"id":"99","hook":"h"}]}', ['a', 'b']);
-  assert.equal(out.picks.length, 0);
-  assert.equal(out.parsed, true);
+// 曾经留过一条「裸哈希后缀唯一命中就认」的兼容路。它会把**越界序号**当哈希后缀匹配:
+// "4" 在十个 recall-surface:<leg>:<md5hex> 里有约三分之一概率唯一命中一个以 4 结尾的哈希,
+// 于是投出去的是记忆 B、配的却是判官为记忆 A 写的钩子。
+test('解析:越界序号绝不能顺着哈希后缀匹配到别的记忆', () => {
+  const ids = [
+    'recall-surface:association:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4',
+    'recall-surface:association:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb7'
+  ];
+  const out = parseJudgeVerdict('{"picks":[{"id":"4","hook":"判官为第 4 条写的钩子"}]}', ids);
+  assert.equal(out.picks.length, 0, '只有两条候选,序号 4 越界 → 丢掉,不许配到 …a4 那条');
+});
+
+test('解析:方括号或句点抄进来了也认', () => {
+  for (const raw of ['{"picks":[{"id":"[2]","hook":"h"}]}', '{"picks":[{"id":"2.","hook":"h"}]}']) {
+    assert.equal(parseJudgeVerdict(raw, ['a', FULL, 'c']).picks[0].id, FULL, raw);
+  }
 });

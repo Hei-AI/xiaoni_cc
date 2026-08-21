@@ -73,8 +73,11 @@ function buildJudgePrompt(candidates, anchorText) {
 // 模型编的 id / 空钩子照样逐条丢掉(不猜),但那不影响 parsed —— 它确实答了。
 //
 // orderedIds:**按 prompt 里的顺序**给的真 id 数组。模型回的是序号,这里翻回真 id。
-// 容忍两种写法:序号("1" / 1),以及模型直接回了真 id(整串或裸哈希后缀)——
-// 后者是它自己省前缀时的样子,只在**唯一命中**时才认,撞多条就丢。
+//
+// 只认序号。曾经还留过两条兼容路(整串真 id、裸哈希后缀),但 prompt 里现在根本不出现真 id,
+// 那两条既是死码又危险:后缀那条会把**越界序号**当哈希后缀匹配 —— `"4"` 在十个
+// `recall-surface:<leg>:<md5hex>` 里有约三分之一的概率恰好唯一命中一个以 4 结尾的哈希,
+// 于是投出去的是记忆 B、配的却是判官为记忆 A 写的钩子。宁可丢掉,不猜。
 function parseJudgeVerdict(raw, orderedIds) {
   const parsed = extractFirstJsonObject(raw);
   if (!parsed || !Array.isArray(parsed.picks)) {
@@ -82,15 +85,11 @@ function parseJudgeVerdict(raw, orderedIds) {
   }
   const ids = Array.isArray(orderedIds) ? orderedIds.map(String) : [...(orderedIds || [])].map(String);
   const resolve = (rawId) => {
-    const key = String(rawId).trim();
-    if (!key) return null;
-    const index = Number.parseInt(key, 10);
-    if (String(index) === key && index >= 1 && index <= ids.length) {
-      return ids[index - 1];
-    }
-    if (ids.includes(key)) return key;
-    const suffixHits = ids.filter((id) => id.endsWith(key));
-    return suffixHits.length === 1 ? suffixHits[0] : null;
+    // 容忍它把方括号或句点也抄进来(`[2]` / `2.`),但内容必须只有数字。
+    const match = /^\[?(\d{1,3})\]?\.?$/.exec(String(rawId).trim());
+    if (!match) return null;
+    const index = Number.parseInt(match[1], 10);
+    return index >= 1 && index <= ids.length ? ids[index - 1] : null;
   };
   const picks = parsed.picks
     .map((p) => ({
