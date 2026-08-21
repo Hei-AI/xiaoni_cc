@@ -29,8 +29,10 @@ test('prompt:判据是「会让此刻变得不一样吗」,不是「像不像」
 test('prompt:候选与锚点都截断,候选条数封顶', () => {
   const many = Array.from({ length: 40 }, (_, i) => cand(`c${i}`, 'y'.repeat(2000), i));
   const { user } = buildJudgePrompt(many, 'z'.repeat(5000));
-  assert.ok(user.includes('[c0]'));
-  assert.ok(!user.includes(`[c${MAX_CANDIDATES_IN_PROMPT}]`), '超出上限的候选不该进');
+  // 候选按**序号**标(不是真 id)—— 真 id 会被模型省成裸哈希,一省就对不上。
+  assert.ok(user.includes('[1]'));
+  assert.ok(user.includes(`[${MAX_CANDIDATES_IN_PROMPT}]`), '上限之内的候选都该进');
+  assert.ok(!user.includes(`[${MAX_CANDIDATES_IN_PROMPT + 1}]`), '超出上限的候选不该进');
   assert.ok(user.length < 6000, `user 该被截断,实得 ${user.length}`);
 });
 
@@ -83,4 +85,40 @@ test('编的 id 被逐条丢掉,但不影响 parsed —— 它确实答了', () 
   const out = parseJudgeVerdict('{"picks":[{"id":"编的","hook":"x"}]}', ['a']);
   assert.equal(out.parsed, true);
   assert.deepEqual(out.picks, []);
+});
+
+// ── 序号 → 真 id ──────────────────────────────────────────────────────────
+// 2026-08-21 线上第一条真判决就死在这:prompt 给的是完整 key,
+// Haiku 回的是裸哈希(把 `recall-surface:association:` 前缀省了),
+// 于是「编造 id」那道防线把它自己挑的那条丢掉,还对外显示成「判官说一条都不值得」。
+const FULL = 'recall-surface:association:5b5e3a2bdea1d1f94569388aff783ae9';
+
+test('解析:序号翻回真 id(这是现在的正路)', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":2,"hook":"那条街怎么活起来的"}]}', ['a', FULL, 'c']);
+  assert.equal(out.picks.length, 1);
+  assert.equal(out.picks[0].id, FULL);
+});
+
+test('解析:模型省了前缀回裸哈希 —— 唯一命中就认', () => {
+  const out = parseJudgeVerdict(
+    '{"picks":[{"id":"5b5e3a2bdea1d1f94569388aff783ae9","hook":"源头在这"}]}',
+    ['a', FULL, 'c']
+  );
+  assert.equal(out.picks.length, 1, '这一条曾经被静默丢掉');
+  assert.equal(out.picks[0].id, FULL);
+});
+
+test('解析:后缀撞到多条 → 丢掉,不猜', () => {
+  const out = parseJudgeVerdict(
+    '{"picks":[{"id":"xyz","hook":"h"}]}',
+    ['recall-surface:a:xyz', 'recall-surface:b:xyz']
+  );
+  assert.equal(out.picks.length, 0);
+  assert.equal(out.parsed, true, '它确实答了 —— 这不是「没答上来」');
+});
+
+test('解析:编了一个越界序号 → 丢掉,但 parsed 仍为 true', () => {
+  const out = parseJudgeVerdict('{"picks":[{"id":"99","hook":"h"}]}', ['a', 'b']);
+  assert.equal(out.picks.length, 0);
+  assert.equal(out.parsed, true);
 });

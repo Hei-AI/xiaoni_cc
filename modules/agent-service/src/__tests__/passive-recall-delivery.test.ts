@@ -342,10 +342,7 @@ test('判官答上来了就不受兜底间隔约束 —— 该说不值得的是
   });
   const delivery = createPassiveRecallDelivery(deps, {
     ...gate(true, 25, east8At(16)),
-    judge: async (prompt) => {
-      const id = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1])[0];
-      return JSON.stringify({ picks: [{ id, hook: '判官挑的那条' }] });
-    }
+    judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官挑的那条' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
@@ -372,24 +369,24 @@ test('association 不放松重投:日记条目没有「完成」这个状态,键
 const judgeOf = (raw: string) => async () => raw;
 
 test('判官挑中的那条被投,而且用的是它写的钩子(不是模板)', async () => {
+  shadowWrites.length = 0;
   const { deps, calls } = fakeDeps({
     todaysKeys: [],
     rowsByQueryRef: {
       '': [landingRow([landingItem('/x/a.md#1', '模板钩子 A'), landingItem('/x/b.md#2', '模板钩子 B')])]
     }
   });
-  let seenIds: string[] = [];
+  // 判官回的是**序号**(prompt 里给的就是序号,不是真 id)。真 id 从它自己的留痕里读回来。
   const delivery = createPassiveRecallDelivery(deps, {
     ...gate(true, 6),
-    judge: async (prompt) => {
-      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
-      return JSON.stringify({ picks: [{ id: seenIds[1], hook: '判官写的一句人话' }] });
-    }
+    judge: async () => JSON.stringify({ picks: [{ id: 2, hook: '判官写的一句人话' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].message.bodyForAgent, '判官写的一句人话');
-  assert.equal(calls[0].message.dedupeKey, seenIds[1], '投的是判官挑的那条');
+  const judged = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
+  const candidateIds = ((judged!.llmWork as { candidates: Array<{ id: string }> }).candidates).map((c) => c.id);
+  assert.equal(calls[0].message.dedupeKey, candidateIds[1], '投的是判官挑的那条(序号 2 = 第二条)');
 });
 
 test('判官说「一条都不值得」→ 静默,不投', async () => {
@@ -539,15 +536,13 @@ test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂
     todaysKeys: [alreadyKey],
     rowsByQueryRef: { '': [landingRow([already, fresh])] }
   });
-  let seenIds: string[] = [];
   const delivery = createPassiveRecallDelivery(d2, {
     ...gate(true, 6),
-    judge: async (prompt) => {
-      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
-      return JSON.stringify({ picks: [{ id: seenIds[0], hook: '判官挑的' }] });
-    }
+    judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官挑的' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
+  const judged2 = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
+  const seenIds = ((judged2!.llmWork as { candidates: Array<{ id: string }> }).candidates).map((c) => c.id);
   assert.ok(!seenIds.includes(alreadyKey), '已投过的不该进判官的候选');
   assert.equal(c2.length, 1);
   void calls;
@@ -564,13 +559,9 @@ test('判官的工作内容写进 shadow log(含它看过但没挑的)', async (
     todaysKeys: [],
     rowsByQueryRef: { '': [landingRow([a, b])] }
   });
-  let ids: string[] = [];
   const delivery = createPassiveRecallDelivery(deps, {
     ...gate(true, 6),
-    judge: async (prompt) => {
-      ids = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
-      return JSON.stringify({ picks: [{ id: ids[0], hook: '判官写的钩子' }] });
-    }
+    judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官写的钩子' }] })
   });
   await delivery.deliverOnce();
 

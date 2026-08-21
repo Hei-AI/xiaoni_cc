@@ -42,16 +42,22 @@ function buildJudgePrompt(candidates, anchorText) {
     '挑中的每条写一句钩子:一句话点出是哪件事,让她自己决定要不要去翻。',
     '钩子写人话,20-45 字,不要「你之前记过」这种套话开头,直接说事。',
     '',
-    '只输出 JSON:{"picks":[{"id":"<候选 id>","hook":"<一句话>"}]},不要任何其它文字。'
+    '只输出 JSON:{"picks":[{"id":<候选序号>,"hook":"<一句话>"}]},不要任何其它文字。',
+    'id 就是候选前面方括号里的数字,原样抄。'
   ].join('\n');
   const user = [
     '【她此刻在做的事】',
     truncate(anchorText, MAX_ANCHOR_CHARS) || '(拿不到)',
     '',
     '【候选旧记忆】',
+    // 候选用**序号**标,不用真 id。
+    // 2026-08-21 线上第一条真判决就死在这:prompt 里给的是
+    // `recall-surface:association:5b5e3a2b…`,Haiku 回的是裸 `5b5e3a2b…`(把前缀省了),
+    // 于是「编造 id」那条防线把它自己挑的那条丢掉了 —— 判官挑了,我们扔了,还显示成「静默」。
+    // 序号既短又没有可省略的部分,顺带把「模型编 id」的面缩到只剩「编个不存在的序号」。
     ...picked.map((c, i) => {
       const age = Number.isFinite(Number(c.ageDays)) ? `,${Math.floor(Number(c.ageDays))} 天前` : '';
-      return `[${c.id ?? i}]${age} ${truncate(c.text, MAX_CANDIDATE_CHARS)}`;
+      return `[${i + 1}]${age} ${truncate(c.text, MAX_CANDIDATE_CHARS)}`;
     })
   ].join('\n');
   return { system, user };
@@ -65,19 +71,34 @@ function buildJudgePrompt(candidates, anchorText) {
 //                            而不是当成「它说不值得」。把两者混成一个空数组,会让判官一挂
 //                            整条投递腿静默死掉,而且没有任何迹象。
 // 模型编的 id / 空钩子照样逐条丢掉(不猜),但那不影响 parsed —— 它确实答了。
-function parseJudgeVerdict(raw, validIds) {
+//
+// orderedIds:**按 prompt 里的顺序**给的真 id 数组。模型回的是序号,这里翻回真 id。
+// 容忍两种写法:序号("1" / 1),以及模型直接回了真 id(整串或裸哈希后缀)——
+// 后者是它自己省前缀时的样子,只在**唯一命中**时才认,撞多条就丢。
+function parseJudgeVerdict(raw, orderedIds) {
   const parsed = extractFirstJsonObject(raw);
   if (!parsed || !Array.isArray(parsed.picks)) {
     return { parsed: false, picks: [] };
   }
-  const allowed = validIds instanceof Set ? validIds : new Set(Array.isArray(validIds) ? validIds : []);
+  const ids = Array.isArray(orderedIds) ? orderedIds.map(String) : [...(orderedIds || [])].map(String);
+  const resolve = (rawId) => {
+    const key = String(rawId).trim();
+    if (!key) return null;
+    const index = Number.parseInt(key, 10);
+    if (String(index) === key && index >= 1 && index <= ids.length) {
+      return ids[index - 1];
+    }
+    if (ids.includes(key)) return key;
+    const suffixHits = ids.filter((id) => id.endsWith(key));
+    return suffixHits.length === 1 ? suffixHits[0] : null;
+  };
   const picks = parsed.picks
     .map((p) => ({
-      id: p && p.id !== undefined && p.id !== null ? String(p.id) : null,
+      id: p && p.id !== undefined && p.id !== null ? resolve(p.id) : null,
       hook: p && typeof p.hook === 'string' ? p.hook.trim() : ''
     }))
-    // 模型可能编 id,也可能钩子写空 —— 两者都直接丢掉,不猜。
-    .filter((p) => p.id && p.hook && (allowed.size === 0 || allowed.has(p.id)))
+    // 模型可能编序号,也可能钩子写空 —— 两者都直接丢掉,不猜。
+    .filter((p) => p.id && p.hook)
     .slice(0, MAX_PICKS);
   return { parsed: true, picks };
 }
