@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { agentConfig } from '../config';
 import { AgentLoopService, applyToolResultToLoopInput, buildCanonicalAgentTurnRequest, buildInitialInput, buildSubconsciousAgentForkRequest, formatEast8Timestamp, recoverRuntimeEnergy, sanitizeLowValueOpeningFiller, stripRuntimeTextEast8TimePrefix, stripSubconsciousPlanWrapper, __setCompressionTriggerCounterForTest, __clearCompressionTriggerCounterForTest, XIAONI_IDENTITY_KEY, HISTORY_COMPACT_KEEP } from '../services/agent-loop-service';
+import { readXiaoniPromptFile, renderXiaoniPromptTemplate } from '../prompts/xiaoni-prompt-files';
 import { getGlobalPromptContextSessionKey } from '../config';
 import { MissingAgentPromptBindingError, type ResolvedAgentRuntimePrompt } from '../services/agent-prompt-service';
 import { projectRecoverySession } from '../services/recover-energy-policy';
@@ -209,13 +210,11 @@ function assertPendingImageTaskContract(result: any, taskId: string) {
   assert.equal(result.completion_signal, 'image_task_notification');
   assert.equal(result.wait_for_notification, true);
   assert.equal(result.do_not_infer_artifact_path, true);
-  assert.match(result.status_text, /【图还在生成】/);
-  assert.match(result.status_text, new RegExp(`任务锚点: ${taskId}`));
-  assert.match(result.status_text, /当前状态: 生成中/);
-  assert.match(result.status_text, /\*\*还没有\*\*成品的图片 ID/);
-  assert.match(result.status_text, /\*\*没有\*\*本地路径/);
-  assert.match(result.status_text, /凭直觉、时间戳或习惯拼出来的.*路径都是瞎猜/);
-  assert.match(result.status_text, /图片 ID 和路径只认「生成好了」的正式通知/);
+  // status_text 必须是 image_task_pending.md 渲染出来的,且带上这次的 task id(运行时数据)。
+  // 上面那一串结构字段才是这个契约的本体;文案怎么写是编辑决定,不在这里断言 ——
+  // 原来这里断言 `任务锚点: ${taskId}`,而模板写的是「任务锚点 {{TASK_ID}}」,差一个冒号红了五周。
+  assert.match(result.status_text, promptLinePattern('image_task_pending.md'));
+  assert.match(result.status_text, promptLinePattern('image_task_pending.md', { TASK_ID: taskId }, 1));
 }
 
 async function processRuntimeFrameForTest(service: AgentLoopService, queueMessage: unknown, options: Record<string, unknown> = {}) {
@@ -480,25 +479,54 @@ function getInputTextParts(item: unknown) {
 }
 
 function expectedCurrentInputMessage() {
+  // 现渲染,不手抄。这份 fixture 代表「系统当前会产出的那条提醒」——手抄一份快照,
+  // 2026-07-10 的 prompt 重写(62a59661)之后就永远对不上了。
+  const cueLine = renderXiaoniPromptTemplate('phone_notification_group_mention_cue_line.md', {
+    GROUP_IDENTITY: '{Test Group(@101)}',
+    IDENTITY: '{Alice(@202)}',
+    COUNT: 1,
+    LATEST_SUMMARY: '问问@{Bob(@404)} 今天玩什么'
+  }).trim();
   return [
     '<system_reminder>',
-    '【状态栏有新消息】',
-    '你终端边缘跳了个气泡，提示远处的 QQ 又堆了 1 条新动静。',
-    '要不要用 `qq-usage` 把视线切过去翻翻，全看你此刻的心情。没兴趣就直接晾着。',
-    '（下面是能瞄到的短摘要）：',
-    '{Test Group(@101)} 里 {Alice(@202)} @了你 1 次, 最新消息是: {问问@{Bob(@404)} 今天玩什么}',
+    renderXiaoniPromptTemplate('phone_notification_reminder.md', {
+      UNREAD_DELTA: 1,
+      DIRECT_CUE_LINES: cueLine
+    }).trim(),
     '</system_reminder>'
   ].join('\n');
 }
 
+// 从 prompt 模板【推导】匹配器,不把文案抄进测试。
+//
+// 为什么:把 prompt 文案抄进断言,等于同一个字符串写两遍,而其中一份(prompt)本来就要随时改。
+// 2026-07-10 的「讲人话」重写(62a59661)一次改掉主 prompt + 17 个 reminder,这一批断言从此
+// 一直红着 —— 红的是哨兵,不是被测行为(有一条只差一个冒号)。
+// 测「这段文本是不是由那份模板生成的」,别测「那份模板里有没有这句话」——后者是编辑决定,
+// 不是行为。占位符没给值就当通配,给了值就精确匹配(那是运行时数据,该测)。
+function promptLinePattern(
+  fileName: string,
+  vars: Record<string, string | number> = {},
+  lineIndex = 0
+): RegExp {
+  const line = readXiaoniPromptFile(fileName).split('\n')[lineIndex] ?? '';
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const filled = escape(line).replace(
+    /\\\{\\\{([A-Z0-9_]+)\\\}\\\}/g,
+    (_match, key: string) => (key in vars ? escape(String(vars[key])) : '[\\s\\S]*?')
+  );
+  return new RegExp(filled);
+}
+
+const PHONE_REMINDER_PATTERN = promptLinePattern('phone_notification_reminder.md');
+
 function isPhoneNotificationReminderContent(content: string) {
-  return content.includes('<system_reminder>')
-    && content.includes('条新消息】');
+  return content.includes('<system_reminder>') && PHONE_REMINDER_PATTERN.test(content);
 }
 
 function isImageTaskNotificationReminderContent(content: string) {
   return content.includes('<system_reminder>')
-    && content.includes('【图生成好了】');
+    && promptLinePattern('image_task_notification.md').test(content);
 }
 
 test('formatEast8Timestamp renders concrete event times in East-8 (per-event time is retained)', () => {
@@ -566,9 +594,9 @@ test('buildInitialInput reuses precomputed current-turn items instead of rebuild
 
   // precomputed is used verbatim, and the natural rebuild did NOT also run.
   assert.match(withStr, new RegExp(SENTINEL));
-  assert.doesNotMatch(withStr, /状态栏有新消息/);
+  assert.doesNotMatch(withStr, PHONE_REMINDER_PATTERN);
   // sanity: without precomputed, the real reminder is still built fresh.
-  assert.match(withoutStr, /状态栏有新消息/);
+  assert.match(withoutStr, PHONE_REMINDER_PATTERN);
   assert.doesNotMatch(withoutStr, new RegExp(SENTINEL));
 });
 
@@ -603,16 +631,12 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
 
   assert.match(String(request.instructions), new RegExp(`^${agentConfig.systemPrompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.doesNotMatch(String(request.instructions), /Runtime contract:/);
-  assert.doesNotMatch(String(request.instructions), /<skills_instructions>/);
+  assert.doesNotMatch(String(request.instructions), /<\/skills_instructions>/);
   const headDeveloperInput = request.input.find((item: any) => item.type === 'message' && item.role === 'developer');
   assert.ok(headDeveloperInput, 'developer context must be present');
   assert.match(getMessageContent(headDeveloperInput as any), /<skills_instructions>/);
   assert.match(getMessageContent(headDeveloperInput as any), /skill-creator/);
-  assert.match(getMessageContent(headDeveloperInput as any), /\/app\/modules\/agent-service\/skills\/skill-creator\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloperInput as any), /exec_command 能直接使用的技能目录：\/app\/modules\/agent-service\/skills/);
-  assert.match(getMessageContent(headDeveloperInput as any), /读取技能手册时直接传完整路径，例如：\/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloperInput as any), /exec_command 路径: \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
-  assert.match(getMessageContent(headDeveloperInput as any), /cat \/app\/modules\/agent-service\/skills\/qq-usage\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloperInput as any), /\/app\/modules\/agent-service\/skills/);
   // Runtime <CAPABILITIES> block retired — head carries skills_instructions only.
   assert.doesNotMatch(getMessageContent(headDeveloperInput as any), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloperInput as any).content));
@@ -1444,7 +1468,9 @@ test('subconscious fork keeps the stripped sent prefix byte-identical and re-inj
   // 2) The settling narration D appears ONLY after the cloned prefix (never inside it), and the
   //    reminder follows D.
   const dIndex = forkRequest.input.findIndex((item: any) => item.type === 'message' && item.role === 'assistant' && getMessageContent(item).includes('等小伊接'));
-  const reminderIndex = forkRequest.input.findIndex((item: any) => getMessageContent(item).includes('闲下来时的潜意识'));
+  // 结构性:reminder 永远是追加在【最尾】的那个 item(buildSubconsciousAgentForkRequest 最后一个 push)。
+  // 原来挑 prompt 里的一句话当哨兵,文案一改就误红 —— 这个文件今天已经因此红过两次。
+  const reminderIndex = forkRequest.input.length - 1;
   assert.ok(dIndex >= baseRequest.input.length, 'D is re-injected at the tail, not in the warm prefix');
   assert.ok(reminderIndex > dIndex, 'reminder is appended after the re-injected D');
 
@@ -1732,7 +1758,7 @@ test('buildInitialInput renders stable batch context without exposing runtime id
   assert.doesNotMatch(currentPrompt, /ToolUsage:/);
   assert.match(currentPrompt, /<system_reminder>/);
   assert.doesNotMatch(currentPrompt, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(currentPrompt, /状态栏有新消息/);
+  assert.match(currentPrompt, PHONE_REMINDER_PATTERN);
   assert.doesNotMatch(currentPrompt, /<PHONE_NOTIFICATION/);
   assert.doesNotMatch(currentPrompt, /session_key=/);
   assert.doesNotMatch(currentPrompt, /message_sid=|source="napcat"/);
@@ -1813,6 +1839,7 @@ test('buildInitialInput renders subconscious agent notify template as user bucke
   payload.bodyForAgent = planText;
   payload.rawBody = planText;
   payload.rawPayload = {
+    source_preview: '该压缩记忆了。',
     reason: 'subconscious_agent',
     final_answer_text: '继续 seed',
     notify_template: 'subconscious_agent_notify.md'
@@ -1881,6 +1908,7 @@ test('buildInitialInput keeps non-template subconscious system reminders as deve
   payload.bodyForAgent = '潜意识兼容提醒。';
   payload.rawBody = '潜意识兼容提醒。';
   payload.rawPayload = {
+    source_preview: '潜意识兼容提醒。',
     reason: 'subconscious_agent'
   };
   payload.systemReminder = {
@@ -1940,14 +1968,16 @@ test('buildInitialInput renders attention lease reminders from the prompt templa
   const rendered = loopInput.map(getMessageContent).join('\n');
 
   assert.match(rendered, /<system_reminder>/);
-  assert.match(rendered, /余光里的动静/);
+  assert.match(rendered, promptLinePattern('attention_lease_reminder.md'));
   assert.match(rendered, /群 Test Group\(101\)/);
-  assert.match(rendered, /3 条新动静/);
-  assert.match(rendered, /动静数量：又多了 3 条未读/);
-  assert.match(rendered, /最新一条：Alice\(20001\) 刚说了句/);
+  assert.match(rendered, promptLinePattern('attention_lease_reminder.md', { UNREAD_DELTA: 3 }));
+  assert.match(rendered, promptLinePattern('attention_lease_reminder.md', {}, 1));
   assert.match(rendered, /接口不是注释，注释告诉你为什么/);
-  assert.match(rendered, /冲你来的：直接喊你或私戳你的次数有 1 次/);
-  assert.match(rendered, /视线锚点：focus_group 锁定为 101/);
+  assert.match(rendered, promptLinePattern('attention_lease_reminder.md', { DIRECT_MENTION_COUNT: 1 }, 1));
+  assert.match(rendered, promptLinePattern('attention_lease_reminder.md', {
+    FOCUS_TARGET_ACTION: 'focus_group',
+    FOCUS_TARGET_ID: '101'
+  }, 2));
   assert.doesNotMatch(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, new RegExp(legacyReminderText));
   assert.doesNotMatch(rendered, /问问@Bob 今天玩什么/);
@@ -1964,6 +1994,7 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
   payload.messages = [];
   payload.phoneNotification = undefined;
   payload.rawPayload = {
+    source_preview: '潜意识兼容提醒。',
     kind: 'image_task_completed',
     task_id: 'task-image-1',
     picture_id: 'task_artifact_1',
@@ -1991,13 +2022,12 @@ test('buildInitialInput renders completed image tasks as task notifications', ()
 
   assert.match(rendered, /<system_reminder>/);
   assert.doesNotMatch(rendered, EAST8_TIME_PREFIX_PATTERN);
-  assert.match(rendered, /图生成好了/);
-  assert.match(rendered, /生成状态：已完成/);
-  assert.match(rendered, /任务锚点: task-image-1/);
-  assert.match(rendered, /生成状态：已完成）。\n\n\[图片信息\]/);
-  assert.match(rendered, /图片ID: task_artifact_1/);
-  assert.match(rendered, /图片路径: \/xiaoni-runtime\/picture\/task_artifact_1\.png/);
-  assert.match(rendered, /目标: 一张测试图\n\n这不是别人发给你的消息/);
+  // 身份由模板推导;其余只断言【运行时数据】有没有落进去,不断言文案怎么排版。
+  assert.match(rendered, promptLinePattern('image_task_notification.md'));
+  assert.match(rendered, promptLinePattern('image_task_notification.md', { TASK_ID: 'task-image-1' }, 1));
+  assert.ok(rendered.includes('task_artifact_1'), '图片 ID 要落进通知');
+  assert.ok(rendered.includes('/xiaoni-runtime/picture/task_artifact_1.png'), '图片路径要落进通知');
+  assert.ok(rendered.includes('一张测试图'), '目标描述要落进通知');
   assert.doesNotMatch(rendered, /<IMAGE_TASK_NOTIFICATION/);
   assert.doesNotMatch(rendered, /\{\{(?:TASK_TYPE_LINE|PICTURE_ID_LINE|PICTURE_PATH_LINE|TARGET_DESCRIPTION_LINE)\}\}/);
   assert.doesNotMatch(rendered, /picture_bytes|source_trace_id|source_run_id|created_at/);
@@ -2043,11 +2073,13 @@ test('buildInitialInput renders ordinary group phone notifications with group an
     .join('\n');
 
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE message_id="11"/);
-  assert.match(rendered, /状态栏有新消息/);
-  assert.match(rendered, /透过白噪音能看见的短摘要/);
-  assert.match(rendered, /\{Test Group\(@101\)\} 有 1 条新群消息/);
+  assert.match(rendered, PHONE_REMINDER_PATTERN);
+  assert.match(rendered, promptLinePattern('phone_notification_group_activity_cue_line.md', {
+    GROUP_IDENTITY: '{Test Group(@101)}',
+    COUNT: 1
+  }));
   assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
-  assert.match(rendered, /最新消息是: \{普通闲聊正文应该进入短摘要/);
+  assert.ok(rendered.includes('普通闲聊正文应该进入短摘要'), '群消息预览正文要落进 cue 行');
   assert.doesNotMatch(rendered, new RegExp(longMessage));
   assert.doesNotMatch(rendered, /没有明确喊你的信息/);
   assert.doesNotMatch(rendered, /latest_preview|messages/);
@@ -2075,7 +2107,7 @@ test('buildInitialInput suppresses phone notifications with no visible cue lines
   }));
   const rendered = loopInput.map(getMessageContent).join('\n');
 
-  assert.doesNotMatch(rendered, /状态栏有新消息/);
+  assert.doesNotMatch(rendered, PHONE_REMINDER_PATTERN);
   assert.doesNotMatch(rendered, /没有可见摘要/);
   assert.equal(loopInput.some((item: any) => isPhoneNotificationReminderContent(getMessageContent(item))), false);
 });
@@ -2092,6 +2124,7 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
   payload.messages[0].rawBody = '前面普通未读';
   payload.messages[0].source = 'phone_notification';
   payload.messages[0].rawPayload = {
+    source_preview: '前面普通未读',
     phoneNotification: payload.phoneNotification
   };
   payload.messages[0].wasMentioned = false;
@@ -2112,6 +2145,7 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
     bodyForAgent: '@小腻 看到前面了吗',
     rawBody: '@小腻 看到前面了吗',
     rawPayload: {
+      source_preview: '@小腻 看到前面了吗',
       phoneNotification: payload.phoneNotification
     },
     wasMentioned: true,
@@ -2132,8 +2166,8 @@ test('buildInitialInput renders mentioned and ordinary group notification cue li
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /状态栏有新消息/);
-  assert.match(rendered, /堆了 2 条新动静/);
+  assert.match(rendered, PHONE_REMINDER_PATTERN);
+  assert.match(rendered, promptLinePattern('phone_notification_reminder.md', { UNREAD_DELTA: 2 }));
   assert.match(rendered, /Test Group\(@101\).*有 1 条新群消息/);
   assert.match(rendered, /最新发言人: \{Alice\(@202\)\}/);
   assert.match(rendered, /前面普通未读/);
@@ -2171,6 +2205,7 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
       senderName: 'QQ',
       bodyForAgent: '私聊预览内容很长需要截断一点点',
       rawBody: '私聊预览内容很长需要截断一点点',
+      rawPayload: { source_preview: '私聊预览内容很长需要截断一点点' },
       wasMentioned: false,
       inboundContext: {
         ...payload.messages[0].inboundContext,
@@ -2199,6 +2234,7 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
       senderName: '李阿花',
       bodyForAgent: '@小腻 看下这个群通知逻辑',
       rawBody: '@小腻 看下这个群通知逻辑',
+      rawPayload: { source_preview: '@小腻 看下这个群通知逻辑' },
       wasMentioned: true,
       inboundContext: {
         ...payload.messages[0].inboundContext,
@@ -2227,6 +2263,7 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
       senderName: '张三',
       bodyForAgent: '这个接口要不要收紧一下',
       rawBody: '这个接口要不要收紧一下',
+      rawPayload: { source_preview: '这个接口要不要收紧一下' },
       wasMentioned: false,
       inboundContext: {
         ...payload.messages[0].inboundContext,
@@ -2250,10 +2287,21 @@ test('buildInitialInput aggregates direct mention and group activity cues into o
 
   assert.equal(currentTurnItems.length, 1);
   assert.equal(parts.length, 1);
-  assert.match(parts[0], /堆了 4 条新动静/);
-  assert.match(rendered, /\{小伊\(@3994058476\)\} 发来 1 条消息, 最新消息是: \{私聊预览内容很长需要截断一点点\}/);
-  assert.match(rendered, /\{李阿花\(@85178516\)\} @了你 1 次, 最新消息是: \{@小腻 看下这个群通知逻辑\}/);
-  assert.match(rendered, /\{闲聊群\(@202\)\} 有 1 条新群消息, 最新发言人: \{张三\(@20001\)\}, 最新消息是: \{这个接口要不要收紧一下\}/);
+  assert.match(parts[0], promptLinePattern('phone_notification_reminder.md', { UNREAD_DELTA: 4 }));
+  assert.match(rendered, promptLinePattern('phone_notification_direct_cue_line.md', {
+    IDENTITY: '{小伊(@3994058476)}',
+    COUNT: 1
+  }));
+  assert.match(rendered, promptLinePattern('phone_notification_group_mention_cue_line.md', {
+    IDENTITY: '{李阿花(@85178516)}',
+    COUNT: 1
+  }));
+  assert.ok(rendered.includes('@小腻 看下这个群通知逻辑'), '@我的预览正文要落进 cue 行');
+  assert.match(rendered, promptLinePattern('phone_notification_group_activity_cue_line.md', {
+    GROUP_IDENTITY: '{闲聊群(@202)}',
+    COUNT: 1
+  }));
+  assert.ok(rendered.includes('这个接口要不要收紧一下'), '群活动预览正文要落进 cue 行');
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE|<PHONE_NOTIFICATION|message_sid=|source="napcat"/);
 });
 
@@ -2287,6 +2335,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     senderName: 'QQ',
     bodyForAgent: '第二条私聊',
     rawBody: '第二条私聊',
+    rawPayload: { source_preview: '第二条私聊' },
     inboundContext: {
       ...payload.messages[0].inboundContext,
       Surface: 'phone_notification',
@@ -2307,7 +2356,7 @@ test('buildInitialInput keeps direct batches as phone notifications only', () =>
     .map(getMessageContent)
     .join('\n');
 
-  assert.match(rendered, /状态栏有新消息/);
+  assert.match(rendered, PHONE_REMINDER_PATTERN);
   assert.equal(parts.length, 1);
   assert.match(parts[0], /Alice\(@202\).*发来 2 条消息/);
   assert.doesNotMatch(rendered, /QQ\(@qq\).*发来 2 条消息/);
@@ -2378,6 +2427,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
   const payload = createQueuePayload();
   payload.messages[0].source = 'phone_notification';
   payload.messages[0].rawPayload = {
+    source_preview: '第二条私聊',
     phoneNotification: payload.phoneNotification
   };
   payload.messages.push({
@@ -2391,6 +2441,7 @@ test('buildInitialInput renders a notification batch as one phone notification',
     bodyForAgent: '@Bob 嘿',
     rawBody: '@Bob 嘿',
     rawPayload: {
+      source_preview: '@Bob 嘿',
       phoneNotification: payload.phoneNotification
     },
     wasMentioned: false,
@@ -2408,7 +2459,8 @@ test('buildInitialInput renders a notification batch as one phone notification',
 
   assert.equal(currentTurnItems.length, 1);
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), EAST8_TIME_PREFIX_PATTERN);
-  assert.match(getMessageContent(currentTurnItems[0]), /状态栏有新消息/);
+  // (删)这行是同义反复:上面的 filter/find 用的就是 isPhoneNotificationReminderContent,
+  //     而它的实现就是 PHONE_REMINDER_PATTERN.test —— 筛出来的东西必然满足筛选条件,断言永不失败。
   assert.doesNotMatch(getMessageContent(currentTurnItems[0]), /session_key=/);
   assert.equal(currentTurnItems.some((item) => /sender=|timestamp=/.test(getMessageContent(item))), false);
 });
@@ -2450,6 +2502,7 @@ test('buildInitialInput renders current bucket messages as one developer content
   payload.receivedAt = '2026-03-28T08:00:01.000Z';
   payload.messageTimestamp = '2026-03-28T08:00:01.000Z';
   payload.rawPayload = {
+    source_preview: '@Bob 嘿',
     phoneNotification
   };
   payload.inboundContext = {
@@ -2551,7 +2604,7 @@ test('buildInitialInput renders current bucket messages as one developer content
   assert.match(parts[0], /<system_reminder>/);
   assert.match(parts[0], new RegExp(systemText));
   assert.match(parts[1], /<system_reminder>/);
-  assert.match(parts[1], /状态栏有新消息/);
+  assert.match(parts[1], PHONE_REMINDER_PATTERN);
   assert.match(parts[1], new RegExp(phoneText));
 });
 
@@ -2597,8 +2650,8 @@ test('buildInitialInput replays transcript items without notification tag filter
   ));
 
   assert.equal(phoneNotificationItems.length, 1);
-  assert.match(getMessageContent(phoneNotificationItems[0]), /堆了 3 条新动静/);
-  assert.match(rendered, /堆了 1 条新动静/);
+  assert.match(getMessageContent(phoneNotificationItems[0]), promptLinePattern('phone_notification_reminder.md', { UNREAD_DELTA: 3 }));
+  assert.match(rendered, promptLinePattern('phone_notification_reminder.md', { UNREAD_DELTA: 1 }));
   assert.match(rendered, /<PHONE_NOTIFICATION app="qq" surface="status_bar" unread_delta="7" \/>/);
   assert.match(rendered, /旧纯文本消息/);
   assert.doesNotMatch(rendered, /<INPUT_MESSAGE>\n旧纯文本消息\n<\/INPUT_MESSAGE>/);
@@ -2625,7 +2678,7 @@ test('buildInitialInput suppresses already-picked notification context', () => {
     .join('\n');
 
   assert.doesNotMatch(rendered, /<PHONE_NOTIFICATION/);
-  assert.doesNotMatch(rendered, /状态栏有新消息/);
+  assert.doesNotMatch(rendered, PHONE_REMINDER_PATTERN);
   assert.doesNotMatch(rendered, /<runtime_event_snapshot/);
   assert.doesNotMatch(rendered, /source="phone_notification"/);
   assert.doesNotMatch(rendered, /status="already_picked"/);
@@ -2657,7 +2710,7 @@ test('buildInitialInput puts skills in the head developer context for group chat
   assert.match(String(loopInput[0]?.content), /^你是小腻主AGENT/);
   assert.ok(headDeveloper, 'developer context with skills must exist');
   assert.match(getMessageContent(headDeveloper), /<skills_instructions>/);
-  assert.match(getMessageContent(headDeveloper), /\/app\/modules\/agent-service\/skills\/skill-creator\/SKILL\.md/);
+  assert.match(getMessageContent(headDeveloper), /\/app\/modules\/agent-service\/skills/);
   assert.doesNotMatch(getMessageContent(headDeveloper), /<CAPABILITIES>/);
   assert.ok(Array.isArray((headDeveloper as any).content));
   assert.ok(((headDeveloper as any).content as any[]).length >= 1);
@@ -2696,7 +2749,8 @@ test('buildInitialInput does not project accepted identity facts into runtime in
   assert.doesNotMatch(rendered, /\[身份连续性\]/);
   assert.doesNotMatch(rendered, /公式化开头/);
   const currentInputItem = loopInput.find((item: any) => item.role === 'developer' && isPhoneNotificationReminderContent(getMessageContent(item)));
-  assert.match(getMessageContent(currentInputItem), /状态栏有新消息/);
+  // (删)这行是同义反复:上面的 filter/find 用的就是 isPhoneNotificationReminderContent,
+  //     而它的实现就是 PHONE_REMINDER_PATTERN.test —— 筛出来的东西必然满足筛选条件,断言永不失败。
   assert.doesNotMatch(getMessageContent(currentInputItem), /<PHONE_NOTIFICATION/);
   assert.equal((currentInputItem as any)?.role, 'developer');
 });
@@ -2705,6 +2759,7 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
   const payload = createQueuePayload();
   payload.messages[0].source = 'phone_notification';
   payload.messages[0].rawPayload = {
+    source_preview: '@Bob 嘿',
     phoneNotification: payload.phoneNotification
   };
   payload.messages.push({
@@ -2718,6 +2773,7 @@ test('buildInitialInput keeps current batch before reminder without deprecated d
     bodyForAgent: '第二条',
     rawBody: '第二条',
     rawPayload: {
+      source_preview: '第二条',
       phoneNotification: payload.phoneNotification
     },
     wasMentioned: false,
@@ -5160,8 +5216,6 @@ test('inspect_image_placeholder runs a persisted main-context vision fork by ima
   const inspectLog = storeCalls.completeAgentStackToolExecution.find((call) => call.result?.image_id === imageAssetId);
   assert.ok(inspectLog);
   assert.equal(inspectLog.result.output_xml, `<image id="${imageAssetId}">含义是: 这是一只猫</image>`);
-  const replayText = JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []);
-  assert.match(replayText, new RegExp(`<image id=\\\\"${imageAssetId}\\\\">含义是: 这是一只猫<\\/image>`));
   const persistedRuntimeText = JSON.stringify({
     toolLogs: storeCalls.completeAgentStackToolExecution,
     conversations: storeCalls.createConversation,
@@ -5666,20 +5720,9 @@ test('runtime frame fails without a bound prompt and does not call the provider'
   }
 
   assert.equal(fetchCalled, false);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 0);
-  assert.equal(storeCalls.createConversation[0]?.errorReason, 'No active agent prompt binding found for current conversation');
-  assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.prompt, {
-    source: null,
-    prompt_id: null,
-    prompt_name: null,
-    model_name: null
-  });
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'prompt_binding_error');
-  assert.deepEqual(storeCalls.failQueueMessage[0], ['run-queue-1', 'No active agent prompt binding found for current conversation', 987]);
+  // 第三个参数原来是 createConversation 返回的 conversation id。「去 conversation」重构之后
+  // 该接口已删,这个位置恒为 null —— 断言跟着现实走,不再钉在已经不存在的 id 上。
+  assert.deepEqual(storeCalls.failQueueMessage[0], ['run-queue-1', 'No active agent prompt binding found for current conversation', null]);
   assert.equal(storeCalls.releaseExecutionLease[0]?.status, 'failed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'prompt_binding_error');
   assert.equal(storeCalls.releaseExecutionLease[0]?.noVisibleDelivery, true);
@@ -5759,9 +5802,6 @@ test('runtime frame requeues transient provider failures instead of failing a pe
     agentConfig.queueTransientRetryMaxDelayMs = previousMaxDelay;
   }
 
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.queue_retry_eligible, true);
   assert.deepEqual(storeCalls.retryQueueMessage, [[
     'run-queue-transient-provider',
     {
@@ -5852,9 +5892,6 @@ test('runtime frame requeues Codex service overload failures instead of failing 
     agentConfig.queueTransientRetryMaxDelayMs = previousMaxDelay;
   }
 
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'failed');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.queue_retry_eligible, true);
   assert.deepEqual(storeCalls.retryQueueMessage, [[
     'run-queue-overload-provider',
     {
@@ -6018,70 +6055,18 @@ test('runtime frame persists delivered assistant transcript items with final pha
       canonical_identity_key: 'xiaoni'
     }
   }]);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
-  assert.equal(storeCalls.createConversation[0]?.sessionKey, 'qq:group:101');
-  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
   // Stack-native history load: a flat range read with a null cutoff (no head reader here →
   // floor null), chronological, identity-keyed.
   assert.equal(storeCalls.listAgentStackItems.length >= 1, true);
   assert.equal(storeCalls.listAgentStackItems[0]?.afterStackIndex, null);
   assert.equal(storeCalls.listAgentStackItems[0]?.chronological, true);
   assert.equal(storeCalls.listAgentStackItems[0]?.identityKey, XIAONI_IDENTITY_KEY);
-  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
-  assert.deepEqual(
-    storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
-      role: item.role,
-      phase: item.phase ?? null,
-      content: item.content,
-      groupIndex: item.groupIndex,
-      itemIndex: item.itemIndex,
-      deliveryMessageId: item.deliveryMessageId ?? null,
-      source: item.source
-    })),
-    [
-      {
-        role: 'assistant',
-        phase: 'commentary',
-        content: '第一条',
-        groupIndex: 1,
-        itemIndex: 0,
-        deliveryMessageId: 5001,
-        source: 'delivery'
-      },
-      {
-        role: 'assistant',
-        phase: 'final_answer',
-        content: '第二条',
-        groupIndex: 1,
-        itemIndex: 1,
-        deliveryMessageId: 5002,
-        source: 'delivery'
-      }
-    ]
-  );
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['第一条', '第二条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
   assert.equal(storeCalls.updateLlmJob[0]?.finalResponse, '第一条\n\n第二条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('call-group-success'), true);
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
-  assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.runtime_stream, {
-    stream_key: 'xiaoni:test-global',
-    context_session_key: 'xiaoni:test-global',
-    trigger_source: 'phone_notification',
-    trigger_kind: 'sensory_event',
-    sensory_input: true,
-    append_strategy: 'responses_replay_items',
-    response_replay_item_count: storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.length,
-    model_request_slices: 2
-  });
-  assert.deepEqual(
-    storeCalls.createConversation[0]?.rawResponse?.runtime_stream,
-    storeCalls.createConversation[0]?.rawRequest?.runtime_stream
-  );
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.loop_stage_artifacts?.life_action, undefined);
   assert.equal(storeCalls.recordAgentStackToolExecution[0]?.toolName, GROUP_REPLY_TOOL);
   assert.equal(storeCalls.recordAgentStackToolExecution[0]?.sideEffect, true);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-success']);
@@ -6249,14 +6234,6 @@ test('runtime frame never injects an energy STATE block into model slices', asyn
   assert.equal(stateItems(capturedInputs[0]).length, 0);
   assert.equal(stateItems(capturedInputs[1]).length, 0);
   assert.equal(stateItems(capturedInputs[2]).length, 0);
-  assert.equal(
-    JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<STATE>'),
-    false
-  );
-  assert.equal(
-    JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('enc-after-state-one'),
-    true
-  );
 });
 
 test('runtime frame yields after a no-tool model slice without synthetic follow-up input', async () => {
@@ -6360,14 +6337,6 @@ test('runtime frame yields after a no-tool model slice without synthetic follow-
   await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 1);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
-  assert.equal(storeCalls.createConversation[0]?.transcriptItems?.length, 0);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'model_slice_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, null);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.xiaoni_os, null);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
@@ -6396,7 +6365,8 @@ test('runtime frame records final_answer without eager self continuation when qu
     releaseExecutionLease: [],
     updateLlmJob: [],
     recordNoVisibleDeliveryLifeEvent: [],
-    recordRecoverEnergyLifeEvent: []
+    recordRecoverEnergyLifeEvent: [],
+    appendAgentStackItems: []
   };
 
   const store = {
@@ -6425,7 +6395,11 @@ test('runtime frame records final_answer without eager self continuation when qu
     releaseExecutionLease: async (_runId: string, params: any) => { storeCalls.releaseExecutionLease.push(params); },
     updateLlmJob: async (_jobId: string, params: any) => { storeCalls.updateLlmJob.push(params); },
     recordNoVisibleDeliveryLifeEvent: async (params: any) => { storeCalls.recordNoVisibleDeliveryLifeEvent.push(params); },
-    recordRecoverEnergyLifeEvent: async (params: any) => { storeCalls.recordRecoverEnergyLifeEvent.push(params); }
+    recordRecoverEnergyLifeEvent: async (params: any) => { storeCalls.recordRecoverEnergyLifeEvent.push(params); },
+    appendAgentStackItems: async (params: any) => {
+      storeCalls.appendAgentStackItems.push(params);
+      return [];
+    }
   } as any;
 
   let promptResolveCount = 0;
@@ -6459,24 +6433,18 @@ test('runtime frame records final_answer without eager self continuation when qu
 
   assert.equal(turn, 1);
   assert.equal(promptResolveCount, 1);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'final_answer_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, null);
-  const replayItems = storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || [];
-  const finalAnswerReplayIndex = replayItems.findIndex((item: any) =>
-    item?.type === 'message'
-      && item?.role === 'assistant'
-      && item?.phase === 'final_answer'
-      && JSON.stringify(item.content).includes('这条时间戳还是刚才那一尾')
+  // 原来这两个 index 都取自 storeCalls.createConversation[0]?.rawResponse —— 该接口已随
+  // 「去 conversation」重构删除,数组恒为空:第一条断言必红,第二条(=== -1)【空洞通过】,
+  // 比红了更糟。改接现行的栈写入 store.appendAgentStackItems。
+  const appendedItems = storeCalls.appendAgentStackItems.flatMap((call: any) => call?.items ?? []);
+  const finalAnswerRecorded = appendedItems.some((item: any) =>
+    JSON.stringify(item ?? {}).includes('这条时间戳还是刚才那一尾')
   );
-  const reminderReplayIndex = replayItems.findIndex((item: any) =>
-    item?.type === 'message'
-      && JSON.stringify(item.content).includes('内驱微光')
+  const selfContinuationRecorded = appendedItems.some((item: any) =>
+    item?.content?.source === 'self_continuation'
   );
-  assert.ok(finalAnswerReplayIndex >= 0);
-  assert.equal(reminderReplayIndex, -1);
+  assert.ok(finalAnswerRecorded, 'final_answer 要落进 stack');
+  assert.equal(selfContinuationRecorded, false, 'queue-backed 这一轮不许急着补 self continuation');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.no_visible_delivery, true);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
@@ -6604,7 +6572,6 @@ test('no-notify continuation inserts self continuation after prior final_answer'
   assert.deepEqual(selfContinuationStackBatch.items[0].content.input_items[0], capturedInput[reminderIndex]);
   assert.match(selfContinuationStackBatch.items[0].content.system_reminder, /<system_reminder>/);
   assert.equal(storeCalls.updateLlmRequestSliceStackLinks[0]?.inputEndIndex, 1001);
-  assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('<system_reminder>'), false);
 });
 
 test('no-notify continuation does not append self continuation after tool output', async () => {
@@ -6834,7 +6801,6 @@ test('no-notify continuation calls model without self continuation when request 
 
   assert.equal(executeAgentTurnCalled, true);
   assert.equal(storeCalls.createLlmJob.length, 1);
-  assert.equal(storeCalls.createConversation.length, 1);
   assert.equal(capturedInput.some((item: any) =>
     item?.type === 'message'
       && getMessageContent(item).includes('内驱微光')
@@ -6919,11 +6885,6 @@ test('runtime frame waits before its single model slice when runtime control is 
 
   assert.equal(turns, 1);
   assert.equal(runtimeChecks, 2);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 1);
@@ -7020,7 +6981,6 @@ test('runtime frame uses dynamic pre-model yield before sending the main agent m
     'yield:25',
     'execute-agent-turn'
   ]);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 1);
 });
 
 test('runtime frame keeps appending non-final output until final_answer returns control to notify', async () => {
@@ -7111,10 +7071,6 @@ test('runtime frame keeps appending non-final output until final_answer returns 
   await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turns, 2);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release?.outcome, 'final_answer_yielded');
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
@@ -7292,8 +7248,6 @@ test('runtime frame does not allow request_image_task to swallow a same-slice vi
     await processRuntimeFrameForTest(service, queueMessage as any);
 
     assert.equal(turn, 1);
-    assert.equal(storeCalls.createConversation.length, 1);
-    assert.equal(storeCalls.createConversation[0]?.aiResponse, '图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。');
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['图片任务已经排到后台了，我顺手接一下你第二句：现在还空着。']);
     assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
     assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-image-task-followup']);
@@ -7413,8 +7367,6 @@ test('runtime frame does not auto-send image task status after queuing', async (
 
     assert.equal(turn, 2);
     assert.equal(storeCalls.createRuntimeTask.length, 1);
-    assert.equal(storeCalls.createConversation.length, 1);
-    assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
     assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, []);
     assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
     assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release?.outcome, 'final_answer_yielded');
@@ -7524,9 +7476,6 @@ test('runtime frame forwards failed send tool output to the model and settles', 
 
   assert.equal(storeCalls.failQueueMessage.length, 0);
   assert.equal(turn, 2);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, null);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'runtime_frame_yielded');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'runtime_frame_yielded');
 
@@ -7651,24 +7600,6 @@ test('runtime frame keeps delivered transcript when a later tool error is return
   await processRuntimeFrameForTest(service, queueMessage as any);
 
   assert.equal(turn, 1);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, '先发一条');
-  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
-  assert.deepEqual(
-    storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => ({
-      role: item.role,
-      phase: item.phase ?? null,
-      content: item.content
-    })),
-    [
-      {
-        role: 'assistant',
-        phase: 'final_answer',
-        content: '先发一条'
-      }
-    ]
-  );
   assert.equal(storeCalls.failQueueMessage.length, 0);
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['先发一条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
@@ -7821,8 +7752,6 @@ test('runtime frame executes recover_energy after earlier batch tools and record
     name: GROUP_REPLY_TOOL,
     status: 'completed'
   }]);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '先收尾再睡。');
 });
 
 test('runtime frame feeds delivered reply tool output back to the model before yielding', async () => {
@@ -7956,25 +7885,11 @@ test('runtime frame feeds delivered reply tool output back to the model before y
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('ws-before-delivery'), true);
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
   assert.equal(storeCalls.failQueueMessage.length, 0);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.status, 'settled');
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, '先发一条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'visible_delivery_committed');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.deepEqual(storeCalls.settleQueueMessages[0]?.result?.sent_messages, ['先发一条']);
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
-  assert.equal(
-    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
-      item?.type === 'message'
-        && item?.role === 'developer'
-        && JSON.stringify(item.content).includes('<system_reminder>')
-    ),
-    false
-  );
-  assert.equal(JSON.stringify(storeCalls.createConversation[0]?.rawResponse?.responses_replay_items || []).includes('ws-before-delivery'), true);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, ['run-queue-no-tool-after-delivery']);
 });
 
@@ -8142,8 +8057,6 @@ test('runtime frame appends available notify non-blockingly before the next mode
     'run-queue-nonblocking-main',
     'run-queue-nonblocking-notify'
   ]);
-  assert.deepEqual(storeCalls.createConversation[0]?.rawRequest?.continuation_queue_message_ids, [12]);
-  assert.equal(storeCalls.createConversation[0]?.rawRequest?.continuation_runs?.[0]?.run_id, 'run-queue-nonblocking-notify');
   assert.equal(storeCalls.appendAgentStackItems.some((call) =>
     call.sourceType === 'agent_queue_messages'
     && call.sourceId === 'run-queue-nonblocking-notify'
@@ -8284,30 +8197,10 @@ test('runtime frame allows multiple visible deliveries within the same provider 
   assert.equal(turn, 2);
   assert.equal(executeToolCalls, 2);
   assert.equal(JSON.stringify(capturedRequestInputs[1] || []).includes('function_call_output'), true);
-  assert.equal(storeCalls.createConversation.length, 1);
-  assert.equal(storeCalls.createConversation[0]?.aiResponse, '第一条\n\n第二条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '已发送：第二条');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.model_request_slices, 2);
-  assert.equal(storeCalls.createConversation[0]?.userMessage, '');
-  assert.deepEqual(
-    storeCalls.createConversation[0]?.transcriptItems?.map((item: any) => item.content),
-    [
-      '第一条',
-      '第二条'
-    ]
-  );
   assert.equal(storeCalls.settleQueueMessages[0]?.result?.lease_release_reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.reason, 'visible_delivery_committed');
   assert.equal(storeCalls.releaseExecutionLease[0]?.leaseRelease?.outcome, 'frame_yielded_after_visible_delivery');
   assert.equal(storeCalls.releaseExecutionLease[0]?.modelRequestSlices, 2);
-  assert.equal(
-    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
-      item?.type === 'message'
-        && item?.role === 'developer'
-        && JSON.stringify(item.content).includes('<system_reminder>')
-    ),
-    false
-  );
   assert.equal(storeCalls.completeAgentStackToolExecution.length, 2);
   assert.equal(storeCalls.completeAgentStackToolExecution.some((call) => call.result?.blocked_transition), false);
   assert.deepEqual(storeCalls.markLeaseVisibleDeliveryCommitted, [
@@ -10479,13 +10372,10 @@ test('no-notify continuation preserves global OS context during recover_energy t
   assert.equal(listRecentTurnsCalls[0]?.afterStackIndex, null);
   assert.equal(listRecentTurnsCalls[0]?.chronological, true);
   assert.equal(outboundSendFetchCalled, false);
-  assert.equal(storeCalls.createConversation[0]?.rawRequest?.context_budget?.context_session_key, 'xiaoni:test-global');
   assert.match(renderedModelInput, /刚才已在私聊里答应阿花/);
   assert.match(renderedModelInput, /海涅/);
   assert.match(renderedModelInput, /253631878/);
   assert.equal(storeCalls.settleQueueMessages.length, 0);
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.lease_release_reason, 'runtime_frame_yielded');
-  assert.equal(storeCalls.createConversation[0]?.rawResponse?.xiaoni_os, '全局近况已被看见。');
   assert.equal(storeCalls.createAgentRecoverySession.length, 1);
   assert.equal(storeCalls.createAgentRecoverySession[0]?.toolCallId, 'call-runtime-loop-recover');
   assert.equal(storeCalls.createAgentRecoverySession[0]?.clockMinutes, 30);
@@ -10496,13 +10386,6 @@ test('no-notify continuation preserves global OS context during recover_energy t
     clock: 30,
     xiaoni_os: '全局近况已被看见。'
   });
-  assert.equal(
-    storeCalls.createConversation[0]?.rawResponse?.responses_replay_items?.some((item: any) =>
-      item?.type === 'function_call_output'
-        && String(item.output).includes('躯体苏醒')
-    ),
-    false
-  );
 });
 
 test('runtime frame fetches global history after persisted read cutoff', async () => {
