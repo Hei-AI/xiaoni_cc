@@ -598,6 +598,48 @@ function leadTemplateForItem(item, { runtimePaths }) {
   return null; // → 通用兜底(她自己的动作流落这里:「你之前碰过和这个像的事 → …」)
 }
 
+// 机器参数,不是语言。
+//
+// 动作流里混着少量**纯参数**的工具调用 —— 典型是 computer_use 的
+// `{"action":"scroll","coordinate":[400,300],"scroll_amount":5,"scroll_direction":"down"}`。
+// 它进语料就是纯噪音:被动召回的命题是「她不知道自己做过」,而一次滚动**没有任何**
+// 值得她想起来的内容。2026-08-21 回归集实测:这类行抢到过一个 top-1(挤掉一条日记条目)。
+//
+// 判据必须**窄**:同样是 JSON 形状的 `{"cmd":"# 不困。53分钟。\n# 在 synth 里继续…"}`
+// 和 recover_energy 的 `{"reason":"一天半了。脑子在空转。…"}` 是她最好的材料之一,
+// 一条都不能误伤;`{"path":"/xiaoni-runtime/reading/liangzhuang_full.txt","limit":100}`
+// (她读了哪一段)也该留着。所以不按长度卡 —— 短的中文句子会被误杀 ——
+// 而是按**形状**:payload 里每一个字符串值都是**裸枚举词**(纯 ASCII 字母/下划线、
+// 不含空白、不含 CJK、不含路径分隔符)才算纯参数。scroll / down / key / Return 全中,
+// 中文一个字都碰不到。真库 16545 条动作流里这条命中 11 条。
+const BARE_ENUM_TOKEN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+
+function isMachineParamsOnly(text) {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return false; // 不是 payload 形状,不归这条管
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false; // 解不开就当散文处理(截断过的 payload 也走这条,宁可放进去)
+  }
+  const strings = [];
+  const walk = (node) => {
+    if (typeof node === 'string') {
+      strings.push(node);
+    } else if (Array.isArray(node)) {
+      node.forEach(walk);
+    } else if (node && typeof node === 'object') {
+      Object.values(node).forEach(walk); // 只看值,不看键 —— 键是 schema 不是内容
+    }
+  };
+  walk(parsed);
+  // 一个字符串值都没有(纯数字坐标)也是纯参数。
+  return strings.every((value) => BARE_ENUM_TOKEN.test(value));
+}
+
 // 把任意动作流条目(非 operator 噪音)转成统一的可召回记忆记录,或 null。
 // 返回 { sourceKind, sourceRef, occurredAt, embeddingText, provenance, contentHash }。
 function buildRecallCueFromActionStreamItem(item) {
@@ -624,6 +666,9 @@ function buildRecallCueFromActionStreamItem(item) {
   const embeddingText = truncateText(normalizeRecallText([title, body].filter(Boolean).join('\n')), 1200);
   if (!embeddingText) {
     return null; // 没有可嵌内容。
+  }
+  if (isMachineParamsOnly(embeddingText)) {
+    return null; // 纯参数(滚动坐标之类),没有可想起来的内容。
   }
 
   const cueClass = sourceKindForItem(item) || 'db_life_cue';
@@ -718,6 +763,7 @@ module.exports = {
   extractRuntimePaths,
   buildRecallCueFromActionStreamItem,
   buildRecallCuesFromActionStream,
+  isMachineParamsOnly,
   buildRecallCueFromInboundMessage,
   normalizeRecallText
 };
