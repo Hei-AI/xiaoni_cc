@@ -309,7 +309,7 @@ test('展开:算术结果强 → 不调用小模型', async () => {
   });
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-strong' });
   assert.equal(called, 0, '强命中不该展开');
-  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+  assert.equal(persistence.calls.shadowLogs[0].llmWork, null);
 });
 
 test('展开:候选太少 → 触发,把新捞到的并进池子并留痕', async () => {
@@ -336,10 +336,11 @@ test('展开:候选太少 → 触发,把新捞到的并进池子并留痕', asyn
   });
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-weak' });
   const log = persistence.calls.shadowLogs[0];
-  assert.ok(log.queryExpansion, '应留下展开痕迹');
-  assert.deepEqual(log.queryExpansion.tags, ['#hwc']);
-  assert.equal(log.queryExpansion.queries.length, 2);
-  assert.ok(log.queryExpansion.addedCount >= 1, '展开该捞到新候选');
+  assert.ok(log.llmWork, '应留下展开痕迹');
+  assert.equal(log.llmWork.kind, 'expansion');
+  assert.deepEqual(log.llmWork.tags, ['#hwc']);
+  assert.equal(log.llmWork.queries.length, 2);
+  assert.ok(log.llmWork.added >= 1, '展开该捞到新候选');
 });
 
 test('展开:小模型挂了 → 退回单 query,不阻断召回', async () => {
@@ -351,14 +352,14 @@ test('展开:小模型挂了 → 退回单 query,不阻断召回', async () => {
   });
   const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-expfail' });
   assert.ok(result, '不该抛');
-  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+  assert.equal(persistence.calls.shadowLogs[0].llmWork, null);
 });
 
 test('展开:不注入 expandQueries → 完全不展开(行为同改动前)', async () => {
   const persistence = fakePersistence({ candidates: [] });
   const ingest = createRecallIngest({ embed: embedOnes, persistence });
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-noexp' });
-  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+  assert.equal(persistence.calls.shadowLogs[0].llmWork, null);
 });
 
 test('展开:重取到的重复 ref 不会被算两遍', async () => {
@@ -378,7 +379,7 @@ test('展开:重取到的重复 ref 不会被算两遍', async () => {
     expandQueries: async () => '{"queries":["a","b","c"]}'
   });
   await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-dup' });
-  assert.equal(persistence.calls.shadowLogs[0].queryExpansion.addedCount, 1, '同一 ref 只算一次');
+  assert.equal(persistence.calls.shadowLogs[0].llmWork.added, 1, '同一 ref 只算一次');
 });
 
 // 展开触发闸必须用 **band-pass 之后**的量。第一版拿 raw cos 和「取回的池子大小」当判据:
