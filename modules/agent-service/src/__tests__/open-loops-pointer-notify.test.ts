@@ -36,7 +36,7 @@ function fakeDeps(sentKeys: string[] = []) {
 }
 
 const opts = (extra: Record<string, unknown> = {}) => ({
-  enabled: true,
+  readEnabled: async () => true,
   intervalHours: 24,
   minOpen: 5,
   now: () => new Date('2026-08-20T02:00:00Z'),
@@ -50,9 +50,20 @@ test('计数口径与写端一致:只数 `- [ ]`,`[x]` 和 `[-]` 都不算', () 
   assert.equal(countOpenLoops(null as unknown as string), 0);
 });
 
-test('默认 OFF', async () => {
+test('管理端关掉 → 这一拍就不投(开关每拍现读,不用重启)', async () => {
   const { deps, calls } = fakeDeps();
-  const n = createOpenLoopsNotify(deps, { ...opts(), enabled: false });
+  const n = createOpenLoopsNotify(deps, { ...opts(), readEnabled: async () => false });
+  assert.equal(await n.notifyOnce(), 'disabled');
+  assert.equal(calls.length, 0);
+});
+
+// 这条通道会主动唤醒主 loop。读不到开关时必须当关着 —— 不能「读失败就照投」。
+test('开关读不出来 → fail-closed,当关着', async () => {
+  const { deps, calls } = fakeDeps();
+  const n = createOpenLoopsNotify(deps, {
+    ...opts(),
+    readEnabled: async () => { throw new Error('db down'); }
+  });
   assert.equal(await n.notifyOnce(), 'disabled');
   assert.equal(calls.length, 0);
 });

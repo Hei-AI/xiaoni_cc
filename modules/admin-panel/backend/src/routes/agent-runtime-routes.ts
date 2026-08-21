@@ -1462,6 +1462,11 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       if (typeof body.passiveRecallDeliveryEnabled === 'boolean') {
         patch.passiveRecallDeliveryEnabled = body.passiveRecallDeliveryEnabled;
       }
+      // 欠账指针通知:同样会主动唤醒主 loop,同样必须能在页面上一键关掉。
+      // 之前它只有 compose 里的 env,关一次要改文件 + 重启整个 agent-service。
+      if (typeof body.openLoopsNotifyEnabled === 'boolean') {
+        patch.openLoopsNotifyEnabled = body.openLoopsNotifyEnabled;
+      }
       if (Object.prototype.hasOwnProperty.call(body, 'passiveRecallDeliveryDailyCap')) {
         // 0 是合法值(等同关闭),所以用 non-negative 而不是 positive。
         const value = parseNonNegativeInteger(body.passiveRecallDeliveryDailyCap);

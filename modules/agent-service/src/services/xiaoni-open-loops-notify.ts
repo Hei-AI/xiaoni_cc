@@ -30,7 +30,10 @@ const envNum = (name: string, dflt: number): number => {
   return Number.isFinite(raw) && raw > 0 ? raw : dflt;
 };
 
-const ENABLED = process.env.XIAONI_OPEN_LOOPS_NOTIFY_ENABLED === 'true';
+// 开关的唯一真理源是 agent_runtime_control(管理端可改、每拍现读),不是 env。
+// 这条通道会**主动唤醒主 loop**,ADR-0005 把「别吵」的责任放在闸门上 ——
+// 那么「关得掉」就必须是结构性事实,不能是「改 compose 再重启整个 agent-service」。
+// 读失败 → fail-closed 当关着。
 const INTERVAL_HOURS = envNum('XIAONI_OPEN_LOOPS_NOTIFY_INTERVAL_HOURS', 24);
 // 少于这个数不提 —— 清单本来就短的时候,提醒只是噪音。
 const MIN_OPEN_TO_NOTIFY = envNum('XIAONI_OPEN_LOOPS_NOTIFY_MIN_OPEN', 5);
@@ -41,7 +44,8 @@ export interface OpenLoopsNotifyDeps {
 }
 
 export interface OpenLoopsNotifyOptions {
-  enabled?: boolean;
+  /** 现读开关。默认走 agent_runtime_control.open_loops_notify_enabled。 */
+  readEnabled?: () => Promise<boolean>;
   intervalHours?: number;
   minOpen?: number;
   now?: () => Date;
@@ -84,14 +88,15 @@ async function defaultReadOpenLoops(): Promise<string | null> {
 }
 
 export function createOpenLoopsNotify(deps: OpenLoopsNotifyDeps, options: OpenLoopsNotifyOptions = {}) {
-  const enabled = options.enabled ?? ENABLED;
+  const readEnabled = options.readEnabled ?? defaultReadEnabled;
   const intervalHours = Math.max(1, options.intervalHours ?? INTERVAL_HOURS);
   const minOpen = Math.max(0, options.minOpen ?? MIN_OPEN_TO_NOTIFY);
   const clock = options.now ?? (() => new Date());
   const readOpenLoops = options.readOpenLoops ?? defaultReadOpenLoops;
 
   async function notifyOnce(): Promise<'disabled' | 'outside_window' | 'too_few' | 'already_sent' | 'sent' | 'unreadable'> {
-    if (!enabled) {
+    // 每拍现读:管理端关掉后最多一拍就停,不用重启。
+    if (!(await readEnabled().catch(() => false))) {
       return 'disabled';
     }
     const markdown = await readOpenLoops().catch(() => null);
@@ -183,10 +188,15 @@ export function createOpenLoopsNotify(deps: OpenLoopsNotifyDeps, options: OpenLo
   return { notifyOnce };
 }
 
+async function defaultReadEnabled(): Promise<boolean> {
+  const control = await persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' }, databaseConfig);
+  return control.openLoopsNotifyEnabled === true;
+}
+
 const defaultNotify = createOpenLoopsNotify(persistence as unknown as OpenLoopsNotifyDeps);
 
 export function sendOpenLoopsPointerNotifyOnce() {
   return defaultNotify.notifyOnce();
 }
 
-export const openLoopsNotifyConfig = { enabled: ENABLED, intervalHours: INTERVAL_HOURS };
+export const openLoopsNotifyConfig = { intervalHours: INTERVAL_HOURS };

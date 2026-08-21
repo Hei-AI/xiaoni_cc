@@ -34,6 +34,7 @@ type RuntimeControl = {
   psychAssessmentGateEnabled: boolean;
   passiveRecallDeliveryEnabled: boolean;
   passiveRecallDeliveryDailyCap: number;
+  openLoopsNotifyEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   energyPolicyDefaults?: Record<string, number>;
   updatedAt: string | null;
@@ -87,7 +88,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests' | 'psychAssessmentGateEnabled' | 'passiveRecallDeliveryEnabled' | 'passiveRecallDeliveryDailyCap'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests' | 'psychAssessmentGateEnabled' | 'passiveRecallDeliveryEnabled' | 'passiveRecallDeliveryDailyCap' | 'openLoopsNotifyEnabled'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -433,6 +434,9 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const passiveRecallDeliveryEnabled = typeof pendingPatch?.passiveRecallDeliveryEnabled === 'boolean'
     ? pendingPatch.passiveRecallDeliveryEnabled
     : control?.passiveRecallDeliveryEnabled ?? false;
+  const openLoopsNotifyEnabled = typeof pendingPatch?.openLoopsNotifyEnabled === 'boolean'
+    ? pendingPatch.openLoopsNotifyEnabled
+    : control?.openLoopsNotifyEnabled ?? false;
   const currentRecallDeliveryDailyCap = typeof pendingPatch?.passiveRecallDeliveryDailyCap === 'number'
     ? pendingPatch.passiveRecallDeliveryDailyCap
     : control?.passiveRecallDeliveryDailyCap ?? 25;
@@ -1221,6 +1225,28 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               </Button>
             </div>
           </form>
+          <div className="flex flex-col gap-5 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-foreground">欠账指针通知</div>
+              <div className="text-sm text-muted-foreground">
+                {openLoopsNotifyEnabled
+                  ? '已开启：每天一条「open-loops.md 里还有 N 条没划掉」，只给指针和计数。'
+                  : '已关闭：不提欠账（当前默认）。'}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                欠账已从召回里撤出——它是唯一有「做完」这个状态的类别，靠联想浮现不合适。这条通道只给指针，从不列条目：要看细节她自己去读文件。少于 5 条不提，她收尾睡觉的时段（23:00–09:00）不提，文件读不出来时不猜数。
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+              <Switch
+                checked={openLoopsNotifyEnabled}
+                disabled={controlQuery.isLoading || mutation.isPending}
+                onCheckedChange={(checked) => mutation.mutate({ openLoopsNotifyEnabled: Boolean(checked) })}
+                aria-label="欠账指针通知"
+              />
+            </div>
+          </div>
         </div>
       </SectionPanel>
 

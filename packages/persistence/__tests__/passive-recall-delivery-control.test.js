@@ -86,3 +86,34 @@ test('没提到这两个字段的 patch 不会把它们冲掉(CASE 走 ELSE 保�
   assert.match(statement, /ELSE agent_runtime_control\.passive_recall_delivery_enabled/);
   assert.match(statement, /ELSE agent_runtime_control\.passive_recall_delivery_daily_cap/);
 });
+
+// ── 欠账指针通知的开关 ────────────────────────────────────────────────────
+// 它跟召回投递一样会**主动唤醒主 loop**,所以「关得掉」必须是结构性事实。
+// 之前它只有 compose 里的 env:关一次要改文件 + 重启整个 agent-service。
+test('欠账指针通知:默认关着,且列会自愈补上', async () => {
+  const { statements, persistence } = createPersistence([[]]);
+  await persistence.ensureAgentRuntimeControlSchema();
+  const ddl = statements.join('\n');
+  assert.match(ddl, /open_loops_notify_enabled BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(ddl, /ADD COLUMN IF NOT EXISTS open_loops_notify_enabled/);
+  const control = await persistence.getAgentRuntimeControl({ identityKey: 'xiaoni' });
+  assert.equal(control.openLoopsNotifyEnabled, false);
+});
+
+test('欠账指针通知:开关进 SQL,且不提它的 patch 不会把它冲掉', async () => {
+  const { queries, persistence } = createPersistence([[{
+    identity_key: 'xiaoni',
+    enabled: true,
+    open_loops_notify_enabled: true
+  }]]);
+  const control = await persistence.updateAgentRuntimeControl({
+    identityKey: 'xiaoni',
+    openLoopsNotifyEnabled: true
+  });
+  const { statement, params } = queries[queries.length - 1];
+  assert.match(statement, /open_loops_notify_enabled = CASE/);
+  assert.match(statement, /ELSE agent_runtime_control\.open_loops_notify_enabled/);
+  // 占位符与参数个数必须一一对应 —— 加一列最容易在这里错位,错位了会静默写错别的列。
+  assert.equal((statement.match(/\?/g) || []).length, params.length, '占位符与参数个数必须相等');
+  assert.equal(control.openLoopsNotifyEnabled, true);
+});
