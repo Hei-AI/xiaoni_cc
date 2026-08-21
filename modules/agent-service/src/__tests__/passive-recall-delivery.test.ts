@@ -7,17 +7,18 @@ import { createPassiveRecallDelivery, type RecallDeliveryDeps } from '../service
 // 「现在几点」时绿时红。选 21:00 东八 = 窗内,不干扰非时机用例。
 const AT_2100_EAST8 = new Date('2026-08-07T13:00:00Z');
 
-// 开关/日额的唯一真理源是 agent_runtime_control(管理端可改、每拍热读)。测试直接注入闸门值。
-const gate = (enabled: boolean, dailyCap: number, now: Date = AT_2100_EAST8) => ({
-  readGate: async () => ({ enabled, dailyCap }),
+// 开关的唯一真理源是 agent_runtime_control(管理端可改、每拍热读)。测试直接注入闸门值。
+// **没有日额**:联想不是配额制的,量由判官一条一条判。
+const gate = (enabled: boolean, now: Date = AT_2100_EAST8) => ({
+  readGate: async () => ({ enabled }),
   now: () => now
 });
 
 // 被动浮现投递闸。在此之前整条召回链是 shadow-only,这是唯一的出口 —— 所以三件事必须成立:
 //   ① 默认 OFF(不给一个「忘了关」的世界线);
 //   ② 同一段记忆永远只投一次(dedupeKey = 记忆的 ref,靠 created 标志判,不是靠 status);
-//   ③ 判断力缺席时不放量 —— 判官是主闸(它可以说「一条都不值得」),日额只是兜底;
-//      判官不在场时退回最小间隔节流,而不是每拍都投(每 10 分钟一拍 = 84 条/天)。
+//   ③ 判断力缺席时不放量 —— 判官是**唯一**的量闸(它可以说「一条都不值得」);
+//      它不在场时退回最小间隔节流,而不是每拍都投(每 10 分钟一拍 = 84 条/天)。
 
 type EnqueueCall = { message: Record<string, unknown>; payload: Record<string, unknown> };
 
@@ -92,7 +93,7 @@ test('打开后投一条:正文 = lead 原句,dedupeKey 锚在记忆的 ref 上'
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { association_scan: [rowWith([associationItem('as:not-knowing', lead)])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
 
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
@@ -114,7 +115,7 @@ test('每拍最多 1 条 —— 候选再多也只投一条', async () => {
       association_scan: [rowWith([associationItem('as:1', 'C')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
 });
@@ -125,23 +126,13 @@ test('同一段记忆永远只投一次:第二拍撞 dedupeKey → created=false
   };
   const shared = new Set<string>();
   const first = fakeDeps({ rowsByQueryRef: rows, alreadyDelivered: shared });
-  const d1 = createPassiveRecallDelivery(first.deps, gate(true, 6));
+  const d1 = createPassiveRecallDelivery(first.deps, gate(true));
   assert.equal(await d1.deliverOnce(), 'delivered');
 
   // 同一份 shadow 行再来一拍(supervisor 每 10min 一跳,shadow 行还在窗口里)。
   const second = fakeDeps({ rowsByQueryRef: rows, alreadyDelivered: shared });
-  const d2 = createPassiveRecallDelivery(second.deps, gate(true, 6));
+  const d2 = createPassiveRecallDelivery(second.deps, gate(true));
   assert.equal(await d2.deliverOnce(), 'none', '已投过的记忆不该再投一次');
-});
-
-test('日额是硬闸:今天投满了就停', async () => {
-  const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] },
-    deliveredToday: 6
-  });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
-  assert.equal(await delivery.deliverOnce(), 'capped');
-  assert.equal(calls.length, 0);
 });
 
 test('只投 association / landing 两条腿 —— diary_resurface 等的 queryRef 根本不查', async () => {
@@ -154,7 +145,7 @@ test('只投 association / landing 两条腿 —— diary_resurface 等的 query
     async listRecentAgentQueueDedupeKeys() { return []; },
     async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
   };
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   await delivery.deliverOnce();
   // association 推 queryRef;landing 不推(它的 queryRef 每次落地都变)→ 记为 ''。
   assert.deepEqual(queried.sort(), ['', 'association_scan']);
@@ -173,18 +164,21 @@ test('缺 ref 或缺 lead 的 surfaced 项直接跳过(没有稳定 ref 就没�
       ])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'as:good');
 });
 
-test('闸门关着 → disabled;日额 0 也等同关闭', async () => {
-  for (const g of [{ enabled: false, dailyCap: 6 }, { enabled: true, dailyCap: 0 }]) {
+test('闸门关着 → disabled;读不出闸门也当关着(fail-closed)', async () => {
+  for (const readGate of [
+    async () => ({ enabled: false }),
+    async () => { throw new Error('db down'); }
+  ]) {
     const { deps, calls } = fakeDeps({
       rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] }
     });
-    const delivery = createPassiveRecallDelivery(deps, { readGate: async () => g });
+    const delivery = createPassiveRecallDelivery(deps, { readGate });
     assert.equal(await delivery.deliverOnce(), 'disabled');
     assert.equal(calls.length, 0);
   }
@@ -197,7 +191,7 @@ test('闸门每拍现读 —— 管理端中途关掉,下一拍就停(不用重�
     }
   });
   let enabled = true;
-  const delivery = createPassiveRecallDelivery(deps, { readGate: async () => ({ enabled, dailyCap: 6 }) });
+  const delivery = createPassiveRecallDelivery(deps, { readGate: async () => ({ enabled }) });
 
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
@@ -218,7 +212,7 @@ test('轮转:上一条是 landing → 这一拍先给 association', async () => 
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
 });
@@ -231,7 +225,7 @@ test('轮转:上一条是 association → 这一拍换回 landing', async () => 
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'landing');
 });
@@ -244,7 +238,7 @@ test('轮转不是死等:该轮到的那条腿没货 → 落回另一条,不空�
       association_scan: [] // association 这轮没扫出东西
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'landing');
 });
@@ -257,19 +251,21 @@ test('今天还没投过 → 用默认顺序(association 先)', async () => {
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   await delivery.deliverOnce();
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
 });
 
-test('日额兜底:判官把量放飞时才拦(不是日常节奏手段)', async () => {
+// 联想不是配额制的:人不会「今天已经想起过 10 件事,后面就不想了」。
+// 这条钉住「今天投过很多条」本身**不构成**任何拦截理由。
+test('没有日额:今天已经投了 30 条,该冒的还是照冒', async () => {
   const { deps, calls } = fakeDeps({
-    todaysKeys: Array.from({ length: 6 }, (_, i) => `recall-surface:landing:k${i}`),
+    todaysKeys: Array.from({ length: 30 }, (_, i) => `recall-surface:landing:k${i}`),
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
-  assert.equal(await delivery.deliverOnce(), 'capped');
-  assert.equal(calls.length, 0);
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
 });
 
 
@@ -283,8 +279,8 @@ test('时机闸:凌晨一条都不投(她在收尾睡觉)', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(0.2)));
-  assert.equal(await delivery.deliverOnce(), 'capped');
+  const delivery = createPassiveRecallDelivery(deps, gate(true, east8At(0.2)));
+  assert.equal(await delivery.deliverOnce(), 'outside_window');
   assert.equal(calls.length, 0, '00:12 一条都不能投 —— 这正是旧行为烧光日额的那一拍');
 });
 
@@ -292,12 +288,12 @@ test('时机闸:活动窗开始前(08:59)不投,开窗后(09:00)放行', async (
   const rows = { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] };
   const before = fakeDeps({ rowsByQueryRef: rows });
   assert.equal(
-    await createPassiveRecallDelivery(before.deps, gate(true, 6, east8At(8.98))).deliverOnce(),
-    'capped'
+    await createPassiveRecallDelivery(before.deps, gate(true, east8At(8.98))).deliverOnce(),
+    'outside_window'
   );
   const after = fakeDeps({ rowsByQueryRef: rows });
   assert.equal(
-    await createPassiveRecallDelivery(after.deps, gate(true, 6, east8At(9.01))).deliverOnce(),
+    await createPassiveRecallDelivery(after.deps, gate(true, east8At(9.01))).deliverOnce(),
     'delivered'
   );
 });
@@ -307,7 +303,7 @@ test('窗内已投过几条也照投 —— 量归判官管,不按槽位摊开',
     rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     todaysKeys: ['recall-surface:association:pad0']
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(11.3)));
+  const delivery = createPassiveRecallDelivery(deps, gate(true, east8At(11.3)));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
 });
@@ -320,7 +316,7 @@ test('判官不在场 + 上一条刚投出去不久 → 不投', async () => {
     rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     lastDeliveredAt: east8At(16).getTime() - 20 * 60_000
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(16)));
+  const delivery = createPassiveRecallDelivery(deps, gate(true, east8At(16)));
   assert.equal(await delivery.deliverOnce(), 'none');
   assert.equal(calls.length, 0);
 });
@@ -330,7 +326,7 @@ test('判官不在场 + 上一条已经隔了足够久 → 放行', async () => 
     rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     lastDeliveredAt: east8At(16).getTime() - 3 * 3600_000
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 25, east8At(16)));
+  const delivery = createPassiveRecallDelivery(deps, gate(true, east8At(16)));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
 });
@@ -341,7 +337,7 @@ test('判官答上来了就不受兜底间隔约束 —— 该说不值得的是
     lastDeliveredAt: east8At(16).getTime() - 60_000
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 25, east8At(16)),
+    ...gate(true, east8At(16)),
     judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官挑的那条' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
@@ -359,7 +355,7 @@ test('association 不放松重投:日记条目没有「完成」这个状态,键
       association_scan: [rowWith([{ kind: 'association', ref: '/d/2026-07-23.md#103', ageDays: 21, lead: '21 天前你记过一件事：X' }])]
     }
   });
-  await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+  await createPassiveRecallDelivery(deps, gate(true)).deliverOnce();
   assert.doesNotMatch(String(calls[0].message.dedupeKey), /:w\d+$/);
 });
 
@@ -378,7 +374,7 @@ test('判官挑中的那条被投,而且用的是它写的钩子(不是模板)',
   });
   // 判官回的是**序号**(prompt 里给的就是序号,不是真 id)。真 id 从它自己的留痕里读回来。
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async () => JSON.stringify({ picks: [{ id: 2, hook: '判官写的一句人话' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
@@ -394,7 +390,7 @@ test('判官说「一条都不值得」→ 静默,不投', async () => {
     todaysKeys: [],
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: judgeOf('{"picks":[]}') });
+  const delivery = createPassiveRecallDelivery(deps, { ...gate(true), judge: judgeOf('{"picks":[]}') });
   assert.equal(await delivery.deliverOnce(), 'none');
   assert.equal(calls.length, 0);
 });
@@ -405,7 +401,7 @@ test('判官挂了 → 退回模板钩子按原顺序投(不打扰她优先于�
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async () => { throw new Error('haiku down'); }
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
@@ -418,7 +414,7 @@ test('判官编了不存在的 id → 那条丢掉;但它确实答了,所以按�
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: judgeOf('{"picks":[{"id":"我编的","hook":"x"}]}')
   });
   // parsed=true 且过滤后为空 → 视同「这次不值得」,静默;不是退回模板。
@@ -431,7 +427,7 @@ test('不注入 judge → 行为与改动前一致', async () => {
     todaysKeys: [],
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
   });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  const delivery = createPassiveRecallDelivery(deps, gate(true));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls[0].message.bodyForAgent, '模板钩子');
 });
@@ -457,7 +453,7 @@ test('判官锚点跳过扫描腿的空 queryText,取最近的向量腿落地文
   };
   let seenAnchor = '';
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async (prompt) => { seenAnchor = prompt.user; return '{"picks":[]}'; }
   });
   await delivery.deliverOnce();
@@ -480,7 +476,7 @@ test('判官拿得到 ageDays —— 否则它不知道这件事搁了多久', a
   };
   let seen = '';
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async (prompt) => { seen = prompt.user; return '{"picks":[]}'; }
   });
   await delivery.deliverOnce();
@@ -499,7 +495,7 @@ test('落地腿收下 inbound: / queue: / NULL 这些非扫描腿的留痕', asy
       }
     });
     // eslint-disable-next-line no-await-in-loop
-    const out = await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+    const out = await createPassiveRecallDelivery(deps, gate(true)).deliverOnce();
     assert.equal(out, 'delivered', `queryRef=${String(ref)} 该被收下`);
     assert.equal(calls.length, 1);
   }
@@ -514,7 +510,7 @@ test('落地腿仍然排除扫描腿的留痕', async () => {
       }
     });
     // eslint-disable-next-line no-await-in-loop
-    assert.equal(await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce(), 'none', ref);
+    assert.equal(await createPassiveRecallDelivery(deps, gate(true)).deliverOnce(), 'none', ref);
     assert.equal(calls.length, 0);
   }
 });
@@ -530,7 +526,7 @@ test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂
   });
   // 先算出 already 的 dedupeKey,塞进「今天已投」
   const probe = fakeDeps({ todaysKeys: [], rowsByQueryRef: { '': [landingRow([already])] } });
-  await createPassiveRecallDelivery(probe.deps, gate(true, 6)).deliverOnce();
+  await createPassiveRecallDelivery(probe.deps, gate(true)).deliverOnce();
   const alreadyKey = String(probe.calls[0].message.dedupeKey);
 
   const { deps: d2, calls: c2 } = fakeDeps({
@@ -538,7 +534,7 @@ test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂
     rowsByQueryRef: { '': [landingRow([already, fresh])] }
   });
   const delivery = createPassiveRecallDelivery(d2, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官挑的' }] })
   });
   assert.equal(await delivery.deliverOnce(), 'delivered');
@@ -561,7 +557,7 @@ test('判官的工作内容写进 shadow log(含它看过但没挑的)', async (
     rowsByQueryRef: { '': [landingRow([a, b])] }
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 6),
+    ...gate(true),
     judge: async () => JSON.stringify({ picks: [{ id: 1, hook: '判官写的钩子' }] })
   });
   await delivery.deliverOnce();
@@ -590,7 +586,7 @@ test('判官说「一条都不值得」也留痕 —— 静默不能是隐形的
     todaysKeys: [],
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '候选')])] }
   });
-  await createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: async () => '{"picks":[]}' }).deliverOnce();
+  await createPassiveRecallDelivery(deps, { ...gate(true), judge: async () => '{"picks":[]}' }).deliverOnce();
   const row = shadowWrites.filter((r) => r.queryRef === 'delivery_judge').pop();
   assert.ok(row, '判了没投也要有行');
   assert.equal(row!.silent, true);
@@ -609,7 +605,7 @@ test('判官挑了两条 → 两条都投(每拍上限不该盖过它的判断)'
     }
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 25),
+    ...gate(true),
     judge: async () => JSON.stringify({
       picks: [{ id: 1, hook: '判官挑的第一条' }, { id: 2, hook: '判官挑的第二条' }]
     })
@@ -627,7 +623,7 @@ test('判官没答上来 → 模板退路仍然一拍只投一条', async () => 
       '': [landingRow([landingItem('/x/a.md#1', '模板甲'), landingItem('/x/b.md#2', '模板乙')])]
     }
   });
-  const delivery = createPassiveRecallDelivery(deps, { ...gate(true, 25), judge: judgeOf('读不出来') });
+  const delivery = createPassiveRecallDelivery(deps, { ...gate(true), judge: judgeOf('读不出来') });
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].message.bodyForAgent, '模板甲');
@@ -643,7 +639,7 @@ test('判官挂了也要留痕:shadow 行带 error,parsed=false', async () => {
     rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
   });
   const delivery = createPassiveRecallDelivery(deps, {
-    ...gate(true, 25),
+    ...gate(true),
     judge: async () => { throw new Error('haiku timeout'); }
   });
   assert.equal(await delivery.deliverOnce(), 'delivered', '挂了仍退回模板钩子,不阻断投递');

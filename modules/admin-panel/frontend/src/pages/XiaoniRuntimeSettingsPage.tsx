@@ -33,7 +33,6 @@ type RuntimeControl = {
   stripXiaoniOsFromRequests: boolean;
   psychAssessmentGateEnabled: boolean;
   passiveRecallDeliveryEnabled: boolean;
-  passiveRecallDeliveryDailyCap: number;
   openLoopsNotifyEnabled: boolean;
   energyPolicy: Record<string, number> | null;
   energyPolicyDefaults?: Record<string, number>;
@@ -88,7 +87,7 @@ async function fetchRuntimeControl(): Promise<RuntimeControl> {
   return payload.data;
 }
 
-type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests' | 'psychAssessmentGateEnabled' | 'passiveRecallDeliveryEnabled' | 'passiveRecallDeliveryDailyCap' | 'openLoopsNotifyEnabled'>>;
+type RuntimeControlPatch = Partial<Pick<RuntimeControl, 'enabled' | 'cacheHeartbeatPaused' | 'postCompressionPauseArmed' | 'mainAgentPreModelYieldMs' | 'debugCacheHeartbeatIntervalMs' | 'compressionTriggerInputTokens' | 'compressionTriggerWireBytes' | 'stripXiaoniOsFromRequests' | 'psychAssessmentGateEnabled' | 'passiveRecallDeliveryEnabled' | 'openLoopsNotifyEnabled'>>;
 
 type CacheHeartbeatTriggerResult = {
   triggered?: boolean;
@@ -301,7 +300,6 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const [debugHeartbeatSecondsInput, setDebugHeartbeatSecondsInput] = React.useState('');
   const [compressionTriggerInput, setCompressionTriggerInput] = React.useState('');
   const [compressionWireMiBInput, setCompressionWireMiBInput] = React.useState('');
-  const [recallDeliveryCapInput, setRecallDeliveryCapInput] = React.useState('');
   const controlQuery = useQuery({
     queryKey: ['xiaoni-runtime-control'],
     queryFn: fetchRuntimeControl,
@@ -437,27 +435,6 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
   const openLoopsNotifyEnabled = typeof pendingPatch?.openLoopsNotifyEnabled === 'boolean'
     ? pendingPatch.openLoopsNotifyEnabled
     : control?.openLoopsNotifyEnabled ?? false;
-  const currentRecallDeliveryDailyCap = typeof pendingPatch?.passiveRecallDeliveryDailyCap === 'number'
-    ? pendingPatch.passiveRecallDeliveryDailyCap
-    : control?.passiveRecallDeliveryDailyCap ?? 25;
-  React.useEffect(() => {
-    if (!mutation.isPending && typeof control?.passiveRecallDeliveryDailyCap === 'number') {
-      setRecallDeliveryCapInput(String(control.passiveRecallDeliveryDailyCap));
-    }
-  }, [control?.passiveRecallDeliveryDailyCap, mutation.isPending]);
-  const parsedRecallDeliveryCap = /^\d+$/.test(recallDeliveryCapInput.trim())
-    ? Number.parseInt(recallDeliveryCapInput.trim(), 10)
-    : null;
-  // 后端是 non-negative 整数(0 = 等同关闭),这里同界。
-  const recallDeliveryCapValid = parsedRecallDeliveryCap !== null && Number.isSafeInteger(parsedRecallDeliveryCap);
-  const recallDeliveryCapDirty = recallDeliveryCapValid && parsedRecallDeliveryCap !== currentRecallDeliveryDailyCap;
-  const handleRecallDeliveryCapSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!recallDeliveryCapValid || parsedRecallDeliveryCap === null) {
-      return;
-    }
-    mutation.mutate({ passiveRecallDeliveryDailyCap: parsedRecallDeliveryCap });
-  }, [mutation, parsedRecallDeliveryCap, recallDeliveryCapValid]);
   const parsedYieldMs = /^\d+$/.test(yieldInput.trim())
     ? Number.parseInt(yieldInput.trim(), 10)
     : null;
@@ -1179,7 +1156,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
                   : '已关闭：召回照常跑、照常写 shadow 日志，但一条都不投给她（当前默认）。'}
               </div>
               <div className="text-xs text-muted-foreground">
-                同一段记忆永远只投一次（dedupe 锚在记忆本身的 ref 上），每拍最多 1 条。首发只放这两条腿是因为它们在 shadow 里的唯一率最高（100% / 77%）；其余腿唯一率低（最低 1.5%），投了等于复读。
+                <strong>没有日额。</strong>联想不是配额制的——人不会「今天已经想起过 10 件事，后面就不想了」。该不该冒由判官（Haiku）一条一条判，它可以说「一条都不值得」，而且多数时候就该这么说；判官不在场时退回最小间隔，兜的是「判断力缺席」不是「今天够了」。同一段记忆永远只投一次（dedupe 锚在记忆本身的 ref 上）。她收尾睡觉的时段（23:00–09:00）不投——那挡的是时机，不是数量。
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -1192,39 +1169,6 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
               />
             </div>
           </div>
-          <form className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between" onSubmit={handleRecallDeliveryCapSubmit}>
-            <div className="space-y-1">
-              <div className="text-sm font-medium text-foreground">每日兜底上限</div>
-              <div className="text-sm text-muted-foreground">
-                当前：{currentRecallDeliveryDailyCap} 条 / 东八区自然日。
-              </div>
-              <div className="text-xs text-muted-foreground">
-                这不是节奏旋钮。决定投不投的是判官（Haiku），它可以说「一条都不值得」，而且多数时候就该这么说；这个数只在判官失灵、把量放飞时拦一下，拦到了会打 warn 日志——那是异常信号，该去查而不是调这个数。0 = 等同关闭。
-              </div>
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:w-56">
-              <Input
-                type="number"
-                min={0}
-                step={1}
-                inputMode="numeric"
-                value={recallDeliveryCapInput}
-                disabled={controlQuery.isLoading || mutation.isPending}
-                onChange={(event) => setRecallDeliveryCapInput(event.target.value)}
-                aria-label="被动浮现投递每日上限"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={controlQuery.isLoading || mutation.isPending || !recallDeliveryCapValid || !recallDeliveryCapDirty}
-              >
-                {mutation.isPending && typeof pendingPatch?.passiveRecallDeliveryDailyCap === 'number'
-                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  : null}
-                保存
-              </Button>
-            </div>
-          </form>
           <div className="flex flex-col gap-5 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-2">
               <div className="text-sm font-medium text-foreground">欠账指针通知</div>

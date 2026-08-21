@@ -2459,7 +2459,6 @@ export type AgentRuntimeControlProjection = {
   idlePlanSkillSubmissionEnabled: boolean;
   passiveRecallDeliveryEnabled: boolean;
   openLoopsNotifyEnabled: boolean;
-  passiveRecallDeliveryDailyCap: number;
   energyPolicy: Record<string, number> | null;
   updatedAt: string | null;
 };

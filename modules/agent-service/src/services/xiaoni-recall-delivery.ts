@@ -147,7 +147,7 @@ export interface RecallDeliveryDeps {
 // 每拍现读的运行时闸门(来自 agent_runtime_control)。测试直接注入,免得跑 DB。
 export interface RecallDeliveryGate {
   enabled: boolean;
-  dailyCap: number;
+
 }
 
 // 判官:从算术选出的候选里挑该冒的 + 把钩子写成人话。不注入 → 沿用模板钩子、按原顺序投
@@ -332,7 +332,7 @@ function isWithinActiveWindow(now: Date): boolean {
 // 读失败 / 解析不出 → 返回 null 表示「判不了」,调用方按放行处理:
 // 复核是用来挡陈旧的,不该因为读不到文件就把整条腿停掉。
 
-export type RecallDeliveryOutcome = 'disabled' | 'capped' | 'none' | 'delivered';
+export type RecallDeliveryOutcome = 'disabled' | 'outside_window' | 'none' | 'delivered';
 
 // supervisor tick。无状态、幂等:漏一拍只是晚一点投,重复一拍被唯一索引吞掉,重启即续。
 export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: RecallDeliveryOptions = {}) {
@@ -457,10 +457,8 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
   async function deliverOnce(): Promise<RecallDeliveryOutcome> {
     // 每拍现读:管理端关掉后最多一拍(10min)就停,不用重启。读失败 → fail-closed 当关着,
     // 「读不到就别投」对一个能主动打扰她的通道是唯一安全的默认。
-    const gate = await readGate().catch(() => ({ enabled: false, dailyCap: 0 }));
-    const enabled = gate.enabled === true;
-    const dailyCap = Math.max(0, Number.isFinite(gate.dailyCap) ? gate.dailyCap : 0);
-    if (!enabled || dailyCap === 0) {
+    const gate = await readGate().catch(() => ({ enabled: false }));
+    if (gate.enabled !== true) {
       return 'disabled';
     }
     const now = clock();
@@ -470,22 +468,14 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       since: startOfEast8Day(now),
       limit: 500
     }, databaseConfig);
+    // **没有日额。** 联想不是配额制的:人不会「今天已经想起过 10 件事,后面就不想了」。
+    // 该不该冒由判官一条一条判(它可以说「一条都不值得」,而且多数时候就该这么说),
+    // 判官不在场时由最小间隔兜住 —— 那兜的是「判断力缺席」,不是「今天够了」。
+    // 这里仍然数今天投了几条,但只用来**记账和轮转腿**,不做任何拦截。
     const deliveredToday = Array.isArray(todaysKeys) ? todaysKeys.length : 0;
-    // **日额是兜底,不是主闸。**
-    // 决定投不投的是判官(它可以说「一条都不值得」,而且多数时候就该这么说);
-    // 日额只在判官失灵、把量放飞时才拦一下,而且拦到了要留痕 —— 那是异常信号,
-    // 不是日常调节手段。这个顺序曾经反过来:日额在前、判官在配额内挑,
-    // 于是「允许说一条都不值得」在 6 条/天的硬额面前基本没意义。
-    if (deliveredToday >= dailyCap) {
-      moduleLogger.warn('Passive recall daily backstop hit — 判官把量放飞了,该查而不是调这个数', {
-        deliveredToday,
-        dailyCap
-      });
-      return 'capped';
-    }
     // 时机闸:窗外一条都不投。挡的是**时机**不是数量。
     if (!isWithinActiveWindow(now)) {
-      return 'capped';
+      return 'outside_window';
     }
     const legOrder = rotateLegs(legFromDedupeKey(todaysKeys?.[0]));
 
@@ -580,8 +570,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
         moduleLogger.info('Delivered passive recall surface notify', {
           leg: lead.leg,
           identity: lead.identity,
-          deliveredToday: deliveredToday + delivered,
-          dailyCap
+          deliveredToday: deliveredToday + delivered
         });
       }
     }
@@ -594,8 +583,7 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
 async function defaultReadGate(): Promise<RecallDeliveryGate> {
   const control = await persistence.getAgentRuntimeControl({ identityKey: IDENTITY_KEY }, databaseConfig);
   return {
-    enabled: control.passiveRecallDeliveryEnabled === true,
-    dailyCap: Number(control.passiveRecallDeliveryDailyCap)
+    enabled: control.passiveRecallDeliveryEnabled === true
   };
 }
 
