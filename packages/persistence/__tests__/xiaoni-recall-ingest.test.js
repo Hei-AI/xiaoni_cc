@@ -195,3 +195,244 @@ test('per-cue 冷却:读冷却集抛错不阻断召回(宁可多浮一次,不可
   const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q5' });
   assert.strictEqual(result.silent, false);
 });
+
+// ── 常驻菜单进语义在场排除 ────────────────────────────────────────────────
+// 真库实测(2026-08-19,近 3 天 5631/5631 次请求):<xiaoni_status> / <xiaoni_diary_index> /
+// <xiaoni_people> 100% 常驻在她的请求里。菜单已经点到的事,她看一眼就想得起来 ——
+// 那不是「她不知道自己做过」。结构式在场排除按 sourceRef 比,对菜单无效(菜单不是栈项),
+// 所以必须走语义式这条。
+test('菜单里已经点到的事被压掉(drop_in_context),没点到的照常冒', async () => {
+  // 三维手造向量,阈值见 bandpass 默认:floor=0.35 / ceiling=0.92。
+  //   query      [1, 0, 0]
+  //   MENTIONED  [0.6, 0.8, 0]   与 query cos=0.60(带内,不会先被 drop_too_similar 拦掉)
+  //                              与菜单行向量同向 cos=1.00 → 该判 drop_in_context
+  //   FRESH      [0.9, 0.436, 0] 与 query cos=0.90(带内);与菜单行 cos=0.89 < ceiling → 照常冒
+  const candidates = [
+    { sourceRef: 'MENTIONED', embedding: [0.6, 0.8, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/m.md' }, embeddingText: '目录里已经写到的那件事' },
+    { sourceRef: 'FRESH', embedding: [0.9, 0.436, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/f.md' }, embeddingText: '目录那一行没提到的另一件事' }
+  ];
+  const MENU_LINE = '2026-08-18 | 目录里已经写到的那件事,写得够长够具体';
+  const embedByText = async (texts) => texts.map((t) => (String(t) === MENU_LINE ? [0.6, 0.8, 0] : [1, 0, 0]));
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({
+    embed: embedByText,
+    persistence,
+    readContextMenus: async () => [`- ${MENU_LINE}`]
+  });
+
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-menu' });
+  const log = persistence.calls.shadowLogs[0];
+  assert.equal(log.droppedCounts.drop_in_context, 1, '菜单点到的那条应被判 drop_in_context');
+  assert.ok(!log.surfaced.some((e) => e.sourceRef === 'MENTIONED'), 'MENTIONED 不该冒出来');
+});
+
+test('不注入 readContextMenus → 行为与改动前完全一致', async () => {
+  const candidates = [
+    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/a.md' }, embeddingText: '一条正常的往事记录' }
+  ];
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-nomenu' });
+  assert.equal(result.silent, false);
+});
+
+test('菜单读失败 / 嵌入失败不阻断召回(少一道在场排除只是多冒一条,不是错)', async () => {
+  const candidates = [
+    { sourceRef: 'A', embedding: [0.8, 0.6, 0], provenance: { leadTemplate: 'file_chunk', path: '/x/a.md' }, embeddingText: '一条正常的往事记录' }
+  ];
+  const persistence = fakePersistence({ candidates });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    readContextMenus: async () => { throw new Error('fs down'); }
+  });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-fail' });
+  assert.equal(result.silent, false);
+});
+
+test('太短的菜单行(分隔线/单词)不进在场向量 —— 噪音向量会误杀候选', async () => {
+  const seen = [];
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({
+    embed: async (texts) => { seen.push(...texts); return texts.map(() => [1, 0, 0]); },
+    persistence,
+    readContextMenus: async () => ['# 日记目录\n---\n- ok\n- 2026-08-18 | 这一行够长应该被收进去']
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-short' });
+  assert.ok(seen.some((t) => t.includes('这一行够长')), '够长的行要进');
+  assert.ok(!seen.includes('ok'), '「ok」这种短行不该进');
+  assert.ok(!seen.includes('---'), '分隔线不该进');
+});
+
+// K 的天花板是 pgvector 的 hnsw.ef_search 上限 1000 —— 设过它 `SET LOCAL` 直接报 22023,
+// 整条取候选查询失败,而 fire-and-forget 会吞掉异常(线上表现为召回静默死掉且无迹象)。
+// 所以每域 1000、总 2000,不是随手挑的数。
+test('取候选 K 默认 2000,分两域各 1000(= ef_search 硬上限)', async () => {
+  const limits = [];
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates(params) { limits.push(params.limit); return []; } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-k' });
+  assert.deepEqual(limits, [1000, 1000], `两域各 1000,实得 ${JSON.stringify(limits)}`);
+});
+
+test('调用方仍可显式覆盖 limit', async () => {
+  const limits = [];
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates(params) { limits.push(params.limit); return []; } }
+  });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-k2', limit: 400 });
+  assert.deepEqual(limits, [200, 200]);
+});
+
+// ── 自适应 query 展开 ──────────────────────────────────────────────────────
+// 强命中的池子:候选落在带内(和 query 相关但不是近似重复),不是和 query 同向 ——
+// 同向会被 drop_too_similar 全剔掉,带内变 0,那是「弱」不是「强」。
+const strongPool = () => Array.from({ length: 12 }, (_, i) => ({
+  sourceRef: `S${i}`,
+  embedding: [0.8 - i * 0.01, 0.6 + i * 0.01, 0],
+  provenance: { leadTemplate: 'file_chunk', path: `/x/${i}.md` },
+  embeddingText: `一条足够长的候选记录编号${i}`
+}));
+
+test('展开:算术结果强 → 不调用小模型', async () => {
+  let called = 0;
+  const persistence = fakePersistence({ candidates: strongPool() });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":["x"]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-strong' });
+  assert.equal(called, 0, '强命中不该展开');
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:候选太少 → 触发,把新捞到的并进池子并留痕', async () => {
+  let call = 0;
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: {
+      async listRecallCandidates() {
+        call += 1;
+        // 前两次是两域主查询(空);之后是展开重取
+        return call <= 2 ? [] : [{
+          sourceRef: `EXP${call}`, embedding: [0.8, 0.6, 0],
+          provenance: { leadTemplate: 'file_chunk', path: '/x/e.md' },
+          embeddingText: '展开之后才捞到的那一条往事记录'
+        }];
+      }
+    }
+  });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    readTags: async () => ['#hwc', '#word'],
+    expandQueries: async () => '{"tags":["#hwc"],"queries":["第一次开口前的紧张","以前在人前说话"]}'
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-weak' });
+  const log = persistence.calls.shadowLogs[0];
+  assert.ok(log.queryExpansion, '应留下展开痕迹');
+  assert.deepEqual(log.queryExpansion.tags, ['#hwc']);
+  assert.equal(log.queryExpansion.queries.length, 2);
+  assert.ok(log.queryExpansion.addedCount >= 1, '展开该捞到新候选');
+});
+
+test('展开:小模型挂了 → 退回单 query,不阻断召回', async () => {
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { throw new Error('haiku down'); }
+  });
+  const result = await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-expfail' });
+  assert.ok(result, '不该抛');
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:不注入 expandQueries → 完全不展开(行为同改动前)', async () => {
+  const persistence = fakePersistence({ candidates: [] });
+  const ingest = createRecallIngest({ embed: embedOnes, persistence });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-noexp' });
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion, null);
+});
+
+test('展开:重取到的重复 ref 不会被算两遍', async () => {
+  let call = 0;
+  const dup = {
+    sourceRef: 'SAME', embedding: [0.8, 0.6, 0],
+    provenance: { leadTemplate: 'file_chunk', path: '/x/s.md' },
+    embeddingText: '两次都会被捞到的同一条记录'
+  };
+  const persistence = fakePersistence({
+    candidates: [],
+    fns: { async listRecallCandidates() { call += 1; return call <= 2 ? [] : [dup]; } }
+  });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => '{"queries":["a","b","c"]}'
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-dup' });
+  assert.equal(persistence.calls.shadowLogs[0].queryExpansion.addedCount, 1, '同一 ref 只算一次');
+});
+
+// 展开触发闸必须用 **band-pass 之后**的量。第一版拿 raw cos 和「取回的池子大小」当判据:
+// raw cos 全语料挤在 0.83-0.92 永远 ≥ 阈值,池子大小是 K 永远 ≥ 3 → 展开**永不触发**,
+// 而且不报错、无迹象。code review 才发现。
+test('触发闸看的是带内候选数,不是取回的池子大小', async () => {
+  // 池子很大(20 条)但全部太远 → 带内 0 → 该判弱触发展开。
+  const farPool = Array.from({ length: 20 }, (_, i) => ({
+    sourceRef: `F${i}`, embedding: [0, 1, 0], provenance: {}, embeddingText: `完全无关的噪音记录${i}`
+  }));
+  let called = 0;
+  const persistence = fakePersistence({ candidates: farPool });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-farpool' });
+  assert.equal(called, 1, '池子有 20 条但一条都不带内 → 必须判弱');
+});
+
+test('近似重复导致的整条静默不展开(放宽池子救不了「她在重复刚做过的事」)', async () => {
+  const nearDup = [{
+    sourceRef: 'DUP', embedding: [1, 0, 0], provenance: {}, embeddingText: '几乎就是她刚做过的那件事'
+  }];
+  let called = 0;
+  const persistence = fakePersistence({ candidates: nearDup });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  await ingest.runShadowRecall({ landedText: '晚上想吃一碗葱油面了', landedRef: 'q-neardup' });
+  const log = persistence.calls.shadowLogs[0];
+  if (log && log.droppedCounts && log.droppedCounts.drop_landing_near_dup) {
+    assert.equal(called, 0, '近似重复静默时不该展开');
+  }
+});
+
+test('展开有小时级配额 —— 弱结果常态化时不会天天打满', async () => {
+  const farPool = Array.from({ length: 20 }, (_, i) => ({
+    sourceRef: `F${i}`, embedding: [0, 1, 0], provenance: {}, embeddingText: `完全无关的噪音记录${i}`
+  }));
+  let called = 0;
+  const persistence = fakePersistence({ candidates: farPool });
+  const ingest = createRecallIngest({
+    embed: embedOnes,
+    persistence,
+    expandQueries: async () => { called += 1; return '{"queries":[]}'; }
+  });
+  // 默认上限 6/小时:连打 10 次落地,只应触发 6 次。
+  for (let i = 0; i < 10; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await ingest.runShadowRecall({ landedText: `晚上想吃一碗葱油面了 ${i}`, landedRef: `q-budget-${i}` });
+  }
+  assert.equal(called, 6, `该被配额挡住,实得 ${called}`);
+});

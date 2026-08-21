@@ -15,6 +15,13 @@ const {
   buildRecallCueFromInboundMessage,
   normalizeRecallText
 } = require('./xiaoni-passive-recall-extractor');
+const { scoreCandidateImportance } = require('./xiaoni-recall-importance');
+const {
+  isWeakResult,
+  buildExpansionPrompt,
+  parseExpansion,
+  DEFAULT_QUERY_COUNT
+} = require('./xiaoni-recall-query-expansion');
 const {
   bandpassRecall,
   renderRecallLead,
@@ -56,8 +63,37 @@ const CONTEXT_SESSION_KEY = (typeof process.env.XIAONI_GLOBAL_PROMPT_CONTEXT_SES
 const MAX_SQL_EXCLUDE_REFS = 2000;
 // ④ 语义式在场排除窗口:调用方没给近窗时,退回「保留尾最近 N 条」(她此刻正做的),抓「换了说法刚做过」。
 const SEMANTIC_CONTEXT_WINDOW = 20;
+// 常驻菜单的向量缓存 TTL。菜单变得慢(日记目录一天一行、人物菜单更慢、近况一轮一次),
+// 而每次落地都要用 —— 缓存 10 分钟足够,过期重读重嵌(本地 embedding server,不花钱)。
+const CONTEXT_MENU_TTL_MS = 10 * 60 * 1000;
+// 展开的小时级上限。触发闸是「算术拿不出像样候选」,而真库里那种情况并不罕见 ——
+// 若不设顶,展开会在大多数落地上开火(~985 次/天),和 ADR-0006「量也顺带降一个数量级」
+// 相反。上限按小时算而不是按天:按天容易在前半天打光,按小时天然摊开。
+const EXPANSION_MAX_PER_HOUR = envNum('XIAONI_RECALL_EXPANSION_MAX_PER_HOUR', 6);
+// 太短的行(分隔线、单个词)嵌出来是噪音向量,反而会误杀候选。
+const CONTEXT_MENU_MIN_CHARS = 8;
 
-function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {}) {
+// readContextMenus:可选。返回她**常驻上下文里那三张菜单**的正文(字符串数组,一份一条)。
+// 为什么要它:真库实测(2026-08-19,近 3 天 5631/5631 次请求)`<xiaoni_status>`、
+// `<xiaoni_diary_index>`、`<xiaoni_people>` 100% 常驻在她的请求里。菜单已经点到的事,
+// 她看一眼就想得起来 —— 那不是「她不知道自己做过」,不该再召回一遍。
+// 结构式在场排除按 sourceRef 比,对菜单无效(菜单不是栈项);所以走语义式那条:
+// 把菜单**逐行**嵌成向量喂进 contextVectors,和候选太像的自动 drop_in_context。
+// 逐行而不是整块:整块嵌出来是一个糊掉的泛化向量,谁都像。
+// 不注入 → 行为与改动前完全一致。
+// expandQueries:可选。`({ system, user }) => Promise<string>` —— 发一发小模型,返回原文。
+// 只在算术结果「弱」时才被调用(见 xiaoni-recall-query-expansion.js 的触发闸)。
+// readTags:可选。返回她自己的标签命名空间(loops --tag / topics 文件名 / 人物菜单名字)。
+// 两个都不注入 → 完全不展开,行为与改动前一致。
+function createRecallIngest({
+  embed,
+  persistence,
+  identityKey = 'xiaoni',
+  readContextMenus = null,
+  expandQueries = null,
+  readTags = null,
+  readPeerNames = null
+} = {}) {
   if (typeof embed !== 'function') {
     throw new Error('createRecallIngest: embed(texts) 函数必填');
   }
@@ -94,6 +130,23 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
   }
 
   // 冷却集缓存(读失败 → 空集,不阻断召回:宁可多浮一次,不可整条腿哑掉)。
+  // 展开的小时级配额(见 EXPANSION_MAX_PER_HOUR)。进程内计数即可:
+  // 它防的是「弱结果常态化 → 天天打满」,不是要跨实例精确配额。
+  let expansionHourKey = '';
+  let expansionUsedThisHour = 0;
+  function takeExpansionBudget(now) {
+    const key = String(Math.floor(now / 3600000));
+    if (key !== expansionHourKey) {
+      expansionHourKey = key;
+      expansionUsedThisHour = 0;
+    }
+    if (expansionUsedThisHour >= EXPANSION_MAX_PER_HOUR) {
+      return false;
+    }
+    expansionUsedThisHour += 1;
+    return true;
+  }
+
   let cachedCooldown = null;
   let cachedCooldownAt = 0;
   async function getCooldownRefs() {
@@ -115,6 +168,46 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       return cachedCooldown || new Set();
     }
     return cachedCooldown;
+  }
+
+  // 常驻菜单的逐行向量(带 TTL 缓存)。读/嵌失败 → 空数组,不阻断召回
+  // (少一道在场排除只是多冒一条,不是错)。
+  let cachedMenuVectors = null;
+  let cachedMenuVectorsAt = 0;
+  async function getContextMenuVectors() {
+    if (typeof readContextMenus !== 'function') {
+      return [];
+    }
+    const now = Date.now();
+    if (cachedMenuVectors && (now - cachedMenuVectorsAt) < CONTEXT_MENU_TTL_MS) {
+      return cachedMenuVectors;
+    }
+    try {
+      const docs = await readContextMenus();
+      const lines = [];
+      for (const doc of Array.isArray(docs) ? docs : []) {
+        if (typeof doc !== 'string') {
+          continue;
+        }
+        for (const raw of doc.split(/\r?\n/)) {
+          const line = raw.replace(/^\s*[-*]\s*/, '').trim();
+          if (line.replace(/\s+/g, '').length >= CONTEXT_MENU_MIN_CHARS) {
+            lines.push(line);
+          }
+        }
+      }
+      if (lines.length === 0) {
+        cachedMenuVectors = [];
+        cachedMenuVectorsAt = now;
+        return cachedMenuVectors;
+      }
+      const vectors = await embed(lines);
+      cachedMenuVectors = (Array.isArray(vectors) ? vectors : []).filter((v) => Array.isArray(v) && v.length);
+      cachedMenuVectorsAt = now;
+    } catch {
+      return cachedMenuVectors || [];
+    }
+    return cachedMenuVectors;
   }
 
   // 建好的 cue → 嵌入(内容 hash 没变的跳过,省嵌入)→ upsert。
@@ -198,6 +291,39 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     }
   }
 
+  // 展开:标签化 → 组装多 query → 各取一次 top-K → 并集(去掉已在池里的)。
+  // 全程 fail-open:任一步失败/拿不到就返回空,调用方退回单 query —— 展开只做放宽,
+  // 失败的后果是回到现状,不是出错。
+  async function runQueryExpansion({ anchorText, sqlExclude, perDomainLimit, seenRefs }) {
+    const tags = typeof readTags === 'function' ? await readTags().catch(() => []) : [];
+    const prompt = buildExpansionPrompt(anchorText, tags, DEFAULT_QUERY_COUNT);
+    const raw = await expandQueries(prompt);
+    const { tags: pickedTags, queries } = parseExpansion(raw);
+    if (!queries.length) {
+      return null;
+    }
+    const vectors = await embed(queries);
+    const added = [];
+    for (let i = 0; i < queries.length; i += 1) {
+      const vec = vectors[i];
+      if (!Array.isArray(vec) || !vec.length) {
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      const rows = await persistence.listRecallCandidates({
+        identityKey, queryVector: vec, excludeSourceRefs: sqlExclude, limit: perDomainLimit
+      }).catch(() => []);
+      for (const c of Array.isArray(rows) ? rows : []) {
+        if (!c || seenRefs.has(c.sourceRef) || isLowInfoRecallText(c.embeddingText)) {
+          continue;
+        }
+        seenRefs.add(c.sourceRef);
+        added.push(c);
+      }
+    }
+    return { tags: pickedTags, queries, added };
+  }
+
   // 触发2:落地内容当 query 跑召回,写 shadow_log(shadow-only,绝不投递)。
   // 「在场」的定义 = 她当前上下文 stack 尾(压缩 cutoff 之上,resolveInContextRefs 权威给出);
   // 调用方 params.contextRefs 只作近窗补充(语义式在场排除窗口)。冒的必须是「不在这条尾里」的东西。
@@ -219,7 +345,22 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const callerContextRefs = Array.isArray(params.contextRefs) ? params.contextRefs.filter(Boolean) : [];
     const inContextState = await resolveInContextRefs();
     const inContextRefs = inContextState.refs;
-    const limit = Number(params.limit) || 300;
+    // 取候选的 K。pgvector 的 ORDER BY <=> 排在**没去 anisotropy 的空间**里,而 band-pass
+    // 判断用的是去 anisotropy 之后的空间 —— 两个序不一样,所以这一刀切在错的序上。
+    // 真库实测 2026-08-20(25 个 query × 各自的 centered-top-10,共 250 条):
+    //   掉出 K=300  6%   ← 真 top-10 里每次丢掉 6%,band-pass 再准也看不见
+    //   掉出 K=1000 3%
+    //   掉出 K=3000 0%   最深的一条原始名次 6225
+    // raw cos 从名次 1 到名次 8000 只掉 0.166(1.000→0.834),整个语料挤在一条窄带里 ——
+    // 这就是为什么原始名次几乎不携带信息、K 必须给足。
+    // 但 K 有个硬天花板:pgvector 的 hnsw.ef_search 上限是 1000,再大 HNSW 也只返约 1000 条,
+    // 而且把 ef_search 设过 1000 会直接报 22023 让整条查询失败(fire-and-forget 会吞掉,
+    // 线上表现为召回静默死掉且无迹象 —— 2026-08-20 亲手踩过,回归集 replay 全静默才发现)。
+    // 所以取每域 1000(= ef_search 上限),总 K=2000,对应约 3% 的漏召。
+    // 代价实测:延迟约 105ms、载荷远低于 napi 512MB 崩点。
+    // 备选方案(未采用):把去 anisotropy 搬进 SQL 直接在正确空间里排序,K=300 就够,
+    // 但用不上 HNSW → seq scan 449ms,且随语料线性变慢。要它就得建 centered 列 + 索引。
+    const limit = Number(params.limit) || 2000;
 
     // 结构式在场排除的完整集合(她真实持有的 stack 尾 ∪ 调用方近窗 ∪ 落地项本身)。band-pass 的 JS Set
     // 用它逐候选 O(1) 剔「已在场」—— 这是「不在上下文」的硬保证,量再大也只是 Set 查询。
@@ -303,6 +444,8 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     if (semanticRefs.length && typeof persistence.getRecallCueVectorsByRefs === 'function') {
       contextVectors = await persistence.getRecallCueVectorsByRefs(identityKey, semanticRefs);
     }
+    // 常驻菜单也是「在场」的一部分 —— 它们逐字在她每一次请求里。
+    contextVectors = [...(Array.isArray(contextVectors) ? contextVectors : []), ...(await getContextMenuVectors())];
 
     // 去 anisotropy(mean+主成分)+ BM25 双路:取模型传入,有模型时用去 anisotropy 空间阈值。
     const model = await getDeanisModel();
@@ -316,24 +459,72 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
     const surfaceLimit = Number(params.surfaceLimit) || 1;
     const toBandCandidate = (c) => ({
       sourceRef: c.sourceRef,
+      sourceKind: c.sourceKind, // classifyCandidate 要靠它区分 inbound / file_chunk
       embedding: c.embedding,
       provenance: c.provenance,
       embeddingText: c.embeddingText
     });
     const queryShape = { vector: queryVector, text, contextRefs: structuralRefs, contextVectors, meanVector, components, taskLocked: !!params.taskLocked };
-    const selfResult = bandpassRecall({
-      query: queryShape,
-      candidates: selfCandidates.map(toBandCandidate),
-      limit: surfaceLimit,
-      ...bandParams
-    });
-    const peerResult = bandpassRecall({
-      query: queryShape,
-      candidates: peerCandidates.map(toBandCandidate),
-      limit: surfaceLimit,
-      ...bandParams
-    });
-    const result = combineDomainResults(selfResult, peerResult, surfaceLimit);
+    // importance(「她的投入痕迹」)当第三路 RRF。名字表来自她自己的人物菜单;
+    // 读不到 → 空表 → peer / profiledPeer 因子恒 0,其余因子照算(不阻断)。
+    const peerNames = typeof readPeerNames === 'function'
+      ? await readPeerNames().catch(() => [])
+      : [];
+    // 守卫:importance **只能类内比**,而 band-pass 是按域跑的 —— 两者对齐靠的是
+    // RECALL_SCOPE_SQL 那道闸(它把没有真 peer 的动作流挡在池外),**不是**域/类的定义本身。
+    // 闸一旦放松(比如以后允许 peer:null 的动作流进池),同一个域里就会混进两类作者,
+    // importance 名次会跨类比,而且**静默**。所以在这里显式核对:一个域里出现两种 klass →
+    // 这一域退回不带 importance 的排序(少一路 RRF,不出错)。
+    const makeImportanceOf = (domainCandidates) => {
+      const scored = domainCandidates.map((c) => ({ ref: c.sourceRef, ...scoreCandidateImportance(c, { peerNames }) }));
+      const classes = new Set(scored.map((x) => x.klass));
+      if (classes.size > 1) {
+        // 真发生了要看得见:这是范围闸被放松的信号,不是可以吞掉的小事。
+        console.warn('[xiaoni-recall] 同一域里混进多个作者类,本次退回不带 importance 的排序:',
+          [...classes].join(','));
+        return undefined;
+      }
+      const byRef = new Map(scored.map((x) => [x.ref, x.importance]));
+      return (candidate) => byRef.get(candidate && candidate.sourceRef) || 0;
+    };
+
+    const runBandpass = () => combineDomainResults(
+      bandpassRecall({ query: queryShape, candidates: selfCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf: makeImportanceOf(selfCandidates), ...bandParams }),
+      bandpassRecall({ query: queryShape, candidates: peerCandidates.map(toBandCandidate), limit: surfaceLimit, importanceOf: makeImportanceOf(peerCandidates), ...bandParams }),
+      surfaceLimit
+    );
+    let result = runBandpass();
+
+    // ── 自适应 query 展开 ────────────────────────────────────────────────
+    // 召回只有 dense 这一路(BM25 只在已取回的池内重排,补不了漏召),所以 dense 没捞进来的
+    // 东西后面谁也救不回。算术**跑完之后**判弱,弱才换几种问法重取一遍,再跑一遍 band-pass。
+    //
+    // 顺序很重要:第一版把这段放在 band-pass **之前**,拿 raw cos 和「取回的池子大小」当判据 ——
+    // 两个都是错的量。raw cos 全语料挤在 0.83-0.92(见本文件 K 那一段的实测),永远 ≥ 阈值;
+    // 池子大小是 K(最大 2000),永远 ≥ 3。于是展开**永不触发**,而且不报错、无迹象。
+    // 判弱必须用 band-pass 之后的量:带内还剩几条、最高的那条离基线多远。
+    // 近似重复导致的整条静默不展开:那是她在重复刚做过的事(drop_landing_near_dup),
+    // 把池子放宽救不了,只会白烧一次调用。
+    let expansion = null;
+    if (typeof expandQueries === 'function' && !result.nearDupPresent) {
+      // 带内 = 过了三道硬闸(太远 / 太像 / 已在场)的候选数。
+      // drop_domain_priority 和 drop_landing_near_dup 是**带内之后**才发生的取舍,算带内。
+      const OUT_OF_BAND = new Set(['drop_too_far', 'drop_too_similar', 'drop_in_context']);
+      const outOfBand = result.dropped.filter((d) => OUT_OF_BAND.has(d.verdict)).length;
+      const inBand = Math.max(0, candidates.length - outOfBand);
+      const topCos = result.surfaced.length ? Number(result.surfaced[0].cos) : null;
+      if (isWeakResult({ topCos, qualifiedCount: inBand }) && takeExpansionBudget(Date.now())) {
+        expansion = await runQueryExpansion({ anchorText: text, sqlExclude, perDomainLimit, seenRefs })
+          .catch(() => null);
+        if (expansion && expansion.added.length) {
+          for (const c of expansion.added) {
+            (recallDomainOf(c) === 'self' ? selfCandidates : peerCandidates).push(c);
+            candidates.push(c);
+          }
+          result = runBandpass(); // 池子放宽了,重新选拔
+        }
+      }
+    }
 
     const droppedCounts = { drop_too_similar: 0, drop_too_far: 0, drop_in_context: 0, cooled_down: 0 };
     for (const d of [...result.dropped, ...cooledDown]) {
@@ -350,6 +541,10 @@ function createRecallIngest({ embed, persistence, identityKey = 'xiaoni' } = {})
       bandCeiling: result.ceiling,
       silent: result.silent,
       corpusCount: candidates.length, // 近邻邻域大小(非全库;全库计数按需另查,避免每落地一次 count)
+      // 展开留痕:没触发 → null。观察期要能分清「本来就捞到了」和「展开才捞到的」。
+      queryExpansion: expansion
+        ? { tags: expansion.tags, queries: expansion.queries, addedCount: expansion.added.length }
+        : null,
       topK: candidates.length,
       surfaced: result.surfaced.map((e) => ({
         lead: renderRecallLead(e.candidate),

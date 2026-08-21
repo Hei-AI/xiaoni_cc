@@ -2527,6 +2527,39 @@ export function insertRecallShadowLog(record: Record<string, unknown>, config?: 
 // 冷却全废。调用方(xiaoni-recall-reindex-service.ts 的第二/三腿)必须传;管理端只读路由不传。
 export function listRecallShadowLog(params?: { identityKey?: string; queryRef?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
 export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; windowHours?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
+
+// ── 召回 importance(「她的投入痕迹」)──────────────────────────────────────
+// 铁律:不同 klass 的 importance **不可比**,只能类内排序;跨类交给 relevance / recency。
+// 见 packages/persistence/xiaoni-recall-importance.js 顶注与 docs/adr/0006。
+export const MAX_CANDIDATES_IN_PROMPT: number;
+export const MAX_PICKS: number;
+export function buildJudgePrompt(candidates: Array<{ id?: unknown; text?: unknown; ageDays?: unknown; leg?: unknown }>, anchorText?: string): { system: string; user: string };
+export function parseJudgeVerdict(raw: unknown, validIds?: string[] | Set<string>): { parsed: boolean; picks: Array<{ id: string; hook: string }> };
+export function isWeakResult(stats?: { topCos?: number; qualifiedCount?: number }, opts?: { weakTopCos?: number; minQualified?: number }): boolean;
+export function buildExpansionPrompt(anchorText: string, tags: string[], queryCount?: number): { system: string; user: string };
+export function parseExpansion(raw: unknown): { tags: string[]; queries: string[] };
+export const AUTHORED_BY_HER: 'authored_by_her';
+export const AUTHORED_BY_PEER: 'authored_by_peer';
+export type RecallAuthorClass = 'authored_by_her' | 'authored_by_peer';
+export interface RecallImportanceContext {
+  /** 她的人物菜单名字表(notes/people/INDEX.md)。同时喂 peer 与 profiledPeer 两个因子。 */
+  peerNames?: string[];
+}
+export function classifyCandidate(candidate: unknown): RecallAuthorClass;
+export function headingOf(text: unknown): string | null;
+export function scoreCandidateImportance(candidate: unknown, ctx?: RecallImportanceContext): {
+  klass: RecallAuthorClass;
+  importance: number;
+  factors: Record<string, number | boolean | null>;
+};
+export function groupCandidatesByAuthor(candidates: unknown[], ctx?: RecallImportanceContext): Map<RecallAuthorClass, Array<{
+  candidate: unknown;
+  klass: RecallAuthorClass;
+  importance: number;
+  factors: Record<string, number | boolean | null>;
+}>>;
+
+export function countRecallSurfacedRefs(params?: { identityKey?: string; queryRef?: string }, config?: DatabaseUrlConfig): Promise<Map<string, number>>;
 export const BEIJING_OFFSET_MS: number;
 // parseTagDate 认日期的年龄上限。护的是 `(1/3进度)`、`(2/5看完)` 这类「括号里像日期其实是
 // 分数」的写法:被当成日期就会顶着一个假的 ageDays 霸榜,把真该浮的老条目挤掉。超过就返回
@@ -2563,7 +2596,15 @@ export const DIARY_NON_EPISODE_FILES: Set<string>;
 export function isDiaryNonEpisodeFile(filename: unknown): boolean;
 export function selectResurfacedEvents(
   events: XiaoniDiaryEvent[],
-  opts?: { nowMs: number; minAgeDays?: number; limit?: number; recentlySurfaced?: Set<string> | string[]; structuralTitles?: Set<string> | string[] }
+  opts?: {
+    nowMs: number;
+    minAgeDays?: number;
+    limit?: number;
+    recentlySurfaced?: Set<string> | string[];
+    structuralTitles?: Set<string> | string[];
+    /** ref → 至今浮过几次(全历史)。**排序主键**,少的先翻;缺则退回纯年龄降序。 */
+    surfaceCounts?: Map<string, number> | Record<string, number>;
+  }
 ): XiaoniDiaryEventPick[];
 // ── 被动召回【第四条腿】联想(shadow-only,纯函数)────────────────────────────
 // 六因子等权 + 四个年龄桶独立配额 + identity 级冷却。产物只进 shadow log,不进任何 LLM 请求。
@@ -2635,13 +2676,33 @@ export function selectAssociativeMemories(
     peerNames?: string[];
     recentlySurfacedIdentities?: Set<string> | string[];
     structuralTitles?: Set<string> | string[];
+    /**
+     * ref → 至今浮过几次。**排序主键**(在分数之前),少的先翻 ——
+     * 这是并进来的第三腿(diary_resurface)的本职:走一遍她的记忆空间。
+     */
+    surfaceCounts?: Map<string, number> | Record<string, number>;
     quotas?: Partial<Record<XiaoniAssociationBucket, number>>;
     nearMaxDays?: number;
     midMaxDays?: number;
   }
 ): { picked: XiaoniAssociationPick[]; stats: XiaoniAssociationStats };
 
-export function createRecallIngest(deps: { embed: (texts: string[]) => Promise<number[][]>; persistence: any; identityKey?: string }): {
+export function createRecallIngest(deps: {
+  embed: (texts: string[]) => Promise<number[][]>;
+  persistence: any;
+  identityKey?: string;
+  /**
+   * 可选。返回她**常驻上下文里那三张菜单**的正文(一份一条)。菜单已经点到的事不该再被召回
+   * —— 逐行嵌成向量喂进语义式在场排除。不注入 → 行为与改动前一致。
+   */
+  readContextMenus?: () => Promise<string[]>;
+  /** 可选。算术结果弱时发一发小模型做 query 展开,返回原文。不注入 → 不展开。 */
+  expandQueries?: (prompt: { system: string; user: string }) => Promise<string>;
+  /** 可选。她自己的标签命名空间(topics 文件名 + 人物菜单名字),给展开当词表。 */
+  readTags?: () => Promise<string[]>;
+  /** 可选。她的人物菜单名字表,喂 importance 的 peer / profiledPeer 因子。读不到 → 那两个因子恒 0。 */
+  readPeerNames?: () => Promise<string[]>;
+}): {
   ingestActionStreamItems(items: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   ingestInboundMessages(rows: Array<Record<string, unknown>>): Promise<{ upserted: number }>;
   runShadowRecall(params: Record<string, unknown>): Promise<XiaoniRecallBandpassResult | null>;

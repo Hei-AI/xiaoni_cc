@@ -23,6 +23,7 @@ import {
   BEIJING_OFFSET_MS,
   insertRecallShadowLog,
   listRecallShadowLog,
+  countRecallSurfacedRefs,
   listAgentStackItems,
   getSessionReadCutoffState
 } from '@qq-bot/persistence';
@@ -538,11 +539,20 @@ export async function scanDiaryEventsToShadow(
 
   const structuralTitles = computeStructuralTitles(events);
 
+  // 覆盖优先的数据面:每个 ref 到今天为止浮过几次(全历史 GROUP BY)。
+  // 上面那份 recentRefs 是**短窗冷却**(40 行 ≈ 20 小时),它挡不住「冷却一过又挑回最老那一撮」;
+  // 治覆盖率要的是跨全历史的次数。读失败 → 空 Map → 选取器退化成原来的纯 ageDays 降序,不阻断。
+  const surfaceCounts = await countRecallSurfacedRefs({
+    identityKey,
+    queryRef: DIARY_RESURFACE_QUERY_REF
+  }).catch(() => new Map<string, number>());
+
   const picked = selectResurfacedEvents(events, {
     nowMs,
     minAgeDays: DIARY_MIN_AGE_DAYS,
     limit: DIARY_SURFACE_LIMIT,
     recentlySurfaced: recentRefs,
+    surfaceCounts,
     structuralTitles
   });
 
@@ -639,6 +649,39 @@ async function collectTopicLineCandidates(nowMs: number): Promise<DiaryEventCand
 // landedText(本次落地的那段文本)取动作流最新一条的 body/title —— 和 agent-service 侧那个
 // 召回钩子(modules/agent-service/src/services/xiaoni-recall-hook.ts:62-64)同一口径、同一来源,
 // 不新起第二种「什么算落地」的定义。取不到 → f1 全 0,其余五因子照排(不瘫)。
+// 三张菜单的读取逻辑与 agent-service 侧同源:两边料相同、用法不同(向量腿逐行嵌向量走
+// 语义式在场排除,扫描腿把正文接进 contextText 走文本包含)。
+// 这里不能直接 import agent-service 的模块(跨服务),所以只保留一份**极薄**的读取,
+// 规则(哪三张、INDEX* 前缀、compress 取最新)以 modules/agent-service/src/services/
+// xiaoni-context-menus.ts 为准 —— 那边改了这边要跟。
+async function readContextMenuTexts(): Promise<string[]> {
+  const out: string[] = [];
+  const push = async (absolutePath: string) => {
+    try {
+      out.push(await fs.readFile(absolutePath, 'utf8'));
+    } catch {
+      // 还没建 / 读不到 → 少一层过滤,不阻断
+    }
+  };
+  try {
+    const dir = path.join(RUNTIME_ROOT, DIARY_DIR_REL_PATH);
+    for (const name of await fs.readdir(dir)) {
+      if (/^INDEX([-.]|$)/i.test(name) && /\.(md|txt)$/i.test(name)) {
+        await push(path.join(dir, name));
+      }
+    }
+  } catch { /* 目录读不到 */ }
+  await push(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL_PATH));
+  try {
+    const dir = path.join(RUNTIME_ROOT, 'compress');
+    const names = (await fs.readdir(dir)).filter((n) => n.endsWith('.md')).sort();
+    if (names.length) {
+      await push(path.join(dir, names[names.length - 1]));
+    }
+  } catch { /* 还没压缩过 */ }
+  return out.filter((d) => d.trim().length > 0);
+}
+
 export async function scanAssociativeRecallToShadow(
   opts: { identityKey?: string; nowMs?: number } = {}
 ): Promise<AssociationScanResult> {
@@ -734,6 +777,17 @@ export async function scanAssociativeRecallToShadow(
     contextText = '';
   }
 
+  // 三张常驻菜单也是「在场」的一部分。真库实测(2026-08-19,近 3 天 5631/5631 次请求)
+  // `<xiaoni_status>` / `<xiaoni_diary_index>` / `<xiaoni_people>` 100% 在她的请求里 ——
+  // 菜单已经点到的事,她看一眼就想得起来,不该再被翻出来一遍。
+  //
+  // 向量腿走的是语义式在场排除(菜单逐行嵌向量,见 xiaoni-recall-ingest.js);扫描腿这边
+  // 的在场判定是**文本包含**(isPresentInContext),所以直接把菜单正文接进 contextText 即可。
+  // 这一步原本漏了:菜单只注入进了 agent-service 的落地腿,而这三条扫描腿跑在 admin-backend,
+  // 永远看不到菜单(code review 抓出来的)。
+  // 读不到 → 少一层过滤,不阻断(与本函数其余部分同口径)。
+  contextText = [contextText, ...(await readContextMenuTexts())].filter(Boolean).join('\n');
+
   // identity 级冷却:窗口必须带 queryRef 下推到 SQL —— 这张表 ~97% 是语义腿每次落地写的留痕,
   // 不下推时窗口里本腿的行实测是 0 条,冷却完全失效(第二/三腿踩过的同一个坑,P0 刚修)。
   const recentIdentities: string[] = [];
@@ -761,8 +815,27 @@ export async function scanAssociativeRecallToShadow(
   // 结构模板识别只看有事发日期的那两类(日记条目 + 线章节)。承诺行不是模板,不参与。
   const structuralTitles = computeStructuralTitles([...diaryScan.events, ...lineCandidates]);
 
+  // 覆盖优先的数据面(并进来的第三腿的本职)。两条腿的 shadow 留痕分别在两个 queryRef 下,
+  // 所以两个都要数 —— 否则合并之前翻烂了的那 90 条会被当成「没翻过」重新霸榜。
+  // 函数缺失(老 persistence)也要能跑 —— 覆盖优先是加分项,不该反过来把腿停掉。
+  const countSurfaced = async (queryRef: string): Promise<Map<string, number>> => {
+    if (typeof countRecallSurfacedRefs !== 'function') {
+      return new Map<string, number>();
+    }
+    return countRecallSurfacedRefs({ identityKey, queryRef }).catch(() => new Map<string, number>());
+  };
+  const [assocCounts, diaryCounts] = await Promise.all([
+    countSurfaced(ASSOCIATION_SCAN_QUERY_REF),
+    countSurfaced(DIARY_RESURFACE_QUERY_REF)
+  ]);
+  const surfaceCounts = new Map<string, number>(assocCounts);
+  for (const [ref, n] of diaryCounts) {
+    surfaceCounts.set(ref, (surfaceCounts.get(ref) || 0) + n);
+  }
+
   const { picked, stats } = selectAssociativeMemories(candidates, {
     nowMs,
+    surfaceCounts,
     landedText,
     contextText,
     peerNames,
@@ -878,12 +951,11 @@ export async function reindexXiaoniRecall(opts: { identityKey?: string; actionSt
   } catch {
     openLoopScan = undefined;
   }
-  let diaryResurfaceScan: DiaryResurfaceScanResult | undefined;
-  try {
-    diaryResurfaceScan = await scanDiaryEventsToShadow({ identityKey });
-  } catch {
-    diaryResurfaceScan = undefined;
-  }
+  // 第三腿(diary_resurface)已并入第四腿:两条的原料同是 `diary add` 出来的 `## 条目`,
+  // 写端从没区分过它们 —— 是读端凭空分的两条腿,还互相抢名额。第三腿唯一的独有价值是
+  // **覆盖**(走一遍她的记忆空间),那一条已经折进 selectAssociativeMemories 的排序主键。
+  // 函数保留(还有单元测试钉着它的过滤规则),但不再单独扫、不再单独占投递名额。
+  const diaryResurfaceScan: DiaryResurfaceScanResult | undefined = undefined;
   // 第四条腿(联想)同样搭这次重扫顺带跑,出错吞掉不拖垮语料 reindex。shadow-only。
   let associationScan: AssociationScanResult | undefined;
   try {

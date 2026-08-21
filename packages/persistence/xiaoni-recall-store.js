@@ -146,6 +146,11 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       `ORDER BY embedding_vec <=> $2::vector LIMIT $3`;
     // HNSW 默认 hnsw.ef_search=40 会把结果封顶在 ~40(不管 LIMIT),k=300 会静默截断成 ~40。
     // 每查询设 ef_search≥k(SET LOCAL 须在事务内;array 形 $transaction 保证同连接同事务)。
+    // 1000 是 **pgvector 对 hnsw.ef_search 的硬上限**,不是随便定的数:
+    // 设成更大的值会让 `SET LOCAL hnsw.ef_search` 直接报 22023,整条取候选查询失败 ——
+    // 而这条路径是 fire-and-forget,异常被吞掉,线上表现为召回静默死掉且无任何迹象。
+    // (2026-08-20 亲手踩过:为了配合 k=1500 把封顶抬到 4000,回归集replay 全静默才发现。)
+    // 因此 k 有效上限也就是 1000/域 —— 再大 HNSW 也只会返约 ef_search 条。
     const efSearch = Math.floor(Math.min(Math.max(k * 2, 100), 1000));
     const setup = [prisma.$executeRawUnsafe(`SET LOCAL hnsw.ef_search = ${efSearch}`)];
     if (cueClasses.length) {
@@ -415,6 +420,32 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     return rows.map((row) => row.ref).filter(Boolean);
   }
 
+  // 某条腿的「每个 ref 到今天为止浮过几次」。覆盖优先排序的数据面。
+  //
+  // 为什么要全历史而不是最近 N 行:第三腿(diary_resurface)的冷却是「最近 40 行里翻过的跳过」,
+  // 40 行 ≈ 20 小时,而候选有 1899 条 —— 冷却一过它又挑回最老的那一撮。真库实测(2026-08-19)
+  // 全历史 3350 次浮现只覆盖 90 个不同条目(4.7%),每条平均重复 37 次。要治这个,排序必须看
+  // 「这条被翻过几次」,而那是个跨全历史的量,短窗口看不见。
+  //
+  // 一次 GROUP BY,按 (identity_key, query_ref) 走既有索引;调用方每 30 分钟一轮,不在热路径。
+  async function countRecallSurfacedRefs(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const identityKey = params.identityKey || 'xiaoni';
+    const queryRef = typeof params.queryRef === 'string' ? params.queryRef : null;
+    if (!queryRef) {
+      return new Map();
+    }
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT s->>'ref' AS ref, count(*)::int AS n
+       FROM xiaoni_recall_shadow_log l, jsonb_array_elements(l.surfaced) s
+       WHERE l.identity_key = $1 AND l.query_ref = $2 AND s->>'ref' IS NOT NULL
+       GROUP BY 1`,
+      identityKey,
+      queryRef
+    );
+    return new Map(rows.map((row) => [row.ref, Number(row.n) || 0]));
+  }
+
   // inbound 砖在场硬检查的数据面:批量读消息的已读态。返回 [{id, isRead, readAt}](readAt ISO|null)。
   // 规则本身(已读且在遗忘线前读的才算记忆)是纯函数,在 xiaoni-recall-bandpass.js。
   async function getInboundReadStates(ids, config = {}) {
@@ -450,7 +481,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     pruneFileChunks,
     insertRecallShadowLog,
     listRecallShadowLog,
-    listRecentlySurfacedRecallRefs
+    listRecentlySurfacedRecallRefs,
+    countRecallSurfacedRefs
   };
 }
 

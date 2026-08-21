@@ -6,7 +6,13 @@
 // 轻量防抖:突发 append 合并,避免每次 append 都投影一遍头部。
 // docs/XIAONI_PASSIVE_RECALL_SHADOW_COMPLETION.md §3
 
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import * as persistence from '@qq-bot/persistence';
+
+import { callRecallLlm, type RecallPrompt } from './xiaoni-recall-llm-client';
+import { readContextMenuTexts } from './xiaoni-context-menus';
 
 const IDENTITY_KEY = 'xiaoni';
 const HEAD_LIMIT = 50;                 // 每次事件投影的头部条数(覆盖一个 turn 的落地)
@@ -37,10 +43,69 @@ async function embed(texts: string[]): Promise<number[][]> {
   return data.map((e) => (Array.isArray(e?.embedding) ? e.embedding : []));
 }
 
+// 菜单读取与小模型调用都收口在共用模块(见各自文件头)。
+const RUNTIME_ROOT = process.env.XIAONI_RUNTIME_ROOT || '/xiaoni-runtime';
+const PEOPLE_INDEX_REL = 'notes/people/INDEX.md';
+const EXPANSION_MODEL = process.env.XIAONI_RECALL_EXPANSION_MODEL || undefined;
+const EXPANSION_TIMEOUT_MS = Number.parseInt(process.env.XIAONI_RECALL_EXPANSION_TIMEOUT_MS || '25000', 10);
+
+async function readIfExists(absolutePath: string): Promise<string | null> {
+  try {
+    return await fs.readFile(absolutePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+const readContextMenus = () => readContextMenuTexts(RUNTIME_ROOT);
+
+const expandQueries = (prompt: RecallPrompt) => callRecallLlm(prompt, {
+  model: EXPANSION_MODEL,
+  maxTokens: 512,
+  timeoutMs: EXPANSION_TIMEOUT_MS,
+  label: 'recall-expansion'
+});
+
+// 她的人物菜单名字表。喂 importance 的 peer / profiledPeer 两个因子。
+// 与 readTags 分开:那个混着专题标签,当人名用会误命中。
+const PEOPLE_INDEX_LINE_RE = /^\s*-\s*([^(（|]+)/gm;
+
+async function readPeerNames(): Promise<string[]> {
+  const peopleIndex = await readIfExists(path.join(RUNTIME_ROOT, PEOPLE_INDEX_REL));
+  if (!peopleIndex) {
+    return [];
+  }
+  const names: string[] = [];
+  for (const m of peopleIndex.matchAll(PEOPLE_INDEX_LINE_RE)) {
+    const name = (m[1] || '').trim();
+    if (name.length >= 2) {
+      names.push(name);
+    }
+  }
+  return Array.from(new Set(names));
+}
+
+// 标签命名空间取自她自己写的东西(topics 文件名 + 人物菜单名字),不另造词表 ——
+// 模型的活因此是**组合**而不是生成:便宜、可控、结果可解释。
+async function readTags(): Promise<string[]> {
+  const tags: string[] = [];
+  try {
+    const names = await fs.readdir(path.join(RUNTIME_ROOT, 'notes/topics'));
+    for (const n of names) {
+      if (/\.(md|txt)$/i.test(n) && !/^INDEX([-.]|$)/i.test(n)) {
+        tags.push(n.replace(/\.(md|txt)$/i, ''));
+      }
+    }
+  } catch {
+    // 目录还没建 → 只用人名
+  }
+  return Array.from(new Set([...tags, ...(await readPeerNames())]));
+}
+
 let ingestSingleton: ReturnType<typeof persistence.createRecallIngest> | null = null;
 function getIngest() {
   if (!ingestSingleton) {
-    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY });
+    ingestSingleton = persistence.createRecallIngest({ embed, persistence, identityKey: IDENTITY_KEY, readContextMenus, expandQueries, readTags, readPeerNames });
   }
   return ingestSingleton;
 }

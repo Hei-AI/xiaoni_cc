@@ -26,6 +26,10 @@ const recallFileChunker = require('./xiaoni-recall-file-chunker');
 const openLoops = require('./xiaoni-open-loops');
 const diaryEvents = require('./xiaoni-diary-events');
 const recallAssociation = require('./xiaoni-recall-association');
+const recallImportance = require('./xiaoni-recall-importance');
+const recallLlmIo = require('./xiaoni-recall-llm-io');
+const recallQueryExpansion = require('./xiaoni-recall-query-expansion');
+const recallDeliveryJudge = require('./xiaoni-recall-delivery-judge');
 const { createXiaoniRecallStorePersistence } = require('./xiaoni-recall-store');
 const { createAbExperimentPersistence } = require('./ab-experiment');
 const { createRelationshipTrustPersistence } = require('./relationship-trust');
@@ -617,6 +621,10 @@ module.exports = {
   ...openLoops,
   ...diaryEvents,
   ...recallAssociation,
+  ...recallImportance,
+  ...recallLlmIo,
+  ...recallQueryExpansion,
+  ...recallDeliveryJudge,
   ...xiaoniRecallStorePersistence,
   ...abExperimentPersistence,
   ...relationshipTrustPersistence,

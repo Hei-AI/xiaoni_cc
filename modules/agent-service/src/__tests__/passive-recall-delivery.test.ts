@@ -31,6 +31,7 @@ function fakeDeps(overrides: {
   const already = overrides.alreadyDelivered || new Set<string>();
   const deps: RecallDeliveryDeps = {
     async listRecallShadowLog(params) {
+      // 落地腿不带 queryRef(它的 queryRef 每次落地都变,推不下去)→ 用 '' 这个键。
       const queryRef = String((params as { queryRef?: unknown }).queryRef || '');
       return (overrides.rowsByQueryRef || {})[queryRef] || [];
     },
@@ -54,11 +55,18 @@ function fakeDeps(overrides: {
 
 const rowWith = (items: unknown[]) => ({ occurredAt: '2026-08-07T03:00:00Z', surfaced: items });
 const openLoopItem = (ref: string, lead: string) => ({ kind: 'open_loop', ref, lead });
+// 落地腿(file_chunk / peer_message)的 surfaced 形状:lead 是**对象**,身份是 sourceRef。
+const landingItem = (sourceRef: string, text: string) => ({
+  cos: 0.42, domain: 'self', sourceRef,
+  provenance: { kind: 'file_chunk', path: sourceRef.split('#')[0] },
+  lead: { kind: 'file_chunk', text, pointer: sourceRef.split('#')[0], privacyScope: 'self_private' }
+});
+const landingRow = (items: unknown[]) => ({ queryRef: 'stack:123', occurredAt: '2026-08-20T03:00:00Z', surfaced: items });
 const associationItem = (ref: string, lead: string) => ({ kind: 'association', ref, lead });
 
 test('闸门读不到 → fail-closed,一条都不投', async () => {
   const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] }
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] }
   });
   // 不注入 readGate → 走生产路径(现读 agent_runtime_control),库里没开就是 disabled。
   // 这里用一个「读不出来」的闸门模拟最坏情况:必须 fail-closed。
@@ -70,14 +78,14 @@ test('闸门读不到 → fail-closed,一条都不投', async () => {
 test('打开后投一条:正文 = lead 原句,dedupeKey 锚在记忆的 ref 上', async () => {
   const lead = '你之前记过一件还没了的事：not-knowing发了reddit等三天后看结果（放了 4 天了）';
   const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:not-knowing', lead)])] }
+    rowsByQueryRef: { association_scan: [rowWith([associationItem('as:not-knowing', lead)])] }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
 
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
-  assert.match(String(calls[0].message.dedupeKey), /^recall-surface:open_loop:[0-9a-f]{32}$/);
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:not-knowing');
+  assert.match(String(calls[0].message.dedupeKey), /^recall-surface:association:[0-9a-f]{32}$/);
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'as:not-knowing');
   assert.equal(calls[0].message.source, 'system_reminder');
   assert.equal(calls[0].message.bodyForAgent, lead, '正文就是 lead 本句,不加系统框');
   // 缓存契约:正文必须在 enqueue 时刻冻结进 payload.systemReminder.reminder,
@@ -90,7 +98,7 @@ test('打开后投一条:正文 = lead 原句,dedupeKey 锚在记忆的 ref 上'
 test('每拍最多 1 条 —— 候选再多也只投一条', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:1', 'A'), openLoopItem('ol:2', 'B')])],
+      '': [landingRow([landingItem('/x/a.md#1', 'A'), landingItem('/x/b.md#2', 'B')])],
       association_scan: [rowWith([associationItem('as:1', 'C')])]
     }
   });
@@ -101,7 +109,7 @@ test('每拍最多 1 条 —— 候选再多也只投一条', async () => {
 
 test('同一段记忆永远只投一次:第二拍撞 dedupeKey → created=false → 不算投递', async () => {
   const rows = {
-    open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事 A')])]
+    association_scan: [rowWith([associationItem('as:1', '旧事 A')])]
   };
   const shared = new Set<string>();
   const first = fakeDeps({ rowsByQueryRef: rows, alreadyDelivered: shared });
@@ -116,7 +124,7 @@ test('同一段记忆永远只投一次:第二拍撞 dedupeKey → created=false
 
 test('日额是硬闸:今天投满了就停', async () => {
   const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] },
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] },
     deliveredToday: 6
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
@@ -124,7 +132,7 @@ test('日额是硬闸:今天投满了就停', async () => {
   assert.equal(calls.length, 0);
 });
 
-test('只投 open_loop / association 两条腿 —— 其余腿的 queryRef 根本不查', async () => {
+test('只投 association / landing 两条腿 —— diary_resurface 等的 queryRef 根本不查', async () => {
   const queried: string[] = [];
   const deps: RecallDeliveryDeps = {
     async listRecallShadowLog(params) {
@@ -136,43 +144,33 @@ test('只投 open_loop / association 两条腿 —— 其余腿的 queryRef 根�
   };
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   await delivery.deliverOnce();
-  assert.deepEqual(queried.sort(), ['association_scan', 'open_loop_scan']);
-  assert.ok(!queried.includes('diary_resurface'), 'diary_event 唯一率 12.8%,不在首发名单');
+  // association 推 queryRef;landing 不推(它的 queryRef 每次落地都变)→ 记为 ''。
+  assert.deepEqual(queried.sort(), ['', 'association_scan']);
+  assert.ok(!queried.includes('open_loop_scan'), '欠账已撤出召回,改走定时指针通知');
+  assert.ok(!queried.includes('diary_resurface'), 'diary_event 未合并前不投');
 });
 
 test('缺 ref 或缺 lead 的 surfaced 项直接跳过(没有稳定 ref 就没有幂等)', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([
-        { kind: 'open_loop', lead: '', text: '' },
-        { kind: 'open_loop', ref: 'ol:x' },
+      association_scan: [rowWith([
+        { kind: 'association', lead: '', text: '' },
+        { kind: 'association', ref: 'as:x' },
         null,
-        openLoopItem('ol:good', '两样都全的这条')
+        associationItem('as:good', '两样都全的这条')
       ])]
     }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
   assert.equal(calls.length, 1);
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:good');
-});
-
-test('承诺腿优先于联想腿(还没了的事比旧事重提更该说)', async () => {
-  const { deps, calls } = fakeDeps({
-    rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])],
-      association_scan: [rowWith([associationItem('as:1', '旧事重提')])]
-    }
-  });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
-  await delivery.deliverOnce();
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'ol:1');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_ref, 'as:good');
 });
 
 test('闸门关着 → disabled;日额 0 也等同关闭', async () => {
   for (const g of [{ enabled: false, dailyCap: 6 }, { enabled: true, dailyCap: 0 }]) {
     const { deps, calls } = fakeDeps({
-      rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] }
+      rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] }
     });
     const delivery = createPassiveRecallDelivery(deps, { readGate: async () => g });
     assert.equal(await delivery.deliverOnce(), 'disabled');
@@ -183,7 +181,7 @@ test('闸门关着 → disabled;日额 0 也等同关闭', async () => {
 test('闸门每拍现读 —— 管理端中途关掉,下一拍就停(不用重启)', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:1', 'A'), openLoopItem('ol:2', 'B')])]
+      '': [landingRow([landingItem('/x/a.md#1', 'A'), landingItem('/x/b.md#2', 'B')])]
     }
   });
   let enabled = true;
@@ -200,52 +198,11 @@ test('闸门每拍现读 —— 管理端中途关掉,下一拍就停(不用重�
 // open_loop 的 surfaced 项**没有 ref 字段**(真库核查:只有 kind/text/openedTag/ageDays/tier/lead)。
 // 要求 ref 会让这条腿一条都投不出去 —— 而且是静默的,看日志只会以为「今天没东西可投」。
 // 它自己的冷却就是按承诺正文(recentTexts)去重的,投递侧沿用同一个身份概念。
-test('open_loop 没有 ref:按承诺正文当身份,照样投得出去', async () => {
+test('轮转:上一条是 landing → 这一拍先给 association', async () => {
   const { deps, calls } = fakeDeps({
+    todaysKeys: ['recall-surface:landing:aaa'],
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([{
-        kind: 'open_loop',
-        text: 'not-knowing发了reddit等三天后看结果 between也在等',
-        openedTag: '8/3',
-        ageDays: 4.3,
-        tier: 'active',
-        lead: '你之前记过一件还没了的事：not-knowing发了reddit等三天后看结果 between也在等（放了 4 天了）'
-      }])]
-    }
-  });
-  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
-  assert.equal(await delivery.deliverOnce(), 'delivered', '没有 ref 不该让这条腿哑掉');
-  assert.equal(
-    (calls[0].message.rawPayload as Record<string, unknown>).recall_ref,
-    'not-knowing发了reddit等三天后看结果 between也在等'
-  );
-});
-
-// lead 里带「放了 N 天了」,天数每天变。身份若取 lead,同一件事会被天天重投一次。
-test('open_loop 身份取 text 不取 lead —— 天数变了也认得出是同一件事', async () => {
-  const loop = { kind: 'open_loop', text: '给陈显写信', openedTag: '8/3', tier: 'active' };
-  const shared = new Set<string>();
-  const day1 = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([{ ...loop, ageDays: 4.3, lead: '你之前记过一件还没了的事：给陈显写信（放了 4 天了）' }])] },
-    alreadyDelivered: shared
-  });
-  assert.equal(await createPassiveRecallDelivery(day1.deps, gate(true, 6)).deliverOnce(), 'delivered');
-
-  const day2 = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([{ ...loop, ageDays: 5.3, lead: '你之前记过一件还没了的事：给陈显写信（放了 5 天了）' }])] },
-    alreadyDelivered: shared
-  });
-  assert.equal(await createPassiveRecallDelivery(day2.deps, gate(true, 6)).deliverOnce(), 'none', '天数变了不算新记忆');
-});
-
-// ── 腿间轮转(2026-08-07 首日活体观察发现)──────────────────────────────────
-// 固定优先级下 6 条日额全被 open_loop 吃光,association 一条没轮到 —— 她常年有 20 条开放
-// 承诺,那条腿永远有货,排在前面就永远不让位。首发放两条腿、实际只跑一条。
-test('轮转:上一条是 open_loop → 这一拍先给 association', async () => {
-  const { deps, calls } = fakeDeps({
-    todaysKeys: ['recall-surface:open_loop:aaa'],
-    rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      '': [landingRow([landingItem('/x/n.md#1', '手边的材料')])],
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
@@ -254,49 +211,49 @@ test('轮转:上一条是 open_loop → 这一拍先给 association', async () =
   assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
 });
 
-test('轮转:上一条是 association → 这一拍换回 open_loop', async () => {
+test('轮转:上一条是 association → 这一拍换回 landing', async () => {
   const { deps, calls } = fakeDeps({
     todaysKeys: ['recall-surface:association:bbb'],
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      '': [landingRow([landingItem('/x/n.md#1', '手边的材料')])],
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'landing');
 });
 
 test('轮转不是死等:该轮到的那条腿没货 → 落回另一条,不空投', async () => {
   const { deps, calls } = fakeDeps({
-    todaysKeys: ['recall-surface:open_loop:aaa'],
+    todaysKeys: ['recall-surface:landing:aaa'],
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      '': [landingRow([landingItem('/x/n.md#1', '手边的材料')])],
       association_scan: [] // association 这轮没扫出东西
     }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'delivered');
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'landing');
 });
 
-test('今天还没投过 → 用默认顺序(open_loop 先)', async () => {
+test('今天还没投过 → 用默认顺序(association 先)', async () => {
   const { deps, calls } = fakeDeps({
     todaysKeys: [],
     rowsByQueryRef: {
-      open_loop_scan: [rowWith([openLoopItem('ol:new', '还没了的事')])],
+      '': [landingRow([landingItem('/x/n.md#1', '手边的材料')])],
       association_scan: [rowWith([associationItem('as:new', '旧事重提')])]
     }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   await delivery.deliverOnce();
-  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'open_loop');
+  assert.equal((calls[0].message.rawPayload as Record<string, unknown>).recall_leg, 'association');
 });
 
 test('日额仍按今天已投的键数刹车', async () => {
   const { deps, calls } = fakeDeps({
-    todaysKeys: Array.from({ length: 6 }, (_, i) => `recall-surface:open_loop:k${i}`),
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '还没了的事')])] }
+    todaysKeys: Array.from({ length: 6 }, (_, i) => `recall-surface:landing:k${i}`),
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '手边的材料')])] }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
   assert.equal(await delivery.deliverOnce(), 'capped');
@@ -312,7 +269,7 @@ const east8At = (hour: number) => new Date(Date.UTC(2026, 7, 7, 0, 0, 0) + (hour
 
 test('节奏闸:凌晨投不出来(日额归零那一刻也不行)', async () => {
   const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] }
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] }
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(0.2)));
   assert.equal(await delivery.deliverOnce(), 'capped');
@@ -320,7 +277,7 @@ test('节奏闸:凌晨投不出来(日额归零那一刻也不行)', async () =>
 });
 
 test('节奏闸:活动窗开始前(08:59)不投,开窗后(09:00)放行第一条', async () => {
-  const rows = { open_loop_scan: [rowWith([openLoopItem('ol:1', '你之前记过一件还没了的事：X')])] };
+  const rows = { '': [landingRow([landingItem('/x/a.md#1', '你在 /x/a.md 里记过：X')])] };
   const before = fakeDeps({ rowsByQueryRef: rows });
   assert.equal(
     await createPassiveRecallDelivery(before.deps, gate(true, 6, east8At(8.98))).deliverOnce(),
@@ -335,7 +292,7 @@ test('节奏闸:活动窗开始前(08:59)不投,开窗后(09:00)放行第一条'
 
 test('节奏闸:今天已投够这一槽的量 → 等下一槽,不抢跑', async () => {
   const { deps } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:9', '你之前记过一件还没了的事：Y')])] },
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     // 11:20 东八 ≈ 第 1 槽,已投 1 条 → 该等
     todaysKeys: ['recall-surface:association:pad0']
   });
@@ -345,7 +302,7 @@ test('节奏闸:今天已投够这一槽的量 → 等下一槽,不抢跑', asyn
 
 test('节奏闸:同样已投 1 条,但到了晚些的槽 → 放行', async () => {
   const { deps, calls } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([openLoopItem('ol:9', '你之前记过一件还没了的事：Y')])] },
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/y.md#9', '你在 /x/y.md 里记过：Y')])] },
     todaysKeys: ['recall-surface:association:pad0']
   });
   const delivery = createPassiveRecallDelivery(deps, gate(true, 6, east8At(16)));
@@ -358,39 +315,6 @@ test('节奏闸:同样已投 1 条,但到了晚些的槽 → 放行', async () =
 // 但已做完的承诺在 parseOpenLoops 那层(state !== 'open')就被滤掉了,幂等对它们是多余的;
 // 幂等实际唯一挡住的是**没做完的**。实测 2026-08-13:29 条 [ ] 未完成里 18 条已投过 →
 // 永久不会再被提起,其中两条带硬截止(HWC 8/19、Taper Prime 8/17)。
-test('open_loop:搁置跨过重投窗 → 键换一次,同一条没做完的承诺能再提', async () => {
-  const mk = (ageDays: number) => ({
-    kind: 'open_loop', text: '给James写了信问什么时候知道旧名字不对。等回信。', ageDays,
-    lead: `你之前记过一件还没了的事：给James写了信问什么时候知道旧名字不对。等回信。（放了 ${Math.floor(ageDays)} 天了）`
-  });
-  const first = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(3)])] } });
-  await createPassiveRecallDelivery(first.deps, gate(true, 6)).deliverOnce();
-  const keyAt3 = String(first.calls[0].message.dedupeKey);
-
-  const later = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(10)])] } });
-  await createPassiveRecallDelivery(later.deps, gate(true, 6)).deliverOnce();
-  const keyAt10 = String(later.calls[0].message.dedupeKey);
-
-  assert.notEqual(keyAt3, keyAt10, '搁置 3 天与 10 天必须落在不同的重投窗');
-  assert.match(keyAt3, /:w0$/);
-  assert.match(keyAt10, /:w1$/);
-});
-
-test('open_loop:同一个重投窗内不重复投(窗内幂等照旧生效)', async () => {
-  const mk = (ageDays: number) => ({
-    kind: 'open_loop', text: '博友圈提交了RSS。等审核。', ageDays,
-    lead: `你之前记过一件还没了的事：博友圈提交了RSS。等审核。（放了 ${Math.floor(ageDays)} 天了）`
-  });
-  const { deps, calls } = fakeDeps({ rowsByQueryRef: { open_loop_scan: [rowWith([mk(3)])] } });
-  await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
-  const { deps: deps2, calls: calls2 } = fakeDeps({
-    rowsByQueryRef: { open_loop_scan: [rowWith([mk(5)])] },
-    alreadyDelivered: new Set([String(calls[0].message.dedupeKey)])
-  });
-  assert.equal(await createPassiveRecallDelivery(deps2, gate(true, 6)).deliverOnce(), 'none');
-  assert.equal(calls2.length, 1, '入队试过一次,被唯一索引挡下(created=false),不算新投递');
-});
-
 test('association 不放松重投:日记条目没有「完成」这个状态,键里不带窗号', async () => {
   const { deps, calls } = fakeDeps({
     rowsByQueryRef: {
@@ -399,4 +323,191 @@ test('association 不放松重投:日记条目没有「完成」这个状态,键
   });
   await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
   assert.doesNotMatch(String(calls[0].message.dedupeKey), /:w\d+$/);
+});
+
+// ── 投递闸判官 ────────────────────────────────────────────────────────────
+// 它坐在投递闸上(一天十几次),不是每次落地 —— 检索侧那 ~985 次/天仍是纯算术。
+// 铁律:必须允许它说「一条都不值得」,否则退化成每次必冒。
+const judgeOf = (raw: string) => async () => raw;
+
+test('判官挑中的那条被投,而且用的是它写的钩子(不是模板)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: {
+      '': [landingRow([landingItem('/x/a.md#1', '模板钩子 A'), landingItem('/x/b.md#2', '模板钩子 B')])]
+    }
+  });
+  let seenIds: string[] = [];
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => {
+      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
+      return JSON.stringify({ picks: [{ id: seenIds[1], hook: '判官写的一句人话' }] });
+    }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].message.bodyForAgent, '判官写的一句人话');
+  assert.equal(calls[0].message.dedupeKey, seenIds[1], '投的是判官挑的那条');
+});
+
+test('判官说「一条都不值得」→ 静默,不投', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: judgeOf('{"picks":[]}') });
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0);
+});
+
+test('判官挂了 → 退回模板钩子按原顺序投(不打扰她优先于强行判断)', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async () => { throw new Error('haiku down'); }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls[0].message.bodyForAgent, '模板钩子');
+});
+
+test('判官编了不存在的 id → 那条丢掉;但它确实答了,所以按「无可投」静默', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: judgeOf('{"picks":[{"id":"我编的","hook":"x"}]}')
+  });
+  // parsed=true 且过滤后为空 → 视同「这次不值得」,静默;不是退回模板。
+  assert.equal(await delivery.deliverOnce(), 'none');
+  assert.equal(calls.length, 0);
+});
+
+test('不注入 judge → 行为与改动前一致', async () => {
+  const { deps, calls } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '模板钩子')])] }
+  });
+  const delivery = createPassiveRecallDelivery(deps, gate(true, 6));
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.equal(calls[0].message.bodyForAgent, '模板钩子');
+});
+
+// 锚点只能取**向量腿**的 query_text。扫描腿(association_scan / diary_resurface /
+// open_loop_scan)写的是 queryText: null —— 不带 queryRef 取最新一条会把锚点喂成空,
+// 判官只能瞎判。code review 抓出来的。
+test('判官锚点跳过扫描腿的空 queryText,取最近的向量腿落地文本', async () => {
+  // 扫描腿(association_scan / diary_resurface)写 queryText: null。不带 queryRef 取最新
+  // 一条会把锚点喂成空,判官只能瞎判。锚点必须来自向量腿(`stack:` 前缀)。
+  const anchorRows = [
+    { queryRef: 'association_scan', queryText: null, surfaced: [] },
+    { queryRef: 'diary_resurface', queryText: null, surfaced: [] },
+    { queryRef: 'stack:99', queryText: '她此刻正在做的那件事', surfaced: [landingItem('/x/a.md#1', '模板钩子')] }
+  ];
+  const deps: RecallDeliveryDeps = {
+    async listRecallShadowLog(params) {
+      // 落地腿和锚点查询都不带 queryRef;association 腿带。
+      return (params as { queryRef?: unknown }).queryRef === undefined ? anchorRows : [];
+    },
+    async listRecentAgentQueueDedupeKeys() { return []; },
+    async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
+  };
+  let seenAnchor = '';
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => { seenAnchor = prompt.user; return '{"picks":[]}'; }
+  });
+  await delivery.deliverOnce();
+  assert.ok(seenAnchor.includes('她此刻正在做的那件事'), `锚点没取到向量腿的文本:${seenAnchor.slice(0, 140)}`);
+  assert.ok(!seenAnchor.includes('(拿不到)'), '不该退化成空锚点');
+});
+
+test('判官拿得到 ageDays —— 否则它不知道这件事搁了多久', async () => {
+  const rows = [{
+    queryRef: 'stack:1',
+    queryText: '当下',
+    surfaced: [{ ...landingItem('/x/a.md#1', '一段旧材料'), ageDays: 12.4 }]
+  }];
+  const deps: RecallDeliveryDeps = {
+    async listRecallShadowLog(params) {
+      return (params as { queryRef?: unknown }).queryRef === undefined ? rows : [];
+    },
+    async listRecentAgentQueueDedupeKeys() { return []; },
+    async enqueueAgentQueueMessage() { return { queueId: 1, status: 'pending', created: true }; }
+  };
+  let seen = '';
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => { seen = prompt.user; return '{"picks":[]}'; }
+  });
+  await delivery.deliverOnce();
+  assert.match(seen, /12 天前/, `prompt 里该带年龄:${seen.slice(0, 180)}`);
+});
+
+// 落地腿的判据是「**不是**扫描腿写的」,不是「以 stack: 开头」。白名单版本实测漏掉近 7 天
+// 766 条落地留痕(140 条有浮现):入站消息触发的召回写 `inbound:<id>` / `queue:<id>`,
+// landedRef 拿不到时还会写 NULL —— 而「别人刚说的话勾起她一段回忆」正是这条腿最该服务的。
+test('落地腿收下 inbound: / queue: / NULL 这些非扫描腿的留痕', async () => {
+  for (const ref of ['inbound:34359', 'queue:42944', null]) {
+    const { deps, calls } = fakeDeps({
+      todaysKeys: [],
+      rowsByQueryRef: {
+        '': [{ queryRef: ref, occurredAt: null, surfaced: [landingItem('/x/a.md#1', '该被投的那条')] }]
+      }
+    });
+    // eslint-disable-next-line no-await-in-loop
+    const out = await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce();
+    assert.equal(out, 'delivered', `queryRef=${String(ref)} 该被收下`);
+    assert.equal(calls.length, 1);
+  }
+});
+
+test('落地腿仍然排除扫描腿的留痕', async () => {
+  for (const ref of ['association_scan', 'diary_resurface', 'open_loop_scan']) {
+    const { deps, calls } = fakeDeps({
+      todaysKeys: [],
+      rowsByQueryRef: {
+        '': [{ queryRef: ref, occurredAt: null, surfaced: [landingItem('/x/b.md#1', '不该走落地腿的')] }]
+      }
+    });
+    // eslint-disable-next-line no-await-in-loop
+    assert.equal(await createPassiveRecallDelivery(deps, gate(true, 6)).deliverOnce(), 'none', ref);
+    assert.equal(calls.length, 0);
+  }
+});
+
+// 判官只看得到前 N 条。若候选里混着今天已投过的,它可能挑中那条 → ordered 只剩它 →
+// enqueue created=false → 整拍空转,而判官之前的行为是继续往下走候选。
+test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂已投的', async () => {
+  const already = landingItem('/x/old.md#1', '今天已经投过的');
+  const fresh = landingItem('/x/new.md#1', '还没投过的');
+  const { deps, calls } = fakeDeps({
+    rowsByQueryRef: { '': [landingRow([already, fresh])] }
+  });
+  // 先算出 already 的 dedupeKey,塞进「今天已投」
+  const probe = fakeDeps({ todaysKeys: [], rowsByQueryRef: { '': [landingRow([already])] } });
+  await createPassiveRecallDelivery(probe.deps, gate(true, 6)).deliverOnce();
+  const alreadyKey = String(probe.calls[0].message.dedupeKey);
+
+  const { deps: d2, calls: c2 } = fakeDeps({
+    todaysKeys: [alreadyKey],
+    rowsByQueryRef: { '': [landingRow([already, fresh])] }
+  });
+  let seenIds: string[] = [];
+  const delivery = createPassiveRecallDelivery(d2, {
+    ...gate(true, 6),
+    judge: async (prompt) => {
+      seenIds = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
+      return JSON.stringify({ picks: [{ id: seenIds[0], hook: '判官挑的' }] });
+    }
+  });
+  assert.equal(await delivery.deliverOnce(), 'delivered');
+  assert.ok(!seenIds.includes(alreadyKey), '已投过的不该进判官的候选');
+  assert.equal(c2.length, 1);
+  void calls;
 });
