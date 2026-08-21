@@ -2526,6 +2526,14 @@ export function insertRecallShadowLog(record: Record<string, unknown>, config?: 
 // 每次落地写的 stack:*/inbound:* 留痕 → 实测冷却窗里 diary 行为 0、open_loop 行为 0,两条腿的
 // 冷却全废。调用方(xiaoni-recall-reindex-service.ts 的第二/三腿)必须传;管理端只读路由不传。
 export function listRecallShadowLog(params?: { identityKey?: string; queryRef?: string; limit?: number; onlySurfaced?: boolean }, config?: DatabaseUrlConfig): Promise<Array<Record<string, unknown>>>;
+/**
+ * shadow log 行里的 llm_work:Haiku 在这一次召回里干了什么。
+ * 两处小模型调用(query 展开 / 投递闸判官)都走 /api/internal/llm/debug,而那条路径
+ * **不落 llm_request_slices** —— 不记在这里,管理端就完全看不见它们。
+ */
+export type RecallLlmWork =
+  | { kind: 'expansion'; tags: string[]; queries: string[]; added: number; raw: string | null }
+  | { kind: 'judge'; anchor: string; candidates: Array<{ id: string; leg?: string; text: string }>; picks: Array<{ id: string; hook: string }>; parsed: boolean; raw: string | null };
 export function listRecentlySurfacedRecallRefs(params?: { identityKey?: string; windowHours?: number }, config?: DatabaseUrlConfig): Promise<string[]>;
 
 // ── 召回 importance(「她的投入痕迹」)──────────────────────────────────────

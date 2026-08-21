@@ -1224,7 +1224,16 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
         : 'xiaoni';
       const limit = parsePositiveInteger(req.query.limit, 50, 500);
       const onlySurfaced = parseQueryBoolean(req.query.only_surfaced ?? req.query.onlySurfaced, false);
-      const entries = await listRecallShadowLog({ identityKey, limit, onlySurfaced });
+      // 按腿过滤:`?query_ref=delivery_judge` 只看判官,`association_scan` 只看联想腿,等等。
+      // 判官和 query 展开的工作内容在每行的 llmWork 字段里 —— 它们走 /api/internal/llm/debug,
+      // 那条路径不落 llm_request_slices,shadow log 是唯一能看到它们的地方。
+      const queryRefFilter = firstQueryString(req.query.query_ref ?? req.query.queryRef);
+      const entries = await listRecallShadowLog({
+        identityKey,
+        limit,
+        onlySurfaced,
+        ...(queryRefFilter ? { queryRef: queryRefFilter } : {})
+      });
       res.json({
         success: true,
         data: { streamKind: 'xiaoni_passive_recall_shadow_log', deliveryMode: 'shadow_only', entries },

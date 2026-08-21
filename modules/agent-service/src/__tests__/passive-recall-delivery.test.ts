@@ -20,6 +20,8 @@ const gate = (enabled: boolean, dailyCap: number, now: Date = AT_2100_EAST8) => 
 
 type EnqueueCall = { message: Record<string, unknown>; payload: Record<string, unknown> };
 
+const shadowWrites: Array<Record<string, unknown>> = [];
+
 function fakeDeps(overrides: {
   rowsByQueryRef?: Record<string, unknown[]>;
   deliveredToday?: number;
@@ -40,6 +42,10 @@ function fakeDeps(overrides: {
         return overrides.todaysKeys;
       }
       return Array.from({ length: overrides.deliveredToday ?? 0 }, (_, i) => `recall-surface:open_loop:pad${i}`);
+    },
+    async insertRecallShadowLog(record) {
+      shadowWrites.push(record as Record<string, unknown>);
+      return { id: '1' };
     },
     async enqueueAgentQueueMessage(input) {
       const call = input as unknown as EnqueueCall;
@@ -510,4 +516,51 @@ test('已投过的候选在交给判官之前就剔掉 —— 判官不该被喂
   assert.ok(!seenIds.includes(alreadyKey), '已投过的不该进判官的候选');
   assert.equal(c2.length, 1);
   void calls;
+});
+
+// 判官走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
+// (2026-08-21 核查:近 3 天 5264 条 slice 全是 opus-4-6,一条 Haiku 都没有)。
+// 不主动留痕,管理端就完全看不见它判了什么、为什么没投。
+test('判官的工作内容写进 shadow log(含它看过但没挑的)', async () => {
+  shadowWrites.length = 0;
+  const a = landingItem('/x/a.md#1', '候选甲');
+  const b = landingItem('/x/b.md#1', '候选乙');
+  const { deps } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([a, b])] }
+  });
+  let ids: string[] = [];
+  const delivery = createPassiveRecallDelivery(deps, {
+    ...gate(true, 6),
+    judge: async (prompt) => {
+      ids = [...prompt.user.matchAll(/\[(recall-surface:[^\]]+)\]/g)].map((m) => m[1]);
+      return JSON.stringify({ picks: [{ id: ids[0], hook: '判官写的钩子' }] });
+    }
+  });
+  await delivery.deliverOnce();
+
+  const row = shadowWrites.find((r) => r.queryRef === 'delivery_judge');
+  assert.ok(row, '应写一条 delivery_judge 的 shadow 行');
+  const work = row!.llmWork as Record<string, unknown>;
+  assert.equal(work.kind, 'judge');
+  assert.equal((work.picks as unknown[]).length, 1);
+  assert.equal((work.candidates as unknown[]).length, 2, '看过的候选都要记');
+  assert.ok(typeof work.raw === 'string' && (work.raw as string).length > 0, '模型原文要留');
+  // 「为什么没投这条」靠 droppedSample 才看得见
+  const skipped = row!.droppedSample as Array<Record<string, unknown>>;
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].verdict, 'judge_skipped');
+});
+
+test('判官说「一条都不值得」也留痕 —— 静默不能是隐形的', async () => {
+  shadowWrites.length = 0;
+  const { deps } = fakeDeps({
+    todaysKeys: [],
+    rowsByQueryRef: { '': [landingRow([landingItem('/x/a.md#1', '候选')])] }
+  });
+  await createPassiveRecallDelivery(deps, { ...gate(true, 6), judge: async () => '{"picks":[]}' }).deliverOnce();
+  const row = shadowWrites.find((r) => r.queryRef === 'delivery_judge');
+  assert.ok(row, '判了没投也要有行');
+  assert.equal(row!.silent, true);
+  assert.equal((row!.droppedCounts as Record<string, number>).picked, 0);
 });

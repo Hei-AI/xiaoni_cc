@@ -326,13 +326,17 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       Number.isFinite(record.topK) ? record.topK : 0,
       JSON.stringify(Array.isArray(record.surfaced) ? record.surfaced : []),
       JSON.stringify(record.droppedCounts && typeof record.droppedCounts === 'object' ? record.droppedCounts : {}),
-      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : [])
+      JSON.stringify(Array.isArray(record.droppedSample) ? record.droppedSample : []),
+      // Haiku 在这一次召回里干了什么(展开 / 判官)。没有就存 NULL。
+      // 这两处走 /api/internal/llm/debug,那条路径不落 llm_request_slices ——
+      // 不在这里记,管理端就完全看不见它们(2026-08-21 核查:近 3 天 slice 里一条 Haiku 都没有)。
+      record.llmWork && typeof record.llmWork === 'object' ? JSON.stringify(record.llmWork) : null
     ];
     const rows = await prisma.$queryRawUnsafe(
       `INSERT INTO xiaoni_recall_shadow_log
          (identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
-          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb)
+          silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample, llm_work)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14::jsonb)
        RETURNING id`,
       ...params
     );
@@ -369,7 +373,7 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
     sqlParams.push(limit);
     const rows = await prisma.$queryRawUnsafe(
       `SELECT id, identity_key, occurred_at, query_ref, query_text, task_locked, band_floor, band_ceiling,
-              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample
+              silent, corpus_count, top_k, surfaced, dropped_counts, dropped_sample, llm_work
        FROM xiaoni_recall_shadow_log
        WHERE ${where}
        ORDER BY occurred_at DESC, id DESC
@@ -390,7 +394,8 @@ function createXiaoniRecallStorePersistence({ getPrismaClient }) {
       topK: row.top_k,
       surfaced: Array.isArray(row.surfaced) ? row.surfaced : [],
       droppedCounts: row.dropped_counts && typeof row.dropped_counts === 'object' ? row.dropped_counts : {},
-      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : []
+      droppedSample: Array.isArray(row.dropped_sample) ? row.dropped_sample : [],
+      llmWork: row.llm_work && typeof row.llm_work === 'object' ? row.llm_work : null
     }));
   }
 

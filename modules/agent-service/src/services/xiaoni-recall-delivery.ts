@@ -133,6 +133,8 @@ type Lead = { leg: string; identity: string; text: string; occurredAt: string | 
 // 依赖注入(同 createRecallIngest 的形状):真跑时是 @qq-bot/persistence,测试时是假件。
 export interface RecallDeliveryDeps {
   listRecallShadowLog(params: Record<string, unknown>, config?: unknown): Promise<unknown>;
+  /** 判官的工作内容留痕。走召回自己的观察面,不新建通路。 */
+  insertRecallShadowLog?(record: Record<string, unknown>, config?: unknown): Promise<unknown>;
   listRecentAgentQueueDedupeKeys(params: { prefix: string; since: Date; limit?: number }, config?: unknown): Promise<string[]>;
   enqueueAgentQueueMessage(input: Record<string, unknown>, config?: unknown): Promise<{ queueId?: number; status?: string; created?: boolean } | null>;
 }
@@ -357,7 +359,38 @@ export function createPassiveRecallDelivery(deps: RecallDeliveryDeps, options: R
       ageDays: lead.ageDays
     }));
     const raw = await judge(persistence.buildJudgePrompt(items, anchor));
-    return persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
+    const verdict = persistence.parseJudgeVerdict(raw, items.map((i) => i.id));
+
+    // 判官的工作内容留痕。它走 /api/internal/llm/debug,那条路径**不落 llm_request_slices**
+    // (2026-08-21 核查:近 3 天 5264 条 slice 全是 opus-4-6,一条 Haiku 都没有)——
+    // 不在这里记,管理端就完全看不见它判了什么、为什么没投。
+    // 写进召回自己的观察面(shadow log,queryRef 固定成 delivery_judge,与扫描腿同一套路),
+    // 不新建通路。失败吞掉:留痕不该拖垮投递。
+    const picked = new Set(verdict.picks.map((p) => p.id));
+    await (deps.insertRecallShadowLog ? deps.insertRecallShadowLog({
+      identityKey: IDENTITY_KEY,
+      queryRef: 'delivery_judge',
+      queryText: anchor.slice(0, 2000),
+      silent: verdict.picks.length === 0,
+      corpusCount: leads.length,
+      topK: items.length,
+      surfaced: verdict.picks.map((p) => ({ kind: 'judge_pick', ref: p.id, lead: p.hook })),
+      droppedCounts: { judged: items.length, picked: verdict.picks.length, unparsed: verdict.parsed ? 0 : 1 },
+      // 它看过但没挑的 —— 「为什么没投这条」要靠这个才看得见。
+      droppedSample: items.filter((i) => !picked.has(i.id))
+        .slice(0, 10)
+        .map((i) => ({ verdict: 'judge_skipped', sourceRef: i.id, text: String(i.text).slice(0, 200) })),
+      llmWork: {
+        kind: 'judge',
+        anchor: anchor.slice(0, 1000),
+        candidates: items.map((i) => ({ id: i.id, leg: i.leg, text: String(i.text).slice(0, 200) })),
+        picks: verdict.picks,
+        parsed: verdict.parsed,
+        raw: typeof raw === 'string' ? raw.slice(0, 4000) : null
+      }
+    }, databaseConfig) : Promise.resolve()).catch(() => undefined);
+
+    return verdict;
   }
 
   // 「她此刻在做的事」只能取**落地腿**的 query_text —— 那条腿每次落地都写当时的锚点文本。

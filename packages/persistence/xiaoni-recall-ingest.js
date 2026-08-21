@@ -300,7 +300,8 @@ function createRecallIngest({
     const raw = await expandQueries(prompt);
     const { tags: pickedTags, queries } = parseExpansion(raw);
     if (!queries.length) {
-      return null;
+      // 模型答了但没给出可用 query 也要留痕 —— 否则「展开跑了但没用」在管理端是隐形的。
+      return { tags: pickedTags, queries: [], added: [], raw };
     }
     const vectors = await embed(queries);
     const added = [];
@@ -541,9 +542,17 @@ function createRecallIngest({
       bandCeiling: result.ceiling,
       silent: result.silent,
       corpusCount: candidates.length, // 近邻邻域大小(非全库;全库计数按需另查,避免每落地一次 count)
-      // 展开留痕:没触发 → null。观察期要能分清「本来就捞到了」和「展开才捞到的」。
-      queryExpansion: expansion
-        ? { tags: expansion.tags, queries: expansion.queries, addedCount: expansion.added.length }
+      // Haiku 的工作内容。没触发 → null。
+      // 之前这里写的是 queryExpansion 字段 —— 而 insertRecallShadowLog 只落固定那几列,
+      // 它**从来没被持久化过**(2026-08-21 核查发现)。现在走 llmWork,库里有对应列。
+      llmWork: expansion
+        ? {
+          kind: 'expansion',
+          tags: expansion.tags,
+          queries: expansion.queries,
+          added: expansion.added.length,
+          raw: typeof expansion.raw === 'string' ? expansion.raw.slice(0, 4000) : null
+        }
         : null,
       topK: candidates.length,
       surfaced: result.surfaced.map((e) => ({
