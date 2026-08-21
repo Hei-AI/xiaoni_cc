@@ -260,6 +260,21 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
     return rows.map((row) => row.dedupe_key).filter(Boolean);
   }
 
+  // 某个 dedupe_key 前缀下最近一次入队的时刻(毫秒)。给「判断力缺席时按最小间隔节流」用。
+  async function listRecentAgentQueueDeliveredAt(params = {}, config = {}) {
+    const prisma = getClient(config);
+    const prefix = typeof params.prefix === 'string' ? params.prefix : '';
+    if (!prefix) {
+      return null;
+    }
+    const row = await prisma.agentQueueMessage.findFirst({
+      where: { dedupe_key: { startsWith: prefix } },
+      select: { created_at: true },
+      orderBy: { created_at: 'desc' }
+    });
+    return row && row.created_at ? new Date(row.created_at).getTime() : null;
+  }
+
   async function claimNextAgentQueueMessage(input = {}, config = {}) {
     const workerId = normalizeOptionalString(input.workerId || input.worker_id) || 'agent-worker';
     const { sql, shouldClose } = createSql(input, config);
@@ -653,6 +668,7 @@ function createAgentQueuePersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     enqueueAgentQueueMessage,
     listRecentAgentQueueDedupeKeys,
+    listRecentAgentQueueDeliveredAt,
     claimNextAgentQueueMessage,
     foldPendingNotifyMessagesIntoRun,
     settleAgentQueueMessages,
