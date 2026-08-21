@@ -72,13 +72,21 @@ interface ShadowLogLead {
 
 // entry.queryRef → 这条 shadow 是哪条腿。语义召回是「因落地而召回」,
 // open_loop / diary / association 是「按时间/结构主动扫」,展示方式不同。
-type LegKind = 'open_loop' | 'diary' | 'association' | 'recall';
+type LegKind = 'open_loop' | 'diary' | 'association' | 'recall' | 'judge';
 function legKindFromRef(queryRef?: string | null): LegKind {
   if (queryRef === 'open_loop_scan') return 'open_loop';
   if (queryRef === 'diary_resurface') return 'diary';
   if (queryRef === 'association_scan') return 'association';
+  // 判官(Haiku)自己的一行。它走 /api/internal/llm/debug,不落 llm_request_slices,
+  // 所以它判了什么、为什么没投,只能从这里看。
+  if (queryRef === 'delivery_judge') return 'judge';
   return 'recall';
 }
+
+// shadow 行里的 Haiku 工作内容。两种:判官(判该不该投 + 写钩子)与 query 展开(标签→多路 query)。
+type LlmWork =
+  | { kind: 'judge'; anchor?: string; candidates?: Array<{ id: string; leg?: string; text?: string }>; picks?: Array<{ id: string; hook: string }>; parsed?: boolean; raw?: string | null }
+  | { kind: 'expansion'; tags?: string[]; queries?: string[]; added?: number; raw?: string | null };
 
 // 第四腿的四个年龄桶。近场那一格配额恒 0(她还记得,浮它等于把砖头当引子),
 // 所以正常情况下这里永远看不到「近场」标 —— 看到了就是配额被人改了。
@@ -107,6 +115,50 @@ interface ShadowLogEntry {
   topK?: number;
   surfaced: ShadowLogLead[];
   droppedCounts?: Record<string, number>;
+  droppedSample?: Array<{ verdict?: string; sourceRef?: string; text?: string }>;
+  llmWork?: LlmWork | null;
+}
+
+// Haiku 干了什么。判官这一行的价值主要在**它看过但没挑的那些** —— 「为什么没投」。
+function LlmWorkBlock({ work, dropped }: { work: LlmWork; dropped?: Array<{ verdict?: string; sourceRef?: string; text?: string }> }) {
+  const skipped = (dropped || []).filter((d) => d.verdict === 'judge_skipped');
+  return (
+    <div className="mt-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2">
+      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+        {work.kind === 'judge' ? 'Haiku 判官' : 'Haiku query 展开'}
+      </div>
+      {work.kind === 'expansion' ? (
+        <div className="mt-1 space-y-1 text-xs text-foreground">
+          <div>标签：{(work.tags || []).join('、') || '—'}</div>
+          <div className="whitespace-pre-wrap break-words">展开的 query：{(work.queries || []).join(' ／ ') || '—'}</div>
+          <div className="text-muted-foreground">这轮多带回 {work.added ?? 0} 条候选</div>
+        </div>
+      ) : (
+        <div className="mt-1 space-y-1.5 text-xs">
+          {work.parsed === false ? (
+            <StatusPill tone="warning">没答上来（退回模板钩子）</StatusPill>
+          ) : null}
+          <div className="text-muted-foreground">
+            看了 {(work.candidates || []).length} 条，挑了 {(work.picks || []).length} 条
+          </div>
+          {(work.picks || []).map((pick) => (
+            <div key={pick.id} className="rounded bg-background px-2 py-1">
+              <div className="text-foreground">投出去的话：{pick.hook}</div>
+              <div className="mt-0.5 break-all font-mono text-[10px] text-muted-foreground">{pick.id}</div>
+            </div>
+          ))}
+          {skipped.length ? (
+            <div className="space-y-0.5">
+              <div className="text-[11px] text-muted-foreground">看过但没挑（为什么没投）：</div>
+              {skipped.map((d, i) => (
+                <div key={d.sourceRef || i} className="line-clamp-2 break-words pl-2 text-muted-foreground">· {d.text}</div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // source_kind → 展示标签(真 corpus 分桶)。
@@ -234,12 +286,14 @@ const LEG_HEADER: Record<LegKind, string> = {
   open_loop: '开放承诺 · 按时间扫（非语义召回）',
   diary: '翻旧事 · 按时间扫（非语义召回）',
   association: '联想 · 六因子等权 + 四桶配额（当下落地当引子）',
+  judge: '投递判官 · Haiku（她此刻在做的事当锚）',
 };
 
 function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
   const dc = entry.droppedCounts || {};
   const leg = legKindFromRef(entry.queryRef);
-  const isTimeScan = leg !== 'recall';
+  const isJudge = leg === 'judge';
+  const isTimeScan = leg !== 'recall' && !isJudge;
   const scanDesc = leg === 'open_loop'
     ? `扫了 ${entry.corpusCount ?? 0} 条开放承诺`
     : leg === 'diary'
@@ -247,7 +301,9 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
       // 联想腿的「因」是当下落地那段文本(queryText),顺带报一下过完滤后的候选池大小
       : leg === 'association'
         ? `${entry.queryText || '（这一轮取不到落地文本）'}\n过滤后候选 ${entry.corpusCount ?? 0} 条`
-        : (entry.queryText || entry.queryRef || '—');
+        : leg === 'judge'
+          ? `${entry.queryText || '（取不到锚点）'}\n候选池 ${entry.corpusCount ?? 0} 条`
+          : (entry.queryText || entry.queryRef || '—');
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -255,6 +311,7 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           {entry.silent
             ? <StatusPill tone="neutral">静默</StatusPill>
             : <StatusPill tone="success">浮现</StatusPill>}
+          {isJudge ? <StatusPill tone="info">判官</StatusPill> : null}
           {isTimeScan ? (
             <StatusPill tone="info">
               {leg === 'open_loop' ? '待办承诺腿' : leg === 'association' ? '联想腿' : '旧事腿'}
@@ -296,7 +353,8 @@ function ShadowLogRow({ entry }: { entry: ShadowLogEntry }) {
           <span>无桶剔 {dc.no_bucket ?? 0}</span>
         </div>
       ) : null}
-      {isTimeScan ? null : (
+      {entry.llmWork ? <LlmWorkBlock work={entry.llmWork} dropped={entry.droppedSample} /> : null}
+      {isTimeScan || isJudge ? null : (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span>近邻 {entry.topK ?? 0}</span>
           <span>带 [{typeof entry.bandFloor === 'number' ? entry.bandFloor.toFixed(2) : '-'}, {typeof entry.bandCeiling === 'number' ? entry.bandCeiling.toFixed(2) : '-'}]</span>

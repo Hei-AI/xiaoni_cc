@@ -435,7 +435,7 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
     : control?.passiveRecallDeliveryEnabled ?? false;
   const currentRecallDeliveryDailyCap = typeof pendingPatch?.passiveRecallDeliveryDailyCap === 'number'
     ? pendingPatch.passiveRecallDeliveryDailyCap
-    : control?.passiveRecallDeliveryDailyCap ?? 6;
+    : control?.passiveRecallDeliveryDailyCap ?? 25;
   React.useEffect(() => {
     if (!mutation.isPending && typeof control?.passiveRecallDeliveryDailyCap === 'number') {
       setRecallDeliveryCapInput(String(control.passiveRecallDeliveryDailyCap));
@@ -1190,12 +1190,12 @@ export const XiaoniRuntimeSettingsPage: React.FC = () => {
           </div>
           <form className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between" onSubmit={handleRecallDeliveryCapSubmit}>
             <div className="space-y-1">
-              <div className="text-sm font-medium text-foreground">每天最多投几条</div>
+              <div className="text-sm font-medium text-foreground">每日兜底上限</div>
               <div className="text-sm text-muted-foreground">
                 当前：{currentRecallDeliveryDailyCap} 条 / 东八区自然日。
               </div>
               <div className="text-xs text-muted-foreground">
-                0 = 等同关闭。参考基线：她每天本来就有 170–716 条 system_reminder（其中自驱动 fork 约 400），所以这个数是「小步观察」用的，防重复的主力是「同一段记忆永不重投」。
+                这不是节奏旋钮。决定投不投的是判官（Haiku），它可以说「一条都不值得」，而且多数时候就该这么说；这个数只在判官失灵、把量放飞时拦一下，拦到了会打 warn 日志——那是异常信号，该去查而不是调这个数。0 = 等同关闭。
               </div>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-56">
