@@ -1731,7 +1731,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "/home/liahua/IdeaProject/qq_bot-recall-quality/packages/persistence/generated/client",
+      "value": "/home/liahua/IdeaProject/qq_bot/packages/persistence/generated/client",
       "fromEnvVar": null
     },
     "config": {
@@ -1745,7 +1745,7 @@ const config = {
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "/home/liahua/IdeaProject/qq_bot-recall-quality/packages/persistence/prisma/schema.prisma",
+    "sourceFilePath": "/home/liahua/IdeaProject/qq_bot/packages/persistence/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
@@ -1758,7 +1758,7 @@ const config = {
     "db"
   ],
   "activeProvider": "postgresql",
-  "postinstall": true,
+  "postinstall": false,
   "inlineDatasources": {
     "db": {
       "url": {
