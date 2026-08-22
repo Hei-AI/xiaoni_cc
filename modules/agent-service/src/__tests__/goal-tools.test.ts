@@ -5,7 +5,11 @@ import {
   planGoalUpdate,
   renderGoalRoundNotify,
   isGoalRoundPayload,
-  readGoalIdFromPayload
+  readGoalIdFromPayload,
+  renderFailureReviewReminder,
+  buildFailureReviewForkRequest,
+  shouldDeliverReviewFindings,
+  isFailureReviewPayload
 } from '../services/agent-loop-service';
 
 // update_goal 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
@@ -144,4 +148,67 @@ test('goal_id 缺失或空白 → null,调用方据此跳过计数(不猜)', () 
     rawPayload: { reason: 'goal_round', goal_id: '   ' }
   } as any;
   assert.equal(readGoalIdFromPayload(blank), null);
+});
+
+// ── 复核 fork(issue #4 / #5)────────────────────────────────────────────────
+// 整套设计的赌注在引导文案的第一句:「你不是小腻」。克隆她的上下文之后能不能挡住她的
+// 自我认知和情绪,**未经验证**(ADR-0009 §六),上线后靠读输出的人称判断。
+
+test('引导文案:第一句就把身份切开,并且把她的目标和卡住理由原样带进去', () => {
+  const text = renderFailureReviewReminder('找到那个长期没音讯的人', 'grep 了十一次关键词,全是噪音');
+  assert.match(text, /你不是小腻/);
+  assert.match(text, /找到那个长期没音讯的人/);
+  assert.match(text, /grep 了十一次关键词,全是噪音/);
+  // 输出契约三禁必须在文案里,否则它会退化成第二个 plan(实测 plan 76% 零工具 run)
+  assert.match(text, /建议/);
+  assert.match(text, /指令/);
+  assert.match(text, /NO_FINDING/);
+});
+
+test('fork 请求:克隆 + 只在尾部追加一条,tools 与 tool_choice 一个字不动', () => {
+  const base = {
+    model: 'm',
+    input: [
+      { type: 'message', role: 'user', content: 'a' },
+      { type: 'message', role: 'assistant', content: 'b' }
+    ],
+    tools: [{ type: 'function', name: 'exec_command' }],
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [] },
+    parallel_tool_calls: true
+  } as any;
+  const fork = buildFailureReviewForkRequest(base, 1, 'REMINDER');
+
+  assert.deepEqual(fork.tools, base.tools, 'tools 不许改');
+  assert.deepEqual(fork.tool_choice, base.tool_choice, 'tool_choice 不许改');
+  assert.equal(fork.store, false);
+  // 前缀逐字节一致:追加只发生在尾部
+  assert.deepEqual(fork.input.slice(0, base.input.length), base.input);
+  assert.equal(fork.input.length, base.input.length + 1);
+  assert.equal((fork.metadata as any).failure_review_fork, 'true');
+  assert.equal((fork.metadata as any).no_persist, 'true');
+});
+
+test('同一次 fork 的多个 turn 共用同一份引导字节(否则 turn-2 起冷读)', () => {
+  const base = { model: 'm', input: [{ type: 'message', role: 'user', content: 'a' }], tools: [], parallel_tool_calls: true } as any;
+  const t1 = buildFailureReviewForkRequest(base, 1, 'SAME_BYTES');
+  const t2 = buildFailureReviewForkRequest(base, 2, 'SAME_BYTES');
+  assert.deepEqual(t1.input.at(-1), t2.input.at(-1), '尾部引导必须逐字节相同');
+});
+
+test('NO_FINDING 契约:查不到就不投递,不拿「我尽力了」占她一次唤醒', () => {
+  assert.equal(shouldDeliverReviewFindings('NO_FINDING'), false);
+  assert.equal(shouldDeliverReviewFindings('  NO_FINDING\n'), false);
+  assert.equal(shouldDeliverReviewFindings('NO_FINDING\n我翻遍了'), false);
+  assert.equal(shouldDeliverReviewFindings(''), false);
+  assert.equal(shouldDeliverReviewFindings('   '), false);
+  assert.equal(shouldDeliverReviewFindings(null), false);
+  assert.equal(shouldDeliverReviewFindings('diary/2026-08-16.md:996\n  「小伊: 8/8到现在没回。」'), true);
+});
+
+test('复核 notify 可识别:空转账本据此对它隐形', () => {
+  const review = { systemReminder: { reason: 'failure_review' }, rawPayload: { reason: 'failure_review' } } as any;
+  assert.equal(isFailureReviewPayload(review), true);
+  for (const reason of ['goal_round', 'subconscious_agent', 'clock_ping']) {
+    assert.equal(isFailureReviewPayload({ systemReminder: { reason }, rawPayload: { reason } } as any), false);
+  }
 });
