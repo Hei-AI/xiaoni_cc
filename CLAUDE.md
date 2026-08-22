@@ -199,8 +199,12 @@ Examples of good bisection:
 **NEVER use `mcp__claude-in-chrome__*` tools.**（本机该 MCP 路径不稳定，历史上反复出现
 attach 到 `connect.html`、token 漂移、daemon 崩溃。）
 
-本仓库不再挂任何外部 skill 套件。工作流判断、任务类型到动作的映射、以及接任 skill 套件
-需要覆盖的能力口，统一看 `docs/AGENTS_WORKFLOW_BRAIN.md`。
+外部 skill 套件当前挂 `mattpocock-skills`（Claude Code plugin，project scope）。工作流判断、
+任务类型到动作的映射、能力口对应关系，统一看 `docs/AGENTS_WORKFLOW_BRAIN.md`。
+
+Issue tracker 走 GitHub `origin`（`liahua/xiaoni_cc`），用 `gh` CLI；triage 标签用默认五个
+（`needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`）。
+细则见 `docs/agents/issue-tracker.md`。
 
 ## Docs Map
 
@@ -221,4 +225,5 @@ attach 到 `connect.html`、token 漂移、daemon 崩溃。）
 | git / PR | `docs/AGENTS_GIT_PR.md` |
 | 路线图 | `docs/ROADMAP.md` |
 | 工作流判断 / 任务类型到动作映射 / skill 接管契约 | `docs/AGENTS_WORKFLOW_BRAIN.md` |
+| 架构决策记录（为什么是现在这样） | `docs/adr/` |
 
