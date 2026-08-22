@@ -1743,8 +1743,10 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const goalIds = new Set(
         rows.map((row) => row.metadata?.goal_id).filter((id): id is string => typeof id === 'string' && id !== '')
       );
+      // 按 goal 过滤,不靠倍数启发式 —— 一次复核最多 32 轮,goalIds.size * 32 是这一页的
+      // 真实上界,而且 where 已经把别的 goal 排除掉了。
       const slices = goalIds.size > 0
-        ? await listFailureReviewForkSlices({ limit: goalIds.size * 32 })
+        ? await listFailureReviewForkSlices({ goalIds: [...goalIds], limit: goalIds.size * 32 })
         : [];
       const slicesByGoal = new Map<string, any[]>();
       for (const slice of slices) {

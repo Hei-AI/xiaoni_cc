@@ -214,61 +214,22 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
   // 前缀区分:usage rollup 整表当潜意识 fork 计费(xiaoni-agent-stack.js),行动流整表全选
   // (xiaoni-activity.js)。混进去会让复核的每一次(最多 32 轮 × 全量克隆)被算成、也被显示成
   // 潜意识 fork。先例是 psych_assessment_fork_slices,同样理由同样形状。
-  async function ensureFailureReviewForkSchema(config = {}) {
-    const sql = createSqlAdapter(config);
-    try {
-      await sql.query("SELECT pg_advisory_lock(hashtext('qqbot_failure_review_fork_schema'))");
-      await sql.execute(`
-        CREATE TABLE IF NOT EXISTS failure_review_fork_slices (
-          id BIGSERIAL PRIMARY KEY,
-          slice_id VARCHAR(191) NOT NULL,
-          fork_run_id VARCHAR(191) NOT NULL,
-          llm_call_id VARCHAR(128) NULL,
-          identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
-          goal_id VARCHAR(64) NULL,
-          canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
-          wire_request JSONB NULL,
-          canonical_response JSONB NULL,
-          wire_response JSONB NULL,
-          raw_response JSONB NULL,
-          output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
-          status VARCHAR(32) NOT NULL DEFAULT 'completed',
-          token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
-          trace_id VARCHAR(128) NULL,
-          run_id VARCHAR(128) NULL,
-          agent_turn INTEGER NULL,
-          model_name VARCHAR(191) NULL,
-          model_provider VARCHAR(64) NULL,
-          processing_time_ms INTEGER NULL,
-          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-      // slice_id 唯一 —— 四个兄弟表都有,写入靠 ON CONFLICT 做幂等。少了它,一次重试
-      // 就会留下两行同 slice 的记录,而 usage rollup 按 slice 计费,直接双记。
-      await sql.execute(`
-        CREATE UNIQUE INDEX IF NOT EXISTS uniq_failure_review_fork_slices_slice_id
-        ON failure_review_fork_slices (slice_id)
-      `);
-      await sql.execute(`
-        CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_run_turn
-        ON failure_review_fork_slices (fork_run_id, agent_turn)
-      `);
-      await sql.execute(`
-        CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_identity_created
-        ON failure_review_fork_slices (identity_key, created_at DESC)
-      `);
-    } finally {
-      await sql.query("SELECT pg_advisory_unlock(hashtext('qqbot_failure_review_fork_schema'))").catch(() => undefined);
-      await sql.close();
-    }
-  }
-
+  // 列表口。**只给尺寸,不给正文** —— canonical_request / wire_request 每条都是主 agent
+  // 上下文的完整克隆(几十万 token),列表里回吐它们会让响应到 GB 级。要看正文按单条取。
+  //
+  // goalIds 传进来时按 goal 过滤,不再靠「全局 top-N × 倍数」的启发式 —— 那种写法在
+  // 某个 goal 的 slice 特别多时,会让更早的 goal 静默拿到空数组,和「这次没产出」不可区分。
   async function listFailureReviewForkSlices(input = {}, config = {}) {
     const prisma = getClient(config);
     const limit = normalizePositiveInt(input.limit, 50);
+    const goalIds = Array.isArray(input.goalIds)
+      ? input.goalIds.filter((id) => typeof id === 'string' && id !== '')
+      : null;
     const rows = await prisma.failureReviewForkSlice.findMany({
-      where: { identity_key: resolveIdentityKey(input) },
+      where: {
+        identity_key: resolveIdentityKey(input),
+        ...(goalIds && goalIds.length > 0 ? { goal_id: { in: goalIds } } : {})
+      },
       orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
       take: limit
     });
@@ -280,11 +241,10 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
       status: row.status,
       agentTurn: row.agent_turn,
       tokenUsage: row.token_usage,
-      // 注释里承诺过「slice 给每轮的 canonical/wire request」—— 那就真的给,
-      // 否则观测口和它自己的说明书对不上。
-      canonicalRequest: row.canonical_request,
-      wireRequest: row.wire_request,
       modelName: row.model_name,
+      // 只给尺寸。正文要看就按 sliceId 单条取(canonical_request 是完整上下文克隆)。
+      canonicalRequestBytes: row.canonical_request ? JSON.stringify(row.canonical_request).length : 0,
+      wireRequestBytes: row.wire_request ? JSON.stringify(row.wire_request).length : 0,
       metadata: row.metadata,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
     }));
@@ -303,7 +263,6 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
 
   return {
     ensureXiaoniGoalSchema,
-    ensureFailureReviewForkSchema,
     listFailureReviewForkSlices,
     getActiveXiaoniGoal,
     getXiaoniGoalById,

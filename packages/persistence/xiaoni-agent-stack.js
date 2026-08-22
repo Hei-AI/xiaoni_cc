@@ -18,9 +18,13 @@ const USAGE_SEARCH_MAX_HITS = 120;
 const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
 // v4: 从 LLM Cost 聚合里排除 image_generation / image_edit / image_prompt_assistant
 // source_kind。bump 触发一次全量重建，把历史 image 行从 rollup 里清掉。
-// 5:新增 failure_review_fork 源。**加新源必须 bump 这个数**,否则已初始化的库
-// (initialized_at 非空且 version >= 当前值)永远不会重建 rollup,新源的历史数据进不来。
-const USAGE_ROLLUP_VERSION = 5;
+// **故意不 bump**(4 → 5 曾经加过又撤回)。加新源通常要 bump 才能让已初始化的库重建,
+// 但 failure_review_fork 是全新的源、**没有任何历史数据要回填**;而重建跑在
+// initializeLlmUsageRollupsIfNeeded 里、挂在「每一次持久化操作」的路径上,一个事务里
+// DELETE 两张 rollup 表 + 七源全量 UNION、全程持 advisory lock —— 所有服务排队等,
+// 部署后主 loop 可能停等数分钟。新源靠 syncLlmUsageRollupForSlice 的增量口进表就够了。
+// 将来若真需要回填历史,走一次性迁移脚本,别用 bump 触发热路径重建。
+const USAGE_ROLLUP_VERSION = 4;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
@@ -1083,6 +1087,9 @@ function normalizeStackSourceKind(value) {
   if (sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK) {
     return USAGE_SOURCE_PSYCH_ASSESSMENT_FORK;
   }
+  if (sourceKind === USAGE_SOURCE_FAILURE_REVIEW_FORK) {
+    return USAGE_SOURCE_FAILURE_REVIEW_FORK;
+  }
   if (sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) {
     return USAGE_SOURCE_IMAGE_VISION_FORK;
   }
@@ -1398,6 +1405,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
               COALESCE((SELECT MAX(id) FROM subconscious_agent_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM psych_assessment_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM image_vision_fork_slices), 0),
+              COALESCE((SELECT MAX(id) FROM failure_review_fork_slices), 0),
               COALESCE((SELECT MAX(id) FROM codex_provider_usage_events), 0)
             ),
             source_count = COALESCE((SELECT COUNT(*) FROM llm_usage_rollup_sources), 0),
@@ -2325,6 +2333,37 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
             completed_at TIMESTAMPTZ(3),
             updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+          )
+        `,
+        // 复核 fork 的 slice 账本。**必须建在这里**,和 psych / image_vision 并排 ——
+        // 不能建在 xiaoni-goal.js 里:usageRollupSourceFromAllSlicesSelectSql 无条件
+        // FROM 这张表,而 initializeLlmUsageRollupsIfNeeded 就挂在本 ensure 内、
+        // 「每一次持久化操作」都会走。表建在别的模块的 ensure 里的话,新库上只要
+        // admin-backend 先起,每一次持久化操作都 relation does not exist。
+        `
+          CREATE TABLE IF NOT EXISTS failure_review_fork_slices (
+            id BIGSERIAL PRIMARY KEY,
+            slice_id VARCHAR(191) NOT NULL UNIQUE,
+            fork_run_id VARCHAR(191) NOT NULL,
+            llm_call_id VARCHAR(128),
+            identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+            goal_id VARCHAR(64),
+            canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
+            wire_request JSONB,
+            canonical_response JSONB,
+            wire_response JSONB,
+            raw_response JSONB,
+            output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+            status VARCHAR(32) NOT NULL DEFAULT 'completed',
+            token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+            trace_id VARCHAR(128),
+            run_id VARCHAR(128),
+            agent_turn INTEGER,
+            model_name VARCHAR(191),
+            model_provider VARCHAR(64),
+            processing_time_ms INTEGER,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         `,
         // Cache heartbeat fork ledger. The heartbeat is a fork agent that triggers a

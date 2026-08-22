@@ -10,7 +10,6 @@ import {
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
   ensureXiaoniGoalSchema,
-  ensureFailureReviewForkSchema,
   recordFailureReviewForkSlice,
   listFailureReviewForkSlices,
   getActiveXiaoniGoal,
@@ -1279,7 +1278,6 @@ export class RuntimeStore {
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
     await ensureXiaoniGoalSchema(databaseConfig);
-    await ensureFailureReviewForkSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
