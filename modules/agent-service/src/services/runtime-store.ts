@@ -10,6 +10,11 @@ import {
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
   ensureXiaoniGoalSchema,
+  getActiveXiaoniGoal,
+  getXiaoniGoalById,
+  createXiaoniGoal,
+  updateXiaoniGoal,
+  incrementXiaoniGoalRound,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
   ensureAgentRecoverySessionSchema,
@@ -1988,6 +1993,27 @@ export class RuntimeStore {
 
   async createRuntimeTask(input: Record<string, unknown>) {
     return createAgentTask(input, databaseConfig);
+  }
+
+  // ── 目标(goal)。纯委托,语义判断一律不在这一层(见 packages/persistence/xiaoni-goal.js 文件头)。
+  async getActiveGoal() {
+    return getActiveXiaoniGoal({}, databaseConfig);
+  }
+
+  async getGoalById(goalId: string) {
+    return getXiaoniGoalById({ goalId }, databaseConfig);
+  }
+
+  async createGoal(input: { objective: string; maxGoalRounds?: number }) {
+    return createXiaoniGoal(input, databaseConfig);
+  }
+
+  async updateGoal(input: Parameters<typeof updateXiaoniGoal>[0]) {
+    return updateXiaoniGoal(input, databaseConfig);
+  }
+
+  async incrementGoalRound(goalId: string) {
+    return incrementXiaoniGoalRound({ goalId }, databaseConfig);
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

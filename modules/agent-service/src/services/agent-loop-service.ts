@@ -1474,7 +1474,12 @@ const TOOL_NAMES = {
   // through the Anthropic cloak). Restores the web_search name as a function tool.
   webSearch: 'web_search',
   // Anthropic computer-use tool; Claude returns a tool_use named "computer".
-  computerUse: 'computer'
+  computerUse: 'computer',
+  // 目标(goal):她自己立一件要做完的事,并且自己宣布做成了还是卡住了。
+  // 引擎不判定「这一轮有没有推进目标」——四家主流 harness 都不判,见 docs/adr/0010-*。
+  getGoal: 'get_goal',
+  createGoal: 'create_goal',
+  updateGoal: 'update_goal'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
@@ -1862,6 +1867,133 @@ const RECOVER_ENERGY_TOOL = {
     }
   }
 } as const;
+
+// ── 目标(goal)三件套 ──────────────────────────────────────────────────────────
+// 形状照 DeepSeek Harness 的 packages/goal/tool-goal(get/create/update + 五个 action);
+// 权限模型**不照抄**:dsh 的 create_goal 要求直接人类回合,她 81% 的 run 是自驱动的。
+// 决定见 docs/adr/0010-*,实现见 docs/specs/xiaoni-goal-tools.md。
+//
+// 缓存:这三个定义进 tools 数组 = 一次性改掉主 agent 与全部 fork 的前缀。只在部署那一次
+// 冷读,之后稳态。**必须挑压缩边界那一帧部署**(那帧本来就冷读)。
+const GET_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.getGoal,
+    description: '看一眼你当前那件要做完的事:它是什么、现在什么状态、已经为它跑了几轮。没有就返回空。改它之前先调这个,拿到 goal_id 和 revision。',
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const CREATE_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.createGoal,
+    description: '立一件你想做完的事。一次只能有一件在做——已经有一件时会被拒绝,先把那件收掉。随手两下就做完的小事不用立。',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: {
+          type: 'string',
+          description: '你想做成什么。写具体,写成你自己以后看得懂的一句话；它会在接下来每一轮重新摆到你眼前,直到你说它完了。'
+        },
+        max_goal_rounds: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+          description: '可选。最多为它跑多少轮,不填按默认。跑满之后它还在,只是不再自动把你叫回来。'
+        }
+      },
+      required: ['objective'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const UPDATE_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.updateGoal,
+    // 措辞刻意不含「不许轻易 blocked」之类的约束(ADR-0010 决定三:用放大替代限制),
+    // 也刻意不提「blocked 会触发复核」(避免被当成可薅的捷径,见 spec §6)。
+    description: '改你当前那件事的状态。先 get_goal 拿到 goal_id 和 revision 再调,revision 对不上会被拒绝并把当前值还给你。complete=真做到了(得能指出哪儿看得到它成了);blocked=卡住了,必须写清楚具体哪一步过不去;pause/resume=先放一放/接着做;edit=改目标本身或轮次上限。',
+    parameters: {
+      type: 'object',
+      properties: {
+        goal_id: { type: 'string', description: 'get_goal 返回的 id,原样抄。' },
+        revision: { type: 'integer', description: 'get_goal 返回的 revision,原样抄。对不上说明这中间它被改过,你会拿到当前值,重读再改。' },
+        action: {
+          type: 'string',
+          enum: ['edit', 'pause', 'resume', 'complete', 'blocked'],
+          description: '这次要做什么。'
+        },
+        objective: { type: 'string', description: '仅 edit 有意义:改后的目标。' },
+        max_goal_rounds: { type: 'integer', minimum: 1, maximum: 200, description: '仅 edit 有意义:改后的轮次上限。' },
+        blocked_reason: { type: 'string', description: '仅 blocked 必填:具体卡在哪一步、缺什么。不是「难」「不确定」「还有别的事」。' }
+      },
+      required: ['goal_id', 'revision', 'action'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+// 目标工具的**纯**决策层:把模型给的参数翻译成一次存储动作,或者翻译成一句拒绝。
+// 抽出来是为了能不碰 DB 就测——executeTool 里剩下的只是「调 store、把结果包成 JSON」。
+// 这里一个字都不判断语义(她做没做到、算不算卡住),那些是她的判断(ADR-0010)。
+export type GoalUpdatePlan =
+  | { ok: false; reason: string; message: string }
+  | {
+      ok: true;
+      action: string;
+      phase: 'active' | 'paused' | 'completed' | 'blocked';
+      objective?: string;
+      maxGoalRounds?: number;
+      blockedReason?: string;
+    };
+
+const GOAL_ACTION_TO_PHASE: Record<string, 'active' | 'paused' | 'completed' | 'blocked' | 'keep'> = {
+  // edit 不改状态,沿用当前 phase(存储层要求 phase 必给)。
+  edit: 'keep',
+  pause: 'paused',
+  resume: 'active',
+  complete: 'completed',
+  blocked: 'blocked'
+};
+
+export function planGoalUpdate(
+  args: Record<string, unknown>,
+  currentPhase: 'active' | 'paused' | 'completed' | 'blocked' | null
+): GoalUpdatePlan {
+  const action = typeof args.action === 'string' ? args.action.trim() : '';
+  const mapped = GOAL_ACTION_TO_PHASE[action];
+  if (!mapped) {
+    return { ok: false, reason: 'invalid_action', message: 'action 只能是 edit / pause / resume / complete / blocked。' };
+  }
+  if (currentPhase === null) {
+    return { ok: false, reason: 'not_found', message: '没有这个 goal_id。先 get_goal 看看现在是什么。' };
+  }
+  const blockedReason = typeof args.blocked_reason === 'string' ? args.blocked_reason.trim() : '';
+  if (action === 'blocked' && !blockedReason) {
+    return { ok: false, reason: 'blocked_reason_required', message: '说卡住了,就得说清楚具体哪一步过不去。' };
+  }
+  const rawMax = args.max_goal_rounds ?? args.maxGoalRounds;
+  const objective = typeof args.objective === 'string' ? args.objective.trim() : '';
+  return {
+    ok: true,
+    action,
+    phase: mapped === 'keep' ? currentPhase : mapped,
+    // objective / maxGoalRounds 只在 edit 里有意义:其它 action 传了就忽略,免得
+    // 一次 pause 顺手把目标改了 —— 她看不到自己改了什么。
+    ...(action === 'edit' && objective ? { objective } : {}),
+    ...(action === 'edit' && typeof rawMax === 'number' && Number.isFinite(rawMax)
+      ? { maxGoalRounds: Math.trunc(rawMax) }
+      : {}),
+    ...(action === 'blocked' ? { blockedReason } : {})
+  };
+}
 
 const UNREAD_MEANING_TOOL = {
   type: 'function',
@@ -2607,7 +2739,12 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
     GROUP_MESSAGE_TOOL,
     INSPECT_IMAGE_TOOL,
     IMAGE_TASK_TOOL,
-    RECOVER_ENERGY_TOOL
+    RECOVER_ENERGY_TOOL,
+    // 目标三件套。与下面 resolveMainLoopToolChoice 的 allowed 列表**必须同步**,
+    // 否则 allowed-tools 前缀和 tools 定义对不上。
+    GET_GOAL_TOOL,
+    CREATE_GOAL_TOOL,
+    UPDATE_GOAL_TOOL
   ];
 }
 
@@ -2648,6 +2785,10 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'function', name: TOOL_NAMES.webSearch });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
+  // 目标三件套(与 selectMainLoopToolDefinitions 同步,见那边的注释)。
+  tools.push({ type: 'function', name: TOOL_NAMES.getGoal });
+  tools.push({ type: 'function', name: TOOL_NAMES.createGoal });
+  tools.push({ type: 'function', name: TOOL_NAMES.updateGoal });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
   // allowed-tools prefix aligned with the tool definitions across loop + forks.
   if (agentConfig.computerUseEnabled) {
@@ -13362,6 +13503,86 @@ export class AgentLoopService {
             ? toolCall.args.xiaoni_os.trim()
             : null
         };
+      }
+      // ── 目标(goal)三件套 ────────────────────────────────────────────────────
+      // 这一层只做**参数到存储动作**的翻译。「这一轮算不算推进」「什么时候该 complete」
+      // 全是她的判断,引擎不插手(ADR-0010)。返回值一律是紧凑 JSON —— 它要进上下文。
+      //
+      // fork 调不到这三个:每个 fork 的执行循环都有自己的 allowedToolNames 白名单
+      // (潜意识 {} 或 {exec_command}、压缩 {exec_command,read_file}、看图 exec 之外一律
+      // 返回纠正输出),这三个名字不在任何一张白名单里 —— 结构性拒绝,不需要额外判断。
+      case TOOL_NAMES.getGoal: {
+        const goal = await this.store.getActiveGoal();
+        return { goal: goal ?? null };
+      }
+      case TOOL_NAMES.createGoal: {
+        const objective = typeof toolCall.args.objective === 'string' ? toolCall.args.objective.trim() : '';
+        if (!objective) {
+          return { ok: false, reason: 'objective_required', message: '要立一件事,得先说清楚是什么事。' };
+        }
+        const rawMax = toolCall.args.max_goal_rounds ?? toolCall.args.maxGoalRounds;
+        try {
+          const goal = await this.store.createGoal({
+            objective,
+            ...(typeof rawMax === 'number' && Number.isFinite(rawMax) ? { maxGoalRounds: Math.trunc(rawMax) } : {})
+          });
+          return { ok: true, goal };
+        } catch (error) {
+          // 部分唯一索引拒绝 = 已经有一件在做。把当前那件还给她,而不是抛一个内部错误。
+          const message = error instanceof Error ? error.message : String(error);
+          if (/Unique constraint|P2002/i.test(message)) {
+            return {
+              ok: false,
+              reason: 'already_active',
+              message: '你已经有一件在做的事。先把它收掉(complete / blocked / pause),再立新的。',
+              goal: await this.store.getActiveGoal()
+            };
+          }
+          throw error;
+        }
+      }
+      case TOOL_NAMES.updateGoal: {
+        const goalId = typeof toolCall.args.goal_id === 'string' ? toolCall.args.goal_id.trim() : '';
+        const revision = Number(toolCall.args.revision);
+        if (!goalId || !Number.isInteger(revision)) {
+          return { ok: false, reason: 'invalid_ref', message: '先 get_goal 拿到 goal_id 和 revision,原样抄过来。' };
+        }
+        const current = await this.store.getGoalById(goalId);
+        const plan = planGoalUpdate(toolCall.args, current ? (current.phase as 'active' | 'paused' | 'completed' | 'blocked') : null);
+        if (!plan.ok) {
+          return plan;
+        }
+        try {
+          const result = await this.store.updateGoal({
+            goalId,
+            revision,
+            phase: plan.phase,
+            ...(plan.objective !== undefined ? { objective: plan.objective } : {}),
+            ...(plan.maxGoalRounds !== undefined ? { maxGoalRounds: plan.maxGoalRounds } : {}),
+            ...(plan.blockedReason !== undefined ? { blockedReason: plan.blockedReason } : {})
+          });
+          if (!result.ok) {
+            return {
+              ok: false,
+              reason: result.reason ?? 'revision_mismatch',
+              message: '这中间它被改过了。下面是当前值,重读再改。',
+              goal: result.goal
+            };
+          }
+          return { ok: true, action: plan.action, goal: result.goal };
+        } catch (error) {
+          // resume 一件旧的、而此刻另有一件 active —— 唯一索引拒绝。
+          const message = error instanceof Error ? error.message : String(error);
+          if (/Unique constraint|P2002/i.test(message)) {
+            return {
+              ok: false,
+              reason: 'already_active',
+              message: '现在已经有另一件在做的事,先把它收掉再回来做这件。',
+              goal: await this.store.getActiveGoal()
+            };
+          }
+          throw error;
+        }
       }
       // Spec B: compress_core_memory 没有 executeTool 分支。压缩由后台 fork 写文件、引擎读回后直接
       // 调 commitCoreMemoryCompression 提交(合成 toolCall,不走这里)。模型幻觉出这个名字时,故意
