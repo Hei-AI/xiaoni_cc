@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert';
 
-import { planGoalUpdate } from '../services/agent-loop-service';
+import {
+  planGoalUpdate,
+  renderGoalRoundNotify,
+  isGoalRoundPayload,
+  readGoalIdFromPayload
+} from '../services/agent-loop-service';
 
 // update_goal 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
 // 一个字都不判断语义(她做没做到、算不算真卡住)—— 那些是她的判断,见 docs/adr/0010-*。
@@ -87,4 +92,56 @@ test('轮次上限:非数字、非有限值一律忽略,不写进存储动作', 
   // 小数截断成整数,不是拒绝 —— 她写 30.7 的意思显然是 30
   const truncated = planGoalUpdate({ action: 'edit', max_goal_rounds: 30.7 }, 'active') as any;
   assert.equal(truncated.maxGoalRounds, 30);
+});
+
+// ── 续跑块(issue #3)──────────────────────────────────────────────────────────
+// D6 的可执行形态:相邻两轮**除了 round 数字之外逐字节相同**。
+// 这一条是它和 xiaoni_plan 的关键差别 —— plan 每轮现写一段散文(实测 95 份只有 22 种开头),
+// 既污染上下文又没法复用前缀;这一块 append-only,落在可复用前缀之后。
+
+test('相邻两轮的续跑块:除 round 数字外逐字节相同', () => {
+  const objective = '把 gorton 写到第 100 章';
+  const r3 = renderGoalRoundNotify(objective, 3, 20);
+  const r4 = renderGoalRoundNotify(objective, 4, 20);
+
+  assert.notEqual(r3, r4, '轮次不同,块不该完全一样');
+  // 把 round 数字抹平之后必须完全相等 —— 任何其它字节漂移都会让前缀失效
+  const flatten = (text: string) => text.replace(/round="\d+"/, 'round="N"');
+  assert.equal(flatten(r3), flatten(r4));
+});
+
+test('续跑块结构:objective 原样在块里,轮次和上限都在属性上', () => {
+  const block = renderGoalRoundNotify('读完 Howard 前六章', 7, 20);
+  assert.match(block, /<goal_round round="7" max="20">/);
+  assert.match(block, /读完 Howard 前六章/);
+  assert.match(block, /<\/goal_round>/);
+});
+
+test('objective 一个字都不改:引擎不重写她写的目标', () => {
+  const weird = '  两边留空格  和\n换行  ';
+  assert.ok(renderGoalRoundNotify(weird, 1, 20).includes(weird));
+});
+
+test('轮次计数只认 goal_round:别的 reason 一律不推进', () => {
+  const goalRound = {
+    systemReminder: { reason: 'goal_round' },
+    rawPayload: { reason: 'goal_round', goal_id: 'goal_abc' }
+  } as any;
+  assert.equal(isGoalRoundPayload(goalRound), true);
+  assert.equal(readGoalIdFromPayload(goalRound), 'goal_abc');
+
+  for (const reason of ['subconscious_agent', 'clock_ping', 'attention_lease', 'external']) {
+    const other = { systemReminder: { reason }, rawPayload: { reason } } as any;
+    assert.equal(isGoalRoundPayload(other), false, `${reason} 不该推进 goal 轮次`);
+  }
+});
+
+test('goal_id 缺失或空白 → null,调用方据此跳过计数(不猜)', () => {
+  const noId = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round' } } as any;
+  assert.equal(readGoalIdFromPayload(noId), null);
+  const blank = {
+    systemReminder: { reason: 'goal_round' },
+    rawPayload: { reason: 'goal_round', goal_id: '   ' }
+  } as any;
+  assert.equal(readGoalIdFromPayload(blank), null);
 });

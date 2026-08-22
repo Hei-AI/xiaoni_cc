@@ -4435,6 +4435,15 @@ export function renderSelfContinuationReminderForTest() {
   return renderSelfContinuationReminder();
 }
 
+// goal 活着时的续跑块。**引擎拼装,不由模型生成** —— 这是它和 xiaoni_plan 的关键差别:
+// plan 每轮现写一段散文(实测 95 份只有 22 种开头,既污染又没法复用),这一块轮间只有
+// round 数字变,append-only 落在可复用前缀之后。见 docs/adr/0010-* 决定六。
+export function renderGoalRoundNotify(objective: string, round: number, maxRounds: number) {
+  const block = `<goal_round round="${round}" max="${maxRounds}">\n${objective}\n</goal_round>`;
+  const reminder = readPromptSnippet('goal_round_reminder.md').trim();
+  return reminder ? `${block}\n\n${reminder}` : block;
+}
+
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
   return renderPromptSnippet('subconscious_agent_notify.md', {
     SUBCONSCIOUS_FINAL_ANSWER: finalAnswerText
@@ -6787,6 +6796,26 @@ export class AgentLoopService {
       ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
       0
     );
+    // goal 轮次推进:**只在这条 goal_round 输入被认领时 +1**,不看她这一轮干了什么、
+    // 有没有产出、工具报没报错(照 dsh 的 goal-round-driver:the driver does not classify
+    // the preceding activity)。它和空转失效计数是两个不同的量,不合并 —— 空转数的是
+    // 「跑了却没产出」,goal round 数的是「为这个目标跑了几轮」。
+    // fail-open:计数失败不挡这一轮的执行,最多下一轮再发一条同轮次的(dedupeKey 挡重)。
+    if (isGoalRoundPayload(queueMessage.payload)) {
+      const goalId = readGoalIdFromPayload(queueMessage.payload);
+      const bumpRound = (this.store as RuntimeStore & {
+        incrementGoalRound?: RuntimeStore['incrementGoalRound'];
+      }).incrementGoalRound;
+      if (goalId && typeof bumpRound === 'function') {
+        await bumpRound.call(this.store, goalId).catch((error) => {
+          moduleLogger.warn('goal round 计数推进失败', {
+            goalId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return null;
+        });
+      }
+    }
     // 被动召回 query:认领即消费,此刻这条内容才是她正在做的事。fire-and-forget,零缓存影响。
     fireConsumedNotifyRecall(queueMessage.payload as unknown as Record<string, unknown>);
     await this.processRuntimeFrame(queueMessage, {
@@ -6851,6 +6880,40 @@ export class AgentLoopService {
     }
     if (this.subconsciousAgentForkInFlight) {
       return;
+    }
+
+    // ── goal 活着时,潜意识让位 ────────────────────────────────────────────────
+    // plan 的唯一职责是点火(她输出纯文本之后 loop 没法自动继续)。goal 活着 = 点火理由
+    // 已经存在,不需要每轮现写一段。此时改塞一个引擎拼装的固定块,轮间只差 round 数字。
+    // 见 docs/adr/0010-* 决定五。
+    //
+    // fail-open:读 goal 失败一律退回潜意识 fork —— 这条路只是「更省的点火」,
+    // 它挂了不能连带把她的续跑一起挂掉。
+    // 防御式访问:与本文件既有的 store 取用惯例一致(见 enqueueSubconsciousAgentNotify 里
+    // 对 enqueueQueueMessage 的处理)。缓存回归用例用的是精简 store 桩,不该因为新增一个
+    // 与缓存无关的方法就被迫改动 —— 那几支用例是冻结的。
+    const readActiveGoal = (this.store as RuntimeStore & {
+      getActiveGoal?: RuntimeStore['getActiveGoal'];
+    }).getActiveGoal;
+    const activeGoal = typeof readActiveGoal !== 'function'
+      ? null
+      : await readActiveGoal.call(this.store).catch((error) => {
+      moduleLogger.warn('读取 active goal 失败,本轮退回潜意识 fork', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    });
+    if (activeGoal && activeGoal.roundsStarted < activeGoal.maxGoalRounds) {
+      try {
+        await this.enqueueGoalRoundNotify(activeGoal);
+        // seed 留着不动:下一次真需要潜意识时(goal 收尾或跑满)它还在。
+        return;
+      } catch (error) {
+        moduleLogger.warn('goal round 入队失败,本轮退回潜意识 fork', {
+          goalId: activeGoal.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     // Take (do NOT yet consume) the seed from the last settled main run. It is cleared only after
@@ -11787,6 +11850,94 @@ export class AgentLoopService {
     });
   }
 
+  // goal 活着时的点火。照 enqueueSubconsciousAgentNotify 的形状,但正文由引擎拼装
+  // (见 renderGoalRoundNotify),所以轮间字节只差一个 round 数字。
+  //
+  // 缓存:正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack
+  // replay 从同一字段读回同样的字节 —— 逐字节可重建,与既有几条 notify 同一条已验过的路径。
+  private async enqueueGoalRoundNotify(goal: {
+    id: string;
+    objective: string;
+    roundsStarted: number;
+    maxGoalRounds: number;
+  }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      throw new Error('goal round notify requires queue enqueue persistence');
+    }
+    const now = new Date();
+    const nextRound = goal.roundsStarted + 1;
+    // dedupeKey 带轮次:同一轮重复入队被唯一索引挡掉(比如引擎重启后重跑同一个空闲 tick)。
+    const messageSid = `goal-round:${goal.id}:${nextRound}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = renderGoalRoundNotify(goal.objective, nextRound, goal.maxGoalRounds);
+    const rawPayload = {
+      reason: 'goal_round',
+      goal_id: goal.id,
+      goal_round: nextRound,
+      goal_max_rounds: goal.maxGoalRounds,
+      notify_template: 'goal_round_reminder.md'
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'goal_round',
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      },
+      goalRound: rawPayload
+    };
+
+    return enqueuer.call(this.store, {
+      message: {
+        traceId: `goal-round:${goal.id}`,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+  }
+
   /**
    * 外部投递入口。小腻自己写的 skill(check-email 这类后台观察脚本)发现了事情，打这里把它送到
    * 她面前 —— 在此之前那些脚本只能往日志里 print，没有任何通道能叫醒她。
@@ -15301,6 +15452,20 @@ export function isClockPingPayload(queueMessage: QueueMessageRecord['payload']) 
     return false;
   }
   return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'clock_ping';
+}
+
+// goal 续跑块。轮次计数只认它 —— 普通 notify、真人消息一律不推进 goal round
+// (照 dsh:ordinary human turns never increment roundsStarted)。
+export function isGoalRoundPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'goal_round';
+}
+
+export function readGoalIdFromPayload(queueMessage: QueueMessageRecord['payload']): string | null {
+  const raw = queueMessage.rawPayload?.goal_id;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
 }
 
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {
