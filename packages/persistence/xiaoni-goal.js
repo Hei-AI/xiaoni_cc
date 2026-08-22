@@ -166,9 +166,19 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
 
     const data = {
       phase,
-      revision: { increment: 1 },
-      blocked_reason: phase === 'blocked' ? blockedReason : null
+      revision: { increment: 1 }
     };
+    // blocked_reason 的三态,别写成二态:
+    //   ① 转出 blocked → 清空(一条陈旧的卡住理由不许跟着一个 active 目标到处跑)
+    //   ② 仍是 blocked 且这次给了理由 → 覆盖
+    //   ③ 仍是 blocked 但这次没给理由(比如对一个 blocked 目标做 edit) → **不动**
+    // 写成 `phase === 'blocked' ? blockedReason : null` 会在 ③ 静默清掉理由,
+    // 留下一个 phase=blocked 但没有理由的目标 —— 与建表注释里的不变量相悖。
+    if (phase !== 'blocked') {
+      data.blocked_reason = null;
+    } else if (blockedReason !== null) {
+      data.blocked_reason = blockedReason;
+    }
     if (objective !== null) data.objective = objective;
     if (maxGoalRounds !== undefined && maxGoalRounds !== null) {
       data.max_goal_rounds = normalizePositiveInt(maxGoalRounds, DEFAULT_MAX_GOAL_ROUNDS);

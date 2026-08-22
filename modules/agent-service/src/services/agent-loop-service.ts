@@ -6624,6 +6624,10 @@ export class AgentLoopService {
   // clock_ping(2h)或外部消息把她拉回来。60 天 44 次 fork 失败里有 27 次是这个形状。
   // 保留 seed 后:失败 → backoff 到期 → 下一个空闲 tick 用同一份 seed 重试。
   // null after a restart (no fresh main run yet) ⇒ no fork until the next run(重启桶由 clock_ping 兜底)。
+  // 已经起过复核的 blocked 次(goalId:revision)。进程内存,重启归零 —— 重启后最多多跑一次,
+  // 而入队那一层的永久唯一索引仍然挡得住重复投递。
+  private readonly failureReviewsStarted = new Set<string>();
+
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
@@ -6960,9 +6964,19 @@ export class AgentLoopService {
     });
     if (activeGoal && activeGoal.roundsStarted < activeGoal.maxGoalRounds) {
       try {
-        await this.enqueueGoalRoundNotify(activeGoal);
-        // seed 留着不动:下一次真需要潜意识时(goal 收尾或跑满)它还在。
-        return;
+        const enqueued = await this.enqueueGoalRoundNotify(activeGoal);
+        // 【别让她永久哑掉】dedupeKey 带轮次;如果上一条 goal_round 已经入过队而轮次没有
+        // 前进(比如 claim 时 incrementGoalRound 失败),这里会撞到去重、拿不到新行。
+        // 那种情况下**不能 return** —— 否则此后每次 settle 都算出同一个 dedupeKey、
+        // 每次都被去重、每次都跳过潜意识 fork,她就再也不会被叫醒了。
+        if (enqueued?.created) {
+          // seed 留着不动:下一次真需要潜意识时(goal 收尾或跑满)它还在。
+          return;
+        }
+        moduleLogger.warn('goal round 撞去重(轮次没前进),本轮退回潜意识 fork', {
+          goalId: activeGoal.id,
+          roundsStarted: activeGoal.roundsStarted
+        });
       } catch (error) {
         moduleLogger.warn('goal round 入队失败,本轮退回潜意识 fork', {
           goalId: activeGoal.id,
@@ -11936,18 +11950,24 @@ export class AgentLoopService {
   }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const reminderText = renderFailureReviewReminder(params.objective, params.blockedReason);
-    let forkInput = cloneCanonicalAgentTurnRequest(params.baseRequest).input;
+    // 【缓存链】reminder 必须从 turn-1 起就留在 forkInput 里,之后逐轮在它后面追加 ——
+    // 这样 turn N 的请求就是 turn N-1 请求的严格延长,滑窗才能把上一轮的真·末块当作本轮的
+    // prevBoundary(docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」)。
+    //
+    // 曾经写错过一次:forkInput 从裸 base 起,每轮把 reminder 拼进一个**副本**的尾部。
+    // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
+    // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
+    // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
+    let forkInput = buildFailureReviewForkRequest(params.baseRequest, 1, reminderText).input;
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
 
     for (let forkTurn = 1; forkTurn <= FAILURE_REVIEW_FORK_MAX_TURNS; forkTurn += 1) {
       turns = forkTurn;
-      const forkRequest = buildFailureReviewForkRequest(
-        { ...cloneCanonicalAgentTurnRequest(params.baseRequest), input: forkInput },
-        forkTurn,
-        reminderText
-      );
+      const forkRequest = buildFailureReviewForkRequest(params.baseRequest, forkTurn, reminderText);
+      // 请求体用累积链,不用 builder 拼出来的那份(它只提供 metadata / 采样参数)。
+      forkRequest.input = normalizeResponseInputItems(forkInput);
       await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
       const modelResult = await this.executeSubconsciousAgentForkTurn(
         forkRequest,
@@ -11974,8 +11994,16 @@ export class AgentLoopService {
       }
 
       for (const item of toolCalls) {
+        // 预算用尽也**必须**给每个 function_call 配一个 function_call_output:
+        // 少一个,下一轮请求里就有孤儿 tool_use,provider 直接 400,整个 fork 死掉。
+        // (潜意识 fork 在同一位置是 throw;这里选择回一条明确的拒绝,让它自己收口成文字。)
         if (toolCallsUsed >= FAILURE_REVIEW_FORK_MAX_TOOL_CALLS) {
-          break;
+          forkInput.push({
+            type: 'function_call_output',
+            call_id: item.toolCall.callId,
+            output: '[复核预算已用尽:不再执行工具。把已经查到的东西写出来收口,查不到就回 NO_FINDING。]'
+          } as unknown as OpenResponseInputItem);
+          continue;
         }
         toolCallsUsed += 1;
         let rawToolResult: Record<string, unknown>;
@@ -12011,7 +12039,7 @@ export class AgentLoopService {
   // 复核结论回到她面前。走 Notify Bucket —— 与既有几条 notify 同一条已在线验过的缓存路径:
   // 正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack replay
   // 从同一字段读回同样字节,逐字节可重建。
-  private async enqueueFailureReviewNotify(params: { goalId: string; findings: string }) {
+  private async enqueueFailureReviewNotify(params: { goalId: string; revision: number; findings: string }) {
     const enqueuer = (this.store as RuntimeStore & {
       enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
     }).enqueueQueueMessage;
@@ -12019,8 +12047,10 @@ export class AgentLoopService {
       throw new Error('failure review notify requires queue enqueue persistence');
     }
     const now = new Date();
-    // 同一个 goal 的一次 blocked 只投一条:她 resume 之后再 blocked 才有下一条。
-    const messageSid = `failure-review:${params.goalId}`;
+    // 幂等按【这一次 blocked】,不是按 goal:dedupe_key 上是永久唯一索引,只用 goalId 的话
+    // 她 resume 之后再 blocked 就永远投不出第二条了(spec §1 明确要求那时该有第二次)。
+    // revision 每次 mutation +1,所以每一次 blocked 都有自己的键。
+    const messageSid = `failure-review:${params.goalId}:${params.revision}`;
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
     const promptFacingText = renderPromptSnippet('review_fork_notify.md', {
@@ -12029,6 +12059,7 @@ export class AgentLoopService {
     const rawPayload = {
       reason: 'failure_review',
       goal_id: params.goalId,
+      goal_revision: params.revision,
       notify_template: 'review_fork_notify.md'
     };
     const inboundContext = {
@@ -12092,9 +12123,16 @@ export class AgentLoopService {
   // update_goal 卡在那儿等 —— 结论本来就是经 Notify Bucket 回来的,不走工具返回值。
   // 全链吞异常:复核挂了不能连带把她宣布 blocked 这件事一起挂掉。
   private fireFailureReviewForBlockedGoal(
-    goal: { id: string; objective: string; blockedReason: string | null },
+    goal: { id: string; revision: number; objective: string; blockedReason: string | null },
     queueMessage: QueueMessageRecord['payload']
   ) {
+    // 起 fork 之前就去重:复核要跑到 30 次工具调用,重复的 blocked 不该白烧一遍再在
+    // 入队那一步被拦下。键按【这一次 blocked】(goalId + revision),不是按 goal。
+    const reviewKey = `${goal.id}:${goal.revision}`;
+    if (this.failureReviewsStarted.has(reviewKey)) {
+      return;
+    }
+    this.failureReviewsStarted.add(reviewKey);
     const seed = this.lastMainAgentForkSeed;
     if (!seed?.canonicalRequest) {
       // 刚重启、还没有可克隆的主请求。不重建上下文(重建会和主 loop 漂移),这一次就不复核。
@@ -12141,7 +12179,7 @@ export class AgentLoopService {
           });
           return;
         }
-        await this.enqueueFailureReviewNotify({ goalId: goal.id, findings: text });
+        await this.enqueueFailureReviewNotify({ goalId: goal.id, revision: goal.revision, findings: text });
         moduleLogger.info('复核 fork 已投递', {
           goalId: goal.id,
           toolCallsUsed: result.toolCallsUsed,
@@ -14033,6 +14071,7 @@ export class AgentLoopService {
             this.fireFailureReviewForBlockedGoal(
               {
                 id: result.goal.id,
+                revision: result.goal.revision,
                 objective: result.goal.objective,
                 blockedReason: result.goal.blockedReason ?? plan.blockedReason ?? null
               },
