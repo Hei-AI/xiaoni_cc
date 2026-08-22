@@ -10,6 +10,7 @@ const { createTopicLabPersistence } = require('./topic-lab');
 const { createImageLabPersistence } = require('./image-lab');
 const { createAgentMediaPersistence } = require('./agent-media');
 const { createAgentTaskPersistence } = require('./agent-tasks');
+const { createXiaoniGoalPersistence } = require('./xiaoni-goal');
 const { createAgentQueuePersistence } = require('./agent-queue');
 const { createInboundInboxPersistence } = require('./inbound-inbox');
 const { createAgentRuntimePersistence } = require('./agent-runtime');
@@ -503,6 +504,11 @@ const agentTaskPersistence = createAgentTaskPersistence({
   createSqlAdapter
 });
 
+const xiaoniGoalPersistence = createXiaoniGoalPersistence({
+  getPrismaClient,
+  createSqlAdapter
+});
+
 const agentQueuePersistence = createAgentQueuePersistence({
   getPrismaClient,
   createSqlAdapter
@@ -605,6 +611,7 @@ module.exports = {
   ...imageLabPersistence,
   ...agentMediaPersistence,
   ...agentTaskPersistence,
+  ...xiaoniGoalPersistence,
   ...agentQueuePersistence,
   ...inboundInboxPersistence,
   ...agentRuntimePersistence,

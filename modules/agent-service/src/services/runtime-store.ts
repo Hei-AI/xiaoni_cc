@@ -9,6 +9,7 @@ import {
   createAcceptedIdentityFact,
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
+  ensureXiaoniGoalSchema,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
   ensureAgentRecoverySessionSchema,
@@ -1269,6 +1270,7 @@ export class RuntimeStore {
     await ensureIdentityLineageSchema(databaseConfig);
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
+    await ensureXiaoniGoalSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);

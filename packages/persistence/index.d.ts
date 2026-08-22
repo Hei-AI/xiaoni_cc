@@ -1763,6 +1763,54 @@ export function listAgentTasks(
   filters?: { sessionKey?: string; session_key?: string; status?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
+
+export type XiaoniGoalPhase = 'active' | 'paused' | 'completed' | 'blocked';
+export type XiaoniGoalRecord = {
+  id: string;
+  identityKey: string;
+  revision: number;
+  objective: string;
+  phase: XiaoniGoalPhase;
+  roundsStarted: number;
+  maxGoalRounds: number;
+  blockedReason: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function getActiveXiaoniGoal(
+  input?: { identityKey?: string; identity_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function getXiaoniGoalById(
+  input?: { goalId?: string; goal_id?: string; id?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function createXiaoniGoal(
+  input: { objective: string; maxGoalRounds?: number; max_goal_rounds?: number; id?: string; identityKey?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord>;
+/** compare-and-set。revision 不匹配返回 { ok:false, reason:'revision_mismatch', goal:<当前值> },不抛。 */
+export function updateXiaoniGoal(
+  input: {
+    goalId: string;
+    revision: number;
+    phase: XiaoniGoalPhase;
+    objective?: string;
+    maxGoalRounds?: number;
+    blockedReason?: string | null;
+  },
+  config?: DatabaseUrlConfig
+): Promise<{ ok: boolean; reason?: string; goal: XiaoniGoalRecord | null }>;
+/** 引擎侧轮次推进,**故意不动 revision**。非 active 或 id 不存在时返回 null。 */
+export function incrementXiaoniGoalRound(
+  input: { goalId: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function listXiaoniGoals(
+  input?: { identityKey?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord[]>;
 export type AbTurnSnapshotInput = {
   id?: string;
   sourceKey?: string;
