@@ -432,6 +432,7 @@ function rawTraceSpanIdForSource(
     && source !== 'subconscious_fork_llm_request'
     && source !== 'psych_assessment_fork_llm_request'
     && source !== 'image_vision_fork_llm_request'
+    && source !== 'failure_review_fork_llm_request'
     && source !== 'cache_heartbeat'
     && source !== 'task'
   ) {
@@ -582,6 +583,7 @@ function sourceLabel(source: string) {
     case 'compression_fork_llm_request':
     case 'psych_assessment_fork_llm_request':
     case 'image_vision_fork_llm_request':
+    case 'failure_review_fork_llm_request':
       return 'fork LLM';
     case 'compression_fork_item':
       return 'fork stack';
@@ -762,6 +764,11 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'psych_assessment_fork') {
     return 'psych_assessment';
   }
+  // 复核 fork(她宣布 goal blocked 时替她再查一遍)。不认它的话,行动流会把它归进
+  // 最后那个兜底分支 compression_memory —— 显示成压缩 fork,是错的。
+  if (run.source === 'failure_review_fork') {
+    return 'failure_review';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -777,6 +784,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'psych_assessment') {
     return '心理评估 Fork';
+  }
+  if (forkKind === 'failure_review') {
+    return '复核 Fork';
   }
   return 'Memory Compress Fork';
 }

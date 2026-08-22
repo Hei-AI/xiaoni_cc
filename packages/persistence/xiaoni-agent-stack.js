@@ -3725,6 +3725,25 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             )
             VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb,
                     ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            ON CONFLICT (slice_id) DO UPDATE SET
+              fork_run_id = EXCLUDED.fork_run_id,
+              llm_call_id = EXCLUDED.llm_call_id,
+              goal_id = EXCLUDED.goal_id,
+              canonical_request = EXCLUDED.canonical_request,
+              wire_request = EXCLUDED.wire_request,
+              canonical_response = EXCLUDED.canonical_response,
+              wire_response = EXCLUDED.wire_response,
+              raw_response = EXCLUDED.raw_response,
+              output_items = EXCLUDED.output_items,
+              status = EXCLUDED.status,
+              token_usage = EXCLUDED.token_usage,
+              trace_id = EXCLUDED.trace_id,
+              run_id = EXCLUDED.run_id,
+              agent_turn = EXCLUDED.agent_turn,
+              model_name = EXCLUDED.model_name,
+              model_provider = EXCLUDED.model_provider,
+              processing_time_ms = EXCLUDED.processing_time_ms,
+              metadata = EXCLUDED.metadata
             RETURNING *
           `,
           [

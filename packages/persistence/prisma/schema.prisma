@@ -1924,7 +1924,7 @@ model XiaoniGoal {
 // 详见 docs/adr/0009-*、docs/specs/xiaoni-failure-conclusion-review-fork.md §8
 model FailureReviewForkSlice {
   id                     BigInt    @id @default(autoincrement()) @db.BigInt
-  slice_id               String    @db.VarChar(191)
+  slice_id               String    @unique(map: "uniq_failure_review_fork_slices_slice_id") @db.VarChar(191)
   fork_run_id            String    @db.VarChar(191)
   llm_call_id            String?   @db.VarChar(128)
   identity_key           String    @default("xiaoni") @db.VarChar(191)

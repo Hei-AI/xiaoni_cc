@@ -244,6 +244,12 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
           created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      // slice_id 唯一 —— 四个兄弟表都有,写入靠 ON CONFLICT 做幂等。少了它,一次重试
+      // 就会留下两行同 slice 的记录,而 usage rollup 按 slice 计费,直接双记。
+      await sql.execute(`
+        CREATE UNIQUE INDEX IF NOT EXISTS uniq_failure_review_fork_slices_slice_id
+        ON failure_review_fork_slices (slice_id)
+      `);
       await sql.execute(`
         CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_run_turn
         ON failure_review_fork_slices (fork_run_id, agent_turn)
