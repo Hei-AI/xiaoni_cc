@@ -1748,7 +1748,8 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const slices = forkRunIds.size > 0
         ? await listFailureReviewForkSlices({ forkRunIds: [...forkRunIds], limit: 32 })
         : [];
-      const slicesByFork = new Map<string, any[]>();
+      type ReviewSlice = Awaited<ReturnType<typeof listFailureReviewForkSlices>>[number];
+      const slicesByFork = new Map<string, ReviewSlice[]>();
       for (const slice of slices) {
         const key = typeof slice.forkRunId === 'string' ? slice.forkRunId : '';
         // 缺 fork_run_id 的行**跳过**,不要归进空键 —— 否则所有缺键的 timeline 行会各自

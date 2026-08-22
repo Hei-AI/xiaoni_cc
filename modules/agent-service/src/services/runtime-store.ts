@@ -12,6 +12,7 @@ import {
   ensureXiaoniGoalSchema,
   recordFailureReviewForkSlice,
   getActiveXiaoniGoal,
+  getCurrentXiaoniGoal,
   getXiaoniGoalById,
   createXiaoniGoal,
   updateXiaoniGoal,
@@ -1997,6 +1998,12 @@ export class RuntimeStore {
   }
 
   // ── 目标(goal)。纯委托,语义判断一律不在这一层(见 packages/persistence/xiaoni-goal.js 文件头)。
+  // get_goal 用这个,不是 getActiveGoal —— 只认 active 的话 paused 目标拿不到
+  // goal_id/revision,resume 就结构性不可达(spec 的 action 集合里有 resume)。
+  async getCurrentGoal() {
+    return getCurrentXiaoniGoal({}, databaseConfig);
+  }
+
   async getActiveGoal() {
     return getActiveXiaoniGoal({}, databaseConfig);
   }

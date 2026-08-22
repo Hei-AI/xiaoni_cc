@@ -1955,13 +1955,35 @@ export type GoalUpdatePlan =
   | {
       ok: true;
       action: string;
-      phase: 'active' | 'paused' | 'completed' | 'blocked';
+      phase: XiaoniGoalPhase;
       objective?: string;
       maxGoalRounds?: number;
       blockedReason?: string;
     };
 
-const GOAL_ACTION_TO_PHASE: Record<string, 'active' | 'paused' | 'completed' | 'blocked' | 'keep'> = {
+// goal 的四个状态。**与 packages/persistence 的 XIAONI_GOAL_PHASES 同一套**,
+// 手写第二份联合类型会在加状态时两边各说各的(存储层放行、这里编译不过,或反过来)。
+// Prisma 的唯一约束冲突。这里判的是**部分唯一索引**(一个 identity 只许一件 active),
+// 不是内部错误 —— 两处调用点(create / update resume)要同一套判别,分开写会漂。
+// 这次 blocked 是不是**一次新的卡住**。
+//
+// 判据是相变,不是计数:同一次卡住里她再报一次 blocked(比如补一句更具体的理由)不该
+// 再起一次复核;resume 之后又卡住才是新的一次。
+// 曾经用 `${goalId}:${revision}` 当去重键 —— revision 每次 mutation 都 +1,连着报两次
+// 就是两把键,复核跑两遍;而且那个集合在内存里,重启即失效。相变判天然满足 spec §1,
+// 且不依赖任何进程内状态。
+export function isNewBlockedEpisode(action: string, currentPhase: XiaoniGoalPhase | null) {
+  return action === 'blocked' && currentPhase !== 'blocked';
+}
+
+function isUniqueConstraintError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Unique constraint|P2002/i.test(message);
+}
+
+type XiaoniGoalPhase = 'active' | 'paused' | 'completed' | 'blocked';
+
+const GOAL_ACTION_TO_PHASE: Record<string, XiaoniGoalPhase | 'keep'> = {
   // edit 不改状态,沿用当前 phase(存储层要求 phase 必给)。
   edit: 'keep',
   pause: 'paused',
@@ -1972,7 +1994,7 @@ const GOAL_ACTION_TO_PHASE: Record<string, 'active' | 'paused' | 'completed' | '
 
 export function planGoalUpdate(
   args: Record<string, unknown>,
-  currentPhase: 'active' | 'paused' | 'completed' | 'blocked' | null
+  currentPhase: XiaoniGoalPhase | null
 ): GoalUpdatePlan {
   const action = typeof args.action === 'string' ? args.action.trim() : '';
   const mapped = GOAL_ACTION_TO_PHASE[action];
@@ -6873,9 +6895,13 @@ export class AgentLoopService {
     // fail-open:计数失败不挡这一轮的执行,最多下一轮再发一条同轮次的(dedupeKey 挡重)。
     if (isGoalRoundPayload(queueMessage.payload)) {
       const goalId = readGoalIdFromPayload(queueMessage.payload);
-      const bumpRound = (this.store as RuntimeStore & {
-        incrementGoalRound?: RuntimeStore['incrementGoalRound'];
-      }).incrementGoalRound;
+      // 类型上**不**放宽:this.store 是 RuntimeStore,方法被改名/删掉时编译期就红。
+      // 放宽成可选属性的话,真丢了方法只会静默不计数 —— 那正是这条分支要消除的那类失败。
+      // 运行期仍留 guard:冻结的缓存回归用例用的是精简 store 桩,桩上没有这个方法。
+      const bumpRound: RuntimeStore['incrementGoalRound'] | undefined = this.store.incrementGoalRound;
+      if (goalId && typeof bumpRound !== 'function') {
+        moduleLogger.warn('store 上没有 incrementGoalRound,本轮 goal 轮次不计数', { goalId });
+      }
       if (goalId && typeof bumpRound === 'function') {
         await bumpRound.call(this.store, goalId).catch((error) => {
           moduleLogger.warn('goal round 计数推进失败', {
@@ -6959,12 +6985,13 @@ export class AgentLoopService {
     //
     // fail-open:读 goal 失败一律退回潜意识 fork —— 这条路只是「更省的点火」,
     // 它挂了不能连带把她的续跑一起挂掉。
-    // 防御式访问:与本文件既有的 store 取用惯例一致(见 enqueueSubconsciousAgentNotify 里
-    // 对 enqueueQueueMessage 的处理)。缓存回归用例用的是精简 store 桩,不该因为新增一个
-    // 与缓存无关的方法就被迫改动 —— 那几支用例是冻结的。
-    const readActiveGoal = (this.store as RuntimeStore & {
-      getActiveGoal?: RuntimeStore['getActiveGoal'];
-    }).getActiveGoal;
+    // 运行期仍留 guard:冻结的缓存回归用例用的是精简 store 桩,不该因为新增一个与缓存
+    // 无关的方法就被迫改动 —— 那几支用例是冻结的。
+    // 类型上**不**放宽(理由同 goal 轮次计数处):改名即编译期红,不退化成静默 fail-open。
+    const readActiveGoal: RuntimeStore['getActiveGoal'] | undefined = this.store.getActiveGoal;
+    if (typeof readActiveGoal !== 'function') {
+      moduleLogger.warn('store 上没有 getActiveGoal,本轮退回潜意识 fork');
+    }
     const activeGoal = typeof readActiveGoal !== 'function'
       ? null
       : await readActiveGoal.call(this.store).catch((error) => {
@@ -9140,7 +9167,15 @@ export class AgentLoopService {
         // 夹带了真实外部消息的折叠 run 照常记账,否则一条复核就能把真空转洗白。
         const runDrivenOnlyByFailureReview = isFailureReviewPayload(payload)
           && continuationQueueMessages.every((claimed) => isFailureReviewPayload(claimed.payload));
-        if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview) {
+        // goal-round 同款隐形。**这是 D4 的硬要求**(spec §4「与空转计数并存,互不换算」):
+        // goal 轮次数的是「为这个目标跑了几轮」,空转数的是「跑了却没产出」—— 两个量。
+        // 不隐形的话,goal 期间的零工具 run 会把空转计数累高;goal 一结束,第一条 plan
+        // 就带着虚高的轮数进升级腿,升级凭据来自一段根本没跑 plan 的时间。
+        // goal 这一侧本来就有自己的闸(max_goal_rounds),不需要空转账本再管一遍。
+        // 与报时同理:整个 run 都由 goal-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
+        const runDrivenOnlyByGoalRound = isGoalRoundPayload(payload)
+          && continuationQueueMessages.every((claimed) => isGoalRoundPayload(claimed.payload));
+        if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview && !runDrivenOnlyByGoalRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
             settledOnFinalAnswer: actionPlan.hasFinalAnswer,
             didRealWork: runTouchedWorld
@@ -14114,7 +14149,11 @@ export class AgentLoopService {
       // (潜意识 {} 或 {exec_command}、压缩 {exec_command,read_file}、看图 exec 之外一律
       // 返回纠正输出),这三个名字不在任何一张白名单里 —— 结构性拒绝,不需要额外判断。
       case TOOL_NAMES.getGoal: {
-        const goal = await this.store.getActiveGoal();
+        // getCurrentGoal 而不是 getActiveGoal:只认 active 的话,paused / blocked 的目标
+        // 她**永远拿不到 goal_id 和 revision**,而 update_goal 必须带这两个 ——
+        // 于是 resume 结构性不可达、pause 等于永久放弃、blocked 之后她也再看不到
+        // 自己写的 blocked_reason。spec 的 action 集合里有 resume,就得能读到那件。
+        const goal = await this.store.getCurrentGoal();
         return { goal: goal ?? null };
       }
       case TOOL_NAMES.createGoal: {
@@ -14131,8 +14170,7 @@ export class AgentLoopService {
           return { ok: true, goal };
         } catch (error) {
           // 部分唯一索引拒绝 = 已经有一件在做。把当前那件还给她,而不是抛一个内部错误。
-          const message = error instanceof Error ? error.message : String(error);
-          if (/Unique constraint|P2002/i.test(message)) {
+          if (isUniqueConstraintError(error)) {
             return {
               ok: false,
               reason: 'already_active',
@@ -14150,7 +14188,7 @@ export class AgentLoopService {
           return { ok: false, reason: 'invalid_ref', message: '先 get_goal 拿到 goal_id 和 revision,原样抄过来。' };
         }
         const current = await this.store.getGoalById(goalId);
-        const plan = planGoalUpdate(toolCall.args, current ? (current.phase as 'active' | 'paused' | 'completed' | 'blocked') : null);
+        const plan = planGoalUpdate(toolCall.args, current ? (current.phase as XiaoniGoalPhase) : null);
         if (!plan.ok) {
           return plan;
         }
@@ -14171,7 +14209,12 @@ export class AgentLoopService {
               goal: result.goal
             };
           }
-          if (plan.action === 'blocked' && result.goal) {
+          // 相变才触发(判据与理由见 isNewBlockedEpisode)。
+          const enteredBlocked = isNewBlockedEpisode(
+            plan.action,
+            (current?.phase as XiaoniGoalPhase | undefined) ?? null
+          );
+          if (enteredBlocked && result.goal) {
             // 她宣布卡住 → 起一次独立复核。不 await(见 fireFailureReviewForBlockedGoal)。
             this.fireFailureReviewForBlockedGoal(
               {
@@ -14186,8 +14229,7 @@ export class AgentLoopService {
           return { ok: true, action: plan.action, goal: result.goal };
         } catch (error) {
           // resume 一件旧的、而此刻另有一件 active —— 唯一索引拒绝。
-          const message = error instanceof Error ? error.message : String(error);
-          if (/Unique constraint|P2002/i.test(message)) {
+          if (isUniqueConstraintError(error)) {
             return {
               ok: false,
               reason: 'already_active',

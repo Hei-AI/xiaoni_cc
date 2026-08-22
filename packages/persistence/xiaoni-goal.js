@@ -284,6 +284,26 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     }));
   }
 
+  // 她 get_goal 时该看到的那一件。
+  //
+  // **不是** getActiveXiaoniGoal —— 那个只认 active。只认 active 的话,paused / blocked 的
+  // 目标她**永远拿不到 goal_id 和 revision**,而 update_goal 必须带这两个;
+  // 于是 resume 结构性不可达、pause 等于永久放弃、blocked 之后她也再看不到自己写的
+  // blocked_reason。spec 的 action 集合里有 resume,就必须能读到 paused 的那件。
+  //
+  // 顺序:先 active(同一时刻至多一件,存储层的部分唯一索引保证),没有再取最近动过的
+  // 未完成那件。completed 不回 —— 收掉了就是收掉了,不该再摆到她眼前。
+  async function getCurrentXiaoniGoal(input = {}, config = {}) {
+    const active = await getActiveXiaoniGoal(input, config);
+    if (active) return active;
+    const prisma = getClient(config);
+    const row = await prisma.xiaoniGoal.findFirst({
+      where: { identity_key: resolveIdentityKey(input), phase: { not: 'completed' } },
+      orderBy: [{ updated_at: 'desc' }, { id: 'desc' }]
+    });
+    return normalizeGoal(row);
+  }
+
   async function listXiaoniGoals(input = {}, config = {}) {
     const prisma = getClient(config);
     const limit = normalizePositiveInt(input.limit, 20);
@@ -299,6 +319,7 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     ensureXiaoniGoalSchema,
     listFailureReviewForkSlices,
     getActiveXiaoniGoal,
+    getCurrentXiaoniGoal,
     getXiaoniGoalById,
     createXiaoniGoal,
     updateXiaoniGoal,

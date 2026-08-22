@@ -24,7 +24,8 @@ const {
   getXiaoniGoalById,
   updateXiaoniGoal,
   incrementXiaoniGoalRound,
-  listXiaoniGoals
+  listXiaoniGoals,
+  getCurrentXiaoniGoal
 } = require('../index');
 
 const PG_HOST = process.env.DB_HOST || 'localhost';
@@ -264,4 +265,60 @@ dbTest('复核输出按时间倒序可读,原文一个字不改', async () => {
   assert.equal(rows[0].metadata.goal_id, 'goal_b', '按时间倒序:最新的在前');
   assert.equal(rows[0].metadata.findings_text, findings, '证据原文逐字节保留,不许被摘要');
   assert.equal(rows[0].metadata.delivered, true);
+});
+
+// ── get_goal 读到的是哪一件(Spec 轴第八轮 (c)-5)────────────────────────────────
+// 事故:get_goal 只查 active,于是 paused / blocked 的目标**永远拿不到 goal_id 和
+// revision** —— 而 update_goal 必须带这两个。结果 resume 结构性不可达、
+// pause 等于永久放弃、blocked 之后她也再看不到自己写的 blocked_reason。
+// spec §1 的 action 集合里有 resume,这条就必须成立。
+
+dbTest('pause 之后仍读得到那件事,resume 走得通(不是永久放弃)', async () => {
+  const goal = await createXiaoniGoal({ objective: '读完 Howard 前六章' }, CFG);
+  const paused = await updateXiaoniGoal({ goalId: goal.id, revision: goal.revision, phase: 'paused' }, CFG);
+  assert.equal(paused.ok, true);
+
+  // 只认 active 的旧实现在这里拿到 null → 她再也够不着这件事
+  const current = await getCurrentXiaoniGoal({}, CFG);
+  assert.ok(current, 'paused 的目标必须仍然读得到');
+  assert.equal(current.id, goal.id);
+  assert.equal(current.phase, 'paused');
+
+  // 拿得到 id+revision,resume 才走得通
+  const resumed = await updateXiaoniGoal(
+    { goalId: current.id, revision: current.revision, phase: 'active' },
+    CFG
+  );
+  assert.equal(resumed.ok, true);
+  assert.equal(resumed.goal.phase, 'active');
+});
+
+dbTest('blocked 之后仍读得到,blocked_reason 还在', async () => {
+  const goal = await createXiaoniGoal({ objective: '找到那个长期没音讯的人' }, CFG);
+  await updateXiaoniGoal(
+    { goalId: goal.id, revision: goal.revision, phase: 'blocked', blockedReason: 'grep 了十一次,全是噪音' },
+    CFG
+  );
+  const current = await getCurrentXiaoniGoal({}, CFG);
+  assert.equal(current.phase, 'blocked');
+  assert.match(current.blockedReason, /十一次/);
+});
+
+dbTest('completed 的不再摆到她眼前', async () => {
+  const goal = await createXiaoniGoal({ objective: '收掉的那件' }, CFG);
+  await updateXiaoniGoal({ goalId: goal.id, revision: goal.revision, phase: 'completed' }, CFG);
+  assert.equal(await getCurrentXiaoniGoal({}, CFG), null);
+});
+
+dbTest('有 active 时优先给 active,不给更晚动过的 paused', async () => {
+  const first = await createXiaoniGoal({ objective: '先立的,后来停了' }, CFG);
+  await updateXiaoniGoal({ goalId: first.id, revision: first.revision, phase: 'paused' }, CFG);
+  const second = await createXiaoniGoal({ objective: '现在在做的' }, CFG);
+  // 再动一次 paused 那件,让它的 updated_at 更晚
+  const reread = await getXiaoniGoalById({ goalId: first.id }, CFG);
+  await updateXiaoniGoal({ goalId: first.id, revision: reread.revision, phase: 'paused', objective: '先立的,后来停了(改了下)' }, CFG);
+
+  const current = await getCurrentXiaoniGoal({}, CFG);
+  assert.equal(current.id, second.id, 'active 优先于「最近动过」');
+  assert.equal(current.phase, 'active');
 });

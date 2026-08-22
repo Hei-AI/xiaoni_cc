@@ -9,7 +9,8 @@ import {
   renderFailureReviewReminder,
   buildFailureReviewForkRequest,
   shouldDeliverReviewFindings,
-  isFailureReviewPayload
+  isFailureReviewPayload,
+  isNewBlockedEpisode
 } from '../services/agent-loop-service';
 
 // update_goal 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
@@ -211,4 +212,40 @@ test('复核 notify 可识别:空转账本据此对它隐形', () => {
   for (const reason of ['goal_round', 'subconscious_agent', 'clock_ping']) {
     assert.equal(isFailureReviewPayload({ systemReminder: { reason }, rawPayload: { reason } } as any), false);
   }
+});
+
+// ── blocked 是「相变」才触发复核(Spec 轴第八轮 (c)-4)──────────────────────────
+// 事故:去重键曾是 `${goalId}:${revision}`,而 revision 每次 mutation 都 +1 ——
+// 不 resume 连着报两次 blocked 就是两把不同的键,复核跑两遍。而那个集合还在内存里,
+// 重启即失效。spec §1 要的是「同一次卡住只复核一次,resume 之后再卡住才有第二次」,
+// 那本来就是一次**相变**,按相变判天然满足且不依赖任何进程内状态。
+
+test('blocked→blocked 不是新的一次卡住;resume→blocked 才是', () => {
+  // **用生产代码里那一个判据**,不在用例里重写一遍 —— 重写的话生产端改回按 revision
+  // 去重,这条用例照样绿(第二轮就栽在这种同义反复上)。
+  const entered = isNewBlockedEpisode;
+
+  assert.equal(entered('blocked', 'active'), true, '从 active 卡住 = 一次新的卡住');
+  assert.equal(entered('blocked', 'blocked'), false, '已经卡住了再报一次,不是新的一次');
+  assert.equal(entered('blocked', 'paused'), true, '从 paused 卡住 = 一次新的卡住');
+  assert.equal(entered('blocked', null), true);
+  // resume 之后再 blocked → 那时 current.phase 已经是 active,又成立
+  assert.equal(entered('complete', 'active'), false);
+  assert.equal(entered('pause', 'active'), false);
+});
+
+// ── goal 轮次与空转失效是两个量,不合并(D4)──────────────────────────────────
+// 事故:空转账本只豁免了 clock_ping 与 failure_review,goal_round run 照常记账 ——
+// goal 期间的零工具 run 把空转计数累高,goal 一结束,第一条 plan 就带着虚高的轮数
+// 进升级腿,升级凭据来自一段根本没跑 plan 的时间。
+
+test('goal_round 对空转账本隐形,和报时/复核同一条待遇', () => {
+  const goalRound = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round', goal_id: 'g1' } } as any;
+  assert.equal(isGoalRoundPayload(goalRound), true);
+  // 隐形的判据:整个 run 都由 goal_round 驱动。夹带了真实外部消息就照常记账,
+  // 否则一条 goal-round 就能把真空转洗白(与报时同一条理由)。
+  const claimed = [goalRound, goalRound];
+  assert.equal(claimed.every(isGoalRoundPayload), true);
+  const mixed = [goalRound, { systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' } } as any];
+  assert.equal(mixed.every(isGoalRoundPayload), false, '夹带外部消息的折叠 run 必须照常记账');
 });

@@ -1811,6 +1811,11 @@ export function listFailureReviewForkSlices(
   metadata: unknown;
   createdAt: string;
 }>>;
+/** 她 get_goal 时该看到的那一件:先 active,没有则取最近动过的未完成那件(paused/blocked)。 */
+export function getCurrentXiaoniGoal(
+  input?: { identityKey?: string; identity_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
 export function getActiveXiaoniGoal(
   input?: { identityKey?: string; identity_key?: string },
   config?: DatabaseUrlConfig
