@@ -890,6 +890,24 @@ function buildPsychAssessmentForkTraceTarget(row, {
   });
 }
 
+function buildFailureReviewForkTraceTarget(row, {
+  forkRunId,
+  spanId,
+  llmRequestSliceId,
+  toolCallId
+} = {}) {
+  return normalizeTraceTarget({
+    sourceKind: 'failure_review_fork',
+    forkRunId: firstString(forkRunId, row?.forkRunId, row?.fork_run_id),
+    conversationId: row?.conversationId || row?.conversation_id || null,
+    traceId: row?.traceId || row?.trace_id || null,
+    runId: row?.runId || row?.run_id || null,
+    spanId,
+    llmRequestSliceId,
+    toolCallId
+  });
+}
+
 function buildImageVisionForkTraceTarget(row, {
   forkRunId,
   spanId,
@@ -1453,6 +1471,84 @@ function summarizeSubconsciousForkRun(row, events) {
   };
 }
 
+function summarizeFailureReviewForkSlice(row) {
+  const base = summarizeCompressionForkSlice(row);
+  const sliceId = firstString(row.sliceId, row.slice_id, row.llmCallId, row.llm_call_id, row.id);
+  const llmCallId = firstString(row.llmCallId, row.llm_call_id);
+  const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+  const spanId = sliceId ? `failure-review-fork-slice:${sliceId}` : `failure-review-fork-slice-row:${row.id}`;
+  return {
+    ...base,
+    id: `failure-review-fork-slice:${sliceId || row.id}`,
+    source: 'failure_review_fork_llm_request',
+    kind: 'fork_llm_request_slice',
+    title: '失败复核 Fork LLM 请求',
+    actorName: '复核分身',
+    traceTarget: buildFailureReviewForkTraceTarget(row, { forkRunId, spanId, llmRequestSliceId: sliceId }),
+    metadata: {
+      ...base.metadata,
+      forkRunId,
+      spanId,
+      parentSpanId: forkRunId ? `failure-review-fork:${forkRunId}` : null,
+      sourceKind: 'failure_review_fork',
+      providerRequestSpanId: providerRequestSpanIdForSlice(sliceId, llmCallId),
+      wirePayloadSource: 'failure_review_fork_slices'
+    }
+  };
+}
+
+// 一次复核 = 一个 fork_run_id = 多条 slice(每轮一条)。与 psych 的「一次派发一条 slice」
+// 不同,这里按 fork_run_id 收拢,body 给她当时想做成的那件事。
+function summarizeFailureReviewForkRun(forkRunId, rows, events) {
+  const first = rows[0] || {};
+  const metadata = normalizeJsonObject(first.metadata, {});
+  const objective = firstString(metadata.objective);
+  const startedAt = eventTimestamp(
+    rows.reduce((min, row) => {
+      const at = row.createdAt || row.created_at;
+      return !min || new Date(at).getTime() < new Date(min).getTime() ? at : min;
+    }, null)
+  );
+  const completedAt = normalizeDate(
+    rows.reduce((max, row) => {
+      const at = row.completedAt || row.completed_at || row.createdAt || row.created_at;
+      return !max || new Date(at).getTime() > new Date(max).getTime() ? at : max;
+    }, null)
+  );
+  const startedMs = new Date(startedAt).getTime();
+  const completedMs = completedAt ? new Date(completedAt).getTime() : NaN;
+  const durationMs = Number.isFinite(startedMs) && Number.isFinite(completedMs)
+    ? Math.max(0, completedMs - startedMs)
+    : null;
+  const eventList = [...events].sort(compareTimelineEvents);
+  return {
+    id: `failure-review-fork:${forkRunId}`,
+    forkRunId,
+    source: 'failure_review_fork',
+    kind: 'failure_review_fork',
+    title: '失败复核 Agent',
+    body: truncateText(objective, 520),
+    status: firstString(first.status) || null,
+    startedAt,
+    completedAt,
+    durationMs,
+    traceId: first.traceId || first.trace_id || null,
+    runId: first.runId || first.run_id || null,
+    conversationId: null,
+    readCutoffAfterStackIndex: null,
+    previousReadCutoffAfterStackIndex: null,
+    eventCount: eventList.length,
+    events: normalizeValue(eventList),
+    metadata: normalizeValue({
+      forkRunId,
+      forkKind: 'failure_review',
+      goalId: firstString(first.goalId, first.goal_id),
+      objective,
+      turns: rows.length
+    })
+  };
+}
+
 function summarizePsychAssessmentForkRun(row, events) {
   const forkRunId = firstString(row.forkRunId, row.fork_run_id, row.id === null || typeof row.id === 'undefined' ? null : String(row.id));
   const metadata = normalizeJsonObject(row.metadata, {});
@@ -1994,6 +2090,59 @@ async function loadPsychAssessmentAnchorSeqMap(sql, rows) {
     return new Map();
   }
   return map;
+}
+
+async function loadFailureReviewForkTimeline(sql, {
+  identityKey,
+  timeWindow,
+  limit
+} = {}) {
+  const forkLimit = Math.max(1, Math.min(Number(limit) || 40, 200));
+  const clauses = [];
+  const params = [];
+  if (hasTimeWindow(timeWindow)) {
+    if (timeWindow.startTime) {
+      clauses.push('COALESCE(completed_at, created_at) >= ?');
+      params.push(timeWindow.startTime);
+    }
+    if (timeWindow.endTime) {
+      clauses.push('created_at <= ?');
+      params.push(timeWindow.endTime);
+    }
+  }
+  const overlapClause = clauses.join(' AND ');
+  try {
+    const sliceRows = await sql.query(`
+      SELECT ${FORK_SLICE_ACTION_STREAM_SELECT}
+      FROM failure_review_fork_slices
+      WHERE identity_key = ?
+      ${overlapClause ? `AND ${overlapClause}` : ''}
+      ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
+      LIMIT ?
+    `, [identityKey, ...params, forkLimit]);
+    // 按 fork_run_id 收拢:一次复核多轮,每轮一条 slice。
+    const byFork = new Map();
+    for (const row of sliceRows) {
+      const forkRunId = firstString(row.forkRunId, row.fork_run_id);
+      if (!forkRunId) continue;
+      if (!byFork.has(forkRunId)) byFork.set(forkRunId, []);
+      byFork.get(forkRunId).push(row);
+    }
+    return {
+      runs: [...byFork.entries()].map(([forkRunId, rows]) => summarizeFailureReviewForkRun(
+        forkRunId,
+        rows,
+        rows.map(summarizeFailureReviewForkSlice)
+      ))
+    };
+  } catch (error) {
+    // 表还没建出来时不该把整个行动流拖挂 —— 但**不许静默**。
+    // 这个 catch 曾经吞掉了一次真实故障:表少了共享 SELECT 需要的几列,查询直接抛,
+    // 页面上表现为「这段时间没有复核」,与真的没跑过一模一样。查了一轮才发现。
+    // eslint-disable-next-line no-console
+    console.warn('[xiaoni-activity] 复核 fork 时间线读取失败,本次按空处理:', error?.message || error);
+    return { runs: [] };
+  }
 }
 
 async function loadPsychAssessmentForkTimeline(sql, {
@@ -4450,6 +4599,7 @@ function createXiaoniActivityPersistence({
         compressionForkTimeline,
         subconsciousForkTimeline,
         psychAssessmentForkTimeline,
+        failureReviewForkTimeline,
         cacheHeartbeatTimeline
       ] = await Promise.all([
         prisma.agentSessionLifeState.findUnique({
@@ -4585,6 +4735,11 @@ function createXiaoniActivityPersistence({
           limit: perSourceLimit
         }),
         loadPsychAssessmentForkTimeline(sql, {
+          identityKey,
+          timeWindow,
+          limit: perSourceLimit
+        }),
+        loadFailureReviewForkTimeline(sql, {
           identityKey,
           timeWindow,
           limit: perSourceLimit
@@ -4740,6 +4895,7 @@ function createXiaoniActivityPersistence({
         compressionForkTimeline: normalizeValue(compressionForkTimeline),
         subconsciousForkTimeline: normalizeValue(subconsciousForkTimeline),
         psychAssessmentForkTimeline: normalizeValue(psychAssessmentForkTimeline || { runs: [] }),
+        failureReviewForkTimeline: normalizeValue(failureReviewForkTimeline || { runs: [] }),
         cacheHeartbeatTimeline: normalizeValue(cacheHeartbeatTimeline),
         imageVisionForkTimeline: normalizeValue(imageVisionForkTimelineWithOrder)
       };
@@ -4774,6 +4930,8 @@ function createXiaoniActivityPersistence({
       .map(decorateActionStreamForkRun);
     const psychAssessmentForkRuns = (feed.psychAssessmentForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
+    const failureReviewForkRuns = (feed.failureReviewForkTimeline?.runs || [])
+      .map(decorateActionStreamForkRun);
     const imageVisionForkRuns = (feed.imageVisionForkTimeline?.runs || [])
       .map(decorateActionStreamForkRun);
     const cacheHeartbeatRuns = (feed.cacheHeartbeatTimeline?.runs || [])
@@ -4785,6 +4943,7 @@ function createXiaoniActivityPersistence({
       ...compressionForkRuns,
       ...subconsciousForkRuns,
       ...psychAssessmentForkRuns,
+      ...failureReviewForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns
     ]);
@@ -4792,6 +4951,7 @@ function createXiaoniActivityPersistence({
       ...compressionForkRuns,
       ...subconsciousForkRuns,
       ...psychAssessmentForkRuns,
+      ...failureReviewForkRuns,
       ...imageVisionForkRuns,
       ...cacheHeartbeatRuns
     ]);
@@ -4801,6 +4961,7 @@ function createXiaoniActivityPersistence({
     const filteredCompressionForkRuns = filterActionStreamForkRunsByTags(compressionForkRuns, selectedTags);
     const filteredSubconsciousForkRuns = filterActionStreamForkRunsByTags(subconsciousForkRuns, selectedTags);
     const filteredPsychAssessmentForkRuns = filterActionStreamForkRunsByTags(psychAssessmentForkRuns, selectedTags);
+    const filteredFailureReviewForkRuns = filterActionStreamForkRunsByTags(failureReviewForkRuns, selectedTags);
     const filteredImageVisionForkRuns = filterActionStreamForkRunsByTags(imageVisionForkRuns, selectedTags);
     const filteredCacheHeartbeatRuns = filterActionStreamForkRunsByTags(cacheHeartbeatRuns, selectedTags);
     let focusedItem = null;
@@ -4869,6 +5030,7 @@ function createXiaoniActivityPersistence({
     const visibleCompressionForkRuns = filteredCompressionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleSubconsciousForkRuns = filteredSubconsciousForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visiblePsychAssessmentForkRuns = filteredPsychAssessmentForkRuns.filter((run) => visibleForkRunIds.has(run.id));
+    const visibleFailureReviewForkRuns = filteredFailureReviewForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleImageVisionForkRuns = filteredImageVisionForkRuns.filter((run) => visibleForkRunIds.has(run.id));
     const visibleCacheHeartbeatRuns = filteredCacheHeartbeatRuns.filter((run) => visibleForkRunIds.has(run.id));
     const normalizedItems = dedupeFeedItems(visibleMainItems)
@@ -4906,6 +5068,10 @@ function createXiaoniActivityPersistence({
       psychAssessmentForkTimeline: {
         ...(feed.psychAssessmentForkTimeline || {}),
         runs: visiblePsychAssessmentForkRuns
+      },
+      failureReviewForkTimeline: {
+        ...(feed.failureReviewForkTimeline || {}),
+        runs: visibleFailureReviewForkRuns
       },
       cacheHeartbeatTimeline: {
         ...(feed.cacheHeartbeatTimeline || {}),

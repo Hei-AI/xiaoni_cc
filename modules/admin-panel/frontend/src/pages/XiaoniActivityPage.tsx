@@ -287,6 +287,7 @@ interface XiaoniActivityFeed {
   compressionForkTimeline?: CompressionForkTimeline;
   subconsciousForkTimeline?: CompressionForkTimeline;
   psychAssessmentForkTimeline?: CompressionForkTimeline;
+  failureReviewForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
@@ -816,6 +817,14 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
+  const failureReviewRuns = (feed?.failureReviewForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
   const imageVisionRuns = (feed?.imageVisionForkTimeline?.runs || []).map((run) => {
     const forkKind = forkKindForRun(run);
     return {
@@ -832,7 +841,7 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -1086,6 +1095,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const compressionRunsById = new Map<string, CompressionForkRun>();
   const subconsciousRunsById = new Map<string, CompressionForkRun>();
   const psychAssessmentRunsById = new Map<string, CompressionForkRun>();
+  const failureReviewRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
 
@@ -1108,6 +1118,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     (page.psychAssessmentForkTimeline?.runs || []).forEach((run) => {
       if (!psychAssessmentRunsById.has(run.id)) {
         psychAssessmentRunsById.set(run.id, run);
+      }
+    });
+    (page.failureReviewForkTimeline?.runs || []).forEach((run) => {
+      if (!failureReviewRunsById.has(run.id)) {
+        failureReviewRunsById.set(run.id, run);
       }
     });
     (page.imageVisionForkTimeline?.runs || []).forEach((run) => {
@@ -1139,6 +1154,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     psychAssessmentForkTimeline: {
       ...(firstPage.psychAssessmentForkTimeline || {}),
       runs: Array.from(psychAssessmentRunsById.values()),
+    },
+    failureReviewForkTimeline: {
+      ...(firstPage.failureReviewForkTimeline || {}),
+      runs: Array.from(failureReviewRunsById.values()),
     },
     cacheHeartbeatTimeline: {
       ...(firstPage.cacheHeartbeatTimeline || {}),

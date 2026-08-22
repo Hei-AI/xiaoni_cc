@@ -2350,6 +2350,11 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             llm_call_id VARCHAR(128),
             identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
             goal_id VARCHAR(64),
+            input_start_index BIGINT,
+            input_end_index BIGINT,
+            input_stack_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+            output_start_index BIGINT,
+            output_end_index BIGINT,
             canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
             wire_request JSONB,
             canonical_response JSONB,
@@ -2363,10 +2368,30 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             agent_turn INTEGER,
             model_name VARCHAR(191),
             model_provider VARCHAR(64),
+            request_format_version VARCHAR(64),
+            wire_provider_format VARCHAR(128),
             processing_time_ms INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TIMESTAMPTZ(3),
+            updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
+        `,
+        // 已经用少列版本建过表的库就地补齐(CREATE TABLE IF NOT EXISTS 不改已存在的表)。
+        // 少这几列的后果不是报错,是**静默看不见**:行动流用的是共享的
+        // FORK_SLICE_ACTION_STREAM_SELECT,按 psych 那个形状取列,少一列整条查询就抛,
+        // 而 loader 的 catch 会把它变成「这段时间没有复核」。
+        `
+          ALTER TABLE failure_review_fork_slices
+            ADD COLUMN IF NOT EXISTS input_start_index BIGINT,
+            ADD COLUMN IF NOT EXISTS input_end_index BIGINT,
+            ADD COLUMN IF NOT EXISTS input_stack_item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS output_start_index BIGINT,
+            ADD COLUMN IF NOT EXISTS output_end_index BIGINT,
+            ADD COLUMN IF NOT EXISTS request_format_version VARCHAR(64),
+            ADD COLUMN IF NOT EXISTS wire_provider_format VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ(3),
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
         `,
         // Cache heartbeat fork ledger. The heartbeat is a fork agent that triggers a
         // model request (keeps the warm prompt cache alive) but runs store=false and

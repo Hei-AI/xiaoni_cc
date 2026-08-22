@@ -256,3 +256,30 @@ dbTest('slice 落库时增量进 usage rollup(不进就是这一路用量彻底�
   assert.equal(rows.length, 1, 'slice 必须增量进 rollup');
   assert.equal(Number(rows[0].input_tokens), 4242);
 });
+
+// ── 与同形兄弟逐列对齐(第八轮实测发现)────────────────────────────────────────
+// 事故:这张表**看着**是 psych_assessment_fork_slices 的同形兄弟,其实少了 9 列。
+// 后果不是报错 —— 行动流用的是共享的 FORK_SLICE_ACTION_STREAM_SELECT,按 psych 那个
+// 形状取列,少一列整条查询就抛,而 loader 的 catch 把它变成「这段时间没有复核」,
+// **与真的没跑过一模一样**。端到端跑了才发现,读代码看不出来。
+
+dbTest('表结构与 psych_assessment_fork_slices 逐列对齐(goal_id 是本表独有)', async () => {
+  const columnsOf = async (table) => {
+    const rows = await sql.query(
+      'SELECT column_name FROM information_schema.columns WHERE table_name = ?',
+      [table]
+    );
+    return new Set(rows.map((r) => r.column_name));
+  };
+  await ensureXiaoniAgentStackSchema({}, CFG);
+  const mine = await columnsOf('failure_review_fork_slices');
+  const sibling = await columnsOf('psych_assessment_fork_slices');
+  assert.ok(sibling.size > 0, 'psych 表必须存在,否则这条断言没有意义');
+
+  const missing = [...sibling].filter((c) => !mine.has(c));
+  assert.deepEqual(missing, [], `少了兄弟有的列,共享 SELECT 会整条抛:${missing.join(', ')}`);
+
+  // 本表独有的只该是 goal_id —— 多出别的列说明形状又漂了
+  const extra = [...mine].filter((c) => !sibling.has(c));
+  assert.deepEqual(extra, ['goal_id'], `本表只该多一个 goal_id,实际多:${extra.join(', ')}`);
+});
