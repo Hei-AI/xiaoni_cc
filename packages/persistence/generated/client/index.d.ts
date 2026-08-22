@@ -378,6 +378,16 @@ export type XiaoniRecallCue = $Result.DefaultSelection<Prisma.$XiaoniRecallCuePa
  * 
  */
 export type XiaoniRecallShadowLog = $Result.DefaultSelection<Prisma.$XiaoniRecallShadowLogPayload>
+/**
+ * Model XiaoniGoal
+ * 
+ */
+export type XiaoniGoal = $Result.DefaultSelection<Prisma.$XiaoniGoalPayload>
+/**
+ * Model FailureReviewForkSlice
+ * 
+ */
+export type FailureReviewForkSlice = $Result.DefaultSelection<Prisma.$FailureReviewForkSlicePayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -1226,6 +1236,26 @@ export class PrismaClient<
     * ```
     */
   get xiaoniRecallShadowLog(): Prisma.XiaoniRecallShadowLogDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.xiaoniGoal`: Exposes CRUD operations for the **XiaoniGoal** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more XiaoniGoals
+    * const xiaoniGoals = await prisma.xiaoniGoal.findMany()
+    * ```
+    */
+  get xiaoniGoal(): Prisma.XiaoniGoalDelegate<ExtArgs, ClientOptions>;
+
+  /**
+   * `prisma.failureReviewForkSlice`: Exposes CRUD operations for the **FailureReviewForkSlice** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more FailureReviewForkSlices
+    * const failureReviewForkSlices = await prisma.failureReviewForkSlice.findMany()
+    * ```
+    */
+  get failureReviewForkSlice(): Prisma.FailureReviewForkSliceDelegate<ExtArgs, ClientOptions>;
 }
 
 export namespace Prisma {
@@ -1739,7 +1769,9 @@ export namespace Prisma {
     TopicReviewEvent: 'TopicReviewEvent',
     GoldenChatCase: 'GoldenChatCase',
     XiaoniRecallCue: 'XiaoniRecallCue',
-    XiaoniRecallShadowLog: 'XiaoniRecallShadowLog'
+    XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
+    XiaoniGoal: 'XiaoniGoal',
+    FailureReviewForkSlice: 'FailureReviewForkSlice'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -1758,7 +1790,7 @@ export namespace Prisma {
       omit: GlobalOmitOptions
     }
     meta: {
-      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "codexProviderUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog"
+      modelProps: "agentQueueMessage" | "agentQqAttentionLease" | "agentQqAttentionReminder" | "agentRuntimeControl" | "agentRecoverySession" | "agentSessionLifeState" | "agentSessionGroupState" | "agentSharePoolItem" | "agentShareItemUsage" | "agentPresenceStateSidecar" | "agentDigitalAction" | "agentLifeEvent" | "agentStackItem" | "llmRequestSlice" | "codexProviderUsageEvent" | "llmUsageRollupSource" | "llmUsageRollup" | "llmUsageRollupState" | "toolExecution" | "coreMemoryCompressionForkRun" | "coreMemoryCompressionForkItem" | "coreMemoryCompressionForkSlice" | "coreMemoryCompressionForkToolExecution" | "subconsciousAgentForkRun" | "subconsciousAgentForkItem" | "cacheHeartbeatForkItem" | "subconsciousAgentForkSlice" | "psychAssessmentForkSlice" | "subconsciousAgentForkToolExecution" | "stackCompaction" | "groupChatSetting" | "agentQqGroupNotificationAggregation" | "agentQqUsageSurfaceState" | "privateChatSetting" | "agentInboundMessage" | "agentOutboundMessage" | "agentInboundThreadState" | "httpTrafficLog" | "trafficReplayHistory" | "imageLabRun" | "imageLabArtifact" | "agentMediaAsset" | "agentMediaObservation" | "agentTask" | "agentTaskArtifact" | "abTurnSnapshot" | "abArmRun" | "abMemoryStreamItem" | "abEvalResult" | "relationshipLedgerEvent" | "selfEvolutionJob" | "selfEvolutionState" | "agentFeedbackEpisode" | "agentFeedbackReflection" | "agentFeedbackLearningState" | "agentMemoryObservation" | "agentMemoryAssertion" | "agentMemoryReflection" | "xiaoniIdentityRoot" | "identityLineageEvent" | "identityChangeCandidate" | "identityEvidenceRef" | "acceptedIdentityFact" | "runtimeIdentityActivationTrace" | "chatSpaceTopic" | "topicProjectionJob" | "topicProjectionVersion" | "topicVersionRelationship" | "topicVersionEvidence" | "topicReviewEvent" | "goldenChatCase" | "xiaoniRecallCue" | "xiaoniRecallShadowLog" | "xiaoniGoal" | "failureReviewForkSlice"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -7164,6 +7196,154 @@ export namespace Prisma {
           }
         }
       }
+      XiaoniGoal: {
+        payload: Prisma.$XiaoniGoalPayload<ExtArgs>
+        fields: Prisma.XiaoniGoalFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.XiaoniGoalFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.XiaoniGoalFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          findFirst: {
+            args: Prisma.XiaoniGoalFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.XiaoniGoalFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          findMany: {
+            args: Prisma.XiaoniGoalFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+          }
+          create: {
+            args: Prisma.XiaoniGoalCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          createMany: {
+            args: Prisma.XiaoniGoalCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.XiaoniGoalCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+          }
+          delete: {
+            args: Prisma.XiaoniGoalDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          update: {
+            args: Prisma.XiaoniGoalUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          deleteMany: {
+            args: Prisma.XiaoniGoalDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.XiaoniGoalUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.XiaoniGoalUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>[]
+          }
+          upsert: {
+            args: Prisma.XiaoniGoalUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$XiaoniGoalPayload>
+          }
+          aggregate: {
+            args: Prisma.XiaoniGoalAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateXiaoniGoal>
+          }
+          groupBy: {
+            args: Prisma.XiaoniGoalGroupByArgs<ExtArgs>
+            result: $Utils.Optional<XiaoniGoalGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.XiaoniGoalCountArgs<ExtArgs>
+            result: $Utils.Optional<XiaoniGoalCountAggregateOutputType> | number
+          }
+        }
+      }
+      FailureReviewForkSlice: {
+        payload: Prisma.$FailureReviewForkSlicePayload<ExtArgs>
+        fields: Prisma.FailureReviewForkSliceFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.FailureReviewForkSliceFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.FailureReviewForkSliceFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          findFirst: {
+            args: Prisma.FailureReviewForkSliceFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.FailureReviewForkSliceFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          findMany: {
+            args: Prisma.FailureReviewForkSliceFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>[]
+          }
+          create: {
+            args: Prisma.FailureReviewForkSliceCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          createMany: {
+            args: Prisma.FailureReviewForkSliceCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.FailureReviewForkSliceCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>[]
+          }
+          delete: {
+            args: Prisma.FailureReviewForkSliceDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          update: {
+            args: Prisma.FailureReviewForkSliceUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          deleteMany: {
+            args: Prisma.FailureReviewForkSliceDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.FailureReviewForkSliceUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateManyAndReturn: {
+            args: Prisma.FailureReviewForkSliceUpdateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>[]
+          }
+          upsert: {
+            args: Prisma.FailureReviewForkSliceUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$FailureReviewForkSlicePayload>
+          }
+          aggregate: {
+            args: Prisma.FailureReviewForkSliceAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateFailureReviewForkSlice>
+          }
+          groupBy: {
+            args: Prisma.FailureReviewForkSliceGroupByArgs<ExtArgs>
+            result: $Utils.Optional<FailureReviewForkSliceGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.FailureReviewForkSliceCountArgs<ExtArgs>
+            result: $Utils.Optional<FailureReviewForkSliceCountAggregateOutputType> | number
+          }
+        }
+      }
     }
   } & {
     other: {
@@ -7333,6 +7513,8 @@ export namespace Prisma {
     goldenChatCase?: GoldenChatCaseOmit
     xiaoniRecallCue?: XiaoniRecallCueOmit
     xiaoniRecallShadowLog?: XiaoniRecallShadowLogOmit
+    xiaoniGoal?: XiaoniGoalOmit
+    failureReviewForkSlice?: FailureReviewForkSliceOmit
   }
 
   /* Types for Logging */
@@ -95748,6 +95930,2463 @@ export namespace Prisma {
 
 
   /**
+   * Model XiaoniGoal
+   */
+
+  export type AggregateXiaoniGoal = {
+    _count: XiaoniGoalCountAggregateOutputType | null
+    _avg: XiaoniGoalAvgAggregateOutputType | null
+    _sum: XiaoniGoalSumAggregateOutputType | null
+    _min: XiaoniGoalMinAggregateOutputType | null
+    _max: XiaoniGoalMaxAggregateOutputType | null
+  }
+
+  export type XiaoniGoalAvgAggregateOutputType = {
+    revision: number | null
+    rounds_started: number | null
+    max_goal_rounds: number | null
+  }
+
+  export type XiaoniGoalSumAggregateOutputType = {
+    revision: number | null
+    rounds_started: number | null
+    max_goal_rounds: number | null
+  }
+
+  export type XiaoniGoalMinAggregateOutputType = {
+    id: string | null
+    identity_key: string | null
+    revision: number | null
+    objective: string | null
+    phase: string | null
+    rounds_started: number | null
+    max_goal_rounds: number | null
+    blocked_reason: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type XiaoniGoalMaxAggregateOutputType = {
+    id: string | null
+    identity_key: string | null
+    revision: number | null
+    objective: string | null
+    phase: string | null
+    rounds_started: number | null
+    max_goal_rounds: number | null
+    blocked_reason: string | null
+    created_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type XiaoniGoalCountAggregateOutputType = {
+    id: number
+    identity_key: number
+    revision: number
+    objective: number
+    phase: number
+    rounds_started: number
+    max_goal_rounds: number
+    blocked_reason: number
+    created_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type XiaoniGoalAvgAggregateInputType = {
+    revision?: true
+    rounds_started?: true
+    max_goal_rounds?: true
+  }
+
+  export type XiaoniGoalSumAggregateInputType = {
+    revision?: true
+    rounds_started?: true
+    max_goal_rounds?: true
+  }
+
+  export type XiaoniGoalMinAggregateInputType = {
+    id?: true
+    identity_key?: true
+    revision?: true
+    objective?: true
+    phase?: true
+    rounds_started?: true
+    max_goal_rounds?: true
+    blocked_reason?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type XiaoniGoalMaxAggregateInputType = {
+    id?: true
+    identity_key?: true
+    revision?: true
+    objective?: true
+    phase?: true
+    rounds_started?: true
+    max_goal_rounds?: true
+    blocked_reason?: true
+    created_at?: true
+    updated_at?: true
+  }
+
+  export type XiaoniGoalCountAggregateInputType = {
+    id?: true
+    identity_key?: true
+    revision?: true
+    objective?: true
+    phase?: true
+    rounds_started?: true
+    max_goal_rounds?: true
+    blocked_reason?: true
+    created_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type XiaoniGoalAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which XiaoniGoal to aggregate.
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of XiaoniGoals to fetch.
+     */
+    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: XiaoniGoalWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` XiaoniGoals from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` XiaoniGoals.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned XiaoniGoals
+    **/
+    _count?: true | XiaoniGoalCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: XiaoniGoalAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: XiaoniGoalSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: XiaoniGoalMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: XiaoniGoalMaxAggregateInputType
+  }
+
+  export type GetXiaoniGoalAggregateType<T extends XiaoniGoalAggregateArgs> = {
+        [P in keyof T & keyof AggregateXiaoniGoal]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateXiaoniGoal[P]>
+      : GetScalarType<T[P], AggregateXiaoniGoal[P]>
+  }
+
+
+
+
+  export type XiaoniGoalGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: XiaoniGoalWhereInput
+    orderBy?: XiaoniGoalOrderByWithAggregationInput | XiaoniGoalOrderByWithAggregationInput[]
+    by: XiaoniGoalScalarFieldEnum[] | XiaoniGoalScalarFieldEnum
+    having?: XiaoniGoalScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: XiaoniGoalCountAggregateInputType | true
+    _avg?: XiaoniGoalAvgAggregateInputType
+    _sum?: XiaoniGoalSumAggregateInputType
+    _min?: XiaoniGoalMinAggregateInputType
+    _max?: XiaoniGoalMaxAggregateInputType
+  }
+
+  export type XiaoniGoalGroupByOutputType = {
+    id: string
+    identity_key: string
+    revision: number
+    objective: string
+    phase: string
+    rounds_started: number
+    max_goal_rounds: number
+    blocked_reason: string | null
+    created_at: Date
+    updated_at: Date
+    _count: XiaoniGoalCountAggregateOutputType | null
+    _avg: XiaoniGoalAvgAggregateOutputType | null
+    _sum: XiaoniGoalSumAggregateOutputType | null
+    _min: XiaoniGoalMinAggregateOutputType | null
+    _max: XiaoniGoalMaxAggregateOutputType | null
+  }
+
+  type GetXiaoniGoalGroupByPayload<T extends XiaoniGoalGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<XiaoniGoalGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof XiaoniGoalGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], XiaoniGoalGroupByOutputType[P]>
+            : GetScalarType<T[P], XiaoniGoalGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type XiaoniGoalSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    revision?: boolean
+    objective?: boolean
+    phase?: boolean
+    rounds_started?: boolean
+    max_goal_rounds?: boolean
+    blocked_reason?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["xiaoniGoal"]>
+
+  export type XiaoniGoalSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    revision?: boolean
+    objective?: boolean
+    phase?: boolean
+    rounds_started?: boolean
+    max_goal_rounds?: boolean
+    blocked_reason?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["xiaoniGoal"]>
+
+  export type XiaoniGoalSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    identity_key?: boolean
+    revision?: boolean
+    objective?: boolean
+    phase?: boolean
+    rounds_started?: boolean
+    max_goal_rounds?: boolean
+    blocked_reason?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["xiaoniGoal"]>
+
+  export type XiaoniGoalSelectScalar = {
+    id?: boolean
+    identity_key?: boolean
+    revision?: boolean
+    objective?: boolean
+    phase?: boolean
+    rounds_started?: boolean
+    max_goal_rounds?: boolean
+    blocked_reason?: boolean
+    created_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type XiaoniGoalOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "revision" | "objective" | "phase" | "rounds_started" | "max_goal_rounds" | "blocked_reason" | "created_at" | "updated_at", ExtArgs["result"]["xiaoniGoal"]>
+
+  export type $XiaoniGoalPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "XiaoniGoal"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      identity_key: string
+      revision: number
+      objective: string
+      phase: string
+      rounds_started: number
+      max_goal_rounds: number
+      blocked_reason: string | null
+      created_at: Date
+      updated_at: Date
+    }, ExtArgs["result"]["xiaoniGoal"]>
+    composites: {}
+  }
+
+  type XiaoniGoalGetPayload<S extends boolean | null | undefined | XiaoniGoalDefaultArgs> = $Result.GetResult<Prisma.$XiaoniGoalPayload, S>
+
+  type XiaoniGoalCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<XiaoniGoalFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: XiaoniGoalCountAggregateInputType | true
+    }
+
+  export interface XiaoniGoalDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['XiaoniGoal'], meta: { name: 'XiaoniGoal' } }
+    /**
+     * Find zero or one XiaoniGoal that matches the filter.
+     * @param {XiaoniGoalFindUniqueArgs} args - Arguments to find a XiaoniGoal
+     * @example
+     * // Get one XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends XiaoniGoalFindUniqueArgs>(args: SelectSubset<T, XiaoniGoalFindUniqueArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one XiaoniGoal that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {XiaoniGoalFindUniqueOrThrowArgs} args - Arguments to find a XiaoniGoal
+     * @example
+     * // Get one XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends XiaoniGoalFindUniqueOrThrowArgs>(args: SelectSubset<T, XiaoniGoalFindUniqueOrThrowArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first XiaoniGoal that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalFindFirstArgs} args - Arguments to find a XiaoniGoal
+     * @example
+     * // Get one XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends XiaoniGoalFindFirstArgs>(args?: SelectSubset<T, XiaoniGoalFindFirstArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first XiaoniGoal that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalFindFirstOrThrowArgs} args - Arguments to find a XiaoniGoal
+     * @example
+     * // Get one XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends XiaoniGoalFindFirstOrThrowArgs>(args?: SelectSubset<T, XiaoniGoalFindFirstOrThrowArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more XiaoniGoals that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all XiaoniGoals
+     * const xiaoniGoals = await prisma.xiaoniGoal.findMany()
+     * 
+     * // Get first 10 XiaoniGoals
+     * const xiaoniGoals = await prisma.xiaoniGoal.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends XiaoniGoalFindManyArgs>(args?: SelectSubset<T, XiaoniGoalFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a XiaoniGoal.
+     * @param {XiaoniGoalCreateArgs} args - Arguments to create a XiaoniGoal.
+     * @example
+     * // Create one XiaoniGoal
+     * const XiaoniGoal = await prisma.xiaoniGoal.create({
+     *   data: {
+     *     // ... data to create a XiaoniGoal
+     *   }
+     * })
+     * 
+     */
+    create<T extends XiaoniGoalCreateArgs>(args: SelectSubset<T, XiaoniGoalCreateArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many XiaoniGoals.
+     * @param {XiaoniGoalCreateManyArgs} args - Arguments to create many XiaoniGoals.
+     * @example
+     * // Create many XiaoniGoals
+     * const xiaoniGoal = await prisma.xiaoniGoal.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends XiaoniGoalCreateManyArgs>(args?: SelectSubset<T, XiaoniGoalCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many XiaoniGoals and returns the data saved in the database.
+     * @param {XiaoniGoalCreateManyAndReturnArgs} args - Arguments to create many XiaoniGoals.
+     * @example
+     * // Create many XiaoniGoals
+     * const xiaoniGoal = await prisma.xiaoniGoal.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many XiaoniGoals and only return the `id`
+     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends XiaoniGoalCreateManyAndReturnArgs>(args?: SelectSubset<T, XiaoniGoalCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a XiaoniGoal.
+     * @param {XiaoniGoalDeleteArgs} args - Arguments to delete one XiaoniGoal.
+     * @example
+     * // Delete one XiaoniGoal
+     * const XiaoniGoal = await prisma.xiaoniGoal.delete({
+     *   where: {
+     *     // ... filter to delete one XiaoniGoal
+     *   }
+     * })
+     * 
+     */
+    delete<T extends XiaoniGoalDeleteArgs>(args: SelectSubset<T, XiaoniGoalDeleteArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one XiaoniGoal.
+     * @param {XiaoniGoalUpdateArgs} args - Arguments to update one XiaoniGoal.
+     * @example
+     * // Update one XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends XiaoniGoalUpdateArgs>(args: SelectSubset<T, XiaoniGoalUpdateArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more XiaoniGoals.
+     * @param {XiaoniGoalDeleteManyArgs} args - Arguments to filter XiaoniGoals to delete.
+     * @example
+     * // Delete a few XiaoniGoals
+     * const { count } = await prisma.xiaoniGoal.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends XiaoniGoalDeleteManyArgs>(args?: SelectSubset<T, XiaoniGoalDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more XiaoniGoals.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many XiaoniGoals
+     * const xiaoniGoal = await prisma.xiaoniGoal.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends XiaoniGoalUpdateManyArgs>(args: SelectSubset<T, XiaoniGoalUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more XiaoniGoals and returns the data updated in the database.
+     * @param {XiaoniGoalUpdateManyAndReturnArgs} args - Arguments to update many XiaoniGoals.
+     * @example
+     * // Update many XiaoniGoals
+     * const xiaoniGoal = await prisma.xiaoniGoal.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more XiaoniGoals and only return the `id`
+     * const xiaoniGoalWithIdOnly = await prisma.xiaoniGoal.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends XiaoniGoalUpdateManyAndReturnArgs>(args: SelectSubset<T, XiaoniGoalUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one XiaoniGoal.
+     * @param {XiaoniGoalUpsertArgs} args - Arguments to update or create a XiaoniGoal.
+     * @example
+     * // Update or create a XiaoniGoal
+     * const xiaoniGoal = await prisma.xiaoniGoal.upsert({
+     *   create: {
+     *     // ... data to create a XiaoniGoal
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the XiaoniGoal we want to update
+     *   }
+     * })
+     */
+    upsert<T extends XiaoniGoalUpsertArgs>(args: SelectSubset<T, XiaoniGoalUpsertArgs<ExtArgs>>): Prisma__XiaoniGoalClient<$Result.GetResult<Prisma.$XiaoniGoalPayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of XiaoniGoals.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalCountArgs} args - Arguments to filter XiaoniGoals to count.
+     * @example
+     * // Count the number of XiaoniGoals
+     * const count = await prisma.xiaoniGoal.count({
+     *   where: {
+     *     // ... the filter for the XiaoniGoals we want to count
+     *   }
+     * })
+    **/
+    count<T extends XiaoniGoalCountArgs>(
+      args?: Subset<T, XiaoniGoalCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], XiaoniGoalCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a XiaoniGoal.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends XiaoniGoalAggregateArgs>(args: Subset<T, XiaoniGoalAggregateArgs>): Prisma.PrismaPromise<GetXiaoniGoalAggregateType<T>>
+
+    /**
+     * Group by XiaoniGoal.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {XiaoniGoalGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends XiaoniGoalGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: XiaoniGoalGroupByArgs['orderBy'] }
+        : { orderBy?: XiaoniGoalGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, XiaoniGoalGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetXiaoniGoalGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the XiaoniGoal model
+   */
+  readonly fields: XiaoniGoalFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for XiaoniGoal.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__XiaoniGoalClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the XiaoniGoal model
+   */
+  interface XiaoniGoalFieldRefs {
+    readonly id: FieldRef<"XiaoniGoal", 'String'>
+    readonly identity_key: FieldRef<"XiaoniGoal", 'String'>
+    readonly revision: FieldRef<"XiaoniGoal", 'Int'>
+    readonly objective: FieldRef<"XiaoniGoal", 'String'>
+    readonly phase: FieldRef<"XiaoniGoal", 'String'>
+    readonly rounds_started: FieldRef<"XiaoniGoal", 'Int'>
+    readonly max_goal_rounds: FieldRef<"XiaoniGoal", 'Int'>
+    readonly blocked_reason: FieldRef<"XiaoniGoal", 'String'>
+    readonly created_at: FieldRef<"XiaoniGoal", 'DateTime'>
+    readonly updated_at: FieldRef<"XiaoniGoal", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * XiaoniGoal findUnique
+   */
+  export type XiaoniGoalFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter, which XiaoniGoal to fetch.
+     */
+    where: XiaoniGoalWhereUniqueInput
+  }
+
+  /**
+   * XiaoniGoal findUniqueOrThrow
+   */
+  export type XiaoniGoalFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter, which XiaoniGoal to fetch.
+     */
+    where: XiaoniGoalWhereUniqueInput
+  }
+
+  /**
+   * XiaoniGoal findFirst
+   */
+  export type XiaoniGoalFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter, which XiaoniGoal to fetch.
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of XiaoniGoals to fetch.
+     */
+    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for XiaoniGoals.
+     */
+    cursor?: XiaoniGoalWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` XiaoniGoals from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` XiaoniGoals.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of XiaoniGoals.
+     */
+    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+  }
+
+  /**
+   * XiaoniGoal findFirstOrThrow
+   */
+  export type XiaoniGoalFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter, which XiaoniGoal to fetch.
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of XiaoniGoals to fetch.
+     */
+    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for XiaoniGoals.
+     */
+    cursor?: XiaoniGoalWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` XiaoniGoals from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` XiaoniGoals.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of XiaoniGoals.
+     */
+    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+  }
+
+  /**
+   * XiaoniGoal findMany
+   */
+  export type XiaoniGoalFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter, which XiaoniGoals to fetch.
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of XiaoniGoals to fetch.
+     */
+    orderBy?: XiaoniGoalOrderByWithRelationInput | XiaoniGoalOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing XiaoniGoals.
+     */
+    cursor?: XiaoniGoalWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` XiaoniGoals from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` XiaoniGoals.
+     */
+    skip?: number
+    distinct?: XiaoniGoalScalarFieldEnum | XiaoniGoalScalarFieldEnum[]
+  }
+
+  /**
+   * XiaoniGoal create
+   */
+  export type XiaoniGoalCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * The data needed to create a XiaoniGoal.
+     */
+    data: XOR<XiaoniGoalCreateInput, XiaoniGoalUncheckedCreateInput>
+  }
+
+  /**
+   * XiaoniGoal createMany
+   */
+  export type XiaoniGoalCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many XiaoniGoals.
+     */
+    data: XiaoniGoalCreateManyInput | XiaoniGoalCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * XiaoniGoal createManyAndReturn
+   */
+  export type XiaoniGoalCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * The data used to create many XiaoniGoals.
+     */
+    data: XiaoniGoalCreateManyInput | XiaoniGoalCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * XiaoniGoal update
+   */
+  export type XiaoniGoalUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * The data needed to update a XiaoniGoal.
+     */
+    data: XOR<XiaoniGoalUpdateInput, XiaoniGoalUncheckedUpdateInput>
+    /**
+     * Choose, which XiaoniGoal to update.
+     */
+    where: XiaoniGoalWhereUniqueInput
+  }
+
+  /**
+   * XiaoniGoal updateMany
+   */
+  export type XiaoniGoalUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update XiaoniGoals.
+     */
+    data: XOR<XiaoniGoalUpdateManyMutationInput, XiaoniGoalUncheckedUpdateManyInput>
+    /**
+     * Filter which XiaoniGoals to update
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * Limit how many XiaoniGoals to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * XiaoniGoal updateManyAndReturn
+   */
+  export type XiaoniGoalUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * The data used to update XiaoniGoals.
+     */
+    data: XOR<XiaoniGoalUpdateManyMutationInput, XiaoniGoalUncheckedUpdateManyInput>
+    /**
+     * Filter which XiaoniGoals to update
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * Limit how many XiaoniGoals to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * XiaoniGoal upsert
+   */
+  export type XiaoniGoalUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * The filter to search for the XiaoniGoal to update in case it exists.
+     */
+    where: XiaoniGoalWhereUniqueInput
+    /**
+     * In case the XiaoniGoal found by the `where` argument doesn't exist, create a new XiaoniGoal with this data.
+     */
+    create: XOR<XiaoniGoalCreateInput, XiaoniGoalUncheckedCreateInput>
+    /**
+     * In case the XiaoniGoal was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<XiaoniGoalUpdateInput, XiaoniGoalUncheckedUpdateInput>
+  }
+
+  /**
+   * XiaoniGoal delete
+   */
+  export type XiaoniGoalDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+    /**
+     * Filter which XiaoniGoal to delete.
+     */
+    where: XiaoniGoalWhereUniqueInput
+  }
+
+  /**
+   * XiaoniGoal deleteMany
+   */
+  export type XiaoniGoalDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which XiaoniGoals to delete
+     */
+    where?: XiaoniGoalWhereInput
+    /**
+     * Limit how many XiaoniGoals to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * XiaoniGoal without action
+   */
+  export type XiaoniGoalDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the XiaoniGoal
+     */
+    select?: XiaoniGoalSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the XiaoniGoal
+     */
+    omit?: XiaoniGoalOmit<ExtArgs> | null
+  }
+
+
+  /**
+   * Model FailureReviewForkSlice
+   */
+
+  export type AggregateFailureReviewForkSlice = {
+    _count: FailureReviewForkSliceCountAggregateOutputType | null
+    _avg: FailureReviewForkSliceAvgAggregateOutputType | null
+    _sum: FailureReviewForkSliceSumAggregateOutputType | null
+    _min: FailureReviewForkSliceMinAggregateOutputType | null
+    _max: FailureReviewForkSliceMaxAggregateOutputType | null
+  }
+
+  export type FailureReviewForkSliceAvgAggregateOutputType = {
+    id: number | null
+    input_start_index: number | null
+    input_end_index: number | null
+    output_start_index: number | null
+    output_end_index: number | null
+    agent_turn: number | null
+    processing_time_ms: number | null
+  }
+
+  export type FailureReviewForkSliceSumAggregateOutputType = {
+    id: bigint | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    agent_turn: number | null
+    processing_time_ms: number | null
+  }
+
+  export type FailureReviewForkSliceMinAggregateOutputType = {
+    id: bigint | null
+    slice_id: string | null
+    fork_run_id: string | null
+    llm_call_id: string | null
+    identity_key: string | null
+    goal_id: string | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    status: string | null
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    created_at: Date | null
+    completed_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type FailureReviewForkSliceMaxAggregateOutputType = {
+    id: bigint | null
+    slice_id: string | null
+    fork_run_id: string | null
+    llm_call_id: string | null
+    identity_key: string | null
+    goal_id: string | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    status: string | null
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    created_at: Date | null
+    completed_at: Date | null
+    updated_at: Date | null
+  }
+
+  export type FailureReviewForkSliceCountAggregateOutputType = {
+    id: number
+    slice_id: number
+    fork_run_id: number
+    llm_call_id: number
+    identity_key: number
+    goal_id: number
+    input_start_index: number
+    input_end_index: number
+    input_stack_item_ids: number
+    output_start_index: number
+    output_end_index: number
+    canonical_request: number
+    wire_request: number
+    canonical_response: number
+    wire_response: number
+    raw_response: number
+    output_items: number
+    status: number
+    token_usage: number
+    trace_id: number
+    run_id: number
+    agent_turn: number
+    model_name: number
+    model_provider: number
+    request_format_version: number
+    wire_provider_format: number
+    processing_time_ms: number
+    metadata: number
+    created_at: number
+    completed_at: number
+    updated_at: number
+    _all: number
+  }
+
+
+  export type FailureReviewForkSliceAvgAggregateInputType = {
+    id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    agent_turn?: true
+    processing_time_ms?: true
+  }
+
+  export type FailureReviewForkSliceSumAggregateInputType = {
+    id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    agent_turn?: true
+    processing_time_ms?: true
+  }
+
+  export type FailureReviewForkSliceMinAggregateInputType = {
+    id?: true
+    slice_id?: true
+    fork_run_id?: true
+    llm_call_id?: true
+    identity_key?: true
+    goal_id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    status?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
+  }
+
+  export type FailureReviewForkSliceMaxAggregateInputType = {
+    id?: true
+    slice_id?: true
+    fork_run_id?: true
+    llm_call_id?: true
+    identity_key?: true
+    goal_id?: true
+    input_start_index?: true
+    input_end_index?: true
+    output_start_index?: true
+    output_end_index?: true
+    status?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
+  }
+
+  export type FailureReviewForkSliceCountAggregateInputType = {
+    id?: true
+    slice_id?: true
+    fork_run_id?: true
+    llm_call_id?: true
+    identity_key?: true
+    goal_id?: true
+    input_start_index?: true
+    input_end_index?: true
+    input_stack_item_ids?: true
+    output_start_index?: true
+    output_end_index?: true
+    canonical_request?: true
+    wire_request?: true
+    canonical_response?: true
+    wire_response?: true
+    raw_response?: true
+    output_items?: true
+    status?: true
+    token_usage?: true
+    trace_id?: true
+    run_id?: true
+    agent_turn?: true
+    model_name?: true
+    model_provider?: true
+    request_format_version?: true
+    wire_provider_format?: true
+    processing_time_ms?: true
+    metadata?: true
+    created_at?: true
+    completed_at?: true
+    updated_at?: true
+    _all?: true
+  }
+
+  export type FailureReviewForkSliceAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which FailureReviewForkSlice to aggregate.
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FailureReviewForkSlices to fetch.
+     */
+    orderBy?: FailureReviewForkSliceOrderByWithRelationInput | FailureReviewForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: FailureReviewForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FailureReviewForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FailureReviewForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned FailureReviewForkSlices
+    **/
+    _count?: true | FailureReviewForkSliceCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: FailureReviewForkSliceAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: FailureReviewForkSliceSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: FailureReviewForkSliceMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: FailureReviewForkSliceMaxAggregateInputType
+  }
+
+  export type GetFailureReviewForkSliceAggregateType<T extends FailureReviewForkSliceAggregateArgs> = {
+        [P in keyof T & keyof AggregateFailureReviewForkSlice]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateFailureReviewForkSlice[P]>
+      : GetScalarType<T[P], AggregateFailureReviewForkSlice[P]>
+  }
+
+
+
+
+  export type FailureReviewForkSliceGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: FailureReviewForkSliceWhereInput
+    orderBy?: FailureReviewForkSliceOrderByWithAggregationInput | FailureReviewForkSliceOrderByWithAggregationInput[]
+    by: FailureReviewForkSliceScalarFieldEnum[] | FailureReviewForkSliceScalarFieldEnum
+    having?: FailureReviewForkSliceScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: FailureReviewForkSliceCountAggregateInputType | true
+    _avg?: FailureReviewForkSliceAvgAggregateInputType
+    _sum?: FailureReviewForkSliceSumAggregateInputType
+    _min?: FailureReviewForkSliceMinAggregateInputType
+    _max?: FailureReviewForkSliceMaxAggregateInputType
+  }
+
+  export type FailureReviewForkSliceGroupByOutputType = {
+    id: bigint
+    slice_id: string
+    fork_run_id: string
+    llm_call_id: string | null
+    identity_key: string
+    goal_id: string | null
+    input_start_index: bigint | null
+    input_end_index: bigint | null
+    input_stack_item_ids: JsonValue
+    output_start_index: bigint | null
+    output_end_index: bigint | null
+    canonical_request: JsonValue
+    wire_request: JsonValue | null
+    canonical_response: JsonValue | null
+    wire_response: JsonValue | null
+    raw_response: JsonValue | null
+    output_items: JsonValue
+    status: string
+    token_usage: JsonValue
+    trace_id: string | null
+    run_id: string | null
+    agent_turn: number | null
+    model_name: string | null
+    model_provider: string | null
+    request_format_version: string | null
+    wire_provider_format: string | null
+    processing_time_ms: number | null
+    metadata: JsonValue
+    created_at: Date
+    completed_at: Date | null
+    updated_at: Date
+    _count: FailureReviewForkSliceCountAggregateOutputType | null
+    _avg: FailureReviewForkSliceAvgAggregateOutputType | null
+    _sum: FailureReviewForkSliceSumAggregateOutputType | null
+    _min: FailureReviewForkSliceMinAggregateOutputType | null
+    _max: FailureReviewForkSliceMaxAggregateOutputType | null
+  }
+
+  type GetFailureReviewForkSliceGroupByPayload<T extends FailureReviewForkSliceGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<FailureReviewForkSliceGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof FailureReviewForkSliceGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], FailureReviewForkSliceGroupByOutputType[P]>
+            : GetScalarType<T[P], FailureReviewForkSliceGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type FailureReviewForkSliceSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    slice_id?: boolean
+    fork_run_id?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    goal_id?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
+    status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["failureReviewForkSlice"]>
+
+  export type FailureReviewForkSliceSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    slice_id?: boolean
+    fork_run_id?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    goal_id?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
+    status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["failureReviewForkSlice"]>
+
+  export type FailureReviewForkSliceSelectUpdateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    slice_id?: boolean
+    fork_run_id?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    goal_id?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
+    status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
+  }, ExtArgs["result"]["failureReviewForkSlice"]>
+
+  export type FailureReviewForkSliceSelectScalar = {
+    id?: boolean
+    slice_id?: boolean
+    fork_run_id?: boolean
+    llm_call_id?: boolean
+    identity_key?: boolean
+    goal_id?: boolean
+    input_start_index?: boolean
+    input_end_index?: boolean
+    input_stack_item_ids?: boolean
+    output_start_index?: boolean
+    output_end_index?: boolean
+    canonical_request?: boolean
+    wire_request?: boolean
+    canonical_response?: boolean
+    wire_response?: boolean
+    raw_response?: boolean
+    output_items?: boolean
+    status?: boolean
+    token_usage?: boolean
+    trace_id?: boolean
+    run_id?: boolean
+    agent_turn?: boolean
+    model_name?: boolean
+    model_provider?: boolean
+    request_format_version?: boolean
+    wire_provider_format?: boolean
+    processing_time_ms?: boolean
+    metadata?: boolean
+    created_at?: boolean
+    completed_at?: boolean
+    updated_at?: boolean
+  }
+
+  export type FailureReviewForkSliceOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "slice_id" | "fork_run_id" | "llm_call_id" | "identity_key" | "goal_id" | "input_start_index" | "input_end_index" | "input_stack_item_ids" | "output_start_index" | "output_end_index" | "canonical_request" | "wire_request" | "canonical_response" | "wire_response" | "raw_response" | "output_items" | "status" | "token_usage" | "trace_id" | "run_id" | "agent_turn" | "model_name" | "model_provider" | "request_format_version" | "wire_provider_format" | "processing_time_ms" | "metadata" | "created_at" | "completed_at" | "updated_at", ExtArgs["result"]["failureReviewForkSlice"]>
+
+  export type $FailureReviewForkSlicePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "FailureReviewForkSlice"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: bigint
+      slice_id: string
+      fork_run_id: string
+      llm_call_id: string | null
+      identity_key: string
+      goal_id: string | null
+      input_start_index: bigint | null
+      input_end_index: bigint | null
+      input_stack_item_ids: Prisma.JsonValue
+      output_start_index: bigint | null
+      output_end_index: bigint | null
+      canonical_request: Prisma.JsonValue
+      wire_request: Prisma.JsonValue | null
+      canonical_response: Prisma.JsonValue | null
+      wire_response: Prisma.JsonValue | null
+      raw_response: Prisma.JsonValue | null
+      output_items: Prisma.JsonValue
+      status: string
+      token_usage: Prisma.JsonValue
+      trace_id: string | null
+      run_id: string | null
+      agent_turn: number | null
+      model_name: string | null
+      model_provider: string | null
+      request_format_version: string | null
+      wire_provider_format: string | null
+      processing_time_ms: number | null
+      metadata: Prisma.JsonValue
+      created_at: Date
+      completed_at: Date | null
+      updated_at: Date
+    }, ExtArgs["result"]["failureReviewForkSlice"]>
+    composites: {}
+  }
+
+  type FailureReviewForkSliceGetPayload<S extends boolean | null | undefined | FailureReviewForkSliceDefaultArgs> = $Result.GetResult<Prisma.$FailureReviewForkSlicePayload, S>
+
+  type FailureReviewForkSliceCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> =
+    Omit<FailureReviewForkSliceFindManyArgs, 'select' | 'include' | 'distinct' | 'omit'> & {
+      select?: FailureReviewForkSliceCountAggregateInputType | true
+    }
+
+  export interface FailureReviewForkSliceDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['FailureReviewForkSlice'], meta: { name: 'FailureReviewForkSlice' } }
+    /**
+     * Find zero or one FailureReviewForkSlice that matches the filter.
+     * @param {FailureReviewForkSliceFindUniqueArgs} args - Arguments to find a FailureReviewForkSlice
+     * @example
+     * // Get one FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends FailureReviewForkSliceFindUniqueArgs>(args: SelectSubset<T, FailureReviewForkSliceFindUniqueArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "findUnique", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find one FailureReviewForkSlice that matches the filter or throw an error with `error.code='P2025'`
+     * if no matches were found.
+     * @param {FailureReviewForkSliceFindUniqueOrThrowArgs} args - Arguments to find a FailureReviewForkSlice
+     * @example
+     * // Get one FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends FailureReviewForkSliceFindUniqueOrThrowArgs>(args: SelectSubset<T, FailureReviewForkSliceFindUniqueOrThrowArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first FailureReviewForkSlice that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceFindFirstArgs} args - Arguments to find a FailureReviewForkSlice
+     * @example
+     * // Get one FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends FailureReviewForkSliceFindFirstArgs>(args?: SelectSubset<T, FailureReviewForkSliceFindFirstArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "findFirst", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find the first FailureReviewForkSlice that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceFindFirstOrThrowArgs} args - Arguments to find a FailureReviewForkSlice
+     * @example
+     * // Get one FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends FailureReviewForkSliceFindFirstOrThrowArgs>(args?: SelectSubset<T, FailureReviewForkSliceFindFirstOrThrowArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "findFirstOrThrow", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Find zero or more FailureReviewForkSlices that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all FailureReviewForkSlices
+     * const failureReviewForkSlices = await prisma.failureReviewForkSlice.findMany()
+     * 
+     * // Get first 10 FailureReviewForkSlices
+     * const failureReviewForkSlices = await prisma.failureReviewForkSlice.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const failureReviewForkSliceWithIdOnly = await prisma.failureReviewForkSlice.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends FailureReviewForkSliceFindManyArgs>(args?: SelectSubset<T, FailureReviewForkSliceFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "findMany", GlobalOmitOptions>>
+
+    /**
+     * Create a FailureReviewForkSlice.
+     * @param {FailureReviewForkSliceCreateArgs} args - Arguments to create a FailureReviewForkSlice.
+     * @example
+     * // Create one FailureReviewForkSlice
+     * const FailureReviewForkSlice = await prisma.failureReviewForkSlice.create({
+     *   data: {
+     *     // ... data to create a FailureReviewForkSlice
+     *   }
+     * })
+     * 
+     */
+    create<T extends FailureReviewForkSliceCreateArgs>(args: SelectSubset<T, FailureReviewForkSliceCreateArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "create", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Create many FailureReviewForkSlices.
+     * @param {FailureReviewForkSliceCreateManyArgs} args - Arguments to create many FailureReviewForkSlices.
+     * @example
+     * // Create many FailureReviewForkSlices
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends FailureReviewForkSliceCreateManyArgs>(args?: SelectSubset<T, FailureReviewForkSliceCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many FailureReviewForkSlices and returns the data saved in the database.
+     * @param {FailureReviewForkSliceCreateManyAndReturnArgs} args - Arguments to create many FailureReviewForkSlices.
+     * @example
+     * // Create many FailureReviewForkSlices
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many FailureReviewForkSlices and only return the `id`
+     * const failureReviewForkSliceWithIdOnly = await prisma.failureReviewForkSlice.createManyAndReturn({
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends FailureReviewForkSliceCreateManyAndReturnArgs>(args?: SelectSubset<T, FailureReviewForkSliceCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Delete a FailureReviewForkSlice.
+     * @param {FailureReviewForkSliceDeleteArgs} args - Arguments to delete one FailureReviewForkSlice.
+     * @example
+     * // Delete one FailureReviewForkSlice
+     * const FailureReviewForkSlice = await prisma.failureReviewForkSlice.delete({
+     *   where: {
+     *     // ... filter to delete one FailureReviewForkSlice
+     *   }
+     * })
+     * 
+     */
+    delete<T extends FailureReviewForkSliceDeleteArgs>(args: SelectSubset<T, FailureReviewForkSliceDeleteArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "delete", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Update one FailureReviewForkSlice.
+     * @param {FailureReviewForkSliceUpdateArgs} args - Arguments to update one FailureReviewForkSlice.
+     * @example
+     * // Update one FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends FailureReviewForkSliceUpdateArgs>(args: SelectSubset<T, FailureReviewForkSliceUpdateArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "update", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+    /**
+     * Delete zero or more FailureReviewForkSlices.
+     * @param {FailureReviewForkSliceDeleteManyArgs} args - Arguments to filter FailureReviewForkSlices to delete.
+     * @example
+     * // Delete a few FailureReviewForkSlices
+     * const { count } = await prisma.failureReviewForkSlice.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends FailureReviewForkSliceDeleteManyArgs>(args?: SelectSubset<T, FailureReviewForkSliceDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more FailureReviewForkSlices.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many FailureReviewForkSlices
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends FailureReviewForkSliceUpdateManyArgs>(args: SelectSubset<T, FailureReviewForkSliceUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more FailureReviewForkSlices and returns the data updated in the database.
+     * @param {FailureReviewForkSliceUpdateManyAndReturnArgs} args - Arguments to update many FailureReviewForkSlices.
+     * @example
+     * // Update many FailureReviewForkSlices
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.updateManyAndReturn({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Update zero or more FailureReviewForkSlices and only return the `id`
+     * const failureReviewForkSliceWithIdOnly = await prisma.failureReviewForkSlice.updateManyAndReturn({
+     *   select: { id: true },
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    updateManyAndReturn<T extends FailureReviewForkSliceUpdateManyAndReturnArgs>(args: SelectSubset<T, FailureReviewForkSliceUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
+
+    /**
+     * Create or update one FailureReviewForkSlice.
+     * @param {FailureReviewForkSliceUpsertArgs} args - Arguments to update or create a FailureReviewForkSlice.
+     * @example
+     * // Update or create a FailureReviewForkSlice
+     * const failureReviewForkSlice = await prisma.failureReviewForkSlice.upsert({
+     *   create: {
+     *     // ... data to create a FailureReviewForkSlice
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the FailureReviewForkSlice we want to update
+     *   }
+     * })
+     */
+    upsert<T extends FailureReviewForkSliceUpsertArgs>(args: SelectSubset<T, FailureReviewForkSliceUpsertArgs<ExtArgs>>): Prisma__FailureReviewForkSliceClient<$Result.GetResult<Prisma.$FailureReviewForkSlicePayload<ExtArgs>, T, "upsert", GlobalOmitOptions>, never, ExtArgs, GlobalOmitOptions>
+
+
+    /**
+     * Count the number of FailureReviewForkSlices.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceCountArgs} args - Arguments to filter FailureReviewForkSlices to count.
+     * @example
+     * // Count the number of FailureReviewForkSlices
+     * const count = await prisma.failureReviewForkSlice.count({
+     *   where: {
+     *     // ... the filter for the FailureReviewForkSlices we want to count
+     *   }
+     * })
+    **/
+    count<T extends FailureReviewForkSliceCountArgs>(
+      args?: Subset<T, FailureReviewForkSliceCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], FailureReviewForkSliceCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a FailureReviewForkSlice.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends FailureReviewForkSliceAggregateArgs>(args: Subset<T, FailureReviewForkSliceAggregateArgs>): Prisma.PrismaPromise<GetFailureReviewForkSliceAggregateType<T>>
+
+    /**
+     * Group by FailureReviewForkSlice.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {FailureReviewForkSliceGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends FailureReviewForkSliceGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: FailureReviewForkSliceGroupByArgs['orderBy'] }
+        : { orderBy?: FailureReviewForkSliceGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, FailureReviewForkSliceGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetFailureReviewForkSliceGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the FailureReviewForkSlice model
+   */
+  readonly fields: FailureReviewForkSliceFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for FailureReviewForkSlice.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__FailureReviewForkSliceClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the FailureReviewForkSlice model
+   */
+  interface FailureReviewForkSliceFieldRefs {
+    readonly id: FieldRef<"FailureReviewForkSlice", 'BigInt'>
+    readonly slice_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly fork_run_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly llm_call_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly identity_key: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly goal_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly input_start_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
+    readonly input_end_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
+    readonly input_stack_item_ids: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly output_start_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
+    readonly output_end_index: FieldRef<"FailureReviewForkSlice", 'BigInt'>
+    readonly canonical_request: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly wire_request: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly canonical_response: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly wire_response: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly raw_response: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly output_items: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly status: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly token_usage: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly trace_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly run_id: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly agent_turn: FieldRef<"FailureReviewForkSlice", 'Int'>
+    readonly model_name: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly model_provider: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly request_format_version: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly wire_provider_format: FieldRef<"FailureReviewForkSlice", 'String'>
+    readonly processing_time_ms: FieldRef<"FailureReviewForkSlice", 'Int'>
+    readonly metadata: FieldRef<"FailureReviewForkSlice", 'Json'>
+    readonly created_at: FieldRef<"FailureReviewForkSlice", 'DateTime'>
+    readonly completed_at: FieldRef<"FailureReviewForkSlice", 'DateTime'>
+    readonly updated_at: FieldRef<"FailureReviewForkSlice", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * FailureReviewForkSlice findUnique
+   */
+  export type FailureReviewForkSliceFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which FailureReviewForkSlice to fetch.
+     */
+    where: FailureReviewForkSliceWhereUniqueInput
+  }
+
+  /**
+   * FailureReviewForkSlice findUniqueOrThrow
+   */
+  export type FailureReviewForkSliceFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which FailureReviewForkSlice to fetch.
+     */
+    where: FailureReviewForkSliceWhereUniqueInput
+  }
+
+  /**
+   * FailureReviewForkSlice findFirst
+   */
+  export type FailureReviewForkSliceFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which FailureReviewForkSlice to fetch.
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FailureReviewForkSlices to fetch.
+     */
+    orderBy?: FailureReviewForkSliceOrderByWithRelationInput | FailureReviewForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for FailureReviewForkSlices.
+     */
+    cursor?: FailureReviewForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FailureReviewForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FailureReviewForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of FailureReviewForkSlices.
+     */
+    distinct?: FailureReviewForkSliceScalarFieldEnum | FailureReviewForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * FailureReviewForkSlice findFirstOrThrow
+   */
+  export type FailureReviewForkSliceFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which FailureReviewForkSlice to fetch.
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FailureReviewForkSlices to fetch.
+     */
+    orderBy?: FailureReviewForkSliceOrderByWithRelationInput | FailureReviewForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for FailureReviewForkSlices.
+     */
+    cursor?: FailureReviewForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FailureReviewForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FailureReviewForkSlices.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of FailureReviewForkSlices.
+     */
+    distinct?: FailureReviewForkSliceScalarFieldEnum | FailureReviewForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * FailureReviewForkSlice findMany
+   */
+  export type FailureReviewForkSliceFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter, which FailureReviewForkSlices to fetch.
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of FailureReviewForkSlices to fetch.
+     */
+    orderBy?: FailureReviewForkSliceOrderByWithRelationInput | FailureReviewForkSliceOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing FailureReviewForkSlices.
+     */
+    cursor?: FailureReviewForkSliceWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` FailureReviewForkSlices from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` FailureReviewForkSlices.
+     */
+    skip?: number
+    distinct?: FailureReviewForkSliceScalarFieldEnum | FailureReviewForkSliceScalarFieldEnum[]
+  }
+
+  /**
+   * FailureReviewForkSlice create
+   */
+  export type FailureReviewForkSliceCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * The data needed to create a FailureReviewForkSlice.
+     */
+    data: XOR<FailureReviewForkSliceCreateInput, FailureReviewForkSliceUncheckedCreateInput>
+  }
+
+  /**
+   * FailureReviewForkSlice createMany
+   */
+  export type FailureReviewForkSliceCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many FailureReviewForkSlices.
+     */
+    data: FailureReviewForkSliceCreateManyInput | FailureReviewForkSliceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * FailureReviewForkSlice createManyAndReturn
+   */
+  export type FailureReviewForkSliceCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * The data used to create many FailureReviewForkSlices.
+     */
+    data: FailureReviewForkSliceCreateManyInput | FailureReviewForkSliceCreateManyInput[]
+    skipDuplicates?: boolean
+  }
+
+  /**
+   * FailureReviewForkSlice update
+   */
+  export type FailureReviewForkSliceUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * The data needed to update a FailureReviewForkSlice.
+     */
+    data: XOR<FailureReviewForkSliceUpdateInput, FailureReviewForkSliceUncheckedUpdateInput>
+    /**
+     * Choose, which FailureReviewForkSlice to update.
+     */
+    where: FailureReviewForkSliceWhereUniqueInput
+  }
+
+  /**
+   * FailureReviewForkSlice updateMany
+   */
+  export type FailureReviewForkSliceUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update FailureReviewForkSlices.
+     */
+    data: XOR<FailureReviewForkSliceUpdateManyMutationInput, FailureReviewForkSliceUncheckedUpdateManyInput>
+    /**
+     * Filter which FailureReviewForkSlices to update
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * Limit how many FailureReviewForkSlices to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * FailureReviewForkSlice updateManyAndReturn
+   */
+  export type FailureReviewForkSliceUpdateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelectUpdateManyAndReturn<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * The data used to update FailureReviewForkSlices.
+     */
+    data: XOR<FailureReviewForkSliceUpdateManyMutationInput, FailureReviewForkSliceUncheckedUpdateManyInput>
+    /**
+     * Filter which FailureReviewForkSlices to update
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * Limit how many FailureReviewForkSlices to update.
+     */
+    limit?: number
+  }
+
+  /**
+   * FailureReviewForkSlice upsert
+   */
+  export type FailureReviewForkSliceUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * The filter to search for the FailureReviewForkSlice to update in case it exists.
+     */
+    where: FailureReviewForkSliceWhereUniqueInput
+    /**
+     * In case the FailureReviewForkSlice found by the `where` argument doesn't exist, create a new FailureReviewForkSlice with this data.
+     */
+    create: XOR<FailureReviewForkSliceCreateInput, FailureReviewForkSliceUncheckedCreateInput>
+    /**
+     * In case the FailureReviewForkSlice was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<FailureReviewForkSliceUpdateInput, FailureReviewForkSliceUncheckedUpdateInput>
+  }
+
+  /**
+   * FailureReviewForkSlice delete
+   */
+  export type FailureReviewForkSliceDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+    /**
+     * Filter which FailureReviewForkSlice to delete.
+     */
+    where: FailureReviewForkSliceWhereUniqueInput
+  }
+
+  /**
+   * FailureReviewForkSlice deleteMany
+   */
+  export type FailureReviewForkSliceDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which FailureReviewForkSlices to delete
+     */
+    where?: FailureReviewForkSliceWhereInput
+    /**
+     * Limit how many FailureReviewForkSlices to delete.
+     */
+    limit?: number
+  }
+
+  /**
+   * FailureReviewForkSlice without action
+   */
+  export type FailureReviewForkSliceDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the FailureReviewForkSlice
+     */
+    select?: FailureReviewForkSliceSelect<ExtArgs> | null
+    /**
+     * Omit specific fields from the FailureReviewForkSlice
+     */
+    omit?: FailureReviewForkSliceOmit<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -97498,6 +100137,59 @@ export namespace Prisma {
   };
 
   export type XiaoniRecallShadowLogScalarFieldEnum = (typeof XiaoniRecallShadowLogScalarFieldEnum)[keyof typeof XiaoniRecallShadowLogScalarFieldEnum]
+
+
+  export const XiaoniGoalScalarFieldEnum: {
+    id: 'id',
+    identity_key: 'identity_key',
+    revision: 'revision',
+    objective: 'objective',
+    phase: 'phase',
+    rounds_started: 'rounds_started',
+    max_goal_rounds: 'max_goal_rounds',
+    blocked_reason: 'blocked_reason',
+    created_at: 'created_at',
+    updated_at: 'updated_at'
+  };
+
+  export type XiaoniGoalScalarFieldEnum = (typeof XiaoniGoalScalarFieldEnum)[keyof typeof XiaoniGoalScalarFieldEnum]
+
+
+  export const FailureReviewForkSliceScalarFieldEnum: {
+    id: 'id',
+    slice_id: 'slice_id',
+    fork_run_id: 'fork_run_id',
+    llm_call_id: 'llm_call_id',
+    identity_key: 'identity_key',
+    goal_id: 'goal_id',
+    input_start_index: 'input_start_index',
+    input_end_index: 'input_end_index',
+    input_stack_item_ids: 'input_stack_item_ids',
+    output_start_index: 'output_start_index',
+    output_end_index: 'output_end_index',
+    canonical_request: 'canonical_request',
+    wire_request: 'wire_request',
+    canonical_response: 'canonical_response',
+    wire_response: 'wire_response',
+    raw_response: 'raw_response',
+    output_items: 'output_items',
+    status: 'status',
+    token_usage: 'token_usage',
+    trace_id: 'trace_id',
+    run_id: 'run_id',
+    agent_turn: 'agent_turn',
+    model_name: 'model_name',
+    model_provider: 'model_provider',
+    request_format_version: 'request_format_version',
+    wire_provider_format: 'wire_provider_format',
+    processing_time_ms: 'processing_time_ms',
+    metadata: 'metadata',
+    created_at: 'created_at',
+    completed_at: 'completed_at',
+    updated_at: 'updated_at'
+  };
+
+  export type FailureReviewForkSliceScalarFieldEnum = (typeof FailureReviewForkSliceScalarFieldEnum)[keyof typeof FailureReviewForkSliceScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -106330,6 +109022,269 @@ export namespace Prisma {
     surfaced?: JsonWithAggregatesFilter<"XiaoniRecallShadowLog">
     dropped_counts?: JsonWithAggregatesFilter<"XiaoniRecallShadowLog">
     dropped_sample?: JsonWithAggregatesFilter<"XiaoniRecallShadowLog">
+  }
+
+  export type XiaoniGoalWhereInput = {
+    AND?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
+    OR?: XiaoniGoalWhereInput[]
+    NOT?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
+    id?: StringFilter<"XiaoniGoal"> | string
+    identity_key?: StringFilter<"XiaoniGoal"> | string
+    revision?: IntFilter<"XiaoniGoal"> | number
+    objective?: StringFilter<"XiaoniGoal"> | string
+    phase?: StringFilter<"XiaoniGoal"> | string
+    rounds_started?: IntFilter<"XiaoniGoal"> | number
+    max_goal_rounds?: IntFilter<"XiaoniGoal"> | number
+    blocked_reason?: StringNullableFilter<"XiaoniGoal"> | string | null
+    created_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+    updated_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+  }
+
+  export type XiaoniGoalOrderByWithRelationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    revision?: SortOrder
+    objective?: SortOrder
+    phase?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+    blocked_reason?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type XiaoniGoalWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
+    OR?: XiaoniGoalWhereInput[]
+    NOT?: XiaoniGoalWhereInput | XiaoniGoalWhereInput[]
+    identity_key?: StringFilter<"XiaoniGoal"> | string
+    revision?: IntFilter<"XiaoniGoal"> | number
+    objective?: StringFilter<"XiaoniGoal"> | string
+    phase?: StringFilter<"XiaoniGoal"> | string
+    rounds_started?: IntFilter<"XiaoniGoal"> | number
+    max_goal_rounds?: IntFilter<"XiaoniGoal"> | number
+    blocked_reason?: StringNullableFilter<"XiaoniGoal"> | string | null
+    created_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+    updated_at?: DateTimeFilter<"XiaoniGoal"> | Date | string
+  }, "id">
+
+  export type XiaoniGoalOrderByWithAggregationInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    revision?: SortOrder
+    objective?: SortOrder
+    phase?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+    blocked_reason?: SortOrderInput | SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+    _count?: XiaoniGoalCountOrderByAggregateInput
+    _avg?: XiaoniGoalAvgOrderByAggregateInput
+    _max?: XiaoniGoalMaxOrderByAggregateInput
+    _min?: XiaoniGoalMinOrderByAggregateInput
+    _sum?: XiaoniGoalSumOrderByAggregateInput
+  }
+
+  export type XiaoniGoalScalarWhereWithAggregatesInput = {
+    AND?: XiaoniGoalScalarWhereWithAggregatesInput | XiaoniGoalScalarWhereWithAggregatesInput[]
+    OR?: XiaoniGoalScalarWhereWithAggregatesInput[]
+    NOT?: XiaoniGoalScalarWhereWithAggregatesInput | XiaoniGoalScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"XiaoniGoal"> | string
+    identity_key?: StringWithAggregatesFilter<"XiaoniGoal"> | string
+    revision?: IntWithAggregatesFilter<"XiaoniGoal"> | number
+    objective?: StringWithAggregatesFilter<"XiaoniGoal"> | string
+    phase?: StringWithAggregatesFilter<"XiaoniGoal"> | string
+    rounds_started?: IntWithAggregatesFilter<"XiaoniGoal"> | number
+    max_goal_rounds?: IntWithAggregatesFilter<"XiaoniGoal"> | number
+    blocked_reason?: StringNullableWithAggregatesFilter<"XiaoniGoal"> | string | null
+    created_at?: DateTimeWithAggregatesFilter<"XiaoniGoal"> | Date | string
+    updated_at?: DateTimeWithAggregatesFilter<"XiaoniGoal"> | Date | string
+  }
+
+  export type FailureReviewForkSliceWhereInput = {
+    AND?: FailureReviewForkSliceWhereInput | FailureReviewForkSliceWhereInput[]
+    OR?: FailureReviewForkSliceWhereInput[]
+    NOT?: FailureReviewForkSliceWhereInput | FailureReviewForkSliceWhereInput[]
+    id?: BigIntFilter<"FailureReviewForkSlice"> | bigint | number
+    slice_id?: StringFilter<"FailureReviewForkSlice"> | string
+    fork_run_id?: StringFilter<"FailureReviewForkSlice"> | string
+    llm_call_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    identity_key?: StringFilter<"FailureReviewForkSlice"> | string
+    goal_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    input_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonFilter<"FailureReviewForkSlice">
+    output_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    canonical_request?: JsonFilter<"FailureReviewForkSlice">
+    wire_request?: JsonNullableFilter<"FailureReviewForkSlice">
+    canonical_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    wire_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    raw_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    output_items?: JsonFilter<"FailureReviewForkSlice">
+    status?: StringFilter<"FailureReviewForkSlice"> | string
+    token_usage?: JsonFilter<"FailureReviewForkSlice">
+    trace_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    run_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    agent_turn?: IntNullableFilter<"FailureReviewForkSlice"> | number | null
+    model_name?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    model_provider?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    request_format_version?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    wire_provider_format?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    processing_time_ms?: IntNullableFilter<"FailureReviewForkSlice"> | number | null
+    metadata?: JsonFilter<"FailureReviewForkSlice">
+    created_at?: DateTimeFilter<"FailureReviewForkSlice"> | Date | string
+    completed_at?: DateTimeNullableFilter<"FailureReviewForkSlice"> | Date | string | null
+    updated_at?: DateTimeFilter<"FailureReviewForkSlice"> | Date | string
+  }
+
+  export type FailureReviewForkSliceOrderByWithRelationInput = {
+    id?: SortOrder
+    slice_id?: SortOrder
+    fork_run_id?: SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    identity_key?: SortOrder
+    goal_id?: SortOrderInput | SortOrder
+    input_start_index?: SortOrderInput | SortOrder
+    input_end_index?: SortOrderInput | SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrderInput | SortOrder
+    output_end_index?: SortOrderInput | SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrderInput | SortOrder
+    canonical_response?: SortOrderInput | SortOrder
+    wire_response?: SortOrderInput | SortOrder
+    raw_response?: SortOrderInput | SortOrder
+    output_items?: SortOrder
+    status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_provider?: SortOrderInput | SortOrder
+    request_format_version?: SortOrderInput | SortOrder
+    wire_provider_format?: SortOrderInput | SortOrder
+    processing_time_ms?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type FailureReviewForkSliceWhereUniqueInput = Prisma.AtLeast<{
+    id?: bigint | number
+    slice_id?: string
+    AND?: FailureReviewForkSliceWhereInput | FailureReviewForkSliceWhereInput[]
+    OR?: FailureReviewForkSliceWhereInput[]
+    NOT?: FailureReviewForkSliceWhereInput | FailureReviewForkSliceWhereInput[]
+    fork_run_id?: StringFilter<"FailureReviewForkSlice"> | string
+    llm_call_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    identity_key?: StringFilter<"FailureReviewForkSlice"> | string
+    goal_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    input_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonFilter<"FailureReviewForkSlice">
+    output_start_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableFilter<"FailureReviewForkSlice"> | bigint | number | null
+    canonical_request?: JsonFilter<"FailureReviewForkSlice">
+    wire_request?: JsonNullableFilter<"FailureReviewForkSlice">
+    canonical_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    wire_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    raw_response?: JsonNullableFilter<"FailureReviewForkSlice">
+    output_items?: JsonFilter<"FailureReviewForkSlice">
+    status?: StringFilter<"FailureReviewForkSlice"> | string
+    token_usage?: JsonFilter<"FailureReviewForkSlice">
+    trace_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    run_id?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    agent_turn?: IntNullableFilter<"FailureReviewForkSlice"> | number | null
+    model_name?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    model_provider?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    request_format_version?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    wire_provider_format?: StringNullableFilter<"FailureReviewForkSlice"> | string | null
+    processing_time_ms?: IntNullableFilter<"FailureReviewForkSlice"> | number | null
+    metadata?: JsonFilter<"FailureReviewForkSlice">
+    created_at?: DateTimeFilter<"FailureReviewForkSlice"> | Date | string
+    completed_at?: DateTimeNullableFilter<"FailureReviewForkSlice"> | Date | string | null
+    updated_at?: DateTimeFilter<"FailureReviewForkSlice"> | Date | string
+  }, "id" | "slice_id">
+
+  export type FailureReviewForkSliceOrderByWithAggregationInput = {
+    id?: SortOrder
+    slice_id?: SortOrder
+    fork_run_id?: SortOrder
+    llm_call_id?: SortOrderInput | SortOrder
+    identity_key?: SortOrder
+    goal_id?: SortOrderInput | SortOrder
+    input_start_index?: SortOrderInput | SortOrder
+    input_end_index?: SortOrderInput | SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrderInput | SortOrder
+    output_end_index?: SortOrderInput | SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrderInput | SortOrder
+    canonical_response?: SortOrderInput | SortOrder
+    wire_response?: SortOrderInput | SortOrder
+    raw_response?: SortOrderInput | SortOrder
+    output_items?: SortOrder
+    status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrderInput | SortOrder
+    run_id?: SortOrderInput | SortOrder
+    agent_turn?: SortOrderInput | SortOrder
+    model_name?: SortOrderInput | SortOrder
+    model_provider?: SortOrderInput | SortOrder
+    request_format_version?: SortOrderInput | SortOrder
+    wire_provider_format?: SortOrderInput | SortOrder
+    processing_time_ms?: SortOrderInput | SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrderInput | SortOrder
+    updated_at?: SortOrder
+    _count?: FailureReviewForkSliceCountOrderByAggregateInput
+    _avg?: FailureReviewForkSliceAvgOrderByAggregateInput
+    _max?: FailureReviewForkSliceMaxOrderByAggregateInput
+    _min?: FailureReviewForkSliceMinOrderByAggregateInput
+    _sum?: FailureReviewForkSliceSumOrderByAggregateInput
+  }
+
+  export type FailureReviewForkSliceScalarWhereWithAggregatesInput = {
+    AND?: FailureReviewForkSliceScalarWhereWithAggregatesInput | FailureReviewForkSliceScalarWhereWithAggregatesInput[]
+    OR?: FailureReviewForkSliceScalarWhereWithAggregatesInput[]
+    NOT?: FailureReviewForkSliceScalarWhereWithAggregatesInput | FailureReviewForkSliceScalarWhereWithAggregatesInput[]
+    id?: BigIntWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number
+    slice_id?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
+    fork_run_id?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
+    llm_call_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    identity_key?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
+    goal_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    input_start_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_end_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
+    input_stack_item_ids?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
+    output_start_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
+    output_end_index?: BigIntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | bigint | number | null
+    canonical_request?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
+    wire_request?: JsonNullableWithAggregatesFilter<"FailureReviewForkSlice">
+    canonical_response?: JsonNullableWithAggregatesFilter<"FailureReviewForkSlice">
+    wire_response?: JsonNullableWithAggregatesFilter<"FailureReviewForkSlice">
+    raw_response?: JsonNullableWithAggregatesFilter<"FailureReviewForkSlice">
+    output_items?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
+    status?: StringWithAggregatesFilter<"FailureReviewForkSlice"> | string
+    token_usage?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
+    trace_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    run_id?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    agent_turn?: IntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | number | null
+    model_name?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    model_provider?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    request_format_version?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    wire_provider_format?: StringNullableWithAggregatesFilter<"FailureReviewForkSlice"> | string | null
+    processing_time_ms?: IntNullableWithAggregatesFilter<"FailureReviewForkSlice"> | number | null
+    metadata?: JsonWithAggregatesFilter<"FailureReviewForkSlice">
+    created_at?: DateTimeWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string
+    completed_at?: DateTimeNullableWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string | null
+    updated_at?: DateTimeWithAggregatesFilter<"FailureReviewForkSlice"> | Date | string
   }
 
   export type AgentQueueMessageCreateInput = {
@@ -116990,6 +119945,335 @@ export namespace Prisma {
     dropped_sample?: JsonNullValueInput | InputJsonValue
   }
 
+  export type XiaoniGoalCreateInput = {
+    id: string
+    identity_key: string
+    revision?: number
+    objective: string
+    phase: string
+    rounds_started?: number
+    max_goal_rounds?: number
+    blocked_reason?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type XiaoniGoalUncheckedCreateInput = {
+    id: string
+    identity_key: string
+    revision?: number
+    objective: string
+    phase: string
+    rounds_started?: number
+    max_goal_rounds?: number
+    blocked_reason?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type XiaoniGoalUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    revision?: IntFieldUpdateOperationsInput | number
+    objective?: StringFieldUpdateOperationsInput | string
+    phase?: StringFieldUpdateOperationsInput | string
+    rounds_started?: IntFieldUpdateOperationsInput | number
+    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type XiaoniGoalUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    revision?: IntFieldUpdateOperationsInput | number
+    objective?: StringFieldUpdateOperationsInput | string
+    phase?: StringFieldUpdateOperationsInput | string
+    rounds_started?: IntFieldUpdateOperationsInput | number
+    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type XiaoniGoalCreateManyInput = {
+    id: string
+    identity_key: string
+    revision?: number
+    objective: string
+    phase: string
+    rounds_started?: number
+    max_goal_rounds?: number
+    blocked_reason?: string | null
+    created_at?: Date | string
+    updated_at?: Date | string
+  }
+
+  export type XiaoniGoalUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    revision?: IntFieldUpdateOperationsInput | number
+    objective?: StringFieldUpdateOperationsInput | string
+    phase?: StringFieldUpdateOperationsInput | string
+    rounds_started?: IntFieldUpdateOperationsInput | number
+    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type XiaoniGoalUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    identity_key?: StringFieldUpdateOperationsInput | string
+    revision?: IntFieldUpdateOperationsInput | number
+    objective?: StringFieldUpdateOperationsInput | string
+    phase?: StringFieldUpdateOperationsInput | string
+    rounds_started?: IntFieldUpdateOperationsInput | number
+    max_goal_rounds?: IntFieldUpdateOperationsInput | number
+    blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type FailureReviewForkSliceCreateInput = {
+    id?: bigint | number
+    slice_id: string
+    fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    goal_id?: string | null
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
+  }
+
+  export type FailureReviewForkSliceUncheckedCreateInput = {
+    id?: bigint | number
+    slice_id: string
+    fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    goal_id?: string | null
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
+  }
+
+  export type FailureReviewForkSliceUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    slice_id?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type FailureReviewForkSliceUncheckedUpdateInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    slice_id?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type FailureReviewForkSliceCreateManyInput = {
+    id?: bigint | number
+    slice_id: string
+    fork_run_id: string
+    llm_call_id?: string | null
+    identity_key?: string
+    goal_id?: string | null
+    input_start_index?: bigint | number | null
+    input_end_index?: bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: bigint | number | null
+    output_end_index?: bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: string | null
+    run_id?: string | null
+    agent_turn?: number | null
+    model_name?: string | null
+    model_provider?: string | null
+    request_format_version?: string | null
+    wire_provider_format?: string | null
+    processing_time_ms?: number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: Date | string
+    completed_at?: Date | string | null
+    updated_at?: Date | string
+  }
+
+  export type FailureReviewForkSliceUpdateManyMutationInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    slice_id?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type FailureReviewForkSliceUncheckedUpdateManyInput = {
+    id?: BigIntFieldUpdateOperationsInput | bigint | number
+    slice_id?: StringFieldUpdateOperationsInput | string
+    fork_run_id?: StringFieldUpdateOperationsInput | string
+    llm_call_id?: NullableStringFieldUpdateOperationsInput | string | null
+    identity_key?: StringFieldUpdateOperationsInput | string
+    goal_id?: NullableStringFieldUpdateOperationsInput | string | null
+    input_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    input_stack_item_ids?: JsonNullValueInput | InputJsonValue
+    output_start_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    output_end_index?: NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+    canonical_request?: JsonNullValueInput | InputJsonValue
+    wire_request?: NullableJsonNullValueInput | InputJsonValue
+    canonical_response?: NullableJsonNullValueInput | InputJsonValue
+    wire_response?: NullableJsonNullValueInput | InputJsonValue
+    raw_response?: NullableJsonNullValueInput | InputJsonValue
+    output_items?: JsonNullValueInput | InputJsonValue
+    status?: StringFieldUpdateOperationsInput | string
+    token_usage?: JsonNullValueInput | InputJsonValue
+    trace_id?: NullableStringFieldUpdateOperationsInput | string | null
+    run_id?: NullableStringFieldUpdateOperationsInput | string | null
+    agent_turn?: NullableIntFieldUpdateOperationsInput | number | null
+    model_name?: NullableStringFieldUpdateOperationsInput | string | null
+    model_provider?: NullableStringFieldUpdateOperationsInput | string | null
+    request_format_version?: NullableStringFieldUpdateOperationsInput | string | null
+    wire_provider_format?: NullableStringFieldUpdateOperationsInput | string | null
+    processing_time_ms?: NullableIntFieldUpdateOperationsInput | number | null
+    metadata?: JsonNullValueInput | InputJsonValue
+    created_at?: DateTimeFieldUpdateOperationsInput | Date | string
+    completed_at?: NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+    updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
   export type BigIntFilter<$PrismaModel = never> = {
     equals?: bigint | number | BigIntFieldRefInput<$PrismaModel>
     in?: bigint[] | number[] | ListBigIntFieldRefInput<$PrismaModel>
@@ -122693,6 +125977,161 @@ export namespace Prisma {
     band_ceiling?: SortOrder
     corpus_count?: SortOrder
     top_k?: SortOrder
+  }
+
+  export type XiaoniGoalCountOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    revision?: SortOrder
+    objective?: SortOrder
+    phase?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+    blocked_reason?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type XiaoniGoalAvgOrderByAggregateInput = {
+    revision?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+  }
+
+  export type XiaoniGoalMaxOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    revision?: SortOrder
+    objective?: SortOrder
+    phase?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+    blocked_reason?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type XiaoniGoalMinOrderByAggregateInput = {
+    id?: SortOrder
+    identity_key?: SortOrder
+    revision?: SortOrder
+    objective?: SortOrder
+    phase?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+    blocked_reason?: SortOrder
+    created_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type XiaoniGoalSumOrderByAggregateInput = {
+    revision?: SortOrder
+    rounds_started?: SortOrder
+    max_goal_rounds?: SortOrder
+  }
+
+  export type FailureReviewForkSliceCountOrderByAggregateInput = {
+    id?: SortOrder
+    slice_id?: SortOrder
+    fork_run_id?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    goal_id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    input_stack_item_ids?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    canonical_request?: SortOrder
+    wire_request?: SortOrder
+    canonical_response?: SortOrder
+    wire_response?: SortOrder
+    raw_response?: SortOrder
+    output_items?: SortOrder
+    status?: SortOrder
+    token_usage?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    metadata?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type FailureReviewForkSliceAvgOrderByAggregateInput = {
+    id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    agent_turn?: SortOrder
+    processing_time_ms?: SortOrder
+  }
+
+  export type FailureReviewForkSliceMaxOrderByAggregateInput = {
+    id?: SortOrder
+    slice_id?: SortOrder
+    fork_run_id?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    goal_id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type FailureReviewForkSliceMinOrderByAggregateInput = {
+    id?: SortOrder
+    slice_id?: SortOrder
+    fork_run_id?: SortOrder
+    llm_call_id?: SortOrder
+    identity_key?: SortOrder
+    goal_id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    status?: SortOrder
+    trace_id?: SortOrder
+    run_id?: SortOrder
+    agent_turn?: SortOrder
+    model_name?: SortOrder
+    model_provider?: SortOrder
+    request_format_version?: SortOrder
+    wire_provider_format?: SortOrder
+    processing_time_ms?: SortOrder
+    created_at?: SortOrder
+    completed_at?: SortOrder
+    updated_at?: SortOrder
+  }
+
+  export type FailureReviewForkSliceSumOrderByAggregateInput = {
+    id?: SortOrder
+    input_start_index?: SortOrder
+    input_end_index?: SortOrder
+    output_start_index?: SortOrder
+    output_end_index?: SortOrder
+    agent_turn?: SortOrder
+    processing_time_ms?: SortOrder
   }
 
   export type BigIntFieldUpdateOperationsInput = {
