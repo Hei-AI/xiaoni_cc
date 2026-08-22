@@ -11958,8 +11958,9 @@ export class AgentLoopService {
   // 它和 xiaoni_plan 走同一条通道、同样是一段自然语言 —— **可核对性是它们在她眼里唯一的
   // 分别**(ADR-0007:自生声音的权威只能来自可核对的证据)。写成指令它就退化成第二个 plan。
   //
-  // 账本复用 subconscious_agent_fork_* 四张表:forkRunId 前缀(failure-review: 对
-  // subconscious-fork:)本身就是判别符,不需要加列。
+  // 账本落**独立表** failure_review_fork_slices。曾经想复用 subconscious_agent_fork_*
+  // 并以 forkRunId 前缀当判别符 —— **那是错的**:那几张表的读取端(usage rollup、行动流)
+  // 按表名整表归类,不看前缀,混进去会把复核算成潜意识 fork。
   //
   // 已知未验证的假设(ADR-0009 §六):克隆她的上下文之后,尾部改写身份到底能不能挡住她的
   // 自我认知和情绪。上线后读它的输出前 20 条 —— **开口是「我想不起来了」这类第一人称自述,
@@ -11974,8 +11975,7 @@ export class AgentLoopService {
   }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const reminderText = renderFailureReviewReminder(params.objective, params.blockedReason);
-    // 账本复用 subconscious_agent_fork_* 四张表 —— forkRunId 的前缀
-    // (failure-review: 对 subconscious-fork:)就是判别符,不需要加 fork_kind 列。
+    // 账本落独立表(理由见上面方法头的注释)。
     const forkRunId = `failure-review:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
     const baseForkMetadata = {
       fork_kind: 'failure_review',
@@ -12216,6 +12216,17 @@ export class AgentLoopService {
     this.failureReviewsStarted.add(reviewKey);
     const baseRequest = seed.canonicalRequest;
     void (async () => {
+      // **开跑就留痕。** 收尾事件写在 finally 里 —— 之前收尾写在 try 内、await 之后,
+      // turn-1 就抛(provider 500/400)时一条记录都不留,事后无法回答「跑过没有、跑了几轮」。
+      let outcome: { text: string | null; toolCallsUsed: number; turns: number } | null = null;
+      let failure: string | null = null;
+      await this.store.logTimelineEvent({
+        traceId: `failure-review:${goal.id}:${goal.revision}`,
+        eventType: 'fork',
+        eventName: 'failure_review_fork',
+        eventPhase: 'start',
+        metadata: { goal_id: goal.id, goal_revision: goal.revision, objective: goal.objective }
+      }).catch(() => undefined);
       try {
         const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
         const result = await this.runFailureReviewFork({
@@ -12226,26 +12237,8 @@ export class AgentLoopService {
           queueMessage,
           runtimePrompt
         });
+        outcome = result;
         const text = (result.text || '').trim();
-        // 观测(ADR-0009 §六,**必需项**):把这次复核的输出原文落库。
-        // 因为「克隆 + 尾部改写身份」能不能挡住她的自我认知未经验证,上线后要人工读前 20 条
-        // 判断人称与语气 —— **开口是「我想不起来了」这类第一人称自述,就是隔离失败**。
-        // 只有日志的话读不到、也查不了。
-        await this.store.logTimelineEvent({
-          traceId: `failure-review:${goal.id}`,
-          eventType: 'fork',
-          eventName: 'failure_review_fork',
-          eventPhase: text ? 'completed' : 'empty',
-          metadata: {
-            goal_id: goal.id,
-            objective: goal.objective,
-            blocked_reason: goal.blockedReason,
-            tool_calls_used: result.toolCallsUsed,
-            turns: result.turns,
-            findings_text: text,
-            delivered: shouldDeliverReviewFindings(text)
-          }
-        }).catch(() => undefined);
         // 查不到就不投递 —— 不拿「我尽力了」去占她一次唤醒。
         if (!shouldDeliverReviewFindings(text)) {
           moduleLogger.info('复核 fork 无发现,不投递', {
@@ -12263,10 +12256,31 @@ export class AgentLoopService {
           findingsLength: text.length
         });
       } catch (error) {
-        moduleLogger.warn('复核 fork 失败', {
-          goalId: goal.id,
-          error: error instanceof Error ? error.message : String(error)
-        });
+        failure = error instanceof Error ? error.message : String(error);
+        moduleLogger.warn('复核 fork 失败', { goalId: goal.id, error: failure });
+      } finally {
+        // 观测(ADR-0009 §六,**必需项**)。写在 finally:成功、无发现、抛异常三条路都留痕,
+        // 否则 turn-1 就挂时事后无法回答「跑过没有、跑了几轮」。
+        // 输出原文必须落库 —— 上线后要人工读前 20 条判断人称与语气,
+        // **开口是「我想不起来了」这类第一人称自述,就是隔离失败**(那时退回全新上下文方案)。
+        const text = (outcome?.text || '').trim();
+        await this.store.logTimelineEvent({
+          traceId: `failure-review:${goal.id}:${goal.revision}`,
+          eventType: 'fork',
+          eventName: 'failure_review_fork',
+          eventPhase: failure ? 'failed' : (text ? 'completed' : 'empty'),
+          metadata: {
+            goal_id: goal.id,
+            goal_revision: goal.revision,
+            objective: goal.objective,
+            blocked_reason: goal.blockedReason,
+            tool_calls_used: outcome?.toolCallsUsed ?? 0,
+            turns: outcome?.turns ?? 0,
+            findings_text: text,
+            delivered: shouldDeliverReviewFindings(text),
+            error_message: failure
+          }
+        }).catch(() => undefined);
       }
     })();
   }

@@ -24,6 +24,7 @@ import {
   getActiveXiaoniGoal,
   listXiaoniGoals,
   listRuntimeTimelineEvents,
+  listFailureReviewForkSlices,
   getLatestUnreadAgentInboundMessage,
   listAgentLifeEvents,
   listAgentMediaAssets,
@@ -1733,10 +1734,22 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   router.get('/agent-runtime/failure-reviews', async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 20));
-      const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
+      // 两个来源合起来才是一次复核的全貌:timeline 有结论原文与成败,slice 有每轮的
+      // canonical/wire request 与 token 用量。分开给会让人以为「查到原文」就等于「可观测」。
+      const [rows, slices] = await Promise.all([
+        listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit }),
+        listFailureReviewForkSlices({ limit: limit * 4 })
+      ]);
+      const slicesByGoal = new Map<string, any[]>();
+      for (const slice of slices) {
+        const key = String(slice.goalId ?? '');
+        if (!slicesByGoal.has(key)) slicesByGoal.set(key, []);
+        slicesByGoal.get(key)!.push(slice);
+      }
       res.json({
         success: true,
         data: rows.map((row) => ({
+          slices: slicesByGoal.get(String(row.metadata?.goal_id ?? '')) ?? [],
           id: row.id,
           createdAt: row.createdAt,
           phase: row.eventPhase,

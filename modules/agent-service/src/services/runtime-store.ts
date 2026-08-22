@@ -12,6 +12,7 @@ import {
   ensureXiaoniGoalSchema,
   ensureFailureReviewForkSchema,
   recordFailureReviewForkSlice,
+  listFailureReviewForkSlices,
   getActiveXiaoniGoal,
   getXiaoniGoalById,
   createXiaoniGoal,
@@ -2013,6 +2014,10 @@ export class RuntimeStore {
 
   async updateGoal(input: Parameters<typeof updateXiaoniGoal>[0]) {
     return updateXiaoniGoal(input, databaseConfig);
+  }
+
+  async listFailureReviewForkSlices(limit: number) {
+    return listFailureReviewForkSlices({ limit }, databaseConfig);
   }
 
   async recordFailureReviewForkSlice(input: Record<string, unknown>) {

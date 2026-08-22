@@ -24,6 +24,7 @@ const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
 const USAGE_SOURCE_SUBCONSCIOUS_FORK = 'subconscious_agent_fork';
 const USAGE_SOURCE_PSYCH_ASSESSMENT_FORK = 'psych_assessment_fork';
+const USAGE_SOURCE_FAILURE_REVIEW_FORK = 'failure_review_fork';
 const USAGE_SOURCE_CODEX_PROVIDER = 'codex_provider';
 const USAGE_SOURCE_IMAGE_VISION_FORK = 'image_vision_fork';
 const USAGE_SOURCE_IMAGE_GENERATION = 'image_generation';
@@ -647,8 +648,10 @@ function usageRollupSourceFromSliceSelectSql(sourceKind = USAGE_SOURCE_MAIN) {
       ? 'psych_assessment_fork_slices'
     : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
       ? 'image_vision_fork_slices'
+    : sourceKind === USAGE_SOURCE_FAILURE_REVIEW_FORK
+      ? 'failure_review_fork_slices'
       : 'llm_request_slices';
-  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
+  const forkRunIdSelect = sourceKind === USAGE_SOURCE_COMPRESSION_FORK || sourceKind === USAGE_SOURCE_SUBCONSCIOUS_FORK || sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK || sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK || sourceKind === USAGE_SOURCE_FAILURE_REVIEW_FORK
     ? 'fork_run_id'
     : 'NULL::varchar AS fork_run_id';
   return `
@@ -716,6 +719,15 @@ function usageRollupSourceFromCodexProviderSelectSql() {
       )
     )
     AND NOT (
+      source_kind = 'failure_review_fork'
+      AND llm_call_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM failure_review_fork_slices
+        WHERE failure_review_fork_slices.llm_call_id = codex_provider_usage_events.llm_call_id
+      )
+    )
+    AND NOT (
       source_kind = 'image_vision_fork'
       AND llm_call_id IS NOT NULL
       AND EXISTS (
@@ -742,6 +754,8 @@ function usageRollupSourceFromAllSlicesSelectSql() {
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_PSYCH_ASSESSMENT_FORK)}
     UNION ALL
     ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_IMAGE_VISION_FORK)}
+    UNION ALL
+    ${usageRollupSourceFromSliceSelectSql(USAGE_SOURCE_FAILURE_REVIEW_FORK)}
     UNION ALL
     ${usageRollupSourceFromCodexProviderSelectSql()}
   `;
