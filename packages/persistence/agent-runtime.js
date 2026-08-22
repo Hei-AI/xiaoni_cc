@@ -404,6 +404,10 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
+  // 按事件名读 timeline_events。**时间列是 `event_time`,不是 `created_at`** ——
+  // timeline_events 是遗留表:没有 ensure DDL、没有 Prisma model,唯一的真相是生产库里
+  // 那张表的实际形状。第一版写成 created_at,单测跑的隔离库里那张表恰好是另一种形状
+  // (只有 created_at),所以测试全绿、一上线就 500。
   // 按事件名读 timeline_events。加这个是因为复核 fork 的输出原文落在这里,而 ADR-0009 §六
   // 把「输出文本单独可查」列为必需项 —— 只有日志的话读不到、也查不了,那条未验证的隔离性
   // 假设就永远判不了输赢。所有 PG 读写收口在 persistence(仓库红线),所以不在路由里拼查询。
@@ -416,18 +420,18 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
       const rows = eventName
         ? await sql.query(
             `SELECT id, trace_id, event_type, event_name, event_phase, component,
-                    duration_ms, metadata, created_at
+                    duration_ms, metadata, event_time
              FROM timeline_events
              WHERE event_name = ?
-             ORDER BY created_at DESC, id DESC
+             ORDER BY event_time DESC, id DESC
              LIMIT ${limit}`,
             [eventName]
           )
         : await sql.query(
             `SELECT id, trace_id, event_type, event_name, event_phase, component,
-                    duration_ms, metadata, created_at
+                    duration_ms, metadata, event_time
              FROM timeline_events
-             ORDER BY created_at DESC, id DESC
+             ORDER BY event_time DESC, id DESC
              LIMIT ${limit}`,
             []
           );
@@ -440,7 +444,8 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
         component: row.component,
         durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
         metadata: parseJson(row.metadata, {}),
-        createdAt: row.created_at
+        // 对外仍叫 createdAt(路由与前端按这个名字读),来源是生产表的 event_time
+        createdAt: row.event_time
       }));
     });
   }
