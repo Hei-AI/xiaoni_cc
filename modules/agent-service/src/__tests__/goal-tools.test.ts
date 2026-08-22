@@ -1,0 +1,251 @@
+import test from 'node:test';
+import assert from 'node:assert';
+
+import {
+  planGoalUpdate,
+  renderGoalRoundNotify,
+  isGoalRoundPayload,
+  readGoalIdFromPayload,
+  renderFailureReviewReminder,
+  buildFailureReviewForkRequest,
+  shouldDeliverReviewFindings,
+  isFailureReviewPayload,
+  isNewBlockedEpisode
+} from '../services/agent-loop-service';
+
+// update_goal 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
+// 一个字都不判断语义(她做没做到、算不算真卡住)—— 那些是她的判断,见 docs/adr/0010-*。
+//
+// 存储侧的两条不变量(一次只有一个 active、compare-and-set)由真 PG 用例守:
+// packages/persistence/__tests__/xiaoni-goal.realdb.test.js
+
+test('action → phase:四个动作各自映射,edit 沿用当前状态', () => {
+  assert.equal((planGoalUpdate({ action: 'pause' }, 'active') as any).phase, 'paused');
+  assert.equal((planGoalUpdate({ action: 'resume' }, 'paused') as any).phase, 'active');
+  assert.equal((planGoalUpdate({ action: 'complete' }, 'active') as any).phase, 'completed');
+  // edit 不改状态:一个 paused 的目标被 edit 之后仍然是 paused,不会被悄悄叫醒
+  assert.equal((planGoalUpdate({ action: 'edit', objective: '改后的' }, 'paused') as any).phase, 'paused');
+});
+
+test('blocked 必须带具体理由,空的或只有空白一律拒绝', () => {
+  const noReason = planGoalUpdate({ action: 'blocked' }, 'active');
+  assert.equal(noReason.ok, false);
+  assert.equal((noReason as any).reason, 'blocked_reason_required');
+
+  const blankReason = planGoalUpdate({ action: 'blocked', blocked_reason: '   ' }, 'active');
+  assert.equal(blankReason.ok, false);
+
+  const real = planGoalUpdate(
+    { action: 'blocked', blocked_reason: 'grep 了十一次关键词,没有一次匹配到人名' },
+    'active'
+  );
+  assert.equal(real.ok, true);
+  assert.equal((real as any).phase, 'blocked');
+  assert.match((real as any).blockedReason, /十一次/);
+});
+
+test('不认识的 action 当场拒绝,不猜她想干嘛', () => {
+  for (const action of ['done', 'finish', 'stop', '', 'BLOCKED']) {
+    const plan = planGoalUpdate({ action }, 'active');
+    assert.equal(plan.ok, false, `action=${action} 应该被拒绝`);
+    assert.equal((plan as any).reason, 'invalid_action');
+  }
+});
+
+test('goal 不存在时先报 not_found,不去猜 action', () => {
+  const plan = planGoalUpdate({ action: 'complete' }, null);
+  assert.equal(plan.ok, false);
+  assert.equal((plan as any).reason, 'not_found');
+});
+
+test('objective / max_goal_rounds 只在 edit 里生效 —— 一次 pause 不许顺手改掉目标', () => {
+  const pause = planGoalUpdate(
+    { action: 'pause', objective: '偷偷换个目标', max_goal_rounds: 999 },
+    'active'
+  ) as any;
+  assert.equal(pause.ok, true);
+  assert.equal(pause.objective, undefined, 'pause 不该携带 objective');
+  assert.equal(pause.maxGoalRounds, undefined, 'pause 不该携带轮次上限');
+
+  const edit = planGoalUpdate(
+    { action: 'edit', objective: '读完 Howard 前六章', max_goal_rounds: 30 },
+    'active'
+  ) as any;
+  assert.equal(edit.objective, '读完 Howard 前六章');
+  assert.equal(edit.maxGoalRounds, 30);
+});
+
+test('blocked_reason 只跟着 blocked 走,别的 action 传了就忽略', () => {
+  const complete = planGoalUpdate(
+    { action: 'complete', blocked_reason: '一条陈旧的卡住理由' },
+    'active'
+  ) as any;
+  assert.equal(complete.ok, true);
+  assert.equal(
+    complete.blockedReason,
+    undefined,
+    '一条陈旧的卡住理由不许跟着一个已完成的目标走'
+  );
+});
+
+test('轮次上限:非数字、非有限值一律忽略,不写进存储动作', () => {
+  for (const bad of ['30', null, undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+    const plan = planGoalUpdate({ action: 'edit', max_goal_rounds: bad }, 'active') as any;
+    assert.equal(plan.ok, true);
+    assert.equal(plan.maxGoalRounds, undefined, `max_goal_rounds=${String(bad)} 应被忽略`);
+  }
+  // 小数截断成整数,不是拒绝 —— 她写 30.7 的意思显然是 30
+  const truncated = planGoalUpdate({ action: 'edit', max_goal_rounds: 30.7 }, 'active') as any;
+  assert.equal(truncated.maxGoalRounds, 30);
+});
+
+// ── 续跑块(issue #3)──────────────────────────────────────────────────────────
+// D6 的可执行形态:相邻两轮**除了 round 数字之外逐字节相同**。
+// 这一条是它和 xiaoni_plan 的关键差别 —— plan 每轮现写一段散文(实测 95 份只有 22 种开头),
+// 既污染上下文又没法复用前缀;这一块 append-only,落在可复用前缀之后。
+
+test('相邻两轮的续跑块:除 round 数字外逐字节相同', () => {
+  const objective = '把 gorton 写到第 100 章';
+  const r3 = renderGoalRoundNotify(objective, 3, 20);
+  const r4 = renderGoalRoundNotify(objective, 4, 20);
+
+  assert.notEqual(r3, r4, '轮次不同,块不该完全一样');
+  // 把 round 数字抹平之后必须完全相等 —— 任何其它字节漂移都会让前缀失效
+  const flatten = (text: string) => text.replace(/round="\d+"/, 'round="N"');
+  assert.equal(flatten(r3), flatten(r4));
+});
+
+test('续跑块结构:objective 原样在块里,轮次和上限都在属性上', () => {
+  const block = renderGoalRoundNotify('读完 Howard 前六章', 7, 20);
+  assert.match(block, /<goal_round round="7" max="20">/);
+  assert.match(block, /读完 Howard 前六章/);
+  assert.match(block, /<\/goal_round>/);
+});
+
+test('objective 一个字都不改:引擎不重写她写的目标', () => {
+  const weird = '  两边留空格  和\n换行  ';
+  assert.ok(renderGoalRoundNotify(weird, 1, 20).includes(weird));
+});
+
+test('轮次计数只认 goal_round:别的 reason 一律不推进', () => {
+  const goalRound = {
+    systemReminder: { reason: 'goal_round' },
+    rawPayload: { reason: 'goal_round', goal_id: 'goal_abc' }
+  } as any;
+  assert.equal(isGoalRoundPayload(goalRound), true);
+  assert.equal(readGoalIdFromPayload(goalRound), 'goal_abc');
+
+  for (const reason of ['subconscious_agent', 'clock_ping', 'attention_lease', 'external']) {
+    const other = { systemReminder: { reason }, rawPayload: { reason } } as any;
+    assert.equal(isGoalRoundPayload(other), false, `${reason} 不该推进 goal 轮次`);
+  }
+});
+
+test('goal_id 缺失或空白 → null,调用方据此跳过计数(不猜)', () => {
+  const noId = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round' } } as any;
+  assert.equal(readGoalIdFromPayload(noId), null);
+  const blank = {
+    systemReminder: { reason: 'goal_round' },
+    rawPayload: { reason: 'goal_round', goal_id: '   ' }
+  } as any;
+  assert.equal(readGoalIdFromPayload(blank), null);
+});
+
+// ── 复核 fork(issue #4 / #5)────────────────────────────────────────────────
+// 整套设计的赌注在引导文案的第一句:「你不是小腻」。克隆她的上下文之后能不能挡住她的
+// 自我认知和情绪,**未经验证**(ADR-0009 §六),上线后靠读输出的人称判断。
+
+test('引导文案:第一句就把身份切开,并且把她的目标和卡住理由原样带进去', () => {
+  const text = renderFailureReviewReminder('找到那个长期没音讯的人', 'grep 了十一次关键词,全是噪音');
+  assert.match(text, /你不是小腻/);
+  assert.match(text, /找到那个长期没音讯的人/);
+  assert.match(text, /grep 了十一次关键词,全是噪音/);
+  // 输出契约三禁必须在文案里,否则它会退化成第二个 plan(实测 plan 76% 零工具 run)
+  assert.match(text, /建议/);
+  assert.match(text, /指令/);
+  assert.match(text, /NO_FINDING/);
+});
+
+test('fork 请求:克隆 + 只在尾部追加一条,tools 与 tool_choice 一个字不动', () => {
+  const base = {
+    model: 'm',
+    input: [
+      { type: 'message', role: 'user', content: 'a' },
+      { type: 'message', role: 'assistant', content: 'b' }
+    ],
+    tools: [{ type: 'function', name: 'exec_command' }],
+    tool_choice: { type: 'allowed_tools', mode: 'auto', tools: [] },
+    parallel_tool_calls: true
+  } as any;
+  const fork = buildFailureReviewForkRequest(base, 1, 'REMINDER');
+
+  assert.deepEqual(fork.tools, base.tools, 'tools 不许改');
+  assert.deepEqual(fork.tool_choice, base.tool_choice, 'tool_choice 不许改');
+  assert.equal(fork.store, false);
+  // 前缀逐字节一致:追加只发生在尾部
+  assert.deepEqual(fork.input.slice(0, base.input.length), base.input);
+  assert.equal(fork.input.length, base.input.length + 1);
+  assert.equal((fork.metadata as any).failure_review_fork, 'true');
+  assert.equal((fork.metadata as any).no_persist, 'true');
+});
+
+test('同一次 fork 的多个 turn 共用同一份引导字节(否则 turn-2 起冷读)', () => {
+  const base = { model: 'm', input: [{ type: 'message', role: 'user', content: 'a' }], tools: [], parallel_tool_calls: true } as any;
+  const t1 = buildFailureReviewForkRequest(base, 1, 'SAME_BYTES');
+  const t2 = buildFailureReviewForkRequest(base, 2, 'SAME_BYTES');
+  assert.deepEqual(t1.input.at(-1), t2.input.at(-1), '尾部引导必须逐字节相同');
+});
+
+test('NO_FINDING 契约:查不到就不投递,不拿「我尽力了」占她一次唤醒', () => {
+  assert.equal(shouldDeliverReviewFindings('NO_FINDING'), false);
+  assert.equal(shouldDeliverReviewFindings('  NO_FINDING\n'), false);
+  assert.equal(shouldDeliverReviewFindings('NO_FINDING\n我翻遍了'), false);
+  assert.equal(shouldDeliverReviewFindings(''), false);
+  assert.equal(shouldDeliverReviewFindings('   '), false);
+  assert.equal(shouldDeliverReviewFindings(null), false);
+  assert.equal(shouldDeliverReviewFindings('diary/2026-08-16.md:996\n  「小伊: 8/8到现在没回。」'), true);
+});
+
+test('复核 notify 可识别:空转账本据此对它隐形', () => {
+  const review = { systemReminder: { reason: 'failure_review' }, rawPayload: { reason: 'failure_review' } } as any;
+  assert.equal(isFailureReviewPayload(review), true);
+  for (const reason of ['goal_round', 'subconscious_agent', 'clock_ping']) {
+    assert.equal(isFailureReviewPayload({ systemReminder: { reason }, rawPayload: { reason } } as any), false);
+  }
+});
+
+// ── blocked 是「相变」才触发复核(Spec 轴第八轮 (c)-4)──────────────────────────
+// 事故:去重键曾是 `${goalId}:${revision}`,而 revision 每次 mutation 都 +1 ——
+// 不 resume 连着报两次 blocked 就是两把不同的键,复核跑两遍。而那个集合还在内存里,
+// 重启即失效。spec §1 要的是「同一次卡住只复核一次,resume 之后再卡住才有第二次」,
+// 那本来就是一次**相变**,按相变判天然满足且不依赖任何进程内状态。
+
+test('blocked→blocked 不是新的一次卡住;resume→blocked 才是', () => {
+  // **用生产代码里那一个判据**,不在用例里重写一遍 —— 重写的话生产端改回按 revision
+  // 去重,这条用例照样绿(第二轮就栽在这种同义反复上)。
+  const entered = isNewBlockedEpisode;
+
+  assert.equal(entered('blocked', 'active'), true, '从 active 卡住 = 一次新的卡住');
+  assert.equal(entered('blocked', 'blocked'), false, '已经卡住了再报一次,不是新的一次');
+  assert.equal(entered('blocked', 'paused'), true, '从 paused 卡住 = 一次新的卡住');
+  assert.equal(entered('blocked', null), true);
+  // resume 之后再 blocked → 那时 current.phase 已经是 active,又成立
+  assert.equal(entered('complete', 'active'), false);
+  assert.equal(entered('pause', 'active'), false);
+});
+
+// ── goal 轮次与空转失效是两个量,不合并(D4)──────────────────────────────────
+// 事故:空转账本只豁免了 clock_ping 与 failure_review,goal_round run 照常记账 ——
+// goal 期间的零工具 run 把空转计数累高,goal 一结束,第一条 plan 就带着虚高的轮数
+// 进升级腿,升级凭据来自一段根本没跑 plan 的时间。
+
+test('goal_round 对空转账本隐形,和报时/复核同一条待遇', () => {
+  const goalRound = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round', goal_id: 'g1' } } as any;
+  assert.equal(isGoalRoundPayload(goalRound), true);
+  // 隐形的判据:整个 run 都由 goal_round 驱动。夹带了真实外部消息就照常记账,
+  // 否则一条 goal-round 就能把真空转洗白(与报时同一条理由)。
+  const claimed = [goalRound, goalRound];
+  assert.equal(claimed.every(isGoalRoundPayload), true);
+  const mixed = [goalRound, { systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' } } as any];
+  assert.equal(mixed.every(isGoalRoundPayload), false, '夹带外部消息的折叠 run 必须照常记账');
+});

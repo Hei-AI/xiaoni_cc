@@ -1763,6 +1763,92 @@ export function listAgentTasks(
   filters?: { sessionKey?: string; session_key?: string; status?: string; limit?: number },
   config?: DatabaseUrlConfig
 ): Promise<any[]>;
+
+export type XiaoniGoalPhase = 'active' | 'paused' | 'completed' | 'blocked';
+export type XiaoniGoalRecord = {
+  id: string;
+  identityKey: string;
+  revision: number;
+  objective: string;
+  phase: XiaoniGoalPhase;
+  roundsStarted: number;
+  maxGoalRounds: number;
+  blockedReason: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+export function listRuntimeTimelineEvents(
+  input?: { eventName?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<Array<{
+  id: number;
+  traceId: string | null;
+  eventType: string | null;
+  eventName: string | null;
+  eventPhase: string | null;
+  component: string | null;
+  durationMs: number | null;
+  metadata: Record<string, any>;
+  createdAt: string | Date | null;
+}>>;
+export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function recordFailureReviewForkSlice(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<Record<string, any> | null>;
+/** limit 是**每个 fork_run_id** 各自的上限,不是全局上限(一次复核轮数硬上界 32)。 */
+export function listFailureReviewForkSlices(
+  input?: { identityKey?: string; forkRunIds?: string[]; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<Array<{
+  id: number;
+  sliceId: string;
+  forkRunId: string;
+  goalId: string | null;
+  status: string;
+  agentTurn: number | null;
+  tokenUsage: unknown;
+  modelName: string | null;
+  canonicalRequestBytes: number;
+  wireRequestBytes: number;
+  metadata: unknown;
+  createdAt: string;
+}>>;
+/** 她 get_goal 时该看到的那一件:先 active,没有则取最近动过的未完成那件(paused/blocked)。 */
+export function getCurrentXiaoniGoal(
+  input?: { identityKey?: string; identity_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function getActiveXiaoniGoal(
+  input?: { identityKey?: string; identity_key?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function getXiaoniGoalById(
+  input?: { goalId?: string; goal_id?: string; id?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function createXiaoniGoal(
+  input: { objective: string; maxGoalRounds?: number; max_goal_rounds?: number; id?: string; identityKey?: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord>;
+/** compare-and-set。revision 不匹配返回 { ok:false, reason:'revision_mismatch', goal:<当前值> },不抛。 */
+export function updateXiaoniGoal(
+  input: {
+    goalId: string;
+    revision: number;
+    phase: XiaoniGoalPhase;
+    objective?: string;
+    maxGoalRounds?: number;
+    blockedReason?: string | null;
+  },
+  config?: DatabaseUrlConfig
+): Promise<{ ok: boolean; reason?: string; goal: XiaoniGoalRecord | null }>;
+/** 引擎侧轮次推进,**故意不动 revision**。非 active 或 id 不存在时返回 null。 */
+export function incrementXiaoniGoalRound(
+  input: { goalId: string },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord | null>;
+export function listXiaoniGoals(
+  input?: { identityKey?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniGoalRecord[]>;
 export type AbTurnSnapshotInput = {
   id?: string;
   sourceKey?: string;

@@ -1641,6 +1641,53 @@ exports.Prisma.XiaoniRecallShadowLogScalarFieldEnum = {
   dropped_sample: 'dropped_sample'
 };
 
+exports.Prisma.XiaoniGoalScalarFieldEnum = {
+  id: 'id',
+  identity_key: 'identity_key',
+  revision: 'revision',
+  objective: 'objective',
+  phase: 'phase',
+  rounds_started: 'rounds_started',
+  max_goal_rounds: 'max_goal_rounds',
+  blocked_reason: 'blocked_reason',
+  created_at: 'created_at',
+  updated_at: 'updated_at'
+};
+
+exports.Prisma.FailureReviewForkSliceScalarFieldEnum = {
+  id: 'id',
+  slice_id: 'slice_id',
+  fork_run_id: 'fork_run_id',
+  llm_call_id: 'llm_call_id',
+  identity_key: 'identity_key',
+  goal_id: 'goal_id',
+  input_start_index: 'input_start_index',
+  input_end_index: 'input_end_index',
+  input_stack_item_ids: 'input_stack_item_ids',
+  output_start_index: 'output_start_index',
+  output_end_index: 'output_end_index',
+  canonical_request: 'canonical_request',
+  wire_request: 'wire_request',
+  canonical_response: 'canonical_response',
+  wire_response: 'wire_response',
+  raw_response: 'raw_response',
+  output_items: 'output_items',
+  status: 'status',
+  token_usage: 'token_usage',
+  trace_id: 'trace_id',
+  run_id: 'run_id',
+  agent_turn: 'agent_turn',
+  model_name: 'model_name',
+  model_provider: 'model_provider',
+  request_format_version: 'request_format_version',
+  wire_provider_format: 'wire_provider_format',
+  processing_time_ms: 'processing_time_ms',
+  metadata: 'metadata',
+  created_at: 'created_at',
+  completed_at: 'completed_at',
+  updated_at: 'updated_at'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -1745,7 +1792,9 @@ exports.Prisma.ModelName = {
   TopicReviewEvent: 'TopicReviewEvent',
   GoldenChatCase: 'GoldenChatCase',
   XiaoniRecallCue: 'XiaoniRecallCue',
-  XiaoniRecallShadowLog: 'XiaoniRecallShadowLog'
+  XiaoniRecallShadowLog: 'XiaoniRecallShadowLog',
+  XiaoniGoal: 'XiaoniGoal',
+  FailureReviewForkSlice: 'FailureReviewForkSlice'
 };
 
 /**

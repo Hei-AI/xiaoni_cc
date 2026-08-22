@@ -287,6 +287,7 @@ interface XiaoniActivityFeed {
   compressionForkTimeline?: CompressionForkTimeline;
   subconsciousForkTimeline?: CompressionForkTimeline;
   psychAssessmentForkTimeline?: CompressionForkTimeline;
+  failureReviewForkTimeline?: CompressionForkTimeline;
   cacheHeartbeatTimeline?: CompressionForkTimeline;
   imageVisionForkTimeline?: CompressionForkTimeline;
 }
@@ -432,6 +433,7 @@ function rawTraceSpanIdForSource(
     && source !== 'subconscious_fork_llm_request'
     && source !== 'psych_assessment_fork_llm_request'
     && source !== 'image_vision_fork_llm_request'
+    && source !== 'failure_review_fork_llm_request'
     && source !== 'cache_heartbeat'
     && source !== 'task'
   ) {
@@ -582,6 +584,7 @@ function sourceLabel(source: string) {
     case 'compression_fork_llm_request':
     case 'psych_assessment_fork_llm_request':
     case 'image_vision_fork_llm_request':
+    case 'failure_review_fork_llm_request':
       return 'fork LLM';
     case 'compression_fork_item':
       return 'fork stack';
@@ -762,6 +765,11 @@ function forkKindForRun(run: CompressionForkRun) {
   if (run.source === 'psych_assessment_fork') {
     return 'psych_assessment';
   }
+  // 复核 fork(她宣布 goal blocked 时替她再查一遍)。不认它的话,行动流会把它归进
+  // 最后那个兜底分支 compression_memory —— 显示成压缩 fork,是错的。
+  if (run.source === 'failure_review_fork') {
+    return 'failure_review';
+  }
   return run.source === 'image_vision_fork' ? 'image_vision' : 'compression_memory';
 }
 
@@ -777,6 +785,9 @@ function forkAgentLabel(forkKind: string) {
   }
   if (forkKind === 'psych_assessment') {
     return '心理评估 Fork';
+  }
+  if (forkKind === 'failure_review') {
+    return '复核 Fork';
   }
   return 'Memory Compress Fork';
 }
@@ -806,6 +817,14 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
+  const failureReviewRuns = (feed?.failureReviewForkTimeline?.runs || []).map((run) => {
+    const forkKind = forkKindForRun(run);
+    return {
+      ...run,
+      forkKind,
+      agentLabel: forkAgentLabel(forkKind),
+    };
+  });
   const imageVisionRuns = (feed?.imageVisionForkTimeline?.runs || []).map((run) => {
     const forkKind = forkKindForRun(run);
     return {
@@ -822,7 +841,7 @@ function buildForkAgentRuns(feed?: XiaoniActivityFeed): ForkAgentRun[] {
       agentLabel: forkAgentLabel(forkKind),
     };
   });
-  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
+  return [...compressionRuns, ...subconsciousRuns, ...psychRuns, ...failureReviewRuns, ...imageVisionRuns, ...cacheHeartbeatRuns]
     .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime());
 }
 
@@ -1076,6 +1095,7 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
   const compressionRunsById = new Map<string, CompressionForkRun>();
   const subconsciousRunsById = new Map<string, CompressionForkRun>();
   const psychAssessmentRunsById = new Map<string, CompressionForkRun>();
+  const failureReviewRunsById = new Map<string, CompressionForkRun>();
   const imageVisionRunsById = new Map<string, CompressionForkRun>();
   const cacheHeartbeatRunsById = new Map<string, CompressionForkRun>();
 
@@ -1098,6 +1118,11 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     (page.psychAssessmentForkTimeline?.runs || []).forEach((run) => {
       if (!psychAssessmentRunsById.has(run.id)) {
         psychAssessmentRunsById.set(run.id, run);
+      }
+    });
+    (page.failureReviewForkTimeline?.runs || []).forEach((run) => {
+      if (!failureReviewRunsById.has(run.id)) {
+        failureReviewRunsById.set(run.id, run);
       }
     });
     (page.imageVisionForkTimeline?.runs || []).forEach((run) => {
@@ -1129,6 +1154,10 @@ function mergeActionStreamPages(pages: XiaoniActivityFeed[]): XiaoniActivityFeed
     psychAssessmentForkTimeline: {
       ...(firstPage.psychAssessmentForkTimeline || {}),
       runs: Array.from(psychAssessmentRunsById.values()),
+    },
+    failureReviewForkTimeline: {
+      ...(firstPage.failureReviewForkTimeline || {}),
+      runs: Array.from(failureReviewRunsById.values()),
     },
     cacheHeartbeatTimeline: {
       ...(firstPage.cacheHeartbeatTimeline || {}),

@@ -1474,7 +1474,12 @@ const TOOL_NAMES = {
   // through the Anthropic cloak). Restores the web_search name as a function tool.
   webSearch: 'web_search',
   // Anthropic computer-use tool; Claude returns a tool_use named "computer".
-  computerUse: 'computer'
+  computerUse: 'computer',
+  // 目标(goal):她自己立一件要做完的事,并且自己宣布做成了还是卡住了。
+  // 引擎不判定「这一轮有没有推进目标」——四家主流 harness 都不判,见 docs/adr/0010-*。
+  getGoal: 'get_goal',
+  createGoal: 'create_goal',
+  updateGoal: 'update_goal'
 } as const;
 
 const RUNTIME_TOOL_COSTS: Record<string, number> = {
@@ -1593,6 +1598,13 @@ const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOO
 // 自驱动 fork 的输出保险丝。实测基线:平均 1297、p50 1223、p90 1636 output token/次(7 天 2788 次),
 // 其中 97.3% 超过 800 —— 所以这个值【只有】在 self_continuation_reminder.md 的字数规矩先生效之后
 // 才不熔断。部署顺序:prompt 走目录 watcher 热加载先上、观察分布落到 p99 < 800,再上这一条。
+// 复核 fork 的三个预算。都是从一次受控实验(22 次工具调用)外推的,**只有一个样本**。
+// 上线后按真实分布调,别当成经过验证的常数。
+const FAILURE_REVIEW_FORK_MAX_TOOL_CALLS = 30;
+const FAILURE_REVIEW_FORK_MAX_TURNS = 32;
+const FAILURE_REVIEW_FORK_MAX_OUTPUT_TOKENS = 4000;
+// 查不到东西时的固定出口。开头命中就不投递 —— 不拿「我尽力了」去占她一次唤醒。
+const FAILURE_REVIEW_NO_FINDING = 'NO_FINDING';
 const SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS = 800;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
 const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
@@ -1862,6 +1874,155 @@ const RECOVER_ENERGY_TOOL = {
     }
   }
 } as const;
+
+// ── 目标(goal)三件套 ──────────────────────────────────────────────────────────
+// 形状照 DeepSeek Harness 的 packages/goal/tool-goal(get/create/update + 五个 action);
+// 权限模型**不照抄**:dsh 的 create_goal 要求直接人类回合,她 81% 的 run 是自驱动的。
+// 决定见 docs/adr/0010-*,实现见 docs/specs/xiaoni-goal-tools.md。
+//
+// 缓存:这三个定义进 tools 数组 = 一次性改掉主 agent 与全部 fork 的前缀。只在部署那一次
+// 冷读,之后稳态。**必须挑压缩边界那一帧部署**(那帧本来就冷读)。
+const GET_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.getGoal,
+    description: '看一眼你当前那件要做完的事:它是什么、现在什么状态、已经为它跑了几轮。没有就返回空。改它之前先调这个,拿到 goal_id 和 revision。',
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const CREATE_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.createGoal,
+    description: '立一件你想做完的事。一次只能有一件在做——已经有一件时会被拒绝,先把那件收掉。随手两下就做完的小事不用立。',
+    parameters: {
+      type: 'object',
+      properties: {
+        objective: {
+          type: 'string',
+          description: '你想做成什么。写具体,写成你自己以后看得懂的一句话；它会在接下来每一轮重新摆到你眼前,直到你说它完了。'
+        },
+        max_goal_rounds: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 200,
+          description: '可选。最多为它跑多少轮,不填按默认。跑满之后它还在,只是不再自动把你叫回来。'
+        }
+      },
+      required: ['objective'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+const UPDATE_GOAL_TOOL = {
+  type: 'function',
+  function: {
+    name: TOOL_NAMES.updateGoal,
+    // 措辞刻意不含「不许轻易 blocked」之类的约束(ADR-0010 决定三:用放大替代限制),
+    // 也刻意不提「blocked 会触发复核」(避免被当成可薅的捷径,见 spec §6)。
+    description: '改你当前那件事的状态。先 get_goal 拿到 goal_id 和 revision 再调,revision 对不上会被拒绝并把当前值还给你。complete=真做到了(得能指出哪儿看得到它成了);blocked=卡住了,必须写清楚具体哪一步过不去;pause/resume=先放一放/接着做;edit=改目标本身或轮次上限。',
+    parameters: {
+      type: 'object',
+      properties: {
+        goal_id: { type: 'string', description: 'get_goal 返回的 id,原样抄。' },
+        revision: { type: 'integer', description: 'get_goal 返回的 revision,原样抄。对不上说明这中间它被改过,你会拿到当前值,重读再改。' },
+        action: {
+          type: 'string',
+          enum: ['edit', 'pause', 'resume', 'complete', 'blocked'],
+          description: '这次要做什么。'
+        },
+        objective: { type: 'string', description: '仅 edit 有意义:改后的目标。' },
+        max_goal_rounds: { type: 'integer', minimum: 1, maximum: 200, description: '仅 edit 有意义:改后的轮次上限。' },
+        blocked_reason: { type: 'string', description: '仅 blocked 必填:具体卡在哪一步、缺什么。不是「难」「不确定」「还有别的事」。' }
+      },
+      required: ['goal_id', 'revision', 'action'],
+      additionalProperties: false
+    }
+  }
+} as const;
+
+// 目标工具的**纯**决策层:把模型给的参数翻译成一次存储动作,或者翻译成一句拒绝。
+// 抽出来是为了能不碰 DB 就测——executeTool 里剩下的只是「调 store、把结果包成 JSON」。
+// 这里一个字都不判断语义(她做没做到、算不算卡住),那些是她的判断(ADR-0010)。
+export type GoalUpdatePlan =
+  | { ok: false; reason: string; message: string }
+  | {
+      ok: true;
+      action: string;
+      phase: XiaoniGoalPhase;
+      objective?: string;
+      maxGoalRounds?: number;
+      blockedReason?: string;
+    };
+
+// goal 的四个状态。**与 packages/persistence 的 XIAONI_GOAL_PHASES 同一套**,
+// 手写第二份联合类型会在加状态时两边各说各的(存储层放行、这里编译不过,或反过来)。
+// Prisma 的唯一约束冲突。这里判的是**部分唯一索引**(一个 identity 只许一件 active),
+// 不是内部错误 —— 两处调用点(create / update resume)要同一套判别,分开写会漂。
+// 这次 blocked 是不是**一次新的卡住**。
+//
+// 判据是相变,不是计数:同一次卡住里她再报一次 blocked(比如补一句更具体的理由)不该
+// 再起一次复核;resume 之后又卡住才是新的一次。
+// 曾经用 `${goalId}:${revision}` 当去重键 —— revision 每次 mutation 都 +1,连着报两次
+// 就是两把键,复核跑两遍;而且那个集合在内存里,重启即失效。相变判天然满足 spec §1,
+// 且不依赖任何进程内状态。
+export function isNewBlockedEpisode(action: string, currentPhase: XiaoniGoalPhase | null) {
+  return action === 'blocked' && currentPhase !== 'blocked';
+}
+
+function isUniqueConstraintError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /Unique constraint|P2002/i.test(message);
+}
+
+type XiaoniGoalPhase = 'active' | 'paused' | 'completed' | 'blocked';
+
+const GOAL_ACTION_TO_PHASE: Record<string, XiaoniGoalPhase | 'keep'> = {
+  // edit 不改状态,沿用当前 phase(存储层要求 phase 必给)。
+  edit: 'keep',
+  pause: 'paused',
+  resume: 'active',
+  complete: 'completed',
+  blocked: 'blocked'
+};
+
+export function planGoalUpdate(
+  args: Record<string, unknown>,
+  currentPhase: XiaoniGoalPhase | null
+): GoalUpdatePlan {
+  const action = typeof args.action === 'string' ? args.action.trim() : '';
+  const mapped = GOAL_ACTION_TO_PHASE[action];
+  if (!mapped) {
+    return { ok: false, reason: 'invalid_action', message: 'action 只能是 edit / pause / resume / complete / blocked。' };
+  }
+  if (currentPhase === null) {
+    return { ok: false, reason: 'not_found', message: '没有这个 goal_id。先 get_goal 看看现在是什么。' };
+  }
+  const blockedReason = typeof args.blocked_reason === 'string' ? args.blocked_reason.trim() : '';
+  if (action === 'blocked' && !blockedReason) {
+    return { ok: false, reason: 'blocked_reason_required', message: '说卡住了,就得说清楚具体哪一步过不去。' };
+  }
+  const rawMax = args.max_goal_rounds ?? args.maxGoalRounds;
+  const objective = typeof args.objective === 'string' ? args.objective.trim() : '';
+  return {
+    ok: true,
+    action,
+    phase: mapped === 'keep' ? currentPhase : mapped,
+    // objective / maxGoalRounds 只在 edit 里有意义:其它 action 传了就忽略,免得
+    // 一次 pause 顺手把目标改了 —— 她看不到自己改了什么。
+    ...(action === 'edit' && objective ? { objective } : {}),
+    ...(action === 'edit' && typeof rawMax === 'number' && Number.isFinite(rawMax)
+      ? { maxGoalRounds: Math.trunc(rawMax) }
+      : {}),
+    ...(action === 'blocked' ? { blockedReason } : {})
+  };
+}
 
 const UNREAD_MEANING_TOOL = {
   type: 'function',
@@ -2607,7 +2768,12 @@ function selectMainLoopToolDefinitions(modelName: string): OpenResponseToolDefin
     GROUP_MESSAGE_TOOL,
     INSPECT_IMAGE_TOOL,
     IMAGE_TASK_TOOL,
-    RECOVER_ENERGY_TOOL
+    RECOVER_ENERGY_TOOL,
+    // 目标三件套。与下面 resolveMainLoopToolChoice 的 allowed 列表**必须同步**,
+    // 否则 allowed-tools 前缀和 tools 定义对不上。
+    GET_GOAL_TOOL,
+    CREATE_GOAL_TOOL,
+    UPDATE_GOAL_TOOL
   ];
 }
 
@@ -2648,6 +2814,10 @@ function resolveMainLoopToolChoice(loopInput: OpenResponseInputItem[]): OpenResp
     tools.unshift({ type: 'function', name: TOOL_NAMES.webSearch });
   }
   tools.push({ type: 'function', name: TOOL_NAMES.recoverEnergy });
+  // 目标三件套(与 selectMainLoopToolDefinitions 同步,见那边的注释)。
+  tools.push({ type: 'function', name: TOOL_NAMES.getGoal });
+  tools.push({ type: 'function', name: TOOL_NAMES.createGoal });
+  tools.push({ type: 'function', name: TOOL_NAMES.updateGoal });
   // Must mirror selectMainLoopToolDefinitions (same static flag) to keep the
   // allowed-tools prefix aligned with the tool definitions across loop + forks.
   if (agentConfig.computerUseEnabled) {
@@ -2850,6 +3020,65 @@ function renderPsychAssessmentReminder(): string {
 // ①被判定的 assistant 文本(cache_volatile，同 subconscious fork 的 recentNarration 重注模式) + ②判定指令。
 // tool_choice/tools 一律不动(继承主 loop 的 auto + 全量)。fork 不执行任何工具，只读它的文本判定，所以
 // 无需 allowedToolNames 执行层拦截(即便模型误调工具也不会被执行，最多导致判不到 token → fail-closed EVICT)。
+// 复核 fork 的尾部引导。第一句就是「你不是小腻」—— 这是整个设计的赌注:同一批材料,
+// 当事人查不出来,陌生人 22 次命令查出来了(受控实验见 docs/adr/0009-* §三)。
+// 文案外置到 docs/xiaoni_prompt/review_fork_reminder.md,便于运营直接改。
+export function renderFailureReviewReminder(objective: string, blockedReason: string): string {
+  return renderPromptSnippet('review_fork_reminder.md', {
+    OBJECTIVE: objective,
+    BLOCKED_REASON: blockedReason
+  }).trim();
+}
+
+// 复核 fork 请求。遵守 FORK 铁律:克隆主 agent 当轮请求(逐字节热前缀),只在【尾部】追加
+// 一条 developer 引导。tools / tool_choice 一律不动;工具限制走执行层 allowedToolNames。
+//
+// reminderText 由调用方**算一次**再逐轮传入:同一次 fork 的所有 turn 必须共用同一份字节,
+// 否则 turn-2 起冷读(这是 buildSubconsciousAgentForkRequest 注释里已经踩过的坑)。
+// 投不投递。查不到就不投 —— 不拿「我尽力了」去占她一次唤醒。
+// 抽成纯函数是为了能不跑 fork 就测这条契约。
+export function shouldDeliverReviewFindings(text: string | null | undefined): boolean {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) {
+    return false;
+  }
+  return !trimmed.startsWith(FAILURE_REVIEW_NO_FINDING);
+}
+
+// 复核 fork 累积链的**种子**。生产就是调这个取 turn-1 的 input,之后只在它后面追加。
+// 单独具名是为了让「种子必须含 reminder」变成可测的契约:曾经写错过一次(种子取裸 base,
+// reminder 只拼进每轮的副本尾部),结果 turn≥2 的最长前缀塌回 base,每轮冷读已累积的全部
+// exec 输出。见 docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」。
+export function seedFailureReviewForkInput(
+  baseRequest: CanonicalAgentTurnRequest,
+  reminderText: string
+): OpenResponseInputItem[] {
+  return buildFailureReviewForkRequest(baseRequest, 1, reminderText).input;
+}
+
+export function buildFailureReviewForkRequest(
+  baseRequest: CanonicalAgentTurnRequest,
+  forkTurn: number,
+  reminderText: string
+): CanonicalAgentTurnRequest {
+  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
+  forkRequest.parallel_tool_calls = true;
+  forkRequest.store = false;
+  // 证据清单比 plan 长(路径 + 原文 + 定位方式,可能好几条),但仍要有上限防失控长尾。
+  forkRequest.max_output_tokens = FAILURE_REVIEW_FORK_MAX_OUTPUT_TOKENS;
+  forkRequest.input = normalizeResponseInputItems([
+    ...forkRequest.input,
+    buildDeveloperInputItem([reminderText])
+  ]);
+  forkRequest.metadata = {
+    ...(forkRequest.metadata || {}),
+    failure_review_fork: 'true',
+    fork_turn: String(forkTurn),
+    no_persist: 'true'
+  };
+  return forkRequest;
+}
+
 export function buildPsychAssessmentForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   assistantTextItems: OpenResponseInputItem[]
@@ -4292,6 +4521,15 @@ export function renderSubconsciousPlanCorrectionForTest() {
 
 export function renderSelfContinuationReminderForTest() {
   return renderSelfContinuationReminder();
+}
+
+// goal 活着时的续跑块。**引擎拼装,不由模型生成** —— 这是它和 xiaoni_plan 的关键差别:
+// plan 每轮现写一段散文(实测 95 份只有 22 种开头,既污染又没法复用),这一块轮间只有
+// round 数字变,append-only 落在可复用前缀之后。见 docs/adr/0010-* 决定六。
+export function renderGoalRoundNotify(objective: string, round: number, maxRounds: number) {
+  const block = `<goal_round round="${round}" max="${maxRounds}">\n${objective}\n</goal_round>`;
+  const reminder = readPromptSnippet('goal_round_reminder.md').trim();
+  return reminder ? `${block}\n\n${reminder}` : block;
 }
 
 function renderSubconsciousAgentNotify(finalAnswerText: string) {
@@ -6419,6 +6657,10 @@ export class AgentLoopService {
   // clock_ping(2h)或外部消息把她拉回来。60 天 44 次 fork 失败里有 27 次是这个形状。
   // 保留 seed 后:失败 → backoff 到期 → 下一个空闲 tick 用同一份 seed 重试。
   // null after a restart (no fresh main run yet) ⇒ no fork until the next run(重启桶由 clock_ping 兜底)。
+  // 已经起过复核的 blocked 次(goalId:revision)。进程内存,重启归零 —— 重启后最多多跑一次,
+  // 而入队那一层的永久唯一索引仍然挡得住重复投递。
+  private readonly failureReviewsStarted = new Set<string>();
+
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
     recentNarrationItems: OpenResponseInputItem[];
@@ -6646,6 +6888,30 @@ export class AgentLoopService {
       ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
       0
     );
+    // goal 轮次推进:**只在这条 goal_round 输入被认领时 +1**,不看她这一轮干了什么、
+    // 有没有产出、工具报没报错(照 dsh 的 goal-round-driver:the driver does not classify
+    // the preceding activity)。它和空转失效计数是两个不同的量,不合并 —— 空转数的是
+    // 「跑了却没产出」,goal round 数的是「为这个目标跑了几轮」。
+    // fail-open:计数失败不挡这一轮的执行,最多下一轮再发一条同轮次的(dedupeKey 挡重)。
+    if (isGoalRoundPayload(queueMessage.payload)) {
+      const goalId = readGoalIdFromPayload(queueMessage.payload);
+      // 类型上**不**放宽:this.store 是 RuntimeStore,方法被改名/删掉时编译期就红。
+      // 放宽成可选属性的话,真丢了方法只会静默不计数 —— 那正是这条分支要消除的那类失败。
+      // 运行期仍留 guard:冻结的缓存回归用例用的是精简 store 桩,桩上没有这个方法。
+      const bumpRound: RuntimeStore['incrementGoalRound'] | undefined = this.store.incrementGoalRound;
+      if (goalId && typeof bumpRound !== 'function') {
+        moduleLogger.warn('store 上没有 incrementGoalRound,本轮 goal 轮次不计数', { goalId });
+      }
+      if (goalId && typeof bumpRound === 'function') {
+        await bumpRound.call(this.store, goalId).catch((error) => {
+          moduleLogger.warn('goal round 计数推进失败', {
+            goalId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+          return null;
+        });
+      }
+    }
     // 被动召回 query:认领即消费,此刻这条内容才是她正在做的事。fire-and-forget,零缓存影响。
     fireConsumedNotifyRecall(queueMessage.payload as unknown as Record<string, unknown>);
     await this.processRuntimeFrame(queueMessage, {
@@ -6710,6 +6976,51 @@ export class AgentLoopService {
     }
     if (this.subconsciousAgentForkInFlight) {
       return;
+    }
+
+    // ── goal 活着时,潜意识让位 ────────────────────────────────────────────────
+    // plan 的唯一职责是点火(她输出纯文本之后 loop 没法自动继续)。goal 活着 = 点火理由
+    // 已经存在,不需要每轮现写一段。此时改塞一个引擎拼装的固定块,轮间只差 round 数字。
+    // 见 docs/adr/0010-* 决定五。
+    //
+    // fail-open:读 goal 失败一律退回潜意识 fork —— 这条路只是「更省的点火」,
+    // 它挂了不能连带把她的续跑一起挂掉。
+    // 运行期仍留 guard:冻结的缓存回归用例用的是精简 store 桩,不该因为新增一个与缓存
+    // 无关的方法就被迫改动 —— 那几支用例是冻结的。
+    // 类型上**不**放宽(理由同 goal 轮次计数处):改名即编译期红,不退化成静默 fail-open。
+    const readActiveGoal: RuntimeStore['getActiveGoal'] | undefined = this.store.getActiveGoal;
+    if (typeof readActiveGoal !== 'function') {
+      moduleLogger.warn('store 上没有 getActiveGoal,本轮退回潜意识 fork');
+    }
+    const activeGoal = typeof readActiveGoal !== 'function'
+      ? null
+      : await readActiveGoal.call(this.store).catch((error) => {
+      moduleLogger.warn('读取 active goal 失败,本轮退回潜意识 fork', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    });
+    if (activeGoal && activeGoal.roundsStarted < activeGoal.maxGoalRounds) {
+      try {
+        const enqueued = await this.enqueueGoalRoundNotify(activeGoal);
+        // 【别让她永久哑掉】dedupeKey 带轮次;如果上一条 goal_round 已经入过队而轮次没有
+        // 前进(比如 claim 时 incrementGoalRound 失败),这里会撞到去重、拿不到新行。
+        // 那种情况下**不能 return** —— 否则此后每次 settle 都算出同一个 dedupeKey、
+        // 每次都被去重、每次都跳过潜意识 fork,她就再也不会被叫醒了。
+        if (enqueued?.created) {
+          // seed 留着不动:下一次真需要潜意识时(goal 收尾或跑满)它还在。
+          return;
+        }
+        moduleLogger.warn('goal round 撞去重(轮次没前进),本轮退回潜意识 fork', {
+          goalId: activeGoal.id,
+          roundsStarted: activeGoal.roundsStarted
+        });
+      } catch (error) {
+        moduleLogger.warn('goal round 入队失败,本轮退回潜意识 fork', {
+          goalId: activeGoal.id,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
     }
 
     // Take (do NOT yet consume) the seed from the last settled main run. It is cleared only after
@@ -8852,7 +9163,19 @@ export class AgentLoopService {
         // 折叠 run 照常记账,否则一条报时就能把真空转洗白。
         const runDrivenOnlyByClockPing = isClockPingPayload(payload)
           && continuationQueueMessages.every((claimed) => isClockPingPayload(claimed.payload));
-        if (!runDrivenOnlyByClockPing) {
+        // 同款隐形:整个 run 都由复核 notify 驱动时不记账。与报时同一条理由 ——
+        // 夹带了真实外部消息的折叠 run 照常记账,否则一条复核就能把真空转洗白。
+        const runDrivenOnlyByFailureReview = isFailureReviewPayload(payload)
+          && continuationQueueMessages.every((claimed) => isFailureReviewPayload(claimed.payload));
+        // goal-round 同款隐形。**这是 D4 的硬要求**(spec §4「与空转计数并存,互不换算」):
+        // goal 轮次数的是「为这个目标跑了几轮」,空转数的是「跑了却没产出」—— 两个量。
+        // 不隐形的话,goal 期间的零工具 run 会把空转计数累高;goal 一结束,第一条 plan
+        // 就带着虚高的轮数进升级腿,升级凭据来自一段根本没跑 plan 的时间。
+        // goal 这一侧本来就有自己的闸(max_goal_rounds),不需要空转账本再管一遍。
+        // 与报时同理:整个 run 都由 goal-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
+        const runDrivenOnlyByGoalRound = isGoalRoundPayload(payload)
+          && continuationQueueMessages.every((claimed) => isGoalRoundPayload(claimed.payload));
+        if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview && !runDrivenOnlyByGoalRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
             settledOnFinalAnswer: actionPlan.hasFinalAnswer,
             didRealWork: runTouchedWorld
@@ -10614,6 +10937,18 @@ export class AgentLoopService {
     }
   }
 
+  // 复核 fork 的 slice 落到**独立表**(理由见 packages/persistence/xiaoni-goal.js 的注释)。
+  // fail-open:账本写不进去不能连带把复核本身弄挂 —— 它的产物是给她的证据,不是账本。
+  private async recordFailureReviewForkSliceSafe(params: Record<string, unknown>) {
+    try {
+      await this.store.recordFailureReviewForkSlice(params);
+    } catch (error) {
+      moduleLogger.warn('复核 fork slice 落库失败', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private async recordSubconsciousAgentForkRunSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkRun']>[0]) {
     const recorder = (this.store as RuntimeStore & {
       recordSubconsciousAgentForkRun?: RuntimeStore['recordSubconsciousAgentForkRun'];
@@ -11627,6 +11962,443 @@ export class AgentLoopService {
     return enqueuer.call(this.store, {
       message: {
         traceId: params.traceId,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+  }
+
+  // goal 活着时的点火。照 enqueueSubconsciousAgentNotify 的形状,但正文由引擎拼装
+  // (见 renderGoalRoundNotify),所以轮间字节只差一个 round 数字。
+  //
+  // 缓存:正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack
+  // replay 从同一字段读回同样的字节 —— 逐字节可重建,与既有几条 notify 同一条已验过的路径。
+  // ── 复核 fork ──────────────────────────────────────────────────────────────
+  // 她宣布目标卡住(update_goal action=blocked)之后跑一次。克隆她当轮请求 + 尾部换成第三方
+  // 引导,用受限 exec_command 自己查一遍,只把**可核对的证据**经 Notify Bucket 交回。
+  //
+  // 它和 xiaoni_plan 走同一条通道、同样是一段自然语言 —— **可核对性是它们在她眼里唯一的
+  // 分别**(ADR-0007:自生声音的权威只能来自可核对的证据)。写成指令它就退化成第二个 plan。
+  //
+  // 账本落**独立表** failure_review_fork_slices。曾经想复用 subconscious_agent_fork_*
+  // 并以 forkRunId 前缀当判别符 —— **那是错的**:那几张表的读取端(usage rollup、行动流)
+  // 按表名整表归类,不看前缀,混进去会把复核算成潜意识 fork。
+  //
+  // 已知未验证的假设(ADR-0009 §六):克隆她的上下文之后,尾部改写身份到底能不能挡住她的
+  // 自我认知和情绪。上线后读它的输出前 20 条 —— **开口是「我想不起来了」这类第一人称自述,
+  // 就是隔离失败**,那时退回全新上下文方案。
+  private async runFailureReviewFork(params: {
+    goalId: string;
+    objective: string;
+    blockedReason: string;
+    forkRunId: string;
+    baseRequest: CanonicalAgentTurnRequest;
+    queueMessage: QueueMessageRecord['payload'];
+    runtimePrompt: ResolvedAgentRuntimePrompt;
+  }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
+    // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
+    const reminderText = renderFailureReviewReminder(params.objective, params.blockedReason);
+    // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
+    // 也是管理端把 slice 归到某一次复核的连接键。goal_id 不行:同一个 goal 可以反复 blocked,
+    // 每次都是独立一跑,按 goal 归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
+    const forkRunId = params.forkRunId;
+    const baseForkMetadata = {
+      fork_kind: 'failure_review',
+      goal_objective: params.objective,
+      blocked_reason: params.blockedReason,
+      no_main_stack_persist: true,
+      no_traffic_persist: true
+    };
+    // 【缓存链】reminder 必须从 turn-1 起就留在 forkInput 里,之后逐轮在它后面追加 ——
+    // 这样 turn N 的请求就是 turn N-1 请求的严格延长,滑窗才能把上一轮的真·末块当作本轮的
+    // prevBoundary(docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」)。
+    //
+    // 曾经写错过一次:forkInput 从裸 base 起,每轮把 reminder 拼进一个**副本**的尾部。
+    // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
+    // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
+    // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
+    let forkInput = seedFailureReviewForkInput(params.baseRequest, reminderText);
+    let toolCallsUsed = 0;
+    let turns = 0;
+    let finalText: string | null = null;
+
+    for (let forkTurn = 1; forkTurn <= FAILURE_REVIEW_FORK_MAX_TURNS; forkTurn += 1) {
+      turns = forkTurn;
+      const forkRequest = buildFailureReviewForkRequest(params.baseRequest, forkTurn, reminderText);
+      // 请求体用累积链,不用 builder 拼出来的那份(它只提供 metadata / 采样参数)。
+      forkRequest.input = normalizeResponseInputItems(forkInput);
+      await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
+      const modelResult = await this.executeSubconsciousAgentForkTurn(
+        forkRequest,
+        params.queueMessage,
+        params.runtimePrompt,
+        forkTurn,
+        { agentType: 'failure_review', executionMode: 'failure_review_fork_no_persist' }
+      );
+      const outputItems = extractCanonicalResponseOutputItems(modelResult);
+      const forkSliceId = modelResult.llm_request_slice_id
+        || modelResult.llm_call_id
+        || `failure-review-slice:${forkRunId}:${forkTurn}`;
+      await this.recordFailureReviewForkSliceSafe({
+        sliceId: forkSliceId,
+        forkRunId,
+        goalId: params.goalId,
+        llmCallId: modelResult.llm_call_id || null,
+        canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+        wireRequest: modelResult.wire_request || null,
+        canonicalResponse: modelResult.canonical_response || null,
+        wireResponse: modelResult.wire_response || null,
+        rawResponse: modelResult.raw_response || null,
+        outputItems,
+        status: modelResult.success ? 'completed' : 'failed',
+        tokenUsage: buildProviderTokenUsage(modelResult),
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        agentTurn: forkTurn,
+        modelName: modelResult.model || params.runtimePrompt.modelName,
+        modelProvider: modelResult.provider || null,
+        requestFormatVersion: modelResult.request_format_version || null,
+        wireProviderFormat: modelResult.wire_provider_format || null,
+        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+        metadata: {
+          ...baseForkMetadata,
+          ...buildProviderWireMetadata(modelResult),
+          fork_run_id: forkRunId,
+          fork_turn: forkTurn,
+          execution_mode: 'failure_review_fork'
+        }
+      });
+      if (outputItems.length === 0) {
+        break;
+      }
+
+      const actionPlan = this.responseActionRouter.route(modelResult.canonical_response);
+      const toolCalls = actionPlan.replayableOutputs.filter(isReplayableToolCall);
+      // fork 自己的血缘线:每轮把这一轮的输出追加进去,前缀逐轮延长(append-only)。
+      for (const replayItem of actionPlan.replayableOutputs) {
+        forkInput.push(replayItem.inputItem as OpenResponseInputItem);
+      }
+
+      if (toolCalls.length === 0) {
+        finalText = extractSubconsciousNaturalLanguage(outputItems);
+        break;
+      }
+
+      for (const item of toolCalls) {
+        // 预算用尽也**必须**给每个 function_call 配一个 function_call_output:
+        // 少一个,下一轮请求里就有孤儿 tool_use,provider 直接 400,整个 fork 死掉。
+        // (潜意识 fork 在同一位置是 throw;这里选择回一条明确的拒绝,让它自己收口成文字。)
+        if (toolCallsUsed >= FAILURE_REVIEW_FORK_MAX_TOOL_CALLS) {
+          forkInput.push({
+            type: 'function_call_output',
+            call_id: item.toolCall.callId,
+            output: '[复核预算已用尽:不再执行工具。把已经查到的东西写出来收口,查不到就回 NO_FINDING。]'
+          } as unknown as OpenResponseInputItem);
+          continue;
+        }
+        toolCallsUsed += 1;
+        let rawToolResult: Record<string, unknown>;
+        try {
+          // 执行层限制(Layer 2):只放行 exec_command。说话/发图/goal 工具在这里一律被拒 ——
+          // tools 与 tool_choice 一个字没改(Layer 1 的缓存对齐不能碰)。
+          rawToolResult = item.toolCall.name === TOOL_NAMES.execCommand
+            ? await this.executeTool(item.toolCall, params.queueMessage, {
+                currentCanonicalRequest: forkRequest
+              })
+            : buildToolRejectedResult(
+                item.toolCall,
+                renderPromptSnippet('fork_tool_rejected_output.md', {
+                  TOOL_NAME: item.toolCall.name,
+                  ALLOWED_TOOLS: TOOL_NAMES.execCommand
+                })
+              );
+        } catch (error) {
+          rawToolResult = buildToolErrorResult(item.toolCall, error);
+        }
+        forkInput.push({
+          type: 'function_call_output',
+          call_id: item.toolCall.callId,
+          output: buildSendToolOutput(rawToolResult)
+        } as unknown as OpenResponseInputItem);
+      }
+      forkInput = normalizeResponseInputItems(forkInput);
+    }
+
+    return { text: finalText, toolCallsUsed, turns };
+  }
+
+  // 复核结论回到她面前。走 Notify Bucket —— 与既有几条 notify 同一条已在线验过的缓存路径:
+  // 正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack replay
+  // 从同一字段读回同样字节,逐字节可重建。
+  private async enqueueFailureReviewNotify(params: { goalId: string; revision: number; findings: string }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      throw new Error('failure review notify requires queue enqueue persistence');
+    }
+    const now = new Date();
+    // 幂等按【这一次 blocked】,不是按 goal:dedupe_key 上是永久唯一索引,只用 goalId 的话
+    // 她 resume 之后再 blocked 就永远投不出第二条了(spec §1 明确要求那时该有第二次)。
+    // revision 每次 mutation +1,所以每一次 blocked 都有自己的键。
+    const messageSid = `failure-review:${params.goalId}:${params.revision}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = renderPromptSnippet('review_fork_notify.md', {
+      REVIEW_FINDINGS: params.findings
+    }).trim();
+    const rawPayload = {
+      reason: 'failure_review',
+      goal_id: params.goalId,
+      goal_revision: params.revision,
+      notify_template: 'review_fork_notify.md'
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'failure_review',
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      },
+      failureReview: rawPayload
+    };
+
+    // trace_id 必须**每条唯一**。主 trigger 路径的 stack runtime-input event_id 是
+    // `stack:${traceId || runId}:runtime-input`(:18131,那条路不传 queueMessageIds),而
+    // event_id 上是全局唯一约束、ON CONFLICT 是空操作 —— trace_id 一旦按 goal 常量,
+    // 同一个 goal 的第二轮起 runtime_input **一条都落不了库**,下一 run 的 replay 变短,
+    // run 边界缓存击穿。这是本仓库有过的事故(见 :12389 的同款警告与
+    // docs/CACHE_CONTRACT.md §3),别再用常量。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
+    return enqueuer.call(this.store, {
+      message: {
+        traceId,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+  }
+
+  // blocked 的出口。**fire-and-forget**:复核要跑几十次工具调用、好几分钟,不能把她的这次
+  // update_goal 卡在那儿等 —— 结论本来就是经 Notify Bucket 回来的,不走工具返回值。
+  // 全链吞异常:复核挂了不能连带把她宣布 blocked 这件事一起挂掉。
+  private fireFailureReviewForBlockedGoal(
+    goal: { id: string; revision: number; objective: string; blockedReason: string | null },
+    queueMessage: QueueMessageRecord['payload']
+  ) {
+    // 起 fork 之前就去重:复核要跑到 30 次工具调用,重复的 blocked 不该白烧一遍再在
+    // 入队那一步被拦下。键按【这一次 blocked】(goalId + revision),不是按 goal。
+    const reviewKey = `${goal.id}:${goal.revision}`;
+    if (this.failureReviewsStarted.has(reviewKey)) {
+      return;
+    }
+    const seed = this.lastMainAgentForkSeed;
+    if (!seed?.canonicalRequest) {
+      // 刚重启、还没有可克隆的主请求。不重建上下文(重建会和主 loop 漂移),这一次就不复核。
+      // **不登记键**:这次是环境原因跳过(刚重启,没有可克隆的主请求),不是已经复核过。
+      // 先登记再守卫的话,这一次 blocked 会永久失去复核机会。
+      moduleLogger.warn('复核 fork 跳过:手上没有可克隆的主请求', { goalId: goal.id });
+      return;
+    }
+    this.failureReviewsStarted.add(reviewKey);
+    const baseRequest = seed.canonicalRequest;
+    void (async () => {
+      // **开跑就留痕。** 收尾事件写在 finally 里 —— 之前收尾写在 try 内、await 之后,
+      // turn-1 就抛(provider 500/400)时一条记录都不留,事后无法回答「跑过没有、跑了几轮」。
+      let outcome: { text: string | null; toolCallsUsed: number; turns: number } | null = null;
+      let failure: string | null = null;
+      // 「一次复核」的唯一标识。**在开跑之前生成**,好让 start 事件就带上它 —— 否则 fork
+      // turn-1 就挂掉时,只剩一条没有连接键的 start 行,事后无法把已落库的 slice 认回来。
+      const forkRunId = `failure-review:${queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+      await this.store.logTimelineEvent({
+        traceId: `failure-review:${goal.id}:${goal.revision}`,
+        eventType: 'fork',
+        eventName: 'failure_review_fork',
+        eventPhase: 'start',
+        metadata: { goal_id: goal.id, goal_revision: goal.revision, objective: goal.objective, fork_run_id: forkRunId }
+      }).catch(() => undefined);
+      try {
+        const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
+        const result = await this.runFailureReviewFork({
+          goalId: goal.id,
+          objective: goal.objective,
+          blockedReason: goal.blockedReason ?? '',
+          forkRunId,
+          baseRequest,
+          queueMessage,
+          runtimePrompt
+        });
+        outcome = result;
+        const text = (result.text || '').trim();
+        // 查不到就不投递 —— 不拿「我尽力了」去占她一次唤醒。
+        if (!shouldDeliverReviewFindings(text)) {
+          moduleLogger.info('复核 fork 无发现,不投递', {
+            goalId: goal.id,
+            toolCallsUsed: result.toolCallsUsed,
+            turns: result.turns
+          });
+          return;
+        }
+        await this.enqueueFailureReviewNotify({ goalId: goal.id, revision: goal.revision, findings: text });
+        moduleLogger.info('复核 fork 已投递', {
+          goalId: goal.id,
+          toolCallsUsed: result.toolCallsUsed,
+          turns: result.turns,
+          findingsLength: text.length
+        });
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+        moduleLogger.warn('复核 fork 失败', { goalId: goal.id, error: failure });
+      } finally {
+        // 观测(ADR-0009 §六,**必需项**)。写在 finally:成功、无发现、抛异常三条路都留痕,
+        // 否则 turn-1 就挂时事后无法回答「跑过没有、跑了几轮」。
+        // 输出原文必须落库 —— 上线后要人工读前 20 条判断人称与语气,
+        // **开口是「我想不起来了」这类第一人称自述,就是隔离失败**(那时退回全新上下文方案)。
+        const text = (outcome?.text || '').trim();
+        await this.store.logTimelineEvent({
+          traceId: `failure-review:${goal.id}:${goal.revision}`,
+          eventType: 'fork',
+          eventName: 'failure_review_fork',
+          eventPhase: failure ? 'failed' : (text ? 'completed' : 'empty'),
+          metadata: {
+            goal_id: goal.id,
+            goal_revision: goal.revision,
+            fork_run_id: forkRunId,
+            objective: goal.objective,
+            blocked_reason: goal.blockedReason,
+            tool_calls_used: outcome?.toolCallsUsed ?? 0,
+            turns: outcome?.turns ?? 0,
+            findings_text: text,
+            delivered: shouldDeliverReviewFindings(text),
+            error_message: failure
+          }
+        }).catch(() => undefined);
+      }
+    })();
+  }
+
+  private async enqueueGoalRoundNotify(goal: {
+    id: string;
+    objective: string;
+    roundsStarted: number;
+    maxGoalRounds: number;
+  }) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      throw new Error('goal round notify requires queue enqueue persistence');
+    }
+    const now = new Date();
+    const nextRound = goal.roundsStarted + 1;
+    // dedupeKey 带轮次:同一轮重复入队被唯一索引挡掉(比如引擎重启后重跑同一个空闲 tick)。
+    const messageSid = `goal-round:${goal.id}:${nextRound}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = renderGoalRoundNotify(goal.objective, nextRound, goal.maxGoalRounds);
+    const rawPayload = {
+      reason: 'goal_round',
+      goal_id: goal.id,
+      goal_round: nextRound,
+      goal_max_rounds: goal.maxGoalRounds,
+      notify_template: 'goal_round_reminder.md'
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'goal_round',
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      },
+      goalRound: rawPayload
+    };
+
+    // trace_id 必须**每条唯一**。主 trigger 路径的 stack runtime-input event_id 是
+    // `stack:${traceId || runId}:runtime-input`(:18131,那条路不传 queueMessageIds),而
+    // event_id 上是全局唯一约束、ON CONFLICT 是空操作 —— trace_id 一旦按 goal 常量,
+    // 同一个 goal 的第二轮起 runtime_input **一条都落不了库**,下一 run 的 replay 变短,
+    // run 边界缓存击穿。这是本仓库有过的事故(见 :12389 的同款警告与
+    // docs/CACHE_CONTRACT.md §3),别再用常量。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
+    return enqueuer.call(this.store, {
+      message: {
+        traceId,
         source: 'system_reminder',
         messageSid,
         dedupeKey: messageSid,
@@ -12940,7 +13712,13 @@ export class AgentLoopService {
     canonicalRequest: CanonicalAgentTurnRequest,
     queueMessage: QueueMessageRecord['payload'],
     runtimePrompt: ResolvedAgentRuntimePrompt,
-    forkTurn: number
+    forkTurn: number,
+    // fork 种类。默认值就是自驱动 fork 的原值 —— 不传时与改动前逐字节一致。
+    // 复核 fork 复用同一条 dispatch(含它的瞬时故障重试),只换这三个审计字段。
+    kind: { agentType: string; executionMode: string } = {
+      agentType: 'subconscious_agent',
+      executionMode: 'subconscious_agent_fork_no_persist'
+    }
   ) {
     // Mirror executeAgentTurn's transient-retry: the self-driven fork is the autonomous
     // self-continuation engine (it fires on every idle settle, then enqueues the next
@@ -12952,9 +13730,9 @@ export class AgentLoopService {
       trace_id: queueMessage.traceId,
       run_id: queueMessage.runId,
       agent_turn: forkTurn,
-      agent_type: 'subconscious_agent',
-      prompt_name: `${runtimePrompt.promptName}:subconscious_agent`,
-      executionMode: 'subconscious_agent_fork_no_persist',
+      agent_type: kind.agentType,
+      prompt_name: `${runtimePrompt.promptName}:${kind.agentType}`,
+      executionMode: kind.executionMode,
       model: runtimePrompt.modelName,
       parameters: buildMainAgentParameters(runtimePrompt.parameters as Record<string, unknown> | undefined),
       canonicalRequest
@@ -13362,6 +14140,105 @@ export class AgentLoopService {
             ? toolCall.args.xiaoni_os.trim()
             : null
         };
+      }
+      // ── 目标(goal)三件套 ────────────────────────────────────────────────────
+      // 这一层只做**参数到存储动作**的翻译。「这一轮算不算推进」「什么时候该 complete」
+      // 全是她的判断,引擎不插手(ADR-0010)。返回值一律是紧凑 JSON —— 它要进上下文。
+      //
+      // fork 调不到这三个:每个 fork 的执行循环都有自己的 allowedToolNames 白名单
+      // (潜意识 {} 或 {exec_command}、压缩 {exec_command,read_file}、看图 exec 之外一律
+      // 返回纠正输出),这三个名字不在任何一张白名单里 —— 结构性拒绝,不需要额外判断。
+      case TOOL_NAMES.getGoal: {
+        // getCurrentGoal 而不是 getActiveGoal:只认 active 的话,paused / blocked 的目标
+        // 她**永远拿不到 goal_id 和 revision**,而 update_goal 必须带这两个 ——
+        // 于是 resume 结构性不可达、pause 等于永久放弃、blocked 之后她也再看不到
+        // 自己写的 blocked_reason。spec 的 action 集合里有 resume,就得能读到那件。
+        const goal = await this.store.getCurrentGoal();
+        return { goal: goal ?? null };
+      }
+      case TOOL_NAMES.createGoal: {
+        const objective = typeof toolCall.args.objective === 'string' ? toolCall.args.objective.trim() : '';
+        if (!objective) {
+          return { ok: false, reason: 'objective_required', message: '要立一件事,得先说清楚是什么事。' };
+        }
+        const rawMax = toolCall.args.max_goal_rounds ?? toolCall.args.maxGoalRounds;
+        try {
+          const goal = await this.store.createGoal({
+            objective,
+            ...(typeof rawMax === 'number' && Number.isFinite(rawMax) ? { maxGoalRounds: Math.trunc(rawMax) } : {})
+          });
+          return { ok: true, goal };
+        } catch (error) {
+          // 部分唯一索引拒绝 = 已经有一件在做。把当前那件还给她,而不是抛一个内部错误。
+          if (isUniqueConstraintError(error)) {
+            return {
+              ok: false,
+              reason: 'already_active',
+              message: '你已经有一件在做的事。先把它收掉(complete / blocked / pause),再立新的。',
+              goal: await this.store.getActiveGoal()
+            };
+          }
+          throw error;
+        }
+      }
+      case TOOL_NAMES.updateGoal: {
+        const goalId = typeof toolCall.args.goal_id === 'string' ? toolCall.args.goal_id.trim() : '';
+        const revision = Number(toolCall.args.revision);
+        if (!goalId || !Number.isInteger(revision)) {
+          return { ok: false, reason: 'invalid_ref', message: '先 get_goal 拿到 goal_id 和 revision,原样抄过来。' };
+        }
+        const current = await this.store.getGoalById(goalId);
+        const plan = planGoalUpdate(toolCall.args, current ? (current.phase as XiaoniGoalPhase) : null);
+        if (!plan.ok) {
+          return plan;
+        }
+        try {
+          const result = await this.store.updateGoal({
+            goalId,
+            revision,
+            phase: plan.phase,
+            ...(plan.objective !== undefined ? { objective: plan.objective } : {}),
+            ...(plan.maxGoalRounds !== undefined ? { maxGoalRounds: plan.maxGoalRounds } : {}),
+            ...(plan.blockedReason !== undefined ? { blockedReason: plan.blockedReason } : {})
+          });
+          if (!result.ok) {
+            return {
+              ok: false,
+              reason: result.reason ?? 'revision_mismatch',
+              message: '这中间它被改过了。下面是当前值,重读再改。',
+              goal: result.goal
+            };
+          }
+          // 相变才触发(判据与理由见 isNewBlockedEpisode)。
+          const enteredBlocked = isNewBlockedEpisode(
+            plan.action,
+            (current?.phase as XiaoniGoalPhase | undefined) ?? null
+          );
+          if (enteredBlocked && result.goal) {
+            // 她宣布卡住 → 起一次独立复核。不 await(见 fireFailureReviewForBlockedGoal)。
+            this.fireFailureReviewForBlockedGoal(
+              {
+                id: result.goal.id,
+                revision: result.goal.revision,
+                objective: result.goal.objective,
+                blockedReason: result.goal.blockedReason ?? plan.blockedReason ?? null
+              },
+              queueMessage
+            );
+          }
+          return { ok: true, action: plan.action, goal: result.goal };
+        } catch (error) {
+          // resume 一件旧的、而此刻另有一件 active —— 唯一索引拒绝。
+          if (isUniqueConstraintError(error)) {
+            return {
+              ok: false,
+              reason: 'already_active',
+              message: '现在已经有另一件在做的事,先把它收掉再回来做这件。',
+              goal: await this.store.getActiveGoal()
+            };
+          }
+          throw error;
+        }
       }
       // Spec B: compress_core_memory 没有 executeTool 分支。压缩由后台 fork 写文件、引擎读回后直接
       // 调 commitCoreMemoryCompression 提交(合成 toolCall,不走这里)。模型幻觉出这个名字时,故意
@@ -15080,6 +15957,31 @@ export function isClockPingPayload(queueMessage: QueueMessageRecord['payload']) 
     return false;
   }
   return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'clock_ping';
+}
+
+// goal 续跑块。轮次计数只认它 —— 普通 notify、真人消息一律不推进 goal round
+// (照 dsh:ordinary human turns never increment roundsStarted)。
+export function isGoalRoundPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'goal_round';
+}
+
+// 复核 notify。由它唤醒的 run 对空转账本**隐形**(既不 +1 也不归零)——否则出现这个回路:
+// 复核指出她没查完 → 她起个 run 读了 → 没接着查 → 判空转 → 作废腿把这个 run 整段删栈 →
+// 连她读过证据这件事都消失了。空转治理量的是「被叫醒却不动手」,前提是叫她的东西没给新信息;
+// 复核给了新证据,她读完仍不动是另一件事,该单独观察。见 docs/adr/0009-* 决定五。
+export function isFailureReviewPayload(queueMessage: QueueMessageRecord['payload']) {
+  if (!isSystemReminderPayload(queueMessage)) {
+    return false;
+  }
+  return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'failure_review';
+}
+
+export function readGoalIdFromPayload(queueMessage: QueueMessageRecord['payload']): string | null {
+  const raw = queueMessage.rawPayload?.goal_id;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
 }
 
 function isSubconsciousAgentNotifyPayload(queueMessage: QueueMessageRecord['payload']) {

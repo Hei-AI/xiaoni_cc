@@ -404,6 +404,47 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     });
   }
 
+  // 按事件名读 timeline_events。加这个是因为复核 fork 的输出原文落在这里,而 ADR-0009 §六
+  // 把「输出文本单独可查」列为必需项 —— 只有日志的话读不到、也查不了,那条未验证的隔离性
+  // 假设就永远判不了输赢。所有 PG 读写收口在 persistence(仓库红线),所以不在路由里拼查询。
+  async function listRuntimeTimelineEvents(input = {}, config = {}) {
+    const eventName = typeof input.eventName === 'string' && input.eventName.trim() !== ''
+      ? input.eventName.trim()
+      : null;
+    const limit = Math.max(1, Math.min(500, Number(input.limit) || 50));
+    return withSql(input, config, async (sql) => {
+      const rows = eventName
+        ? await sql.query(
+            `SELECT id, trace_id, event_type, event_name, event_phase, component,
+                    duration_ms, metadata, created_at
+             FROM timeline_events
+             WHERE event_name = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT ${limit}`,
+            [eventName]
+          )
+        : await sql.query(
+            `SELECT id, trace_id, event_type, event_name, event_phase, component,
+                    duration_ms, metadata, created_at
+             FROM timeline_events
+             ORDER BY created_at DESC, id DESC
+             LIMIT ${limit}`,
+            []
+          );
+      return rows.map((row) => ({
+        id: Number(row.id),
+        traceId: row.trace_id,
+        eventType: row.event_type,
+        eventName: row.event_name,
+        eventPhase: row.event_phase,
+        component: row.component,
+        durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+        metadata: parseJson(row.metadata, {}),
+        createdAt: row.created_at
+      }));
+    });
+  }
+
   async function recoverStaleProcessingLeases(input = {}, config = {}) {
     const staleMs = Math.max(60_000, Number(input.staleMs || input.stale_ms || 0));
     const staleBefore = new Date(Date.now() - staleMs);
@@ -1106,6 +1147,7 @@ function createAgentRuntimePersistence({ createSqlAdapter, sqlAdapter } = {}) {
     ensureAgentRuntimeSchema,
     ensureTranscriptSnapshotSchema,
     logRuntimeTimelineEvent,
+    listRuntimeTimelineEvents,
     recoverStaleProcessingLeases,
     enqueueSelfContinuationQueueMessage,
     releaseExecutionLease,
