@@ -1914,3 +1914,39 @@ model XiaoniGoal {
   @@index([identity_key, phase, updated_at], map: "idx_xiaoni_goals_identity_phase_updated")
   @@map("xiaoni_goals")
 }
+
+// 复核 fork 的 slice 账本。**独立成表,不复用 subconscious_agent_fork_slices** ——
+// 那张表的读取端不按 forkRunId 前缀区分:usage rollup 把整张表当作潜意识 fork 计费
+// (xiaoni-agent-stack.js USAGE_SOURCE_SUBCONSCIOUS_FORK),行动流也是整张表全选
+// (xiaoni-activity.js `SELECT * FROM subconscious_agent_fork_runs`)。混进去会让复核的
+// 每一次(最多 32 轮 × 全量克隆)被算成、也被显示成潜意识 fork。
+// 先例是 psych_assessment_fork_slices,同样的理由、同样的形状。
+// 详见 docs/adr/0009-*、docs/specs/xiaoni-failure-conclusion-review-fork.md §8
+model FailureReviewForkSlice {
+  id                     BigInt    @id @default(autoincrement()) @db.BigInt
+  slice_id               String    @db.VarChar(191)
+  fork_run_id            String    @db.VarChar(191)
+  llm_call_id            String?   @db.VarChar(128)
+  identity_key           String    @default("xiaoni") @db.VarChar(191)
+  goal_id                String?   @db.VarChar(64)
+  canonical_request      Json      @default("{}")
+  wire_request           Json?
+  canonical_response     Json?
+  wire_response          Json?
+  raw_response           Json?
+  output_items           Json      @default("[]")
+  status                 String    @default("completed") @db.VarChar(32)
+  token_usage            Json      @default("{}")
+  trace_id               String?   @db.VarChar(128)
+  run_id                 String?   @db.VarChar(128)
+  agent_turn             Int?
+  model_name             String?   @db.VarChar(191)
+  model_provider         String?   @db.VarChar(64)
+  processing_time_ms     Int?
+  metadata               Json      @default("{}")
+  created_at             DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([fork_run_id, agent_turn], map: "idx_failure_review_fork_slices_run_turn")
+  @@index([identity_key, created_at], map: "idx_failure_review_fork_slices_identity_created")
+  @@map("failure_review_fork_slices")
+}

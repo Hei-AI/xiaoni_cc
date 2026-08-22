@@ -3023,6 +3023,17 @@ export function shouldDeliverReviewFindings(text: string | null | undefined): bo
   return !trimmed.startsWith(FAILURE_REVIEW_NO_FINDING);
 }
 
+// 复核 fork 累积链的**种子**。生产就是调这个取 turn-1 的 input,之后只在它后面追加。
+// 单独具名是为了让「种子必须含 reminder」变成可测的契约:曾经写错过一次(种子取裸 base,
+// reminder 只拼进每轮的副本尾部),结果 turn≥2 的最长前缀塌回 base,每轮冷读已累积的全部
+// exec 输出。见 docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」。
+export function seedFailureReviewForkInput(
+  baseRequest: CanonicalAgentTurnRequest,
+  reminderText: string
+): OpenResponseInputItem[] {
+  return buildFailureReviewForkRequest(baseRequest, 1, reminderText).input;
+}
+
 export function buildFailureReviewForkRequest(
   baseRequest: CanonicalAgentTurnRequest,
   forkTurn: number,
@@ -10891,6 +10902,18 @@ export class AgentLoopService {
     }
   }
 
+  // 复核 fork 的 slice 落到**独立表**(理由见 packages/persistence/xiaoni-goal.js 的注释)。
+  // fail-open:账本写不进去不能连带把复核本身弄挂 —— 它的产物是给她的证据,不是账本。
+  private async recordFailureReviewForkSliceSafe(params: Record<string, unknown>) {
+    try {
+      await this.store.recordFailureReviewForkSlice(params);
+    } catch (error) {
+      moduleLogger.warn('复核 fork slice 落库失败', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
   private async recordSubconsciousAgentForkRunSafe(params: Parameters<RuntimeStore['recordSubconsciousAgentForkRun']>[0]) {
     const recorder = (this.store as RuntimeStore & {
       recordSubconsciousAgentForkRun?: RuntimeStore['recordSubconsciousAgentForkRun'];
@@ -11942,6 +11965,7 @@ export class AgentLoopService {
   // 自我认知和情绪。上线后读它的输出前 20 条 —— **开口是「我想不起来了」这类第一人称自述,
   // 就是隔离失败**,那时退回全新上下文方案。
   private async runFailureReviewFork(params: {
+    goalId: string;
     objective: string;
     blockedReason: string;
     baseRequest: CanonicalAgentTurnRequest;
@@ -11960,14 +11984,6 @@ export class AgentLoopService {
       no_main_stack_persist: true,
       no_traffic_persist: true
     };
-    await this.recordSubconsciousAgentForkRunSafe({
-      forkRunId,
-      contextSessionKey: getGlobalPromptContextSessionKey(),
-      status: 'running',
-      traceId: params.queueMessage.traceId,
-      runId: params.queueMessage.runId,
-      metadata: baseForkMetadata
-    });
     // 【缓存链】reminder 必须从 turn-1 起就留在 forkInput 里,之后逐轮在它后面追加 ——
     // 这样 turn N 的请求就是 turn N-1 请求的严格延长,滑窗才能把上一轮的真·末块当作本轮的
     // prevBoundary(docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」)。
@@ -11976,7 +11992,7 @@ export class AgentLoopService {
     // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
     // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
     // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
-    let forkInput = buildFailureReviewForkRequest(params.baseRequest, 1, reminderText).input;
+    let forkInput = seedFailureReviewForkInput(params.baseRequest, reminderText);
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
@@ -11998,9 +12014,10 @@ export class AgentLoopService {
       const forkSliceId = modelResult.llm_request_slice_id
         || modelResult.llm_call_id
         || `failure-review-slice:${forkRunId}:${forkTurn}`;
-      await this.recordSubconsciousAgentForkSliceSafe({
+      await this.recordFailureReviewForkSliceSafe({
         sliceId: forkSliceId,
         forkRunId,
+        goalId: params.goalId,
         llmCallId: modelResult.llm_call_id || null,
         canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
         wireRequest: modelResult.wire_request || null,
@@ -12082,16 +12099,6 @@ export class AgentLoopService {
       forkInput = normalizeResponseInputItems(forkInput);
     }
 
-    await this.completeSubconsciousAgentForkRunSafe({
-      forkRunId,
-      status: finalText ? 'completed' : 'failed',
-      metadata: {
-        ...baseForkMetadata,
-        tool_calls_used: toolCallsUsed,
-        turns,
-        findings_length: finalText ? finalText.length : 0
-      }
-    });
     return { text: finalText, toolCallsUsed, turns };
   }
 
@@ -12156,9 +12163,16 @@ export class AgentLoopService {
       failureReview: rawPayload
     };
 
+    // trace_id 必须**每条唯一**。主 trigger 路径的 stack runtime-input event_id 是
+    // `stack:${traceId || runId}:runtime-input`(:18131,那条路不传 queueMessageIds),而
+    // event_id 上是全局唯一约束、ON CONFLICT 是空操作 —— trace_id 一旦按 goal 常量,
+    // 同一个 goal 的第二轮起 runtime_input **一条都落不了库**,下一 run 的 replay 变短,
+    // run 边界缓存击穿。这是本仓库有过的事故(见 :12389 的同款警告与
+    // docs/CACHE_CONTRACT.md §3),别再用常量。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
     return enqueuer.call(this.store, {
       message: {
-        traceId: `failure-review:${params.goalId}`,
+        traceId,
         source: 'system_reminder',
         messageSid,
         dedupeKey: messageSid,
@@ -12191,18 +12205,21 @@ export class AgentLoopService {
     if (this.failureReviewsStarted.has(reviewKey)) {
       return;
     }
-    this.failureReviewsStarted.add(reviewKey);
     const seed = this.lastMainAgentForkSeed;
     if (!seed?.canonicalRequest) {
       // 刚重启、还没有可克隆的主请求。不重建上下文(重建会和主 loop 漂移),这一次就不复核。
+      // **不登记键**:这次是环境原因跳过(刚重启,没有可克隆的主请求),不是已经复核过。
+      // 先登记再守卫的话,这一次 blocked 会永久失去复核机会。
       moduleLogger.warn('复核 fork 跳过:手上没有可克隆的主请求', { goalId: goal.id });
       return;
     }
+    this.failureReviewsStarted.add(reviewKey);
     const baseRequest = seed.canonicalRequest;
     void (async () => {
       try {
         const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
         const result = await this.runFailureReviewFork({
+          goalId: goal.id,
           objective: goal.objective,
           blockedReason: goal.blockedReason ?? '',
           baseRequest,
@@ -12315,9 +12332,16 @@ export class AgentLoopService {
       goalRound: rawPayload
     };
 
+    // trace_id 必须**每条唯一**。主 trigger 路径的 stack runtime-input event_id 是
+    // `stack:${traceId || runId}:runtime-input`(:18131,那条路不传 queueMessageIds),而
+    // event_id 上是全局唯一约束、ON CONFLICT 是空操作 —— trace_id 一旦按 goal 常量,
+    // 同一个 goal 的第二轮起 runtime_input **一条都落不了库**,下一 run 的 replay 变短,
+    // run 边界缓存击穿。这是本仓库有过的事故(见 :12389 的同款警告与
+    // docs/CACHE_CONTRACT.md §3),别再用常量。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
     return enqueuer.call(this.store, {
       message: {
-        traceId: `goal-round:${goal.id}`,
+        traceId,
         source: 'system_reminder',
         messageSid,
         dedupeKey: messageSid,

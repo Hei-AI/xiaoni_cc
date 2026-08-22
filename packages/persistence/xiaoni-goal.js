@@ -209,6 +209,105 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     return getXiaoniGoalById({ goalId }, config);
   }
 
+  // ── 复核 fork 的 slice 账本 ────────────────────────────────────────────────
+  // **独立成表**,不写 subconscious_agent_fork_slices —— 那张表的读取端不按 fork_run_id
+  // 前缀区分:usage rollup 整表当潜意识 fork 计费(xiaoni-agent-stack.js),行动流整表全选
+  // (xiaoni-activity.js)。混进去会让复核的每一次(最多 32 轮 × 全量克隆)被算成、也被显示成
+  // 潜意识 fork。先例是 psych_assessment_fork_slices,同样理由同样形状。
+  async function ensureFailureReviewForkSchema(config = {}) {
+    const sql = createSqlAdapter(config);
+    try {
+      await sql.query("SELECT pg_advisory_lock(hashtext('qqbot_failure_review_fork_schema'))");
+      await sql.execute(`
+        CREATE TABLE IF NOT EXISTS failure_review_fork_slices (
+          id BIGSERIAL PRIMARY KEY,
+          slice_id VARCHAR(191) NOT NULL,
+          fork_run_id VARCHAR(191) NOT NULL,
+          llm_call_id VARCHAR(128) NULL,
+          identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
+          goal_id VARCHAR(64) NULL,
+          canonical_request JSONB NOT NULL DEFAULT '{}'::jsonb,
+          wire_request JSONB NULL,
+          canonical_response JSONB NULL,
+          wire_response JSONB NULL,
+          raw_response JSONB NULL,
+          output_items JSONB NOT NULL DEFAULT '[]'::jsonb,
+          status VARCHAR(32) NOT NULL DEFAULT 'completed',
+          token_usage JSONB NOT NULL DEFAULT '{}'::jsonb,
+          trace_id VARCHAR(128) NULL,
+          run_id VARCHAR(128) NULL,
+          agent_turn INTEGER NULL,
+          model_name VARCHAR(191) NULL,
+          model_provider VARCHAR(64) NULL,
+          processing_time_ms INTEGER NULL,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await sql.execute(`
+        CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_run_turn
+        ON failure_review_fork_slices (fork_run_id, agent_turn)
+      `);
+      await sql.execute(`
+        CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_identity_created
+        ON failure_review_fork_slices (identity_key, created_at DESC)
+      `);
+    } finally {
+      await sql.query("SELECT pg_advisory_unlock(hashtext('qqbot_failure_review_fork_schema'))").catch(() => undefined);
+      await sql.close();
+    }
+  }
+
+  async function recordFailureReviewForkSlice(input = {}, config = {}) {
+    const prisma = getClient(config);
+    const row = await prisma.failureReviewForkSlice.create({
+      data: {
+        slice_id: String(input.sliceId || ''),
+        fork_run_id: String(input.forkRunId || ''),
+        llm_call_id: normalizeText(input.llmCallId),
+        identity_key: resolveIdentityKey(input),
+        goal_id: normalizeText(input.goalId),
+        canonical_request: input.canonicalRequest ?? {},
+        wire_request: input.wireRequest ?? null,
+        canonical_response: input.canonicalResponse ?? null,
+        wire_response: input.wireResponse ?? null,
+        raw_response: input.rawResponse ?? null,
+        output_items: Array.isArray(input.outputItems) ? input.outputItems : [],
+        status: normalizeText(input.status) || 'completed',
+        token_usage: input.tokenUsage ?? {},
+        trace_id: normalizeText(input.traceId),
+        run_id: normalizeText(input.runId),
+        agent_turn: Number.isFinite(Number(input.agentTurn)) ? Math.trunc(Number(input.agentTurn)) : null,
+        model_name: normalizeText(input.modelName),
+        model_provider: normalizeText(input.modelProvider),
+        processing_time_ms: Number.isFinite(Number(input.processingTimeMs)) ? Math.trunc(Number(input.processingTimeMs)) : null,
+        metadata: input.metadata ?? {}
+      }
+    });
+    return { id: Number(row.id), sliceId: row.slice_id };
+  }
+
+  async function listFailureReviewForkSlices(input = {}, config = {}) {
+    const prisma = getClient(config);
+    const limit = normalizePositiveInt(input.limit, 50);
+    const rows = await prisma.failureReviewForkSlice.findMany({
+      where: { identity_key: resolveIdentityKey(input) },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+      take: limit
+    });
+    return rows.map((row) => ({
+      id: Number(row.id),
+      sliceId: row.slice_id,
+      forkRunId: row.fork_run_id,
+      goalId: row.goal_id,
+      status: row.status,
+      agentTurn: row.agent_turn,
+      tokenUsage: row.token_usage,
+      metadata: row.metadata,
+      createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
+    }));
+  }
+
   async function listXiaoniGoals(input = {}, config = {}) {
     const prisma = getClient(config);
     const limit = normalizePositiveInt(input.limit, 20);
@@ -222,6 +321,9 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
 
   return {
     ensureXiaoniGoalSchema,
+    ensureFailureReviewForkSchema,
+    recordFailureReviewForkSlice,
+    listFailureReviewForkSlices,
     getActiveXiaoniGoal,
     getXiaoniGoalById,
     createXiaoniGoal,

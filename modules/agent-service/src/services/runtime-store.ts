@@ -10,6 +10,8 @@ import {
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
   ensureXiaoniGoalSchema,
+  ensureFailureReviewForkSchema,
+  recordFailureReviewForkSlice,
   getActiveXiaoniGoal,
   getXiaoniGoalById,
   createXiaoniGoal,
@@ -1276,6 +1278,7 @@ export class RuntimeStore {
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
     await ensureXiaoniGoalSchema(databaseConfig);
+    await ensureFailureReviewForkSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
@@ -2010,6 +2013,10 @@ export class RuntimeStore {
 
   async updateGoal(input: Parameters<typeof updateXiaoniGoal>[0]) {
     return updateXiaoniGoal(input, databaseConfig);
+  }
+
+  async recordFailureReviewForkSlice(input: Record<string, unknown>) {
+    return recordFailureReviewForkSlice(input, databaseConfig);
   }
 
   async incrementGoalRound(goalId: string) {

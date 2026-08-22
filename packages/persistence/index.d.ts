@@ -1792,6 +1792,9 @@ export function listRuntimeTimelineEvents(
   createdAt: string | Date | null;
 }>>;
 export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function ensureFailureReviewForkSchema(config?: DatabaseUrlConfig): Promise<void>;
+export function recordFailureReviewForkSlice(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<{ id: number; sliceId: string }>;
+export function listFailureReviewForkSlices(input?: { identityKey?: string; limit?: number }, config?: DatabaseUrlConfig): Promise<any[]>;
 export function getActiveXiaoniGoal(
   input?: { identityKey?: string; identity_key?: string },
   config?: DatabaseUrlConfig
