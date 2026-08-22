@@ -10,7 +10,8 @@ import {
   buildSubconsciousAgentForkRequest,
   buildCacheHeartbeatForkRequest,
   buildImageVisionForkRequest,
-  buildPsychAssessmentForkRequest
+  buildPsychAssessmentForkRequest,
+  buildFailureReviewForkRequest
 } from '../services/agent-loop-service';
 
 // Fork cache-alignment: 0-tolerance prompt-cache 穿透 guard.
@@ -107,6 +108,42 @@ test('subconscious fork: cloned prefix byte-identical + appends self-continuatio
   const tail = JSON.stringify(fork.input.slice(base.input.length));
   assert.ok(tail.includes('刚才我说要看看群里'), 'subconscious fork must re-inject recent narration at the tail');
   assert.equal(fork.metadata?.subconscious_agent_fork, 'true');
+});
+
+test('failure-review fork: cloned prefix byte-identical + appends ONE steering item', () => {
+  const base = buildBaseRequest();
+  const fork: any = buildFailureReviewForkRequest(base, 1, 'REVIEW_REMINDER');
+  assertForkPrefixByteIdentical(fork, base, 'failure-review');
+  assert.equal(fork.input.length, base.input.length + 1, 'failure-review fork appends exactly one tail item');
+  assert.ok(JSON.stringify(fork.input.at(-1)).includes('REVIEW_REMINDER'));
+  assert.equal(fork.metadata?.failure_review_fork, 'true');
+  assert.equal(fork.metadata?.no_persist, 'true');
+});
+
+// fork 自身的多 turn 链(CACHE_CONTRACT §2「fork 内部 → 下一条 fork 内部」)。
+// 曾经写错过:reminder 只拼进副本尾部、不留进累积链,于是 turn-2 的第 len(base) 块从
+// reminder 变成上一轮的 assistant 输出,最长前缀塌回 base —— turn≥2 每轮都要把已累积的
+// exec 输出全部冷读一遍。这一条钉的就是「turn N+1 的请求必须是 turn N 请求的严格延长」。
+test('failure-review fork: turn N+1 request extends turn N (fork-internal sliding window)', () => {
+  const base = buildBaseRequest();
+  const reminder = 'REVIEW_REMINDER';
+  // 生产写法:turn-1 的 input 就是种子,之后只在它后面追加。
+  const turn1: any = buildFailureReviewForkRequest(base, 1, reminder);
+  const grown = [
+    ...turn1.input,
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '先看名册。' }] },
+    { type: 'function_call_output', call_id: 'c1', output: '31 个文件' }
+  ];
+  const turn2: any = buildFailureReviewForkRequest(base, 2, reminder);
+  turn2.input = grown;
+
+  assert.deepEqual(
+    turn2.input.slice(0, turn1.input.length),
+    turn1.input,
+    'turn-2 的前缀必须逐字节等于 turn-1 的完整请求,否则滑窗勾不到上一轮的条目'
+  );
+  // reminder 只出现一次,且就在 base 之后 —— 它是这条链的锚点
+  assert.deepEqual(turn2.input[base.input.length], turn1.input.at(-1));
 });
 
 test('cache-heartbeat fork: cloned prefix byte-identical + appends the heartbeat developer item', () => {

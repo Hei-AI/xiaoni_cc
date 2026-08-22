@@ -11950,6 +11950,24 @@ export class AgentLoopService {
   }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const reminderText = renderFailureReviewReminder(params.objective, params.blockedReason);
+    // 账本复用 subconscious_agent_fork_* 四张表 —— forkRunId 的前缀
+    // (failure-review: 对 subconscious-fork:)就是判别符,不需要加 fork_kind 列。
+    const forkRunId = `failure-review:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+    const baseForkMetadata = {
+      fork_kind: 'failure_review',
+      goal_objective: params.objective,
+      blocked_reason: params.blockedReason,
+      no_main_stack_persist: true,
+      no_traffic_persist: true
+    };
+    await this.recordSubconsciousAgentForkRunSafe({
+      forkRunId,
+      contextSessionKey: getGlobalPromptContextSessionKey(),
+      status: 'running',
+      traceId: params.queueMessage.traceId,
+      runId: params.queueMessage.runId,
+      metadata: baseForkMetadata
+    });
     // 【缓存链】reminder 必须从 turn-1 起就留在 forkInput 里,之后逐轮在它后面追加 ——
     // 这样 turn N 的请求就是 turn N-1 请求的严格延长,滑窗才能把上一轮的真·末块当作本轮的
     // prevBoundary(docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」)。
@@ -11977,6 +11995,37 @@ export class AgentLoopService {
         { agentType: 'failure_review', executionMode: 'failure_review_fork_no_persist' }
       );
       const outputItems = extractCanonicalResponseOutputItems(modelResult);
+      const forkSliceId = modelResult.llm_request_slice_id
+        || modelResult.llm_call_id
+        || `failure-review-slice:${forkRunId}:${forkTurn}`;
+      await this.recordSubconsciousAgentForkSliceSafe({
+        sliceId: forkSliceId,
+        forkRunId,
+        llmCallId: modelResult.llm_call_id || null,
+        canonicalRequest: (modelResult.canonical_request || forkRequest) as Record<string, unknown>,
+        wireRequest: modelResult.wire_request || null,
+        canonicalResponse: modelResult.canonical_response || null,
+        wireResponse: modelResult.wire_response || null,
+        rawResponse: modelResult.raw_response || null,
+        outputItems,
+        status: modelResult.success ? 'completed' : 'failed',
+        tokenUsage: buildProviderTokenUsage(modelResult),
+        traceId: params.queueMessage.traceId,
+        runId: params.queueMessage.runId,
+        agentTurn: forkTurn,
+        modelName: modelResult.model || params.runtimePrompt.modelName,
+        modelProvider: modelResult.provider || null,
+        requestFormatVersion: modelResult.request_format_version || null,
+        wireProviderFormat: modelResult.wire_provider_format || null,
+        processingTimeMs: readOptionalNumber(modelResult.performance?.processing_time_ms),
+        metadata: {
+          ...baseForkMetadata,
+          ...buildProviderWireMetadata(modelResult),
+          fork_run_id: forkRunId,
+          fork_turn: forkTurn,
+          execution_mode: 'failure_review_fork'
+        }
+      });
       if (outputItems.length === 0) {
         break;
       }
@@ -12033,6 +12082,16 @@ export class AgentLoopService {
       forkInput = normalizeResponseInputItems(forkInput);
     }
 
+    await this.completeSubconsciousAgentForkRunSafe({
+      forkRunId,
+      status: finalText ? 'completed' : 'failed',
+      metadata: {
+        ...baseForkMetadata,
+        tool_calls_used: toolCallsUsed,
+        turns,
+        findings_length: finalText ? finalText.length : 0
+      }
+    });
     return { text: finalText, toolCallsUsed, turns };
   }
 
