@@ -1737,28 +1737,30 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       // 两个来源合起来才是一次复核的全貌:timeline 有结论原文与成败,slice 有每轮的
       // canonical/wire request 与 token 用量。分开给会让人以为「查到原文」就等于「可观测」。
       const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
-      const goalIds = new Set(
-        rows.map((row) => row.metadata?.goal_id).filter((id): id is string => typeof id === 'string' && id !== '')
+      // 连接键是 fork_run_id,不是 goal_id。一次复核 = 一个 fork_run_id,轮数硬上界
+      // FAILURE_REVIEW_FORK_MAX_TURNS = 32,所以 limit 是**算出来的**不是猜的。
+      // (按 goal 归组拿不到上界:同一个 goal 可以反复 blocked,每次都是独立一跑。)
+      // start 与终态两条 phase 行共用同一个 fork_run_id,都会挂上这一跑的 slice —— 它们
+      // 本来就是同一次复核的两端。
+      const forkRunIds = new Set(
+        rows.map((row) => row.metadata?.fork_run_id).filter((id): id is string => typeof id === 'string' && id !== '')
       );
-      // limit 是**每个 goal** 的上限,不是全局的 —— 所以这里不需要按页面条数放大倍数。
-      // 拍倍数的写法在某个 goal 复核轮次特别多时,会让更早的 goal 静默拿到空数组,
-      // 和「这次复核没产出」不可区分。
-      const slices = goalIds.size > 0
-        ? await listFailureReviewForkSlices({ goalIds: [...goalIds], limit: 64 })
+      const slices = forkRunIds.size > 0
+        ? await listFailureReviewForkSlices({ forkRunIds: [...forkRunIds], limit: 32 })
         : [];
-      const slicesByGoal = new Map<string, any[]>();
+      const slicesByFork = new Map<string, any[]>();
       for (const slice of slices) {
-        const key = typeof slice.goalId === 'string' ? slice.goalId : '';
-        // 缺 goal_id 的行**跳过**,不要归进空键 —— 否则所有缺键的 timeline 行会各自拿到
-        // 全部孤儿 slice。
-        if (!key || !goalIds.has(key)) continue;
-        if (!slicesByGoal.has(key)) slicesByGoal.set(key, []);
-        slicesByGoal.get(key)!.push(slice);
+        const key = typeof slice.forkRunId === 'string' ? slice.forkRunId : '';
+        // 缺 fork_run_id 的行**跳过**,不要归进空键 —— 否则所有缺键的 timeline 行会各自
+        // 拿到全部孤儿 slice。
+        if (!key || !forkRunIds.has(key)) continue;
+        if (!slicesByFork.has(key)) slicesByFork.set(key, []);
+        slicesByFork.get(key)!.push(slice);
       }
       res.json({
         success: true,
         data: rows.map((row) => ({
-          slices: (typeof row.metadata?.goal_id === 'string' && slicesByGoal.get(row.metadata.goal_id)) || [],
+          slices: (typeof row.metadata?.fork_run_id === 'string' && slicesByFork.get(row.metadata.fork_run_id)) || [],
           id: row.id,
           createdAt: row.createdAt,
           phase: row.eventPhase,

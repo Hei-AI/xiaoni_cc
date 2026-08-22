@@ -1793,7 +1793,24 @@ export function listRuntimeTimelineEvents(
 }>>;
 export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function recordFailureReviewForkSlice(input: Record<string, any>, config?: DatabaseUrlConfig): Promise<Record<string, any> | null>;
-export function listFailureReviewForkSlices(input?: { identityKey?: string; goalIds?: string[]; limit?: number }, config?: DatabaseUrlConfig): Promise<any[]>;
+/** limit 是**每个 fork_run_id** 各自的上限,不是全局上限(一次复核轮数硬上界 32)。 */
+export function listFailureReviewForkSlices(
+  input?: { identityKey?: string; forkRunIds?: string[]; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<Array<{
+  id: number;
+  sliceId: string;
+  forkRunId: string;
+  goalId: string | null;
+  status: string;
+  agentTurn: number | null;
+  tokenUsage: unknown;
+  modelName: string | null;
+  canonicalRequestBytes: number;
+  wireRequestBytes: number;
+  metadata: unknown;
+  createdAt: string;
+}>>;
 export function getActiveXiaoniGoal(
   input?: { identityKey?: string; identity_key?: string },
   config?: DatabaseUrlConfig

@@ -11969,14 +11969,17 @@ export class AgentLoopService {
     goalId: string;
     objective: string;
     blockedReason: string;
+    forkRunId: string;
     baseRequest: CanonicalAgentTurnRequest;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
   }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
     const reminderText = renderFailureReviewReminder(params.objective, params.blockedReason);
-    // 账本落独立表(理由见上面方法头的注释)。
-    const forkRunId = `failure-review:${params.queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+    // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
+    // 也是管理端把 slice 归到某一次复核的连接键。goal_id 不行:同一个 goal 可以反复 blocked,
+    // 每次都是独立一跑,按 goal 归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
+    const forkRunId = params.forkRunId;
     const baseForkMetadata = {
       fork_kind: 'failure_review',
       goal_objective: params.objective,
@@ -12220,12 +12223,15 @@ export class AgentLoopService {
       // turn-1 就抛(provider 500/400)时一条记录都不留,事后无法回答「跑过没有、跑了几轮」。
       let outcome: { text: string | null; toolCallsUsed: number; turns: number } | null = null;
       let failure: string | null = null;
+      // 「一次复核」的唯一标识。**在开跑之前生成**,好让 start 事件就带上它 —— 否则 fork
+      // turn-1 就挂掉时,只剩一条没有连接键的 start 行,事后无法把已落库的 slice 认回来。
+      const forkRunId = `failure-review:${queueMessage.runId}:${uuidv4().slice(0, 8)}`;
       await this.store.logTimelineEvent({
         traceId: `failure-review:${goal.id}:${goal.revision}`,
         eventType: 'fork',
         eventName: 'failure_review_fork',
         eventPhase: 'start',
-        metadata: { goal_id: goal.id, goal_revision: goal.revision, objective: goal.objective }
+        metadata: { goal_id: goal.id, goal_revision: goal.revision, objective: goal.objective, fork_run_id: forkRunId }
       }).catch(() => undefined);
       try {
         const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
@@ -12233,6 +12239,7 @@ export class AgentLoopService {
           goalId: goal.id,
           objective: goal.objective,
           blockedReason: goal.blockedReason ?? '',
+          forkRunId,
           baseRequest,
           queueMessage,
           runtimePrompt
@@ -12272,6 +12279,7 @@ export class AgentLoopService {
           metadata: {
             goal_id: goal.id,
             goal_revision: goal.revision,
+            fork_run_id: forkRunId,
             objective: goal.objective,
             blocked_reason: goal.blockedReason,
             tool_calls_used: outcome?.toolCallsUsed ?? 0,

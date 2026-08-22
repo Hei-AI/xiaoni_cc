@@ -219,29 +219,36 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
   //
   // goalIds 传进来时按 goal 过滤,不再靠「全局 top-N × 倍数」的启发式 —— 那种写法在
   // 某个 goal 的 slice 特别多时,会让更早的 goal 静默拿到空数组,和「这次没产出」不可区分。
-  // 列表口:**每个 goal 各自的 top-N**,不是跨 goal 的全局 top-N。
+  // 列表口:**按 fork_run_id 分组,每次复核各自的 top-N**。
+  //
+  // 分组单元是 fork_run_id 而不是 goal_id —— 这是前三轮反复没修对的地方。一个 goal 可以
+  // 反复 blocked,每次都是独立一跑;按 goal 归组既会把多次复核的 slice 混成一堆,又拿不到
+  // 硬上界(调用方只能拍「32 × 猜的复核次数」)。按 fork_run_id 归组,
+  // FAILURE_REVIEW_FORK_MAX_TURNS = 32 就是**真上界**,不用猜。
   //
   // 走裸 SQL 而不是 Prisma,两个原因(都不是 ORM 能表达的):
   //   ① 正文只要尺寸。findMany 没法「取一列的长度但不取这一列」—— 四个大 JSONB 会整列
   //      从 PG 拉进 Node、反序列化成对象,再算完长度丢掉。响应是变小了,传输/解析/GC
   //      一分没省。octet_length(x::text) 让 PG 算完只回一个整数,而且是**真字节**
   //      (JS 的 .length 是 UTF-16 码元,中文会少算约 2/3,字段名叫 Bytes 就是错的)。
-  //   ② 每 goal top-N 要窗口函数。全局 top-N 下,某个 goal 的 slice 特别多就会把更早的
-  //      goal 挤出结果,页面上表现为「这次复核没产出」—— 与真的没产出不可区分。
-  //      调用方拿倍数去猜上界(limit = goals × 32)只是让它变罕见,没消除。
+  //   ② 每组 top-N 要窗口函数。全局 top-N 下,某一次复核的 slice 特别多就会把别的复核
+  //      挤出结果,页面上表现为「这次复核没产出」—— 与真的没产出不可区分。
   async function listFailureReviewForkSlices(input = {}, config = {}) {
     const prisma = getClient(config);
-    const perGoalLimit = normalizePositiveInt(input.limit, 50);
-    const goalIds = Array.isArray(input.goalIds)
-      ? input.goalIds.filter((id) => typeof id === 'string' && id !== '')
+    const perForkLimit = normalizePositiveInt(input.limit, 50);
+    const forkRunIds = Array.isArray(input.forkRunIds)
+      ? input.forkRunIds.filter((id) => typeof id === 'string' && id !== '')
       : null;
+    // 传了数组但过滤后为空 = 调用方要的是「这些 fork 的 slice」,而那个集合是空的。
+    // 退回不过滤会把全部 slice 端上去,和「要空集」正好相反。
+    if (Array.isArray(input.forkRunIds) && (!forkRunIds || forkRunIds.length === 0)) return [];
     const params = [resolveIdentityKey(input)];
-    let goalFilter = '';
-    if (goalIds && goalIds.length > 0) {
-      goalFilter = `AND goal_id IN (${goalIds.map((_, i) => `$${i + 2}`).join(', ')})`;
-      params.push(...goalIds);
+    let forkFilter = '';
+    if (forkRunIds && forkRunIds.length > 0) {
+      forkFilter = `AND fork_run_id IN (${forkRunIds.map((_, i) => `$${i + 2}`).join(', ')})`;
+      params.push(...forkRunIds);
     }
-    params.push(perGoalLimit);
+    params.push(perForkLimit);
     const rows = await prisma.$queryRawUnsafe(
       `
         SELECT id, slice_id, fork_run_id, goal_id, status, agent_turn, token_usage,
@@ -250,10 +257,10 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
                octet_length(wire_request::text) AS wire_request_bytes
         FROM (
           SELECT *, ROW_NUMBER() OVER (
-                      PARTITION BY goal_id ORDER BY created_at DESC, id DESC
+                      PARTITION BY fork_run_id ORDER BY created_at DESC, id DESC
                     ) AS rn
           FROM failure_review_fork_slices
-          WHERE identity_key = $1 ${goalFilter}
+          WHERE identity_key = $1 ${forkFilter}
         ) ranked
         WHERE rn <= $${params.length}
         ORDER BY created_at DESC, id DESC

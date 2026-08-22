@@ -2485,27 +2485,46 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_run_turn ON psych_assessment_fork_slices (fork_run_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_trace ON psych_assessment_fork_slices (trace_id, id)',
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_identity_time ON psych_assessment_fork_slices (identity_key, created_at DESC, id DESC)',
-        // Failure-review fork ledger 的索引。三条都对齐 psych 兄弟(它是同形状的
-        // 单表 fork 账本):按 fork_run_id+agent_turn 取一次复核的逐轮请求(raw trace),
-        // 按 identity_key+created_at 取列表页。每行是几十万 token 的 JSONB,
-        // 少一个索引就是几十万 token × N 行的全表扫。
+        // Failure-review fork ledger 的索引。
+        // raw trace 按 fork_run_id+agent_turn 取一次复核的逐轮请求。
         'CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_run_turn ON failure_review_fork_slices (fork_run_id, agent_turn, id)',
-        'CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_identity_created ON failure_review_fork_slices (identity_key, created_at DESC, id DESC)',
+        // 列表口的索引**必须跟着查询走**:它是 WHERE identity_key AND fork_run_id IN (...)
+        // + PARTITION BY fork_run_id ORDER BY created_at DESC, id DESC。
+        // 前一版建的是 (identity_key, created_at DESC, id DESC) —— 那条服务的是同一个 commit
+        // 里被删掉的全局 ORDER BY,对新查询帮不上忙(identity_key 单值,PG 仍要整表排序)。
+        // 旧名字的索引就地丢掉:CREATE INDEX IF NOT EXISTS 不会改已存在的同名索引,
+        // 留着它只会让实库与 schema.prisma 继续对不上。
+        'DROP INDEX IF EXISTS idx_failure_review_fork_slices_identity_created',
+        'CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_fork_created ON failure_review_fork_slices (identity_key, fork_run_id, created_at DESC, id DESC)',
         // slice_id 的唯一约束**故意用具名索引而不是列上内联 UNIQUE**:
         //   ① 内联 UNIQUE 由 PG 自动命名 (..._slice_id_key),对不上 schema.prisma 的
         //      @unique(map: "uniq_failure_review_fork_slices_slice_id"),introspect/diff 会判漂移;
         //   ② CREATE TABLE IF NOT EXISTS **不会**给已存在的表补约束 —— 早一版 DDL 建出来的库
         //      根本没有 unique,recordFailureReviewForkSlice 的 ON CONFLICT (slice_id) 会 42P10 全灭。
         //      具名索引是 IF NOT EXISTS 的,能就地补上。
-        // DO 包一层:万一某个库在补约束前已经攒了重复 slice_id,建索引会抛 —— 而这整个
-        // ensure 挂在「每一次持久化操作」的路径上,让它抛等于让全站挂掉(第五轮 P0 同类)。
+        // DO 包一层:万一某个库在补约束前已攒下重复 slice_id,建索引会抛 —— 而这整个
+        // ensure 挂在「每一次持久化操作」的路径上,让它抛等于让全站挂掉(第五轮 P0 同一类)。
+        //
+        // **但异常分支不能只是吞掉。** 吞掉之后唯一索引永远建不起来 →
+        // recordFailureReviewForkSlice 的 ON CONFLICT (slice_id) 每次都 42P10 →
+        // 调用方只 warn 一句 → slice 全部静默不落库 → 页面上就是「这次复核没产出」,
+        // 与真的没查到不可区分 —— 那正是这套东西要消除的态。RAISE NOTICE 也没人收
+        // (index.js 的 Pool 没挂 notice 监听)。
+        // 所以异常分支去重后重试,让它**收敛**:重复行只可能来自手工写入
+        // (代码路径的 ON CONFLICT 在无约束表上直接 42P10,插不进第二行),
+        // 同 slice_id 只保留 id 最大的一行,其余是重复观测,丢掉无损失。
+        // DELETE 只在异常分支跑,不进「每一次持久化操作」的热路径。
         `
           DO $$
           BEGIN
             CREATE UNIQUE INDEX IF NOT EXISTS uniq_failure_review_fork_slices_slice_id
               ON failure_review_fork_slices (slice_id);
           EXCEPTION WHEN unique_violation THEN
-            RAISE NOTICE 'failure_review_fork_slices 存在重复 slice_id,唯一索引未建立';
+            DELETE FROM failure_review_fork_slices a
+              USING failure_review_fork_slices b
+              WHERE a.slice_id = b.slice_id AND a.id < b.id;
+            CREATE UNIQUE INDEX IF NOT EXISTS uniq_failure_review_fork_slices_slice_id
+              ON failure_review_fork_slices (slice_id);
           END
           $$;
         `,

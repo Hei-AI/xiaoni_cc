@@ -1946,7 +1946,7 @@ model FailureReviewForkSlice {
   metadata               Json      @default("{}")
   created_at             DateTime  @default(now()) @db.Timestamptz(3)
 
-  @@index([fork_run_id, agent_turn], map: "idx_failure_review_fork_slices_run_turn")
-  @@index([identity_key, created_at], map: "idx_failure_review_fork_slices_identity_created")
+  @@index([fork_run_id, agent_turn, id], map: "idx_failure_review_fork_slices_run_turn")
+  @@index([identity_key, fork_run_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_failure_review_fork_slices_fork_created")
   @@map("failure_review_fork_slices")
 }
