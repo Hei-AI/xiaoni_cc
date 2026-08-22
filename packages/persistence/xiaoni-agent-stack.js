@@ -18,7 +18,9 @@ const USAGE_SEARCH_MAX_HITS = 120;
 const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
 // v4: 从 LLM Cost 聚合里排除 image_generation / image_edit / image_prompt_assistant
 // source_kind。bump 触发一次全量重建，把历史 image 行从 rollup 里清掉。
-const USAGE_ROLLUP_VERSION = 4;
+// 5:新增 failure_review_fork 源。**加新源必须 bump 这个数**,否则已初始化的库
+// (initialized_at 非空且 version >= 当前值)永远不会重建 rollup,新源的历史数据进不来。
+const USAGE_ROLLUP_VERSION = 5;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
 const USAGE_SOURCE_COMPRESSION_FORK = 'compression_fork';
@@ -472,6 +474,9 @@ function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchL
           SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
           FROM image_vision_fork_slices WHERE identity_key = ? ${timeWhere.clause}
           UNION ALL
+          SELECT slice_id, ?::varchar AS source_kind, fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
+          FROM failure_review_fork_slices WHERE identity_key = ? ${timeWhere.clause}
+          UNION ALL
           SELECT event_id AS slice_id, source_kind, source_id AS fork_run_id, llm_call_id, trace_id, created_at, token_usage, canonical_request, wire_request, canonical_response, wire_response, raw_response, output_items, metadata
           FROM codex_provider_usage_events WHERE identity_key = ? ${timeWhere.clause}
         )
@@ -522,6 +527,9 @@ function buildUsageSearchQuery({ scope, pattern, identityKey, timeWhere, searchL
         identityKey,
         ...timeWhere.params,
         USAGE_SOURCE_IMAGE_VISION_FORK,
+        identityKey,
+        ...timeWhere.params,
+        USAGE_SOURCE_FAILURE_REVIEW_FORK,
         identityKey,
         ...timeWhere.params,
         identityKey,
@@ -611,6 +619,9 @@ function usageAnchorEventId(sliceId, sourceKind) {
   }
   if (sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK) {
     return `image-vision-fork-slice:${sliceId}`;
+  }
+  if (sourceKind === USAGE_SOURCE_FAILURE_REVIEW_FORK) {
+    return `failure-review-fork-slice:${sliceId}`;
   }
   if (sourceKind && sourceKind !== USAGE_SOURCE_MAIN) {
     return `codex-provider:${sliceId}`;
@@ -1370,7 +1381,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
             output_tokens = EXCLUDED.output_tokens,
             updated_at = CURRENT_TIMESTAMP
         `,
-        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK, USAGE_SOURCE_SUBCONSCIOUS_FORK, USAGE_SOURCE_PSYCH_ASSESSMENT_FORK, USAGE_SOURCE_IMAGE_VISION_FORK]
+        [USAGE_SOURCE_MAIN, USAGE_SOURCE_COMPRESSION_FORK, USAGE_SOURCE_SUBCONSCIOUS_FORK, USAGE_SOURCE_PSYCH_ASSESSMENT_FORK, USAGE_SOURCE_IMAGE_VISION_FORK, USAGE_SOURCE_FAILURE_REVIEW_FORK]
       );
       for (const bucket of USAGE_ROLLUP_BUCKETS) {
         await rebuildLlmUsageRollupBucket(executor, bucket);
@@ -1629,6 +1640,10 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         ? 'subconscious_agent_fork_slices'
       : sourceKind === USAGE_SOURCE_IMAGE_VISION_FORK
         ? 'image_vision_fork_slices'
+      : sourceKind === USAGE_SOURCE_PSYCH_ASSESSMENT_FORK
+        ? 'psych_assessment_fork_slices'
+      : sourceKind === USAGE_SOURCE_FAILURE_REVIEW_FORK
+        ? 'failure_review_fork_slices'
         : 'llm_request_slices';
     await executor.query(
       `
@@ -3687,6 +3702,64 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     });
   }
 
+  // 复核 fork 的 slice。**必须写在这里、不能写在别处**:每个 fork 的 slice 写入都要在同一个
+  // 事务里调 syncLlmUsageRollupForSlice,把这一条增量灌进物化的 llm_usage_rollup_sources。
+  // 漏掉这一步的话,只在 usageRollupSourceFromAllSlicesSelectSql 的 UNION 里登记是不够的 ——
+  // 那个 union 只在全量重建时跑一次,新写入的 slice 永远不进用量面(实测:插一行,
+  // getXiaoniLlmUsageTimeline 捞不到)。
+  async function recordFailureReviewForkSlice(input = {}, config = {}) {
+    return withSql(input, config, async (sql) => {
+      const sliceId = firstString(input.sliceId, input.slice_id);
+      const forkRunId = firstString(input.forkRunId, input.fork_run_id);
+      if (!sliceId || !forkRunId) {
+        throw new Error('recordFailureReviewForkSlice requires sliceId and forkRunId');
+      }
+      const recordWithExecutor = async (executor) => {
+        const rows = await executor.query(
+          `
+            INSERT INTO failure_review_fork_slices (
+              slice_id, fork_run_id, llm_call_id, identity_key, goal_id,
+              canonical_request, wire_request, canonical_response, wire_response, raw_response,
+              output_items, status, token_usage, trace_id, run_id,
+              agent_turn, model_name, model_provider, processing_time_ms, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb, ?::jsonb,
+                    ?::jsonb, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?::jsonb)
+            RETURNING *
+          `,
+          [
+            sliceId,
+            forkRunId,
+            firstString(input.llmCallId, input.llm_call_id),
+            firstString(input.identityKey, input.identity_key, 'xiaoni'),
+            firstString(input.goalId, input.goal_id),
+            JSON.stringify(normalizeValue(input.canonicalRequest ?? input.canonical_request ?? {})),
+            input.wireRequest || input.wire_request ? JSON.stringify(normalizeValue(input.wireRequest ?? input.wire_request)) : null,
+            input.canonicalResponse || input.canonical_response ? JSON.stringify(normalizeValue(input.canonicalResponse ?? input.canonical_response)) : null,
+            input.wireResponse || input.wire_response ? JSON.stringify(normalizeValue(input.wireResponse ?? input.wire_response)) : null,
+            input.rawResponse || input.raw_response ? JSON.stringify(normalizeValue(input.rawResponse ?? input.raw_response)) : null,
+            JSON.stringify(normalizeJsonArray(input.outputItems ?? input.output_items, [])),
+            firstString(input.status, 'completed'),
+            JSON.stringify(normalizeJsonObject(input.tokenUsage ?? input.token_usage ?? input.usage, {})),
+            firstString(input.traceId, input.trace_id),
+            firstString(input.runId, input.run_id),
+            normalizeInteger(input.agentTurn ?? input.agent_turn),
+            firstString(input.modelName, input.model_name),
+            firstString(input.modelProvider, input.model_provider),
+            normalizeInteger(input.processingTimeMs ?? input.processing_time_ms),
+            JSON.stringify(normalizeJsonObject(input.metadata, {}))
+          ]
+        );
+        await syncLlmUsageRollupForSlice(executor, sliceId, USAGE_SOURCE_FAILURE_REVIEW_FORK);
+        return rows[0] || null;
+      };
+      if (typeof sql.withTransaction === 'function') {
+        return sql.withTransaction(recordWithExecutor);
+      }
+      return recordWithExecutor(sql);
+    });
+  }
+
   // Single-dispatch psych-assessment gate fork. Mirrors recordSubconsciousAgentForkSlice
   // exactly (same column shape) but writes psych_assessment_fork_slices and rolls up
   // usage under USAGE_SOURCE_PSYCH_ASSESSMENT_FORK. forkRunId is caller-synthesized
@@ -5007,6 +5080,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
     completeSubconsciousAgentForkRun,
     appendSubconsciousAgentForkItems,
     recordSubconsciousAgentForkSlice,
+    recordFailureReviewForkSlice,
     recordPsychAssessmentForkSlice,
     recordSubconsciousAgentForkToolExecution,
     completeSubconsciousAgentForkToolExecution,

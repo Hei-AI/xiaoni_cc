@@ -258,35 +258,6 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
     }
   }
 
-  async function recordFailureReviewForkSlice(input = {}, config = {}) {
-    const prisma = getClient(config);
-    const row = await prisma.failureReviewForkSlice.create({
-      data: {
-        slice_id: String(input.sliceId || ''),
-        fork_run_id: String(input.forkRunId || ''),
-        llm_call_id: normalizeText(input.llmCallId),
-        identity_key: resolveIdentityKey(input),
-        goal_id: normalizeText(input.goalId),
-        canonical_request: input.canonicalRequest ?? {},
-        wire_request: input.wireRequest ?? null,
-        canonical_response: input.canonicalResponse ?? null,
-        wire_response: input.wireResponse ?? null,
-        raw_response: input.rawResponse ?? null,
-        output_items: Array.isArray(input.outputItems) ? input.outputItems : [],
-        status: normalizeText(input.status) || 'completed',
-        token_usage: input.tokenUsage ?? {},
-        trace_id: normalizeText(input.traceId),
-        run_id: normalizeText(input.runId),
-        agent_turn: Number.isFinite(Number(input.agentTurn)) ? Math.trunc(Number(input.agentTurn)) : null,
-        model_name: normalizeText(input.modelName),
-        model_provider: normalizeText(input.modelProvider),
-        processing_time_ms: Number.isFinite(Number(input.processingTimeMs)) ? Math.trunc(Number(input.processingTimeMs)) : null,
-        metadata: input.metadata ?? {}
-      }
-    });
-    return { id: Number(row.id), sliceId: row.slice_id };
-  }
-
   async function listFailureReviewForkSlices(input = {}, config = {}) {
     const prisma = getClient(config);
     const limit = normalizePositiveInt(input.limit, 50);
@@ -303,6 +274,11 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
       status: row.status,
       agentTurn: row.agent_turn,
       tokenUsage: row.token_usage,
+      // 注释里承诺过「slice 给每轮的 canonical/wire request」—— 那就真的给,
+      // 否则观测口和它自己的说明书对不上。
+      canonicalRequest: row.canonical_request,
+      wireRequest: row.wire_request,
+      modelName: row.model_name,
       metadata: row.metadata,
       createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at
     }));
@@ -322,7 +298,6 @@ function createXiaoniGoalPersistence({ getPrismaClient, createSqlAdapter }) {
   return {
     ensureXiaoniGoalSchema,
     ensureFailureReviewForkSchema,
-    recordFailureReviewForkSlice,
     listFailureReviewForkSlices,
     getActiveXiaoniGoal,
     getXiaoniGoalById,

@@ -1736,20 +1736,29 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 20));
       // 两个来源合起来才是一次复核的全貌:timeline 有结论原文与成败,slice 有每轮的
       // canonical/wire request 与 token 用量。分开给会让人以为「查到原文」就等于「可观测」。
-      const [rows, slices] = await Promise.all([
-        listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit }),
-        listFailureReviewForkSlices({ limit: limit * 4 })
-      ]);
+      const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
+      // 一次复核最多 32 轮 → 32 条 slice。listFailureReviewForkSlices 是**跨 goal 的全局
+      // top-N**,所以取数必须按这一页 goal 的条数放大,不能拍一个固定倍数 —— 拍小了更早的
+      // goal 会静默拿到空数组,和「这次复核没产出」不可区分。
+      const goalIds = new Set(
+        rows.map((row) => row.metadata?.goal_id).filter((id): id is string => typeof id === 'string' && id !== '')
+      );
+      const slices = goalIds.size > 0
+        ? await listFailureReviewForkSlices({ limit: goalIds.size * 32 })
+        : [];
       const slicesByGoal = new Map<string, any[]>();
       for (const slice of slices) {
-        const key = String(slice.goalId ?? '');
+        const key = typeof slice.goalId === 'string' ? slice.goalId : '';
+        // 缺 goal_id 的行**跳过**,不要归进空键 —— 否则所有缺键的 timeline 行会各自拿到
+        // 全部孤儿 slice。
+        if (!key || !goalIds.has(key)) continue;
         if (!slicesByGoal.has(key)) slicesByGoal.set(key, []);
         slicesByGoal.get(key)!.push(slice);
       }
       res.json({
         success: true,
         data: rows.map((row) => ({
-          slices: slicesByGoal.get(String(row.metadata?.goal_id ?? '')) ?? [],
+          slices: (typeof row.metadata?.goal_id === 'string' && slicesByGoal.get(row.metadata.goal_id)) || [],
           id: row.id,
           createdAt: row.createdAt,
           phase: row.eventPhase,
