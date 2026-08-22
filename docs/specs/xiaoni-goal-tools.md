@@ -104,9 +104,9 @@ else
 </goal_round>
 ```
 
-外加一段**固定指令**（模板 `docs/xiaoni_prompt/goal_round_reminder.md`，正文待 user 定稿，
-参考 dsh 的 round prompt：把当前工作区、工具结果、会话状态当权威；**完成前要有证据**；
-还有活没干完就让 goal 保持 active）。
+外加一段**固定指令**：`docs/xiaoni_prompt/goal_round_reminder.md`（初稿已写，user 可改）。
+它照 dsh 的 round prompt 三条要点：把当前工作区、工具结果、会话状态当权威；**完成前要有证据**；
+还有活没干完就让 goal 保持 active。
 
 - `dedupeKey`：`goal-round:<goalId>:<round>`
 - `reason`：`'goal_round'`
@@ -134,15 +134,26 @@ else
 
 ### 6) 系统 prompt
 
-`system_prompt.md` 的「你能做什么」一节加一段固定 goal 策略（正文待 user 定稿）。要点：
+`system_prompt.md` 的「# 你能做什么」一节，在工具那一条后面加一段固定 goal 策略。
+**这段字节永久进 cacheable 前缀，越短越好。** 初稿（user 可改）：
 
-- 一件要做完的事，用 goal 记下来；随手就做完的小事不用
-- 改之前先 `get_goal` 拿到 `goal_id` 和 `revision`
-- **只有真的做到了才 `complete`**
-- 卡住了就 `blocked`，并把**具体卡在哪**写进 `blocked_reason`
+```markdown
+* **目标（goal）：** 有件事你想做完、又不是两下就完的，就用 `create_goal` 记下来——一次只记一件。
+  之后每一轮它都会重新摆到你眼前，直到你说它完了。要改、要停、要接着做，先 `get_goal` 拿到
+  `goal_id` 和 `revision`，再 `update_goal`。
 
-**不写**「不许轻易 blocked」之类的约束——ADR-0010 决定三已经把那条换成了「宣布 blocked
-会触发一次独立复核」。
+  **做到了才说做到了**——报 `complete` 之前，你得能指出哪儿看得到它成了。真卡住了就报 `blocked`，
+  把具体哪一步过不去写进 `blocked_reason`。不用硬撑。
+```
+
+两处**刻意没写**，改动前先看理由：
+
+1. **没写「不许轻易 blocked」之类的约束。** ADR-0010 决定三已经把那条换成了
+   「宣布 blocked 会触发一次独立复核」——用放大替代限制。
+2. **没告诉她 `blocked` 会触发复核。** 说了她可能拿它当捷径（「反正宣布卡住就有人替我找」），
+   这正是 ADR-0010 §四标记的逃生舱风险。复核的 notify 正文自己会说明来意
+   （`review_fork_notify.md`），在需要解释的那一刻解释，不预先做成一个可以薅的东西。
+   **这一条是工程侧的判断，如果 user 认为透明更重要，改掉即可。**
 
 ---
 
@@ -192,15 +203,15 @@ else
 | `agent-loop-service.ts:13245` `executeTool` | 加三个 case |
 | `agent-loop-service.ts:6691` | 续跑分叉：active goal → goal-round notify |
 | `agent-loop-service.ts` 新增 | `enqueueGoalRoundNotify` |
-| `docs/xiaoni_prompt/goal_round_reminder.md` | 新增（正文待 user 定稿） |
-| `docs/xiaoni_prompt/system_prompt.md` | 「你能做什么」加 goal 策略段（待 user 定稿） |
+| `docs/xiaoni_prompt/goal_round_reminder.md` | ✅ 初稿已写 |
+| `docs/xiaoni_prompt/system_prompt.md` | 「你能做什么」加 goal 策略段（初稿见 §6，**实现时才写进文件**） |
 | `packages/persistence/prisma/schema.prisma` | 新增 `XiaoniGoal` |
 | `packages/persistence/*.js` | goal 读写封装 |
 | 管理端 | goal 当前状态与历史可见（观测 ADR-0010 §四要求的两个率） |
 
 ## Open（工程不该定的）
 
-- `goal_round_reminder.md` 与 system prompt 里 goal 策略段的**正文措辞**
-- `max_goal_rounds` 的默认值（暂定 20）
+- **两段正文初稿已写**（`goal_round_reminder.md` 文件、system prompt 段见 §6），等 user 改
+- `max_goal_rounds` 的默认值（暂定 20，**纯拍的，无依据**）
 - 上线后要盯的两个数（ADR-0010 §四）：**goal 创建率**与 **`blocked` 调用时的
   `rounds_started` 分布**——后者若集中在 1，说明她拿 `blocked` 当逃生舱

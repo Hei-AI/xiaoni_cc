@@ -101,7 +101,7 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 ### 5) 输出契约（D4）
 
-引导 prompt 外置：`docs/xiaoni_prompt/review_fork_reminder.md`。要点（正文由 user 定稿）：
+引导 prompt 外置：`docs/xiaoni_prompt/review_fork_reminder.md`（**初稿已写**，user 可改）。要点：
 
 - 你不是小腻。你在复核**另一个 agent** 刚给出的一个失败结论
 - 那个结论是：`<她说的原话>`
@@ -189,14 +189,14 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 | `agent-loop-service.ts` `update_goal` 执行分支 | `blocked` 成功后同步触发复核 |
 | `agent-loop-service.ts` 新增 | `buildFailureReviewForkRequest` / `runFailureReviewFork` / `enqueueFailureReviewNotify` |
 | `agent-loop-service.ts:1031` `recordIdlePlanSettle` | 增 `reason` 入参 + 豁免分支 |
-| `docs/xiaoni_prompt/review_fork_reminder.md` | 新增（正文待 user 定稿） |
-| `docs/xiaoni_prompt/review_fork_notify.md` | 新增 |
+| `docs/xiaoni_prompt/review_fork_reminder.md` | ✅ 初稿已写 |
+| `docs/xiaoni_prompt/review_fork_notify.md` | ✅ 初稿已写 |
 | `packages/persistence/prisma/schema.prisma` | 四张 fork 表各加 `fork_kind` |
 | `packages/persistence/*.js` | fork 账本写入带上 `fork_kind` |
 | 管理端 usage timeline | 纳入新 fork 类型 |
 
 ## Open
 
-- `review_fork_reminder.md` 与 `review_fork_notify.md` 的**正文措辞归 user**——
-  给她看的那一面（`<xiaoni_recheck>` 块怎么说话）不由工程定
+- `review_fork_reminder.md` 与 `review_fork_notify.md` **初稿已写**，措辞归 user——
+  给她看的那一面（`<xiaoni_recheck>` 块怎么说话）最终不由工程定
 - 前置依赖：本 spec 只有在 `docs/specs/xiaoni-goal-tools.md` 落地之后才可实现
