@@ -1737,16 +1737,14 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
       // 两个来源合起来才是一次复核的全貌:timeline 有结论原文与成败,slice 有每轮的
       // canonical/wire request 与 token 用量。分开给会让人以为「查到原文」就等于「可观测」。
       const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
-      // 一次复核最多 32 轮 → 32 条 slice。listFailureReviewForkSlices 是**跨 goal 的全局
-      // top-N**,所以取数必须按这一页 goal 的条数放大,不能拍一个固定倍数 —— 拍小了更早的
-      // goal 会静默拿到空数组,和「这次复核没产出」不可区分。
       const goalIds = new Set(
         rows.map((row) => row.metadata?.goal_id).filter((id): id is string => typeof id === 'string' && id !== '')
       );
-      // 按 goal 过滤,不靠倍数启发式 —— 一次复核最多 32 轮,goalIds.size * 32 是这一页的
-      // 真实上界,而且 where 已经把别的 goal 排除掉了。
+      // limit 是**每个 goal** 的上限,不是全局的 —— 所以这里不需要按页面条数放大倍数。
+      // 拍倍数的写法在某个 goal 复核轮次特别多时,会让更早的 goal 静默拿到空数组,
+      // 和「这次复核没产出」不可区分。
       const slices = goalIds.size > 0
-        ? await listFailureReviewForkSlices({ goalIds: [...goalIds], limit: goalIds.size * 32 })
+        ? await listFailureReviewForkSlices({ goalIds: [...goalIds], limit: 64 })
         : [];
       const slicesByGoal = new Map<string, any[]>();
       for (const slice of slices) {

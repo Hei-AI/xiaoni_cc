@@ -24,6 +24,8 @@ const USAGE_ROLLUP_BUCKETS = ['hour', 'day', 'month'];
 // DELETE 两张 rollup 表 + 七源全量 UNION、全程持 advisory lock —— 所有服务排队等,
 // 部署后主 loop 可能停等数分钟。新源靠 syncLlmUsageRollupForSlice 的增量口进表就够了。
 // 将来若真需要回填历史,走一次性迁移脚本,别用 bump 触发热路径重建。
+// 下次 bump 直接从 6 起:5 这个号在开发期被 failure_review_fork 短暂用过又撤回,
+// 那些库的 state.version 已经是 5,再 bump 到 5 它们会静默跳过重建。
 const USAGE_ROLLUP_VERSION = 4;
 const USAGE_ROLLUP_STATE_KEY = '*';
 const USAGE_SOURCE_MAIN = 'main';
@@ -2343,7 +2345,7 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         `
           CREATE TABLE IF NOT EXISTS failure_review_fork_slices (
             id BIGSERIAL PRIMARY KEY,
-            slice_id VARCHAR(191) NOT NULL UNIQUE,
+            slice_id VARCHAR(191) NOT NULL,
             fork_run_id VARCHAR(191) NOT NULL,
             llm_call_id VARCHAR(128),
             identity_key VARCHAR(191) NOT NULL DEFAULT 'xiaoni',
@@ -2483,6 +2485,30 @@ function createXiaoniAgentStackPersistence({ createSqlAdapter, sqlAdapter } = {}
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_run_turn ON psych_assessment_fork_slices (fork_run_id, agent_turn, id)',
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_trace ON psych_assessment_fork_slices (trace_id, id)',
         'CREATE INDEX IF NOT EXISTS idx_psych_assessment_fork_slices_identity_time ON psych_assessment_fork_slices (identity_key, created_at DESC, id DESC)',
+        // Failure-review fork ledger 的索引。三条都对齐 psych 兄弟(它是同形状的
+        // 单表 fork 账本):按 fork_run_id+agent_turn 取一次复核的逐轮请求(raw trace),
+        // 按 identity_key+created_at 取列表页。每行是几十万 token 的 JSONB,
+        // 少一个索引就是几十万 token × N 行的全表扫。
+        'CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_run_turn ON failure_review_fork_slices (fork_run_id, agent_turn, id)',
+        'CREATE INDEX IF NOT EXISTS idx_failure_review_fork_slices_identity_created ON failure_review_fork_slices (identity_key, created_at DESC, id DESC)',
+        // slice_id 的唯一约束**故意用具名索引而不是列上内联 UNIQUE**:
+        //   ① 内联 UNIQUE 由 PG 自动命名 (..._slice_id_key),对不上 schema.prisma 的
+        //      @unique(map: "uniq_failure_review_fork_slices_slice_id"),introspect/diff 会判漂移;
+        //   ② CREATE TABLE IF NOT EXISTS **不会**给已存在的表补约束 —— 早一版 DDL 建出来的库
+        //      根本没有 unique,recordFailureReviewForkSlice 的 ON CONFLICT (slice_id) 会 42P10 全灭。
+        //      具名索引是 IF NOT EXISTS 的,能就地补上。
+        // DO 包一层:万一某个库在补约束前已经攒了重复 slice_id,建索引会抛 —— 而这整个
+        // ensure 挂在「每一次持久化操作」的路径上,让它抛等于让全站挂掉(第五轮 P0 同类)。
+        `
+          DO $$
+          BEGIN
+            CREATE UNIQUE INDEX IF NOT EXISTS uniq_failure_review_fork_slices_slice_id
+              ON failure_review_fork_slices (slice_id);
+          EXCEPTION WHEN unique_violation THEN
+            RAISE NOTICE 'failure_review_fork_slices 存在重复 slice_id,唯一索引未建立';
+          END
+          $$;
+        `,
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_llm_call ON cache_heartbeat_fork_items (llm_call_id)',
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_run ON cache_heartbeat_fork_items (run_id)',
         'CREATE INDEX IF NOT EXISTS idx_cache_heartbeat_fork_items_identity_time ON cache_heartbeat_fork_items (identity_key, created_at DESC, id DESC)'
