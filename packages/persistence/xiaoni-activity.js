@@ -1502,7 +1502,12 @@ function summarizeFailureReviewForkSlice(row) {
 function summarizeFailureReviewForkRun(forkRunId, rows, events) {
   const first = rows[0] || {};
   const metadata = normalizeJsonObject(first.metadata, {});
-  const objective = firstString(metadata.objective);
+  // 键名必须与**真实写入侧**一致:agent-loop-service 的 baseForkMetadata 写的是
+  // `goal_objective`(不是 `objective`)。第九轮 Spec 轴抓到这里恒为 null ——
+  // 而我上一条 commit 的「端到端实测」是拿手工按读取侧形状插的 slice 验的,
+  // 所以绿的是同义反复。两个键都认,写入侧改名不至于又静默变空。
+  const objective = firstString(metadata.goal_objective, metadata.objective);
+  const blockedReason = firstString(metadata.blocked_reason);
   const startedAt = eventTimestamp(
     rows.reduce((min, row) => {
       const at = row.createdAt || row.created_at;
@@ -1527,7 +1532,8 @@ function summarizeFailureReviewForkRun(forkRunId, rows, events) {
     source: 'failure_review_fork',
     kind: 'failure_review_fork',
     title: '失败复核 Agent',
-    body: truncateText(objective, 520),
+    // 目标 + 她说卡在哪。只给目标的话,列表上看不出这次复核到底在复核什么。
+    body: truncateText([objective, blockedReason].filter(Boolean).join(' —— '), 520),
     status: firstString(first.status) || null,
     startedAt,
     completedAt,
@@ -1544,6 +1550,7 @@ function summarizeFailureReviewForkRun(forkRunId, rows, events) {
       forkKind: 'failure_review',
       goalId: firstString(first.goalId, first.goal_id),
       objective,
+      blockedReason,
       turns: rows.length
     })
   };
@@ -2097,7 +2104,8 @@ async function loadFailureReviewForkTimeline(sql, {
   timeWindow,
   limit
 } = {}) {
-  const forkLimit = Math.max(1, Math.min(Number(limit) || 40, 200));
+  // 与四个兄弟 loader 同一套 clampLimit(默认 30 / 上限 120),不自己内联另一套数。
+  const forkLimit = clampLimit(limit, 30, 120);
   const clauses = [];
   const params = [];
   if (hasTimeWindow(timeWindow)) {
@@ -2113,7 +2121,8 @@ async function loadFailureReviewForkTimeline(sql, {
   const overlapClause = clauses.join(' AND ');
   try {
     const sliceRows = await sql.query(`
-      SELECT ${FORK_SLICE_ACTION_STREAM_SELECT}
+      SELECT ${FORK_SLICE_ACTION_STREAM_SELECT},
+             goal_id
       FROM failure_review_fork_slices
       WHERE identity_key = ?
       ${overlapClause ? `AND ${overlapClause}` : ''}

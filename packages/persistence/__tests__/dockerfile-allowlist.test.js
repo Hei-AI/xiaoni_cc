@@ -26,16 +26,30 @@ const DOCKERFILES = [
   'modules/provider-service/Dockerfile'
 ];
 
+// **传递闭包**,不是 index.js 的顶层 require 列表。
+// 只扫顶层会漏「index.js 不直接 require、但被别的 persistence 文件 require」的文件 ——
+// 那种文件照样得进镜像,漏了同样 MODULE_NOT_FOUND。第九轮 Standards 轴点名:
+// 上一版声称「查的是全部 38 个文件」,其实查的是顶层那一层,真正的不变量是闭包。
 function requiredPersistenceFiles() {
-  const source = fs.readFileSync(PERSISTENCE_INDEX, 'utf8');
-  const names = new Set();
-  for (const match of source.matchAll(/require\('\.\/([a-z0-9-]+)'\)/g)) {
-    names.add(`${match[1]}.js`);
+  const dir = path.dirname(PERSISTENCE_INDEX);
+  const seen = new Set();
+  const queue = ['index.js'];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const full = path.join(dir, current);
+    if (!fs.existsSync(full)) continue;
+    const source = fs.readFileSync(full, 'utf8');
+    for (const match of source.matchAll(/require\('\.\/([a-z0-9-]+)'\)/g)) {
+      queue.push(`${match[1]}.js`);
+    }
   }
-  return [...names].sort();
+  seen.delete('index.js'); // index.js 在 COPY 行里单独写着
+  return [...seen].sort();
 }
 
-test('index.js 至少 require 了一批 persistence 文件(断言本身没失效)', () => {
+test('闭包解析出一批 persistence 文件(断言本身没失效)', () => {
   const files = requiredPersistenceFiles();
   assert.ok(files.length > 20, `只解析到 ${files.length} 个,正则大概率已经失配`);
   // 本分支新增的那个必须在里面,否则下面的覆盖断言对它是空转
