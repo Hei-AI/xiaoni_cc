@@ -221,3 +221,47 @@ dbTest('参数校验:空 objective、非法 phase、缺 revision 都要当场拒
     /revision/
   );
 });
+
+// ── 观测口(issue #6)────────────────────────────────────────────────────────
+// 复核 fork 的输出原文落在 timeline_events。ADR-0009 §六把「输出文本单独可查」列为
+// **必需项** —— 「克隆 + 尾部改写身份」能不能挡住她的自我认知未经验证,判据就是人工读
+// 前 20 条的人称语气。只有日志的话读不到、也查不了,那条假设永远判不了输赢。
+
+const { logRuntimeTimelineEvent, listRuntimeTimelineEvents } = require('../index');
+
+dbTest('复核输出按时间倒序可读,原文一个字不改', async () => {
+  await sql.execute(`
+    CREATE TABLE IF NOT EXISTS timeline_events (
+      id BIGSERIAL PRIMARY KEY,
+      trace_id VARCHAR(191),
+      event_type VARCHAR(64),
+      event_name VARCHAR(128),
+      event_phase VARCHAR(32),
+      component VARCHAR(64),
+      duration_ms INTEGER,
+      metadata JSONB,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`, []);
+  await sql.execute('TRUNCATE timeline_events RESTART IDENTITY', []);
+
+  const findings = 'diary/2026-08-16.md:996\n  「小伊: 8/8到现在没回。不追了。放。」';
+  for (const [goalId, text] of [['goal_a', '第一条'], ['goal_b', findings]]) {
+    await logRuntimeTimelineEvent({
+      traceId: `failure-review:${goalId}`,
+      eventType: 'fork',
+      eventName: 'failure_review_fork',
+      eventPhase: 'completed',
+      metadata: { goal_id: goalId, findings_text: text, delivered: true }
+    }, CFG);
+  }
+  // 噪音:同一张表里别的事件不该被捞出来
+  await logRuntimeTimelineEvent({
+    traceId: 't', eventType: 'memory', eventName: 'core_memory_compressed', metadata: {}
+  }, CFG);
+
+  const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit: 20 }, CFG);
+  assert.equal(rows.length, 2, '只捞复核事件,别的事件不算');
+  assert.equal(rows[0].metadata.goal_id, 'goal_b', '按时间倒序:最新的在前');
+  assert.equal(rows[0].metadata.findings_text, findings, '证据原文逐字节保留,不许被摘要');
+  assert.equal(rows[0].metadata.delivered, true);
+});

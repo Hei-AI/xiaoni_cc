@@ -21,6 +21,9 @@ import {
   enqueueAgentQueueMessage,
   getAgentLifeState,
   getAgentRuntimeControl,
+  getActiveXiaoniGoal,
+  listXiaoniGoals,
+  listRuntimeTimelineEvents,
   getLatestUnreadAgentInboundMessage,
   listAgentLifeEvents,
   listAgentMediaAssets,
@@ -1669,6 +1672,93 @@ export function createAgentRuntimeRoutes(database: DatabaseManager, logger: wins
   // Read current energy/pressure snapshot (stored life projection) plus the thresholds that decide
   // whether Xiaoni can voluntarily fall asleep. Cheap read — the projection is maintained by
   // agent-service; this only reflects the last refresh (≤ a few seconds behind live).
+  // ── 目标(goal)观测面 ──────────────────────────────────────────────────────
+  // ADR-0010 §四 与 ADR-0009 §六 把这三块列为**必需项** —— 没有它们,两个 ADR 里明写的
+  // 赌注无法判定输赢:
+  //   ① goal 创建率长期为零 = 这个设计失败了(她有 10 个工具,81% 的动作走 exec_command,
+  //      一个她从不调的工具就是死重)。**不要靠推断,要看数。**
+  //   ② blocked 时的 rounds_started 分布集中在 1 = 她拿 blocked 当逃生舱
+  //      (决定三取消了 dsh 的 3 轮硬闸,代价就是这个)。
+  //   ③ 复核 fork 的输出原文要能按时间读 —— 「克隆 + 尾部改写身份」能不能挡住她的自我认知
+  //      未经验证,判据是人工读前 20 条的人称语气。
+  router.get('/agent-runtime/goals', async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+      const [active, history] = await Promise.all([
+        getActiveXiaoniGoal({ identityKey: 'xiaoni' }),
+        listXiaoniGoals({ identityKey: 'xiaoni', limit })
+      ]);
+      // ② blocked 时的轮次分布。样本少的时候直接看原始列表比看直方图清楚,所以两个都给。
+      const blocked = history.filter((goal) => goal.phase === 'blocked');
+      const blockedRounds: Record<string, number> = {};
+      for (const goal of blocked) {
+        const key = String(goal.roundsStarted);
+        blockedRounds[key] = (blockedRounds[key] ?? 0) + 1;
+      }
+      res.json({
+        success: true,
+        data: {
+          active,
+          history,
+          stats: {
+            total: history.length,
+            byPhase: history.reduce<Record<string, number>>((acc, goal) => {
+              acc[goal.phase] = (acc[goal.phase] ?? 0) + 1;
+              return acc;
+            }, {}),
+            // 「集中在 1」就是逃生舱信号
+            blockedRoundsHistogram: blockedRounds,
+            blockedRoundsSamples: blocked.map((goal) => ({
+              id: goal.id,
+              roundsStarted: goal.roundsStarted,
+              blockedReason: goal.blockedReason,
+              updatedAt: goal.updatedAt
+            }))
+          }
+        },
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load Xiaoni goals',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
+  // ③ 复核 fork 的输出原文,按时间倒序。ADR-0009 §六:上线后人工读前 20 条判断人称语气 ——
+  // **开口是「我想不起来了」这类第一人称自述,说明克隆没能隔离掉她的身份**,那时退回
+  // 全新上下文方案。所以这个口给的是原文,不是摘要。
+  router.get('/agent-runtime/failure-reviews', async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 20));
+      const rows = await listRuntimeTimelineEvents({ eventName: 'failure_review_fork', limit });
+      res.json({
+        success: true,
+        data: rows.map((row) => ({
+          id: row.id,
+          createdAt: row.createdAt,
+          phase: row.eventPhase,
+          goalId: row.metadata?.goal_id ?? null,
+          objective: row.metadata?.objective ?? null,
+          blockedReason: row.metadata?.blocked_reason ?? null,
+          toolCallsUsed: row.metadata?.tool_calls_used ?? null,
+          turns: row.metadata?.turns ?? null,
+          delivered: row.metadata?.delivered ?? null,
+          findingsText: row.metadata?.findings_text ?? null
+        })),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load failure reviews',
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+
   router.get('/agent-runtime/energy/state', async (_req, res) => {
     try {
       const [life, control] = await Promise.all([

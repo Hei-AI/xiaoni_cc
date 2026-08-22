@@ -1777,6 +1777,20 @@ export type XiaoniGoalRecord = {
   createdAt: string | null;
   updatedAt: string | null;
 };
+export function listRuntimeTimelineEvents(
+  input?: { eventName?: string; limit?: number },
+  config?: DatabaseUrlConfig
+): Promise<Array<{
+  id: number;
+  traceId: string | null;
+  eventType: string | null;
+  eventName: string | null;
+  eventPhase: string | null;
+  component: string | null;
+  durationMs: number | null;
+  metadata: Record<string, any>;
+  createdAt: string | Date | null;
+}>>;
 export function ensureXiaoniGoalSchema(config?: DatabaseUrlConfig): Promise<void>;
 export function getActiveXiaoniGoal(
   input?: { identityKey?: string; identity_key?: string },
