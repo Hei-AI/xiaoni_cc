@@ -27,11 +27,11 @@ const WEB_SEARCH_TOOL = 'web_search';
 const EXEC_COMMAND_TOOL = 'exec_command';
 const READ_FILE_TOOL = 'read_file';
 const IMAGE_GENERATION_TOOL = 'image_generation';
-// 目标(goal)三件套。加进这几张清单 = 断言它们在 wire 上真的出现,而且
+// 深挖(deep dive)三件套。加进这几张清单 = 断言它们在 wire 上真的出现,而且
 // 「工具定义」与「allowed-tools」两处顺序一致(两处不同步会让 allowed 前缀和 tools 对不上)。
-const GET_GOAL_TOOL = 'get_goal';
-const CREATE_GOAL_TOOL = 'create_goal';
-const UPDATE_GOAL_TOOL = 'update_goal';
+const GET_DEEP_DIVE_TOOL = 'get_deep_dive';
+const CREATE_DEEP_DIVE_TOOL = 'create_deep_dive';
+const UPDATE_DEEP_DIVE_TOOL = 'update_deep_dive';
 const QQ_USAGE_TOOL_NAME_PATTERN = /^qq_usage[_-]/;
 // Spec B: compress_core_memory is no longer a wire tool (removed from both the tool
 // definitions and the auto allowed-tools, uniformly across main loop + every fork). These
@@ -47,9 +47,9 @@ const GROUP_LOOP_TOOLS = [
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL,
-  GET_GOAL_TOOL,
-  CREATE_GOAL_TOOL,
-  UPDATE_GOAL_TOOL
+  GET_DEEP_DIVE_TOOL,
+  CREATE_DEEP_DIVE_TOOL,
+  UPDATE_DEEP_DIVE_TOOL
 ];
 const GROUP_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
@@ -60,9 +60,9 @@ const GROUP_ALLOWED_TOOLS = [
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL,
-  GET_GOAL_TOOL,
-  CREATE_GOAL_TOOL,
-  UPDATE_GOAL_TOOL
+  GET_DEEP_DIVE_TOOL,
+  CREATE_DEEP_DIVE_TOOL,
+  UPDATE_DEEP_DIVE_TOOL
 ];
 const DIRECT_LOOP_TOOLS = [
   EXEC_COMMAND_TOOL,
@@ -74,9 +74,9 @@ const DIRECT_LOOP_TOOLS = [
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL,
-  GET_GOAL_TOOL,
-  CREATE_GOAL_TOOL,
-  UPDATE_GOAL_TOOL
+  GET_DEEP_DIVE_TOOL,
+  CREATE_DEEP_DIVE_TOOL,
+  UPDATE_DEEP_DIVE_TOOL
 ];
 const DIRECT_ALLOWED_TOOLS = [
   WEB_SEARCH_TOOL,
@@ -87,9 +87,9 @@ const DIRECT_ALLOWED_TOOLS = [
   INSPECT_IMAGE_TOOL,
   IMAGE_TASK_TOOL,
   RECOVER_ENERGY_TOOL,
-  GET_GOAL_TOOL,
-  CREATE_GOAL_TOOL,
-  UPDATE_GOAL_TOOL
+  GET_DEEP_DIVE_TOOL,
+  CREATE_DEEP_DIVE_TOOL,
+  UPDATE_DEEP_DIVE_TOOL
 ];
 const EAST8_TIME_PREFIX_PATTERN = /\[当前时间: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]/;
 

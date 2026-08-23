@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert';
 
 import {
-  planGoalUpdate,
-  renderGoalRoundNotify,
-  isGoalRoundPayload,
-  readGoalIdFromPayload,
+  planDeepDiveUpdate,
+  renderDeepDiveRoundNotify,
+  isDeepDiveRoundPayload,
+  readDiveIdFromPayload,
   renderFailureReviewReminder,
   buildFailureReviewForkRequest,
   shouldDeliverReviewFindings,
@@ -13,29 +13,29 @@ import {
   isNewBlockedEpisode
 } from '../services/agent-loop-service';
 
-// update_goal 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
+// update_deep_dive 的**纯**决策层。它只做「参数 → 一次存储动作 / 一句拒绝」的翻译,
 // 一个字都不判断语义(她做没做到、算不算真卡住)—— 那些是她的判断,见 docs/adr/0010-*。
 //
 // 存储侧的两条不变量(一次只有一个 active、compare-and-set)由真 PG 用例守:
-// packages/persistence/__tests__/xiaoni-goal.realdb.test.js
+// packages/persistence/__tests__/xiaoni-deep-dive.realdb.test.js
 
 test('action → phase:四个动作各自映射,edit 沿用当前状态', () => {
-  assert.equal((planGoalUpdate({ action: 'pause' }, 'active') as any).phase, 'paused');
-  assert.equal((planGoalUpdate({ action: 'resume' }, 'paused') as any).phase, 'active');
-  assert.equal((planGoalUpdate({ action: 'complete' }, 'active') as any).phase, 'completed');
+  assert.equal((planDeepDiveUpdate({ action: 'pause' }, 'active') as any).phase, 'paused');
+  assert.equal((planDeepDiveUpdate({ action: 'resume' }, 'paused') as any).phase, 'active');
+  assert.equal((planDeepDiveUpdate({ action: 'conclude' }, 'active') as any).phase, 'concluded');
   // edit 不改状态:一个 paused 的目标被 edit 之后仍然是 paused,不会被悄悄叫醒
-  assert.equal((planGoalUpdate({ action: 'edit', objective: '改后的' }, 'paused') as any).phase, 'paused');
+  assert.equal((planDeepDiveUpdate({ action: 'edit', question: '改后的' }, 'paused') as any).phase, 'paused');
 });
 
 test('blocked 必须带具体理由,空的或只有空白一律拒绝', () => {
-  const noReason = planGoalUpdate({ action: 'blocked' }, 'active');
+  const noReason = planDeepDiveUpdate({ action: 'blocked' }, 'active');
   assert.equal(noReason.ok, false);
   assert.equal((noReason as any).reason, 'blocked_reason_required');
 
-  const blankReason = planGoalUpdate({ action: 'blocked', blocked_reason: '   ' }, 'active');
+  const blankReason = planDeepDiveUpdate({ action: 'blocked', blocked_reason: '   ' }, 'active');
   assert.equal(blankReason.ok, false);
 
-  const real = planGoalUpdate(
+  const real = planDeepDiveUpdate(
     { action: 'blocked', blocked_reason: 'grep 了十一次关键词,没有一次匹配到人名' },
     'active'
   );
@@ -46,57 +46,57 @@ test('blocked 必须带具体理由,空的或只有空白一律拒绝', () => {
 
 test('不认识的 action 当场拒绝,不猜她想干嘛', () => {
   for (const action of ['done', 'finish', 'stop', '', 'BLOCKED']) {
-    const plan = planGoalUpdate({ action }, 'active');
+    const plan = planDeepDiveUpdate({ action }, 'active');
     assert.equal(plan.ok, false, `action=${action} 应该被拒绝`);
     assert.equal((plan as any).reason, 'invalid_action');
   }
 });
 
-test('goal 不存在时先报 not_found,不去猜 action', () => {
-  const plan = planGoalUpdate({ action: 'complete' }, null);
+test('深挖不存在时先报 not_found,不去猜 action', () => {
+  const plan = planDeepDiveUpdate({ action: 'conclude' }, null);
   assert.equal(plan.ok, false);
   assert.equal((plan as any).reason, 'not_found');
 });
 
-test('objective / max_goal_rounds 只在 edit 里生效 —— 一次 pause 不许顺手改掉目标', () => {
-  const pause = planGoalUpdate(
-    { action: 'pause', objective: '偷偷换个目标', max_goal_rounds: 999 },
+test('question / max_rounds 只在 edit 里生效 —— 一次 pause 不许顺手改掉目标', () => {
+  const pause = planDeepDiveUpdate(
+    { action: 'pause', question: '偷偷换个目标', max_rounds: 999 },
     'active'
   ) as any;
   assert.equal(pause.ok, true);
-  assert.equal(pause.objective, undefined, 'pause 不该携带 objective');
-  assert.equal(pause.maxGoalRounds, undefined, 'pause 不该携带轮次上限');
+  assert.equal(pause.question, undefined, 'pause 不该携带 question');
+  assert.equal(pause.maxRounds, undefined, 'pause 不该携带轮次上限');
 
-  const edit = planGoalUpdate(
-    { action: 'edit', objective: '读完 Howard 前六章', max_goal_rounds: 30 },
+  const edit = planDeepDiveUpdate(
+    { action: 'edit', question: '读完 Howard 前六章', max_rounds: 30 },
     'active'
   ) as any;
-  assert.equal(edit.objective, '读完 Howard 前六章');
-  assert.equal(edit.maxGoalRounds, 30);
+  assert.equal(edit.question, '读完 Howard 前六章');
+  assert.equal(edit.maxRounds, 30);
 });
 
 test('blocked_reason 只跟着 blocked 走,别的 action 传了就忽略', () => {
-  const complete = planGoalUpdate(
-    { action: 'complete', blocked_reason: '一条陈旧的卡住理由' },
+  const complete = planDeepDiveUpdate(
+    { action: 'conclude', blocked_reason: '一条陈旧的卡住理由' },
     'active'
   ) as any;
   assert.equal(complete.ok, true);
   assert.equal(
     complete.blockedReason,
     undefined,
-    '一条陈旧的卡住理由不许跟着一个已完成的目标走'
+    '一条陈旧的卡住理由不许跟着一个已收口的深挖走'
   );
 });
 
 test('轮次上限:非数字、非有限值一律忽略,不写进存储动作', () => {
   for (const bad of ['30', null, undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
-    const plan = planGoalUpdate({ action: 'edit', max_goal_rounds: bad }, 'active') as any;
+    const plan = planDeepDiveUpdate({ action: 'edit', max_rounds: bad }, 'active') as any;
     assert.equal(plan.ok, true);
-    assert.equal(plan.maxGoalRounds, undefined, `max_goal_rounds=${String(bad)} 应被忽略`);
+    assert.equal(plan.maxRounds, undefined, `max_rounds=${String(bad)} 应被忽略`);
   }
   // 小数截断成整数,不是拒绝 —— 她写 30.7 的意思显然是 30
-  const truncated = planGoalUpdate({ action: 'edit', max_goal_rounds: 30.7 }, 'active') as any;
-  assert.equal(truncated.maxGoalRounds, 30);
+  const truncated = planDeepDiveUpdate({ action: 'edit', max_rounds: 30.7 }, 'active') as any;
+  assert.equal(truncated.maxRounds, 30);
 });
 
 // ── 续跑块(issue #3)──────────────────────────────────────────────────────────
@@ -105,9 +105,9 @@ test('轮次上限:非数字、非有限值一律忽略,不写进存储动作', 
 // 既污染上下文又没法复用前缀;这一块 append-only,落在可复用前缀之后。
 
 test('相邻两轮的续跑块:除 round 数字外逐字节相同', () => {
-  const objective = '把 gorton 写到第 100 章';
-  const r3 = renderGoalRoundNotify(objective, 3, 20);
-  const r4 = renderGoalRoundNotify(objective, 4, 20);
+  const question = '把 gorton 写到第 100 章';
+  const r3 = renderDeepDiveRoundNotify(question, 3, 20);
+  const r4 = renderDeepDiveRoundNotify(question, 4, 20);
 
   assert.notEqual(r3, r4, '轮次不同,块不该完全一样');
   // 把 round 数字抹平之后必须完全相等 —— 任何其它字节漂移都会让前缀失效
@@ -115,40 +115,40 @@ test('相邻两轮的续跑块:除 round 数字外逐字节相同', () => {
   assert.equal(flatten(r3), flatten(r4));
 });
 
-test('续跑块结构:objective 原样在块里,轮次和上限都在属性上', () => {
-  const block = renderGoalRoundNotify('读完 Howard 前六章', 7, 20);
-  assert.match(block, /<goal_round round="7" max="20">/);
+test('续跑块结构:question 原样在块里,轮次和上限都在属性上', () => {
+  const block = renderDeepDiveRoundNotify('读完 Howard 前六章', 7, 20);
+  assert.match(block, /<deep_dive_round round="7" max="20">/);
   assert.match(block, /读完 Howard 前六章/);
-  assert.match(block, /<\/goal_round>/);
+  assert.match(block, /<\/deep_dive_round>/);
 });
 
-test('objective 一个字都不改:引擎不重写她写的目标', () => {
+test('question 一个字都不改:引擎不重写她写的目标', () => {
   const weird = '  两边留空格  和\n换行  ';
-  assert.ok(renderGoalRoundNotify(weird, 1, 20).includes(weird));
+  assert.ok(renderDeepDiveRoundNotify(weird, 1, 20).includes(weird));
 });
 
-test('轮次计数只认 goal_round:别的 reason 一律不推进', () => {
-  const goalRound = {
-    systemReminder: { reason: 'goal_round' },
-    rawPayload: { reason: 'goal_round', goal_id: 'goal_abc' }
+test('轮次计数只认 deep_dive_round:别的 reason 一律不推进', () => {
+  const diveRound = {
+    systemReminder: { reason: 'deep_dive_round' },
+    rawPayload: { reason: 'deep_dive_round', deep_dive_id: 'dive_abc' }
   } as any;
-  assert.equal(isGoalRoundPayload(goalRound), true);
-  assert.equal(readGoalIdFromPayload(goalRound), 'goal_abc');
+  assert.equal(isDeepDiveRoundPayload(diveRound), true);
+  assert.equal(readDiveIdFromPayload(diveRound), 'dive_abc');
 
   for (const reason of ['subconscious_agent', 'clock_ping', 'attention_lease', 'external']) {
     const other = { systemReminder: { reason }, rawPayload: { reason } } as any;
-    assert.equal(isGoalRoundPayload(other), false, `${reason} 不该推进 goal 轮次`);
+    assert.equal(isDeepDiveRoundPayload(other), false, `${reason} 不该推进深挖轮次`);
   }
 });
 
-test('goal_id 缺失或空白 → null,调用方据此跳过计数(不猜)', () => {
-  const noId = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round' } } as any;
-  assert.equal(readGoalIdFromPayload(noId), null);
+test('deep_dive_id 缺失或空白 → null,调用方据此跳过计数(不猜)', () => {
+  const noId = { systemReminder: { reason: 'deep_dive_round' }, rawPayload: { reason: 'deep_dive_round' } } as any;
+  assert.equal(readDiveIdFromPayload(noId), null);
   const blank = {
-    systemReminder: { reason: 'goal_round' },
-    rawPayload: { reason: 'goal_round', goal_id: '   ' }
+    systemReminder: { reason: 'deep_dive_round' },
+    rawPayload: { reason: 'deep_dive_round', deep_dive_id: '   ' }
   } as any;
-  assert.equal(readGoalIdFromPayload(blank), null);
+  assert.equal(readDiveIdFromPayload(blank), null);
 });
 
 // ── 复核 fork(issue #4 / #5)────────────────────────────────────────────────
@@ -209,13 +209,13 @@ test('NO_FINDING 契约:查不到就不投递,不拿「我尽力了」占她一�
 test('复核 notify 可识别:空转账本据此对它隐形', () => {
   const review = { systemReminder: { reason: 'failure_review' }, rawPayload: { reason: 'failure_review' } } as any;
   assert.equal(isFailureReviewPayload(review), true);
-  for (const reason of ['goal_round', 'subconscious_agent', 'clock_ping']) {
+  for (const reason of ['deep_dive_round', 'subconscious_agent', 'clock_ping']) {
     assert.equal(isFailureReviewPayload({ systemReminder: { reason }, rawPayload: { reason } } as any), false);
   }
 });
 
 // ── blocked 是「相变」才触发复核(Spec 轴第八轮 (c)-4)──────────────────────────
-// 事故:去重键曾是 `${goalId}:${revision}`,而 revision 每次 mutation 都 +1 ——
+// 事故:去重键曾是 `${diveId}:${revision}`,而 revision 每次 mutation 都 +1 ——
 // 不 resume 连着报两次 blocked 就是两把不同的键,复核跑两遍。而那个集合还在内存里,
 // 重启即失效。spec §1 要的是「同一次卡住只复核一次,resume 之后再卡住才有第二次」,
 // 那本来就是一次**相变**,按相变判天然满足且不依赖任何进程内状态。
@@ -230,22 +230,22 @@ test('blocked→blocked 不是新的一次卡住;resume→blocked 才是', () =>
   assert.equal(entered('blocked', 'paused'), true, '从 paused 卡住 = 一次新的卡住');
   assert.equal(entered('blocked', null), true);
   // resume 之后再 blocked → 那时 current.phase 已经是 active,又成立
-  assert.equal(entered('complete', 'active'), false);
+  assert.equal(entered('conclude', 'active'), false);
   assert.equal(entered('pause', 'active'), false);
 });
 
-// ── goal 轮次与空转失效是两个量,不合并(D4)──────────────────────────────────
-// 事故:空转账本只豁免了 clock_ping 与 failure_review,goal_round run 照常记账 ——
-// goal 期间的零工具 run 把空转计数累高,goal 一结束,第一条 plan 就带着虚高的轮数
+// ── 深挖轮次与空转失效是两个量,不合并(D4)──────────────────────────────────
+// 事故:空转账本只豁免了 clock_ping 与 failure_review,deep_dive_round run 照常记账 ——
+// 深挖期间的零工具 run 把空转计数累高,深挖一结束,第一条 plan 就带着虚高的轮数
 // 进升级腿,升级凭据来自一段根本没跑 plan 的时间。
 
-test('goal_round 对空转账本隐形,和报时/复核同一条待遇', () => {
-  const goalRound = { systemReminder: { reason: 'goal_round' }, rawPayload: { reason: 'goal_round', goal_id: 'g1' } } as any;
-  assert.equal(isGoalRoundPayload(goalRound), true);
-  // 隐形的判据:整个 run 都由 goal_round 驱动。夹带了真实外部消息就照常记账,
-  // 否则一条 goal-round 就能把真空转洗白(与报时同一条理由)。
-  const claimed = [goalRound, goalRound];
-  assert.equal(claimed.every(isGoalRoundPayload), true);
-  const mixed = [goalRound, { systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' } } as any];
-  assert.equal(mixed.every(isGoalRoundPayload), false, '夹带外部消息的折叠 run 必须照常记账');
+test('deep_dive_round 对空转账本隐形,和报时/复核同一条待遇', () => {
+  const diveRound = { systemReminder: { reason: 'deep_dive_round' }, rawPayload: { reason: 'deep_dive_round', deep_dive_id: 'g1' } } as any;
+  assert.equal(isDeepDiveRoundPayload(diveRound), true);
+  // 隐形的判据:整个 run 都由 deep_dive_round 驱动。夹带了真实外部消息就照常记账,
+  // 否则一条 deep-dive-round 就能把真空转洗白(与报时同一条理由)。
+  const claimed = [diveRound, diveRound];
+  assert.equal(claimed.every(isDeepDiveRoundPayload), true);
+  const mixed = [diveRound, { systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' } } as any];
+  assert.equal(mixed.every(isDeepDiveRoundPayload), false, '夹带外部消息的折叠 run 必须照常记账');
 });

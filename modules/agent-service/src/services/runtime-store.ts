@@ -9,14 +9,14 @@ import {
   createAcceptedIdentityFact,
   ensureAgentMediaSchema,
   ensureAgentTaskSchema,
-  ensureXiaoniGoalSchema,
+  ensureXiaoniDeepDiveSchema,
   recordFailureReviewForkSlice,
-  getActiveXiaoniGoal,
-  getCurrentXiaoniGoal,
-  getXiaoniGoalById,
-  createXiaoniGoal,
-  updateXiaoniGoal,
-  incrementXiaoniGoalRound,
+  getActiveXiaoniDeepDive,
+  getCurrentXiaoniDeepDive,
+  getXiaoniDeepDiveById,
+  createXiaoniDeepDive,
+  updateXiaoniDeepDive,
+  incrementXiaoniDeepDiveRound,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
   ensureAgentRecoverySessionSchema,
@@ -1277,7 +1277,7 @@ export class RuntimeStore {
     await ensureIdentityLineageSchema(databaseConfig);
     await ensureAgentMediaSchema(databaseConfig);
     await ensureAgentTaskSchema(databaseConfig);
-    await ensureXiaoniGoalSchema(databaseConfig);
+    await ensureXiaoniDeepDiveSchema(databaseConfig);
     await ensureAgentPresenceSchema(databaseConfig);
     await ensureAgentLifeEventSchema(databaseConfig);
     await ensureAgentRecoverySessionSchema({ sqlAdapter: this.sql }, databaseConfig);
@@ -1997,35 +1997,35 @@ export class RuntimeStore {
     return createAgentTask(input, databaseConfig);
   }
 
-  // ── 目标(goal)。纯委托,语义判断一律不在这一层(见 packages/persistence/xiaoni-goal.js 文件头)。
-  // get_goal 用这个,不是 getActiveGoal —— 只认 active 的话 paused 目标拿不到
-  // goal_id/revision,resume 就结构性不可达(spec 的 action 集合里有 resume)。
-  async getCurrentGoal() {
-    return getCurrentXiaoniGoal({}, databaseConfig);
+  // ── 深挖(deep dive)。纯委托,语义判断一律不在这一层(见 packages/persistence/xiaoni-deep-dive.js 文件头)。
+  // get_deep_dive 用这个,不是 getActiveDeepDive —— 只认 active 的话 paused 目标拿不到
+  // dive_id/revision,resume 就结构性不可达(spec 的 action 集合里有 resume)。
+  async getCurrentDeepDive() {
+    return getCurrentXiaoniDeepDive({}, databaseConfig);
   }
 
-  async getActiveGoal() {
-    return getActiveXiaoniGoal({}, databaseConfig);
+  async getActiveDeepDive() {
+    return getActiveXiaoniDeepDive({}, databaseConfig);
   }
 
-  async getGoalById(goalId: string) {
-    return getXiaoniGoalById({ goalId }, databaseConfig);
+  async getDeepDiveById(diveId: string) {
+    return getXiaoniDeepDiveById({ diveId }, databaseConfig);
   }
 
-  async createGoal(input: { objective: string; maxGoalRounds?: number }) {
-    return createXiaoniGoal(input, databaseConfig);
+  async createDeepDive(input: { question: string; maxRounds?: number }) {
+    return createXiaoniDeepDive(input, databaseConfig);
   }
 
-  async updateGoal(input: Parameters<typeof updateXiaoniGoal>[0]) {
-    return updateXiaoniGoal(input, databaseConfig);
+  async updateDeepDive(input: Parameters<typeof updateXiaoniDeepDive>[0]) {
+    return updateXiaoniDeepDive(input, databaseConfig);
   }
 
   async recordFailureReviewForkSlice(input: Record<string, unknown>) {
     return recordFailureReviewForkSlice(input, databaseConfig);
   }
 
-  async incrementGoalRound(goalId: string) {
-    return incrementXiaoniGoalRound({ goalId }, databaseConfig);
+  async incrementDeepDiveRound(diveId: string) {
+    return incrementXiaoniDeepDiveRound({ diveId }, databaseConfig);
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {
