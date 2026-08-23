@@ -2057,6 +2057,27 @@ const DEEP_DIVE_ACTION_TO_PHASE: Record<string, XiaoniDeepDivePhase | 'keep'> = 
   blocked: 'blocked'
 };
 
+// 这一轮该不该由深挖来点火。
+//
+// **判据只有一条:有没有一个 active 深挖。** `maxRounds` 故意不参与 —— 它曾经参与过,
+// 那是个死锁:跑满之后不再发 notify,**而那一行仍然留在 active**。唯一索引是
+// `WHERE phase='active'`,于是 create_deep_dive 从此恒返回 already_active,一个她不管了
+// 的深挖会把整个机制永久锁死。
+//
+// 修法不是「跑满就自动 pause」—— 那是引擎替她放弃,和引擎替她下结论是同一类错(ADR-0010
+// 的核心是结论只能由她说)。修法是**取消停止驱动**:没收口就一直提醒她,她就不可能忘掉
+// 它,槽位被占也不构成死锁。
+//
+// 收敛因此不来自这个上限,来自升级阶梯:她 → 福尔摩斯(第三方视角,给方向)→ 阿花(人)。
+// `maxRounds` 保留在存储与工具参数里,留给那条阶梯当阈值,当前**没有消费者**。
+// 签名里**只有 phase** —— `maxRounds` / `roundsStarted` 不进参数表,免得看的人以为它们
+// 参与判断。写成类型守卫,调用点才能把 `| null` 收窄掉。
+export function shouldDriveDeepDiveRound<T extends { phase: XiaoniDeepDivePhase }>(
+  dive: T | null
+): dive is T {
+  return dive !== null && dive.phase === 'active';
+}
+
 export function planDeepDiveUpdate(
   args: Record<string, unknown>,
   currentPhase: XiaoniDeepDivePhase | null
@@ -7065,7 +7086,7 @@ export class AgentLoopService {
       });
       return null;
     });
-    if (activeDive && activeDive.roundsStarted < activeDive.maxRounds) {
+    if (shouldDriveDeepDiveRound(activeDive)) {
       try {
         const enqueued = await this.enqueueDeepDiveRoundNotify(activeDive);
         // 【别让她永久哑掉】dedupeKey 带轮次;如果上一条 deep_dive_round 已经入过队而轮次没有
@@ -9236,10 +9257,12 @@ export class AgentLoopService {
         // 深挖轮次数的是「为这个问题挖了几轮」,空转数的是「跑了却没产出」—— 两个量。
         // 不隐形的话,深挖期间的零工具 run 会把空转计数累高;深挖一结束,第一条 plan
         // 就带着虚高的轮数进升级腿,升级凭据来自一段根本没跑 plan 的时间。
-        // 深挖这一侧本来就有自己的闸(max_rounds),不需要空转账本再管一遍。
+        // 庇护有边界:max_rounds 之内隐形,之外照常记账(见 deepDiveRoundShieldsIdleLedger)。
         // 与报时同理:整个 run 都由 deep-dive-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
-        const runDrivenOnlyByDeepDiveRound = isDeepDiveRoundPayload(payload)
-          && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
+        // 庇护的边界见 deepDiveRoundShieldsIdleLedger:跑满 max_rounds 之后照样驱动,
+        // 但不再隐形 —— 否则一个她放着不管的深挖会让空转治理永久瞎掉。
+        const runDrivenOnlyByDeepDiveRound = deepDiveRoundShieldsIdleLedger(payload)
+          && continuationQueueMessages.every((claimed) => deepDiveRoundShieldsIdleLedger(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview && !runDrivenOnlyByDeepDiveRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
             settledOnFinalAnswer: actionPlan.hasFinalAnswer,
@@ -16042,6 +16065,28 @@ export function isFailureReviewPayload(queueMessage: QueueMessageRecord['payload
     return false;
   }
   return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'failure_review';
+}
+
+// 这一条 deep-dive-round 还在不在空转账本的庇护范围内。
+//
+// 庇护本身的理由见记账处的注释(D4:深挖轮次与空转失效是两个量,不合并)。而庇护的**边界**
+// 曾经由「跑满就不再驱动」隐含地给出 —— 那条判据被拆掉之后(见 shouldDriveDeepDiveRound),
+// 如果庇护不跟着收口,她放着不管的深挖会让她的 run 对空转治理永久隐形,升级腿和作废腿一起瞎。
+//
+// 所以 max_rounds 换了个职责:**不再决定停不停止驱动,改为决定停不停止庇护**。跑满之后她
+// 照样每次收工都被提醒(没收口就一直提醒),但那些 run 重新对空转账本可见 —— 真在空转就该
+// 被看见。轮次与上限直接从 payload 上读,不回库。
+export function deepDiveRoundShieldsIdleLedger(queueMessage: QueueMessageRecord['payload']): boolean {
+  if (!isDeepDiveRoundPayload(queueMessage)) {
+    return false;
+  }
+  const round = Number(queueMessage.rawPayload?.deep_dive_round);
+  const max = Number(queueMessage.rawPayload?.deep_dive_max_rounds);
+  // 读不出来时保持庇护 —— 与改动前一致,不因为一个缺字段就把她推进升级腿。
+  if (!Number.isFinite(round) || !Number.isFinite(max)) {
+    return true;
+  }
+  return round <= max;
 }
 
 export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload']): string | null {

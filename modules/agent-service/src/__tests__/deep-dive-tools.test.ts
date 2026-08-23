@@ -3,6 +3,8 @@ import assert from 'node:assert';
 
 import {
   planDeepDiveUpdate,
+  shouldDriveDeepDiveRound,
+  deepDiveRoundShieldsIdleLedger,
   renderDeepDiveRoundNotify,
   isDeepDiveRoundPayload,
   readDiveIdFromPayload,
@@ -248,4 +250,62 @@ test('deep_dive_round 对空转账本隐形,和报时/复核同一条待遇', ()
   assert.equal(claimed.every(isDeepDiveRoundPayload), true);
   const mixed = [diveRound, { systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' } } as any];
   assert.equal(mixed.every(isDeepDiveRoundPayload), false, '夹带外部消息的折叠 run 必须照常记账');
+});
+
+// ── 点火判据:没收口就一直驱动 ──────────────────────────────────────────────────
+// 这条路径此前**从来没有测试**,而它带着一个死锁:原判据是
+// `roundsStarted < maxRounds`,跑满之后不再发 deep-dive-round notify,**但那一行仍然
+// 留在 active**。唯一索引是 `WHERE phase='active'`,于是 create_deep_dive 从此恒返回
+// already_active —— 一个她不管了的深挖会把整个机制永久锁死,除非她自己想起来去收它。
+//
+// 正确的修法不是「跑满就自动 pause」(那是引擎替她放弃,和引擎替她下结论同一类错),
+// 而是**取消停止驱动**:没收口就一直提醒她,于是她不可能忘掉它,槽位被占也就不构成死锁。
+// 收敛不来自这个上限,来自「她 → 福尔摩斯 → 阿花」那条升级阶梯。
+
+test('点火判据:有 active 深挖就驱动,跑满 max_rounds 之后照样驱动', () => {
+  assert.equal(
+    shouldDriveDeepDiveRound({ phase: 'active', roundsStarted: 0, maxRounds: 8 }),
+    true
+  );
+  assert.equal(
+    shouldDriveDeepDiveRound({ phase: 'active', roundsStarted: 8, maxRounds: 8 }),
+    true,
+    '恰好跑满不该停 —— 停了那一行就永远卡在 active'
+  );
+  assert.equal(
+    shouldDriveDeepDiveRound({ phase: 'active', roundsStarted: 999, maxRounds: 8 }),
+    true,
+    '远超上限也照样驱动'
+  );
+});
+
+test('点火判据:没有 active 深挖就不驱动,让位给潜意识 fork', () => {
+  assert.equal(shouldDriveDeepDiveRound(null), false);
+});
+
+// ── 闸的新职责:停止庇护,而不是停止驱动 ────────────────────────────────────────
+// 空转账本对 deep-dive-round 驱动的 run 隐形,其正当性写在 agent-loop-service 的注释里:
+// 「深挖这一侧本来就有自己的闸(max_rounds),不需要空转账本再管一遍」。
+// 上面那条改动把闸从点火判据里拆掉了 —— 如果隐形不跟着收口,她放着不管的深挖会让她的 run
+// 对空转治理**永久隐形**,升级腿和作废腿都瞎掉。
+// 所以闸改成管这个:跑满之前庇护,跑满之后照样驱动、但不再庇护。
+
+test('庇护判据:跑满之前隐形,跑满之后照常记账', () => {
+  const at = (round: number, max: number) => ({
+    systemReminder: { reason: 'deep_dive_round' },
+    rawPayload: { reason: 'deep_dive_round', deep_dive_round: round, deep_dive_max_rounds: max }
+  }) as any;
+  assert.equal(deepDiveRoundShieldsIdleLedger(at(1, 8)), true);
+  assert.equal(deepDiveRoundShieldsIdleLedger(at(8, 8)), true, '恰好跑满仍在庇护内');
+  assert.equal(deepDiveRoundShieldsIdleLedger(at(9, 8)), false, '超过上限就不再庇护');
+  assert.equal(deepDiveRoundShieldsIdleLedger(at(999, 8)), false);
+});
+
+test('庇护判据:不是 deep-dive-round 的 payload 一律不庇护', () => {
+  assert.equal(
+    deepDiveRoundShieldsIdleLedger({
+      systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' }
+    } as any),
+    false
+  );
 });
