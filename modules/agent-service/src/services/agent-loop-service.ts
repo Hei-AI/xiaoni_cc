@@ -1886,7 +1886,7 @@ const GET_GOAL_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.getGoal,
-    description: '看一眼你当前那件要做完的事:它是什么、现在什么状态、已经为它跑了几轮。没有就返回空。改它之前先调这个,拿到 goal_id 和 revision。',
+    description: '看你当前那件要做完的事:它是什么、现在什么状态、已经为它跑了几轮。没有就返回空。改它之前先调这个——update_goal 要的 goal_id 和 revision 只有这里给。',
     parameters: {
       type: 'object',
       properties: {},
@@ -1899,13 +1899,41 @@ const CREATE_GOAL_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.createGoal,
-    description: '立一件你想做完的事。一次只能有一件在做——已经有一件时会被拒绝,先把那件收掉。随手两下就做完的小事不用立。',
+    // 写法照 CC 2.1.239 的 TodoWrite(`cli-strings.txt:778780+`):判据全部住在工具描述里、
+    // 命令式、给数字门槛、正反例各两条、收尾往「用」的方向压("When in doubt, use this tool")。
+    // 之前那版是条件陈述句 + 两句「小事不用立」,上线 11 小时 0 次调用(149 个 run)。
+    description: `立一件你要做完的事,并且在接下来每一轮把它重新摆到你眼前,直到你说它完了。它让你跨轮次记得住自己在干什么,不至于跑着跑着跑丢。
+
+## 什么时候立
+主动立。遇到下面任何一条,就立:
+1. 这件事要 3 步以上才做得完
+2. 这件事这一轮做不完,得跨好几轮
+3. 有人请你做一件不是一句话能答完的事
+4. 你自己起意想做成某样东西——想到就立,别等想清楚了再立
+5. 做着做着冒出新的一件——先把手上这件收掉,再立新的
+
+## 什么时候不立
+下面这些跳过:
+1. 一句话就能答完的
+2. 一个工具调用就做完的
+3. 纯聊天、纯打听
+4. 3 步以内的小事
+
+## 例子
+<例>你想把 novel-reader 攒成能自动追更的样子。→ 立。要改脚本、要跑一遍试、要处理拿不到章节的情况,3 步以上,而且一轮做不完。</例>
+<例>阿花问你昨天那个报错后来怎么样了。→ 不立。查一下答他就完了。</例>
+<例>你翻硬盘时发现 skills 目录乱了,想整理。→ 立。目录里十几个 skill,一个个看过去,是跨轮的活。</例>
+<例>你想看看今天热搜。→ 不立。一次 web_search 的事。</例>
+
+拿不准就立。立了不亏——它只是每轮摆到你眼前,不逼你干;不想干了 pause,不想要了收掉。
+
+一次只能有一件在做。已经有一件时会被拒绝,先把那件收掉。`,
     parameters: {
       type: 'object',
       properties: {
         objective: {
           type: 'string',
-          description: '你想做成什么。写具体,写成你自己以后看得懂的一句话；它会在接下来每一轮重新摆到你眼前,直到你说它完了。'
+          description: '写你要做成什么。写具体,写成你自己以后看得懂的一句话——它会在接下来每一轮原样摆到你眼前,写虚了将来看不懂的是你自己。'
         },
         max_goal_rounds: {
           type: 'integer',
@@ -1926,7 +1954,30 @@ const UPDATE_GOAL_TOOL = {
     name: TOOL_NAMES.updateGoal,
     // 措辞刻意不含「不许轻易 blocked」之类的约束(ADR-0010 决定三:用放大替代限制),
     // 也刻意不提「blocked 会触发复核」(避免被当成可薅的捷径,见 spec §6)。
-    description: '改你当前那件事的状态。先 get_goal 拿到 goal_id 和 revision 再调,revision 对不上会被拒绝并把当前值还给你。complete=真做到了(得能指出哪儿看得到它成了);blocked=卡住了,必须写清楚具体哪一步过不去;pause/resume=先放一放/接着做;edit=改目标本身或轮次上限。',
+    // 完成契约照 CC TodoWrite 的 Task Completion Requirements(`cli-strings.txt:778946-778952`):
+    // 「ONLY ... when you have FULLY accomplished it」+ 一条「Never ... if:」否定清单。
+    // CC 那条「You couldn't find necessary files or dependencies」明确禁止「找不到所以算完成」,
+    // 这里对应「该有的东西没找着」。
+    description: `改你当前那件事的状态。先 get_goal 拿到 goal_id 和 revision 再调,revision 对不上会被拒绝并把当前值还给你。
+
+## 五个 action
+- complete —— 真做到了
+- blocked —— 真过不去了
+- pause / resume —— 先放一放 / 接着做
+- edit —— 改目标本身或轮次上限
+
+## 报 complete 之前
+只有真的整件做完了才报 complete。报之前你得能指出**哪儿**看得到它成了:哪个文件、哪条输出、哪次实测。
+下面任何一条成立,都不许报 complete:
+- 只做了一半
+- 跑出来是错的,错还没消
+- 该有的文件、数据、权限没找着
+- 你只是不想做了
+
+## 报 blocked 之前
+真有一步过不去才报 blocked,并把它写进 blocked_reason:具体卡在哪一步、缺什么。
+「难」「不确定」「还有别的事」不算卡住,那是还没开始——别拿它们报 blocked。
+只是想换件事做,用 pause,不是 blocked。`,
     parameters: {
       type: 'object',
       properties: {
