@@ -16,7 +16,9 @@ import {
   getXiaoniDeepDiveById,
   createXiaoniDeepDive,
   updateXiaoniDeepDive,
-  incrementXiaoniDeepDiveRound,
+  incrementXiaoniDeepDiveRequests,
+  incrementActiveXiaoniDeepDiveRequests,
+  recordXiaoniDeepDiveSherlockConsult,
   ensureAgentPresenceSchema,
   ensureAgentLifeEventSchema,
   ensureAgentRecoverySessionSchema,
@@ -2012,7 +2014,7 @@ export class RuntimeStore {
     return getXiaoniDeepDiveById({ diveId }, databaseConfig);
   }
 
-  async createDeepDive(input: { question: string; maxRounds?: number }) {
+  async createDeepDive(input: { question: string; maxRequests?: number }) {
     return createXiaoniDeepDive(input, databaseConfig);
   }
 
@@ -2024,8 +2026,16 @@ export class RuntimeStore {
     return recordFailureReviewForkSlice(input, databaseConfig);
   }
 
-  async incrementDeepDiveRound(diveId: string) {
-    return incrementXiaoniDeepDiveRound({ diveId }, databaseConfig);
+  async incrementActiveDeepDiveRequests() {
+    return incrementActiveXiaoniDeepDiveRequests({}, databaseConfig);
+  }
+
+  async recordSherlockConsult(diveId: string) {
+    return recordXiaoniDeepDiveSherlockConsult({ diveId }, databaseConfig);
+  }
+
+  async incrementDeepDiveRequests(diveId: string) {
+    return incrementXiaoniDeepDiveRequests({ diveId }, databaseConfig);
   }
 
   async claimNextQueueMessage(workerId: string): Promise<QueueMessageRecord | null> {

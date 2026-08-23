@@ -1600,11 +1600,13 @@ const SUBCONSCIOUS_AGENT_FORK_MAX_MODEL_SLICES = SUBCONSCIOUS_AGENT_FORK_MAX_TOO
 // 才不熔断。部署顺序:prompt 走目录 watcher 热加载先上、观察分布落到 p99 < 800,再上这一条。
 // 复核 fork 的三个预算。都是从一次受控实验(22 次工具调用)外推的,**只有一个样本**。
 // 上线后按真实分布调,别当成经过验证的常数。
-const FAILURE_REVIEW_FORK_MAX_TOOL_CALLS = 30;
-const FAILURE_REVIEW_FORK_MAX_TURNS = 32;
-const FAILURE_REVIEW_FORK_MAX_OUTPUT_TOKENS = 4000;
+const SHERLOCK_FORK_MAX_TOOL_CALLS = 30;
+const SHERLOCK_FORK_MAX_TURNS = 32;
+const SHERLOCK_FORK_MAX_OUTPUT_TOKENS = 4000;
+// 福尔摩斯跑在全新上下文上,模型名不继承主 agent —— 由调用方按运行时 prompt 传入。
+const SHERLOCK_MODEL_PLACEHOLDER = '';
 // 查不到东西时的固定出口。开头命中就不投递 —— 不拿「我尽力了」去占她一次唤醒。
-const FAILURE_REVIEW_NO_FINDING = 'NO_FINDING';
+const SHERLOCK_NO_DIRECTION = 'NO_DIRECTION';
 const SUBCONSCIOUS_AGENT_FORK_MAX_OUTPUT_TOKENS = 800;
 const CACHE_HEARTBEAT_EXECUTION_MODE = 'cache_heartbeat_no_persist';
 const CACHE_HEARTBEAT_DEVELOPER_CONTENT = [
@@ -1898,7 +1900,7 @@ const GET_DEEP_DIVE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.getDeepDive,
-    description: '看你当前正在挖的那个问题:它是什么、现在什么状态、已经为它跑了几轮。没有就返回空。改它之前先调这个——update_deep_dive 要的 deep_dive_id 和 revision 只有这里给。',
+    description: '看你当前正在挖的那个问题:它是什么、现在什么状态、已经为它花了多少次请求。没有就返回空。改它之前先调这个——update_deep_dive 要的 deep_dive_id 和 revision 只有这里给。',
     parameters: {
       type: 'object',
       properties: {},
@@ -1946,11 +1948,11 @@ const CREATE_DEEP_DIVE_TOOL = {
           type: 'string',
           description: '写你想弄明白什么。写成一个问句,写具体——它会在接下来每一轮原样摆到你眼前,写虚了将来看不懂的是你自己。'
         },
-        max_rounds: {
+        max_requests: {
           type: 'integer',
           minimum: 1,
           maximum: 200,
-          description: '可选。最多为它跑多少轮,不填按默认。这是安全阀,不是让你省着用的预算——挖得越深轮数越多是正常的。跑满之后它照样每轮摆到你眼前,直到你自己收口。'
+          description: '可选。最多为它花多少次请求,不填按默认。这是安全阀,不是让你省着用的预算——挖得越深花的请求越多是正常的。跑满之后它照样每轮摆到你眼前,直到你自己收口。'
         }
       },
       required: ['question'],
@@ -1959,7 +1961,7 @@ const CREATE_DEEP_DIVE_TOOL = {
   }
 } as const;
 
-const UPDATE_DEEP_DIVE_TOOL = {
+export const UPDATE_DEEP_DIVE_TOOL = {
   type: 'function',
   function: {
     name: TOOL_NAMES.updateDeepDive,
@@ -1973,7 +1975,7 @@ const UPDATE_DEEP_DIVE_TOOL = {
 
 ## 五个 action
 - conclude —— 挖到底了,你有结论了
-- blocked —— 想不通 / 查不下去了
+- need_outsider —— 想不通了,去问福尔摩斯(要一起交出你整理的排查路径)
 - pause / resume —— 先放一放 / 接着挖
 - edit —— 改问题本身或轮次上限
 
@@ -1985,13 +1987,15 @@ const UPDATE_DEEP_DIVE_TOOL = {
 - 你要的材料没找着
 - 你只是不想挖了
 
-## 报 blocked 之前
-真有一步想不通、或者查不下去了才报 blocked,并把它写进 blocked_reason:具体卡在哪一步、缺什么。
-「难」「不确定」「还有别的事」不算想不通,那是还没开始——别拿它们报 blocked。
+## 用 need_outsider 之前
+真的想不通、查不下去了才用,并把你已经查过的地方整理进 searched_paths。
+「难」「不确定」「还有别的事」不算想不通,那是还没开始。
 只是想换件事做,用 pause。
 
+求来的必须理:福尔摩斯回你一个方向之后,照它走一遍,别当没看见。
+
 ## 轮数
-rounds_started 数的是你为这个问题挖了几轮。它越大说明你挖得越深,不是消耗掉的额度。`,
+requests_spent 数的是你为这个问题发了多少次请求。它越大说明你挖得越深,不是消耗掉的额度。`,
     parameters: {
       type: 'object',
       properties: {
@@ -1999,12 +2003,12 @@ rounds_started 数的是你为这个问题挖了几轮。它越大说明你挖�
         revision: { type: 'integer', description: 'get_deep_dive 返回的 revision,原样抄。对不上说明这中间它被改过,你会拿到当前值,重读再改。' },
         action: {
           type: 'string',
-          enum: ['edit', 'pause', 'resume', 'conclude', 'blocked'],
+          enum: ['edit', 'pause', 'resume', 'conclude', 'need_outsider'],
           description: '这次要做什么。'
         },
         question: { type: 'string', description: '仅 edit 有意义:改后的问题。' },
-        max_rounds: { type: 'integer', minimum: 1, maximum: 200, description: '仅 edit 有意义:改后的轮次上限。' },
-        blocked_reason: { type: 'string', description: '仅 blocked 必填:具体哪一步想不通、缺什么。「难」「不确定」「还有别的事」不算。' }
+        max_requests: { type: 'integer', minimum: 1, maximum: 200, description: '仅 edit 有意义:改后的上限。' },
+        searched_paths: { type: 'string', description: '仅 need_outsider 必填:把你已经查过的地方整理出来 —— 翻过哪些文件、跑过哪些查法。福尔摩斯拿不到你的上下文,只有这份和你的问题,写得越实他给的方向越准。' }
       },
       required: ['deep_dive_id', 'revision', 'action'],
       additionalProperties: false
@@ -2022,8 +2026,8 @@ export type DeepDiveUpdatePlan =
       action: string;
       phase: XiaoniDeepDivePhase;
       question?: string;
-      maxRounds?: number;
-      blockedReason?: string;
+      maxRequests?: number;
+      searchedPaths?: string;
     };
 
 // 深挖的四个状态。**与 packages/persistence 的 XIAONI_DEEP_DIVE_PHASES 同一套**,
@@ -2037,8 +2041,11 @@ export type DeepDiveUpdatePlan =
 // 曾经用 `${diveId}:${revision}` 当去重键 —— revision 每次 mutation 都 +1,连着报两次
 // 就是两把键,复核跑两遍;而且那个集合在内存里,重启即失效。相变判天然满足 spec §1,
 // 且不依赖任何进程内状态。
-export function isNewBlockedEpisode(action: string, currentPhase: XiaoniDeepDivePhase | null) {
-  return action === 'blocked' && currentPhase !== 'blocked';
+// 她这一次 update 是不是「主动求助」。取代了原来的 isNewBlockedEpisode(相变判据)——
+// need_outsider 不改 phase,所以没有相变可判;去重改由 sherlockConsultsStarted 按
+// diveId + 已请次数 挡重(同一次求助重复调用不会跑两遍福尔摩斯)。
+export function isSherlockRequest(action: string) {
+  return action === 'need_outsider';
 }
 
 function isUniqueConstraintError(error: unknown) {
@@ -2054,12 +2061,16 @@ const DEEP_DIVE_ACTION_TO_PHASE: Record<string, XiaoniDeepDivePhase | 'keep'> = 
   pause: 'paused',
   resume: 'active',
   conclude: 'concluded',
-  blocked: 'blocked'
+  // need_outsider **不改 phase**:她只是求助,深挖照常活着。
+  // 它取代了原来的 blocked —— 那是任务语义残留(「这活卡住了」),而深挖的正确语义是
+  // 「这问题我暂时想不通」。两个出口语义重叠、她一个都没用过,合并成一个。
+  // 复核 fork 也跟着挂到这里:它 0 次触发的病根就是在等一个她从不发出的信号(blocked)。
+  need_outsider: 'keep'
 };
 
 // 这一轮该不该由深挖来点火。
 //
-// **判据只有一条:有没有一个 active 深挖。** `maxRounds` 故意不参与 —— 它曾经参与过,
+// **判据只有一条:有没有一个 active 深挖。** `maxRequests` 故意不参与 —— 它曾经参与过,
 // 那是个死锁:跑满之后不再发 notify,**而那一行仍然留在 active**。唯一索引是
 // `WHERE phase='active'`,于是 create_deep_dive 从此恒返回 already_active,一个她不管了
 // 的深挖会把整个机制永久锁死。
@@ -2069,13 +2080,40 @@ const DEEP_DIVE_ACTION_TO_PHASE: Record<string, XiaoniDeepDivePhase | 'keep'> = 
 // 它,槽位被占也不构成死锁。
 //
 // 收敛因此不来自这个上限,来自升级阶梯:她 → 福尔摩斯(第三方视角,给方向)→ 阿花(人)。
-// `maxRounds` 保留在存储与工具参数里,留给那条阶梯当阈值,当前**没有消费者**。
-// 签名里**只有 phase** —— `maxRounds` / `roundsStarted` 不进参数表,免得看的人以为它们
+// `maxRequests` 保留在存储与工具参数里,留给那条阶梯当阈值,当前**没有消费者**。
+// 签名里**只有 phase** —— `maxRequests` / `requestsSpent` 不进参数表,免得看的人以为它们
 // 参与判断。写成类型守卫,调用点才能把 `| null` 收窄掉。
 export function shouldDriveDeepDiveRound<T extends { phase: XiaoniDeepDivePhase }>(
   dive: T | null
 ): dive is T {
   return dive !== null && dive.phase === 'active';
+}
+
+// 该不该请福尔摩斯,请第几次。
+//
+// 阶梯是「她 → 福尔摩斯 → 阿花」(见 CONTEXT.md「福尔摩斯」词条)。收敛不靠超时、不靠上限,
+// 靠这条阶梯走到人为止;所以这里只回 1 / 2 / null,请满两次就不再请。
+//
+// 判据**只数主 agent 的 LLM 请求次数**,不数 run、不数轮 —— 这个栈里没有 run 这个概念,
+// 而「多少次请求过去了还没收口」量的是**缺席**:她伪造不了「没进展」,除非真去做事。
+// 反过来,任何「在场」型判据(比如「换没换动作类型」)都能被一段引导 prompt 直接生产出来,
+// 拿它当判据等于量那段 prompt。见 CONTEXT.md「深度」词条。
+//
+// `>=` 而不是 `===`:早该请而没请到的(重启、入队失败)要补请,而且**不许跳级** ——
+// 第二次的价值全在于它拿得到「①给过的方向也没成」,没有①就没有②。
+export function sherlockConsultDue(
+  dive: { phase: string; requestsSpent: number; maxRequests: number; sherlockConsults: number } | null
+): 1 | 2 | null {
+  if (!dive || dive.phase !== 'active') {
+    return null;
+  }
+  if (dive.sherlockConsults === 0 && dive.requestsSpent >= dive.maxRequests) {
+    return 1;
+  }
+  if (dive.sherlockConsults === 1 && dive.requestsSpent >= dive.maxRequests * 2) {
+    return 2;
+  }
+  return null;
 }
 
 export function planDeepDiveUpdate(
@@ -2085,28 +2123,35 @@ export function planDeepDiveUpdate(
   const action = typeof args.action === 'string' ? args.action.trim() : '';
   const mapped = DEEP_DIVE_ACTION_TO_PHASE[action];
   if (!mapped) {
-    return { ok: false, reason: 'invalid_action', message: 'action 只能是 edit / pause / resume / conclude / blocked。' };
+    return { ok: false, reason: 'invalid_action', message: 'action 只能是 edit / pause / resume / conclude / need_outsider。' };
   }
   if (currentPhase === null) {
     return { ok: false, reason: 'not_found', message: '没有这个 deep_dive_id。先 get_deep_dive 看看现在是什么。' };
   }
-  const blockedReason = typeof args.blocked_reason === 'string' ? args.blocked_reason.trim() : '';
-  if (action === 'blocked' && !blockedReason) {
-    return { ok: false, reason: 'blocked_reason_required', message: '说想不通,就得说清楚具体哪一步过不去。' };
+  // 求助必须带上她自己整理的排查路径。**那份整理本身就是一次重新框定** —— 把走过的路
+  // 排成一列,才看得出它们是同一类;这比引擎从 tool_executions 抽命令列表多做了这件事。
+  // 也是福尔摩斯的两个输入之一(另一个是问题原文),没有它福尔摩斯只能瞎猜她试过什么。
+  const searchedPaths = typeof args.searched_paths === 'string' ? args.searched_paths.trim() : '';
+  if (action === 'need_outsider' && !searchedPaths) {
+    return {
+      ok: false,
+      reason: 'searched_paths_required',
+      message: '要请福尔摩斯,先把你排查过的路径整理出来一起交过去。'
+    };
   }
-  const rawMax = args.max_rounds ?? args.maxRounds;
+  const rawMax = args.max_requests ?? args.maxRequests;
   const question = typeof args.question === 'string' ? args.question.trim() : '';
   return {
     ok: true,
     action,
     phase: mapped === 'keep' ? currentPhase : mapped,
-    // question / maxRounds 只在 edit 里有意义:其它 action 传了就忽略,免得
+    // question / maxRequests 只在 edit 里有意义:其它 action 传了就忽略,免得
     // 一次 pause 顺手把目标改了 —— 她看不到自己改了什么。
     ...(action === 'edit' && question ? { question } : {}),
     ...(action === 'edit' && typeof rawMax === 'number' && Number.isFinite(rawMax)
-      ? { maxRounds: Math.trunc(rawMax) }
+      ? { maxRequests: Math.trunc(rawMax) }
       : {}),
-    ...(action === 'blocked' ? { blockedReason } : {})
+    ...(action === 'need_outsider' ? { searchedPaths } : {})
   };
 }
 
@@ -3106,63 +3151,77 @@ function renderPsychAssessmentReminder(): string {
 // ①被判定的 assistant 文本(cache_volatile，同 subconscious fork 的 recentNarration 重注模式) + ②判定指令。
 // tool_choice/tools 一律不动(继承主 loop 的 auto + 全量)。fork 不执行任何工具，只读它的文本判定，所以
 // 无需 allowedToolNames 执行层拦截(即便模型误调工具也不会被执行，最多导致判不到 token → fail-closed EVICT)。
-// 复核 fork 的尾部引导。第一句就是「你不是小腻」—— 这是整个设计的赌注:同一批材料,
-// 当事人查不出来,陌生人 22 次命令查出来了(受控实验见 docs/adr/0009-* §三)。
-// 文案外置到 docs/xiaoni_prompt/review_fork_reminder.md,便于运营直接改。
-export function renderFailureReviewReminder(question: string, blockedReason: string): string {
-  return renderPromptSnippet('review_fork_reminder.md', {
-    QUESTION: question,
-    BLOCKED_REASON: blockedReason
-  }).trim();
-}
-
-// 复核 fork 请求。遵守 FORK 铁律:克隆主 agent 当轮请求(逐字节热前缀),只在【尾部】追加
-// 一条 developer 引导。tools / tool_choice 一律不动;工具限制走执行层 allowedToolNames。
+// 福尔摩斯这一跑值不值得投递给她。
 //
-// reminderText 由调用方**算一次**再逐轮传入:同一次 fork 的所有 turn 必须共用同一份字节,
-// 否则 turn-2 起冷读(这是 buildSubconsciousAgentForkRequest 注释里已经踩过的坑)。
-// 投不投递。查不到就不投 —— 不拿「我尽力了」去占她一次唤醒。
-// 抽成纯函数是为了能不跑 fork 就测这条契约。
-export function shouldDeliverReviewFindings(text: string | null | undefined): boolean {
-  const trimmed = typeof text === 'string' ? text.trim() : '';
+// 空 / 只有 NO_DIRECTION 就不投 —— 投一条「我没找到方向」只会占她一轮,还得让她理(求助
+// 来的必须理)。查不出方向本身不是信息,是没结果。
+export function shouldDeliverSherlockDirection(text: string | null): boolean {
+  const trimmed = (text || '').trim();
   if (!trimmed) {
     return false;
   }
-  return !trimmed.startsWith(FAILURE_REVIEW_NO_FINDING);
+  return !trimmed.startsWith(SHERLOCK_NO_DIRECTION);
 }
 
-// 复核 fork 累积链的**种子**。生产就是调这个取 turn-1 的 input,之后只在它后面追加。
-// 单独具名是为了让「种子必须含 reminder」变成可测的契约:曾经写错过一次(种子取裸 base,
-// reminder 只拼进每轮的副本尾部),结果 turn≥2 的最长前缀塌回 base,每轮冷读已累积的全部
-// exec 输出。见 docs/CACHE_CONTRACT.md §2「fork 内部 → 下一条 fork 内部」。
-export function seedFailureReviewForkInput(
-  baseRequest: CanonicalAgentTurnRequest,
-  reminderText: string
-): OpenResponseInputItem[] {
-  return buildFailureReviewForkRequest(baseRequest, 1, reminderText).input;
+// ── 福尔摩斯 ──────────────────────────────────────────────────────────────────
+// 她卡住时去求助的第三方视角。**全新上下文,不是克隆** —— 这是它和这个栈里其它所有 fork
+// 的根本差别,也是唯一一个不遵守 FORK 铁律的。
+//
+// 为什么不克隆(ADR-0009 决定三当年选了克隆,这里推翻它的实现选择,不推翻它的论点):
+//   ① 失败的正是她的框定,克隆等于把失败的框定原样搬过去 —— §三 那个验出结论的实验用的
+//      恰恰是「不带她身份、不带她上下文」的 agent。
+//   ② 当年那笔账只数了冷读没数 cache_read 计费。实测:克隆每轮 269,786 input / 268,303
+//      cache_read,按 cache read = 0.1× 折算约 28,314 成本单位/轮 × 22 轮 ≈ 62 万;
+//      而 §三 全新上下文整场 102,352 token。**全新反而便宜约 6 倍。**
+//   ③ 没有共享前缀要保,所以缓存铁律在这条路上不适用 —— 它本来就该是冷的。
+//
+// 它只拿到两样东西:她想弄明白的问题原文,和**她自己整理出来的**排查路径。
+// 后者是 need_outsider 的必填参数 —— 那份整理本身就是一次重新框定。
+// 工具只给 exec_command:它要做的是去查,不需要说话、发图、休息。
+export function renderSherlockReminder(
+  question: string,
+  searchedPaths: string,
+  previousDirection: string | null
+): string {
+  return renderPromptSnippet(
+    previousDirection ? 'sherlock_reminder_second.md' : 'sherlock_reminder.md',
+    {
+      QUESTION: question,
+      SEARCHED_PATHS: searchedPaths,
+      PREVIOUS_DIRECTION: previousDirection ?? ''
+    }
+  ).trim();
 }
 
-export function buildFailureReviewForkRequest(
-  baseRequest: CanonicalAgentTurnRequest,
+export function seedSherlockForkInput(reminderText: string): OpenResponseInputItem[] {
+  return buildSherlockForkRequest(SHERLOCK_MODEL_PLACEHOLDER, [], 1, reminderText).input;
+}
+
+// 自拼请求,不克隆。provider-service 的 /api/internal/llm/debug 本来就是
+// `canonicalRequest || buildRequestFromMessages(...)`(provider-debug-service.ts:286),
+// 自拼的 canonical request 直接收,provider 侧一行都不用改。
+export function buildSherlockForkRequest(
+  modelName: string,
+  accumulatedInput: OpenResponseInputItem[],
   forkTurn: number,
   reminderText: string
 ): CanonicalAgentTurnRequest {
-  const forkRequest = cloneCanonicalAgentTurnRequest(baseRequest);
-  forkRequest.parallel_tool_calls = true;
-  forkRequest.store = false;
-  // 证据清单比 plan 长(路径 + 原文 + 定位方式,可能好几条),但仍要有上限防失控长尾。
-  forkRequest.max_output_tokens = FAILURE_REVIEW_FORK_MAX_OUTPUT_TOKENS;
-  forkRequest.input = normalizeResponseInputItems([
-    ...forkRequest.input,
-    buildDeveloperInputItem([reminderText])
-  ]);
-  forkRequest.metadata = {
-    ...(forkRequest.metadata || {}),
-    failure_review_fork: 'true',
-    fork_turn: String(forkTurn),
-    no_persist: 'true'
-  };
-  return forkRequest;
+  return {
+    model: modelName,
+    instructions: reminderText,
+    input: normalizeResponseInputItems(
+      accumulatedInput.length > 0 ? accumulatedInput : [buildDeveloperInputItem(['开始。'])]
+    ),
+    tools: [EXEC_COMMAND_TOOL],
+    parallel_tool_calls: true,
+    store: false,
+    max_output_tokens: SHERLOCK_FORK_MAX_OUTPUT_TOKENS,
+    metadata: {
+      sherlock_fork: 'true',
+      fork_turn: String(forkTurn),
+      no_persist: 'true'
+    }
+  } as CanonicalAgentTurnRequest;
 }
 
 export function buildPsychAssessmentForkRequest(
@@ -4612,8 +4671,8 @@ export function renderSelfContinuationReminderForTest() {
 // 深挖活着时的续跑块。**引擎拼装,不由模型生成** —— 这是它和 xiaoni_plan 的关键差别:
 // plan 每轮现写一段散文(实测 95 份只有 22 种开头,既污染又没法复用),这一块轮间只有
 // round 数字变,append-only 落在可复用前缀之后。见 docs/adr/0010-* 决定六。
-export function renderDeepDiveRoundNotify(question: string, round: number, maxRounds: number) {
-  const block = `<deep_dive_round round="${round}" max="${maxRounds}">\n${question}\n</deep_dive_round>`;
+export function renderDeepDiveRoundNotify(question: string, round: number, maxRequests: number) {
+  const block = `<deep_dive_round round="${round}" max="${maxRequests}">\n${question}\n</deep_dive_round>`;
   const reminder = readPromptSnippet('deep_dive_round_reminder.md').trim();
   return reminder ? `${block}\n\n${reminder}` : block;
 }
@@ -6745,7 +6804,7 @@ export class AgentLoopService {
   // null after a restart (no fresh main run yet) ⇒ no fork until the next run(重启桶由 clock_ping 兜底)。
   // 已经起过复核的 blocked 次(diveId:revision)。进程内存,重启归零 —— 重启后最多多跑一次,
   // 而入队那一层的永久唯一索引仍然挡得住重复投递。
-  private readonly failureReviewsStarted = new Set<string>();
+  private readonly sherlockConsultsStarted = new Set<string>();
 
   private lastMainAgentForkSeed: {
     canonicalRequest: CanonicalAgentTurnRequest;
@@ -6974,30 +7033,11 @@ export class AgentLoopService {
       ...queueMessage.queueMessageIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
       0
     );
-    // 深挖轮次推进:**只在这条 deep_dive_round 输入被认领时 +1**,不看她这一轮干了什么、
+    // 深挖请求计数推进:**只在这条 deep_dive_round 输入被认领时 +1**,不看她这一轮干了什么、
     // 有没有产出、工具报没报错(照 dsh 的 goal-round-driver:the driver does not classify
     // the preceding activity)。它和空转失效计数是两个不同的量,不合并 —— 空转数的是
     // 「跑了却没产出」,deep dive round 数的是「为这个问题挖了几轮」。
     // fail-open:计数失败不挡这一轮的执行,最多下一轮再发一条同轮次的(dedupeKey 挡重)。
-    if (isDeepDiveRoundPayload(queueMessage.payload)) {
-      const diveId = readDiveIdFromPayload(queueMessage.payload);
-      // 类型上**不**放宽:this.store 是 RuntimeStore,方法被改名/删掉时编译期就红。
-      // 放宽成可选属性的话,真丢了方法只会静默不计数 —— 那正是这条分支要消除的那类失败。
-      // 运行期仍留 guard:冻结的缓存回归用例用的是精简 store 桩,桩上没有这个方法。
-      const bumpRound: RuntimeStore['incrementDeepDiveRound'] | undefined = this.store.incrementDeepDiveRound;
-      if (diveId && typeof bumpRound !== 'function') {
-        moduleLogger.warn('store 上没有 incrementDeepDiveRound,本轮深挖轮次不计数', { diveId });
-      }
-      if (diveId && typeof bumpRound === 'function') {
-        await bumpRound.call(this.store, diveId).catch((error) => {
-          moduleLogger.warn('深挖轮次计数推进失败', {
-            diveId,
-            error: error instanceof Error ? error.message : String(error)
-          });
-          return null;
-        });
-      }
-    }
     // 被动召回 query:认领即消费,此刻这条内容才是她正在做的事。fire-and-forget,零缓存影响。
     fireConsumedNotifyRecall(queueMessage.payload as unknown as Record<string, unknown>);
     await this.processRuntimeFrame(queueMessage, {
@@ -7086,11 +7126,30 @@ export class AgentLoopService {
       });
       return null;
     });
+    // 到点了先叫她去问福尔摩斯,再谈续跑。放在点火之前:这一拍她该看到的是升级提醒,
+    // 不是又一条例行的续跑块 —— 例行块只会让她照原方向再挖一轮,而问题正出在方向上。
+    // dedupeKey 保证每级只发一次,发过了这里拿到 created=false,照常往下走点火。
+    const sherlockLevel = sherlockConsultDue(activeDive);
+    if (sherlockLevel !== null && activeDive) {
+      try {
+        const due = await this.enqueueSherlockDueNotify({ id: activeDive.id }, sherlockLevel);
+        if (due?.created) {
+          return;
+        }
+      } catch (error) {
+        // fail-open:提醒发不出去不该连带把她的续跑一起挂掉。
+        moduleLogger.warn('福尔摩斯到点提醒入队失败,本拍退回续跑', {
+          diveId: activeDive.id,
+          level: sherlockLevel,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
     if (shouldDriveDeepDiveRound(activeDive)) {
       try {
         const enqueued = await this.enqueueDeepDiveRoundNotify(activeDive);
         // 【别让她永久哑掉】dedupeKey 带轮次;如果上一条 deep_dive_round 已经入过队而轮次没有
-        // 前进(比如 claim 时 incrementDeepDiveRound 失败),这里会撞到去重、拿不到新行。
+        // 前进(比如 claim 时 incrementDeepDiveRequests 失败),这里会撞到去重、拿不到新行。
         // 那种情况下**不能 return** —— 否则此后每次 settle 都算出同一个 dedupeKey、
         // 每次都被去重、每次都跳过潜意识 fork,她就再也不会被叫醒了。
         if (enqueued?.created) {
@@ -7099,7 +7158,7 @@ export class AgentLoopService {
         }
         moduleLogger.warn('深挖轮次撞去重(轮次没前进),本轮退回潜意识 fork', {
           diveId: activeDive.id,
-          roundsStarted: activeDive.roundsStarted
+          requestsSpent: activeDive.requestsSpent
         });
       } catch (error) {
         moduleLogger.warn('深挖轮次入队失败,本轮退回潜意识 fork', {
@@ -8734,6 +8793,17 @@ export class AgentLoopService {
           payload.traceId,
           turnBudgetRecord.actualInputTokens
         );
+        // 深挖的请求计数。**单位是「主 agent 发了一次 LLM 请求」**,不是 run 也不是轮 ——
+        // 这个栈里没有 run 这个概念,而阈值要量的是「多少次请求过去了还没收口」,那是**缺席**,
+        // 她伪造不了(见 CONTEXT.md「深度」)。原先挂在「认领 deep-dive-round 时」,那数的是轮,
+        // 一轮里她可能发十几次请求,两者差一个数量级。
+        // 不先读库:直接按 phase='active' 更新,没有在挖的就更新 0 行(热路径,每请求一次)。
+        // fail-open:计数失败不挡这一轮,最多这一次没数上。
+        void this.store.incrementActiveDeepDiveRequests?.().catch((error: unknown) => {
+          moduleLogger.warn('深挖请求计数推进失败', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        });
         const sliceId = modelResult.llm_request_slice_id || modelResult.llm_call_id || `slice:${payload.traceId}:${turn}`;
         const outputItems = extractCanonicalResponseOutputItems(modelResult);
         // A1: freeze the xiaoni_os hide-decision into this turn's model-output tool calls before
@@ -9251,8 +9321,8 @@ export class AgentLoopService {
           && continuationQueueMessages.every((claimed) => isClockPingPayload(claimed.payload));
         // 同款隐形:整个 run 都由复核 notify 驱动时不记账。与报时同一条理由 ——
         // 夹带了真实外部消息的折叠 run 照常记账,否则一条复核就能把真空转洗白。
-        const runDrivenOnlyByFailureReview = isFailureReviewPayload(payload)
-          && continuationQueueMessages.every((claimed) => isFailureReviewPayload(claimed.payload));
+        const runDrivenOnlyBySherlock = isSherlockPayload(payload)
+          && continuationQueueMessages.every((claimed) => isSherlockPayload(claimed.payload));
         // deep-dive-round 同款隐形。**这是 D4 的硬要求**(spec §4「与空转计数并存,互不换算」):
         // 深挖轮次数的是「为这个问题挖了几轮」,空转数的是「跑了却没产出」—— 两个量。
         // 不隐形的话,深挖期间的零工具 run 会把空转计数累高;深挖一结束,第一条 plan
@@ -9265,7 +9335,7 @@ export class AgentLoopService {
         // 与报时同理:整个 run 都由 deep-dive-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
         const runDrivenOnlyByDeepDiveRound = isDeepDiveRoundPayload(payload)
           && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
-        if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview && !runDrivenOnlyByDeepDiveRound) {
+        if (!runDrivenOnlyByClockPing && !runDrivenOnlyBySherlock && !runDrivenOnlyByDeepDiveRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
             settledOnFinalAnswer: actionPlan.hasFinalAnswer,
             didRealWork: runTouchedWorld
@@ -12083,32 +12153,34 @@ export class AgentLoopService {
   // 它和 xiaoni_plan 走同一条通道、同样是一段自然语言 —— **可核对性是它们在她眼里唯一的
   // 分别**(ADR-0007:自生声音的权威只能来自可核对的证据)。写成指令它就退化成第二个 plan。
   //
-  // 账本落**独立表** failure_review_fork_slices。曾经想复用 subconscious_agent_fork_*
+  // 账本落**独立表** failure_review_fork_slices(表名沿用,内容已是福尔摩斯;改表名要动
+  // 行动流/管理端/前端三处,不在本次范围,留作后续)。曾经想复用 subconscious_agent_fork_*
   // 并以 forkRunId 前缀当判别符 —— **那是错的**:那几张表的读取端(usage rollup、行动流)
   // 按表名整表归类,不看前缀,混进去会把复核算成潜意识 fork。
   //
   // 已知未验证的假设(ADR-0009 §六):克隆她的上下文之后,尾部改写身份到底能不能挡住她的
   // 自我认知和情绪。上线后读它的输出前 20 条 —— **开口是「我想不起来了」这类第一人称自述,
   // 就是隔离失败**,那时退回全新上下文方案。
-  private async runFailureReviewFork(params: {
+  private async runSherlockFork(params: {
     diveId: string;
     question: string;
-    blockedReason: string;
+    searchedPaths: string;
+    previousDirection: string | null;
     forkRunId: string;
     baseRequest: CanonicalAgentTurnRequest;
     queueMessage: QueueMessageRecord['payload'];
     runtimePrompt: ResolvedAgentRuntimePrompt;
   }): Promise<{ text: string | null; toolCallsUsed: number; turns: number }> {
     // 整轮固定的一份字节:同一次 fork 的所有 turn 共用,否则 turn-2 起冷读。
-    const reminderText = renderFailureReviewReminder(params.question, params.blockedReason);
+    const reminderText = renderSherlockReminder(params.question, params.searchedPaths, params.previousDirection);
     // forkRunId 由调用方生成并同时写进两条 timeline 事件 —— 它是「一次复核」的**唯一标识**,
     // 也是管理端把 slice 归到某一次复核的连接键。deep_dive_id 不行:同一次深挖可以反复 blocked,
     // 每次都是独立一跑,按深挖归组会把多次复核的 slice 混成一堆(而且没有硬上界可取)。
     const forkRunId = params.forkRunId;
     const baseForkMetadata = {
-      fork_kind: 'failure_review',
+      fork_kind: 'sherlock',
       deep_dive_question: params.question,
-      blocked_reason: params.blockedReason,
+      searched_paths: params.searchedPaths,
       no_main_stack_persist: true,
       no_traffic_persist: true
     };
@@ -12120,14 +12192,19 @@ export class AgentLoopService {
     // 那样 turn-1 写的条目是 [base, R],turn-2 的请求却是 [base, A1, T1.., R] ——
     // 第 len(base) 块从 R 变成 A1,最长前缀只能匹配到 base,turn≥2 每轮都要把已累积的
     // exec 输出全部冷读一遍(上限 30 次 exec × 32 turn,越往后越贵)。
-    let forkInput = seedFailureReviewForkInput(params.baseRequest, reminderText);
+    let forkInput = seedSherlockForkInput(reminderText);
     let toolCallsUsed = 0;
     let turns = 0;
     let finalText: string | null = null;
 
-    for (let forkTurn = 1; forkTurn <= FAILURE_REVIEW_FORK_MAX_TURNS; forkTurn += 1) {
+    for (let forkTurn = 1; forkTurn <= SHERLOCK_FORK_MAX_TURNS; forkTurn += 1) {
       turns = forkTurn;
-      const forkRequest = buildFailureReviewForkRequest(params.baseRequest, forkTurn, reminderText);
+      const forkRequest = buildSherlockForkRequest(
+        params.runtimePrompt.modelName,
+        forkInput,
+        forkTurn,
+        reminderText
+      );
       // 请求体用累积链,不用 builder 拼出来的那份(它只提供 metadata / 采样参数)。
       forkRequest.input = normalizeResponseInputItems(forkInput);
       await this.waitForRuntimeEnabledBeforeModelSlice(params.queueMessage, params.queueMessage.runId);
@@ -12136,12 +12213,12 @@ export class AgentLoopService {
         params.queueMessage,
         params.runtimePrompt,
         forkTurn,
-        { agentType: 'failure_review', executionMode: 'failure_review_fork_no_persist' }
+        { agentType: 'sherlock', executionMode: 'sherlock_fork_no_persist' }
       );
       const outputItems = extractCanonicalResponseOutputItems(modelResult);
       const forkSliceId = modelResult.llm_request_slice_id
         || modelResult.llm_call_id
-        || `failure-review-slice:${forkRunId}:${forkTurn}`;
+        || `sherlock-slice:${forkRunId}:${forkTurn}`;
       await this.recordFailureReviewForkSliceSafe({
         sliceId: forkSliceId,
         forkRunId,
@@ -12191,7 +12268,7 @@ export class AgentLoopService {
         // 预算用尽也**必须**给每个 function_call 配一个 function_call_output:
         // 少一个,下一轮请求里就有孤儿 tool_use,provider 直接 400,整个 fork 死掉。
         // (潜意识 fork 在同一位置是 throw;这里选择回一条明确的拒绝,让它自己收口成文字。)
-        if (toolCallsUsed >= FAILURE_REVIEW_FORK_MAX_TOOL_CALLS) {
+        if (toolCallsUsed >= SHERLOCK_FORK_MAX_TOOL_CALLS) {
           forkInput.push({
             type: 'function_call_output',
             call_id: item.toolCall.callId,
@@ -12233,7 +12310,7 @@ export class AgentLoopService {
   // 复核结论回到她面前。走 Notify Bucket —— 与既有几条 notify 同一条已在线验过的缓存路径:
   // 正文在 enqueue 这一刻冻结进 payload.systemReminder.reminder,下一 run 的 stack replay
   // 从同一字段读回同样字节,逐字节可重建。
-  private async enqueueFailureReviewNotify(params: { diveId: string; revision: number; findings: string }) {
+  private async enqueueSherlockNotify(params: { diveId: string; revision: number; findings: string }) {
     const enqueuer = (this.store as RuntimeStore & {
       enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
     }).enqueueQueueMessage;
@@ -12244,17 +12321,17 @@ export class AgentLoopService {
     // 幂等按【这一次 blocked】,不是按深挖:dedupe_key 上是永久唯一索引,只用 diveId 的话
     // 她 resume 之后再 blocked 就永远投不出第二条了(spec §1 明确要求那时该有第二次)。
     // revision 每次 mutation +1,所以每一次 blocked 都有自己的键。
-    const messageSid = `failure-review:${params.diveId}:${params.revision}`;
+    const messageSid = `sherlock:${params.diveId}:${params.revision}`;
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
-    const promptFacingText = renderPromptSnippet('review_fork_notify.md', {
+    const promptFacingText = renderPromptSnippet('sherlock_notify.md', {
       REVIEW_FINDINGS: params.findings
     }).trim();
     const rawPayload = {
-      reason: 'failure_review',
+      reason: 'sherlock',
       deep_dive_id: params.diveId,
       deep_dive_revision: params.revision,
-      notify_template: 'review_fork_notify.md'
+      notify_template: 'sherlock_notify.md'
     };
     const inboundContext = {
       Body: promptFacingText,
@@ -12284,7 +12361,7 @@ export class AgentLoopService {
       receivedAt: now.toISOString(),
       systemReminder: {
         reminder: promptFacingText,
-        reason: 'failure_review',
+        reason: 'sherlock',
         sourceTurn: 1,
         createdAt: now.toISOString()
       },
@@ -12323,14 +12400,16 @@ export class AgentLoopService {
   // blocked 的出口。**fire-and-forget**:复核要跑几十次工具调用、好几分钟,不能把她的这次
   // update_deep_dive 卡在那儿等 —— 结论本来就是经 Notify Bucket 回来的,不走工具返回值。
   // 全链吞异常:复核挂了不能连带把她宣布 blocked 这件事一起挂掉。
-  private fireFailureReviewForBlockedDive(
-    dive: { id: string; revision: number; question: string; blockedReason: string | null },
+  private fireSherlockForDive(
+    dive: { id: string; revision: number; sherlockConsults: number; question: string; searchedPaths: string; previousDirection: string | null },
     queueMessage: QueueMessageRecord['payload']
   ) {
     // 起 fork 之前就去重:复核要跑到 30 次工具调用,重复的 blocked 不该白烧一遍再在
     // 入队那一步被拦下。键按【这一次 blocked】(diveId + revision),不是按深挖。
-    const reviewKey = `${dive.id}:${dive.revision}`;
-    if (this.failureReviewsStarted.has(reviewKey)) {
+    // 键**不带 revision**:revision 每次 mutation 都 +1,带上它等于没有去重,
+    // 同一次深挖能把福尔摩斯跑无数遍。按「这次深挖已经请过几次」挡重,与阶梯只走两级一致。
+    const reviewKey = `${dive.id}:${dive.sherlockConsults}`;
+    if (this.sherlockConsultsStarted.has(reviewKey)) {
       return;
     }
     const seed = this.lastMainAgentForkSeed;
@@ -12341,7 +12420,7 @@ export class AgentLoopService {
       moduleLogger.warn('复核 fork 跳过:手上没有可克隆的主请求', { diveId: dive.id });
       return;
     }
-    this.failureReviewsStarted.add(reviewKey);
+    this.sherlockConsultsStarted.add(reviewKey);
     const baseRequest = seed.canonicalRequest;
     void (async () => {
       // **开跑就留痕。** 收尾事件写在 finally 里 —— 之前收尾写在 try 内、await 之后,
@@ -12350,20 +12429,21 @@ export class AgentLoopService {
       let failure: string | null = null;
       // 「一次复核」的唯一标识。**在开跑之前生成**,好让 start 事件就带上它 —— 否则 fork
       // turn-1 就挂掉时,只剩一条没有连接键的 start 行,事后无法把已落库的 slice 认回来。
-      const forkRunId = `failure-review:${queueMessage.runId}:${uuidv4().slice(0, 8)}`;
+      const forkRunId = `sherlock:${queueMessage.runId}:${uuidv4().slice(0, 8)}`;
       await this.store.logTimelineEvent({
-        traceId: `failure-review:${dive.id}:${dive.revision}`,
+        traceId: `sherlock:${dive.id}:${dive.revision}`,
         eventType: 'fork',
-        eventName: 'failure_review_fork',
+        eventName: 'sherlock_fork',
         eventPhase: 'start',
         metadata: { deep_dive_id: dive.id, deep_dive_revision: dive.revision, deep_dive_question: dive.question, fork_run_id: forkRunId }
       }).catch(() => undefined);
       try {
         const runtimePrompt = await this.resolveStableRuntimePrompt(queueMessage);
-        const result = await this.runFailureReviewFork({
+        const result = await this.runSherlockFork({
           diveId: dive.id,
           question: dive.question,
-          blockedReason: dive.blockedReason ?? '',
+          searchedPaths: dive.searchedPaths,
+          previousDirection: dive.previousDirection,
           forkRunId,
           baseRequest,
           queueMessage,
@@ -12372,7 +12452,7 @@ export class AgentLoopService {
         outcome = result;
         const text = (result.text || '').trim();
         // 查不到就不投递 —— 不拿「我尽力了」去占她一次唤醒。
-        if (!shouldDeliverReviewFindings(text)) {
+        if (!shouldDeliverSherlockDirection(text)) {
           moduleLogger.info('复核 fork 无发现,不投递', {
             diveId: dive.id,
             toolCallsUsed: result.toolCallsUsed,
@@ -12380,7 +12460,7 @@ export class AgentLoopService {
           });
           return;
         }
-        await this.enqueueFailureReviewNotify({ diveId: dive.id, revision: dive.revision, findings: text });
+        await this.enqueueSherlockNotify({ diveId: dive.id, revision: dive.revision, findings: text });
         moduleLogger.info('复核 fork 已投递', {
           diveId: dive.id,
           toolCallsUsed: result.toolCallsUsed,
@@ -12397,9 +12477,9 @@ export class AgentLoopService {
         // **开口是「我想不起来了」这类第一人称自述,就是隔离失败**(那时退回全新上下文方案)。
         const text = (outcome?.text || '').trim();
         await this.store.logTimelineEvent({
-          traceId: `failure-review:${dive.id}:${dive.revision}`,
+          traceId: `sherlock:${dive.id}:${dive.revision}`,
           eventType: 'fork',
-          eventName: 'failure_review_fork',
+          eventName: 'sherlock_fork',
           eventPhase: failure ? 'failed' : (text ? 'completed' : 'empty'),
           metadata: {
             deep_dive_id: dive.id,
@@ -12409,11 +12489,11 @@ export class AgentLoopService {
             // 这里曾经写成 `question`,而读端读 deep_dive_question —— 于是**恰恰是带
             // findings_text 的那些行**的 question 恒空。同一个错本轮第三次。
             deep_dive_question: dive.question,
-            blocked_reason: dive.blockedReason,
+            searched_paths: dive.searchedPaths,
             tool_calls_used: outcome?.toolCallsUsed ?? 0,
             turns: outcome?.turns ?? 0,
             findings_text: text,
-            delivered: shouldDeliverReviewFindings(text),
+            delivered: shouldDeliverSherlockDirection(text),
             error_message: failure
           }
         }).catch(() => undefined);
@@ -12421,11 +12501,97 @@ export class AgentLoopService {
     })();
   }
 
+  // 到点了:告诉她该去问福尔摩斯。判据见 sherlockConsultDue —— 只数主 agent 的 LLM 请求数。
+  //
+  // **正文里不出现任何数字。** 她无从核对「已经 40 次了」这种数,给了只会一脸茫然
+  // (同空转升级那条禁令的教训)。区别是那条连换算成「反复」都禁了 —— 理由是空转的 run
+  // 有一部分被整段删掉、她那边数不出来;而深挖不会被删,她自己的排查轨迹就在上下文里,
+  // 所以「排查很多次了」这种定性说法在这里是她能感知、能核对的。
+  //
+  // dedupeKey 带级别,**每一级只发一次**:她看到了不动手,这条不会反复来烦她;计数照涨,
+  // 到 2N 时发的是级别 2 那一条,key 不同,自然放行。
+  private async enqueueSherlockDueNotify(dive: { id: string }, level: 1 | 2) {
+    const enqueuer = (this.store as RuntimeStore & {
+      enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
+    }).enqueueQueueMessage;
+    if (typeof enqueuer !== 'function') {
+      return null;
+    }
+    const now = new Date();
+    const messageSid = `sherlock-due:${dive.id}:${level}`;
+    const botAccountId = agentConfig.botAccountId;
+    const sessionKey = getGlobalPromptContextSessionKey();
+    const promptFacingText = readPromptSnippet('sherlock_due_reminder.md').trim();
+    const rawPayload = {
+      reason: 'sherlock_due',
+      deep_dive_id: dive.id,
+      sherlock_level: level,
+      notify_template: 'sherlock_due_reminder.md'
+    };
+    const inboundContext = {
+      Body: promptFacingText,
+      BodyForAgent: promptFacingText,
+      BodyForCommands: promptFacingText,
+      RawBody: promptFacingText,
+      CommandBody: promptFacingText,
+      From: botAccountId,
+      To: botAccountId,
+      SessionKey: sessionKey,
+      AccountId: botAccountId,
+      ChatType: 'direct',
+      ConversationLabel: XIAONI_IDENTITY_KEY,
+      SenderName: XIAONI_IDENTITY_KEY,
+      SenderId: botAccountId,
+      Timestamp: now.getTime(),
+      Provider: 'runtime',
+      Surface: 'system_reminder',
+      WasMentioned: false,
+      NativeChannelId: sessionKey,
+      CommandAuthorized: false
+    };
+    const payload = {
+      messageId: messageSid,
+      rawBody: promptFacingText,
+      commandBody: promptFacingText,
+      receivedAt: now.toISOString(),
+      systemReminder: {
+        reminder: promptFacingText,
+        reason: 'sherlock_due',
+        sourceTurn: 1,
+        createdAt: now.toISOString()
+      },
+      sherlockDue: rawPayload
+    };
+    // trace_id 每条唯一,理由同 enqueueDeepDiveRoundNotify(常量 trace_id 会让 runtime_input
+    // 落不了库 → replay 变短 → run 边界击穿)。
+    const traceId = `runtrace_${now.getTime()}_${uuidv4().slice(0, 8)}`;
+    return enqueuer.call(this.store, {
+      message: {
+        traceId,
+        source: 'system_reminder',
+        messageSid,
+        dedupeKey: messageSid,
+        chatType: 'direct',
+        sessionKey,
+        peerId: XIAONI_IDENTITY_KEY,
+        peerName: XIAONI_IDENTITY_KEY,
+        senderId: botAccountId,
+        senderName: XIAONI_IDENTITY_KEY,
+        accountId: botAccountId,
+        bodyForAgent: promptFacingText,
+        rawPayload,
+        inboundContext
+      },
+      payload,
+      availableAt: now
+    });
+  }
+
   private async enqueueDeepDiveRoundNotify(dive: {
     id: string;
     question: string;
-    roundsStarted: number;
-    maxRounds: number;
+    requestsSpent: number;
+    maxRequests: number;
   }) {
     const enqueuer = (this.store as RuntimeStore & {
       enqueueQueueMessage?: RuntimeStore['enqueueQueueMessage'];
@@ -12434,17 +12600,17 @@ export class AgentLoopService {
       throw new Error('deep dive round notify requires queue enqueue persistence');
     }
     const now = new Date();
-    const nextRound = dive.roundsStarted + 1;
+    const nextRound = dive.requestsSpent + 1;
     // dedupeKey 带轮次:同一轮重复入队被唯一索引挡掉(比如引擎重启后重跑同一个空闲 tick)。
     const messageSid = `deep-dive-round:${dive.id}:${nextRound}`;
     const botAccountId = agentConfig.botAccountId;
     const sessionKey = getGlobalPromptContextSessionKey();
-    const promptFacingText = renderDeepDiveRoundNotify(dive.question, nextRound, dive.maxRounds);
+    const promptFacingText = renderDeepDiveRoundNotify(dive.question, nextRound, dive.maxRequests);
     const rawPayload = {
       reason: 'deep_dive_round',
       deep_dive_id: dive.id,
       deep_dive_round: nextRound,
-      deep_dive_max_rounds: dive.maxRounds,
+      deep_dive_max_requests: dive.maxRequests,
       notify_template: 'deep_dive_round_reminder.md'
     };
     const inboundContext = {
@@ -14254,11 +14420,11 @@ export class AgentLoopService {
         if (!question) {
           return { ok: false, reason: 'question_required', message: '要起一个深挖,得先说清楚你想弄明白什么。' };
         }
-        const rawMax = toolCall.args.max_rounds ?? toolCall.args.maxRounds;
+        const rawMax = toolCall.args.max_requests ?? toolCall.args.maxRequests;
         try {
           const dive = await this.store.createDeepDive({
             question,
-            ...(typeof rawMax === 'number' && Number.isFinite(rawMax) ? { maxRounds: Math.trunc(rawMax) } : {})
+            ...(typeof rawMax === 'number' && Number.isFinite(rawMax) ? { maxRequests: Math.trunc(rawMax) } : {})
           });
           return { ok: true, deep_dive: dive };
         } catch (error) {
@@ -14291,8 +14457,8 @@ export class AgentLoopService {
             revision,
             phase: plan.phase,
             ...(plan.question !== undefined ? { question: plan.question } : {}),
-            ...(plan.maxRounds !== undefined ? { maxRounds: plan.maxRounds } : {}),
-            ...(plan.blockedReason !== undefined ? { blockedReason: plan.blockedReason } : {})
+            ...(plan.maxRequests !== undefined ? { maxRequests: plan.maxRequests } : {}),
+            ...(plan.searchedPaths !== undefined ? { searchedPaths: plan.searchedPaths } : {})
           });
           if (!result.ok) {
             return {
@@ -14302,19 +14468,21 @@ export class AgentLoopService {
               deep_dive: result.dive
             };
           }
-          // 相变才触发(判据与理由见 isNewBlockedEpisode)。
-          const enteredBlocked = isNewBlockedEpisode(
-            plan.action,
-            (current?.phase as XiaoniDeepDivePhase | undefined) ?? null
-          );
-          if (enteredBlocked && result.dive) {
-            // 她说想不通 → 起一次独立复核。不 await(见 fireFailureReviewForBlockedDive)。
-            this.fireFailureReviewForBlockedDive(
+          if (isSherlockRequest(plan.action) && result.dive) {
+            // 记一次「请过福尔摩斯」。sherlockConsultDue 靠它决定下一次要等到 2N ——
+            // 不记的话她一求助,阈值判据会立刻再判一次「该请了」,变成每拍都点火。
+            void this.store.recordSherlockConsult?.(result.dive.id).catch(() => undefined);
+            // 她说想不通 → 起一次独立复核。不 await(见 fireSherlockForDive)。
+            this.fireSherlockForDive(
               {
                 id: result.dive.id,
                 revision: result.dive.revision,
+                sherlockConsults: result.dive.sherlockConsults,
                 question: result.dive.question,
-                blockedReason: result.dive.blockedReason ?? plan.blockedReason ?? null
+                searchedPaths: plan.searchedPaths ?? result.dive.searchedPaths ?? '',
+                // 第二次求助的**全部价值**在于它知道①的方向也没成。取不到就退化成把①换个
+                // 说法再说一遍,而「由它告诉她去找阿花」这条出口(她通往人的唯一一条路)也不可达。
+                previousDirection: result.dive.lastSherlockDirection ?? null
               },
               queueMessage
             );
@@ -16053,7 +16221,7 @@ export function isClockPingPayload(queueMessage: QueueMessageRecord['payload']) 
 }
 
 // 深挖续跑块。轮次计数只认它 —— 普通 notify、真人消息一律不推进深挖轮次
-// (照 dsh:ordinary human turns never increment roundsStarted)。
+// (照 dsh:ordinary human turns never increment requestsSpent)。
 export function isDeepDiveRoundPayload(queueMessage: QueueMessageRecord['payload']) {
   if (!isSystemReminderPayload(queueMessage)) {
     return false;
@@ -16065,11 +16233,16 @@ export function isDeepDiveRoundPayload(queueMessage: QueueMessageRecord['payload
 // 复核指出她没查完 → 她起个 run 读了 → 没接着查 → 判空转 → 作废腿把这个 run 整段删栈 →
 // 连她读过证据这件事都消失了。空转治理量的是「被叫醒却不动手」,前提是叫她的东西没给新信息;
 // 复核给了新证据,她读完仍不动是另一件事,该单独观察。见 docs/adr/0009-* 决定五。
-export function isFailureReviewPayload(queueMessage: QueueMessageRecord['payload']) {
+// 福尔摩斯这条线上的两种 notify 都要认:`sherlock`(它的方向投递)和 `sherlock_due`
+// (到点提醒)。漏掉 sherlock_due 的话,只被这条提醒叫醒的 run 会被空转账本记账,
+// 而作废腿会把它整段删栈 —— 连「她被提醒过」这件事都消失,正是 ADR-0009 决定五
+// 禁止的那个删证据回路。
+export function isSherlockPayload(queueMessage: QueueMessageRecord['payload']) {
   if (!isSystemReminderPayload(queueMessage)) {
     return false;
   }
-  return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'failure_review';
+  const reason = queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason;
+  return reason === 'sherlock' || reason === 'sherlock_due';
 }
 
 export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload']): string | null {

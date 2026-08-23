@@ -11,8 +11,8 @@ import {
   buildCacheHeartbeatForkRequest,
   buildImageVisionForkRequest,
   buildPsychAssessmentForkRequest,
-  buildFailureReviewForkRequest,
-  seedFailureReviewForkInput
+  buildSherlockForkRequest,
+  seedSherlockForkInput
 } from '../services/agent-loop-service';
 
 // Fork cache-alignment: 0-tolerance prompt-cache 穿透 guard.
@@ -111,32 +111,38 @@ test('subconscious fork: cloned prefix byte-identical + appends self-continuatio
   assert.equal(fork.metadata?.subconscious_agent_fork, 'true');
 });
 
-test('failure-review fork: cloned prefix byte-identical + appends ONE steering item', () => {
-  const base = buildBaseRequest();
-  const fork: any = buildFailureReviewForkRequest(base, 1, 'REVIEW_REMINDER');
-  assertForkPrefixByteIdentical(fork, base, 'failure-review');
-  assert.equal(fork.input.length, base.input.length + 1, 'failure-review fork appends exactly one tail item');
-  assert.ok(JSON.stringify(fork.input.at(-1)).includes('REVIEW_REMINDER'));
-  assert.equal(fork.metadata?.failure_review_fork, 'true');
+test('福尔摩斯: **绝不**携带主 agent 前缀 —— 反向不变量', () => {
+  // 这一条取代了原来的「failure-review fork: cloned prefix byte-identical」。
+  // **不是弱化,是反过来钉。** 复核 fork 当年遵守 FORK 铁律克隆主请求;福尔摩斯是这个栈里
+  // 唯一一个故意不克隆的 —— 全新上下文才是 ADR-0009 §三 验出结论的那个配置,而且实测便宜
+  // 约 6 倍(克隆每轮约 28,314 成本单位 × 22 轮,对全新整场 102,352)。
+  // 所以对它而言,「携带了主前缀」才是回归:成本 6 倍,且把她失败的框定原样搬过去。
+  const base: any = buildBaseRequest();
+  const fork: any = buildSherlockForkRequest('m', [], 1, 'SHERLOCK_REMINDER');
+
+  const baseTexts = JSON.stringify(base.input);
+  for (const item of fork.input) {
+    assert.ok(
+      !baseTexts.includes(JSON.stringify(item)),
+      '福尔摩斯的输入里不许出现任何一条主 agent 的 input item'
+    );
+  }
+  assert.notEqual(fork.instructions, base.instructions, '不许继承她的 system prompt');
+  assert.equal(fork.instructions, 'SHERLOCK_REMINDER', 'instructions 就是给福尔摩斯的引导本身');
+  assert.deepEqual(
+    (fork.tools || []).map((t: any) => t.function?.name ?? t.name),
+    ['exec_command'],
+    '只给 exec_command —— 它要去查,不需要说话/发图/休息'
+  );
+  assert.equal(fork.store, false);
   assert.equal(fork.metadata?.no_persist, 'true');
 });
 
-// fork 自身的多 turn 链(CACHE_CONTRACT §2「fork 内部 → 下一条 fork 内部」)的**种子**契约。
-//
-// 曾经写错过:累积链的种子取裸 base,reminder 只拼进每轮请求的副本尾部。于是 turn-1 写的
-// 条目是 [base, R]、turn-2 的请求却是 [base, A1, T1.., R] —— 第 len(base) 块从 R 变成 A1,
-// 最长前缀塌回 base,turn≥2 每轮都要把已累积的 exec 输出全部冷读一遍。
-//
-// 诚实说明这条用例守到哪:它钉的是**生产取种子的那个函数**(seedFailureReviewForkInput,
-// runFailureReviewFork 就是调它),不是整个循环。种子改回裸 base 这条会红;
-// 循环内部把链接错这条不会红 —— 那一层目前没有可执行守卫,靠代码注释与评审。
-test('failure-review fork: 累积链的种子必须含 reminder(不是裸 base)', () => {
-  const base = buildBaseRequest();
-  const seed = seedFailureReviewForkInput(base as any, 'REVIEW_REMINDER');
-  assert.equal(seed.length, base.input.length + 1, '种子 = base + 恰好一条引导');
-  assert.deepEqual(seed.slice(0, base.input.length), base.input, '种子前缀必须逐字节等于 base');
-  assert.ok(JSON.stringify(seed.at(-1)).includes('REVIEW_REMINDER'), '种子末块必须是引导');
-  assert.notDeepEqual(seed, base.input, '种子取裸 base 就是那个 bug 本身');
+test('福尔摩斯: 种子必须是自拼的,不是裸 base', () => {
+  const seed: any = seedSherlockForkInput('SHERLOCK_REMINDER');
+  assert.ok(Array.isArray(seed) && seed.length >= 1, '种子非空');
+  const base: any = buildBaseRequest();
+  assert.notDeepEqual(seed, base.input, '种子不许等于主 agent 的 input');
 });
 
 test('cache-heartbeat fork: cloned prefix byte-identical + appends the heartbeat developer item', () => {

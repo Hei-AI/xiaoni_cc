@@ -59,14 +59,14 @@ test('get_deep_dive 没有在挖的问题时回 { deep_dive: null },不是抛错
   assert.deepEqual(result, { deep_dive: null });
 });
 
-test('create_deep_dive 把 question 原样透传,max_rounds 截断成整数', async () => {
+test('create_deep_dive 把 question 原样透传,max_requests 截断成整数', async () => {
   const { service, calls } = makeService();
-  await run(service, 'create_deep_dive', { question: '  把 gorton 写到第 100 章  ', max_rounds: 30.7 });
+  await run(service, 'create_deep_dive', { question: '  把 gorton 写到第 100 章  ', max_requests: 30.7 });
   const created = calls.find((c) => c.method === 'createDeepDive');
   assert.ok(created);
   const arg = created!.args[0] as any;
   assert.equal(arg.question, '把 gorton 写到第 100 章', '两端空白该去掉,中间一个字不动');
-  assert.equal(arg.maxRounds, 30);
+  assert.equal(arg.maxRequests, 30);
 });
 
 test('create_deep_dive 撞上「已经有一件在做」→ 回 already_active 并把当前那件还给她,不是抛内部错', async () => {
@@ -128,10 +128,12 @@ test('update_deep_dive 撞上 revision 不匹配 → 回当前值让她重读,�
   assert.equal(result.deep_dive.revision, 9, '必须把当前值给她,否则她无从重试');
 });
 
-test('blocked 缺理由 → 拒绝且不落库(引擎不替她编一个)', async () => {
+test('need_outsider 缺 searched_paths → 拒绝且不落库(引擎不替她整理)', async () => {
   const { service, calls } = makeService();
-  const result: any = await run(service, 'update_deep_dive', { deep_dive_id: 'g1', revision: 3, action: 'blocked' });
+  const result: any = await run(service, 'update_deep_dive', {
+    deep_dive_id: 'g1', revision: 3, action: 'need_outsider'
+  });
   assert.equal(result.ok, false);
-  assert.equal(result.reason, 'blocked_reason_required');
-  assert.ok(!calls.some((c) => c.method === 'updateDeepDive'));
+  assert.equal(result.reason, 'searched_paths_required');
+  assert.equal(calls.filter((c) => c.method === 'updateDeepDive').length, 0, '被拒的求助不许落库');
 });
