@@ -8,7 +8,7 @@
 //   ② compare-and-set —— 她的 parallel_tool_calls 是开的,一次可能发多个 update_deep_dive;
 //      where 子句里漏掉 revision 的话,后发的会静默盖掉先发的,而且**单元测试看不出来**。
 //
-// 外加一条容易写反的语义:incrementXiaoniDeepDiveRound 是引擎侧动作,**故意不动 revision**。
+// 外加一条容易写反的语义:incrementXiaoniDeepDiveRequests 是引擎侧动作,**故意不动 revision**。
 // 动了的话,她 get_deep_dive 之后引擎恰好推进一轮就把她手上的 revision 作废,她会陷入
 // 「读→改→被拒→再读」的循环。
 //
@@ -23,7 +23,8 @@ const {
   getActiveXiaoniDeepDive,
   getXiaoniDeepDiveById,
   updateXiaoniDeepDive,
-  incrementXiaoniDeepDiveRound,
+  incrementXiaoniDeepDiveRequests,
+  incrementActiveXiaoniDeepDiveRequests,
   listXiaoniDeepDives,
   getCurrentXiaoniDeepDive
 } = require('../index');
@@ -107,12 +108,12 @@ function dbTest(name, fn) {
   });
 }
 
-dbTest('建表后能创建目标,初值就是 active / revision=1 / rounds=0', async () => {
+dbTest('建表后能创建目标,初值就是 active / revision=1 / requests=0', async () => {
   const dive = await createXiaoniDeepDive({ question: '把 gorton 写到第 100 章' }, CFG);
   assert.equal(dive.phase, 'active');
   assert.equal(dive.revision, 1);
-  assert.equal(dive.roundsStarted, 0);
-  assert.equal(dive.maxRounds, 20);
+  assert.equal(dive.requestsSpent, 0);
+  assert.equal(dive.maxRequests, 40);
   assert.equal(dive.blockedReason, null);
   assert.equal(dive.question, '把 gorton 写到第 100 章');
 
@@ -191,18 +192,18 @@ dbTest('blocked_reason 只在 blocked 时留着,转出 blocked 立刻清掉', as
   );
 });
 
-dbTest('轮次推进:rounds_started +1,但 revision 一个都不动', async () => {
+dbTest('请求计数推进:requests_spent +1,但 revision 一个都不动', async () => {
   const dive = await createXiaoniDeepDive({ question: '读完 Howard' }, CFG);
-  const afterOne = await incrementXiaoniDeepDiveRound({ diveId: dive.id }, CFG);
-  assert.equal(afterOne.roundsStarted, 1);
+  const afterOne = await incrementXiaoniDeepDiveRequests({ diveId: dive.id }, CFG);
+  assert.equal(afterOne.requestsSpent, 1);
   assert.equal(
     afterOne.revision,
     dive.revision,
     'round 不是她 CAS 的对象;动了 revision 会让她手上的 revision 无故作废'
   );
 
-  const afterTwo = await incrementXiaoniDeepDiveRound({ diveId: dive.id }, CFG);
-  assert.equal(afterTwo.roundsStarted, 2);
+  const afterTwo = await incrementXiaoniDeepDiveRequests({ diveId: dive.id }, CFG);
+  assert.equal(afterTwo.requestsSpent, 2);
   assert.equal(afterTwo.revision, dive.revision);
 
   // 她此刻仍然可以用最初读到的 revision 去改 —— 这就是不动 revision 的意义
@@ -212,18 +213,18 @@ dbTest('轮次推进:rounds_started +1,但 revision 一个都不动', async () =
   );
   assert.equal(edited.ok, true);
   assert.equal(edited.dive.question, '读完 Howard 前六章');
-  assert.equal(edited.dive.roundsStarted, 2, '改目标不该重置已经跑过的轮次');
+  assert.equal(edited.dive.requestsSpent, 2, '改目标不该重置已经跑过的轮次');
 });
 
-dbTest('轮次推进只对 active 生效:目标已经收尾就记不上', async () => {
+dbTest('请求计数推进只对 active 生效:目标已经收尾就记不上', async () => {
   const dive = await createXiaoniDeepDive({ question: '一件事' }, CFG);
   const done = await updateXiaoniDeepDive(
     { diveId: dive.id, revision: dive.revision, phase: 'concluded' },
     CFG
   );
   assert.equal(done.ok, true);
-  assert.equal(await incrementXiaoniDeepDiveRound({ diveId: dive.id }, CFG), null);
-  assert.equal((await getXiaoniDeepDiveById({ diveId: dive.id }, CFG)).roundsStarted, 0);
+  assert.equal(await incrementXiaoniDeepDiveRequests({ diveId: dive.id }, CFG), null);
+  assert.equal((await getXiaoniDeepDiveById({ diveId: dive.id }, CFG)).requestsSpent, 0);
 });
 
 dbTest('参数校验:空 question、非法 phase、缺 revision 都要当场拒绝', async () => {
@@ -376,9 +377,9 @@ dbTest('迁移:旧 xiaoni_goals 整体改名成 xiaoni_deep_dives,数据不丢',
   const rows = await sql.query('SELECT * FROM xiaoni_deep_dives WHERE id = ?', ['legacy_1']);
   assert.equal(rows.length, 1, '旧行必须被带过来,不能是 DROP 再 CREATE');
   assert.equal(rows[0].question, '旧行的正文', 'objective 的值必须落在 question 上');
-  assert.equal(Number(rows[0].max_rounds), 20, 'max_goal_rounds 的值必须落在 max_rounds 上');
+  assert.equal(Number(rows[0].max_requests), 20, 'max_goal_rounds 的值必须一路落到 max_requests 上');
   assert.equal(Number(rows[0].revision), 3, 'revision 不该被迁移动过');
-  assert.equal(Number(rows[0].rounds_started), 7, 'rounds_started 不该被迁移动过');
+  assert.equal(Number(rows[0].requests_spent), 7, '计数值不该被迁移动过');
   assert.equal(rows[0].phase, 'concluded', "phase 'completed' 必须迁成 'concluded'");
 
   const idx = await sql.query(
@@ -475,4 +476,60 @@ dbTest('主键改名只认本表:同名老表出现后再跑 ensure 不许抛', 
     "SELECT indexname FROM pg_indexes WHERE tablename = 'xiaoni_goals'", []);
   assert.deepEqual(other.map((r) => r.indexname), ['xiaoni_goals_pkey'],
     '那张老表的主键必须原封不动');
+});
+
+// ── 计量单位换成「LLM 请求数」+ 福尔摩斯计数 ────────────────────────────────────
+// rounds_started → requests_spent,max_rounds → max_requests,新增 sherlock_consults。
+// 改名的理由:这个栈里没有 run/轮 这个概念,阈值量的是主 agent 发了多少次 LLM 请求。
+dbTest('迁移:轮次列改名成请求数,并补出 sherlock_consults', async () => {
+  await sql.execute('DROP TABLE IF EXISTS xiaoni_deep_dives', []);
+  await sql.execute(`
+    CREATE TABLE xiaoni_deep_dives (
+      id VARCHAR(64) PRIMARY KEY, identity_key VARCHAR(64) NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1, question TEXT NOT NULL,
+      phase VARCHAR(16) NOT NULL,
+      rounds_started INTEGER NOT NULL DEFAULT 0,
+      max_rounds INTEGER NOT NULL DEFAULT 20,
+      blocked_reason TEXT NULL,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`, []);
+  await sql.execute(
+    `INSERT INTO xiaoni_deep_dives (id, identity_key, question, phase, rounds_started, max_rounds)
+     VALUES (?, ?, ?, ?, ?, ?)`, ['u1', 'xiaoni', '旧列名的一行', 'active', 7, 8]);
+
+  await ensureXiaoniDeepDiveSchema(CFG);
+
+  const cols = (await sql.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name='xiaoni_deep_dives'", []))
+    .map((r) => r.column_name);
+  assert.ok(cols.includes('requests_spent'), `没改名: ${cols.join(',')}`);
+  assert.ok(cols.includes('max_requests'), `没改名: ${cols.join(',')}`);
+  assert.ok(cols.includes('sherlock_consults'), `没补出: ${cols.join(',')}`);
+  assert.ok(!cols.includes('rounds_started') && !cols.includes('max_rounds'), '旧列名必须已不存在');
+
+  const [row] = await sql.query('SELECT * FROM xiaoni_deep_dives WHERE id = ?', ['u1']);
+  assert.equal(Number(row.requests_spent), 7, '值必须跟着列走,不是重建');
+  assert.equal(Number(row.max_requests), 8);
+  assert.equal(Number(row.sherlock_consults), 0, '补出来的列默认 0');
+  await ensureXiaoniDeepDiveSchema(CFG);   // 幂等
+});
+
+// ── 按「主 agent LLM 请求」计数:不先读库 ────────────────────────────────────────
+// 计数点在每次主 agent LLM 请求之后,频率是她的请求频率(实测约 90-200 次/小时)。
+// 所以**不能先读一次再写**:直接按 phase='active' 更新,没有在挖的就更新 0 行。
+dbTest('请求计数:直接按 active 更新,不需要先知道 diveId', async () => {
+  const dive = await createXiaoniDeepDive({ question: '数请求' }, CFG);
+  assert.equal((await incrementActiveXiaoniDeepDiveRequests({}, CFG)), 1, '更新到 1 行');
+  await incrementActiveXiaoniDeepDiveRequests({}, CFG);
+  const after = await getXiaoniDeepDiveById({ diveId: dive.id }, CFG);
+  assert.equal(after.requestsSpent, 2);
+  assert.equal(after.revision, 1, '引擎侧计数**不许**动 revision,否则她刚读到的 revision 会被作废');
+});
+
+dbTest('请求计数:没有 active 的深挖时更新 0 行,不抛', async () => {
+  assert.equal((await incrementActiveXiaoniDeepDiveRequests({}, CFG)), 0);
+  const dive = await createXiaoniDeepDive({ question: '收口后不再计数' }, CFG);
+  await updateXiaoniDeepDive({ diveId: dive.id, revision: 1, phase: 'concluded' }, CFG);
+  assert.equal((await incrementActiveXiaoniDeepDiveRequests({}, CFG)), 0, '收口了就不该再计数');
 });

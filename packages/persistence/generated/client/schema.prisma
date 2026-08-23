@@ -1897,20 +1897,21 @@ model XiaoniRecallShadowLog {
 // 建表 DDL 在 packages/persistence/xiaoni-deep-dive.js 的 ensureXiaoniDeepDiveSchema(与本仓库其它
 // runtime 表同款 CREATE TABLE IF NOT EXISTS 路径);这里是 schema 事实源,避免 db pull 看到 drift。
 // 详见 docs/adr/0010-goal-and-its-outcome-are-hers-to-declare.md、docs/specs/xiaoni-deep-dive-tools.md
-// 她自己起的一次深挖 —— 一个她要往下扎的问题,跨多轮。
-// 从 `XiaoniGoal` / `xiaoni_goals` 改名而来:`goal` 在模型先验里是「任务/待办」,把她带向
-// 「做完就收」。改名的活体依据与迁移见 ensureXiaoniDeepDiveSchema 的文件内注释。
 model XiaoniDeepDive {
-  id             String   @id @db.VarChar(64)
-  identity_key   String   @db.VarChar(64)
-  revision       Int      @default(1) // 每次 mutation +1;compare-and-set 用
-  question       String // 她写的原文:想弄明白什么
-  phase          String   @db.VarChar(16) // active | paused | concluded | blocked
-  rounds_started Int      @default(0) // 深度计数:为这个问题跑过几轮
-  max_rounds     Int      @default(20)
-  blocked_reason String? // 仅 phase='blocked' 时非空:哪儿想不通
-  created_at     DateTime @default(now()) @db.Timestamptz(3)
-  updated_at     DateTime @updatedAt @db.Timestamptz(3)
+  id                      String   @id @db.VarChar(64)
+  identity_key            String   @db.VarChar(64)
+  revision                Int      @default(1) // 每次 mutation +1;compare-and-set 用
+  question                String // 她写的原文:想弄明白什么
+  phase                   String   @db.VarChar(16) // active | paused | concluded | blocked
+  // 计量单位是**主 agent 的 LLM 请求次数**,不是 run/轮 —— 这个栈里没有 run 这个概念。
+  requests_spent          Int      @default(0)
+  max_requests            Int      @default(40) // 福尔摩斯第一次的阈值 N;第二次在 2N
+  sherlock_consults       Int      @default(0) // 已经请过福尔摩斯几次(阶梯只走两级)
+  searched_paths          String? // 她自己整理的排查路径(福尔摩斯的两个输入之一)
+  last_sherlock_direction String? // 上一次福尔摩斯给的方向 —— 第二次求助必须看得见它
+  blocked_reason          String? // 仅 phase='blocked' 时非空:哪儿想不通
+  created_at              DateTime @default(now()) @db.Timestamptz(3)
+  updated_at              DateTime @updatedAt @db.Timestamptz(3)
 
   // 「同一 identity 最多一个 active」是部分唯一索引,Prisma schema 表达不了 WHERE 子句,
   // 实际 DDL 见 ensureXiaoniDeepDiveSchema。这里只声明普通复合索引,不声明那条唯一约束。

@@ -1647,8 +1647,11 @@ exports.Prisma.XiaoniDeepDiveScalarFieldEnum = {
   revision: 'revision',
   question: 'question',
   phase: 'phase',
-  rounds_started: 'rounds_started',
-  max_rounds: 'max_rounds',
+  requests_spent: 'requests_spent',
+  max_requests: 'max_requests',
+  sherlock_consults: 'sherlock_consults',
+  searched_paths: 'searched_paths',
+  last_sherlock_direction: 'last_sherlock_direction',
   blocked_reason: 'blocked_reason',
   created_at: 'created_at',
   updated_at: 'updated_at'

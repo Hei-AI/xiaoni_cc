@@ -95943,14 +95943,16 @@ export namespace Prisma {
 
   export type XiaoniDeepDiveAvgAggregateOutputType = {
     revision: number | null
-    rounds_started: number | null
-    max_rounds: number | null
+    requests_spent: number | null
+    max_requests: number | null
+    sherlock_consults: number | null
   }
 
   export type XiaoniDeepDiveSumAggregateOutputType = {
     revision: number | null
-    rounds_started: number | null
-    max_rounds: number | null
+    requests_spent: number | null
+    max_requests: number | null
+    sherlock_consults: number | null
   }
 
   export type XiaoniDeepDiveMinAggregateOutputType = {
@@ -95959,8 +95961,11 @@ export namespace Prisma {
     revision: number | null
     question: string | null
     phase: string | null
-    rounds_started: number | null
-    max_rounds: number | null
+    requests_spent: number | null
+    max_requests: number | null
+    sherlock_consults: number | null
+    searched_paths: string | null
+    last_sherlock_direction: string | null
     blocked_reason: string | null
     created_at: Date | null
     updated_at: Date | null
@@ -95972,8 +95977,11 @@ export namespace Prisma {
     revision: number | null
     question: string | null
     phase: string | null
-    rounds_started: number | null
-    max_rounds: number | null
+    requests_spent: number | null
+    max_requests: number | null
+    sherlock_consults: number | null
+    searched_paths: string | null
+    last_sherlock_direction: string | null
     blocked_reason: string | null
     created_at: Date | null
     updated_at: Date | null
@@ -95985,8 +95993,11 @@ export namespace Prisma {
     revision: number
     question: number
     phase: number
-    rounds_started: number
-    max_rounds: number
+    requests_spent: number
+    max_requests: number
+    sherlock_consults: number
+    searched_paths: number
+    last_sherlock_direction: number
     blocked_reason: number
     created_at: number
     updated_at: number
@@ -95996,14 +96007,16 @@ export namespace Prisma {
 
   export type XiaoniDeepDiveAvgAggregateInputType = {
     revision?: true
-    rounds_started?: true
-    max_rounds?: true
+    requests_spent?: true
+    max_requests?: true
+    sherlock_consults?: true
   }
 
   export type XiaoniDeepDiveSumAggregateInputType = {
     revision?: true
-    rounds_started?: true
-    max_rounds?: true
+    requests_spent?: true
+    max_requests?: true
+    sherlock_consults?: true
   }
 
   export type XiaoniDeepDiveMinAggregateInputType = {
@@ -96012,8 +96025,11 @@ export namespace Prisma {
     revision?: true
     question?: true
     phase?: true
-    rounds_started?: true
-    max_rounds?: true
+    requests_spent?: true
+    max_requests?: true
+    sherlock_consults?: true
+    searched_paths?: true
+    last_sherlock_direction?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
@@ -96025,8 +96041,11 @@ export namespace Prisma {
     revision?: true
     question?: true
     phase?: true
-    rounds_started?: true
-    max_rounds?: true
+    requests_spent?: true
+    max_requests?: true
+    sherlock_consults?: true
+    searched_paths?: true
+    last_sherlock_direction?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
@@ -96038,8 +96057,11 @@ export namespace Prisma {
     revision?: true
     question?: true
     phase?: true
-    rounds_started?: true
-    max_rounds?: true
+    requests_spent?: true
+    max_requests?: true
+    sherlock_consults?: true
+    searched_paths?: true
+    last_sherlock_direction?: true
     blocked_reason?: true
     created_at?: true
     updated_at?: true
@@ -96138,8 +96160,11 @@ export namespace Prisma {
     revision: number
     question: string
     phase: string
-    rounds_started: number
-    max_rounds: number
+    requests_spent: number
+    max_requests: number
+    sherlock_consults: number
+    searched_paths: string | null
+    last_sherlock_direction: string | null
     blocked_reason: string | null
     created_at: Date
     updated_at: Date
@@ -96170,8 +96195,11 @@ export namespace Prisma {
     revision?: boolean
     question?: boolean
     phase?: boolean
-    rounds_started?: boolean
-    max_rounds?: boolean
+    requests_spent?: boolean
+    max_requests?: boolean
+    sherlock_consults?: boolean
+    searched_paths?: boolean
+    last_sherlock_direction?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
@@ -96183,8 +96211,11 @@ export namespace Prisma {
     revision?: boolean
     question?: boolean
     phase?: boolean
-    rounds_started?: boolean
-    max_rounds?: boolean
+    requests_spent?: boolean
+    max_requests?: boolean
+    sherlock_consults?: boolean
+    searched_paths?: boolean
+    last_sherlock_direction?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
@@ -96196,8 +96227,11 @@ export namespace Prisma {
     revision?: boolean
     question?: boolean
     phase?: boolean
-    rounds_started?: boolean
-    max_rounds?: boolean
+    requests_spent?: boolean
+    max_requests?: boolean
+    sherlock_consults?: boolean
+    searched_paths?: boolean
+    last_sherlock_direction?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
@@ -96209,14 +96243,17 @@ export namespace Prisma {
     revision?: boolean
     question?: boolean
     phase?: boolean
-    rounds_started?: boolean
-    max_rounds?: boolean
+    requests_spent?: boolean
+    max_requests?: boolean
+    sherlock_consults?: boolean
+    searched_paths?: boolean
+    last_sherlock_direction?: boolean
     blocked_reason?: boolean
     created_at?: boolean
     updated_at?: boolean
   }
 
-  export type XiaoniDeepDiveOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "revision" | "question" | "phase" | "rounds_started" | "max_rounds" | "blocked_reason" | "created_at" | "updated_at", ExtArgs["result"]["xiaoniDeepDive"]>
+  export type XiaoniDeepDiveOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "identity_key" | "revision" | "question" | "phase" | "requests_spent" | "max_requests" | "sherlock_consults" | "searched_paths" | "last_sherlock_direction" | "blocked_reason" | "created_at" | "updated_at", ExtArgs["result"]["xiaoniDeepDive"]>
 
   export type $XiaoniDeepDivePayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "XiaoniDeepDive"
@@ -96227,8 +96264,11 @@ export namespace Prisma {
       revision: number
       question: string
       phase: string
-      rounds_started: number
-      max_rounds: number
+      requests_spent: number
+      max_requests: number
+      sherlock_consults: number
+      searched_paths: string | null
+      last_sherlock_direction: string | null
       blocked_reason: string | null
       created_at: Date
       updated_at: Date
@@ -96660,8 +96700,11 @@ export namespace Prisma {
     readonly revision: FieldRef<"XiaoniDeepDive", 'Int'>
     readonly question: FieldRef<"XiaoniDeepDive", 'String'>
     readonly phase: FieldRef<"XiaoniDeepDive", 'String'>
-    readonly rounds_started: FieldRef<"XiaoniDeepDive", 'Int'>
-    readonly max_rounds: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly requests_spent: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly max_requests: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly sherlock_consults: FieldRef<"XiaoniDeepDive", 'Int'>
+    readonly searched_paths: FieldRef<"XiaoniDeepDive", 'String'>
+    readonly last_sherlock_direction: FieldRef<"XiaoniDeepDive", 'String'>
     readonly blocked_reason: FieldRef<"XiaoniDeepDive", 'String'>
     readonly created_at: FieldRef<"XiaoniDeepDive", 'DateTime'>
     readonly updated_at: FieldRef<"XiaoniDeepDive", 'DateTime'>
@@ -100145,8 +100188,11 @@ export namespace Prisma {
     revision: 'revision',
     question: 'question',
     phase: 'phase',
-    rounds_started: 'rounds_started',
-    max_rounds: 'max_rounds',
+    requests_spent: 'requests_spent',
+    max_requests: 'max_requests',
+    sherlock_consults: 'sherlock_consults',
+    searched_paths: 'searched_paths',
+    last_sherlock_direction: 'last_sherlock_direction',
     blocked_reason: 'blocked_reason',
     created_at: 'created_at',
     updated_at: 'updated_at'
@@ -109033,8 +109079,11 @@ export namespace Prisma {
     revision?: IntFilter<"XiaoniDeepDive"> | number
     question?: StringFilter<"XiaoniDeepDive"> | string
     phase?: StringFilter<"XiaoniDeepDive"> | string
-    rounds_started?: IntFilter<"XiaoniDeepDive"> | number
-    max_rounds?: IntFilter<"XiaoniDeepDive"> | number
+    requests_spent?: IntFilter<"XiaoniDeepDive"> | number
+    max_requests?: IntFilter<"XiaoniDeepDive"> | number
+    sherlock_consults?: IntFilter<"XiaoniDeepDive"> | number
+    searched_paths?: StringNullableFilter<"XiaoniDeepDive"> | string | null
+    last_sherlock_direction?: StringNullableFilter<"XiaoniDeepDive"> | string | null
     blocked_reason?: StringNullableFilter<"XiaoniDeepDive"> | string | null
     created_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
     updated_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
@@ -109046,8 +109095,11 @@ export namespace Prisma {
     revision?: SortOrder
     question?: SortOrder
     phase?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
+    searched_paths?: SortOrderInput | SortOrder
+    last_sherlock_direction?: SortOrderInput | SortOrder
     blocked_reason?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
@@ -109062,8 +109114,11 @@ export namespace Prisma {
     revision?: IntFilter<"XiaoniDeepDive"> | number
     question?: StringFilter<"XiaoniDeepDive"> | string
     phase?: StringFilter<"XiaoniDeepDive"> | string
-    rounds_started?: IntFilter<"XiaoniDeepDive"> | number
-    max_rounds?: IntFilter<"XiaoniDeepDive"> | number
+    requests_spent?: IntFilter<"XiaoniDeepDive"> | number
+    max_requests?: IntFilter<"XiaoniDeepDive"> | number
+    sherlock_consults?: IntFilter<"XiaoniDeepDive"> | number
+    searched_paths?: StringNullableFilter<"XiaoniDeepDive"> | string | null
+    last_sherlock_direction?: StringNullableFilter<"XiaoniDeepDive"> | string | null
     blocked_reason?: StringNullableFilter<"XiaoniDeepDive"> | string | null
     created_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
     updated_at?: DateTimeFilter<"XiaoniDeepDive"> | Date | string
@@ -109075,8 +109130,11 @@ export namespace Prisma {
     revision?: SortOrder
     question?: SortOrder
     phase?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
+    searched_paths?: SortOrderInput | SortOrder
+    last_sherlock_direction?: SortOrderInput | SortOrder
     blocked_reason?: SortOrderInput | SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
@@ -109096,8 +109154,11 @@ export namespace Prisma {
     revision?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
     question?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
     phase?: StringWithAggregatesFilter<"XiaoniDeepDive"> | string
-    rounds_started?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
-    max_rounds?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    requests_spent?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    max_requests?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    sherlock_consults?: IntWithAggregatesFilter<"XiaoniDeepDive"> | number
+    searched_paths?: StringNullableWithAggregatesFilter<"XiaoniDeepDive"> | string | null
+    last_sherlock_direction?: StringNullableWithAggregatesFilter<"XiaoniDeepDive"> | string | null
     blocked_reason?: StringNullableWithAggregatesFilter<"XiaoniDeepDive"> | string | null
     created_at?: DateTimeWithAggregatesFilter<"XiaoniDeepDive"> | Date | string
     updated_at?: DateTimeWithAggregatesFilter<"XiaoniDeepDive"> | Date | string
@@ -119951,8 +120012,11 @@ export namespace Prisma {
     revision?: number
     question: string
     phase: string
-    rounds_started?: number
-    max_rounds?: number
+    requests_spent?: number
+    max_requests?: number
+    sherlock_consults?: number
+    searched_paths?: string | null
+    last_sherlock_direction?: string | null
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
@@ -119964,8 +120028,11 @@ export namespace Prisma {
     revision?: number
     question: string
     phase: string
-    rounds_started?: number
-    max_rounds?: number
+    requests_spent?: number
+    max_requests?: number
+    sherlock_consults?: number
+    searched_paths?: string | null
+    last_sherlock_direction?: string | null
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
@@ -119977,8 +120044,11 @@ export namespace Prisma {
     revision?: IntFieldUpdateOperationsInput | number
     question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
-    rounds_started?: IntFieldUpdateOperationsInput | number
-    max_rounds?: IntFieldUpdateOperationsInput | number
+    requests_spent?: IntFieldUpdateOperationsInput | number
+    max_requests?: IntFieldUpdateOperationsInput | number
+    sherlock_consults?: IntFieldUpdateOperationsInput | number
+    searched_paths?: NullableStringFieldUpdateOperationsInput | string | null
+    last_sherlock_direction?: NullableStringFieldUpdateOperationsInput | string | null
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -119990,8 +120060,11 @@ export namespace Prisma {
     revision?: IntFieldUpdateOperationsInput | number
     question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
-    rounds_started?: IntFieldUpdateOperationsInput | number
-    max_rounds?: IntFieldUpdateOperationsInput | number
+    requests_spent?: IntFieldUpdateOperationsInput | number
+    max_requests?: IntFieldUpdateOperationsInput | number
+    sherlock_consults?: IntFieldUpdateOperationsInput | number
+    searched_paths?: NullableStringFieldUpdateOperationsInput | string | null
+    last_sherlock_direction?: NullableStringFieldUpdateOperationsInput | string | null
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -120003,8 +120076,11 @@ export namespace Prisma {
     revision?: number
     question: string
     phase: string
-    rounds_started?: number
-    max_rounds?: number
+    requests_spent?: number
+    max_requests?: number
+    sherlock_consults?: number
+    searched_paths?: string | null
+    last_sherlock_direction?: string | null
     blocked_reason?: string | null
     created_at?: Date | string
     updated_at?: Date | string
@@ -120016,8 +120092,11 @@ export namespace Prisma {
     revision?: IntFieldUpdateOperationsInput | number
     question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
-    rounds_started?: IntFieldUpdateOperationsInput | number
-    max_rounds?: IntFieldUpdateOperationsInput | number
+    requests_spent?: IntFieldUpdateOperationsInput | number
+    max_requests?: IntFieldUpdateOperationsInput | number
+    sherlock_consults?: IntFieldUpdateOperationsInput | number
+    searched_paths?: NullableStringFieldUpdateOperationsInput | string | null
+    last_sherlock_direction?: NullableStringFieldUpdateOperationsInput | string | null
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -120029,8 +120108,11 @@ export namespace Prisma {
     revision?: IntFieldUpdateOperationsInput | number
     question?: StringFieldUpdateOperationsInput | string
     phase?: StringFieldUpdateOperationsInput | string
-    rounds_started?: IntFieldUpdateOperationsInput | number
-    max_rounds?: IntFieldUpdateOperationsInput | number
+    requests_spent?: IntFieldUpdateOperationsInput | number
+    max_requests?: IntFieldUpdateOperationsInput | number
+    sherlock_consults?: IntFieldUpdateOperationsInput | number
+    searched_paths?: NullableStringFieldUpdateOperationsInput | string | null
+    last_sherlock_direction?: NullableStringFieldUpdateOperationsInput | string | null
     blocked_reason?: NullableStringFieldUpdateOperationsInput | string | null
     created_at?: DateTimeFieldUpdateOperationsInput | Date | string
     updated_at?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -125985,8 +126067,11 @@ export namespace Prisma {
     revision?: SortOrder
     question?: SortOrder
     phase?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
+    searched_paths?: SortOrder
+    last_sherlock_direction?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
@@ -125994,8 +126079,9 @@ export namespace Prisma {
 
   export type XiaoniDeepDiveAvgOrderByAggregateInput = {
     revision?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
   }
 
   export type XiaoniDeepDiveMaxOrderByAggregateInput = {
@@ -126004,8 +126090,11 @@ export namespace Prisma {
     revision?: SortOrder
     question?: SortOrder
     phase?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
+    searched_paths?: SortOrder
+    last_sherlock_direction?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
@@ -126017,8 +126106,11 @@ export namespace Prisma {
     revision?: SortOrder
     question?: SortOrder
     phase?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
+    searched_paths?: SortOrder
+    last_sherlock_direction?: SortOrder
     blocked_reason?: SortOrder
     created_at?: SortOrder
     updated_at?: SortOrder
@@ -126026,8 +126118,9 @@ export namespace Prisma {
 
   export type XiaoniDeepDiveSumOrderByAggregateInput = {
     revision?: SortOrder
-    rounds_started?: SortOrder
-    max_rounds?: SortOrder
+    requests_spent?: SortOrder
+    max_requests?: SortOrder
+    sherlock_consults?: SortOrder
   }
 
   export type FailureReviewForkSliceCountOrderByAggregateInput = {

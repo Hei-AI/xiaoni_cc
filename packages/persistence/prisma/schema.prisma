@@ -1901,10 +1901,14 @@ model XiaoniDeepDive {
   id              String    @id @db.VarChar(64)
   identity_key    String    @db.VarChar(64)
   revision        Int       @default(1)          // 每次 mutation +1;compare-and-set 用
-  question        String                          // 她写的原文:想弄明白什么
-  phase           String    @db.VarChar(16)       // active | paused | concluded | blocked
-  rounds_started  Int       @default(0)           // 深度计数:为这个问题跑过几轮
-  max_rounds      Int       @default(20)
+  question          String                        // 她写的原文:想弄明白什么
+  phase             String  @db.VarChar(16)       // active | paused | concluded | blocked
+  // 计量单位是**主 agent 的 LLM 请求次数**,不是 run/轮 —— 这个栈里没有 run 这个概念。
+  requests_spent    Int     @default(0)
+  max_requests      Int     @default(40)          // 福尔摩斯第一次的阈值 N;第二次在 2N
+  sherlock_consults Int     @default(0)           // 已经请过福尔摩斯几次(阶梯只走两级)
+  searched_paths          String? // 她自己整理的排查路径(福尔摩斯的两个输入之一)
+  last_sherlock_direction String? // 上一次福尔摩斯给的方向 —— 第二次求助必须看得见它
   blocked_reason  String?                         // 仅 phase='blocked' 时非空:哪儿想不通
   created_at      DateTime  @default(now()) @db.Timestamptz(3)
   updated_at      DateTime  @updatedAt @db.Timestamptz(3)

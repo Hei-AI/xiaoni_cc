@@ -12,7 +12,7 @@
 //      不带上读到的 revision 就改,后发的会静默盖掉先发的
 //
 // revision 的语义要点(容易写错):**只有她发起的 mutation 才 +1**。引擎侧的 round 计数
-// 走 incrementXiaoniDeepDiveRound,故意不动 revision —— 否则她 get_deep_dive 拿到 revision 之后、
+// 走 incrementXiaoniDeepDiveRequests,故意不动 revision —— 否则她 get_deep_dive 拿到 revision 之后、
 // 还没来得及 update_deep_dive,引擎恰好推进一轮就把她的 revision 作废了,她会陷入
 // 「读→改→被拒→再读」的循环。round 不是她 CAS 的对象。
 //
@@ -22,7 +22,9 @@ const { randomUUID } = require('node:crypto');
 
 const IDENTITY_KEY = 'xiaoni';
 const PHASES = new Set(['active', 'paused', 'concluded', 'blocked']);
-const DEFAULT_MAX_ROUNDS = 20;
+// N=40:§三 那次陌生人整场 22 次工具调用就答出来了,一次像样的调查是 20-30 次这个量级。
+// 40 ≈ 两倍于一次完整调查,花到这个份上还没收口,「此路不通」站得住。
+const DEFAULT_MAX_REQUESTS = 40;
 
 function normalizeText(value) {
   if (typeof value !== 'string') return null;
@@ -50,8 +52,11 @@ function normalizeDive(row) {
     revision: Number(row.revision),
     question: typeof row.question === 'string' ? row.question : '',
     phase: String(row.phase),
-    roundsStarted: Number(row.rounds_started),
-    maxRounds: Number(row.max_rounds),
+    requestsSpent: Number(row.requests_spent),
+    maxRequests: Number(row.max_requests),
+    sherlockConsults: Number(row.sherlock_consults),
+    searchedPaths: typeof row.searched_paths === 'string' ? row.searched_paths : null,
+    lastSherlockDirection: typeof row.last_sherlock_direction === 'string' ? row.last_sherlock_direction : null,
     blockedReason: typeof row.blocked_reason === 'string' && row.blocked_reason !== ''
       ? row.blocked_reason
       : null,
@@ -145,7 +150,42 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
         END $$;
       `);
 
-      // ④ 全新库走这条。
+      // ④ 计量单位换成「主 agent LLM 请求数」+ 福尔摩斯计数(2026-08-23)。
+      // 这个栈里没有 run/轮 这个概念(见 CONTEXT.md「深度」),阈值量的是请求次数,列名跟上。
+      // sherlock_consults 记她已经请过福尔摩斯几次 —— 阶梯只走两级,靠它收敛。
+      // 独立成段,理由同③:嵌进表改名的 guard 里,已改名的库永远走不到。
+      await sql.execute(`
+        DO $$
+        BEGIN
+          IF to_regclass('public.xiaoni_deep_dives') IS NULL THEN
+            RETURN;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'xiaoni_deep_dives' AND column_name = 'rounds_started') THEN
+            ALTER TABLE xiaoni_deep_dives RENAME COLUMN rounds_started TO requests_spent;
+          END IF;
+          IF EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'xiaoni_deep_dives' AND column_name = 'max_rounds') THEN
+            ALTER TABLE xiaoni_deep_dives RENAME COLUMN max_rounds TO max_requests;
+          END IF;
+        END $$;
+      `);
+      await sql.execute(
+        'ALTER TABLE xiaoni_deep_dives ADD COLUMN IF NOT EXISTS sherlock_consults INTEGER NOT NULL DEFAULT 0'
+      );
+      // 她整理的排查路径 + 上一次福尔摩斯给的方向。**两列都必须落库**:
+      //   searched_paths —— 福尔摩斯的两个输入之一;只留在内存里的话,重启/第二次求助就没了。
+      //   last_sherlock_direction —— 第二次求助的**全部价值**在于它知道「①的方向也没成」;
+      //     取不到它,第二次只会把第一次的方向换个说法再说一遍,而「由它告诉她去找阿花」
+      //     这条出口也永远不可达(她通往人的唯一一条路)。
+      await sql.execute(
+        'ALTER TABLE xiaoni_deep_dives ADD COLUMN IF NOT EXISTS searched_paths TEXT NULL'
+      );
+      await sql.execute(
+        'ALTER TABLE xiaoni_deep_dives ADD COLUMN IF NOT EXISTS last_sherlock_direction TEXT NULL'
+      );
+
+      // ⑤ 全新库走这条。
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS xiaoni_deep_dives (
           id VARCHAR(64) PRIMARY KEY,
@@ -153,8 +193,11 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
           revision INTEGER NOT NULL DEFAULT 1,
           question TEXT NOT NULL,
           phase VARCHAR(16) NOT NULL,
-          rounds_started INTEGER NOT NULL DEFAULT 0,
-          max_rounds INTEGER NOT NULL DEFAULT 20,
+          requests_spent INTEGER NOT NULL DEFAULT 0,
+          max_requests INTEGER NOT NULL DEFAULT 40,
+          sherlock_consults INTEGER NOT NULL DEFAULT 0,
+          searched_paths TEXT NULL,
+          last_sherlock_direction TEXT NULL,
           blocked_reason TEXT NULL,
           created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -207,10 +250,11 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
         revision: 1,
         question,
         phase: 'active',
-        rounds_started: 0,
-        max_rounds: normalizePositiveInt(
-          input.maxRounds ?? input.max_rounds,
-          DEFAULT_MAX_ROUNDS
+        requests_spent: 0,
+        sherlock_consults: 0,
+        max_requests: normalizePositiveInt(
+          input.maxRequests ?? input.max_requests,
+          DEFAULT_MAX_REQUESTS
         ),
         blocked_reason: null
       }
@@ -235,7 +279,7 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
     const prisma = getClient(config);
     const question = normalizeText(input.question);
     const blockedReason = normalizeText(input.blockedReason || input.blocked_reason);
-    const maxRounds = input.maxRounds ?? input.max_rounds;
+    const maxRequests = input.maxRequests ?? input.max_requests;
 
     const data = {
       phase,
@@ -253,8 +297,12 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
       data.blocked_reason = blockedReason;
     }
     if (question !== null) data.question = question;
-    if (maxRounds !== undefined && maxRounds !== null) {
-      data.max_rounds = normalizePositiveInt(maxRounds, DEFAULT_MAX_ROUNDS);
+    // 她整理的排查路径。只在 need_outsider 时由工具层传进来 —— 那是福尔摩斯的输入,
+    // 不落库的话重启即失、第二次求助也拿不到。
+    const searchedPaths = normalizeText(input.searchedPaths || input.searched_paths);
+    if (searchedPaths !== null) data.searched_paths = searchedPaths;
+    if (maxRequests !== undefined && maxRequests !== null) {
+      data.max_requests = normalizePositiveInt(maxRequests, DEFAULT_MAX_REQUESTS);
     }
 
     const result = await prisma.xiaoniDeepDive.updateMany({
@@ -270,13 +318,13 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
 
   // 引擎侧的轮次推进。**故意不动 revision**(理由见文件头)。
   // 只对 active 目标生效;返回 null 表示这一轮没被记上(目标已不是 active,或 id 不存在)。
-  async function incrementXiaoniDeepDiveRound(input = {}, config = {}) {
+  async function incrementXiaoniDeepDiveRequests(input = {}, config = {}) {
     const diveId = normalizeText(input.diveId || input.deep_dive_id || input.id);
-    if (!diveId) throw new Error('incrementXiaoniDeepDiveRound requires diveId');
+    if (!diveId) throw new Error('incrementXiaoniDeepDiveRequests requires diveId');
     const prisma = getClient(config);
     const result = await prisma.xiaoniDeepDive.updateMany({
       where: { id: diveId, phase: 'active' },
-      data: { rounds_started: { increment: 1 } }
+      data: { requests_spent: { increment: 1 } }
     });
     if (result.count === 0) return null;
     return getXiaoniDeepDiveById({ diveId }, config);
@@ -388,15 +436,51 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
     return rows.map(normalizeDive).filter(Boolean);
   }
 
+  // 按「主 agent 每发一次 LLM 请求」计数。**不先读库**:计数点的频率就是她的请求频率
+  // (实测约 90-200 次/小时),先读后写等于把读也翻倍。直接按 phase='active' 更新,
+  // 没有在挖的就更新 0 行,调用方拿到 0 即可,不必事先知道 diveId。
+  //
+  // 单位是请求次数而不是 run/轮:这个栈里没有 run 这个概念,而且阈值要量的是
+  // 「多少次请求过去了还没收口」—— 那是**缺席**,她伪造不了。
+  // **故意不动 revision**,理由同 incrementXiaoniDeepDiveRequests(见文件头)。
+  // 返回更新到的行数(0 或 1),不回整行 —— 计数点在热路径上,不值得多一次查询。
+  async function incrementActiveXiaoniDeepDiveRequests(input = {}, config = {}) {
+    const prisma = getClient(config);
+    const result = await prisma.xiaoniDeepDive.updateMany({
+      where: { identity_key: resolveIdentityKey(input), phase: 'active' },
+      data: { requests_spent: { increment: 1 } }
+    });
+    return result.count;
+  }
+
+  // 福尔摩斯请过一次的记账。**故意不动 revision**,理由同请求计数:引擎侧的推进不该
+  // 让她手上刚读到的 revision 作废。只对 active 生效。
+  async function recordXiaoniDeepDiveSherlockConsult(input = {}, config = {}) {
+    const diveId = normalizeText(input.diveId || input.deep_dive_id || input.id);
+    if (!diveId) throw new Error('recordXiaoniDeepDiveSherlockConsult requires diveId');
+    const prisma = getClient(config);
+    const result = await prisma.xiaoniDeepDive.updateMany({
+      where: { id: diveId, phase: 'active' },
+      data: {
+        sherlock_consults: { increment: 1 },
+        ...(normalizeText(input.direction) !== null ? { last_sherlock_direction: normalizeText(input.direction) } : {})
+      }
+    });
+    if (result.count === 0) return null;
+    return getXiaoniDeepDiveById({ diveId }, config);
+  }
+
   return {
     ensureXiaoniDeepDiveSchema,
+    incrementActiveXiaoniDeepDiveRequests,
+    recordXiaoniDeepDiveSherlockConsult,
     listFailureReviewForkSlices,
     getActiveXiaoniDeepDive,
     getCurrentXiaoniDeepDive,
     getXiaoniDeepDiveById,
     createXiaoniDeepDive,
     updateXiaoniDeepDive,
-    incrementXiaoniDeepDiveRound,
+    incrementXiaoniDeepDiveRequests,
     listXiaoniDeepDives
   };
 }
@@ -404,5 +488,5 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
 module.exports = {
   createXiaoniDeepDivePersistence,
   XIAONI_DEEP_DIVE_PHASES: PHASES,
-  XIAONI_DEEP_DIVE_DEFAULT_MAX_ROUNDS: DEFAULT_MAX_ROUNDS
+  XIAONI_DEEP_DIVE_DEFAULT_MAX_REQUESTS: DEFAULT_MAX_REQUESTS
 };

@@ -1771,8 +1771,13 @@ export type XiaoniDeepDiveRecord = {
   revision: number;
   question: string;
   phase: XiaoniDeepDivePhase;
-  roundsStarted: number;
-  maxRounds: number;
+  requestsSpent: number;
+  maxRequests: number;
+  sherlockConsults: number;
+  /** 她自己整理的排查路径(福尔摩斯的输入之一) */
+  searchedPaths: string | null;
+  /** 上一次福尔摩斯给的方向 —— 第二次求助必须看得见它 */
+  lastSherlockDirection: string | null;
   blockedReason: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -1825,7 +1830,7 @@ export function getXiaoniDeepDiveById(
   config?: DatabaseUrlConfig
 ): Promise<XiaoniDeepDiveRecord | null>;
 export function createXiaoniDeepDive(
-  input: { question: string; maxRounds?: number; max_rounds?: number; id?: string; identityKey?: string },
+  input: { question: string; maxRequests?: number; max_requests?: number; id?: string; identityKey?: string },
   config?: DatabaseUrlConfig
 ): Promise<XiaoniDeepDiveRecord>;
 /** compare-and-set。revision 不匹配返回 { ok:false, reason:'revision_mismatch', dive:<当前值> },不抛。 */
@@ -1835,13 +1840,24 @@ export function updateXiaoniDeepDive(
     revision: number;
     phase: XiaoniDeepDivePhase;
     question?: string;
-    maxRounds?: number;
+    maxRequests?: number;
+    searchedPaths?: string;
     blockedReason?: string | null;
   },
   config?: DatabaseUrlConfig
 ): Promise<{ ok: boolean; reason?: string; dive: XiaoniDeepDiveRecord | null }>;
-/** 引擎侧轮次推进,**故意不动 revision**。非 active 或 id 不存在时返回 null。 */
-export function incrementXiaoniDeepDiveRound(
+/** 引擎侧请求计数推进,**故意不动 revision**。非 active 或 id 不存在时返回 null。 */
+/** 按「主 agent 每发一次 LLM 请求」计数。不先读库,直接按 active 更新;返回更新到的行数(0 或 1)。 */
+export function incrementActiveXiaoniDeepDiveRequests(
+  input?: { identityKey?: string },
+  config?: DatabaseUrlConfig
+): Promise<number>;
+/** 记一次「请过福尔摩斯」。同样**不动 revision**。非 active 或 id 不存在时返回 null。 */
+export function recordXiaoniDeepDiveSherlockConsult(
+  input: { diveId: string; direction?: string | null },
+  config?: DatabaseUrlConfig
+): Promise<XiaoniDeepDiveRecord | null>;
+export function incrementXiaoniDeepDiveRequests(
   input: { diveId: string },
   config?: DatabaseUrlConfig
 ): Promise<XiaoniDeepDiveRecord | null>;
