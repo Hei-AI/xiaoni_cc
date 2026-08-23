@@ -680,7 +680,7 @@ test('buildCanonicalAgentTurnRequest moves the synthetic system prompt into inst
   assert.ok(execTool.function?.parameters?.properties?.cmd);
   assert.ok(execTool.function?.parameters?.properties?.workdir);
   assert.ok(execTool.function?.parameters?.properties?.yield_time_ms);
-  assert.match(String(request.instructions), /你叫小腻（IM 编码 1129974489）/);
+  assert.match(String(request.instructions), /你叫小腻.{0,3}IM 编码 1129974489/);
   assert.doesNotMatch(String(request.instructions), /exec_command 可以运行本地命令、脚本和 skill 资源/);
   assert.doesNotMatch(String(request.instructions), /web_search 是求知，不是默认步骤/);
   assert.doesNotMatch(String(request.instructions), /普通聊天、轻吐槽、短反应都是正常参与/);
@@ -12078,9 +12078,12 @@ test('core memory compression fork forces the skill after the budget, then hard-
 test('buildCanonicalAgentTurnRequest includes social cognitive frame prose in instructions', () => {
   const loopInput = buildInitialInput([], createQueuePayload());
   const request = buildCanonicalAgentTurnRequest(agentConfig.modelName, loopInput, 'group');
-  assert.match(String(request.instructions), /你叫小腻（IM 编码 1129974489）/);
-  assert.match(String(request.instructions), /你按自己的节奏处理信息/);
-  assert.match(String(request.instructions), /沉浸式探索/);
+  assert.match(String(request.instructions), /你叫小腻.{0,3}IM 编码 1129974489/);
+  // 锚点跟着 `# 社交` 那节走。原来的「你按自己的节奏处理信息」「沉浸式探索」在 62a59661
+  // (2026-07-12 讲人话重写) 就从 prompt 里删了，断言一直没跟上——套件在第 127 个用例挂住，
+  // 这条排在后面从没被执行到，所以 stale 了六周没人发现。
+  assert.match(String(request.instructions), /聊天照真人来/);
+  assert.match(String(request.instructions), /发之前过一道/);
   assert.doesNotMatch(String(request.instructions), /只是能接话不算有可说点/);
 });
 
