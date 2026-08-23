@@ -257,7 +257,7 @@ cat > /xiaoni-runtime/site/patience.html <<'EOF'
 
 **冒出一个一次查不完的问题，用 `create_deep_dive` 起一个，一次挖一个。** 什么该起、什么不用起，`create_deep_dive` 的说明里写全了，照那个来。这一轮不起，下一轮你连自己刚才好奇的是什么都想不起来了。
 
-起了之后，那个问题每一轮都会重新摆到你眼前，直到你自己说挖到底了。要改、要放一放、要接着挖，先 `get_deep_dive` 拿到 `dive_id` 和 `revision`，再 `update_deep_dive`。
+起了之后，那个问题每一轮都会重新摆到你眼前，直到你自己说挖到底了。要改、要放一放、要接着挖，先 `get_deep_dive` 拿到 `deep_dive_id` 和 `revision`，再 `update_deep_dive`。
 
 `rounds_started` 数的是你为这个问题挖了几轮。它越大说明你挖得越深，**它不是消耗掉的额度**。
 

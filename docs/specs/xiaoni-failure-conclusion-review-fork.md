@@ -14,7 +14,7 @@
 它在结构上是自驱动 fork 的孪生兄弟——同一份 seed、同一条出口——**只有触发点、尾部 prompt
 和输出契约不同**。因此实现的主体是复用，不是新建。
 
-**前置依赖**：goal 工具必须先落地，见 `docs/specs/xiaoni-deep-dive-tools.md`。
+**前置依赖**：深挖 工具必须先落地，见 `docs/specs/xiaoni-deep-dive-tools.md`。
 
 ---
 
@@ -23,7 +23,7 @@
 | # | 决策 | 选择 |
 |---|---|---|
 | D1 | 触发点 | 主 agent 调 `update_deep_dive(action='blocked')` 成功之后（见 `docs/specs/xiaoni-deep-dive-tools.md` §5） |
-| D2 | 与自驱动 fork 的关系 | 自然互斥——goal 活着期间本来就不跑潜意识（ADR-0010 决定五） |
+| D2 | 与自驱动 fork 的关系 | 自然互斥——深挖 活着期间本来就不跑潜意识（ADR-0010 决定五） |
 | D3 | 上下文 | **克隆** `lastMainAgentForkSeed.canonicalRequest`（settle 那一刻的完整请求），尾部追加第三方引导 |
 | D4 | 输出 | **只许证据，不许指令**。每条须含 文件路径 + 原文 + 定位方式 |
 | D5 | 出口 | Notify Bucket（settle 后没有开着的 tool call，`function_call_output` 不可用） |
@@ -52,10 +52,10 @@
 **她自己声明，引擎不猜。** `update_deep_dive(action='blocked', blocked_reason=...)` 执行成功之后，
 在同一次工具执行的收尾同步起复核 fork。
 
-复核 fork 拿到的问题是**现成的结构化字段**：`objective`（她当初想做成什么）+
+复核 fork 拿到的问题是**现成的结构化字段**：`question`（她当初想做成什么）+
 `blocked_reason`（她说卡在哪）。不需要从她的出站文本里推断。
 
-**速率上限**（不是开关，是正确性边界）：同一 goal 的 `blocked` **只触发一次**复核；
+**速率上限**（不是开关，是正确性边界）：同一 深挖的 `blocked` **只触发一次**复核；
 她 `resume` 之后再次 `blocked` 才会有第二次。防止反复宣布同一个 blocked 把她自己叫醒。
 
 > **本节在 2026-08-22 当天重写过。** 初版是「引擎检测她说出失败结论」，
@@ -64,9 +64,9 @@
 
 ### 2) 与潜意识 fork 的关系（D2）
 
-**不需要显式互斥判断。** goal 处于 `active` 时，`maybeRunSubconsciousAgentFork` 已经改走
-goal-round 分支（`docs/specs/xiaoni-deep-dive-tools.md` §3），本来就不跑潜意识。
-`blocked` 之后 goal 离开 `active`，续跑自然退回潜意识 fork——这正确：
+**不需要显式互斥判断。** 深挖 处于 `active` 时，`maybeRunSubconsciousAgentFork` 已经改走
+deep-dive-round 分支（`docs/specs/xiaoni-deep-dive-tools.md` §3），本来就不跑潜意识。
+`blocked` 之后 深挖 离开 `active`，续跑自然退回潜意识 fork——这正确：
 那时她需要的是「接下来干嘛」，而复核结论会作为一条独立 notify 到达。
 
 fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那一刻的完整请求），
@@ -155,7 +155,7 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 ## Acceptance Criteria
 
-1. `update_deep_dive(action='blocked')` 成功 → 同步起一次复核 fork；同一 goal 的重复 `blocked` 不重复触发
+1. `update_deep_dive(action='blocked')` 成功 → 同步起一次复核 fork；同一 深挖的重复 `blocked` 不重复触发
 2. 没有 `blocked` 调用时 → 行为与今天逐字节一致（自驱动 fork 照旧）
 3. 复核 fork 只执行 `exec_command`；请求其它工具时返回纠正输出且**不执行**
 4. 输出 `NO_FINDING` → 不入队；否则入队一条 `reason='failure_review'` 的 notify
@@ -171,7 +171,7 @@ fork 请求的 base 仍是 `lastMainAgentForkSeed.canonicalRequest`（settle 那
 
 | 层 | 内容 | 数量 |
 |---|---|---|
-| Unit | `blocked` → 触发一次且仅一次、`NO_FINDING` 分支、`reason` 透传、`objective`/`blocked_reason` 入参 | +5 |
+| Unit | `blocked` → 触发一次且仅一次、`NO_FINDING` 分支、`reason` 透传、`question`/`blocked_reason` 入参 | +5 |
 | Unit(cache) | fork 前缀逐字节对齐；同一 fork 多 turn reminder 字节不变 | +2 |
 | Integration | `blocked` → 起复核；无 `blocked` → 行为不变；复核 notify → 空转豁免 | +3 |
 | Real-DB | notify 进栈后 run 边界 `cache_read` 实测无穿透 | +1 |

@@ -74,7 +74,7 @@ update_deep_dive(deep_dive_id, revision, action, question?, max_rounds?, blocked
 | `revision` | 每次 mutation +1，compare-and-set 用 |
 | `question` | 她写的原文 |
 | `phase` | `active` / `paused` / `concluded` / `blocked` |
-| `requests_spent` | 已接纳的 深挖 round 数 |
+| `rounds_started` | 已接纳的 深挖 round 数 |
 | `max_rounds` | 上限，默认 20 |
 | `blocked_reason` | 仅 `blocked` 时非空 |
 | `created_at` / `updated_at` | |
@@ -90,7 +90,7 @@ mutation 历史写既有 timeline event（`deep_dive_created` / `deep_dive_updat
 改 `maybeRunSubconsciousAgentFork`：
 
 ```
-if (存在 phase='active' 的 深挖 && requestsSpent < maxRounds)
+if (存在 phase='active' 的深挖)   // 2026-08-23 起不再看 maxRounds,见下
     → enqueueDeepDiveRoundNotify(dive)      // 不跑任何 fork
 else
     → 既有的 runSubconsciousAgentFork(seed)
@@ -115,10 +115,19 @@ else
 
 ### 4) round 计数（D4）
 
-`requests_spent` 只在**主 agent claim 到一条 `reason='deep_dive_round'` 的 notify** 时 +1。
+`rounds_started` 只在**主 agent claim 到一条 `reason='deep_dive_round'` 的 notify** 时 +1。
 不看她这一轮调了什么工具、有没有产出。provider 报错、token 超限**都不影响**它。
 
-达到 `max_rounds` 后不再发 deep-dive-round notify，深挖保持 `active`
+**2026-08-23 修订**：达到 `max_rounds` 后**照常**发 deep-dive-round notify。原先是「不再发、
+深挖保持 `active`」——那是个死锁：不再驱动但那一行仍在 `active`，而唯一索引是
+`WHERE phase='active'`，于是 `create_deep_dive` 从此恒返回 `already_active`，一个她放着不管的
+深挖会把整个机制永久锁死。修法不是「跑满就自动 pause」（引擎替她放弃，与引擎替她下结论同类），
+而是取消停止驱动：没收口就一直提醒她。收敛改由升级阶梯承担（她 → 福尔摩斯 → 阿花）。
+
+`max_rounds` 因此当前**没有消费者**，保留在存储与工具参数里留给那条阶梯当阈值。
+曾经试过让它改管「空转账本庇护的边界」，已撤回：深挖活着期间升级腿到不了、作废腿恒冻结，
+记账没有任何消费者，唯一效果是把计数撑高等深挖结束后被读到——正是庇护本身要防的事，
+而且那等于合并了 D4 说的两个量。
 （她仍可 `conclude` / `blocked` / `edit` 抬高上限），续跑退回潜意识 fork。
 
 **与空转计数的关系**：两者并存，互不换算。深挖 期间不跑潜意识 fork ⇒
@@ -130,7 +139,7 @@ else
 （`docs/specs/xiaoni-failure-conclusion-review-fork.md`），传入 `question` 与 `blocked_reason`
 作为它要复核的问题。
 
-**不拒绝任何 `blocked` 调用**，不管 `requests_spent` 是多少。
+**不拒绝任何 `blocked` 调用**，不管 `rounds_started` 是多少。
 
 ### 6) 系统 prompt
 
@@ -164,7 +173,7 @@ else
 3. 同一时刻最多一个 `active` 深挖；`revision` 不匹配的 `update_deep_dive` 被拒绝并回当前值
 4. 深挖 `active` 且未达上限时，settle **不跑潜意识 fork**，改入队一条 `reason='deep_dive_round'`
 5. 相邻两轮 `<deep_dive_round>` 块**除 `round="N"` 外逐字节相同**
-6. `requests_spent` 只在 deep-dive-round notify 被 claim 时 +1；她这一轮零工具也照样 +1
+6. `rounds_started` 只在 deep-dive-round notify 被 claim 时 +1；她这一轮零工具也照样 +1
 7. `blocked` 调用一律成功，且同步触发一次复核 fork
 8. 深挖进入 `concluded` / `blocked` / `paused` 后，续跑退回潜意识 fork
 9. **缓存**：深挖 状态只经工具结果进上下文，**不存在常驻 深挖 prompt 块**
@@ -178,7 +187,7 @@ else
 |---|---|---|
 | Unit | 三个工具的 schema 与参数校验；compare-and-set；fork 授权拒绝；action 与字段的配对 | +7 |
 | Unit(cache) | 相邻两轮 deep-dive-round 块字节差异只有轮次；工具列表两处同步 | +2 |
-| Integration | 深挖 active → 不跑潜意识；上限后退回；`blocked` → 触发复核；`conclude` → 退回 | +4 |
+| Integration | 深挖 active → 不跑潜意识（**跑满上限也不退回**）；`blocked` → 触发复核；`conclude` → 退回 | +4 |
 | Real-DB | deep-dive-round notify 的 run 边界 `cache_read` 实测无穿透 | +1 |
 
 ## 上线顺序（缓存要求，不可换序）
@@ -214,4 +223,4 @@ else
 - **两段正文初稿已写**（`deep_dive_round_reminder.md` 文件、system prompt 段见 §6），等 user 改
 - `max_rounds` 的默认值（暂定 20，**纯拍的，无依据**）
 - 上线后要盯的两个数（ADR-0010 §四）：**深挖 创建率**与 **`blocked` 调用时的
-  `requests_spent` 分布**——后者若集中在 1，说明她拿 `blocked` 当逃生舱
+  `rounds_started` 分布**——后者若集中在 1，说明她拿 `blocked` 当逃生舱

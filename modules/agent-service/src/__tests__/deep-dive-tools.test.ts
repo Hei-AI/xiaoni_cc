@@ -4,7 +4,6 @@ import assert from 'node:assert';
 import {
   planDeepDiveUpdate,
   shouldDriveDeepDiveRound,
-  deepDiveRoundShieldsIdleLedger,
   renderDeepDiveRoundNotify,
   isDeepDiveRoundPayload,
   readDiveIdFromPayload,
@@ -281,31 +280,4 @@ test('点火判据:有 active 深挖就驱动,跑满 max_rounds 之后照样驱�
 
 test('点火判据:没有 active 深挖就不驱动,让位给潜意识 fork', () => {
   assert.equal(shouldDriveDeepDiveRound(null), false);
-});
-
-// ── 闸的新职责:停止庇护,而不是停止驱动 ────────────────────────────────────────
-// 空转账本对 deep-dive-round 驱动的 run 隐形,其正当性写在 agent-loop-service 的注释里:
-// 「深挖这一侧本来就有自己的闸(max_rounds),不需要空转账本再管一遍」。
-// 上面那条改动把闸从点火判据里拆掉了 —— 如果隐形不跟着收口,她放着不管的深挖会让她的 run
-// 对空转治理**永久隐形**,升级腿和作废腿都瞎掉。
-// 所以闸改成管这个:跑满之前庇护,跑满之后照样驱动、但不再庇护。
-
-test('庇护判据:跑满之前隐形,跑满之后照常记账', () => {
-  const at = (round: number, max: number) => ({
-    systemReminder: { reason: 'deep_dive_round' },
-    rawPayload: { reason: 'deep_dive_round', deep_dive_round: round, deep_dive_max_rounds: max }
-  }) as any;
-  assert.equal(deepDiveRoundShieldsIdleLedger(at(1, 8)), true);
-  assert.equal(deepDiveRoundShieldsIdleLedger(at(8, 8)), true, '恰好跑满仍在庇护内');
-  assert.equal(deepDiveRoundShieldsIdleLedger(at(9, 8)), false, '超过上限就不再庇护');
-  assert.equal(deepDiveRoundShieldsIdleLedger(at(999, 8)), false);
-});
-
-test('庇护判据:不是 deep-dive-round 的 payload 一律不庇护', () => {
-  assert.equal(
-    deepDiveRoundShieldsIdleLedger({
-      systemReminder: { reason: 'external' }, rawPayload: { reason: 'external' }
-    } as any),
-    false
-  );
 });

@@ -86,6 +86,22 @@ function dbTest(name, fn) {
       t.skip('real cache test DB (qqbot_cache_test) unavailable');
       return;
     }
+    // 清理放在**开头**,不放末尾:迁移类用例会造出 xiaoni_goals 之类的中间态,一旦某条抛了,
+    // 写在末尾的清理不会执行,残留表会毒化后面每一条。本轮实测撞到过(13/3)。
+    await sql.execute('DROP TABLE IF EXISTS xiaoni_goals', []);
+    await sql.execute(`
+      CREATE TABLE IF NOT EXISTS xiaoni_deep_dives (
+        id VARCHAR(64) PRIMARY KEY,
+        identity_key VARCHAR(64) NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1,
+        question TEXT NOT NULL,
+        phase VARCHAR(16) NOT NULL,
+        rounds_started INTEGER NOT NULL DEFAULT 0,
+        max_rounds INTEGER NOT NULL DEFAULT 20,
+        blocked_reason TEXT NULL,
+        created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`, []);
     await sql.execute('TRUNCATE xiaoni_deep_dives', []);
     await fn();
   });
@@ -422,4 +438,41 @@ dbTest('半迁移库:表已改名但主键仍是旧名,ensure 必须把它补上
   assert.ok(!after.includes('xiaoni_goals_pkey'), '旧主键名必须已经不存在');
   const rows = await sql.query('SELECT * FROM xiaoni_deep_dives WHERE id = ?', ['half_1']);
   assert.equal(rows.length, 1, '补主键不该动到数据');
+});
+
+// ── 主键 guard 必须限定到本表 ────────────────────────────────────────────────────
+// 第一版写的是 `to_regclass('public.xiaoni_goals_pkey') IS NOT NULL` —— 按**名字**全局匹配。
+// 出事的顺序不是「两表并存」那么简单,而是:本表主键**已经**改过名(于是 xiaoni_goals_pkey
+// 这个名字空了出来)→ 之后库里又出现一张 xiaoni_goals(它的主键自动占用那个空出来的名字)
+// → 再跑一次 ensure,全局匹配就会抓到**那张表**的主键,把它改成 xiaoni_deep_dives_pkey,
+// 撞上已经存在的同名索引 → 整个 ensure 在启动时抛,服务起不来。
+dbTest('主键改名只认本表:同名老表出现后再跑 ensure 不许抛', async () => {
+  await sql.execute('DROP TABLE IF EXISTS xiaoni_deep_dives', []);
+  await sql.execute('DROP TABLE IF EXISTS xiaoni_goals', []);
+  await sql.execute(`
+    CREATE TABLE xiaoni_goals (
+      id VARCHAR(64) PRIMARY KEY, identity_key VARCHAR(64) NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1, question TEXT NOT NULL,
+      phase VARCHAR(16) NOT NULL, rounds_started INTEGER NOT NULL DEFAULT 0,
+      max_rounds INTEGER NOT NULL DEFAULT 20, blocked_reason TEXT NULL,
+      created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`, []);
+  await sql.execute('ALTER TABLE xiaoni_goals RENAME TO xiaoni_deep_dives', []);
+
+  await ensureXiaoniDeepDiveSchema(CFG);          // ① 本表主键改名,腾出 xiaoni_goals_pkey 这个名字
+
+  // ② 别处又冒出一张 xiaoni_goals,它的主键自动占用刚腾出来的那个名字
+  await sql.execute('CREATE TABLE xiaoni_goals (id VARCHAR(64) PRIMARY KEY)', []);
+  const squatter = await sql.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'xiaoni_goals'", []);
+  assert.deepEqual(squatter.map((r) => r.indexname), ['xiaoni_goals_pkey'],
+    '前提没造对:那张老表的主键必须正好占用了旧名字');
+
+  await ensureXiaoniDeepDiveSchema(CFG);          // ③ 全局匹配的写法在这里会抛
+
+  const other = await sql.query(
+    "SELECT indexname FROM pg_indexes WHERE tablename = 'xiaoni_goals'", []);
+  assert.deepEqual(other.map((r) => r.indexname), ['xiaoni_goals_pkey'],
+    '那张老表的主键必须原封不动');
 });

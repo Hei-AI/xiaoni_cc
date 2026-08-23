@@ -93,7 +93,6 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
             ALTER TABLE xiaoni_goals RENAME TO xiaoni_deep_dives;
             ALTER TABLE xiaoni_deep_dives RENAME COLUMN objective TO question;
             ALTER TABLE xiaoni_deep_dives RENAME COLUMN max_goal_rounds TO max_rounds;
-            UPDATE xiaoni_deep_dives SET phase = 'concluded' WHERE phase = 'completed';
             IF to_regclass('public.uniq_xiaoni_goals_one_active') IS NOT NULL THEN
               ALTER INDEX uniq_xiaoni_goals_one_active RENAME TO uniq_xiaoni_deep_dives_one_active;
             END IF;
@@ -105,7 +104,18 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
         END $$;
       `);
 
-      // ② 主键约束改名。**必须自己一个 guard,不能嵌在①里面。**
+      // ② phase 取值重映射。**独立成段,理由同③**:一个已经改过表名、但 phase 还没换的库
+      // (比如①跑到一半失败、或有人手工改过表名)永远走不到①里面。UPDATE 本身幂等。
+      await sql.execute(`
+        DO $$
+        BEGIN
+          IF to_regclass('public.xiaoni_deep_dives') IS NOT NULL THEN
+            UPDATE xiaoni_deep_dives SET phase = 'concluded' WHERE phase = 'completed';
+          END IF;
+        END $$;
+      `);
+
+      // ③ 主键约束改名。**必须自己一个 guard,不能嵌在①里面。**
       //
       // ① 的条件是「老表在 且 新表不在」—— 一个已经迁过表、但主键还没改的库(生产 2026-08-23
       // 就是这个状态:①跑过了,而当时①里还没有这一段)永远走不到①里面。第一版把它塞进①,
@@ -118,14 +128,24 @@ function createXiaoniDeepDivePersistence({ getPrismaClient, createSqlAdapter }) 
       await sql.execute(`
         DO $$
         BEGIN
-          IF to_regclass('public.xiaoni_deep_dives') IS NOT NULL
-             AND to_regclass('public.xiaoni_goals_pkey') IS NOT NULL THEN
+          IF to_regclass('public.xiaoni_deep_dives') IS NULL THEN
+            RETURN;
+          END IF;
+          -- 必须限定到**本表的**主键。按名字全局匹配的话,一旦两张表并存(比如有人重建过
+          -- xiaoni_goals),这里会去改老表的主键、撞上已存在的新名,整个 ensure 在启动时抛。
+          IF EXISTS (
+            SELECT 1 FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indexrelid
+            WHERE i.indrelid = 'public.xiaoni_deep_dives'::regclass
+              AND i.indisprimary
+              AND c.relname = 'xiaoni_goals_pkey'
+          ) THEN
             ALTER INDEX xiaoni_goals_pkey RENAME TO xiaoni_deep_dives_pkey;
           END IF;
         END $$;
       `);
 
-      // ③ 全新库走这条。
+      // ④ 全新库走这条。
       await sql.execute(`
         CREATE TABLE IF NOT EXISTS xiaoni_deep_dives (
           id VARCHAR(64) PRIMARY KEY,

@@ -1950,7 +1950,7 @@ const CREATE_DEEP_DIVE_TOOL = {
           type: 'integer',
           minimum: 1,
           maximum: 200,
-          description: '可选。最多为它跑多少轮,不填按默认。这是安全阀,不是让你省着用的预算——挖得越深轮数越多是正常的。跑满之后它还在,只是不再自动把你叫回来。'
+          description: '可选。最多为它跑多少轮,不填按默认。这是安全阀,不是让你省着用的预算——挖得越深轮数越多是正常的。跑满之后它照样每轮摆到你眼前,直到你自己收口。'
         }
       },
       required: ['question'],
@@ -9257,12 +9257,14 @@ export class AgentLoopService {
         // 深挖轮次数的是「为这个问题挖了几轮」,空转数的是「跑了却没产出」—— 两个量。
         // 不隐形的话,深挖期间的零工具 run 会把空转计数累高;深挖一结束,第一条 plan
         // 就带着虚高的轮数进升级腿,升级凭据来自一段根本没跑 plan 的时间。
-        // 庇护有边界:max_rounds 之内隐形,之外照常记账(见 deepDiveRoundShieldsIdleLedger)。
+        // **不设边界**:曾经试过「跑满 max_rounds 之后恢复记账」,那是错的 ——
+        // 深挖活着期间升级腿(:7152,在 maybeRunSubconsciousAgentFork 里)根本到不了,
+        // 作废腿又按 triggerIsSubconsciousPlan 恒冻结,所以记账没有任何消费者,
+        // 唯一效果就是把计数撑高、等深挖结束后被第一条 plan 读到 —— 正是上面这段要防的事。
+        // 而且那等于把 D4 说的两个量合并了。
         // 与报时同理:整个 run 都由 deep-dive-round 驱动时才隐形,夹带真实外部消息的折叠 run 照常记账。
-        // 庇护的边界见 deepDiveRoundShieldsIdleLedger:跑满 max_rounds 之后照样驱动,
-        // 但不再隐形 —— 否则一个她放着不管的深挖会让空转治理永久瞎掉。
-        const runDrivenOnlyByDeepDiveRound = deepDiveRoundShieldsIdleLedger(payload)
-          && continuationQueueMessages.every((claimed) => deepDiveRoundShieldsIdleLedger(claimed.payload));
+        const runDrivenOnlyByDeepDiveRound = isDeepDiveRoundPayload(payload)
+          && continuationQueueMessages.every((claimed) => isDeepDiveRoundPayload(claimed.payload));
         if (!runDrivenOnlyByClockPing && !runDrivenOnlyByFailureReview && !runDrivenOnlyByDeepDiveRound) {
           recordIdlePlanSettle(getGlobalPromptContextSessionKey(), {
             settledOnFinalAnswer: actionPlan.hasFinalAnswer,
@@ -12403,7 +12405,10 @@ export class AgentLoopService {
             deep_dive_id: dive.id,
             deep_dive_revision: dive.revision,
             fork_run_id: forkRunId,
-            question: dive.question,
+            // 键名必须与起始事件(:12357)和读端(agent-runtime-routes)逐字一致。
+            // 这里曾经写成 `question`,而读端读 deep_dive_question —— 于是**恰恰是带
+            // findings_text 的那些行**的 question 恒空。同一个错本轮第三次。
+            deep_dive_question: dive.question,
             blocked_reason: dive.blockedReason,
             tool_calls_used: outcome?.toolCallsUsed ?? 0,
             turns: outcome?.turns ?? 0,
@@ -16065,28 +16070,6 @@ export function isFailureReviewPayload(queueMessage: QueueMessageRecord['payload
     return false;
   }
   return (queueMessage.systemReminder?.reason || queueMessage.rawPayload?.reason) === 'failure_review';
-}
-
-// 这一条 deep-dive-round 还在不在空转账本的庇护范围内。
-//
-// 庇护本身的理由见记账处的注释(D4:深挖轮次与空转失效是两个量,不合并)。而庇护的**边界**
-// 曾经由「跑满就不再驱动」隐含地给出 —— 那条判据被拆掉之后(见 shouldDriveDeepDiveRound),
-// 如果庇护不跟着收口,她放着不管的深挖会让她的 run 对空转治理永久隐形,升级腿和作废腿一起瞎。
-//
-// 所以 max_rounds 换了个职责:**不再决定停不停止驱动,改为决定停不停止庇护**。跑满之后她
-// 照样每次收工都被提醒(没收口就一直提醒),但那些 run 重新对空转账本可见 —— 真在空转就该
-// 被看见。轮次与上限直接从 payload 上读,不回库。
-export function deepDiveRoundShieldsIdleLedger(queueMessage: QueueMessageRecord['payload']): boolean {
-  if (!isDeepDiveRoundPayload(queueMessage)) {
-    return false;
-  }
-  const round = Number(queueMessage.rawPayload?.deep_dive_round);
-  const max = Number(queueMessage.rawPayload?.deep_dive_max_rounds);
-  // 读不出来时保持庇护 —— 与改动前一致,不因为一个缺字段就把她推进升级腿。
-  if (!Number.isFinite(round) || !Number.isFinite(max)) {
-    return true;
-  }
-  return round <= max;
 }
 
 export function readDiveIdFromPayload(queueMessage: QueueMessageRecord['payload']): string | null {
